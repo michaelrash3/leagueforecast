@@ -153,6 +153,10 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
       () => current?.email ?? null
     ),
     store: sky.store,
+    live: {
+      readMeta: async () => ({ readAs: current?.uid ?? null }),
+      getChunk: async (id) => new TextEncoder().encode(id),
+    },
   };
 };
 
@@ -348,6 +352,71 @@ describe("the list of who may use the copy", () => {
     expect(await session.cloudMembers()).toBeNull();
     await expect(session.addCloudMember("coach@example.test")).rejects.toThrow(/Sign in/);
     await expect(session.removeCloudMember("coach@example.test")).rejects.toThrow(/Sign in/);
+  });
+});
+
+describe("the published boards, as this browser reads them", () => {
+  it("are not read by a browser that keeps no copy, and Firebase is not opened to find that out", async () => {
+    runAs(device({}));
+    const opened = vi.fn(async () => firebaseFor(ME));
+    session.setCloudTestHooks({ openCloud: opened });
+    expect(await session.liveReader()).toBeNull();
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it("are read as the account this browser keeps a copy for, and by nobody else", async () => {
+    const laptop = await laptopFirst();
+    const reader = await session.liveReader();
+    expect(await reader?.readMeta()).toEqual({ readAs: ME.uid });
+    expect(await reader?.getChunk("abc-0")).toEqual(new TextEncoder().encode("abc-0"));
+    // Another account signed in to Firebase on this browser, whose record is still ME's.
+    runAs(laptop, { uid: "someone-else", email: "someone@example.test" });
+    expect(await session.liveReader()).toBeNull();
+    // Nobody signed in at all.
+    runAs(laptop, null);
+    expect(await session.liveReader()).toBeNull();
+    // Signed out: the record says this browser keeps no copy now.
+    runAs(laptop);
+    expect(await session.liveReader()).not.toBeNull();
+    await session.signOutOfCloud();
+    expect(await session.liveReader()).toBeNull();
+  });
+});
+
+describe("the copy as this device last found it", () => {
+  const seenOf = (manifest: CloudManifest | null) =>
+    manifest && {
+      copy: manifest.copy,
+      version: manifest.version,
+      parts: manifest.parts.map((part) => [part.key, part.hash]),
+    };
+
+  it("is the manifest this device's own save committed, and the next one it read", async () => {
+    const { laptop, phone } = await inStep();
+    expect(session.copySeen()).toEqual(seenOf(sky.manifest()));
+    runAs(laptop);
+    expect(session.copySeen()).toBeNull();
+    await session.bootCloud();
+    expect(session.copySeen()).toEqual(seenOf(sky.manifest()));
+    edit(laptop, "league", league(season("fall", { g1: log(3, 2) })));
+    await session.saveNow();
+    const saved = sky.manifest();
+    expect(saved?.version).toBe(2);
+    expect(session.copySeen()).toEqual(seenOf(saved));
+    // The phone, opened again, reads the laptop's save on its way in.
+    await open(phone);
+    expect(session.copySeen()).toEqual(seenOf(saved));
+  });
+
+  it("is forgotten on signing out and when the session starts again", async () => {
+    await laptopFirst();
+    expect(session.copySeen()).not.toBeNull();
+    await session.signOutOfCloud();
+    expect(session.copySeen()).toBeNull();
+    await session.signInToCloud();
+    expect(session.copySeen()).toEqual(seenOf(sky.manifest()));
+    session.resetCloudSession();
+    expect(session.copySeen()).toBeNull();
   });
 });
 

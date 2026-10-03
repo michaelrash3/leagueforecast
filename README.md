@@ -3400,8 +3400,8 @@ for members' devices to read rather than build. The nightly refresh publishes
 every board each night, once it has saved the copy (`src/lib/live/publishCopy.ts`
 on `viewStore.ts`; see "The nightly refresh on GitHub"), and once their setup is
 done ("Rebuilds after saves: the one-time setup"), a rebuild publishes them again
-a few minutes after any save that moved what a board reads. No device reads them
-yet.
+a few minutes after any save that moved what a board reads. How a member's
+device reads them is "The live board on a member's device", below.
 
 - **`live/meta`** is one small document naming every view by its key
   (`board:{year}:{page}:{half}`, with `none` for a page with no year): the
@@ -3678,6 +3678,59 @@ trigger Firestore's own events, which it skips as it should with nothing read, a
 pings the built worker. It also queues a save's rebuild through firebase-admin to
 a stand-in for Cloud Tasks, which shows the task's name and deadline, and a second
 save in the window finding it queued.
+
+### The live board on a member's device
+
+A member's device reads the published boards through the sign-in it already
+holds for the copy (`liveReader` in `cloudSession.ts`): only in a browser that
+keeps a cloud copy, asked before Firebase is loaded, so one that never signed in
+never loads it to find out, and only as the account that browser's record is
+for. The meta is read with a 10 s limit and each piece with 30 s, as the copy's
+reads are. No page draws from it yet. Nothing it reads is trusted
+(`liveClient.ts`):
+
+- **The meta** must be one this build reads, of this build's schema, with pages'
+  counts it can read. Anything else says why: nothing published yet, an older
+  build's (until the next publish), a newer build's (update the app), or
+  unreadable.
+- **A board's pieces,** joined, must unzip to the very bytes the meta's
+  fingerprint names, and those bytes must be rows a board can draw, every field
+  of every row (`coerceBoardView`). Anything else is damaged, never drawn and
+  never kept.
+- **A piece that is not there** (a publish retired its upload and a sweep took it
+  while the device held the older meta) costs one read of the meta, and the board
+  is fetched again from the upload it names now; never more than one.
+- **A refusal by the rules** clears every view the device kept, since this account
+  may no longer see them; any other failed read is taken for being offline.
+
+A board fetched is kept on the device by its fingerprint (`viewCache.ts`), so the
+next open reads it without a piece read, and every read of a kept board checks it
+again; one the disk damaged is deleted and fetched again. The views carry no
+account, since the same fingerprint is the same board whoever reads it, but the
+last meta read and the last board shown are kept for one account, and another
+account's are cleared rather than read. The views sit in the pool's IndexedDB
+store, under keys the pool never reads and the cloud copy never carries, so a
+reset of the app takes them; at most 100 MB are kept, the least recently read
+going first, and a browser whose pool is in localStorage keeps none.
+
+Whether a board on screen is the copy's (`boardStanding`) is decided against the
+copy as this device last read or saved it (`copySeen`), never against the
+device's own pool, which may not be taken in yet: current when the board was built
+from the very board inputs the copy held (`boardInputsPrintOf`), behind when the
+copy has moved on or no one build vouches for the boards, owed when this device
+has unsaved changes to a board input, and unknown before it has read the copy.
+A change to anything a board does not read counts for nothing.
+
+`liveClient.test.ts` reads boards published to an in-memory store: whole and
+strictly equal to what was published, free from memory or the device's cache, one
+meta read for a piece that is gone, another board's pieces under a board's upload
+and a changed byte both damaged, and a refusal clearing the cache while a failure
+does not. `viewCache.test.ts` holds the cache's checks and limits,
+`cloudSession.test.ts` who gets a reader and what the device last saw of the copy,
+and `firestoreRules.test.ts` the app's own reader on the emulator, reading a board
+whole as the owner and as a member signed in under a mixed-case address and
+refused to a stranger and an unverified address. Each guard was broken in turn and
+seen to fail a test, 27 of 27.
 
 ### Rebuilds after saves: the one-time setup
 

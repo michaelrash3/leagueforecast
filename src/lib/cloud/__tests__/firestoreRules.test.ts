@@ -16,10 +16,17 @@ import {
 import { CHUNK_BYTES } from "../cloudPack";
 import { commitChanges, fetchValues } from "../cloudEngine";
 import { chunkId, DATA_SCHEMA, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
-import { firestoreMembers, firestoreStore, ownsCopy, UnreadableCopyError } from "../firebaseCloud";
+import {
+  firestoreLive,
+  firestoreMembers,
+  firestoreStore,
+  ownsCopy,
+  UnreadableCopyError,
+} from "../firebaseCloud";
 import { coercePullJob, jobPath, jobPiecePath, newPullJob, packJobList } from "../pullJobs";
 import { createMemberCheck } from "../../memberCheck";
 import { coerceLiveMeta, publishViews } from "../../live/viewStore";
+import { forgetDecodedBoards, readBoard, readLive } from "../../live/liveClient";
 import { firestoreRestDocuments, firestoreRestLive } from "../firestoreRest";
 import { coerceLedger, REBUILD_LEDGER_PATH, restLedgerStore } from "../../live/rebuildLedger";
 import { unpackChunks } from "../cloudPack";
@@ -445,6 +452,59 @@ describe.skipIf(!HOST)("the views a server publishes, on the Firestore emulator"
       const piece = await getDoc(doc(db, `live/meta/chunks/${entry.id}-0`));
       const data = piece.get("data") as Bytes;
       expect(await unpackChunks([data.toUint8Array()], entry.h)).toEqual(VIEW);
+    }
+  });
+
+  it("are read whole through the app's own reader, every piece checked, by the list alone", async () => {
+    const board = {
+      rows: [
+        {
+          teamId: "S-A",
+          teamName: "Placeholder Hawks",
+          rank: 1,
+          rating: 1.5,
+          pointRating: 2.5,
+          record: "3-1",
+          wins: 3,
+          losses: 1,
+          ties: 0,
+          games: 4,
+          rawMargin: 1.25,
+          strengthOfSchedule: 0.5,
+          sosRank: 1,
+          crossAgeGames: 0,
+          componentSize: 2,
+          componentId: "S-A",
+          comparable: true,
+          fromGameChanger: true,
+          city: "Springfield",
+          state: "OH",
+        },
+      ],
+    };
+    const pages = { pulledAt: T, halves: { ag_10u_2027: { fall: 3, spring: 1 } } };
+    const result = await publishViews({
+      store: server(),
+      views: [{ key: KEY, value: board }],
+      owns: ["board:"],
+      copy: { id: "copy-a", version: 1 },
+      today: "2027-04-15",
+      now: T,
+      inline: { pages },
+    });
+    expect(result.ok).toBe(true);
+    for (const account of [OWNER, { ...LAPTOP, email: "Laptop@Example.COM" }]) {
+      forgetDecodedBoards();
+      const reader = firestoreLive(as(account));
+      const read = await readLive(reader);
+      expect(read).toMatchObject({ ok: true, pages });
+      if (!read.ok) continue;
+      const got = await readBoard({ reader, meta: read.meta, key: KEY });
+      expect(got).toMatchObject({ ok: true, from: "network" });
+      expect(got.ok && got.view).toStrictEqual(board);
+    }
+    for (const account of [STRANGER, { ...LAPTOP, unverified: true as const }]) {
+      expect(await readLive(firestoreLive(as(account)))).toEqual({ ok: false, why: "refused" });
     }
   });
 

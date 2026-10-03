@@ -2,7 +2,7 @@ import { hashJson } from "../cloud/cloudPack";
 import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { isBoardInputKey } from "../teamRankingsStorage";
-import { BOARD_RULES } from "./views/board";
+import { BOARD_RULES } from "./views/boardShape";
 import { LIVE_SCHEMA, type BuiltFrom, type LiveMeta } from "./viewStore";
 
 /**
@@ -23,10 +23,19 @@ export const isBoardInput = (key: string): boolean => key === LEAGUE_PART || isB
  * was. A value saved again in another order of fields changes it, which costs a rebuild that was
  * not needed and never misses one.
  */
-export const boardInputsPrint = async (manifest: CloudManifest): Promise<string> => {
-  const pairs = manifest.parts
-    .filter((part) => isBoardInput(part.key))
-    .map((part) => [part.key, part.hash] as const)
+export const boardInputsPrint = (manifest: CloudManifest): Promise<string> =>
+  boardInputsPrintOf(manifest.parts.map((part) => [part.key, part.hash] as const));
+
+/**
+ * `boardInputsPrint` of a copy's parts given as key and hash pairs, in any order: what a device
+ * that kept only those (`copySeen`) holds a published board's `built.inputs` to.
+ */
+export const boardInputsPrintOf = async (
+  parts: ReadonlyArray<readonly [key: string, hash: string]>
+): Promise<string> => {
+  const pairs = parts
+    .filter(([key]) => isBoardInput(key))
+    .map(([key, hash]) => [key, hash] as const)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return (await hashJson(pairs)).hash;
 };

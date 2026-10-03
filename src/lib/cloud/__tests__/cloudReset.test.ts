@@ -106,6 +106,7 @@ const saveCaughtByReset = async ({
     owns: async () => true,
     members: memoryMembers([], () => ME.email),
     store: sky.store,
+    live: { readMeta: async () => null, getChunk: async () => null },
   };
   session.resetCloudSession();
   session.setCloudTestHooks({

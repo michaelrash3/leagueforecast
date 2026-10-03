@@ -21,6 +21,7 @@ import {
 } from "firebase/firestore/lite";
 import type { FirebaseWebConfig } from "./cloudConfig";
 import type { CloudStore } from "./cloudEngine";
+import type { LiveReader } from "../live/viewStore";
 import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
 import {
   coerceMember,
@@ -54,6 +55,8 @@ import {
  */
 const MANIFEST = "copies/main";
 const CHUNKS = "copies/main/chunks";
+const LIVE_META = "live/meta";
+const LIVE_CHUNKS = "live/meta/chunks";
 
 export type CloudAccount = { uid: string; email: string | null };
 
@@ -76,6 +79,8 @@ export type FirebaseCloud = {
   /** The list of who may, as the signed-in account may see and change it. */
   members: CloudMembers;
   store: CloudStore;
+  /** The views a server publishes from the copy, as the signed-in member may read them. */
+  live: LiveReader;
 };
 
 export type CloudMembers = {
@@ -93,6 +98,13 @@ const accountOf = (user: User | null): CloudAccount | null =>
   user ? { uid: user.uid, email: user.email } : null;
 
 export { UnreadableCopyError };
+
+/** A piece's bytes, as `{ data: Bytes }` holds them, or null when it is not there or not bytes. */
+const bytesOf = async (db: Firestore, collectionPath: string, id: string) => {
+  const snap = await getDoc(doc(db, collectionPath, id));
+  const data: unknown = snap.exists() ? snap.get("data") : null;
+  return data instanceof Bytes ? data.toUint8Array() : null;
+};
 
 /** The copy's documents in one Firestore database, as the sync engine reads and writes them. */
 export const firestoreStore = (db: Firestore): CloudStore => ({
@@ -129,14 +141,23 @@ export const firestoreStore = (db: Firestore): CloudStore => ({
   putChunk: async (id, data) => {
     await setDoc(doc(db, CHUNKS, id), { data: Bytes.fromUint8Array(data) });
   },
-  getChunk: async (id) => {
-    const snap = await getDoc(doc(db, CHUNKS, id));
-    const data: unknown = snap.exists() ? snap.get("data") : null;
-    return data instanceof Bytes ? data.toUint8Array() : null;
-  },
+  getChunk: (id) => bytesOf(db, CHUNKS, id),
   deleteChunk: async (id) => {
     await deleteDoc(doc(db, CHUNKS, id));
   },
+});
+
+/**
+ * The views a server publishes (`live/`), read by name as a member's device reads them: the meta's
+ * fields as stored, and each piece's bytes. What they say is for the reader to check
+ * (`liveClient.ts`): nothing here trusts them.
+ */
+export const firestoreLive = (db: Firestore): LiveReader => ({
+  readMeta: async () => {
+    const snap = await getDoc(doc(db, LIVE_META));
+    return snap.exists() ? snap.data() : null;
+  },
+  getChunk: (id) => bytesOf(db, LIVE_CHUNKS, id),
 });
 
 /** `FirebaseCloud.owns` for whoever is signed in to `db`: refused a look, it is not theirs to open. */
@@ -198,5 +219,6 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     owns: () => ownsCopy(db),
     members: firestoreMembers(db, () => auth.currentUser?.email ?? null),
     store: firestoreStore(db),
+    live: firestoreLive(db),
   };
 };

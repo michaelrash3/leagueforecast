@@ -49,7 +49,8 @@ export class CloudTimeoutError extends Error {
   }
 }
 
-const timed = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>
+/** `work`, refused with a `CloudTimeoutError` naming `what` if it has not settled within `ms`. */
+export const timed = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new CloudTimeoutError(what)), ms);
     work.then(

@@ -1,13 +1,15 @@
 import { coerceBackup } from "../backup";
+import type { LiveReader } from "../live/viewStore";
 import { onLeagueWrite } from "../storage";
 import { isCloudPoolKey, onCloudPoolWrite } from "../teamRankingsStorage";
 import { isPoolBusy, poolJobElsewhere, watchPull } from "../pullSession";
 import { FIREBASE_WEB_CONFIG, type FirebaseWebConfig } from "./cloudConfig";
-import { DATA_SCHEMA, type KeptPart } from "./cloudManifest";
+import { DATA_SCHEMA, type CloudManifest, type KeptPart } from "./cloudManifest";
 import {
   commitChanges,
   fetchValues,
   sweepUploads,
+  timed,
   timedStore,
   type Change,
   type CloudStore,
@@ -108,6 +110,19 @@ type Session = {
   account: CloudAccount | null;
 };
 
+/**
+ * The copy as this session last found it: the manifest a read returned, or the one this device's
+ * own save committed. Its id, version, and each part's key and hash, which is what a published
+ * board says it was built from (`boardInputsPrint`), so a device can tell whether the board on its
+ * screen is the copy's as it stands. Never this device's own hashes (`DeviceCloudState.hashes`),
+ * which a pool not taken in yet leaves behind the copy.
+ */
+export type CopySeen = {
+  copy: string;
+  version: number;
+  parts: ReadonlyArray<readonly [key: string, hash: string]>;
+};
+
 /** How long after the last change a save waits, so a burst of edits is one save. */
 export const SAVE_DELAY_MS = 20_000;
 /** How often an open tab on screen looks for another device's save. */
@@ -158,6 +173,7 @@ let poolShown = false;
 let poolPreparing: Promise<void> | null = null;
 let lastInput = 0;
 let stopSession: (() => void) | null = null;
+let seen: CopySeen | null = null;
 
 /** Stand-ins for Firebase, the browser's stores and the clock, for tests. */
 let openCloud: (config: FirebaseWebConfig) => Promise<FirebaseCloud> = async (config) =>
@@ -212,6 +228,7 @@ export const resetCloudSession = (): void => {
   lastInput = 0;
   stopSession?.();
   stopSession = null;
+  seen = null;
 };
 
 /*
@@ -360,13 +377,67 @@ const savedStatus = (account: CloudAccount, waiting?: Waiting): CloudStatus => {
 
 const signedIn = (): CloudAccount | null => session?.account ?? null;
 
+/** The copy as `manifest` says it is, for `copySeen`. */
+const seenOf = (manifest: CloudManifest | null): CopySeen | null =>
+  manifest
+    ? {
+        copy: manifest.copy,
+        version: manifest.version,
+        parts: manifest.parts.map((part) => [part.key, part.hash] as const),
+      }
+    : null;
+
+/** `store`, noting each manifest a read returns and each this device's save commits (`copySeen`). */
+const seeing = (store: CloudStore): CloudStore => ({
+  ...store,
+  readManifest: async () => {
+    const manifest = await store.readManifest();
+    seen = seenOf(manifest);
+    return manifest;
+  },
+  commitManifest: async (expected, next) => {
+    const committed = await store.commitManifest(expected, next);
+    if (committed) seen = seenOf(next);
+    return committed;
+  },
+});
+
 const loadSession = async (): Promise<Session | null> => {
   if (session) return session;
   const settings = config();
   if (!settings) return null;
   const cloud = await openCloud(settings);
-  session = { cloud, store: timedStore(cloud.store), account: null };
+  session = { cloud, store: seeing(timedStore(cloud.store)), account: null };
   return session;
+};
+
+/**
+ * The copy as this session last read or saved it, or null before any read or save, after a reset
+ * or a sign-out, and when there was no copy.
+ */
+export const copySeen = (): CopySeen | null => seen;
+
+/** How long a read of `live/` may take: the meta is one small document, a piece one of 900 KB. */
+const LIVE_LIMITS = { meta: 10_000, chunk: 30_000 } as const;
+
+/**
+ * The views a server publishes, as this browser's signed-in member may read them, or null when it
+ * may not: a browser that keeps no cloud copy (asked first, so one that never signed in never loads
+ * Firebase to find that out), no configuration, nobody signed in, or someone other than the
+ * account this browser's record is for. Each read has a limit, as the copy's do (`timedStore`).
+ */
+export const liveReader = async (): Promise<LiveReader | null> => {
+  const state = loadCloudState();
+  if (!state.enabled || !state.uid) return null;
+  const current = await loadSession();
+  if (!current) return null;
+  const account = await current.cloud.account();
+  if (!account || account.uid !== state.uid) return null;
+  const { live } = current.cloud;
+  return {
+    readMeta: () => timed(live.readMeta(), LIVE_LIMITS.meta, "reading the published boards"),
+    getChunk: (id) => timed(live.getChunk(id), LIVE_LIMITS.chunk, "fetching a published board"),
+  };
 };
 
 /** Every League Standings season in `raw`, read as a backup is, or null for anything else. */
@@ -1204,6 +1275,7 @@ export const signInToCloud = async (): Promise<void> => {
     } else {
       clearOwed();
       saveLeagueBase(null);
+      seen = null;
       saveCloudState({
         enabled: true,
         device: state.device,
@@ -1233,6 +1305,7 @@ export const signInToCloud = async (): Promise<void> => {
 export const signOutOfCloud = async (): Promise<void> => {
   const state = loadCloudState();
   saveCloudState({ ...state, enabled: false });
+  seen = null;
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = null;
   try {

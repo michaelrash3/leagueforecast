@@ -28,6 +28,7 @@ import type { SeasonReader } from "../allKnown";
 import {
   BOARD_FAMILY,
   boardInputsPrint,
+  boardInputsPrintOf,
   boardsState,
   builtFrom,
   isBoardInput,
@@ -199,6 +200,16 @@ describe("a copy's board inputs, as one fingerprint", () => {
     ).toBe(base);
     // An input taken out moves it too.
     expect(await boardInputsPrint(manifest(PARTS.slice(1)))).not.toBe(base);
+  });
+
+  it("is the same from a copy's key and hash pairs alone, in any order, as from its manifest", async () => {
+    // Pinned from the code before the pairs could be given alone: published boards say this.
+    const base = "f4aa8e17b385ba9a68f0f5f2440bb5902c8e1bd6b8c5eed007ae5350d6eb5676";
+    expect(await boardInputsPrint(manifest(PARTS))).toBe(base);
+    const pairs = PARTS.map((one) => [one.key, one.hash] as const);
+    expect(await boardInputsPrintOf(pairs)).toBe(base);
+    expect(await boardInputsPrintOf([...pairs].reverse())).toBe(base);
+    expect(await boardInputsPrintOf(pairs.slice(1))).not.toBe(base);
   });
 });
 

@@ -125,6 +125,16 @@ export type LiveStore = {
   listChunks: () => Promise<Array<{ id: string; createdAt: string }>>;
 };
 
+/**
+ * `live/` as a member's device reads it: the meta's fields as stored, or null when there is none,
+ * and a piece by its id, or null when it is not there. Each a read by name, never a listing, which
+ * the rules refuse.
+ */
+export type LiveReader = {
+  readMeta: () => Promise<unknown>;
+  getChunk: (id: string) => Promise<Uint8Array | null>;
+};
+
 /** A view to publish under `key`, which a member's device asks for by name. */
 export type PublishedView = { key: string; value: unknown };
 

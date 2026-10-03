@@ -70,6 +70,7 @@ describe("the Firebase project the app keeps its copy in", () => {
         owns: async () => false,
         members: memoryMembers([], () => null),
         store: memoryCloud().store,
+        live: { readMeta: async () => null, getChunk: async () => null },
       };
       session.setCloudTestHooks({
         openCloud: async (config) => {
