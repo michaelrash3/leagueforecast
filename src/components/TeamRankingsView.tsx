@@ -444,7 +444,7 @@ export function TeamRankingsView({
   const [poolBackupAt, setPoolBackupAt] = useState(() => lastBackupTakenAt("pool"));
   /** The newest GameChanger fetch in the stored pool: what the rankings are "as of". */
   const pulledAt = useMemo(() => latestImportedAt(scoutTeams), [scoutTeams]);
-  const [reportTeamId, setReportTeamId] = useState<string>("");
+  const [reportTeamId, setReportTeamId] = useState<string>(handover?.reportTeamId ?? "");
 
   const [gameDraft, setGameDraft] = useState<AddGameDraft>(EMPTY_ADD_GAME_DRAFT);
 

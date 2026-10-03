@@ -1,31 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { TeamDetailPanel } from "../TeamDetailPanel";
 import { TEAM_PANEL_ID } from "../teamPanelId";
-import { readView, type DecodedViews } from "../../lib/live/liveClient";
-import {
-  clubBucketOf,
-  clubKey,
-  coerceClubBucket,
-  leagueLinkOf,
-  type ClubBucket,
-  type ClubCard,
-} from "../../lib/live/views/clubShape";
+import { leagueLinkOf } from "../../lib/live/views/clubShape";
 import type { LiveViewSource } from "../../hooks/useLiveBoard";
+import { useClubCard } from "../../hooks/useClubCard";
 import type { AgeGroup, SeasonSegment } from "../../lib/teamRankings";
 import { card as cardStyle } from "../../styles/tokens";
-
-/** Buckets decoded this page load, by fingerprint: opening another club of one is free. */
-const decodedClubs: DecodedViews<ClubBucket> = new Map();
-
-/** Only for tests: forgets the buckets decoded so far. */
-export const forgetDecodedClubs = (): void => decodedClubs.clear();
 
 const NO_CANDIDATES: [] = [];
 const nothing = () => undefined;
 
 /**
  * A club's panel on the cloud's board: its card, read from its bucket of the page's year through the
- * same checks as a board (`readView`, `coerceClubBucket`), drawn by Team Rankings' own panel with
+ * same checks as a board (`useClubCard`), drawn by Team Rankings' own panel with
  * nothing on it to change (`TeamDetailPanel` `readOnly`). A newer meta reads the card again, so a
  * publish while it is open is drawn in place. When the card cannot be read (no card for the club,
  * a bucket damaged or gone, a refusal, or offline with none kept), `onCannot` hands the club to
@@ -55,26 +42,10 @@ export default function LiveClubPanel({
   /** The club whose card could not be read, to open on this device's copy instead. */
   onCannot: (teamId: string) => void;
 }) {
-  const [card, setCard] = useState<ClubCard | null>(null);
+  const { card, failed } = useClubCard(source, year, teamId);
   useEffect(() => {
-    let alive = true;
-    void readView({
-      reader: source.reader,
-      meta: source.meta,
-      key: clubKey(year, clubBucketOf(teamId)),
-      cache: source.cache,
-      coerce: coerceClubBucket,
-      memory: decodedClubs,
-    }).then((read) => {
-      if (!alive) return;
-      const found = read.ok ? read.view.clubs[teamId] : undefined;
-      if (found) setCard(found);
-      else onCannot(teamId);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [source, year, teamId, onCannot]);
+    if (failed) onCannot(teamId);
+  }, [failed, teamId, onCannot]);
 
   const names = useMemo(() => new Map(Object.entries(card?.names ?? {})), [card]);
 

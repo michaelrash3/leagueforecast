@@ -45,8 +45,14 @@ export type ClubComparison = {
 export const COMPARE_LIST = 3;
 export const COMPARE_RECENT = 5;
 
-const byDateDesc = (x: ClubResult, y: ClubResult) =>
-  y.date.localeCompare(x.date) || x.gameId.localeCompare(y.gameId);
+/**
+ * Newest first, two results of one day in the order the games are given: the pool's, as a club's
+ * panel lists them (`gamesForTeam`). It broke such a tie by game id, which put the same two games
+ * in another order than the panel did, and an order nothing but the stored ids could give: Scouting
+ * on the live board reads a club's games off its card, whose ids are only their places
+ * (`scoutingFromCards.ts`), in the pool's order.
+ */
+const byDateDesc = (x: ClubResult, y: ClubResult) => y.date.localeCompare(x.date);
 const rankOr = (rank: number | undefined, fallback: number) => rank ?? fallback;
 
 /**

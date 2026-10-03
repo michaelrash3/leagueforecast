@@ -33,6 +33,8 @@ import { TEAM_PANEL_ID } from "../teamPanelId";
 const LiveClubPanel = lazy(() => import("./LiveClubPanel"));
 /** The Games tab from its page's list, loaded with the tab's code only when the tab is opened. */
 const LiveGames = lazy(() => import("./LiveGames"));
+/** The Scouting tab from the board and club cards, loaded only when the tab is opened. */
+const LiveScouting = lazy(() => import("./LiveScouting"));
 
 /**
  * How long the page waits for a board to draw before it goes to this device's copy the old way:
@@ -117,8 +119,10 @@ export function LiveTeamRankings({
   const [cannotOpen, setCannotOpen] = useState<string | null>(null);
   // Find a team, from the year's published list once somebody goes to search.
   const search = useLiveSearch(live.source, selectedYear);
-  // Whether a page's Games list could not be read.
+  // Whether a page's Games list, or a card Scouting reads, could not be read.
   const [cannotList, setCannotList] = useState(false);
+  // The club Scouting reports on, when somebody picked one.
+  const [scoutedTeam, setScoutedTeam] = useState("");
 
   // The pool and the page's code come in under the board; the board has a while to draw.
   useEffect(() => {
@@ -174,7 +178,7 @@ export function LiveTeamRankings({
     live.boardMiss === "offline" ||
     live.link === "cut-off";
   const handOverNow =
-    (section !== "rankings" && section !== "games") ||
+    (section !== "rankings" && section !== "games" && section !== "scouting") ||
     cannotList ||
     !selectedAgeGroupId ||
     (live.metaMiss !== null && !offline) ||
@@ -194,6 +198,7 @@ export function LiveTeamRankings({
     showAll,
     ...(clubOpen ? { openTeamId: clubOpen } : {}),
     ...(search.failed ? { focusSearch: true } : {}),
+    ...(scoutedTeam ? { reportTeamId: scoutedTeam } : {}),
   };
   if (handOverNow && !handover) setHandover(where);
 
@@ -218,6 +223,7 @@ export function LiveTeamRankings({
         stateFilter,
         showAll,
         ...(clubOpen ? { openTeamId: clubOpen } : {}),
+        ...(scoutedTeam ? { reportTeamId: scoutedTeam } : {}),
       });
     };
     let timer = setTimeout(quietly, quietMs);
@@ -232,10 +238,11 @@ export function LiveTeamRankings({
       clearTimeout(timer);
       INPUT_EVENTS.forEach((type) => window.removeEventListener(type, restart, { capture: true }));
     };
-  }, [settled, stateTop, stateFilter, showAll, clubOpen, quietMs]);
+  }, [settled, stateTop, stateFilter, showAll, clubOpen, scoutedTeam, quietMs]);
 
   const clubs = useMemo(() => clubsOfBoard(rows), [rows]);
   const places = useMemo(() => placesOf(clubs), [clubs]);
+  const placeOfClub = useCallback((teamId: string) => places.get(teamId), [places]);
   const availableStates = useMemo(() => statesInUse(clubs), [clubs]);
   const defaultState = useMemo(() => defaultStateOf(clubs, myTeamId), [clubs, myTeamId]);
   const shownState = stateTop === null ? defaultState : stateTop;
@@ -320,6 +327,20 @@ export function LiveTeamRankings({
     const soon = window.setTimeout(() => warmTeamSearch(searchOptions), 0);
     return () => window.clearTimeout(soon);
   }, [searchOptions]);
+  const readingReport = (
+    <div className={`${card} p-5`} role="status" aria-live="polite">
+      <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
+        Reading the cloud&apos;s report…
+      </p>
+    </div>
+  );
+  const readingBoard = (
+    <div className={`${card} p-5`} role="status" aria-live="polite">
+      <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
+        Reading the cloud&apos;s board…
+      </p>
+    </div>
+  );
   const readingGames = (
     <div className={`${card} p-5`} role="status" aria-live="polite">
       <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
@@ -375,6 +396,29 @@ export function LiveTeamRankings({
           ) : (
             readingGames
           )
+        ) : section === "scouting" ? (
+          live.source && board ? (
+            <Suspense fallback={readingReport}>
+              <LiveScouting
+                source={live.source}
+                year={selectedYear}
+                pageId={selectedAgeGroupId}
+                groupName={group?.name ?? ""}
+                ageGroups={ageGroups}
+                segment={segment}
+                rows={rows}
+                clubs={clubs}
+                placeOf={placeOfClub}
+                today={today}
+                reportTeamId={scoutedTeam}
+                onReportTeam={setScoutedTeam}
+                onWhatIf={() => handOverWith({})}
+                onCannot={cannotListGames}
+              />
+            </Suspense>
+          ) : (
+            readingBoard
+          )
         ) : board ? (
           <RankingsSection
             groupName={group?.name ?? ""}
@@ -409,7 +453,7 @@ export function LiveTeamRankings({
             onStateFilterChange={setStateFilter}
             showAll={showAll}
             onToggleShowAll={() => setShowAll((shown) => !shown)}
-            placeOf={(teamId) => places.get(teamId)}
+            placeOf={placeOfClub}
             isLeagueTeam={(teamId) => leagueIds.has(teamId)}
             hasGamesFiledHere={() => false}
             onOpenTeam={openTeam}

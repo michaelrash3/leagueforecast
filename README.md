@@ -352,8 +352,9 @@ games the two played against each other, every club both have played with each
 one's score against it ("we beat the Bears by 5, they beat them by 1"), and each
 side's best wins and worst losses by the rank of who it was against, and its last
 five. It reads the games the board counts, in the half it is showing, each score as
-that club's own schedule gave it. The projection is one number; this is the
-evidence it is made of. Names and scores only.
+that club's own schedule gave it. Two results of one day stay in the order the
+pool lists them, as a club's panel lists them. The projection is one number; this
+is the evidence it is made of. Names and scores only.
 
 **Tournament field** plays a weekend out before it is played. Build the field by
 name, or from the report team's own next opponents in one press, choose pools and
@@ -3899,6 +3900,29 @@ drawn by Team Rankings' own tab with nothing on it to change (`GamesSection`
 in the form's place, Add, import or pull games, hands over to Team Rankings, where
 those are. The tab and its code load only when it is opened. A list that cannot be
 read hands over as the tab did before there were lists.
+
+**Scouting.** The tab works out its report, its upcoming games and its comparison
+as Team Rankings does, off the board's rows and the club cards rather than the
+year's pool (`LiveScouting`, `scoutingFromCards.ts`). The report reads only the
+rows. Each of the rest reads only the games of the club or two clubs it is about,
+and a card holds a club's games of the year in the pool's own order. So the
+upcoming games are the scouted club's card's games on the page's rating pool, and a
+comparison reads both clubs' cards, each game once. A game of the two is taken
+from the first club's card, where it sits between the second club's own games as
+the pool has it. Two results of one day used to be put in game id order, which a
+card cannot give, since its ids are only its places. They now keep the pool's
+order, as a club's panel always has, on Team Rankings too. A what-if refits the
+year, which the board cannot, so asking one hands over to Team Rankings on the
+club being scouted (`reportTeamId`), as a card that cannot be read does.
+
+`scoutingParity.test.ts` holds the report, every scouted club's upcoming games and
+comparisons with the clubs beside it and the clubs it met to Team Rankings' own, on
+every page and half of the seeded fixture. A second page with no year was added,
+since a card holds a club's games of every such page and each is a pool of its own.
+`scoutingFromCards.test.ts` takes the case consistent cards never give. Each guard
+was broken in turn and seen to fail a test, 14 of 14, three only after a test was
+added: the pool's pages, a meeting off the second card, and a bucket without the
+club.
 
 **Kept up to date while it is open.** Once its first read is in, the page listens
 to the meta (`watchMeta`), so a publish while it is open is drawn in place. It

@@ -5,7 +5,8 @@ import { ageGroup, game, renderTeamRankings, seasonDate, team } from "../test/te
 
 /*
  * Team Rankings taking over from the live board (`LiveTeamRankings`): it opens where the board
- * left off, on the club tapped, the search asked for, and the state boards as they were.
+ * left off, on the club tapped, the search asked for, the club Scouting was reporting on, and the
+ * state boards as they were.
  */
 
 const pool = () => ({
@@ -51,5 +52,15 @@ describe("Team Rankings taking over from the live board", () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(document.getElementById("scout-team-search"))
     );
+  });
+
+  it("reports in Scouting on the club the board's Scouting was reporting on", async () => {
+    renderTeamRankings({
+      ...pool(),
+      search: "?view=rankings&age=10&year=2027&section=scouting",
+      handover: { reportTeamId: "S-B" },
+    });
+    const box = await screen.findByRole("combobox", { name: /How would/ });
+    await waitFor(() => expect(box).toHaveValue("Badgers"));
   });
 });

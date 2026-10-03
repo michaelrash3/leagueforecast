@@ -24,7 +24,7 @@ import {
   searchKey,
   type SearchView,
 } from "../../lib/live/views/searchShape";
-import { forgetDecodedClubs } from "./LiveClubPanel";
+import { forgetDecodedClubs } from "../../hooks/useClubCard";
 import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
 import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesShape";
 import { forgetDecodedGames } from "./LiveGames";
@@ -908,6 +908,105 @@ describe("the Games tab on the cloud's board", () => {
   it("hands over when the page has no list to read", async () => {
     pool.wants = false;
     onGames();
+    open(sourcesOf(live));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+});
+
+describe("Scouting on the cloud's board", () => {
+  const card = (teamId: string, games: ClubCard["games"]): ClubCard => ({
+    team: { id: teamId, name: `Placeholder ${teamId}` },
+    games,
+    names: Object.fromEntries(
+      ["S-1", "S-2", "S-3"].filter((id) => id !== teamId).map((id) => [id, `Placeholder ${id}`])
+    ),
+  });
+  const MINE = card("S-2", [
+    {
+      id: "0",
+      teamAId: "S-2",
+      teamBId: "S-1",
+      ageGroupId: PAGE,
+      teamAScore: 4,
+      teamBScore: 2,
+      date: "2027-03-20",
+    },
+    { id: "1", teamAId: "S-3", teamBId: "S-2", ageGroupId: PAGE, date: "2027-04-20" },
+  ]);
+  const THEIRS = card("S-3", [
+    { id: "0", teamAId: "S-3", teamBId: "S-2", ageGroupId: PAGE, date: "2027-04-20" },
+    { id: "1", teamAId: "S-3", teamBId: "S-1", ageGroupId: PAGE, date: "2027-04-22" },
+  ]);
+  const withCards = (cards: ClubCard[]) => {
+    const buckets = new Map<string, Record<string, ReturnType<typeof encodeClubCard>>>();
+    for (const one of cards) {
+      const key = clubKey(2027, clubBucketOf(one.team.id));
+      buckets.set(key, { ...(buckets.get(key) ?? {}), [one.team.id]: encodeClubCard(one) });
+    }
+    return publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: SPRING },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: SPRING },
+      ...[...buckets].map(([key, clubs]) => ({ key, value: { clubs } })),
+    ]);
+  };
+  const onScouting = () =>
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=scouting");
+
+  it("reports on the page's own club from the board and its card, with its next game", async () => {
+    await withCards([MINE]);
+    onScouting();
+    open(sourcesOf(live));
+    const next = await screen.findAllByRole("table", { name: "Next up" });
+    expect(next[0]).toHaveTextContent("Placeholder S-3");
+    expect(screen.getByRole("combobox", { name: /How would/ })).toHaveValue("Placeholder S-2");
+    expect(handedOver()).toBeNull();
+  });
+
+  it("hands over on a what-if, on the club it was reporting on", async () => {
+    await withCards([MINE, THEIRS]);
+    pool.wants = false;
+    onScouting();
+    const user = userEvent.setup();
+    open(sourcesOf(live));
+    const box = await screen.findByRole("combobox", { name: /How would/ });
+    await user.click(box);
+    await user.type(box, "Placeholder S-3");
+    const listbox = document.getElementById(box.getAttribute("aria-controls") ?? "")!;
+    const option = within(listbox)
+      .getAllByRole("option")
+      .find((one) => one.textContent?.includes("Placeholder S-3"));
+    await user.click(within(option!).getByRole("button"));
+    // Its own next games, off its own card.
+    await waitFor(() =>
+      expect(screen.getAllByRole("table", { name: "Next up" })[0]).toHaveTextContent(
+        "Placeholder S-1"
+      )
+    );
+    fireEvent.click((await screen.findAllByRole("button", { name: /^What if\?/ }))[0]!);
+    await waitFor(() => expect(handedOver()).toMatchObject({ reportTeamId: "S-3" }));
+  });
+
+  it("hands over when the club it reports on has no card", async () => {
+    pool.wants = false;
+    onScouting();
+    open(sourcesOf(live));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+
+  it("hands over when its card's bucket holds no card for the club it reports on", async () => {
+    // The bucket the page's own club would be in, read whole, with only another club in it.
+    await publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: SPRING },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: SPRING },
+      {
+        key: clubKey(2027, clubBucketOf("S-2")),
+        value: { clubs: { "S-9": encodeClubCard(card("S-9", [])) } },
+      },
+    ]);
+    pool.wants = false;
+    onScouting();
     open(sourcesOf(live));
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });

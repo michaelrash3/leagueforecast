@@ -75,11 +75,13 @@ export const forgetLiveBoard = (): void => {
 
 /**
  * Where the live page left off when it handed over to Team Rankings on this device's own copy, so
- * the page opens there: the club tapped, the search asked for, and the state boards as they were.
+ * the page opens there: the club tapped, the search asked for, the club Scouting was reporting on,
+ * and the state boards as they were.
  */
 export type RankingsHandover = {
   openTeamId?: string;
   focusSearch?: boolean;
+  reportTeamId?: string;
   stateTop?: string | null;
   stateFilter?: string;
   showAll?: boolean;
