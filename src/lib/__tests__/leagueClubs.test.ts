@@ -677,3 +677,99 @@ describe("every other copy of a game against a team said not to be in Team Ranki
     expect(kept.find((game) => game.id === "gc_tp_1")).toBe(row);
   });
 });
+
+describe("a copy of the league's game against a team said not to be in Team Rankings", () => {
+  const ANGELS = "Cincinnati Angels Red";
+  const TP: ScoutTeam = {
+    id: "S-TP",
+    name: "Trash Pandas Baseball Club",
+    gcTeams: [
+      { teamId: "gcTP", name: "Trash Pandas Baseball Club", ageGroupId: "ag_9", ageLevel: 9 },
+    ],
+  };
+  const SHORT: ScoutTeam = { id: "S-AR", name: "Angels Red", nameOnly: true };
+  const leagueTeams = [
+    { id: "L-TP", name: "Trash Pandas Baseball Club", scoutTeamId: "S-TP" },
+    { id: "L-ANG", name: ANGELS, scoutTeamId: NO_SCOUT_TEAM },
+  ];
+  const fixtures = [{ away: "Trash Pandas Baseball Club", home: ANGELS, date: "9/18" }];
+  const bridge = (teams: ScoutTeam[], rows: ScoutGame[], league = leagueTeams, games = fixtures) =>
+    leagueScoutBridge("fall", ageGroups, teams, rows, league, games).results;
+
+  it("is not handed back to the league's forecast, under a shorter name than the league's", () => {
+    // The pull filed its copy against a club called "Angels Red", whose name fits the team's.
+    const copy = played("gc_tp_1", "ag_9", "S-TP", "S-AR", 13, 21, "2026-09-18");
+    expect(bridge([TP, SHORT], [copy])).toEqual([]);
+    // However the schedule wrote the day.
+    const written = [{ ...fixtures[0]!, date: "09/18/26" }];
+    expect(bridge([TP, SHORT], [copy], leagueTeams, written)).toEqual([]);
+  });
+
+  it("is handed back on another day, and for a club whose name does not fit", () => {
+    const tournament = played("gc_tp_2", "ag_9", "S-TP", "S-AR", 4, 6, "2026-09-06");
+    const bears = played("gc_tp_3", "ag_9", "S-TP", "S-BEAR", 7, 1, "2026-09-18");
+    // Nor is it a game the club of the name played against anybody but the league's team's club,
+    // a club of that team's name included.
+    const others = played("gc_ar_1", "ag_9", "S-AR", "S-BEAR", 7, 1, "2026-09-18");
+    const namesake = played("gc_ar_2", "ag_9", "S-TPN", "S-AR", 2, 9, "2026-09-18");
+    const teams = [TP, SHORT, club("S-BEAR", "Bears"), club("S-TPN", "Trash Pandas")];
+    const results = bridge(teams, [tournament, bears, others, namesake]);
+    expect(results.map((result) => result.date).sort()).toEqual([
+      "2026-09-06",
+      "2026-09-18",
+      "2026-09-18",
+      "2026-09-18",
+    ]);
+    // A slot of the name is a slot, which the league's schedule settles on its own.
+    const slot: ScoutTeam = { id: "S-SLOT", name: "Angels Red", placeholder: true };
+    const copy = played("gc_tp_4", "ag_9", "S-TP", "S-SLOT", 13, 21, "2026-09-18");
+    expect(bridge([TP, slot], [copy])).toHaveLength(1);
+  });
+
+  it("is not handed back on a day the two teams play twice", () => {
+    const twice = [...fixtures, { away: ANGELS, home: "Trash Pandas Baseball Club", date: "9/18" }];
+    const first = played("gc_tp_5", "ag_9", "S-TP", "S-AR", 13, 21, "2026-09-18");
+    const second = played("gc_tp_6", "ag_9", "S-AR", "S-TP", 2, 3, "2026-09-18");
+    expect(bridge([TP, SHORT], [first, second], leagueTeams, twice)).toEqual([]);
+  });
+
+  it("is not handed back between two such teams when its clubs fit one name each", () => {
+    const pair = [
+      { id: "L-OWL", name: "Owls Select", scoutTeamId: NO_SCOUT_TEAM },
+      { id: "L-ANG", name: ANGELS, scoutTeamId: NO_SCOUT_TEAM },
+      { id: "L-TP", name: "Trash Pandas Baseball Club", scoutTeamId: "S-TP" },
+    ];
+    const games = [
+      { away: "Owls Select", home: ANGELS, date: "9/18" },
+      { away: "Trash Pandas Baseball Club", home: "Owls Select", date: "9/25" },
+    ];
+    const OWLS = club("S-OWLN", "Owls Select");
+    // The Trash Pandas played both clubs in tournaments, so both clubs' games reach the forecast.
+    const knowns = [
+      played("gc_tp_8", "ag_9", "S-TP", "S-AR", 3, 1, "2026-09-06"),
+      played("gc_tp_9", "ag_9", "S-TP", "S-OWLN", 2, 5, "2026-09-07"),
+    ];
+    const copy = played("scout_1", "ag_9", "S-AR", "S-OWLN", 6, 4, "2026-09-18");
+    const half = played("scout_2", "ag_9", "S-AR", "S-BEAR", 6, 4, "2026-09-18");
+    const teams = [TP, SHORT, OWLS, club("S-BEAR", "Bears")];
+    expect(bridge(teams, [...knowns, copy], pair, games).map((result) => result.date)).toEqual([
+      "2026-09-06",
+      "2026-09-07",
+    ]);
+    expect(bridge(teams, [...knowns, half], pair, games)).toHaveLength(3);
+  });
+
+  it("is handed back where it could be either of two such teams' games that day", () => {
+    // "Angels Red" fits both teams' names, and is neither's.
+    const two = [
+      ...leagueTeams,
+      { id: "L-ARB", name: "Angels Red Black", scoutTeamId: NO_SCOUT_TEAM },
+    ];
+    const games = [
+      ...fixtures,
+      { away: "Trash Pandas Baseball Club", home: "Angels Red Black", date: "9/18" },
+    ];
+    const copy = played("gc_tp_1", "ag_9", "S-TP", "S-AR", 13, 21, "2026-09-18");
+    expect(bridge([TP, SHORT], [copy], two, games)).toHaveLength(1);
+  });
+});

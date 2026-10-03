@@ -3984,6 +3984,53 @@ export const leagueScoutBridge = (
       .filter((key) => key !== "")
   );
   /*
+   * A league team answered Not here has no club behind it, so a copy of its league game names some
+   * club of its name: the import's stand-in for it, a pulled club the import filed it against, a
+   * club typed in, any whose name fits the team's ("Angels Red" for "Cincinnati Angels Red"). The
+   * rankings file such a copy with the league's game (`dedupeLeagueFixtures`), and so does this:
+   * a copy whose one club is the league team that played such a team that day and whose other
+   * club's name fits that team's, or, for a game between two such teams, whose clubs fit one name
+   * each, where only one league game that day is one it could be.
+   */
+  const offIds = new Set(
+    leagueTeams.filter((team) => team.scoutTeamId === NO_SCOUT_TEAM).map((team) => team.id)
+  );
+  const offGamesOn = new Map<string, Map<string, readonly [string, string]>>();
+  if (offIds.size > 0) {
+    seasonFixtures.forEach(({ away, home, date }) => {
+      const awayId = leagueIdByKey.get(teamNameKey(away));
+      const homeId = leagueIdByKey.get(teamNameKey(home));
+      if (!awayId || !homeId || (!offIds.has(awayId) && !offIds.has(homeId))) return;
+      const day = normalizeDateInput(date ?? "");
+      if (!day) return;
+      const games = offGamesOn.get(day) ?? new Map<string, readonly [string, string]>();
+      games.set([awayId, homeId].sort().join("|"), [awayId, homeId]);
+      offGamesOn.set(day, games);
+    });
+  }
+  const leagueNameOf = new Map(leagueTeams.map((team) => [team.id, team.name]));
+  const fits = nameFitter();
+  /** Whether a club in a copy could be what it called this league team. */
+  const standsFor = (scoutTeamId: string, leagueTeamId: string): boolean => {
+    if (!offIds.has(leagueTeamId)) return ratingId(scoutTeamId) === leagueTeamId;
+    const club = scoutById.get(scoutTeamId);
+    const name = leagueNameOf.get(leagueTeamId);
+    return club !== undefined && !club.placeholder && name !== undefined && fits(club.name, name);
+  };
+  const isOffTeamFixture = (game: ScoutGame): boolean => {
+    if (offGamesOn.size === 0) return false;
+    const day = normalizeDateInput(game.date ?? "");
+    const fixtures = day ? offGamesOn.get(day) : undefined;
+    if (!fixtures) return false;
+    const { teamAId: x, teamBId: y } = game;
+    let could = 0;
+    fixtures.forEach(([a, b]) => {
+      if ((standsFor(x, a) && standsFor(y, b)) || (standsFor(x, b) && standsFor(y, a))) could += 1;
+    });
+    return could === 1;
+  };
+
+  /*
    * A league club's own pulled row filed against nobody the league names: "TBD- 09/25/26, 7:15 PM"
    * for 513 Force - Bouley's 0-13 to the Hornets, or "513 Force" on the Angels' schedule. It shares
    * no names with the fixture, so it read as a tournament result and the forecast counted the
@@ -4046,6 +4093,7 @@ export const leagueScoutBridge = (
 
   const isSeasonFixture = (game: ScoutGame): boolean => {
     if (slotCopies.has(game.id)) return true;
+    if (isOffTeamFixture(game)) return true;
     if (fixtureKeys.size === 0) return false;
     const away = scoutById.get(game.teamAId)?.name;
     const home = scoutById.get(game.teamBId)?.name;

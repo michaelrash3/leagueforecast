@@ -576,7 +576,9 @@ rating pool, and its other club's name fits the team's; for a league game betwee
 two such teams, when its two clubs fit one name each. With only one league game it
 could be, the rules for any copy of a league game then decide which survives,
 so the game counts once whatever the copies say the score was, and once on the
-schedule before it is played. A copy kept in the league game's place, while the
+schedule before it is played. The league's forecast reads such a row the same way
+and leaves it out of the results it takes from Team Rankings, since the league's
+own schedule already has the game. A copy kept in the league game's place, while the
 league has no score for it, is read as the team's own club's game, not the game
 of the club its name led to. A row between two of the league's own clubs goes
 with their own league game first. An answer is the season's, as the link panel
