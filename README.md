@@ -316,8 +316,10 @@ club has moved since the board of a week ago: ▲3, ▼5, or "new" for a club th
 not ranked then. A board keeps no history, so last week's is fitted again from the
 games played by then (`ranksAsOf`), once the board on screen is up, in the rankings
 worker for a large pool. That fit gives every page of the year at once and only its
-places are kept, a number a club, rather than a second year's fit of about 44 MB. A
-result posted since for a game played before that day is counted in it, so last week
+places are kept, a number a club, rather than a second year's fit of about 44 MB. The
+worker answers each tab of the year from what it kept, except a page too young to rank,
+which has no places of its own and leaves none for its siblings: before that was kept
+apart, a reader who opened 8U first saw no arrows on 9U. A result posted since for a game played before that day is counted in it, so last week
 recomputed can differ from what was on screen then. In the first week of a half there
 is no board a week ago and nothing is marked.
 

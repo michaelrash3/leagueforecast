@@ -3198,6 +3198,14 @@ export const fitScoutYearFor = (
 export const scoutFitYear = (ageGroupId: string, ageGroups: AgeGroup[]): number | undefined =>
   indexGroups(ageGroups).year(ageGroupId);
 
+/**
+ * Whether `fitScoutYearFor` fits anything for a page: its level, read as every fit reads one, is
+ * old enough to rank. A page that is not has no table, so a pool's answer kept from another page
+ * is never its answer.
+ */
+export const scoutFitRanks = (ageGroupId: string, ageGroups: AgeGroup[]): boolean =>
+  isRankedAgeLevel(indexGroups(ageGroups).level(ageGroupId));
+
 const NO_TEAMS: ReadonlySet<string> = new Set();
 
 /** One page's table, cut from its year's fit: the clubs at home on the page, ranked. */
