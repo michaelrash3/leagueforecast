@@ -110,7 +110,8 @@ src/
     teamRankingsCompact.ts # the tuple-and-dictionary storage format
     live/                  # what a page knows (allKnown.ts), the views built from it (views/),
                            # the same in the browser and on a server, and how a server
-                           # publishes them for members to read (viewStore.ts)
+                           # publishes them for members to read (viewStore.ts,
+                           # publishCopy.ts)
     gameChanger*.ts        # pulling, importing, reporting and tracking a pull
     apiShared.ts           # handler types, client key and throttle, shared by both functions
     storage.ts  idb.ts  backup.ts  share.ts
@@ -3222,6 +3223,27 @@ What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
 
+Then it publishes every board for members to read ("Views a server
+publishes"): built from the pool it holds and the copy's own League Standings,
+under the copy and version it saved, then a sweep of what readers can no longer
+be fetching (`publishCopyViews`). It publishes only when the pool it holds is a
+copy, the one it saved or, with nothing to save or nothing due, the one it read;
+never after a run that ended without one, whose filing no copy has. The seasons
+are read the way a backup file is, as a browser's storage reads them, and a
+League Standings part that is missing, damaged or not seasons stops the publish.
+A device that saves League Standings during the run deletes the pieces the
+run's copy names; the run then says the copy moved on and publishes nothing,
+without turning the night red, and the next run publishes. The publish refuses
+under any collation but English, the order the members' browsers put tied rows
+in; the workflow pins `LANG=en_US.UTF-8` rather than leave it to the runner's
+image (Node sorts in English with `LANG` unset, `C` or `C.UTF-8`, and by the
+root collation with an empty one). A dry run builds the same views, from the
+copy the pull would have saved, writes and deletes nothing, and counts a piece
+the sweep would delete once. A publish that fails says why on its own line and
+turns the night red, after the pull's own lines; a sweep that fails once the
+views are out says so under the counts of what was published, and turns it red
+too.
+
 It runs every night at 07:17 UTC, which is 3:17 in the morning Eastern in summer
 and 2:17 in winter. A run by hand is **Actions → Nightly refresh → Run
 workflow**, with `dry-run` (everything but the save, and what the save would
@@ -3324,9 +3346,10 @@ Nothing builds these boards on a server yet; how they are published is next.
 ### Views a server publishes
 
 A server publishes what it builds to `live/`, in the same Firestore as the copy,
-for members' devices to read rather than build. Nothing publishes yet: the
-nightly refresh will, once it is wired to (`src/lib/live/viewStore.ts` is the
-whole of the publishing; the nightly only has to hand it the boards).
+for members' devices to read rather than build. The nightly refresh publishes
+every board each night, once it has saved the copy (`src/lib/live/publishCopy.ts`
+on `viewStore.ts`; see "The nightly refresh on GitHub"). No device reads them
+yet.
 
 - **`live/meta`** is one small document naming every view by its key
   (`board:{year}:{page}:{half}`, with `none` for a page with no year): the

@@ -143,6 +143,12 @@ export type CloudPullResult = {
   version?: number;
   /** Times the copy had moved on and the answers were filed onto it again. */
   replays: number;
+  /**
+   * The copy the pool in this process's store now is: the one saved, or the one read when there was
+   * nothing to save or nothing due. Absent on every other end, where the store holds filing no copy
+   * has, or no copy at all, so nothing may be built from it as if it were one.
+   */
+  manifest?: CloudManifest;
 };
 
 /** Tries at saving onto a copy that keeps moving before giving up on it. */
@@ -363,7 +369,7 @@ export const runCloudPull = async (
   const limit = job.kind === "rota" ? job.limit : undefined;
   const ids = limit === undefined ? wanted : wanted.slice(0, Math.max(0, limit));
   result.asked = ids.length;
-  if (ids.length === 0) return { ...result, end: "nothing-due" };
+  if (ids.length === 0) return { ...result, end: "nothing-due", manifest: copy.manifest };
 
   let gaveUp = false;
   let failed = 0;
@@ -413,7 +419,9 @@ export const runCloudPull = async (
 
     const now = deps.now();
     const changes = await changesSince(copy, touched, now.getTime());
-    if (changes.length === 0) return { ...result, changed: [], version: copy.manifest.version };
+    if (changes.length === 0) {
+      return { ...result, changed: [], version: copy.manifest.version, manifest: copy.manifest };
+    }
     deps.onStage?.({ stage: "saving", attempt: attempt + 1 });
     const commit = await commitChanges({
       store: deps.store,
@@ -428,6 +436,7 @@ export const runCloudPull = async (
         ...result,
         changed: changes.map((change) => change.key),
         version: commit.manifest.version,
+        manifest: commit.manifest,
       };
     }
   }
