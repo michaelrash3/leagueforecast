@@ -3,24 +3,26 @@ import { readLiveBoard, subscribeLiveBoard, writeLiveBoard } from "../preference
 import { forgetAppKeys } from "../resetApp";
 
 /*
- * This device's switch for opening Team Rankings on the cloud's board: off unless turned on, heard
- * by whoever is listening, and gone with the rest of the app's keys.
+ * This device's switch for opening Team Rankings on the cloud's board: on unless turned off (1.6e),
+ * heard by whoever is listening, and gone with the rest of the app's keys, which puts it back on.
  */
 
 beforeEach(() => window.localStorage.clear());
 
 describe("the switch for the cloud's board", () => {
-  it("is off until turned on, and off again once turned off", () => {
-    expect(readLiveBoard()).toBe(false);
-    writeLiveBoard(true);
+  it("is on until turned off, and off until turned on again", () => {
     expect(readLiveBoard()).toBe(true);
     writeLiveBoard(false);
     expect(readLiveBoard()).toBe(false);
-    expect(window.localStorage.length).toBe(0);
+    expect(window.localStorage.getItem("lf_live_v1")).toBe("off");
+    writeLiveBoard(true);
+    expect(readLiveBoard()).toBe(true);
   });
 
-  it("is off for anything stored under its key but its own word", () => {
-    window.localStorage.setItem("lf_live_v1", "true");
+  it("is off only for its own word for off", () => {
+    window.localStorage.setItem("lf_live_v1", "false");
+    expect(readLiveBoard()).toBe(true);
+    window.localStorage.setItem("lf_live_v1", "off");
     expect(readLiveBoard()).toBe(false);
   });
 
@@ -35,9 +37,9 @@ describe("the switch for the cloud's board", () => {
     expect(heard).toHaveBeenCalledTimes(2);
   });
 
-  it("is forgotten with the rest of the app's keys", () => {
-    writeLiveBoard(true);
+  it("is forgotten with the rest of the app's keys, and on again", () => {
+    writeLiveBoard(false);
     forgetAppKeys(window.localStorage);
-    expect(readLiveBoard()).toBe(false);
+    expect(readLiveBoard()).toBe(true);
   });
 });

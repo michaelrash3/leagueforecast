@@ -142,23 +142,15 @@ const LIVE_BOARD_KEY = "lf_live_v1";
 const liveBoardListeners = new Set<() => void>();
 
 /**
- * Whether Team Rankings opens on the cloud's published board on this device (`LiveTeamRankings`),
- * which a member turns on in the Cloud panel. Off unless turned on. Kept per device, never in a
- * backup or the cloud copy, and cleared with the rest of the app's keys by a reset.
+ * Whether Team Rankings opens on the cloud's published board on this device (`LiveTeamRankings`)
+ * for a member: on unless turned off in the Cloud panel (1.6e), and then off until turned on again,
+ * so the word kept is the member's choice either way. Kept per device, never in a backup or the
+ * cloud copy, and cleared with the rest of the app's keys by a reset, which puts it back on.
  */
-export const readLiveBoard = (): boolean => safeGet(LIVE_BOARD_KEY) === "on";
+export const readLiveBoard = (): boolean => safeGet(LIVE_BOARD_KEY) !== "off";
 
 export const writeLiveBoard = (on: boolean): boolean => {
-  let written: boolean;
-  if (on) written = safeSet(LIVE_BOARD_KEY, "on");
-  else {
-    try {
-      localStorage.removeItem(LIVE_BOARD_KEY);
-      written = true;
-    } catch {
-      written = false;
-    }
-  }
+  const written = safeSet(LIVE_BOARD_KEY, on ? "on" : "off");
   liveBoardListeners.forEach((listener) => listener());
   return written;
 };

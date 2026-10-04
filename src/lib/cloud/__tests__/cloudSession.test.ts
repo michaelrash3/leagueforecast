@@ -152,6 +152,11 @@ const staged = new Map<string, PackedUpload>();
 let restoredBackups: string[] = [];
 /** The role the list answers with where a case says otherwise than the list itself. */
 let roleSays: { role: MemberRole | null } | null = null;
+/**
+ * Whether the owner's account is on the list still: taken off it, the copy refuses it a look, and
+ * `unreachable` is a look that does not come back at all.
+ */
+let listed: boolean | "unreachable" = true;
 let clock = Date.parse("2026-09-29T12:00:00.000Z");
 
 const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
@@ -164,7 +169,10 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
     },
     onAccount: () => () => undefined,
     idToken: async () => (current ? `token-of-${current.uid}` : null),
-    owns: async () => current?.uid === ME.uid,
+    owns: async () => {
+      if (listed === "unreachable") throw new Error("offline");
+      return listed && current?.uid === ME.uid;
+    },
     members: (() => {
       const list = memoryMembers(
         [{ address: ME.email ?? "", role: "owner" }],
@@ -298,6 +306,7 @@ beforeEach(() => {
   staged.clear();
   restoredBackups = [];
   roleSays = null;
+  listed = true;
   tabs.announced = 0;
 });
 
@@ -871,6 +880,52 @@ describe("an edit made while a save uploads", () => {
     await session.saveNow();
     expect(await cloudLogs()).toEqual({ g1: log(1, 0), g2: log(2, 2) });
     expect(owedChanges()).toEqual({});
+  });
+});
+
+describe("an account the copy refuses mid-visit", () => {
+  const refused = () =>
+    Promise.reject(
+      Object.assign(new Error("Missing or insufficient permissions."), {
+        code: "permission-denied",
+      })
+    );
+
+  it("is no member any more once taken off the list, as at a sign-in", async () => {
+    const { phone } = await inStep();
+    await open(phone);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+    listed = false;
+    sky.store.readManifest = refused;
+    await session.lookAgain({ forced: true });
+    expect(session.cloudStatus()).toMatchObject({ kind: "not-owner", account: ME });
+  });
+
+  it("is only an error while still on the list, such as a write the rules keep from devices", async () => {
+    const { phone } = await inStep();
+    await open(phone);
+    sky.store.readManifest = refused;
+    await session.lookAgain({ forced: true });
+    expect(session.cloudStatus()).toMatchObject({
+      kind: "error",
+      account: ME,
+      message: expect.stringContaining("refused this account"),
+    });
+  });
+
+  it("is taken off the list by a refusal alone, and one the second look confirms", async () => {
+    const { phone } = await inStep();
+    await open(phone);
+    // A look that fails for want of the network says nothing of the list, whatever it holds.
+    listed = false;
+    sky.store.readManifest = () => Promise.reject(new Error("Failed to fetch"));
+    await session.lookAgain({ forced: true });
+    expect(session.cloudStatus()).toMatchObject({ kind: "error", account: ME });
+    // Nor does a refusal whose second look never comes back.
+    listed = "unreachable";
+    sky.store.readManifest = refused;
+    await session.lookAgain({ forced: true });
+    expect(session.cloudStatus()).toMatchObject({ kind: "error", account: ME });
   });
 });
 

@@ -1110,12 +1110,24 @@ const withSession = async (
     failures += 1;
     if (error instanceof Error && error.name === "UnreadableCopyError") {
       setStatus({ kind: "update", account });
+    } else if (await takenOffList(current, error)) {
+      setStatus({ kind: "not-owner", account });
     } else {
       setStatus({ kind: "error", account, message: messageOf(error) });
     }
     return false;
   }
 };
+
+/**
+ * Whether `error` is the rules refusing this account because it is no longer on the list: refused
+ * mid-visit, and refused a look at the copy when asked again (`owns`), as at a sign-in. Then it is
+ * no member any more, and so neither live (`liveBoardWanted`) nor kept in step, as an account
+ * turned away at a sign-in is not. A refusal of a member, of a write the rules keep from devices,
+ * is only an error: the look is let.
+ */
+const takenOffList = async (current: Session, error: unknown): Promise<boolean> =>
+  codeOf(error) === "permission-denied" && !(await current.cloud.owns().catch(() => true));
 
 /** Whether this page may take changes in now: left, or left alone a while. */
 const quietNow = (): boolean =>

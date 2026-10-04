@@ -3950,12 +3950,18 @@ whole as the owner and as a member signed in under a mixed-case address and
 refused to a stranger and an unverified address. Each guard was broken in turn and
 seen to fail a test, 27 of 27.
 
-**Team Rankings on the cloud's board.** A member who turns on **Open Team
-Rankings on the cloud's board** in the Cloud panel opens Team Rankings on it
-(`LiveTeamRankings`). The switch is read as the page opens and kept until it
-closes, so turning it, or the cloud's state moving, never swaps one page for the
-other under the reader; it applies only in a browser that keeps a cloud copy and
-is signed in as a member, or still finding out. Its page draws the published
+**Team Rankings on the cloud's board.** A member opens Team Rankings on it
+(`LiveTeamRankings`) unless **Open Team Rankings on the cloud's board** is turned
+off in the Cloud panel: on by default since 1.6e, and off, once turned off, until
+turned on again (`lf_live_v1` keeps "off" or "on", and anything else, or nothing,
+is on). The switch is read as the page opens and kept until it closes, so turning
+it, or the cloud's state moving, never swaps one page for the other under the
+reader; it applies only in a browser that keeps a cloud copy and is signed in as a
+member, or still finding out. An account the copy refuses partway through a visit
+is asked again whether it may read the copy at all (`owns`), and refused that too,
+it is not a member any more, as at a sign-in (`not-owner`), so it opens Team
+Rankings on its own pool from then on; a member refused something the rules keep
+from devices is only told so. Its page draws the published
 board as Team Rankings draws its own: the same header, places, state top ten and
 filter, League badges, full table and the member's own club card, from the same
 code (`boardDisplay.ts`), with the half the page would open on decided from the
@@ -4691,7 +4697,7 @@ devices that have it on. With it on:
   while League is live counts as having met no League, so going back merges.
 
 **What Team Rankings has, asked of the server.** Where Team Rankings opens on
-the cloud's board (`liveBoardWanted`: turned on in the Cloud panel, in a browser
+the cloud's board (`liveBoardWanted`: unless turned off in the Cloud panel, in a browser
 that keeps a cloud copy, signed in as a member or still finding out), League
 Standings no longer reads Team Rankings off the device's own pool, which a
 member's device is to stop holding. It asks the edit function instead, as the

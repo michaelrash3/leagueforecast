@@ -89,11 +89,11 @@ const Line = ({ children }: { children: ReactNode }) => (
 
 /**
  * This device's switch for opening Team Rankings on the cloud's published board
- * (`LiveTeamRankings`). Off unless turned on, and read as Team Rankings opens, so it changes the
- * next open and never the page on screen.
+ * (`LiveTeamRankings`). On unless turned off (1.6e), and read as Team Rankings opens, so it changes
+ * the next open and never the page on screen.
  */
 const LiveBoardSwitch = () => {
-  const on = useSyncExternalStore(subscribeLiveBoard, readLiveBoard, () => false);
+  const on = useSyncExternalStore(subscribeLiveBoard, readLiveBoard, () => true);
   const id = useId();
   return (
     <div className="flex items-start gap-2">
@@ -109,8 +109,10 @@ const LiveBoardSwitch = () => {
           Open Team Rankings on the cloud&apos;s board
         </label>
         <Note>
-          The board the cloud last built shows at once, then this device&apos;s own copy takes over.
-          On this device only, from the next time Team Rankings opens.
+          Team Rankings is read from the cloud as it is looked at, and edited there, so this device
+          downloads none of its pool. Turned off, it opens on this device&apos;s own copy of the
+          pool instead, downloaded and kept in step with the cloud. On this device only, from the
+          next time Team Rankings opens.
         </Note>
       </div>
     </div>

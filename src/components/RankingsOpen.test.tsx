@@ -51,15 +51,15 @@ beforeEach(() => {
 });
 
 describe("which Team Rankings opens", () => {
-  it("is the page as it always was while the switch is off", () => {
+  it("is the page as it always was once the switch is turned off", () => {
+    writeLiveBoard(false);
     const { page } = open(SAVED);
     expect(screen.getByTestId("page")).toBeTruthy();
     expect(screen.queryByTestId("live")).toBeNull();
     expect(page).toHaveBeenCalledWith();
   });
 
-  it("is the cloud's board for a member who turned it on, signed in or still finding out", async () => {
-    writeLiveBoard(true);
+  it("is the cloud's board for a member unless turned off, signed in or still finding out", async () => {
     open(SAVED);
     expect((await screen.findByTestId("live")).textContent).toBe("cloud's board, saved");
     expect(screen.queryByTestId("page")).toBeNull();
@@ -68,7 +68,6 @@ describe("which Team Rankings opens", () => {
   });
 
   it("is the page as it always was where there is no member to read a board as", () => {
-    writeLiveBoard(true);
     for (const status of [
       { kind: "signed-out" },
       { kind: "none" },
@@ -85,6 +84,7 @@ describe("which Team Rankings opens", () => {
   });
 
   it("stays the one it opened as when the switch is turned while it is open", async () => {
+    writeLiveBoard(false);
     const { shown } = open(SAVED);
     writeLiveBoard(true);
     shown.rerender(

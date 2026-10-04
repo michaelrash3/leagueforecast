@@ -127,16 +127,16 @@ describe("the cloud panel", () => {
     expect(actions.signOut).toHaveBeenCalledTimes(1);
   });
 
-  it("offers this device the cloud's board for Team Rankings, off until turned on", async () => {
+  it("offers this device the cloud's board for Team Rankings, on until turned off", async () => {
     window.localStorage.clear();
     panel(saved());
     const box = screen.getByRole("checkbox", { name: "Open Team Rankings on the cloud's board" });
-    expect(box).not.toBeChecked();
-    await userEvent.click(box);
     expect(box).toBeChecked();
-    expect(readLiveBoard()).toBe(true);
     await userEvent.click(box);
+    expect(box).not.toBeChecked();
     expect(readLiveBoard()).toBe(false);
+    await userEvent.click(box);
+    expect(readLiveBoard()).toBe(true);
   });
 
   it("offers to keep League Standings live on this device, off until turned on", async () => {

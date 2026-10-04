@@ -434,7 +434,7 @@ export default function App() {
    * server for what Team Rankings has for its seasons (`askLeague`), which a device that holds no
    * pool cannot work out (1.6e), and which the board on the Team Rankings side is built from.
    */
-  const liveBoardOn = useSyncExternalStore(subscribeLiveBoard, readLiveBoard, () => false);
+  const liveBoardOn = useSyncExternalStore(subscribeLiveBoard, readLiveBoard, () => true);
   const rankingsLive = liveBoardOn && liveBoardWanted(cloud);
 
   useEffect(() => {

@@ -26,15 +26,15 @@ const NO_MEMBER = new Set<CloudStatus["kind"]>([
 ]);
 
 /**
- * Whether Team Rankings opens on the cloud's board: turned on in the Cloud panel, in a browser that
- * keeps a cloud copy, and signed in as a member, or still finding out.
+ * Whether Team Rankings opens on the cloud's board: unless turned off in the Cloud panel, in a
+ * browser that keeps a cloud copy, and signed in as a member, or still finding out.
  */
 export const liveBoardWanted = (status: CloudStatus): boolean =>
   readLiveBoard() && loadCloudState().enabled && !NO_MEMBER.has(status.kind);
 
 /**
- * Team Rankings as it opens: on the cloud's board (`LiveTeamRankings`) for a member who turned it
- * on, or as it always has, once its pool is in step with the cloud copy (`CloudPoolGate`). Which
+ * Team Rankings as it opens: on the cloud's board (`LiveTeamRankings`) for a member, unless turned
+ * off, or as it always has, once its pool is in step with the cloud copy (`CloudPoolGate`). Which
  * is decided as the page opens and kept until it closes, so turning the switch, or the cloud's
  * state moving, never swaps one page for the other under the reader.
  */
