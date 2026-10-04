@@ -3303,17 +3303,19 @@ schedule. GitHub turns off a public repository's schedules after 60 days with no
 activity in it; **Enable workflow** on the workflow's page turns this one back
 on.
 
-Last but for its memory line, the log says, dry run or live, how the rebuilds
-after saves have gone, read from their ledger ("Rebuilds after saves",
-`rebuildReport.ts`) and never written: whether they are on and dry or live, then
-the runs of the last day one was reserved on and of its month, how many of those
-failed, and the GiB-seconds and vCPU-seconds they spent against the caps, then
-the failures in a row, a pause, and a run reserved and not yet settled. The day
-is the ledger's, since the nightly runs a few hours into a New York day that has
-seldom had a save. A ledger that cannot be read says so on its own line and
-leaves the night's colour alone, as do failed rebuilds: they are not the
-refresh's work. This is what tells whether a week of dry runs went well before
-`mode` is set to `live`.
+The log ends, dry run or live and however the refresh ended, with how the
+rebuilds after saves have gone, read from their ledger ("Rebuilds after saves",
+`rebuildReport.ts`) and never written: whether they are on and dry or live; the
+runs of the ledger's day (the day of its last reserve, refused or not), how many
+of them failed and the GiB-seconds they spent against the day's cap; the same of
+the last day before it that had a run, since the nightly runs a few hours into a
+New York day and a save just after midnight, or a day of refusals at a cap,
+moves the ledger on; the month's runs, failures, GiB-seconds and vCPU-seconds
+against its caps; then the failures in a row, a pause, and a run reserved and
+not yet settled. A ledger that cannot be read says so on its own line and leaves
+the night's colour alone, as do failed rebuilds: they are not the refresh's
+work. This is what tells whether a week of dry runs went well before `mode` is
+set to `live`.
 
 ### Boards a server can build
 
@@ -3568,7 +3570,8 @@ rather than a ledger with its guard lifted. Each run reserves its ceiling first
 GiB-seconds and 640 vCPU-seconds) against the day's and the month's caps, and
 puts what it cost in place of it when it ends. It also counts the runs reserved
 on its day and in its month and how many of them failed, which no cap reads, for
-the nightly's log (`rebuildReport.ts`); a failure counts on the day and month of
+the nightly's log (`rebuildReport.ts`), and keeps the counts of the last day
+before its own that had a run (`lastDay`); a failure counts on the day and month of
 the run's reservation while the ledger still counts those, so a day's failed runs
 are always among its runs. A run that never ends leaves its
 ceiling charged, and the next reserve counts it as a failure; the third failure

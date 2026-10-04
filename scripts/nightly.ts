@@ -17,8 +17,9 @@
  *   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run nightly -- --live
  *
  * A dry run does everything but the saves, and says what the copy's and the views' would have been,
- * the views built from the copy the pull would have saved. Either way it says, last but for its
- * memory, how the rebuilds after saves have gone (`describeRebuilds`), read from their ledger. `--limit N`
+ * the views built from the copy the pull would have saved. Either way, and however the refresh
+ * ended, it ends by saying how the rebuilds after saves have gone (`describeRebuilds`), read from
+ * their ledger. `--limit N`
  * pulls only the first N teams due, and leaves the day unlogged. It prints counts, sizes and
  * timings only: this repository is public, and so are its Actions logs.
  */
@@ -91,6 +92,25 @@ const dryRun = (
   };
 };
 
+/** The rebuilds' ledger, read on the stores' sign-in once they are open (`tellRebuilds`). */
+let readLedger: (() => Promise<unknown>) | null = null;
+
+/**
+ * How the rebuilds after saves have gone, said at the end of every run however the refresh ended,
+ * since a night that failed is when it is most wanted. Said and never judged: the rebuilds are not
+ * this run's work, and a night turned red by them would read as a refresh that failed.
+ */
+const tellRebuilds = async (): Promise<void> => {
+  if (!readLedger) return;
+  try {
+    for (const line of describeRebuilds(await readLedger())) console.log(line);
+  } catch (error) {
+    console.log(
+      `The rebuilds' ledger could not be read: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+};
+
 const REFUSED: Record<Extract<CopyPublish, { ok: false }>["reason"], string> = {
   locale: "the collation is not English, so tied rows would sit in another order than the page's",
   "league-unreadable": "the copy's League Standings could not be read",
@@ -129,6 +149,7 @@ const main = async (): Promise<void> => {
     return;
   }
   const opened = openStores(key, live);
+  readLedger = opened.readLedger;
   const dry = live ? null : dryRun(opened.copy);
   console.log(
     `${live ? "Live" : "Dry run (nothing is saved)"}: the Refresh rota${
@@ -199,15 +220,6 @@ const main = async (): Promise<void> => {
       process.exitCode = 1;
     }
   }
-  // Said and never judged: the rebuilds are not this run's work, and a night turned red by them
-  // would read as a refresh that failed.
-  try {
-    for (const line of describeRebuilds(await opened.readLedger())) console.log(line);
-  } catch (error) {
-    console.log(
-      `The rebuilds' ledger could not be read: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
   console.log(
     `  Memory at the end: ${mb(process.memoryUsage().rss)} (at most ${mb(process.resourceUsage().maxRSS * 1024)}).`
   );
@@ -231,4 +243,5 @@ try {
   // The store opens a channel to other tabs that would keep the process alive.
   resetTeamRankingsStore();
 }
+await tellRebuilds();
 process.exit(process.exitCode ?? 0);

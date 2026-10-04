@@ -35,6 +35,7 @@ const ledger = (more: Partial<Ledger> = {}): Ledger => ({
   dayGiBs: 0,
   dayRuns: 0,
   dayFailed: 0,
+  lastDay: null,
   month: "2027-04",
   monthGiBs: 0,
   monthVcpuS: 0,
@@ -63,6 +64,7 @@ describe("the ledger as the document holds it", () => {
       dayGiBs: 0,
       dayRuns: 0,
       dayFailed: 0,
+      lastDay: null,
       month: "",
       monthGiBs: 0,
       monthVcpuS: 0,
@@ -82,6 +84,7 @@ describe("the ledger as the document holds it", () => {
       dayGiBs: 2_560,
       dayRuns: 4,
       dayFailed: 1,
+      lastDay: { day: "2027-04-13", runs: 7, failed: 2, gibs: 6_000 },
       monthGiBs: 40_000,
       monthVcpuS: 9_000,
       monthRuns: 31,
@@ -140,6 +143,12 @@ describe("the ledger as the document holds it", () => {
       { dayFailed: null },
       { monthRuns: -1 },
       { monthFailed: Infinity },
+      { lastDay: "2027-04-14" },
+      { lastDay: { day: 5, runs: 1, failed: 0, gibs: 0 } },
+      { lastDay: { day: TODAY, runs: 1.5, failed: 0, gibs: 0 } },
+      { lastDay: { day: TODAY, runs: 1, failed: -1, gibs: 0 } },
+      { lastDay: { day: TODAY, runs: 1, failed: 0, gibs: "0" } },
+      { lastDay: { day: TODAY, runs: 1, failed: 0 } },
       { pausedDay: 5 },
       { open: "yes" },
       { open: { at: NOW, day: TODAY } },
@@ -410,6 +419,59 @@ describe("reserving a run", () => {
     });
   });
 
+  it("keeps the last day that had a run when a new day's first reserve moves on from it", () => {
+    const ran = ledger({ dayRuns: 6, dayFailed: 1, dayGiBs: 4_321, monthRuns: 6, monthFailed: 1 });
+    const tomorrow = reserveRun(ran, "2027-04-16", "2027-04-16T00:10:00.000Z");
+    expect(tomorrow).toMatchObject({
+      ok: true,
+      next: {
+        day: "2027-04-16",
+        dayRuns: 1,
+        lastDay: { day: TODAY, runs: 6, failed: 1, gibs: 4_321 },
+      },
+    });
+    // A day of refusals at the month's cap moves the day on, and keeps the last day that ran.
+    const capped = { ...ran, monthGiBs: DEFAULT_CAPS.monthGiBs };
+    const refused = reserveRun(capped, "2027-04-16", "2027-04-16T09:00:00.000Z");
+    expect(refused).toMatchObject({
+      ok: false,
+      why: "month-cap",
+      next: { day: "2027-04-16", dayRuns: 0, lastDay: { day: TODAY, runs: 6 } },
+    });
+    expect(reserveRun(refused.next, "2027-04-17", "2027-04-17T09:00:00.000Z")).toMatchObject({
+      ok: false,
+      why: "month-cap",
+      next: { day: "2027-04-17", dayRuns: 0, lastDay: { day: TODAY, runs: 6, failed: 1 } },
+    });
+  });
+
+  it("counts a run left open on the last day that ran as one of its failures", () => {
+    const left = ledger({
+      dayRuns: 3,
+      monthRuns: 3,
+      dayGiBs: 2_560,
+      monthGiBs: 2_560,
+      monthVcpuS: 640,
+      open: {
+        at: "2027-04-15T23:58:00.000Z",
+        day: TODAY,
+        cost: { ...RUN_CEILING },
+        task: "",
+        by: "",
+      },
+    });
+    expect(reserveRun(left, "2027-04-16", "2027-04-16T09:00:00.000Z")).toMatchObject({
+      ok: true,
+      next: {
+        dayRuns: 1,
+        dayFailed: 0,
+        lastDay: { day: TODAY, runs: 3, failed: 1, gibs: 2_560 },
+        monthRuns: 4,
+        monthFailed: 1,
+      },
+    });
+  });
+
   it("is refused for the rest of a day the failures paused, and not the next day", () => {
     const paused = ledger({ failures: 3, pausedDay: TODAY });
     expect(reserveRun(paused, TODAY, NOW)).toEqual({ ok: false, why: "failing", next: paused });
@@ -462,6 +524,11 @@ describe("settling a run", () => {
       pausedDay: TODAY,
       open: null,
     });
+    // A failure of today's run is not one of the last day that ran before it.
+    const lastDay = { day: "2027-04-14", runs: 5, failed: 0, gibs: 3_000 };
+    expect(
+      settleRun({ ...open, lastDay }, { at: NOW, used, failed: true, today: TODAY })
+    ).toMatchObject({ dayFailed: 1, lastDay });
   });
 
   it("charges what a run cost past its ceiling, and nothing below none", () => {

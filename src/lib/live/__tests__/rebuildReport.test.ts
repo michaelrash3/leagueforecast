@@ -70,6 +70,23 @@ describe("the nightly's lines on the rebuilds", () => {
     ).toBe("  2027-04-14: 1 run, 0 failed; 0 of 10,000 GiB-seconds.");
   });
 
+  it("says the last day before the ledger's that had a run", () => {
+    const lines = describeRebuilds({
+      on: true,
+      day: "2027-04-16",
+      dayRuns: 0,
+      lastDay: { day: "2027-04-14", runs: 6, failed: 1, gibs: 4_321 },
+      month: "2027-04",
+      monthRuns: 9,
+      monthFailed: 1,
+    });
+    expect(lines.slice(1, 3)).toEqual([
+      "  2027-04-16: 0 runs, 0 failed; 0 of 10,000 GiB-seconds.",
+      "  Before that, 2027-04-14: 6 runs, 1 failed; 4,321 GiB-seconds.",
+    ]);
+    expect(lines).toHaveLength(5);
+  });
+
   it("says a pause and a run not yet settled, and not whose task the run was", () => {
     const lines = describeRebuilds({
       on: true,

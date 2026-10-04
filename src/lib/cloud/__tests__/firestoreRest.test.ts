@@ -436,6 +436,7 @@ describe("a document written only if nobody has since, through Firestore's REST 
         "dayGiBs",
         "dayRuns",
         "failures",
+        "lastDay",
         "mode",
         "month",
         "monthFailed",
@@ -455,6 +456,21 @@ describe("a document written only if nobody has since, through Firestore's REST 
       "  2027-04: 1 run, 0 failed; 2,560 of 120,000 GiB-seconds and 640 of 30,000 vCPU-seconds.",
       "  0 failed in a row, of the 3 that pause them; a run reserved at 2027-04-15T14:00:00.000Z has not settled.",
     ]);
+    // A ledger with every field set is written and read back as it was.
+    const full = coerceLedger(written);
+    if (!full) throw new Error("no ledger");
+    const set = {
+      ...full,
+      dayFailed: 1,
+      lastDay: { day: "2027-04-14", runs: 6, failed: 1, gibs: 4_321 },
+      monthRuns: 9,
+      monthFailed: 2,
+      failures: 1,
+      pausedDay: "2027-04-14",
+    };
+    const at = await store.read();
+    expect(await store.replace(at.token, set)).toBe(true);
+    expect(coerceLedger((await store.read()).raw)).toEqual(set);
   });
 });
 
