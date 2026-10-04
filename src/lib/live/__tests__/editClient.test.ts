@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { FIREBASE_WEB_CONFIG } from "../../cloud/cloudConfig";
-import { CALL_LIMIT_MS, callEdit, callWarm, coerceEditReply, EDIT_URL } from "../editClient";
+import {
+  CALL_LIMIT_MS,
+  callEdit,
+  callQuery,
+  callWarm,
+  coerceEditReply,
+  EDIT_URL,
+} from "../editClient";
 import type { EditReply } from "../editHandle";
 import { EDIT_TIMEOUT_S } from "../editWorkerProtocol";
 
@@ -233,5 +240,65 @@ describe("a warm-up call", () => {
       ok: false,
       why: "failed",
     });
+  });
+});
+
+describe("a question", () => {
+  const QUESTION = { kind: "rename.preview", teamId: "A", name: "Club B" } as const;
+  const ANSWER = {
+    kind: "rename.preview",
+    name: "Club B",
+    into: { id: "B", name: "Club B" },
+    games: 4,
+    dropped: 2,
+  } as const;
+
+  it("posts the question and the copy with the member's sign-in, and hands back its answer", async () => {
+    const server = answering(200, {
+      result: { ok: true, copy: "c0ffee01", version: 9, answer: ANSWER },
+    });
+    expect(
+      await callQuery(
+        { query: QUESTION, copy: "c0ffee01" },
+        { ...signedIn, fetchImpl: server.fetchImpl }
+      )
+    ).toEqual({ ok: true, value: { ok: true, copy: "c0ffee01", version: 9, answer: ANSWER } });
+    expect(JSON.parse(String(server.sent[0]?.init.body))).toEqual({
+      data: { query: QUESTION, copy: "c0ffee01" },
+    });
+    const refused = answering(200, { result: { ok: false, why: "copy-replaced" } });
+    expect(
+      await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: refused.fetchImpl })
+    ).toEqual({ ok: true, value: { ok: false, why: "copy-replaced" } });
+  });
+
+  it("takes no answer to another question, or a refusal only an edit gives, and nothing unclear as more than a failure", async () => {
+    for (const result of [
+      { ok: true, copy: "c0ffee01", version: 9, answer: { ...ANSWER, kind: "merge.preview" } },
+      { ok: true, copy: "c0ffee01", version: 9.5, answer: ANSWER },
+      { ok: true, version: 9, answer: ANSWER },
+      { ok: false, why: "missing" },
+      { ok: false, why: "unsure" },
+    ]) {
+      const server = answering(200, { result });
+      expect(
+        await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: server.fetchImpl })
+      ).toMatchObject({ ok: false, why: "failed" });
+    }
+    // A question changes nothing, so a server that failed in a way that does not say, or an
+    // answer that never came, is a question to ask again.
+    const internal = answering(500, { error: { status: "INTERNAL", message: "INTERNAL" } });
+    expect(
+      await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: internal.fetchImpl })
+    ).toMatchObject({ ok: false, why: "failed" });
+    const lost = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(
+      await callQuery(
+        { query: QUESTION },
+        { ...signedIn, fetchImpl: lost as unknown as typeof fetch }
+      )
+    ).toEqual({ ok: false, why: "failed", message: "No answer came from the server." });
   });
 });

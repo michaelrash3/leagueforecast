@@ -336,6 +336,23 @@ if (process.env.LIVE_REBUILD !== "on") {
     reads.length === memberReads + 1 && reads.every((url) => url.includes("/documents/members/")),
     JSON.stringify(reads)
   );
+  const query = { kind: "rename.preview", teamId: "B", name: "Club B" };
+  const outsiderQuery = await post(edit, { data: { query } }, signedInAs("outsider@example.com"));
+  const junkQuery = await post(
+    edit,
+    { data: { query: { ...query, extra: 1 } } },
+    signedInAs("member@example.com")
+  );
+  const both = await post(edit, { data: { command, query } }, signedInAs("member@example.com"));
+  check(
+    "a question is the members' alone too, and one read inexactly, or beside an edit, is refused",
+    outsiderQuery.status === 403 &&
+      junkQuery.status === 400 &&
+      /INVALID_ARGUMENT/.test(String(junkQuery.body)) &&
+      both.status === 400 &&
+      /INVALID_ARGUMENT/.test(String(both.body)),
+    `${outsiderQuery.status} / ${junkQuery.status} ${junkQuery.body} / ${both.status} ${both.body}`
+  );
   globalThis.fetch = realFetch;
   // The edit's worker, bundled apart: it loads, and answers a ping without reading anything.
   const editPong = await new Promise((resolve, reject) => {

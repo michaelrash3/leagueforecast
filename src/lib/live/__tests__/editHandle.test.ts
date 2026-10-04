@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { EditRun } from "../editRun";
-import { chargeQueue, handleEdit, handleWarm, NOT_MADE, type EditWorker } from "../editHandle";
+import type { EditRun, QueryRun } from "../editRun";
+import {
+  chargeQueue,
+  handleEdit,
+  handleQuery,
+  handleWarm,
+  NOT_ANSWERED,
+  NOT_MADE,
+  type EditWorker,
+  type QueryAsk,
+} from "../editHandle";
 import {
   editRunner,
   TurnFailed,
@@ -87,9 +96,21 @@ const ran = <T>(result: T, busyMs = 2_000): Turned<T> => ({
   memory: MEMORY,
 });
 
+const QUERIED: QueryRun = {
+  ok: true,
+  copy: "c1",
+  version: 8,
+  answer: { kind: "merge.preview", found: true, games: 12, dropped: 2 },
+  cold: false,
+  fetched: 1,
+  loadMs: 30,
+  answerMs: 900,
+};
+
 /** A worker whose every edit is `edit`'s turn, and whose warm-up took four seconds. */
 const workerOf = (edit: EditWorker["edit"] = async () => ran(EDITED)): EditWorker => ({
   edit,
+  query: async () => ran(QUERIED, 1_000),
   warm: async () => ran({ ok: true, cold: true, fetched: 12, loadMs: 4_000 }, 4_000),
 });
 
@@ -394,5 +415,109 @@ describe("a warm-up", () => {
         line: { kind: "warm", gibs: 8, end: "gone" },
       }
     );
+  });
+});
+
+describe("a question", () => {
+  const QUESTION: QueryAsk = {
+    query: { kind: "merge.preview", fromId: "A", intoId: "B", adopt: [] },
+    copy: "c1",
+  };
+  const ask = (ledger: LedgerStore, worker: Pick<EditWorker, "query">, signal?: AbortSignal) =>
+    handleQuery({
+      ask: QUESTION,
+      ledger,
+      worker,
+      today: () => TODAY,
+      size: SIZE,
+      startupS: () => 0,
+      charges: chargeQueue(),
+      ...(signal ? { signal } : {}),
+    });
+
+  it("is answered from the worker's pool, of the copy and version it was worked out on, and charged as an edit", async () => {
+    const ledger = memoryLedger(ledgerOf());
+    const asked: unknown[] = [];
+    const handled = await ask(ledger.store, {
+      query: async (question) => {
+        asked.push(question);
+        return ran(QUERIED, 1_000);
+      },
+    });
+    expect(asked).toEqual([QUESTION]);
+    expect(handled).toEqual({
+      reply: {
+        ok: true,
+        copy: "c1",
+        version: 8,
+        answer: { kind: "merge.preview", found: true, games: 12, dropped: 2 },
+      },
+      line: {
+        kind: "merge.preview",
+        gibs: 8,
+        heapUsedMb: 500,
+        rssMb: 1_201,
+        heapLimitMb: 2_600,
+        end: "answered",
+        copy: "c1",
+        version: 8,
+        cold: false,
+        fetched: 1,
+        loadMs: 30,
+        answerMs: 900,
+      },
+    });
+    // One second in the worker at 8 GiB and 2 vCPUs; no run reserved or counted.
+    expect(ledger.held()).toMatchObject({ dayGiBs: 8, monthVcpuS: 2, dayRuns: 0, open: null });
+  });
+
+  it("says why it went unanswered on the copy, its turn charged", async () => {
+    const ledger = memoryLedger(ledgerOf());
+    expect(
+      await ask(ledger.store, { query: async () => ran({ ok: false, why: "copy-replaced" }) })
+    ).toMatchObject({ reply: { ok: false, why: "copy-replaced" }, line: { end: "copy-replaced" } });
+    expect(ledger.held()).toMatchObject({ dayGiBs: 16 });
+  });
+
+  it("is only to be asked again when the worker failed with it or never had it, whatever it was doing", async () => {
+    const ledger = memoryLedger(ledgerOf());
+    for (const lost of [true, false]) {
+      expect(
+        await ask(ledger.store, {
+          query: async () => {
+            throw new TurnFailed("the worker died", 500, lost);
+          },
+        })
+      ).toEqual({
+        notAnswered: NOT_ANSWERED,
+        line: { kind: "merge.preview", gibs: 4, end: "threw", error: "the worker died" },
+      });
+    }
+    for (const why of ["gone", "late"] as const) {
+      expect(await ask(ledger.store, { query: async () => ({ ran: false, why }) })).toEqual({
+        notAnswered: NOT_ANSWERED,
+        line: { kind: "merge.preview", gibs: 0, end: why },
+      });
+    }
+    // A question changes nothing, so nothing in what the device is told says it may have.
+    expect(NOT_ANSWERED).toMatch(/nothing was changed/);
+  });
+
+  it("hands the request's own end to the worker, so a question whose caller has gone is never sent", async () => {
+    const ledger = memoryLedger(ledgerOf());
+    const ended = new AbortController();
+    ended.abort();
+    const seen: unknown[] = [];
+    await ask(
+      ledger.store,
+      {
+        query: async (_question, turn) => {
+          seen.push(turn);
+          return { ran: false, why: "gone" };
+        },
+      },
+      ended.signal
+    );
+    expect(seen).toEqual([{ signal: ended.signal }]);
   });
 });

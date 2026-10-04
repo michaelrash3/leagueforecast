@@ -8,6 +8,7 @@ import {
 import { readCloudPoolValue } from "../teamRankingsStorage";
 import type { PoolCommand } from "./commands";
 import type { EditPool, PoolEnsure } from "./poolCache";
+import { answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
 import { EDIT_DEVICE } from "./rebuildPlan";
 import { runPoolCommand } from "./runPoolCommand";
 
@@ -164,4 +165,61 @@ export const runEdit = async ({
     await pool.forget();
   }
   return { ok: false, why: "kept-moving", tries: MAX_TRIES };
+};
+
+/** Why a question was not answered: the copy is not the one asked about, or would not load. */
+export type QueryRefusal = "copy-replaced" | Extract<PoolEnsure, { ok: false }>["reason"];
+
+export type QueryRun =
+  | {
+      ok: true;
+      /** The copy and version the answer was worked out on. */
+      copy: string;
+      version: number;
+      answer: QueryAnswer;
+      /** How the pool was found: started afresh, the parts it fetched, and the time each step took. */
+      cold: boolean;
+      fetched: number;
+      loadMs: number;
+      answerMs: number;
+    }
+  | { ok: false; why: QueryRefusal };
+
+/**
+ * Answers `query` on the copy `store` holds (`answerQuery`): `pool` brought to it, as an edit's is,
+ * and nothing written. `copy`, when given, is the copy the device asked about, and a question about
+ * any other is refused, since its answer would be of another copy's clubs.
+ */
+export const runQuery = async ({
+  pool,
+  store,
+  query,
+  copy,
+  clock = () => performance.now(),
+}: {
+  pool: EditPool;
+  store: CloudStore;
+  query: PoolQuery;
+  copy?: string;
+  clock?: () => number;
+}): Promise<QueryRun> => {
+  const loading = clock();
+  const ensured = await pool.ensure(store);
+  const loadMs = Math.round(clock() - loading);
+  if (!ensured.ok) return { ok: false, why: ensured.reason };
+  if (copy !== undefined && ensured.manifest.copy !== copy) {
+    return { ok: false, why: "copy-replaced" };
+  }
+  const answering = clock();
+  const answer = answerQuery(query);
+  return {
+    ok: true,
+    copy: ensured.manifest.copy,
+    version: ensured.manifest.version,
+    answer,
+    cold: ensured.cold,
+    fetched: ensured.fetched.length,
+    loadMs,
+    answerMs: Math.round(clock() - answering),
+  };
 };

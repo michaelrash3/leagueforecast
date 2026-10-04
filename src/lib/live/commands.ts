@@ -1280,7 +1280,7 @@ const yearOf = (value: unknown): number | null | undefined =>
  * or change to keep (a state that is a number, a link with no page) is not the record that was
  * meant, and putting it back would quietly lose what it dropped.
  */
-const oneTeam = (raw: unknown): ScoutTeam | null => {
+export const oneTeam = (raw: unknown): ScoutTeam | null => {
   const [team] = coerceScoutTeams([raw]);
   return team && sameValue(team, raw) ? team : null;
 };
@@ -1294,7 +1294,7 @@ const isPlace = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 0;
 
 /** Every item of a list read by `one`, or null when the list is not one or any item is not. */
-const everyOne = <T>(raw: unknown, one: (item: unknown) => T | null): T[] | null => {
+export const everyOne = <T>(raw: unknown, one: (item: unknown) => T | null): T[] | null => {
   if (!Array.isArray(raw)) return null;
   const out: T[] = [];
   for (const item of raw) {

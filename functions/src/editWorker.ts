@@ -11,7 +11,7 @@
 import { getHeapStatistics } from "node:v8";
 import { parentPort } from "node:worker_threads";
 import { firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
-import { runEdit } from "../../src/lib/live/editRun";
+import { runEdit, runQuery } from "../../src/lib/live/editRun";
 import { answerEdit, type EditRequest } from "../../src/lib/live/editWorkerProtocol";
 import { createEditPool } from "../../src/lib/live/poolCache";
 import { memoryOf } from "../../src/lib/live/rebuildWorkerProtocol";
@@ -31,6 +31,14 @@ parentPort?.on("message", (request: EditRequest) => {
         command: ask.command,
         ...(ask.copy === undefined ? {} : { copy: ask.copy }),
         now,
+      }),
+    // A question writes nothing, so it reads the copy as the warm-up does.
+    query: (ask) =>
+      runQuery({
+        pool,
+        store: firestoreRestStore({ ...restAccess(), writable: false }),
+        query: ask.query,
+        ...(ask.copy === undefined ? {} : { copy: ask.copy }),
       }),
     warm: async () => {
       const started = Date.now();

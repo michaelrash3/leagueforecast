@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { EditRun } from "../editRun";
+import type { EditRun, QueryRun } from "../editRun";
 import {
   answerEdit,
   EDIT_CALL_S,
@@ -39,6 +39,17 @@ const EDITED: EditRun = {
 };
 const SMALL: WorkerMemory = { heapUsedMb: 900.4, rssMb: 1_800.6, heapLimitMb: 5_168.2 };
 const ASK = { command: { kind: "team.state", teamId: "B", state: "KY" } } as const;
+const QUERIED: QueryRun = {
+  ok: true,
+  copy: "c1",
+  version: 8,
+  answer: { kind: "rename.preview", name: "Hornets", into: null, games: 0, dropped: 0 },
+  cold: false,
+  fetched: 0,
+  loadMs: 1,
+  answerMs: 2,
+};
+const QUESTION = { query: { kind: "rename.preview", teamId: "B", name: "Hornets" } } as const;
 
 /** Workers answering each request as `answer` says, counting the workers started and ended. */
 const fakeWorkers = (answer: (request: EditRequest, worker: number) => EditWorkerAnswer | null) => {
@@ -73,6 +84,8 @@ const answering =
   (memory: WorkerMemory = SMALL) =>
   (request: EditRequest): EditWorkerAnswer => {
     if (request.kind === "edit") return { kind: "edited", id: request.id, result: EDITED, memory };
+    if (request.kind === "query")
+      return { kind: "queried", id: request.id, result: QUERIED, memory };
     if (request.kind === "warm") {
       const result = { ok: true as const, cold: true, fetched: 9, loadMs: 5 };
       return { kind: "warmed", id: request.id, result, memory };
@@ -99,8 +112,9 @@ describe("the worker's answer", () => {
   it("is each request's result with the worker's memory, a request that threw, or a pong", async () => {
     const memory = () => SMALL;
     const edit = vi.fn(async () => EDITED);
+    const query = vi.fn(async () => QUERIED);
     const warm = vi.fn(async () => ({ ok: false as const, reason: "no-copy" as const }));
-    const deps = { edit, warm, memory };
+    const deps = { edit, query, warm, memory };
     expect(await answerEdit({ kind: "edit", id: 1, ask: ASK }, deps)).toEqual({
       kind: "edited",
       id: 1,
@@ -108,6 +122,13 @@ describe("the worker's answer", () => {
       memory: SMALL,
     });
     expect(edit).toHaveBeenCalledWith(ASK);
+    expect(await answerEdit({ kind: "query", id: 2, ask: QUESTION }, deps)).toEqual({
+      kind: "queried",
+      id: 2,
+      result: QUERIED,
+      memory: SMALL,
+    });
+    expect(query).toHaveBeenCalledWith(QUESTION);
     expect(await answerEdit({ kind: "warm", id: 3 }, deps)).toMatchObject({
       kind: "warmed",
       result: { ok: false, reason: "no-copy" },
@@ -126,7 +147,7 @@ describe("the worker's answer", () => {
 });
 
 describe("the main thread's worker", () => {
-  it("keeps one worker for the edits and the warm-ups between them", async () => {
+  it("keeps one worker for the edits, the questions and the warm-ups between them", async () => {
     const workers = fakeWorkers(answering());
     const runner = editRunner({ spawn: workers.spawn });
     expect(resultOf(await runner.warm())).toEqual({ ok: true, cold: true, fetched: 9, loadMs: 5 });
@@ -136,10 +157,40 @@ describe("the main thread's worker", () => {
       busyMs: expect.any(Number),
       memory: SMALL,
     });
+    expect(await runner.query(QUESTION)).toEqual({
+      ran: true,
+      result: QUERIED,
+      busyMs: expect.any(Number),
+      memory: SMALL,
+    });
     expect(resultOf(await runner.edit(ASK))).toEqual(EDITED);
     expect(workers.started).toEqual([1]);
     expect(workers.ended).toEqual([]);
-    expect(workers.posted.map((request) => request.kind)).toEqual(["warm", "edit", "edit"]);
+    expect(workers.posted.map((request) => request.kind)).toEqual([
+      "warm",
+      "edit",
+      "query",
+      "edit",
+    ]);
+    expect(workers.posted[2]).toMatchObject({ kind: "query", ask: QUESTION });
+  });
+
+  it("takes a question answered as anything else for a lost one, and ends the worker", async () => {
+    const workers = fakeWorkers((request, worker) =>
+      request.kind === "query" && worker === 1
+        ? { kind: "edited", id: request.id, result: EDITED, memory: SMALL }
+        : answering()(request)
+    );
+    const runner = editRunner({ spawn: workers.spawn });
+    const thrown = await runner.query(QUESTION).catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(TurnFailed);
+    expect(thrown).toMatchObject({
+      lost: true,
+      message: "The edit's worker answered edited to a question.",
+    });
+    expect(workers.ended).toEqual([1]);
+    expect(resultOf(await runner.query(QUESTION))).toEqual(QUERIED);
+    expect(workers.started).toEqual([1, 2]);
   });
 
   it("sends requests one at a time, in the order they came", async () => {

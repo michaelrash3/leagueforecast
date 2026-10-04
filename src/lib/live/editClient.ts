@@ -2,7 +2,8 @@ import { FIREBASE_WEB_CONFIG } from "../cloud/cloudConfig";
 import { functionUrl } from "../cloud/functionsUrl";
 import { coerceCommand, type PoolCommand } from "./commands";
 import type { EditReply, WarmResult } from "./editHandle";
-import type { EditRefusal } from "./editRun";
+import type { EditRefusal, QueryRefusal } from "./editRun";
+import { coerceQueryAnswer, type PoolQuery, type QueryAnswers, type QueryKind } from "./queries";
 
 /**
  * A member's device asking the edit function (`edit`, `functions/src/index.ts`) to make an edit or
@@ -50,7 +51,8 @@ export type CallDeps = {
   limitMs?: number;
 };
 
-type Called<T> = { ok: true; value: T } | { ok: false; why: CallFailure; message: string };
+/** A call's outcome: the server's answer, or why there is none, said for a person. */
+export type Called<T> = { ok: true; value: T } | { ok: false; why: CallFailure; message: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -150,6 +152,9 @@ const ENSURE_REFUSALS: Record<EnsureRefusal, true> = {
   "kept-moving": true,
 };
 
+/** Why a question went unanswered, each named once. */
+const QUERY_REFUSALS: Record<QueryRefusal, true> = { ...ENSURE_REFUSALS, "copy-replaced": true };
+
 /** Why an edit was not made, each named once. */
 const EDIT_REFUSALS: Record<EditRefusal, true> = {
   ...ENSURE_REFUSALS,
@@ -205,6 +210,27 @@ export const coerceEditReply = (raw: unknown): EditReply | null => {
   };
 };
 
+/** What a question of kind `K` is answered: its answer, of which copy and version, or why none. */
+export type QueryReplyOf<K extends QueryKind> =
+  | { ok: true; copy: string; version: number; answer: { kind: K } & QueryAnswers[K] }
+  | { ok: false; why: QueryRefusal };
+
+/** A question's reply as the function makes one, for a question of kind `kind`, or null. */
+export const coerceQueryReply = <K extends QueryKind>(
+  raw: unknown,
+  kind: K
+): QueryReplyOf<K> | null => {
+  if (!isRecord(raw)) return null;
+  if (raw.ok === false)
+    return isOneOf(QUERY_REFUSALS, raw.why) ? { ok: false, why: raw.why } : null;
+  if (raw.ok !== true) return null;
+  const { copy, version } = raw;
+  const answer = coerceQueryAnswer(raw.answer, kind);
+  return typeof copy === "string" && isCount(version) && Number.isInteger(version) && answer
+    ? { ok: true, copy, version, answer }
+    : null;
+};
+
 /** A warm-up's answer as the function makes one, or null for anything else. */
 export const coerceWarmed = (raw: unknown): WarmResult | null => {
   const warmed = isRecord(raw) && isRecord(raw.warmed) ? raw.warmed : null;
@@ -239,3 +265,18 @@ export const callEdit = (
 /** Asks the server to bring its pool up ahead of an edit. */
 export const callWarm = (deps: CallDeps): Promise<Called<WarmResult>> =>
   call({ warm: true }, coerceWarmed, deps, "failed");
+
+/**
+ * Asks the server a question about the copy (`queries.ts`), about `copy` when given. It changes
+ * nothing, so an answer that never came is only a question to ask again (`failed`).
+ */
+export const callQuery = <K extends QueryKind>(
+  ask: { query: PoolQuery & { kind: K }; copy?: string },
+  deps: CallDeps
+): Promise<Called<QueryReplyOf<K>>> =>
+  call(
+    { query: ask.query, ...(ask.copy === undefined ? {} : { copy: ask.copy }) },
+    (result) => coerceQueryReply(result, ask.query.kind),
+    deps,
+    "failed"
+  );

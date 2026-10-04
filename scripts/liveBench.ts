@@ -11,7 +11,8 @@
  *   npm run live:bench -- backup.json --save copy.json  the cloud copy made from either, kept in a file
  *   npm run live:bench -- --copy copy.json              the bench run from a kept copy
  *
- * The edits are made twice: first on their own, as the edit function makes them, then each followed
+ * The questions a section asks before an edit (`runQuery`) are asked once, after the warm-up. The
+ * edits are made twice: first on their own, as the edit function makes them, then each followed
  * by a publish of every board, as the rebuild after it builds them, where it changed a part the
  * boards read (the trigger rebuilds after no other edit). Only a run from a kept copy says
  * how much memory each step took at most (`peakRssMb`, the process's peak so far): a run that reads a
@@ -31,7 +32,8 @@ import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { memoryIo } from "../src/lib/cloud/cloudRunner.ts";
 import { isBoardInput } from "../src/lib/live/boardInputs.ts";
 import type { PoolCommand } from "../src/lib/live/commands.ts";
-import { runEdit } from "../src/lib/live/editRun.ts";
+import { runEdit, runQuery } from "../src/lib/live/editRun.ts";
+import type { PoolQuery } from "../src/lib/live/queries.ts";
 import { createEditPool } from "../src/lib/live/poolCache.ts";
 import { runRebuild } from "../src/lib/live/rebuild.ts";
 import { memoryLive } from "../src/lib/live/__tests__/memoryLive.ts";
@@ -309,6 +311,28 @@ const main = async () => {
       ...peak(),
     });
   };
+
+  // The questions a section asks before an edit, on the pool the warm-up left.
+  const fold = commands.find(([kind]) => kind === "teams.merge")?.[1];
+  if (fold?.kind === "teams.merge") {
+    const into = loadScoutTeams().find((team) => team.id === fold.intoId);
+    const questions: PoolQuery[] = [
+      { kind: "merge.preview", fromId: fold.fromId, intoId: fold.intoId, adopt: [] },
+      { kind: "rename.preview", teamId: fold.fromId, name: into?.name ?? "" },
+    ];
+    for (const query of questions) {
+      started = performance.now();
+      const asked = await runQuery({ pool, store: cloud.store, query });
+      print({
+        step: "question",
+        kind: query.kind,
+        ...(asked.ok ? { answerMs: asked.answerMs } : { refused: asked.why }),
+        ms: ms(started),
+        heapMb: heapMb(),
+        ...peak(),
+      });
+    }
+  }
 
   // The edits alone, as the edit function makes them, with nothing built between.
   for (const [kind, command] of commands) {

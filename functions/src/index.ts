@@ -22,7 +22,7 @@ import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pul
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
 import { coerceCommand } from "../../src/lib/live/commands";
-import { chargeQueue, handleEdit, handleWarm } from "../../src/lib/live/editHandle";
+import { chargeQueue, handleEdit, handleQuery, handleWarm } from "../../src/lib/live/editHandle";
 import {
   EDIT_CONCURRENCY,
   EDIT_SIZE,
@@ -31,6 +31,7 @@ import {
   editRunner,
   type EditPort,
 } from "../../src/lib/live/editWorkerProtocol";
+import { coerceQuery } from "../../src/lib/live/queries";
 import { handleRebuildTask } from "../../src/lib/live/rebuild";
 import { coerceLedger, restLedgerStore } from "../../src/lib/live/rebuildLedger";
 import { coerceRebuildTask } from "../../src/lib/live/rebuildPlan";
@@ -468,8 +469,9 @@ const editCharges = chargeQueue();
 const COPY_ID = /^[0-9a-f]{8,64}$/;
 
 /**
- * POST (callable) `edit` `{ command, copy? }` or `{ warm: true }`: runs a command on the cloud copy
- * (`handleEdit`), or brings the pool up ahead of one (`handleWarm`). For the accounts on the cloud
+ * POST (callable) `edit` `{ command, copy? }`, `{ query, copy? }` or `{ warm: true }`: runs a command
+ * on the cloud copy (`handleEdit`), answers a question about it (`handleQuery`), or brings the pool
+ * up ahead of either (`handleWarm`). For the accounts on the cloud
  * copy's list, as the rules make anything that touches the copy (`memberCheck.ts`, with the sign-in
  * the call carries). One instance, taking several calls at once and running them one at a time in
  * its worker, since the pool is one. A call is never left to the platform's timeout with its edit
@@ -506,12 +508,17 @@ export const edit = !LIVE_REBUILD
         }
         const data = (request.data ?? null) as {
           command?: unknown;
+          query?: unknown;
           copy?: unknown;
           warm?: unknown;
         } | null;
-        const command = data?.warm === true ? null : coerceCommand(data?.command);
+        // One of the three, read exactly: a request naming more than one is none of them.
+        const asks = [data?.command, data?.query, data?.warm].filter((one) => one !== undefined);
+        const warm = asks.length === 1 && data?.warm === true;
+        const command = asks.length === 1 && !warm ? coerceCommand(data?.command) : null;
+        const query = asks.length === 1 && !warm && !command ? coerceQuery(data?.query) : null;
         const copy = data?.copy;
-        if (data?.warm !== true && !command) {
+        if (!warm && !command && !query) {
           throw new HttpsError("invalid-argument", "That is not an edit this server knows.");
         }
         if (copy !== undefined && (typeof copy !== "string" || !COPY_ID.test(copy))) {
@@ -531,6 +538,15 @@ export const edit = !LIVE_REBUILD
           // The request's own end: a call whose caller has gone is never sent to the worker.
           ...(response?.signal ? { signal: response.signal } : {}),
         };
+        if (query) {
+          const handled = await handleQuery({
+            ...deps,
+            ask: { query, ...(typeof copy === "string" ? { copy } : {}) },
+          });
+          logger.info("edit", handled.line);
+          if ("notAnswered" in handled) throw new HttpsError("aborted", handled.notAnswered);
+          return handled.reply;
+        }
         if (!command) {
           const { warmed, line } = await handleWarm(deps);
           logger.info("edit", line);

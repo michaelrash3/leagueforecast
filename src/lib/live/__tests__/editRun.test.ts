@@ -22,7 +22,7 @@ import {
   saveScoutGames,
   saveScoutTeams,
 } from "../../teamRankingsStorage";
-import { EDIT_DEVICE, runEdit } from "../editRun";
+import { EDIT_DEVICE, runEdit, runQuery } from "../editRun";
 import { runRebuild } from "../rebuild";
 import { createEditPool, type EditPool } from "../poolCache";
 import { memoryLive } from "./memoryLive";
@@ -333,6 +333,67 @@ describe("an edit on the cloud copy", () => {
     await reopen(cloud);
     expect(loadScoutGamesForYear(2028).map((game) => game.id)).toEqual(["new"]);
     expect(loadAgeGroups()).toEqual(GROUPS);
+  });
+});
+
+describe("a question about the cloud copy", () => {
+  const ask = (cache: EditPool, store: CloudStore, copy?: string) =>
+    runQuery({
+      pool: cache,
+      store,
+      query: { kind: "rename.preview", teamId: "A", name: "Club Z" },
+      ...(copy ? { copy } : {}),
+    });
+
+  it("is answered on the copy as it stands, of its version, writing nothing", async () => {
+    const cloud = await copyOfPool();
+    const writes = cloud.costs.writes;
+    expect(await ask(editPool(), cloud.store)).toMatchObject({
+      ok: true,
+      copy: cloud.manifest()!.copy,
+      version: cloud.manifest()!.version,
+      answer: { kind: "rename.preview", name: "Club Z", into: null, games: 0, dropped: 0 },
+      cold: true,
+    });
+    expect(cloud.costs.writes).toBe(writes);
+  });
+
+  it("is answered on the copy another save has since moved, the warm pool brought to it", async () => {
+    const cloud = await copyOfPool();
+    const cache = editPool();
+    expect(await ask(cache, cloud.store)).toMatchObject({ ok: true, answer: { into: null } });
+    const saved = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [
+        {
+          key: TEAMS_KEY,
+          value: encodeScoutTeams(
+            TEAMS.map((team) => (team.id === "B" ? { ...team, name: "Club Z" } : team))
+          ),
+          at: 2,
+        },
+      ],
+      device: "phone",
+      now: NOW,
+    });
+    if (!saved.ok) throw new Error("the phone's save did not land");
+    expect(await ask(cache, cloud.store)).toMatchObject({
+      ok: true,
+      version: saved.manifest.version,
+      answer: { into: { id: "B", name: "Club Z" }, games: 3, dropped: 3 },
+      cold: false,
+      fetched: 1,
+    });
+  });
+
+  it("is refused on another copy than the one asked about, and on a copy it cannot vouch for", async () => {
+    const cloud = await copyOfPool();
+    expect(await ask(editPool(), cloud.store, "another")).toEqual({
+      ok: false,
+      why: "copy-replaced",
+    });
+    expect(await ask(editPool(), memoryCloud().store)).toEqual({ ok: false, why: "no-copy" });
   });
 });
 

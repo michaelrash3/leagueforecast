@@ -1,7 +1,8 @@
 import type { PoolCommand } from "./commands";
-import type { EditRefusal, EditRun } from "./editRun";
+import type { EditRefusal, EditRun, QueryRefusal, QueryRun } from "./editRun";
 import { TurnFailed, type TurnAsk, type Turned } from "./editWorkerProtocol";
 import type { PoolEnsure } from "./poolCache";
+import type { PoolQuery, QueryAnswer } from "./queries";
 import { chargeEdit, runCost, updateLedger, type LedgerStore } from "./rebuildLedger";
 
 /**
@@ -22,6 +23,9 @@ import { chargeEdit, runCost, updateLedger, type LedgerStore } from "./rebuildLe
 /** What a device asks: a command, and the copy it was made on. */
 export type EditAsk = { command: PoolCommand; copy?: string };
 
+/** A question a device asks (`queries.ts`), and the copy it is about. */
+export type QueryAsk = { query: PoolQuery; copy?: string };
+
 /** What warming the pool came to: the copy read and how, or why it could not be. */
 export type WarmResult =
   | { ok: true; cold: boolean; fetched: number; loadMs: number }
@@ -30,6 +34,7 @@ export type WarmResult =
 /** The worker the edits run in, which keeps the pool from request to request. */
 export type EditWorker = {
   edit: (ask: EditAsk, turn?: TurnAsk) => Promise<Turned<EditRun>>;
+  query: (ask: QueryAsk, turn?: TurnAsk) => Promise<Turned<QueryRun>>;
   warm: (turn?: TurnAsk) => Promise<Turned<WarmResult>>;
 };
 
@@ -44,6 +49,11 @@ export type EditReply =
       ms: { load: number; apply: number; commit: number };
     }
   | { ok: false; why: EditRefusal };
+
+/** What the device is told of a question: the answer, of which copy and version, or why none. */
+export type QueryReply =
+  | { ok: true; copy: string; version: number; answer: QueryAnswer }
+  | { ok: false; why: QueryRefusal };
 
 type Line = Record<string, string | number | boolean>;
 
@@ -230,5 +240,45 @@ export const handleWarm = async ({
           loadMs: warmed.loadMs,
         }
       : { ...line, end: warmed.reason },
+  };
+};
+
+/** What the device is told when a question went unanswered: nothing was changed either way. */
+export const NOT_ANSWERED =
+  "The question could not be answered just now, and nothing was changed. Try again in a minute.";
+
+/**
+ * A question (`runQuery`), answered by the worker that keeps the pool, in its turn with the edits,
+ * and charged as an edit is: it brings the pool up as one does. It changes nothing, so a turn that
+ * failed, or never came, is only a question to ask again (`notAnswered`).
+ */
+export const handleQuery = async ({
+  ask,
+  worker,
+  ...deps
+}: Deps & { ask: QueryAsk; worker: Pick<EditWorker, "query"> }): Promise<
+  { line: Line } & ({ reply: QueryReply } | { notAnswered: string })
+> => {
+  const line: Line = { kind: ask.query.kind };
+  let turned: Turned<QueryRun>;
+  try {
+    turned = await worker.query(ask, deps.signal ? { signal: deps.signal } : {});
+  } catch (error) {
+    await charge(deps, error instanceof TurnFailed ? error.busyMs : 0, line);
+    return { notAnswered: NOT_ANSWERED, line: { ...line, end: "threw", error: messageOf(error) } };
+  }
+  await charge(deps, turned.ran ? turned.busyMs : 0, line);
+  if (!turned.ran) return { notAnswered: NOT_ANSWERED, line: { ...line, end: turned.why } };
+  const { result: asked, memory } = turned;
+  Object.assign(line, {
+    heapUsedMb: Math.round(memory.heapUsedMb),
+    rssMb: Math.round(memory.rssMb),
+    heapLimitMb: Math.round(memory.heapLimitMb),
+  });
+  if (!asked.ok) return { reply: { ok: false, why: asked.why }, line: { ...line, end: asked.why } };
+  const { copy, version, answer, cold, fetched, loadMs, answerMs } = asked;
+  return {
+    reply: { ok: true, copy, version, answer },
+    line: { ...line, end: "answered", copy, version, cold, fetched, loadMs, answerMs },
   };
 };

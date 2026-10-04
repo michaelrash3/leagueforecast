@@ -4460,6 +4460,19 @@ host (`functionsUrl.ts`). It is built and deployed with the rebuilds (LIVE_REBUI
 account, and asks nothing more of the project; nothing in the app calls it until the sections go
 live (1.5).
 
+The function also answers questions about the copy (`{ query, copy }`, `queries.ts`), which the
+sections ask as they go live (1.5): what a section has to say before an edit, worked out on the copy
+rather than on a pool the device no longer needs to hold. The first two are what folding one club
+into another touches (`merge.preview`) and whether a new name is another club's, which a rename
+folds into instead (`rename.preview`), each answered from the warm pool by the code the page
+answers it with, the pool brought to the copy as for an edit and nothing written. A question is
+read back exactly, as a command is (`coerceQuery`); a request naming more than one of an edit, a
+question and a warm-up is refused; and its turn is charged as an edit's (`handleQuery`). It changes
+nothing, so a question the worker failed with, or never had, is only a question to ask again
+(`callQuery` reads any unclear answer as failed). A worker that answers a request with anything but
+what the request was due is ended as one that died would be. On the 29 September 2026 pool, in
+memory, a merge preview took 67 ms and a rename preview 139 ms.
+
 Measured with `npm run live:bench` on the 29 September 2026 pool (255,579 games, 116,485 clubs),
 in memory, so Firestore's round trips and uploads come on top. The pool came up cold in 1.4 s. An
 edit took from 2 ms (a Pool health answer) through 1.1 s (a club's state), 2.8 s (games thrown out),

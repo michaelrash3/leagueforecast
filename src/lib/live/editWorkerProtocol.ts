@@ -1,5 +1,5 @@
-import type { EditAsk, WarmResult } from "./editHandle";
-import type { EditRun } from "./editRun";
+import type { EditAsk, QueryAsk, WarmResult } from "./editHandle";
+import type { EditRun, QueryRun } from "./editRun";
 import { shouldRecycle } from "./rebuild";
 import type { WorkerMemory } from "./rebuildWorkerProtocol";
 
@@ -63,11 +63,13 @@ export const EDIT_LIMIT_S = 60;
 
 export type EditRequest =
   | { kind: "edit"; id: number; ask: EditAsk }
+  | { kind: "query"; id: number; ask: QueryAsk }
   | { kind: "warm"; id: number }
   | { kind: "ping"; id: number };
 
 export type EditWorkerAnswer =
   | { kind: "edited"; id: number; result: EditRun; memory: WorkerMemory }
+  | { kind: "queried"; id: number; result: QueryRun; memory: WorkerMemory }
   | { kind: "warmed"; id: number; result: WarmResult; memory: WorkerMemory }
   | { kind: "failed"; id: number; error: string; memory: WorkerMemory }
   | { kind: "pong"; id: number };
@@ -80,10 +82,12 @@ export const answerEdit = async (
   request: EditRequest,
   {
     edit,
+    query,
     warm,
     memory,
   }: {
     edit: (ask: EditAsk) => Promise<EditRun>;
+    query: (ask: QueryAsk) => Promise<QueryRun>;
     warm: () => Promise<WarmResult>;
     memory: () => WorkerMemory;
   }
@@ -95,6 +99,8 @@ export const answerEdit = async (
         return { kind: "pong", id };
       case "edit":
         return { kind: "edited", id, result: await edit(request.ask), memory: memory() };
+      case "query":
+        return { kind: "queried", id, result: await query(request.ask), memory: memory() };
       case "warm":
         return { kind: "warmed", id, result: await warm(), memory: memory() };
     }
@@ -154,14 +160,24 @@ type Held = {
 };
 
 /** Requests without their id, which the runner gives each. */
-type Asked = { kind: "edit"; ask: EditAsk } | { kind: "warm" };
+type Asked = { kind: "edit"; ask: EditAsk } | { kind: "query"; ask: QueryAsk } | { kind: "warm" };
+
+/** What each request is called in what the runner says of it. */
+const ASKED_AS: Record<Asked["kind"], string> = {
+  edit: "an edit",
+  query: "a question",
+  warm: "a warm-up",
+};
+
+/** The answer each request is due: any other, said by a worker that heard it, is out of turn. */
+const ANSWERED_AS = { edit: "edited", query: "queried", warm: "warmed" } as const;
 
 /**
  * The main thread's side: one worker, kept from request to request, and requests sent to it one at
  * a time in the order they came, since the function takes several at once and the pool is one. A
  * worker is ended, and the next request starts another (whose pool starts cold), when it died, ran
- * past its limit, or answered that a request threw (which may have left its store part-written),
- * and when `shouldRecycle` says, at `EDIT_RECYCLE_AT`, that its heap or the process has grown too
+ * past its limit, answered that a request threw (which may have left its store part-written) or
+ * answered anything but what the request was due, and when `shouldRecycle` says, at `EDIT_RECYCLE_AT`, that its heap or the process has grown too
  * far or it has run enough.
  *
  * Each call has `callS` from when it came: one whose caller has gone, or whose time is up, before
@@ -185,6 +201,7 @@ export const editRunner = ({
   setTimer?: (done: () => void, ms: number) => () => void;
 }): {
   edit: (ask: EditAsk, turn?: TurnAsk) => Promise<Turned<EditRun>>;
+  query: (ask: QueryAsk, turn?: TurnAsk) => Promise<Turned<QueryRun>>;
   warm: (turn?: TurnAsk) => Promise<Turned<WarmResult>>;
   stop: () => Promise<void>;
 } => {
@@ -262,11 +279,15 @@ export const editRunner = ({
       throw new TurnFailed(outcome.error, busyMs, true);
     }
     const { answer } = outcome;
-    if (answer.kind === "failed" || answer.kind === "pong") {
+    if (answer.kind !== ANSWERED_AS[asked.kind]) {
       await end(worker);
       throw answer.kind === "failed"
         ? new TurnFailed(answer.error, busyMs, false)
-        : new TurnFailed("The edit's worker answered a ping.", busyMs, true);
+        : new TurnFailed(
+            `The edit's worker answered ${answer.kind} to ${ASKED_AS[asked.kind]}.`,
+            busyMs,
+            true
+          );
     }
     worker.runs += 1;
     if (shouldRecycle(answer.memory, worker.runs, EDIT_RECYCLE_AT)) await end(worker);
@@ -291,13 +312,10 @@ export const editRunner = ({
       const left = deadline - clock();
       if (left <= 0) return { ran: false, why: "late" };
       const { answer, busyMs } = await send(asked, Math.min(limitS * 1000, left));
+      // `send` hands back only the answer the request is due, which `read` takes.
       const result = read(answer);
       if (result === null || answer.kind === "pong") {
-        throw new TurnFailed(
-          `The edit's worker answered ${answer.kind} to ${asked.kind === "edit" ? "an edit" : "a warm-up"}.`,
-          busyMs,
-          true
-        );
+        throw new TurnFailed(`The edit's worker answered ${answer.kind}.`, busyMs, true);
       }
       return { ran: true, result, busyMs, memory: answer.memory };
     });
@@ -307,6 +325,10 @@ export const editRunner = ({
     edit: (ask, turn = {}) =>
       call({ kind: "edit", ask }, turn, (answer) =>
         answer.kind === "edited" ? answer.result : null
+      ),
+    query: (ask, turn = {}) =>
+      call({ kind: "query", ask }, turn, (answer) =>
+        answer.kind === "queried" ? answer.result : null
       ),
     warm: (turn = {}) =>
       call({ kind: "warm" }, turn, (answer) => (answer.kind === "warmed" ? answer.result : null)),
