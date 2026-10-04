@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  chargeEdit,
   coerceLedger,
   DEFAULT_CAPS,
   HARD_CAPS,
@@ -615,6 +616,50 @@ const reserving = (ledger: Ledger | null) => {
   const reserved = reserveRun(ledger, TODAY, NOW);
   return { next: reserved.next, answer: reserved };
 };
+
+describe("charging an edit", () => {
+  it("adds what it cost to the day and the month, counting no run and opening none", () => {
+    const open = { at: NOW, day: TODAY, cost: RUN_CEILING, task: "t", by: "r" };
+    const held = ledger({ dayGiBs: 100, dayRuns: 2, monthGiBs: 900, monthVcpuS: 30, open });
+    expect(chargeEdit(held, TODAY, { gibs: 40, vcpuS: 10 })).toEqual({
+      ...held,
+      dayGiBs: 140,
+      monthGiBs: 940,
+      monthVcpuS: 40,
+    });
+  });
+
+  it("is charged with the switch off, at the caps, and while paused, since it was spent", () => {
+    const held = ledger({
+      on: false,
+      dayGiBs: DEFAULT_CAPS.dayGiBs,
+      failures: DEFAULT_CAPS.failures,
+      pausedDay: TODAY,
+    });
+    expect(chargeEdit(held, TODAY, { gibs: 8, vcpuS: 2 })).toMatchObject({
+      on: false,
+      dayGiBs: DEFAULT_CAPS.dayGiBs + 8,
+      pausedDay: TODAY,
+    });
+  });
+
+  it("starts a new day's total and a new month's, as a reserve would", () => {
+    const held = ledger({ dayGiBs: 500, dayRuns: 3, monthGiBs: 900, monthVcpuS: 60 });
+    expect(chargeEdit(held, "2027-05-01", { gibs: 8, vcpuS: 2 })).toMatchObject({
+      day: "2027-05-01",
+      dayGiBs: 8,
+      dayRuns: 0,
+      lastDay: { day: TODAY, runs: 3, failed: 0, gibs: 500 },
+      month: "2027-05",
+      monthGiBs: 8,
+      monthVcpuS: 2,
+    });
+  });
+
+  it("charges nothing where there is no ledger", () => {
+    expect(chargeEdit(null, TODAY, { gibs: 8, vcpuS: 2 })).toBeNull();
+  });
+});
 
 describe("writing the ledger", () => {
   it("writes what a step makes of it, and nothing where the step changes nothing", async () => {

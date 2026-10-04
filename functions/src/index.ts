@@ -21,6 +21,14 @@ import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pullJobRunner";
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
+import { coerceCommand } from "../../src/lib/live/commands";
+import { handleEdit, handleWarm } from "../../src/lib/live/editHandle";
+import {
+  EDIT_SIZE,
+  EDIT_TIMEOUT_S,
+  editRunner,
+  type EditPort,
+} from "../../src/lib/live/editWorkerProtocol";
 import { handleRebuildTask } from "../../src/lib/live/rebuild";
 import { coerceLedger, restLedgerStore } from "../../src/lib/live/rebuildLedger";
 import { coerceRebuildTask } from "../../src/lib/live/rebuildPlan";
@@ -404,5 +412,127 @@ export const rebuild = !LIVE_REBUILD
         }
         logger.warn("rebuild", done.line);
         throw new Error(`The rebuild ended ${String(done.line.end)}; the queue tries it again.`);
+      }
+    );
+
+/*
+ * Edits on the server (README, "Team Rankings edits as commands"): a member's device sends a
+ * command, and `edit` runs it on the cloud copy in a worker that keeps every part of the pool warm,
+ * then publishes the boards from that same pool as a rebuild would, under the ledger in
+ * `ops/rebuild`. Built with the rebuilds (LIVE_REBUILD), whose account it runs as and whose ledger
+ * meters it; it needs nothing of the project they do not.
+ */
+
+/** Whether a caller of `edit` is on the cloud copy's list, asked once per instance. */
+const editCheck = createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projectId });
+
+/** A worker for the edits, with the rebuild's heap cap and for the same reason. */
+const startEditWorker = (): EditPort => {
+  const worker = new Worker(new URL("./editWorker.js", import.meta.url), {
+    resourceLimits: { maxOldGenerationSizeMb: REBUILD_WORKER_HEAP_MB },
+  });
+  return {
+    post: (request) => worker.postMessage(request),
+    listen: ({ answer, error, exit }) => {
+      worker.on("message", answer);
+      worker.on("error", error);
+      worker.on("exit", exit);
+    },
+    terminate: async () => {
+      await worker.terminate();
+    },
+  };
+};
+
+/** The worker the edits run in, kept from request to request (`editRunner`). */
+let edits: ReturnType<typeof editRunner> | null = null;
+
+/** The copy's id as the manifest holds one (`randomId`), or nothing; anything else is refused. */
+const COPY_ID = /^[0-9a-f]{8,64}$/;
+
+/**
+ * POST (callable) `edit` `{ command, copy? }` or `{ warm: true }`: runs a command on the cloud copy
+ * (`handleEdit`), or brings the pool up ahead of one (`handleWarm`). For the accounts on the cloud
+ * copy's list, as the rules make anything that touches the copy (`memberCheck.ts`, with the sign-in
+ * the call carries). One instance, taking several calls at once and running them one at a time in
+ * its worker, since the pool is one; the timeout leaves a cold edit and its publish room behind a
+ * few queued ahead of them.
+ */
+export const edit = !LIVE_REBUILD
+  ? undefined
+  : onCall(
+      {
+        region: REGION,
+        invoker: "public",
+        serviceAccount: LIVE_RUNNER,
+        memory: "8GiB",
+        cpu: EDIT_SIZE.cpu,
+        timeoutSeconds: EDIT_TIMEOUT_S,
+        maxInstances: 1,
+        concurrency: 8,
+      },
+      async (request) => {
+        const verdict = await editCheck(request.rawRequest.headers.authorization);
+        if (verdict === "unavailable") {
+          throw new HttpsError(
+            "unavailable",
+            "Could not check this account against the cloud copy's list just now. Try again in a minute."
+          );
+        }
+        if (verdict !== "member") {
+          throw new HttpsError(
+            verdict === "signed-out" ? "unauthenticated" : "permission-denied",
+            MEMBERS_ONLY_MESSAGES[verdict]
+          );
+        }
+        const data = (request.data ?? null) as {
+          command?: unknown;
+          copy?: unknown;
+          warm?: unknown;
+        } | null;
+        const command = data?.warm === true ? null : coerceCommand(data?.command);
+        const copy = data?.copy;
+        if (data?.warm !== true && !command) {
+          throw new HttpsError("invalid-argument", "That is not an edit this server knows.");
+        }
+        if (copy !== undefined && (typeof copy !== "string" || !COPY_ID.test(copy))) {
+          throw new HttpsError("invalid-argument", "That is not a copy's id.");
+        }
+        // New York's day, as the rebuilds': set before the worker starts, which keeps the zone it
+        // starts in.
+        process.env.TZ = "America/New_York";
+        edits ??= editRunner({ spawn: startEditWorker });
+        const deps = {
+          ledger: restLedgerStore(firestoreRestDocuments(restAccess())),
+          worker: edits,
+          today: () => todayIsoDay(),
+          clock: Date.now,
+          size: EDIT_SIZE,
+          startupS,
+        };
+        try {
+          if (!command) {
+            const { warmed, line } = await handleWarm(deps);
+            logger.info("edit", line);
+            return { warmed };
+          }
+          const { reply, line } = await handleEdit({
+            ...deps,
+            ask: { command, ...(typeof copy === "string" ? { copy } : {}) },
+            now: () => new Date().toISOString(),
+          });
+          logger.info("edit", line);
+          return reply;
+        } catch (error) {
+          logger.error("edit", {
+            kind: command?.kind ?? "warm",
+            end: "threw",
+            error: messageOf(error),
+          });
+          throw new HttpsError(
+            "internal",
+            "The edit could not be finished just now. Try again in a minute."
+          );
+        }
       }
     );

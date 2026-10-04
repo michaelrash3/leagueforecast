@@ -12,7 +12,12 @@ import { gunzipSync } from "node:zlib";
 
 process.env.GC_API_BASE = "http://127.0.0.1:9";
 process.env.GCLOUD_PROJECT = "smoke-project";
-const { gcTeam, billingCap, startPull, runPull, onCopyWrite, rebuild } =
+// A call's sign-in is read as the emulator reads it, without asking Google to verify it, so the
+// edit function's own check of who is calling can be tried here (it reads the caller's entry on
+// the list, which the stand-in below answers). Read once, as the SDK loads.
+process.env.FIREBASE_DEBUG_MODE = "true";
+process.env.FIREBASE_DEBUG_FEATURES = JSON.stringify({ skipTokenVerification: true });
+const { gcTeam, billingCap, startPull, runPull, onCopyWrite, rebuild, edit } =
   await import("./lib/index.js");
 
 const call = (url, headers = {}) =>
@@ -260,14 +265,92 @@ if (process.env.CLOUD_PULLS !== "on") {
   globalThis.fetch = realFetch;
 }
 
-// The rebuilds after saves, built only once their setup is done (`build.mjs`), as the pulls are.
+// The rebuilds after saves, built only once their setup is done (`build.mjs`), as the pulls are,
+// and the edit function with them.
 if (process.env.LIVE_REBUILD !== "on") {
   check(
-    "the rebuilds after saves are left out of a build without LIVE_REBUILD",
-    onCopyWrite === undefined && rebuild === undefined,
-    `${typeof onCopyWrite} ${typeof rebuild}`
+    "the rebuilds after saves and the edits are left out of a build without LIVE_REBUILD",
+    onCopyWrite === undefined && rebuild === undefined && edit === undefined,
+    `${typeof onCopyWrite} ${typeof rebuild} ${typeof edit}`
   );
 } else {
+  const called = edit.__endpoint;
+  check(
+    "an edit is a call, as the rebuilds' account, one instance taking several at the rebuild's size",
+    called.callableTrigger !== undefined &&
+      called.serviceAccountEmail === "live-runner@" &&
+      called.availableMemoryMb === 8192 &&
+      called.cpu === 2 &&
+      called.timeoutSeconds === 540 &&
+      called.maxInstances === 1 &&
+      called.concurrency === 8,
+    JSON.stringify(called)
+  );
+  // Who may call: the list's answer comes from the stand-in, there for the one member alone. Every
+  // call here is turned away before the worker starts or the copy is read.
+  const reads = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (!url.startsWith("https://firestore.googleapis.com/")) return realFetch(input, init);
+    reads.push(url);
+    return new Response("{}", {
+      status: url.endsWith("/documents/members/member%40example.com") ? 200 : 403,
+    });
+  };
+  const command = { kind: "team.state", teamId: "B", state: "KY" };
+  const unsignedEdit = await post(edit, { data: { command } });
+  check(
+    "an edit is not made for a caller who has not signed in",
+    unsignedEdit.status === 401 && /UNAUTHENTICATED/.test(String(unsignedEdit.body)),
+    `${unsignedEdit.status} ${unsignedEdit.body}`
+  );
+  const outsiderEdit = await post(edit, { data: { command } }, signedInAs("outsider@example.com"));
+  check(
+    "nor for an account not on the list",
+    outsiderEdit.status === 403 && /PERMISSION_DENIED/.test(String(outsiderEdit.body)),
+    `${outsiderEdit.status} ${outsiderEdit.body}`
+  );
+  const memberReads = reads.length;
+  const junk = await post(
+    edit,
+    { data: { command: { kind: "game.drop", gameId: "g1" } } },
+    signedInAs("member@example.com")
+  );
+  const badCopy = await post(
+    edit,
+    { data: { command, copy: "../copies/other" } },
+    signedInAs("member@example.com")
+  );
+  check(
+    "and a member's call that is not an edit, or names no copy, is refused as such",
+    junk.status === 400 &&
+      /INVALID_ARGUMENT/.test(String(junk.body)) &&
+      badCopy.status === 400 &&
+      /INVALID_ARGUMENT/.test(String(badCopy.body)),
+    `${junk.status} ${junk.body} / ${badCopy.status} ${badCopy.body}`
+  );
+  check(
+    "having read nothing but the caller's own entry on the list, once while it holds",
+    reads.length === memberReads + 1 && reads.every((url) => url.includes("/documents/members/")),
+    JSON.stringify(reads)
+  );
+  globalThis.fetch = realFetch;
+  // The edit's worker, bundled apart: it loads, and answers a ping without reading anything.
+  const editPong = await new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./lib/editWorker.js", import.meta.url));
+    worker.once("message", (answer) => {
+      resolve(answer);
+      void worker.terminate();
+    });
+    worker.once("error", reject);
+    worker.postMessage({ kind: "ping", id: 1 });
+  });
+  check(
+    "an edit's worker loads and answers",
+    editPong.kind === "pong" && editPong.id === 1,
+    JSON.stringify(editPong)
+  );
+
   const written = onCopyWrite.__endpoint;
   check(
     "a write of the copy's manifest, and of nothing under it, triggers the rebuilds' account",

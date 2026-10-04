@@ -21,7 +21,9 @@ import {
   saveScoutTeams,
 } from "../../teamRankingsStorage";
 import { EDIT_DEVICE, runEdit } from "../editRun";
+import { runRebuild } from "../rebuild";
 import { createPoolCache, everyPart, type PoolCache } from "../poolCache";
+import { memoryLive } from "./memoryLive";
 
 /*
  * Edits run on the server, on the cloud copy (`editRun.ts`): the command applied to the warm pool
@@ -327,6 +329,33 @@ describe("an edit on the cloud copy", () => {
     await reopen(cloud);
     expect(loadScoutGamesForYear(2028).map((game) => game.id)).toEqual(["new"]);
     expect(loadAgeGroups()).toEqual(GROUPS);
+  });
+});
+
+describe("the boards after an edit", () => {
+  it("are published from the pool the edit left, at the version it saved, fetching nothing", async () => {
+    const cloud = await copyOfPool();
+    const live = memoryLive();
+    const cache = editPool();
+    const done = await edit(cache, cloud.store, { kind: "team.state", teamId: "B", state: "KY" });
+    if (!done.ok) throw new Error(done.why);
+    const published = await runRebuild({
+      copyStore: cloud.store,
+      liveStore: live.store,
+      pool: cache,
+      today: () => "2026-10-04",
+      now: () => NOW,
+      locale: "en-US",
+    });
+    expect(published).toMatchObject({
+      end: "published",
+      copy: done.copy,
+      version: done.version,
+      cold: false,
+      fetched: 0,
+      wrote: true,
+    });
+    expect(live.meta()?.copy).toEqual({ id: done.copy, version: done.version });
   });
 });
 

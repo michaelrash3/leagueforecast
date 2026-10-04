@@ -3701,8 +3701,10 @@ on its day and in its month and how many of them failed, which no cap reads, for
 the nightly's log (`rebuildReport.ts`), and keeps the counts of the last day
 before its own that had a run (`lastDay`); a failure counts on the day and month of
 the run's reservation while the ledger still counts those, so a day's failed runs
-are always among its runs. A run that never ends leaves its
-ceiling charged, and the next reserve counts it as a failure; the third failure
+are always among its runs. An edit run on the server adds what it spent to the
+day's and month's totals too (`chargeEdit`), without reserving or counting a run,
+so the caps count the edits' compute beside the rebuilds'. A run that never ends
+leaves its ceiling charged, and the next reserve counts it as a failure; the third failure
 in a row pauses the rebuilds for the rest of the day, and a run that does not
 fail clears the count. A run reserved less than a run's span ago (320 s) may
 still be going, so a reserve then waits (`busy`, and the queue tries it again)
@@ -4391,6 +4393,24 @@ commit that lands tells the pool its writes now stand in the copy (`committed`),
 fetches none of them back; a run that is refused or throws leaves the pool to start afresh on its
 next read, which is slower and never wrong. The tests show an edit on a warm pool
 fetches no piece but those another save moved.
+
+The edit function (`edit` in `functions/src/index.ts`) is that run behind a call: a member's
+device sends `{ command, copy }`, signed in, and the function checks the caller against the list
+as the GameChanger proxy does (`memberCheck.ts`), reads the command back exactly
+(`coerceCommand`), and refuses anything else before a worker starts. The edits run one at a time
+in a worker that keeps the pool from call to call (`editWorkerProtocol.ts`), one instance taking
+several calls at once and queueing them. The edit is made whatever the rebuilds' switch says,
+since it is a member's change to the copy, and its compute is charged to the ledger's totals; then,
+if it changed the copy, the boards are published from that same warm pool as a rebuild would
+publish them, under a run reserved in `ops/rebuild` like a rebuild's (`handleEdit`), so the switch,
+dry or live, the pause and the caps all hold, and only one run writes the boards at a time. A
+publish the ledger turns away (off, busy, paused, at a cap, or unreachable) is left to the rebuild
+the save itself asks for, which checks a server's save ten minutes on, or to the night; nothing
+after the commit fails the call, which answers the version saved, the inverse for an Undo, what
+changed, and how the publish went. `{ warm: true }` brings the pool up ahead of an edit, charged
+the same way. It is built and deployed with the rebuilds (LIVE_REBUILD), runs as their account,
+and asks nothing more of the project; nothing in the app calls it until the sections go live
+(1.5).
 
 Two kinds of write are not commands. The browser's own pull engine saves as it goes and is removed
 for members in the cleanup (1.7), pulls having moved to the server; and resetting the app or

@@ -282,6 +282,48 @@ const newDay = (ledger: Ledger, today: string): Ledger => ({
       : ledger.lastDay,
 });
 
+/**
+ * The ledger moved on to `today` (New York's day): a new day empties the day's total and lifts a
+ * pause from an earlier day, and a new month empties the month's.
+ */
+const rolledOver = (ledger: Ledger, today: string): Ledger => {
+  let next: Ledger = { ...ledger };
+  if (next.day !== today) next = newDay(next, today);
+  if (next.pausedDay !== null && next.pausedDay !== today) {
+    next = { ...next, pausedDay: null, failures: 0 };
+  }
+  if (next.month !== monthOf(today)) {
+    next = {
+      ...next,
+      month: monthOf(today),
+      monthGiBs: 0,
+      monthVcpuS: 0,
+      monthRuns: 0,
+      monthFailed: 0,
+    };
+  }
+  return next;
+};
+
+/**
+ * The ledger with an edit's compute added to the day's and the month's totals (`editRun.ts`), so
+ * the caps the rebuilds are held to count what the edits spent beside them. An edit is never
+ * refused for the caps: it is a member's change to the copy, and the bill's hard stop is the
+ * backstop. It is not a run either, so it counts no run, opens nothing and clears no failure; and it
+ * is charged whether the switch is on or off, since its compute was spent either way. Null where
+ * there is no ledger to charge.
+ */
+export const chargeEdit = (ledger: Ledger | null, today: string, used: RunCost): Ledger | null => {
+  if (!ledger) return null;
+  const next = rolledOver(ledger, today);
+  return {
+    ...next,
+    dayGiBs: next.dayGiBs + used.gibs,
+    monthGiBs: next.monthGiBs + used.gibs,
+    monthVcpuS: next.monthVcpuS + used.vcpuS,
+  };
+};
+
 export type ReserveRefusal = "off" | "busy" | "failing" | "day-cap" | "month-cap";
 
 /**
@@ -324,21 +366,7 @@ export const reserveRun = (
       return { ok: false, why: "busy", next: null };
     }
   }
-  let next: Ledger = { ...ledger };
-  if (next.day !== today) next = newDay(next, today);
-  if (next.pausedDay !== null && next.pausedDay !== today) {
-    next = { ...next, pausedDay: null, failures: 0 };
-  }
-  if (next.month !== monthOf(today)) {
-    next = {
-      ...next,
-      month: monthOf(today),
-      monthGiBs: 0,
-      monthVcpuS: 0,
-      monthRuns: 0,
-      monthFailed: 0,
-    };
-  }
+  let next = rolledOver(ledger, today);
   if (next.open) next = { ...failed(next, today, next.open.day), open: null };
   if (next.pausedDay === today) return { ok: false, why: "failing", next };
   if (next.dayGiBs + ceiling.gibs > next.caps.dayGiBs) return { ok: false, why: "day-cap", next };

@@ -5,7 +5,8 @@
 # is `on`, which is the last step of their one-time setup (README, "Pulls in the cloud: the
 # one-time setup"): until then the project has no Cloud Tasks, and no account for them to run as.
 # The rebuilds after saves (`onCopyWrite`, `rebuild`) are the same once the LIVE_REBUILD variable is
-# `on` (README, "Rebuilds after saves: the one-time setup").
+# `on` (README, "Rebuilds after saves: the one-time setup"), and the edit function (`edit`) with
+# them, which runs as their account and asks nothing more of the project.
 #
 # The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
 # invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
@@ -97,7 +98,7 @@ jobs:
           if [ "$CLOUD_PULLS" != "on" ]; then
             only="functions:gcTeam,functions:billingCap"
             if [ "$LIVE_REBUILD" = "on" ]; then
-              only="$only,functions:onCopyWrite,functions:rebuild"
+              only="$only,functions:onCopyWrite,functions:rebuild,functions:edit"
             fi
             only="$only,firestore:rules"
             echo "::notice::Pulls in the cloud not deployed: do their one-time setup, then set the CLOUD_PULLS variable to on (README, 'Pulls in the cloud: the one-time setup')."
