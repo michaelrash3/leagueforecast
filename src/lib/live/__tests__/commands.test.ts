@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings/types";
 import { namedAgesList, type NamedAge } from "../../namedAges";
 import type { AgeUnknownTeam } from "../../ageUnknown";
+import type { RefreshCadence } from "../../gameChangerSchedule";
+import { NO_MEMBERSHIP, type OrgMembership } from "../../orgMembership";
 import { encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
 import {
   applyCommand,
@@ -29,6 +31,8 @@ type Parts = {
   answers: Map<AnswerList, Set<string>>;
   named: Map<string, NamedAge>;
   ageless: AgeUnknownTeam[];
+  cadence: RefreshCadence;
+  orgs: OrgMembership;
 };
 
 const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
@@ -38,6 +42,8 @@ const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
     else if (one.part === "games") parts.games.set(one.year, one.games);
     else if (one.part === "answers") parts.answers.set(one.list, one.ids);
     else if (one.part === "namedAges") parts.named = one.named;
+    else if (one.part === "cadence") parts.cadence = one.cadence;
+    else if (one.part === "orgs") parts.orgs = one.membership;
     else parts.ageless = one.list;
   });
 
@@ -50,6 +56,8 @@ const memory = (parts: Parts) => {
     answers: (list) => parts.answers.get(list) ?? new Set(),
     namedAges: () => parts.named,
     ageless: () => parts.ageless,
+    cadence: () => parts.cadence,
+    orgs: () => parts.orgs,
   };
   const write = (writes: readonly PoolWrite[]) => applyWrites(parts, writes);
   /** Applies, writes, and hands back what came of it; throws when it was not applied. */
@@ -74,6 +82,8 @@ const stored = (parts: Parts) => ({
     .map(([list, ids]) => [list, [...ids].sort()]),
   named: JSON.stringify(namedAgesList(parts.named)),
   ageless: JSON.stringify(parts.ageless),
+  cadence: parts.cadence,
+  orgs: JSON.stringify(parts.orgs),
 });
 
 const clone = (parts: Parts): Parts => ({
@@ -83,6 +93,8 @@ const clone = (parts: Parts): Parts => ({
   answers: new Map([...parts.answers].map(([list, ids]) => [list, new Set(ids)])),
   named: new Map(parts.named),
   ageless: structuredClone(parts.ageless),
+  cadence: parts.cadence,
+  orgs: structuredClone(parts.orgs),
 });
 
 const club = (id: string, extra: Partial<ScoutTeam> = {}): ScoutTeam => ({
@@ -157,6 +169,8 @@ const POOL = (): Parts => ({
   ]),
   named: new Map(),
   ageless: [1, 2, 3, 4].map((at) => waitingOn(`gcW${at}`)),
+  cadence: "daily",
+  orgs: NO_MEMBERSHIP,
 });
 
 describe("a command's change", () => {
@@ -1006,7 +1020,7 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
   const team = pick(parts.teams);
   const ids = ["gcA", "gcB1", "gcB2", "gcC", "gcZ"];
   const n = Math.floor(next() * 1000);
-  switch (Math.floor(next() * 20)) {
+  switch (Math.floor(next() * 22)) {
     case 0:
       return game
         ? {
@@ -1155,6 +1169,21 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
         kind: "ageless.forget",
         teamIds: ["gcW1", "gcW2", "gcW3", "gcW4", "gcW9"].filter(() => next() < 0.4),
       };
+    case 19:
+      return { kind: "refresh.cadence", cadence: pick(["daily", "rotation"] as const) };
+    case 20:
+      return {
+        kind: "orgs.merge",
+        orgs: [1, 2, 3]
+          .filter(() => next() < 0.6)
+          .map((at) => ({
+            orgId: `org${at}`,
+            name: pick([`Placeholder ${at}U`, `Placeholder Org ${at}`]),
+            teamIds: ids.filter(() => next() < 0.5),
+          }))
+          .filter((org) => org.teamIds.length > 0),
+        at: `2026-10-0${1 + (n % 9)}T00:00:00.000Z`,
+      };
     default:
       return {
         kind: "batch",
@@ -1192,6 +1221,8 @@ describe("a command's inverse", () => {
           answers: pool.parts.answers,
           named: pool.parts.named,
           ageless: pool.parts.ageless,
+          cadence: pool.parts.cadence,
+          orgs: pool.parts.orgs,
         }),
       ]).toEqual([seed, after]);
       const undone = applyCommand(pool.read, result.inverse);
@@ -1272,6 +1303,116 @@ describe("the teams nobody could age, taken off their list and put back", () => 
     ]) {
       expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
     }
+  });
+});
+
+describe("what the nightly refresh reads off the pool", () => {
+  const ORG = (orgId: string, name: string, teamIds: string[]) => ({ orgId, name, teamIds });
+
+  it("sets how much a refresh pulls at once, and takes it back", () => {
+    const pool = memory(POOL());
+    const made = pool.run({ kind: "refresh.cadence", cadence: "rotation" });
+    expect(made.writes).toEqual([{ part: "cadence", cadence: "rotation" }]);
+    expect(pool.parts.cadence).toBe("rotation");
+    // Asked for what it already is, it writes nothing.
+    expect(applyCommand(pool.read, { kind: "refresh.cadence", cadence: "rotation" })).toEqual({
+      ok: true,
+      writes: [],
+      inverse: { kind: "none" },
+    });
+    pool.run(made.inverse);
+    expect(pool.parts.cadence).toBe("daily");
+  });
+
+  it("keeps a file's organizations beside those kept, one named again replacing its own", () => {
+    const pool = memory(POOL());
+    const first = pool.run({
+      kind: "orgs.merge",
+      orgs: [ORG("o1", "Placeholder 9U", ["gcA"]), ORG("o2", "Placeholder 10U", ["gcB1"])],
+      at: "2026-10-01T00:00:00.000Z",
+    });
+    expect(pool.parts.orgs.savedAt).toBe("2026-10-01T00:00:00.000Z");
+    const before = clone(pool.parts);
+    const second = pool.run({
+      kind: "orgs.merge",
+      orgs: [ORG("o2", "Placeholder 10U", ["gcB1", "gcB2"]), ORG("o3", "Placeholder 11U", ["gcC"])],
+      at: "2026-10-02T00:00:00.000Z",
+    });
+    expect(pool.parts.orgs).toEqual({
+      orgs: [
+        ORG("o1", "Placeholder 9U", ["gcA"]),
+        ORG("o2", "Placeholder 10U", ["gcB1", "gcB2"]),
+        ORG("o3", "Placeholder 11U", ["gcC"]),
+      ],
+      savedAt: "2026-10-02T00:00:00.000Z",
+    });
+    // Its undo puts the membership back as it was, when it changed included.
+    pool.run(second.inverse);
+    expect(stored(pool.parts)).toEqual(stored(before));
+    pool.run(first.inverse);
+    expect(pool.parts.orgs).toEqual(NO_MEMBERSHIP);
+  });
+
+  it("writes nothing for a file with nothing new, nor moves when the membership changed", () => {
+    const pool = memory(POOL());
+    pool.run({ kind: "orgs.merge", orgs: [ORG("o1", "Placeholder 9U", ["gcA"])], at: "t1" });
+    const again = applyCommand(pool.read, {
+      kind: "orgs.merge",
+      orgs: [ORG("o1", "Placeholder 9U", ["gcA"])],
+      at: "t2",
+    });
+    expect(again).toEqual({ ok: true, writes: [], inverse: { kind: "none" } });
+    expect(
+      applyCommand(pool.read, { kind: "orgs.put", membership: structuredClone(pool.parts.orgs) })
+    ).toEqual({ ok: true, writes: [], inverse: { kind: "none" } });
+  });
+
+  it("reads each step of a batch over the step before", () => {
+    const pool = memory(POOL());
+    const org = (teamIds: string[]) => ORG("o1", "Placeholder 9U", teamIds);
+    const made = pool.run({
+      kind: "batch",
+      commands: [
+        { kind: "refresh.cadence", cadence: "rotation" },
+        { kind: "refresh.cadence", cadence: "daily" },
+        { kind: "orgs.merge", orgs: [org(["gcA"])], at: "t1" },
+        { kind: "orgs.merge", orgs: [org(["gcA"])], at: "t2" },
+      ],
+    });
+    expect(pool.parts.cadence).toBe("daily");
+    // The second file had nothing new by the time it was read, so the first one's time stands.
+    expect(pool.parts.orgs).toEqual({ orgs: [org(["gcA"])], savedAt: "t1" });
+    pool.run(made.inverse);
+    expect(pool.parts.orgs).toEqual(NO_MEMBERSHIP);
+  });
+
+  it("is read back exactly as sent, and refused when it is not exactly a command", () => {
+    const sent: PoolCommand[] = [
+      { kind: "refresh.cadence", cadence: "rotation" },
+      { kind: "orgs.merge", orgs: [ORG("o1", "Placeholder 9U", ["gcA", "gcB1"])], at: "t1" },
+      {
+        kind: "orgs.put",
+        membership: { orgs: [ORG("o1", "Placeholder 9U", ["gcA"])], savedAt: "t1" },
+      },
+      { kind: "orgs.put", membership: NO_MEMBERSHIP },
+    ];
+    for (const command of sent)
+      expect(coerceCommand(JSON.parse(JSON.stringify(command)))).toEqual(command);
+    for (const raw of [
+      { kind: "refresh.cadence", cadence: "weekly" },
+      { kind: "orgs.merge", orgs: [ORG("o1", "Placeholder 9U", [])], at: "t1" },
+      { kind: "orgs.merge", orgs: [ORG("", "Placeholder 9U", ["gcA"])], at: "t1" },
+      {
+        kind: "orgs.merge",
+        orgs: [{ ...ORG("o1", "Placeholder 9U", ["gcA"]), city: "X" }],
+        at: "t1",
+      },
+      { kind: "orgs.merge", orgs: [ORG("o1", "Placeholder 9U", ["gcA", ""])], at: "t1" },
+      { kind: "orgs.merge", orgs: [ORG("o1", "Placeholder 9U", ["gcA"])], at: "" },
+      { kind: "orgs.put", membership: { orgs: [] } },
+      { kind: "orgs.put", membership: { orgs: [], savedAt: "t1", kept: true } },
+    ])
+      expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
   });
 });
 

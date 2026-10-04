@@ -5,7 +5,9 @@ import {
   loadAgeGroups,
   loadAgeUnknown,
   loadDroppedClubs,
+  loadOrgMembership,
   loadRealClubs,
+  loadRefreshCadence,
   loadScoutGamesForYear,
   loadScoutTeams,
   onCloudPoolWrite,
@@ -117,6 +119,20 @@ describe("a command on this browser's pool", () => {
       runPoolCommand({ kind: "answers", list: "realClubs", add: ["gcA"], remove: [] })
     );
     expect(keys).toEqual([]);
+  });
+
+  it("keeps how much a refresh pulls and the organizations a file named, where the nightly reads them", () => {
+    const cadence = runPoolCommand({ kind: "refresh.cadence", cadence: "rotation" });
+    expect(cadence.ok).toBe(true);
+    expect(loadRefreshCadence()).toBe("rotation");
+    const org = { orgId: "o1", name: "Placeholder 9U", teamIds: ["gcA"] };
+    const keys = writtenBy(() =>
+      expect(runPoolCommand({ kind: "orgs.merge", orgs: [org], at: "t1" }).ok).toBe(true)
+    );
+    expect(keys).toEqual(["league_forecast_gc_org_membership_v1"]);
+    expect(loadOrgMembership()).toEqual({ orgs: [org], savedAt: "t1" });
+    if (cadence.ok) runPoolCommand(cadence.inverse);
+    expect(loadRefreshCadence()).toBe("daily");
   });
 
   it("takes a team nobody could age off the list it waits on, and its undo puts it back", () => {

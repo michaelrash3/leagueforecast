@@ -1,5 +1,5 @@
 import type { AgeGroup } from "../teamRankings";
-import { applyCommand, type PoolCommand } from "./commands";
+import { applyCommand, NO_ANSWERS, type PoolCommand } from "./commands";
 
 /**
  * A league season put on a page, or taken off, as the live page shows it before the publish that
@@ -26,9 +26,7 @@ export const groupsAfter = (
       groups: () => groups,
       years: () => [],
       games: () => [],
-      answers: () => new Set(),
-      namedAges: () => new Map(),
-      ageless: () => [],
+      ...NO_ANSWERS,
     },
     command
   );

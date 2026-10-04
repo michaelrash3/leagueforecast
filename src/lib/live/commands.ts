@@ -16,6 +16,18 @@ import {
 } from "../namedAges";
 import { withoutClub } from "../unrealClubs";
 import { coerceAgeUnknown, type AgeUnknownList, type AgeUnknownTeam } from "../ageUnknown";
+import {
+  DEFAULT_REFRESH_CADENCE,
+  isRefreshCadence,
+  type RefreshCadence,
+} from "../gameChangerSchedule";
+import {
+  coerceOrgMembership,
+  mergeOrgMembership,
+  NO_MEMBERSHIP,
+  type MemberOrg,
+  type OrgMembership,
+} from "../orgMembership";
 
 /**
  * Team Rankings' edits as commands: what a person asked for, written down so that the same
@@ -170,7 +182,17 @@ export type PoolCommand =
    * list holds again by then (a pull asked about it since) is left as the pull left it, since two
    * rows for one team would be two questions about it for ever.
    */
-  | { kind: "ageless.insert"; rows: { entry: AgeUnknownTeam; at: number }[] };
+  | { kind: "ageless.insert"; rows: { entry: AgeUnknownTeam; at: number }[] }
+  /** How much a refresh pulls at once (`RefreshCadence`): what the nightly reads off the copy. */
+  | { kind: "refresh.cadence"; cadence: RefreshCadence }
+  /**
+   * An Organizations file's organizations kept beside those kept already (`mergeOrgMembership`):
+   * one the file names replaces the one kept under its id, and `at`, when the file was read, is
+   * when the membership last changed, if it does.
+   */
+  | { kind: "orgs.merge"; orgs: MemberOrg[]; at: string }
+  /** The organizations kept, put back as they were: the inverse of `orgs.merge`. */
+  | { kind: "orgs.put"; membership: OrgMembership };
 
 /** The pool as a command reads it: the parts it may change, as storage decodes them. */
 export type PoolRead = {
@@ -185,7 +207,24 @@ export type PoolRead = {
   namedAges: () => NamedAges;
   /** The teams nobody could age, waiting on somebody to say. */
   ageless: () => AgeUnknownList;
+  /** How much a refresh pulls at once. */
+  cadence: () => RefreshCadence;
+  /** The organizations an Organizations file named, with the teams under each. */
+  orgs: () => OrgMembership;
 };
+
+/**
+ * The parts besides the roster, the pages and the games, as a pool holding none of them reads
+ * them: for a pool of those three alone, which the commands that read only those can be run on.
+ */
+export const NO_ANSWERS: Pick<PoolRead, "answers" | "namedAges" | "ageless" | "cadence" | "orgs"> =
+  {
+    answers: () => new Set(),
+    namedAges: () => new Map(),
+    ageless: () => [],
+    cadence: () => DEFAULT_REFRESH_CADENCE,
+    orgs: () => NO_MEMBERSHIP,
+  };
 
 /** One part of the pool, as a command would leave it. */
 export type PoolWrite =
@@ -194,7 +233,9 @@ export type PoolWrite =
   | { part: "games"; year: number | null; games: ScoutGame[] }
   | { part: "answers"; list: AnswerList; ids: Set<string> }
   | { part: "namedAges"; named: Map<string, NamedAge> }
-  | { part: "ageless"; list: AgeUnknownTeam[] };
+  | { part: "ageless"; list: AgeUnknownTeam[] }
+  | { part: "cadence"; cadence: RefreshCadence }
+  | { part: "orgs"; membership: OrgMembership };
 
 export type Applied = { ok: true; writes: PoolWrite[]; inverse: PoolCommand };
 
@@ -231,6 +272,8 @@ const overlay = (read: PoolRead, writes: readonly PoolWrite[]): PoolRead => {
   );
   const named = writes.filter((write) => write.part === "namedAges").pop();
   const ageless = writes.filter((write) => write.part === "ageless").pop();
+  const cadence = writes.filter((write) => write.part === "cadence").pop();
+  const orgs = writes.filter((write) => write.part === "orgs").pop();
   return {
     teams: () => (teams?.part === "teams" ? teams.teams : read.teams()),
     groups: () => (groups?.part === "groups" ? groups.groups : read.groups()),
@@ -243,6 +286,8 @@ const overlay = (read: PoolRead, writes: readonly PoolWrite[]): PoolRead => {
     answers: (list) => answers.get(list) ?? read.answers(list),
     namedAges: () => (named?.part === "namedAges" ? named.named : read.namedAges()),
     ageless: () => (ageless?.part === "ageless" ? ageless.list : read.ageless()),
+    cadence: () => (cadence?.part === "cadence" ? cadence.cadence : read.cadence()),
+    orgs: () => (orgs?.part === "orgs" ? orgs.membership : read.orgs()),
   };
 };
 
@@ -677,6 +722,8 @@ const readOnce = (read: PoolRead): PoolRead => {
     answers: (list) => once(`answers:${list}`, () => read.answers(list)),
     namedAges: () => once("namedAges", read.namedAges),
     ageless: () => once("ageless", read.ageless),
+    cadence: () => once("cadence", read.cadence),
+    orgs: () => once("orgs", read.orgs),
   };
 };
 
@@ -725,9 +772,7 @@ export const changeBetween = (before: PoolParts, after: PoolParts): PoolCommand 
     groups: () => after.groups,
     years: () => years,
     games: (year) => after.games.get(year) ?? [],
-    answers: () => new Set(),
-    namedAges: () => new Map(),
-    ageless: () => [],
+    ...NO_ANSWERS,
   };
   return settle(read, {
     teams: before.teams,
@@ -1115,6 +1160,35 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
         inverse: { kind: "ageless.forget", teamIds: back.map(({ entry }) => entry.teamId) },
       };
     }
+    case "refresh.cadence": {
+      const before = read.cadence();
+      if (before === command.cadence) return unchanged();
+      return {
+        ok: true,
+        writes: [{ part: "cadence", cadence: command.cadence }],
+        inverse: { kind: "refresh.cadence", cadence: before },
+      };
+    }
+    case "orgs.merge": {
+      const before = read.orgs();
+      const after = mergeOrgMembership(before, command.orgs, command.at);
+      // A file with nothing new in it leaves the membership, and when it last changed, as it was.
+      if (after === before) return unchanged();
+      return {
+        ok: true,
+        writes: [{ part: "orgs", membership: after }],
+        inverse: { kind: "orgs.put", membership: before },
+      };
+    }
+    case "orgs.put": {
+      const before = read.orgs();
+      if (JSON.stringify(before) === JSON.stringify(command.membership)) return unchanged();
+      return {
+        ok: true,
+        writes: [{ part: "orgs", membership: command.membership }],
+        inverse: { kind: "orgs.put", membership: before },
+      };
+    }
     case "games.drop": {
       const all = everyGame(read);
       const drop = new Set(command.gameIds);
@@ -1364,6 +1438,20 @@ const oneNamedAge = (raw: unknown): NamedAge | null => {
   return entry && JSON.stringify(entry) === JSON.stringify(raw) ? entry : null;
 };
 
+/** An organization as it is kept, with a team under it, read back exactly, or null. */
+const oneOrg = (raw: unknown): MemberOrg | null => {
+  const [org] = coerceOrgMembership({ orgs: [raw] }).orgs;
+  return org && JSON.stringify(org) === JSON.stringify(raw) ? org : null;
+};
+
+/** The organizations as they are kept, read back exactly, or null. */
+const oneMembership = (raw: unknown): OrgMembership | null => {
+  if (!isRecord(raw) || typeof raw.savedAt !== "string" || Object.keys(raw).length !== 2)
+    return null;
+  const orgs = everyOne(raw.orgs, oneOrg);
+  return orgs ? { orgs, savedAt: raw.savedAt } : null;
+};
+
 /** An age and a squad year, or undefined. */
 const oneSeason = (raw: unknown): AgeGroupSeason | undefined =>
   isRecord(raw) &&
@@ -1610,6 +1698,18 @@ const readCommand = (raw: unknown, depth: number): PoolCommand | null => {
     case "ageless.insert": {
       const rows = everyOne(raw.rows, oneAgelessRow);
       return rows ? { kind: "ageless.insert", rows } : null;
+    }
+    case "refresh.cadence":
+      return isRefreshCadence(raw.cadence)
+        ? { kind: "refresh.cadence", cadence: raw.cadence }
+        : null;
+    case "orgs.merge": {
+      const orgs = everyOne(raw.orgs, oneOrg);
+      return orgs && isString(raw.at) ? { kind: "orgs.merge", orgs, at: raw.at } : null;
+    }
+    case "orgs.put": {
+      const membership = oneMembership(raw.membership);
+      return membership ? { kind: "orgs.put", membership } : null;
     }
     default:
       return null;

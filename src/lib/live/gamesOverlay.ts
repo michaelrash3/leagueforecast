@@ -1,5 +1,5 @@
 import type { AgeGroup, ScoutGame } from "../teamRankings";
-import { applyCommand, type PoolCommand } from "./commands";
+import { applyCommand, NO_ANSWERS, type PoolCommand } from "./commands";
 import { stepsOf } from "./groupsOverlay";
 
 /**
@@ -46,9 +46,7 @@ export const gamesAfter = (
       groups: () => groups,
       years: () => [year],
       games: (asked) => (asked === year ? games : []),
-      answers: () => new Set(),
-      namedAges: () => new Map(),
-      ageless: () => [],
+      ...NO_ANSWERS,
     },
     command
   );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgeGroup, ScoutTeam } from "../../teamRankings/types";
-import { applyCommand, type PoolRead } from "../commands";
+import { applyCommand, NO_ANSWERS, type PoolRead } from "../commands";
 import { planClubAges } from "../agePlan";
 
 /*
@@ -37,9 +37,7 @@ describe("approving several ages at once", () => {
       groups: () => groups,
       years: () => [2027],
       games: () => [],
-      answers: () => new Set(),
-      namedAges: () => new Map(),
-      ageless: () => [],
+      ...NO_ANSWERS,
     };
     const result = applyCommand(read, { kind: "batch", commands: plan.commands });
     if (!result.ok) throw new Error(result.why);

@@ -13,6 +13,8 @@ import {
   LEGACY_GAMES_KEY,
   loadAgeGroups,
   loadRealClubs,
+  loadOrgMembership,
+  loadRefreshCadence,
   loadScoutGamesForYear,
   loadScoutTeams,
   readCloudPoolValue,
@@ -164,6 +166,22 @@ describe("an edit on the cloud copy", () => {
       teamAScore: 6,
       teamBScore: 3,
     });
+  });
+
+  it("keeps how much the nightly pulls, and an Organizations file, as parts of the copy", async () => {
+    const cloud = await copyOfPool();
+    const cache = editPool();
+    expect(
+      await edit(cache, cloud.store, { kind: "refresh.cadence", cadence: "rotation" })
+    ).toMatchObject({ ok: true, changed: ["league_forecast_gc_cadence_v1"] });
+    const org = { orgId: "o1", name: "Placeholder 9U", teamIds: ["gcA"] };
+    expect(
+      await edit(cache, cloud.store, { kind: "orgs.merge", orgs: [org], at: NOW })
+    ).toMatchObject({ ok: true, changed: ["league_forecast_gc_org_membership_v1"] });
+    await pool?.drop();
+    await reopen(cloud);
+    expect(loadRefreshCadence()).toBe("rotation");
+    expect(loadOrgMembership()).toEqual({ orgs: [org], savedAt: NOW });
   });
 
   it("takes the edit back with its inverse, leaving the copy's parts as they were", async () => {
