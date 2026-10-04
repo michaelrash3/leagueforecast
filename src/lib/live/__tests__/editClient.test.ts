@@ -192,6 +192,8 @@ describe("a call to the edit function", () => {
       { ...MADE, ms: { load: 1, apply: 0 } },
       { ok: false, why: "toString" },
       { ok: false, why: "gone" },
+      // The caps refuse a question that refits, never an edit.
+      { ok: false, why: "day-spent" },
       { ok: "true" },
     ];
     for (const result of broken) expect([result, coerceEditReply(result)]).toEqual([result, null]);
@@ -266,10 +268,12 @@ describe("a question", () => {
     expect(JSON.parse(String(server.sent[0]?.init.body))).toEqual({
       data: { query: QUESTION, copy: "c0ffee01" },
     });
-    const refused = answering(200, { result: { ok: false, why: "copy-replaced" } });
-    expect(
-      await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: refused.fetchImpl })
-    ).toEqual({ ok: true, value: { ok: false, why: "copy-replaced" } });
+    for (const why of ["copy-replaced", "day-spent", "month-spent"]) {
+      const refused = answering(200, { result: { ok: false, why } });
+      expect(
+        await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: refused.fetchImpl })
+      ).toEqual({ ok: true, value: { ok: false, why } });
+    }
   });
 
   it("takes no answer to another question, or a refusal only an edit gives, and nothing unclear as more than a failure", async () => {

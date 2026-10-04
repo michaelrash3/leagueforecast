@@ -1,6 +1,7 @@
 import { act, render, renderHook } from "@testing-library/react";
 import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
+import type { PoolCommand } from "../lib/live/commands";
 import { EDIT_LOCKS, EDIT_REFUSED, QUERY_REFUSED, WARM_AFTER_MS } from "../lib/live/liveEdits";
 
 vi.mock("../lib/cloud/cloudSession", () => ({ memberToken: async () => null }));
@@ -16,7 +17,7 @@ type LiveEdits = ReturnType<typeof useLiveEdits>;
 
 const COPY = { id: "c0ffee", version: 4 };
 const STATE = { kind: "team.state", teamId: "S-1", state: "KY" } as const;
-const BACK = { kind: "team.put", team: { id: "S-1", name: "Placeholder S-1" } } as const;
+const BACK: PoolCommand = { kind: "team.put", team: { id: "S-1", name: "Placeholder S-1" } };
 
 /** The edit function: what it was sent, and its answers in turn (the last one again after). */
 const server = (...answers: Array<{ status?: number; body: unknown }>) => {
@@ -28,13 +29,17 @@ const server = (...answers: Array<{ status?: number; body: unknown }>) => {
   });
   return { sent, deps: { token: async () => "id-token", fetchImpl: fetchImpl as typeof fetch } };
 };
-const made = (version: number, changed = ["league_forecast_scout_teams_v1"]) => ({
+const made = (
+  version: number,
+  changed = ["league_forecast_scout_teams_v1"],
+  inverse: PoolCommand = BACK
+) => ({
   body: {
     result: {
       ok: true,
       copy: COPY.id,
       version,
-      inverse: BACK,
+      inverse,
       changed,
       ms: { load: 1, apply: 1, commit: 1 },
     },
@@ -76,6 +81,15 @@ describe("an edit from the live page", () => {
     expect(call.sent[1]).toEqual({ command: BACK, copy: "c0ffee" });
     // An Undo's own toast offers nothing more to take back.
     expect(toasts[1]).toEqual(["Undone.", { tone: "success" }]);
+  });
+
+  it("offers no Undo for an edit the server sent nothing to take it back by", async () => {
+    const call = server(made(5, undefined, { kind: "none" }));
+    const { result, toasts } = hook(call);
+    await act(async () => {
+      await result.current.edit(STATE, { done: "Moved 600 clubs.", undo: true });
+    });
+    expect(toasts).toEqual([["Moved 600 clubs.", { tone: "success" }]]);
   });
 
   it("tells the screen once its Undo is made, and not when the Undo was refused", async () => {

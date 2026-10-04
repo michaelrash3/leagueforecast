@@ -125,7 +125,8 @@ export function useLiveEdits({
         }
         showToast(
           said.done,
-          said.undo
+          // An edit with nothing to take it back by (none, or too big to send back) offers none.
+          said.undo && reply.inverse.kind !== "none"
             ? {
                 tone: "undo",
                 actionLabel: "Undo",

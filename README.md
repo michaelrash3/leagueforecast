@@ -4645,6 +4645,43 @@ line of its row worked out on the device from it. The 29 September copy's list h
 (5.9 MB), 10,509 of them waiting: the sitting took 0.19 s (5 KB), a search 59 ms (12 KB), the file
 0.11 s (2.9 MB, asked for only to download) and a plan 0.12 s.
 
+A reply goes as JSON writes it (`asJson`), an edit's and a question's alike. The callable sends
+its result through firebase-functions' own encoding, which throws on a number with no end and
+sends a field left undefined as null: a model check, whose uncapped run and last bucket have no
+end, was answered with an error every time, and Pool health's summary of a copy with a page that
+has no year was refused whole by the device, for the null its missing year became. Written as JSON
+and read back, a number with no end goes as null, which the readers take for one, and an undefined
+field is left out. The tests send replies through a copy of that encoding (`callableEncode.ts`), and
+the functions' smoke test runs the package's own, so a release that changes it is seen. An edit too
+big to take back as one, its inverse past the 500 steps a command may hold (Pool health's approval
+of a few hundred clubs, a club's age taking two steps or more to take back), is answered as made
+with nothing to take it back (`none`), and the device offers no Undo for it.
+
+A question is held to what a device sends, so none holds the one worker past its time or ends it:
+a time is an instant as a clock writes one, between 2000 and 2199 (the year -271821 passed the old
+check and threw in a refresh's day arithmetic, ending the worker and the pool it kept warm); a name
+or a search is at most 200 characters; and a list is no longer than a page hands one (the ten
+waiting teams pinned, the rules on the card, two clubs adopted, the 500 clubs one edit can file).
+Approving more suggested ages than that sends them as several edits, each planned on the pool the
+last one left, so two clubs bound for one new page still make it once; only an approval sent as one
+edit offers an Undo. A League Standings part that cannot be had refuses the question that needs it
+for the reason it could not: a store that would not answer is `store-refused` rather than an error
+that ended the worker, and a piece missing while the copy still names the part at that hash is
+`damaged`, where it was once read as a copy that kept moving, which it would have been said to be
+for ever.
+
+A question that refits a year (a what-if, a model check) spends what a rebuild's fit does and
+changes nothing a member is owed, so it is refused once the day's or the month's compute is spent
+(`capsSpent`, read from the ledger before the question reaches the pool), and the device says it
+waits until tomorrow, or next month. The rest are reads, mostly asked on the way to an edit, and an
+edit is never refused for the caps. A ledger that cannot be read within five seconds holds nothing
+back, the bill's hard stop being the backstop, and the log line says so. On the 29 September copy a
+model check took the worker's heap to 1.66 GB, the most of any call measured and two thirds of its
+2.5 GB cap, and the process to 2.2 GB of the instance's 4 GiB; a pool half as big again would need
+the cap raised, and a worker that runs out ends that question unanswered and is started afresh, as
+one that fails is. Each of these guards was broken in turn and seen to fail a test, 45 of 45, three
+of them (the League part's missing piece) only once tests were written for them.
+
 Measured with `npm run live:bench` on the 29 September 2026 pool (255,579 games, 116,485 clubs),
 in memory, so Firestore's round trips and uploads come on top. The pool came up cold in 1.4 s. An
 edit took from 2 ms (a Pool health answer) through 1.1 s (a club's state), 2.8 s (games thrown out),

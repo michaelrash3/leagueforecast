@@ -64,6 +64,39 @@ const check = (label, ok, detail) => {
   } else console.log(`ok   ${label}`);
 };
 
+// A callable's result is sent through the SDK's own `encode`, which is not JSON: it throws on a
+// number with no end and sends a field left undefined as null. So the edit function writes every
+// reply as JSON first (`asJson`, src/lib/live/editHandle.ts), and the unit tests send replies
+// through a copy of `encode` (src/lib/live/__tests__/callableEncode.ts). This holds the installed
+// SDK to what that copy does, so the copy cannot drift from it. Imported by its path, which the
+// package does not export.
+{
+  const { encode } = await import(
+    new URL("./node_modules/firebase-functions/lib/common/providers/https.js", import.meta.url)
+  );
+  let threw = false;
+  try {
+    encode({ cap: Infinity });
+  } catch {
+    threw = true;
+  }
+  check("a callable's result with a number that has no end is refused", threw, "encoded");
+  const holed = JSON.stringify(encode({ year: undefined, runs: [1, undefined] }));
+  check(
+    "a callable's result sends a field left undefined as null",
+    holed === '{"year":null,"runs":[1,null]}',
+    holed
+  );
+  const reply = JSON.parse(
+    JSON.stringify({ ok: true, version: 3, answer: { cap: Infinity, year: undefined, at: [0.5] } })
+  );
+  check(
+    "a reply written as JSON is sent as it is",
+    JSON.stringify(encode(reply)) === JSON.stringify(reply),
+    JSON.stringify(encode(reply))
+  );
+}
+
 const probe = await call("/?probe=1");
 check(
   "probe answers JSON",

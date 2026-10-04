@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { PoolCommand } from "../commands";
 import type { EditRun, QueryRun } from "../editRun";
 import {
   chargeQueue,
@@ -20,6 +21,7 @@ import {
 } from "../editWorkerProtocol";
 import { coerceLedger, DEFAULT_CAPS, type Ledger, type LedgerStore } from "../rebuildLedger";
 import type { WorkerMemory } from "../rebuildWorkerProtocol";
+import { callableEncode } from "./callableEncode";
 
 /*
  * One request to the edit function on its main thread (`editHandle.ts`): the edit made whatever the
@@ -183,6 +185,60 @@ describe("an edit request", () => {
       });
       expect(ledger.held()?.dayGiBs).toBe(held.dayGiBs + 16);
     }
+  });
+
+  it("is sent as JSON writes it, a field left undefined in what takes it back left out", async () => {
+    const ledger = memoryLedger(ledgerOf());
+    // A club put back with a field the record holds undefined, which the device reads exactly.
+    const inverse = { kind: "team.put", team: { id: "A", name: "Club A", state: undefined } };
+    const handled = await handleEdit({
+      ask: { command: { kind: "team.state", teamId: "A", state: "KY" }, copy: "c1" },
+      worker: { edit: async () => ran({ ...EDITED, inverse } as unknown as EditRun) },
+      ledger: ledger.store,
+      today: () => TODAY,
+      size: SIZE,
+      startupS: () => 0,
+      charges: chargeQueue(),
+    });
+    if (!("reply" in handled)) throw new Error("not made");
+    expect(callableEncode(handled.reply)).toEqual(handled.reply);
+    expect(handled.reply).toMatchObject({
+      inverse: { kind: "team.put", team: { id: "A", name: "Club A" } },
+    });
+    expect(Object.keys((handled.reply as { inverse: { team: object } }).inverse.team)).toEqual([
+      "id",
+      "name",
+    ]);
+  });
+
+  it("sends nothing to take back an edit too big to take back as one, so it is offered no Undo", async () => {
+    const ledger = memoryLedger(ledgerOf());
+    const step: PoolCommand = { kind: "team.state", teamId: "A", state: null };
+    const inverse: PoolCommand = {
+      kind: "batch",
+      commands: Array.from({ length: 501 }, () => step),
+    };
+    const handled = await handleEdit({
+      ask: { command: step, copy: "c1" },
+      worker: { edit: async () => ran({ ...EDITED, inverse }) },
+      ledger: ledger.store,
+      today: () => TODAY,
+      size: SIZE,
+      startupS: () => 0,
+      charges: chargeQueue(),
+    });
+    expect(handled).toMatchObject({ reply: { ok: true, inverse: { kind: "none" } } });
+    const fits: PoolCommand = { kind: "batch", commands: inverse.commands.slice(1) };
+    const kept = await handleEdit({
+      ask: { command: step, copy: "c1" },
+      worker: { edit: async () => ran({ ...EDITED, inverse: fits }) },
+      ledger: ledger.store,
+      today: () => TODAY,
+      size: SIZE,
+      startupS: () => 0,
+      charges: chargeQueue(),
+    });
+    expect(kept).toMatchObject({ reply: { ok: true, inverse: fits } });
   });
 
   it("says why an edit was refused, its turn charged", async () => {
@@ -423,9 +479,17 @@ describe("a question", () => {
     query: { kind: "merge.preview", fromId: "A", intoId: "B", adopt: [] },
     copy: "c1",
   };
-  const ask = (ledger: LedgerStore, worker: Pick<EditWorker, "query">, signal?: AbortSignal) =>
+  const ask = (
+    ledger: LedgerStore,
+    worker: Pick<EditWorker, "query">,
+    signal?: AbortSignal,
+    {
+      question = QUESTION,
+      wait,
+    }: { question?: QueryAsk; wait?: (ms: number) => Promise<void> } = {}
+  ) =>
     handleQuery({
-      ask: QUESTION,
+      ask: question,
       ledger,
       worker,
       today: () => TODAY,
@@ -433,7 +497,9 @@ describe("a question", () => {
       startupS: () => 0,
       charges: chargeQueue(),
       ...(signal ? { signal } : {}),
+      ...(wait ? { wait } : {}),
     });
+  const CHECK: QueryAsk = { query: { kind: "model.check", page: "ag_12" }, copy: "c1" };
 
   it("is answered from the worker's pool, of the copy and version it was worked out on, and charged as an edit", async () => {
     const ledger = memoryLedger(ledgerOf());
@@ -471,6 +537,24 @@ describe("a question", () => {
     expect(ledger.held()).toMatchObject({ dayGiBs: 8, monthVcpuS: 2, dayRuns: 0, open: null });
   });
 
+  it("is sent as JSON writes it, so the callable sends it as it is", async () => {
+    const ledger = memoryLedger(ledgerOf());
+    // An answer with a number that has no end and a field left undefined, as a model check's is.
+    const answer = { kind: "model.check", answer: { cap: Infinity, last: undefined, runs: [1] } };
+    const handled = await ask(ledger.store, {
+      query: async () => ran({ ...QUERIED, answer } as unknown as QueryRun, 1_000),
+    });
+    if (!("reply" in handled)) throw new Error("not answered");
+    const sent = callableEncode(handled.reply);
+    expect(sent).toEqual(handled.reply);
+    expect(sent).toEqual({
+      ok: true,
+      copy: "c1",
+      version: 8,
+      answer: { kind: "model.check", answer: { cap: null, runs: [1] } },
+    });
+  });
+
   it("says why it went unanswered on the copy, its turn charged", async () => {
     const ledger = memoryLedger(ledgerOf());
     expect(
@@ -501,6 +585,120 @@ describe("a question", () => {
     }
     // A question changes nothing, so nothing in what the device is told says it may have.
     expect(NOT_ANSWERED).toMatch(/nothing was changed/);
+  });
+
+  it("that refits a year is refused once the day's or the month's compute is spent, never reaching the pool", async () => {
+    const spent: Array<[Partial<Ledger>, string]> = [
+      [{ dayGiBs: DEFAULT_CAPS.dayGiBs }, "day-spent"],
+      [{ monthGiBs: DEFAULT_CAPS.monthGiBs }, "month-spent"],
+      [{ monthVcpuS: DEFAULT_CAPS.monthVcpuS }, "month-spent"],
+      // Both spent: the month's lasts the longer, so it is the one said.
+      [{ dayGiBs: DEFAULT_CAPS.dayGiBs, monthGiBs: DEFAULT_CAPS.monthGiBs }, "month-spent"],
+      // Spent with the switch off too, as an edit is charged either way.
+      [{ on: false, dayGiBs: DEFAULT_CAPS.dayGiBs }, "day-spent"],
+    ];
+    for (const [more, why] of spent) {
+      const ledger = memoryLedger(ledgerOf(more));
+      const asked: unknown[] = [];
+      for (const question of [
+        CHECK,
+        {
+          query: {
+            kind: "scouting.whatIf",
+            page: "ag_12",
+            segment: null,
+            forTeamId: "A",
+            game: { id: "0", date: "2027-05-01", teamAId: "A", teamBId: "B", ageGroupId: "ag_12" },
+            today: TODAY,
+          },
+          copy: "c1",
+        } satisfies QueryAsk,
+      ]) {
+        expect(
+          await ask(
+            ledger.store,
+            {
+              query: async (one) => {
+                asked.push(one);
+                return ran(QUERIED);
+              },
+            },
+            undefined,
+            { question }
+          )
+        ).toEqual({
+          reply: { ok: false, why },
+          line: { kind: question.query.kind, end: why },
+        });
+      }
+      expect(asked).toEqual([]);
+      // Nothing was spent, so nothing is charged.
+      expect(ledger.held()).toEqual(coerceLedger(ledgerOf(more)));
+    }
+  });
+
+  it("that refits a year is answered on a new day, whatever the last day spent, and below the caps", async () => {
+    for (const more of [
+      { day: "2027-04-14", dayGiBs: DEFAULT_CAPS.dayGiBs },
+      { month: "2027-03", monthGiBs: DEFAULT_CAPS.monthGiBs },
+      { dayGiBs: DEFAULT_CAPS.dayGiBs - 1, monthGiBs: DEFAULT_CAPS.monthGiBs - 1 },
+    ]) {
+      const ledger = memoryLedger(ledgerOf(more));
+      expect(await ask(ledger.store, workerOf(), undefined, { question: CHECK })).toMatchObject({
+        reply: { ok: true },
+        line: { end: "answered" },
+      });
+    }
+    // No ledger meters nothing.
+    expect(
+      await ask(memoryLedger(null).store, workerOf(), undefined, { question: CHECK })
+    ).toMatchObject({ reply: { ok: true } });
+  });
+
+  it("that only reads the pool is answered at the caps, as an edit is made at them", async () => {
+    const ledger = memoryLedger(ledgerOf({ dayGiBs: DEFAULT_CAPS.dayGiBs }));
+    expect(await ask(ledger.store, workerOf())).toMatchObject({
+      reply: { ok: true },
+      line: { end: "answered" },
+    });
+  });
+
+  it("that refits is answered, and the line says so, when the ledger cannot be read or is slow", async () => {
+    const failing: LedgerStore = {
+      read: async () => {
+        throw new Error("Firestore is busy");
+      },
+      replace: async () => false,
+    };
+    expect(await ask(failing, workerOf(), undefined, { question: CHECK })).toMatchObject({
+      reply: { ok: true },
+      line: { ledgerError: "Firestore is busy", end: "answered" },
+    });
+    const silent: LedgerStore = {
+      read: () => new Promise(() => undefined),
+      replace: async () => true,
+    };
+    const waited: number[] = [];
+    const handled = await ask(silent, workerOf(), undefined, {
+      question: CHECK,
+      wait: async (ms) => {
+        waited.push(ms);
+      },
+    });
+    expect(handled).toMatchObject({
+      reply: { ok: true },
+      line: { ledgerError: "The ledger was slow; the question was answered.", end: "answered" },
+    });
+    // Once before the question and once for its charge.
+    expect(waited).toEqual([5_000, 5_000]);
+    // A ledger that answered in time is not called slow once the wait runs out behind it.
+    const answered = await ask(
+      memoryLedger(ledgerOf()).store,
+      { query: () => new Promise((resolve) => setTimeout(() => resolve(ran(QUERIED)), 20)) },
+      undefined,
+      { question: CHECK, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms / 1_000)) }
+    );
+    expect(answered.line).not.toHaveProperty("ledgerError");
   });
 
   it("hands the request's own end to the worker, so a question whose caller has gone is never sent", async () => {

@@ -1,7 +1,7 @@
 import { agelessCsvParts } from "../agelessCsv";
-import { agelessSearch, agelessWaiting, type AgelessAside } from "../agelessQueue";
+import { AGELESS_BATCH, agelessSearch, agelessWaiting, type AgelessAside } from "../agelessQueue";
 import { agelessClearPlan, agelessSitting, type AgelessGroup } from "../agelessSitting";
-import { agelessClearable } from "../agelessTriage";
+import { agelessClearable, CLEARABLE_RULES } from "../agelessTriage";
 import type { AgeUnknownTeam } from "../ageUnknown";
 import { GC_PAIRING_EVIDENCE_LABEL, type GcImportState } from "../gameChangerImport";
 import { dueSummary, type DueSummary } from "../gameChangerSchedule";
@@ -35,7 +35,15 @@ import {
 import { loggedGamesOn } from "../teamRankings/gamesWindow";
 import { planClubAges, type AgeAsked } from "./agePlan";
 import { deriveAllKnown, gamesOnPages, type SeasonReader } from "./allKnown";
-import { coerceCommand, everyOne, oneAgeless, oneGame, oneTeam, sameValue } from "./commands";
+import {
+  coerceCommand,
+  everyOne,
+  MAX_COMMAND_STEPS,
+  oneAgeless,
+  oneGame,
+  oneTeam,
+  sameValue,
+} from "./commands";
 import { cardGamesOf, panelGame } from "./views/clubs";
 import { fits, type Shape } from "./shapes";
 import { findListed, type GameSeen } from "./views/gamesShape";
@@ -460,8 +468,22 @@ const isDay = (value: unknown): value is string => {
 const strings = (value: unknown): string[] | null =>
   Array.isArray(value) && value.every(isString) ? [...(value as string[])] : null;
 
-const isTime = (value: unknown): value is string =>
-  typeof value === "string" && value !== "" && !Number.isNaN(Date.parse(value));
+/**
+ * An instant as a device's clock writes one (`toISOString`), in a year the app could be used in.
+ * Any string `Date.parse` would take was taken: "1", "Oct 4", and the year -271821, which reached
+ * a refresh's day arithmetic and threw, ending the edit worker and the pool it kept warm.
+ */
+const isTime = (value: unknown): value is string => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))
+    return false;
+  const at = Date.parse(value);
+  return !Number.isNaN(at) && value >= "2000" && value < "2200";
+};
+
+/** The longest text a question carries: a name, or what is typed in a search box. */
+const MAX_TEXT = 200;
+const isText = (value: unknown): value is string =>
+  typeof value === "string" && value.length <= MAX_TEXT;
 
 /** A club to file at an age, as `ages.plan` takes one: a level the app ranks at, in a squad year. */
 const ageAsked = (raw: unknown): AgeAsked | null =>
@@ -511,12 +533,13 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
   switch (raw.kind) {
     case "merge.preview": {
       const adopt = everyOne(raw.adopt, oneTeam);
-      if (isString(raw.fromId) && isString(raw.intoId) && adopt)
+      // Either club as League Standings made it, and no more.
+      if (isString(raw.fromId) && isString(raw.intoId) && adopt && adopt.length <= 2)
         query = { kind: "merge.preview", fromId: raw.fromId, intoId: raw.intoId, adopt };
       break;
     }
     case "rename.preview":
-      if (isString(raw.teamId) && typeof raw.name === "string")
+      if (isString(raw.teamId) && isText(raw.name))
         query = { kind: "rename.preview", teamId: raw.teamId, name: raw.name };
       break;
     case "health.summary":
@@ -527,12 +550,14 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
       query = { kind: "health.toPull" };
       break;
     case "ageless.queue": {
+      // The ten in front of the person: more would have the answer hold the whole list.
       const pinned = strings(raw.pinned);
-      if (isDay(raw.today) && pinned) query = { kind: "ageless.queue", today: raw.today, pinned };
+      if (isDay(raw.today) && pinned && pinned.length <= AGELESS_BATCH)
+        query = { kind: "ageless.queue", today: raw.today, pinned };
       break;
     }
     case "ageless.search":
-      if (isDay(raw.today) && typeof raw.query === "string")
+      if (isDay(raw.today) && isText(raw.query))
         query = { kind: "ageless.search", today: raw.today, query: raw.query };
       break;
     case "ageless.file":
@@ -540,7 +565,8 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
       break;
     case "ageless.clearPlan": {
       const rules = strings(raw.rules);
-      if (isDay(raw.today) && rules) query = { kind: "ageless.clearPlan", today: raw.today, rules };
+      if (isDay(raw.today) && rules && rules.length <= CLEARABLE_RULES.length)
+        query = { kind: "ageless.clearPlan", today: raw.today, rules };
       break;
     }
     case "games.find": {
@@ -588,8 +614,10 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
       if (isTime(raw.at)) query = { kind: "import.status", at: raw.at };
       break;
     case "ages.plan": {
+      // As many as one edit may file (`MAX_COMMAND_STEPS`, a step a club): each is planned against
+      // every game in the pool, so an unbounded list held the one edit worker past its time.
       const clubs = everyOne(raw.clubs, ageAsked);
-      if (clubs && isTime(raw.at) && isString(raw.base))
+      if (clubs && clubs.length <= MAX_COMMAND_STEPS && isTime(raw.at) && isString(raw.base))
         query = { kind: "ages.plan", clubs, at: raw.at, base: raw.base };
       break;
     }
@@ -609,8 +637,9 @@ const HEALTH_GAME: Shape = {
     date: { optional: "string" },
     teamAId: "id",
     teamBId: "id",
-    teamAScore: { optional: "count" },
-    teamBScore: { optional: "count" },
+    // Any number, as the pool keeps them: a score typed by hand may be in halves.
+    teamAScore: { optional: "number" },
+    teamBScore: { optional: "number" },
     year: { nullable: "count" },
     filers: { list: "id" },
   },

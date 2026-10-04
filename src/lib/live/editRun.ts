@@ -172,8 +172,13 @@ export const runEdit = async ({
   return { ok: false, why: "kept-moving", tries: MAX_TRIES };
 };
 
-/** Why a question was not answered: the copy is not the one asked about, or would not load. */
-export type QueryRefusal = "copy-replaced" | Extract<PoolEnsure, { ok: false }>["reason"];
+/**
+ * Why a question was not answered: the copy is not the one asked about, or would not load; or,
+ * for a question that refits a year, the day's or the month's compute is spent (`day-spent`,
+ * `month-spent`, said by `handleQuery` before the question reaches the pool).
+ */
+export type QueryRefusal =
+  "copy-replaced" | "day-spent" | "month-spent" | Extract<PoolEnsure, { ok: false }>["reason"];
 
 export type QueryRun =
   | {
@@ -206,8 +211,26 @@ const leagueOf = async (
   if (!part) return seasonReaderOf(undefined) ?? "league-unreadable";
   const held = leagueRead;
   if (held?.id === part.id && held.hash === part.hash) return held.seasons;
-  const fetched = await fetchValues({ store, parts: [part] });
-  if (!fetched.ok) return fetched.reason === "damaged" ? "damaged" : "kept-moving";
+  /*
+   * The question is refused for what kept it from the part, and the worker kept: a store that
+   * would not answer once threw out of the question and ended the worker, and the pool it kept
+   * warm, for a question that writes nothing; and a piece not there read as a copy that kept
+   * moving, which a damaged part would be said to be for ever.
+   */
+  let fetched: Awaited<ReturnType<typeof fetchValues>>;
+  try {
+    fetched = await fetchValues({ store, parts: [part] });
+  } catch {
+    return "store-refused";
+  }
+  if (!fetched.ok) {
+    if (fetched.reason === "damaged") return "damaged";
+    // A piece not there: the part replaced since the manifest was read, or the part damaged.
+    const now = await store.readManifest().catch(() => undefined);
+    if (now === undefined) return "store-refused";
+    const still = now?.parts.find(({ key }) => key === LEAGUE_PART);
+    return still?.id === part.id && still.hash === part.hash ? "damaged" : "kept-moving";
+  }
   const seasons = seasonReaderOf(fetched.values.get(LEAGUE_PART));
   if (!seasons) return "league-unreadable";
   leagueRead = { id: part.id, hash: part.hash, seasons };

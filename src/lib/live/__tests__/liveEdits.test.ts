@@ -169,6 +169,8 @@ describe("what the person is told", () => {
       "league-unreadable",
       "store-refused",
       "kept-moving",
+      "day-spent",
+      "month-spent",
     ];
     expect(Object.keys(QUERY_REFUSED).sort()).toEqual([...unanswered].sort());
   });

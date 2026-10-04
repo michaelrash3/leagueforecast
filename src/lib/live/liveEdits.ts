@@ -90,6 +90,10 @@ export const QUERY_REFUSED: Record<QueryRefusal, string> = {
   "league-unreadable": "The cloud copy could not be read just now.",
   "store-refused": "The cloud would not answer just now. Try again in a minute.",
   "kept-moving": "The cloud copy kept changing. Try again in a minute.",
+  "day-spent":
+    "The cloud has used today's share of its free computing time, so this waits until tomorrow.",
+  "month-spent":
+    "The cloud has used this month's share of its free computing time, so this waits until next month.",
 };
 
 /** A command and every step of it, in the order they run. */

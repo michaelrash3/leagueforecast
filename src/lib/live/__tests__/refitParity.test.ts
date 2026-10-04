@@ -24,11 +24,13 @@ import {
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../allKnown";
+import { asJson } from "../editHandle";
 import { answerQuery, cardFixture, coerceQueryAnswer } from "../queries";
 import { boardWhatIfDeclines, poolGamesOfCard, teamsOfCard } from "../scoutingFromCards";
 import { boardViews, buildBoardsAndFacts } from "../views/board";
 import { coerceBoardView, withMine } from "../views/boardShape";
 import { cardGamesOf, clubViews, panelGame } from "../views/clubs";
+import { callableEncode } from "./callableEncode";
 import { clubBucketOf, clubKey, coerceClubBucket, type ClubBucket } from "../views/clubShape";
 
 /**
@@ -278,7 +280,10 @@ describe("a model check asked of the server", { timeout: 120_000 }, () => {
     const page = ageGroups.find((one) => one.id === AHEAD_PAGE);
     if (!page) throw new Error(`the fixture has no ${AHEAD_PAGE}`);
     const asked = answerQuery({ kind: "model.check", page: page.id }, readSeason);
-    const read = coerceQueryAnswer(JSON.parse(JSON.stringify(asked)), "model.check");
+    // As the callable sends it: its own encoding throws on a number with no end, so the edit
+    // function writes every reply as JSON first (`asJson`).
+    expect(() => callableEncode(asked)).toThrow(/Infinity/);
+    const read = coerceQueryAnswer(callableEncode(asJson(asked)), "model.check");
     const known = deriveAllKnown({
       ageGroups,
       teams: loadScoutTeams(),

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
-import type { PoolCommand } from "../../lib/live/commands";
+import { MAX_COMMAND_STEPS, type PoolCommand } from "../../lib/live/commands";
 import type { HealthInspectAnswer, HealthSummaryAnswer } from "../../lib/live/queries";
 import { clubOf } from "../../lib/poolHealthSummary";
 import { IMPLAUSIBLE_MARGIN } from "../../lib/teamRankings";
@@ -204,7 +204,13 @@ export function LivePoolHealthCard({
         `${club.name} is ${club.suggested}U now.`,
         true
       ),
-    // Confirmed, then planned on the server's pool and sent back as one edit with one undo.
+    /*
+     * Confirmed, then planned on the server's pool and sent back as an edit. One edit files at most
+     * `MAX_COMMAND_STEPS` clubs (a step a club; the server refuses a longer one whole), so a longer
+     * list goes as several, each planned on the pool the edit before it left, so two clubs bound for
+     * one new page still make it once. Only a list sent as one edit can be taken back as one, so
+     * only that one offers an Undo.
+     */
     setAges: async (clubs) => {
       const years = [...new Set(clubs.map((club) => club.year))].sort((a, b) => a - b);
       const confirmed = await confirm({
@@ -215,33 +221,60 @@ export function LivePoolHealthCard({
         confirmLabel: "Approve all changes",
       });
       if (!confirmed) return null;
-      const plan = await ask({
-        kind: "ages.plan",
-        clubs: clubs.map((club) => ({
-          teamId: club.teamId,
-          level: club.suggested,
-          year: club.year,
-        })),
-        at: new Date().toISOString(),
-        base: createAgeGroupId(),
-      });
-      if (!plan) return null;
-      const { commands, changedTeamIds, moved, failed } = plan;
-      const failure = failed
-        ? ` ${failed} ${failed === 1 ? "club could" : "clubs could"} not be changed and remain in the review list.`
-        : "";
-      if (commands.length === 0) {
-        say(`No club could be changed.${failure}`);
-        return { changedTeamIds: [], failed };
+      const parts = Math.ceil(clubs.length / MAX_COMMAND_STEPS);
+      const changedTeamIds: string[] = [];
+      let moved = 0;
+      let failed = 0;
+      // The clubs that could not be changed as the last toast said them.
+      let failedSaid = 0;
+      let stopped = false;
+      const failure = (count: number) =>
+        count
+          ? ` ${count} ${count === 1 ? "club could" : "clubs could"} not be changed and remain in the review list.`
+          : "";
+      for (let part = 0; part < parts; part += 1) {
+        const plan = await ask({
+          kind: "ages.plan",
+          clubs: clubs
+            .slice(part * MAX_COMMAND_STEPS, (part + 1) * MAX_COMMAND_STEPS)
+            .map((club) => ({ teamId: club.teamId, level: club.suggested, year: club.year })),
+          at: new Date().toISOString(),
+          base: createAgeGroupId(),
+        });
+        if (!plan) {
+          stopped = true;
+          break;
+        }
+        failed += plan.failed;
+        if (plan.commands.length === 0) continue;
+        const changed = changedTeamIds.length + plan.changedTeamIds.length;
+        const made = await edit(
+          { kind: "batch", commands: plan.commands },
+          {
+            done: `${plural(changed, "club")} moved to ${
+              changed === 1 ? "its" : "their"
+            } suggested age groups; ${plural(moved + plan.moved, "game")} refiled.${failure(failed)}`,
+            undo: parts === 1,
+            ...(parts === 1 ? { afterUndo: askAgain } : {}),
+          }
+        );
+        if (!made) {
+          stopped = true;
+          break;
+        }
+        changedTeamIds.push(...plan.changedTeamIds);
+        moved += plan.moved;
+        failedSaid = failed;
       }
-      const made = await change(
-        { kind: "batch", commands },
-        `${plural(changedTeamIds.length, "club")} moved to ${
-          changedTeamIds.length === 1 ? "its" : "their"
-        } suggested age groups; ${plural(moved, "game")} refiled.${failure}`,
-        true
-      );
-      return made ? { changedTeamIds, failed } : null;
+      if (changedTeamIds.length === 0) {
+        if (stopped) return null;
+        say(`No club could be changed.${failure(failed)}`);
+        return { changedTeamIds, failed };
+      }
+      askAgain();
+      // A last part that moved no club says what could not be changed, as no edit's toast did.
+      if (!stopped && failed > failedSaid) say(failure(failed).trim());
+      return { changedTeamIds, failed };
     },
     ...(onOpenTeam ? { openTeam: onOpenTeam } : {}),
     downloadToPull: () =>

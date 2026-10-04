@@ -43,6 +43,7 @@ import {
 } from "../../teamRankingsStorage";
 import { unpulledClubs, unpulledClubsCsv } from "../../unpulledClubs";
 import { planClubAges } from "../agePlan";
+import { asJson } from "../editHandle";
 import {
   answerQuery,
   coerceQuery,
@@ -53,6 +54,7 @@ import {
   type QueryKind,
 } from "../queries";
 import type { GameSeen } from "../views/gamesShape";
+import { callableEncode } from "./callableEncode";
 
 /*
  * The questions a member's device asks of the server's pool (`queries.ts`): each answered as the
@@ -187,6 +189,35 @@ describe("a question as the server reads one", () => {
   it("is the question exactly as sent", () => {
     expect(coerceQuery(JSON.parse(JSON.stringify(MERGE)))).toEqual(MERGE);
     expect(coerceQuery(RENAME)).toEqual(RENAME);
+  });
+
+  it("is refused when it carries more than any device sends, which the server would spend its time on", () => {
+    const today = "2026-09-27";
+    const clubs = (count: number) =>
+      Array.from({ length: count }, (_, at) => ({ teamId: `gc${at}`, level: 9, year: 2027 }));
+    const plan = (count: number) => ({
+      kind: "ages.plan",
+      clubs: clubs(count),
+      at: "2026-09-27T12:00:00.000Z",
+      base: "ag_new",
+    });
+    expect(coerceQuery(plan(500))).not.toBeNull();
+    const pinned = (count: number) => ({
+      kind: "ageless.queue",
+      today,
+      pinned: Array.from({ length: count }, (_, at) => `gc${at}`),
+    });
+    expect(coerceQuery(pinned(10))).not.toBeNull();
+    expect(coerceQuery({ ...RENAME, name: "x".repeat(200) })).not.toBeNull();
+    for (const raw of [
+      plan(501),
+      pinned(11),
+      { ...RENAME, name: "x".repeat(201) },
+      { kind: "ageless.search", today, query: "x".repeat(201) },
+      { ...MERGE, adopt: ["A", "B", "C"].map((id) => ({ id, name: `Club ${id}` })) },
+      { kind: "ageless.clearPlan", today, rules: Array.from({ length: 50 }, () => "rule") },
+    ])
+      expect([raw, coerceQuery(raw)]).toEqual([raw, null]);
   });
 
   it("is refused with a field it does not read, a field of the wrong kind, or a kind it does not know", () => {
@@ -444,6 +475,12 @@ describe("the copy's refresh as the Import tab asks for it", () => {
       { kind: "import.status" },
       { kind: "import.status", at: "" },
       { kind: "import.status", at: "soon" },
+      // Times `Date.parse` takes that no device's clock writes, one of which threw on the server.
+      { kind: "import.status", at: "1" },
+      { kind: "import.status", at: "Oct 4" },
+      { kind: "import.status", at: "-271821-04-20T00:00:00Z" },
+      { kind: "import.status", at: "2027-04-15T16:00:00Z" },
+      { kind: "import.status", at: "1999-12-31T23:59:59.000Z" },
       { ...STATUS, today: "2027-04-15" },
     ])
       expect(coerceQuery(raw)).toBeNull();
@@ -685,6 +722,31 @@ describe("what Pool health asks of the server's pool", () => {
     expect(answer.summary.suspected.length).toBeGreaterThan(0);
   });
 
+  it("reads back as the callable sends it, a page with no year and a score in halves among it", () => {
+    // A page whose year is in no name, and a game typed by hand at a half-run score, ahead of today.
+    const OLD: AgeGroup = { id: "ag_old", name: "Placeholder Old", ageLevel: 9, seasonIds: [] };
+    saveAgeGroups([...PAGES, OLD]);
+    saveScoutGames([
+      ...ROWS,
+      {
+        id: "scout_half",
+        teamAId: "BULL",
+        teamBId: "HAWK",
+        teamAScore: 2.5,
+        teamBScore: 1,
+        ageGroupId: "ag9",
+        date: "2026-10-04",
+      },
+      { id: "scout_old", teamAId: "BULL", teamBId: "HAWK", ageGroupId: "ag_old" },
+    ]);
+    const answer = asked({ kind: "health.summary", today: TODAY });
+    expect(answer.summary.holdings.some(({ year }) => year === undefined)).toBe(true);
+    expect(answer.summary.datedAhead.map(({ id }) => id)).toContain("scout_half");
+    // The page's year that is none goes as null unless the reply is written as JSON first.
+    expect(coerceQueryAnswer(callableEncode(answer), "health.summary")).toBeNull();
+    expect(coerceQueryAnswer(callableEncode(asJson(answer)), "health.summary")).toEqual(answer);
+  });
+
   it("looks harder as the tidy worker does, against the copy's own tidy stamp", () => {
     saveTidyStamp(poolSignature(POOL));
     const answer = asked({ kind: "health.inspect", today: TODAY });
@@ -825,7 +887,7 @@ describe("what Pool health asks of the server's pool", () => {
         ["health.summary", opened, ["summary", "datedAhead", 0, "year"], "2027"],
         ["health.summary", opened, ["summary", "datedAhead", 0, "filers"], ["HAWK", ""]],
         ["health.summary", opened, ["summary", "implausible", 0, "margin"], null],
-        ["health.summary", opened, ["summary", "implausible", 0, "game", "teamAScore"], -40],
+        ["health.summary", opened, ["summary", "implausible", 0, "game", "teamAScore"], "40"],
         ["health.summary", opened, ["summary", "suspected", 0, "gameIds"], "all"],
         ["health.summary", opened, ["summary", "clubs", "HAWK", "name"], 5],
         ["health.summary", opened, ["summary", "holdings", 0, "emptied"], "no"],

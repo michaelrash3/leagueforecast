@@ -1488,8 +1488,8 @@ const oneAgelessRow = (raw: unknown): { entry: AgeUnknownTeam; at: number } | nu
 export const MAX_COMMAND_STEPS = 500;
 
 /** How many steps a command takes, each step of a batch counted. */
-const stepsOf = (command: PoolCommand): number =>
-  command.kind === "batch" ? command.commands.reduce((sum, step) => sum + stepsOf(step), 0) : 1;
+export const stepCount = (command: PoolCommand): number =>
+  command.kind === "batch" ? command.commands.reduce((sum, step) => sum + stepCount(step), 0) : 1;
 
 /**
  * A command as it arrives from elsewhere, checked part by part: from another tab, or as the body
@@ -1503,7 +1503,7 @@ export const coerceCommand = (raw: unknown, depth = 0): PoolCommand | null => {
   if (!Object.keys(raw).every((key) => Object.prototype.hasOwnProperty.call(command, key))) {
     return null;
   }
-  return depth > 0 || stepsOf(command) <= MAX_COMMAND_STEPS ? command : null;
+  return depth > 0 || stepCount(command) <= MAX_COMMAND_STEPS ? command : null;
 };
 
 const readCommand = (raw: unknown, depth: number): PoolCommand | null => {

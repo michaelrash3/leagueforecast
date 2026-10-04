@@ -700,4 +700,68 @@ describe("League Standings in the copy", () => {
       ok: true,
     });
   });
+
+  it("says why the part could not be had, and is refused rather than thrown when the store fails", async () => {
+    const cloud = await copyOfPool();
+    await saveLeague(cloud, { seasons: [] });
+    const league = cloud.manifest()?.parts.find(({ key }) => key === LEAGUE_PART);
+    if (!league) throw new Error("no League part");
+    const ofLeague = (id: string) => id.startsWith(league.id);
+    // Its pieces gone while the copy still names the part: damaged, not a copy that kept moving.
+    const gone: CloudStore = {
+      ...cloud.store,
+      getChunk: (id) => (ofLeague(id) ? Promise.resolve(null) : cloud.store.getChunk(id)),
+    };
+    expect(await runQuery({ pool: editPool(), store: gone, query: MODEL_CHECK })).toEqual({
+      ok: false,
+      why: "damaged",
+    });
+    /*
+     * Its pieces gone once the question has read the copy, which then names the part at another
+     * hash (replaced since), or cannot be read again: the copy kept moving, or the store would not
+     * answer.
+     */
+    const goneThen = (manifest: () => Promise<CloudManifest | null>): CloudStore => {
+      let missed = false;
+      return {
+        ...cloud.store,
+        getChunk: (id) => {
+          if (!ofLeague(id)) return cloud.store.getChunk(id);
+          missed = true;
+          return Promise.resolve(null);
+        },
+        readManifest: () => (missed ? manifest() : cloud.store.readManifest()),
+      };
+    };
+    const replaced = goneThen(async () => {
+      const now = await cloud.store.readManifest();
+      return (
+        now && {
+          ...now,
+          parts: now.parts.map((one) =>
+            one.key === LEAGUE_PART ? { ...one, hash: `${one.hash}-next` } : one
+          ),
+        }
+      );
+    });
+    expect(await runQuery({ pool: editPool(), store: replaced, query: MODEL_CHECK })).toEqual({
+      ok: false,
+      why: "kept-moving",
+    });
+    const unread = goneThen(() => Promise.reject(new Error("unavailable")));
+    expect(await runQuery({ pool: editPool(), store: unread, query: MODEL_CHECK })).toEqual({
+      ok: false,
+      why: "store-refused",
+    });
+    // A store that fails mid-read: the question is refused, not thrown out of.
+    const failing: CloudStore = {
+      ...cloud.store,
+      getChunk: (id) =>
+        ofLeague(id) ? Promise.reject(new Error("unavailable")) : cloud.store.getChunk(id),
+    };
+    expect(await runQuery({ pool: editPool(), store: failing, query: MODEL_CHECK })).toEqual({
+      ok: false,
+      why: "store-refused",
+    });
+  });
 });

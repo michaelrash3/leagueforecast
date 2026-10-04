@@ -153,7 +153,12 @@ const ENSURE_REFUSALS: Record<EnsureRefusal, true> = {
 };
 
 /** Why a question went unanswered, each named once. */
-const QUERY_REFUSALS: Record<QueryRefusal, true> = { ...ENSURE_REFUSALS, "copy-replaced": true };
+const QUERY_REFUSALS: Record<QueryRefusal, true> = {
+  ...ENSURE_REFUSALS,
+  "copy-replaced": true,
+  "day-spent": true,
+  "month-spent": true,
+};
 
 /** Why an edit was not made, each named once. */
 const EDIT_REFUSALS: Record<EditRefusal, true> = {

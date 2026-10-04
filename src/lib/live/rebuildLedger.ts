@@ -342,6 +342,21 @@ export const chargeEdit = (ledger: Ledger | null, today: string, used: RunCost):
   };
 };
 
+/**
+ * Which caps are spent on `today` (New York's day): the day's GiB-seconds, or either of the
+ * month's totals, at or past its cap; or null. A question that refits a year (`editHandle.ts`) is
+ * then refused: it spends what a rebuild's fit does, and unlike an edit it changes nothing a member
+ * is owed, so it is held to the caps the rebuilds are. Whether the switch is on or off, as an edit
+ * is charged either way; no ledger meters nothing.
+ */
+export const capsSpent = (ledger: Ledger | null, today: string): "day" | "month" | null => {
+  if (!ledger) return null;
+  const next = rolledOver(ledger, today);
+  if (next.monthGiBs >= next.caps.monthGiBs || next.monthVcpuS >= next.caps.monthVcpuS)
+    return "month";
+  return next.dayGiBs >= next.caps.dayGiBs ? "day" : null;
+};
+
 export type ReserveRefusal = "off" | "busy" | "failing" | "day-cap" | "month-cap";
 
 /**

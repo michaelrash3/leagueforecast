@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EditSaid, LiveEdits } from "../../hooks/useLiveEdits";
 import { apartKey } from "../../lib/keptApart";
-import type { PoolCommand } from "../../lib/live/commands";
+import { MAX_COMMAND_STEPS, type PoolCommand } from "../../lib/live/commands";
 import type { AnswerOf, PoolQuery, QueryKind, QueryOf } from "../../lib/live/queries";
 import { LivePoolHealthCard } from "./LivePoolHealthCard";
 
@@ -160,15 +160,20 @@ const editFunction = (
     locked = null,
     makes = true,
     later,
+    plans,
   }: {
     locked?: string | null;
     makes?: boolean;
     /** What every summary after the first waits on. */
     later?: Promise<void>;
+    /** The server's plans in the order it makes them, in place of the one in `answers`. */
+    plans?: AnswerOf<"ages.plan">[];
   } = {}
 ) => {
   const asked: PoolQuery[] = [];
   const sent: Array<{ command: PoolCommand; said: EditSaid }> = [];
+  // How many questions had been asked as each edit was sent.
+  const askedBySend: number[] = [];
   const told: string[] = [];
   const kept = {
     ageRight: new Set<string>(),
@@ -180,6 +185,7 @@ const editFunction = (
     pending: [],
     edit: async (command, said) => {
       sent.push({ command, said });
+      askedBySend.push(asked.length);
       if (makes && command.kind === "answers" && command.list in kept) {
         const list = kept[command.list as keyof typeof kept];
         command.add.forEach((id) => list.add(id));
@@ -189,6 +195,7 @@ const editFunction = (
     },
     ask: async <K extends QueryKind>(query: QueryOf<K>) => {
       asked.push(query);
+      if (plans && query.kind === "ages.plan") return (plans.shift() ?? null) as AnswerOf<K> | null;
       const answer = answers[query.kind];
       if (answer?.kind === "health.summary") {
         if (later && asked.filter((one) => one.kind === "health.summary").length > 1) await later;
@@ -209,7 +216,7 @@ const editFunction = (
       told.push(message);
     },
   };
-  return { edits, asked, sent, told };
+  return { edits, asked, sent, askedBySend, told };
 };
 
 const confirmed: string[] = [];
@@ -526,6 +533,150 @@ describe("Pool health's buttons, sent as edits", () => {
     // The club that moved leaves the list; the one that could not stays.
     await waitFor(() => expect(screen.queryByText("Placeholder Larks")).toBeNull());
     expect(screen.getByText("Placeholder Wrens")).toBeTruthy();
+  });
+
+  it("approves more clubs than one edit carries as several, each planned once the last is made", async () => {
+    const [larks] = LOOKED.lists.wrongAge;
+    if (!larks) throw new Error("no club");
+    const many = Array.from({ length: MAX_COMMAND_STEPS + 1 }, (_, at) => ({
+      ...larks,
+      teamId: `M-${at}`,
+      name: `Placeholder M-${at}`,
+      gcTeamIds: [`gc-m${at}`],
+    }));
+    const planned: PoolCommand = {
+      kind: "club.age",
+      year: 2027,
+      teamId: "M-0",
+      level: 10,
+      at: "2027-04-15T12:00:00.000Z",
+      pageId: "ag_plan-0",
+    };
+    const call = editFunction({
+      "health.summary": OPENED,
+      "health.inspect": { ...LOOKED, lists: { ...LOOKED.lists, wrongAge: many } },
+      "ages.plan": {
+        kind: "ages.plan",
+        commands: [planned],
+        changedTeamIds: ["M-0"],
+        moved: 3,
+        failed: 1,
+      },
+    });
+    show(call);
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve all changes" }));
+    await waitFor(() => expect(call.sent).toHaveLength(2));
+    expect(confirmed).toEqual([`Approve age changes for ${MAX_COMMAND_STEPS + 1} clubs?`]);
+    const plans = call.asked.flatMap((query) => (query.kind === "ages.plan" ? [query] : []));
+    expect(plans.map((plan) => plan.clubs.length)).toEqual([MAX_COMMAND_STEPS, 1]);
+    expect(plans[1]?.clubs).toEqual([{ teamId: `M-${MAX_COMMAND_STEPS}`, level: 10, year: 2027 }]);
+    // The second part is planned on the pool the first edit left.
+    expect(call.asked.indexOf(plans[1] as PoolQuery)).toBeGreaterThanOrEqual(
+      call.askedBySend[0] ?? Infinity
+    );
+    // Each part says the clubs moved so far, and neither offers an Undo that would take back only
+    // the last.
+    expect(call.sent.map(({ said }) => said)).toEqual([
+      {
+        done: "1 club moved to its suggested age groups; 3 games refiled. 1 club could not be changed and remain in the review list.",
+        undo: false,
+      },
+      {
+        done: "2 clubs moved to their suggested age groups; 6 games refiled. 2 clubs could not be changed and remain in the review list.",
+        undo: false,
+      },
+    ]);
+  });
+
+  it("says what a last part that moved no club could not change", async () => {
+    const [larks] = LOOKED.lists.wrongAge;
+    if (!larks) throw new Error("no club");
+    const many = Array.from({ length: MAX_COMMAND_STEPS + 1 }, (_, at) => ({
+      ...larks,
+      teamId: `M-${at}`,
+      name: `Placeholder M-${at}`,
+      gcTeamIds: [`gc-m${at}`],
+    }));
+    const call = editFunction(
+      {
+        "health.summary": OPENED,
+        "health.inspect": { ...LOOKED, lists: { ...LOOKED.lists, wrongAge: many } },
+      },
+      {
+        plans: [
+          {
+            kind: "ages.plan",
+            commands: [
+              {
+                kind: "club.age",
+                year: 2027,
+                teamId: "M-0",
+                level: 10,
+                at: "2027-04-15T12:00:00.000Z",
+                pageId: "ag_plan-0",
+              },
+            ],
+            changedTeamIds: ["M-0"],
+            moved: 3,
+            failed: 0,
+          },
+          { kind: "ages.plan", commands: [], changedTeamIds: [], moved: 0, failed: 1 },
+        ],
+      }
+    );
+    show(call);
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve all changes" }));
+    await waitFor(() => expect(call.told).toHaveLength(1));
+    expect(call.sent.map(({ said }) => said.done)).toEqual([
+      "1 club moved to its suggested age groups; 3 games refiled.",
+    ]);
+    expect(call.told).toEqual(["1 club could not be changed and remain in the review list."]);
+    // The club that moved leaves the list.
+    await waitFor(() => expect(screen.queryByText("Placeholder M-0")).toBeNull());
+  });
+
+  it("says nothing more when the plan went unanswered or the edit was not made, the device having said why", async () => {
+    const planned: PoolCommand = {
+      kind: "club.age",
+      year: 2027,
+      teamId: "W-1",
+      level: 10,
+      at: "2027-04-15T12:00:00.000Z",
+      pageId: "ag_plan-0",
+    };
+    const cases: Array<{ plan: AnswerOf<"ages.plan"> | null; makes: boolean; sent: number }> = [
+      { plan: null, makes: true, sent: 0 },
+      {
+        plan: {
+          kind: "ages.plan",
+          commands: [planned],
+          changedTeamIds: ["W-1"],
+          moved: 3,
+          failed: 0,
+        },
+        makes: false,
+        sent: 1,
+      },
+    ];
+    for (const { plan, makes, sent } of cases) {
+      const call = editFunction(
+        { "health.summary": OPENED, "health.inspect": LOOKED, "ages.plan": plan },
+        { makes }
+      );
+      const { unmount } = show(call);
+      fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Approve all changes" }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Approve all changes" })).toBeTruthy()
+      );
+      expect(call.sent).toHaveLength(sent);
+      expect(call.told).toEqual([]);
+      // Both clubs stay on the list.
+      expect(screen.getByText("Placeholder Larks")).toBeTruthy();
+      unmount();
+    }
   });
 
   it("sends nothing when the server's plan moves no club, and says so", async () => {

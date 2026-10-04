@@ -1,9 +1,16 @@
-import type { PoolCommand } from "./commands";
+import { MAX_COMMAND_STEPS, stepCount, type PoolCommand } from "./commands";
 import type { EditRefusal, EditRun, QueryRefusal, QueryRun } from "./editRun";
 import { TurnFailed, type TurnAsk, type Turned } from "./editWorkerProtocol";
 import type { PoolEnsure } from "./poolCache";
-import type { PoolQuery, QueryAnswer } from "./queries";
-import { chargeEdit, runCost, updateLedger, type LedgerStore } from "./rebuildLedger";
+import type { PoolQuery, QueryAnswer, QueryKind } from "./queries";
+import {
+  capsSpent,
+  chargeEdit,
+  coerceLedger,
+  runCost,
+  updateLedger,
+  type LedgerStore,
+} from "./rebuildLedger";
 
 /**
  * One request to the edit function, on its main thread, kept here, pure, so it is tested: the
@@ -56,6 +63,21 @@ export type QueryReply =
   | { ok: false; why: QueryRefusal };
 
 type Line = Record<string, string | number | boolean>;
+
+/** What takes back an edit too big to take back as one: nothing, so the device offers no Undo. */
+const NO_UNDO: PoolCommand = { kind: "none" };
+
+/**
+ * A reply as JSON writes it, which is how every device reads one (`coerceEditReply`,
+ * `coerceQueryAnswer`). A callable's result is not sent as JSON writes it: firebase-functions'
+ * `encode` throws on a number with no end, which the device receives as the function's error, and
+ * sends a field left undefined as null, where JSON leaves it out. A model check, whose uncapped run
+ * and last bucket have no end, was answered with an error every time; and Pool health's summary of
+ * a copy with a page that has no year was refused whole, for the null its missing year became. So
+ * a reply is written as JSON and read back before it is handed to the callable, which then sends
+ * it unchanged (`functions/smoke.mjs` holds the encoding to that).
+ */
+export const asJson = <T>(reply: T): T => JSON.parse(JSON.stringify(reply)) as T;
 
 /**
  * The instance's charges, one at a time in the order they came, so that two are never read off the
@@ -181,14 +203,20 @@ export const handleEdit = async ({
   const { copy, version, inverse, changed, tries, cold, fetched, loadMs, applyMs, commitMs } =
     edited;
   return {
-    reply: {
+    reply: asJson({
       ok: true,
       copy,
       version,
-      inverse,
+      /*
+       * What takes it back only where a device could send it: a batch of more steps than an edit
+       * may have is refused (`coerceCommand`), and a club's age takes two steps or more to take
+       * back, so Pool health's approval of 300 clubs, 300 steps, was taken back by a batch the
+       * device could not read, and an edit that was made was said not to be readable.
+       */
+      inverse: stepCount(inverse) <= MAX_COMMAND_STEPS ? inverse : NO_UNDO,
       changed,
       ms: { load: loadMs, apply: applyMs, commit: commitMs },
-    },
+    }),
     line: {
       ...line,
       end: "edited",
@@ -243,6 +271,40 @@ export const handleWarm = async ({
   };
 };
 
+/**
+ * The questions that refit a year, each spending what a rebuild's fit does (Scouting's what-if
+ * refits once, the model check once a run), and so held to the rebuilds' caps (`capsSpent`). The
+ * rest are reads of the pool, mostly asked on the way to an edit, which the caps never refuse.
+ */
+export const REFITTING: ReadonlySet<QueryKind> = new Set<QueryKind>([
+  "scouting.whatIf",
+  "model.check",
+]);
+
+/**
+ * Which caps the ledger says are spent, read before a question that refits: a ledger that cannot
+ * be read, or is slow to answer, holds nothing back and is said in the line, since the bill's hard
+ * stop is the backstop, as it is for an edit.
+ */
+const spentNow = async (
+  { ledger, today, wait = sleep }: Deps,
+  line: Line
+): Promise<"day" | "month" | null> => {
+  const read = ledger.read().then(
+    ({ raw }) => ({ spent: capsSpent(coerceLedger(raw), today()) }),
+    (error: unknown) => ({ error: messageOf(error) })
+  );
+  const outcome = await Promise.race([
+    read,
+    wait(CHARGE_WAIT_MS).then(() => ({ error: "The ledger was slow; the question was answered." })),
+  ]);
+  if ("error" in outcome) {
+    line.ledgerError = outcome.error;
+    return null;
+  }
+  return outcome.spent;
+};
+
 /** What the device is told when a question went unanswered: nothing was changed either way. */
 export const NOT_ANSWERED =
   "The question could not be answered just now, and nothing was changed. Try again in a minute.";
@@ -260,6 +322,13 @@ export const handleQuery = async ({
   { line: Line } & ({ reply: QueryReply } | { notAnswered: string })
 > => {
   const line: Line = { kind: ask.query.kind };
+  if (REFITTING.has(ask.query.kind)) {
+    const spent = await spentNow(deps, line);
+    if (spent) {
+      const why = spent === "day" ? "day-spent" : "month-spent";
+      return { reply: { ok: false, why }, line: { ...line, end: why } };
+    }
+  }
   let turned: Turned<QueryRun>;
   try {
     turned = await worker.query(ask, deps.signal ? { signal: deps.signal } : {});
@@ -278,7 +347,7 @@ export const handleQuery = async ({
   if (!asked.ok) return { reply: { ok: false, why: asked.why }, line: { ...line, end: asked.why } };
   const { copy, version, answer, cold, fetched, loadMs, answerMs } = asked;
   return {
-    reply: { ok: true, copy, version, answer },
+    reply: asJson({ ok: true, copy, version, answer }),
     line: { ...line, end: "answered", copy, version, cold, fetched, loadMs, answerMs },
   };
 };
