@@ -176,6 +176,31 @@ export const overlayCard = (
         shown = { ...shown, age: level === undefined ? {} : { level } };
         break;
       }
+      case "namedAges": {
+        /*
+         * The ages the club's GameChanger teams were named as put back, which is what a club's
+         * age's Undo does (`club.age`'s inverse is a batch with this step in it): the pin it had
+         * before, or none. Without it the age set stayed drawn after its Undo, until a publish.
+         */
+        const ids = new Set((team.gcTeams ?? []).map((link) => link.teamId));
+        const touched =
+          step.forget.some((id) => ids.has(id)) || step.put.some((entry) => ids.has(entry.teamId));
+        if (!touched) break;
+        const pin = step.put.find((entry) => ids.has(entry.teamId) && entry.pinned);
+        if (pin) {
+          shown = {
+            ...shown,
+            age: {
+              level: pin.level,
+              pinned: { level: pin.level, ...(pin.was === undefined ? {} : { was: pin.was }) },
+            },
+          };
+        } else if (shown.age?.pinned) {
+          const level = shown.age.pinned.was ?? shown.age.level;
+          shown = { ...shown, age: level === undefined ? {} : { level } };
+        }
+        break;
+      }
       case "teams.merge":
         if (step.fromId === team.id) return { foldedInto: step.intoId };
         break;

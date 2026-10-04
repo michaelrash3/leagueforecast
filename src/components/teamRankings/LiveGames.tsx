@@ -5,7 +5,14 @@ import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { useLiveView } from "../../hooks/useLiveView";
 import { overlayGames } from "../../lib/live/gamesOverlay";
 import type { DecodedViews } from "../../lib/live/liveClient";
-import { coerceGames, gamesKey, seenAs, type GamesView } from "../../lib/live/views/gamesShape";
+import {
+  coerceGames,
+  findListed,
+  gamesKey,
+  seenAs,
+  type GameSeen,
+  type GamesView,
+} from "../../lib/live/views/gamesShape";
 import type { LiveViewSource } from "../../hooks/useLiveBoard";
 import {
   isScoutGamePlayed,
@@ -19,8 +26,21 @@ import { card } from "../../styles/tokens";
 /** Lists decoded this page load, by fingerprint: going back to a page's Games is free. */
 const decodedGames: DecodedViews<GamesView> = new Map();
 
-/** Only for tests: forgets the lists decoded so far. */
-export const forgetDecodedGames = (): void => decodedGames.clear();
+/**
+ * The games the server has named this page load, by list (`gamesKey`): each id with where its list
+ * showed the game and how. Kept apart from the tab, and found again in each list by what it shows
+ * (`findListed`), so the edits drawn over a list still find their games in a list published since
+ * (of other changes, before the one that carries the edit), after the tab is opened again, or back
+ * on the page from another: kept in the tab, with the list they were named in, they were let go
+ * with it, and an edit made stopped being drawn until its publish was out.
+ */
+const named = new Map<string, ReadonlyMap<string, { at: number; seen: GameSeen }>>();
+
+/** Only for tests: forgets the lists decoded so far, and the games named in them. */
+export const forgetDecodedGames = (): void => {
+  decodedGames.clear();
+  named.clear();
+};
 
 const NOTHING_KEPT: ReadonlySet<string> = new Set();
 const NO_TEAMS: [] = [];
@@ -88,12 +108,21 @@ export default function LiveGames({
   }, [failed, onCannot]);
   const { pending, edit, ask, say } = edits;
   const squadYear = year ?? null;
+  const listKey = gamesKey(year, pageId);
+  // The games of this list the server has named: a new map each time it names one, which a
+  // render is asked for (`setNamings`) so the list is drawn again with its id.
+  const held = named.get(listKey);
+  const [, setNamings] = useState(0);
   // The ids the server has named for games of the list on screen, by their places in it.
-  const [found, setFound] = useState<{ of: GamesView | null; ids: ReadonlyMap<string, string> }>({
-    of: null,
-    ids: NO_IDS,
-  });
-  const ids = found.of === view ? found.ids : NO_IDS;
+  const ids = useMemo(() => {
+    if (!view || !held) return NO_IDS;
+    const byPlace = new Map<string, string>();
+    held.forEach(({ at, seen }, gameId) => {
+      const place = findListed(view.games, at, seen);
+      if (place !== null) byPlace.set(place, gameId);
+    });
+    return byPlace;
+  }, [view, held]);
   const games = useMemo(
     () =>
       view
@@ -109,12 +138,18 @@ export default function LiveGames({
   const shownGames = useMemo(() => [...games], [games]);
   const gamesWindow = useMemo(() => gamesWindowFor({ today, year, games }), [today, year, games]);
 
-  // The game whose score is being typed, and what is typed, as the device's tab holds them.
-  const [editingGameId, setEditingGameId] = useState<string | null>(null);
+  /*
+   * The game whose score is being typed, and what is typed, as the device's tab holds them: for
+   * the list it was opened on. A game not yet named is its place in the list, and a list published
+   * since, or another page's, has another game at that place, which the box then sat on and the
+   * typed score was saved to.
+   */
+  const [editing, setEditing] = useState<{ of: GamesView | null; id: string } | null>(null);
+  const editingGameId = editing && editing.of === view ? editing.id : null;
   const [scoreA, setScoreA] = useState("");
   const [scoreB, setScoreB] = useState("");
   const startEditScore = (gameId: string) => {
-    setEditingGameId(gameId);
+    setEditing({ of: view, id: gameId });
     setScoreA("");
     setScoreB("");
   };
@@ -137,26 +172,22 @@ export default function LiveGames({
    */
   const idOf = async (game: ScoutGame): Promise<string | null> => {
     const at = listed.games.findIndex((one) => one.id === game.id);
-    if (at < 0) return game.id;
-    const answer = await ask({
-      kind: "games.find",
-      year: squadYear,
-      page: pageId,
-      at,
-      game: seenAs(game),
-    });
+    const shown = listed.games[at];
+    if (at < 0 || !shown) return game.id;
+    const seen = seenAs(shown);
+    const answer = await ask({ kind: "games.find", year: squadYear, page: pageId, at, game: seen });
     if (!answer) return null;
     const { gameId } = answer;
     if (gameId === null) {
       say(GAME_MOVED);
       return null;
     }
-    setFound((was) => ({
-      of: listed,
-      ids: new Map(was.of === listed ? was.ids : NO_IDS).set(game.id, gameId),
-    }));
+    named.set(listKey, new Map(named.get(listKey)).set(gameId, { at, seen }));
+    setNamings((times) => times + 1);
     // The score being typed follows the game to its id.
-    setEditingGameId((editing) => (editing === game.id ? gameId : editing));
+    setEditing((was) =>
+      was && was.of === listed && was.id === game.id ? { of: listed, id: gameId } : was
+    );
     return gameId;
   };
   const saveScore = async (shownId: string) => {
@@ -172,7 +203,7 @@ export default function LiveGames({
       { kind: "game.score", year: squadYear, gameId, ...typed },
       { done: "Score saved." }
     );
-    if (made) setEditingGameId(null);
+    if (made) setEditing(null);
   };
   const toggleExcluded = async (game: ScoutGame) => {
     const excluded = game.excluded !== true;

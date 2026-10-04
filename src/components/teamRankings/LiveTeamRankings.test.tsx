@@ -38,7 +38,7 @@ import type { ArchivedSeason } from "../../lib/teamRankingsArchive";
 import { archiveRowsKey, GC_ARCHIVE_KEY } from "../../lib/teamRankingsStorage";
 import { checkTheModel } from "../../lib/scoutBacktest";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
-import type { AgeGroup } from "../../lib/teamRankings";
+import type { AgeGroup, ScoutGame } from "../../lib/teamRankings";
 import type { SeasonMeta } from "../../lib/storage";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
 import type { LiveSources } from "../../hooks/useLiveBoard";
@@ -1358,6 +1358,83 @@ describe("the Games tab on the cloud's board", () => {
     expect(handedOver()).toBeNull();
   });
 
+  /** The list published again with `games` in it, of the copy as it was (before any edit made). */
+  const republish = (games: ScoutGame[]) =>
+    act(() =>
+      publish(live, [
+        ...BOARDS,
+        {
+          key: gamesKey(2027, PAGE),
+          value: encodeGames({
+            page: PAGE,
+            games,
+            names: new Map([
+              ["S-1", "Placeholder S-1"],
+              ["S-2", "Placeholder S-2"],
+              ["S-3", "Placeholder S-3"],
+            ]),
+          }),
+        },
+      ])
+    );
+  const ROWS: ScoutGame[] = [
+    {
+      id: "g1",
+      teamAId: "S-1",
+      teamBId: "S-2",
+      ageGroupId: PAGE,
+      teamAScore: 7,
+      teamBScore: 2,
+      date: TODAY,
+      event: "Placeholder Cup",
+    },
+    { id: "g2", teamAId: "S-3", teamBId: "S-1", ageGroupId: PAGE, date: TODAY },
+  ];
+  const NEWCOMER: ScoutGame = {
+    id: "g0",
+    teamAId: "S-2",
+    teamBId: "S-3",
+    ageGroupId: PAGE,
+    date: TODAY,
+  };
+
+  it("keeps a score being typed to the list it was opened on, never another game at its place", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = gamesServer();
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    const owed = () => rowOf(/Placeholder S-3 vs/);
+    fireEvent.click(within(owed()).getByRole("button", { name: "Enter score" }));
+    const [a, b] = within(owed()).getAllByPlaceholderText("Score");
+    fireEvent.change(a!, { target: { value: "4" } });
+    fireEvent.change(b!, { target: { value: "5" } });
+    // A list published meanwhile puts another game owed a score at the place this one had.
+    await republish([ROWS[0]!, NEWCOMER, ROWS[1]!]);
+    await screen.findByText(/Placeholder S-2 vs/);
+    expect(within(rowOf(/Placeholder S-2 vs/)).queryByPlaceholderText("Score")).toBeNull();
+    expect(screen.queryByPlaceholderText("Score")).toBeNull();
+    expect(edited(server.sent)).toEqual([]);
+  });
+
+  it("keeps drawing an edit made through a list published since, by what the list shows of its game", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = gamesServer();
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    const played = () => rowOf(/Placeholder S-1 7/);
+    fireEvent.click(within(played()).getByRole("button", { name: "Don't count" }));
+    await waitFor(() => expect(said.toasts).toContain("Game no longer counts."));
+    expect(within(played()).getByText("Not counted")).toBeTruthy();
+    // Published again before the edit's version, the game at another place: still drawn.
+    await republish([NEWCOMER, ...ROWS]);
+    await screen.findByText(/Placeholder S-2 vs/);
+    expect(within(played()).getByText("Not counted")).toBeTruthy();
+  });
+
   it("puts the score boxes away once saved, even when the copy already held that score", async () => {
     await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
     pool.wants = false;
@@ -1601,6 +1678,49 @@ describe("Scouting on the cloud's board", () => {
     ).toBeTruthy();
     expect(server.sent).toHaveLength(2);
     expect(handedOver()).toBeNull();
+  });
+
+  it("asks once for a fixture its card is published again with, and again for another game at its place", async () => {
+    await withCards([MINE, THEIRS]);
+    pool.wants = false;
+    onScouting();
+    const server = editFunction(() => answered({ kind: "scouting.whatIf", curve: CURVE }));
+    // Every answer after the first waits until let go.
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    const call = {
+      ...server.call,
+      fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+        calls += 1;
+        if (calls > 1) await held;
+        return server.call.fetchImpl(url, init);
+      }) as typeof fetch,
+    };
+    open(sourcesOf(live, { call }));
+    await whatIfOnTheirs();
+    const against = (name: string) => ({
+      name: `What a win or a loss against ${name} would do`,
+    });
+    expect(await screen.findByRole("table", against("Placeholder S-2"))).toBeTruthy();
+    // Published again with another game added: the fixture is as it was, and nothing is refitted.
+    const later = { id: "2", teamAId: "S-3", teamBId: "S-1", ageGroupId: PAGE, date: "2027-04-29" };
+    await act(() => withCards([MINE, card("S-3", [...THEIRS.games, later])]));
+    await waitFor(() =>
+      expect(screen.getAllByRole("table", { name: "Next up" })[0]).toHaveTextContent("Apr 29")
+    );
+    expect(screen.getByRole("table", against("Placeholder S-2"))).toBeTruthy();
+    expect(server.sent).toHaveLength(1);
+    // Published with another game at the fixture's place: asked again, for that one.
+    const moved = { id: "0", teamAId: "S-3", teamBId: "S-2", ageGroupId: PAGE, date: "2027-04-21" };
+    await act(() => withCards([MINE, card("S-3", [moved, ...THEIRS.games.slice(1)])]));
+    // The last game's answer is not drawn under this one while its own is worked out.
+    expect(await screen.findByText(/Working it out/)).toBeTruthy();
+    expect(screen.queryByRole("table", against("Placeholder S-2"))).toBeNull();
+    release();
+    await waitFor(() => expect(server.sent).toHaveLength(2));
+    expect(server.sent[1]).toMatchObject({ query: { game: moved } });
+    expect(await screen.findByRole("table", against("Placeholder S-2"))).toBeTruthy();
   });
 
   it("says a what-if could not be worked out when the server has no curve for it", async () => {

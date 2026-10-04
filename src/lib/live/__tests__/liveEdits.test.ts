@@ -115,6 +115,43 @@ describe("a club's card with the edits made since it was published", () => {
     ).toEqual(CARD);
   });
 
+  it("has the age its Undo puts back: none set by hand, or the one set before", () => {
+    const setAge: PoolCommand = {
+      kind: "club.age",
+      year: 2027,
+      teamId: "S-1",
+      level: 13,
+      at: "2027-04-15T12:00:00.000Z",
+      pageId: "ag_new",
+    };
+    // A first age set by hand, taken back: its teams' names forgotten, among the Undo's steps.
+    const firstBack: PoolCommand = {
+      kind: "batch",
+      commands: [
+        { kind: "team.put", team: CARD.team },
+        { kind: "namedAges", put: [], forget: ["gc-1", "gc-2"] },
+      ],
+    };
+    expect(overlayCard(CARD, [setAge, firstBack])).toEqual(CARD);
+    // One set over another set before: that one put back, pinned as it was.
+    const pinned: ClubCard = { ...CARD, age: { level: 11, pinned: { level: 11, was: 12 } } };
+    const againBack: PoolCommand = {
+      kind: "namedAges",
+      put: [
+        { teamId: "gc-1", level: 11, namedAt: "2027-04-01T00:00:00.000Z", pinned: true, was: 12 },
+      ],
+      forget: [],
+    };
+    expect(overlayCard(pinned, [setAge, againBack])).toMatchObject({
+      age: { level: 11, pinned: { level: 11, was: 12 } },
+    });
+    // Another club's names leave this one as it is.
+    const elsewhere: PoolCommand = { kind: "namedAges", put: [], forget: ["gc-9"] };
+    expect(overlayCard(CARD, [setAge, elsewhere])).toMatchObject({
+      age: { level: 13, pinned: { level: 13, was: 12 } },
+    });
+  });
+
   it("is the club it was folded into once folded, and itself when another was folded into it", () => {
     expect(
       overlayCard(CARD, [{ kind: "teams.merge", fromId: "S-1", intoId: "S-2", adopt: [] }])

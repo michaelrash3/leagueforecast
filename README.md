@@ -3990,7 +3990,8 @@ been made wherever the server did not prove it was not. A rename onto a name
 another club holds, and a fold, are asked about first, with what the server says
 they move (`rename.preview`, `merge.preview`). An edit made is drawn over the card
 until a publish of its version or later is out (`overlayCard`): the state, name,
-links and level it gave the club, and a club folded away opens the one it went
+links and level it gave the club (and an age's Undo, whose ages named for the
+club's GameChanger teams put back the pin it had, or none), and a club folded away opens the one it went
 into. An edit that changed nothing the views read (a Pool health answer) asks for
 no rebuild and is not waited on. Opening a panel brings the server's pool up
 (`warm`), at most once in ten minutes of calls. While the device is offline, or
@@ -4068,8 +4069,18 @@ for the game's id (`games.find`), by its place and what the list shows of it, an
 the server answers from its pool as it is now (`findListed`): the game at that place
 while it still shows so, or else the one game on the page that does, the list having
 moved since it was published, or none, which the person is told, and nothing is
-sent. The id is kept for the list it was asked of, so a second edit to the same
-game asks nothing, and the edits drawn over the list name the game by it. On the 29
+sent. The id is kept with where the list showed the game and how, by page, for
+the page load, and found again in each list by what it shows (`findListed`), so a
+second edit to the same game asks nothing, and the edits drawn over the list still
+find their game in a list published since (of other changes, before the one that
+carries the edit) or on the tab opened again: kept with the list it was asked of,
+it went with that list, and the edit stopped being drawn until its publish was out.
+A score being typed is kept to the list its box was opened on: a game not yet
+named is its place in the list, and a list published meanwhile, or another page's,
+has another game at that place, which the box moved to and the typed score was
+saved to. A new list closes the box instead. Each guard of these, with the age's
+Undo over a club's card and the what-if's key below, was broken in turn and seen to
+fail a test, 8 of 8. On the 29
 Sep copy the question took 37 ms for the last game of 12U's 45,107 at its place,
 and 55 ms found by the scan. Each guard of the overlay, the question, the device's lookup and
 the typed scores was broken in turn and seen to fail a test, 26 of 26, the score
@@ -4094,7 +4105,11 @@ card carries no game ids, so the fixture is sent as the scouted club's card hold
 it, its id its place on the card, and the server finds it among the club's games of
 the year as a card lists them (`cardGamesOf`, `cardFixture`): the game at that place
 while it still reads so on a card, or else the one game that does, or none, which
-the panel says could not be worked out. The League Standings part is read only for
+the panel says could not be worked out. The question and its answer are keyed to
+the fixture as the card holds it, not to the card: a card is decoded afresh with
+each publish, so the same game came back as another object and was refitted for
+again, and a card published since may hold another game at the place asked about,
+whose answer was then drawn under it. The League Standings part is read only for
 a question that refits a year, and once for each version of it (`runQuery`), since
 an edit's pool leaves it out; one that would not read refuses that question alone.
 On the 29 Sep copy a what-if on 12U, the year's 255,579 games one rating pool, took

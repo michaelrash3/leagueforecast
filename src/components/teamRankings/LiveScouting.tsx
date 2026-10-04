@@ -20,6 +20,7 @@ import {
   EMPTY_SCOUTING_REPORT,
   rankingPoolGroupIds,
   type AgeGroup,
+  type ScoutGame,
   type ScoutRankingRow,
   type SeasonSegment,
 } from "../../lib/teamRankings";
@@ -197,38 +198,48 @@ export default function LiveScouting({
       whatIfGameId && reportForId ? { forTeamId: reportForId, gameId: whatIfGameId, today } : null,
     [whatIfGameId, reportForId, today]
   );
-  // The answer, kept against the ask it answers, so a stale one is never shown.
-  const [answered, setAnswered] = useState<{ ask: WhatIfAsk; curve: WhatIfCurve | null } | null>(
-    null
-  );
-  // The fixture as the scouted club's card holds it, which is how the server finds it.
+  /*
+   * The fixture as the scouted club's card holds it, which is how the server finds it, as its
+   * content: a card is decoded afresh with each publish, so the same game came back as another
+   * object and was refitted for again (seven seconds on 12U), and a card published since may hold
+   * another game at the place asked about, whose answer was then drawn under it.
+   */
   const fixture = whatIfAsk
     ? scouted.card?.games.find((game) => game.id === whatIfAsk.gameId)
     : undefined;
+  const fixtureJson = fixture ? JSON.stringify(fixture) : null;
+  // The answer, kept against the ask and the fixture it answers, so a stale one is never shown.
+  const [answered, setAnswered] = useState<{
+    ask: WhatIfAsk;
+    fixture: string;
+    curve: WhatIfCurve | null;
+  } | null>(null);
   useEffect(() => {
-    if (!whatIfAsk || !fixture) return;
+    if (!whatIfAsk || !fixtureJson) return;
     let alive = true;
     void askServer({
       kind: "scouting.whatIf",
       page: pageId,
       segment: segment ?? null,
       forTeamId: whatIfAsk.forTeamId,
-      game: fixture,
+      game: JSON.parse(fixtureJson) as ScoutGame,
       today: whatIfAsk.today,
     }).then((answer) => {
-      if (alive) setAnswered({ ask: whatIfAsk, curve: answer?.curve ?? null });
+      if (alive)
+        setAnswered({ ask: whatIfAsk, fixture: fixtureJson, curve: answer?.curve ?? null });
     });
     return () => {
       alive = false;
     };
-  }, [whatIfAsk, fixture, askServer, pageId, segment]);
+  }, [whatIfAsk, fixtureJson, askServer, pageId, segment]);
   const whatIf = useMemo((): WhatIfState => {
     if (!whatIfAsk) return NOT_ASKED;
-    if (answered?.ask !== whatIfAsk) return { status: "working", ask: whatIfAsk };
+    if (answered?.ask !== whatIfAsk || answered.fixture !== fixtureJson)
+      return { status: "working", ask: whatIfAsk };
     return answered.curve
       ? { status: "ready", ask: whatIfAsk, curve: answered.curve }
       : { status: "failed", ask: whatIfAsk };
-  }, [whatIfAsk, answered]);
+  }, [whatIfAsk, answered, fixtureJson]);
   const toggleWhatIf = (gameId: string) =>
     setOpened((was) =>
       was && was.board === whatIfBoard && was.gameId === gameId
