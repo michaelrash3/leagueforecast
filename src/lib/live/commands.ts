@@ -335,10 +335,40 @@ const applySteps = (read: PoolRead, steps: readonly Step[]): CommandResult => {
 };
 
 /**
+ * Whether two records hold the same values, whatever order their fields were written in; a field
+ * holding undefined is a field not there, as storage keeps it.
+ */
+const sameValue = (a: unknown, b: unknown): boolean => {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let at = 0; at < a.length; at += 1) if (!sameValue(a[at], b[at])) return false;
+    return true;
+  }
+  // Counted rather than listed: this runs over every record of a pool a worker hands back.
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  let fields = 0;
+  for (const key in left) {
+    const value = left[key];
+    if (value === undefined) continue;
+    if (!sameValue(value, right[key])) return false;
+    fields += 1;
+  }
+  for (const key in right) if (right[key] !== undefined) fields -= 1;
+  return fields === 0;
+};
+
+/**
  * How a list of records went from `before` to `after`, record by record by id: the ids added, the
  * records taken away with their places, and the records changed as they were. Null when that
  * cannot put `before` back exactly: an id twice in either list, or the records both hold standing
  * in another order.
+ *
+ * A record that is not the same object is compared by its values before it is called changed:
+ * work done in a worker (the tidy) comes back decoded, every record a new object, and only the
+ * ones it actually changed are its to write.
  */
 const listChange = <T extends { id: string }>(before: readonly T[], after: readonly T[]) => {
   const now = new Map(after.map((item) => [item.id, item]));
@@ -352,7 +382,7 @@ const listChange = <T extends { id: string }>(before: readonly T[], after: reado
     if (next === undefined) removed.push({ item, at });
     else {
       kept.push(item.id);
-      if (next !== item) changed.push(item);
+      if (next !== item && !sameValue(next, item)) changed.push(item);
     }
   });
   const added: string[] = [];
@@ -532,10 +562,10 @@ const namedAgesChange = (before: NamedAges, after: ReadonlyMap<string, NamedAge>
 };
 
 /**
- * `read` answering each part from the first time it was asked. A command tells what it changed by
- * identity (`listChange`), and a store may decode a part afresh on every read, which would make
- * every record look changed: an undo would then write back a whole year as it stood, over whatever
- * was changed since.
+ * `read` answering each part from the first time it was asked. The browser's store decodes a year
+ * afresh on every read, tens of thousands of games at a time, and a command reads a part more than
+ * once (to change it, then to tell what changed); read once, an untouched record is the same
+ * object both times, which is the cheap way `listChange` tells it is untouched.
  */
 const readOnce = (read: PoolRead): PoolRead => {
   const parts = new Map<string, unknown>();
@@ -551,6 +581,61 @@ const readOnce = (read: PoolRead): PoolRead => {
     answers: (list) => once(`answers:${list}`, () => read.answers(list)),
     namedAges: () => once("namedAges", read.namedAges),
   };
+};
+
+/** A pool's roster, pages and games by squad year, whole: what `changeBetween` compares. */
+export type PoolParts = {
+  teams: readonly ScoutTeam[];
+  groups: readonly AgeGroup[];
+  games: ReadonlyMap<number | null, readonly ScoutGame[]>;
+};
+
+/** A pool held whole, split into the parts a command reads, each year as storage files it. */
+export const poolParts = (pool: {
+  teams: readonly ScoutTeam[];
+  ageGroups: readonly AgeGroup[];
+  games: readonly ScoutGame[];
+}): PoolParts => {
+  const yearOf = new Map(pool.ageGroups.map((group) => [group.id, ageGroupYear(group) ?? null]));
+  const games = new Map<number | null, ScoutGame[]>();
+  pool.games.forEach((game) => {
+    const year = yearOf.get(game.ageGroupId) ?? null;
+    const list = games.get(year);
+    if (list) list.push(game);
+    else games.set(year, [game]);
+  });
+  return { teams: pool.teams, groups: pool.ageGroups, games };
+};
+
+/**
+ * The command that makes the change from `before` to `after` record by record: for work done on a
+ * copy of the pool (a tidy, a year archived) to be laid onto the pool as it is by the time the
+ * work is done, so that a record the work did not touch keeps whatever was changed meanwhile,
+ * where saving the copy whole would put back the pool as it was when the work began.
+ *
+ * It is the inverse of going from `after` back to `before`, which `settle` already knows how to
+ * say exactly; a part whose kept records moved is laid down whole.
+ *
+ * What it costs on the page's own thread, measured on a seeded pool of 258,267 games
+ * (`poolFixture`, seed 7, 9,000 clubs a page) decoded afresh as a worker hands it back, one game in
+ * a hundred changed: 0.45 s to read the change and 0.1 s to lay it down, where encoding the whole
+ * pool for the save it replaces took 0.44 s. Members' tidies leave the browser at the cutover.
+ */
+export const changeBetween = (before: PoolParts, after: PoolParts): PoolCommand => {
+  const years = [...new Set([...before.games.keys(), ...after.games.keys()])];
+  const read: PoolRead = {
+    teams: () => after.teams,
+    groups: () => after.groups,
+    years: () => years,
+    games: (year) => after.games.get(year) ?? [],
+    answers: () => new Set(),
+    namedAges: () => new Map(),
+  };
+  return settle(read, {
+    teams: before.teams,
+    groups: before.groups,
+    games: new Map(years.map((year) => [year, before.games.get(year) ?? []])),
+  }).inverse;
 };
 
 /** Makes `command`'s change to the pool `read` holds, or says why it cannot. */

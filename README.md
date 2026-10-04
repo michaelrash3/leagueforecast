@@ -4308,7 +4308,7 @@ inverse puts every part the command touched back as it was, to the stored byte.
 | `season.assign`                                                                                                                                                       | A League Standings season put on the page of its age, the page made under the id the command names if there is none, or taken off Team Rankings.                                                                   |
 | `club.age`, `club.ageClear`                                                                                                                                           | A pulled club filed at the age somebody says it plays at and held there whatever a later pull says; and that taken back, each of its ids to the level the app had it at.                                           |
 | `teams.merge`, `team.rename`                                                                                                                                          | One club folded into another, every page whose own team it was following it; a club renamed, refused onto a name another club goes by, since that is a merge and only the person asking can say which club stays.  |
-| `team.put`, `team.insert`, `team.remove`, `game.put`, `game.insert`, `group.put`, `group.insert`, `group.remove`, `namedAges`, `games.set`, `teams.set`, `groups.set` | A record put back as it was, in its place, or a part put back whole: what inverses are made of.                                                                                                                    |
+| `team.put`, `team.insert`, `team.remove`, `game.put`, `game.insert`, `group.put`, `group.insert`, `group.remove`, `namedAges`, `games.set`, `teams.set`, `groups.set` | A record put back as it was, in its place, or a part put back whole: what inverses, and work laid down from a copy, are made of.                                                                                   |
 | `batch`                                                                                                                                                               | Several commands as one, each reading what the last wrote.                                                                                                                                                         |
 
 On this browser a command runs through `runPoolCommand`, which writes only the parts it changed
@@ -4342,6 +4342,23 @@ teams into the roster; folding a page's own team into another club left the page
 that no longer existed (renaming onto a taken name already moved it); the Undo of a club's age
 wrote back the whole year as it stood, losing any score entered since; and deleting a club or a
 lopsided game rewrote every year's games, not only the years they were in.
+
+Work done on a copy of the pool (the tidy, in its worker, and a year archived or deleted) is laid
+onto the pool as it is when the work is done, record by record (`changeBetween`): what the work
+changed, as the commands that make that change, rather than its copy saved whole. The worker hands
+back decoded copies, every record a new object, so a record that is not the same object is compared
+by its values before it is called changed. On this page an edit already starts the tidy again on
+the pool as it now is; laying its result down record by record is what the server needs (1.4),
+where an edit from another device can land while a tidy works. A tidy whose result no longer fits
+the pool (a record it changed is gone) writes nothing, says nothing, and leaves its stamp unset so
+it comes round again. The waiting-on-age answers (an age named, a team thrown out, a pass cleared)
+and the clubs a pull finds invented go through the same commands; the waiting list itself is the
+pull's and stays as it was.
+
+Two kinds of write are not commands. The browser's own pull engine saves as it goes and is removed
+for members in the cleanup (1.7), pulls having moved to the server; and resetting the app or
+restoring a backup replace League Standings and the settings as well as the pool, which becomes an
+owner's operation on the server copy in 1.4.
 
 ## AI write-ups
 

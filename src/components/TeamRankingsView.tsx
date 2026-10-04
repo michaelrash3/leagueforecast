@@ -67,6 +67,7 @@ import {
 } from "../lib/teamRankings/boardDisplay";
 import type { RankingsHandover } from "../lib/live/liveBoard";
 import type { PoolCommand } from "../lib/live/commands";
+import { changeBetween, poolParts } from "../lib/live/commands";
 import {
   runPoolCommand,
   writtenAnswers,
@@ -92,30 +93,25 @@ import {
   loadScoutTeams,
   loadTidyStamp,
   onPoolChangedElsewhere,
-  saveAgeGroups,
   savePullProgress,
   loadAllArchivedSeasons,
   saveArchivedSeasons,
   forgetArchivedSeason,
   saveRefreshLog,
-  saveScoutGames,
-  saveScoutTeams,
   saveTidyStamp,
   storedGamesByYear,
   loadAgeUnknown,
   loadTooYoungClubs,
   loadDroppedClubs,
   loadNamedAges,
-  saveNamedAges,
-  saveDroppedClubs,
   saveAgeUnknown,
   loadAgelessCleared,
   saveAgelessCleared,
   clearAgelessCleared,
 } from "../lib/teamRankingsStorage";
 import { persistPool } from "../lib/poolPersist";
-import { forgetClubs, restoreClubs, type DeletedClubs } from "../lib/deletedGames";
-import { forgetNamedAge, nameAge, type NamedAges } from "../lib/namedAges";
+import type { DeletedClubs } from "../lib/deletedGames";
+import type { NamedAges } from "../lib/namedAges";
 import { clubAgeOf } from "../lib/teamRankings/clubAge";
 import { forgetAgeless, type AgeUnknownList } from "../lib/ageUnknown";
 import {
@@ -463,40 +459,6 @@ export function TeamRankingsView({
   const [editScoreA, setEditScoreA] = useState("");
   const [editScoreB, setEditScoreB] = useState("");
 
-  // Stable, so the effects that save through them do not re-run on every render.
-  const persistTeams = useCallback(
-    (teams: ScoutTeam[]) => {
-      setScoutTeams(teams);
-      if (!saveScoutTeams(teams))
-        showToast("Could not save teams (storage full).", { tone: "error" });
-      onDataChange?.();
-    },
-    [showToast, onDataChange]
-  );
-  /**
-   * Saves the whole pool, every year. Only for the operations that hold all of it — and storage
-   * no longer takes that on trust: a year it holds and `games` does not is left as it was unless
-   * `emptying` names it, and the save says so rather than passing for a clean one.
-   */
-  const persistAllGames = useCallback(
-    (games: ScoutGame[], emptying: readonly (number | undefined)[] = []) => {
-      const write = saveScoutGames(games, emptying);
-      if (!write.written) showToast("Could not save games (storage full).", { tone: "error" });
-      else if (write.spared.length > 0) showToast(sparedYears(write.spared), { tone: "error" });
-      bumpPool();
-      onDataChange?.();
-    },
-    [showToast, onDataChange, bumpPool]
-  );
-  const persistAgeGroups = useCallback(
-    (groups: AgeGroup[]) => {
-      setAgeGroups(groups);
-      if (!saveAgeGroups(groups))
-        showToast("Could not save age groups (storage full).", { tone: "error" });
-      onDataChange?.();
-    },
-    [showToast, onDataChange]
-  );
   /**
    * Makes an edit as a command (`commands.ts`), on this browser's pool, and shows it once it is
    * written: a change the store refused is a change that is not there, so the page keeps showing
@@ -507,8 +469,11 @@ export function TeamRankingsView({
   const [namedAges, setNamedAges] = useState<NamedAges>(() => loadNamedAges());
   const [droppedClubs, setDroppedClubs] = useState<DeletedClubs>(() => loadDroppedClubs());
   const runCommand = useCallback(
-    (command: PoolCommand): CommandRun => {
+    (command: PoolCommand, { quiet = false }: { quiet?: boolean } = {}): CommandRun => {
       const run = runPoolCommand(command);
+      // Work done in the background (the tidy) that the pool has moved on from is not news: it
+      // comes round again on the pool as it is. A store that would not take a write still is.
+      if (!run.ok && quiet && run.why !== "unsaved") return run;
       if (!run.ok) {
         showToast(
           run.why === "unsaved"
@@ -569,6 +534,19 @@ export function TeamRankingsView({
    * stand-ins settled, exactly as at the end of a pull.
    */
   const { tidy: tidyInWorker } = usePoolTidy();
+  /**
+   * What a tidy changed, laid onto the pool as it is now rather than its copy saved whole
+   * (`changeBetween`), and the stamp that says the pool is tidy written only once that landed:
+   * refused, the stamp is left alone and the tidy comes round again on the pool as it is.
+   */
+  const layDownTidy = useCallback(
+    (before: GcImportState, after: GcImportState, options: { quiet?: boolean } = {}): boolean => {
+      if (!runCommand(changeBetween(poolParts(before), poolParts(after)), options).ok) return false;
+      saveTidyStamp(poolSignature(after));
+      return true;
+    },
+    [runCommand]
+  );
   const tidyingRef = useRef(false);
   /**
    * Whether the page's first board has come back, or there is none to wait for: what the tidy on
@@ -619,10 +597,7 @@ export function TeamRankingsView({
         // was working. Either way the stamp is untouched, so it comes round again.
         if (!outcome || !live) return;
         const tidy: PoolTidy = { ...outcome.tidy, state: outcome.state };
-        saveTidyStamp(poolSignature(tidy.state));
-        if (tidy.state.ageGroups !== pool.ageGroups) persistAgeGroups(tidy.state.ageGroups);
-        if (tidy.state.teams !== pool.teams) persistTeams(tidy.state.teams);
-        if (tidy.state.games !== pool.games) persistAllGames(tidy.state.games);
+        if (!layDownTidy(pool, tidy.state, { quiet: true })) return;
         const lines = describeTidy(tidy);
         if (lines.length > 0) showToast(lines.join(" "));
       }
@@ -637,9 +612,7 @@ export function TeamRankingsView({
     storedGameCount,
     boardShown,
     pullProgress,
-    persistAgeGroups,
-    persistTeams,
-    persistAllGames,
+    layDownTidy,
     showToast,
     tidyInWorker,
   ]);
@@ -1515,25 +1488,23 @@ export function TeamRankingsView({
     (teamId: string, name: string | undefined, level: number) => {
       // What GameChanger was saying when it was named, so a later change to its own page can be
       // told apart from the silence this is filling in — see `namedAgeStands`.
-      const next = nameAge(loadNamedAges(), {
-        teamId,
-        level,
-        ...(name ? { name } : {}),
-        namedAt: new Date().toISOString(),
+      const run = runCommand({
+        kind: "namedAges",
+        put: [{ teamId, level, ...(name ? { name } : {}), namedAt: new Date().toISOString() }],
+        forget: [],
       });
-      setNamedAges(next);
-      saveNamedAges(next);
-      showToast(`${name ?? teamId} is ${level}U. It will be filed on the next refresh.`);
+      if (run.ok)
+        showToast(`${name ?? teamId} is ${level}U. It will be filed on the next refresh.`);
     },
-    [showToast]
+    [runCommand, showToast]
   );
 
   /** Puts a thrown-out club back, which is the whole of what the toast's undo has to do. */
-  const restoreDroppedClub = useCallback((teamId: string) => {
-    const next = restoreClubs(loadDroppedClubs(), [teamId]);
-    setDroppedClubs(next);
-    saveDroppedClubs(next);
-  }, []);
+  const restoreDroppedClub = useCallback(
+    (teamId: string) =>
+      runCommand({ kind: "answers", list: "droppedClubs", add: [], remove: [teamId] }).ok,
+    [runCommand]
+  );
 
   /**
    * Throwing out a team nobody could age. No confirmation; an undo on the toast instead.
@@ -1551,9 +1522,8 @@ export function TeamRankingsView({
    */
   const throwOutAgeless = useCallback(
     (teamId: string, name: string | undefined): boolean => {
-      const next = forgetClubs(loadDroppedClubs(), [teamId]);
-      setDroppedClubs(next);
-      saveDroppedClubs(next);
+      if (!runCommand({ kind: "answers", list: "droppedClubs", add: [teamId], remove: [] }).ok)
+        return false;
       /*
        * And off the waiting list, rather than leaving the row for a later pull to clean up. The
        * row only ever left on a pull that came back with something other than "no age", so a
@@ -1570,7 +1540,7 @@ export function TeamRankingsView({
       });
       return true;
     },
-    [showToast, restoreDroppedClub]
+    [runCommand, showToast, restoreDroppedClub]
   );
 
   /**
@@ -1585,13 +1555,16 @@ export function TeamRankingsView({
    */
   const undoAgelessAnswer = useCallback(
     (teamId: string, name: string | undefined) => {
-      restoreDroppedClub(teamId);
-      const ages = forgetNamedAge(loadNamedAges(), teamId);
-      setNamedAges(ages);
-      saveNamedAges(ages);
-      showToast(`${name ?? teamId} is back on the queue.`);
+      const run = runCommand({
+        kind: "batch",
+        commands: [
+          { kind: "answers", list: "droppedClubs", add: [], remove: [teamId] },
+          { kind: "namedAges", put: [], forget: [teamId] },
+        ],
+      });
+      if (run.ok) showToast(`${name ?? teamId} is back on the queue.`);
     },
-    [showToast, restoreDroppedClub]
+    [runCommand, showToast]
   );
 
   /**
@@ -1611,13 +1584,11 @@ export function TeamRankingsView({
       return;
     }
     const ids = clearedIds(pass);
-    const back = restoreClubs(loadDroppedClubs(), ids);
-    setDroppedClubs(back);
-    saveDroppedClubs(back);
+    if (!runCommand({ kind: "answers", list: "droppedClubs", add: [], remove: ids }).ok) return;
     saveAgeUnknown(restoreCleared(loadAgeUnknown(), pass));
     await clearAgelessCleared();
     showToast(`${describeCleared(pass)} back on the list.`);
-  }, [showToast]);
+  }, [runCommand, showToast]);
 
   /**
    * Clearing the rows a rule has settled, in one pass: GameChanger's own answers, and the rules the
@@ -1666,9 +1637,8 @@ export function TeamRankingsView({
       );
       const kept = await saveAgelessCleared(pass);
 
-      const next = forgetClubs(loadDroppedClubs(), ids);
-      setDroppedClubs(next);
-      saveDroppedClubs(next);
+      if (!runCommand({ kind: "answers", list: "droppedClubs", add: ids, remove: [] }).ok)
+        return false;
       saveAgeUnknown(forgetAgeless(loadAgeUnknown(), ids));
 
       showToast(
@@ -1680,7 +1650,7 @@ export function TeamRankingsView({
       );
       return true;
     },
-    [showToast, requestConfirmation, undoClearedPass]
+    [runCommand, showToast, requestConfirmation, undoClearedPass]
   );
 
   /**
@@ -2171,23 +2141,15 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
         });
         return;
       }
-      // Only now: the tables are on disk, so the games they replace can go.
-      persistTeams(done.state.teams);
-      /*
-       * The games before the age groups, which is the order this always wanted.
-       *
-       * A game is filed under its age group's year, so saving the groups first means the games
-       * are filed by groups that no longer describe them: the archived year's pages are gone, so
-       * every game still stored under them is re-filed with the yearless — and the save that
-       * follows, which is about the archived year, has nothing to say about where they went.
-       * Saving the games while the pages that name them are still stored puts them where they
-       * belong and leaves the year empty, and the age-group save then has nothing to move.
-       *
-       * This is also the one save that means to leave a year with nothing in it, which is why it
-       * names the year rather than being taken at its word.
-       */
-      persistAllGames(done.state.games, [year]);
-      persistAgeGroups(done.state.ageGroups);
+      // Only now: the tables are on disk, so the games they replace can go. The year empties
+      // before its pages go, as storage needs (`writePool`).
+      if (!runCommand(changeBetween(poolParts(stored), poolParts(done.state))).ok) {
+        showToast("The tables are kept under Archive, but the year's games could not be deleted.", {
+          tone: "error",
+        });
+        setArchives(loadArchiveIndex());
+        return;
+      }
       if (wasTidy) saveTidyStamp(poolSignature(done.state));
       setArchives(loadArchiveIndex());
       pickPage("");
@@ -2256,10 +2218,8 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
 
     setArchiving(true);
     try {
-      persistTeams(done.state.teams);
-      // Names the year, because it is the one save that means to leave a year with nothing in it.
-      persistAllGames(done.state.games, [year]);
-      persistAgeGroups(done.state.ageGroups);
+      // The year empties before its pages go, as storage needs (`writePool`).
+      if (!runCommand(changeBetween(poolParts(stored), poolParts(done.state))).ok) return;
       if (wasTidy) saveTidyStamp(poolSignature(done.state));
       let tablesLeft = 0;
       for (const id of done.archiveIds) {
@@ -2447,9 +2407,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               droppedClubs={droppedClubs}
               onInvented={(ids) => {
                 // Thrown out exactly as a club deleted by hand is: see `inventedFromOutcomes`.
-                const next = forgetClubs(loadDroppedClubs(), ids);
-                setDroppedClubs(next);
-                saveDroppedClubs(next);
+                runCommand({ kind: "answers", list: "droppedClubs", add: [...ids], remove: [] });
               }}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {
@@ -2559,10 +2517,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 pool: { ageGroups, teams: scoutTeams, games: wholePoolGames },
                 tidyStamp: loadTidyStamp() ?? "",
                 onTidied: ({ state: tidied }) => {
-                  saveTidyStamp(poolSignature(tidied));
-                  if (tidied.ageGroups !== ageGroups) persistAgeGroups(tidied.ageGroups);
-                  if (tidied.teams !== scoutTeams) persistTeams(tidied.teams);
-                  if (tidied.games !== wholePoolGames) persistAllGames(tidied.games);
+                  layDownTidy({ ageGroups, teams: scoutTeams, games: wholePoolGames }, tidied);
                 },
                 onMergeTeams: mergeInto,
                 onDropGames: dropGames,
