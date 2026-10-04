@@ -69,13 +69,13 @@ describe("a call to the edit function", () => {
     expect(JSON.parse(String(server.sent[0]?.init.body))).toEqual({ data: { command: COMMAND } });
   });
 
-  it("says who may not call, what the server could not read, and that it could not check", async () => {
+  it("says who may not call, what the server could not read or check, and an edit it did not make", async () => {
     const cases: Array<[number, string, string]> = [
       [401, "UNAUTHENTICATED", "signed-out"],
       [403, "PERMISSION_DENIED", "not-member"],
       [400, "INVALID_ARGUMENT", "invalid"],
       [503, "UNAVAILABLE", "unavailable"],
-      [500, "INTERNAL", "failed"],
+      [409, "ABORTED", "failed"],
     ];
     for (const [status, code, why] of cases) {
       const server = answering(status, { error: { status: code, message: `said ${code}` } });
@@ -87,41 +87,68 @@ describe("a call to the edit function", () => {
         message: `said ${code}`,
       });
     }
-    // An answer with no error in it at all is the status alone, and a 503 so bare is still one to
-    // try again: it is what Google's front end answers when the function has no instance to give.
-    const bare = answering(502, null);
-    expect(
-      await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: bare.fetchImpl })
-    ).toEqual({
+  });
+
+  /*
+   * An edit is said not made only where the server said so. A failure that does not say may have
+   * come after the save landed (a worker lost after its commit, the platform's own answer), and a
+   * device told to try again would make the edit twice, or find an Undo that undoes nothing.
+   */
+  it("says an edit may or may not have been made for any answer that does not prove it was not", async () => {
+    const proveNothing: Array<[number, unknown, string]> = [
+      [500, { error: { status: "INTERNAL", message: "INTERNAL" } }, "INTERNAL"],
+      [500, { error: { status: "UNKNOWN", message: "said UNKNOWN" } }, "said UNKNOWN"],
+      [429, { error: { status: "RESOURCE_EXHAUSTED", message: "busy" } }, "busy"],
+      [503, { error: { status: "SOMETHING_NEW" } }, "The server answered HTTP 503."],
+      [502, null, "The server answered HTTP 502."],
+      [400, { error: { status: "constructor" } }, "The server answered HTTP 400."],
+    ];
+    for (const [status, body, message] of proveNothing) {
+      const server = answering(status, body);
+      expect([
+        status,
+        await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: server.fetchImpl }),
+      ]).toEqual([status, { ok: false, why: "unanswered", message }]);
+    }
+    // The platform's own answer to a call it timed out, which is no callable's.
+    const timedOut = vi.fn(
+      async () => new Response("upstream request timeout", { status: 504 })
+    ) as unknown as typeof fetch;
+    expect(await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: timedOut })).toEqual({
       ok: false,
-      why: "failed",
-      message: "The server answered HTTP 502.",
-    });
-    const busy = answering(503, { error: { status: "SOMETHING_NEW" } });
-    expect(
-      await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: busy.fetchImpl })
-    ).toEqual({
-      ok: false,
-      why: "unavailable",
-      message: "The server answered HTTP 503.",
+      why: "unanswered",
+      message: "The server answered HTTP 504.",
     });
   });
 
-  it("reads an answer that carries an error as that error, whatever its status", async () => {
-    const server = answering(200, {
-      result: MADE,
-      error: { status: "UNAVAILABLE", message: "try later" },
+  it("says no answer came when an answer that began well is cut off", async () => {
+    const cut = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start: (controller) => controller.error(new TypeError("terminated")),
+          }),
+          { status: 200 }
+        )
+    ) as unknown as typeof fetch;
+    expect(await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: cut })).toEqual({
+      ok: false,
+      why: "unanswered",
+      message: "No answer came from the server, so the change may or may not have been made.",
     });
-    expect(
-      await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: server.fetchImpl })
-    ).toEqual({ ok: false, why: "unavailable", message: "try later" });
   });
 
-  it("asks nothing without a sign-in", async () => {
+  it("asks nothing without a sign-in, or when the sign-in cannot be had just now", async () => {
     const server = answering(200, { result: MADE });
     expect(
       await callEdit({ command: COMMAND }, { token: async () => null, fetchImpl: server.fetchImpl })
     ).toMatchObject({ ok: false, why: "signed-out" });
+    const offline = async (): Promise<string | null> => {
+      throw new Error("Firebase: Error (auth/network-request-failed).");
+    };
+    expect(
+      await callEdit({ command: COMMAND }, { token: offline, fetchImpl: server.fetchImpl })
+    ).toMatchObject({ ok: false, why: "unavailable" });
     expect(server.sent).toHaveLength(0);
   });
 
@@ -154,20 +181,28 @@ describe("a call to the edit function", () => {
       { ...MADE, inverse: { kind: "nope" } },
       { ...MADE, changed: [1] },
       { ...MADE, copy: 5 },
-      { ...MADE, ms: { load: -1, apply: 0, commit: 0 } },
+      { ...MADE, ms: { load: Number.NaN, apply: 0, commit: 0 } },
       { ...MADE, ms: { load: 1, apply: 0 } },
       { ok: false, why: "toString" },
       { ok: false, why: "gone" },
       { ok: "true" },
     ];
     for (const result of broken) expect([result, coerceEditReply(result)]).toEqual([result, null]);
+    // The server did answer, and may have made the edit: this build just cannot tell.
     const server = answering(200, { result: { ...MADE, version: -1 } });
     expect(
       await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: server.fetchImpl })
     ).toMatchObject({
       ok: false,
-      why: "failed",
+      why: "unanswered",
     });
+  });
+
+  it("takes a made edit whose timings a server's clock stepped back for, as none", async () => {
+    const server = answering(200, { result: { ...MADE, ms: { load: -2, apply: 5, commit: 300 } } });
+    expect(
+      await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: server.fetchImpl })
+    ).toEqual({ ok: true, value: { ...MADE, ms: { load: 0, apply: 5, commit: 300 } } });
   });
 });
 
@@ -186,9 +221,15 @@ describe("a warm-up call", () => {
       ok: true,
       value: { ok: false, reason: "no-copy" },
     });
-    // A reason only an edit has is not one a warm-up gives.
+    // A reason only an edit has is not one a warm-up gives, and nothing rides on a warm-up, so
+    // any answer that is not one is a failure.
     const odd = answering(200, { result: { warmed: { ok: false, reason: "missing" } } });
     expect(await callWarm({ ...signedIn, fetchImpl: odd.fetchImpl })).toMatchObject({
+      ok: false,
+      why: "failed",
+    });
+    const internal = answering(500, { error: { status: "INTERNAL", message: "INTERNAL" } });
+    expect(await callWarm({ ...signedIn, fetchImpl: internal.fetchImpl })).toMatchObject({
       ok: false,
       why: "failed",
     });

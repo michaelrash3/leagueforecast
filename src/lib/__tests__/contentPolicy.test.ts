@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import indexHtml from "../../../index.html?raw";
 import { FIREBASE_WEB_CONFIG, type FirebaseWebConfig } from "../cloud/cloudConfig";
 import { widenPolicy, widenPolicyInHtml } from "../contentPolicy";
+import { EDIT_URL } from "../live/editClient";
 
 const BASE = /http-equiv="Content-Security-Policy"\s+content="([^"]*)"/.exec(indexHtml)?.[1] ?? "";
 
@@ -84,6 +85,11 @@ describe("the page's content policy", () => {
       "'self'",
       `https://${FIREBASE_WEB_CONFIG.authDomain}`,
     ]);
+  });
+
+  it("lets the app's own build reach the edit function its devices call", () => {
+    const policy = widenPolicy(BASE, { firebase: FIREBASE_WEB_CONFIG });
+    expect(directive(policy, "connect-src")).toContain(new URL(EDIT_URL).origin);
   });
 
   it("adds nothing for an auth domain that is not a plain host", () => {

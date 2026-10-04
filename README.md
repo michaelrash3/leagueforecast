@@ -4439,8 +4439,10 @@ switch, so a run of quick edits is one build. `{ warm: true }` brings the pool u
 charged the same way. A device calls it through `callEdit` and `callWarm` (`editClient.ts`): the
 callable protocol over `fetch` with the member's sign-in, no Firebase functions SDK in the bundle,
 and nothing of the answer taken on trust, an inverse least of all, since it is what the device
-sends back for an Undo; a call that gets no answer says the edit may or may not have been made,
-which the copy then settles. The page's content policy lets the app reach the project's functions
+sends back for an Undo. An edit is said not made only where the server said so (a refusal, a caller
+turned away, or `aborted`). Any other failure (a 500, the platform's own answer to a call it timed
+out, a request lost, an answer cut off) says the edit may or may not have been made, which the copy
+then settles, since any of them can follow a save that landed. The page's content policy lets the app reach the project's functions
 host (`functionsUrl.ts`). It is built and deployed with the rebuilds (LIVE_REBUILD), runs as their
 account, and asks nothing more of the project; nothing in the app calls it until the sections go
 live (1.5).
