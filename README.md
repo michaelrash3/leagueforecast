@@ -1378,7 +1378,8 @@ and one not yet begun its first, so neither opens on an empty list.
 Nothing is out of reach. A line under the heading says how many games the day
 leaves out, how many of those have no date and how many were due earlier and
 still have no score, and **Show all** lists every one: an old game is still
-scored from here. A game just added stays on the list whatever its date, so it
+scored from here. A score is two whole numbers of runs (`typedScores`); a Save
+pressed with a box left empty says so, where until October 2026 it recorded 0–0. A game just added stays on the list whatever its date, so it
 does not vanish the moment it goes in. On the pool of 29 September 2026 the 12U
 page of 2027 held 45,107 games: 326 of them were that day's, against 11,348
 within a week either side, and 2,465 dated earlier had no score yet. The list
@@ -4015,11 +4016,30 @@ hands over to Team Rankings with its box focused, as every search did before the
 were lists.
 
 **The Games tab.** On the board the tab reads its page's list (`LiveGames`) and is
-drawn by Team Rankings' own tab with nothing on it to change (`GamesSection`
-`readOnly`): no form, no import, and no score, count or remove on a game. One button
-in the form's place, Add, import or pull games, hands over to Team Rankings, where
-those are. The tab and its code load only when it is opened. A list that cannot be
-read hands over as the tab did before there were lists.
+drawn by Team Rankings' own tab (`GamesSection` `readOnly`): no form and no import.
+One button in the form's place, Add, import or pull games, hands over to Team
+Rankings, where those are. The tab and its code load only when it is opened. A list
+that cannot be read hands over as the tab did before there were lists.
+
+Each game's own buttons are there (1.5): a score typed, Don't count and Count it, and
+Remove (asked first, with an Undo), each sent to the edit function as the edit the
+device's tab makes (`game.score`, `game.exclude`, `game.remove`) and drawn over the
+list until a publish carries it (`gamesOverlay.ts`, by the command the server runs,
+on the list and the cloud's pages alone, and only for the edits that read nothing
+else). The list carries no game ids, a game's id being its place: the ids are
+random and about 52 characters each, and on the 29 Sep copy they would have made the
+11 pages' lists 11.2 MB gzipped instead of 3.1 MB, and 12U's 1,965 KB instead of 534
+KB, for the rare game somebody edits. So before an edit the device asks the server
+for the game's id (`games.find`), by its place and what the list shows of it, and
+the server answers from its pool as it is now (`findListed`): the game at that place
+while it still shows so, or else the one game on the page that does, the list having
+moved since it was published, or none, which the person is told, and nothing is
+sent. The id is kept for the list it was asked of, so a second edit to the same
+game asks nothing, and the edits drawn over the list name the game by it. On the 29
+Sep copy the question took 37 ms for the last game of 12U's 45,107 at its place,
+and 55 ms found by the scan. Each guard of the overlay, the question, the device's lookup and
+the typed scores was broken in turn and seen to fail a test, 26 of 26, the score
+boxes put away only once a test saved a score the copy already held.
 
 **Scouting.** The tab works out its report, its upcoming games and its comparison
 as Team Rankings does, off the board's rows and the club cards rather than the

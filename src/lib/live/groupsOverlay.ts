@@ -8,7 +8,8 @@ import { applyCommand, type PoolCommand } from "./commands";
  * and the command module loads only with the area that sends one.
  */
 
-const stepsOf = (command: PoolCommand): PoolCommand[] =>
+/** A command and every step a batch of them holds, in the order they run. */
+export const stepsOf = (command: PoolCommand): PoolCommand[] =>
   command.kind === "batch" ? command.commands.flatMap(stepsOf) : [command];
 /**
  * The pages as a league season put on one, or taken off, leaves them (`season.assign`), worked out
@@ -18,7 +19,7 @@ const stepsOf = (command: PoolCommand): PoolCommand[] =>
 export const groupsAfter = (
   groups: readonly AgeGroup[],
   command: Extract<PoolCommand, { kind: "season.assign" }>
-): AgeGroup[] | null => {
+): readonly AgeGroup[] | null => {
   const result = applyCommand(
     {
       teams: () => [],
@@ -33,7 +34,7 @@ export const groupsAfter = (
   );
   if (!result.ok) return null;
   const written = result.writes.find((write) => write.part === "groups");
-  return written?.part === "groups" ? written.groups : [...groups];
+  return written?.part === "groups" ? written.groups : groups;
 };
 
 /**

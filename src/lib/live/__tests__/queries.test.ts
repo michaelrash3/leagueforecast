@@ -46,6 +46,7 @@ import {
   type PoolQuery,
   type QueryKind,
 } from "../queries";
+import type { GameSeen } from "../views/gamesShape";
 
 /*
  * The questions a member's device asks of the server's pool (`queries.ts`): each answered as the
@@ -197,6 +198,62 @@ describe("a question as the server reads one", () => {
     ]) {
       expect(coerceQuery(raw)).toBeNull();
     }
+  });
+});
+
+describe("a game a page's list shows, asked by its place", () => {
+  const SEEN: GameSeen = { teamAId: "A", teamBId: "C", teamAScore: 3, teamBScore: 2 };
+  const FIND: PoolQuery = {
+    kind: "games.find",
+    year: 2027,
+    page: "ag_10u_2027",
+    at: 1,
+    game: SEEN,
+  };
+
+  it("is named by its id, in the page's list as the server's pool has it now", () => {
+    expect(answerQuery(FIND)).toEqual({ kind: "games.find", gameId: "g3" });
+    // The list moved: found where it is now.
+    expect(answerQuery({ ...FIND, at: 0 })).toEqual({ kind: "games.find", gameId: "g3" });
+    // Another year's page, or a score the list never showed: none.
+    expect(answerQuery({ ...FIND, year: 2026 })).toEqual({ kind: "games.find", gameId: null });
+    expect(answerQuery({ ...FIND, game: { ...SEEN, teamBScore: 9 } })).toEqual({
+      kind: "games.find",
+      gameId: null,
+    });
+  });
+
+  it("is asked exactly, and refused inexactly", () => {
+    expect(coerceQuery(JSON.parse(JSON.stringify(FIND)))).toEqual(FIND);
+    expect(coerceQuery({ ...FIND, year: null })).toEqual({ ...FIND, year: null });
+    const game = SEEN;
+    for (const raw of [
+      { ...FIND, extra: 1 },
+      { ...FIND, year: 2027.5 },
+      { ...FIND, year: "2027" },
+      { ...FIND, page: "" },
+      { ...FIND, at: -1 },
+      { ...FIND, at: 1.5 },
+      { ...FIND, game: { ...game, extra: 1 } },
+      { ...FIND, game: { ...game, teamAId: "" } },
+      { ...FIND, game: { ...game, teamAScore: "3" } },
+      { ...FIND, game: { ...game, date: "" } },
+      { ...FIND, game: { ...game, excluded: false } },
+      { ...FIND, game: null },
+    ]) {
+      expect(coerceQuery(raw)).toBeNull();
+    }
+  });
+
+  it("is read back as sent, and refused with an id that is not one", () => {
+    const found = { kind: "games.find", gameId: "g3" };
+    expect(coerceQueryAnswer(found, "games.find")).toEqual(found);
+    expect(coerceQueryAnswer({ ...found, gameId: null }, "games.find")).toEqual({
+      ...found,
+      gameId: null,
+    });
+    for (const raw of [{ ...found, gameId: "" }, { ...found, gameId: 3 }, { kind: "games.find" }])
+      expect(coerceQueryAnswer(raw, "games.find")).toBeNull();
   });
 });
 

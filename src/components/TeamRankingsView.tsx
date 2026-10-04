@@ -30,6 +30,7 @@ import {
   segmentLabel,
   resolveOrCreateTeam,
   seasonYearOptions,
+  typedScores,
   filterRankingsByState,
   normalizeState,
   renameScoutTeam,
@@ -1984,21 +1985,12 @@ export function TeamRankingsView({
   };
 
   const saveGameScore = (gameId: string) => {
-    const a = Number(editScoreA);
-    const b = Number(editScoreB);
-    if (!Number.isInteger(a) || a < 0 || !Number.isInteger(b) || b < 0) {
+    const typed = typedScores(editScoreA, editScoreB);
+    if (!typed) {
       showToast("Enter two scores, in whole runs.", { tone: "error" });
       return;
     }
-    if (
-      !runCommand({
-        kind: "game.score",
-        year: selectedYear ?? null,
-        gameId,
-        teamAScore: a,
-        teamBScore: b,
-      }).ok
-    )
+    if (!runCommand({ kind: "game.score", year: selectedYear ?? null, gameId, ...typed }).ok)
       return;
     setEditingGameId(null);
     setEditScoreA("");

@@ -70,9 +70,9 @@ type GamesSectionProps = {
   onToggleExcluded: (game: ScoutGame) => void;
   onRemoveGame: (game: ScoutGame) => void;
   /**
-   * Games to read, not change: the live board's list (`LiveTeamRankings`), drawn before this
-   * device's copy is in hand. The form, the import and each game's buttons give way to one button
-   * that asks for the copy (`onEditWanted`).
+   * No games added here: the live board's list (`LiveGames`), drawn without this device's copy.
+   * The form and the import give way to one button that asks for the copy (`onEditWanted`); each
+   * game's own buttons stay, the board sending them to the server.
    */
   readOnly?: boolean;
   onEditWanted?: () => void;
@@ -361,68 +361,66 @@ export function GamesSection({
                   )}
                   {game.date && <span className="ml-2 text-slate-400">{game.date}</span>}
                 </span>
-                {!readOnly && (
-                  <span className="flex items-center gap-2">
-                    {!played && editingGameId === game.id ? (
-                      <span className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          min={0}
-                          value={editScoreA}
-                          onChange={(event) => onEditScoreA(event.target.value)}
-                          placeholder="Score"
-                          className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
-                        />
-                        <input
-                          type="number"
-                          min={0}
-                          value={editScoreB}
-                          onChange={(event) => onEditScoreB(event.target.value)}
-                          placeholder="Score"
-                          className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => onSaveScore(game.id)}
-                          className="text-xs font-bold text-emerald-600 hover:underline dark:text-emerald-400"
-                        >
-                          Save
-                        </button>
-                      </span>
-                    ) : (
-                      !played && (
-                        <button
-                          type="button"
-                          onClick={() => onStartEditScore(game.id)}
-                          className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                        >
-                          Enter score
-                        </button>
-                      )
-                    )}
-                    {played && (
+                <span className="flex items-center gap-2">
+                  {!played && editingGameId === game.id ? (
+                    <span className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        value={editScoreA}
+                        onChange={(event) => onEditScoreA(event.target.value)}
+                        placeholder="Score"
+                        className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        value={editScoreB}
+                        onChange={(event) => onEditScoreB(event.target.value)}
+                        placeholder="Score"
+                        className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-900"
+                      />
                       <button
                         type="button"
-                        onClick={() => onToggleExcluded(game)}
-                        className="text-xs font-bold text-amber-700 hover:underline dark:text-amber-500"
-                        title={
-                          game.excluded
-                            ? "Count this game toward the rankings again"
-                            : "Keep this game logged, but leave it out of the rankings"
-                        }
+                        onClick={() => onSaveScore(game.id)}
+                        className="text-xs font-bold text-emerald-600 hover:underline dark:text-emerald-400"
                       >
-                        {game.excluded ? "Count it" : "Don't count"}
+                        Save
                       </button>
-                    )}
+                    </span>
+                  ) : (
+                    !played && (
+                      <button
+                        type="button"
+                        onClick={() => onStartEditScore(game.id)}
+                        className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                      >
+                        Enter score
+                      </button>
+                    )
+                  )}
+                  {played && (
                     <button
                       type="button"
-                      onClick={() => onRemoveGame(game)}
-                      className={button.danger}
+                      onClick={() => onToggleExcluded(game)}
+                      className="text-xs font-bold text-amber-700 hover:underline dark:text-amber-500"
+                      title={
+                        game.excluded
+                          ? "Count this game toward the rankings again"
+                          : "Keep this game logged, but leave it out of the rankings"
+                      }
                     >
-                      Remove
+                      {game.excluded ? "Count it" : "Don't count"}
                     </button>
-                  </span>
-                )}
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemoveGame(game)}
+                    className={button.danger}
+                  >
+                    Remove
+                  </button>
+                </span>
               </li>
             );
           })}

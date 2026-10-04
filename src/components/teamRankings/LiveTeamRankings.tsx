@@ -219,9 +219,10 @@ function LiveBoard({
   const metaGroups = live.meta?.pages.groups;
   if (localGroups.length === 0 && metaGroups !== publishedRaw) setPublishedRaw(metaGroups);
   /*
-   * The pages as the cloud holds them, for Setup, which edits them there: the meta's whenever it
-   * carries them, since a season put on a page here changes the cloud's pages and the next publish
-   * says so, while this device's copy, read as the page opened, does not move with it.
+   * The pages as the cloud holds them, for Setup and Games, whose edits are worked out against
+   * them: the meta's whenever it carries them, since a season put on a page here changes the
+   * cloud's pages and the next publish says so, while this device's copy, read as the page opened,
+   * does not move with it.
    */
   const cloudGroups = useMemo(
     () => (metaGroups ? coerceAgeGroups(metaGroups) : ageGroups),
@@ -524,6 +525,9 @@ function LiveBoard({
                 pageId={selectedAgeGroupId}
                 groupName={group?.name ?? ""}
                 today={today}
+                groups={cloudGroups}
+                edits={edits}
+                confirm={confirm}
                 onCannot={cannotListGames}
                 onEditWanted={wantPage}
               />

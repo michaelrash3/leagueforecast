@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ScoutGame } from "../../teamRankings";
-import { coerceGames, encodeGames, gamesKey, type GamesView } from "../views/gamesShape";
+import {
+  coerceGames,
+  encodeGames,
+  findListed,
+  gamesKey,
+  seenAs,
+  type GamesView,
+} from "../views/gamesShape";
 
 /*
  * A page's Games list as published and read back (`gamesShape.ts`): its key, the list through the
@@ -102,5 +109,67 @@ describe("a published Games list read back", () => {
     expect(refused((list) => (list.games[0]![6] = true))).toBeNull();
     // Untouched, it reads.
     expect(coerceGames(wire())).not.toBeNull();
+  });
+});
+
+describe("a game the list shows, found in the list as it is now", () => {
+  const shown = () => coerceGames(wire())?.games ?? [];
+
+  it("is what the list shows of it, and nothing it leaves out", () => {
+    expect(shown().map(seenAs)).toEqual([
+      {
+        teamAId: "S-1",
+        teamBId: "S-2",
+        teamAScore: 5,
+        teamBScore: 3,
+        date: "2027-04-15",
+        event: "Placeholder Cup",
+      },
+      { teamAId: "S-3", teamBId: "S-2", date: "2027-04-16" },
+      { teamAId: "S-1", teamBId: "S-2", teamAScore: 0, teamBScore: 12, excluded: true },
+      { teamAId: "S-1", teamBId: "S-9", teamAScore: 2, teamBScore: 2, date: "2027-03-01" },
+    ]);
+    // A record's own fields the list never shows are not part of it.
+    expect(
+      seenAs({ ...VIEW.games[1]!, startTs: "2027-04-16T18:00:00Z", scoreConfirmed: 2 })
+    ).toEqual({
+      teamAId: "S-3",
+      teamBId: "S-2",
+      date: "2027-04-16",
+    });
+  });
+
+  it("is the game at its place while that game still shows so", () => {
+    for (const [at, one] of shown().entries())
+      expect(findListed(VIEW.games, at, seenAs(one))).toBe(VIEW.games[at]!.id);
+  });
+
+  it("is the one game that shows so anywhere, once the list has moved", () => {
+    const moved = [game({ id: "g0", teamAScore: 1, teamBScore: 0 }), ...VIEW.games];
+    expect(findListed(moved, 1, seenAs(shown()[1]!))).toBe("g2");
+    expect(findListed(moved, 9, seenAs(shown()[3]!))).toBe("g4");
+  });
+
+  it("is none where any one thing the list showed of it differs", () => {
+    const [first, , third] = shown();
+    const { event: _event, ...noEvent } = seenAs(first!);
+    const { date: _date, ...noDate } = seenAs(first!);
+    const { teamAScore: _a, ...noScoreA } = seenAs(first!);
+    const { teamBScore: _b, ...noScoreB } = seenAs(first!);
+    const { excluded: _excluded, ...counted } = seenAs(third!);
+    for (const seen of [noEvent, noDate, noScoreA, noScoreB])
+      expect(findListed(VIEW.games, 0, seen)).toBe(null);
+    expect(findListed(VIEW.games, 2, counted)).toBe(null);
+    expect(findListed(VIEW.games, 0, { ...seenAs(first!), teamAId: "S-3" })).toBe(null);
+    expect(findListed(VIEW.games, 0, { ...seenAs(first!), teamBId: "S-3" })).toBe(null);
+  });
+
+  it("is none where no game shows so, or two do and neither at its place", () => {
+    const scored = seenAs({ ...shown()[1]!, teamAScore: 4, teamBScore: 5 });
+    expect(findListed(VIEW.games, 1, scored)).toBe(null);
+    const twice = [...VIEW.games, game({ id: "g5", teamAId: "S-3", date: "2027-04-16" })];
+    expect(findListed(twice, 0, seenAs(shown()[1]!))).toBe(null);
+    // At its place, it is that one.
+    expect(findListed(twice, 1, seenAs(shown()[1]!))).toBe("g2");
   });
 });

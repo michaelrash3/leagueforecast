@@ -138,6 +138,20 @@ export const withScoreTyped = (
 };
 
 /**
+ * The two scores somebody typed for a game, as whole runs, or null for anything else. An empty box
+ * is no score: read as a number it was zero, and a Save pressed before typing recorded a 0–0 game.
+ */
+export const typedScores = (
+  teamA: string,
+  teamB: string
+): { teamAScore: number; teamBScore: number } | null => {
+  const run = (typed: string) => (/^\s*\d+\s*$/.test(typed) ? Number(typed) : null);
+  const teamAScore = run(teamA);
+  const teamBScore = run(teamB);
+  return teamAScore === null || teamBScore === null ? null : { teamAScore, teamBScore };
+};
+
+/**
  * Side A's margin as the rating reads it: the one score, or where the two clubs' schedules
  * disagree, the average of the two — the game counts once, and neither schedule is taken at its
  * word over the other. Undefined for a game not played.

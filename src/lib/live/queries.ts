@@ -19,13 +19,16 @@ import {
   loadNamedAges,
   loadRealClubs,
   loadScoutGames,
+  loadScoutGamesForYear,
   loadScoutTeams,
   loadTidyStamp,
   storedGamesByYear,
 } from "../teamRankingsStorage";
+import { loggedGamesOn } from "../teamRankings/gamesWindow";
 import { planClubAges, type AgeAsked } from "./agePlan";
 import { coerceCommand, everyOne, oneAgeless, oneTeam } from "./commands";
 import { fits, type Shape } from "./shapes";
+import { findListed, type GameSeen } from "./views/gamesShape";
 
 /**
  * Read-only questions a member's device asks of the pool the edit function keeps warm (1.5): what
@@ -72,7 +75,12 @@ export type PoolQuery =
   | { kind: "ageless.queue"; today: string; pinned: string[] }
   | { kind: "ageless.search"; today: string; query: string }
   | { kind: "ageless.file"; today: string }
-  | { kind: "ageless.clearPlan"; today: string; rules: string[] };
+  | { kind: "ageless.clearPlan"; today: string; rules: string[] }
+  /**
+   * The id of a game a page's published list shows (`findListed`), which the list does not carry:
+   * asked before the Games tab edits one, of the page's games in `year` (null: no year).
+   */
+  | { kind: "games.find"; year: number | null; page: string; at: number; game: GameSeen };
 
 /**
  * What folding one club into another touches: the stored games that name the club folded away,
@@ -138,6 +146,7 @@ export type QueryAnswers = {
   "ageless.search": AgelessSearchAnswer;
   "ageless.file": { csv: string };
   "ageless.clearPlan": AgelessClearPlanAnswer;
+  "games.find": { gameId: string | null };
 };
 
 export type QueryKind = PoolQuery["kind"];
@@ -248,6 +257,10 @@ export const answerQuery = (query: PoolQuery): QueryAnswer => {
     }
     case "health.toPull":
       return { kind: "health.toPull", csv: unpulledClubsCsv(unpulledClubs(storedState())) };
+    case "games.find": {
+      const listed = loggedGamesOn(loadScoutGamesForYear(query.year ?? undefined), query.page);
+      return { kind: "games.find", gameId: findListed(listed, query.at, query.game) };
+    }
     case "ages.plan":
       return {
         kind: "ages.plan",
@@ -321,6 +334,30 @@ const ageAsked = (raw: unknown): AgeAsked | null =>
     ? { teamId: raw.teamId, level: raw.level as number, year: raw.year as number }
     : null;
 
+const isScore = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+/** A game as a page's list shows it (`GameSeen`), every field one the list could have shown. */
+const gameSeen = (raw: unknown): GameSeen | null => {
+  if (!isRecord(raw) || !isString(raw.teamAId) || !isString(raw.teamBId)) return null;
+  const { teamAScore, teamBScore, date, event, excluded } = raw;
+  if (teamAScore !== undefined && !isScore(teamAScore)) return null;
+  if (teamBScore !== undefined && !isScore(teamBScore)) return null;
+  if ((date !== undefined && !isString(date)) || (event !== undefined && !isString(event)))
+    return null;
+  if (excluded !== undefined && excluded !== true) return null;
+  const seen: GameSeen = {
+    teamAId: raw.teamAId,
+    teamBId: raw.teamBId,
+    ...(teamAScore === undefined ? {} : { teamAScore }),
+    ...(teamBScore === undefined ? {} : { teamBScore }),
+    ...(date === undefined ? {} : { date }),
+    ...(event === undefined ? {} : { event }),
+    ...(excluded === undefined ? {} : { excluded }),
+  };
+  return keptWhole(raw, seen) ? seen : null;
+};
+
 /** Whether every key `raw` carries is one `read` kept: what a reader drops was never meant. */
 const keptWhole = (raw: Record<string, unknown>, read: object): boolean =>
   Object.keys(raw).every((key) => Object.prototype.hasOwnProperty.call(read, key));
@@ -365,6 +402,24 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
     case "ageless.clearPlan": {
       const rules = strings(raw.rules);
       if (isDay(raw.today) && rules) query = { kind: "ageless.clearPlan", today: raw.today, rules };
+      break;
+    }
+    case "games.find": {
+      const game = gameSeen(raw.game);
+      const year = raw.year;
+      if (
+        game &&
+        (year === null || Number.isInteger(year)) &&
+        isString(raw.page) &&
+        isCount(raw.at)
+      )
+        query = {
+          kind: "games.find",
+          year: year as number | null,
+          page: raw.page,
+          at: raw.at,
+          game,
+        };
       break;
     }
     case "ages.plan": {
@@ -685,6 +740,8 @@ export const coerceQueryAnswer = <K extends QueryKind>(
       return agelessClearPlanOf(raw) as AnswerOf<K> | null;
     case "ages.plan":
       return agesPlanOf(raw) as AnswerOf<K> | null;
+    case "games.find":
+      return ofShape<K>(raw, { record: { gameId: { nullable: "id" } } });
     case "merge.preview": {
       const fold = foldOf(raw);
       if (fold && typeof raw.found === "boolean")

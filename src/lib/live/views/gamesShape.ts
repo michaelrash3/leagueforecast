@@ -124,3 +124,59 @@ export const coerceGames = (raw: unknown): GamesView | null => {
   }
   return { page, games, names };
 };
+
+/**
+ * A game as a page's list shows it, which is all a device holding the list can name it by: the
+ * list carries no ids, since a page's ids, random and fifty-odd characters each, would have made
+ * the 12U list of 29 September 1,965 KB instead of 534 KB, for the rare game somebody edits.
+ */
+export type GameSeen = {
+  teamAId: string;
+  teamBId: string;
+  teamAScore?: number;
+  teamBScore?: number;
+  date?: string;
+  event?: string;
+  excluded?: true;
+};
+
+/** A game as its page's list shows it (`encodeGames`, read back by `coerceGames`). */
+export const seenAs = (game: ScoutGame): GameSeen => ({
+  teamAId: game.teamAId,
+  teamBId: game.teamBId,
+  ...(game.teamAScore === undefined ? {} : { teamAScore: game.teamAScore }),
+  ...(game.teamBScore === undefined ? {} : { teamBScore: game.teamBScore }),
+  ...(game.date ? { date: game.date } : {}),
+  ...(game.event ? { event: game.event } : {}),
+  ...(game.excluded ? { excluded: true } : {}),
+});
+
+const showsAs = (game: ScoutGame, seen: GameSeen): boolean => {
+  const shown = seenAs(game);
+  return (
+    shown.teamAId === seen.teamAId &&
+    shown.teamBId === seen.teamBId &&
+    shown.teamAScore === seen.teamAScore &&
+    shown.teamBScore === seen.teamBScore &&
+    shown.date === seen.date &&
+    shown.event === seen.event &&
+    shown.excluded === seen.excluded
+  );
+};
+
+/**
+ * The id of the game a page's list showed as `seen` at place `at`, found in the list as it is now
+ * (`loggedGamesOn`, in the order the list is published in): the game at that place when it still
+ * shows so, or else the one game anywhere in the list that does, the list having moved since it
+ * was published; null when none does, or more than one and none at its place.
+ */
+export const findListed = (
+  games: readonly ScoutGame[],
+  at: number,
+  seen: GameSeen
+): string | null => {
+  const there = games[at];
+  if (there && showsAs(there, seen)) return there.id;
+  const like = games.filter((game) => showsAs(game, seen));
+  return like.length === 1 && like[0] ? like[0].id : null;
+};

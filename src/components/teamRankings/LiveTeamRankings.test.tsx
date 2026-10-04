@@ -28,7 +28,7 @@ import {
 import { forgetDecodedClubs } from "../../hooks/useClubCard";
 import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
 import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesShape";
-import { forgetDecodedGames } from "./LiveGames";
+import { forgetDecodedGames, GAME_MOVED } from "./LiveGames";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
 import type { AgeGroup } from "../../lib/teamRankings";
 import type { SeasonMeta } from "../../lib/storage";
@@ -200,9 +200,16 @@ const sourcesOf = (live: MemoryLive | null, more: Partial<LiveSources> = {}): Li
 const page = (handover: RankingsHandover) => <p data-testid="page">{JSON.stringify(handover)}</p>;
 
 /** What the page said in toasts, and the questions it asked before an edit, in turn. */
-const said = { toasts: [] as string[], asked: [] as string[], confirming: true };
-const showToast = (message: string) => {
+const said = {
+  toasts: [] as string[],
+  asked: [] as string[],
+  confirming: true,
+  // Each toast's action, an Undo, by what the toast said.
+  actions: new Map<string, () => void>(),
+};
+const showToast = (message: string, options?: { onAction?: () => void }) => {
   said.toasts.push(message);
+  if (options?.onAction) said.actions.set(message, options.onAction);
 };
 const confirm = async ({ title }: { title: string }) => {
   said.asked.push(title);
@@ -248,6 +255,7 @@ beforeEach(async () => {
   said.toasts = [];
   said.asked = [];
   said.confirming = true;
+  said.actions.clear();
   live = memoryLive();
   await publish(live);
 });
@@ -1119,7 +1127,7 @@ describe("the Games tab on the cloud's board", () => {
   const onGames = () =>
     window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=games");
 
-  it("lists the page's games from its list, today's first, with nothing on it to change", async () => {
+  it("lists the page's games from its list, today's first, each with its own buttons", async () => {
     await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
     onGames();
     open(sourcesOf(live));
@@ -1128,7 +1136,11 @@ describe("the Games tab on the cloud's board", () => {
     expect(screen.getByText(/2 more are hidden \(1 still need a score\)/)).toBeTruthy();
     expect(screen.getByText("Placeholder S-1 7")).toBeTruthy();
     expect(screen.getByText(/Placeholder S-3 vs/)).toBeTruthy();
-    for (const name of ["Remove", "Enter score", "Don't count", "Add Game", "Import games"])
+    // Each game's own, sent to the server; adding and importing are on this device's copy.
+    expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Enter score" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Don't count" })).toBeTruthy();
+    for (const name of ["Add Game", "Import games"])
       expect(screen.queryByRole("button", { name })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show all 4 games" }));
     expect(screen.getByText("Not counted")).toBeTruthy();
@@ -1150,6 +1162,177 @@ describe("the Games tab on the cloud's board", () => {
     onGames();
     open(sourcesOf(live));
     await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+
+  const rowOf = (text: RegExp) => {
+    const row = screen.getByText(text).closest("li");
+    if (!row) throw new Error(`no row for ${text}`);
+    return row;
+  };
+  /**
+   * The edit function on the Games tab: each game's id by its place in the list (the list's ids
+   * are g1 to g4, in order), or none at all, and an edit made.
+   */
+  const gamesServer = ({ found = true } = {}) =>
+    editFunction((data) => {
+      const query = data.query as { at: number } | undefined;
+      if (!query) return made(5);
+      return answered({ kind: "games.find", gameId: found ? `g${query.at + 1}` : null });
+    });
+  const finds = (sent: Array<Record<string, unknown>>) =>
+    sent.flatMap((data) => (data.query ? [data.query] : []));
+
+  it("enters a score through the server, and shows it at once", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = gamesServer();
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    const owed = () => rowOf(/Placeholder S-3 vs/);
+    fireEvent.click(within(owed()).getByRole("button", { name: "Enter score" }));
+    // Nothing typed: nothing sent, and said.
+    fireEvent.click(within(owed()).getByRole("button", { name: "Save" }));
+    expect(said.toasts).toEqual(["Enter two scores, in whole runs."]);
+    const [a, b] = within(owed()).getAllByPlaceholderText("Score");
+    fireEvent.change(a!, { target: { value: "4" } });
+    fireEvent.change(b!, { target: { value: "5" } });
+    fireEvent.click(within(owed()).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(said.toasts).toContain("Score saved."));
+    // Its id asked first, by its place and what the list shows of it.
+    expect(finds(server.sent)).toEqual([
+      {
+        kind: "games.find",
+        year: 2027,
+        page: PAGE,
+        at: 1,
+        game: { teamAId: "S-3", teamBId: "S-1", date: TODAY },
+      },
+    ]);
+    expect(edited(server.sent)).toEqual([
+      {
+        command: { kind: "game.score", year: 2027, gameId: "g2", teamAScore: 4, teamBScore: 5 },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    // Drawn as played before any publish carries it, and the boxes put away.
+    expect(screen.getByText("Placeholder S-3 4")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Score")).toBeNull();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("puts the score boxes away once saved, even when the copy already held that score", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    // Typed on another device first: made, with nothing changed, so nothing is drawn over the list.
+    const server = editFunction((data) => {
+      const query = data.query as { at: number } | undefined;
+      return query ? answered({ kind: "games.find", gameId: `g${query.at + 1}` }) : made(5, []);
+    });
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    const owed = () => rowOf(/Placeholder S-3 vs/);
+    fireEvent.click(within(owed()).getByRole("button", { name: "Enter score" }));
+    const [a, b] = within(owed()).getAllByPlaceholderText("Score");
+    fireEvent.change(a!, { target: { value: "4" } });
+    fireEvent.change(b!, { target: { value: "5" } });
+    fireEvent.click(within(owed()).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(said.toasts).toContain("Score saved."));
+    expect(screen.queryByPlaceholderText("Score")).toBeNull();
+  });
+
+  it("keeps a game out of the maths, and removes one once asked, with an Undo", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = gamesServer();
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    const played = () => rowOf(/Placeholder S-1 7/);
+    fireEvent.click(within(played()).getByRole("button", { name: "Don't count" }));
+    await waitFor(() => expect(said.toasts).toContain("Game no longer counts."));
+    expect(within(played()).getByText("Not counted")).toBeTruthy();
+    fireEvent.click(within(played()).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(said.toasts).toContain("Game removed."));
+    expect(said.asked).toEqual(["Remove this game?"]);
+    expect(edited(server.sent).map(({ command }) => command)).toEqual([
+      { kind: "game.exclude", year: 2027, gameId: "g1", excluded: true },
+      { kind: "game.remove", year: 2027, gameIds: ["g1"] },
+    ]);
+    // Asked once: the second edit named the game by the id the first was given.
+    expect(finds(server.sent)).toHaveLength(1);
+    expect(screen.queryByText(/Placeholder S-1 7/)).toBeNull();
+  });
+
+  it("puts a game removed back where it was when its Undo is pressed", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const first = {
+      id: "g1",
+      teamAId: "S-1",
+      teamBId: "S-2",
+      ageGroupId: PAGE,
+      teamAScore: 7,
+      teamBScore: 2,
+      date: TODAY,
+      event: "Placeholder Cup",
+    };
+    const server = editFunction((data) => {
+      const query = data.query as { at: number } | undefined;
+      if (query) return answered({ kind: "games.find", gameId: `g${query.at + 1}` });
+      const command = data.command as { kind: string };
+      // The removal's inverse is the server's, the game as the copy holds it, at its place.
+      return command.kind === "game.remove"
+        ? {
+            ...made(5),
+            inverse: { kind: "game.insert", year: 2027, games: [{ game: first, at: 0 }] },
+          }
+        : made(6);
+    });
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    fireEvent.click(within(rowOf(/Placeholder S-1 7/)).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(said.toasts).toContain("Game removed."));
+    expect(screen.queryByText(/Placeholder S-1 7/)).toBeNull();
+    act(() => said.actions.get("Game removed.")?.());
+    await waitFor(() => expect(said.toasts).toContain("Undone."));
+    expect(edited(server.sent).map(({ command }) => (command as { kind: string }).kind)).toEqual([
+      "game.remove",
+      "game.insert",
+    ]);
+    expect(screen.getByText(/Placeholder S-1 7/)).toBeTruthy();
+  });
+
+  it("removes nothing when told no", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    said.confirming = false;
+    const server = gamesServer();
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    fireEvent.click(within(rowOf(/Placeholder S-1 7/)).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(said.asked).toEqual(["Remove this game?"]));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(server.sent).toEqual([]);
+    expect(screen.getByText(/Placeholder S-1 7/)).toBeTruthy();
+  });
+
+  it("changes nothing when the server finds no game as the list shows it", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = gamesServer({ found: false });
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    fireEvent.click(
+      within(rowOf(/Placeholder S-1 7/)).getByRole("button", { name: "Don't count" })
+    );
+    await waitFor(() => expect(said.toasts).toContain(GAME_MOVED));
+    expect(edited(server.sent)).toEqual([]);
+    expect(within(rowOf(/Placeholder S-1 7/)).queryByText("Not counted")).toBeNull();
   });
 });
 

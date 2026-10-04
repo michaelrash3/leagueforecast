@@ -38,6 +38,8 @@ import { runEdit, runQuery } from "../src/lib/live/editRun.ts";
 import { coerceQueryAnswer, type PoolQuery } from "../src/lib/live/queries.ts";
 import { createEditPool } from "../src/lib/live/poolCache.ts";
 import { runRebuild } from "../src/lib/live/rebuild.ts";
+import { seenAs } from "../src/lib/live/views/gamesShape.ts";
+import { loggedGamesOn } from "../src/lib/teamRankings/gamesWindow.ts";
 import { memoryLive } from "../src/lib/live/__tests__/memoryLive.ts";
 import { ageGroupYear } from "../src/lib/teamRankings.ts";
 import { parseTeamRankingsJson, writeTeamRankingsBackup } from "../src/lib/teamRankingsBackup.ts";
@@ -322,6 +324,29 @@ const main = async () => {
     fold?.kind === "teams.merge"
       ? loadScoutTeams().find((team) => team.id === fold.intoId)
       : undefined;
+  // The last game the biggest page lists, found at its place, and found by the scan a list that
+  // has moved since it was published asks for.
+  const listedPage = loadAgeGroups()
+    .map((group) => {
+      const year = ageGroupYear(group) ?? null;
+      return {
+        group,
+        year,
+        listed: loggedGamesOn(loadScoutGamesForYear(year ?? undefined), group.id),
+      };
+    })
+    .sort((a, b) => b.listed.length - a.listed.length)[0];
+  const lastListed = listedPage?.listed[listedPage.listed.length - 1];
+  const finds: PoolQuery[] =
+    listedPage && lastListed
+      ? [listedPage.listed.length - 1, 0].map((at) => ({
+          kind: "games.find",
+          year: listedPage.year,
+          page: listedPage.group.id,
+          at,
+          game: seenAs(lastListed),
+        }))
+      : [];
   const questions: PoolQuery[] = [
     ...(fold?.kind === "teams.merge"
       ? ([
@@ -337,6 +362,7 @@ const main = async () => {
     { kind: "ageless.search", today, query: "baseball" },
     { kind: "ageless.file", today },
     { kind: "ageless.clearPlan", today, rules: [...CLEARABLE_RULES] },
+    ...finds,
   ];
   for (const query of questions) {
     started = performance.now();

@@ -127,6 +127,20 @@ describe("a game's score and whether it counts", () => {
     expect(writes.some((key) => key.endsWith(shardOf(2026)))).toBe(false);
   });
 
+  it("takes no score from boxes left empty, or half filled", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool());
+    const row = await gameRow(user, "2026-09-26");
+    await user.click(within(row).getByRole("button", { name: "Enter score" }));
+    await user.click(within(row).getByRole("button", { name: "Save" }));
+    await user.type(within(row).getAllByPlaceholderText("Score")[0] as HTMLElement, "6");
+    await user.click(within(row).getByRole("button", { name: "Save" }));
+    expect(
+      harness.toasts().filter((said) => said === "Enter two scores, in whole runs.")
+    ).toHaveLength(2);
+    expect(stored("open")?.teamAScore).toBeUndefined();
+  });
+
   it("keeps a played game out of the maths, and puts it back", async () => {
     const user = userEvent.setup();
     renderTeamRankings(pool());
