@@ -2,15 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import type { EditRun } from "../editRun";
 import {
   answerEdit,
+  EDIT_CALL_S,
+  EDIT_CONCURRENCY,
   EDIT_LIMIT_S,
   EDIT_RECYCLE_AT,
   EDIT_SIZE,
   EDIT_TIMEOUT_S,
   EDIT_WORKER_HEAP_MB,
   editRunner,
+  TurnFailed,
   type EditPort,
   type EditRequest,
   type EditWorkerAnswer,
+  type Turned,
 } from "../editWorkerProtocol";
 import { RECYCLE_AT } from "../rebuild";
 import type { WorkerMemory } from "../rebuildWorkerProtocol";
@@ -76,9 +80,13 @@ const answering =
     return { kind: "pong", id: request.id };
   };
 
+/** A turn's result, or why the call never had one. */
+const resultOf = <T>(turned: Turned<T>): T | string => (turned.ran ? turned.result : turned.why);
+
 describe("the edit function's sizes", () => {
-  it("leave an edit inside the timeout behind three queued ahead of it, and the worker inside the instance", () => {
-    expect(EDIT_LIMIT_S * 4).toBeLessThan(EDIT_TIMEOUT_S);
+  it("fit a full line of calls inside a call's time, that inside the timeout, and the worker inside the instance", () => {
+    expect(EDIT_CONCURRENCY * EDIT_LIMIT_S).toBeLessThanOrEqual(EDIT_CALL_S);
+    expect(EDIT_CALL_S).toBeLessThan(EDIT_TIMEOUT_S);
     expect(EDIT_TIMEOUT_S).toBeLessThanOrEqual(540);
     expect(EDIT_SIZE).toEqual({ gib: 4, cpu: 2 });
     expect(EDIT_RECYCLE_AT.heapUsedMb).toBeLessThan(EDIT_WORKER_HEAP_MB);
@@ -121,9 +129,14 @@ describe("the main thread's worker", () => {
   it("keeps one worker for the edits and the warm-ups between them", async () => {
     const workers = fakeWorkers(answering());
     const runner = editRunner({ spawn: workers.spawn });
-    expect(await runner.warm()).toEqual({ ok: true, cold: true, fetched: 9, loadMs: 5 });
-    expect(await runner.edit(ASK)).toEqual(EDITED);
-    expect(await runner.edit(ASK)).toEqual(EDITED);
+    expect(resultOf(await runner.warm())).toEqual({ ok: true, cold: true, fetched: 9, loadMs: 5 });
+    expect(await runner.edit(ASK)).toEqual({
+      ran: true,
+      result: EDITED,
+      busyMs: expect.any(Number),
+      memory: SMALL,
+    });
+    expect(resultOf(await runner.edit(ASK))).toEqual(EDITED);
     expect(workers.started).toEqual([1]);
     expect(workers.ended).toEqual([]);
     expect(workers.posted.map((request) => request.kind)).toEqual(["warm", "edit", "edit"]);
@@ -151,11 +164,11 @@ describe("the main thread's worker", () => {
     // The warm-up waits on the edit, which the worker has not answered.
     expect(waiting.map((request) => request.kind)).toEqual(["edit"]);
     ports[0]?.(answering()(waiting[0]!));
-    expect(await first).toEqual(EDITED);
+    expect(resultOf(await first)).toEqual(EDITED);
     for (let tick = 0; tick < 5; tick += 1) await Promise.resolve();
     expect(waiting.map((request) => request.kind)).toEqual(["edit", "warm"]);
     ports[0]?.(answering()(waiting[1]!));
-    expect(await second).toMatchObject({ ok: true, cold: true });
+    expect(resultOf(await second)).toMatchObject({ ok: true, cold: true });
   });
 
   it("ends a worker that died, ran past its limit, or answered that a request threw", async () => {
@@ -172,13 +185,19 @@ describe("the main thread's worker", () => {
         return () => undefined;
       },
     });
-    await expect(runner.edit(ASK)).rejects.toThrow("boom");
+    // A request the worker said threw: not lost, since an edit throws short of any save.
+    await expect(runner.edit(ASK)).rejects.toMatchObject({ message: "boom", lost: false });
     const late = runner.edit(ASK);
     await Promise.resolve();
     await Promise.resolve();
     timer.up?.();
-    await expect(late).rejects.toThrow(`The edit ran past ${EDIT_LIMIT_S} s.`);
-    expect(await runner.edit(ASK)).toEqual(EDITED);
+    // One that ran out of time: lost, the edit perhaps made.
+    await expect(late).rejects.toMatchObject({
+      message: `The edit ran past the ${EDIT_LIMIT_S} s it had.`,
+      lost: true,
+    });
+    await expect(late).rejects.toBeInstanceOf(TurnFailed);
+    expect(resultOf(await runner.edit(ASK))).toEqual(EDITED);
     expect(workers.started).toEqual([1, 2, 3]);
     expect(workers.ended).toEqual([1, 2]);
     // A worker that died is ended too, and the next request has a fresh one.
@@ -212,7 +231,7 @@ describe("the main thread's worker", () => {
         };
       },
     });
-    expect(await runner.edit(ASK)).toEqual(EDITED);
+    expect(resultOf(await runner.edit(ASK))).toEqual(EDITED);
   });
 
   it("starts a fresh worker once the heap or the process has grown past the edit function's own recycle point", async () => {
@@ -244,7 +263,77 @@ describe("the main thread's worker", () => {
     const asked = runner.edit(ASK);
     await Promise.resolve();
     workers.ports[0]?.die(Object.assign(new Error("heap"), { code: "ERR_WORKER_OUT_OF_MEMORY" }));
-    await expect(asked).rejects.toThrow("The edit ran out of memory in its worker.");
+    await expect(asked).rejects.toMatchObject({
+      message: "The edit ran out of memory in its worker.",
+      lost: true,
+    });
     expect(workers.ended).toEqual([1]);
+  });
+
+  it("sends no call whose caller went while it waited in line", async () => {
+    const waiting: EditRequest[] = [];
+    const ports: Array<(answer: EditWorkerAnswer) => void> = [];
+    const runner = editRunner({
+      spawn: () => {
+        let listeners: Parameters<EditPort["listen"]>[0] | null = null;
+        ports.push((answer) => listeners?.answer(answer));
+        return {
+          post: (request) => waiting.push(request),
+          listen: (given) => {
+            listeners = given;
+          },
+          terminate: async () => undefined,
+        };
+      },
+    });
+    const caller = new AbortController();
+    const first = runner.edit(ASK);
+    const second = runner.edit(ASK, { signal: caller.signal });
+    for (let tick = 0; tick < 5; tick += 1) await Promise.resolve();
+    caller.abort();
+    ports[0]?.(answering()(waiting[0]!));
+    expect(resultOf(await first)).toEqual(EDITED);
+    expect(await second).toEqual({ ran: false, why: "gone" });
+    expect(waiting).toHaveLength(1);
+  });
+
+  it("sends no call after its time is up, and ends a run at the time its call has left", async () => {
+    vi.useFakeTimers();
+    try {
+      // Each edit takes fifty seconds, inside the limit; twelve come at once.
+      const posted: number[] = [];
+      const spawn = (): EditPort => {
+        let listeners: Parameters<EditPort["listen"]>[0] | null = null;
+        return {
+          post: (request) => {
+            posted.push(Date.now());
+            setTimeout(() => listeners?.answer(answering()(request)), 50_000);
+          },
+          listen: (given) => {
+            listeners = given;
+          },
+          terminate: async () => undefined,
+        };
+      };
+      const runner = editRunner({ spawn, clock: () => Date.now() });
+      const t0 = Date.now();
+      const calls = Array.from({ length: 12 }, () =>
+        runner.edit(ASK).then(
+          (turned) => ({ end: turned.ran ? "made" : turned.why, at: Date.now() - t0 }),
+          (error: unknown) => ({
+            end: error instanceof TurnFailed && error.lost ? "lost" : "threw",
+            at: Date.now() - t0,
+          })
+        )
+      );
+      await vi.advanceTimersByTimeAsync(700_000);
+      const ends = await Promise.all(calls);
+      // Ten fit in a call's time; the eleventh is cut short at it, and the twelfth never sent.
+      expect(ends.map(({ end }) => end)).toEqual([...Array(10).fill("made"), "lost", "late"]);
+      expect(posted.every((at) => at - t0 < EDIT_CALL_S * 1000)).toBe(true);
+      expect(ends.every(({ at }) => at <= EDIT_CALL_S * 1000)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

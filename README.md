@@ -4409,16 +4409,29 @@ edit on a warm pool fetches no piece but those another save moved.
 
 The edit function (`edit` in `functions/src/index.ts`) is that run behind a call: a member's
 device sends `{ command, copy }`, signed in, and the function checks the caller against the list
-as the GameChanger proxy does (`memberCheck.ts`), reads the command back exactly
-(`coerceCommand`), and refuses anything else before a worker starts. The edits run one at a time
-in a worker that keeps the pool from call to call (`editWorkerProtocol.ts`), one instance taking
-several calls at once and queueing them. The instance has 4 GiB, half a rebuild's, since the edits
+as the GameChanger proxy does (`memberCheck.ts`), keeping the answer a minute rather than the
+proxy's ten, since it writes the copy past the rules. It reads the command back exactly
+(`coerceCommand`, which refuses a field it does not know at any level, and a command of more than
+500 steps) and refuses anything else before a worker starts. The edits run one at a time in a
+worker that keeps the pool from call to call (`editWorkerProtocol.ts`), one instance taking up to
+eight calls at once and queueing them. The instance has 4 GiB, half a rebuild's, since the edits
 build no boards (measured below); the worker's heap is held to 2.5 GB, and a worker past 2 GB of
 heap or 3 GB in all is started afresh between edits (`EDIT_RECYCLE_AT`). The edit is made whatever
-the rebuilds' switch says,
-since it is a member's change to the copy, and its compute is charged to the ledger's totals
-(`handleEdit`); the call answers as soon as the save has landed, with the version saved, the
-inverse for an Undo, and what changed. It does not build the boards: every board of the real pool
+the rebuilds' switch says, since it is a member's change to the copy, and the call answers as soon
+as the save has landed, with the version saved, the inverse for an Undo, and what changed.
+
+No call is left for the platform's timeout to answer with its edit still to come. Each has 520 s
+from when it came (`EDIT_CALL_S`, inside the 540 s timeout): one whose caller has gone, or whose
+time is up, before its turn is never sent, and a run is cut short at the time its call has left or
+a minute, whichever is less (`EDIT_LIMIT_S`; eight calls each run to the minute fit). A call never
+sent, or one whose worker said it threw short of any save, is answered as an edit not made
+(`aborted`); a worker lost with an edit in its hands (died, cut short, out of memory), or a save
+whose answer never came, as one that may or may not be in the copy (`unsure`), which the copy then
+settles. A call's compute is its own turn in the worker, which is what fills the instance's billed
+time, with the instance's start-up the first time, and it is charged to the ledger's totals
+(`handleEdit`): the charges one at a time, so none is written over another; one the ledger is slow
+to take left to finish behind the answer after five seconds; and one lost to other writers said in
+the log line. It does not build the boards: every board of the real pool
 takes about half a minute, which the member would wait on and which would hold every edit queued
 behind it. The save asks for them itself, and the trigger rebuilds the edit function's saves a
 quarter of a minute after each window, on the rebuilds' own instance, under their ledger and

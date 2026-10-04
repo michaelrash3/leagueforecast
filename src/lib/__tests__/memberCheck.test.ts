@@ -5,6 +5,7 @@ import {
   createMemberCheck,
   MEMBER_CHECK_TTL_MS,
   membersOnly,
+  WRITE_CHECK_TTL_MS,
   tokenAddress,
   tokenExpiry,
   type MemberCheck,
@@ -134,6 +135,40 @@ describe("the check against the list", () => {
       await unanswered.run(lasting);
       expect(unanswered.asked).toHaveLength(2);
     }
+  });
+
+  it("keeps an answer a minute for a call that writes, so an account taken off stops within it", async () => {
+    let at = NOW;
+    let status = 200;
+    const fetchImpl = (async () => new Response("{}", { status })) as unknown as typeof fetch;
+    const run = createMemberCheck({
+      projectId: "league-forecast-youth",
+      fetchImpl,
+      now: () => at,
+      ttlMs: WRITE_CHECK_TTL_MS,
+    });
+    const header = `Bearer ${signedIn("member@example.com")}`;
+    expect(await run(header)).toBe("member");
+    status = 404;
+    at = NOW + 59_000;
+    expect(await run(header)).toBe("member");
+    at = NOW + 61_000;
+    expect(await run(header)).toBe("not-member");
+    expect(WRITE_CHECK_TTL_MS).toBeLessThan(MEMBER_CHECK_TTL_MS);
+  });
+
+  it("says the list could not be asked when it does not answer in time", async () => {
+    const silent = ((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("timed out")));
+      })) as unknown as typeof fetch;
+    const run = createMemberCheck({
+      projectId: "league-forecast-youth",
+      fetchImpl: silent,
+      now: () => NOW,
+      waitMs: 20,
+    });
+    expect(await run(`Bearer ${signedIn("member@example.com")}`)).toBe("unavailable");
   });
 
   it("keeps a refusal too, so a stranger's sign-in is not a read on every request", async () => {

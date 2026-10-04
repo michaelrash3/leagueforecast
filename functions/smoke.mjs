@@ -306,8 +306,10 @@ if (process.env.LIVE_REBUILD !== "on") {
   );
   const outsiderEdit = await post(edit, { data: { command } }, signedInAs("outsider@example.com"));
   check(
-    "nor for an account not on the list",
-    outsiderEdit.status === 403 && /PERMISSION_DENIED/.test(String(outsiderEdit.body)),
+    "nor for an account not on the list, which is told so in the edit's own words",
+    outsiderEdit.status === 403 &&
+      /PERMISSION_DENIED/.test(String(outsiderEdit.body)) &&
+      /cannot edit it/.test(String(outsiderEdit.body)),
     `${outsiderEdit.status} ${outsiderEdit.body}`
   );
   const memberReads = reads.length;

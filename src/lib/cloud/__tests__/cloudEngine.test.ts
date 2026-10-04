@@ -307,11 +307,11 @@ describe("a save onto the copy", () => {
   it("says it cannot tell, its pieces kept, when the commit threw and is not in the copy", async () => {
     const sky = memoryCloud();
     const v1 = await first(sky.store, { league: { a: 1 } });
-    let late: (() => Promise<boolean>) | null = null;
+    const late: { land: (() => Promise<boolean>) | null } = { land: null };
     const slow: CloudStore = {
       ...sky.store,
       commitManifest: async (expected, next) => {
-        late = () => sky.store.commitManifest(expected, next);
+        late.land = () => sky.store.commitManifest(expected, next);
         throw new TypeError("fetch failed");
       },
     };
@@ -332,7 +332,7 @@ describe("a save onto the copy", () => {
     expect(ids.length).toBeGreaterThan(1);
     expect(ids.every((id) => sky.chunks.has(id))).toBe(true);
     // It lands after all, and the copy it makes is whole.
-    expect(await late?.()).toBe(true);
+    expect(await late.land?.()).toBe(true);
     expect((await valuesOf(sky.store, sky.manifest() as CloudManifest)).teams).toEqual(teams);
   });
 

@@ -112,3 +112,12 @@ jobs:
           # --force sets up the cleanup policy for old build images, which is what keeps their
           # storage from growing a cost of its own.
           npx --yes firebase-tools@15 deploy --only "$only" --project "$PROJECT" --non-interactive --force
+          # A deploy that names its functions takes none down, and a rebuild or an edit function left
+          # standing once the rebuilds are off would go on writing the copy on an old build: each is
+          # taken down, where it is there to take.
+          if [ "$CLOUD_PULLS" != "on" ] && [ "$LIVE_REBUILD" != "on" ]; then
+            for fn in onCopyWrite rebuild edit; do
+              npx --yes firebase-tools@15 functions:delete "$fn" --region us-central1 --project "$PROJECT" --force \
+                || echo "::notice::No $fn function to take down."
+            done
+          fi

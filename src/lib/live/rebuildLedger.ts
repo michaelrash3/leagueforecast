@@ -312,6 +312,10 @@ const rolledOver = (ledger: Ledger, today: string): Ledger => {
  * backstop. It is not a run either, so it counts no run, opens nothing and clears no failure; and it
  * is charged whether the switch is on or off, since its compute was spent either way. Null where
  * there is no ledger to charge.
+ *
+ * A charge carries no id, as a reservation does: one whose write landed though its answer was lost
+ * is told apart by the ledger reading as written (`updateLedger`), so another write landing between
+ * makes it charge twice. That errs over the caps, never under, and is left so.
  */
 export const chargeEdit = (ledger: Ledger | null, today: string, used: RunCost): Ledger | null => {
   if (!ledger) return null;
@@ -411,8 +415,16 @@ export const settleRun = (
   const swap = (total: number, charged: number, used: number) =>
     Math.max(0, total - charged) + used;
   let next: Ledger = { ...ledger, open: null };
+  const { lastDay } = next;
   if (next.day === open.day) {
     next = { ...next, dayGiBs: swap(next.dayGiBs, open.cost.gibs, run.used.gibs) };
+  } else if (lastDay?.day === open.day) {
+    // The day turned under the run (an edit charged after midnight moves the ledger on): its
+    // ceiling went into the day kept for the nightly, and its cost takes its place there.
+    next = {
+      ...next,
+      lastDay: { ...lastDay, gibs: swap(lastDay.gibs, open.cost.gibs, run.used.gibs) },
+    };
   }
   if (next.month === monthOf(open.day)) {
     next = {

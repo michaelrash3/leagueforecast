@@ -581,6 +581,18 @@ describe("settling a run", () => {
       monthVcpuS: 0,
     });
   });
+
+  it("puts the cost in place of the ceiling in the day kept for the nightly, the day turned under it", () => {
+    // An edit charged just after New York's midnight moves the ledger on while the run is open.
+    const turned = chargeEdit({ ...open, dayRuns: 1 }, "2027-04-16", { gibs: 8, vcpuS: 2 });
+    expect(turned?.lastDay).toEqual({ day: TODAY, runs: 1, failed: 0, gibs: 7_560 });
+    expect(settleRun(turned, { at: NOW, used, failed: false, today: "2027-04-16" })).toMatchObject({
+      day: "2027-04-16",
+      dayGiBs: 8,
+      lastDay: { day: TODAY, runs: 1, failed: 0, gibs: 5_490 },
+      monthGiBs: 20_498,
+    });
+  });
 });
 
 /** The ledger's document in memory, refusing a write over a version it was not read at. */

@@ -18,8 +18,8 @@ import type { WorkerMemory } from "./rebuildWorkerProtocol";
 /**
  * The function's instance, as a run's cost is reckoned (`runCost`): half the rebuild's, since the
  * edits build no boards. On the 29 September 2026 pool, a process that brought the pool up cold and
- * made and undid one edit of each of six kinds held at most 1,128 MB, where building every board
- * then took it to 2.5 GB and, build after build, 3.5 GB (`npm run live:bench -- --copy`, 4
+ * made and undid one edit of each of eight kinds held at most 1.1 GB, where building every board
+ * then took it to 2.6 GB and, build after build, 3.8 GB (`npm run live:bench -- --copy`, 4
  * October).
  */
 export const EDIT_SIZE = { gib: 4, cpu: 2 } as const;
@@ -38,16 +38,28 @@ export const EDIT_WORKER_HEAP_MB = 2_560;
  */
 export const EDIT_RECYCLE_AT = { heapUsedMb: 2_048, rssMb: 3_072, runs: 200 } as const;
 
-/** The function's timeout: room for a cold edit behind a few queued ahead of it. */
+/** The function's timeout, after which the platform answers a caller still waiting. */
 export const EDIT_TIMEOUT_S = 540;
+
+/** How many calls the one instance takes at once, each waiting its turn for the worker. */
+export const EDIT_CONCURRENCY = 8;
+
+/**
+ * How long a call may wait for its turn and run, in all: inside the timeout by enough for the
+ * answer and the charge after it, so the platform never answers a caller whose edit is still to be
+ * made. A call whose time is up before its turn is turned away unstarted, and a run is cut short at
+ * it.
+ */
+export const EDIT_CALL_S = EDIT_TIMEOUT_S - 20;
 
 /**
  * How long an edit may take in the worker before the main thread ends the worker and says so. On
- * the 29 September 2026 pool a cold start read every part in 1.3 s and the costliest edit, a merge,
- * took 4.7 s to apply and commit (`npm run live:bench`, 4 October), both in memory; Firestore adds
- * a round trip a read and the upload of the parts changed, so this leaves a slow store a wide berth.
+ * the 29 September 2026 pool a cold start read every part in 1.4 s and the costliest edit, a merge,
+ * took 4.5 s to apply and commit (`npm run live:bench`, 4 October), both in memory; Firestore adds
+ * a round trip a read and the upload of the parts changed. A minute leaves a slow store a wide
+ * berth, and keeps a full line, every call in it run to the limit, inside a call's time.
  */
-export const EDIT_LIMIT_S = 120;
+export const EDIT_LIMIT_S = 60;
 
 export type EditRequest =
   | { kind: "edit"; id: number; ask: EditAsk }
@@ -103,6 +115,35 @@ export type EditPort = {
   terminate: () => Promise<void>;
 };
 
+/** How a call stands in line: its caller's going (the request closed) turns it away unstarted. */
+export type TurnAsk = { signal?: AbortSignal };
+
+/**
+ * What a call's turn came to: run, with how long it held the worker, which is what its compute is
+ * reckoned by; or turned away before the worker had it, its caller gone or its time up.
+ */
+export type Turned<T> =
+  | { ran: true; result: T; busyMs: number; memory: WorkerMemory }
+  | { ran: false; why: "gone" | "late" };
+
+/**
+ * A turn that ended without its answer. `lost`: the worker died, ran past the time it had, or
+ * answered out of turn, so an edit it was making may or may not be in the copy. Otherwise the worker
+ * said the request threw, which an edit does only short of any save it cannot account for
+ * (`runEdit`).
+ */
+export class TurnFailed extends Error {
+  readonly busyMs: number;
+  readonly lost: boolean;
+
+  constructor(message: string, busyMs: number, lost: boolean) {
+    super(message);
+    this.name = "TurnFailed";
+    this.busyMs = busyMs;
+    this.lost = lost;
+  }
+}
+
 type Outcome = { kind: "answer"; answer: EditWorkerAnswer } | { kind: "died"; error: string };
 
 type Held = {
@@ -122,10 +163,15 @@ type Asked = { kind: "edit"; ask: EditAsk } | { kind: "warm" };
  * past its limit, or answered that a request threw (which may have left its store part-written),
  * and when `shouldRecycle` says, at `EDIT_RECYCLE_AT`, that its heap or the process has grown too
  * far or it has run enough.
+ *
+ * Each call has `callS` from when it came: one whose caller has gone, or whose time is up, before
+ * its turn is never sent, and a run has the least of its limit and the time its call has left.
  */
 export const editRunner = ({
   spawn,
   limitS = EDIT_LIMIT_S,
+  callS = EDIT_CALL_S,
+  clock = () => performance.now(),
   setTimer = (done, ms) => {
     const timer = setTimeout(done, ms);
     return () => clearTimeout(timer);
@@ -133,10 +179,13 @@ export const editRunner = ({
 }: {
   spawn: () => EditPort;
   limitS?: number;
+  callS?: number;
+  /** A clock in ms for the turns' times and deadlines, which never steps back. */
+  clock?: () => number;
   setTimer?: (done: () => void, ms: number) => () => void;
 }): {
-  edit: (ask: EditAsk) => Promise<EditRun>;
-  warm: () => Promise<WarmResult>;
+  edit: (ask: EditAsk, turn?: TurnAsk) => Promise<Turned<EditRun>>;
+  warm: (turn?: TurnAsk) => Promise<Turned<WarmResult>>;
   stop: () => Promise<void>;
 } => {
   let held: Held | null = null;
@@ -176,17 +225,28 @@ export const editRunner = ({
     await worker.port.terminate();
   };
 
-  /** One request, answered by the worker: ended and thrown when it died or the request threw. */
-  const send = async (asked: Asked): Promise<EditWorkerAnswer> => {
+  /**
+   * One request, answered by the worker within `limitMs`, with how long the worker had it: the
+   * worker ended, and the request failed, when it died, ran out of time, or threw.
+   */
+  const send = async (
+    asked: Asked,
+    limitMs: number
+  ): Promise<{ answer: EditWorkerAnswer; busyMs: number }> => {
     if (held?.dead) await end(held);
     const worker = held ?? start();
     held = worker;
     const id = nextId;
     nextId += 1;
+    const began = clock();
     const outcome = await new Promise<Outcome>((resolve) => {
       const cancel = setTimer(
-        () => resolve({ kind: "died", error: `The ${asked.kind} ran past ${limitS} s.` }),
-        limitS * 1000
+        () =>
+          resolve({
+            kind: "died",
+            error: `The ${asked.kind} ran past the ${Math.round(limitMs / 1000)} s it had.`,
+          }),
+        limitMs
       );
       worker.waiting = (heard) => {
         if (heard.kind === "answer" && heard.answer.id !== id) return;
@@ -196,20 +256,21 @@ export const editRunner = ({
       };
       worker.port.post({ ...asked, id });
     });
+    const busyMs = clock() - began;
     if (outcome.kind === "died") {
       await end(worker);
-      throw new Error(outcome.error);
+      throw new TurnFailed(outcome.error, busyMs, true);
     }
     const { answer } = outcome;
     if (answer.kind === "failed" || answer.kind === "pong") {
       await end(worker);
-      throw new Error(
-        answer.kind === "failed" ? answer.error : "The edit's worker answered a ping."
-      );
+      throw answer.kind === "failed"
+        ? new TurnFailed(answer.error, busyMs, false)
+        : new TurnFailed("The edit's worker answered a ping.", busyMs, true);
     }
     worker.runs += 1;
     if (shouldRecycle(answer.memory, worker.runs, EDIT_RECYCLE_AT)) await end(worker);
-    return answer;
+    return { answer, busyMs };
   };
 
   const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
@@ -218,22 +279,37 @@ export const editRunner = ({
     return ran;
   };
 
-  const wrong = (answer: EditWorkerAnswer, wanted: string) =>
-    new Error(`The edit's worker answered ${answer.kind} to ${wanted}.`);
+  /** A call: its time starts now, and its turn comes when every call before it has had theirs. */
+  const call = <T>(
+    asked: Asked,
+    { signal }: TurnAsk,
+    read: (answer: EditWorkerAnswer) => T | null
+  ): Promise<Turned<T>> => {
+    const deadline = clock() + callS * 1000;
+    return inTurn(async (): Promise<Turned<T>> => {
+      if (signal?.aborted) return { ran: false, why: "gone" };
+      const left = deadline - clock();
+      if (left <= 0) return { ran: false, why: "late" };
+      const { answer, busyMs } = await send(asked, Math.min(limitS * 1000, left));
+      const result = read(answer);
+      if (result === null || answer.kind === "pong") {
+        throw new TurnFailed(
+          `The edit's worker answered ${answer.kind} to ${asked.kind === "edit" ? "an edit" : "a warm-up"}.`,
+          busyMs,
+          true
+        );
+      }
+      return { ran: true, result, busyMs, memory: answer.memory };
+    });
+  };
 
   return {
-    edit: (ask) =>
-      inTurn(async () => {
-        const answer = await send({ kind: "edit", ask });
-        if (answer.kind !== "edited") throw wrong(answer, "an edit");
-        return answer.result;
-      }),
-    warm: () =>
-      inTurn(async () => {
-        const answer = await send({ kind: "warm" });
-        if (answer.kind !== "warmed") throw wrong(answer, "a warm-up");
-        return answer.result;
-      }),
+    edit: (ask, turn = {}) =>
+      call({ kind: "edit", ask }, turn, (answer) =>
+        answer.kind === "edited" ? answer.result : null
+      ),
+    warm: (turn = {}) =>
+      call({ kind: "warm" }, turn, (answer) => (answer.kind === "warmed" ? answer.result : null)),
     stop: async () => {
       if (held) await end(held);
     },

@@ -1,5 +1,6 @@
 import type { PoolCommand } from "./commands";
 import type { EditRefusal, EditRun } from "./editRun";
+import { TurnFailed, type TurnAsk, type Turned } from "./editWorkerProtocol";
 import type { PoolEnsure } from "./poolCache";
 import { chargeEdit, runCost, updateLedger, type LedgerStore } from "./rebuildLedger";
 
@@ -13,8 +14,9 @@ import { chargeEdit, runCost, updateLedger, type LedgerStore } from "./rebuildLe
  * built here: every board of the real pool takes about half a minute (26 to 31 s on the 29
  * September 2026 pool, `npm run live:bench`), which a member would otherwise wait on, and which
  * would hold every edit queued behind it in the one worker. The save itself asks for them: the
- * trigger queues a rebuild of the edit function's saves within a quarter of a minute
- * (`REBUILD_WINDOW_S.live`), on the rebuilds' own instance, under their ledger and switch.
+ * trigger queues the rebuild of an edit function's save at once, run within a quarter of a minute
+ * and no sooner than a minute after the boards last went up (`REBUILD_WINDOW_S.live`,
+ * `LIVE_SPACING_S`), on the rebuilds' own instance, under their ledger and switch.
  */
 
 /** What a device asks: a command, and the copy it was made on. */
@@ -27,8 +29,8 @@ export type WarmResult =
 
 /** The worker the edits run in, which keeps the pool from request to request. */
 export type EditWorker = {
-  edit: (ask: EditAsk) => Promise<EditRun>;
-  warm: () => Promise<WarmResult>;
+  edit: (ask: EditAsk, turn?: TurnAsk) => Promise<Turned<EditRun>>;
+  warm: (turn?: TurnAsk) => Promise<Turned<WarmResult>>;
 };
 
 /** What the device is told: the edit made, with what takes it back, or why it was not. */
@@ -43,58 +45,123 @@ export type EditReply =
     }
   | { ok: false; why: EditRefusal };
 
+type Line = Record<string, string | number | boolean>;
+
+/**
+ * The instance's charges, one at a time in the order they came, so that two are never read off the
+ * same ledger and the second written over the first.
+ */
+export type ChargeQueue = <T>(work: () => Promise<T>) => Promise<T>;
+
+export const chargeQueue = (): ChargeQueue => {
+  let line: Promise<unknown> = Promise.resolve();
+  return (work) => {
+    const ran = line.then(work);
+    line = ran.catch(() => undefined);
+    return ran;
+  };
+};
+
+/**
+ * How long an answer waits on its charge: the ledger is two round trips, and one that does not
+ * answer is said in the line and left to finish behind the answer, which was never its to hold.
+ */
+export const CHARGE_WAIT_MS = 5_000;
+
 /** The deps both requests share. */
 type Deps = {
   ledger: LedgerStore;
   /** New York's day. */
   today: () => string;
-  clock: () => number;
   /** The instance's memory in GiB and its vCPUs, which its time is billed by. */
   size: { gib: number; cpu: number };
   /** Seconds the instance spent starting before this request, the first time; nothing after. */
   startupS: () => number;
+  /** The instance's own queue of charges (`chargeQueue`). */
+  charges: ChargeQueue;
+  /** Resolves after `ms`: how long an answer waits on its charge (`CHARGE_WAIT_MS`). */
+  wait?: (ms: number) => Promise<void>;
+  /** The request's own end, the caller gone: a call not yet in the worker is then never sent. */
+  signal?: AbortSignal;
 };
 
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 /**
- * What `began` until now cost, charged to the ledger as an edit's compute; a charge that cannot be
- * written is said in the line rather than failing the request, whose work is done.
+ * `busyMs` of the worker, and the instance's start-up the first time, charged to the ledger as an
+ * edit's compute. A call is charged for its own turn in the worker, not its wait in line: the
+ * instance is billed once for the time its calls overlap, and the turns are what fill it. A charge
+ * that cannot be written, or that the ledger is slow to take, is said in the line rather than
+ * holding or failing the answer, whose work is done.
  */
 const charge = async (
-  { ledger, today, clock, size, startupS }: Deps,
-  began: number,
-  line: Record<string, string | number | boolean>
+  { ledger, today, size, startupS, charges, wait = sleep }: Deps,
+  busyMs: number,
+  line: Line
 ): Promise<void> => {
-  const used = runCost((clock() - began) / 1000 + startupS(), size);
+  const used = runCost(busyMs / 1000 + startupS(), size);
   line.gibs = used.gibs;
-  try {
-    await updateLedger(ledger, (current) => ({
+  const charged = charges(async () => {
+    const done = await updateLedger(ledger, (current) => ({
       next: chargeEdit(current, today(), used),
       answer: null,
     }));
-  } catch (error) {
-    line.chargeError = error instanceof Error ? error.message : String(error);
-  }
+    if ("contended" in done) throw new Error("Other writers had the ledger on every try.");
+  }).then(
+    () => null,
+    (error: unknown) => messageOf(error)
+  );
+  const outcome = await Promise.race([
+    charged,
+    wait(CHARGE_WAIT_MS).then(() => "The ledger was slow; the charge was left to finish."),
+  ]);
+  if (outcome !== null) line.chargeError = outcome;
 };
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** What the device is told when no edit was made: the request was turned away before its turn. */
+export const NOT_MADE = {
+  gone: "The edit was not made: the call ended before its turn came.",
+  late: "The edit was not made: the server was too busy to reach it in time. Try again in a minute.",
+  threw: "The edit was not made: the server failed before saving it. Try again in a minute.",
+} as const;
+
+/**
+ * What a request came to: the reply for the device, or that no edit was made, which the function
+ * answers as an error (`aborted`) the device reads as not made; and the line it logs.
+ */
+export type EditHandled = { line: Line } & ({ reply: EditReply } | { notMade: string });
 
 export const handleEdit = async ({
   ask,
   worker,
   ...deps
-}: Deps & { ask: EditAsk; worker: Pick<EditWorker, "edit"> }): Promise<{
-  reply: EditReply;
-  line: Record<string, string | number | boolean>;
-}> => {
-  const began = deps.clock();
-  let edited: EditRun | null = null;
-  let thrown: unknown = null;
+}: Deps & { ask: EditAsk; worker: Pick<EditWorker, "edit"> }): Promise<EditHandled> => {
+  const line: Line = { kind: ask.command.kind };
+  let turned: Turned<EditRun>;
   try {
-    edited = await worker.edit(ask);
+    turned = await worker.edit(ask, deps.signal ? { signal: deps.signal } : {});
   } catch (error) {
-    thrown = error;
+    // A worker lost with the edit in its hands may have saved it; one that said the edit threw
+    // stopped short of any save it could not account for, and anything else failed before the
+    // worker had it.
+    const failed = error instanceof TurnFailed ? error : null;
+    await charge(deps, failed?.busyMs ?? 0, line);
+    line.error = messageOf(error);
+    if (failed?.lost)
+      return { reply: { ok: false, why: "unsure" }, line: { ...line, end: "unsure" } };
+    return { notMade: NOT_MADE.threw, line: { ...line, end: "threw" } };
   }
-  const line: Record<string, string | number | boolean> = { kind: ask.command.kind };
-  await charge(deps, began, line);
-  if (!edited) throw thrown;
+  await charge(deps, turned.ran ? turned.busyMs : 0, line);
+  if (!turned.ran) return { notMade: NOT_MADE[turned.why], line: { ...line, end: turned.why } };
+  const { result: edited, memory } = turned;
+  Object.assign(line, {
+    heapUsedMb: Math.round(memory.heapUsedMb),
+    rssMb: Math.round(memory.rssMb),
+    heapLimitMb: Math.round(memory.heapLimitMb),
+  });
   if (!edited.ok) {
     return {
       reply: { ok: false, why: edited.why },
@@ -131,26 +198,27 @@ export const handleEdit = async ({
 /**
  * A request to bring the pool up ahead of an edit, sent as an edit screen opens: the copy read into
  * the worker's pool, warm or afresh, and the time it took charged as an edit's is (`chargeEdit`),
- * since a cold start is the one costly thing it does.
+ * since a cold start is the one costly thing it does. Null where it was turned away before its
+ * turn, or the worker failed it: nothing rides on a warm-up, which the next edit does anyway.
  */
 export const handleWarm = async ({
   worker,
   ...deps
 }: Deps & { worker: Pick<EditWorker, "warm"> }): Promise<{
-  warmed: WarmResult;
-  line: Record<string, string | number | boolean>;
+  warmed: WarmResult | null;
+  line: Line;
 }> => {
-  const began = deps.clock();
-  let warmed: WarmResult | null = null;
-  let thrown: unknown = null;
+  const line: Line = { kind: "warm" };
+  let turned: Turned<WarmResult>;
   try {
-    warmed = await worker.warm();
+    turned = await worker.warm(deps.signal ? { signal: deps.signal } : {});
   } catch (error) {
-    thrown = error;
+    await charge(deps, error instanceof TurnFailed ? error.busyMs : 0, line);
+    return { warmed: null, line: { ...line, end: "threw", error: messageOf(error) } };
   }
-  const line: Record<string, string | number | boolean> = { kind: "warm" };
-  await charge(deps, began, line);
-  if (!warmed) throw thrown;
+  await charge(deps, turned.ran ? turned.busyMs : 0, line);
+  if (!turned.ran) return { warmed: null, line: { ...line, end: turned.why } };
+  const warmed = turned.result;
   return {
     warmed,
     line: warmed.ok

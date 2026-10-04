@@ -22,8 +22,9 @@ import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pul
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
 import { coerceCommand } from "../../src/lib/live/commands";
-import { handleEdit, handleWarm } from "../../src/lib/live/editHandle";
+import { chargeQueue, handleEdit, handleWarm } from "../../src/lib/live/editHandle";
 import {
+  EDIT_CONCURRENCY,
   EDIT_SIZE,
   EDIT_TIMEOUT_S,
   EDIT_WORKER_HEAP_MB,
@@ -42,7 +43,12 @@ import {
   startupCharge,
   type RebuildPort,
 } from "../../src/lib/live/rebuildWorkerProtocol";
-import { createMemberCheck, MEMBERS_ONLY_MESSAGES } from "../../src/lib/memberCheck";
+import {
+  createMemberCheck,
+  EDIT_MEMBERS_ONLY_MESSAGES,
+  MEMBERS_ONLY_MESSAGES,
+  WRITE_CHECK_TTL_MS,
+} from "../../src/lib/memberCheck";
 import { enqueueLeg, enqueueRebuild, REGION, restAccess, zoneOf } from "./pullAccess";
 import type { LegAnswer, LegRequest } from "./pullLeg";
 
@@ -424,8 +430,14 @@ export const rebuild = !LIVE_REBUILD
  * nothing of the project they do not.
  */
 
-/** Whether a caller of `edit` is on the cloud copy's list, asked once per instance. */
-const editCheck = createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projectId });
+/**
+ * Whether a caller of `edit` is on the cloud copy's list, kept a minute (`WRITE_CHECK_TTL_MS`):
+ * the function writes the copy as its own account, past the rules.
+ */
+const editCheck = createMemberCheck({
+  projectId: FIREBASE_WEB_CONFIG.projectId,
+  ttlMs: WRITE_CHECK_TTL_MS,
+});
 
 /** A worker for the edits, with a heap cap of its own for the smaller instance (`EDIT_SIZE`). */
 const startEditWorker = (): EditPort => {
@@ -448,6 +460,9 @@ const startEditWorker = (): EditPort => {
 /** The worker the edits run in, kept from request to request (`editRunner`). */
 let edits: ReturnType<typeof editRunner> | null = null;
 
+/** The instance's charges to the ledger, one at a time (`chargeQueue`). */
+const editCharges = chargeQueue();
+
 /** The copy's id as the manifest holds one (`randomId`), or nothing; anything else is refused. */
 const COPY_ID = /^[0-9a-f]{8,64}$/;
 
@@ -456,8 +471,10 @@ const COPY_ID = /^[0-9a-f]{8,64}$/;
  * (`handleEdit`), or brings the pool up ahead of one (`handleWarm`). For the accounts on the cloud
  * copy's list, as the rules make anything that touches the copy (`memberCheck.ts`, with the sign-in
  * the call carries). One instance, taking several calls at once and running them one at a time in
- * its worker, since the pool is one; the timeout leaves a cold edit room behind a few queued ahead
- * of it.
+ * its worker, since the pool is one. A call is never left to the platform's timeout with its edit
+ * still to come: one whose caller has gone, or whose time is up, before its turn is never sent
+ * (`EDIT_CALL_S`), and is answered as an edit not made (`aborted`); a worker lost with an edit in
+ * its hands answers that the edit may or may not be in the copy (`unsure`).
  */
 export const edit = !LIVE_REBUILD
   ? undefined
@@ -470,9 +487,9 @@ export const edit = !LIVE_REBUILD
         cpu: EDIT_SIZE.cpu,
         timeoutSeconds: EDIT_TIMEOUT_S,
         maxInstances: 1,
-        concurrency: 8,
+        concurrency: EDIT_CONCURRENCY,
       },
-      async (request) => {
+      async (request, response) => {
         const verdict = await editCheck(request.rawRequest.headers.authorization);
         if (verdict === "unavailable") {
           throw new HttpsError(
@@ -483,7 +500,7 @@ export const edit = !LIVE_REBUILD
         if (verdict !== "member") {
           throw new HttpsError(
             verdict === "signed-out" ? "unauthenticated" : "permission-denied",
-            MEMBERS_ONLY_MESSAGES[verdict]
+            EDIT_MEMBERS_ONLY_MESSAGES[verdict]
           );
         }
         const data = (request.data ?? null) as {
@@ -507,32 +524,39 @@ export const edit = !LIVE_REBUILD
           ledger: restLedgerStore(firestoreRestDocuments(restAccess())),
           worker: edits,
           today: () => todayIsoDay(),
-          clock: Date.now,
           size: EDIT_SIZE,
           startupS,
+          charges: editCharges,
+          // The request's own end: a call whose caller has gone is never sent to the worker.
+          ...(response?.signal ? { signal: response.signal } : {}),
         };
-        try {
-          if (!command) {
-            const { warmed, line } = await handleWarm(deps);
-            logger.info("edit", line);
-            return { warmed };
+        if (!command) {
+          const { warmed, line } = await handleWarm(deps);
+          logger.info("edit", line);
+          if (!warmed) {
+            throw new HttpsError(
+              "aborted",
+              "The pool could not be brought up just now; the next edit brings it up itself."
+            );
           }
-          const { reply, line } = await handleEdit({
+          return { warmed };
+        }
+        let handled: Awaited<ReturnType<typeof handleEdit>>;
+        try {
+          handled = await handleEdit({
             ...deps,
             ask: { command, ...(typeof copy === "string" ? { copy } : {}) },
           });
-          logger.info("edit", line);
-          return reply;
         } catch (error) {
-          logger.error("edit", {
-            kind: command?.kind ?? "warm",
-            end: "threw",
-            error: messageOf(error),
-          });
+          // Nothing it hands back throws, so this is not an answer anyone made: the edit may be in.
+          logger.error("edit", { kind: command.kind, end: "threw", error: messageOf(error) });
           throw new HttpsError(
             "internal",
-            "The edit could not be finished just now. Try again in a minute."
+            "The edit may or may not have been made. Check it before making it again."
           );
         }
+        logger.info("edit", handled.line);
+        if ("notMade" in handled) throw new HttpsError("aborted", handled.notMade);
+        return handled.reply;
       }
     );

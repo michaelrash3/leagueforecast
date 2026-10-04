@@ -6,6 +6,7 @@ import {
   applyCommand,
   changeBetween,
   coerceCommand,
+  MAX_COMMAND_STEPS,
   poolParts,
   type PoolParts,
   type AnswerList,
@@ -1190,6 +1191,41 @@ describe("a command as it arrives from elsewhere", () => {
       );
     expect(coerceCommand(JSON.parse(JSON.stringify(nested(5))))).toEqual(nested(5));
     expect(coerceCommand(JSON.parse(JSON.stringify(nested(6))))).toBeNull();
+  });
+
+  it("refuses a field it does not know, at the top and in each step of a batch", () => {
+    const told: PoolCommand[] = [
+      { kind: "team.rename", teamId: "A", name: "Club Q" },
+      { kind: "game.score", year: 2027, gameId: "g1", teamAScore: 6, teamBScore: 3 },
+      { kind: "club.drop", teamId: "B" },
+      { kind: "none" },
+    ];
+    for (const command of told) {
+      expect(coerceCommand(JSON.parse(JSON.stringify(command)))).toEqual(command);
+      const more = { ...command, keepOldName: true };
+      expect([more, coerceCommand(more)]).toEqual([more, null]);
+      const inBatch = { kind: "batch", commands: [{ kind: "none" }, more] };
+      expect([inBatch, coerceCommand(inBatch)]).toEqual([inBatch, null]);
+    }
+    expect(coerceCommand({ kind: "batch", commands: [], undoable: false })).toBeNull();
+  });
+
+  it("refuses a command of more steps than the server will take, its batches' steps counted", () => {
+    const steps = (count: number) => Array.from({ length: count }, () => ({ kind: "none" }));
+    expect(coerceCommand({ kind: "batch", commands: steps(MAX_COMMAND_STEPS) })).toEqual({
+      kind: "batch",
+      commands: steps(MAX_COMMAND_STEPS),
+    });
+    expect(coerceCommand({ kind: "batch", commands: steps(MAX_COMMAND_STEPS + 1) })).toBeNull();
+    const half = Math.ceil((MAX_COMMAND_STEPS + 1) / 2);
+    const nested = {
+      kind: "batch",
+      commands: [
+        { kind: "batch", commands: steps(half) },
+        { kind: "batch", commands: steps(half) },
+      ],
+    };
+    expect(coerceCommand(nested)).toBeNull();
   });
 
   it("reads nothing that is not exactly a command", () => {

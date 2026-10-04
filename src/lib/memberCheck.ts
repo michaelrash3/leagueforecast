@@ -38,6 +38,16 @@ export type MemberCheck = (authorization: string | undefined) => Promise<MemberV
 /** How long an answer is kept. */
 export const MEMBER_CHECK_TTL_MS = 10 * 60_000;
 
+/**
+ * How long an answer is kept for a call that writes the copy as a server's account (`edit`): the
+ * rules no longer stand between such a call and the copy, so an account taken off the list stops
+ * editing within a minute. Edits are few, and the check is one read.
+ */
+export const WRITE_CHECK_TTL_MS = 60_000;
+
+/** How long the list may take to answer before the check says it could not ask. */
+export const MEMBER_CHECK_WAIT_MS = 10_000;
+
 /** The most answers kept at once; the oldest goes first. */
 const MAX_KEPT = 500;
 
@@ -89,12 +99,14 @@ export const createMemberCheck = ({
   now = () => Date.now(),
   origin = "https://firestore.googleapis.com",
   ttlMs = MEMBER_CHECK_TTL_MS,
+  waitMs = MEMBER_CHECK_WAIT_MS,
 }: {
   projectId: string;
   fetchImpl?: typeof fetch;
   now?: () => number;
   origin?: string;
   ttlMs?: number;
+  waitMs?: number;
 }): MemberCheck => {
   const kept = new Map<string, { verdict: MemberVerdict; until: number }>();
 
@@ -113,9 +125,15 @@ export const createMemberCheck = ({
 
     let status: number;
     try {
+      // A list that does not answer is one that could not be asked, rather than a call held open.
       const response = await fetchImpl(
         `${origin}/v1/projects/${encodeURIComponent(projectId)}/databases/(default)/documents/members/${encodeURIComponent(address)}`,
-        { headers: { authorization: `Bearer ${token}` } }
+        {
+          headers: { authorization: `Bearer ${token}` },
+          ...(typeof AbortSignal.timeout === "function"
+            ? { signal: AbortSignal.timeout(waitMs) }
+            : {}),
+        }
       );
       status = response.status;
     } catch {
@@ -138,6 +156,14 @@ export const createMemberCheck = ({
     kept.set(token, { verdict, until: Math.min(at + ttlMs, expiry ?? Infinity) });
     return verdict;
   };
+};
+
+/** What a caller turned away from the edit function is told, by why. */
+export const EDIT_MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", string> = {
+  "signed-out":
+    "Editing the cloud copy is for the accounts on its list. Sign in with one from the cloud button, then try again.",
+  "not-member":
+    "This Google account is not on the cloud copy's list, so it cannot edit it. Ask the list's owner to add it.",
 };
 
 /** What a caller turned away is told, by why. */

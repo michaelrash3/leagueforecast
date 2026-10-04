@@ -1326,11 +1326,34 @@ const oneGame = (raw: unknown): ScoutGame | null => {
 };
 
 /**
+ * The most steps a command may take, counting each in a batch: a bound on the work and the memory a
+ * request can ask of the server, far past any batch the page makes. Each step that sets a club's
+ * state writes the whole roster, and the batch keeps each step's writes until it ends: on the 116,485
+ * clubs of the 29 September 2026 pool, 400 such steps grew the heap by 355 MB (measured in the 1.4
+ * review), so 500 stay well inside the edit worker's 2.5 GB.
+ */
+export const MAX_COMMAND_STEPS = 500;
+
+/** How many steps a command takes, each step of a batch counted. */
+const stepsOf = (command: PoolCommand): number =>
+  command.kind === "batch" ? command.commands.reduce((sum, step) => sum + stepsOf(step), 0) : 1;
+
+/**
  * A command as it arrives from elsewhere, checked part by part: from another tab, or as the body
  * of a request to the server. Anything not exactly a command is null, so a server never runs half
- * of something it could not read.
+ * of something it could not read: a field the reader does not know, at any level, is refused
+ * rather than dropped, since a newer device's command would otherwise run here without it.
  */
 export const coerceCommand = (raw: unknown, depth = 0): PoolCommand | null => {
+  const command = readCommand(raw, depth);
+  if (!command || !isRecord(raw)) return null;
+  if (!Object.keys(raw).every((key) => Object.prototype.hasOwnProperty.call(command, key))) {
+    return null;
+  }
+  return depth > 0 || stepsOf(command) <= MAX_COMMAND_STEPS ? command : null;
+};
+
+const readCommand = (raw: unknown, depth: number): PoolCommand | null => {
   if (!isRecord(raw) || typeof raw.kind !== "string") return null;
   switch (raw.kind) {
     case "none":
