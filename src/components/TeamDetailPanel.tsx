@@ -5,6 +5,7 @@ import {
   gamesForTeam,
   gcSeasonLabel,
   isScoutGamePlayed,
+  normalizeState,
   playsItself,
   rankingPoolGroupIds,
   scoreSeenBy,
@@ -52,7 +53,8 @@ type TeamDetailPanelProps = {
   leagueLink?: "name" | "pick";
   onRename: (nextName: string) => void;
   /** Two letters, or empty to clear it. */
-  onSetState: (state: string) => void;
+  /** Sets the club's state, or clears it for ""; false when the store would not keep it. */
+  onSetState: (state: string) => boolean;
   /** Takes one GameChanger id off this team, undoing a pairing that turned out to be wrong. */
   onUnlinkGc: (gcTeamId: string) => void;
   /** Folds this team into another — the "same team as" the pull could only propose. */
@@ -149,6 +151,17 @@ export function TeamDetailPanel({
   readOnly = false,
 }: TeamDetailPanelProps) {
   const [draftName, setDraftName] = useState(team.name);
+  // The state box holds what is being typed: one letter is a state on its way, not a state to
+  // save, and saved as it was typed the club's state was cleared at the first letter and the box
+  // emptied under the cursor, so no state could be typed at all. It follows the stored state
+  // whenever that changes, from here or elsewhere.
+  const [draftState, setDraftState] = useState(team.state ?? "");
+  const stateFor = `${team.id}:${team.state ?? ""}`;
+  const [stateSeen, setStateSeen] = useState(stateFor);
+  if (stateSeen !== stateFor) {
+    setStateSeen(stateFor);
+    setDraftState(team.state ?? "");
+  }
   const [mergeTarget, setMergeTarget] = useState("");
   const [draftAge, setDraftAge] = useState(age?.level ?? MIN_AGE_LEVEL);
   // The panel is keyed by club alone, so it stays open across a switch to another year's page, or
@@ -535,10 +548,17 @@ export function TeamDetailPanel({
             <input
               id="scout-team-state"
               type="text"
-              value={team.state ?? ""}
+              value={draftState}
               maxLength={2}
               placeholder="KY"
-              onChange={(event) => onSetState(event.target.value)}
+              onChange={(event) => {
+                const typed = event.target.value.toUpperCase();
+                setDraftState(typed);
+                // Saved once it is a state, or nothing at all.
+                // A state the store would not keep goes back to the one it holds.
+                if ((typed.trim() === "" || normalizeState(typed)) && !onSetState(typed))
+                  setDraftState(team.state ?? "");
+              }}
               className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm uppercase dark:border-slate-800 dark:bg-slate-900"
             />
             <span className="text-xs text-slate-500 dark:text-slate-400">

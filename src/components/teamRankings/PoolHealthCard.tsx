@@ -9,13 +9,12 @@ import {
   loadAgeRightClubs,
   loadKeptApart,
   loadRealClubs,
-  saveAgeRightClubs,
-  saveKeptApart,
-  saveRealClubs,
   storedGamesByYear,
 } from "../../lib/teamRankingsStorage";
+import type { AnswerList } from "../../lib/live/commands";
+import { runPoolCommand, storedPool, writtenAnswers } from "../../lib/live/runPoolCommand";
 import { IMPLAUSIBLE_MARGIN, isImplausibleScore, ratedMargin } from "../../lib/teamRankings";
-import { keepApart as apartAfter, isKeptApart } from "../../lib/keptApart";
+import { apartKey, isKeptApart } from "../../lib/keptApart";
 import type { PoolLists } from "../../workers/tidyProtocol";
 import type { WrongAgeClub } from "../../lib/wrongAge";
 import { isDatedAhead } from "../../lib/deletedGames";
@@ -313,6 +312,17 @@ export function PoolHealthCard({
   };
 
   /**
+   * Adds and takes ids on one of the user's answer lists, as a command (`commands.ts`), and hands
+   * back the list as it now stands, or null when the store refused the write: the card shows only
+   * an answer that was kept.
+   */
+  const answer = (list: AnswerList, add: string[], remove: string[]): Set<string> | null => {
+    const run = runPoolCommand({ kind: "answers", list, add, remove });
+    if (!run.ok) return null;
+    return new Set(writtenAnswers(run, list) ?? storedPool.answers(list));
+  };
+
+  /**
    * Says the two are two clubs, and means it for good.
    *
    * Recorded against the GameChanger ids rather than this pool's, because those are what the next
@@ -321,7 +331,7 @@ export function PoolHealthCard({
    * list that stops being read.
    */
   const keepApart = (pairing: GcSeasonPairing) => {
-    saveKeptApart(apartAfter(loadKeptApart(), pairing.fromGcId, pairing.toGcId));
+    if (!answer("keptApart", [apartKey(pairing.fromGcId, pairing.toGcId)], [])) return;
     setDuplicates((current) =>
       (current ?? []).filter(
         (entry) => entry.fromGcId !== pairing.fromGcId || entry.toGcId !== pairing.toGcId
@@ -354,18 +364,14 @@ export function PoolHealthCard({
 
   /** The age it is filed at is right: it plays up or down. Remembered against its GameChanger ids. */
   const ageIsRight = (club: WrongAgeClub) => {
-    const next = new Set(ageRight);
-    club.gcTeamIds.forEach((id) => next.add(id));
-    saveAgeRightClubs(next);
-    setAgeRight(next);
+    const next = answer("ageRight", club.gcTeamIds, []);
+    if (next) setAgeRight(next);
   };
 
   /** Takes the user's word that a club's age is right back: it goes on the list again. */
   const ageIsWrongAfterAll = (club: WrongAgeClub) => {
-    const next = new Set(ageRight);
-    club.gcTeamIds.forEach((id) => next.delete(id));
-    saveAgeRightClubs(next);
-    setAgeRight(next);
+    const next = answer("ageRight", [], club.gcTeamIds);
+    if (next) setAgeRight(next);
   };
 
   /** Throws out every row scored on a day that has not happened. The caller asks first. */
@@ -408,18 +414,18 @@ export function PoolHealthCard({
    * GameChanger ids, as a club thrown out is, so the next pull does not put it back.
    */
   const confirmClub = (club: UnrealClub) => {
-    const next = new Set(realClubs);
-    (club.gcTeamIds.length > 0 ? club.gcTeamIds : [club.teamId]).forEach((id) => next.add(id));
-    saveRealClubs(next);
-    setRealClubs(next);
+    const next = answer(
+      "realClubs",
+      club.gcTeamIds.length > 0 ? club.gcTeamIds : [club.teamId],
+      []
+    );
+    if (next) setRealClubs(next);
   };
 
   /** Takes the user's word that a club is real back: it goes on the list again. */
   const unconfirmClub = (club: UnrealClub) => {
-    const next = new Set(realClubs);
-    [club.teamId, ...club.gcTeamIds].forEach((id) => next.delete(id));
-    saveRealClubs(next);
-    setRealClubs(next);
+    const next = answer("realClubs", [], [club.teamId, ...club.gcTeamIds]);
+    if (next) setRealClubs(next);
   };
 
   /** Throws out a club outright: the team, its rows, and its GameChanger ids. */
@@ -452,7 +458,7 @@ export function PoolHealthCard({
 
   /** The two as two clubs, for good: remembered against the GameChanger ids, as above. */
   const keepTwinsApart = (offer: GcTwinSquad) => {
-    saveKeptApart(apartAfter(loadKeptApart(), offer.fromGcId, offer.toGcId));
+    if (!answer("keptApart", [apartKey(offer.fromGcId, offer.toGcId)], [])) return;
     setTwins((current) =>
       (current ?? []).filter(
         (entry) => entry.fromGcId !== offer.fromGcId || entry.toGcId !== offer.toGcId

@@ -23,7 +23,6 @@ import {
   gcLinkSquadYear,
   isScoutGamePlayed,
   IMPLAUSIBLE_MARGIN,
-  ratedMargin,
   mergeScoutTeams,
   rankingPoolGroupIds,
   segmentLabel,
@@ -35,8 +34,6 @@ import {
   renameScoutTeam,
   statesInUse,
   teamNameSuggestions,
-  unlinkGcTeam,
-  withScoreTyped,
   type AgeGroup,
   type AgeGroupSeason,
   type ScoutGame,
@@ -68,6 +65,8 @@ import {
   unrankedLevelNoteFor,
 } from "../lib/teamRankings/boardDisplay";
 import type { RankingsHandover } from "../lib/live/liveBoard";
+import type { PoolCommand } from "../lib/live/commands";
+import { runPoolCommand, writtenTeams, type CommandRun } from "../lib/live/runPoolCommand";
 import {
   loadLogsForSeason,
   loadMatchupsForSeason,
@@ -515,6 +514,34 @@ export function TeamRankingsView({
       onDataChange?.();
     },
     [showToast, onDataChange]
+  );
+  /**
+   * Makes an edit as a command (`commands.ts`), on this browser's pool, and shows it once it is
+   * written: a change the store refused is a change that is not there, so the page keeps showing
+   * the pool as stored and says so. Only the parts the command changed are written.
+   */
+  const runCommand = useCallback(
+    (command: PoolCommand): CommandRun => {
+      const run = runPoolCommand(command);
+      if (!run.ok) {
+        showToast(
+          run.why === "unsaved"
+            ? "Could not save (storage full)."
+            : run.why === "missing"
+              ? "That is no longer in the pool. Reload to see it as it is."
+              : "That is not a change the pool takes.",
+          { tone: "error" }
+        );
+        return run;
+      }
+      if (run.writes.length === 0) return run;
+      const teams = writtenTeams(run);
+      if (teams) setScoutTeams(teams);
+      if (run.writes.some((write) => write.part === "games")) bumpPool();
+      onDataChange?.();
+      return run;
+    },
+    [showToast, onDataChange, bumpPool]
   );
 
   /**
@@ -1129,14 +1156,20 @@ export function TeamRankingsView({
    */
   const setTeamState = (teamId: string, nextState: string) => {
     const state = normalizeState(nextState);
-    const exists = allKnown.teams.some((team) => team.id === teamId);
-    if (!exists) return;
-    persistTeams(
-      allKnown.teams.map((team) =>
-        team.id === teamId ? { ...team, ...(state ? { state } : { state: undefined }) } : team
-      )
-    );
-    showToast(state ? `Set to ${state}.` : "State cleared.", { tone: "success" });
+    // A club League Standings made joins the roster with its state, and no other club with it:
+    // the rest of the league's clubs have ids that hold only for the walk that made them.
+    const adopt = scoutTeams.some((team) => team.id === teamId)
+      ? undefined
+      : allKnown.teams.find((team) => team.id === teamId);
+    const run = runCommand({
+      kind: "team.state",
+      teamId,
+      state: state ?? null,
+      ...(adopt ? { adopt } : {}),
+    });
+    if (run.ok && run.writes.length > 0)
+      showToast(state ? `Set to ${state}.` : "State cleared.", { tone: "success" });
+    return run.ok;
   };
 
   /**
@@ -1289,10 +1322,9 @@ export function TeamRankingsView({
    * otherwise.
    */
   const unlinkGc = (teamId: string, gcTeamId: string) => {
-    const next = unlinkGcTeam(teamId, gcTeamId, scoutTeams);
-    if (next === scoutTeams) return;
-    persistTeams(next);
-    showToast("Unlinked from GameChanger.", { tone: "success" });
+    const run = runCommand({ kind: "team.unlinkGc", teamId, gcTeamId });
+    if (run.ok && run.writes.length > 0)
+      showToast("Unlinked from GameChanger.", { tone: "success" });
   };
 
   /** Saves what `setClubAge` changed, and only what it changed, the games into `year`'s. */
@@ -1532,13 +1564,9 @@ export function TeamRankingsView({
   const confirmScore = async (gameId: string): Promise<boolean> => {
     const game = wholePoolGames.find((entry) => entry.id === gameId);
     if (!game) return false;
-    // The margin as it reads now, and only that: a later score is one nobody has vouched for.
-    const margin = ratedMargin(game);
-    persistAllGames(
-      wholePoolGames.map((entry) =>
-        entry.id === gameId && margin !== undefined ? { ...entry, scoreConfirmed: margin } : entry
-      )
-    );
+    // The game's own year alone: the rest of the pool is as it was.
+    const year = ageGroups.find((group) => group.id === game.ageGroupId)?.year ?? null;
+    if (!runCommand({ kind: "game.confirm", year, gameId }).ok) return false;
     const nameOf = (id: string) => allKnown.teams.find((team) => team.id === id)?.name ?? id;
     showToast(
       `${nameOf(game.teamAId)} ${game.teamAScore}–${game.teamBScore} ${nameOf(game.teamBId)} counts now.`,
@@ -2006,14 +2034,14 @@ export function TeamRankingsView({
    */
   const toggleGameExcluded = (game: ScoutGame) => {
     const excluded = game.excluded !== true;
-    persistGames(
-      scoutGames.map((entry) =>
-        entry.id === game.id
-          ? { ...entry, ...(excluded ? { excluded: true } : { excluded: undefined }) }
-          : entry
-      )
-    );
-    showToast(excluded ? "Game no longer counts." : "Game counts again.", { tone: "success" });
+    const run = runCommand({
+      kind: "game.exclude",
+      year: selectedYear ?? null,
+      gameId: game.id,
+      excluded,
+    });
+    if (run.ok)
+      showToast(excluded ? "Game no longer counts." : "Game counts again.", { tone: "success" });
   };
 
   const startEditScore = (gameId: string) => {
@@ -2025,16 +2053,20 @@ export function TeamRankingsView({
   const saveGameScore = (gameId: string) => {
     const a = Number(editScoreA);
     const b = Number(editScoreB);
-    if (!Number.isFinite(a) || a < 0 || !Number.isFinite(b) || b < 0) {
-      showToast("Enter two non-negative scores.", { tone: "error" });
+    if (!Number.isInteger(a) || a < 0 || !Number.isInteger(b) || b < 0) {
+      showToast("Enter two scores, in whole runs.", { tone: "error" });
       return;
     }
-    persistGames(
-      scoutGames.map((game) =>
-        // A score typed here is the answer for both clubs, so the other schedule's goes with it.
-        game.id === gameId ? withScoreTyped(game, a, b) : game
-      )
-    );
+    if (
+      !runCommand({
+        kind: "game.score",
+        year: selectedYear ?? null,
+        gameId,
+        teamAScore: a,
+        teamBScore: b,
+      }).ok
+    )
+      return;
     setEditingGameId(null);
     setEditScoreA("");
     setEditScoreB("");

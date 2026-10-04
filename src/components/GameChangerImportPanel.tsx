@@ -124,9 +124,9 @@ import {
   loadOrgMembership,
   saveOrgMembership,
   loadKeptApart,
-  saveKeptApart,
 } from "../lib/teamRankingsStorage";
-import { keepApart as apartAfter } from "../lib/keptApart";
+import { apartKey } from "../lib/keptApart";
+import { runPoolCommand } from "../lib/live/runPoolCommand";
 import { settleRunLists } from "../lib/pullLists";
 import {
   liveSummary,
@@ -1618,7 +1618,13 @@ export function GameChangerImportPanel({
    * card again. See `keptApart.ts`.
    */
   const keepApart = (pairing: GcSeasonPairing) => {
-    saveKeptApart(apartAfter(loadKeptApart(), pairing.fromGcId, pairing.toGcId));
+    const run = runPoolCommand({
+      kind: "answers",
+      list: "keptApart",
+      add: [apartKey(pairing.fromGcId, pairing.toGcId)],
+      remove: [],
+    });
+    if (!run.ok) return;
     const key = pairKey(pairing);
     setPairings((current) => current.filter((entry) => pairKey(entry) !== key));
     setApproved((current) => {

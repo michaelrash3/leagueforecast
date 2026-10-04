@@ -4285,6 +4285,32 @@ notice with the priority of the change, so a score box's keystroke still renders
 as a transition. Locked, the store refuses the page's edits and still takes
 another device's.
 
+### Team Rankings edits as commands
+
+An edit to the Team Rankings pool is written down as a command (`src/lib/live/commands.ts`)
+before it is made: what a person asked for, so that the same change can be made by this browser
+on its own store or, once the edit function is in, by the server on the cloud copy, with the same
+code and the same result. A command reads the pool through `PoolRead` and answers with the parts it
+would write and the command that takes it back. It never reads a clock or makes up an id: what a
+change needs that the pool does not hold travels in the command. Each command comes with its
+inverse, and a property test draws hundreds of edits on pools of every shape and checks that the
+inverse puts every part the command touched back as it was, to the stored byte.
+
+| Command                                      | What it changes                                                                                                   |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `answers`                                    | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart.   |
+| `team.state`, `team.unlinkGc`                | A club's state; one GameChanger id taken off a club.                                                              |
+| `game.score`, `game.exclude`, `game.confirm` | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now. |
+| `team.put`, `team.remove`, `game.put`        | A record put back as it was: what inverses are made of.                                                           |
+| `batch`                                      | Several commands as one, each reading what the last wrote.                                                        |
+
+On this browser a command runs through `runPoolCommand`, which writes only the parts it changed
+(vouching for a score writes that game's year, not every year as it once did) and the roster as it
+is stored, never with the teams League Standings makes on the fly, whose ids hold only for the
+walk that made them. A club League Standings made joins the roster only when it is given something
+to keep, and then alone. The page shows a change once it is written: a write the store refuses (full,
+or held by a newer tab) is said to be refused and is not shown as done.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**

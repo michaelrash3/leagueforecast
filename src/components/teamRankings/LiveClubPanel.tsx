@@ -69,7 +69,7 @@ export default function LiveClubPanel({
       {...(card.age ? { age: card.age } : {})}
       mergeCandidates={NO_CANDIDATES}
       onRename={nothing}
-      onSetState={nothing}
+      onSetState={() => false}
       onUnlinkGc={nothing}
       onMergeInto={nothing}
       onClose={onClose}
