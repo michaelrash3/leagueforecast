@@ -69,8 +69,8 @@ const withIds = (games: ScoutGame[], ids: ReadonlyMap<string, string>): readonly
  * The Games tab on the cloud's board: the page's published list (`gamesShape.ts`), read through
  * the same checks as a board (`useLiveView`), drawn by Team Rankings' own tab (`GamesSection`).
  * Which games it lists first, today's, it works out on the reader's own day, as the page does
- * (`gamesWindowFor`). A list that cannot be read hands the page to Team Rankings on this device's
- * copy (`onCannot`), as the tab did before there were lists.
+ * (`gamesWindowFor`). A list that cannot be read is said in its place (`onCannot`), with Try again,
+ * and read again when the cloud next publishes (1.6e).
  *
  * A game typed in, or a schedule pasted, is added by the server (1.6): this device holds no roster
  * to resolve the names against, so it sends them as they were typed (`game.import`), and the server

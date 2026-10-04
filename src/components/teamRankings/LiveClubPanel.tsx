@@ -18,8 +18,8 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
  * A club's panel on the cloud's board: its card, read from its bucket of the page's year through the
  * same checks as a board (`useClubCard`), drawn by Team Rankings' own panel. A newer meta reads the
  * card again, so a publish while it is open is drawn in place. When the card cannot be read (no card
- * for the club, a bucket damaged or gone, a refusal, or offline with none kept), `onCannot` hands the
- * club to Team Rankings on this device's copy, as opening one did before there were cards.
+ * for the club, a bucket damaged or gone, a refusal, or offline with none kept), `onCannot` says so
+ * in its place, with Try again (1.6e).
  *
  * Its edits go to the edit function (`edits`, 1.5): a state, a name, a GameChanger link taken off,
  * an age set or taken back, and a fold into another club on the page, each said in a toast and

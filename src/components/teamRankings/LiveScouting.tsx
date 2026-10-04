@@ -39,8 +39,8 @@ const NOT_ASKED: WhatIfState = { status: "idle" };
  * of the server (`scouting.whatIf`, 1.5), which refits it as the boards are built, League
  * Standings' games in it, and answered as the page answers one, one fixture open at a time, held
  * against the board it was opened on. One is offered only where the page would offer it, as far as
- * the board can tell (`boardWhatIfDeclines`). A card that cannot be read hands the page to Team
- * Rankings on this device's copy (`onCannot`). The clubs it is on (the one scouted, the one
+ * the board can tell (`boardWhatIfDeclines`). A card that cannot be read is said in the report's
+ * place (`onCannot`), with Try again (1.6e). The clubs it is on (the one scouted, the one
  * set beside it, the opponents asked for) are the board's to keep (`onReportTeam`,
  * `onCompareChange`, `onPickedOpponentIdsChange`), so they outlast a half or page read again and
  * Team Rankings opens on them whenever it hands over.

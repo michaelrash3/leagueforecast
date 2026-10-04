@@ -19,8 +19,8 @@ export const forgetDecodedArchive = (): void => decodedParts.clear();
  * The Archive tab on the cloud's board (1.5): the finished seasons the cloud's copy lists, and a
  * season's table when it is opened, read from the copy itself (`copyArchive.ts`) and drawn by Team
  * Rankings' own tab (`ArchiveSection`). An archived season never changes, so nothing here is
- * published or edited. A copy that cannot be read, offline or refused, hands the page to Team
- * Rankings on this device's copy (`onCannot`), as a list that cannot be read does.
+ * published or edited. A copy that cannot be read, offline or refused, is said where it was asked
+ * (`onCannot`), with Try again, as a list that cannot be read is (1.6e).
  *
  * Loaded only when the tab is opened, with the tab's own code.
  */
