@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { readClubCard, useClubCard } from "../../hooks/useClubCard";
-import { useLiveBoard, type LiveSources } from "../../hooks/useLiveBoard";
+import { useLiveBoard, type LiveSources, type LiveViewSource } from "../../hooks/useLiveBoard";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import { useLiveEdits, type ShowToast } from "../../hooks/useLiveEdits";
 import { useLiveSearch } from "../../hooks/useLiveSearch";
@@ -34,7 +34,6 @@ import { movementOf } from "../../lib/rankMovement";
 import {
   buildUpcomingSchedule,
   rankingPoolGroupIds,
-  type AgeGroup,
   type ScoutRankingRow,
 } from "../../lib/teamRankings";
 import { ageGroupLevel, segmentLabel } from "../../lib/teamRankings/seasons";
@@ -72,15 +71,39 @@ const LiveImport = lazy(() => import("./LiveImport"));
 /** The time now, as an ISO string, where no source gives one. */
 const nowIso = () => new Date().toISOString();
 
-/**
- * How long the page waits for a board to draw before it goes to this device's copy the old way:
- * the time the cloud's own start is given (`STARTUP_WAIT_MS`). A page, half or year moved to once a
- * board has drawn is given as long again for its own.
- */
-export const LIVE_WAIT_MS = 4_000;
 const NO_OPTIONS: [] = [];
-const NO_GROUPS: AgeGroup[] = [];
 const NO_IDS: string[] = [];
+
+/**
+ * What the page says where it has nothing it can draw, in place of going to this device's copy,
+ * which a member's device no longer holds (1.6e): why the cloud gave no meta to draw by (`LiveMiss`),
+ * why a page's board could not be drawn, and an empty cloud.
+ */
+export const LIVE_NOTICES = {
+  none: "Nothing has been published to the cloud yet. The boards appear after the next refresh.",
+  older:
+    "The cloud's boards were published by an older version of the app. They appear again after the next refresh.",
+  newer:
+    "The cloud's boards were published by a newer version of the app. Reload the page to update it.",
+  unreadable:
+    "The cloud's boards could not be read. They are read again when the cloud next publishes.",
+  missing:
+    "This page's board has not been published yet. It appears here once the cloud has built it.",
+  damaged:
+    "This page's board could not be read from the cloud. It is read again when the cloud next publishes.",
+  offline:
+    "You're offline, and this page has not been read on this device yet. It appears once you're back online.",
+  noPages:
+    "Team Rankings has no age groups yet. They come with the first pull, or put a League Standings season on a page in Setup.",
+} as const;
+
+/** What a list or card the page could not read is said as, with a button to read it again. */
+export const LIVE_UNREAD = {
+  games: "The cloud's games for this page could not be read just now.",
+  scouting: "The cloud's report could not be read just now.",
+  archive: "The cloud's finished seasons could not be read just now.",
+  club: "This club could not be read from the cloud just now.",
+} as const;
 const NOWHERE: RankingsHandover = {};
 
 /** Find a team's box (`RankingsSection`). */
@@ -88,16 +111,16 @@ const SEARCH_BOX_ID = "scout-team-search";
 
 /**
  * Team Rankings opened on the cloud's published board (`LiveBoard`), for a member who turned it
- * on in the Cloud panel: the board the server built, drawn as the page draws it, while this
- * device's copy of the pool is brought in and Team Rankings' own code loads behind it.
+ * on in the Cloud panel: the board the server built, drawn as the page draws it, with Team
+ * Rankings' own code loading behind it.
  *
- * It stays the page while it can (1.5): a club's panel edits through the edit function
- * (`useLiveEdits`), and the page no longer goes to this device's copy once all is quiet, as it did
- * while the board was only a stand-in for it. It hands over to Team Rankings on this device's copy
- * (`renderPage`) for what it cannot do yet (a team it has no card for, an edit the Games tab or
- * Scouting asks for, another area of the page) and for a board it should not stand in for: none
- * published for the page, one this build cannot read or check, or one built before changes the
- * copy or this device has since made. Once handed over it stays handed over.
+ * It is the page (1.6e), since a member's device is to hold no pool for it to go to: its edits go
+ * through the edit function (`useLiveEdits`), and what it cannot draw it says, and stays. It hands
+ * over to Team Rankings on this device's copy (`renderPage`) only where that is the right page or
+ * the only one: an account the rules refuse, or a browser with no member signed in to read as and
+ * no board kept to show, which is the visitor's own app; and what it cannot do yet, the rest of
+ * Setup and a pasted list pulled. Only then is this device's copy of the pool brought in, and once
+ * handed over it stays handed over.
  *
  * Handed over while the pool is still coming in, the board stays on screen (or, with none to draw,
  * a card saying the page opens on this device's copy), with a strip saying how far the pool has
@@ -116,7 +139,6 @@ export function LiveTeamRankings({
   seasons,
   showToast,
   confirm,
-  waitMs = LIVE_WAIT_MS,
 }: {
   status: CloudStatus;
   /** Team Rankings on this device's own copy, opened where the board left off. */
@@ -129,8 +151,6 @@ export function LiveTeamRankings({
   /** The page's toast and confirmation, which the edits say themselves through. */
   showToast: ShowToast;
   confirm: Confirmation["request"];
-  /** `LIVE_WAIT_MS`, but for a test. */
-  waitMs?: number;
 }) {
   const [handedOver, setHandedOver] = useState(false);
   // Where the board is, kept up to date by it, and where Team Rankings opened, once it has.
@@ -138,18 +158,21 @@ export function LiveTeamRankings({
   const [opened, setOpened] = useState<RankingsHandover | null>(null);
   const [poolReady, setPoolReady] = useState(() => !poolWantsCloud());
 
-  // The pool and the page's code come in under the board, for what it hands over.
+  // The page's code comes in under the board, for what it still hands over.
   useEffect(() => {
-    let alive = true;
-    if (poolWantsCloud())
-      void preparePool().finally(() => {
-        if (alive) setPoolReady(true);
-      });
     void preloadPage().catch(() => undefined);
+  }, [preloadPage]);
+  // The pool only once handed over: the board is read from the cloud, which needs none of it.
+  useEffect(() => {
+    if (!handedOver) return;
+    let alive = true;
+    void preparePool().finally(() => {
+      if (alive) setPoolReady(true);
+    });
     return () => {
       alive = false;
     };
-  }, [preloadPage]);
+  }, [handedOver]);
   // The rows held for Team Rankings are for the page this opened; nobody's once it closes.
   useEffect(() => () => forgetLiveBoard(), []);
 
@@ -168,7 +191,6 @@ export function LiveTeamRankings({
       seasons={seasons}
       showToast={showToast}
       confirm={confirm}
-      waitMs={waitMs}
       handedOver={handedOver}
       onHandOver={handOver}
       onWhere={setWhere}
@@ -190,7 +212,6 @@ function LiveBoard({
   seasons,
   showToast,
   confirm,
-  waitMs,
   handedOver,
   onHandOver,
   onWhere,
@@ -201,7 +222,6 @@ function LiveBoard({
   seasons: SeasonMeta[];
   showToast: ShowToast;
   confirm: Confirmation["request"];
-  waitMs: number;
   handedOver: boolean;
   onHandOver: () => void;
   onWhere: (where: RankingsHandover) => void;
@@ -209,16 +229,18 @@ function LiveBoard({
 }) {
   const today = todayIsoDay();
   /*
-   * The pages, from this device's copy; on a device that has never held one, from what the meta
-   * publishes (`LivePages.groups`), read through the copy's own check, until the copy comes in.
+   * The pages, from what the meta publishes (`LivePages.groups`) once there is a meta, kept or
+   * read, read through the copy's own check: a member's device keeps no copy in step to lay them
+   * out by (1.6e). This device's own pages lay the page out only until then, and under a meta from
+   * a build that published none.
    */
   const [localGroups] = useState(() => loadAgeGroups());
   const [publishedRaw, setPublishedRaw] = useState<unknown[] | undefined>(undefined);
   const publishedGroups = useMemo(
-    () => (publishedRaw ? coerceAgeGroups(publishedRaw) : NO_GROUPS),
+    () => (publishedRaw ? coerceAgeGroups(publishedRaw) : null),
     [publishedRaw]
   );
-  const ageGroups = localGroups.length > 0 ? localGroups : publishedGroups;
+  const ageGroups = publishedGroups ?? localGroups;
   const {
     section,
     selectedAgeGroupId,
@@ -242,7 +264,7 @@ function LiveBoard({
     ...(sources ? { sources } : {}),
   });
   const metaGroups = live.meta?.pages.groups;
-  if (localGroups.length === 0 && metaGroups !== publishedRaw) setPublishedRaw(metaGroups);
+  if (metaGroups !== undefined && metaGroups !== publishedRaw) setPublishedRaw(metaGroups);
   /*
    * The pages as the cloud holds them, for Setup and Games, whose edits are worked out against
    * them: the meta's whenever it carries them, since a season put on a page here changes the
@@ -257,28 +279,27 @@ function LiveBoard({
   const [stateTop, setStateTop] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState("");
   const [showAll, setShowAll] = useState(false);
-  const [waitedOut, setWaitedOut] = useState(false);
   // The club whose panel is open, from its card, and one whose card could not be read.
   const [openClub, setOpenClub] = useState<string | null>(null);
   const [cannotOpen, setCannotOpen] = useState<string | null>(null);
   // Find a team, from the year's published list once somebody goes to search.
   const search = useLiveSearch(live.source, selectedYear);
-  // Whether a page's Games list, a card Scouting reads, or the copy's archive could not be read.
-  const [cannotList, setCannotList] = useState(false);
+  /*
+   * Where a page's Games list, a card Scouting reads, or the copy's archive could not be read: the
+   * area, page and year (`listWhere`), so another one is read rather than said to have failed, and
+   * the meta it was read by, so a publish since reads it again. The area is not drawn meanwhile, so
+   * drawing it again reads it afresh.
+   */
+  const [cannotList, setCannotList] = useState<{
+    where: string;
+    source: LiveViewSource | null;
+  } | null>(null);
   // Scouting's clubs: the one reported on, the one set beside it, and opponents asked for.
   const [scoutedTeam, setScoutedTeam] = useState("");
   const [comparedTeam, setComparedTeam] = useState("");
   const [pickedOpponents, setPickedOpponents] = useState<string[]>(NO_IDS);
-  // Something asked for that is still this device's page's (a game added or imported, the rest of
-  // Setup, a pasted list pulled), or a search with no list to read.
+  // Something asked for that is still this device's page's: the rest of Setup, a pasted list pulled.
   const [wanted, setWanted] = useState(false);
-  const [searchWanted, setSearchWanted] = useState(false);
-
-  // The board has a while to draw.
-  useEffect(() => {
-    const timer = setTimeout(() => setWaitedOut(true), waitMs);
-    return () => clearTimeout(timer);
-  }, [waitMs]);
 
   const offline =
     live.metaMiss === "offline" ||
@@ -345,50 +366,49 @@ function LiveBoard({
   }, [board, selectedAgeGroupId, live.segment]);
 
   /*
-   * A page, half or year moved to once a board has drawn has a while of its own for its board to
-   * draw, from when it was moved to: on the first render after the move none is drawn yet, and the
-   * first while, from opening, has long run out.
+   * When the page hands over to this device's copy (1.6e): an account the rules refuse, or, on an
+   * area that reads the published views, a browser with no member signed in to read them as and no
+   * board kept to show, both of which the visitor's own app is for; and something asked for that the
+   * board cannot do yet. An offline read keeps whatever board was drawn from this device's own keep,
+   * and says so; with none kept, it says that.
    */
-  const [drawnOnce, setDrawnOnce] = useState(false);
-  if (board && !drawnOnce) setDrawnOnce(true);
-  const [keyWaited, setKeyWaited] = useState<string | null>(null);
-  useEffect(() => {
-    if (!drawnOnce || live.key === null) return;
-    const key = live.key;
-    const timer = setTimeout(() => setKeyWaited(key), waitMs);
-    return () => clearTimeout(timer);
-  }, [drawnOnce, live.key, waitMs]);
-  const outOfTime =
-    !board && (drawnOnce ? keyWaited !== null && keyWaited === live.key : waitedOut);
-
-  /*
-   * Why the page hands over to this device's copy: no page, a meta that will not do, a board that
-   * will not do or was not drawn in the time allowed (only on the areas that draw it: Games, Setup,
-   * Archive and Import read what they show from a page's list, the edit function or the copy), a
-   * board built before changes it does not have, or something asked for that the board cannot do.
-   * An offline read keeps whatever board was drawn from this device's own keep, and hands over for
-   * want of one only once that keep has been looked in.
-   */
-  const drawsBoard = section === "rankings" || section === "scouting";
+  const readsViews = section === "rankings" || section === "scouting" || section === "games";
   const nothingToDraw =
     !board && (live.meta === null || live.keptMissed || live.boardMiss !== null);
   const handOverNow =
-    cannotList ||
-    // No page: once there are pages to choose from, this device's or the meta's, and the meta's
-    // are the ones laid out by, which is a render after the meta that brings them.
-    (!selectedAgeGroupId &&
-      (localGroups.length > 0 || (live.meta !== null && metaGroups === publishedRaw))) ||
-    (live.metaMiss !== null && !offline) ||
-    (drawsBoard &&
-      ((live.boardMiss !== null && live.boardMiss !== "offline") ||
-        (offline && nothingToDraw) ||
-        outOfTime)) ||
-    live.standing === "behind-copy" ||
-    live.standing === "owed" ||
-    cannotOpen !== null ||
-    search.failed ||
-    searchWanted ||
+    live.metaMiss === "refused" ||
+    (readsViews && live.metaMiss === "no-reader" && nothingToDraw) ||
     wanted;
+
+  /*
+   * What it says instead of drawing, where it cannot draw: why the network gave no meta to draw by,
+   * that the cloud has no pages (once a meta, kept or read, has laid the page out), and why the
+   * page's own board is not drawn. A board drawn from what this device kept stays drawn under the
+   * first two, which the meta it was laid out by may still serve.
+   */
+  const missNotice =
+    live.metaMiss === "none" ||
+    live.metaMiss === "older" ||
+    live.metaMiss === "newer" ||
+    live.metaMiss === "unreadable"
+      ? LIVE_NOTICES[live.metaMiss]
+      : null;
+  const noPages = ageGroups.length === 0 && live.meta !== null;
+  const pageNotice = missNotice ?? (noPages ? LIVE_NOTICES.noPages : null);
+  const boardNotice =
+    pageNotice ??
+    (offline && nothingToDraw
+      ? LIVE_NOTICES.offline
+      : live.boardMiss === "missing"
+        ? LIVE_NOTICES.missing
+        : live.boardMiss === "damaged" || live.boardMiss === "gone"
+          ? LIVE_NOTICES.damaged
+          : null);
+
+  // A list, card or archive not read here: said where it was asked, and read again on asking.
+  const listWhere = `${section}|${selectedAgeGroupId}|${selectedYear ?? ""}`;
+  const listUnread = cannotList?.where === listWhere && cannotList.source === live.source;
+  const readListAgain = () => setCannotList(null);
 
   // Where Team Rankings is to open: the club open, or the one that could not be, the search, the
   // clubs Scouting was on, and the state boards as they are.
@@ -399,7 +419,7 @@ function LiveBoard({
       stateFilter,
       showAll,
       ...(clubOpen ? { openTeamId: clubOpen } : {}),
-      ...(search.failed || searchWanted ? { focusSearch: true } : {}),
+      ...(search.asked && !search.view ? { focusSearch: true } : {}),
       ...(scoutedTeam ? { reportTeamId: scoutedTeam } : {}),
       ...(comparedTeam ? { compareTeamId: comparedTeam } : {}),
       ...(pickedOpponents.length > 0 ? { pickedOpponentIds: pickedOpponents } : {}),
@@ -409,8 +429,8 @@ function LiveBoard({
       stateFilter,
       showAll,
       clubOpen,
-      search.failed,
-      searchWanted,
+      search.asked,
+      search.view,
       scoutedTeam,
       comparedTeam,
       pickedOpponents,
@@ -584,7 +604,7 @@ function LiveBoard({
 
   /**
    * A club tapped on the board opens its panel from its card (`LiveClubPanel`); with no meta to
-   * read a card through, it opens on Team Rankings, as every club did before there were cards.
+   * read a card through, or a card that could not be read, the panel says so and offers to try again.
    */
   const openTeam = (teamId: string) => {
     if (!live.source) {
@@ -603,12 +623,17 @@ function LiveBoard({
     openTeam(teamId);
   };
   const closeClub = useCallback(() => setOpenClub(null), []);
-  const cannotListGames = useCallback(() => setCannotList(true), []);
+  const shutUnread = () => {
+    setCannotOpen(null);
+    setOpenClub(null);
+  };
+  // A list a section could not read, marked where it was asked, which is where it is said.
+  const cannotListHere = () => setCannotList({ where: listWhere, source: live.source });
   const wantPage = useCallback(() => setWanted(true), []);
 
   /**
    * A club picked in Find a team opens on the page its list says, with its panel from its card, as
-   * Team Rankings opens one; with no meta to read the list through, the search is Team Rankings'.
+   * Team Rankings opens one. A list that could not be read is said so, and searching reads it again.
    */
   const searchOptions = search.view?.options ?? NO_OPTIONS;
   const pageOfSearched = search.view?.pageOf;
@@ -642,7 +667,26 @@ function LiveBoard({
   );
   // What the board cannot draw, said while the pool it hands over to comes in.
   const onCopySoon = statusCard("This opens on this device's copy as soon as it is in…");
-  const readingBoard = handedOver ? onCopySoon : statusCard("Reading the cloud's board…");
+  const readingBoard = handedOver
+    ? onCopySoon
+    : statusCard(boardNotice ?? "Reading the cloud's board…");
+  // A list or card not read, with a button to read it again.
+  const unread = (text: string) => (
+    <div className={`${card} p-5`} role="status" aria-live="polite">
+      <p className="text-sm font-bold text-slate-600 dark:text-slate-300">{text}</p>
+      <button type="button" onClick={readListAgain} className={`${button.ghost} mt-3`}>
+        Try again
+      </button>
+    </div>
+  );
+  /*
+   * Why the network gave no meta, said above what is drawn from the one this device kept: on the
+   * areas that read views, where with nothing drawn the area says it itself.
+   */
+  const missBanner =
+    missNotice !== null && (section === "games" ? live.source !== null : board !== null)
+      ? statusCard(missNotice)
+      : null;
 
   return (
     <div className="flex flex-col gap-6" data-testid="live-board">
@@ -670,9 +714,12 @@ function LiveBoard({
         aria-labelledby={sectionTabId(section)}
         className="flex flex-col gap-6"
       >
+        {readsViews && missBanner}
         {section === "games" ? (
-          cannotList ? (
-            onCopySoon
+          listUnread ? (
+            unread(LIVE_UNREAD.games)
+          ) : noPages ? (
+            statusCard(LIVE_NOTICES.noPages)
           ) : live.source ? (
             <Suspense fallback={statusCard("Reading the cloud's games…")}>
               <LiveGames
@@ -684,18 +731,20 @@ function LiveBoard({
                 groups={cloudGroups}
                 edits={edits}
                 confirm={confirm}
-                onCannot={cannotListGames}
+                onCannot={cannotListHere}
                 suggestedTeams={boardTeams}
                 myTeamName={rows.find((row) => row.isMine)?.teamName ?? ""}
                 onGoToImport={() => openSection("import")}
               />
             </Suspense>
           ) : (
-            statusCard("Reading the cloud's games…")
+            statusCard(
+              missNotice ?? (offline ? LIVE_NOTICES.offline : "Reading the cloud's games…")
+            )
           )
         ) : section === "scouting" ? (
-          cannotList ? (
-            onCopySoon
+          listUnread ? (
+            unread(LIVE_UNREAD.scouting)
           ) : live.source && board ? (
             <Suspense fallback={statusCard("Reading the cloud's report…")}>
               <LiveScouting
@@ -717,7 +766,7 @@ function LiveBoard({
                 pickedOpponentIds={pickedOpponents}
                 onPickedOpponentIdsChange={setPickedOpponents}
                 edits={edits}
-                onCannot={cannotListGames}
+                onCannot={cannotListHere}
               />
             </Suspense>
           ) : (
@@ -738,11 +787,11 @@ function LiveBoard({
             />
           </Suspense>
         ) : section === "archive" ? (
-          cannotList ? (
-            onCopySoon
+          listUnread ? (
+            unread(LIVE_UNREAD.archive)
           ) : (
             <Suspense fallback={statusCard("Reading the cloud's finished seasons…")}>
-              <LiveArchive copy={sources ? sources.copy : copyReader} onCannot={cannotListGames} />
+              <LiveArchive copy={sources ? sources.copy : copyReader} onCannot={cannotListHere} />
             </Suspense>
           )
         ) : section === "import" ? (
@@ -759,8 +808,9 @@ function LiveBoard({
             searchOptions={searchOptions}
             onSearchTeam={openSearchedTeam}
             explainGcId={explainGcId}
-            onSearchWanted={live.source ? search.ask : () => setSearchWanted(true)}
+            onSearchWanted={search.ask}
             searchLoading={searchLoading}
+            searchFailed={search.failed}
             hasAgeGroups={ageGroups.length > 0}
             unrankedLevelNote={unrankedLevelNoteFor(selectedAgeGroupId, ageGroupLevel(group))}
             segment={
@@ -804,11 +854,23 @@ function LiveBoard({
           readingBoard
         )}
       </div>
-      {cannotOpen !== null ? (
+      {cannotOpen !== null && handedOver ? (
         <section id={TEAM_PANEL_ID} className={`${card} p-5`} role="status" aria-live="polite">
           <p className="text-sm text-slate-500 dark:text-slate-400">
             This club opens on this device&apos;s copy as soon as it is in&hellip;
           </p>
+        </section>
+      ) : cannotOpen !== null ? (
+        <section id={TEAM_PANEL_ID} className={`${card} p-5`} role="status" aria-live="polite">
+          <p className="text-sm text-slate-500 dark:text-slate-400">{LIVE_UNREAD.club}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => openTeam(cannotOpen)} className={button.ghost}>
+              Try again
+            </button>
+            <button type="button" onClick={shutUnread} className={button.ghost}>
+              Close
+            </button>
+          </div>
         </section>
       ) : (
         openClub &&

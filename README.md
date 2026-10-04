@@ -3945,23 +3945,43 @@ another version of the app, or yesterday's.
 It opens on what this account last read and kept, so a board is drawn before any
 network read, and then on the network's.
 
-The board stays the page while it can (1.5). Until 1.5 it was a stand-in, as the
-saved board is, and went to Team Rankings on this device's copy once a second had
-passed with no tap, key or scroll; now a club's panel edits through the edit
-function, and the sections follow, so it no longer goes on its own. Behind it the
-pool is still brought in step with the copy and Team Rankings' own code loads, for
-what it hands over: whatever the board cannot do yet or should not stand in for (a
-club with no card, an edit the Games tab or Scouting asks for, another area of the
-page), a page with no published board, a meta this build cannot read or the rules
-refuse, nothing drawn within 4 s of opening (or of moving to another page, half or
-year once a board has drawn, each of which has its own 4 s), or a board built
-before changes it does not have. Offline, it hands over for want of a board only
-once the board it kept has been looked for and not found, rather than when the
-network's failure beats the read of what it kept. The board's own reasons (none
-published, none that will read, none drawn in time) count only on the areas that
-draw it, the board and Scouting: Games, Setup, Archive and Import read what they
-show from a page's list, the edit function or the copy, and stay open without one
-until the board is asked for.
+The board is the page (1.6e). Until 1.5 it was a stand-in, as the saved board is,
+and went to Team Rankings on this device's copy once a second had passed with no
+tap, key or scroll; through 1.5 it stayed while it could, and went for anything it
+could not draw, with the pool brought in step behind it the whole time. A member's
+device is to hold no pool now, so the board brings none in, and what it cannot draw
+it says, and stays:
+
+- a meta the network does not give: nothing published yet, one an older build
+  published (until the next refresh), a newer build's (reload to update), or one
+  that will not read. A board drawn from the meta this device kept stays drawn,
+  with the reason above it;
+- no pages at all in the cloud, once the pages laid out are the meta's: they come
+  with the first pull, or a League Standings season put on a page in Setup;
+- a page's board not published yet, which the watch draws once it is, or one
+  damaged or gone, read again with the next publish;
+- offline, a board this device never kept;
+- a page's Games list, a club's card, Scouting's report or the copy's archive that
+  could not be read: said where it was asked, with **Try again**, and read again by
+  itself once the cloud publishes, so another page or area is read for itself
+  rather than said to have failed with it;
+- Find a team's list not read: said under its button, and searching again reads it
+  again.
+
+There is no wait any more: a network that does not answer leaves the board reading,
+and the reader's own limits (10 s for the meta, 30 s a piece) end in offline. A
+board built before changes it does not have, the copy's or this device's own,
+stays up under its label rather than handing over. It hands over to Team Rankings
+on this device's copy only where that is the right page or the only one: an
+account the rules refuse, or, on the areas that read the published views (the
+board, Scouting and Games), a browser with no member signed in to read them as and
+no board kept to show, both of which the visitor's own app is for; and what it
+cannot do yet, the rest of Setup (a backup) and a pasted list pulled. Only then is
+the pool brought in step, behind it, and Team Rankings' own code loads under the
+board from the start, so it is there by then. The pages are the meta's whenever
+it carries them (`LivePages.groups`), kept or read, rather than this device's own,
+which a member's device no longer keeps in step; this device's own lay the page
+out only until a meta comes, or under one from a build that published none.
 
 A board is built before changes it does not have only when it was built from a
 version of the copy no later than the one this device read, or from another copy.
@@ -4017,11 +4037,12 @@ Firebase stays out of it. `LiveTeamRankings.test.tsx` draws boards published to
 an in-memory store through the real reader, cache and checks: the rows, places,
 star, state boards and badges as the page draws them, last week's arrows and the
 club's own rank line (and no line made for another club), the half from the published
-counts, each reason to hand over at once, the board staying the page however long
-nobody touches it, the pool in or not, a half moved to given its own
-while, the board kept on screen and in focus through a handover while the pool
-comes in, and what is done there carried into Team Rankings, a kept board drawn
-and labelled offline, and a refusal forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and that
+counts, what it says in place of each thing it cannot draw and each read asked
+for again, the board staying the page however long nobody touches it or the
+network takes, no pool brought in for it, a half moved to read however long its
+board takes, the board kept on screen and in focus through a handover while the
+pool comes in, and what is done there carried into Team Rankings, a kept board
+drawn and labelled offline, and a refusal forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and that
 the choice holds for the open; `TeamRankingsView.handover.test.tsx` the page
 opening where the board left off. Each guard was broken in turn and seen to fail
 a test, 33 of 33, two of them only after their tests were tightened.
@@ -4030,10 +4051,10 @@ a test, 33 of 33, two of them only after their tests were tightened.
 (`LiveClubPanel`): its bucket read through the same checks as a board, and drawn by
 Team Rankings' own panel. The panel and the pool's codec it checks a card by load
 only when a club is opened. A club whose card cannot be read (no card, a bucket
-damaged or gone, a refusal, or offline with none kept) opens on Team Rankings, as
-every club did before there were cards, and so does the club open when the board
-hands over; tapped while the pool comes in, it says so until Team Rankings opens on
-it.
+damaged or gone, or offline with none kept) says so in the panel's place, with Try
+again and Close (1.6e); a refusal hands the page over, as every refusal does. The
+club open when the board hands over opens on Team Rankings, and one tapped while
+the pool comes in says so until Team Rankings opens on it.
 
 Its edits go to the edit function (`useLiveEdits`, 1.5): a state, a name, a
 GameChanger link taken off, an age set or taken back, and a fold into another
@@ -4112,14 +4133,14 @@ only when somebody taps it, says "Bringing in every team…" until the list is i
 then puts the caret in the box. A pick opens the club's page and its panel from its
 card, as Team Rankings does. A pick on another year's page leaves that page's box to
 be asked again, rather than read a second list unasked. A list that cannot be read
-hands over to Team Rankings with its box focused, as every search did before there
-were lists.
+says so under the button, and searching again reads it again (1.6e); handed over with
+a search asked and not in hand, Team Rankings opens with its box focused.
 
 **The Games tab.** On the board the tab reads its page's list (`LiveGames`) and is
-drawn by Team Rankings' own tab (`GamesSection` `readOnly`): no form and no import.
-One button in the form's place, Add, import or pull games, hands over to Team
-Rankings, where those are. The tab and its code load only when it is opened. A list
-that cannot be read hands over as the tab did before there were lists.
+drawn by Team Rankings' own tab (`GamesSection`), its form and import sending their
+games to the server (1.6, below). The tab and its code load only when it is opened.
+A list that cannot be read says so, with Try again, and is read again by itself
+with the next publish (1.6e).
 
 Each game's own buttons are there (1.5): a score typed, Don't count and Count it, and
 Remove (asked first, with an Undo), each sent to the edit function as the edit the
@@ -4286,9 +4307,9 @@ rows only when it is opened, as the device's tab reads its own store. Publishing
 would have the server fetch parts its pool leaves out, to write the same bytes again. Each
 part is read once a page load, by its id and hash; a season whose part was replaced and
 swept after the list was read is read again off the manifest as it now is. A copy that
-cannot be read hands the page over to this device's copy, as a list that cannot be read
-does. `copyArchive.test.ts` holds the reads on a copy in memory; `LiveTeamRankings.test.tsx`
-the tab listing, opening, and handing over. Each guard was broken in turn and seen to fail
+cannot be read is said so, with Try again, as a list that cannot be read is (1.6e).
+`copyArchive.test.ts` holds the reads on a copy in memory; `LiveTeamRankings.test.tsx`
+the tab listing, opening, and saying it could not read the copy. Each guard was broken in turn and seen to fail
 a test, 12 of 12, the cache's key only once a test read a season again after its part was
 replaced.
 
@@ -4321,11 +4342,10 @@ rather than that it is still reading.
 device reads from its own copy. One that has never held a copy has none, so the
 meta now carries the copy's age groups too (`LivePages.groups`), as its store holds
 them. A device with no age groups of its own lays the page out by those, read
-through the copy's own check (`coerceAgeGroups`), until its copy comes in. It hands
-over for want of a page only once it has pages to choose from, its own or the
-meta's, and the meta's are the ones laid out by, a render after the meta that brings
-them. A meta with none hands over, as before. Each guard was broken in turn and seen
-to fail a test, 8 of 8.
+through the copy's own check (`coerceAgeGroups`), and since 1.6e every device does,
+whenever the meta carries them. It says the cloud has no pages only once a meta,
+kept or read, has laid the page out. Each guard was broken in turn and seen to fail a
+test, 8 of 8.
 
 The board on screen is held for Team Rankings to open on (`holdLiveBoard`), by an
 effect that runs after the board is drawn, and let go whenever none is on screen. It
@@ -4372,9 +4392,10 @@ What the board reads beside it (a club's card, a page's Games list, the year's
 search list) is read through the meta on screen, and while that is only the one
 this account kept, through what it kept. A view not kept then is not yet a view
 that cannot be had: it is read again through the network's meta once that is in,
-and only a miss after that, or once the network has given no meta at all, hands
-the page over. Each such read that the rules refuse forgets every board kept and
-held and hands over, as a refused read of the meta or a board does.
+and only a miss after that, or once the network has given no meta at all, is said
+(1.6e: before, it handed the page over). Each such read that the rules refuse
+forgets every board kept and held and hands over, as a refused read of the meta or
+a board does.
 
 With the listener in, the first download is 230.7 KB gzipped against 232.1 KB
 before, as the build folded the cloud session's code back into the entry, and
@@ -4389,11 +4410,11 @@ delivers each version of the meta as Firestore does. It checks:
 - the offline label as of the read that kept the board, and gone on reconnecting;
 - a board that could not be fetched offline, dated by its own read, and fetched
   again once the server is heard;
-- a card and a Games list read once the network's meta is in, not handed over
-  before it, and a list handed over once the network has given none;
+- a card and a Games list read once the network's meta is in, not said unread
+  before it, and a list said unread once the network has given none;
 - a refusal heard through a card's read, forgetting every board;
 - a refusal heard, and a watch ended otherwise;
-- a newer build's meta handing over;
+- a newer build's meta said over the board already drawn;
 - the watch stopped on closing, and never started after a refused read.
 
 `cloudSession.test.ts` holds the session's reader carrying the cloud's watch.

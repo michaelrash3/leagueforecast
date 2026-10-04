@@ -10,15 +10,19 @@ import type { LiveViewSource } from "./useLiveBoard";
  * device kept and the network has yet to answer: a view it lacks is read again through the
  * network's source, as a board is (`useLiveBoard`). A refusal is the source's to hear too, since it
  * means the account may see none of the views.
+ *
+ * A new `attempt` (any value but the last one) reads the view again, for a person who asked again
+ * after it failed: until that read says otherwise it has not failed.
  */
 export function useLiveView<T>(
   source: LiveViewSource | null,
   key: string | null,
   coerce: (raw: unknown) => T | null,
-  memory: DecodedViews<T>
+  memory: DecodedViews<T>,
+  attempt: unknown = null
 ): { view: T | null; failed: boolean } {
   const [read, setRead] = useState<{ key: string; view: T } | null>(null);
-  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [failedAt, setFailedAt] = useState<{ key: string; attempt: unknown } | null>(null);
 
   useEffect(() => {
     if (!key || !source) return;
@@ -35,16 +39,17 @@ export function useLiveView<T>(
       if (done.ok) setRead({ key, view: done.view });
       else if (done.why === "refused") {
         source.refused();
-        setFailedKey(key);
-      } else if (source.settled) setFailedKey(key);
+        setFailedAt({ key, attempt });
+      } else if (source.settled) setFailedAt({ key, attempt });
     });
     return () => {
       alive = false;
     };
-  }, [key, source, coerce, memory]);
+  }, [key, source, coerce, memory, attempt]);
 
   return {
     view: read && read.key === key ? read.view : null,
-    failed: key !== null && failedKey === key,
+    failed:
+      key !== null && failedAt !== null && failedAt.key === key && failedAt.attempt === attempt,
   };
 }

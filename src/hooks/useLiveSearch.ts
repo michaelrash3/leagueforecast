@@ -17,7 +17,7 @@ export type LiveSearch = {
   view: SearchView | null;
   /** The list could not be read: none published, damaged, refused, or offline with none kept. */
   failed: boolean;
-  /** Reads the year's list, when somebody goes to search. */
+  /** Reads the year's list, when somebody goes to search, and again when they ask after it failed. */
   ask: () => void;
 };
 
@@ -29,8 +29,9 @@ export type LiveSearch = {
  * again, which costs nothing when the meta names the same list.
  */
 export function useLiveSearch(source: LiveViewSource | null, year: number | undefined): LiveSearch {
+  // Each ask a new one, so asking again after a failed read reads the list again.
   const [askedFor, setAskedFor] = useState<{ year: number | undefined } | null>(null);
   const key = askedFor && askedFor.year === year ? searchKey(year) : null;
-  const { view, failed } = useLiveView(source, key, coerceSearch, decodedSearches);
+  const { view, failed } = useLiveView(source, key, coerceSearch, decodedSearches, askedFor);
   return { asked: key !== null, view, failed, ask: () => setAskedFor({ year }) };
 }

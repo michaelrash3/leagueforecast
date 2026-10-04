@@ -78,6 +78,8 @@ type RankingsSectionProps = {
   onSearchWanted?: () => void;
   /** The list a search asked for is on its way: the card says so until it is in. */
   searchLoading?: boolean;
+  /** The list a search asked for could not be read: the card says so, and asking reads it again. */
+  searchFailed?: boolean;
   /** Whether the marked club's next game is still to come in (`MyTeamCard`). */
   myTeamNextPending?: boolean;
   /** Whether the marked club's next game could not be read (`MyTeamCard`). */
@@ -95,6 +97,10 @@ type RankingsSectionProps = {
  * an O(games) `hasGamesFiledHere` per row on every render, which on a nationwide page is minutes.
  */
 export const ROWS_SHOWN_FIRST = 100;
+
+/** What the Find a team card says of a list it could not read, which asking again reads again. */
+export const SEARCH_UNREAD =
+  "The cloud's list of teams could not be read just now. Search again to try once more.";
 export const ROWS_SHOWN_STEP = 200;
 
 export function RankingsSection({
@@ -131,6 +137,7 @@ export function RankingsSection({
   readOnly = false,
   onSearchWanted,
   searchLoading = false,
+  searchFailed = false,
   myTeamNextPending = false,
   myTeamNextUnread = false,
 }: RankingsSectionProps) {
@@ -191,6 +198,15 @@ export function RankingsSection({
               ? "Bringing in every team…"
               : "Search every team or coach, any age or season"}
           </button>
+          {searchFailed && (
+            <p
+              className="mt-2 text-xs text-slate-500 dark:text-slate-400"
+              role="status"
+              aria-live="polite"
+            >
+              {SEARCH_UNREAD}
+            </p>
+          )}
         </div>
       )}
 
