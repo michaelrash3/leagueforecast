@@ -4127,6 +4127,23 @@ the tab listing, opening, and handing over. Each guard was broken in turn and se
 a test, 12 of 12, the cache's key only once a test read a season again after its part was
 replaced.
 
+**Import.** The live page's Import tab shows the copy's nightly refresh as the server works
+it out (`import.status`, at the device's time): what a refresh now would be for and how
+many teams are in it, as the nightly reckons it (`storedRota`, moved out of the pull so
+the question does not carry the pull's code), with the device's own words for it
+(`describeDueSummary`, which `describeDue` now reads through), and when each level was last
+refreshed, each day's levels together, the latest first. How much comes round at once is
+chosen there and kept on the copy (`refresh.cadence`), which the nightly reads; an
+Organizations file is read on the device and its organizations kept on the copy
+(`orgs.merge`), which the nightly ages teams by, and a file with nothing new says so
+(`EditSaid.same`, said where the copy already held the edit). Pulling a pasted list is the
+pull in the browser, so its card opens the page on this device's copy until the cloud runs
+one; with every other area drawn, that card is now the tests' way to hand the page over.
+`queries.test.ts` holds the question and its answer; `LiveTeamRankings.test.tsx` the tab
+drawing it, each edit, and the refresh read again after one. Each guard was broken in turn
+and seen to fail a test, 14 of 14, four only after the tests gave the tab a clock of its
+own, put the days in order, and named a waiting team under no organization.
+
 **On a device with no copy.** The page is laid out by the age groups, which a
 device reads from its own copy. One that has never held a copy has none, so the
 meta now carries the copy's age groups too (`LivePages.groups`), as its store holds

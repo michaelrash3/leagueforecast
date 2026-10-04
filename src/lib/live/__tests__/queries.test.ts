@@ -9,7 +9,9 @@ import type { AgeUnknownTeam } from "../../ageUnknown";
 import { poolSignature, type GcImportState } from "../../gameChangerImport";
 import { apartKey, keptApartList } from "../../keptApart";
 import { poolHealthSummary } from "../../poolHealthSummary";
+import { dueSummary } from "../../gameChangerSchedule";
 import { TO_PULL_DRAWN } from "../../poolLists";
+import { storedRota } from "../../storedRota";
 import type { ModelCheckAnswer, ScoutBacktestResult } from "../../scoutBacktest";
 import {
   mergeScoutTeams,
@@ -30,7 +32,10 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveNamedAges,
+  saveOrgMembership,
   saveRealClubs,
+  saveRefreshCadence,
+  saveRefreshLog,
   saveScoutGames,
   saveScoutTeams,
   saveTidyStamp,
@@ -426,6 +431,86 @@ describe("a model check as the server and a device read it", () => {
     expect(spoiled((wire) => (wire.answer.betterCap.by = null))).toBeNull();
     expect(spoiled((wire) => delete (wire.answer as Record<string, unknown>).gaps)).toBeNull();
     expect(coerceQueryAnswer({ kind: "model.check" }, "model.check")).toBeNull();
+  });
+});
+
+describe("the copy's refresh as the Import tab asks for it", () => {
+  const AT = "2027-04-15T16:00:00.000Z";
+  const STATUS = { kind: "import.status", at: AT } as const;
+
+  it("is asked at a time, and at nothing else", () => {
+    expect(coerceQuery(JSON.parse(JSON.stringify(STATUS)))).toEqual(STATUS);
+    for (const raw of [
+      { kind: "import.status" },
+      { kind: "import.status", at: "" },
+      { kind: "import.status", at: "soon" },
+      { ...STATUS, today: "2027-04-15" },
+    ])
+      expect(coerceQuery(raw)).toBeNull();
+  });
+
+  it("is what the nightly would pull, when each level was refreshed, and the organizations kept", () => {
+    saveScoutTeams([
+      {
+        id: "A",
+        name: "Club A",
+        gcTeams: [{ teamId: "gcA", name: "Club A", ageGroupId: "ag_10u_2027" }],
+      },
+      ...TEAMS.slice(1),
+    ]);
+    saveRefreshCadence("daily");
+    // A level's day, another's, and a key that is no level, which says nothing.
+    saveRefreshLog({ "10": "2027-04-14", "9": "2027-04-15", catchUp: "2027-04-10" });
+    saveOrgMembership({
+      orgs: [
+        { orgId: "o1", name: "Placeholder 10U Spring 2027", teamIds: ["gcA", "gcW1"] },
+        { orgId: "o2", name: "Placeholder Travel", teamIds: ["gcA"] },
+      ],
+      savedAt: "2027-04-01T00:00:00.000Z",
+    });
+    saveAgeUnknown([
+      {
+        teamId: "gcW1",
+        name: "Placeholder W1",
+        firstSeen: "2027-04-01T00:00:00.000Z",
+        lastTried: "2027-04-08T00:00:00.000Z",
+        tries: 1,
+      },
+      // Under no organization the file named.
+      {
+        teamId: "gcW2",
+        name: "Placeholder W2",
+        firstSeen: "2027-04-01T00:00:00.000Z",
+        lastTried: "2027-04-08T00:00:00.000Z",
+        tries: 1,
+      },
+    ]);
+    const answer = answerQuery(STATUS);
+    expect(answer).toEqual({
+      kind: "import.status",
+      due: dueSummary(storedRota(new Date(AT))),
+      refreshed: [
+        { level: 9, day: "2027-04-15" },
+        { level: 10, day: "2027-04-14" },
+      ],
+      orgs: { orgs: 2, teams: 2, aged: 2, waitingAged: 1 },
+    });
+    expect(answer).toMatchObject({ due: { cadence: "daily", teams: 1 } });
+    expect(coerceQueryAnswer(JSON.parse(JSON.stringify(answer)), "import.status")).toEqual(answer);
+  });
+
+  it("is refused with any part of it spoiled", () => {
+    const answer = answerQuery(STATUS) as AnswerOf<"import.status">;
+    const spoiled = (spoil: (copy: Record<string, Record<string, unknown>>) => void) => {
+      const copy = JSON.parse(JSON.stringify(answer)) as Record<string, Record<string, unknown>>;
+      spoil(copy);
+      return coerceQueryAnswer(copy, "import.status");
+    };
+    expect(spoiled(() => undefined)).toEqual(answer);
+    expect(spoiled((copy) => (copy.due!.cadence = "weekly"))).toBeNull();
+    expect(spoiled((copy) => (copy.due!.teams = -1))).toBeNull();
+    expect(spoiled((copy) => (copy.refreshed = [{ level: 9 }] as never))).toBeNull();
+    expect(spoiled((copy) => delete copy.orgs!.waitingAged)).toBeNull();
   });
 });
 

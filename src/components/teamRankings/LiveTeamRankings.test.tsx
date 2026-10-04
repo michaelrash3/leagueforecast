@@ -31,6 +31,7 @@ import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesS
 import { forgetDecodedGames, GAME_MOVED } from "./LiveGames";
 import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY } from "./LiveSetup";
 import { forgetDecodedArchive } from "./LiveArchive";
+import { ORGS_NO_TEAMS, ORGS_NOTHING_NEW } from "./LiveImport";
 import { commitChanges } from "../../lib/cloud/cloudEngine";
 import { memoryCloud } from "../../lib/cloud/__tests__/memoryCloud";
 import type { ArchivedSeason } from "../../lib/teamRankingsArchive";
@@ -396,10 +397,11 @@ describe("Team Rankings on the cloud's board", () => {
     });
   });
 
-  it("hands over at once for an area it does not draw yet", async () => {
+  it("draws the Import tab, and hands over to pull a pasted list", async () => {
     window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     pool.wants = false;
     open(sourcesOf(live));
+    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 
@@ -409,7 +411,7 @@ describe("Team Rankings on the cloud's board", () => {
     await screen.findByText("The cloud's board");
     await act(() => new Promise((resolve) => setTimeout(resolve, 1_500)));
     expect(handedOver()).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
+    await pullOnDevice();
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 
@@ -676,6 +678,15 @@ const answered = (answer: Record<string, unknown>) => ({
 const edited = (sent: Array<Record<string, unknown>>) =>
   sent.filter((data) => data.command !== undefined);
 
+/** The Import tab's way to this device's copy, which every area the board draws offers one of. */
+const PULL_HERE = "Open the pull on this device's copy";
+/** Hands the page over by asking to pull a pasted list, the Import tab opened first if need be. */
+const pullOnDevice = async () => {
+  if (!screen.queryByRole("button", { name: PULL_HERE }))
+    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
+  fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
+};
+
 describe("a club's panel on the cloud's board", () => {
   const CARD: ClubCard = {
     team: { id: "S-1", name: "Placeholder S-1", state: "OH" },
@@ -917,7 +928,7 @@ describe("a club's panel on the cloud's board", () => {
     expect(screen.queryByRole("region", { name: "Placeholder S-1" })).toBeNull();
     await tapClub("Placeholder S-1");
     await screen.findByRole("region", { name: "Placeholder S-1" });
-    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
+    await pullOnDevice();
     await act(async () => pool.finish());
     await waitFor(() => expect(handedOver()).toMatchObject({ openTeamId: "S-1" }), {
       timeout: 2_000,
@@ -1841,7 +1852,6 @@ describe("what it hands over, when, and what stays after", () => {
       return <p data-testid="probe">{selectedAgeGroupId}</p>;
     }
     pool.wants = false;
-    // An area the board does not draw: it hands over at once.
     window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     render(
       <LiveTeamRankings
@@ -1855,6 +1865,8 @@ describe("what it hands over, when, and what stays after", () => {
         waitMs={60_000}
       />
     );
+    // The pull of a pasted list hands over at once, the pool being in.
+    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
     await screen.findByTestId("probe");
     // Its listener went with it.
     expect(live.watching()).toBe(0);
@@ -1891,7 +1903,7 @@ describe("what it hands over, when, and what stays after", () => {
     expect(
       await screen.findByRole("button", { name: "Remove Placeholder S-1 from the report" })
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
+    await pullOnDevice();
     await act(async () => pool.finish());
     await waitFor(() => expect(handedOver()).not.toBeNull(), { timeout: 5_000 });
     expect(handedOver()).toMatchObject({ compareTeamId: "S-3", pickedOpponentIds: ["S-1"] });
@@ -1943,23 +1955,23 @@ describe("what it hands over, when, and what stays after", () => {
     rankings.focus();
     fireEvent.keyDown(rankings, { key: "ArrowRight" });
     fireEvent.keyDown(document.activeElement ?? rankings, { key: "ArrowRight" });
+    expect(document.activeElement?.textContent).toBe("Import");
+    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
     expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
     expect(screen.getByTestId("live-board")).toBe(before);
     expect(document.activeElement?.textContent).toBe("Import");
   });
 
-  it("says an area it cannot draw opens on this device's copy, while the pool comes in", async () => {
+  it("keeps the Import tab drawn while the pool its pull asked for comes in", async () => {
     open(sourcesOf(live));
     expect(await screen.findByText("The cloud's board")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
+    await pullOnDevice();
     expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
     const panel = document.getElementById("team-rankings-panel");
     if (!panel) throw new Error("no panel");
     expect(panel.getAttribute("aria-labelledby")).toBe("team-rankings-tab-import");
     expect(within(panel).queryAllByText("Placeholder S-1")).toHaveLength(0);
-    expect(
-      within(panel).getByText("This opens on this device's copy as soon as it is in…")
-    ).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: PULL_HERE })).toBeTruthy();
   });
 
   it("opens Team Rankings on the club open once the pool is in, though another was handed over", async () => {
@@ -1982,6 +1994,7 @@ describe("what it hands over, when, and what stays after", () => {
     await withCards(CARDS.filter((one) => one.team.id !== "S-3"));
     window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     open(sourcesOf(live));
+    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
     expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Rankings" }));
     fireEvent.click((await screen.findAllByRole("button", { name: "Placeholder S-3" }))[0]!);
@@ -2045,6 +2058,7 @@ describe("what it hands over, when, and what stays after", () => {
   it("opens Team Rankings at once when asked to stop waiting for the pool", async () => {
     window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     open(sourcesOf(live));
+    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
     fireEvent.click(await screen.findByRole("button", { name: "Show this device's copy now" }));
     expect(handedOver()).toEqual({ stateTop: null, stateFilter: "", showAll: false });
   });
@@ -2388,5 +2402,150 @@ describe("the Archive tab on the cloud's board", () => {
     pool.wants = false;
     open(sourcesOf(live, { copy: async () => null }));
     await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+});
+
+describe("the Import tab on the cloud's board", () => {
+  const STATUS = {
+    kind: "import.status",
+    due: {
+      ageLevels: [9, 10],
+      heldBack: 2,
+      label: "Thursday",
+      catchUp: false,
+      cadence: "daily",
+      agelessTotal: 0,
+      teams: 120,
+      agelessDue: 0,
+    },
+    refreshed: [
+      { level: 9, day: "2027-04-14" },
+      { level: 10, day: "2027-04-14" },
+      { level: 11, day: "2027-04-15" },
+    ],
+    orgs: { orgs: 0, teams: 0, aged: 0, waitingAged: 0 },
+  };
+  /** The edit function's answer to the tab's question, and to an edit, which changes `changed`. */
+  const importAnswers =
+    (status: unknown = STATUS, changed?: string[]) =>
+    (data: Record<string, unknown>) =>
+      data.query ? answered(status as Record<string, unknown>) : made(5, changed);
+  const queried = (sent: Array<Record<string, unknown>>) =>
+    sent.filter((data) => data.query !== undefined);
+  const onImport = () =>
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
+  /** This device's time, apart from the page's own clock, so a question is seen to carry it. */
+  const AT = "2027-04-15T13:30:00.000Z";
+  const HEADER =
+    "Entity Type,Entity Name,Organization ID,City,State,Season Name,Season Year,Sport,Home URL,Teams URL,Schedule URL,Team Count,Team IDs,Found Via Searches,First Seen,Last Seen";
+  const orgFile = (rows: string[], header = HEADER) =>
+    new File([[header, ...rows].join("\n")], "GameChanger_Organizations.csv", {
+      type: "text/csv",
+    });
+
+  it("draws the nightly refresh as the server works it out, asked at this device's time", async () => {
+    onImport();
+    pool.wants = false;
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call, now: () => AT }));
+    expect(
+      await screen.findByText("Every age group is due today — 120 teams to refresh.")
+    ).toBeTruthy();
+    expect(screen.getByText(/2 teams pulled in the last 16 hours/)).toBeTruthy();
+    // Each day's levels together, the latest day first.
+    const days = screen.getByRole("heading", { name: "Last refreshed" }).nextElementSibling;
+    expect([...(days?.querySelectorAll("li") ?? [])].map((day) => day.textContent)).toEqual([
+      "2027-04-15: 11U",
+      "2027-04-14: 9U, 10U",
+    ]);
+    expect(screen.getByLabelText("Every age group, daily")).toHaveProperty("checked", true);
+    expect(screen.getByTestId("live-orgs").textContent).toMatch(/^The Organizations export/);
+    expect(queried(server.sent)).toEqual([
+      { query: { kind: "import.status", at: AT }, copy: MANIFEST.copy },
+    ]);
+    expect(handedOver()).toBeNull();
+  });
+
+  it("keeps how much comes round at once on the copy, and reads the refresh again", async () => {
+    onImport();
+    pool.wants = false;
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(await screen.findByLabelText("One or two levels a day"));
+    await waitFor(() =>
+      expect(said.toasts).toContain("The nightly refresh now pulls one or two levels a day.")
+    );
+    expect(edited(server.sent)).toEqual([
+      { command: { kind: "refresh.cadence", cadence: "rotation" }, copy: MANIFEST.copy },
+    ]);
+    await waitFor(() => expect(queried(server.sent)).toHaveLength(2));
+  });
+
+  it("keeps an Organizations file's organizations on the copy, and says when it had nothing new", async () => {
+    onImport();
+    pool.wants = false;
+    let changed: string[] = ["league_forecast_gc_org_membership_v1"];
+    const server = editFunction((data) => importAnswers(STATUS, changed)(data));
+    open(sourcesOf(live, { call: server.call, now: () => AT }));
+    const user = userEvent.setup();
+    const file = orgFile([
+      `"travel","Placeholder 8U Fall 2026","orgPH0000001","Sampleton","TN","fall","2026","baseball","","","","2","Placeholder01; Placeholder02","x","",""`,
+    ]);
+    await user.upload(await screen.findByLabelText("Organizations CSV"), file);
+    await waitFor(() => expect(said.toasts).toContain("Kept the 1 organization in that file."));
+    expect(edited(server.sent)).toEqual([
+      {
+        command: {
+          kind: "orgs.merge",
+          orgs: [
+            {
+              orgId: "orgPH0000001",
+              name: "Placeholder 8U Fall 2026",
+              teamIds: ["Placeholder01", "Placeholder02"],
+            },
+          ],
+          at: AT,
+        },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    await waitFor(() => expect(queried(server.sent)).toHaveLength(2));
+    // The same file again: the copy held it already.
+    changed = [];
+    await user.upload(screen.getByLabelText("Organizations CSV"), file);
+    await waitFor(() => expect(said.toasts).toContain(ORGS_NOTHING_NEW));
+  });
+
+  it("sends nothing for a file that names no teams under its organizations", async () => {
+    onImport();
+    pool.wants = false;
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call }));
+    const user = userEvent.setup();
+    await user.upload(
+      await screen.findByLabelText("Organizations CSV"),
+      orgFile(
+        ['"travel","Placeholder 8U Fall 2026","orgPH0000001"'],
+        "Entity Type,Entity Name,Organization ID"
+      )
+    );
+    await waitFor(() => expect(said.toasts).toContain(ORGS_NO_TEAMS));
+    expect(edited(server.sent)).toEqual([]);
+  });
+
+  it("says the refresh could not be read, and asks again when told to", async () => {
+    onImport();
+    pool.wants = false;
+    let refused = true;
+    const server = editFunction((data) =>
+      refused && data.query ? { ok: false, why: "kept-moving" } : importAnswers()(data)
+    );
+    open(sourcesOf(live, { call: server.call }));
+    expect(await screen.findByText("The cloud's refresh could not be read just now.")).toBeTruthy();
+    refused = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(
+      await screen.findByText("Every age group is due today — 120 teams to refresh.")
+    ).toBeTruthy();
   });
 });

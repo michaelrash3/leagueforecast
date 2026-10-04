@@ -4,9 +4,12 @@ import { agelessClearPlan, agelessSitting, type AgelessGroup } from "../agelessS
 import { agelessClearable } from "../agelessTriage";
 import type { AgeUnknownTeam } from "../ageUnknown";
 import { GC_PAIRING_EVIDENCE_LABEL, type GcImportState } from "../gameChangerImport";
+import { dueSummary, type DueSummary } from "../gameChangerSchedule";
+import { orgAgesByTeam } from "../orgMembership";
 import { poolHealth, settleableNow, type PoolHealth } from "../poolHealth";
 import { poolHealthSummary, type PoolHealthSummary } from "../poolHealthSummary";
 import { poolLists, TO_PULL_DRAWN, type PoolLists } from "../poolLists";
+import { storedRota } from "../storedRota";
 import { checkTheModel, type ModelCheckAnswer, type ScoutBacktestResult } from "../scoutBacktest";
 import { whatIfCurve, type WhatIfCurve } from "../scoutWhatIf";
 import { ageGroupYear, rankingPoolGroupIds, type SeasonSegment } from "../teamRankings/seasons";
@@ -20,7 +23,9 @@ import {
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
+  loadOrgMembership,
   loadRealClubs,
+  loadRefreshLog,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -105,7 +110,13 @@ export type PoolQuery =
    * are compared game by game and each run's errors, kept for that, came to 2.3 MB on 12U of 29
    * September, against 16 KB for the answer the card draws.
    */
-  | { kind: "model.check"; page: string };
+  | { kind: "model.check"; page: string }
+  /**
+   * What the Import tab shows of the copy's refresh: what a refresh at `at` would be for and how
+   * much is in it, as the nightly works it out (`storedRota`); when each level was last refreshed;
+   * and what the Organizations files kept come to.
+   */
+  | { kind: "import.status"; at: string };
 
 /**
  * What folding one club into another touches: the stored games that name the club folded away,
@@ -160,6 +171,18 @@ export type AgelessSearchAnswer = {
 
 export type AgelessClearPlanAnswer = ReturnType<typeof agelessClearPlan>;
 
+/** The copy's refresh as the Import tab shows it (`import.status`). */
+export type ImportStatus = {
+  due: DueSummary;
+  /** When each level was last refreshed, by level, lowest first: a day key. */
+  refreshed: { level: number; day: string }[];
+  /**
+   * The organizations kept, the teams under them, how many of those an organization's name can
+   * age, and how many of the teams waiting on an age are among those.
+   */
+  orgs: { orgs: number; teams: number; aged: number; waitingAged: number };
+};
+
 export type QueryAnswers = {
   "merge.preview": MergePreview;
   "rename.preview": RenamePreview;
@@ -174,6 +197,7 @@ export type QueryAnswers = {
   "games.find": { gameId: string | null };
   "scouting.whatIf": { curve: WhatIfCurve | null };
   "model.check": { answer: ModelCheckAnswer | null };
+  "import.status": ImportStatus;
 };
 
 export type QueryKind = PoolQuery["kind"];
@@ -288,6 +312,23 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
       return {
         kind: "model.check",
         answer: checkTheModel(page.id, known.teams, known.games, ageGroups),
+      };
+    }
+    case "import.status": {
+      const membership = loadOrgMembership();
+      const orgAges = orgAgesByTeam(membership);
+      return {
+        kind: "import.status",
+        due: dueSummary(storedRota(new Date(query.at))),
+        refreshed: Object.entries(loadRefreshLog())
+          .flatMap(([level, day]) => (/^\d+$/.test(level) ? [{ level: Number(level), day }] : []))
+          .sort((a, b) => a.level - b.level),
+        orgs: {
+          orgs: membership.orgs.length,
+          teams: new Set(membership.orgs.flatMap((org) => org.teamIds)).size,
+          aged: orgAges.size,
+          waitingAged: loadAgeUnknown().filter((entry) => orgAges.has(entry.teamId)).length,
+        },
       };
     }
     case "ageless.queue": {
@@ -543,6 +584,9 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
     case "model.check":
       if (isString(raw.page)) query = { kind: "model.check", page: raw.page };
       break;
+    case "import.status":
+      if (isTime(raw.at)) query = { kind: "import.status", at: raw.at };
+      break;
     case "ages.plan": {
       const clubs = everyOne(raw.clubs, ageAsked);
       if (clubs && isTime(raw.at) && isString(raw.base))
@@ -581,6 +625,26 @@ const WHAT_IF_CURVE: Shape = {
     winRecord: "string",
     lossRecord: "string",
     rankedCount: "count",
+  },
+};
+
+/** The copy's refresh as the Import tab reads it (`ImportStatus`). */
+const IMPORT_STATUS: Shape = {
+  record: {
+    due: {
+      record: {
+        ageLevels: { list: "count" },
+        heldBack: "count",
+        label: "string",
+        catchUp: "boolean",
+        cadence: { oneOf: ["daily", "rotation"] },
+        agelessTotal: "count",
+        teams: "count",
+        agelessDue: "count",
+      },
+    },
+    refreshed: { list: { record: { level: "count", day: "string" } } },
+    orgs: { record: { orgs: "count", teams: "count", aged: "count", waitingAged: "count" } },
   },
 };
 
@@ -991,6 +1055,8 @@ export const coerceQueryAnswer = <K extends QueryKind>(
       return ofShape<K>(raw, { record: { curve: { nullable: WHAT_IF_CURVE } } });
     case "model.check":
       return modelCheckOf(raw) as AnswerOf<K> | null;
+    case "import.status":
+      return ofShape<K>(raw, IMPORT_STATUS);
     case "merge.preview": {
       const fold = foldOf(raw);
       if (fold && typeof raw.found === "boolean")

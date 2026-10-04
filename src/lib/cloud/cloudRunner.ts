@@ -1,4 +1,3 @@
-import { withRulesMoved } from "../ageUnknown";
 import { todayIsoDay } from "../date";
 import { forgetClubs, isDeletedClub } from "../deletedGames";
 import { withListed, type GcTeamListEntry, type GcTeamResponse } from "../gameChangerApi";
@@ -15,28 +14,21 @@ import {
   tidyPool,
   type GcImportOutcome,
 } from "../gameChangerImport";
-import {
-  dueRefresh,
-  idsPlayingAround,
-  markRefreshed,
-  type DueRefresh,
-} from "../gameChangerSchedule";
-import { orgAgesByTeam, withOrgAges } from "../orgMembership";
+import { markRefreshed, type DueRefresh } from "../gameChangerSchedule";
+import { orgAgesByTeam } from "../orgMembership";
 import { persistPool } from "../poolPersist";
 import { settleRunLists } from "../pullLists";
-import { segmentOn } from "../teamRankings/seasons";
+import { storedRota } from "../storedRota";
 import {
   applyCloudPoolValues,
   flushPoolWrites,
   initTeamRankingsStore,
   loadAgeGroups,
-  loadAgeUnknown,
   loadDeletedGames,
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
   loadOrgMembership,
-  loadRefreshCadence,
   loadRefreshLog,
   loadScoutGames,
   loadScoutTeams,
@@ -228,29 +220,6 @@ export const loadPoolFrom = async (store: CloudStore): Promise<LoadedCopy | null
     bytes: parts.reduce((sum, part) => sum + part.bytes, 0),
     said,
   };
-};
-
-/**
- * The teams the Refresh button would pull at `now`, from the settings the pool store holds: the
- * season being played, the cadence, the day log, the waiting list and the ages named for it, the
- * thrown-out clubs, and the teams with a game today, which are never held back.
- */
-export const storedRota = (now: Date, force = false): DueRefresh => {
-  const today = todayIsoDay(now);
-  const ageless = loadAgeUnknown();
-  const membership = loadOrgMembership();
-  return dueRefresh(now, loadRefreshLog(), loadAgeGroups(), loadScoutTeams(), {
-    seasonYear: segmentOn(today).year,
-    ageless,
-    cadence: loadRefreshCadence(),
-    namedAges: withRulesMoved(
-      withOrgAges(loadNamedAges(), orgAgesByTeam(membership), membership.savedAt),
-      ageless
-    ),
-    refused: loadDroppedClubs(),
-    force,
-    playing: idsPlayingAround(loadScoutGames(), today),
-  });
 };
 
 /** Whether a copy is not this build's to change: saved by a newer build, or tidied by newer rules. */

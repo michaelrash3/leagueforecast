@@ -50,6 +50,10 @@ const LiveScouting = lazy(() => import("./LiveScouting"));
 const LiveSetup = lazy(() => import("./LiveSetup"));
 /** The Archive tab from the cloud's copy, loaded only when the tab is opened. */
 const LiveArchive = lazy(() => import("./LiveArchive"));
+/** The Import tab, the copy's refresh through the server, loaded only when the tab is opened. */
+const LiveImport = lazy(() => import("./LiveImport"));
+/** The time now, as an ISO string, where no source gives one. */
+const nowIso = () => new Date().toISOString();
 
 /**
  * How long the page waits for a board to draw before it goes to this device's copy the old way:
@@ -322,7 +326,8 @@ function LiveBoard({
       section !== "games" &&
       section !== "scouting" &&
       section !== "setup" &&
-      section !== "archive") ||
+      section !== "archive" &&
+      section !== "import") ||
     cannotList ||
     // No page: once there are pages to choose from, this device's or the meta's, and the meta's
     // are the ones laid out by, which is a render after the meta that brings them.
@@ -592,6 +597,14 @@ function LiveBoard({
               <LiveArchive copy={sources ? sources.copy : copyReader} onCannot={cannotListGames} />
             </Suspense>
           )
+        ) : section === "import" ? (
+          <Suspense fallback={statusCard("Reading the cloud's refresh…")}>
+            <LiveImport
+              edits={edits}
+              now={sources ? sources.now : nowIso}
+              onPullWanted={wantPage}
+            />
+          </Suspense>
         ) : section !== "rankings" ? (
           onCopySoon
         ) : board ? (

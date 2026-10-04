@@ -21,9 +21,11 @@ export type ShowToast = (
 
 /**
  * What the person is told once an edit is made, whether its toast offers to take it back, and what
- * the screen does once it has been taken back (asks again for what the undo changed).
+ * the screen does once it has been taken back (asks again for what the undo changed). `same`, when
+ * given, is said instead where the copy already held the edit, so nothing changed and there is
+ * nothing to take back: an Organizations file with nothing new in it.
  */
-export type EditSaid = { done: string; undo?: boolean; afterUndo?: () => void };
+export type EditSaid = { done: string; undo?: boolean; afterUndo?: () => void; same?: string };
 
 export type LiveEdits = {
   /** Why edits are off now, as the person is told, or null when they can be sent. */
@@ -117,6 +119,10 @@ export function useLiveEdits({
             const seen = current.current;
             return [...(seen ? held.filter((one) => !settledBy(one, seen)) : held), shown];
           });
+        if (said.same !== undefined && reply.changed.length === 0) {
+          showToast(said.same);
+          return true;
+        }
         showToast(
           said.done,
           said.undo
