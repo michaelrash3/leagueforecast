@@ -166,6 +166,37 @@ describe("an edit from the live page", () => {
     expect(call.sent).toEqual([]);
   });
 
+  it("stays the same edit and question while the lock comes and goes, and honours the lock as it is", async () => {
+    const call = server(made(5));
+    const toasts: string[] = [];
+    // The page's own toast and clock are the same functions from render to render.
+    const showToast = (message: string) => {
+      toasts.push(message);
+    };
+    const now = () => 0;
+    const rendered = renderHook(
+      ({ locked }: { locked: string | null }) =>
+        useLiveEdits({ copy: COPY, locked, showToast, deps: call.deps, now }),
+      { initialProps: { locked: null as string | null } }
+    );
+    const { edit, ask, warm } = rendered.result.current;
+    rendered.rerender({ locked: EDIT_LOCKS.offline });
+    // A card asking in an effect that depends on these does not ask again for a blip.
+    expect(rendered.result.current.edit).toBe(edit);
+    expect(rendered.result.current.ask).toBe(ask);
+    expect(rendered.result.current.warm).toBe(warm);
+    await act(async () => {
+      await edit(STATE, { done: "Set." });
+    });
+    expect(toasts).toEqual([EDIT_LOCKS.offline]);
+    expect(call.sent).toEqual([]);
+    rendered.rerender({ locked: null });
+    await act(async () => {
+      await edit(STATE, { done: "Set." });
+    });
+    expect(call.sent).toHaveLength(1);
+  });
+
   it("says a refusal in plain words, and a call that came to nothing in the call's own", async () => {
     const refused = server({ body: { result: { ok: false, why: "missing" } } });
     const one = hook(refused);

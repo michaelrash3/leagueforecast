@@ -16,6 +16,11 @@ type MyTeamCardProps = {
    * "no game on the schedule" would be a guess.
    */
   nextPending?: boolean;
+  /**
+   * Whether the schedule could not be had: the live board's card of the club would not read, so
+   * the card says nothing of a next game rather than that there is none.
+   */
+  nextUnread?: boolean;
 };
 
 /**
@@ -94,6 +99,7 @@ export function MyTeamCard({
   onOpenTeam,
   history,
   nextPending = false,
+  nextUnread = false,
 }: MyTeamCardProps) {
   const { next } = glance;
   return (
@@ -139,24 +145,26 @@ export function MyTeamCard({
         {glance.record} · {formatRating(glance.rating)}
       </p>
       {history && <RankLine history={history} now={glance.nationalRank} />}
-      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-        {next ? (
-          <>
-            Next: {next.date ? formatIsoDayShort(next.date) : "date to come"} vs{" "}
-            <strong>{next.opponentName}</strong>
-            {next.opponentRank !== undefined && ` (#${next.opponentRank.toLocaleString()})`}
-            {next.winProb === undefined
-              ? " — not rated yet"
-              : next.unconnected
-                ? ` — ${Math.round(next.winProb * 100)}% to win, a guess: no shared opponents yet`
-                : ` — ${Math.round(next.winProb * 100)}% to win`}
-          </>
-        ) : nextPending ? (
-          "Next game: loading…"
-        ) : (
-          "No game on the schedule yet."
-        )}
-      </p>
+      {(next || !nextUnread) && (
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          {next ? (
+            <>
+              Next: {next.date ? formatIsoDayShort(next.date) : "date to come"} vs{" "}
+              <strong>{next.opponentName}</strong>
+              {next.opponentRank !== undefined && ` (#${next.opponentRank.toLocaleString()})`}
+              {next.winProb === undefined
+                ? " — not rated yet"
+                : next.unconnected
+                  ? ` — ${Math.round(next.winProb * 100)}% to win, a guess: no shared opponents yet`
+                  : ` — ${Math.round(next.winProb * 100)}% to win`}
+            </>
+          ) : nextPending ? (
+            "Next game: loading…"
+          ) : (
+            "No game on the schedule yet."
+          )}
+        </p>
+      )}
     </section>
   );
 }

@@ -279,13 +279,16 @@ describe("Team Rankings on the cloud's board", () => {
     // The page's own club is starred, in its card, with its state rank, and its game still to come.
     const mine = screen.getByRole("region", { name: "My team" });
     expect(mine.textContent).toContain("Placeholder S-2");
-    expect(mine.textContent).toContain("Next game: loading…");
+    // No card of the club is published here, so nothing is said of its next game, rather than that
+    // it has none, or that it is still coming.
+    await waitFor(() => expect(mine.textContent).not.toContain("Next game: loading…"));
+    expect(mine.textContent).not.toContain("No game on the schedule");
     // The state top ten opens on the club's state; the full table's League badge is the row's.
     expect((screen.getByRole("combobox", { name: "State" }) as HTMLSelectElement).value).toBe("OH");
     fireEvent.click(screen.getByRole("button", { name: "Show all 3 teams" }));
     expect(screen.getAllByText("League")).toHaveLength(1);
-    // Read-only: nothing to mark, the page's own club shown as it is.
-    expect(screen.queryByRole("button", { name: /Mark mine/ })).toBeNull();
+    // Edits are on: a club can be marked as the page's own.
+    expect(screen.getAllByRole("button", { name: /Mark mine/ }).length).toBeGreaterThan(0);
     expect(await screen.findByText("The cloud's board")).toBeTruthy();
     expect(handedOver()).toBeNull();
     expect(pool.prepared).toBe(1);
@@ -356,6 +359,19 @@ describe("Team Rankings on the cloud's board", () => {
     expect(handedOver()).toBeNull();
     await act(async () => pool.finish());
     expect(handedOver()).toEqual({ stateTop: null, stateFilter: "", showAll: false });
+  });
+
+  it("stays on an area that does not draw the board, for a page with no published board, until the board is opened", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=11&year=2027&section=import");
+    open(sourcesOf(live), { waitMs: 5 });
+    expect(await screen.findByRole("heading", { name: "Pull a list of teams" })).toBeTruthy();
+    // Past the board's while, with none drawn: the Import tab is not the board's to give up.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 30)));
+    expect(screen.queryByText(/Loading this device's copy/)).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Rankings" }));
+    expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
+    await act(async () => pool.finish());
+    expect(handedOver()).not.toBeNull();
   });
 
   it("hands over at once when nothing is published, or no build like this one published it", async () => {
@@ -751,6 +767,109 @@ describe("a club's panel on the cloud's board", () => {
     });
   const tapClub = async (name: string) =>
     fireEvent.click((await screen.findAllByRole("button", { name }))[0]!);
+
+  it("draws the page's own club's next game from its card, and says it is coming until then", async () => {
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await withCard({
+      team: { id: "S-2", name: "Placeholder S-2", state: "OH" },
+      games: [{ id: "g3", teamAId: "S-1", teamBId: "S-2", ageGroupId: PAGE, date: "2027-05-01" }],
+      names: { "S-1": "Placeholder S-1" },
+      age: { level: 12 },
+    });
+    const reader = readerOf(live);
+    // The board's pieces come at once; the cards' wait until let go.
+    const board = new Set(
+      Object.entries(live.meta()?.views ?? {})
+        .filter(([key]) => key.startsWith("board:"))
+        .map(([, entry]) => entry.id)
+    );
+    const slow: LiveReader = {
+      ...reader,
+      getChunk: async (id) => {
+        if (![...board].some((upload) => id.startsWith(upload))) await held;
+        return reader.getChunk(id);
+      },
+    };
+    open(sourcesOf(live, { reader: async () => slow }));
+    const mine = await screen.findByRole("region", { name: "My team" });
+    expect(mine.textContent).toContain("Next game: loading…");
+    release();
+    await waitFor(() => expect(mine.textContent).toContain("vs Placeholder S-1 (#1)"));
+    expect(mine.textContent).not.toContain("loading");
+  });
+
+  it("marks a club as the page's own through the edit function, with the club as its card has it, drawn at once", async () => {
+    await withCard();
+    const server = editFunction((data) =>
+      data.warm ? WARMED : made(5, ["league_forecast_scout_age_groups_v1"])
+    );
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show all 3 teams" }));
+    const marks = await screen.findAllByRole("button", { name: "☆ Mark mine" });
+    fireEvent.click(marks[0]!);
+    await waitFor(() => expect(said.toasts).toContain("Placeholder S-1 is your team on 12U 2027."));
+    expect(edited(server.sent)).toEqual([
+      {
+        command: { kind: "page.myTeam", ageGroupId: PAGE, teamId: "S-1", adopt: CARD.team },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    // Drawn as the page's own at once, before a publish carries it.
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "My team" }).textContent).toContain(
+        "Placeholder S-1"
+      )
+    );
+    // Marked again, the mark is taken off.
+    fireEvent.click(screen.getAllByRole("button", { name: "★ My team" })[0]!);
+    await waitFor(() => expect(said.toasts).toContain("No club is marked as yours on 12U 2027."));
+    expect(edited(server.sent)[1]).toEqual({
+      command: { kind: "page.myTeam", ageGroupId: PAGE, teamId: null },
+      copy: MANIFEST.copy,
+    });
+    await waitFor(() => expect(screen.queryByRole("region", { name: "My team" })).toBeNull());
+    expect(handedOver()).toBeNull();
+  });
+
+  it("draws the page's own club as the cloud's pages have it, not this device's copy", async () => {
+    // The cloud's pages mark S-1 (marked on another device); this device's copy still says S-2.
+    await publish(live, undefined, {
+      pulledAt: T,
+      halves: { [PAGE]: { fall: 10, spring: 20 } },
+      groups: [{ ...GROUPS[0]!, myTeamId: "S-1" }, GROUPS[1]!],
+    });
+    open(sourcesOf(live));
+    const mine = await screen.findByRole("region", { name: "My team" });
+    expect(mine.textContent).toContain("Placeholder S-1");
+    expect(handedOver()).toBeNull();
+  });
+
+  it("sends no edit once it has handed over, while this device's copy comes in", async () => {
+    await withCard();
+    const server = editFunction((data) => (data.warm ? WARMED : made(5)));
+    open(sourcesOf(live, { call: server.call }));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    await pullOnDevice();
+    // The pool is still coming in; the board is drawn again, with nothing to mark on it.
+    fireEvent.click(screen.getByRole("tab", { name: "Rankings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show all 3 teams" }));
+    expect(screen.queryByRole("button", { name: /Mark mine/ })).toBeNull();
+    expect(handedOver()).toBeNull();
+    expect(edited(server.sent)).toEqual([]);
+  });
+
+  it("offers nothing to mark while edits are off", async () => {
+    await withCard();
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show all 3 teams" }));
+    expect(screen.getAllByRole("button", { name: /Mark mine/ }).length).toBeGreaterThan(0);
+    act(() => live.cutOff());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Mark mine/ })).toBeNull());
+    // The page's own club still shown as it is.
+    expect(screen.getAllByText("★ My team").length).toBeGreaterThan(0);
+  });
 
   it("opens from its card, with its record and games", async () => {
     await withCard();

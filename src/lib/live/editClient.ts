@@ -3,7 +3,8 @@ import { functionUrl } from "../cloud/functionsUrl";
 import { coerceCommand, type PoolCommand } from "./commands";
 import type { EditReply, WarmResult } from "./editHandle";
 import type { EditRefusal, QueryRefusal } from "./editRun";
-import { coerceQueryAnswer, type AnswerOf, type QueryKind, type QueryOf } from "./queries";
+import type { AnswerOf, QueryKind, QueryOf } from "./queries";
+import { coerceQueryAnswer } from "./queryAnswers";
 
 /**
  * A member's device asking the edit function (`edit`, `functions/src/index.ts`) to make an edit or

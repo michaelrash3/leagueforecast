@@ -265,8 +265,12 @@ export const readBoard = ({
  *   has them.
  * - `current`: built, every board of them by one build, from the very board inputs the copy held
  *   when this device last read or saved it (`copySeen`).
- * - `behind-copy`: built from other inputs: the copy has moved on since, or the boards were last
- *   written by more than one build (a floor record, `BuiltFrom`), which vouches for no inputs.
+ * - `behind-copy`: built from other inputs at a version of the copy no later than the one this
+ *   device holds: the copy has moved on since they were built, or they are of another copy, or the
+ *   boards were last written by more than one build (a floor record, `BuiltFrom`), which vouches
+ *   for no inputs. A board built from a later version of the same copy is `current`: the copy moved
+ *   past what this device holds (by an edit sent from this page, or another device's), and the board
+ *   has what the device's own copy, which a handover opens, does not yet.
  * - `unknown`: this device has not read the copy this session.
  *
  * Only board inputs count (`isBoardInput`): a change to anything else leaves every board as it was.
@@ -290,5 +294,6 @@ export const boardStanding = async ({
   // A floor record's inputs are empty, which no copy's fingerprint is.
   const built = meta.built[BOARD_FAMILY];
   if (!built) return "behind-copy";
-  return built.inputs === (await boardInputsPrintOf(seen.parts)) ? "current" : "behind-copy";
+  if (built.inputs === (await boardInputsPrintOf(seen.parts))) return "current";
+  return built.k === seen.copy && built.v > seen.version ? "current" : "behind-copy";
 };

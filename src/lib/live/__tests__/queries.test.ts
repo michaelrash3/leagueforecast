@@ -47,12 +47,12 @@ import { asJson } from "../editHandle";
 import {
   answerQuery,
   coerceQuery,
-  coerceQueryAnswer,
   foldCounts,
   type AnswerOf,
   type PoolQuery,
   type QueryKind,
 } from "../queries";
+import { coerceQueryAnswer } from "../queryAnswers";
 import type { GameSeen } from "../views/gamesShape";
 import { callableEncode } from "./callableEncode";
 

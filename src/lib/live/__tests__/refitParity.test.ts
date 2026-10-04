@@ -25,7 +25,8 @@ import {
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../allKnown";
 import { asJson } from "../editHandle";
-import { answerQuery, cardFixture, coerceQueryAnswer } from "../queries";
+import { answerQuery, cardFixture } from "../queries";
+import { coerceQueryAnswer } from "../queryAnswers";
 import { boardWhatIfDeclines, poolGamesOfCard, teamsOfCard } from "../scoutingFromCards";
 import { boardViews, buildBoardsAndFacts } from "../views/board";
 import { coerceBoardView, withMine } from "../views/boardShape";

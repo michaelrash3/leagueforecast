@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { PoolCommand } from "../commands";
 import type { EditRefusal, QueryRefusal } from "../editRun";
 import {
   EDIT_LOCKS,
   EDIT_REFUSED,
   editLock,
+  myTeamShown,
   overlayCard,
   pendingOf,
   QUERY_REFUSED,
@@ -139,6 +141,18 @@ describe("what the person is told", () => {
     expect(editLock({ offline: false, heard: true })).toBeNull();
   });
 
+  it("says edits are off once the page hands over, and with no reader of the cloud, whatever else holds", () => {
+    for (const offline of [true, false])
+      for (const heard of [true, false]) {
+        expect(editLock({ handedOver: true, unlinked: true, offline, heard })).toBe(
+          EDIT_LOCKS.handedOver
+        );
+        expect(editLock({ handedOver: false, unlinked: true, offline, heard })).toBe(
+          EDIT_LOCKS.unlinked
+        );
+      }
+  });
+
   it("names every reason an edit or a question is refused, and never says a refused edit may have been made but the one that may", () => {
     const refusals: EditRefusal[] = [
       "missing",
@@ -173,5 +187,49 @@ describe("what the person is told", () => {
       "month-spent",
     ];
     expect(Object.keys(QUERY_REFUSED).sort()).toEqual([...unanswered].sort());
+  });
+});
+
+describe("the page's own club as the edits not yet published leave it", () => {
+  const PAGE = "ag_12u_2027";
+  const pending = (...commands: PoolCommand[]) =>
+    commands.map((command, at) => ({ command, copy: "c1", version: 5 + at }));
+  const mark = (teamId: string | null, ageGroupId = PAGE): PoolCommand => ({
+    kind: "page.myTeam",
+    ageGroupId,
+    teamId,
+  });
+
+  it("is the last mark made for the page, or the page's own as published", () => {
+    expect(myTeamShown([], PAGE, "S-1")).toBe("S-1");
+    expect(myTeamShown(pending(mark("S-2"), mark("S-3")), PAGE, "S-1")).toBe("S-3");
+    expect(myTeamShown(pending(mark(null)), PAGE, "S-1")).toBeUndefined();
+    // Another page's mark leaves this one's as it is.
+    expect(myTeamShown(pending(mark("S-2", "ag_11u_2027")), PAGE, "S-1")).toBe("S-1");
+  });
+
+  it("is the page put back by the mark's Undo, inside a batch as an Undo sends it", () => {
+    const back: PoolCommand = {
+      kind: "batch",
+      commands: [
+        {
+          kind: "group.put",
+          group: {
+            id: PAGE,
+            name: "12U 2027",
+            ageLevel: 12,
+            year: 2027,
+            seasonIds: [],
+            myTeamId: "S-1",
+          },
+        },
+      ],
+    };
+    expect(myTeamShown(pending(mark("S-2"), back), PAGE, "S-1")).toBe("S-1");
+    const without: PoolCommand = {
+      kind: "group.put",
+      group: { id: PAGE, name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] },
+    };
+    expect(myTeamShown(pending(mark("S-2"), without), PAGE, "S-1")).toBeUndefined();
   });
 });

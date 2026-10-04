@@ -3902,7 +3902,18 @@ refuse, nothing drawn within 4 s of opening (or of moving to another page, half 
 year once a board has drawn, each of which has its own 4 s), or a board built
 before changes it does not have. Offline, it hands over for want of a board only
 once the board it kept has been looked for and not found, rather than when the
-network's failure beats the read of what it kept.
+network's failure beats the read of what it kept. The board's own reasons (none
+published, none that will read, none drawn in time) count only on the areas that
+draw it, the board and Scouting: Games, Setup, Archive and Import read what they
+show from a page's list, the edit function or the copy, and stay open without one
+until the board is asked for.
+
+A board is built before changes it does not have only when it was built from a
+version of the copy no later than the one this device read, or from another copy.
+One built from a later version of the same copy is the copy's: an edit sent from
+this page is in the copy and on the next board, and not yet in what this device
+read, so the board it rebuilt was once read as behind and the page handed over a
+minute after its own edit, to a copy without it.
 
 Handed over while the pool is still coming in, the board stays on screen and
 works as before, with the pool's progress above it and a button to stop waiting;
@@ -3918,12 +3929,34 @@ roster star and all (`liveBoard.ts`), marked as refitting until its own fit land
 once it has taken over it stays. Only a page opened by a handover reads those
 rows, and they are let go when the page closes, so a page opened the old way later
 (the switch turned off, or signed out) stands in its own saved board. Nothing can
-be changed on the board itself: marking a club, removing one and the schedule wait
-for the page.
+be changed on the board itself but which club is the page's own: Mark mine, and
+taking the mark off, go to the edit function (`page.myTeam`) with the club as its
+card has it, so one League Standings made joins the roster under the mark, as the
+page adopts it. The page's own club is the cloud's (the meta's pages, not this
+device's copy, which an edit sent from here does not move), with a mark made here
+drawn over it until a publish carries it (`myTeamShown`). Its card's next game is
+read off its published card, on the pages the board is fitted over, as the page's
+own card reads it off the pool (`buildUpcomingSchedule`); "loading" while the card
+comes, and nothing said of a next game when it will not read, rather than that
+there is none. Removing a club and the schedule still wait for the page. Edits
+are off once the page has handed over, while this device's copy comes in, since
+it opens without an edit sent meanwhile and then writes the copy itself; and with
+no reader of the cloud the lock says the device is not connected, not that it is
+offline. An edit and a question stay the same functions while the lock comes and
+goes, and read it as they are made, so a card that asks in an effect does not ask
+again for a blip of the connection (a what-if refitted the year each time). The
+board is held for the handover as it is put on screen, in a layout effect: held in
+a passive one, a test that found the board and closed the page at once failed 2
+runs in 15, and none in 15 after. Each guard of these was broken in turn and seen to
+fail a test, 26 of 26, one of them only once its test had sent the warm-up first.
 
 The page reads one meta and the pieces of the one board on screen, and none at
 all for a board this device kept. Its code is 5.3 KB gzipped, loaded only with
-the switch on; the first download grew 2.8 KB gzipped (229.1 to 231.9 KB), as the
+the switch on (23.5 KB gzipped beyond the first download with everything it loads
+at once, after 1.5's review: the questions' answers had come in with the server's
+answerer, Pool health's lists, the model check and the import, 69.8 KB, so the
+answers' reader is a module of its own (`queryAnswers.ts`) and the edit function's
+client loads at the first call, which the board alone never makes); the first download grew 2.8 KB gzipped (229.1 to 231.9 KB), as the
 cloud session's code moved into a chunk of its own beside the entry, and
 Firebase stays out of it. `LiveTeamRankings.test.tsx` draws boards published to
 an in-memory store through the real reader, cache and checks: the rows, places,

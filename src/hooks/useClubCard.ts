@@ -1,4 +1,4 @@
-import type { DecodedViews } from "../lib/live/liveClient";
+import { readView, type DecodedViews } from "../lib/live/liveClient";
 import {
   clubBucketOf,
   clubKey,
@@ -30,3 +30,24 @@ export function useClubCard(
   const card = teamId && view ? (view.clubs[teamId] ?? null) : null;
   return { card, failed: failed || (view !== null && card === null) };
 }
+
+/**
+ * One club's published card, read once rather than held on screen: what marking a club as a page's
+ * own sends with it (`page.myTeam`'s `adopt`), so a club League Standings made joins the roster
+ * under the mark. Null where it cannot be had.
+ */
+export const readClubCard = async (
+  source: LiveViewSource,
+  year: number | undefined,
+  teamId: string
+): Promise<ClubCard | null> => {
+  const done = await readView({
+    reader: source.reader,
+    meta: source.meta,
+    key: clubKey(year, clubBucketOf(teamId)),
+    cache: source.cache,
+    coerce: coerceClubBucket,
+    memory: decodedClubs,
+  }).catch(() => null);
+  return done?.ok ? (done.view.clubs[teamId] ?? null) : null;
+};

@@ -1,4 +1,14 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { readClubCard, useClubCard } from "../../hooks/useClubCard";
 import { useLiveBoard, type LiveSources } from "../../hooks/useLiveBoard";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import { useLiveEdits, type ShowToast } from "../../hooks/useLiveEdits";
@@ -14,12 +24,18 @@ import {
 import { todayIsoDay } from "../../lib/date";
 import { whereIsGcId } from "../../lib/gcIdWhereabouts";
 import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
-import { editLock } from "../../lib/live/liveEdits";
+import { editLock, myTeamShown } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
+import { poolGamesOfCard, teamsOfCard } from "../../lib/live/scoutingFromCards";
 import { lastWeekOf, withMine } from "../../lib/live/views/boardShape";
 import { myTeamGlance } from "../../lib/myTeamGlance";
 import { movementOf } from "../../lib/rankMovement";
-import type { AgeGroup, ScoutRankingRow } from "../../lib/teamRankings";
+import {
+  buildUpcomingSchedule,
+  rankingPoolGroupIds,
+  type AgeGroup,
+  type ScoutRankingRow,
+} from "../../lib/teamRankings";
 import { ageGroupLevel, segmentLabel } from "../../lib/teamRankings/seasons";
 import {
   clubsOfBoard,
@@ -252,7 +268,8 @@ function LiveBoard({
   const [scoutedTeam, setScoutedTeam] = useState("");
   const [comparedTeam, setComparedTeam] = useState("");
   const [pickedOpponents, setPickedOpponents] = useState<string[]>(NO_IDS);
-  // An edit or a what-if asked for, or a search with no list to read, which the board cannot do.
+  // Something asked for that is still this device's page's (a game added or imported, the rest of
+  // Setup, a pasted list pulled), or a search with no list to read.
   const [wanted, setWanted] = useState(false);
   const [searchWanted, setSearchWanted] = useState(false);
 
@@ -262,7 +279,34 @@ function LiveBoard({
     return () => clearTimeout(timer);
   }, [waitMs]);
 
-  const myTeamId = ageGroups.find((group) => group.id === selectedAgeGroupId)?.myTeamId;
+  const offline =
+    live.metaMiss === "offline" ||
+    live.metaMiss === "no-reader" ||
+    live.boardMiss === "offline" ||
+    live.link === "cut-off";
+  // A member's edits, sent to the edit function against the copy the views are of: off once handed
+  // over, offline, and until the network has answered for the board.
+  const metaCopy = live.meta?.meta.copy ?? null;
+  const edits = useLiveEdits({
+    copy: metaCopy,
+    locked: editLock({
+      handedOver,
+      unlinked: live.metaMiss === "no-reader",
+      offline,
+      heard: live.meta?.from === "network",
+    }),
+    showToast,
+    ...(sources?.call ? { deps: sources.call } : {}),
+  });
+  /*
+   * The page's own club as the cloud has it, with a mark made here and not yet published drawn
+   * over it: the cloud's pages, not this device's copy, which an edit sent from here does not move.
+   */
+  const myTeamId = myTeamShown(
+    edits.pending,
+    selectedAgeGroupId,
+    cloudGroups.find((group) => group.id === selectedAgeGroupId)?.myTeamId
+  );
   const board = live.board;
   const rows = useMemo(() => (board ? withMine(board.view.rows, myTeamId) : []), [board, myTeamId]);
   // Last week's places, as the page's arrows read them, and the page's own club's rank line.
@@ -281,8 +325,11 @@ function LiveBoard({
    * screen, none is. Letting go here too, not only where a refusal forgets every board
    * (`useLiveBoard`): a refusal heard between a board's drawing and this effect's running was
    * forgotten first and then held again by the late effect, about one time in six in the test.
+   * Held as the board is put on screen (a layout effect), not in a passive effect React runs some
+   * time after: a test that found the board drawn and closed the page at once could close it
+   * before the hold, which then held a board for a page no longer open.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (board)
       holdLiveBoard(
         { ageGroupId: selectedAgeGroupId, ...(live.segment ? { segment: live.segment } : {}) },
@@ -309,34 +356,27 @@ function LiveBoard({
     !board && (drawnOnce ? keyWaited !== null && keyWaited === live.key : waitedOut);
 
   /*
-   * Why the page cannot wait for a quiet moment: an area the board does not draw, no page, a meta
-   * or board that will not do, nothing drawn in the time allowed, or a board built before changes
-   * it does not have. An offline read keeps whatever board was drawn from this device's own keep,
-   * and hands over for want of one only once that keep has been looked in.
+   * Why the page hands over to this device's copy: no page, a meta that will not do, a board that
+   * will not do or was not drawn in the time allowed (only on the areas that draw it: Games, Setup,
+   * Archive and Import read what they show from a page's list, the edit function or the copy), a
+   * board built before changes it does not have, or something asked for that the board cannot do.
+   * An offline read keeps whatever board was drawn from this device's own keep, and hands over for
+   * want of one only once that keep has been looked in.
    */
-  const offline =
-    live.metaMiss === "offline" ||
-    live.metaMiss === "no-reader" ||
-    live.boardMiss === "offline" ||
-    live.link === "cut-off";
+  const drawsBoard = section === "rankings" || section === "scouting";
   const nothingToDraw =
     !board && (live.meta === null || live.keptMissed || live.boardMiss !== null);
   const handOverNow =
-    (section !== "rankings" &&
-      section !== "games" &&
-      section !== "scouting" &&
-      section !== "setup" &&
-      section !== "archive" &&
-      section !== "import") ||
     cannotList ||
     // No page: once there are pages to choose from, this device's or the meta's, and the meta's
     // are the ones laid out by, which is a render after the meta that brings them.
     (!selectedAgeGroupId &&
       (localGroups.length > 0 || (live.meta !== null && metaGroups === publishedRaw))) ||
     (live.metaMiss !== null && !offline) ||
-    (live.boardMiss !== null && live.boardMiss !== "offline") ||
-    (offline && nothingToDraw) ||
-    outOfTime ||
+    (drawsBoard &&
+      ((live.boardMiss !== null && live.boardMiss !== "offline") ||
+        (offline && nothingToDraw) ||
+        outOfTime)) ||
     live.standing === "behind-copy" ||
     live.standing === "owed" ||
     cannotOpen !== null ||
@@ -378,15 +418,6 @@ function LiveBoard({
 
   const searchLoading = search.asked && !search.view && !search.failed;
 
-  // A member's edits, sent to the edit function against the copy the views are of: off offline, and
-  // until the network has answered for the board.
-  const metaCopy = live.meta?.meta.copy ?? null;
-  const edits = useLiveEdits({
-    copy: metaCopy,
-    locked: editLock({ offline, heard: live.meta?.from === "network" }),
-    showToast,
-    ...(sources?.call ? { deps: sources.call } : {}),
-  });
   // What a club's panel offers to fold it into: the board's clubs, by the names the board shows.
   const foldInto = useMemo(
     (): MergeCandidate[] =>
@@ -418,10 +449,64 @@ function LiveBoard({
     () => new Set((board?.view.rows ?? []).filter((row) => row.league).map((row) => row.teamId)),
     [board]
   );
-  const myTeam = useMemo(
-    () => myTeamGlance(rows, myTeamId, (teamId) => stateById.get(teamId), [], lastWeek),
-    [rows, myTeamId, stateById, lastWeek]
+  /*
+   * The page's own club's card, for the games still on its schedule, read off the pages the board
+   * is fitted over as the page's own card reads them off the pool (`buildUpcomingSchedule`).
+   */
+  const mineCard = useClubCard(live.source, selectedYear, myTeamId ?? null);
+  const poolIds = useMemo(
+    () => new Set(rankingPoolGroupIds(selectedAgeGroupId, ageGroups)),
+    [selectedAgeGroupId, ageGroups]
   );
+  const myUpcoming = useMemo(
+    () =>
+      mineCard.card && myTeamId
+        ? buildUpcomingSchedule(
+            myTeamId,
+            rows,
+            poolGamesOfCard(mineCard.card, poolIds),
+            teamsOfCard(mineCard.card),
+            today
+          )
+        : [],
+    [mineCard.card, myTeamId, rows, poolIds, today]
+  );
+  const myTeam = useMemo(
+    () => myTeamGlance(rows, myTeamId, (teamId) => stateById.get(teamId), myUpcoming, lastWeek),
+    [rows, myTeamId, stateById, myUpcoming, lastWeek]
+  );
+  /*
+   * A club marked as the page's own, or the mark taken off it, sent as the device's page sends it
+   * (`page.myTeam`), with the club as its card has it, so one League Standings made joins the
+   * roster under the mark, as the device's page adopts it.
+   */
+  const markMine = (teamId: string) => {
+    const source = live.source;
+    if (!selectedAgeGroupId) return;
+    const pageName = ageGroups.find((group) => group.id === selectedAgeGroupId)?.name ?? "";
+    const unmark = myTeamId === teamId;
+    void (async () => {
+      const adopt =
+        unmark || !source
+          ? null
+          : ((await readClubCard(source, selectedYear, teamId))?.team ?? null);
+      const name = rows.find((row) => row.teamId === teamId)?.teamName ?? "That club";
+      await edits.edit(
+        {
+          kind: "page.myTeam",
+          ageGroupId: selectedAgeGroupId,
+          teamId: unmark ? null : teamId,
+          ...(adopt?.id === teamId ? { adopt } : {}),
+        },
+        {
+          done: unmark
+            ? `No club is marked as yours on ${pageName}.`
+            : `${name} is your team on ${pageName}.`,
+          undo: true,
+        }
+      );
+    })();
+  };
 
   const counts = (live.meta && live.meta.pages.halves[selectedAgeGroupId]) ?? {
     fall: 0,
@@ -605,8 +690,6 @@ function LiveBoard({
               onPullWanted={wantPage}
             />
           </Suspense>
-        ) : section !== "rankings" ? (
-          onCopySoon
         ) : board ? (
           <RankingsSection
             groupName={group?.name ?? ""}
@@ -645,11 +728,12 @@ function LiveBoard({
             isLeagueTeam={(teamId) => leagueIds.has(teamId)}
             hasGamesFiledHere={() => false}
             onOpenTeam={openTeam}
-            onMarkMine={() => undefined}
+            onMarkMine={markMine}
             onRemoveTeam={() => undefined}
-            readOnly
+            readOnly={edits.locked !== null}
             myTeam={myTeam}
-            myTeamNextPending
+            myTeamNextPending={myTeamId !== undefined && !mineCard.card && !mineCard.failed}
+            myTeamNextUnread={mineCard.failed}
             {...(rankHistory ? { rankHistory } : {})}
             movementOf={boardMovement}
           />

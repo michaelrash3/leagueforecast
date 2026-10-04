@@ -373,11 +373,31 @@ describe("whether a board is the copy's as this device found it", () => {
     );
   });
 
+  it("is current when built from a later version of the copy than this device holds", async () => {
+    // This page's own edit, sent through the server, is in the copy and on the board, and not yet
+    // in what this device read: handing over would open a copy without it.
+    const before = manifest(PARTS.map((one, at) => (at === 1 ? { ...one, hash: h(9) } : one)));
+    const meta = await metaWith({ v: 5 });
+    expect(await boardStanding({ meta, seen: seenOf(before), owed: [] })).toBe("current");
+    // Of another copy (started again since) at a later version, it vouches for nothing here.
+    expect(
+      await boardStanding({ meta, seen: { ...seenOf(before), copy: "another" }, owed: [] })
+    ).toBe("behind-copy");
+  });
+
   it("is behind the copy when an input moved, or no one build vouches for the boards", async () => {
     const moved = manifest(PARTS.map((one, at) => (at === 1 ? { ...one, hash: h(9) } : one)));
     expect(await boardStanding({ meta: await metaWith(), seen: seenOf(moved), owed: [] })).toBe(
       "behind-copy"
     );
+    // Moved past the version the board was built from.
+    expect(
+      await boardStanding({
+        meta: await metaWith(),
+        seen: { ...seenOf(moved), version: 5 },
+        owed: [],
+      })
+    ).toBe("behind-copy");
     const floor = await metaWith({ k: "", v: 0, inputs: "" });
     expect(await boardStanding({ meta: floor, seen: seenOf(manifest()), owed: [] })).toBe(
       "behind-copy"

@@ -1,8 +1,9 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { memberToken } from "../lib/cloud/cloudSession";
 import type { PoolCommand } from "../lib/live/commands";
-import { callEdit, callQuery, callWarm, type CallDeps } from "../lib/live/editClient";
+import type { CallDeps } from "../lib/live/editClient";
 import {
+  CLIENT_UNLOADED,
   EDIT_REFUSED,
   pendingOf,
   QUERY_REFUSED,
@@ -12,6 +13,13 @@ import {
 } from "../lib/live/liveEdits";
 import type { AnswerOf, QueryKind, QueryOf } from "../lib/live/queries";
 import type { ToastTone } from "./useToast";
+
+/*
+ * The edit function's client, with the readers of its replies (a command, every answer), loaded at
+ * the first call rather than with the board, which sends none: on the 29 September build they
+ * were about a third of what the live page downloaded before its board could draw.
+ */
+const editClient = () => import("../lib/live/editClient");
 
 /** The page's toast, as App hands it down. */
 export type ShowToast = (
@@ -87,6 +95,16 @@ export function useLiveEdits({
   useLayoutEffect(() => {
     current.current = copy;
   }, [copy]);
+  /*
+   * The lock as it is now, read when a call is made rather than kept in `edit` and `ask`, so those
+   * stay the same functions while the connection comes and goes: a card that asks in an effect
+   * which depends on `ask` asked again each time, and a what-if refitted the year for seven seconds
+   * on every blip of the connection.
+   */
+  const lockedNow = useRef(locked);
+  useLayoutEffect(() => {
+    lockedNow.current = locked;
+  }, [locked]);
   const pending = useMemo(
     () => (copy ? made.filter((one) => !settledBy(one, copy)) : made),
     [made, copy]
@@ -97,12 +115,18 @@ export function useLiveEdits({
       // Its own Undo is an edit too, sent the same way.
       async function send(command: PoolCommand, said: EditSaid): Promise<boolean> {
         const against = current.current;
-        if (locked || !against) {
-          showToast(locked ?? NO_COPY, { tone: "error" });
+        const lock = lockedNow.current;
+        if (lock || !against) {
+          showToast(lock ?? NO_COPY, { tone: "error" });
           return false;
         }
         lastCall.current = now();
-        const called = await callEdit({ command, copy: against.id }, callDeps);
+        const client = await editClient().catch(() => null);
+        if (!client) {
+          showToast(CLIENT_UNLOADED, { tone: "error" });
+          return false;
+        }
+        const called = await client.callEdit({ command, copy: against.id }, callDeps);
         if (!called.ok) {
           showToast(called.message, { tone: "error" });
           return false;
@@ -141,18 +165,24 @@ export function useLiveEdits({
       }
       return send(first, firstSaid);
     },
-    [locked, showToast, callDeps, now]
+    [showToast, callDeps, now]
   );
 
   const ask = useCallback(
     async <K extends QueryKind>(query: QueryOf<K>): Promise<AnswerOf<K> | null> => {
       const against = current.current;
-      if (locked || !against) {
-        showToast(locked ?? NO_COPY, { tone: "error" });
+      const lock = lockedNow.current;
+      if (lock || !against) {
+        showToast(lock ?? NO_COPY, { tone: "error" });
         return null;
       }
       lastCall.current = now();
-      const called = await callQuery<K>({ query, copy: against.id }, callDeps);
+      const client = await editClient().catch(() => null);
+      if (!client) {
+        showToast(CLIENT_UNLOADED, { tone: "error" });
+        return null;
+      }
+      const called = await client.callQuery<K>({ query, copy: against.id }, callDeps);
       if (!called.ok) {
         showToast(called.message, { tone: "error" });
         return null;
@@ -164,17 +194,20 @@ export function useLiveEdits({
       }
       return reply.answer;
     },
-    [locked, showToast, callDeps, now]
+    [showToast, callDeps, now]
   );
 
   const warm = useCallback(() => {
-    if (locked || !current.current) return;
+    if (lockedNow.current || !current.current) return;
     const at = now();
     if (lastCall.current !== null && at - lastCall.current < WARM_AFTER_MS) return;
     lastCall.current = at;
     // Nothing rides on a warm-up: the next edit brings the pool up itself.
-    void callWarm(callDeps);
-  }, [locked, callDeps, now]);
+    void editClient().then(
+      (client) => client.callWarm(callDeps),
+      () => undefined
+    );
+  }, [callDeps, now]);
 
   const say = useCallback((message: string) => showToast(message, { tone: "error" }), [showToast]);
 

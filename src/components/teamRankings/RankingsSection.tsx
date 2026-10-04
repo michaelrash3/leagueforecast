@@ -69,7 +69,7 @@ type RankingsSectionProps = {
    * live board's label (`liveLabel`).
    */
   standInNote?: string;
-  /** Rows to read, not change: the live board, drawn before this device's copy is in hand. */
+  /** Rows to read, not change: the live board while its edits are off (`editLock`). */
   readOnly?: boolean;
   /**
    * Draws the Find a team card before the list it searches is in hand, at its real size, and is
@@ -80,6 +80,8 @@ type RankingsSectionProps = {
   searchLoading?: boolean;
   /** Whether the marked club's next game is still to come in (`MyTeamCard`). */
   myTeamNextPending?: boolean;
+  /** Whether the marked club's next game could not be read (`MyTeamCard`). */
+  myTeamNextUnread?: boolean;
 };
 
 /**
@@ -130,6 +132,7 @@ export function RankingsSection({
   onSearchWanted,
   searchLoading = false,
   myTeamNextPending = false,
+  myTeamNextUnread = false,
 }: RankingsSectionProps) {
   // Keyed on the filter, so choosing another state starts at the top again without an effect.
   const [rowLimit, setRowLimit] = useState({ key: stateFilter, count: ROWS_SHOWN_FIRST });
@@ -219,6 +222,7 @@ export function RankingsSection({
               {...(segment ? { segmentName: segment.name } : {})}
               onOpenTeam={onOpenTeam}
               nextPending={myTeamNextPending}
+              nextUnread={myTeamNextUnread}
             />
           )}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -415,7 +419,7 @@ export function RankingsSection({
                         </div>
                       </dl>
                       <div className="mt-2 space-x-3 text-right">
-                        {/* The live board is for reading: marking a club is the page's, once it is in. */}
+                        {/* Rows to read while the live board's edits are off: nothing to mark. */}
                         {readOnly ? (
                           row.isMine && (
                             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
@@ -506,7 +510,7 @@ export function RankingsSection({
                         <td>{row.games}</td>
                         <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
                         <td className="space-x-2 text-right">
-                          {/* The live board is for reading: marking a club is the page's, once it is in. */}
+                          {/* Rows to read while the live board's edits are off: nothing to mark. */}
                           {readOnly ? (
                             row.isMine && (
                               <span className="text-xs font-bold text-slate-500 dark:text-slate-400">

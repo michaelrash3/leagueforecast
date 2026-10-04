@@ -41,22 +41,47 @@ export const WARM_AFTER_MS = 10 * 60_000;
 
 /** Why the page will not send an edit now, as the person is told. */
 export const EDIT_LOCKS = {
+  handedOver:
+    "This page is opening on this device's copy, so editing here is off; it carries on there.",
+  unlinked: "This device isn't connected to the cloud, so editing is off.",
   offline: "You're offline, so editing is off until the connection is back.",
   waiting: "Editing waits for the cloud to answer; the board drawn is this device's last one.",
 } as const;
 
 /**
- * Why edits are off: with no connection to send them, or before the network has answered, when
- * what is drawn is what this device kept and an edit would be made against a board nobody has
- * vouched for since.
+ * Why edits are off: once the page has handed over to this device's copy, which an edit sent from
+ * here would not be in when it opens (and which the device then writes itself); with no reader of
+ * the cloud (signed out, or the cloud turned off on this device); with no connection to send them;
+ * or before the network has answered, when what is drawn is what this device kept and an edit
+ * would be made against a board nobody has vouched for since.
  */
 export const editLock = ({
+  handedOver = false,
+  unlinked = false,
   offline,
   heard,
 }: {
+  handedOver?: boolean;
+  unlinked?: boolean;
   offline: boolean;
   heard: boolean;
-}): string | null => (offline ? EDIT_LOCKS.offline : heard ? null : EDIT_LOCKS.waiting);
+}): string | null =>
+  handedOver
+    ? EDIT_LOCKS.handedOver
+    : unlinked
+      ? EDIT_LOCKS.unlinked
+      : offline
+        ? EDIT_LOCKS.offline
+        : heard
+          ? null
+          : EDIT_LOCKS.waiting;
+
+/**
+ * What a person is told when the code that sends an edit or a question would not load (offline as
+ * the page asked for it, or a release that replaced it): nothing was sent.
+ */
+export const CLIENT_UNLOADED =
+  "The page could not load what talks to the cloud, so nothing was sent. Try again in a minute.";
 
 /** What a person is told of an edit the server would not make, each reason in plain words. */
 export const EDIT_REFUSED: Record<EditRefusal, string> = {
@@ -157,6 +182,24 @@ export const overlayCard = (
       default:
         break;
     }
+  }
+  return shown;
+};
+
+/**
+ * The club marked as a page's own as the edits not yet published leave it (`page.myTeam`, and its
+ * Undo, which puts the page back whole): the last of them made for the page, or `published`, the
+ * page's own as the views have it.
+ */
+export const myTeamShown = (
+  pending: readonly PendingEdit[],
+  pageId: string,
+  published: string | undefined
+): string | undefined => {
+  let shown = published;
+  for (const step of pending.flatMap(({ command }) => stepsOf(command))) {
+    if (step.kind === "page.myTeam" && step.ageGroupId === pageId) shown = step.teamId ?? undefined;
+    else if (step.kind === "group.put" && step.group.id === pageId) shown = step.group.myTeamId;
   }
   return shown;
 };
