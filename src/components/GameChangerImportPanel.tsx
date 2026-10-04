@@ -2341,9 +2341,9 @@ export function GameChangerImportPanel({
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 {describeGcProblems(result.problems)}. A team not reached is often worth another
                 try; one that could not be filed needs its age group or season fixed on GameChanger,
-                or is a level this app does not rank. One to check did import — its id simply
-                returned a different team from the one your list named, which is what a wrong id
-                looks like.
+                is a level this app does not rank, or, where its row says so, has the wrong id. One
+                to check did import — its id simply returned a different team from the one your list
+                named, which is what a wrong id looks like.
               </p>
               <ul className="mt-2 max-h-72 space-y-1.5 overflow-y-auto text-xs">
                 {result.problems.slice(0, PROBLEMS_SHOWN).map((problem) => (

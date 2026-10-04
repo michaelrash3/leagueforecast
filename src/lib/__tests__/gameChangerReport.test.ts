@@ -226,7 +226,7 @@ describe("collectGcImportProblems with pulled teams", () => {
   it("lists a filed schedule whose id returned another team, after the ones that failed", () => {
     const problems = collectGcImportProblems(
       [failure("gcBAD", "not-found", "No such team")],
-      [],
+      [outcome({ gcTeamId: "gcWRONG", teamName: "Prosper Cougars" })],
       new Map([["gcBAD", "Missing Club"]]),
       new Map([
         [
@@ -243,6 +243,74 @@ describe("collectGcImportProblems with pulled teams", () => {
     expect(problems[1]!.url).toContain("gcWRONG");
     expect(describeGcProblems(problems)).toBe("1 not reached · 1 to check");
     expect(gcImportProblemsCsv(problems)).toContain("Check the id");
+  });
+
+  /*
+   * A pull of 4 October 2026 listed 39 teams twice, under "could not be filed" and under "check
+   * the id", which the panel says of a team that did import. Placeholder names.
+   */
+  const wrongSeason = new Map([
+    [
+      "gcWRONG",
+      {
+        entry: { teamId: "gcWRONG", season: { season: "fall", year: 2026 } as const },
+        profile: {
+          id: "gcWRONG",
+          name: "Placeholder Owls",
+          season: { season: "summer", year: 2026 } as const,
+        },
+      },
+    ],
+  ]);
+  const ADULT = "GameChanger files this team as adult or college.";
+
+  it("lists a team that could not be filed once, with its wrong id on that row", () => {
+    const problems = collectGcImportProblems(
+      [],
+      [
+        outcome({
+          gcTeamId: "gcWRONG",
+          teamName: "Placeholder Owls",
+          skip: "not-youth",
+          issue: ADULT,
+        }),
+      ],
+      new Map(),
+      wrongSeason
+    );
+    expect(problems).toEqual([
+      {
+        teamId: "gcWRONG",
+        teamName: "Placeholder Owls",
+        kind: "not-filed",
+        reason: "Not the team the list named",
+        detail: `${ADULT} The list said Fall 2026; GameChanger returned Summer 2026. Its id may be the wrong one.`,
+        url: "https://web.gc.com/teams/gcWRONG",
+      },
+    ]);
+    expect(describeGcProblems(problems)).toBe("1 could not be filed");
+  });
+
+  it("leaves out a team left for its own season, unless its id returned another team", () => {
+    const later = (gcTeamId: string, skip: "out-of-season" | "other-season") =>
+      outcome({ gcTeamId, skip, issue: "Left for a later pull." });
+    expect(
+      collectGcImportProblems(
+        [],
+        [later("gcLATER", "out-of-season"), later("gcOTHER", "other-season")]
+      )
+    ).toEqual([]);
+    for (const skip of ["out-of-season", "other-season"] as const) {
+      const problems = collectGcImportProblems(
+        [],
+        [later("gcWRONG", skip)],
+        new Map(),
+        wrongSeason
+      );
+      expect(problems.map((problem) => [problem.kind, problem.reason])).toEqual([
+        ["not-filed", "Not the team the list named"],
+      ]);
+    }
   });
 
   it("checks nothing when no list described the ids", () => {

@@ -112,9 +112,15 @@ describe("fetchGcTeam", () => {
     expect(result).toMatchObject({ ok: false, reason: "unconfigured", status: 404 });
   });
 
-  it("reports a bodyless 5xx as an upstream error", async () => {
+  it("reports a bodyless 5xx as the proxy falling over, which is worth another try", async () => {
     const result = await fetchGcTeam(TEAM_ID, { fetchImpl: fakeFetch(() => htmlResponse(502)) });
-    expect(result).toMatchObject({ ok: false, reason: "upstream-error", status: 502 });
+    expect(result).toMatchObject({ ok: false, reason: "network", status: 502 });
+    expect(result.ok || result.message).toContain("the proxy fell over, not GameChanger");
+  });
+
+  it("reports any other bodyless failure as an upstream error", async () => {
+    const result = await fetchGcTeam(TEAM_ID, { fetchImpl: fakeFetch(() => htmlResponse(403)) });
+    expect(result).toMatchObject({ ok: false, reason: "upstream-error", status: 403 });
   });
 
   it("passes the proxy's error shape through", async () => {
@@ -402,6 +408,27 @@ describe("fetchGcTeams", () => {
     expect(fetchImpl.calls).toHaveLength(3);
     expect(delayMs.mock.calls).toEqual([[1], [2]]);
     expect(results.get(TEAM_ID)).toEqual(timeout);
+  });
+
+  /*
+   * A pull of 4 October 2026 lost the ten teams of one batch to a bare HTTP 500 from the proxy's
+   * host, which was not tried again. Retried, they arrive.
+   */
+  it("retries a batch the proxy's host answers with a bare 5xx", async () => {
+    const ids = ["Aaaaaaaa0001", "Bbbbbbbb0002"];
+    const answer = batchFetch(() => okBody);
+    const fetchImpl = fakeFetch((url, call) => (call === 1 ? htmlResponse(500) : answer(url)));
+    const results = await fetchGcTeams(ids, { fetchImpl, delayMs: () => 0 });
+    expect(fetchImpl.calls).toHaveLength(2);
+    expect(idsOf(fetchImpl.calls[1]!.url)).toEqual(ids);
+    expect([...results.values()].every((result) => result.ok)).toBe(true);
+  });
+
+  it("does not retry a bare 4xx, which would fail the same way again", async () => {
+    const fetchImpl = fakeFetch(() => htmlResponse(403));
+    const results = await fetchGcTeams([TEAM_ID], { fetchImpl, delayMs: () => 0 });
+    expect(fetchImpl.calls).toHaveLength(1);
+    expect(results.get(TEAM_ID)).toMatchObject({ ok: false, reason: "upstream-error" });
   });
 
   it("does not retry a not-found, blocked or unconfigured answer", async () => {
