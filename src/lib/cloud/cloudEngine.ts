@@ -10,6 +10,7 @@ import {
   type ManifestPart,
 } from "./cloudManifest";
 import { DamagedValueError, hashJson, packHashed, unpackChunks } from "./cloudPack";
+import { areaOf } from "./cloudPlan";
 
 /**
  * Moving values to the cloud copy and back, with the store handed in, so every rule here is tested
@@ -144,8 +145,11 @@ export class CommitUnanswered extends Error {
  *   device's later change winning, or this device's data from before it joined the copy);
  * - `restore`: make a kept settlement current again, keeping what it replaces in turn.
  * - `keepWhole`: keep every `keepReplaced` value in this settlement, one already kept elsewhere
- *   too, so that bringing this settlement back brings back all it replaced (Team Rankings started
- *   again on the server, `copyOps.ts`). Otherwise a value already kept is not kept a second time.
+ *   too, marked as its area whole (`KeptPart.whole`), so that bringing this settlement back makes
+ *   the area what it was: Team Rankings started again or restored from a backup on the server
+ *   (`copyOps.ts`, `editRun.ts`), whose `keepReplaced` is every key of the area. A settlement kept
+ *   whole that moves nothing keeps nothing, since the same values kept again would push out a
+ *   version that differs. Otherwise a value already kept is not kept a second time.
  *
  * A value whose fingerprint the copy already holds is named from the pieces it has, never uploaded
  * again. Every upload gets pieces of its own name, recorded through `onUploads` before the first is
@@ -226,12 +230,9 @@ export const commitChanges = async ({
   // otherwise fill the kept versions with copies of one value and push out the ones that differ.
   const alreadyKept = (part: ManifestPart): boolean =>
     (base?.kept ?? []).some((one) => one.key === part.key && one.hash === part.hash);
-  for (const key of keepReplaced) {
-    const current = parts.get(key);
-    if (current && (keepWhole || !alreadyKept(current))) {
-      newKept.push({ ...current, group, keptAt: now, why: "replaced" });
-    }
-  }
+  // The values replaced as the copy holds them before any change here; kept once the changes are
+  // known, ahead of everything else this settlement keeps.
+  const before = new Map(parts);
   for (const lost of keepLost) {
     if (lost.value !== null && lost.value !== undefined) {
       const part = await partFor(lost);
@@ -253,13 +254,36 @@ export const commitChanges = async ({
     onProgress?.(done, total);
   }
 
+  const moved =
+    [...parts].some(([key, part]) => before.get(key)?.hash !== part.hash) ||
+    [...before.keys()].some((key) => !parts.has(key));
+  const replaced = keepReplaced.flatMap((key): KeptPart[] => {
+    const current = before.get(key);
+    if (!current || (keepWhole ? !moved : alreadyKept(current))) return [];
+    return [
+      { ...current, group, keptAt: now, why: "replaced", ...(keepWhole ? { whole: true } : {}) },
+    ];
+  });
+  newKept.unshift(...replaced);
+
   let kept = base?.kept ?? [];
   if (restore) {
     const bringing = kept.filter((part) => part.group === restore);
     kept = kept.filter((part) => part.group !== restore);
-    for (const { group: _group, keptAt: _keptAt, why: _why, ...part } of bringing) {
+    // A version kept whole is its area as it stood: what the area holds now that it did not then
+    // goes, kept with the rest of what this replaces, which is that area whole in its turn.
+    const wholeAreas = new Set(bringing.filter((part) => part.whole).map(({ key }) => areaOf(key)));
+    const whole = wholeAreas.size > 0 ? { whole: true as const } : {};
+    const brought = new Set(bringing.map(({ key }) => key));
+    for (const [key, current] of [...parts]) {
+      if (!wholeAreas.has(areaOf(key)) || brought.has(key)) continue;
+      newKept.push({ ...current, group, keptAt: now, why: "replaced", ...whole });
+      parts.delete(key);
+      sent[key] = null;
+    }
+    for (const { group: _group, keptAt: _keptAt, why: _why, whole: _whole, ...part } of bringing) {
       const current = parts.get(part.key);
-      if (current) newKept.push({ ...current, group, keptAt: now, why: "replaced" });
+      if (current) newKept.push({ ...current, group, keptAt: now, why: "replaced", ...whole });
       parts.set(part.key, { ...part, at: Date.parse(now), by: device });
       sent[part.key] = part.hash;
     }

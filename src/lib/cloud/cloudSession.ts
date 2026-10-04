@@ -1,5 +1,10 @@
 import { coerceBackup } from "../backup";
-import { teamRankingsJson, type TeamRankingsBackup } from "../teamRankingsBackup";
+import {
+  teamRankingsBackupIsEmpty,
+  teamRankingsJsonParts,
+  type TeamRankingsBackup,
+} from "../teamRankingsBackup";
+import { OWNER_ONLY_MESSAGE } from "../memberCheck";
 import type { RestoreAnswer } from "./serverRestore";
 import { packUpload } from "./uploads";
 import type { LeagueStore } from "../live/leagueStore";
@@ -1492,8 +1497,16 @@ export const bringBack = async (group: string): Promise<void> => {
   });
 };
 
-/** Whether this browser is signed in to the cloud copy, so Team Rankings is restored there. */
-export const restoresInCloud = (): boolean => signedIn() !== null;
+/**
+ * Whether this browser keeps the cloud copy, so Team Rankings is restored there: signed in, with
+ * the copy kept here for this account. An account turned away from the copy keeps its own pool,
+ * and restores it here as a browser that never signed in does.
+ */
+export const restoresInCloud = (): boolean => {
+  const account = signedIn();
+  const state = loadCloudState();
+  return account !== null && state.enabled && state.uid === account.uid;
+};
 
 /**
  * Restores Team Rankings from `backup` in the cloud copy (1.6), as the owner alone may: what
@@ -1504,41 +1517,53 @@ export const restoresInCloud = (): boolean => signedIn() !== null;
  * as any newer copy is taken, so a restore made together with League Standings' own (a season
  * backup, a CSV) does not reload the page under the season being written. Says what came of it,
  * for the person who asked.
+ *
+ * A file with no Team Rankings in it is not sent: emptying the cloud's for every device is what
+ * Start again does, kept as an earlier version, and a League Standings backup saying nothing of
+ * Team Rankings is no reason to.
  */
 export const restoreTeamRankingsInCloud = async (
   backup: TeamRankingsBackup,
   { reload }: { reload: boolean }
 ): Promise<RestoreAnswer> => {
-  let answer: RestoreAnswer = { ok: false, message: NOT_SIGNED_IN_TO_RESTORE };
+  if (teamRankingsBackupIsEmpty(backup)) return { ok: false, message: NOTHING_TO_RESTORE };
+  // Set by the work, which may throw or never run: a closure's assignment TypeScript cannot see.
+  const told: { answer: RestoreAnswer | null } = { answer: null };
   await withSession(async (current, account) => {
+    // The rules take staged files from the owner alone; a member is told so, not refused by them.
+    if ((await current.cloud.members.role()) !== "owner") {
+      told.answer = { ok: false, message: OWNER_ONLY_MESSAGE };
+      return;
+    }
     await settleLocked(current, account, ["league", "pool"], "none");
     const manifest = await current.store.readManifest();
     if (!manifest) {
       setStatus({ kind: "gone", account });
-      answer = { ok: false, message: "There is no cloud copy to restore Team Rankings into." };
+      told.answer = { ok: false, message: "There is no cloud copy to restore Team Rankings into." };
       return;
     }
     // A pull or a tidy holds the pool in memory and writes it back as it goes, over the restore.
     if (isPoolBusy() || (await poolJobElsewhere())) {
-      answer = {
-        ok: false,
-        message:
-          "Team Rankings is being pulled or tidied. Restore the file once that has finished.",
-      };
-      setStatus({ kind: "error", account, message: answer.message });
+      const message =
+        "Team Rankings is being pulled or tidied. Restore the file once that has finished.";
+      told.answer = { ok: false, message };
+      setStatus({ kind: "error", account, message });
       return;
     }
     setStatus({ kind: "working", account, label: "Sending the backup to the cloud…" });
-    const packed = await packUpload("team-rankings", teamRankingsJson(backup, nowIso()), nowIso());
+    const at = nowIso();
+    const packed = await packUpload("team-rankings", teamRankingsJsonParts(backup, at), at);
     try {
       await current.cloud.stageUpload(packed);
     } catch (error) {
-      answer = { ok: false, message: messageOf(error) };
-      setStatus({ kind: "error", account, message: answer.message });
+      const message = messageOf(error);
+      told.answer = { ok: false, message };
+      setStatus({ kind: "error", account, message });
       return;
     }
     setStatus({ kind: "working", account, label: "Restoring Team Rankings…" });
-    answer = await current.cloud.restoreBackup(packed.id, manifest.copy);
+    const answer = await current.cloud.restoreBackup(packed.id, manifest.copy);
+    told.answer = answer;
     if (!answer.ok) {
       setStatus({ kind: "error", account, message: answer.message });
       return;
@@ -1547,10 +1572,16 @@ export const restoreTeamRankingsInCloud = async (
       "Team Rankings restored in the cloud copy. What it replaced is kept under Earlier versions.";
     await settleLocked(current, account, ["league", "pool"], reload ? "page" : "none");
   });
-  return answer;
+  if (told.answer) return told.answer;
+  // The work threw, or never had the copy to itself: said as the Cloud button says it.
+  if (!restoresInCloud()) return { ok: false, message: NOT_SIGNED_IN_TO_RESTORE };
+  return { ok: false, message: status.kind === "error" ? status.message : NOT_REACHED };
 };
 
 const NOT_SIGNED_IN_TO_RESTORE = "Sign in to the cloud to restore Team Rankings there.";
+const NOTHING_TO_RESTORE =
+  "The file holds no Team Rankings, so the cloud's is left as it is. Start again in Setup empties it.";
+const NOT_REACHED = "The cloud could not be reached. Try again in a moment.";
 
 /** Tries the last thing again after an error, from scratch. */
 export const retryCloud = async (): Promise<void> => {

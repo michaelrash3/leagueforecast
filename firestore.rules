@@ -119,9 +119,11 @@ service cloud.firestore {
         && upload.matches("^[0-9a-f]{32}$")
         && isUploadRecord(request.resource.data);
 
+      // A piece only of an upload whose record is there, which is what the nightly sweeps by.
       match /chunks/{piece} {
         allow get, delete: if isOwner();
         allow create: if isOwner()
+          && exists(/databases/$(database)/documents/uploads/$(upload))
           && piece.matches("^" + upload + "-[0-9]{1,3}$")
           && request.resource.data.keys().hasOnly(["data"])
           && request.resource.data.data is bytes

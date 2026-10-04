@@ -936,22 +936,27 @@ describe.skipIf(!HOST)(
   () => {
     const AT = "2026-10-04T12:00:00.000Z";
     /** The uploads as the edit function reads and deletes them, past the rules. */
-    const server = () =>
+    const server = (writable = true) =>
       firestoreRestUploads({
         projectId: PROJECT,
         token: async () => "owner",
         origin: `http://${HOST}`,
+        writable,
       });
-    const staged = () => packUpload("team-rankings", "placeholder Team Rankings JSON", AT);
+    const FILE = { placeholder: "Team Rankings JSON" };
+    const staged = () => packUpload("team-rankings", [JSON.stringify(FILE)], AT);
 
     it("is staged by the owner, record first, and read back by the server whole", async () => {
       const packed = await staged();
       await stageUploadIn(as(OWNER), packed);
       expect(await readUpload(server(), packed.id, "team-rankings")).toEqual({
         ok: true,
-        value: "placeholder Team Rankings JSON",
+        value: FILE,
       });
-      expect((await server().list()).map(({ id }) => id)).toEqual([packed.id]);
+      // Listed with when Firestore made it, by its own clock, which the nightly sweeps by.
+      const [listed] = await server().list();
+      expect(listed?.id).toBe(packed.id);
+      expect(Number.isNaN(Date.parse(listed?.stagedAt ?? ""))).toBe(false);
       // The owner reads back what it staged, and may take it away.
       expect((await getDoc(doc(as(OWNER), uploadPath(packed.id)))).exists()).toBe(true);
     });
@@ -991,10 +996,14 @@ describe.skipIf(!HOST)(
       await expect(setDoc(doc(db, uploadPath("not-an-id")), packed.record)).rejects.toMatchObject(
         REFUSED
       );
-      await setDoc(record, packed.record);
-      await expect(setDoc(record, { ...packed.record, bytes: 1 })).rejects.toMatchObject(REFUSED);
       const pieces = uploadChunksPath(packed.id);
       const bytes = (size: number) => Bytes.fromUint8Array(new Uint8Array(size));
+      // No piece before its record, which is all the nightly finds an upload by.
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(9) })
+      ).rejects.toMatchObject(REFUSED);
+      await setDoc(record, packed.record);
+      await expect(setDoc(record, { ...packed.record, bytes: 1 })).rejects.toMatchObject(REFUSED);
       // Named for this upload, holding bytes alone, no bigger than a piece is ever made.
       await expect(setDoc(doc(db, pieces, "other-0"), { data: bytes(9) })).rejects.toMatchObject(
         REFUSED
@@ -1017,6 +1026,9 @@ describe.skipIf(!HOST)(
     it("is deleted whole by the server, its pieces and then its record", async () => {
       const packed = await staged();
       await stageUploadIn(as(OWNER), packed);
+      // Not through a store opened to read, as the nightly's dry run opens it.
+      await expect(server(false).remove(packed.id)).rejects.toThrow("opened to read");
+      expect(await server().record(packed.id)).not.toBeNull();
       await server().remove(packed.id);
       expect(await server().record(packed.id)).toBeNull();
       expect(await server().getChunk(packed.id, `${packed.id}-0`)).toBeNull();

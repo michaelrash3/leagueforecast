@@ -135,28 +135,48 @@ export function useSeasonFiles({
     if (!incoming) {
       return "Team Rankings: none in this file. The current Team Rankings pool is left as it is.";
     }
+    const inCloud = restoresInCloud();
     if (teamRankingsBackupIsEmpty(incoming)) {
-      return "Team Rankings: this file's pool is empty. Importing it clears every age group, ranked team, and logged game from Team Rankings.";
+      return inCloud
+        ? "Team Rankings: this file's pool is empty, so the cloud's is left as it is."
+        : "Team Rankings: this file's pool is empty. Importing it clears every age group, ranked team, and logged game from Team Rankings.";
     }
-    return `Team Rankings: ${summarizeTeamRankingsBackup(incoming)}. Replaces the shared Team Rankings pool for every age group, not just this season.`;
+    return `Team Rankings: ${summarizeTeamRankingsBackup(incoming)}. ${
+      inCloud
+        ? "Replaces the cloud's Team Rankings for every device; what it replaces is kept under Earlier versions in the Cloud panel."
+        : "Replaces the shared Team Rankings pool for every age group, not just this season."
+    }`;
   };
 
   /**
-   * Team Rankings from an imported file. In the cloud, the server restores it (1.6), the copy's
-   * owner's to ask, and this browser takes it as any save: at once where `reload` (the Team
-   * Rankings file alone), else when Team Rankings next reads the copy, so a season imported with it
-   * is not reloaded away. Anywhere else, written here as it always was.
+   * Team Rankings from an imported file, restored in the cloud (1.6) by the server, the copy's
+   * owner's to ask; this browser takes it as any save, at once where `reload` (the Team Rankings
+   * file alone), else as a newer copy, so a season imported with it is not reloaded away. Says what
+   * came of it, for the toast that follows: none where the file has no Team Rankings at all.
    */
-  const applyTeamRankingsImport = async (
+  const restoreImportedRankings = async (
     incoming: TeamRankingsBackup | null,
-    { reload }: { reload: boolean } = { reload: false }
-  ) => {
-    if (!incoming) return;
-    if (restoresInCloud()) {
-      const done = await restoreTeamRankingsInCloud(incoming, { reload });
-      if (!done.ok) showToast(`Team Rankings was not restored: ${done.message}`, { tone: "error" });
-      return;
+    { reload }: { reload: boolean }
+  ): Promise<{ said: string; failed: boolean } | null> => {
+    if (!incoming) return null;
+    if (teamRankingsBackupIsEmpty(incoming)) {
+      return {
+        said: "The file holds no Team Rankings, so the cloud's is as it was.",
+        failed: false,
+      };
     }
+    const done = await restoreTeamRankingsInCloud(incoming, { reload });
+    return done.ok
+      ? {
+          said: `Team Rankings restored in the cloud: ${summarizeTeamRankingsBackup(incoming)}.`,
+          failed: false,
+        }
+      : { said: `Team Rankings was not restored: ${done.message}`, failed: true };
+  };
+
+  /** Team Rankings from an imported file, written here: a browser that does not keep the cloud's. */
+  const applyTeamRankingsImport = async (incoming: TeamRankingsBackup | null) => {
+    if (!incoming) return;
     if (!writeTeamRankingsBackup(incoming)) {
       showToast("Season imported, but Team Rankings data could not be saved (storage full).", {
         tone: "error",
@@ -247,10 +267,11 @@ This will replace the current season data and save an undo snapshot.`,
 
         // In the cloud the server restores the pool, and the copy keeps what it replaced: Undo
         // here would only write this browser's old pool over the cloud's.
+        const inCloud = restoresInCloud();
         captureUndo("CSV import", {
-          withTeamRankings: Boolean(importedRankings) && !restoresInCloud(),
+          withTeamRankings: Boolean(importedRankings) && !inCloud,
         });
-        await applyTeamRankingsImport(importedRankings);
+        if (!inCloud) await applyTeamRankingsImport(importedRankings);
         applySeason({
           teams: importedTeams,
           matchups: importedMatchups,
@@ -262,10 +283,15 @@ This will replace the current season data and save an undo snapshot.`,
         // line is the one thing the other two paths did and this one did not.
         clearLastImpact();
         setActiveView(importedScoreCount ? "games" : "standings");
+        // The season first, then the cloud's Team Rankings, which can take a while: the season on
+        // screen is the imported one by then, so nothing typed meanwhile lands in the wrong one.
+        const pool = inCloud
+          ? await restoreImportedRankings(importedRankings, { reload: false })
+          : null;
         showToast(
-          `Imported ${importedMatchups.length} games${importIssues.length ? ` with ${importIssues.length} skipped row(s)` : ""}${importedScoreCount ? `; ${importedScoreCount} scored game${importedScoreCount === 1 ? "" : "s"} pending verification` : ""}.`,
+          `Imported ${importedMatchups.length} games${importIssues.length ? ` with ${importIssues.length} skipped row(s)` : ""}${importedScoreCount ? `; ${importedScoreCount} scored game${importedScoreCount === 1 ? "" : "s"} pending verification` : ""}.${pool ? ` ${pool.said}` : ""}`,
           {
-            tone: "undo",
+            tone: pool?.failed ? "error" : "undo",
             actionLabel: "Undo",
             onAction: restoreUndo,
           }
@@ -360,18 +386,21 @@ This backup carries one season, so it replaces the current season data and saves
     });
     if (!confirmed) return;
 
+    const inCloud = restoresInCloud();
     captureUndo("Backup import", {
-      withTeamRankings: Boolean(nextRankings) && !restoresInCloud(),
+      withTeamRankings: Boolean(nextRankings) && !inCloud,
       // The backup's settings replace these, so the undo has to be able to put them back.
       withSettings: Boolean(season.settings),
     });
-    await applyTeamRankingsImport(nextRankings);
+    if (!inCloud) await applyTeamRankingsImport(nextRankings);
     applySeason(season);
     closeTeamData();
     clearLastImpact();
     setActiveView("standings");
-    showToast(`Imported backup (${season.matchups.length} games).`, {
-      tone: "undo",
+    // As the CSV's: the season first, then the cloud's Team Rankings.
+    const pool = inCloud ? await restoreImportedRankings(nextRankings, { reload: false }) : null;
+    showToast(`Imported backup (${season.matchups.length} games).${pool ? ` ${pool.said}` : ""}`, {
+      tone: pool?.failed ? "error" : "undo",
       actionLabel: "Undo",
       onAction: restoreUndo,
     });
@@ -403,8 +432,9 @@ League Standings — your seasons, schedules and scores — is not touched.`,
           });
           if (!confirmed) return;
           if (restoresInCloud()) {
-            // Restored by the server and reloaded on, or said why not.
-            await applyTeamRankingsImport(pool, { reload: true });
+            // Restored by the server and reloaded on where Team Rankings is open, or said why not.
+            const done = await restoreImportedRankings(pool, { reload: true });
+            if (done) showToast(done.said, { tone: done.failed ? "error" : "success" });
             return;
           }
           await applyTeamRankingsImport(pool);

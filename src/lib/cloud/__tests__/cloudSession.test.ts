@@ -3,7 +3,9 @@ import { DEFAULT_SETTINGS, type GameLog } from "../../types";
 import type { SeasonSnapshot } from "../../storage";
 import { commitChanges } from "../cloudEngine";
 import { readUpload, type PackedUpload } from "../uploads";
-import { parseTeamRankingsJson } from "../../teamRankingsBackup";
+import { readTeamRankingsFile } from "../../teamRankingsBackup";
+import { OWNER_ONLY_MESSAGE } from "../../memberCheck";
+import type { MemberRole } from "../members";
 import type { CloudManifest } from "../cloudManifest";
 import type { LocalSource } from "../cloudLocal";
 import type { LeagueValue } from "../leagueMerge";
@@ -148,6 +150,8 @@ let serverSays: string | null = null;
 /** The uploads staged, and the backups the server was asked to restore from them. */
 const staged = new Map<string, PackedUpload>();
 let restoredBackups: string[] = [];
+/** The role the list answers with where a case says otherwise than the list itself. */
+let roleSays: { role: MemberRole | null } | null = null;
 let clock = Date.parse("2026-09-29T12:00:00.000Z");
 
 const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
@@ -161,10 +165,13 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
     onAccount: () => () => undefined,
     idToken: async () => (current ? `token-of-${current.uid}` : null),
     owns: async () => current?.uid === ME.uid,
-    members: memoryMembers(
-      [{ address: ME.email ?? "", role: "owner" }],
-      () => current?.email ?? null
-    ),
+    members: (() => {
+      const list = memoryMembers(
+        [{ address: ME.email ?? "", role: "owner" }],
+        () => current?.email ?? null
+      );
+      return { ...list, role: async () => (roleSays ? roleSays.role : list.role()) };
+    })(),
     store: sky.store,
     live: {
       readMeta: async () => ({ readAs: current?.uid ?? null }),
@@ -213,8 +220,7 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
         upload,
         "team-rankings"
       );
-      const file =
-        read.ok && typeof read.value === "string" ? parseTeamRankingsJson(read.value) : null;
+      const file = read.ok ? readTeamRankingsFile(read.value) : null;
       if (!file) return { ok: false, message: "Not a backup." };
       const done = await commitChanges({
         store: sky.store,
@@ -291,6 +297,7 @@ beforeEach(() => {
   serverSays = null;
   staged.clear();
   restoredBackups = [];
+  roleSays = null;
   tabs.announced = 0;
 });
 
@@ -1093,9 +1100,9 @@ describe("bringing a kept version back", () => {
       packed.id,
       "team-rankings"
     );
-    expect(
-      read.ok && typeof read.value === "string" && parseTeamRankingsJson(read.value)
-    ).toMatchObject({ teams: [{ id: "S-1", name: "Placeholder Restored" }] });
+    expect(read.ok && readTeamRankingsFile(read.value)).toMatchObject({
+      teams: [{ id: "S-1", name: "Placeholder Restored" }],
+    });
     expect(await cloudValue(TEAMS)).toEqual(["Placeholder Restored"]);
     expect(phone.values.get(TEAMS)).toEqual(["Placeholder Restored"]);
   });
@@ -1151,6 +1158,66 @@ describe("bringing a kept version back", () => {
     expect(session.cloudStatus()).toMatchObject({ kind: "error", message: serverSays });
     expect(sky.manifest()?.version).toBe(version);
     expect(phone.values.get(TEAMS)).toEqual(["phone's edit"]);
+  });
+
+  it("tells a member only the owner restores one, and stages nothing", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    await open(laptop);
+    await open(phone);
+    roleSays = { role: "member" };
+    expect(await session.restoreTeamRankingsInCloud(FILE, { reload: true })).toEqual({
+      ok: false,
+      message: OWNER_ONLY_MESSAGE,
+    });
+    expect(staged.size).toBe(0);
+    expect(session.cloudStatus().kind).not.toBe("error");
+  });
+
+  it("sends nothing for a file holding no Team Rankings, and says the cloud's is left", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    await open(laptop);
+    await open(phone);
+    const version = sky.manifest()?.version;
+    const answer = await session.restoreTeamRankingsInCloud(
+      { ageGroups: [], teams: [], games: [] },
+      { reload: true }
+    );
+    expect(answer).toMatchObject({ ok: false, message: expect.stringContaining("left as it is") });
+    expect(staged.size).toBe(0);
+    expect(sky.manifest()?.version).toBe(version);
+  });
+
+  it("says what went wrong when the cloud cannot be reached, not to sign in", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    await open(laptop);
+    await open(phone);
+    const reads = sky.store.readManifest;
+    sky.store.readManifest = async () => {
+      throw new Error("The network is down.");
+    };
+    try {
+      const answer = await session.restoreTeamRankingsInCloud(FILE, { reload: true });
+      const status = session.cloudStatus();
+      expect(status.kind).toBe("error");
+      expect(answer).toEqual({
+        ok: false,
+        message: status.kind === "error" ? status.message : "",
+      });
+      expect(answer).not.toMatchObject({ message: expect.stringContaining("Sign in") });
+    } finally {
+      sky.store.readManifest = reads;
+    }
+  });
+
+  it("is not where an account turned away from the copy restores, which keeps its own pool", async () => {
+    const visitor = device({ league: fall, [TEAMS]: ["visitor's pool"] });
+    runAs(visitor, { uid: "stranger", email: "stranger@example.test" });
+    await session.signInToCloud();
+    expect(session.cloudStatus().kind).toBe("not-owner");
+    expect(session.restoresInCloud()).toBe(false);
   });
 
   it("stages nothing while a pull holds Team Rankings", async () => {

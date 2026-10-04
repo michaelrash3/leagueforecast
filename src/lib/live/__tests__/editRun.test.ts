@@ -660,8 +660,9 @@ describe("Team Rankings restored from a backup by the copy's owner", () => {
       },
       list: async () => [...held].map(([id, packed]) => ({ id, record: packed.record })),
     };
-    const stage = async (value: unknown) => {
-      const packed = await packUpload("team-rankings", value, NOW);
+    /** Stages `json` as a device stages a file: its text. */
+    const stage = async (json: string) => {
+      const packed = await packUpload("team-rankings", [json], NOW);
       held.set(packed.id, packed);
       return packed.id;
     };
@@ -698,12 +699,10 @@ describe("Team Rankings restored from a backup by the copy's owner", () => {
     const after = cloud.manifest()!;
     const group = after.kept.find((part) => part.key === TEAMS_KEY)?.group;
     const keptKeys = after.kept.filter((part) => part.group === group).map(({ key }) => key);
-    // Every part it moved, and any it wrote as it was, which brought back changes nothing.
-    expect(keptKeys).toEqual(
-      expect.arrayContaining([...done.changed].filter((key) => before.has(key)))
-    );
+    // Team Rankings whole, as it stood: every part, moved or not, marked as the area whole.
+    expect([...keptKeys].sort()).toEqual([...before.keys()].sort());
     for (const part of after.kept.filter((one) => one.group === group)) {
-      expect(part.hash).toBe(before.get(part.key));
+      expect(part).toMatchObject({ hash: before.get(part.key), whole: true });
     }
     await pool?.drop();
     await reopen(cloud);
@@ -715,6 +714,67 @@ describe("Team Rankings restored from a backup by the copy's owner", () => {
       teamAScore: 1,
       teamBScore: 0,
     });
+  });
+
+  it("is undone whole by bringing back what it replaced, a year it added included", async () => {
+    const cloud = await copyOfPool();
+    const before = new Map(cloud.manifest()!.parts.map((part) => [part.key, part.hash]));
+    const uploads = memoryUploads();
+    const added: ScoutGame[] = [
+      ...GAMES,
+      {
+        id: "new",
+        ageGroupId: "ag_10u_2028",
+        teamAId: "A",
+        teamBId: "B",
+        teamAScore: 9,
+        teamBScore: 0,
+      },
+    ];
+    const cache = editPool();
+    const done = await restore(
+      cache,
+      cloud.store,
+      uploads.store,
+      await uploads.stage(backupOf(added))
+    );
+    if (!done.ok) throw new Error(done.why);
+    const YEAR_2028 = "league_forecast_scout_games_v2:2028";
+    expect(cloud.manifest()!.parts.map(({ key }) => key)).toContain(YEAR_2028);
+    const group = cloud.manifest()!.kept.find((part) => part.key === TEAMS_KEY)?.group ?? "";
+    const back = await edit(cache, cloud.store, { kind: "copy.restore", group });
+    if (!back.ok) throw new Error(back.why);
+    // The copy's Team Rankings is what it was, part for part, and the year the file added is gone.
+    expect(new Map(cloud.manifest()!.parts.map((part) => [part.key, part.hash]))).toEqual(before);
+    await pool?.drop();
+    await reopen(cloud);
+    expect(loadScoutGamesForYear(2028)).toEqual([]);
+    // What that replaced is kept whole in its turn: the restore can be made again from it.
+    const again = cloud.manifest()!.kept.filter((part) => part.key === YEAR_2028);
+    expect(again[again.length - 1]).toMatchObject({ whole: true });
+  });
+
+  it("keeps nothing, and saves nothing, for a file the copy already holds", async () => {
+    const cloud = await copyOfPool();
+    const uploads = memoryUploads();
+    const first = await restore(
+      editPool(),
+      cloud.store,
+      uploads.store,
+      await uploads.stage(backupOf(GAMES))
+    );
+    if (!first.ok) throw new Error(first.why);
+    const after = cloud.manifest()!;
+    const second = await restore(
+      editPool(),
+      cloud.store,
+      uploads.store,
+      await uploads.stage(backupOf(GAMES))
+    );
+    expect(second).toMatchObject({ ok: true });
+    // The same version, and the same kept versions: a version that differs is not pushed out.
+    expect(cloud.manifest()!.version).toBe(after.version);
+    expect(cloud.manifest()!.kept).toEqual(after.kept);
   });
 
   it("is the pool a device restoring the same file writes for itself", async () => {
@@ -804,7 +864,7 @@ describe("Team Rankings restored from a backup by the copy's owner", () => {
       ok: false,
       why: "missing",
     });
-    for (const value of ['{"format":"something else"}', { not: "text" }]) {
+    for (const value of ['{"format":"something else"}', '{"not":"a backup"}', '"text"']) {
       const id = await uploads.stage(value);
       expect(await restore(editPool(), cloud.store, uploads.store, id)).toMatchObject({
         ok: false,
@@ -813,7 +873,7 @@ describe("Team Rankings restored from a backup by the copy's owner", () => {
     }
     // Whole, but its pieces are another file's: refused, not read as a file that never came.
     const swapped = await uploads.stage(backupOf(GAMES));
-    const other = await packUpload("team-rankings", backupOf([]), NOW);
+    const other = await packUpload("team-rankings", [backupOf([])], NOW);
     const held = uploads.held.get(swapped)!;
     uploads.held.set(swapped, {
       ...held,
@@ -828,7 +888,7 @@ describe("Team Rankings restored from a backup by the copy's owner", () => {
     });
     expect(cloud.manifest()?.version).toBe(version);
     // Kept for the nightly to sweep, rather than taken on a refusal the owner may want to see.
-    expect(uploads.held.size).toBe(4);
+    expect(uploads.held.size).toBe(5);
   });
 });
 

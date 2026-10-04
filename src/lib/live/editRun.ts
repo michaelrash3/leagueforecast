@@ -10,7 +10,7 @@ import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { readCloudPoolValue } from "../teamRankingsStorage";
 import { isCopyCommand, isOwnerCommand, type PoolCommand } from "./commands";
-import { keptBy, planCopyCommand } from "./copyOps";
+import { keptBy, planCopyCommand, poolKeysOf } from "./copyOps";
 import { runBackupRestore } from "./backupRestore";
 import { NO_UPLOADS, type UploadReader, type UploadStore } from "../cloud/uploads";
 import type { EditPool, PoolEnsure } from "./poolCache";
@@ -270,13 +270,14 @@ const saveOf = async ({
   const run = isOwnerCommand(command) ? await runOwner() : runPoolCommand(command);
   if (!run.ok) return run;
   const changes = await changesOf(written(), Date.parse(now()));
-  // A restore keeps the whole of what it replaced, as a start of Team Rankings does, so the Cloud
-  // panel can bring it back; every other edit keeps nothing, as before.
+  // A restore keeps Team Rankings whole as it stood, as a start of it does, so bringing that
+  // version back from the Cloud panel undoes the restore, a year or an archive it added included;
+  // every other edit keeps nothing, as before.
   const keep = command.kind === "backup.restore";
   return {
     ok: true,
     changes,
-    keepReplaced: keep ? changes.map(({ key }) => key) : [],
+    keepReplaced: keep ? poolKeysOf(manifest) : [],
     keepWhole: keep,
     inverse: () => run.inverse,
   };

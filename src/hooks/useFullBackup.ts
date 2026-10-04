@@ -8,6 +8,7 @@ import {
   type LiveSeasonData,
 } from "../lib/backup";
 import { noteBackupTaken } from "../lib/lastBackup";
+import { teamRankingsBackupIsEmpty } from "../lib/teamRankingsBackup";
 import { restoresInCloud, restoreTeamRankingsInCloud } from "../lib/cloud/cloudSession";
 import type { ConfirmState } from "./useConfirmation";
 
@@ -81,6 +82,8 @@ export function useFullBackup({
       // writes the seasons and settings, and takes the pool from the copy when Team Rankings next
       // reads it. What the copy replaces it keeps, so the cloud's pool can be brought back.
       const inCloud = restoresInCloud();
+      // A file with no pool in it leaves the cloud's as it is: emptying that is Start again's.
+      const cloudPool = inCloud && !teamRankingsBackupIsEmpty(backup.teamRankings);
       const confirmed = await requestConfirmation({
         title: "Restore full backup?",
         message: `${summarizeFullBackup(backup)}
@@ -88,21 +91,25 @@ export function useFullBackup({
 This replaces everything currently in this browser: all ${seasonCount} season${
           seasonCount === 1 ? "" : "s"
         }, ${
-          inCloud
+          cloudPool
             ? "and your theme and mode; and the cloud's Team Rankings for every device, which keeps the pool it replaces under Earlier versions in the Cloud panel"
-            : "the Team Rankings pool, and your theme and mode"
+            : inCloud
+              ? "and your theme and mode. The file holds no Team Rankings, so the cloud's is left as it is"
+              : "the Team Rankings pool, and your theme and mode"
         }. It cannot be undone — the toast afterwards offers a download of the data being replaced.`,
         confirmLabel: "Restore everything",
       });
       if (!confirmed) return;
 
       const result = applyFullBackup(backup, { teamRankings: !inCloud });
+      // On screen before the cloud is waited on, which can take a while: the seasons written are
+      // the ones React holds by then, so nothing typed meanwhile lands in the wrong season.
+      onRestored(backup);
       const failed = [...result.failed];
-      if (inCloud) {
+      if (cloudPool) {
         const pool = await restoreTeamRankingsInCloud(backup.teamRankings, { reload: false });
         if (!pool.ok) failed.push(`Team Rankings (${pool.message})`);
       }
-      onRestored(backup);
 
       const offerReplaced = {
         actionLabel: "Download replaced data",
@@ -117,9 +124,11 @@ This replaces everything currently in this browser: all ${seasonCount} season${
         return;
       }
       showToast(
-        `Restored ${backup.seasons.length} season${
-          backup.seasons.length === 1 ? "" : "s"
-        } and Team Rankings.`,
+        `Restored ${backup.seasons.length} season${backup.seasons.length === 1 ? "" : "s"}${
+          inCloud && !cloudPool
+            ? ". The file holds no Team Rankings, so the cloud's is as it was."
+            : " and Team Rankings."
+        }`,
         { tone: "success", ...offerReplaced }
       );
     },

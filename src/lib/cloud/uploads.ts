@@ -1,6 +1,6 @@
 import { fetchValues } from "./cloudEngine";
 import { chunkId, randomId } from "./cloudManifest";
-import { hashJson, packHashed } from "./cloudPack";
+import { packHashed, sha256Hex } from "./cloudPack";
 import { isUploadId } from "./uploadId";
 
 export { isUploadId };
@@ -8,8 +8,9 @@ export { isUploadId };
 /**
  * A file the copy's owner hands the server, staged where only the owner may write (1.6): a backup
  * of Team Rankings to restore, too big for a call's body. It is stored as the copy stores a part,
- * the value's JSON gzipped into pieces of at most `CHUNK_BYTES` and named `${id}-${n}`, beside a
- * record of its fingerprint, size and piece count, at `uploads/{id}` and `uploads/{id}/chunks`.
+ * JSON gzipped into pieces of at most `CHUNK_BYTES` and named `${id}-${n}`, beside a record of its
+ * fingerprint, size and piece count, at `uploads/{id}` and `uploads/{id}/chunks`. The JSON is the
+ * file's own text, handed over in the pieces it was written in, and read back as the value it is.
  * The server reads it back piece by piece and checks it against the fingerprint before it uses a
  * byte of it (`fetchValues`), then deletes it; the nightly deletes any a day old that nothing
  * used (`UPLOAD_MAX_AGE_MS`).
@@ -63,12 +64,25 @@ export type PackedUpload = {
   pieces: Array<{ id: string; data: Uint8Array<ArrayBuffer> }>;
 };
 
+/**
+ * Packs the JSON `json` is the pieces of. Given as text rather than as a value, since the text is
+ * what a backup is written as (`teamRankingsJsonParts`): turned into JSON again, every quote in
+ * seventy megabytes of it would be escaped, at a peak a phone may not have to spare.
+ */
 export const packUpload = async (
   kind: UploadKind,
-  value: unknown,
+  json: readonly string[],
   createdAt: string
 ): Promise<PackedUpload> => {
-  const hashed = await hashJson(value);
+  const encoder = new TextEncoder();
+  const encoded = json.map((part) => encoder.encode(part));
+  const text = new Uint8Array(encoded.reduce((total, part) => total + part.length, 0));
+  let at = 0;
+  for (const part of encoded) {
+    text.set(part, at);
+    at += part.length;
+  }
+  const hashed = { hash: await sha256Hex(text), bytes: text.length, text };
   const chunks = await packHashed(hashed);
   const id = randomId();
   return {
@@ -90,8 +104,11 @@ export type UploadReader = {
 export type UploadStore = UploadReader & {
   /** Deletes upload `id`: its pieces, then its record, so a record never names pieces gone. */
   remove: (id: string) => Promise<void>;
-  /** Every upload, by id, with its record as stored. */
-  list: () => Promise<Array<{ id: string; record: unknown }>>;
+  /**
+   * Every upload, by id, with its record as stored, and when the store made it by its own clock
+   * where it says (`stagedAt`).
+   */
+  list: () => Promise<Array<{ id: string; record: unknown; stagedAt?: string }>>;
 };
 
 /** No uploads at all: what a server that reads none, or a test, hands over. */
@@ -104,16 +121,19 @@ export const NO_UPLOADS: UploadStore = {
 
 /**
  * The uploads to delete at `now`: each a day old, or with a record this build cannot read, which
- * nothing will ever use. Ids only, so a sweep says how many it took and nothing of what they held.
+ * nothing will ever use. A day old by the store's own clock where it says (`stagedAt`), the time
+ * the device wrote in the record being only as right as the device's clock. Ids only, so a sweep
+ * says how many it took and nothing of what they held.
  */
 export const staleUploads = (
-  uploads: ReadonlyArray<{ id: string; record: unknown }>,
+  uploads: ReadonlyArray<{ id: string; record: unknown; stagedAt?: string }>,
   now: string
 ): string[] =>
-  uploads.flatMap(({ id, record }) => {
+  uploads.flatMap(({ id, record, stagedAt }) => {
     const read = coerceUploadRecord(record);
     if (!read) return [id];
-    return Date.parse(now) - Date.parse(read.createdAt) >= UPLOAD_MAX_AGE_MS ? [id] : [];
+    const made = Date.parse(stagedAt ?? read.createdAt);
+    return Date.parse(now) - made >= UPLOAD_MAX_AGE_MS ? [id] : [];
   });
 
 /**
@@ -131,20 +151,27 @@ export const readUpload = async (
   if (!isUploadId(id)) return { ok: false, why: "missing" };
   const record = coerceUploadRecord(await reader.record(id));
   if (!record || record.kind !== kind) return { ok: false, why: "missing" };
-  const fetched = await fetchValues({
-    store: { getChunk: (chunk) => reader.getChunk(id, chunk) },
-    parts: [
-      {
-        key: "upload",
-        hash: record.hash,
-        bytes: record.bytes,
-        chunks: record.chunks,
-        id,
-        at: 0,
-        by: "",
-      },
-    ],
-  });
+  let fetched: Awaited<ReturnType<typeof fetchValues>>;
+  try {
+    fetched = await fetchValues({
+      store: { getChunk: (chunk) => reader.getChunk(id, chunk) },
+      parts: [
+        {
+          key: "upload",
+          hash: record.hash,
+          bytes: record.bytes,
+          chunks: record.chunks,
+          id,
+          at: 0,
+          by: "",
+        },
+      ],
+    });
+  } catch (error) {
+    // Pieces that make the text fingerprinted, but text that is not JSON: no value at all.
+    if (error instanceof SyntaxError) return { ok: false, why: "damaged" };
+    throw error;
+  }
   if (!fetched.ok) return { ok: false, why: fetched.reason === "damaged" ? "damaged" : "missing" };
   return { ok: true, value: fetched.values.get("upload") };
 };

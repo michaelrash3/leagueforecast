@@ -36,7 +36,7 @@ parentPort?.on("message", (request: EditRequest) => {
         // League Standings, read only, for a year's archive; no edit writes a season.
         leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...restAccess(), writable: false })),
         // What the copy's owner staged to restore, deleted once restored.
-        uploads: firestoreRestUploads(restAccess()),
+        uploads: firestoreRestUploads({ ...restAccess(), writable: true }),
         command: ask.command,
         ...(ask.copy === undefined ? {} : { copy: ask.copy }),
         now,

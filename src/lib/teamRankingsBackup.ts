@@ -621,6 +621,14 @@ export const parseTeamRankingsJson = (raw: string): TeamRankingsBackup | null =>
   } catch {
     return null;
   }
+  return readTeamRankingsFile(parsed);
+};
+
+/**
+ * A JSON backup's value, once parsed, read as `parseTeamRankingsJson` reads it: what the server
+ * reads a staged file as (`backupRestore.ts`), which arrives parsed.
+ */
+export const readTeamRankingsFile = (parsed: unknown): TeamRankingsBackup | null => {
   if (!isRecord(parsed)) return null;
   if (parsed.format !== "league-forecast-team-rankings") return null;
 

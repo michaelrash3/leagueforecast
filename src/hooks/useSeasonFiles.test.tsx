@@ -104,7 +104,13 @@ describe("a pool imported in the cloud", () => {
     expect(restore.mock.calls[0]?.[0]).toMatchObject({ teams: POOL.teams });
     expect(restore.mock.calls[0]?.[1]).toEqual({ reload: true });
     expect(written).not.toHaveBeenCalled();
-    expect(calls.showToast).not.toHaveBeenCalled();
+    // Said, for where Team Rankings is not open and nothing reloads.
+    await waitFor(() =>
+      expect(calls.showToast).toHaveBeenCalledWith(
+        expect.stringContaining("Team Rankings restored in the cloud"),
+        { tone: "success" }
+      )
+    );
     vi.restoreAllMocks();
   });
 
@@ -129,10 +135,14 @@ describe("a pool imported in the cloud", () => {
 
   it("leaves the pool out of a season backup's Undo, and does not reload under the season", async () => {
     vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const { result, calls } = harness();
     const restore = vi
       .spyOn(cloudSession, "restoreTeamRankingsInCloud")
-      .mockResolvedValue({ ok: true });
-    const { result, calls } = harness();
+      .mockImplementation(async () => {
+        // The season is on screen before the cloud is waited on.
+        expect(calls.applySeason).toHaveBeenCalledTimes(1);
+        return { ok: true };
+      });
     result.current.importBackup(
       file(JSON.stringify({ teams: [], matchups: [], logs: {}, teamRankings: POOL }))
     );
@@ -141,7 +151,26 @@ describe("a pool imported in the cloud", () => {
       "Backup import",
       expect.objectContaining({ withTeamRankings: false })
     );
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
     expect(restore.mock.calls[0]?.[1]).toEqual({ reload: false });
+    vi.restoreAllMocks();
+  });
+
+  it("says in the import's own toast when the server would not restore the pool", async () => {
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    vi.spyOn(cloudSession, "restoreTeamRankingsInCloud").mockResolvedValue({
+      ok: false,
+      message: "Only the owner.",
+    });
+    const { result, calls } = harness();
+    result.current.importBackup(
+      file(JSON.stringify({ teams: [], matchups: [], logs: {}, teamRankings: POOL }))
+    );
+    await waitFor(() => expect(calls.showToast).toHaveBeenCalledTimes(1));
+    const [message, options] = calls.showToast.mock.calls[0] ?? [];
+    expect(message).toContain("Imported backup");
+    expect(message).toContain("Team Rankings was not restored: Only the owner.");
+    expect(options).toMatchObject({ tone: "error", actionLabel: "Undo" });
     vi.restoreAllMocks();
   });
 

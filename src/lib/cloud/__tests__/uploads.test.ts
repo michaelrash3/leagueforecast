@@ -39,8 +39,14 @@ const bulky = (pieces: number): string => {
 
 describe("a file staged for the server", () => {
   it("is read back as it went, from as many pieces as it took", async () => {
-    const value = bulky(2);
-    const packed = await packUpload("team-rankings", value, AT);
+    const value = { bulk: bulky(2) };
+    // Handed over as the text was written, in parts, and read back as the one value it makes.
+    const json = JSON.stringify(value);
+    const packed = await packUpload(
+      "team-rankings",
+      [json.slice(0, 7), json.slice(7, CHUNK_BYTES), json.slice(CHUNK_BYTES)],
+      AT
+    );
     expect(packed.record).toMatchObject({ kind: "team-rankings", createdAt: AT });
     expect(packed.record.chunks).toBeGreaterThan(1);
     expect(packed.pieces.map((piece) => piece.id)).toEqual(
@@ -53,7 +59,7 @@ describe("a file staged for the server", () => {
   });
 
   it("is missing without a piece, a record, or as another kind than asked for", async () => {
-    const packed = await packUpload("team-rankings", "placeholder backup", AT);
+    const packed = await packUpload("team-rankings", ['"placeholder backup"'], AT);
     expect(await readUpload(readerOf(packed, []), packed.id, "team-rankings")).toEqual({
       ok: false,
       why: "missing",
@@ -84,13 +90,19 @@ describe("a file staged for the server", () => {
   });
 
   it("is damaged when its pieces do not make the value fingerprinted", async () => {
-    const packed = await packUpload("team-rankings", "placeholder backup", AT);
-    const other = await packUpload("team-rankings", "another placeholder", AT);
+    const packed = await packUpload("team-rankings", ['"placeholder backup"'], AT);
+    const other = await packUpload("team-rankings", ['"another placeholder"'], AT);
     const swapped = packed.pieces.map((piece, index) => ({
       ...piece,
       data: other.pieces[index]?.data ?? piece.data,
     }));
     expect(await readUpload(readerOf(packed, swapped), packed.id, "team-rankings")).toEqual({
+      ok: false,
+      why: "damaged",
+    });
+    // The text fingerprinted, but no JSON: nothing to read either.
+    const text = await packUpload("team-rankings", ["placeholder, not JSON"], AT);
+    expect(await readUpload(readerOf(text), text.id, "team-rankings")).toEqual({
       ok: false,
       why: "damaged",
     });
@@ -139,6 +151,30 @@ describe("the uploads the nightly sweeps", () => {
         AT
       )
     ).toEqual(["old", "junk"]);
+  });
+
+  it("are a day old by the store's own clock where it says, whatever the device's said", async () => {
+    const record = {
+      kind: "team-rankings",
+      hash: "a".repeat(64),
+      bytes: 9,
+      chunks: 1,
+      createdAt: "2099-01-01T00:00:00.000Z",
+    };
+    const at = (ms: number) => new Date(Date.parse(AT) - ms).toISOString();
+    expect(
+      staleUploads(
+        [
+          { id: "ahead", record, stagedAt: at(UPLOAD_MAX_AGE_MS) },
+          {
+            id: "behind",
+            record: { ...record, createdAt: at(UPLOAD_MAX_AGE_MS * 9) },
+            stagedAt: AT,
+          },
+        ],
+        AT
+      )
+    ).toEqual(["ahead"]);
   });
 });
 

@@ -12,11 +12,15 @@ import type { FullBackup, LiveSeasonData } from "../lib/backup";
  * written. Getting that order wrong hands back a copy of the thing that just overwrote it, which
  * looks like it worked and is worthless.
  */
+/** A placeholder pool of one club, which a file with Team Rankings in it carries. */
+const POOL = { ageGroups: [], teams: [{ id: "S-1", name: "Placeholder Club" }], games: [] };
+
 const fullBackup = (label: string, seasons = 1): FullBackup =>
   ({
     exportedAt: "2026-09-19T00:00:00.000Z",
     seasons: Array.from({ length: seasons }, (_, i) => ({ id: `${label}-${i}` })),
     preferences: {},
+    teamRankings: POOL,
   }) as unknown as FullBackup;
 
 const live = (): LiveSeasonData => ({}) as LiveSeasonData;
@@ -138,10 +142,7 @@ describe("useFullBackup", () => {
       .spyOn(cloudSession, "restoreTeamRankingsInCloud")
       .mockResolvedValue({ ok: true });
     const { result, showToast, requestConfirmation } = setup(true, { ok: true, failed: [] });
-    const incoming = {
-      ...fullBackup("incoming"),
-      teamRankings: { ageGroups: [], teams: [], games: [] },
-    };
+    const incoming = fullBackup("incoming");
 
     await result.current.restoreFullBackup(incoming);
 
@@ -151,6 +152,42 @@ describe("useFullBackup", () => {
       "the cloud's Team Rankings for every device"
     );
     expect(showToast.mock.calls[0]?.[1].tone).toBe("success");
+  });
+
+  it("in the cloud, puts React in step with the seasons before the cloud is waited on", async () => {
+    vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("replaced"));
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const order: string[] = [];
+    vi.spyOn(cloudSession, "restoreTeamRankingsInCloud").mockImplementation(async () => {
+      order.push("cloud");
+      return { ok: true };
+    });
+    const { result, onRestored } = setup(true, { ok: true, failed: [] });
+    onRestored.mockImplementation(() => order.push("restored"));
+
+    await result.current.restoreFullBackup(fullBackup("incoming"));
+
+    expect(order).toEqual(["restored", "cloud"]);
+  });
+
+  it("in the cloud, leaves the cloud's pool alone for a file with none in it", async () => {
+    vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("replaced"));
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const restore = vi.spyOn(cloudSession, "restoreTeamRankingsInCloud");
+    const { result, showToast, requestConfirmation } = setup(true, { ok: true, failed: [] });
+    const incoming = {
+      ...fullBackup("incoming"),
+      teamRankings: { ageGroups: [], teams: [], games: [] },
+    };
+
+    await result.current.restoreFullBackup(incoming);
+
+    expect(backupLib.applyFullBackup).toHaveBeenCalledWith(incoming, { teamRankings: false });
+    expect(restore).not.toHaveBeenCalled();
+    expect(requestConfirmation.mock.calls[0]?.[0].message).toContain("holds no Team Rankings");
+    const [message, options] = showToast.mock.calls[0] ?? [];
+    expect(message).toContain("the cloud's is as it was");
+    expect(options.tone).toBe("success");
   });
 
   it("says the pool was not restored when the server would not", async () => {

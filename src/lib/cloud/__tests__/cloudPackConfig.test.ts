@@ -112,6 +112,13 @@ describe("a manifest from Firestore", () => {
     expect(coerceManifest(stored)).toEqual(stored);
   });
 
+  it("keeps a version kept whole as that, and reads nothing else as it", () => {
+    const kept = { ...part, key: "teams", group: "g2", keptAt: stored.updatedAt, why: "replaced" };
+    const whole = { ...stored, kept: [{ ...kept, whole: true }] };
+    expect(coerceManifest(whole)).toEqual(whole);
+    expect(coerceManifest({ ...stored, kept: [{ ...kept, whole: "yes" }] })?.kept).toEqual([kept]);
+  });
+
   it("is nothing when it could name the wrong pieces", () => {
     expect(coerceManifest(null)).toBeNull();
     expect(coerceManifest({ ...stored, version: "3" })).toBeNull();
