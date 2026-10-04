@@ -9,6 +9,7 @@ import { memoryCloud, memoryMembers, type MemoryCloud } from "./memoryCloud";
 import { gcAuthorization } from "../../gcAuthorization";
 import { memoryLeague } from "../../live/__tests__/memoryLeague";
 import { writeLiveLeague } from "../../preferences";
+import { saveLogs } from "../../storage";
 
 /*
  * The cloud session end to end, with Firebase, the browser's stores and its other tabs stood in
@@ -1067,6 +1068,73 @@ describe("League Standings kept live on a device", () => {
     writeLiveLeague(true);
     await session.signInToCloud();
     expect(sky.manifest()?.parts.map((part) => part.key)).toEqual([TEAMS]);
+    // It met no League in the copy, so going back to the copy merges rather than takes over.
+    expect(loadCloudState().met).toEqual({ pool: sky.manifest()?.copy });
+  });
+
+  it("marks a score the page writes while live, sends none of it, and sends it once turned off", async () => {
+    const { laptop } = await inStep();
+    await open(laptop);
+    onScreen();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval"] });
+    const stop = session.startCloudSession();
+    writeLiveLeague(true);
+    // The page writes a score to storage, which tells the session, as on the site.
+    laptop.values.set("league", league(season("fall", { g1: log(4, 0) })));
+    saveLogs({ g1: log(4, 0) });
+    expect(Object.keys(owedChanges())).toEqual(["league"]);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await cloudLogs()).toEqual({});
+    writeLiveLeague(false);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: true });
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+    await vi.advanceTimersByTimeAsync(1_001);
+    // The save has started; the copy's packing runs on the real clock.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    await vi.waitFor(() => expect(session.cloudStatus()).toMatchObject({ owed: false }));
+    expect(await cloudLogs()).toEqual({ g1: log(4, 0) });
+    stop();
+  });
+
+  it("neither offers nor brings back an earlier League version while live", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    edit(phone, "league", league(season("fall", { g1: log(5, 3) })));
+    later();
+    await open(laptop);
+    edit(laptop, "league", league(season("fall", { g1: log(6, 3) })));
+    await session.saveNow();
+    await open(phone);
+    await session.saveNow();
+    const [kept] = session.cloudKept();
+    expect(kept?.what).toEqual(["League Standings"]);
+    writeLiveLeague(true);
+    expect(session.cloudKept()).toEqual([]);
+    const version = sky.manifest()?.version;
+    await session.bringBack(kept?.group ?? "");
+    expect(session.cloudStatus()).toMatchObject({
+      kind: "error",
+      message: expect.stringContaining("kept live"),
+    });
+    expect(sky.manifest()?.version).toBe(version);
+    expect(logsOf(phone)).toEqual({ g1: log(6, 3) });
+  });
+
+  it("says no newer League is in the copy once League is kept live", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
+    await session.saveNow();
+    runAs(phone);
+    onScreen();
+    const stop = session.startCloudSession();
+    await session.bootCloud();
+    expect(session.cloudStatus()).toMatchObject({ newer: ["league"] });
+    writeLiveLeague(true);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: [] });
+    stop();
   });
 
   it("goes back to the copy when turned off, sending what changed meanwhile", async () => {

@@ -269,6 +269,41 @@ const saveActive = (dataKey: DataKey, value: unknown): boolean => {
   if (ok && changed) touchSeason(id);
   return ok;
 };
+/**
+ * Writes a season's data, all of it at once, to the season named, if this browser still holds it:
+ * League kept live writes a season here before it keeps anything of its document
+ * (`leagueSync.ts`), and a season deleted meanwhile is not written back into storage.
+ */
+export const writeSeasonData = (
+  id: string,
+  data: {
+    teams: TeamBase[];
+    matchups: Matchup[];
+    logs: Record<string, GameLog>;
+    bracketLogs: Record<string, GameLog>;
+    settings: Settings;
+  }
+): boolean => {
+  ensureInitialized();
+  if (!readSeasons().some((season) => season.id === id)) return false;
+  let ok = true;
+  let changed = false;
+  const write = (dataKey: DataKey, value: unknown) => {
+    const key = seasonKey(id, dataKey);
+    const text = JSON.stringify(value);
+    if (safeGet(key) === text) return;
+    changed = true;
+    if (!safeSet(key, text)) ok = false;
+  };
+  write("teams", data.teams);
+  write("matchups", data.matchups);
+  write("logs", data.logs);
+  write("bracketLogs", data.bracketLogs);
+  write("settings", data.settings);
+  if (ok && changed) touchSeason(id);
+  return ok;
+};
+
 export const saveTeams = (teams: TeamBase[]) => saveActive("teams", teams);
 export const saveMatchups = (matchups: Matchup[]) => saveActive("matchups", matchups);
 export const saveLogs = (logs: Record<string, GameLog>) => saveActive("logs", logs);

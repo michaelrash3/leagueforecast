@@ -26,11 +26,19 @@ const SAID: Partial<Record<LiveLeagueState["kind"], { text: string; alert: boole
     text: "The cloud has a different season under this one's name, started on another device, so the two are kept apart. Editing is off; make a new season here to carry on.",
     alert: true,
   },
+  unstorable: {
+    text: "A team or game id in this season is too long to keep in the cloud, so nothing here is sent to it. Editing is off.",
+    alert: true,
+  },
   refused: {
     text: "League Standings could not be opened from the cloud for this account. Editing is off; check you are signed in with an account on the list.",
     alert: true,
   },
 };
+
+/** Why League Standings may not be edited in `state`, or null when it may. */
+export const editingOffBecause = (state: LiveLeagueState): string | null =>
+  SAID[state.kind]?.text ?? null;
 
 /**
  * The line over League Standings kept live when it may not be edited, saying why

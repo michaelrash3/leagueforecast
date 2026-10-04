@@ -36,6 +36,7 @@ export const LEAGUE_COLLECTION = "league";
 /** Every field a season's document has; the rules refuse a document with any other. */
 export const LEAGUE_DOC_FIELDS = [
   "schema",
+  "rev",
   "name",
   "createdAt",
   "updatedAt",
@@ -50,6 +51,12 @@ export const LEAGUE_DOC_FIELDS = [
 
 export type LeagueDoc = {
   schema: number;
+  /**
+   * How many writes the document has had: 1 when made, and one more with every write, which the
+   * rules hold every writer to. It orders the versions a device hears and the writes it makes, so a
+   * device knows whether a version it hears already holds a write of its own (`leagueSync.ts`).
+   */
+  rev: number;
   name: string;
   createdAt: string;
   updatedAt?: string;
@@ -120,18 +127,31 @@ export const decodeKey = (key: string): string | null => {
 const present = <T extends object>(record: T): T =>
   Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as T;
 
+const hasOwn = (record: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(record, key);
+
+/*
+ * Maps are built from entries and read with own-property checks throughout, never `key in` an
+ * object or `object[key] = value`: an id is any text a schedule file held, and `constructor` or
+ * `__proto__` would otherwise read as already there, or set an object's prototype.
+ */
 const keyed = <T>(entries: Iterable<readonly [string, T]>): Record<string, T> => {
-  const out: Record<string, T> = {};
+  const out = new Map<string, T>();
   for (const [id, value] of entries) {
     const key = encodeKey(id);
-    if (!(key in out)) out[key] = present(value as object) as T;
+    if (!out.has(key)) out.set(key, present(value as object) as T);
   }
-  return out;
+  return Object.fromEntries(out);
 };
 
-/** A season as its document: what is written when the season first reaches the cloud. */
-export const seasonToDoc = (season: SeasonSnapshot): LeagueDoc => ({
+/**
+ * A season as its document: what is written when the season first reaches the cloud, as write
+ * `rev`. Two documents of one season built here compare by their records alone: both carry the
+ * same `rev` unless one is given.
+ */
+export const seasonToDoc = (season: SeasonSnapshot, rev = 1): LeagueDoc => ({
   schema: LEAGUE_DOC_SCHEMA,
+  rev,
   name: season.name,
   createdAt: season.createdAt,
   ...(season.updatedAt === undefined ? {} : { updatedAt: season.updatedAt }),
@@ -158,7 +178,7 @@ const stringsOf = (raw: unknown): string[] =>
 const listed = (raw: unknown, order: readonly string[]): unknown[] => {
   if (!isRecord(raw)) return [];
   const own = (key: string): unknown => {
-    const record = raw[key];
+    const record = hasOwn(raw, key) ? raw[key] : undefined;
     return isRecord(record) && isString(record.id) && encodeKey(record.id) === key
       ? record
       : undefined;
@@ -177,16 +197,17 @@ const listed = (raw: unknown, order: readonly string[]): unknown[] => {
 /** The records of a map by the ids their keys hold. */
 const byId = (raw: unknown): Record<string, unknown> => {
   if (!isRecord(raw)) return {};
-  const out: Record<string, unknown> = {};
+  const out = new Map<string, unknown>();
   for (const key of Object.keys(raw).sort()) {
     const id = decodeKey(key);
-    if (id !== null && !(id in out)) out[id] = raw[key];
+    if (id !== null && !out.has(id)) out.set(id, raw[key]);
   }
-  return out;
+  return Object.fromEntries(out);
 };
 
 export type LeagueDocRead =
-  | { ok: true; season: SeasonSnapshot }
+  /** `rev`: the write the document is at. */
+  | { ok: true; season: SeasonSnapshot; rev: number }
   /** `newer`: written by a later version of the app, which this one must not read or write. */
   | { ok: false; reason: "unreadable" | "newer" };
 
@@ -200,10 +221,13 @@ export const docToSeason = (raw: unknown, docId: string): LeagueDocRead => {
   if (typeof raw.schema !== "number" || !Number.isInteger(raw.schema) || raw.schema < 1)
     return { ok: false, reason: "unreadable" };
   if (raw.schema > LEAGUE_DOC_SCHEMA) return { ok: false, reason: "newer" };
+  if (typeof raw.rev !== "number" || !Number.isInteger(raw.rev) || raw.rev < 1)
+    return { ok: false, reason: "unreadable" };
   const teams = coerceTeams(listed(raw.teams, stringsOf(raw.teamOrder)));
   const matchups = coerceMatchups(listed(raw.matchups, stringsOf(raw.order)), teams);
   return {
     ok: true,
+    rev: raw.rev,
     season: {
       id,
       name: isString(raw.name) && raw.name.trim() ? raw.name.trim() : id,
@@ -274,3 +298,72 @@ export const docChanges = (base: LeagueDoc, next: LeagueDoc): LeagueDocChange[] 
   }
   return changes;
 };
+
+/**
+ * `doc` with `changes` made to it, as Firestore makes them: each field by its path, set or taken
+ * out, the maps on the way made where missing. `doc` itself is left as it was.
+ */
+export const applyChanges = (
+  doc: Readonly<Record<string, unknown>>,
+  changes: readonly LeagueDocChange[]
+): Record<string, unknown> => {
+  const next = structuredClone(doc) as Record<string, unknown>;
+  for (const change of changes) {
+    let at = next;
+    for (const part of change.path.slice(0, -1)) {
+      const inner = hasOwn(at, part) ? at[part] : undefined;
+      if (!isRecord(inner))
+        Object.defineProperty(at, part, {
+          value: {},
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      at = at[part] as Record<string, unknown>;
+    }
+    const last = change.path[change.path.length - 1] ?? "";
+    if ("remove" in change) delete at[last];
+    else
+      Object.defineProperty(at, last, {
+        value: structuredClone(change.value),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+  }
+  return next;
+};
+
+/**
+ * A season as every device reads it back from its document: through the validators storage reads
+ * with. What a device compares and merges is this, never the season as typed: a value the reader
+ * changes ("07" for "7", a Final with no score, a name with a space after it) would otherwise read
+ * as an edit on this device for ever, and win every conflict over the record it is in.
+ */
+export const readBack = (season: SeasonSnapshot): SeasonSnapshot => {
+  const read = docToSeason(seasonToDoc(season), seasonDocId(season.id));
+  if (!read.ok) return season;
+  const { updatedAt: _saved, ...back } = read.season;
+  return back;
+};
+
+/** Firestore takes a field's path up to 1,500 bytes; a key kept well inside it. */
+const KEY_BYTES = 1_000;
+
+/**
+ * Whether every record of `season` has a key Firestore takes as a field's name: an id from a
+ * schedule file can be any length, and one encoded past the limit would be refused in every write
+ * that carries it, the season's other changes with it.
+ */
+export const storableSeason = (season: SeasonSnapshot): boolean => {
+  const fits = (id: string) => new TextEncoder().encode(encodeKey(id)).length <= KEY_BYTES;
+  return (
+    fits(season.id) &&
+    season.teams.every((team) => fits(team.id)) &&
+    season.matchups.every((game) => fits(game.id)) &&
+    Object.keys(season.logs).every(fits) &&
+    Object.keys(season.bracketLogs).every(fits)
+  );
+};
+
+export { isRecord };

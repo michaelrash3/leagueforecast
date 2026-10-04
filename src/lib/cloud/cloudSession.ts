@@ -2,7 +2,6 @@ import { coerceBackup } from "../backup";
 import type { LeagueStore } from "../live/leagueStore";
 import type { LiveReader } from "../live/viewStore";
 import { readLiveLeague, subscribeLiveLeague } from "../preferences";
-import type { SeasonSnapshot } from "../storage";
 import { onLeagueWrite } from "../storage";
 import { isCloudPoolKey, onCloudPoolWrite } from "../teamRankingsStorage";
 import { isPoolBusy, poolJobElsewhere, watchPull } from "../pullSession";
@@ -394,7 +393,8 @@ const savedStatus = (account: CloudAccount, waiting?: Waiting): CloudStatus => {
     ...(state.syncedAt ? { syncedAt: state.syncedAt } : {}),
     owed,
     ...(why ? { waiting: why } : {}),
-    newer: [...newer],
+    // League taken in from the copy is nothing to wait for once League is kept live.
+    newer: [...newer].filter((area) => area !== "league" || !leagueLive()),
     ...(notice ? { notice } : {}),
   };
 };
@@ -478,15 +478,6 @@ export const leagueStore = async (): Promise<LeagueStore | null> => {
   const account = await current.cloud.account();
   if (!account || account.uid !== state.uid) return null;
   return current.cloud.league;
-};
-
-/**
- * A season as this device and the cloud copy last agreed on it, or null: what League kept live
- * meets the cloud's version from the first time, before it has a base of its own (`leagueSync.ts`).
- */
-export const copyLeagueSeason = (id: string): SeasonSnapshot | null => {
-  const base = loadLeagueBase();
-  return leagueOf(base?.value)?.seasons.find((season) => season.id === id) ?? null;
 };
 
 /** Every League Standings season in `raw`, read as a backup is, or null for anything else. */
@@ -1032,7 +1023,12 @@ const firstCopy = async (
   );
   saveCloudState({
     ...loadCloudState(),
-    met: { league: result.manifest.copy, pool: result.manifest.copy },
+    // League kept live sent none, so has met none: going back to the copy, it meets the copy's
+    // League afresh and merges, rather than taking it over its own as a copy it had agreed with.
+    met: {
+      ...(leagueLive() ? {} : { league: result.manifest.copy }),
+      pool: result.manifest.copy,
+    },
     hashes,
     copy: result.manifest.copy,
     version: result.manifest.version,
@@ -1229,7 +1225,12 @@ export const startCloudSession = (): (() => void) => {
     else noteChange(LEAGUE_PART);
   });
   const stopLeagueSwitch = subscribeLiveLeague(() => {
-    if (!leagueLive() && signedIn() && owedHere()) scheduleSave(5_000);
+    const account = signedIn();
+    if (!account) return;
+    // What is owed to the copy and what is newer in it both leave League out while it is kept
+    // live, so the panel says them again either way.
+    if (status.kind === "saved") setStatus(savedStatus(account, status.waiting));
+    if (!leagueLive() && owedHere()) scheduleSave(5_000);
   });
   const stopWatching = watchPull(() => {
     if (!signedIn() || isPoolBusy()) return;
@@ -1426,6 +1427,17 @@ export const bringBack = async (group: string): Promise<void> => {
       });
       return;
     }
+    if (leagueLive() && bringing.some((part) => part.key === LEAGUE_PART)) {
+      // The copy's League is not this device's League while it is kept live: brought back, it
+      // would replace the live seasons here and then be written over every device's.
+      setStatus({
+        kind: "error",
+        account,
+        message:
+          "League Standings is kept live on this device, so an earlier League version cannot be brought back here.",
+      });
+      return;
+    }
     const owed = owedToCopy();
     if (bringing.some((part) => part.key in owed)) {
       setStatus({
@@ -1493,7 +1505,10 @@ export const cloudKept = (): KeptVersion[] => {
   const device = loadCloudState().device;
   const groups = new Map<string, KeptPart[]>();
   for (const part of kept) groups.set(part.group, [...(groups.get(part.group) ?? []), part]);
+  // An earlier League version is not offered while League is kept live: it cannot come back here.
+  const live = leagueLive();
   return [...groups.entries()]
+    .filter(([, parts]) => !live || !parts.some((part) => part.key === LEAGUE_PART))
     .map(([group, parts]) => ({
       group,
       keptAt: parts[0]?.keptAt ?? "",

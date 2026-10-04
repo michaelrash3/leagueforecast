@@ -9,7 +9,6 @@
 export {
   collection,
   connectFirestoreEmulator,
-  deleteDoc,
   deleteField,
   disableNetwork,
   doc,

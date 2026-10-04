@@ -93,11 +93,12 @@ describe("laying this device's changes over the cloud's", () => {
 describe("what a write sends", () => {
   it("is each changed field and when it was saved, and nothing for no change", () => {
     const merged = withLogs(BASE, { "Row 3": score("2", "5") });
-    expect(writesFor(BASE, merged, "2027-04-03T18:00:00.000Z")).toEqual([
+    expect(writesFor(BASE, 4, merged, "2027-04-03T18:00:00.000Z")).toEqual([
       { path: ["logs", encodeKey("Row 3")], value: score("2", "5") },
       { path: ["updatedAt"], value: "2027-04-03T18:00:00.000Z" },
+      { path: ["rev"], value: 5 },
     ]);
-    expect(writesFor({ ...BASE, updatedAt: "earlier" }, BASE, "now")).toEqual([]);
+    expect(writesFor({ ...BASE, updatedAt: "earlier" }, 4, BASE, "now")).toEqual([]);
   });
 
   it("reads two versions alike whatever order or save time they carry", () => {

@@ -1,4 +1,4 @@
-import type { LeagueDocChange } from "../leagueDocs";
+import { applyChanges, type LeagueDocChange } from "../leagueDocs";
 import type { LeagueHeard, LeagueRemote, LeagueStore, LeagueWrite } from "../leagueStore";
 
 /**
@@ -37,28 +37,16 @@ export const memoryLeague = () => {
 
   const bump = (docId: string) => versions.set(docId, (versions.get(docId) ?? 0) + 1);
 
-  const applyChanges = (docId: string, changes: readonly LeagueDocChange[]) => {
+  const applyTo = (docId: string, changes: readonly LeagueDocChange[]) => {
     const data = docs.get(docId);
     if (!data) throw Object.assign(new Error("no document"), { code: "not-found" });
-    const next = structuredClone(data);
-    for (const change of changes) {
-      let at: Record<string, unknown> = next;
-      change.path.slice(0, -1).forEach((part) => {
-        const inner = at[part];
-        if (typeof inner !== "object" || inner === null) at[part] = {};
-        at = at[part] as Record<string, unknown>;
-      });
-      const last = change.path[change.path.length - 1] ?? "";
-      if ("remove" in change) delete at[last];
-      else at[last] = structuredClone(change.value);
-    }
-    docs.set(docId, next);
+    docs.set(docId, applyChanges(data, changes));
   };
 
   const commit = (docId: string, write: LeagueWrite) => {
     if ("create" in write)
       docs.set(docId, structuredClone(write.create) as Record<string, unknown>);
-    else applyChanges(docId, write.changes);
+    else applyTo(docId, write.changes);
     counts.writes += 1;
     bump(docId);
     tell(docId);
@@ -124,8 +112,25 @@ export const memoryLeague = () => {
     },
     /** Another device writes the whole document. */
     put: (docId: string, data: object) => commit(docId, { create: data as never }),
-    /** Another device writes some fields. */
-    edit: (docId: string, changes: readonly LeagueDocChange[]) => commit(docId, { changes }),
+    /** Another device writes some fields, one write past the last, as the rules hold it to. */
+    edit: (docId: string, changes: readonly LeagueDocChange[]) => {
+      const rev = docs.get(docId)?.rev;
+      commit(docId, {
+        changes: [...changes, { path: ["rev"], value: (typeof rev === "number" ? rev : 0) + 1 }],
+      });
+    },
+    /** Ends every listener on a season with `code`, as Firestore ends one that fails. */
+    failWatch: (docId: string, code: string) => {
+      const set = watchers.get(docId);
+      if (!set) return;
+      const ended = [...set];
+      set.clear();
+      ended.forEach((heard) =>
+        queueMicrotask(() => heard.error(Object.assign(new Error(code), { code })))
+      );
+    },
+    /** How many listeners a season has. */
+    listeners: (docId: string) => watchers.get(docId)?.size ?? 0,
     /** Another device deletes the season. */
     remove: (docId: string) => {
       docs.delete(docId);

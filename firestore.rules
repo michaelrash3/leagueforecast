@@ -60,10 +60,11 @@ service cloud.firestore {
     // `src/lib/live/leagueDocs.ts`). A season is made whole, with every field a season has, and
     // keeps them, carrying no other field ever after, so every device reads what every other
     // writes: every field but `updatedAt` is read by the check below, and a field the rules read
-    // that is not there refuses the write. Only the owner deletes one, since a season deleted here
-    // is gone from every device at once.
+    // that is not there refuses the write; `rev` is read, and its value set, by the create and
+    // update rules. Only the owner deletes one, since a season deleted here is gone from every
+    // device at once.
     function leagueFields() {
-      return ["schema", "name", "createdAt", "updatedAt", "teams", "teamOrder", "matchups", "order", "logs", "bracketLogs", "settings"];
+      return ["schema", "rev", "name", "createdAt", "updatedAt", "teams", "teamOrder", "matchups", "order", "logs", "bracketLogs", "settings"];
     }
 
     function isLeagueSeason(data) {
@@ -83,12 +84,16 @@ service cloud.firestore {
       // Named by the season's id as `encodeKey` writes it: as it is, or `~` and base64url.
       allow create: if isMember()
         && season.matches("^(~[A-Za-z0-9_-]+|[A-Za-z0-9_-]{1,64})$")
-        && isLeagueSeason(request.resource.data);
+        && isLeagueSeason(request.resource.data)
+        && request.resource.data.rev == 1;
       // Never back to an older layout than the one it is in, which a device that predates it
-      // would write over a newer device's season.
+      // would write over a newer device's season; and each write one past the last, so every
+      // device can tell which versions hold which writes, and a write made without reading the
+      // season first is refused.
       allow update: if isMember()
         && isLeagueSeason(request.resource.data)
-        && request.resource.data.schema >= resource.data.schema;
+        && request.resource.data.schema >= resource.data.schema
+        && request.resource.data.rev == resource.data.rev + 1;
       allow delete: if isOwner();
     }
 

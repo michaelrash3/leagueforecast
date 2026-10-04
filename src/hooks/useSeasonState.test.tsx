@@ -138,3 +138,46 @@ describe("the open season as one piece of state", () => {
     expect(held.controls?.store.get().season.logs.g1?.awayRuns).toBe("7");
   });
 });
+
+describe("the open season locked against the page's edits", () => {
+  it("refuses every setter's edit, saying why, and changes nothing", () => {
+    const { result } = renderHook(() => useSeasonState(() => ({ id: "s1", season: START })));
+    const { store } = result.current;
+    const refused: string[] = [];
+    store.onRefused((why) => refused.push(why));
+    let told = 0;
+    store.subscribe(() => (told += 1));
+    store.lock("Offline.");
+    act(() => result.current.setLogs({ g1: score("1", "0") }));
+    act(() => result.current.setTeams([]));
+    act(() =>
+      store.setSeason((prev) => ({ ...prev, settings: { ...prev.settings, winPoints: 9 } }))
+    );
+    expect(refused).toEqual(["Offline.", "Offline.", "Offline."]);
+    expect(told).toBe(0);
+    expect(result.current.season).toBe(START);
+  });
+
+  it("still takes another device's edits, and another season opened", () => {
+    const { result } = renderHook(() => useSeasonState(() => ({ id: "s1", season: START })));
+    const { store } = result.current;
+    store.lock("Offline.");
+    act(() => store.apply({ ...START, logs: { g1: score("5", "2") } }));
+    expect(result.current.logs).toEqual({ g1: score("5", "2") });
+    act(() => store.open("s2", START));
+    expect(store.get().id).toBe("s2");
+    expect(result.current.season).toBe(START);
+  });
+
+  it("takes the page's edits again once unlocked", () => {
+    const { result } = renderHook(() => useSeasonState(() => ({ id: "s1", season: START })));
+    const { store } = result.current;
+    const refused: string[] = [];
+    store.onRefused((why) => refused.push(why));
+    store.lock("Offline.");
+    store.lock(null);
+    act(() => result.current.setLogs({ g1: score("3", "1") }));
+    expect(result.current.logs).toEqual({ g1: score("3", "1") });
+    expect(refused).toEqual([]);
+  });
+});

@@ -4158,6 +4158,7 @@ The document holds the season record by record rather than as one value:
 | Field                            | What it holds                                                                  |
 | -------------------------------- | ------------------------------------------------------------------------------ |
 | `schema`                         | The layout's version, 1. A device reads and writes no document of a later one. |
+| `rev`                            | The write the document is at: 1 when made, one more with every write.          |
 | `name`, `createdAt`, `updatedAt` | As the season's entry in the switcher has them.                                |
 | `teams`, `teamOrder`             | Each team under its id, and the teams' ids in the season's order.              |
 | `matchups`, `order`              | Each game under its id, and the games' ids in schedule order.                  |
@@ -4188,9 +4189,14 @@ The rules (`firestore.rules`, tried on the emulator by `npm run test:rules`) let
 the accounts on the list read, list, make and change seasons, and nobody else
 anything. A season is made with every field it has and never carries another;
 each field must be of its kind; its `schema` never goes back to an older layout,
-which a device that predates a newer one would otherwise write over; and only
-the owner deletes a season, since a season deleted here is gone from every
-device at once.
+which a device that predates a newer one would otherwise write over; its `rev`
+is 1 when made and exactly one more with each write, so a write made without
+reading the season first is refused, and every device can tell which versions
+hold which writes; and only the owner deletes a season, since a season deleted
+here is gone from every device at once. A delete runs as a transaction, which
+reads the season first, so it fails at once offline rather than waiting there
+to land later, and the season is gone from the list here only once it is gone
+from the cloud.
 
 **On a device.** A member turns it on in the Cloud panel, **Keep League
 Standings live**, per device and off until turned on. Turn it on on every device
@@ -4202,44 +4208,71 @@ devices that have it on. With it on:
   page is hidden, in one transaction: what changed here since this device last
   took the document in, laid over the document as it then stands, by the same
   record-by-record merge the cloud copy uses (`leagueLive.ts`), and only the
-  fields that differ written. Another device's change is laid over the season on
-  screen the moment it arrives, unsent edits included, except while a field is
-  being typed in: then it waits until the page lets go, so nothing changes under
-  the cursor.
+  fields that differ written. What is compared is the season as every device
+  reads it back from its document (`readBack`), never as typed: a value the
+  readers rewrite ("07" for "7", a name with a space after it) would otherwise
+  read as an edit here for ever. Another device's change is laid over the season
+  on screen the moment it arrives, unsent edits included, except while a text
+  box is being typed in and the change would alter what is on screen: then it
+  waits until the page lets go, so nothing changes under the cursor. A select is
+  not typed in, and holds nothing back. A listener that fails is started again
+  after 2 s, the page read-only and saying it is offline meanwhile.
 - **The base** a merge works from is the document as this device last took it
-  in, which moves only with what the listener hears, so it never goes back, and
-  is kept between visits (`leagueBase.ts`): a game deleted on another device while
-  this one was closed stays deleted, rather than coming back from this device's
-  copy. The first time a device meets a season, it starts from the season as the
-  cloud copy last shared it.
+  in, with the write it was at, and this device's own writes that have landed
+  since, each with the write number it landed as (`leagueBase.ts`). An arrival
+  is placed by its number: a version at or past one of this device's writes
+  holds it, one before it does not, so a value changed and changed back before
+  the first write came back is still sent, and nothing of this device's is taken
+  for another device's change. The base is kept between visits, always after
+  the season itself is in storage, so a base never holds what storage does not:
+  a game deleted on another device while this one was closed stays deleted,
+  rather than coming back from this device's copy. A base is used only for the
+  season it was kept for, one made at the same moment; a season made since under
+  a deleted season's id is a season of its own. With no base, the first meeting
+  keeps everything either side holds, the cloud's record winning where both hold
+  one.
 - **Undo** puts back only what no other device has changed since the step
   (`guardedUndo`): undoing a deleted game here does not take back a score
   entered there since.
-- **The page is read-only, every control in it, with a line saying why,**
+- **Every control that edits the season is off, with a line saying why,**
   whenever the season may not be written: offline (as the listener reports it),
   while the cloud's version is first read, for a season a newer version of the
   app wrote, one deleted on another device, one the rules refuse this account,
-  and one that was started apart on another device under the same id (every
-  browser's first season is `default`), which is never merged into this one.
+  one with a team or game id too long to be a key in Firestore, and one that was
+  started apart on another device under the same id (every browser's first
+  season is `default`, and a deleted season's id can be made again elsewhere),
+  which is never merged into this one. The controls that only read it stay
+  usable: a team's stats, the filters, the exports, the season switcher, and
+  making a new season to carry on in (`EditLock`). The lock is on the season
+  itself as well (`seasonStore.ts`): an edit that comes from outside the page's
+  controls, a shared link, the command palette, a toast's Undo, is refused, with
+  the same reason.
 - **The season list** is met with the cloud's once a visit (`leagueSeasons.ts`):
   a season made on another device comes down whole; one only this device holds
   goes up, which is how the seasons a device kept in the cloud copy become
   documents the first time it goes live; and one this device met before that the
-  cloud no longer has was deleted elsewhere, and is not sent back. Deleting a
-  season deletes its document first, which only the owner may; a member is told
-  so, and nothing is deleted.
+  cloud no longer has was deleted elsewhere, and is not sent back. A season
+  brought down comes with its base, so the same holds for it. Deleting a season
+  deletes its document first, which only the owner may, and which needs the
+  cloud: a member, or a device offline, is told so, and nothing is deleted. A
+  season deleted before some other device has first gone live comes back from
+  that device, which has no base to tell a deletion from a season the cloud has
+  not seen; this is the other reason to turn it on everywhere together.
 - **The cloud copy leaves League alone** (`cloudSession.ts`): it neither sends
-  League nor takes it in, and a League change is no change owed to it. It is
-  still marked, though, so that turning the switch off sends to the copy what
-  changed while League was live, rather than the copy's older seasons replacing
-  it.
+  League nor takes it in, a League change is no change owed to it, a newer
+  League in it is not mentioned, and an earlier League version it keeps is
+  neither offered nor brought back. A League change is still marked, though, so
+  that turning the switch off sends to the copy what changed while League was
+  live, rather than the copy's older seasons replacing it; and a first copy made
+  while League is live counts as having met no League, so going back merges.
 
 The season on screen is held in a small store outside React
 (`seasonStore.ts`), which the live store reads and changes in one step, so an
 arrival is merged into exactly what is there and nothing lands between the read
 and the write; the page renders from its own copy of it, set from the store's
 notice with the priority of the change, so a score box's keystroke still renders
-as a transition.
+as a transition. Locked, the store refuses the page's edits and still takes
+another device's.
 
 ## AI write-ups
 

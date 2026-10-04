@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SeasonSnapshot } from "../../storage";
 import { DEFAULT_SETTINGS } from "../../types";
-import type { BaseKeeper } from "../leagueBase";
+import type { BaseKeeper, Known } from "../leagueBase";
 import { docToSeason, LEAGUE_DOC_SCHEMA, seasonDocId, seasonToDoc } from "../leagueDocs";
 import { meetSeasons, type LocalSeasons } from "../leagueSeasons";
 import { memoryLeague } from "./memoryLeague";
@@ -33,12 +33,15 @@ const localOf = (seasons: SeasonSnapshot[]): LocalSeasons & { held: SeasonSnapsh
   };
 };
 
-const basesOf = (ids: string[] = []): BaseKeeper & { held: Map<string, SeasonSnapshot> } => {
-  const held = new Map<string, SeasonSnapshot>(ids.map((id) => [seasonDocId(id), season(id)]));
+const basesOf = (ids: string[] = []): BaseKeeper & { held: Map<string, Known> } => {
+  const held = new Map<string, Known>(
+    ids.map((id) => [seasonDocId(id), { season: season(id), rev: 3, landed: [] }])
+  );
   return {
     held,
     read: (docId) => held.get(docId) ?? null,
-    write: (docId, one) => held.set(docId, one),
+    write: (docId, known) => held.set(docId, known),
+    remove: (docId) => held.delete(docId),
   };
 };
 
@@ -70,7 +73,59 @@ describe("this device's seasons met with the cloud's", () => {
     expect(met.sent).toEqual(["summer"]);
     const read = docToSeason(cloud.read(seasonDocId("summer")), seasonDocId("summer"));
     expect(read.ok && read.season.name).toBe("Season summer");
-    expect(bases.held.has(seasonDocId("summer"))).toBe(true);
+    expect(read.ok && read.rev).toBe(1);
+    expect(bases.held.get(seasonDocId("summer"))).toEqual({
+      season: season("summer"),
+      rev: 1,
+      landed: [],
+    });
+  });
+
+  it("brings a season down with its base, so a deletion elsewhere later is a deletion", async () => {
+    const cloud = memoryLeague();
+    const fall = season("fall");
+    cloud.put(seasonDocId("fall"), seasonToDoc(fall, 4));
+    const local = localOf([season("spring")]);
+    const bases = basesOf();
+    const meet = () => meetSeasons({ store: cloud.store, local, bases, openId: () => "spring" });
+    await meet();
+    expect(bases.held.get(seasonDocId("fall"))).toEqual({ season: fall, rev: 4, landed: [] });
+    cloud.remove(seasonDocId("fall"));
+    const met = await meet();
+    expect(met.gone).toEqual(["fall"]);
+    expect(met.sent).toEqual([]);
+    expect(cloud.read(seasonDocId("fall"))).toBeUndefined();
+  });
+
+  it("keeps no base for a season this device could not add to its list", async () => {
+    const cloud = memoryLeague();
+    cloud.put(seasonDocId("fall"), seasonToDoc(season("fall")));
+    const bases = basesOf();
+    const met = await meetSeasons({
+      store: cloud.store,
+      local: { ...localOf([season("spring")]), add: () => false },
+      bases,
+      openId: () => "spring",
+    });
+    expect(met.added).toEqual([]);
+    expect(bases.held.size).toBe(0);
+  });
+
+  it("sends up a season made since under a deleted season's id, as a season of its own", async () => {
+    const cloud = memoryLeague();
+    const bases = basesOf(["old"]);
+    const remade = { ...season("old", "Old again"), createdAt: "2027-03-01T00:00:00.000Z" };
+    const met = await meetSeasons({
+      store: cloud.store,
+      local: localOf([season("spring"), remade]),
+      bases,
+      openId: () => "spring",
+    });
+    expect(met.gone).toEqual([]);
+    expect(met.sent).toEqual(["old"]);
+    const read = docToSeason(cloud.read(seasonDocId("old")), seasonDocId("old"));
+    expect(read.ok && read.season.name).toBe("Old again");
+    expect(bases.held.get(seasonDocId("old"))?.season.createdAt).toBe(remade.createdAt);
   });
 
   it("leaves the season on screen to the live store", async () => {

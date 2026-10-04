@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,7 +20,6 @@ import { RankingsOpen } from "./components/RankingsOpen";
 import { loadTeamRankingsView } from "./components/teamRankingsChunk";
 import {
   cloudStatus,
-  copyLeagueSeason,
   startCloudSession,
   subscribeCloud,
   type CloudStatus,
@@ -28,7 +28,8 @@ import { editable } from "./lib/live/leagueSync";
 import type { LocalSeasons } from "./lib/live/leagueSeasons";
 import { readLiveLeague, subscribeLiveLeague } from "./lib/preferences";
 import { useLiveLeague } from "./hooks/useLiveLeague";
-import { LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
+import { editingOffBecause, LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
+import { EditLock, SeasonEditable } from "./components/league/EditLock";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
@@ -135,6 +136,7 @@ import {
   loadTeams,
   readSeasonSnapshot,
   saveBracketLogs,
+  writeSeasonData,
   saveLogs,
   saveMatchups,
   saveSettings,
@@ -621,16 +623,39 @@ export default function App() {
     entryKey: seasons.all,
     local: LOCAL_SEASONS,
     onSeasonsAdded: seasons.refresh,
-    seed: copyLeagueSeason,
+    persist: writeSeasonData,
   });
   const leagueEditable = editable(liveLeague.state);
   const { guardUndo, removeSeason } = liveLeague;
-  const leagueLive = liveLeague.state.kind !== "off";
+  const leagueLive = liveLeague.state.kind === "live";
+  /*
+   * The lock is on the season itself, not only on the controls on the page: the team drawer, the
+   * command palette, a shared link and a toast's Undo all reach the season from outside them, and
+   * each is refused while the season may not be written, with the reason.
+   */
+  const editingOff = editingOffBecause(liveLeague.state);
+  // Locked as the page is drawn read-only, not a frame after, so no edit lands in between.
+  useLayoutEffect(() => {
+    seasonStore.lock(editingOff);
+  }, [seasonStore, editingOff]);
+  useEffect(() => {
+    // Said once the handler that tried the edit is done: one that goes on to say it did what it
+    // set out to ("Loaded demo season.") would otherwise put its word over the refusal.
+    seasonStore.onRefused((why) => queueMicrotask(() => showToast(why, { tone: "error" })));
+    return () => seasonStore.onRefused(null);
+  }, [seasonStore, showToast]);
   useEffect(() => {
     removeLiveSeason.current = async (id) => {
       // A season every device shares goes from the cloud first, or not at all: deleted here
-      // alone, it would come back on the next visit.
-      if (!leagueLive) return true;
+      // alone, it would come back on the next visit. With League kept live switched on but not
+      // live this moment, there is no cloud to delete it from, and so no deleting it.
+      if (!leagueLiveOn) return true;
+      if (!leagueLive) {
+        showToast("Connect to the cloud to delete a season every device shares.", {
+          tone: "error",
+        });
+        return false;
+      }
       try {
         return await removeSeason(id);
       } catch (error) {
@@ -644,7 +669,7 @@ export default function App() {
         return false;
       }
     };
-  }, [leagueLive, removeSeason, showToast]);
+  }, [leagueLiveOn, leagueLive, removeSeason, showToast]);
 
   /** What Team Rankings has for this season: the results, the picks and the search behind them. */
   const {
@@ -1590,10 +1615,9 @@ export default function App() {
    * need the pool in the snapshot, and it is large enough that carrying it on every undo-able
    * action would risk filling storage for nothing.
    */
-  const readSeasonForUndo = useCallback(
-    () => ({ teams, matchups, logs, bracketLogs, settings }),
-    [teams, matchups, logs, bracketLogs, settings]
-  );
+  // The season as it stands this moment, from the store: a step that asks first is captured after
+  // the answer, and another device's change that arrived while it was asked is part of it.
+  const readSeasonForUndo = useCallback(() => ({ ...seasonStore.get().season }), [seasonStore]);
 
   const applySeasonFromUndo = useCallback(
     (season: UndoableSeason) => {
@@ -2735,19 +2759,22 @@ export default function App() {
             aria-labelledby={`tab-${activeView}`}
           >
             <LiveLeagueBanner state={liveLeague.state} />
-            {/* Kept live, a season that may not be written is read-only, every control in it. */}
-            <fieldset disabled={!leagueEditable} className="m-0 min-w-0 border-0 p-0">
+            {/* Kept live, a season that may not be written is read-only: every control that edits
+              it is off (`EditLock`), and what only reads it stays usable. */}
+            <SeasonEditable value={leagueEditable}>
               {teams.length === 0 ? (
-                <EmptyState
-                  importCSV={importCSV}
-                  createSeasonFromTeamList={createSeasonFromTeamList}
-                  downloadRoundRobinCSV={downloadRoundRobinCSV}
-                  seasonBuilderText={seasonBuilderText}
-                  setSeasonBuilderText={setSeasonBuilderText}
-                  teams={teams}
-                  loadDemoSeason={loadDemoSeason}
-                  openTour={() => setShowTour(true)}
-                />
+                <EditLock>
+                  <EmptyState
+                    importCSV={importCSV}
+                    createSeasonFromTeamList={createSeasonFromTeamList}
+                    downloadRoundRobinCSV={downloadRoundRobinCSV}
+                    seasonBuilderText={seasonBuilderText}
+                    setSeasonBuilderText={setSeasonBuilderText}
+                    teams={teams}
+                    loadDemoSeason={loadDemoSeason}
+                    openTour={() => setShowTour(true)}
+                  />
+                </EditLock>
               ) : activeView === "dashboard" ? (
                 <DashboardView
                   engine={predictionEngine}
@@ -2756,16 +2783,18 @@ export default function App() {
                   matchups={matchups}
                   setActiveView={setActiveView}
                   ourTeam={
-                    <OurTeamCard
-                      summary={ourTeam}
-                      {...(ourClubRank ? { clubRank: ourClubRank } : {})}
-                      teams={teams}
-                      onPick={pickOurTeam}
-                      onEnterScore={(teamId) => {
-                        setScoreboardTeamFilter(teamId);
-                        setActiveView("games");
-                      }}
-                    />
+                    <EditLock>
+                      <OurTeamCard
+                        summary={ourTeam}
+                        {...(ourClubRank ? { clubRank: ourClubRank } : {})}
+                        teams={teams}
+                        onPick={pickOurTeam}
+                        onEnterScore={(teamId) => {
+                          setScoreboardTeamFilter(teamId);
+                          setActiveView("games");
+                        }}
+                      />
+                    </EditLock>
                   }
                 />
               ) : activeView === "power" ? (
@@ -2910,14 +2939,16 @@ export default function App() {
                   />
                   {/* Above Settings because it answers the question the "Team Rankings results"
                     setting down there raises: which club is which. */}
-                  <ScoutLinkPanel
-                    bridge={scoutBridge}
-                    candidatesFor={scoutCandidatesFor}
-                    allClubs={allScoutClubs}
-                    seasonLabel={settings.seasonLabel}
-                    countingOn={settings.useScoutResults}
-                    onPick={setScoutLink}
-                  />
+                  <EditLock>
+                    <ScoutLinkPanel
+                      bridge={scoutBridge}
+                      candidatesFor={scoutCandidatesFor}
+                      allClubs={allScoutClubs}
+                      seasonLabel={settings.seasonLabel}
+                      countingOn={settings.useScoutResults}
+                      onPick={setScoutLink}
+                    />
+                  </EditLock>
                   <SettingsView
                     onOpenCloud={cloud.kind === "off" ? undefined : cloudPanel.show}
                     settings={settings}
@@ -2971,7 +3002,7 @@ export default function App() {
                   seasonLabel={settings.seasonLabel}
                 />
               )}
-            </fieldset>
+            </SeasonEditable>
           </main>
         )}
 
@@ -3022,7 +3053,9 @@ export default function App() {
                 ?.items ?? []
             }
             onClose={closeTeamData}
-            onRename={(name) => renameLeagueTeam(selectedTeam.id, name)}
+            onRename={
+              leagueEditable ? (name) => renameLeagueTeam(selectedTeam.id, name) : undefined
+            }
             onCompare={() => {
               const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
               setCompareTeamId(candidate ? candidate.id : null);

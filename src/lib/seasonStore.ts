@@ -19,24 +19,52 @@ export type OpenSeason = { id: string; season: SeasonState };
  */
 export type SeasonStore = {
   get: () => OpenSeason;
-  /** Changes the open season's data, keeping its id: a value or an updater, as a state setter. */
+  /**
+   * Changes the open season's data, keeping its id: a value or an updater, as a state setter. The
+   * page's own edits come this way, and are refused while the store is locked.
+   */
   setSeason: Dispatch<SetStateAction<SeasonState>>;
+  /** Changes the open season's data whatever the lock: another device's edits, laid over it. */
+  apply: (season: SeasonState) => void;
   /** Opens another season, or the same one afresh: its id and data change together. */
   open: (id: string, season: SeasonState) => void;
+  /**
+   * Locks the page's edits out, saying `why` to whoever listens (`onRefused`), or unlocks them for
+   * null: League kept live while the season may not be written (`leagueSync.ts`). Locked here,
+   * every way an edit comes in is shut, not only the controls on the page.
+   */
+  lock: (why: string | null) => void;
+  /** Hears each edit refused while locked, with the reason. */
+  onRefused: (listener: ((why: string) => void) | null) => void;
   subscribe: (listener: () => void) => () => void;
 };
 
 export const createSeasonStore = (initial: OpenSeason): SeasonStore => {
   let current = initial;
+  let locked: string | null = null;
+  let refused: ((why: string) => void) | null = null;
   const listeners = new Set<() => void>();
   const changed = () => listeners.forEach((listener) => listener());
+  const set = (next: SeasonState) => {
+    if (Object.is(next, current.season)) return;
+    current = { id: current.id, season: next };
+    changed();
+  };
   return {
     get: () => current,
     setSeason: (action) => {
-      const next = typeof action === "function" ? action(current.season) : action;
-      if (Object.is(next, current.season)) return;
-      current = { id: current.id, season: next };
-      changed();
+      if (locked !== null) {
+        refused?.(locked);
+        return;
+      }
+      set(typeof action === "function" ? action(current.season) : action);
+    },
+    apply: set,
+    lock: (why) => {
+      locked = why;
+    },
+    onRefused: (listener) => {
+      refused = listener;
     },
     open: (id, season) => {
       current = { id, season };

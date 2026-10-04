@@ -7,7 +7,6 @@ import { meetSeasons, type LocalSeasons } from "../lib/live/leagueSeasons";
 import type { LeagueStore } from "../lib/live/leagueStore";
 import { startLeagueSync, type LeagueSync, type LiveLeagueState } from "../lib/live/leagueSync";
 import type { SeasonStore } from "../lib/seasonStore";
-import type { SeasonSnapshot } from "../lib/storage";
 
 const OFF: LiveLeagueState = { kind: "off" };
 const CONNECTING: LiveLeagueState = { kind: "connecting" };
@@ -29,7 +28,9 @@ const UNTYPED = new Set([
 /** Whether `element` is a field being typed in. */
 export const isTyping = (element: Element | null): boolean => {
   if (!element) return false;
-  if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return true;
+  // A select is not typed in: its pick lands at once, and it keeps focus after, as the season
+  // switcher does, which would hold every arrival until something else is clicked.
+  if (element instanceof HTMLTextAreaElement) return true;
   if (element instanceof HTMLInputElement) return !UNTYPED.has(element.type);
   return element instanceof HTMLElement && element.isContentEditable === true;
 };
@@ -45,7 +46,8 @@ export type LiveLeagueOptions = {
   local: LocalSeasons;
   /** Called when seasons made elsewhere have joined this device's list. */
   onSeasonsAdded: () => void;
-  seed?: (id: string) => SeasonSnapshot | null;
+  /** Writes a season's data to this device's storage at once (`writeSeasonData`). */
+  persist: (id: string, parts: SeasonParts) => void;
   /** Where the seasons are; the signed-in member's, by default. */
   open?: () => Promise<LeagueStore | null>;
   bases?: BaseKeeper;
@@ -71,16 +73,16 @@ export function useLiveLeague({
   entryKey,
   local,
   onSeasonsAdded,
-  seed,
+  persist,
   open = leagueStore,
   bases = storedBases,
 }: LiveLeagueOptions): LiveLeague {
   const [state, setState] = useState<LiveLeagueState>(OFF);
   const sync = useRef<LeagueSync | null>(null);
   const store = useRef<LeagueStore | null>(null);
-  const latest = useRef({ entryOf, local, onSeasonsAdded, seed });
+  const latest = useRef({ entryOf, local, onSeasonsAdded, persist });
   useEffect(() => {
-    latest.current = { entryOf, local, onSeasonsAdded, seed };
+    latest.current = { entryOf, local, onSeasonsAdded, persist };
   });
 
   useEffect(() => {
@@ -100,7 +102,7 @@ export function useLiveLeague({
           seasons,
           entryOf: (id) => latest.current.entryOf(id),
           bases,
-          seed: (id) => latest.current.seed?.(id) ?? null,
+          persist: (id, parts) => latest.current.persist(id, parts),
           editing: () => isTyping(document.activeElement),
           onState: (next) => {
             if (!cancelled) setState(next);
@@ -152,12 +154,16 @@ export function useLiveLeague({
     []
   );
 
-  const removeSeason = useCallback(async (id: string) => {
-    const found = store.current;
-    if (!found) return false;
-    await found.remove(seasonDocId(id));
-    return true;
-  }, []);
+  const removeSeason = useCallback(
+    async (id: string) => {
+      const found = store.current;
+      if (!found) return false;
+      await found.remove(seasonDocId(id));
+      bases.remove(seasonDocId(id));
+      return true;
+    },
+    [bases]
+  );
 
   // Turned on, it waits for the cloud's version before anything may be edited.
   const shown = !enabled ? OFF : state.kind === "off" ? CONNECTING : state;

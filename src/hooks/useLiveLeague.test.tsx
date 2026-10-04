@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { BaseKeeper } from "../lib/live/leagueBase";
+import type { BaseKeeper, Known } from "../lib/live/leagueBase";
 import { docToSeason, seasonDocId, seasonToDoc } from "../lib/live/leagueDocs";
 import type { LocalSeasons } from "../lib/live/leagueSeasons";
 import { createSeasonStore, type SeasonState } from "../lib/seasonStore";
@@ -32,9 +32,14 @@ const PARTS: SeasonState = {
 };
 const ENTRY = { id: "spring", name: "Spring", createdAt: "2027-02-01T00:00:00.000Z" };
 
-const memoryBases = (): BaseKeeper => {
-  const held = new Map<string, SeasonSnapshot>();
-  return { read: (id) => held.get(id) ?? null, write: (id, one) => held.set(id, one) };
+const memoryBases = (): BaseKeeper & { held: Map<string, Known> } => {
+  const held = new Map<string, Known>();
+  return {
+    held,
+    read: (id) => held.get(id) ?? null,
+    write: (id, known) => held.set(id, known),
+    remove: (id) => held.delete(id),
+  };
 };
 
 const localOf = (extra: SeasonSnapshot[] = []): LocalSeasons & { held: SeasonSnapshot[] } => {
@@ -61,6 +66,7 @@ const mount = (over: Partial<LiveLeagueOptions> = {}) => {
     entryKey: 0,
     local: localOf(),
     onSeasonsAdded: () => added.push(1),
+    persist: () => {},
     open: async () => cloud.store,
     bases: memoryBases(),
     ...over,
@@ -136,17 +142,35 @@ describe("League kept live on the page", () => {
     expect(await result.current.removeSeason("spring")).toBe(true);
     expect(cloud.read(seasonDocId("spring"))).toBeUndefined();
   });
+
+  it("forgets a deleted season's base, so a season made since under its id is not taken for it", async () => {
+    const bases = memoryBases();
+    const { result } = mount({ bases });
+    await act(settled);
+    expect(bases.held.has(seasonDocId("spring"))).toBe(true);
+    expect(await result.current.removeSeason("spring")).toBe(true);
+    expect(bases.held.has(seasonDocId("spring"))).toBe(false);
+  });
+
+  it("keeps the base when the delete does not reach the cloud", async () => {
+    const bases = memoryBases();
+    const { result, cloud } = mount({ bases });
+    await act(settled);
+    cloud.offline();
+    await expect(result.current.removeSeason("spring")).rejects.toThrow();
+    expect(bases.held.has(seasonDocId("spring"))).toBe(true);
+  });
 });
 
 describe("a field being typed in", () => {
-  it("is a text box, a select or a text area, and not a button or a box to tick", () => {
+  it("is a text box or a text area, and not a select, a button or a box to tick", () => {
     const of = (html: string) => {
       document.body.innerHTML = html;
       return document.body.firstElementChild;
     };
     expect(isTyping(of('<input type="text">'))).toBe(true);
     expect(isTyping(of('<input type="number">'))).toBe(true);
-    expect(isTyping(of("<select></select>"))).toBe(true);
+    expect(isTyping(of("<select></select>"))).toBe(false);
     expect(isTyping(of("<textarea></textarea>"))).toBe(true);
     expect(isTyping(of('<input type="checkbox">'))).toBe(false);
     expect(isTyping(of("<button></button>"))).toBe(false);

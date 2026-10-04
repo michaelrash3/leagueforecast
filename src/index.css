@@ -74,6 +74,14 @@
   button:not(:disabled):active {
     scale: 0.97;
   }
+
+  /* A control League Standings has turned off while its season may not be written (\`EditLock\`)
+     is seen to be off: most buttons here are styled inline, with no look of their own for it. A
+     file picker's label is the control a person sees. */
+  fieldset:disabled :is(button, input, select, textarea, label:has(input[type="file"])) {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
 }
 
 @keyframes hero-float {

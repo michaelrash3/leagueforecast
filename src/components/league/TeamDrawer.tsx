@@ -378,8 +378,11 @@ export function TeamDrawer({
   goldPctLabel: string;
   cutoff: number;
   onClose: () => void;
-  /** Correcting a name here changes the label only — the team's id, games and scores are its own. */
-  onRename: (name: string) => void;
+  /**
+   * Correcting a name here changes the label only — the team's id, games and scores are its own.
+   * Left out while the season may not be edited, and the name is not offered for editing.
+   */
+  onRename?: (name: string) => void;
   magicForGold: import("../../lib/magic").MagicResult;
   eliminationNumber: import("../../lib/magic").MagicResult;
   splitSummary: TeamSplitSummary;
@@ -434,7 +437,7 @@ export function TeamDrawer({
             >
               {displayName(team.name)}
             </h2>
-            <TeamNameEditor name={team.name} onRename={onRename} />
+            {onRename && <TeamNameEditor name={team.name} onRename={onRename} />}
             <div className="mt-2 text-sm font-bold text-slate-500 dark:text-slate-400">
               Current #{team.rank} · Projected #{team.projectedRank}
               {hasCutLine ? ` · Top ${cutoff} Gold Bracket` : ""}

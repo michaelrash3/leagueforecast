@@ -1,7 +1,15 @@
 import { mergeSeason } from "../cloud/leagueMerge";
 import type { SeasonSnapshot } from "../storage";
 import type { GameLog, Matchup, Settings, TeamBase } from "../types";
-import { docChanges, encodeKey, seasonToDoc, type LeagueDocChange } from "./leagueDocs";
+import {
+  applyChanges,
+  docChanges,
+  docToSeason,
+  encodeKey,
+  seasonDocId,
+  seasonToDoc,
+  type LeagueDocChange,
+} from "./leagueDocs";
 
 /**
  * The rules a League Standings season is kept live by, between this device and the season's
@@ -89,16 +97,36 @@ export const layOver = (
   );
 
 /**
- * What to write to turn the document as it is, `remote`, into `merged`: each record, setting and
- * order that differs, and when it was saved, `now`, only alongside a change.
+ * What to write to turn the document as it is, `remote` at write `rev`, into `merged`: each record,
+ * setting and order that differs, and with them when it was saved, `now`, and the next write's
+ * number, which the rules hold every write to; nothing at all when nothing differs.
  */
 export const writesFor = (
   remote: SeasonSnapshot,
+  rev: number,
   merged: SeasonSnapshot,
   now: string
 ): LeagueDocChange[] => {
   const changes = changesBetween(remote, merged);
-  return changes.length === 0 ? [] : [...changes, { path: ["updatedAt"], value: now }];
+  return changes.length === 0
+    ? []
+    : [...changes, { path: ["updatedAt"], value: now }, { path: ["rev"], value: rev + 1 }];
+};
+
+/**
+ * `season` with `changes` made to it, as its document would be: what a version of the document
+ * holds once a write of this device's has landed on it.
+ */
+export const withChanges = (
+  season: SeasonSnapshot,
+  changes: readonly LeagueDocChange[]
+): SeasonSnapshot => {
+  const doc = applyChanges(
+    seasonToDoc(unsaved(season)) as unknown as Record<string, unknown>,
+    changes
+  );
+  const read = docToSeason(doc, seasonDocId(season.id));
+  return read.ok ? unsaved(read.season) : season;
 };
 
 /** The document fields another device changed between two versions: what the undo guard reads. */

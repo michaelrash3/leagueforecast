@@ -39,7 +39,10 @@ export type LeagueStore = {
   ) => Promise<T>;
   /** Every season in the cloud: a read for each, so asked for once a visit. */
   list: () => Promise<{ docId: string; data: unknown }[]>;
-  /** Deletes a season's document; the rules let only the owner. */
+  /**
+   * Deletes a season's document; the rules let only the owner. In a transaction, so it fails
+   * rather than waits with no connection, and no listener hears it before the cloud has agreed.
+   */
   remove: (docId: string) => Promise<void>;
 };
 
@@ -100,6 +103,10 @@ export const firestoreLeague = (load: () => Promise<FullFirestore>): LeagueStore
   },
   remove: async (docId) => {
     const { sdk, db } = await load();
-    await sdk.deleteDoc(sdk.doc(db, LEAGUE_COLLECTION, docId));
+    const where = sdk.doc(db, LEAGUE_COLLECTION, docId);
+    await sdk.runTransaction(db, async (transaction) => {
+      await transaction.get(where);
+      transaction.delete(where);
+    });
   },
 });
