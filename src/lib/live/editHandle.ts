@@ -15,7 +15,7 @@ import { chargeEdit, runCost, updateLedger, type LedgerStore } from "./rebuildLe
  * September 2026 pool, `npm run live:bench`), which a member would otherwise wait on, and which
  * would hold every edit queued behind it in the one worker. The save itself asks for them: the
  * trigger queues the rebuild of an edit function's save at once, run within a quarter of a minute
- * and no sooner than a minute after the boards last went up (`REBUILD_WINDOW_S.live`,
+ * and never sooner than a minute after the last rebuild ended (`REBUILD_WINDOW_S.live`,
  * `LIVE_SPACING_S`), on the rebuilds' own instance, under their ledger and switch.
  */
 

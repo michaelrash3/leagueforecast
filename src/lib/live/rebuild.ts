@@ -11,7 +11,13 @@ import {
   updateLedger,
   type LedgerStore,
 } from "./rebuildLedger";
-import { newerBuildOf, type RebuildAsk, type RebuildTask } from "./rebuildPlan";
+import {
+  LIVE_SPACING_S,
+  newerBuildOf,
+  spacedTask,
+  type RebuildAsk,
+  type RebuildTask,
+} from "./rebuildPlan";
 import { coerceLiveMeta, type LiveStore } from "./viewStore";
 
 /**
@@ -220,7 +226,9 @@ export const isRebuildFailure = (end: RebuildEnd): boolean => !FINE.has(end);
  * 2. Whether the published boards are already the copy's, or another's to leave alone, or the copy
  *    one this build cannot load (a newer build's, as its manifest shows, or one it cannot read at
  *    all): the ledger, the manifest and the meta, three reads, reserving nothing and starting no
- *    worker. A read that failed is thrown, for the queue to try again.
+ *    worker. A read that failed is thrown, for the queue to try again. A quick rebuild (`live`)
+ *    asked for sooner than `LIVE_SPACING_S` after the last run ended is queued again for then
+ *    (`spacedTask`, through `enqueue`), and ends there.
  * 3. A reservation of the run's ceiling, which the caps, a pause or a run still going may refuse,
  *    the same task's earlier try included. A reservation whose write landed though its answer was
  *    lost is found on the next try as this handling's own, by its id, and kept.
@@ -246,6 +254,7 @@ export const handleRebuildTask = async ({
   startupS,
   task,
   taskId = "",
+  enqueue,
   runId = crypto.randomUUID(),
 }: {
   ledger: LedgerStore;
@@ -263,6 +272,8 @@ export const handleRebuildTask = async ({
   task?: RebuildTask;
   /** The queue's name for the task, the same on each of its tries. */
   taskId?: string;
+  /** Queues a task, as the trigger does: what spaces a quick rebuild out. None, none is spaced. */
+  enqueue?: (queued: { id: string; scheduleTime: Date; task: RebuildTask }) => Promise<void>;
   /**
    * This handling of the task, made afresh for each: what tells its own reservation from another
    * handling's of the same task, which the queue may deliver twice or again while a try still runs.
@@ -298,6 +309,24 @@ export const handleRebuildTask = async ({
   }
 
   const at = now();
+  // A quick rebuild too soon after the last run ended waits out the spacing in the queue, whatever
+  // that run published (a dry run's end spaces as a live one's does). The task queued for then runs
+  // when it comes, even early by this instance's clock: queued again under its own id, it would be
+  // taken for done and dropped.
+  const spacedFrom = task?.kind === "live" && enqueue ? held.lastEndedAt : null;
+  const due = spacedFrom === null ? NaN : Date.parse(spacedFrom) + LIVE_SPACING_S * 1000;
+  const spaced = enqueue && task && due > Date.parse(at) ? await spacedTask(task, due) : null;
+  if (enqueue && spaced && spaced.id !== taskId) {
+    const until = new Date(due).toISOString();
+    try {
+      await enqueue(spaced);
+    } catch (thrown) {
+      // Not queued again: the queue tries this one again itself, by when the spacing is over.
+      const error = thrown instanceof Error ? thrown.message : String(thrown);
+      return { line: { ...asked, ...loaded, end: "spaced", until, error }, rethrow: true };
+    }
+    return { line: { ...asked, ...loaded, end: "spaced", until, task: spaced.id }, rethrow: false };
+  }
   const reserved = await updateLedger(ledger, (current) => {
     // This handling's own reservation, written by a try whose answer was lost.
     if (current?.open?.at === at && current.open.by === runId) {
@@ -328,7 +357,7 @@ export const handleRebuildTask = async ({
   let settleError: string | null = null;
   try {
     const answer = await updateLedger(ledger, (current) => ({
-      next: settleRun(current, { at, by: runId, used, failed, today: today() }),
+      next: settleRun(current, { at, by: runId, used, failed, today: today(), endedAt: now() }),
       answer: null,
     }));
     settled = "answer" in answer && answer.wrote;

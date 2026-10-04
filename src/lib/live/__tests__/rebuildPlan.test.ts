@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { DATA_SCHEMA, type CloudManifest, type ManifestPart } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { LEGACY_GAMES_KEY, TIDY_STAMP_KEY } from "../../teamRankingsStorage";
+import { EDIT_DEVICE } from "../editRun";
 import {
   askRebuild,
   planCopyWrite,
   REBUILD_SETTLE_S,
   REBUILD_WINDOW_S,
   LIVE_DEVICES,
+  LIVE_SPACING_S,
   rebuildTask,
   SERVER_DEVICES,
   type RebuildAsk,
@@ -182,6 +184,11 @@ describe("whether a save asks for a rebuild", () => {
     expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device: "live-edit" }))).toEqual({
       ask: { kind: "live", copy: "c0ffee", version: 5, reset: false },
     });
+    // The very name the edit function saves under, so a rename there cannot move its saves to a
+    // device's two minutes.
+    expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device: EDIT_DEVICE }))).toEqual({
+      ask: { kind: "live", copy: "c0ffee", version: 5, reset: false },
+    });
     // A device is whatever the saving client says; only these exact names are servers. A pull run
     // in the cloud publishes nothing of its own, so its saves are rebuilt as a device's are.
     for (const device of ["Nightly", "nightly ", "phone", "", "cloud-pull", "Live-Edit"]) {
@@ -247,6 +254,7 @@ describe("the task a save queues", () => {
   it("runs after its window has closed and settled: five seconds for an edit, ten minutes for a server, three for an edit made on the server", async () => {
     expect(REBUILD_WINDOW_S).toEqual({ edit: 120, server: 900, live: 15 });
     expect(REBUILD_SETTLE_S).toEqual({ edit: 5, server: 600, live: 3 });
+    expect(LIVE_SPACING_S).toBe(60);
     const live: RebuildAsk = { ...ASK, kind: "live" };
     expect((await rebuildTask(live, "2027-04-15T10:00:14.999Z")).scheduleTime.toISOString()).toBe(
       "2027-04-15T10:00:18.000Z"

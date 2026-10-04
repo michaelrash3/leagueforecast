@@ -403,6 +403,7 @@ export const rebuild = !LIVE_REBUILD
             startupS,
             task,
             taskId: typeof request.id === "string" ? request.id : "",
+            enqueue: enqueueRebuild,
           });
         } catch (error) {
           logger.error("rebuild", {

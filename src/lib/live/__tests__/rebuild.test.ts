@@ -32,6 +32,7 @@ import {
   type RebuildResult,
 } from "../rebuild";
 import { coerceLedger, type Ledger, type LedgerStore } from "../rebuildLedger";
+import { LIVE_SPACING_S, spacedTask, type RebuildTask } from "../rebuildPlan";
 import { BOARD_RULES } from "../views/board";
 import { LIVE_SCHEMA, type LiveMeta, type LiveStore } from "../viewStore";
 import { memoryLive, type MemoryLive } from "./memoryLive";
@@ -754,6 +755,153 @@ describe("a rebuild task on the main thread", () => {
       monthVcpuS: 122,
       failures: 0,
       open: null,
+    });
+  });
+
+  describe("a quick rebuild, after the edit function's save", () => {
+    const LIVE_TASK: RebuildTask = {
+      copy: "c",
+      kind: "live",
+      window: 1,
+      savedAt: "2027-04-15T13:59:50.000Z",
+    };
+    /** When a run ended, `seconds` before this one is handled. */
+    const ended = (seconds: number) => new Date(Date.parse(NOW) - seconds * 1000).toISOString();
+    type Queued = { id: string; scheduleTime: Date; task: RebuildTask };
+
+    it("waits out the spacing in the queue when the last run ended under a minute ago, reserving nothing", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const ledger = memoryLedger({ ...SWITCH, lastEndedAt: ended(20) });
+      const queued: Queued[] = [];
+      const run = vi.fn<() => Promise<RebuildResult>>();
+      const done = await handle({
+        ledger: ledger.store,
+        cloud,
+        live,
+        run,
+        task: LIVE_TASK,
+        enqueue: async (one) => {
+          queued.push(one);
+        },
+      });
+      const due = new Date(Date.parse(ended(20)) + LIVE_SPACING_S * 1000);
+      expect(queued).toEqual([{ id: expect.any(String), scheduleTime: due, task: LIVE_TASK }]);
+      expect(done).toEqual({
+        line: {
+          kind: "live",
+          savedAt: LIVE_TASK.savedAt,
+          copy: cloud.manifest()!.copy,
+          version: 2,
+          end: "spaced",
+          until: due.toISOString(),
+          task: queued[0]?.id,
+        },
+        rethrow: false,
+      });
+      expect(run).not.toHaveBeenCalled();
+      expect(ledger.held()).toMatchObject({ dayGiBs: 0, open: null });
+    });
+
+    it("runs at once a minute or more after the last run ended, or before any has", async () => {
+      for (const lastEndedAt of [ended(LIVE_SPACING_S), ended(600), null]) {
+        const { cloud, live } = await setUp({ current: false });
+        const enqueue = vi.fn(async () => undefined);
+        const done = await handle({
+          ledger: memoryLedger({ ...SWITCH, lastEndedAt }).store,
+          cloud,
+          live,
+          task: LIVE_TASK,
+          enqueue,
+        });
+        expect([lastEndedAt, done.line.end]).toEqual([lastEndedAt, "published"]);
+        expect(enqueue).not.toHaveBeenCalled();
+      }
+    });
+
+    it("spaces no other kind of rebuild", async () => {
+      for (const kind of ["edit", "server"] as const) {
+        const { cloud, live } = await setUp({ current: false });
+        const enqueue = vi.fn(async () => undefined);
+        const done = await handle({
+          ledger: memoryLedger({ ...SWITCH, lastEndedAt: ended(5) }).store,
+          cloud,
+          live,
+          task: { ...LIVE_TASK, kind },
+          enqueue,
+        });
+        expect([kind, done.line.end]).toEqual([kind, "published"]);
+        expect(enqueue).not.toHaveBeenCalled();
+      }
+    });
+
+    it("queues every quick rebuild spaced from one run under one id, so one build follows them", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const ledger = memoryLedger({ ...SWITCH, lastEndedAt: ended(20) });
+      const queued: Queued[] = [];
+      for (const window of [1, 2, 3]) {
+        await handle({
+          ledger: ledger.store,
+          cloud,
+          live,
+          task: { ...LIVE_TASK, window },
+          enqueue: async (one) => {
+            queued.push(one);
+          },
+        });
+      }
+      expect(new Set(queued.map(({ id }) => id)).size).toBe(1);
+    });
+
+    it("runs the task queued for the spacing when it comes, even early by this instance's clock", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const due = Date.parse(ended(20)) + LIVE_SPACING_S * 1000;
+      const enqueue = vi.fn(async () => undefined);
+      const done = await handle({
+        ledger: memoryLedger({ ...SWITCH, lastEndedAt: ended(20) }).store,
+        cloud,
+        live,
+        task: LIVE_TASK,
+        taskId: (await spacedTask(LIVE_TASK, due)).id,
+        enqueue,
+      });
+      expect(done.line.end).toBe("published");
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it("leaves a quick rebuild the queue would not take again to the queue's own retry", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const run = vi.fn<() => Promise<RebuildResult>>();
+      const done = await handle({
+        ledger: memoryLedger({ ...SWITCH, lastEndedAt: ended(20) }).store,
+        cloud,
+        live,
+        run,
+        task: LIVE_TASK,
+        enqueue: async () => {
+          throw new Error("the queue is busy");
+        },
+      });
+      expect(done).toMatchObject({
+        line: { end: "spaced", error: "the queue is busy" },
+        rethrow: true,
+      });
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("is spaced from when the last run settled, which every run records", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const ledger = memoryLedger(SWITCH);
+      // The clock reads when the handling began, then half a minute on, once the build is done.
+      const settled = new Date(Date.parse(NOW) + 30_000).toISOString();
+      const times = [NOW];
+      const done = await handle({
+        ledger: ledger.store,
+        cloud,
+        live,
+        now: () => times.shift() ?? settled,
+      });
+      expect(done.line.end).toBe("published");
+      expect(ledger.held()?.lastEndedAt).toBe(settled);
     });
   });
 

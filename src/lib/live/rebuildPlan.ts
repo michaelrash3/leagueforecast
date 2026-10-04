@@ -21,22 +21,35 @@ export type RebuildKind = "edit" | "server" | "live";
  * How long the saves of one kind gather into one rebuild, in seconds: every save in a window shares
  * one task. Two minutes holds a burst of a device's edits to one rebuild while a person can still
  * wait for it; a quarter of an hour is plenty for a server's saves, which come a few a night. The
- * edit function's saves are each a change a member made on purpose and is waiting to see, and the
- * boards take about half a minute to build at the real size (26 to 31 s for every board of the 29
- * September 2026 pool, measured with `npm run live:bench` on 4 October), so a quarter of a minute
- * gathers a quick run of them, a page of Pool health answers, into one build without adding much to
- * the wait.
+ * edit function's saves are each a change a member made on purpose and is waiting to see: a merge, a
+ * club's age, a club or games thrown out, a score (Pool health's answers change nothing the boards
+ * read, so the trigger asks for no rebuild after them). A quarter of a minute is little to add to a
+ * build of about half a minute (26 to 31 s for every board of the 29 September 2026 pool, measured
+ * with `npm run live:bench` on 4 October); what keeps a run of such edits from building back to back
+ * is the spacing (`LIVE_SPACING_S`).
  */
 export const REBUILD_WINDOW_S = { edit: 120, server: 900, live: 15 } as const;
 
 /**
- * How long after its window closes a rebuild runs, in seconds. A device's edits are rebuilt five
- * seconds after their window, so the last save in it has committed. A server's are checked ten
- * minutes after: its own publish should be in by then, and the check finds it current at the cost
- * of three reads, or publishes it if that publish failed. The edit function's are rebuilt three
- * seconds after: the trigger hears each save once it has committed.
+ * How long after its window closes a rebuild runs, in seconds. A window is by each save's commit
+ * time, so every save in it has committed once it closes, and the settle only has to cover the
+ * difference between Firestore's clock and the queue's. A device's edits are rebuilt five seconds
+ * after their window, and the edit function's three. A server's are checked ten minutes after: its
+ * own publish should be in by then, and the check finds it current at the cost of three reads, or
+ * publishes it if that publish failed.
  */
 export const REBUILD_SETTLE_S = { edit: 5, server: 600, live: 3 } as const;
+
+/**
+ * The least time between the end of one rebuild run and the start of a quick one (`live`), in
+ * seconds: a quick rebuild asked for sooner is queued again for then (`spacedTask`), so a run of
+ * edits is a build at most every minute and a half or so, each taking in every edit before it,
+ * rather than one build after another. One after another, a steady half hour of edits that moved the
+ * boards used the day's whole budget in thirteen to sixteen minutes, and the boards stopped for the
+ * rest of the day (simulated in the 1.4 review on the real ledger's rules and the bench's build
+ * times). An edit made after a quiet minute is not held back at all.
+ */
+export const LIVE_SPACING_S = 60;
 
 /**
  * The devices that are servers publishing their own saves' boards. `device` is whatever the saving
@@ -48,10 +61,17 @@ export const REBUILD_SETTLE_S = { edit: 5, server: 600, live: 3 } as const;
 export const SERVER_DEVICES: ReadonlySet<string> = new Set(["nightly"]);
 
 /**
- * The edit function's own name for its saves (`EDIT_DEVICE`), rebuilt soon after each. A device
- * naming itself so only has its saves rebuilt sooner, metered as any other run.
+ * The name the copy's manifest gives the edit function's saves (`runEdit`), which publish nothing
+ * themselves: the trigger rebuilds after each soon (`LIVE_DEVICES`).
  */
-export const LIVE_DEVICES: ReadonlySet<string> = new Set(["live-edit"]);
+export const EDIT_DEVICE = "live-edit";
+
+/**
+ * The edit function's own name for its saves, rebuilt soon after each. A device naming itself so
+ * only has its saves rebuilt sooner, metered as any other run and spaced as the edit function's
+ * are, until the cutover (1.6) takes writing the copy away from devices.
+ */
+export const LIVE_DEVICES: ReadonlySet<string> = new Set([EDIT_DEVICE]);
 
 /** A rebuild a save asks for: of which copy and version, after which kind of save. */
 export type RebuildAsk = {
@@ -163,6 +183,20 @@ export const rebuildTask = async (
     task: { copy: ask.copy, kind: ask.kind, window, savedAt: eventTime },
   };
 };
+
+/**
+ * A quick rebuild asked for too soon after the last run ended, queued again for `due` (when the
+ * spacing is over): under one id for every task spaced from that run, so however many edits ask in
+ * the meantime, one build follows them.
+ */
+export const spacedTask = async (
+  task: RebuildTask,
+  due: number
+): Promise<{ id: string; scheduleTime: Date; task: RebuildTask }> => ({
+  id: (await hashValue(["rb", "spaced", due])).slice(0, 40),
+  scheduleTime: new Date(due),
+  task: { ...task },
+});
 
 /**
  * What to do about one write of the copy's manifest: queue a rebuild, with the save that asked for

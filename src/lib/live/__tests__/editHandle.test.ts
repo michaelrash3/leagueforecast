@@ -41,6 +41,7 @@ const ledgerOf = (more: Partial<Ledger> = {}): Ledger => ({
   failures: 0,
   pausedDay: null,
   open: null,
+  lastEndedAt: null,
   ...more,
 });
 

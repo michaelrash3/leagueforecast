@@ -3659,8 +3659,10 @@ On the 29 September backup, in memory, a fresh start reads 27 pieces (21 MB
 gzipped) in 1.2 to 1.4 s. One club's edit reads the roster's 7 pieces (5.7 MB) in
 0.6 s. One score reads its year's 18 (15 MB) in 1.3 to 1.5 s, no faster, because
 that year is three quarters of the pool. A League Standings score reads that part
-alone, and a copy with nothing new costs one read. Building every board takes
-7 s either way, and the process peaked at 2.4 GB. `poolCache.test.ts` holds a
+alone, and a copy with nothing new costs one read. Building every board, with
+last week's places, the rank lines, the club cards and the lists published beside
+them, takes 26 to 31 s either way (`npm run live:bench`, 4 October; 7 s before
+those were added), and the process peaked at 2.6 GB. `poolCache.test.ts` holds a
 warm bring-up to what a fresh start on the same version holds, loader by loader
 and board by board, after an edit to each kind of input; each guard was broken
 in turn and seen to fail a test.
@@ -3679,10 +3681,21 @@ closes; a quarter of an hour for a server's that publishes what it saved (the
 nightly), run ten minutes after, by which time that server's own
 publish should be in and the rebuild finds the boards current for three reads;
 and a quarter of a minute for the edit function's (`live-edit`), run three seconds
-after, since a member is waiting to see each one and every board of the real pool
+after, since a member is waiting to see each one, but never sooner than a minute
+after the last run ended (`LIVE_SPACING_S`, from the ledger's `lastEndedAt`, so a
+dry run spaces as a live one does): one asked for sooner is queued again for then,
+under one id for every task spaced from that run, and that task runs when it comes
+even should the instance's clock read it a moment early, since queued again under
+its own id it would be taken for done. A steady run of edits is then a
+build every minute and a half or so, each taking in every edit before it. Built
+back to back instead, as each window's task alone would have them, a steady half
+hour of edits that moved the boards used the day's whole budget in thirteen to
+sixteen minutes, and no board moved again that day (simulated in the 1.4 review on
+the ledger's own rules and the bench's build times); every board of the real pool
 takes about half a minute to build (26 to 31 s on the 29 September 2026 pool,
-`npm run live:bench`). A pull run in the cloud publishes nothing of its own, so
-its saves are rebuilt as a device's are. Who saved is
+`npm run live:bench`). Pool health's answers change nothing the boards read, so
+they ask for no rebuild at all. A pull run in the cloud publishes nothing of its
+own, so its saves are rebuilt as a device's are. Who saved is
 whatever the saving client says it is, so the name only picks the delay; nothing
 is skipped for it. A save is queued only while the switch is on, and a switch
 that cannot be read counts as on, since the rebuild reads it again before it
@@ -4433,9 +4446,9 @@ time, with the instance's start-up the first time, and it is charged to the ledg
 to take left to finish behind the answer after five seconds; and one lost to other writers said in
 the log line. It does not build the boards: every board of the real pool
 takes about half a minute, which the member would wait on and which would hold every edit queued
-behind it. The save asks for them itself, and the trigger rebuilds the edit function's saves a
-quarter of a minute after each window, on the rebuilds' own instance, under their ledger and
-switch, so a run of quick edits is one build. `{ warm: true }` brings the pool up ahead of an edit,
+behind it. The save asks for them itself: the trigger rebuilds after the edit function's saves
+soon after each, on the rebuilds' own instance, under their ledger and switch, and never sooner
+than a minute after the last run ended, so a run of edits shares its builds. `{ warm: true }` brings the pool up ahead of an edit,
 charged the same way. A device calls it through `callEdit` and `callWarm` (`editClient.ts`): the
 callable protocol over `fetch` with the member's sign-in, no Firebase functions SDK in the bundle,
 and nothing of the answer taken on trust, an inverse least of all, since it is what the device

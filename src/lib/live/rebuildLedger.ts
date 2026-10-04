@@ -98,6 +98,11 @@ export type Ledger = {
    * two); "" where either was not said.
    */
   open: { at: string; day: string; cost: RunCost; task: string; by: string } | null;
+  /**
+   * When the last run settled, or null before one has: what a quick rebuild is spaced from
+   * (`LIVE_SPACING_S`), whatever the run published, so a dry run counts as a live one does.
+   */
+  lastEndedAt: string | null;
 };
 
 /** Where the ledger is kept: a path no rule opens, so only a server's key reads or writes it. */
@@ -171,6 +176,13 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
   }
   const pausedDay = given(raw.pausedDay, null);
   if (pausedDay !== null && typeof pausedDay !== "string") return null;
+  const lastEndedAt = given(raw.lastEndedAt, null);
+  if (
+    lastEndedAt !== null &&
+    (typeof lastEndedAt !== "string" || Number.isNaN(Date.parse(lastEndedAt)))
+  ) {
+    return null;
+  }
   const held = given(raw.open, null);
   let open: Ledger["open"] = null;
   if (held !== null) {
@@ -205,6 +217,7 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
     failures,
     pausedDay,
     open,
+    lastEndedAt,
   };
 };
 
@@ -243,6 +256,7 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
     task: ledger.open.task,
     by: ledger.open.by,
   },
+  lastEndedAt: ledger.lastEndedAt,
 });
 
 const monthOf = (day: string): string => day.slice(0, 7);
@@ -408,13 +422,21 @@ export const runCost = (seconds: number, size: { gib: number; cpu: number }): Ru
  */
 export const settleRun = (
   ledger: Ledger | null,
-  run: { at: string; by?: string; used: RunCost; failed: boolean; today: string }
+  run: {
+    at: string;
+    by?: string;
+    used: RunCost;
+    failed: boolean;
+    today: string;
+    /** When the run ended, which a quick rebuild is spaced from. */
+    endedAt: string;
+  }
 ): Ledger | null => {
   const open = ledger?.open;
   if (!ledger || !open || open.at !== run.at || open.by !== (run.by ?? "")) return null;
   const swap = (total: number, charged: number, used: number) =>
     Math.max(0, total - charged) + used;
-  let next: Ledger = { ...ledger, open: null };
+  let next: Ledger = { ...ledger, open: null, lastEndedAt: run.endedAt };
   const { lastDay } = next;
   if (next.day === open.day) {
     next = { ...next, dayGiBs: swap(next.dayGiBs, open.cost.gibs, run.used.gibs) };

@@ -8,6 +8,7 @@ import {
 import { readCloudPoolValue } from "../teamRankingsStorage";
 import type { PoolCommand } from "./commands";
 import type { EditPool, PoolEnsure } from "./poolCache";
+import { EDIT_DEVICE } from "./rebuildPlan";
 import { runPoolCommand } from "./runPoolCommand";
 
 /**
@@ -23,8 +24,8 @@ import { runPoolCommand } from "./runPoolCommand";
  * run makes the same change on the newer pool, or is refused where the pool no longer allows it.
  */
 
-/** The name the copy's manifest gives an edit's saves: a server publishing its own boards. */
-export const EDIT_DEVICE = "live-edit";
+/** The name the copy's manifest gives an edit's saves, which the trigger rebuilds after soon. */
+export { EDIT_DEVICE } from "./rebuildPlan";
 
 /** Runs through before giving up on a copy that keeps moving. */
 const MAX_TRIES = 3;

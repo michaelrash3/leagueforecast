@@ -437,6 +437,7 @@ describe("a document written only if nobody has since, through Firestore's REST 
         "dayRuns",
         "failures",
         "lastDay",
+        "lastEndedAt",
         "mode",
         "month",
         "monthFailed",
@@ -467,6 +468,7 @@ describe("a document written only if nobody has since, through Firestore's REST 
       monthFailed: 2,
       failures: 1,
       pausedDay: "2027-04-14",
+      lastEndedAt: "2027-04-15T13:58:30.000Z",
     };
     const at = await store.read();
     expect(await store.replace(at.token, set)).toBe(true);
