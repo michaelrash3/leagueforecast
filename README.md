@@ -4112,6 +4112,21 @@ device reads it, to the page's own on the seeded fixture's 12U 2027, League Stan
 games in it; `queries.test.ts` the question and the reader. Each guard was broken in turn
 and seen to fail a test, 14 of 14.
 
+**Archive.** The live page's Archive tab is Team Rankings' own (`ArchiveSection`), its
+finished seasons read straight from the cloud's copy, which a member may read
+(`copyArchive.ts`, `copyReader`), rather than from views the server publishes. An archived
+season is frozen once made, and is already a part of the copy, the index one part and
+each season's rows another, so the tab reads the manifest and the index, and a season's
+rows only when it is opened, as the device's tab reads its own store. Publishing them
+would have the server fetch parts its pool leaves out, to write the same bytes again. Each
+part is read once a page load, by its id and hash; a season whose part was replaced and
+swept after the list was read is read again off the manifest as it now is. A copy that
+cannot be read hands the page over to this device's copy, as a list that cannot be read
+does. `copyArchive.test.ts` holds the reads on a copy in memory; `LiveTeamRankings.test.tsx`
+the tab listing, opening, and handing over. Each guard was broken in turn and seen to fail
+a test, 12 of 12, the cache's key only once a test read a season again after its part was
+replaced.
+
 **On a device with no copy.** The page is laid out by the age groups, which a
 device reads from its own copy. One that has never held a copy has none, so the
 meta now carries the copy's age groups too (`LivePages.groups`), as its store holds

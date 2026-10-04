@@ -5,6 +5,7 @@ import { useLiveEdits, type ShowToast } from "../../hooks/useLiveEdits";
 import { useLiveSearch } from "../../hooks/useLiveSearch";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
 import {
+  copyReader,
   poolOnScreen,
   poolWantsCloud,
   preparePool,
@@ -47,6 +48,8 @@ const LiveGames = lazy(() => import("./LiveGames"));
 const LiveScouting = lazy(() => import("./LiveScouting"));
 /** Setup, with Pool health from the server's pool, loaded only when the tab is opened. */
 const LiveSetup = lazy(() => import("./LiveSetup"));
+/** The Archive tab from the cloud's copy, loaded only when the tab is opened. */
+const LiveArchive = lazy(() => import("./LiveArchive"));
 
 /**
  * How long the page waits for a board to draw before it goes to this device's copy the old way:
@@ -155,7 +158,8 @@ export function LiveTeamRankings({
 
 /**
  * The cloud's board itself (`useLiveBoard`), with the page's own header, places, state boards and
- * badges, and the club panel, Find a team, Games and Scouting read from views a server publishes.
+ * badges, and the club panel, Find a team, Games and Scouting read from views a server publishes;
+ * Setup through the edit function, and the Archive tab from the copy itself.
  * It says where it is (`onWhere`) and when it should hand over (`onHandOver`) to the page above it,
  * which decides when it goes.
  */
@@ -238,7 +242,7 @@ function LiveBoard({
   const [cannotOpen, setCannotOpen] = useState<string | null>(null);
   // Find a team, from the year's published list once somebody goes to search.
   const search = useLiveSearch(live.source, selectedYear);
-  // Whether a page's Games list, or a card Scouting reads, could not be read.
+  // Whether a page's Games list, a card Scouting reads, or the copy's archive could not be read.
   const [cannotList, setCannotList] = useState(false);
   // Scouting's clubs: the one reported on, the one set beside it, and opponents asked for.
   const [scoutedTeam, setScoutedTeam] = useState("");
@@ -317,7 +321,8 @@ function LiveBoard({
     (section !== "rankings" &&
       section !== "games" &&
       section !== "scouting" &&
-      section !== "setup") ||
+      section !== "setup" &&
+      section !== "archive") ||
     cannotList ||
     // No page: once there are pages to choose from, this device's or the meta's, and the meta's
     // are the ones laid out by, which is a render after the meta that brings them.
@@ -579,6 +584,14 @@ function LiveBoard({
               onRestWanted={wantPage}
             />
           </Suspense>
+        ) : section === "archive" ? (
+          cannotList ? (
+            onCopySoon
+          ) : (
+            <Suspense fallback={statusCard("Reading the cloud's finished seasons…")}>
+              <LiveArchive copy={sources ? sources.copy : copyReader} onCannot={cannotListGames} />
+            </Suspense>
+          )
         ) : section !== "rankings" ? (
           onCopySoon
         ) : board ? (

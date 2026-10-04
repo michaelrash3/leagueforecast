@@ -143,7 +143,7 @@ const GC_CLEARED_KEY = "league_forecast_gc_ageless_cleared_v1";
  * In the pool's keys because it is small and because everything that walks them should find it: a
  * reset that left the index behind would list archives whose rows it had just deleted.
  */
-const GC_ARCHIVE_KEY = "league_forecast_scout_archive_v1";
+export const GC_ARCHIVE_KEY = "league_forecast_scout_archive_v1";
 /**
  * The pairs of GameChanger ids the user has said are two different clubs.
  *
@@ -210,7 +210,7 @@ const GC_ORG_MEMBERSHIP_KEY = "league_forecast_gc_org_membership_v1";
  * are never broadcast. A cached, cross-tab-synced blob is a blob in every tab.
  */
 const ARCHIVE_ROWS_PREFIX = "league_forecast_scout_archive_rows_v1:";
-const archiveRowsKey = (id: string): string => `${ARCHIVE_ROWS_PREFIX}${id}`;
+export const archiveRowsKey = (id: string): string => `${ARCHIVE_ROWS_PREFIX}${id}`;
 /**
  * A crumb left in localStorage once the pool has moved into IndexedDB. Tiny on purpose: it is the
  * only way a later session can tell "this browser has no IndexedDB" from "this browser's pool is

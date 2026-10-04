@@ -1,5 +1,6 @@
 import { coerceBackup } from "../backup";
 import type { LeagueStore } from "../live/leagueStore";
+import type { CopyReader } from "../live/copyArchive";
 import type { LiveReader } from "../live/viewStore";
 import { readLiveLeague, subscribeLiveLeague } from "../preferences";
 import { onLeagueWrite } from "../storage";
@@ -471,6 +472,25 @@ export const liveReader = async (): Promise<LiveReader | null> => {
     getChunk: (id) => timed(live.getChunk(id), LIVE_LIMITS.chunk, "fetching a published board"),
     // A watch has no limit: it says itself when the connection drops.
     ...(live.watchMeta ? { watchMeta: live.watchMeta } : {}),
+  };
+};
+
+/**
+ * The cloud's copy as this browser's signed-in member may read it, and only read it: what the live
+ * page's Archive tab reads its finished seasons from (`copyArchive.ts`), or null for the same
+ * reasons as `liveReader`. Each read is limited as a published board's is.
+ */
+export const copyReader = async (): Promise<CopyReader | null> => {
+  const state = loadCloudState();
+  if (!state.enabled || !state.uid) return null;
+  const current = await loadSession();
+  if (!current) return null;
+  const account = await current.cloud.account();
+  if (!account || account.uid !== state.uid) return null;
+  const { store } = current.cloud;
+  return {
+    readManifest: () => timed(store.readManifest(), LIVE_LIMITS.meta, "reading the cloud's copy"),
+    getChunk: (id) => timed(store.getChunk(id), LIVE_LIMITS.chunk, "fetching the cloud's copy"),
   };
 };
 

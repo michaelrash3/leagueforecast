@@ -30,6 +30,11 @@ import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
 import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesShape";
 import { forgetDecodedGames, GAME_MOVED } from "./LiveGames";
 import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY } from "./LiveSetup";
+import { forgetDecodedArchive } from "./LiveArchive";
+import { commitChanges } from "../../lib/cloud/cloudEngine";
+import { memoryCloud } from "../../lib/cloud/__tests__/memoryCloud";
+import type { ArchivedSeason } from "../../lib/teamRankingsArchive";
+import { archiveRowsKey, GC_ARCHIVE_KEY } from "../../lib/teamRankingsStorage";
 import { checkTheModel } from "../../lib/scoutBacktest";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
 import type { AgeGroup } from "../../lib/teamRankings";
@@ -2293,6 +2298,95 @@ describe("Setup on the cloud's board", () => {
     const server = editFunction(setupAnswers);
     open(sourcesOf(live, { call: server.call }));
     fireEvent.click(await screen.findByRole("button", { name: "Open them on this device's copy" }));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+});
+
+describe("the Archive tab on the cloud's board", () => {
+  const SEASON: ArchivedSeason = {
+    version: 2,
+    id: "arch-12u-2026-spring",
+    name: "12U 2026 Spring",
+    ageLevel: 12,
+    year: 2026,
+    segment: "spring",
+    archivedAt: "2026-08-01T00:00:00.000Z",
+    fromGames: 40,
+    fromTeams: 12,
+    rows: [
+      {
+        rank: 1,
+        teamName: "Placeholder Archived",
+        rating: 4.5,
+        record: "9-1-0",
+        wins: 9,
+        losses: 1,
+        ties: 0,
+        games: 10,
+        strengthOfSchedule: 0.4,
+        sosRank: 2,
+        state: "OH",
+        ageLevel: 12,
+        crossAgeGames: 0,
+      },
+    ],
+  };
+  /** The cloud's copy, holding `values`, as the page reads it. */
+  const copyHolding = async (values: Record<string, unknown>) => {
+    const cloud = memoryCloud();
+    const saved = await commitChanges({
+      store: cloud.store,
+      base: null,
+      changes: Object.entries(values).map(([key, value]) => ({ key, value, at: 1 })),
+      device: "phone",
+      now: T,
+    });
+    if (!saved.ok) throw new Error("not saved");
+    return cloud;
+  };
+  const onArchive = () =>
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=archive");
+  afterEach(() => forgetDecodedArchive());
+
+  it("lists the copy's finished seasons and opens one's table from the copy, and stays the page", async () => {
+    const cloud = await copyHolding({
+      [GC_ARCHIVE_KEY]: [
+        {
+          id: SEASON.id,
+          name: SEASON.name,
+          ageLevel: 12,
+          year: 2026,
+          segment: "spring",
+          archivedAt: SEASON.archivedAt,
+          fromGames: 40,
+          fromTeams: 12,
+          teams: 1,
+        },
+      ],
+      [archiveRowsKey(SEASON.id)]: SEASON,
+    });
+    onArchive();
+    pool.wants = false;
+    open(sourcesOf(live, { copy: async () => cloud.store }));
+    fireEvent.click(await screen.findByRole("button", { name: "12U 2026 Spring" }));
+    expect(await screen.findByText("National top 25")).toBeTruthy();
+    expect(screen.getAllByText("Placeholder Archived").length).toBeGreaterThan(0);
+    expect(handedOver()).toBeNull();
+  });
+
+  it("says nothing is archived for a copy that never archived anything", async () => {
+    const cloud = await copyHolding({ league_forecast_scout_age_groups_v1: [] });
+    onArchive();
+    pool.wants = false;
+    open(sourcesOf(live, { copy: async () => cloud.store }));
+    expect(await screen.findByText(/Nothing archived yet/)).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("hands over when the copy cannot be read", async () => {
+    onArchive();
+    pool.wants = false;
+    open(sourcesOf(live, { copy: async () => null }));
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 });

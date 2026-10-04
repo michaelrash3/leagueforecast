@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { copySeen, liveReader, type CopySeen } from "../lib/cloud/cloudSession";
+import { copyReader, copySeen, liveReader, type CopySeen } from "../lib/cloud/cloudSession";
+import type { CopyReader } from "../lib/live/copyArchive";
 import type { CallDeps } from "../lib/live/editClient";
 import { loadCloudState, owedChanges } from "../lib/cloud/cloudState";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
@@ -34,6 +35,8 @@ export type LiveSources = {
   now: () => string;
   /** How edits reach the edit function: the member's own sign-in and `fetch` when not given. */
   call?: CallDeps;
+  /** The signed-in member's reader of the copy itself, or null (`copyReader`): none, when not given. */
+  copy?: () => Promise<CopyReader | null>;
 };
 
 let browserSources: LiveSources | null = null;
@@ -45,6 +48,7 @@ const browser = (): LiveSources =>
     seen: copySeen,
     owed: () => Object.keys(owedChanges()),
     now: () => new Date().toISOString(),
+    copy: copyReader,
   });
 
 /** Reads nothing but what the device holds: a board not kept reads as offline. */

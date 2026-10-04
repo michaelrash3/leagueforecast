@@ -364,7 +364,8 @@ export const fetchValues = async ({
   parts,
   onProgress,
 }: {
-  store: CloudStore;
+  /** Only read from: a reader of the copy that may write nothing will do. */
+  store: Pick<CloudStore, "getChunk">;
   parts: readonly ManifestPart[];
   onProgress?: Progress;
 }): Promise<FetchResult> => {
