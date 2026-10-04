@@ -6140,6 +6140,25 @@ describe("a pull asked for particular seasons", () => {
     expect(lines[0]).toBe("1 schedule read.");
     expect(lines).toContain("1 team from a season this pull was not asked for left out.");
   });
+
+  it("counts a team left for its own season apart as well, which did not fail either", () => {
+    const filed = importGcSchedule(schedule({}, [game()]), empty, thisSeasonOnly).outcome;
+    const later = createGcImporter(empty, { today: "2026-09-23" }).add({
+      profile: {
+        id: "bKpjvY5AVqOV",
+        name: "Placeholder Warriors",
+        season: { season: "spring", year: 2027 },
+      },
+      games: [],
+      fetchedAt: "2026-09-23T12:00:00.000Z",
+    });
+    expect(later.skip).toBe("out-of-season");
+    const lines = summarizeGcImport([filed, later]);
+    expect(lines[0]).toBe("1 schedule read.");
+    expect(lines).toContain(
+      "1 team with no age and no games, from a season not being played, left for a later pull."
+    );
+  });
 });
 
 /*

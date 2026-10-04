@@ -205,6 +205,24 @@ const unconfiguredMessage = (endpoint: string): string =>
     ? `${endpoint} did not answer with JSON. The GameChanger proxy runs as a Vercel function: deploy the app to Vercel, or run it locally with \`vercel dev\` instead of \`vite\`.`
     : `${endpoint} did not answer with JSON. Check the Firebase function is deployed and VITE_GC_PROXY_URL names it.`;
 
+/**
+ * A failed answer with no JSON in it. Every answer the proxy gives is JSON, its failures included,
+ * so one without came from its host instead: a 5xx is the function falling over, or its host having
+ * no instance free to run it (Cloud Run says that with a bare 500), which is over a few seconds
+ * later. So a 5xx is tried again, as a dropped connection is, and anything else is not. Not retried,
+ * one such 500 left all ten teams of its batch unreached on a pull of 4 October 2026, with every
+ * other batch of the pull answering.
+ */
+const bodylessFailure = (endpoint: string, status: number): GcTeamResponse => ({
+  ok: false,
+  reason: status >= 500 ? "network" : "upstream-error",
+  message:
+    status >= 500
+      ? `${endpoint} failed (HTTP ${status}) without a JSON body: the proxy fell over, not GameChanger.`
+      : `${endpoint} failed (HTTP ${status}) without a JSON body.`,
+  status,
+});
+
 const isAbortError = (error: unknown): boolean =>
   (error instanceof DOMException && error.name === "AbortError") ||
   (error instanceof Error && error.name === "AbortError");
@@ -339,12 +357,7 @@ export const fetchGcTeam = async (
           status: response.status,
         };
       }
-      return {
-        ok: false,
-        reason: "upstream-error",
-        message: `${endpoint} failed (HTTP ${response.status}) without a JSON body.`,
-        status: response.status,
-      };
+      return bodylessFailure(endpoint, response.status);
     }
 
     return readTeamResult(payload, endpoint, response.status);
@@ -429,12 +442,7 @@ const fetchGcTeamBatch = async (
           status: response.status,
         });
       }
-      return forAll({
-        ok: false,
-        reason: "upstream-error",
-        message: `${endpoint} failed (HTTP ${response.status}) without a JSON body.`,
-        status: response.status,
-      });
+      return forAll(bodylessFailure(endpoint, response.status));
     }
 
     // A failure for the request as a whole: the proxy's own throttle, a bad id list, a 5xx.

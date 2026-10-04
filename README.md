@@ -1253,6 +1253,19 @@ A run over thousands of teams always leaves some behind, and a count hides it.
 | **Not filed**    | It arrived with nowhere to go: no age group, no season, or a level below the youngest ranked here.                |
 | **Check the id** | It arrived and was filed, but it is not the team the list named.                                                  |
 
+Each team is one row. One that could not be filed and whose id also returned another team than the
+list named is a **Not filed** row that says both, since the wrong id may be why: a pull of 4 October
+2026 listed 39 such teams twice, once as filed. A team left for its own season — from a season the
+pull was not asked for (`other-season`), or with no age and no games from a season not being played
+(`out-of-season`) — is the pull doing what it was told, and the run's summary counts each kind in a
+line of its own; that pull listed 283 of the second among its 5,668 rows. Either is listed after
+all when its id returned another team, which is then the thing to look at.
+
+A batch the proxy's host answers with a bare 5xx, no JSON in it, is tried again like a dropped
+connection: every answer the proxy gives is JSON, so one without is the function falling over or
+its host having no instance free, which passes. The same pull lost the ten teams of one batch to a
+bare 500 that was not retried.
+
 That last one exists because a twelve-character id is unreadable, so a wrong one
 is invisible: the pull fetches whatever the id really is, files it under its own
 name, and says nothing. The list already carries what each team was meant to be,
@@ -2067,7 +2080,8 @@ nothing, a horse mascot, a grade word — are never on the list.
 asked about again weekly while its season is being played, because the schedule is a thing
 somebody has yet to write. From a season that is over or not begun, the import drops it from
 the list without remembering it (`out-of-season`), so a later pull finds it again once its
-season comes round with games. The windows are wide and overlap — spring February to June,
+season comes round with games, and the run's summary counts it rather than listing it under
+**Worth a look**. The windows are wide and overlap — spring February to June,
 summer May to August, fall August to November, winter November to February under either
 year's label — because erring towards "being played" only costs a weekly request. The
 season rides on the waiting row and in the downloaded file's **Season** column.

@@ -89,26 +89,46 @@ export const collectGcImportProblems = (
     };
   });
 
+  const mismatchOf = (teamId: string) => {
+    const both = pulled.get(teamId);
+    return both ? checkPulledTeam(both.entry, both.profile) : null;
+  };
+  /** The teams that were filed: "check the id" is said of these alone, as the panel says it. */
+  const filed = new Set(outcomes.flatMap((outcome) => (outcome.issue ? [] : [outcome.gcTeamId])));
+
   outcomes.forEach((outcome) => {
     if (!outcome.issue) return;
+    const mismatch = mismatchOf(outcome.gcTeamId);
     /*
-     * A team from a season the pull was not asked for is the pull doing what it was told, not
-     * something to look at. A crawl across a calendar year can carry tens of thousands of them,
-     * which would bury every real problem on this list; the run's summary counts them instead.
+     * A team from a season the pull was not asked for, or one with no age and no games from a
+     * season not being played, is the pull doing what it was told, not something to look at. A
+     * crawl across a calendar year can carry tens of thousands of the first, and a pull of 4
+     * October 2026 listed 283 of the second among 5,668 rows, each saying it was left for a later
+     * pull; they would bury every real problem on this list, and the run's summary counts them
+     * instead. Unless its id returned another team than the list named: then the id is the thing
+     * to look at, and the season only how it showed.
      */
-    if (outcome.skip === "other-season") return;
+    if ((outcome.skip === "other-season" || outcome.skip === "out-of-season") && !mismatch) return;
     const teamName = outcome.teamName || names.get(outcome.gcTeamId);
+    /*
+     * A team that could not be filed and whose id also looks wrong is one row, not two: the same
+     * pull listed 39 teams both here and under "check the id", which the panel says of a team
+     * that did import. The wrong id goes on this row, where it may well be why.
+     */
     problems.push({
       teamId: outcome.gcTeamId,
       ...(teamName ? { teamName } : {}),
       kind: "not-filed",
-      reason: "Nowhere to file it",
-      detail: outcome.issue,
+      reason: mismatch ? mismatch.reason : "Nowhere to file it",
+      detail: mismatch
+        ? `${outcome.issue} ${mismatch.detail} Its id may be the wrong one.`
+        : outcome.issue,
       url: gcTeamPageUrl(outcome.gcTeamId),
     });
   });
 
   pulled.forEach(({ entry, profile }, teamId) => {
+    if (!filed.has(teamId)) return;
     const mismatch = checkPulledTeam(entry, profile);
     if (!mismatch) return;
     problems.push({
