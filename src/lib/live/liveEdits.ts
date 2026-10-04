@@ -104,6 +104,10 @@ export const EDIT_REFUSED: Record<EditRefusal, string> = {
     "A newer version of the app saved a League Standings season, so nothing was changed. Reload the page.",
   "league-kept-live":
     "That version holds League Standings, which is kept live now, so it was not brought back.",
+  logged:
+    "Some of these games were added to the page since they were checked, so nothing was added. Look them over again before adding them.",
+  "too-many":
+    "That would change too many clubs at once, so nothing was added. Add the games in smaller parts.",
   "store-refused":
     "The cloud would not answer just now, so nothing was changed. Try again in a minute.",
 };

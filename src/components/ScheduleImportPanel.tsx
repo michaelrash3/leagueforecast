@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { teamNameKey, type ScoutTeam } from "../lib/teamRankings";
 import {
-  NAMED_GAMES_MAX,
   type NamedCheck,
   type NamedGame,
   type NameNote as Note,
@@ -31,8 +30,18 @@ type ScheduleImportPanelProps = {
   checker: NamedChecker;
   /** Pre-fills whose schedule this is, when rows name only the opponent; the "my team" name. */
   defaultSubjectTeam: string;
-  /** The rows to add, by their clubs' names, which whoever adds them resolves to clubs. */
-  onImport: (games: NamedGame[]) => void;
+  /**
+   * The rows to add, by their clubs' names, which whoever adds them resolves to clubs. Where the
+   * adding is the server's, a promise of whether they were added: Add waits on it, so a second
+   * press cannot add them twice, and rows not added are checked again before another.
+   */
+  onImport: (games: NamedGame[]) => void | Promise<boolean>;
+  /**
+   * The most rows one add takes, where whoever adds them takes no more at once (the server's
+   * `NAMED_GAMES_MAX`): a longer list is turned away as it is read, to be pasted in parts, rather
+   * than looked over row by row and then refused.
+   */
+  rowsMax?: number;
   onClose: () => void;
   showToast: (message: string, options?: { tone?: ToastTone }) => void;
 };
@@ -105,8 +114,33 @@ function NameNote({ note, onUse }: { note: Note | undefined; onUse: (name: strin
 /** How long a row stays as typed before the server is asked about it. */
 const ASK_AFTER_MS = 400;
 
-/** Only a row naming both sides is asked about: one still waiting on a name is not a game yet. */
-const askable = (game: NamedGame): boolean => game.teamA.trim() !== "" && game.teamB.trim() !== "";
+/**
+ * The most rows one question asks about. Each name is looked for among the cloud's nationwide
+ * roster, 6.7 ms a name on the 29 September 2026 one, so a hundred rows are a second and a half of
+ * the edit function, which every member's edits wait behind; a long schedule is asked in turns.
+ */
+const ASK_ROWS = 100;
+
+/** The longest name the server reads (`coerceNamedGame`). */
+const NAME_MAX = 200;
+const nameOk = (name: string): boolean => name.trim() !== "" && name.length <= NAME_MAX;
+const dateOk = (date: string): boolean => date === "" || /^\d{4}-\d{2}-\d{2}$/.test(date);
+
+/**
+ * Only a row the server can read is asked about (`coerceNamedGame`): one still waiting on a name,
+ * or with one too long or a date that is not a day, is not a game yet, and one such row would
+ * have the whole question refused.
+ */
+const askable = (game: NamedGame): boolean =>
+  nameOk(game.teamA) && nameOk(game.teamB) && dateOk(game.date ?? "");
+
+/**
+ * The checks made here, by checker and by what each reads of a row (`checkKeyOf`): a row typed
+ * into is checked again alone, rather than every row of the list at each keystroke, which on a
+ * nationwide roster is most of a second a row. A new checker (another roster, another page) has
+ * a cache of its own.
+ */
+const checkedHereBy = new WeakMap<object, Map<string, NamedCheck>>();
 
 /** What a row's check is found by: what the check reads of it, and nothing it does not. */
 const checkKeyOf = (game: NamedGame): string =>
@@ -133,6 +167,7 @@ export function ScheduleImportPanel({
   checker,
   defaultSubjectTeam,
   onImport,
+  rowsMax,
   onClose,
   showToast,
 }: ScheduleImportPanelProps) {
@@ -177,52 +212,90 @@ export function ScheduleImportPanel({
   const here = checker.kind === "here" ? checker.check : null;
   const checkedHere = useMemo(() => {
     if (!here) return null;
-    const checks = here(named);
-    return new Map(named.map((game, index) => [checkKeyOf(game), checks[index]]));
+    const cache = checkedHereBy.get(here) ?? new Map<string, NamedCheck>();
+    checkedHereBy.set(here, cache);
+    const missing = named.filter((game) => !cache.has(checkKeyOf(game)));
+    if (missing.length > 0) {
+      const checks = here(missing);
+      missing.forEach((game, index) => {
+        const check = checks[index];
+        if (check) cache.set(checkKeyOf(game), check);
+      });
+    }
+    return cache;
   }, [here, named]);
   const [answered, setAnswered] = useState<ReadonlyMap<string, NamedCheck>>(() => new Map());
   const [unanswered, setUnanswered] = useState(false);
   const [askAgain, setAskAgain] = useState(0);
   const ask = checker.kind === "asked" ? checker.check : null;
+  /*
+   * The rows still to ask about: ticked, readable, and not answered or being asked about. Keyed by
+   * what the check reads, so a box ticked or a row unchanged does not ask again, and an answer
+   * that lands after the rows have changed is kept, since it is still the answer for those rows.
+   */
+  const asking = useRef(new Set<string>());
+  const mounted = useRef(true);
   useEffect(() => {
-    if (!ask || unanswered) return;
-    // As many as one question takes; the rest are asked once these are answered.
-    const waiting = named
-      .filter((game) => askable(game) && !answered.has(checkKeyOf(game)))
-      .slice(0, NAMED_GAMES_MAX);
-    if (waiting.length === 0) return;
-    let current = true;
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const waiting = useMemo(
+    () =>
+      ask
+        ? named.filter(
+            (game, index) =>
+              rows[index]?.include === true && askable(game) && !answered.has(checkKeyOf(game))
+          )
+        : [],
+    [ask, named, rows, answered]
+  );
+  useEffect(() => {
+    if (!ask || unanswered || waiting.length === 0) return;
     const timer = setTimeout(() => {
-      void ask(waiting).then((checks) => {
-        if (!current) return;
-        if (!checks || checks.length !== waiting.length) {
+      // Not those already being asked about; as many as one question asks, the rest once these
+      // are answered.
+      const batch = waiting
+        .filter((game) => !asking.current.has(checkKeyOf(game)))
+        .slice(0, ASK_ROWS);
+      if (batch.length === 0) return;
+      const keys = batch.map(checkKeyOf);
+      keys.forEach((key) => asking.current.add(key));
+      void ask(batch).then((checks) => {
+        keys.forEach((key) => asking.current.delete(key));
+        if (!mounted.current) return;
+        if (!checks || checks.length !== batch.length) {
           setUnanswered(true);
           return;
         }
         setUnanswered(false);
         setAnswered((was) => {
           const next = new Map(was);
-          waiting.forEach((game, index) => {
+          keys.forEach((key, index) => {
             const check = checks[index];
-            if (check) next.set(checkKeyOf(game), check);
+            if (check) next.set(key, check);
           });
           return next;
         });
       });
     }, ASK_AFTER_MS);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [ask, named, answered, unanswered, askAgain]);
+    return () => clearTimeout(timer);
+  }, [ask, waiting, unanswered, askAgain]);
   const checkOf = (index: number): NamedCheck | undefined => {
     const game = named[index];
     if (!game) return undefined;
     return (checkedHere ?? answered).get(checkKeyOf(game));
   };
-  /** Rows the server has not yet answered for: nothing is added until it has. */
+  /** Ticked rows the server has not yet answered for: nothing is added until it has. */
   const checking =
-    !checkedHere && named.some((game) => askable(game) && !answered.has(checkKeyOf(game)));
+    !checkedHere &&
+    named.some(
+      (game, index) =>
+        rows[index]?.include === true && askable(game) && !answered.has(checkKeyOf(game))
+    );
+  const status = useRef<HTMLParagraphElement>(null);
+  const [adding, setAdding] = useState(false);
 
   /** True while any row is still waiting on the subject field to know who it played. */
   const needsSubject = rows.some((row) => row.teamA === null);
@@ -271,6 +344,13 @@ export function ScheduleImportPanel({
       );
       return;
     }
+    if (rowsMax !== undefined && parsed.games.length > rowsMax) {
+      showToast(
+        `That is ${parsed.games.length} games, and at most ${rowsMax} are added at once. Paste the list in parts.`,
+        { tone: "error" }
+      );
+      return;
+    }
     setSkipped(parsed.skipped);
     applyGames(parsed.games, parsed.subjectTeam);
   };
@@ -294,8 +374,9 @@ export function ScheduleImportPanel({
   const includedRows = rows.filter((row) => row.include && !duplicateKeys.has(row.key));
   const subjectMissing = needsSubject && subjectTeam.trim().length === 0;
   const isBadRow = (row: ReviewRow) =>
-    nameA(row).trim().length === 0 ||
-    row.teamB.trim().length === 0 ||
+    !nameOk(nameA(row)) ||
+    !nameOk(row.teamB) ||
+    !dateOk(row.date) ||
     teamNameKey(nameA(row)) === teamNameKey(row.teamB) ||
     !isValidScorePair(row.scoreA, row.scoreB);
   const badRows = includedRows.filter(isBadRow);
@@ -319,7 +400,7 @@ export function ScheduleImportPanel({
     }
 
     const included = new Set(includedRows.map((row) => row.key));
-    onImport(
+    const added = onImport(
       named
         .filter((game) => included.has(game.id))
         .map((game, index) => ({
@@ -327,6 +408,15 @@ export function ScheduleImportPanel({
           id: `scout_${Date.now()}_${index}_${Math.floor(Math.random() * 1000)}`,
         }))
     );
+    if (!added) return;
+    setAdding(true);
+    void added.then((ok) => {
+      if (!mounted.current) return;
+      setAdding(false);
+      // Not added, or not known to be: what the page holds may have changed, so every row is asked
+      // about afresh, and one that did land is then found already logged.
+      if (!ok) setAnswered(new Map());
+    });
   };
 
   return (
@@ -483,6 +573,7 @@ export function ScheduleImportPanel({
                             // Typing here pins the row to a team of its own, so it stops following
                             // the subject field above.
                             onChange={(event) => updateRow(row.key, { teamA: event.target.value })}
+                            maxLength={NAME_MAX}
                             aria-label="Team"
                             className={`${inputClass} w-44`}
                           />
@@ -510,6 +601,7 @@ export function ScheduleImportPanel({
                               type="text"
                               value={row.teamB}
                               aria-label="Opponent"
+                              maxLength={NAME_MAX}
                               onChange={(event) =>
                                 updateRow(row.key, { teamB: event.target.value })
                               }
@@ -561,33 +653,36 @@ export function ScheduleImportPanel({
               ` ${duplicateKeys.size} row${duplicateKeys.size === 1 ? " is" : "s are"} already in this age group and won't be added again.`}
           </p>
 
-          {checking && (
-            <p
-              className="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400"
-              role="status"
-            >
-              {unanswered ? (
-                <>
-                  These games could not be checked against the cloud&apos;s.{" "}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUnanswered(false);
-                      setAskAgain((times) => times + 1);
-                    }}
-                    className="underline"
-                  >
-                    Check again
-                  </button>
-                </>
-              ) : (
-                "Checking these games against the cloud's…"
-              )}
-            </p>
-          )}
+          {/* Always there, so a screen reader hears what is put in it; focus comes here from
+              Check again, which goes once pressed. */}
+          <p
+            ref={status}
+            tabIndex={-1}
+            className="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400"
+            role="status"
+          >
+            {!checking ? null : unanswered ? (
+              <>
+                These games could not be checked against the cloud&apos;s.{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUnanswered(false);
+                    setAskAgain((times) => times + 1);
+                    status.current?.focus();
+                  }}
+                  className="underline"
+                >
+                  Check again
+                </button>
+              </>
+            ) : (
+              "Checking these games against the cloud's…"
+            )}
+          </p>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={commit} className={button.primary}>
+            <button type="button" onClick={commit} disabled={adding} className={button.primary}>
               Add {includedRows.length} game{includedRows.length === 1 ? "" : "s"}
             </button>
             <button type="button" onClick={onClose} className={button.ghost}>

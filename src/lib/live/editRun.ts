@@ -22,7 +22,7 @@ import { NO_UPLOADS, type UploadReader, type UploadStore } from "../cloud/upload
 import type { EditPool, PoolEnsure } from "./poolCache";
 import { asksLeague, answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
 import { deriveAllKnown, type SeasonReader } from "./allKnown";
-import { addOfNamed } from "./namedAdd";
+import { importOfNamed } from "./namedAdd";
 import { readCloudLeague, type CloudLeague, type LeagueDocsList } from "./cloudLeague";
 import { seasonReaderOf } from "./publishCopy";
 import { EDIT_DEVICE } from "./rebuildPlan";
@@ -60,6 +60,8 @@ const MAX_TRIES = 3;
  *   build saved (`readCloudLeague`).
  * - `league-kept-live`: an earlier version to bring back carries League Standings, which lives in
  *   its own documents now (`copyOps.ts`).
+ * - `logged`, `too-many`: games added by name that the page has by now, or that would change too
+ *   many clubs for one edit (`importOfNamed`).
  * - the copy's own refusals, as `PoolEnsure` names them.
  */
 export type EditRefusal =
@@ -70,6 +72,8 @@ export type EditRefusal =
   | "unsure"
   | "newer-league"
   | "league-kept-live"
+  | "logged"
+  | "too-many"
   | Extract<PoolEnsure, { ok: false }>["reason"];
 
 export type EditRun =
@@ -332,15 +336,15 @@ const runServerCommand = async (
       yearGames: loadScoutGamesForYear(ageGroupYear(page)),
       readSeason: read,
     });
-    const run = runPoolCommand(
-      addOfNamed({
-        year: command.year,
-        page: page.id,
-        named: command.games,
-        known: known.teams,
-        roster,
-      })
-    );
+    const made = importOfNamed({
+      year: command.year,
+      page: page.id,
+      named: command.games,
+      known,
+      roster,
+    });
+    if (!made.ok) return made;
+    const run = runPoolCommand(made.command);
     return run.ok ? { ok: true, inverse: run.inverse } : run;
   }
   const done = await runYearArchive(command.year, read, command.at);

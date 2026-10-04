@@ -49,8 +49,10 @@ type GamesSectionProps = {
   suggestedTeams: ScoutTeam[];
   /** How a pasted schedule's rows are checked: here, or by the server (`ScheduleImportPanel`). */
   checker: NamedChecker;
-  /** A pasted schedule's rows to add, by their clubs' names. */
-  onImportGames: (games: NamedGame[]) => void;
+  /** A pasted schedule's rows to add, by their clubs' names; a promise where the server adds them. */
+  onImportGames: (games: NamedGame[]) => void | Promise<boolean>;
+  /** The most rows a pasted schedule may have, where whoever adds them takes no more at once. */
+  importRowsMax?: number;
   showToast: (message: string, options?: { tone?: ToastTone }) => void;
   /**
    * The page's stored games, pulled, pasted or typed in, newest first. League Standings fixtures
@@ -102,6 +104,7 @@ export function GamesSection({
   onCloseImport,
   suggestedTeams,
   checker,
+  importRowsMax,
   onImportGames,
   showToast,
   loggedGames,
@@ -263,6 +266,7 @@ export function GamesSection({
           checker={checker}
           defaultSubjectTeam={myTeamName}
           onImport={onImportGames}
+          {...(importRowsMax === undefined ? {} : { rowsMax: importRowsMax })}
           onClose={onCloseImport}
           showToast={showToast}
         />

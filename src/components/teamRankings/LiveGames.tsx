@@ -22,7 +22,7 @@ import {
   type ScoutGame,
   type ScoutTeam,
 } from "../../lib/teamRankings";
-import { namedOfDraft, type NamedGame } from "../../lib/teamRankings/namedGames";
+import { NAMED_GAMES_MAX, namedOfDraft, type NamedGame } from "../../lib/teamRankings/namedGames";
 import { gamesWindowFor } from "../../lib/teamRankings/gamesWindow";
 import { card } from "../../styles/tokens";
 
@@ -165,6 +165,8 @@ export default function LiveGames({
   const [scoreA, setScoreA] = useState("");
   const [scoreB, setScoreB] = useState("");
   const [draft, setDraft] = useState(EMPTY_ADD_GAME_DRAFT);
+  /** A game on its way to the server: Add is off until it is answered, so it is added once. */
+  const [adding, setAdding] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const teamNameOptions = useMemo(() => suggestedTeams.map((team) => team.name), [suggestedTeams]);
   /** The pasted rows' checks, asked of the server, which holds the roster they are checked against. */
@@ -247,43 +249,54 @@ export default function LiveGames({
    * is asked first as the device's form asks it (`findDuplicateGame`).
    */
   const addGame = async () => {
-    const named = namedOfDraft(draft, mintGameId(Date.now()));
+    const sent = draft;
+    const named = namedOfDraft(sent, mintGameId(Date.now()));
     if (!named) {
       say("Enter both team names, and either both scores or neither.");
       return;
     }
-    const answer = await ask({ kind: "games.check", page: pageId, games: [named] });
-    if (!answer) return;
-    const [check] = answer.checks ?? [];
-    if (!check) {
-      say("That page is no longer in the cloud's Team Rankings, so nothing was added.");
-      return;
+    setAdding(true);
+    try {
+      const answer = await ask({ kind: "games.check", page: pageId, games: [named] });
+      if (!answer) return;
+      const [check] = answer.checks ?? [];
+      if (!check) {
+        say("That page is no longer in the cloud's Team Rankings, so nothing was added.");
+        return;
+      }
+      const played = named.teamAScore !== undefined;
+      let game = named;
+      if (check.logged) {
+        const scoreLine = played
+          ? `${named.teamA} ${named.teamAScore} – ${named.teamB} ${named.teamBScore}`
+          : `${named.teamA} vs ${named.teamB} (scheduled, no score yet)`;
+        const confirmed = await confirm({
+          title: "Already logged?",
+          message: `${scoreLine}${named.date ? ` on ${named.date}` : ""} is already in this age group with the same date and score.\n\nAdding it again counts it twice in the rankings.`,
+          confirmLabel: "Add anyway",
+        });
+        if (!confirmed) return;
+        // Added again on purpose, which the server otherwise refuses for a game the page has.
+        game = { ...named, again: true };
+      }
+      const made = await edit(
+        { kind: "game.import", year: squadYear, page: pageId, games: [game] },
+        { done: played ? "Game added." : "Added to schedule." }
+      );
+      // Cleared for the next game, unless the next is already being typed.
+      if (made) setDraft((was) => (was === sent ? EMPTY_ADD_GAME_DRAFT : was));
+    } finally {
+      setAdding(false);
     }
-    const played = named.teamAScore !== undefined;
-    if (check.logged) {
-      const scoreLine = played
-        ? `${named.teamA} ${named.teamAScore} – ${named.teamB} ${named.teamBScore}`
-        : `${named.teamA} vs ${named.teamB} (scheduled, no score yet)`;
-      const confirmed = await confirm({
-        title: "Already logged?",
-        message: `${scoreLine}${named.date ? ` on ${named.date}` : ""} is already in this age group with the same date and score.\n\nAdding it again counts it twice in the rankings.`,
-        confirmLabel: "Add anyway",
-      });
-      if (!confirmed) return;
-    }
-    const made = await edit(
-      { kind: "game.import", year: squadYear, page: pageId, games: [named] },
-      { done: played ? "Game added." : "Added to schedule." }
-    );
-    if (made) setDraft(EMPTY_ADD_GAME_DRAFT);
   };
   /** A reviewed schedule's rows, added by the server as one change, with an Undo for the lot. */
-  const importGames = async (named: NamedGame[]) => {
+  const importGames = async (named: NamedGame[]): Promise<boolean> => {
     const made = await edit(
       { kind: "game.import", year: squadYear, page: pageId, games: named },
       { done: `Added ${named.length} game${named.length === 1 ? "" : "s"}.`, undo: true }
     );
     if (made) setImportOpen(false);
+    return made;
   };
   const removeGame = async (game: ScoutGame) => {
     const teamA = names.get(game.teamAId) ?? "?";
@@ -313,7 +326,7 @@ export default function LiveGames({
       onDraftChange={(patch) => setDraft((was) => ({ ...was, ...patch }))}
       teamNameOptions={teamNameOptions}
       myTeamName={myTeamName}
-      addGameValid={namedOfDraft(draft, "check") !== null}
+      addGameValid={!adding && namedOfDraft(draft, "check") !== null}
       onAddGame={() => void addGame()}
       onGoToImport={onGoToImport}
       importOpen={importOpen}
@@ -321,7 +334,8 @@ export default function LiveGames({
       onCloseImport={() => setImportOpen(false)}
       suggestedTeams={suggestedTeams}
       checker={checker}
-      onImportGames={(named) => void importGames(named)}
+      onImportGames={importGames}
+      importRowsMax={NAMED_GAMES_MAX}
       showToast={(message) => say(message)}
       loggedGames={shownGames}
       gamesWindow={gamesWindow}

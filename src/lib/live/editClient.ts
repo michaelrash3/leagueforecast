@@ -167,6 +167,8 @@ const EDIT_REFUSALS: Record<EditRefusal, true> = {
   ...ENSURE_REFUSALS,
   "newer-league": true,
   "league-kept-live": true,
+  logged: true,
+  "too-many": true,
   missing: true,
   refused: true,
   unsaved: true,

@@ -4173,6 +4173,33 @@ stem, which may be another League club's, and the board's ids would all shift. E
 broken in turn, 27, and 26 failed a test; the other, the page's games kept to the page, cannot
 change an answer, since a game is only ever taken for one on its own page (`findDuplicateGame`).
 
+**What the reviews of adding by name found.** A press of Add while a game was on its way added
+it twice, since nothing waited on the server's answer: Add is off now until it comes, for the
+form and the import alike, and the form keeps a game typed in the meantime rather than clearing
+it with the one sent. The server checks again as it adds (`importOfNamed`): a game the page has
+by then (another member added the same schedule, or an earlier press landed though the device
+was never told so) adds none of the schedule (`logged`), and the import's rows are asked about
+again, so the ones the page has now drop out. A game the form was told the page had, and was
+told to add anyway, carries `again`. A club against itself is refused by the key a name is
+found by ("NV Stars 9U" is "NV Stars"), on the form and on the server. The checks were most
+of a second a name: a near miss was looked for by working out every club's key and a full edit
+distance against each of 116,485 (397 ms a name on the 29 September 2026 roster), so a pasted
+season of a few dozen rows ran past the edit function's minute, ended its worker and the warm
+pool every member's edits use, and could be asked again only to end it again. The roster is
+indexed now (`findSimilarTeam`), each key once, by length and in order, and a distance worked
+out only within reach of 0.82: 6.7 ms a name on the same roster, the same club named for each
+of 80 names compared, and the rows are asked about a hundred to a question. Names are resolved
+through an index too (`teamResolver`), where each new club rebuilt the roster's ids and each
+state a pass over it: 500 rows of new names in 134 ms, where 50 took 2.4 s, the clubs and games
+the same as the walk's on generated rosters and on that one. A schedule of more rows than one
+edit takes (500) is turned away as it is read, to be pasted in parts, and one that would tidy
+more clubs than an edit may change (`MAX_COMMAND_STEPS`), each a step that writes the roster,
+adds nothing (`too-many`): 500 rows naming held clubs without a state, each row with one, came
+to 945 steps. Each guard was broken in turn, 39, and 37 failed a test; the other two cannot
+change an answer: a band one cell narrower loses only a distance at the cap, which is a step past
+0.82 by construction, and keeping the page's games to the page is what `findDuplicateGame`
+already does.
+
 **Scouting.** The tab works out its report, its upcoming games and its comparison
 as Team Rankings does, off the board's rows and the club cards rather than the
 year's pool (`LiveScouting`, `scoutingFromCards.ts`). The report reads only the

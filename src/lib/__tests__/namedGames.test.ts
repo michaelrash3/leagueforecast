@@ -9,7 +9,9 @@ import {
   namedOfDraft,
   type NamedGame,
 } from "../teamRankings/namedGames";
-import { addOfNamed, addOfResolved } from "../live/namedAdd";
+import { MAX_COMMAND_STEPS } from "../live/commands";
+import { addOfNamed, addOfResolved, importOfNamed } from "../live/namedAdd";
+import { cleanTeamName, offClubIdFor, resolveOrCreateTeam } from "../teamRankings/names";
 import type { ScoutGame, ScoutTeam } from "../teamRankings/types";
 
 /*
@@ -115,6 +117,7 @@ describe("games named by their clubs", () => {
     };
     expect(coerceNamedGame(JSON.parse(JSON.stringify(full)))).toEqual(full);
     expect(coerceNamedGame(ONE)).toEqual(ONE);
+    expect(coerceNamedGame({ ...ONE, again: true })).toEqual({ ...ONE, again: true });
     for (const raw of [
       { ...ONE, extra: 1 },
       { ...ONE, id: "../x" },
@@ -126,6 +129,8 @@ describe("games named by their clubs", () => {
       { ...ONE, teamAScore: "6", teamBScore: 5 },
       { ...ONE, date: "April 3" },
       { ...ONE, event: "" },
+      { ...ONE, again: false },
+      { ...ONE, again: "yes" },
       null,
     ]) {
       expect([raw, coerceNamedGame(raw)]).toEqual([raw, null]);
@@ -153,6 +158,97 @@ describe("games named by their clubs", () => {
     ]) {
       expect(coerceNamedCheck(raw)).toBeNull();
     }
+  });
+});
+
+/**
+ * How games named by their clubs were resolved before the roster was indexed for it: a walk down
+ * the roster for each name, and a pass over it for each state. Kept to hold the indexed way to.
+ */
+const gamesOfNamedBefore = (
+  named: readonly NamedGame[],
+  teams: ScoutTeam[],
+  ageGroupId: string
+): { teams: ScoutTeam[]; games: ScoutGame[] } => {
+  const applyState = (pool: ScoutTeam[], teamId: string, state: string | undefined) =>
+    state
+      ? pool.map((team) => (team.id === teamId && !team.state ? { ...team, state } : team))
+      : pool;
+  let pool = teams;
+  const games = named.map((game): ScoutGame => {
+    const a = resolveOrCreateTeam(game.teamA, pool);
+    pool = a.teams;
+    const b = resolveOrCreateTeam(game.teamB, pool);
+    pool = b.teams;
+    pool = applyState(pool, a.teamId, game.stateA);
+    pool = applyState(pool, b.teamId, game.stateB);
+    return {
+      id: game.id,
+      teamAId: a.teamId,
+      teamBId: b.teamId,
+      ageGroupId,
+      ...(game.teamAScore !== undefined && game.teamBScore !== undefined
+        ? { teamAScore: game.teamAScore, teamBScore: game.teamBScore }
+        : {}),
+      ...(game.date ? { date: game.date } : {}),
+      ...(game.event ? { event: game.event } : {}),
+    };
+  });
+  return { teams: pool, games };
+};
+
+describe("games named by their clubs, resolved against an index of the roster", () => {
+  const seeded = (seed: number) => {
+    let state = seed;
+    return () => {
+      state = (state * 1103515245 + 12345) & 0x7fffffff;
+      return state / 0x80000000;
+    };
+  };
+  const WORDS = ["Rays", "Owls", "Foxes", "Storm", "Dayton", "Akron", "Elite", "Navy", "Blue"];
+  const SLOTS = ["TBD", "Winner of Game 3", "Bye", "Pool A #2"];
+
+  it("finds, tidies and makes the clubs the walk down the roster did, with the same ids", () => {
+    const random = seeded(17);
+    const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
+    for (let round = 0; round < 40; round += 1) {
+      const roster: ScoutTeam[] = Array.from({ length: 30 }, (_, index) => {
+        const name = `${pick(WORDS)} ${pick(WORDS)}`;
+        const kind = random();
+        // Stored before labels were taken off; a slot; a club only a league team names; a state.
+        if (kind < 0.15) return { id: `S-a${index}`, name: `${name} 9U` };
+        if (kind < 0.25) return { id: `S-p${index}`, name: pick(SLOTS), placeholder: true };
+        if (kind < 0.32) return { id: offClubIdFor(name), name };
+        if (kind < 0.5) return { id: `S-s${index}`, name, state: "OH" };
+        return { id: `S-${index}`, name };
+      });
+      // Two clubs sharing an id, which a roster should never hold, filled in as the walk did.
+      if (round % 5 === 0 && roster[3] && roster[4]) roster[4] = { ...roster[4], id: roster[3].id };
+      const nameOf = (): string => {
+        const kind = random();
+        if (kind < 0.55) {
+          const held = cleanTeamName(pick(roster).name);
+          return random() < 0.3 ? `${held.toUpperCase()} 10U` : held;
+        }
+        if (kind < 0.7) return pick(SLOTS);
+        return `${pick(WORDS)} ${pick(WORDS)} ${pick(WORDS)}`;
+      };
+      const named: NamedGame[] = Array.from({ length: 25 }, (_, index) => ({
+        id: `g${index}`,
+        teamA: nameOf(),
+        teamB: nameOf(),
+        ...(random() < 0.4 ? { stateA: pick(["KY", "IN"]) } : {}),
+        ...(random() < 0.4 ? { stateB: pick(["KY", "IN"]) } : {}),
+        ...(random() < 0.5 ? { teamAScore: 3, teamBScore: 1 } : {}),
+      }));
+      const before = gamesOfNamedBefore(named, roster, PAGE);
+      expect(gamesOfNamed(named, roster, PAGE)).toEqual(before);
+    }
+  });
+
+  it("leaves the roster as it was handed over when nothing on it changes", () => {
+    const { teams } = gamesOfNamed([{ id: "g", teamA: "Rays", teamB: "Blue Birds" }], ROSTER, PAGE);
+    expect(teams).toBe(ROSTER);
   });
 });
 
@@ -185,9 +281,14 @@ describe("the form's game", () => {
     for (const draft of [
       { ...DRAFT, teamBName: " " },
       { ...DRAFT, teamBName: "rays" },
+      // One club by the key a name is found by, so one club against itself.
+      { ...DRAFT, teamBName: "RAYS 10U" },
       { ...DRAFT, teamAScore: "6" },
       { ...DRAFT, teamAScore: "6", teamBScore: "-1" },
       { ...DRAFT, teamAScore: "six", teamBScore: "1" },
+      // A day the server reads, and an event no longer than a name.
+      { ...DRAFT, date: "20270-04-03" },
+      { ...DRAFT, event: "x".repeat(201) },
     ]) {
       expect([draft, namedOfDraft(draft, "x")]).toEqual([draft, null]);
     }
@@ -231,5 +332,63 @@ describe("the change that adds named games", () => {
       games,
       adopt: [],
     });
+  });
+});
+
+describe("what the server makes of games added by name", () => {
+  const LOGGED: ScoutGame = {
+    id: "g",
+    teamAId: "S-RAYS",
+    teamBId: "S-BIRDS",
+    ageGroupId: PAGE,
+    teamAScore: 6,
+    teamBScore: 5,
+    date: "2027-04-03",
+  };
+  const AGAIN: NamedGame = {
+    id: "a",
+    teamA: "Blue Birds",
+    teamB: "Rays",
+    teamAScore: 5,
+    teamBScore: 6,
+    date: "2027-04-03",
+  };
+  const importOf = (named: NamedGame[], games: ScoutGame[] = [LOGGED], roster = ROSTER) =>
+    importOfNamed({ year: 2027, page: PAGE, named, known: { teams: roster, games }, roster });
+
+  it("adds none of a schedule with a game the page has by now, unless it was added again on purpose", () => {
+    expect(importOf([{ ...ONE }, AGAIN])).toEqual({ ok: false, why: "logged" });
+    // Another page's game, or one on another day, is not this one.
+    expect(importOf([AGAIN], [{ ...LOGGED, ageGroupId: "ag_11u_2027" }]).ok).toBe(true);
+    expect(importOf([{ ...AGAIN, date: "2027-04-04" }]).ok).toBe(true);
+    expect(importOf([{ ...ONE }, { ...AGAIN, again: true }])).toMatchObject({
+      ok: true,
+      command: { kind: "game.add", year: 2027, adopt: [{ name: "Bandits" }] },
+    });
+  });
+
+  it("adds no game of a club against itself", () => {
+    expect(importOf([{ ...ONE, teamB: "RAYS 10U" }])).toEqual({ ok: false, why: "refused" });
+  });
+
+  it("adds none of a schedule that would tidy more clubs than one edit may change", () => {
+    // Each row names a held club with no state, and a state for it: a step that writes the roster.
+    const roster: ScoutTeam[] = [
+      ...ROSTER,
+      ...Array.from({ length: MAX_COMMAND_STEPS }, (_, at) => ({
+        id: `S-C${at}`,
+        name: `Club ${at}`,
+      })),
+    ];
+    const rows = (count: number): NamedGame[] =>
+      Array.from({ length: count }, (_, at) => ({
+        id: `r${at}`,
+        teamA: `Club ${at}`,
+        teamB: "Blue Birds",
+        stateA: "KY",
+      }));
+    // The game and a step for each club: as many as one edit may take, and one more.
+    expect(importOf(rows(MAX_COMMAND_STEPS - 1), [], roster).ok).toBe(true);
+    expect(importOf(rows(MAX_COMMAND_STEPS), [], roster)).toEqual({ ok: false, why: "too-many" });
   });
 });

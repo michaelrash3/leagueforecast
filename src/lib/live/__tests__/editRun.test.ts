@@ -1028,6 +1028,33 @@ describe("games added by their clubs' names, resolved on the server", () => {
     expect(knownAs()).toEqual(before);
   });
 
+  it("adds none of a schedule the page has a game of by now, unless that game is added again", async () => {
+    const cloud = await copyOfPool();
+    const cache = editPool();
+    const first = await edit(cache, cloud.store, IMPORT);
+    if (!first.ok) throw new Error(first.why);
+    const version = cloud.manifest()?.version;
+    // The same games again, under the ids a second press mints: each is on the page now.
+    const again = {
+      ...IMPORT,
+      games: IMPORT.games.map((game, at) => ({ ...game, id: `imp${at + 3}` })),
+    };
+    expect(await edit(cache, cloud.store, again)).toMatchObject({ ok: false, why: "logged" });
+    expect(cloud.manifest()?.version).toBe(version);
+    const twice = await edit(cache, cloud.store, {
+      ...again,
+      games: again.games.map((game) => ({ ...game, again: true as const })),
+    });
+    if (!twice.ok) throw new Error(twice.why);
+    await pool?.drop();
+    await reopen(cloud);
+    expect(
+      loadScoutGamesForYear(2027)
+        .filter((game) => game.id.startsWith("imp"))
+        .map((game) => game.id)
+    ).toEqual(["imp1", "imp2", "imp3", "imp4"]);
+  });
+
   it("refuses a page the copy does not hold, or a year the page is not in, and saves nothing", async () => {
     const cloud = await copyOfPool();
     const version = cloud.manifest()?.version;

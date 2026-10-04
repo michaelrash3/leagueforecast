@@ -39,6 +39,7 @@ import { archiveRowsKey, GC_ARCHIVE_KEY } from "../../lib/teamRankingsStorage";
 import { checkTheModel } from "../../lib/scoutBacktest";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
 import type { AgeGroup, ScoutGame } from "../../lib/teamRankings";
+import { NAMED_GAMES_MAX } from "../../lib/teamRankings/namedGames";
 import type { SeasonMeta } from "../../lib/storage";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
 import type { LiveSources } from "../../hooks/useLiveBoard";
@@ -1393,6 +1394,149 @@ describe("the Games tab on the cloud's board", () => {
       },
     ]);
     expect(said.actions.has("Added 1 game.")).toBe(true);
+  });
+
+  it("adds a game once, however often Add is pressed while the server is asked", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = addingServer();
+    // Nothing the server is sent is answered until let go.
+    let letGo = () => {};
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      await held;
+      return server.call.fetchImpl(url, init);
+    }) as typeof fetch;
+    open(sourcesOf(live, { call: { ...server.call, fetchImpl } }));
+    await screen.findByText(/^Today's games/);
+    typeGame("Placeholder S-1", "Placeholder Newcomers", ["6", "5"]);
+    const add = screen.getByRole("button", { name: "Add Game" });
+    fireEvent.click(add);
+    fireEvent.click(add);
+    fireEvent.click(add);
+    await act(async () => letGo());
+    await waitFor(() => expect(said.toasts).toContain("Game added."));
+    expect(server.sent.filter((data) => data.query !== undefined)).toHaveLength(1);
+    expect(edited(server.sent)).toHaveLength(1);
+  });
+
+  it("keeps the next game typed while the last was being added", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = addingServer();
+    let letGo = () => {};
+    const held = new Promise<void>((resolve) => (letGo = resolve));
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      await held;
+      return server.call.fetchImpl(url, init);
+    }) as typeof fetch;
+    open(sourcesOf(live, { call: { ...server.call, fetchImpl } }));
+    await screen.findByText(/^Today's games/);
+    typeGame("Placeholder S-1", "Placeholder Newcomers", ["6", "5"]);
+    fireEvent.click(screen.getByRole("button", { name: "Add Game" }));
+    fireEvent.change(screen.getByPlaceholderText("Opponent name"), {
+      target: { value: "Placeholder Latecomers" },
+    });
+    await act(async () => letGo());
+    await waitFor(() => expect(said.toasts).toContain("Game added."));
+    expect(screen.getByPlaceholderText("Opponent name")).toHaveValue("Placeholder Latecomers");
+  });
+
+  it("marks a game the page already has as added again, once told to add it anyway", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = addingServer({ logged: true });
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    typeGame("Placeholder S-1", "Placeholder S-2", ["7", "2"]);
+    fireEvent.click(screen.getByRole("button", { name: "Add Game" }));
+    await waitFor(() => expect(said.toasts).toContain("Game added."));
+    expect(said.asked).toEqual(["Already logged?"]);
+    expect(edited(server.sent)).toMatchObject([
+      { command: { kind: "game.import", games: [{ teamA: "Placeholder S-1", again: true }] } },
+    ]);
+  });
+
+  /** Pastes `text` into the import panel and reads it, the rows then checked. */
+  const pasteSchedule = (text: string) => {
+    fireEvent.click(screen.getByRole("button", { name: "Import games" }));
+    fireEvent.change(screen.getByLabelText("Games to import"), { target: { value: text } });
+    fireEvent.click(screen.getByRole("button", { name: "Read games" }));
+  };
+
+  it("asks the server about a long schedule a hundred rows at a time", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = addingServer();
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    const rows = Array.from(
+      { length: 150 },
+      (_, at) => `2027-05-02,Placeholder Home ${at},Placeholder Away ${at},3,1`
+    );
+    pasteSchedule(["Date,Team,Opponent,Us,Them", ...rows].join("\n"));
+    await screen.findByRole("button", { name: "Add 150 games" });
+    await waitFor(() => expect(screen.queryByText(/checking these games/i)).toBeNull(), {
+      timeout: 5000,
+    });
+    const asked = server.sent.flatMap((data) =>
+      data.query ? [(data.query as { games: unknown[] }).games.length] : []
+    );
+    expect(asked).toEqual([100, 50]);
+  });
+
+  it("turns away a schedule longer than the server adds at once, as it is read", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = addingServer();
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    const rows = Array.from(
+      { length: NAMED_GAMES_MAX + 1 },
+      (_, at) => `2027-05-02,Placeholder Home ${at},Placeholder Away ${at},3,1`
+    );
+    pasteSchedule(["Date,Team,Opponent,Us,Them", ...rows].join("\n"));
+    expect(said.toasts).toContain(
+      `That is ${NAMED_GAMES_MAX + 1} games, and at most ${NAMED_GAMES_MAX} are added at once. Paste the list in parts.`
+    );
+    // Left to be pasted again, in parts, and nothing asked of the server.
+    expect(screen.getByLabelText("Games to import")).toBeTruthy();
+    expect(server.sent.filter((data) => data.query !== undefined)).toEqual([]);
+  });
+
+  it("checks the rows again when the server finds some of them on the page by now", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    // Another member adds the schedule while this one looks it over.
+    let addedElsewhere = false;
+    const server = editFunction((data) => {
+      const query = data.query as { games: unknown[] } | undefined;
+      if (query)
+        return answered({
+          kind: "games.check",
+          checks: query.games.map(() => ({ notes: [null, null], logged: addedElsewhere })),
+        });
+      addedElsewhere = true;
+      return { ok: false, why: "logged" };
+    });
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    pasteSchedule("Date,Team,Opponent,Us,Them\n2027-05-02,Placeholder S-1,Placeholder S-2,3,1");
+    await waitFor(() => expect(screen.queryByText(/checking these games/i)).toBeNull(), {
+      timeout: 3000,
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add 1 game/i }));
+    await waitFor(() => expect(said.toasts).toContain(EDIT_REFUSED.logged));
+    // Asked again, and now found on the page: nothing left to add.
+    expect(await screen.findByText("Already logged", {}, { timeout: 3000 })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /add 0 games/i })).toBeTruthy();
+    expect(edited(server.sent)).toHaveLength(1);
   });
 
   it("hands over when the page has no list to read", async () => {

@@ -1,6 +1,6 @@
-import { gamesOfNamed, type NamedGame } from "../teamRankings/namedGames";
+import { gamesOfNamed, loggedNamed, type NamedGame } from "../teamRankings/namedGames";
 import type { ScoutGame, ScoutTeam } from "../teamRankings/types";
-import type { PoolCommand } from "./commands";
+import { MAX_COMMAND_STEPS, stepCount, type PoolCommand } from "./commands";
 
 /**
  * Games named by their clubs' names, made into the change that adds them (1.6): the device's Games
@@ -60,4 +60,46 @@ export const addOfNamed = ({
 }): PoolCommand => {
   const { teams, games } = gamesOfNamed(named, known, page);
   return addOfResolved({ year, games, teams, roster });
+};
+
+/**
+ * Why the server adds none of a `game.import`'s games:
+ * - `logged`: one the device did not say it was adding again (`again`) is a game the page has by
+ *   now. What the device was told when it checked may be out of date: another member added the
+ *   same schedule meanwhile, or an earlier press landed though the device was never told so.
+ * - `too-many`: the change would take more steps than one edit may (`MAX_COMMAND_STEPS`), each
+ *   club whose name or state it tidies a step that writes the roster.
+ * - `refused`: a game's two names are one club, which no page of the device's sends.
+ */
+export type ImportRefusal = "logged" | "too-many" | "refused";
+
+/**
+ * What the server makes of a `game.import` of `named` on page `page`: its names resolved against
+ * the year's clubs and games as the page knows them (`known`, League Standings' among them), as
+ * the device's Games tab resolves a pasted schedule, and added (`addOfResolved`); or why not.
+ */
+export const importOfNamed = ({
+  year,
+  page,
+  named,
+  known,
+  roster,
+}: {
+  year: number | null;
+  page: string;
+  named: readonly NamedGame[];
+  known: { teams: ScoutTeam[]; games: readonly ScoutGame[] };
+  roster: readonly ScoutTeam[];
+}): { ok: true; command: PoolCommand } | { ok: false; why: ImportRefusal } => {
+  // Checked as the device's check is (`games.check`), so a game refused here reads as logged there.
+  const onPage = known.games.filter((game) => game.ageGroupId === page);
+  const logged = loggedNamed(named, known.teams, onPage, page);
+  if (named.some((game, at) => logged[at] === true && game.again !== true))
+    return { ok: false, why: "logged" };
+  const { teams, games } = gamesOfNamed(named, known.teams, page);
+  if (games.some((game) => game.teamAId === game.teamBId)) return { ok: false, why: "refused" };
+  const command = addOfResolved({ year, games, teams, roster });
+  return stepCount(command) > MAX_COMMAND_STEPS
+    ? { ok: false, why: "too-many" }
+    : { ok: true, command };
 };
