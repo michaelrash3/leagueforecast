@@ -257,6 +257,66 @@ describe("a game a page's list shows, asked by its place", () => {
   });
 });
 
+describe("a what-if as the server reads it", () => {
+  const WHAT_IF: PoolQuery = {
+    kind: "scouting.whatIf",
+    page: "ag_10u_2027",
+    segment: "spring",
+    forTeamId: "A",
+    game: { id: "1", teamAId: "A", teamBId: "C", ageGroupId: "ag_10u_2027", date: "2027-04-20" },
+    today: "2027-04-15",
+  };
+  const CURVE = {
+    gameId: "1",
+    forTeamId: "A",
+    points: [
+      { margin: -1, rank: 3, rating: -0.5 },
+      { margin: 1, rank: 1, rating: 0.75 },
+    ],
+    winRecord: "3-1",
+    lossRecord: "2-2",
+    rankedCount: 3,
+  };
+
+  it("is asked exactly, and refused inexactly", () => {
+    expect(coerceQuery(JSON.parse(JSON.stringify(WHAT_IF)))).toEqual(WHAT_IF);
+    expect(coerceQuery({ ...WHAT_IF, segment: null })).toEqual({ ...WHAT_IF, segment: null });
+    const { game } = WHAT_IF as { game: Record<string, unknown> };
+    for (const raw of [
+      { ...WHAT_IF, extra: 1 },
+      { ...WHAT_IF, segment: "summer" },
+      { ...WHAT_IF, segment: undefined },
+      { ...WHAT_IF, page: "" },
+      { ...WHAT_IF, forTeamId: "" },
+      { ...WHAT_IF, today: "2027-02-30" },
+      { ...WHAT_IF, game: { ...game, extra: 1 } },
+      { ...WHAT_IF, game: { ...game, teamAScore: "3" } },
+      { ...WHAT_IF, game: null },
+    ]) {
+      expect(coerceQuery(raw)).toBeNull();
+    }
+  });
+
+  it("is read back as sent, and refused with any part of its curve spoiled", () => {
+    const drawn = { kind: "scouting.whatIf", curve: CURVE };
+    expect(coerceQueryAnswer(drawn, "scouting.whatIf")).toEqual(drawn);
+    expect(coerceQueryAnswer({ kind: "scouting.whatIf", curve: null }, "scouting.whatIf")).toEqual({
+      kind: "scouting.whatIf",
+      curve: null,
+    });
+    for (const curve of [
+      { ...CURVE, gameId: "" },
+      { ...CURVE, rankedCount: 1.5 },
+      { ...CURVE, winRecord: 3 },
+      { ...CURVE, points: [{ margin: 1, rank: -1, rating: 0 }] },
+      { ...CURVE, points: [{ margin: 1, rank: 1 }] },
+      { ...CURVE, points: "none" },
+    ])
+      expect(coerceQueryAnswer({ kind: "scouting.whatIf", curve }, "scouting.whatIf")).toBeNull();
+    expect(coerceQueryAnswer({ kind: "scouting.whatIf" }, "scouting.whatIf")).toBeNull();
+  });
+});
+
 describe("an answer as a device reads one", () => {
   it("is the answer exactly, of the kind it asked", () => {
     const merged = { kind: "merge.preview", found: true, games: 4, dropped: 2 };

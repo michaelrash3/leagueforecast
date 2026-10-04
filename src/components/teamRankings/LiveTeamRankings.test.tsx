@@ -1386,12 +1386,9 @@ describe("Scouting on the cloud's board", () => {
     expect(handedOver()).toBeNull();
   });
 
-  it("hands over on a what-if, on the club it was reporting on", async () => {
-    await withCards([MINE, THEIRS]);
-    pool.wants = false;
-    onScouting();
+  /** Scouts S-3, whose card's first game still to play is against S-2, and opens its what-if. */
+  const whatIfOnTheirs = async () => {
     const user = userEvent.setup();
-    open(sourcesOf(live));
     const box = await screen.findByRole("combobox", { name: /How would/ });
     await user.click(box);
     await user.type(box, "Placeholder S-3");
@@ -1407,7 +1404,77 @@ describe("Scouting on the cloud's board", () => {
       )
     );
     fireEvent.click((await screen.findAllByRole("button", { name: /^What if\?/ }))[0]!);
-    await waitFor(() => expect(handedOver()).toMatchObject({ reportTeamId: "S-3" }));
+  };
+  const CURVE = {
+    gameId: "0",
+    forTeamId: "S-3",
+    points: [
+      { margin: -1, rank: 3, rating: 1.5 },
+      { margin: 1, rank: 2, rating: 2.5 },
+    ],
+    winRecord: "4-1",
+    lossRecord: "3-2",
+    rankedCount: 3,
+  };
+
+  it("asks the server for a what-if on the club it reports on, and draws its answer", async () => {
+    await withCards([MINE, THEIRS]);
+    pool.wants = false;
+    onScouting();
+    const server = editFunction(() => answered({ kind: "scouting.whatIf", curve: CURVE }));
+    open(sourcesOf(live, { call: server.call }));
+    await whatIfOnTheirs();
+    expect(
+      await screen.findByRole("table", {
+        name: "What a win or a loss against Placeholder S-2 would do",
+      })
+    ).toBeTruthy();
+    // The fixture as the card holds it, its id its place there, on the board's half.
+    expect(server.sent).toEqual([
+      {
+        query: {
+          kind: "scouting.whatIf",
+          page: PAGE,
+          segment: "spring",
+          forTeamId: "S-3",
+          game: { id: "0", teamAId: "S-3", teamBId: "S-2", ageGroupId: PAGE, date: "2027-04-20" },
+          today: TODAY,
+        },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    // Put away when pressed again.
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Hide\s*what a win or a loss against Placeholder S-2/ })
+    );
+    expect(
+      screen.queryByRole("table", { name: "What a win or a loss against Placeholder S-2 would do" })
+    ).toBeNull();
+    // Another fixture is working until its own answer is in, never drawn with the last one's.
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /^What if\?\s*what a win or a loss against Placeholder S-1/,
+      })
+    );
+    expect(screen.getByText(/Working it out/)).toBeTruthy();
+    expect(
+      await screen.findByRole("table", {
+        name: "What a win or a loss against Placeholder S-1 would do",
+      })
+    ).toBeTruthy();
+    expect(server.sent).toHaveLength(2);
+    expect(handedOver()).toBeNull();
+  });
+
+  it("says a what-if could not be worked out when the server has no curve for it", async () => {
+    await withCards([MINE, THEIRS]);
+    pool.wants = false;
+    onScouting();
+    const server = editFunction(() => answered({ kind: "scouting.whatIf", curve: null }));
+    open(sourcesOf(live, { call: server.call }));
+    await whatIfOnTheirs();
+    expect(await screen.findByText(/That could not be worked out/)).toBeTruthy();
+    expect(handedOver()).toBeNull();
   });
 
   it("hands over when the club it reports on has no card", async () => {

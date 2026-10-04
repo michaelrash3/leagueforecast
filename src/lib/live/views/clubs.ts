@@ -35,6 +35,13 @@ export const panelGame = (game: ScoutGame): ScoutGame => ({
 });
 
 /**
+ * A club's games of the year as its card lists them (`clubViews`, which makes every club's list in
+ * one pass over the year): those it is on either side of, in the pool's order, each once.
+ */
+export const cardGamesOf = (games: readonly ScoutGame[], teamId: string): ScoutGame[] =>
+  games.filter((game) => game.teamAId === teamId || game.teamBId === teamId);
+
+/**
  * Every club card of every squad year with a page, as views to publish, a year's cards in buckets
  * by club id (`clubBucketOf`). Built from what the boards' build already derived for each year
  * (`BoardsBuilt.known`), so a card holds the very club and games the page's panel reads off its

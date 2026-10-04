@@ -558,7 +558,7 @@ function LiveBoard({
                 onCompareChange={setComparedTeam}
                 pickedOpponentIds={pickedOpponents}
                 onPickedOpponentIdsChange={setPickedOpponents}
-                onWhatIf={wantPage}
+                edits={edits}
                 onCannot={cannotListGames}
               />
             </Suspense>

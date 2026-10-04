@@ -1,10 +1,11 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ScoutingSection } from "./ScoutingSection";
 import { TournamentPanel } from "./TournamentPanel";
 import { useClubCard } from "../../hooks/useClubCard";
 import type { LiveViewSource } from "../../hooks/useLiveBoard";
+import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { useLeagueSummary } from "../../hooks/useLeagueSummary";
-import type { WhatIfState } from "../../hooks/useRankingsWorker";
+import type { WhatIfAsk, WhatIfState } from "../../hooks/useRankingsWorker";
 import { compareClubs } from "../../lib/clubCompare";
 import {
   boardWhatIfDeclines,
@@ -23,6 +24,7 @@ import {
   type SeasonSegment,
 } from "../../lib/teamRankings";
 import type { BoardClub } from "../../lib/teamRankings/boardDisplay";
+import type { WhatIfCurve } from "../../lib/scoutWhatIf";
 import { buildTeamRankExplanationRequest } from "../../lib/teamRankingsSummaryClient";
 import { card as cardStyle } from "../../styles/tokens";
 
@@ -32,10 +34,12 @@ const NOT_ASKED: WhatIfState = { status: "idle" };
  * The Scouting tab on the cloud's board: the report, the upcoming games and the comparison, worked
  * out as Team Rankings works them out, off the board's rows and the club cards a server publishes
  * (`scoutingFromCards.ts`) rather than off the year's pool: the scouted club's card, and the
- * card of the club set beside it. A what-if refits the year, which the board cannot, so asking one
- * hands the page to Team Rankings on this device's copy on the same club (`onWhatIf`), and so does
- * a card that cannot be read (`onCannot`); one is offered only where the page would offer it, as
- * far as the board can tell (`boardWhatIfDeclines`). The clubs it is on (the one scouted, the one
+ * card of the club set beside it. A what-if refits the year, which the board cannot, so it is asked
+ * of the server (`scouting.whatIf`, 1.5), which refits it as the boards are built, League
+ * Standings' games in it, and answered as the page answers one, one fixture open at a time, held
+ * against the board it was opened on. One is offered only where the page would offer it, as far as
+ * the board can tell (`boardWhatIfDeclines`). A card that cannot be read hands the page to Team
+ * Rankings on this device's copy (`onCannot`). The clubs it is on (the one scouted, the one
  * set beside it, the opponents asked for) are the board's to keep (`onReportTeam`,
  * `onCompareChange`, `onPickedOpponentIdsChange`), so they outlast a half or page read again and
  * Team Rankings opens on them whenever it hands over.
@@ -60,7 +64,7 @@ export default function LiveScouting({
   onCompareChange,
   pickedOpponentIds,
   onPickedOpponentIdsChange,
-  onWhatIf,
+  edits,
   onCannot,
 }: {
   source: LiveViewSource;
@@ -84,7 +88,12 @@ export default function LiveScouting({
   onCompareChange: (teamId: string) => void;
   pickedOpponentIds: string[];
   onPickedOpponentIdsChange: (teamIds: string[]) => void;
-  onWhatIf: () => void;
+  /**
+   * The server's questions: a what-if is one. Asked whether or not edits are on: offline, or
+   * before the cloud has answered, the question says why it was not asked, and the panel that it
+   * could not be worked out, rather than working at it with nothing to wait for.
+   */
+  edits: Pick<LiveEdits, "ask">;
   onCannot: () => void;
 }) {
   const reportForId =
@@ -175,6 +184,58 @@ export default function LiveScouting({
   }, [reportRow, rows.length, reportRows, groupName]);
   const explanation = useLeagueSummary(explanationRequest);
 
+  /*
+   * The fixture whose what-if is open, held against the board it was opened on as the page holds
+   * it: a place in one club's, page's or half's table means nothing in another's.
+   */
+  const { ask: askServer } = edits;
+  const [opened, setOpened] = useState<{ gameId: string; board: string } | null>(null);
+  const whatIfBoard = `${reportForId}|${pageId}|${routeSegment ?? ""}`;
+  const whatIfGameId = opened && opened.board === whatIfBoard ? opened.gameId : null;
+  const whatIfAsk = useMemo(
+    (): WhatIfAsk | null =>
+      whatIfGameId && reportForId ? { forTeamId: reportForId, gameId: whatIfGameId, today } : null,
+    [whatIfGameId, reportForId, today]
+  );
+  // The answer, kept against the ask it answers, so a stale one is never shown.
+  const [answered, setAnswered] = useState<{ ask: WhatIfAsk; curve: WhatIfCurve | null } | null>(
+    null
+  );
+  // The fixture as the scouted club's card holds it, which is how the server finds it.
+  const fixture = whatIfAsk
+    ? scouted.card?.games.find((game) => game.id === whatIfAsk.gameId)
+    : undefined;
+  useEffect(() => {
+    if (!whatIfAsk || !fixture) return;
+    let alive = true;
+    void askServer({
+      kind: "scouting.whatIf",
+      page: pageId,
+      segment: segment ?? null,
+      forTeamId: whatIfAsk.forTeamId,
+      game: fixture,
+      today: whatIfAsk.today,
+    }).then((answer) => {
+      if (alive) setAnswered({ ask: whatIfAsk, curve: answer?.curve ?? null });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [whatIfAsk, fixture, askServer, pageId, segment]);
+  const whatIf = useMemo((): WhatIfState => {
+    if (!whatIfAsk) return NOT_ASKED;
+    if (answered?.ask !== whatIfAsk) return { status: "working", ask: whatIfAsk };
+    return answered.curve
+      ? { status: "ready", ask: whatIfAsk, curve: answered.curve }
+      : { status: "failed", ask: whatIfAsk };
+  }, [whatIfAsk, answered]);
+  const toggleWhatIf = (gameId: string) =>
+    setOpened((was) =>
+      was && was.board === whatIfBoard && was.gameId === gameId
+        ? null
+        : { gameId, board: whatIfBoard }
+    );
+
   return (
     <>
       {reportForId && !scouted.card ? (
@@ -201,9 +262,9 @@ export default function LiveScouting({
           upcomingRows={upcomingRows}
           explanation={explanation}
           placeOf={placeOf}
-          whatIfGameId={null}
-          whatIf={NOT_ASKED}
-          onToggleWhatIf={onWhatIf}
+          whatIfGameId={whatIfGameId}
+          whatIf={whatIf}
+          onToggleWhatIf={toggleWhatIf}
           whatIfDeclineFor={(gameId) => declines.get(gameId) ?? null}
           compareId={compareId}
           onCompareChange={onCompareChange}

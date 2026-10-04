@@ -1,14 +1,19 @@
 import {
   CommitUnanswered,
   commitChanges,
+  fetchValues,
   type Change,
   type CloudStore,
   type CommitResult,
 } from "../cloud/cloudEngine";
+import type { CloudManifest } from "../cloud/cloudManifest";
+import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { readCloudPoolValue } from "../teamRankingsStorage";
 import type { PoolCommand } from "./commands";
 import type { EditPool, PoolEnsure } from "./poolCache";
-import { answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
+import { asksLeague, answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
+import type { SeasonReader } from "./allKnown";
+import { seasonReaderOf } from "./publishCopy";
 import { EDIT_DEVICE } from "./rebuildPlan";
 import { runPoolCommand } from "./runPoolCommand";
 
@@ -185,9 +190,34 @@ export type QueryRun =
     }
   | { ok: false; why: QueryRefusal };
 
+/** The copy's League Standings seasons as last read, by the part they were read from. */
+let leagueRead: { id: string; hash: string; seasons: SeasonReader } | null = null;
+
+/**
+ * The League Standings seasons of `manifest`, which the boards are built with (`seasonReaderOf`):
+ * read once for each version of the part, since an edit's pool leaves League out (no command reads
+ * it) and only a question that refits a year needs it; or why they could not be read.
+ */
+const leagueOf = async (
+  store: CloudStore,
+  manifest: CloudManifest
+): Promise<SeasonReader | QueryRefusal> => {
+  const part = manifest.parts.find(({ key }) => key === LEAGUE_PART);
+  if (!part) return seasonReaderOf(undefined) ?? "league-unreadable";
+  const held = leagueRead;
+  if (held?.id === part.id && held.hash === part.hash) return held.seasons;
+  const fetched = await fetchValues({ store, parts: [part] });
+  if (!fetched.ok) return fetched.reason === "damaged" ? "damaged" : "kept-moving";
+  const seasons = seasonReaderOf(fetched.values.get(LEAGUE_PART));
+  if (!seasons) return "league-unreadable";
+  leagueRead = { id: part.id, hash: part.hash, seasons };
+  return seasons;
+};
+
 /**
  * Answers `query` on the copy `store` holds (`answerQuery`): `pool` brought to it, as an edit's is,
- * and nothing written. `copy`, when given, is the copy the device asked about, and a question about
+ * and nothing written. A question that refits a year is answered with the copy's League Standings
+ * seasons, as the boards on screen were built (`leagueOf`). `copy`, when given, is the copy the device asked about, and a question about
  * any other is refused, since its answer would be of another copy's clubs.
  */
 export const runQuery = async ({
@@ -211,7 +241,9 @@ export const runQuery = async ({
     return { ok: false, why: "copy-replaced" };
   }
   const answering = clock();
-  const answer = answerQuery(query);
+  const seasons = asksLeague(query) ? await leagueOf(store, ensured.manifest) : undefined;
+  if (typeof seasons === "string") return { ok: false, why: seasons };
+  const answer = answerQuery(query, seasons);
   return {
     ok: true,
     copy: ensured.manifest.copy,

@@ -4052,8 +4052,22 @@ from the first club's card, where it sits between the second club's own games as
 the pool has it. Two results of one day used to be put in game id order, which a
 card cannot give, since its ids are only its places. They now keep the pool's
 order, as a club's panel always has, on Team Rankings too. A what-if refits the
-year, which the board cannot, so asking one hands over to Team Rankings on the
-club being scouted (`reportTeamId`), as a card that cannot be read does. One is
+year, which the board cannot, so it is asked of the server (`scouting.whatIf`,
+1.5), which refits it as the boards are built: the year it derives with the copy's
+own League Standings seasons in it (`deriveAllKnown`), so the answer agrees with the
+board on screen, and the page's rating pool fitted three times (`whatIfCurve`). A
+card carries no game ids, so the fixture is sent as the scouted club's card holds
+it, its id its place on the card, and the server finds it among the club's games of
+the year as a card lists them (`cardGamesOf`, `cardFixture`): the game at that place
+while it still reads so on a card, or else the one game that does, or none, which
+the panel says could not be worked out. The League Standings part is read only for
+a question that refits a year, and once for each version of it (`runQuery`), since
+an edit's pool leaves it out; one that would not read refuses that question alone.
+On the 29 Sep copy a what-if on 12U, the year's 255,579 games one rating pool, took
+7.1 s (6.9 s asked again, the League part read already), its answer 1 KB and the
+process at 1.9 GB at most, during which the edit function's other calls wait, as an edit waits on
+another; the device's own worker takes as long. A card that cannot be read hands
+over to Team Rankings as before. One is
 offered only where Team Rankings would offer it, as far as the board can tell
 (`boardWhatIfDeclines`): a game refused on sight is refused alike, and one
 against a club the board does not rank is declined. Every club it ranks has a
@@ -4072,6 +4086,13 @@ since a card holds a club's games of every such page and each is a pool of its o
 was broken in turn and seen to fail a test, 14 of 14, three only after a test was
 added: the pool's pages, a meeting off the second card, and a bucket without the
 club.
+
+`whatIfParity.test.ts` holds the server's what-if to the page's own (`whatIfCurve` on
+the page's pool, with the real game), each fixture named as the published card holds
+it, for the top clubs of every page and half of the seeded fixture and for the clubs
+of a League Standings season with a game still to play, added since the fixture's
+own are all played. `editRun.test.ts` holds the League part read for such a question
+alone, once for each version of it, and refused alone when it would not read.
 
 **On a device with no copy.** The page is laid out by the age groups, which a
 device reads from its own copy. One that has never held a copy has none, so the

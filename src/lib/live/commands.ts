@@ -386,7 +386,8 @@ const applySteps = (read: PoolRead, steps: readonly Step[]): CommandResult => {
  * Whether two records hold the same values, whatever order their fields were written in; a field
  * holding undefined is a field not there, as storage keeps it.
  */
-const sameValue = (a: unknown, b: unknown): boolean => {
+/** Whether two values are the same data, whatever order a record's keys came in. */
+export const sameValue = (a: unknown, b: unknown): boolean => {
   if (a === b) return true;
   if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
   if (Array.isArray(a) || Array.isArray(b)) {
@@ -1372,7 +1373,7 @@ const oneSeason = (raw: unknown): AgeGroupSeason | undefined =>
     ? { ageLevel: raw.ageLevel as number, year: raw.year as number }
     : undefined;
 
-const oneGame = (raw: unknown): ScoutGame | null => {
+export const oneGame = (raw: unknown): ScoutGame | null => {
   const [game] = coerceScoutGames([raw]);
   return game && sameValue(game, raw) ? game : null;
 };

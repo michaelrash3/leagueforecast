@@ -23,6 +23,7 @@ import {
   saveScoutTeams,
 } from "../../teamRankingsStorage";
 import { EDIT_DEVICE, runEdit, runQuery } from "../editRun";
+import type { PoolQuery } from "../queries";
 import { runRebuild } from "../rebuild";
 import { createEditPool, type EditPool } from "../poolCache";
 import { memoryLive } from "./memoryLive";
@@ -613,5 +614,70 @@ describe("League Standings in the copy", () => {
       await edit(editPool(), cloud.store, { kind: "team.state", teamId: "B", state: "KY" })
     ).toMatchObject({ ok: true, changed: [TEAMS_KEY] });
     expect(cloud.manifest()?.parts.find((part) => part.key === LEAGUE_PART)).toEqual(league);
+  });
+  /** A what-if about the open game, named as club A's card holds it (its second game). */
+  const WHAT_IF: PoolQuery = {
+    kind: "scouting.whatIf",
+    page: "ag_10u_2027",
+    segment: null,
+    forTeamId: "A",
+    game: { id: "1", teamAId: "B", teamBId: "A", ageGroupId: "ag_10u_2027" },
+    today: "2027-04-15",
+  };
+  const RENAME: PoolQuery = { kind: "rename.preview", teamId: "A", name: "Club Z" };
+  const saveLeague = async (cloud: MemoryCloud, value: unknown) => {
+    const saved = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [{ key: LEAGUE_PART, value, at: 2 }],
+      device: "phone",
+      now: NOW,
+    });
+    if (!saved.ok) throw new Error("not saved");
+  };
+
+  it("is read for a question that refits a year, once for each version of the part", async () => {
+    const cloud = await copyOfPool();
+    const read: string[] = [];
+    const store: CloudStore = {
+      ...cloud.store,
+      getChunk: (id) => {
+        read.push(id);
+        return cloud.store.getChunk(id);
+      },
+    };
+    const cache = editPool();
+    // With no part, as a copy that never held League Standings: nothing to read.
+    expect(await runQuery({ pool: cache, store, query: WHAT_IF })).toMatchObject({
+      ok: true,
+      answer: { kind: "scouting.whatIf" },
+    });
+    await saveLeague(cloud, { seasons: [] });
+    const warm = read.length;
+    // Not for a question that refits nothing.
+    expect(await runQuery({ pool: cache, store, query: RENAME })).toMatchObject({ ok: true });
+    expect(read).toHaveLength(warm);
+    expect(await runQuery({ pool: cache, store, query: WHAT_IF })).toMatchObject({ ok: true });
+    const once = read.length;
+    expect(once).toBeGreaterThan(warm);
+    expect(await runQuery({ pool: cache, store, query: WHAT_IF })).toMatchObject({ ok: true });
+    expect(read).toHaveLength(once);
+    // A new version of the part is read again.
+    await saveLeague(cloud, { seasons: [], kept: 1 });
+    expect(await runQuery({ pool: cache, store, query: WHAT_IF })).toMatchObject({ ok: true });
+    expect(read.length).toBeGreaterThan(once);
+  });
+
+  it("refuses a question that refits a year when the part would not read, and no other", async () => {
+    const cloud = await copyOfPool();
+    await saveLeague(cloud, "not a league");
+    const cache = editPool();
+    expect(await runQuery({ pool: cache, store: cloud.store, query: WHAT_IF })).toEqual({
+      ok: false,
+      why: "league-unreadable",
+    });
+    expect(await runQuery({ pool: cache, store: cloud.store, query: RENAME })).toMatchObject({
+      ok: true,
+    });
   });
 });

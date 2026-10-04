@@ -7,6 +7,8 @@ import { GC_PAIRING_EVIDENCE_LABEL, type GcImportState } from "../gameChangerImp
 import { poolHealth, settleableNow, type PoolHealth } from "../poolHealth";
 import { poolHealthSummary, type PoolHealthSummary } from "../poolHealthSummary";
 import { poolLists, TO_PULL_DRAWN, type PoolLists } from "../poolLists";
+import { whatIfCurve, type WhatIfCurve } from "../scoutWhatIf";
+import { ageGroupYear, rankingPoolGroupIds, type SeasonSegment } from "../teamRankings/seasons";
 import type { ScoutGame, ScoutTeam } from "../teamRankings/types";
 import { cleanTeamName, teamNameKey } from "../teamRankings/names";
 import { unpulledClubs, unpulledClubsCsv } from "../unpulledClubs";
@@ -26,7 +28,9 @@ import {
 } from "../teamRankingsStorage";
 import { loggedGamesOn } from "../teamRankings/gamesWindow";
 import { planClubAges, type AgeAsked } from "./agePlan";
-import { coerceCommand, everyOne, oneAgeless, oneTeam } from "./commands";
+import { deriveAllKnown, gamesOnPages, type SeasonReader } from "./allKnown";
+import { coerceCommand, everyOne, oneAgeless, oneGame, oneTeam, sameValue } from "./commands";
+import { cardGamesOf, panelGame } from "./views/clubs";
 import { fits, type Shape } from "./shapes";
 import { findListed, type GameSeen } from "./views/gamesShape";
 
@@ -80,7 +84,21 @@ export type PoolQuery =
    * The id of a game a page's published list shows (`findListed`), which the list does not carry:
    * asked before the Games tab edits one, of the page's games in `year` (null: no year).
    */
-  | { kind: "games.find"; year: number | null; page: string; at: number; game: GameSeen };
+  | { kind: "games.find"; year: number | null; page: string; at: number; game: GameSeen }
+  /**
+   * What winning or losing one fixture would do to a club's place on a page's board of `segment`
+   * (null: the year's), refitted with the result in it (`whatIfCurve`), as Scouting asks. The
+   * fixture is `game` as the club's card holds it (`panelGame`), its id its place on the card,
+   * since a card carries no game ids (`cardFixture`).
+   */
+  | {
+      kind: "scouting.whatIf";
+      page: string;
+      segment: SeasonSegment | null;
+      forTeamId: string;
+      game: ScoutGame;
+      today: string;
+    };
 
 /**
  * What folding one club into another touches: the stored games that name the club folded away,
@@ -147,6 +165,7 @@ export type QueryAnswers = {
   "ageless.file": { csv: string };
   "ageless.clearPlan": AgelessClearPlanAnswer;
   "games.find": { gameId: string | null };
+  "scouting.whatIf": { curve: WhatIfCurve | null };
 };
 
 export type QueryKind = PoolQuery["kind"];
@@ -189,9 +208,64 @@ const waitingOn = (today: string) =>
     (row) => row.entry
   );
 
-/** Answers `query` from the process's store, as the page would have answered it from its own. */
-export const answerQuery = (query: PoolQuery): QueryAnswer => {
+/**
+ * The game a club's card showed as `shown`, whose id is its place on the card, in the club's games
+ * as the card lists them now (`cardGamesOf`): the game at that place while it still reads so on a
+ * card (`panelGame`), or else the one game that does, the card having moved since it was
+ * published; null when none does, or more than one and none at its place.
+ */
+export const cardFixture = (games: readonly ScoutGame[], shown: ScoutGame): ScoutGame | null => {
+  const reads = (game: ScoutGame) => sameValue({ ...panelGame(game), id: shown.id }, shown);
+  const at = /^\d+$/.test(shown.id) ? Number(shown.id) : -1;
+  const there = games[at];
+  if (there && reads(there)) return there;
+  const like = games.filter(reads);
+  return like.length === 1 && like[0] ? like[0] : null;
+};
+
+/** The questions answered with League Standings' games in the year, as the boards are built. */
+const LEAGUE_ASKED: ReadonlySet<QueryKind> = new Set<QueryKind>(["scouting.whatIf"]);
+
+/** Whether `query` is answered with the copy's League Standings seasons (`answerQuery`'s `seasons`). */
+export const asksLeague = (query: PoolQuery): boolean => LEAGUE_ASKED.has(query.kind);
+
+/**
+ * Answers `query` from the process's store, as the page would have answered it from its own.
+ * `seasons` reads the copy's League Standings seasons, which the boards are built with; a question
+ * that refits a year (`asksLeague`) is answered with them, so it agrees with the board on screen.
+ */
+export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnswer => {
   switch (query.kind) {
+    case "scouting.whatIf": {
+      const ageGroups = loadAgeGroups();
+      const page = ageGroups.find((group) => group.id === query.page);
+      if (!page || !seasons) return { kind: "scouting.whatIf", curve: null };
+      // The year as the page knows it, League Standings' games in it, and the page's rating pool.
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: loadScoutTeams(),
+        yearGames: loadScoutGamesForYear(ageGroupYear(page)),
+        readSeason: seasons,
+      });
+      const games = gamesOnPages(known.games, rankingPoolGroupIds(page.id, ageGroups));
+      // Found among the club's games of the year, as its card lists them; fitted on the page's pool.
+      const fixture = cardFixture(cardGamesOf(known.games, query.forTeamId), query.game);
+      const curve = fixture
+        ? whatIfCurve(
+            fixture,
+            query.forTeamId,
+            page.id,
+            known.teams,
+            games,
+            page.myTeamId,
+            ageGroups,
+            query.segment ?? undefined,
+            query.today
+          )
+        : null;
+      // Named as the device named it, its place on the card.
+      return { kind: "scouting.whatIf", curve: curve && { ...curve, gameId: query.game.id } };
+    }
     case "ageless.queue": {
       const sitting = agelessSitting(
         loadAgeUnknown(),
@@ -422,6 +496,26 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
         };
       break;
     }
+    case "scouting.whatIf": {
+      const segment = raw.segment;
+      const game = oneGame(raw.game);
+      if (
+        isString(raw.page) &&
+        (segment === null || segment === "fall" || segment === "spring") &&
+        isString(raw.forTeamId) &&
+        game &&
+        isDay(raw.today)
+      )
+        query = {
+          kind: "scouting.whatIf",
+          page: raw.page,
+          segment,
+          forTeamId: raw.forTeamId,
+          game,
+          today: raw.today,
+        };
+      break;
+    }
     case "ages.plan": {
       const clubs = everyOne(raw.clubs, ageAsked);
       if (clubs && isTime(raw.at) && isString(raw.base))
@@ -448,6 +542,18 @@ const HEALTH_GAME: Shape = {
     teamBScore: { optional: "count" },
     year: { nullable: "count" },
     filers: { list: "id" },
+  },
+};
+
+/** A what-if's curve (`WhatIfCurve`): a club's place and rating at each margin of the fixture. */
+const WHAT_IF_CURVE: Shape = {
+  record: {
+    gameId: "id",
+    forTeamId: "id",
+    points: { list: { record: { margin: "number", rank: "count", rating: "number" } } },
+    winRecord: "string",
+    lossRecord: "string",
+    rankedCount: "count",
   },
 };
 
@@ -742,6 +848,8 @@ export const coerceQueryAnswer = <K extends QueryKind>(
       return agesPlanOf(raw) as AnswerOf<K> | null;
     case "games.find":
       return ofShape<K>(raw, { record: { gameId: { nullable: "id" } } });
+    case "scouting.whatIf":
+      return ofShape<K>(raw, { record: { curve: { nullable: WHAT_IF_CURVE } } });
     case "merge.preview": {
       const fold = foldOf(raw);
       if (fold && typeof raw.found === "boolean")

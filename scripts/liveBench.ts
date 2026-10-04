@@ -39,6 +39,10 @@ import { coerceQueryAnswer, type PoolQuery } from "../src/lib/live/queries.ts";
 import { createEditPool } from "../src/lib/live/poolCache.ts";
 import { runRebuild } from "../src/lib/live/rebuild.ts";
 import { seenAs } from "../src/lib/live/views/gamesShape.ts";
+import { deriveAllKnown } from "../src/lib/live/allKnown.ts";
+import { seasonReaderOf } from "../src/lib/live/publishCopy.ts";
+import { cardGamesOf, panelGame } from "../src/lib/live/views/clubs.ts";
+import { LEAGUE_PART } from "../src/lib/cloud/cloudPlan.ts";
 import { loggedGamesOn } from "../src/lib/teamRankings/gamesWindow.ts";
 import { memoryLive } from "../src/lib/live/__tests__/memoryLive.ts";
 import { ageGroupYear } from "../src/lib/teamRankings.ts";
@@ -324,6 +328,55 @@ const main = async () => {
     fold?.kind === "teams.merge"
       ? loadScoutTeams().find((team) => team.id === fold.intoId)
       : undefined;
+  // A what-if on the biggest page: its first game still to play between two clubs with five
+  // counted games or more, named as the home club's card holds it, on the year the copy's League
+  // Standings seasons are part of, as the server derives it.
+  const whatIfs: PoolQuery[] = [];
+  const leaguePart = manifest?.parts.find(({ key }) => key === LEAGUE_PART);
+  const leagueRead = leaguePart
+    ? await fetchValues({ store: cloud.store, parts: [leaguePart] })
+    : null;
+  const seasons = seasonReaderOf(leagueRead?.ok ? leagueRead.values.get(LEAGUE_PART) : undefined);
+  const biggest = loadAgeGroups()
+    .map((group) => ({
+      group,
+      games: loggedGamesOn(loadScoutGamesForYear(ageGroupYear(group)), group.id).length,
+    }))
+    .sort((a, b) => b.games - a.games)[0]?.group;
+  if (biggest && seasons) {
+    const known = deriveAllKnown({
+      ageGroups: loadAgeGroups(),
+      teams: loadScoutTeams(),
+      yearGames: loadScoutGamesForYear(ageGroupYear(biggest)),
+      readSeason: seasons,
+    });
+    const played = new Map<string, number>();
+    for (const game of known.games)
+      if (game.teamAScore !== undefined)
+        for (const side of [game.teamAId, game.teamBId])
+          played.set(side, (played.get(side) ?? 0) + 1);
+    const ahead = known.games.find(
+      (game) =>
+        game.ageGroupId === biggest.id &&
+        game.teamAScore === undefined &&
+        !game.excluded &&
+        game.teamAId !== game.teamBId &&
+        (game.date ?? "") >= today &&
+        (played.get(game.teamAId) ?? 0) >= 5 &&
+        (played.get(game.teamBId) ?? 0) >= 5
+    );
+    const card = ahead ? cardGamesOf(known.games, ahead.teamAId) : [];
+    const at = ahead ? card.indexOf(ahead) : -1;
+    if (ahead && at >= 0)
+      whatIfs.push({
+        kind: "scouting.whatIf",
+        page: biggest.id,
+        segment: null,
+        forTeamId: ahead.teamAId,
+        game: { ...panelGame(ahead), id: String(at) },
+        today,
+      });
+  }
   // The last game the biggest page lists, found at its place, and found by the scan a list that
   // has moved since it was published asks for.
   const listedPage = loadAgeGroups()
@@ -363,6 +416,9 @@ const main = async () => {
     { kind: "ageless.file", today },
     { kind: "ageless.clearPlan", today, rules: [...CLEARABLE_RULES] },
     ...finds,
+    // Twice: the second with the League Standings part already read.
+    ...whatIfs,
+    ...whatIfs,
   ];
   for (const query of questions) {
     started = performance.now();
@@ -376,6 +432,10 @@ const main = async () => {
             answerMs: asked.answerMs,
             answerKb: Math.round(sent.length / 1024),
             readsBack: coerceQueryAnswer(JSON.parse(sent), query.kind) !== null,
+            // Whether a what-if came back with a curve to draw.
+            ...(asked.answer.kind === "scouting.whatIf"
+              ? { drawn: asked.answer.curve !== null }
+              : {}),
           }
         : { refused: asked.why }),
       ms: ms(started),
