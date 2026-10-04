@@ -5155,7 +5155,9 @@ export const summarizeGcImport = (outcomes: GcImportOutcome[]): string[] => {
   const filed = outcomes.filter((outcome) => !outcome.issue);
   // Left out because the pull was told to leave them out, which is not the same as failing.
   const otherSeason = outcomes.filter((outcome) => outcome.skip === "other-season").length;
-  const failed = outcomes.length - filed.length - otherSeason;
+  // Left for the pull that meets them in their season, which is not failing either.
+  const later = outcomes.filter((outcome) => outcome.skip === "out-of-season").length;
+  const failed = outcomes.length - filed.length - otherSeason - later;
   const sum = (pick: (outcome: GcImportOutcome) => number) =>
     filed.reduce((total, outcome) => total + pick(outcome), 0);
 
@@ -5168,6 +5170,11 @@ export const summarizeGcImport = (outcomes: GcImportOutcome[]): string[] => {
   if (otherSeason > 0) {
     lines.push(
       `${otherSeason} team${otherSeason === 1 ? "" : "s"} from a season this pull was not asked for left out.`
+    );
+  }
+  if (later > 0) {
+    lines.push(
+      `${later} team${later === 1 ? "" : "s"} with no age and no games, from a season not being played, left for a later pull.`
     );
   }
 
