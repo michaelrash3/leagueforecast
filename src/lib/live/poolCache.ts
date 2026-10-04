@@ -85,10 +85,32 @@ export type PoolCache = {
   drop: () => Promise<void>;
   /** The copy the store holds, and how many of its parts. */
   held: () => { copy: string | null; version: number | null; keys: number };
+  /**
+   * The keys written to the store since it last stood as a copy holds it: what a command run on the
+   * pool changed (`editRun.ts`). A build writes none.
+   */
+  written: () => ReadonlySet<string>;
+  /**
+   * Says the written keys now stand in the copy as `manifest`, the one their commit wrote, so the
+   * next `ensure` fetches none of them back: each takes the part `manifest` names for it, or none
+   * where the commit took it out.
+   */
+  committed: (manifest: CloudManifest) => Promise<void>;
+  /**
+   * Says the written keys did not reach the copy, so the next `ensure` brings each back to the
+   * copy's value, or takes it out where the copy has none, rather than starting afresh.
+   */
+  forget: () => Promise<void>;
 };
 
 /** The parts a rebuild reads: what the boards are built from, and the tidy stamp. */
-const loaded = (key: string): boolean => isBoardInput(key) || key === TIDY_STAMP_KEY;
+const boardParts = (key: string): boolean => isBoardInput(key) || key === TIDY_STAMP_KEY;
+
+/**
+ * Every part of the pool a command may read or write (`commands.ts`), League Standings among them:
+ * all but an archived season's rows, which nothing on the pool reads and a server never writes.
+ */
+export const everyPart = (key: string): boolean => !key.includes("_archive_rows_");
 
 const NO_SEASONS: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
 
@@ -112,10 +134,13 @@ const NO_SEASONS: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
 export const createPoolCache = ({
   maxTries = 3,
   io = memoryIo,
+  loads: loaded = boardParts,
 }: {
   maxTries?: number;
   /** The store's backing, made afresh on each start; in memory by default. */
   io?: () => PoolStoreIo;
+  /** Which of the copy's parts it keeps: a rebuild's by default, `everyPart` for edits. */
+  loads?: (key: string) => boolean;
 } = {}): PoolCache => {
   /** Each part the store holds, by key, with the hash of its value. */
   const held = new Map<string, string>();
@@ -124,6 +149,11 @@ export const createPoolCache = ({
   let seasons: SeasonReader = NO_SEASONS;
   /** Keys written since the store was started, other than by laying the copy's values in. */
   const dirty = new Set<string>();
+  /**
+   * Keys whose writes did not reach the copy (`forget`): fetched again by the next `ensure` where
+   * the copy names them, and taken out where it does not.
+   */
+  const unsure = new Set<string>();
 
   /**
    * Starts the store afresh on `values`, laid into its backing before it opens, as a browser's store
@@ -176,6 +206,7 @@ export const createPoolCache = ({
     version = null;
     seasons = NO_SEASONS;
     dirty.clear();
+    unsure.clear();
   };
 
   const load = async (store: CloudStore): Promise<PoolEnsure> => {
@@ -200,7 +231,9 @@ export const createPoolCache = ({
         parts.some(({ key }) => key === LEGACY_GAMES_KEY);
       const want = cold ? parts : parts.filter((part) => held.get(part.key) !== part.hash);
       const named = new Set(parts.map(({ key }) => key));
-      const gone = cold ? [] : [...held.keys()].filter((key) => !named.has(key));
+      const gone = cold
+        ? []
+        : [...new Set([...held.keys(), ...unsure])].filter((key) => !named.has(key));
 
       const fetched = await fetchValues({ store, parts: want });
       if (!fetched.ok) {
@@ -241,6 +274,7 @@ export const createPoolCache = ({
       }
       gone.forEach((key) => held.delete(key));
       want.forEach((part) => held.set(part.key, part.hash));
+      unsure.clear();
       copy = manifest.copy;
       version = manifest.version;
       seasons = readSeason;
@@ -272,5 +306,27 @@ export const createPoolCache = ({
     ensure: (store) => inTurn(() => load(store)),
     drop: () => inTurn(dropNow),
     held: () => ({ copy, version, keys: held.size }),
+    written: () => dirty,
+    committed: (manifest) =>
+      inTurn(() => {
+        // A commit onto another copy than the one held is not one these writes were made on.
+        if (manifest.copy !== copy) return dropNow();
+        const parts = new Map(manifest.parts.map((part) => [part.key, part.hash]));
+        dirty.forEach((key) => {
+          const hash = parts.get(key);
+          if (hash !== undefined && loaded(key)) held.set(key, hash);
+          else held.delete(key);
+        });
+        dirty.clear();
+        version = manifest.version;
+      }),
+    forget: () =>
+      inTurn(() => {
+        dirty.forEach((key) => {
+          held.delete(key);
+          unsure.add(key);
+        });
+        dirty.clear();
+      }),
   };
 };

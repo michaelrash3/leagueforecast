@@ -4378,6 +4378,20 @@ it comes round again. The waiting-on-age answers (an age named, a team thrown ou
 and the clubs a pull finds invented go through the same commands; the waiting list itself is the
 pull's and stays as it was.
 
+On the server a command runs on the cloud copy itself (`runEdit` in `editRun.ts`), in a process that
+keeps every part of the pool warm (`createPoolCache` with `everyPart`): brought to the copy as it
+stands, the command applied through the same `runPoolCommand` a browser uses, and the parts it wrote
+committed onto the version read as one save, named `live-edit`. A save that lands in between moves
+the copy on; the written keys are then let go of one by one (`forget`), so the next read fetches
+those and whatever the other save changed rather than the whole pool, and the command runs again on
+the copy as it now is, up to three times. Its ids and times travel in it, so the second run makes
+the same change or is refused where the newer pool no longer allows it. A device may name the copy
+it edited, and an edit is refused on any other, as it is on a copy started again under the run. A
+commit that lands tells the pool its writes now stand in the copy (`committed`), so the next edit
+fetches none of them back; a run that is refused or throws leaves the pool to start afresh on its
+next read, which is slower and never wrong. The tests show an edit on a warm pool
+fetches no piece but those another save moved.
+
 Two kinds of write are not commands. The browser's own pull engine saves as it goes and is removed
 for members in the cleanup (1.7), pulls having moved to the server; and resetting the app or
 restoring a backup replace League Standings and the settings as well as the pool, which becomes an
