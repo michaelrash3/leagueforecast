@@ -1,14 +1,17 @@
 import {
+  loadAgeGroups,
   loadAgeRightClubs,
   loadKeptApart,
   loadRealClubs,
   loadScoutGamesForYear,
   loadScoutTeams,
+  saveAgeGroups,
   saveAgeRightClubs,
   saveKeptApart,
   saveRealClubs,
   saveScoutGamesForYear,
   saveScoutTeams,
+  storedGamesByYear,
 } from "../teamRankingsStorage";
 import {
   applyCommand,
@@ -39,6 +42,8 @@ const SAVERS: Record<AnswerList, (ids: ReadonlySet<string>) => boolean> = {
 /** The pool as this browser's store holds it. */
 export const storedPool: PoolRead = {
   teams: loadScoutTeams,
+  groups: loadAgeGroups,
+  years: () => storedGamesByYear().map((entry) => entry.year ?? null),
   games: (year) => loadScoutGamesForYear(year ?? undefined),
   answers: (list) => LOADERS[list](),
 };
@@ -50,6 +55,8 @@ export const writePool = (writes: readonly PoolWrite[]): boolean =>
       switch (write.part) {
         case "teams":
           return saveScoutTeams(write.teams);
+        case "groups":
+          return saveAgeGroups(write.groups);
         case "games":
           return saveScoutGamesForYear(write.year ?? undefined, write.games);
         case "answers":
@@ -82,6 +89,10 @@ export const runPoolCommand = (command: PoolCommand): CommandRun => {
 /** The roster a run wrote, if it wrote one. */
 export const writtenTeams = (run: CommandRun) =>
   run.ok ? run.writes.find((write) => write.part === "teams")?.teams : undefined;
+
+/** The pages a run wrote, if it wrote them. */
+export const writtenGroups = (run: CommandRun) =>
+  run.ok ? run.writes.find((write) => write.part === "groups")?.groups : undefined;
 
 /** The answer list a run wrote, if it wrote that one. */
 export const writtenAnswers = (run: CommandRun, list: AnswerList) =>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ScoutGame, ScoutTeam } from "../../teamRankings/types";
+import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings/types";
 import { encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
 import {
   applyCommand,
@@ -18,6 +18,7 @@ import {
 
 type Parts = {
   teams: ScoutTeam[];
+  groups: AgeGroup[];
   games: Map<number | null, ScoutGame[]>;
   answers: Map<AnswerList, Set<string>>;
 };
@@ -25,6 +26,7 @@ type Parts = {
 const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
   writes.forEach((one) => {
     if (one.part === "teams") parts.teams = one.teams;
+    else if (one.part === "groups") parts.groups = one.groups;
     else if (one.part === "games") parts.games.set(one.year, one.games);
     else parts.answers.set(one.list, one.ids);
   });
@@ -32,6 +34,8 @@ const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
 const memory = (parts: Parts) => {
   const read: PoolRead = {
     teams: () => parts.teams,
+    groups: () => parts.groups,
+    years: () => [...parts.games.keys()],
     games: (year) => parts.games.get(year) ?? [],
     answers: (list) => parts.answers.get(list) ?? new Set(),
   };
@@ -49,6 +53,7 @@ const memory = (parts: Parts) => {
 /** A part as storage would keep it, so that two equal values compare equal however built. */
 const stored = (parts: Parts) => ({
   teams: JSON.stringify(encodeScoutTeams(parts.teams)),
+  groups: JSON.stringify(parts.groups),
   games: [...parts.games.entries()]
     .sort(([a], [b]) => String(a).localeCompare(String(b)))
     .map(([year, games]) => [year, JSON.stringify(encodeScoutGames(games))]),
@@ -59,6 +64,7 @@ const stored = (parts: Parts) => ({
 
 const clone = (parts: Parts): Parts => ({
   teams: structuredClone(parts.teams),
+  groups: structuredClone(parts.groups),
   games: new Map([...parts.games].map(([year, games]) => [year, structuredClone(games)])),
   answers: new Map([...parts.answers].map(([list, ids]) => [list, new Set(ids)])),
 });
@@ -92,9 +98,14 @@ const POOL = (): Parts => ({
     }),
     club("C"),
   ],
+  groups: [
+    { id: "ag_10u_2026", name: "10U 2026", ageLevel: 10, year: 2026, seasonIds: [] },
+    { id: "ag_10u_2027", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [], myTeamId: "C" },
+    { id: "ag_old", name: "Old", seasonIds: [] },
+  ],
   games: new Map<number | null, ScoutGame[]>([
     [2027, [played("g1", "A", "B", 5, 4), played("g2", "B", "C", 34, 0)]],
-    [2026, [played("old", "A", "C", 2, 1)]],
+    [2026, [{ ...played("old", "A", "C", 2, 1), ageGroupId: "ag_10u_2026" }]],
     [null, [{ id: "open", ageGroupId: "ag_old", teamAId: "A", teamBId: "B" }]],
   ]),
   answers: new Map<AnswerList, Set<string>>([
@@ -199,6 +210,152 @@ describe("a command's change", () => {
     ).toEqual([]);
   });
 
+  it("adds games at the end of their year, with the new clubs they name and no others", () => {
+    const pool = memory(POOL());
+    const game = { id: "scout_1", ageGroupId: "ag_10u_2027", teamAId: "A", teamBId: "S-NEW" };
+    pool.run({
+      kind: "game.add",
+      year: 2027,
+      games: [game],
+      // A, held already (another device may have added it since), is passed over.
+      adopt: [club("S-NEW"), club("A", { state: "XX" })],
+    });
+    expect(pool.parts.games.get(2027)?.map((one) => one.id)).toEqual(["g1", "g2", "scout_1"]);
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "B", "C", "S-NEW"]);
+    expect(pool.parts.teams[0]).not.toHaveProperty("state", "XX");
+  });
+
+  it("refuses a club to add that the games do not name, or one offered twice", () => {
+    const pool = memory(POOL());
+    const game = { id: "scout_1", ageGroupId: "ag_10u_2027", teamAId: "A", teamBId: "S-NEW" };
+    const add = (adopt: ScoutTeam[]) =>
+      applyCommand(pool.read, { kind: "game.add", year: 2027, games: [game], adopt });
+    expect(add([club("S-NEW"), club("S-UNNAMED")])).toEqual({ ok: false, why: "refused" });
+    expect(add([club("S-NEW"), club("S-NEW")])).toEqual({ ok: false, why: "refused" });
+    expect(add([club("S-NEW")]).ok).toBe(true);
+  });
+
+  it("adds no game whose id is taken, nor one naming a club nobody holds", () => {
+    const pool = memory(POOL());
+    const add = (game: ScoutGame) =>
+      applyCommand(pool.read, { kind: "game.add", year: 2027, games: [game], adopt: [] });
+    expect(add({ id: "g1", ageGroupId: "ag_10u_2027", teamAId: "A", teamBId: "B" })).toEqual({
+      ok: false,
+      why: "refused",
+    });
+    expect(add({ id: "g9", ageGroupId: "ag_10u_2027", teamAId: "A", teamBId: "S-GHOST" })).toEqual({
+      ok: false,
+      why: "missing",
+    });
+    const twice = { id: "g9", ageGroupId: "ag_10u_2027", teamAId: "A", teamBId: "B" };
+    expect(
+      applyCommand(pool.read, { kind: "game.add", year: 2027, games: [twice, twice], adopt: [] })
+    ).toEqual({ ok: false, why: "refused" });
+  });
+
+  it("takes games out of their year and puts them back where they stood", () => {
+    const pool = memory(POOL());
+    const result = pool.run({ kind: "game.remove", year: 2027, gameIds: ["g1"] });
+    expect(pool.parts.games.get(2027)?.map((one) => one.id)).toEqual(["g2"]);
+    expect(result.inverse).toEqual({
+      kind: "game.insert",
+      year: 2027,
+      games: [{ game: played("g1", "A", "B", 5, 4), at: 0 }],
+    });
+    pool.run(result.inverse);
+    expect(pool.parts.games.get(2027)?.map((one) => one.id)).toEqual(["g1", "g2"]);
+  });
+
+  it("puts games back where they stood in whatever order they arrive, and none over one held", () => {
+    const pool = memory(POOL());
+    const lost = (id: string) => played(id, "A", "B", 1, 0);
+    // Places in the list as it grows: x first at 0, then y at 2, behind g1.
+    pool.run({
+      kind: "game.insert",
+      year: 2027,
+      games: [
+        { game: lost("y"), at: 2 },
+        { game: lost("x"), at: 0 },
+      ],
+    });
+    expect(pool.parts.games.get(2027)?.map((one) => one.id)).toEqual(["x", "g1", "y", "g2"]);
+    expect(
+      applyCommand(pool.read, {
+        kind: "game.insert",
+        year: 2027,
+        games: [{ game: lost("g1"), at: 0 }],
+      })
+    ).toEqual({ ok: false, why: "refused" });
+  });
+
+  it("takes a club off the roster and puts it back in its place, and none over one held", () => {
+    const pool = memory(POOL());
+    const result = pool.run({ kind: "team.remove", teamId: "B" });
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "C"]);
+    pool.run(result.inverse);
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "B", "C"]);
+    expect(applyCommand(pool.read, { kind: "team.insert", team: club("A"), at: 0 })).toEqual({
+      ok: false,
+      why: "refused",
+    });
+  });
+
+  it("takes a club off a page: its games there, the page's mark, and the club only when nothing is left of it", () => {
+    const pool = memory(POOL());
+    // C plays B this year and A last year: off this page it keeps its record.
+    pool.run({ kind: "club.leavePage", ageGroupId: "ag_10u_2027", teamId: "C" });
+    expect(pool.parts.games.get(2027)?.map((one) => one.id)).toEqual(["g1"]);
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "B", "C"]);
+    expect(pool.parts.groups[1]).not.toHaveProperty("myTeamId");
+    // Off last year's page as well, nothing is left of it.
+    pool.run({ kind: "club.leavePage", ageGroupId: "ag_10u_2026", teamId: "C" });
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "B"]);
+  });
+
+  it("takes a club off one page alone, leaving its games on another page of the same year", () => {
+    const parts = POOL();
+    parts.groups.push({
+      id: "ag_11u_2027",
+      name: "11U 2027",
+      ageLevel: 11,
+      year: 2027,
+      seasonIds: [],
+    });
+    parts.games.set(2027, [
+      ...(parts.games.get(2027) ?? []),
+      { ...played("up", "C", "A", 3, 2), ageGroupId: "ag_11u_2027" },
+    ]);
+    const pool = memory(parts);
+    pool.run({ kind: "club.leavePage", ageGroupId: "ag_10u_2027", teamId: "C" });
+    expect(pool.parts.games.get(2027)?.map((one) => one.id)).toEqual(["g1", "up"]);
+  });
+
+  it("marks a page's team, a club League Standings made joining the roster under its id", () => {
+    const pool = memory(POOL());
+    pool.run({
+      kind: "page.myTeam",
+      ageGroupId: "ag_10u_2026",
+      teamId: "S-L1",
+      adopt: club("S-L1"),
+    });
+    expect(pool.parts.groups[0]?.myTeamId).toBe("S-L1");
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "B", "C", "S-L1"]);
+    pool.run({ kind: "page.myTeam", ageGroupId: "ag_10u_2026", teamId: null });
+    expect(pool.parts.groups[0]).not.toHaveProperty("myTeamId");
+    expect(
+      applyCommand(pool.read, { kind: "page.myTeam", ageGroupId: "ag_10u_2026", teamId: "S-NONE" })
+    ).toEqual({ ok: false, why: "missing" });
+    // The club offered must be the one marked, or the mark would hold an id nobody has.
+    expect(
+      applyCommand(pool.read, {
+        kind: "page.myTeam",
+        ageGroupId: "ag_10u_2026",
+        teamId: "S-NONE",
+        adopt: club("S-OTHER"),
+      })
+    ).toEqual({ ok: false, why: "missing" });
+  });
+
   it("lays each command of a batch over the last, writing each part once", () => {
     const pool = memory(POOL());
     const result = pool.run({
@@ -234,7 +391,7 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
   const game = games.length > 0 ? pick(games) : undefined;
   const team = pick(parts.teams);
   const ids = ["gcA", "gcB1", "gcB2", "gcC", "gcZ"];
-  switch (Math.floor(next() * 8)) {
+  switch (Math.floor(next() * 12)) {
     case 0:
       return game
         ? {
@@ -277,6 +434,41 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
         add: ids.filter(() => next() < 0.3),
         remove: ids.filter(() => next() < 0.3),
       };
+    case 7: {
+      const n = Math.floor(next() * 1000);
+      const other = pick(parts.teams);
+      const fresh = next() < 0.5 ? club(`S-NEW${n}`) : undefined;
+      return {
+        kind: "game.add",
+        year,
+        games: [
+          {
+            id: `scout_${n}`,
+            ageGroupId: year === 2027 ? "ag_10u_2027" : year === 2026 ? "ag_10u_2026" : "ag_old",
+            teamAId: fresh?.id ?? team.id,
+            teamBId: other.id === (fresh?.id ?? team.id) ? "A" : other.id,
+          },
+        ],
+        adopt: fresh ? [fresh] : [],
+      };
+    }
+    case 8:
+      return {
+        kind: "game.remove",
+        year,
+        gameIds: games.filter(() => next() < 0.5).map((one) => one.id),
+      };
+    case 9: {
+      const page = pick(parts.groups);
+      const n = Math.floor(next() * 3);
+      return next() < 0.3
+        ? { kind: "page.myTeam", ageGroupId: page.id, teamId: null }
+        : next() < 0.5
+          ? { kind: "page.myTeam", ageGroupId: page.id, teamId: `S-L${n}`, adopt: club(`S-L${n}`) }
+          : { kind: "page.myTeam", ageGroupId: page.id, teamId: team.id };
+    }
+    case 10:
+      return { kind: "club.leavePage", ageGroupId: pick(parts.groups).id, teamId: team.id };
     default:
       return {
         kind: "batch",
@@ -286,7 +478,7 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
 };
 
 describe("a command's inverse", () => {
-  it("puts every part the command touched back as it was, over many drawn edits", () => {
+  it("puts every part the command touched back as it was, and again, over many drawn edits", () => {
     for (let seed = 1; seed <= 400; seed += 1) {
       const next = seeded(seed);
       const pool = memory(POOL());
@@ -300,10 +492,17 @@ describe("a command's inverse", () => {
       const result = applyCommand(pool.read, command);
       if (!result.ok) continue;
       applyWrites(pool.parts, result.writes);
+      const after = stored(clone(pool.parts));
       const undone = applyCommand(pool.read, result.inverse);
       expect([seed, undone.ok]).toEqual([seed, true]);
-      if (undone.ok) applyWrites(pool.parts, undone.writes);
+      if (!undone.ok) continue;
+      applyWrites(pool.parts, undone.writes);
       expect([seed, stored(pool.parts)]).toEqual([seed, before]);
+      // And the undo's own inverse makes the change again, exactly.
+      const redone = applyCommand(pool.read, undone.inverse);
+      expect([seed, redone.ok]).toEqual([seed, true]);
+      if (redone.ok) applyWrites(pool.parts, redone.writes);
+      expect([seed, stored(pool.parts)]).toEqual([seed, after]);
     }
   });
 });

@@ -66,7 +66,12 @@ import {
 } from "../lib/teamRankings/boardDisplay";
 import type { RankingsHandover } from "../lib/live/liveBoard";
 import type { PoolCommand } from "../lib/live/commands";
-import { runPoolCommand, writtenTeams, type CommandRun } from "../lib/live/runPoolCommand";
+import {
+  runPoolCommand,
+  writtenGroups,
+  writtenTeams,
+  type CommandRun,
+} from "../lib/live/runPoolCommand";
 import {
   loadLogsForSeason,
   loadMatchupsForSeason,
@@ -465,9 +470,6 @@ export function TeamRankingsView({
   const [editScoreA, setEditScoreA] = useState("");
   const [editScoreB, setEditScoreB] = useState("");
 
-  const lastDeletedGameRef = useRef<ScoutGame | null>(null);
-  const lastDeletedTeamRef = useRef<{ team: ScoutTeam; games: ScoutGame[] } | null>(null);
-
   // Stable, so the effects that save through them do not re-run on every render.
   const persistTeams = useCallback(
     (teams: ScoutTeam[]) => {
@@ -537,6 +539,9 @@ export function TeamRankingsView({
       if (run.writes.length === 0) return run;
       const teams = writtenTeams(run);
       if (teams) setScoutTeams(teams);
+      // A page's mark lives on the page, so a page written is the one the board reads its ★ from.
+      const groups = writtenGroups(run);
+      if (groups) setAgeGroups(groups);
       if (run.writes.some((write) => write.part === "games")) bumpPool();
       onDataChange?.();
       return run;
@@ -1179,16 +1184,16 @@ export function TeamRankingsView({
    */
   const setMyTeam = (teamId: string) => {
     if (!selectedAgeGroupId) return;
-    if (!scoutTeams.some((team) => team.id === teamId)) {
-      persistTeams([...scoutTeams, ...allKnown.teams.filter((t) => t.id === teamId)]);
-    }
-    persistAgeGroups(
-      ageGroups.map((group) =>
-        group.id === selectedAgeGroupId
-          ? { ...group, myTeamId: group.myTeamId === teamId ? undefined : teamId }
-          : group
-      )
-    );
+    const marked = ageGroups.find((group) => group.id === selectedAgeGroupId)?.myTeamId;
+    const adopt = scoutTeams.some((team) => team.id === teamId)
+      ? undefined
+      : allKnown.teams.find((team) => team.id === teamId);
+    runCommand({
+      kind: "page.myTeam",
+      ageGroupId: selectedAgeGroupId,
+      teamId: marked === teamId ? null : teamId,
+      ...(adopt ? { adopt } : {}),
+    });
   };
 
   /**
@@ -1203,7 +1208,7 @@ export function TeamRankingsView({
    * game against one brought the game back and not its opponent. The roster is read now, not from
    * the render that showed the toast, so whatever else the tidy did is kept.
    */
-  const restoreRosterFor = (games: readonly ScoutGame[], before: readonly ScoutTeam[]) => {
+  const rosterFor = (games: readonly ScoutGame[], before: readonly ScoutTeam[]): PoolCommand[] => {
     const roster = loadScoutTeams();
     const held = new Set(roster.map((team) => team.id));
     const named = filedTeamIds(games);
@@ -1211,8 +1216,20 @@ export function TeamRankingsView({
       named.add(game.teamAId);
       named.add(game.teamBId);
     });
-    const gone = before.filter((team) => named.has(team.id) && !held.has(team.id));
-    if (gone.length > 0) persistTeams([...roster, ...gone]);
+    return before
+      .filter((team) => named.has(team.id) && !held.has(team.id))
+      .map((team, index) => ({ kind: "team.insert", team, at: roster.length + index }));
+  };
+
+  /**
+   * Undoes a removal with its own inverse, which puts back exactly what it took and leaves every
+   * change made since; then puts back the clubs a tidy pruned meanwhile that its games name
+   * (`rosterFor`), read once the inverse has run, so a club it put back is not put back twice.
+   */
+  const undoRemoval = (inverse: PoolCommand, games: readonly ScoutGame[], before: ScoutTeam[]) => {
+    if (!runCommand(inverse).ok) return;
+    const missing = rosterFor(games, before);
+    if (missing.length > 0) runCommand({ kind: "batch", commands: missing });
   };
 
   const removeGame = async (game: ScoutGame) => {
@@ -1227,18 +1244,13 @@ export function TeamRankingsView({
       confirmLabel: "Remove",
     });
     if (!confirmed) return;
-    lastDeletedGameRef.current = game;
-    persistGames(scoutGames.filter((g) => g.id !== game.id));
+    const before = scoutTeams;
+    const run = runCommand({ kind: "game.remove", year: selectedYear ?? null, gameIds: [game.id] });
+    if (!run.ok) return;
     showToast("Game removed.", {
       tone: "undo",
       actionLabel: "Undo",
-      onAction: () => {
-        const restored = lastDeletedGameRef.current;
-        if (!restored) return;
-        const games = [...scoutGames.filter((g) => g.id !== restored.id), restored];
-        restoreRosterFor(games, scoutTeams);
-        persistGames(games);
-      },
+      onAction: () => undoRemoval(run.inverse, [game], before),
     });
   };
 
@@ -1279,34 +1291,18 @@ export function TeamRankingsView({
       confirmLabel: "Remove",
     });
     if (!confirmed) return;
-    lastDeletedTeamRef.current = { team, games: relatedGames };
-    if (!playedElsewhere) persistTeams(scoutTeams.filter((t) => t.id !== team.id));
-    persistGames(scoutGames.filter((game) => !isHere(game)));
-    if (myTeamId === team.id) {
-      persistAgeGroups(
-        ageGroups.map((group) =>
-          group.id === selectedAgeGroupId ? { ...group, myTeamId: undefined } : group
-        )
-      );
-    }
+    const before = scoutTeams;
+    const run = runCommand({
+      kind: "club.leavePage",
+      ageGroupId: selectedAgeGroupId,
+      teamId: team.id,
+    });
+    if (!run.ok) return;
+    // The ★ taken off with the club, and the club itself, come back with its games on Undo.
     showToast(`${team.name} removed.`, {
       tone: "undo",
       actionLabel: "Undo",
-      onAction: () => {
-        const restored = lastDeletedTeamRef.current;
-        if (!restored) return;
-        const games = [...scoutGames.filter((game) => !isHere(game)), ...restored.games];
-        restoreRosterFor(games, scoutTeams);
-        persistGames(games);
-        // Remove took the ★ off this page when it was this club; Undo puts it back.
-        if (myTeamId === restored.team.id) {
-          persistAgeGroups(
-            loadAgeGroups().map((group) =>
-              group.id === selectedAgeGroupId ? { ...group, myTeamId: restored.team.id } : group
-            )
-          );
-        }
-      },
+      onAction: () => undoRemoval(run.inverse, relatedGames, before),
     });
   };
 
@@ -2002,8 +1998,15 @@ export function TeamRankingsView({
       if (!confirmed) return;
     }
 
-    persistTeams(teams);
-    persistGames([...scoutGames, newGame]);
+    // The roster takes only the clubs this game names that it does not hold yet: one typed for
+    // the first time, or one League Standings made. Every other club League Standings made stays
+    // out of it, its id holding only for the walk that minted it.
+    const held = new Set(scoutTeams.map((team) => team.id));
+    const adopt = teams.filter(
+      (team) => !held.has(team.id) && (team.id === newGame.teamAId || team.id === newGame.teamBId)
+    );
+    if (!runCommand({ kind: "game.add", year: selectedYear ?? null, games: [newGame], adopt }).ok)
+      return;
     noteAdded([newGame.id]);
     setGameDraft(EMPTY_ADD_GAME_DRAFT);
     showToast(scoresBothValid ? "Game added." : "Added to schedule.", { tone: "success" });
@@ -2015,15 +2018,23 @@ export function TeamRankingsView({
    * dropped anything already logged here, so this just saves and offers an undo for the lot.
    */
   const importGames = (nextTeams: ScoutTeam[], newGames: ScoutGame[]) => {
-    const before = scoutGames;
-    persistTeams(nextTeams);
-    persistGames([...scoutGames, ...newGames]);
+    const held = new Set(scoutTeams.map((team) => team.id));
+    const named = new Set(newGames.flatMap((game) => [game.teamAId, game.teamBId]));
+    const adopt = nextTeams.filter((team) => !held.has(team.id) && named.has(team.id));
+    const run = runCommand({
+      kind: "game.add",
+      year: selectedYear ?? null,
+      games: newGames,
+      adopt,
+    });
+    if (!run.ok) return;
     noteAdded(newGames.map((game) => game.id));
     setImportOpen(false);
+    // Undo takes the games back out, and the clubs they brought with them.
     showToast(`Added ${newGames.length} game${newGames.length === 1 ? "" : "s"}.`, {
       tone: "undo",
       actionLabel: "Undo",
-      onAction: () => persistGames(before),
+      onAction: () => runCommand(run.inverse),
     });
   };
 

@@ -1,9 +1,10 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { markTaken, resetCloudGuard } from "../../lib/cloud/cloudGuard";
 import {
   gamesShardLabel,
+  loadAgeGroups,
   loadRealClubs,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -232,5 +233,129 @@ describe("a lopsided score vouched for", () => {
     await user.click(within(list).getByRole("button", { name: /It.s real/ }));
     await waitFor(() => expect(stored("lopsided")?.scoreConfirmed).toBe(34));
     expect(writes.some((key) => key.endsWith(shardOf(2026)))).toBe(false);
+  });
+});
+
+describe("games added and taken away", () => {
+  const leagueOnPage = (): Partial<Pool> => ({
+    league: {
+      teams: [
+        { id: "L-HAWKS", name: "Hawks" },
+        { id: "L-WRENS", name: "Wrens" },
+      ],
+      matchups: [{ id: "m1", date: "9/20", away: "L-HAWKS", home: "L-WRENS" }],
+      logs: {
+        m1: {
+          awayRuns: "4",
+          awayHits: "",
+          awayK: "",
+          homeRuns: "2",
+          homeHits: "",
+          homeK: "",
+          innings: "6",
+          isFinal: true,
+        },
+      },
+    },
+  });
+
+  it("adds a game with the new clubs it names, and no club League Standings made but did not name", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool(leagueOnPage()));
+    await user.type(screen.getByPlaceholderText("Team name"), "Hawks");
+    await user.type(screen.getByPlaceholderText("Opponent name"), "Brand New Nine");
+    const [scoreA, scoreB] = screen.getAllByPlaceholderText("Score");
+    await user.type(scoreA as HTMLElement, "3");
+    await user.type(scoreB as HTMLElement, "2");
+    await user.click(screen.getByRole("button", { name: "Add Game" }));
+    await waitFor(() =>
+      expect(loadScoutTeams().map((entry) => entry.name)).toEqual([
+        "Rays",
+        "Jays",
+        "Owls",
+        "Hawks",
+        "Brand New Nine",
+      ])
+    );
+    const added = loadScoutGamesForYear(2027).filter((entry) => entry.id.startsWith("scout_"));
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ teamAScore: 3, teamBScore: 2, ageGroupId: thisYear.id });
+  });
+
+  it("puts a removed game back on Undo, keeping what was changed since", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool());
+    const played = await gameRow(user, "2026-09-12");
+    await user.click(within(played).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(stored("played")).toBeUndefined());
+    // A score entered after the removal, before its Undo.
+    const open = await gameRow(user, "2026-09-26");
+    await user.click(within(open).getByRole("button", { name: "Enter score" }));
+    const [a, b] = within(open).getAllByPlaceholderText("Score");
+    await user.type(a as HTMLElement, "6");
+    await user.type(b as HTMLElement, "3");
+    await user.click(within(open).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(stored("open")).toMatchObject({ teamAScore: 6 }));
+    const call = harness.showToast.mock.calls.find((entry) => entry[0] === "Game removed.")!;
+    act(() => (call[1] as { onAction: () => void }).onAction());
+    await waitFor(() => expect(stored("played")).toMatchObject({ teamAScore: 5, teamBScore: 4 }));
+    expect(stored("open")).toMatchObject({ teamAScore: 6, teamBScore: 3 });
+    expect(loadScoutGamesForYear(2027).map((entry) => entry.id)).toEqual([
+      "played",
+      "lopsided",
+      "open",
+    ]);
+  });
+
+  it("imports a schedule with the new clubs it names alone, and Undo takes games and clubs back out", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool(leagueOnPage()));
+    await user.click(screen.getByRole("button", { name: "Import games" }));
+    await user.click(screen.getByLabelText("Games to import"));
+    await user.paste("Date,Opponent,Us,Them\n2026-08-22,Velocirabbits,6,5\n2026-08-23,Rays,3,10");
+    await user.click(screen.getByRole("button", { name: "Read games" }));
+    await user.type(screen.getByLabelText("Whose schedule is this?"), "Hawks");
+    await user.click(screen.getByRole("button", { name: /^Add 2 games$/ }));
+    await waitFor(() =>
+      expect(loadScoutTeams().map((entry) => entry.name)).toEqual([
+        "Rays",
+        "Jays",
+        "Owls",
+        "Hawks",
+        "Velocirabbits",
+      ])
+    );
+    const imported = () =>
+      loadScoutGamesForYear(2027).filter((entry) => entry.id.startsWith("scout_"));
+    expect(imported()).toHaveLength(2);
+    const call = harness.showToast.mock.calls.find((entry) => entry[0] === "Added 2 games.")!;
+    act(() => (call[1] as { onAction: () => void }).onAction());
+    await waitFor(() => expect(imported()).toHaveLength(0));
+    expect(loadScoutTeams().map((entry) => entry.name)).toEqual(["Rays", "Jays", "Owls"]);
+  });
+
+  it("marks a club League Standings made as the page's own, the club joining the roster alone", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ ...leagueOnPage(), search: "?age=10&year=2027" }));
+    await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
+    const row = within(screen.getByRole("table"))
+      .getByRole("button", { name: "Hawks" })
+      .closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: /mark mine/i }));
+    await waitFor(() =>
+      expect(loadAgeGroups().find((group) => group.id === thisYear.id)?.myTeamId).toBeDefined()
+    );
+    const marked = loadAgeGroups().find((group) => group.id === thisYear.id)?.myTeamId;
+    expect(loadScoutTeams().find((entry) => entry.id === marked)?.name).toBe("Hawks");
+    expect(loadScoutTeams().map((entry) => entry.name)).toEqual(["Rays", "Jays", "Owls", "Hawks"]);
+    // Pressed again, the mark comes off.
+    await user.click(
+      await within(screen.getByRole("table")).findByRole("button", { name: /my team/i })
+    );
+    await waitFor(() =>
+      expect(loadAgeGroups().find((group) => group.id === thisYear.id)).not.toHaveProperty(
+        "myTeamId"
+      )
+    );
   });
 });

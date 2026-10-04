@@ -4296,13 +4296,16 @@ change needs that the pool does not hold travels in the command. Each command co
 inverse, and a property test draws hundreds of edits on pools of every shape and checks that the
 inverse puts every part the command touched back as it was, to the stored byte.
 
-| Command                                      | What it changes                                                                                                   |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `answers`                                    | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart.   |
-| `team.state`, `team.unlinkGc`                | A club's state; one GameChanger id taken off a club.                                                              |
-| `game.score`, `game.exclude`, `game.confirm` | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now. |
-| `team.put`, `team.remove`, `game.put`        | A record put back as it was: what inverses are made of.                                                           |
-| `batch`                                      | Several commands as one, each reading what the last wrote.                                                        |
+| Command                                                                          | What it changes                                                                                                                                                                       |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `answers`                                                                        | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart.                                                                       |
+| `team.state`, `team.unlinkGc`                                                    | A club's state; one GameChanger id taken off a club.                                                                                                                                  |
+| `game.score`, `game.exclude`, `game.confirm`                                     | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now.                                                                     |
+| `game.add`, `game.remove`                                                        | Games added at the end of their year, with the new clubs they name (and only those); games taken out of their year.                                                                   |
+| `page.myTeam`                                                                    | A page's own team marked or unmarked.                                                                                                                                                 |
+| `club.leavePage`                                                                 | A club taken off one page: its games there, the page's mark if it was the page's own team, and the club itself only when no game in any year names it and no row is filed against it. |
+| `team.put`, `team.insert`, `team.remove`, `game.put`, `game.insert`, `group.put` | A record put back as it was, in its place: what inverses are made of.                                                                                                                 |
+| `batch`                                                                          | Several commands as one, each reading what the last wrote.                                                                                                                            |
 
 On this browser a command runs through `runPoolCommand`, which writes only the parts it changed
 (vouching for a score writes that game's year, not every year as it once did) and the roster as it
@@ -4310,6 +4313,13 @@ is stored, never with the teams League Standings makes on the fly, whose ids hol
 walk that made them. A club League Standings made joins the roster only when it is given something
 to keep, and then alone. The page shows a change once it is written: a write the store refuses (full,
 or held by a newer tab) is said to be refused and is not shown as done.
+
+Undo runs the change's own inverse, so it puts back exactly what was taken, where it stood, and
+leaves alone whatever was changed in between: a game removed and a score entered on another before
+the Undo both stand afterwards, where the old Undo wrote back the year as it was at Remove and lost
+the score. An Undo of an import takes its games out and the clubs it brought with them. Removing a
+game or a club can set off a tidy that prunes a stand-in nothing stands on any more, so the Undo
+then puts back, from the roster as it was at Remove, any club its games name that is gone.
 
 ## AI write-ups
 
