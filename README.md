@@ -3306,6 +3306,20 @@ schedule. GitHub turns off a public repository's schedules after 60 days with no
 activity in it; **Enable workflow** on the workflow's page turns this one back
 on.
 
+The log ends, dry run or live and however the refresh ended, with how the
+rebuilds after saves have gone, read from their ledger ("Rebuilds after saves",
+`rebuildReport.ts`) and never written: whether they are on and dry or live; the
+runs of the ledger's day (the day of its last reserve, refused or not), how many
+of them failed and the GiB-seconds they spent against the day's cap; the same of
+the last day before it that had a run, since the nightly runs a few hours into a
+New York day and a save just after midnight, or a day of refusals at a cap,
+moves the ledger on; the month's runs, failures, GiB-seconds and vCPU-seconds
+against its caps; then the failures in a row, a pause, and a run reserved and
+not yet settled. A ledger that cannot be read says so on its own line and leaves
+the night's colour alone, as do failed rebuilds: they are not the refresh's
+work. This is what tells whether a week of dry runs went well before `mode` is
+set to `live`.
+
 ### Boards a server can build
 
 The cloud copy is on its way to being the one place the data lives, with members
@@ -3682,7 +3696,12 @@ anything but what it holds makes the document unreadable, which reads as off,
 rather than a ledger with its guard lifted. Each run reserves its ceiling first
 (its 300 s timeout and 20 s of start-up at 8 GiB and two vCPUs: 2,560
 GiB-seconds and 640 vCPU-seconds) against the day's and the month's caps, and
-puts what it cost in place of it when it ends. A run that never ends leaves its
+puts what it cost in place of it when it ends. It also counts the runs reserved
+on its day and in its month and how many of them failed, which no cap reads, for
+the nightly's log (`rebuildReport.ts`), and keeps the counts of the last day
+before its own that had a run (`lastDay`); a failure counts on the day and month of
+the run's reservation while the ledger still counts those, so a day's failed runs
+are always among its runs. A run that never ends leaves its
 ceiling charged, and the next reserve counts it as a failure; the third failure
 in a row pauses the rebuilds for the rest of the day, and a run that does not
 fail clears the count. A run reserved less than a run's span ago (320 s) may
@@ -4113,7 +4132,9 @@ Then save anything that moves a board, wait three minutes, and find the rebuild'
 line in **Logs Explorer** (`jsonPayload.end` is in every one). A dry run that
 built everything ends `published` with `wrote` false, and says how many boards it
 built and pieces it would have uploaded; `locale` means the runtime's collation is
-not English; every other end is named above. Once `mode` is `live`,
+not English; every other end is named above. Each night's refresh log also says
+the runs, failures and compute the ledger counted ("The nightly refresh on
+GitHub"), so a dry week can be judged there. Once `mode` is `live`,
 `npm run live:lag` reads how long saves took to reach the boards.
 
 Setting `LIVE_REBUILD` to anything but `on` builds without the two functions. With
