@@ -1425,7 +1425,8 @@ export const loadNewer = async (): Promise<void> => {
 /**
  * Brings a kept version back: it becomes the copy's current value, from which every device takes
  * it, and what it replaces is kept in its turn. What this browser owes is sent first, so nothing
- * unsaved is replaced.
+ * unsaved is replaced. The server makes it current (1.6), for the copy's owner alone, and this
+ * device then takes it as it takes any other save.
  */
 export const bringBack = async (group: string): Promise<void> => {
   await withSession(async (current, account) => {
@@ -1475,44 +1476,16 @@ export const bringBack = async (group: string): Promise<void> => {
       });
       return;
     }
-    const state = loadCloudState();
     setStatus({ kind: "working", account, label: "Bringing it back…" });
-    const result = await commitChanges({
-      store: current.store,
-      base: manifest,
-      restore: group,
-      device: state.device,
-      now: nowIso(),
-    });
-    if (!result.ok) {
-      setStatus({ kind: "error", account, message: "The cloud copy kept changing. Try again." });
+    // The server brings it back (`copy.restore`), the copy's owner's to ask: a device does not
+    // write the copy to do it.
+    const restored = await current.cloud.restore(group, manifest.copy);
+    if (!restored.ok) {
+      setStatus({ kind: "error", account, message: restored.message });
       return;
     }
-    kept = result.manifest.kept;
-    const keys = new Set(bringing.map((part) => part.key));
-    const parts = result.manifest.parts.filter((part) => keys.has(part.key));
-    const fetched = await fetchValues({ store: current.store, parts });
-    if (!stillOurs(state, account)) return;
-    if (!fetched.ok || !(await local.apply(fetched.values))) {
-      // The copy has it; this device takes it when the app next opens.
-      notice = "Brought back in the cloud copy. It arrives here when the app next opens.";
-      setStatus(savedStatus(account));
-      return;
-    }
-    const known = { ...loadCloudState().hashes };
-    for (const part of parts) known[part.key] = part.hash;
-    saveCloudState({
-      ...loadCloudState(),
-      hashes: known,
-      copy: result.manifest.copy,
-      version: result.manifest.version,
-      syncedAt: nowIso(),
-    });
-    const league = parts.find((part) => part.key === LEAGUE_PART);
-    if (league) saveLeagueBase({ hash: league.hash, value: fetched.values.get(LEAGUE_PART) });
-    new Set(parts.map((part) => areaOf(part.key))).forEach((area) => markTaken(area, false));
-    announceTaken();
-    reload();
+    // In the copy now, as another device's save would be: this device takes it, and reloads on it.
+    await settleLocked(current, account, ["league", "pool"], "page");
   });
 };
 

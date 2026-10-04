@@ -2965,7 +2965,8 @@ merged, and whatever a merge had to replace is kept.
 - **What lost** is kept in the copy, pieces and all, for 30 days and at most
   six settlements (`KEEP_DAYS`, `KEEP_GROUPS`). The panel lists it, and
   **Bring back…** makes it current again from any device, asking twice and
-  keeping what it replaces in turn.
+  keeping what it replaces in turn. The server makes it current, for the
+  copy's owner alone (1.6), and the device then takes it like any other save.
 
 **Meeting a copy for the first time.** A browser signing in with seasons of its
 own joins them to the copy's, merged where they share records. The pool is
@@ -4048,9 +4049,9 @@ carries them, rather than this device's copy, which an edit made here does not m
 not yet published are drawn over them (`overlayGroups`, by the command the server runs), so a
 season put on a page shows there at once and the next one put at that age joins it. This
 browser's diagnostics are its own, as on the device's Setup. The model check of the page open is
-the server's (`model.check`, 1.5), described below, and archiving or deleting a year is the
-owner's on the server (1.6, below). Starting again opens on this device's copy when asked, until it
-is live.
+the server's (`model.check`, 1.5), described below, and archiving or deleting a year, and
+starting Team Rankings again, are the owner's on the server (1.6, below). Downloading a backup
+opens on this device's copy when asked, until it is live.
 Every card here asks in its own effect once edits are on; the copy they ask of is held before
 any effect runs (`useLiveEdits`), since the network's first answer brings it and turns edits on
 in one render, and a Setup opened straight from a link had its first questions refused for want
@@ -4839,6 +4840,30 @@ a member's year archive or delete is refused before the worker has it, with "Onl
 owner can archive or delete a year". `yearOps.test.ts` holds the server's archive and delete to
 the device's functions on the seeded pool, League Standings' games included, and `editRun.test.ts`
 the one save each makes; the functions' smoke run holds a member's delete refused.
+
+**Team Rankings started again, and an earlier version brought back, by the owner** (1.6). Two more
+of the owner's commands, made on the copy's own manifest rather than on a pool (`copyOps.ts`), and
+committed as the edit run commits any other, again on a newer version when a save lands between.
+`copy.reset` takes every Team Rankings part out of the copy and keeps them all as one earlier
+version, League Standings left as it is: a start of Team Rankings is no reason to lose a season's
+scores. It keeps the lot whole (`commitChanges`' `keepWhole`), a value some earlier settlement
+already keeps included, since otherwise that value would be left out of the version and bringing it
+back would not bring back all the start took. Its inverse is bringing that version back, so the
+live page's Undo is exact while nothing else has moved, and the Cloud panel's Bring back does it
+while it is one of the six versions kept (`KEEP_GROUPS`, 30 days at most): the nightly keeps what
+it replaces too, so a week of refreshes that change anything pushes it out, as the confirmation
+says. `copy.restore` is the
+device's Bring back made by the server: the version made current, what it replaces kept in turn.
+A version holding League Standings is not brought back once its seasons have documents of their
+own (`league-kept-live`), since neither the boards nor any device read the copy's part then. Setup
+on the live page has the start (`LiveStartAgainCard`), which asks the server what the cloud holds
+when pressed (`year.list`) and confirms with those counts; nothing on the device is deleted, as the
+device's own Start from scratch does. The Cloud panel's Bring back asks the server
+(`serverRestore.ts`), then takes the copy as it takes any other save, so a device never writes the
+copy to bring a version back. Both are the owner's alone, refused to a member with "Only the cloud
+copy's owner can …", as the functions' smoke run holds for all four of the owner's commands.
+`editRun.test.ts` holds the start, its Undo, a version a device kept brought back, the boards
+emptied and published again, and a save landing between.
 
 ## AI write-ups
 

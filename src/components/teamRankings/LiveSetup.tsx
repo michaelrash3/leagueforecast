@@ -21,6 +21,7 @@ import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { LiveAgelessCard } from "./LiveAgelessCard";
 import { LiveArchiveCard } from "./LiveArchiveCard";
 import { LivePoolHealthCard } from "./LivePoolHealthCard";
+import { LiveStartAgainCard } from "./LiveStartAgainCard";
 import { ModelCheckCard } from "./ModelCheckCard";
 import { AgeGroupsCard, SetupIntroCard } from "./SetupCards";
 
@@ -31,8 +32,9 @@ import { AgeGroupsCard, SetupIntroCard } from "./SetupCards";
  * the model check of the page open, worked out on the server (`model.check`); and this browser's
  * own diagnostics. The pages are the cloud's (`groups`, the ones its last publish carries) with
  * the edits made here drawn over them until a publish carries those too, so a season put on a page
- * shows there at once. Archiving a year and starting again are opened on this device's copy until
- * each is live too, by asking for it: the page hands over to Team Rankings there, on Setup.
+ * shows there at once. A year archived or deleted, and Team Rankings started again, are the
+ * server's, the copy's owner's alone (1.6). Downloading a backup is opened on this device's copy
+ * until it is live too, by asking for it: the page hands over to Team Rankings there, on Setup.
  */
 export default function LiveSetup({
   edits,
@@ -127,12 +129,13 @@ export default function LiveSetup({
         currentYear={ageGroupYear(shown.find((group) => group.id === pageId))}
       />
       <DiagnosticsCard />
+      <LiveStartAgainCard edits={edits} confirm={confirm} />
       <div className={`${card} p-5`}>
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           The rest of Setup
         </h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Starting again opens on this device&apos;s copy for now.
+          Downloading a backup of Team Rankings opens on this device&apos;s copy for now.
         </p>
         <button type="button" onClick={onRestWanted} className={`${button.ghost} mt-3`}>
           Open them on this device&apos;s copy

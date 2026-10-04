@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type GameLog } from "../../types";
 import type { SeasonSnapshot } from "../../storage";
+import { commitChanges } from "../cloudEngine";
 import type { CloudManifest } from "../cloudManifest";
 import type { LocalSource } from "../cloudLocal";
 import type { LeagueValue } from "../leagueMerge";
@@ -139,6 +140,9 @@ const CONFIG = { apiKey: "k", authDomain: "d", projectId: "p", appId: "a" };
 let sky: MemoryCloud;
 let skyLeague: ReturnType<typeof memoryLeague>;
 let reloads = 0;
+/** The versions the server was asked to bring back, and its refusal when it is to refuse. */
+let restored: string[] = [];
+let serverSays: string | null = null;
 let clock = Date.parse("2026-09-29T12:00:00.000Z");
 
 const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
@@ -166,6 +170,24 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
       },
     },
     league: skyLeague.store,
+    // The server's `copy.restore` (`copyOps.ts`), made on the same copy.
+    restore: async (group, copy) => {
+      restored.push(group);
+      if (serverSays) return { ok: false, message: serverSays };
+      const base = await sky.store.readManifest();
+      if (!base || base.copy !== copy) return { ok: false, message: "Another copy." };
+      if (!base.kept.some((part) => part.group === group)) {
+        return { ok: false, message: "That version is no longer kept." };
+      }
+      const done = await commitChanges({
+        store: sky.store,
+        base,
+        restore: group,
+        device: "live-edit",
+        now: new Date(clock).toISOString(),
+      });
+      return done.ok ? { ok: true } : { ok: false, message: "Kept moving." };
+    },
   };
 };
 
@@ -227,6 +249,8 @@ beforeEach(() => {
   pull.live = false;
   pull.elsewhere = false;
   reloads = 0;
+  restored = [];
+  serverSays = null;
   tabs.announced = 0;
 });
 
@@ -968,12 +992,35 @@ describe("bringing a kept version back", () => {
     await session.preparePool();
     const [version] = session.cloudKept();
     await session.bringBack(version?.group ?? "");
+    // Made by the server, which this device then takes from the copy.
+    expect(restored).toEqual([version?.group]);
+    expect(sky.manifest()?.device).toBe("live-edit");
     expect(phone.values.get(TEAMS)).toEqual(["phone's edit"]);
     expect(await cloudValue(TEAMS)).toEqual(["phone's edit"]);
     expect(session.cloudKept()).toMatchObject([{ why: "replaced" }]);
     await open(laptop);
     await session.preparePool();
     expect(laptop.values.get(TEAMS)).toEqual(["phone's edit"]);
+  });
+
+  it("says why the server would not bring it back, and changes nothing here", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    edit(phone, TEAMS, ["phone's edit"]);
+    later();
+    await open(laptop);
+    edit(laptop, TEAMS, ["laptop's pull"]);
+    await session.saveNow();
+    await open(phone);
+    await session.preparePool();
+    const version = sky.manifest()?.version;
+    const [kept] = session.cloudKept();
+    serverSays = "Only the cloud copy's owner can bring back an earlier version.";
+    await session.bringBack(kept?.group ?? "");
+    expect(restored).toEqual([kept?.group]);
+    expect(session.cloudStatus()).toMatchObject({ kind: "error", message: serverSays });
+    expect(sky.manifest()?.version).toBe(version);
+    expect(phone.values.get(TEAMS)).toEqual(["laptop's pull"]);
   });
 
   it("waits for a pull to finish before bringing Team Rankings back", async () => {
@@ -990,6 +1037,7 @@ describe("bringing a kept version back", () => {
     const [kept] = session.cloudKept();
     pull.live = true;
     await session.bringBack(kept?.group ?? "");
+    expect(restored).toEqual([]);
     expect(session.cloudStatus()).toMatchObject({
       kind: "error",
       message: expect.stringContaining("pull"),

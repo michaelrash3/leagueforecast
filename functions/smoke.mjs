@@ -367,17 +367,26 @@ if (process.env.LIVE_REBUILD !== "on") {
       /INVALID_ARGUMENT/.test(String(badCopy.body)),
     `${junk.status} ${junk.body} / ${badCopy.status} ${badCopy.body}`
   );
-  const notOwner = await post(
-    edit,
-    { data: { command: { kind: "year.delete", year: 2026 } } },
-    signedInAs("member@example.com")
-  );
+  const ownersOnly = [
+    { kind: "year.delete", year: 2026 },
+    { kind: "copy.reset" },
+    { kind: "copy.restore", group: "0123456789abcdef0123456789abcdef" },
+  ];
+  const notOwner = [];
+  for (const owned of ownersOnly) {
+    notOwner.push(
+      await post(edit, { data: { command: owned } }, signedInAs("member@example.com"))
+    );
+  }
   check(
-    "and a member's archive or delete of a year is the owner's alone, refused before it runs",
-    notOwner.status === 403 &&
-      /PERMISSION_DENIED/.test(String(notOwner.body)) &&
-      /Only the cloud copy's owner/.test(String(notOwner.body)),
-    `${notOwner.status} ${notOwner.body}`
+    "and a member's archive or delete of a year, start again or bring back is the owner's alone, refused before it runs",
+    notOwner.every(
+      (answer) =>
+        answer.status === 403 &&
+        /PERMISSION_DENIED/.test(String(answer.body)) &&
+        /Only the cloud copy's owner/.test(String(answer.body))
+    ),
+    notOwner.map((answer) => `${answer.status} ${answer.body}`).join(" / ")
   );
   check(
     "having read nothing but the caller's own entry on the list, once while it holds",

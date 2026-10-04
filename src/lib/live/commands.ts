@@ -201,7 +201,16 @@ export type PoolCommand =
    * when it was asked, which the archived tables are stamped with.
    */
   | { kind: "year.archive"; year: number; at: string }
-  | { kind: "year.delete"; year: number };
+  | { kind: "year.delete"; year: number }
+  /**
+   * Team Rankings started again in the cloud copy, every part of it taken out and kept as one
+   * earlier version, League Standings left as it is; and a kept version made the copy's current
+   * one again, what it replaces kept in turn (`group`, as the copy's manifest names it). The
+   * owner's alone (`OWNER_COMMANDS`), and the server's to run on the copy itself rather than on a
+   * pool (`copyOps.ts`). The start's inverse is bringing back what it kept.
+   */
+  | { kind: "copy.reset" }
+  | { kind: "copy.restore"; group: string };
 
 /** The pool as a command reads it: the parts it may change, as storage decodes them. */
 export type PoolRead = {
@@ -798,9 +807,12 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
   switch (command.kind) {
     case "none":
       return unchanged();
-    // A server's to run, on more than a pool holds (`yearOps.ts`): never applied as a pool's step.
+    // A server's to run, on more than a pool holds (`yearOps.ts`, `copyOps.ts`): never applied as
+    // a pool's step.
     case "year.archive":
     case "year.delete":
+    case "copy.reset":
+    case "copy.restore":
       return { ok: false, why: "refused" };
     case "batch":
       return applySteps(
@@ -1431,13 +1443,28 @@ export const isClockTime = (value: unknown): value is string => {
 export const isSquadYear = (value: unknown): value is number =>
   Number.isInteger(value) && (value as number) >= 2000 && (value as number) < 2200;
 
-/** The commands only the copy's owner may send, which only the server runs (`yearOps.ts`). */
+/**
+ * The commands only the copy's owner may send, which only the server runs (`yearOps.ts`,
+ * `copyOps.ts`).
+ */
 export const OWNER_COMMANDS: ReadonlySet<PoolCommand["kind"]> = new Set([
   "year.archive",
   "year.delete",
+  "copy.reset",
+  "copy.restore",
 ]);
 
 export const isOwnerCommand = (command: PoolCommand): boolean => OWNER_COMMANDS.has(command.kind);
+
+/** The owner's commands made on the copy's manifest rather than on a pool (`copyOps.ts`). */
+export const isCopyCommand = (
+  command: PoolCommand
+): command is Extract<PoolCommand, { kind: "copy.reset" | "copy.restore" }> =>
+  command.kind === "copy.reset" || command.kind === "copy.restore";
+
+/** A kept version's group as a manifest names one (`randomId`), or any such short id. */
+const isGroupId = (value: unknown): value is string =>
+  typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);
 
 /*
  * A record read back exactly as it was sent, or null: one whose fields storage would have to drop
@@ -1755,6 +1782,12 @@ const readCommand = (raw: unknown, depth: number): PoolCommand | null => {
         : null;
     case "year.delete":
       return depth === 0 && isSquadYear(raw.year) ? { kind: "year.delete", year: raw.year } : null;
+    case "copy.reset":
+      return depth === 0 ? { kind: "copy.reset" } : null;
+    case "copy.restore":
+      return depth === 0 && isGroupId(raw.group)
+        ? { kind: "copy.restore", group: raw.group }
+        : null;
     default:
       return null;
   }

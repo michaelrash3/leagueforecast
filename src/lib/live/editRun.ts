@@ -9,7 +9,8 @@ import {
 import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { readCloudPoolValue } from "../teamRankingsStorage";
-import { isOwnerCommand, type PoolCommand } from "./commands";
+import { isCopyCommand, isOwnerCommand, type PoolCommand } from "./commands";
+import { keptBy, planCopyCommand } from "./copyOps";
 import type { EditPool, PoolEnsure } from "./poolCache";
 import { asksLeague, answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
 import type { SeasonReader } from "./allKnown";
@@ -48,6 +49,8 @@ const MAX_TRIES = 3;
  *   edit may or may not be in it; the copy says which.
  * - `newer-league`: a year's archive, made with League Standings' games in it, met a season a newer
  *   build saved (`readCloudLeague`).
+ * - `league-kept-live`: an earlier version to bring back carries League Standings, which lives in
+ *   its own documents now (`copyOps.ts`).
  * - the copy's own refusals, as `PoolEnsure` names them.
  */
 export type EditRefusal =
@@ -57,6 +60,7 @@ export type EditRefusal =
   | "copy-replaced"
   | "unsure"
   | "newer-league"
+  | "league-kept-live"
   | Extract<PoolEnsure, { ok: false }>["reason"];
 
 export type EditRun =
@@ -131,11 +135,15 @@ export const runEdit = async ({
      * slower, and never wrong. Only a commit the copy turned away is let go of key by key.
      */
     const applying = clock();
-    const run = isOwnerCommand(command)
-      ? await runOwnerCommand(command, () => leagueOf(store, ensured.manifest, leagueDocs))
-      : runPoolCommand(command);
-    if (!run.ok) return { ok: false, why: run.why, tries };
-    const changes = await changesOf(pool.written(), Date.parse(now()));
+    const saving = await saveOf({
+      command,
+      manifest: ensured.manifest,
+      leagueDocs,
+      written: pool.written,
+      now,
+      runOwner: () => runOwnerCommand(command, () => leagueOf(store, ensured.manifest, leagueDocs)),
+    });
+    if (!saving.ok) return { ok: false, why: saving.why, tries };
     const applyMs = Math.round(clock() - applying);
     const committing = clock();
     let commit: CommitResult;
@@ -143,7 +151,10 @@ export const runEdit = async ({
       commit = await commitChanges({
         store,
         base: ensured.manifest,
-        changes,
+        changes: saving.changes,
+        keepReplaced: saving.keepReplaced,
+        keepWhole: saving.keepWhole,
+        ...(saving.restore ? { restore: saving.restore } : {}),
         device: EDIT_DEVICE,
         now: now(),
       });
@@ -167,8 +178,10 @@ export const runEdit = async ({
         ok: true,
         copy: commit.manifest.copy,
         version: commit.manifest.version,
-        inverse: run.inverse,
-        changed: changes.map(({ key }) => key).filter((key) => was.get(key) !== after.get(key)),
+        inverse: saving.inverse(ensured.manifest, commit.manifest),
+        changed: [...new Set([...was.keys(), ...after.keys()])]
+          .filter((key) => was.get(key) !== after.get(key))
+          .sort(),
         tries,
         cold: ensured.cold,
         fetched: ensured.fetched.length,
@@ -182,8 +195,75 @@ export const runEdit = async ({
   return { ok: false, why: "kept-moving", tries: MAX_TRIES };
 };
 
-/** What takes back an owner's command: nothing, since neither is ever taken back. */
+/** What takes back an owner's command that is never taken back. */
 const NOT_TAKEN_BACK: PoolCommand = { kind: "none" };
+
+/**
+ * What an edit saves to the copy, and what takes it back once saved: a pool command's (or a year's)
+ * writes to the process's store as changes, or a copy command's save of the manifest itself
+ * (`copyOps.ts`), which writes nothing to the store, so the pool follows it on its next read.
+ */
+type Saving =
+  | {
+      ok: true;
+      changes: Change[];
+      keepReplaced: string[];
+      keepWhole: boolean;
+      restore?: string;
+      inverse: (before: CloudManifest, after: CloudManifest) => PoolCommand;
+    }
+  | { ok: false; why: EditRefusal };
+
+const saveOf = async ({
+  command,
+  manifest,
+  leagueDocs,
+  written,
+  now,
+  runOwner,
+}: {
+  command: PoolCommand;
+  manifest: CloudManifest;
+  leagueDocs: LeagueDocsList;
+  /** The keys the command wrote to the process's store (`EditPool.written`). */
+  written: () => ReadonlySet<string>;
+  now: () => string;
+  runOwner: () => ReturnType<typeof runOwnerCommand>;
+}): Promise<Saving> => {
+  if (isCopyCommand(command)) {
+    let planned: Awaited<ReturnType<typeof planCopyCommand>>;
+    try {
+      planned = await planCopyCommand(
+        command,
+        manifest,
+        Date.parse(now()),
+        async () => (await leagueDocs()).length > 0
+      );
+    } catch {
+      // The League documents would not list, so whether League Standings is kept live is unknown.
+      return { ok: false, why: "store-refused" };
+    }
+    if (!planned.ok) return planned;
+    return {
+      ...planned,
+      // A start is undone by bringing back what it kept; a version brought back is not taken back,
+      // as on a device: what it replaced is kept, to be brought back in its turn.
+      inverse: (before, after) => {
+        const kept = command.kind === "copy.reset" ? keptBy(before, after) : null;
+        return kept ? { kind: "copy.restore", group: kept } : NOT_TAKEN_BACK;
+      },
+    };
+  }
+  const run = isOwnerCommand(command) ? await runOwner() : runPoolCommand(command);
+  if (!run.ok) return run;
+  return {
+    ok: true,
+    changes: await changesOf(written(), Date.parse(now())),
+    keepReplaced: [],
+    keepWhole: false,
+    inverse: () => run.inverse,
+  };
+};
 
 /**
  * An owner's command run on the process's store (`yearOps.ts`): a year's archive with League

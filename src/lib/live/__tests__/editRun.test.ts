@@ -456,6 +456,190 @@ describe("a year archived or deleted by the copy's owner", () => {
   });
 });
 
+describe("Team Rankings started again or brought back by the copy's owner", () => {
+  /** The copy holding the pool and a League Standings part beside it. */
+  const withLeague = async () => {
+    const cloud = await copyOfPool();
+    const saved = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [{ key: LEAGUE_PART, value: { seasons: [] }, at: 1 }],
+      device: "phone",
+      now: NOW,
+    });
+    if (!saved.ok) throw new Error("the League part was not saved");
+    return cloud;
+  };
+  const hashes = (manifest: CloudManifest | null) =>
+    new Map((manifest?.parts ?? []).map((part) => [part.key, part.hash]));
+
+  it("starts again in one save: every Team Rankings part out and kept whole, League left as it was", async () => {
+    const cloud = await withLeague();
+    const before = cloud.manifest();
+    const poolKeys = (before?.parts ?? [])
+      .map(({ key }) => key)
+      .filter((key) => key !== LEAGUE_PART);
+    const done = await edit(editPool(), cloud.store, { kind: "copy.reset" });
+    if (!done.ok) throw new Error(done.why);
+    const after = cloud.manifest();
+    expect(after?.parts.map(({ key }) => key)).toEqual([LEAGUE_PART]);
+    expect(hashes(after).get(LEAGUE_PART)).toBe(hashes(before).get(LEAGUE_PART));
+    expect(done.changed).toEqual([...poolKeys].sort());
+    expect(after?.device).toBe(EDIT_DEVICE);
+    // Kept as one version, the whole of Team Rankings, which taking the start back brings back.
+    expect(done.inverse.kind).toBe("copy.restore");
+    const group = done.inverse.kind === "copy.restore" ? done.inverse.group : "";
+    expect(
+      after?.kept
+        .filter((part) => part.group === group)
+        .map(({ key }) => key)
+        .sort()
+    ).toEqual([...poolKeys].sort());
+  });
+
+  it("is taken back by bringing back what it kept, and the warm pool follows both", async () => {
+    const cloud = await withLeague();
+    const before = hashes(cloud.manifest());
+    const cache = editPool();
+    const started = await edit(cache, cloud.store, { kind: "copy.reset" });
+    if (!started.ok) throw new Error(started.why);
+    // The pool an edit then runs on is the empty one: no club to give a state.
+    expect(
+      await edit(cache, cloud.store, { kind: "team.state", teamId: "B", state: "KY" })
+    ).toMatchObject({ ok: false, why: "missing" });
+    const back = await edit(cache, cloud.store, started.inverse);
+    expect(back).toMatchObject({ ok: true, inverse: { kind: "none" } });
+    expect(hashes(cloud.manifest())).toEqual(before);
+    // And an edit on the pool brought back is made on it.
+    expect(
+      await edit(cache, cloud.store, { kind: "team.state", teamId: "B", state: "KY" })
+    ).toMatchObject({ ok: true, changed: [TEAMS_KEY] });
+    await pool?.drop();
+    await reopen(cloud);
+    expect(loadScoutTeams().find((team) => team.id === "B")).toMatchObject({ state: "KY" });
+    expect(loadScoutGamesForYear(2027).map((game) => game.id)).toEqual(["g1", "open"]);
+  });
+
+  it("keeps the whole of Team Rankings, a part some version kept already included", async () => {
+    const cloud = await copyOfPool();
+    const before = hashes(cloud.manifest());
+    // A device's own roster, the very one the copy holds, kept as lost when it joined.
+    const roster = await fetchValues({
+      store: cloud.store,
+      parts: (cloud.manifest()?.parts ?? []).filter(({ key }) => key === TEAMS_KEY),
+    });
+    if (!roster.ok) throw new Error("the roster did not read");
+    const joined = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      keepLost: [{ key: TEAMS_KEY, value: roster.values.get(TEAMS_KEY), at: 2 }],
+      device: "phone",
+      now: NOW,
+    });
+    if (!joined.ok) throw new Error("the phone did not join");
+    const cache = editPool();
+    const started = await edit(cache, cloud.store, { kind: "copy.reset" });
+    if (!started.ok) throw new Error(started.why);
+    expect(await edit(cache, cloud.store, started.inverse)).toMatchObject({ ok: true });
+    expect(hashes(cloud.manifest())).toEqual(before);
+  });
+
+  it("brings back a version a device kept, keeping what it replaces in turn", async () => {
+    const cloud = await copyOfPool();
+    const kept = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [{ key: TEAMS_KEY, value: encodeScoutTeams([{ id: "A", name: "Club A" }]), at: 2 }],
+      keepReplaced: [TEAMS_KEY],
+      device: "phone",
+      now: NOW,
+    });
+    if (!kept.ok) throw new Error("the phone's save did not land");
+    const group = kept.manifest.kept[0]?.group ?? "";
+    const done = await edit(editPool(), cloud.store, { kind: "copy.restore", group });
+    expect(done).toMatchObject({ ok: true, changed: [TEAMS_KEY], inverse: { kind: "none" } });
+    const after = cloud.manifest();
+    expect(after?.kept.map((part) => part.group)).not.toContain(group);
+    expect(after?.kept.map(({ key }) => key)).toEqual([TEAMS_KEY]);
+    await pool?.drop();
+    await reopen(cloud);
+    expect(loadScoutTeams().map((team) => team.id)).toEqual(["A", "B"]);
+  });
+
+  it("saves nothing for a version no longer kept, an empty Team Rankings, or League kept live", async () => {
+    const cloud = await withLeague();
+    expect(
+      await edit(editPool(), cloud.store, { kind: "copy.restore", group: "gone" })
+    ).toMatchObject({ ok: false, why: "missing" });
+    // A version carrying League Standings, once its seasons live in their own documents.
+    const leagueKept = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [{ key: LEAGUE_PART, value: { seasons: [{ id: "s" }] }, at: 2 }],
+      keepReplaced: [LEAGUE_PART],
+      device: "phone",
+      now: NOW,
+    });
+    if (!leagueKept.ok) throw new Error("the phone's save did not land");
+    const group = leagueKept.manifest.kept[0]?.group ?? "";
+    const docs = docsOf(seasonsOf(poolFixture({ seed: 7, clubsPerPage: 10 }).seasons));
+    const restore = (leagueDocs: Parameters<typeof runEdit>[0]["leagueDocs"]) =>
+      runEdit({
+        pool: editPool(),
+        store: cloud.store,
+        leagueDocs,
+        command: { kind: "copy.restore", group },
+        now: () => NOW,
+      });
+    const version = cloud.manifest()?.version;
+    expect(await restore(listing(docs))).toMatchObject({ ok: false, why: "league-kept-live" });
+    expect(
+      await restore(async () => {
+        throw new Error("would not list");
+      })
+    ).toMatchObject({ ok: false, why: "store-refused" });
+    expect(cloud.manifest()?.version).toBe(version);
+    // Without the documents, the copy's part is League, and it comes back as on a device.
+    expect(await restore(NO_LEAGUE_DOCS)).toMatchObject({ ok: true, changed: [LEAGUE_PART] });
+
+    const started = await edit(editPool(), cloud.store, { kind: "copy.reset" });
+    if (!started.ok) throw new Error(started.why);
+    const empty = cloud.manifest()?.version;
+    expect(await edit(editPool(), cloud.store, { kind: "copy.reset" })).toMatchObject({
+      ok: false,
+      why: "missing",
+    });
+    expect(cloud.manifest()?.version).toBe(empty);
+  });
+
+  it("starts again on the copy as it now is when another save lands first, keeping that save", async () => {
+    const cloud = await copyOfPool();
+    const cache = editPool();
+    await cache.ensure(cloud.store);
+    let landed = false;
+    const store: CloudStore = {
+      ...cloud.store,
+      commitManifest: async (expected, next) => {
+        if (!landed) {
+          landed = true;
+          await phoneSaves(cloud, "TN");
+        }
+        return cloud.store.commitManifest(expected, next);
+      },
+    };
+    const done = await edit(cache, store, { kind: "copy.reset" });
+    if (!done.ok || done.inverse.kind !== "copy.restore") throw new Error("not started again");
+    expect(done.tries).toBe(2);
+    // The phone's roster is the one kept, so bringing it back brings back the phone's save too.
+    const group = done.inverse.group;
+    await edit(cache, cloud.store, done.inverse);
+    await cache.drop();
+    await reopen(cloud);
+    expect(group).not.toBe("");
+    expect(loadScoutTeams().find((team) => team.id === "B")?.state).toBe("TN");
+  });
+});
+
 describe("a question about the cloud copy", () => {
   const ask = (cache: EditPool, store: CloudStore, copy?: string) =>
     runQuery({
@@ -543,6 +727,37 @@ describe("the boards after an edit", () => {
       wrote: true,
     });
     expect(live.meta()?.copy).toEqual({ id: done.copy, version: done.version });
+  });
+
+  it("are none once Team Rankings is started again, and back once it is brought back", async () => {
+    const cloud = await copyOfPool();
+    const live = memoryLive();
+    const cache = editPool();
+    const rebuild = () =>
+      runRebuild({
+        copyStore: cloud.store,
+        liveStore: live.store,
+        pool: cache,
+        leagueDocs: NO_LEAGUE_DOCS,
+        today: () => "2026-10-04",
+        now: () => NOW,
+        locale: "en-US",
+      });
+    expect(await rebuild()).toMatchObject({ end: "published" });
+    const boards = Object.keys(live.meta()?.views ?? {}).filter((key) => key.startsWith("board:"));
+    expect(boards.length).toBeGreaterThan(0);
+    const started = await edit(cache, cloud.store, { kind: "copy.reset" });
+    if (!started.ok) throw new Error(started.why);
+    expect(await rebuild()).toMatchObject({ end: "published", version: started.version });
+    expect(Object.keys(live.meta()?.views ?? {}).filter((key) => key.startsWith("board:"))).toEqual(
+      []
+    );
+    const back = await edit(cache, cloud.store, started.inverse);
+    if (!back.ok) throw new Error(back.why);
+    expect(await rebuild()).toMatchObject({ end: "published", version: back.version });
+    expect(Object.keys(live.meta()?.views ?? {}).filter((key) => key.startsWith("board:"))).toEqual(
+      boards
+    );
   });
 });
 

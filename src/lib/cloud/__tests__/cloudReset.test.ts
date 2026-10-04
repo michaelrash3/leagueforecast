@@ -109,6 +109,7 @@ const saveCaughtByReset = async ({
     store: sky.store,
     live: { readMeta: async () => null, getChunk: async () => null },
     league: memoryLeague().store,
+    restore: async () => ({ ok: false, message: "Not asked here." }),
   };
   session.resetCloudSession();
   session.setCloudTestHooks({

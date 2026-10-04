@@ -166,6 +166,7 @@ const QUERY_REFUSALS: Record<QueryRefusal, true> = {
 const EDIT_REFUSALS: Record<EditRefusal, true> = {
   ...ENSURE_REFUSALS,
   "newer-league": true,
+  "league-kept-live": true,
   missing: true,
   refused: true,
   unsaved: true,

@@ -190,7 +190,7 @@ export const EDIT_MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", str
 
 /** What a member is told who asks for what only the copy's owner may do. */
 export const OWNER_ONLY_MESSAGE =
-  "Only the cloud copy's owner can archive or delete a year. Ask them to do it from their own account.";
+  "Only the cloud copy's owner can archive or delete a year, start Team Rankings again or bring back an earlier version. Ask them to do it from their own account.";
 
 /** What a caller turned away is told, by why. */
 export const MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", string> = {

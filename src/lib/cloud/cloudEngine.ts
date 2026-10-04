@@ -143,6 +143,9 @@ export class CommitUnanswered extends Error {
  * - `keepLost`: keep these values of this device's that the copy's will replace here (another
  *   device's later change winning, or this device's data from before it joined the copy);
  * - `restore`: make a kept settlement current again, keeping what it replaces in turn.
+ * - `keepWhole`: keep every `keepReplaced` value in this settlement, one already kept elsewhere
+ *   too, so that bringing this settlement back brings back all it replaced (Team Rankings started
+ *   again on the server, `copyOps.ts`). Otherwise a value already kept is not kept a second time.
  *
  * A value whose fingerprint the copy already holds is named from the pieces it has, never uploaded
  * again. Every upload gets pieces of its own name, recorded through `onUploads` before the first is
@@ -161,6 +164,7 @@ export const commitChanges = async ({
   keepReplaced = [],
   keepLost = [],
   restore,
+  keepWhole = false,
   device,
   now,
   onUploads,
@@ -174,6 +178,7 @@ export const commitChanges = async ({
   keepReplaced?: readonly string[];
   keepLost?: readonly Change[];
   restore?: string;
+  keepWhole?: boolean;
   device: string;
   now: string;
   onUploads?: (chunkIds: string[]) => void;
@@ -223,7 +228,7 @@ export const commitChanges = async ({
     (base?.kept ?? []).some((one) => one.key === part.key && one.hash === part.hash);
   for (const key of keepReplaced) {
     const current = parts.get(key);
-    if (current && !alreadyKept(current)) {
+    if (current && (keepWhole || !alreadyKept(current))) {
       newKept.push({ ...current, group, keptAt: now, why: "replaced" });
     }
   }

@@ -25,6 +25,7 @@ import type { CloudStore } from "./cloudEngine";
 import { firestoreLeague, type LeagueStore } from "../live/leagueStore";
 import type { LiveReader, MetaWatch } from "../live/viewStore";
 import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
+import { restoreOnServer, type RestoreAnswer } from "./serverRestore";
 import {
   coerceMember,
   memberAddress,
@@ -85,6 +86,11 @@ export type FirebaseCloud = {
   live: LiveReader;
   /** League Standings seasons, one document each, as the signed-in member may keep them live. */
   league: LeagueStore;
+  /**
+   * Brings kept version `group` of copy `copy` back, by asking the server (`serverRestore.ts`):
+   * the copy's owner's to do.
+   */
+  restore: (group: string, copy: string) => Promise<RestoreAnswer>;
 };
 
 export type CloudMembers = {
@@ -269,5 +275,9 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     store: firestoreStore(db),
     live: { ...firestoreLive(db), watchMeta: watchLiveMeta(fullFirestoreOf(app)) },
     league: firestoreLeague(fullFirestoreOf(app)),
+    restore: (group, copy) =>
+      restoreOnServer(group, copy, {
+        token: async () => (auth.currentUser ? auth.currentUser.getIdToken() : null),
+      }),
   };
 };

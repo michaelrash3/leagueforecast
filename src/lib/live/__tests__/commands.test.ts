@@ -1534,3 +1534,35 @@ describe("a year archived or deleted, the copy's owner's alone", () => {
     }
   });
 });
+
+describe("Team Rankings started again or brought back, the copy's owner's alone", () => {
+  const RESET: PoolCommand = { kind: "copy.reset" };
+  const RESTORE: PoolCommand = { kind: "copy.restore", group: "0123456789abcdef0123456789abcdef" };
+
+  it("is read exactly as sent, on its own, and is the owner's", () => {
+    expect(coerceCommand(JSON.parse(JSON.stringify(RESET)))).toEqual(RESET);
+    expect(coerceCommand(RESTORE)).toEqual(RESTORE);
+    expect([RESET, RESTORE].map(isOwnerCommand)).toEqual([true, true]);
+  });
+
+  it("is refused in a batch, or for a version no manifest could name", () => {
+    for (const raw of [
+      { kind: "batch", commands: [RESET] },
+      { kind: "batch", commands: [RESTORE] },
+      { kind: "copy.restore" },
+      { kind: "copy.restore", group: "" },
+      { kind: "copy.restore", group: 7 },
+      { kind: "copy.restore", group: "a/b" },
+      { kind: "copy.restore", group: "x".repeat(65) },
+      { ...RESET, group: RESTORE.group },
+    ])
+      expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
+  });
+
+  it("is never a pool's step: only the server runs it, on the copy itself", () => {
+    const pool = memory(POOL());
+    for (const command of [RESET, RESTORE]) {
+      expect(applyCommand(pool.read, command)).toEqual({ ok: false, why: "refused" });
+    }
+  });
+});
