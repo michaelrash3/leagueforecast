@@ -236,6 +236,20 @@ describe("a lopsided score vouched for", () => {
   });
 });
 
+describe("a page whose year is in its name alone", () => {
+  it("vouches for a lopsided score there, in the year storage filed it under", async () => {
+    const user = userEvent.setup();
+    // A page from before pages stored their year: storage reads 2027 off its name.
+    const { year: _year, ...named } = thisYear;
+    renderTeamRankings(pool({ ageGroups: [lastYear, named], search: "?age=10&year=2027" }));
+    await user.click(screen.getByRole("tab", { name: "Setup" }));
+    await user.click(await screen.findByRole("button", { name: "Check the pool" }));
+    const list = (await screen.findByText(/^Won by more than \d+ runs$/)).closest("div")!;
+    await user.click(within(list).getByRole("button", { name: /It.s real/ }));
+    await waitFor(() => expect(stored("lopsided")?.scoreConfirmed).toBe(34));
+  });
+});
+
 describe("games added and taken away", () => {
   const leagueOnPage = (): Partial<Pool> => ({
     league: {

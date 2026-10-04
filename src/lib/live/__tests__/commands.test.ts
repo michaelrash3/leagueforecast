@@ -312,6 +312,19 @@ describe("a command's change", () => {
     expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "B"]);
   });
 
+  it("reads an old page's year off its name, as storage files its games", () => {
+    const parts = POOL();
+    // A page from before pages stored their year: its games are filed under the year its name says.
+    parts.groups.push({ id: "ag_named", name: "11U 2027", seasonIds: [] });
+    parts.games.set(2027, [
+      ...(parts.games.get(2027) ?? []),
+      { ...played("named", "C", "A", 3, 2), ageGroupId: "ag_named" },
+    ]);
+    const pool = memory(parts);
+    pool.run({ kind: "club.leavePage", ageGroupId: "ag_named", teamId: "C" });
+    expect(pool.parts.games.get(2027)?.map((one) => one.id)).toEqual(["g1", "g2"]);
+  });
+
   it("takes a club off one page alone, leaving its games on another page of the same year", () => {
     const parts = POOL();
     parts.groups.push({

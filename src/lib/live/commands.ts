@@ -2,6 +2,7 @@ import { ratedMargin, withScoreTyped } from "../teamRankings/games";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings/types";
 import { filedTeamIds, unlinkGcTeam } from "../teamRankings";
 import { normalizeState } from "../teamRankings/names";
+import { ageGroupYear } from "../teamRankings/seasons";
 import { coerceScoutGames, coerceScoutTeams } from "../teamRankingsCompact";
 import { coerceAgeGroups } from "../teamRankingsStorage";
 
@@ -440,7 +441,8 @@ export const applyCommand = (read: PoolRead, command: PoolCommand): CommandResul
       const groups = read.groups();
       const group = groups.find((entry) => entry.id === command.ageGroupId);
       if (!group) return { ok: false, why: "missing" };
-      const year = group.year ?? null;
+      // Where storage files the page's games: an old page's year is read off its name.
+      const year = ageGroupYear(group) ?? null;
       const here = new Set(
         read
           .games(year)

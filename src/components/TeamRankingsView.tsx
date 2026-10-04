@@ -1561,7 +1561,7 @@ export function TeamRankingsView({
     const game = wholePoolGames.find((entry) => entry.id === gameId);
     if (!game) return false;
     // The game's own year alone: the rest of the pool is as it was.
-    const year = ageGroups.find((group) => group.id === game.ageGroupId)?.year ?? null;
+    const year = ageGroupYear(ageGroups.find((group) => group.id === game.ageGroupId)) ?? null;
     if (!runCommand({ kind: "game.confirm", year, gameId }).ok) return false;
     const nameOf = (id: string) => allKnown.teams.find((team) => team.id === id)?.name ?? id;
     showToast(
