@@ -92,6 +92,7 @@ import { buildShareUrl } from "./lib/share";
 import { formatProbabilityMargin, wilsonScoreInterval } from "./lib/probability";
 import {
   finalToggled,
+  withFinal,
   nameFrom,
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
   type RecapPool,
@@ -1617,7 +1618,10 @@ export default function App() {
       recapPool,
       nameOf
     );
-    setLogs(nextLogs);
+    // The final alone, onto the scores as they are by then, which may hold keystrokes this press
+    // came before (`withFinal`).
+    const isFinal = nextLogs[gameId]?.isFinal === true;
+    setLogs((prev) => withFinal(prev, gameId, isFinal, settings.defaultGameInnings));
     setLastImpact(impact);
   };
 
@@ -1732,7 +1736,11 @@ export default function App() {
       return;
     }
     captureUndo("Filled scores from Team Rankings");
-    setLogs(result.logs);
+    // Filled onto the scores as they are by then, not as this handler saw them.
+    setLogs(
+      (prev) =>
+        applyLeagueScoreFill(plan, matchupIds, prev, settings.defaultGameInnings, otherVersion).logs
+    );
     showToast(summarizeLeagueFill(plan, result.filled), {
       tone: "undo",
       actionLabel: "Undo",

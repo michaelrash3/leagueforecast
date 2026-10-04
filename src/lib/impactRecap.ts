@@ -304,10 +304,28 @@ export const impactOfFinal = (
  * projections per final in development. Production was unaffected — `StrictMode` is inert in a
  * production build — so this is correctness and dev cost rather than a bug anybody saw.
  *
- * `logs` is the whole set as the handler sees it, not a `prev` from an updater. That is safe
- * because one press toggles one game and nothing calls this in a loop; if that ever changes, the
- * updater form has to come back and the recap has to move to an effect.
+ * `logs` is the whole set as the handler sees it, not a `prev` from an updater, and the recap is
+ * worked out from it. The scores themselves must not be: a score's keystrokes are a transition,
+ * so a press can come before they are on screen, and a whole set written from the handler's view
+ * puts back the scores without them. The handler writes the final alone, onto the latest scores,
+ * with `withFinal`, as an updater, and `nextLogs` is only what the recap was read against.
  */
+/**
+ * `logs` with game `gameId` marked final, or not, as `isFinal` says: set, not flipped, so an
+ * updater asked twice gives the same scores, and onto the scores as they are, not as a handler saw
+ * them.
+ */
+export const withFinal = (
+  logs: Record<string, GameLog>,
+  gameId: string,
+  isFinal: boolean,
+  defaultGameInnings: number
+): Record<string, GameLog> => {
+  const current = logs[gameId] || blankLog(String(defaultGameInnings));
+  if (current.isFinal === isFinal && logs[gameId]) return logs;
+  return { ...logs, [gameId]: { ...current, isFinal } };
+};
+
 export const finalToggled = (
   gameId: string,
   logs: Record<string, GameLog>,

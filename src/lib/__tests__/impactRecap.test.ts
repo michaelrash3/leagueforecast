@@ -6,6 +6,7 @@ import {
   impactOfFinal,
   nameFrom,
   summarizeChanges,
+  withFinal,
   type RecapPool,
 } from "../impactRecap";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
@@ -186,5 +187,32 @@ describe("marking a game final", () => {
     const logs: Record<string, GameLog> = { g2: scored("2", "9", true) };
     const { nextLogs } = finalToggled("g1", logs, 6, pool(), nameOf);
     expect(nextLogs.g2).toBe(logs.g2);
+  });
+});
+
+/*
+ * The final as the handler writes it: onto the scores as they are by then, which can hold a score
+ * typed just before the press, and set rather than flipped, so an updater asked twice agrees.
+ */
+describe("writing a final onto the scores as they are", () => {
+  it("keeps a score the handler never saw, and sets the final", () => {
+    // What the handler saw: nothing for g1. What there is by the time it writes: a score.
+    const latest: Record<string, GameLog> = { g1: scored("7", "3", false) };
+    expect(withFinal(latest, "g1", true, 6).g1).toEqual(scored("7", "3", true));
+  });
+
+  it("sets rather than flips, and gives back the same scores when nothing changes", () => {
+    const final: Record<string, GameLog> = { g1: scored("7", "3", true) };
+    expect(withFinal(final, "g1", true, 6)).toBe(final);
+    expect(withFinal(final, "g1", false, 6).g1?.isFinal).toBe(false);
+  });
+
+  it("starts a game with no log from a blank one, and leaves the others alone", () => {
+    const other: Record<string, GameLog> = { g2: scored("2", "9", true) };
+    const next = withFinal(other, "g1", true, 6);
+    expect(next.g1).toEqual({ ...blankLog("6"), isFinal: true });
+    expect(next.g2).toBe(other.g2);
+    // An open game with no log yet is written, though it is open, so the game has a log.
+    expect(withFinal({}, "g1", false, 6).g1).toEqual(blankLog("6"));
   });
 });
