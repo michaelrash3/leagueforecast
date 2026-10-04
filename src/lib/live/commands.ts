@@ -6,6 +6,7 @@ import { ageGroupYear, seasonAtAge, type AgeGroupSeason } from "../teamRankings/
 import { coerceScoutGames, coerceScoutTeams } from "../teamRankingsCompact";
 import { coerceAgeGroups } from "../teamRankingsStorage";
 import { isUploadId } from "../cloud/uploadId";
+import { coerceNamedGames, type NamedGame } from "../teamRankings/namedGames";
 import { setClubAge, type ClubAgeState } from "../clubAge";
 import { rowsOfGames, scoringRowsOf } from "../deletedGames";
 import {
@@ -96,6 +97,13 @@ export type PoolCommand =
    * them, minted by whoever added them.
    */
   | { kind: "game.add"; year: number | null; games: ScoutGame[]; adopt: ScoutTeam[] }
+  /**
+   * Games added to page `page` of year `year` by their clubs' names (`NamedGame`), as the live page
+   * sends a game typed in or a schedule pasted: it holds no roster to resolve them against, so the
+   * server does, against the year's clubs and League Standings' with them, as the device's Games
+   * tab resolves them, and runs the `game.add` that makes (`namedAdd.ts`). The server's to run.
+   */
+  | { kind: "game.import"; year: number | null; page: string; games: NamedGame[] }
   /** Games taken out of year `year`'s. */
   | { kind: "game.remove"; year: number | null; gameIds: string[] }
   /** Games put back into year `year`'s at their places: the inverse of `game.remove`. */
@@ -821,6 +829,7 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
     case "copy.reset":
     case "copy.restore":
     case "backup.restore":
+    case "game.import":
       return { ok: false, why: "refused" };
     case "batch":
       return applySteps(
@@ -1465,6 +1474,14 @@ export const OWNER_COMMANDS: ReadonlySet<PoolCommand["kind"]> = new Set([
 
 export const isOwnerCommand = (command: PoolCommand): boolean => OWNER_COMMANDS.has(command.kind);
 
+/**
+ * The commands only the server runs, with League Standings' seasons in reach: the owner's, and a
+ * member's games added by name (`game.import`), which are resolved against the clubs the boards
+ * know before they are added.
+ */
+export const isServerCommand = (command: PoolCommand): boolean =>
+  isOwnerCommand(command) || command.kind === "game.import";
+
 /** The owner's commands made on the copy's manifest rather than on a pool (`copyOps.ts`). */
 export const isCopyCommand = (
   command: PoolCommand
@@ -1801,6 +1818,13 @@ const readCommand = (raw: unknown, depth: number): PoolCommand | null => {
       return depth === 0 && isUploadId(raw.upload)
         ? { kind: "backup.restore", upload: raw.upload }
         : null;
+    case "game.import": {
+      const year = yearOf(raw.year);
+      const games = coerceNamedGames(raw.games);
+      return depth === 0 && year !== undefined && isString(raw.page) && games
+        ? { kind: "game.import", year, page: raw.page, games }
+        : null;
+    }
     default:
       return null;
   }

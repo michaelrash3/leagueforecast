@@ -8,14 +8,21 @@ import {
 } from "../cloud/cloudEngine";
 import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
-import { readCloudPoolValue } from "../teamRankingsStorage";
-import { isCopyCommand, isOwnerCommand, type PoolCommand } from "./commands";
+import {
+  loadAgeGroups,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+  readCloudPoolValue,
+} from "../teamRankingsStorage";
+import { ageGroupYear } from "../teamRankings/seasons";
+import { isCopyCommand, isServerCommand, type PoolCommand } from "./commands";
 import { keptBy, planCopyCommand, poolKeysOf } from "./copyOps";
 import { runBackupRestore } from "./backupRestore";
 import { NO_UPLOADS, type UploadReader, type UploadStore } from "../cloud/uploads";
 import type { EditPool, PoolEnsure } from "./poolCache";
 import { asksLeague, answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
-import type { SeasonReader } from "./allKnown";
+import { deriveAllKnown, type SeasonReader } from "./allKnown";
+import { addOfNamed } from "./namedAdd";
 import { readCloudLeague, type CloudLeague, type LeagueDocsList } from "./cloudLeague";
 import { seasonReaderOf } from "./publishCopy";
 import { EDIT_DEVICE } from "./rebuildPlan";
@@ -146,8 +153,8 @@ export const runEdit = async ({
       leagueDocs,
       written: pool.written,
       now,
-      runOwner: () =>
-        runOwnerCommand(command, {
+      runServer: () =>
+        runServerCommand(command, {
           seasons: () => leagueOf(store, ensured.manifest, leagueDocs),
           uploads,
         }),
@@ -233,7 +240,7 @@ const saveOf = async ({
   leagueDocs,
   written,
   now,
-  runOwner,
+  runServer,
 }: {
   command: PoolCommand;
   manifest: CloudManifest;
@@ -241,7 +248,7 @@ const saveOf = async ({
   /** The keys the command wrote to the process's store (`EditPool.written`). */
   written: () => ReadonlySet<string>;
   now: () => string;
-  runOwner: () => ReturnType<typeof runOwnerCommand>;
+  runServer: () => ReturnType<typeof runServerCommand>;
 }): Promise<Saving> => {
   if (isCopyCommand(command)) {
     let planned: Awaited<ReturnType<typeof planCopyCommand>>;
@@ -267,7 +274,7 @@ const saveOf = async ({
       },
     };
   }
-  const run = isOwnerCommand(command) ? await runOwner() : runPoolCommand(command);
+  const run = isServerCommand(command) ? await runServer() : runPoolCommand(command);
   if (!run.ok) return run;
   const changes = await changesOf(written(), Date.parse(now()));
   // A restore keeps Team Rankings whole as it stood, as a start of it does, so bringing that
@@ -284,11 +291,14 @@ const saveOf = async ({
 };
 
 /**
- * An owner's command run on the process's store (`yearOps.ts`): a year's archive with League
- * Standings' seasons as the boards are built with them (`seasons`, read only for it), or a year's
- * delete. What it wrote is what the edit commits, as a pool command's is.
+ * A command only the server runs, on the process's store: the owner's (`yearOps.ts`,
+ * `backupRestore.ts`), a year's archive among them made with League Standings' seasons as the
+ * boards are built with them (`seasons`, read only); and games added by their clubs' names
+ * (`game.import`), resolved against the year's clubs as the page knows them, League Standings'
+ * among them, and added as the device's Games tab adds them (`namedAdd.ts`). What it wrote is what
+ * the edit commits, as a pool command's is.
  */
-const runOwnerCommand = async (
+const runServerCommand = async (
   command: PoolCommand,
   {
     seasons,
@@ -303,11 +313,35 @@ const runOwnerCommand = async (
     const done = await runYearDelete(command.year);
     return done.ok ? { ok: true, inverse: NOT_TAKEN_BACK } : done;
   }
-  if (command.kind !== "year.archive") return { ok: false, why: "refused" };
+  if (command.kind !== "year.archive" && command.kind !== "game.import") {
+    return { ok: false, why: "refused" };
+  }
   const read = await seasons();
   if (typeof read === "string") {
     // Only the copy's own refusals, and a season a newer build saved, come of reading seasons.
     return { ok: false, why: read === "day-spent" || read === "month-spent" ? "refused" : read };
+  }
+  if (command.kind === "game.import") {
+    const ageGroups = loadAgeGroups();
+    const page = ageGroups.find((group) => group.id === command.page);
+    if (!page) return { ok: false, why: "missing" };
+    const roster = loadScoutTeams();
+    const known = deriveAllKnown({
+      ageGroups,
+      teams: roster,
+      yearGames: loadScoutGamesForYear(ageGroupYear(page)),
+      readSeason: read,
+    });
+    const run = runPoolCommand(
+      addOfNamed({
+        year: command.year,
+        page: page.id,
+        named: command.games,
+        known: known.teams,
+        roster,
+      })
+    );
+    return run.ok ? { ok: true, inverse: run.inverse } : run;
   }
   const done = await runYearArchive(command.year, read, command.at);
   return done.ok ? { ok: true, inverse: NOT_TAKEN_BACK } : done;

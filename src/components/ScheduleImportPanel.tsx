@@ -1,30 +1,38 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { teamNameKey, type ScoutTeam } from "../lib/teamRankings";
 import {
-  findDuplicateGame,
-  findSimilarTeam,
-  isPlaceholderName,
-  resolveOrCreateTeam,
-  teamNameKey,
-  type ScoutGame,
-  type ScoutTeam,
-} from "../lib/teamRankings";
+  NAMED_GAMES_MAX,
+  type NamedCheck,
+  type NamedGame,
+  type NameNote as Note,
+} from "../lib/teamRankings/namedGames";
 import { parseScheduleText, type ParsedGameRow } from "../lib/scheduleText";
 import { TeamNameCombobox } from "./TeamNameCombobox";
 import type { ToastTone } from "../hooks/useToast";
 import { button, card, pill } from "../styles/tokens";
 
+/**
+ * How the rows are checked against the roster and the age group's games (`checkNamedGames`): here,
+ * against the roster this device holds, as they are typed; or asked of the server, which holds the
+ * cloud's (1.6), a row at a time as it changes, the answer null where none came.
+ */
+export type NamedChecker =
+  | { kind: "here"; check: (named: readonly NamedGame[]) => NamedCheck[] }
+  | {
+      kind: "asked";
+      check: (named: readonly NamedGame[]) => Promise<readonly NamedCheck[] | null>;
+    };
+
 type ScheduleImportPanelProps = {
-  ageGroupId: string;
   ageGroupName: string;
-  /** The full roster, so an opponent already known resolves to the same team. */
-  teams: ScoutTeam[];
   /** The teams this age group already knows — what the subject-name dropdown offers. */
   suggestedTeams: ScoutTeam[];
-  /** Everything already in this age group — manual and league-derived — for duplicate checks. */
-  existingGames: ScoutGame[];
+  /** Which names are worth a second look, and which rows the age group already has. */
+  checker: NamedChecker;
   /** Pre-fills whose schedule this is, when rows name only the opponent; the "my team" name. */
   defaultSubjectTeam: string;
-  onImport: (teams: ScoutTeam[], games: ScoutGame[]) => void;
+  /** The rows to add, by their clubs' names, which whoever adds them resolves to clubs. */
+  onImport: (games: NamedGame[]) => void;
   onClose: () => void;
   showToast: (message: string, options?: { tone?: ToastTone }) => void;
 };
@@ -56,12 +64,6 @@ const SAMPLE_PASTE = `Date,Opponent,Us,Them
 const inputClass =
   "rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm dark:border-slate-800 dark:bg-slate-900";
 
-/** Fills in a team's state from an imported file, leaving an existing one alone. */
-const applyState = (teams: ScoutTeam[], teamId: string, state: string | undefined): ScoutTeam[] => {
-  if (!state) return teams;
-  return teams.map((team) => (team.id === teamId && !team.state ? { ...team, state } : team));
-};
-
 const isValidScorePair = (a: string, b: string) => {
   const bothBlank = a.trim() === "" && b.trim() === "";
   if (bothBlank) return true;
@@ -76,13 +78,7 @@ const isValidScorePair = (a: string, b: string) => {
  * this age group probably already has under a slightly different spelling. The suggestion is a
  * button rather than an automatic correction, because two real teams can be one character apart.
  */
-function NameNote({
-  note,
-  onUse,
-}: {
-  note: { kind: "placeholder" } | { kind: "similar"; to: string } | null;
-  onUse: (name: string) => void;
-}) {
+function NameNote({ note, onUse }: { note: Note | undefined; onUse: (name: string) => void }) {
   if (!note) return null;
   if (note.kind === "placeholder") {
     return (
@@ -106,20 +102,35 @@ function NameNote({
   );
 }
 
+/** How long a row stays as typed before the server is asked about it. */
+const ASK_AFTER_MS = 400;
+
+/** Only a row naming both sides is asked about: one still waiting on a name is not a game yet. */
+const askable = (game: NamedGame): boolean => game.teamA.trim() !== "" && game.teamB.trim() !== "";
+
+/** What a row's check is found by: what the check reads of it, and nothing it does not. */
+const checkKeyOf = (game: NamedGame): string =>
+  JSON.stringify([
+    game.teamA,
+    game.teamB,
+    game.teamAScore ?? null,
+    game.teamBScore ?? null,
+    game.date ?? "",
+  ]);
+
 /**
  * Import games in bulk from pasted text or a CSV, then review every row before anything is saved.
  * The review step is the point: a wrong score would quietly skew the ratings, so nothing is
  * committed until it has been looked at, and anything matching a game already in this age group
  * arrives unchecked.
  *
- * Everything happens on the device — no key, no network call, nothing to run out.
+ * The reading happens on the device — no key, nothing to run out. The checks of each row are made
+ * here against the roster the device holds, or asked of the server where the cloud holds it.
  */
 export function ScheduleImportPanel({
-  ageGroupId,
   ageGroupName,
-  teams,
   suggestedTeams,
-  existingGames,
+  checker,
   defaultSubjectTeam,
   onImport,
   onClose,
@@ -134,59 +145,97 @@ export function ScheduleImportPanel({
 
   const subjectOptions = useMemo(() => suggestedTeams.map((team) => team.name), [suggestedTeams]);
 
-  const idByName = useMemo(() => {
-    const map = new Map<string, string>();
-    teams.forEach((team) => map.set(teamNameKey(team.name), team.id));
-    return map;
-  }, [teams]);
-
   /** A row's home-side name: its own, or the subject when the source only named an opponent. */
   const nameA = (row: ReviewRow) => row.teamA ?? subjectTeam;
 
-  /**
-   * What is worth a second look about a name before it becomes a team. A placeholder would create
-   * a team that collects games belonging to whoever actually turns up; a near-match is usually the
-   * same club spelled two ways, and left alone it splits one team's record in half.
-   *
-   * Both are shown, never applied: "South Lexington Red" and "South Lexington Blue" are four
-   * characters apart and are two different teams.
+  /** Each row as the games it names: a score only where both halves are whole runs. */
+  const named = useMemo(
+    () =>
+      rows.map((row): NamedGame => {
+        const played =
+          row.scoreA.trim() !== "" &&
+          row.scoreB.trim() !== "" &&
+          isValidScorePair(row.scoreA, row.scoreB);
+        return {
+          id: row.key,
+          teamA: row.teamA ?? subjectTeam,
+          teamB: row.teamB,
+          ...(row.stateA ? { stateA: row.stateA } : {}),
+          ...(row.stateB ? { stateB: row.stateB } : {}),
+          ...(played ? { teamAScore: Number(row.scoreA), teamBScore: Number(row.scoreB) } : {}),
+          ...(row.date ? { date: row.date } : {}),
+        };
+      }),
+    [rows, subjectTeam]
+  );
+
+  /*
+   * Each row's check, by what it reads of the row (`checkKeyOf`), so a box ticked or a row
+   * unchanged is not asked about again. Made here as the rows change, or asked of the server for
+   * the rows it has not answered, once they have stood as typed a moment.
    */
-  const nameNote = (
-    value: string
-  ): { kind: "placeholder" } | { kind: "similar"; to: string } | null => {
-    const name = value.trim();
-    if (!name) return null;
-    if (isPlaceholderName(name)) return { kind: "placeholder" };
-    const close = findSimilarTeam(name, teams);
-    return close ? { kind: "similar", to: close.name } : null;
+  const here = checker.kind === "here" ? checker.check : null;
+  const checkedHere = useMemo(() => {
+    if (!here) return null;
+    const checks = here(named);
+    return new Map(named.map((game, index) => [checkKeyOf(game), checks[index]]));
+  }, [here, named]);
+  const [answered, setAnswered] = useState<ReadonlyMap<string, NamedCheck>>(() => new Map());
+  const [unanswered, setUnanswered] = useState(false);
+  const [askAgain, setAskAgain] = useState(0);
+  const ask = checker.kind === "asked" ? checker.check : null;
+  useEffect(() => {
+    if (!ask || unanswered) return;
+    // As many as one question takes; the rest are asked once these are answered.
+    const waiting = named
+      .filter((game) => askable(game) && !answered.has(checkKeyOf(game)))
+      .slice(0, NAMED_GAMES_MAX);
+    if (waiting.length === 0) return;
+    let current = true;
+    const timer = setTimeout(() => {
+      void ask(waiting).then((checks) => {
+        if (!current) return;
+        if (!checks || checks.length !== waiting.length) {
+          setUnanswered(true);
+          return;
+        }
+        setUnanswered(false);
+        setAnswered((was) => {
+          const next = new Map(was);
+          waiting.forEach((game, index) => {
+            const check = checks[index];
+            if (check) next.set(checkKeyOf(game), check);
+          });
+          return next;
+        });
+      });
+    }, ASK_AFTER_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [ask, named, answered, unanswered, askAgain]);
+  const checkOf = (index: number): NamedCheck | undefined => {
+    const game = named[index];
+    if (!game) return undefined;
+    return (checkedHere ?? answered).get(checkKeyOf(game));
   };
+  /** Rows the server has not yet answered for: nothing is added until it has. */
+  const checking =
+    !checkedHere && named.some((game) => askable(game) && !answered.has(checkKeyOf(game)));
+
   /** True while any row is still waiting on the subject field to know who it played. */
   const needsSubject = rows.some((row) => row.teamA === null);
 
   /**
-   * Which rows already exist here. A brand-new team can't be part of a duplicate, so this only has
-   * to consider rows where both names already resolve to known teams.
+   * Which rows already exist here. A brand-new team can't be part of a duplicate, and nor can a row
+   * whose score is half typed, so those are never flagged.
    */
-  const duplicateKeys = useMemo(() => {
-    const flagged = new Set<string>();
-    rows.forEach((row) => {
-      const idA = idByName.get(teamNameKey(row.teamA ?? subjectTeam));
-      const idB = idByName.get(teamNameKey(row.teamB));
-      if (!idA || !idB || idA === idB) return;
-      if (!isValidScorePair(row.scoreA, row.scoreB)) return;
-      const played = row.scoreA.trim() !== "" && row.scoreB.trim() !== "";
-      const candidate: ScoutGame = {
-        id: `preview_${row.key}`,
-        teamAId: idA,
-        teamBId: idB,
-        ageGroupId,
-        ...(played ? { teamAScore: Number(row.scoreA), teamBScore: Number(row.scoreB) } : {}),
-        ...(row.date ? { date: row.date } : {}),
-      };
-      if (findDuplicateGame(candidate, existingGames)) flagged.add(row.key);
-    });
-    return flagged;
-  }, [rows, subjectTeam, idByName, ageGroupId, existingGames]);
+  const duplicateKeys = new Set(
+    rows.flatMap((row, index) =>
+      isValidScorePair(row.scoreA, row.scoreB) && checkOf(index)?.logged ? [row.key] : []
+    )
+  );
 
   const applyGames = (games: ParsedGameRow[], readSubject?: string) => {
     if (readSubject && !defaultSubjectTeam) setSubjectTeam(readSubject);
@@ -264,31 +313,20 @@ export function ScheduleImportPanel({
       showToast("Nothing selected to add.", { tone: "error" });
       return;
     }
+    if (checking) {
+      showToast("Still checking these games against the cloud's — a moment.", { tone: "error" });
+      return;
+    }
 
-    let pool = teams;
-    const games: ScoutGame[] = [];
-    includedRows.forEach((row, index) => {
-      const a = resolveOrCreateTeam(nameA(row), pool);
-      pool = a.teams;
-      const b = resolveOrCreateTeam(row.teamB, pool);
-      pool = b.teams;
-
-      // A state named in the file fills one in, but never overwrites one already set: what you
-      // typed on the team is more trustworthy than a column in someone else's export.
-      pool = applyState(pool, a.teamId, row.stateA);
-      pool = applyState(pool, b.teamId, row.stateB);
-      const played = row.scoreA.trim() !== "" && row.scoreB.trim() !== "";
-      games.push({
-        id: `scout_${Date.now()}_${index}_${Math.floor(Math.random() * 1000)}`,
-        teamAId: a.teamId,
-        teamBId: b.teamId,
-        ageGroupId,
-        ...(played ? { teamAScore: Number(row.scoreA), teamBScore: Number(row.scoreB) } : {}),
-        ...(row.date ? { date: row.date } : {}),
-      });
-    });
-
-    onImport(pool, games);
+    const included = new Set(includedRows.map((row) => row.key));
+    onImport(
+      named
+        .filter((game) => included.has(game.id))
+        .map((game, index) => ({
+          ...game,
+          id: `scout_${Date.now()}_${index}_${Math.floor(Math.random() * 1000)}`,
+        }))
+    );
   };
 
   return (
@@ -405,8 +443,9 @@ export function ScheduleImportPanel({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
+                {rows.map((row, index) => {
                   const duplicate = duplicateKeys.has(row.key);
+                  const notes = checkOf(index)?.notes;
                   const invalid = row.include && !duplicate && isBadRow(row);
                   return (
                     <tr
@@ -448,7 +487,7 @@ export function ScheduleImportPanel({
                             className={`${inputClass} w-44`}
                           />
                           <NameNote
-                            note={nameNote(nameA(row))}
+                            note={notes?.[0]}
                             onUse={(name) => updateRow(row.key, { teamA: name })}
                           />
                         </span>
@@ -483,7 +522,7 @@ export function ScheduleImportPanel({
                             )}
                           </span>
                           <NameNote
-                            note={nameNote(row.teamB)}
+                            note={notes?.[1]}
                             onUse={(name) => updateRow(row.key, { teamB: name })}
                           />
                         </span>
@@ -521,6 +560,31 @@ export function ScheduleImportPanel({
             {duplicateKeys.size > 0 &&
               ` ${duplicateKeys.size} row${duplicateKeys.size === 1 ? " is" : "s are"} already in this age group and won't be added again.`}
           </p>
+
+          {checking && (
+            <p
+              className="mt-2 text-xs font-semibold text-slate-500 dark:text-slate-400"
+              role="status"
+            >
+              {unanswered ? (
+                <>
+                  These games could not be checked against the cloud&apos;s.{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUnanswered(false);
+                      setAskAgain((times) => times + 1);
+                    }}
+                    className="underline"
+                  >
+                    Check again
+                  </button>
+                </>
+              ) : (
+                "Checking these games against the cloud's…"
+              )}
+            </p>
+          )}
 
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={commit} className={button.primary}>

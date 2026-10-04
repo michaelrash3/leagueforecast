@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { EMPTY_ADD_GAME_DRAFT, GamesSection } from "./GamesSection";
+import type { NamedChecker } from "../ScheduleImportPanel";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { useLiveView } from "../../hooks/useLiveView";
@@ -19,7 +20,9 @@ import {
   typedScores,
   type AgeGroup,
   type ScoutGame,
+  type ScoutTeam,
 } from "../../lib/teamRankings";
+import { namedOfDraft, type NamedGame } from "../../lib/teamRankings/namedGames";
 import { gamesWindowFor } from "../../lib/teamRankings/gamesWindow";
 import { card } from "../../styles/tokens";
 
@@ -43,10 +46,12 @@ export const forgetDecodedGames = (): void => {
 };
 
 const NOTHING_KEPT: ReadonlySet<string> = new Set();
-const NO_TEAMS: [] = [];
 const NO_GAMES: readonly ScoutGame[] = [];
 const NO_IDS: ReadonlyMap<string, string> = new Map();
-const nothing = () => undefined;
+
+/** A game's id as the device's Games tab mints one: the server adds it under this. */
+const mintGameId = (at: number, index = 0): string =>
+  `scout_${at}_${index}_${Math.floor(Math.random() * 1000)}`;
 
 /** Said when the server finds no game the list showed as it was shown. */
 export const GAME_MOVED = "That game is no longer as this list shows it, so nothing was changed.";
@@ -65,8 +70,13 @@ const withIds = (games: ScoutGame[], ids: ReadonlyMap<string, string>): readonly
  * the same checks as a board (`useLiveView`), drawn by Team Rankings' own tab (`GamesSection`).
  * Which games it lists first, today's, it works out on the reader's own day, as the page does
  * (`gamesWindowFor`). A list that cannot be read hands the page to Team Rankings on this device's
- * copy (`onCannot`), as the tab did before there were lists, and so does asking to add a game
- * (`onEditWanted`).
+ * copy (`onCannot`), as the tab did before there were lists.
+ *
+ * A game typed in, or a schedule pasted, is added by the server (1.6): this device holds no roster
+ * to resolve the names against, so it sends them as they were typed (`game.import`), and the server
+ * resolves them against the cloud's, as the device's tab resolves them against its own. What a name
+ * is worth a second look for, and which games the page already has, are asked of the server first
+ * (`games.check`), the form's one game before it is added, the pasted rows as they are reviewed.
  *
  * Each game's own buttons are the device's (1.5): a score typed, a game kept out of the maths or
  * put back, a game removed (asked first, with an Undo), each sent to the edit function as the edit
@@ -88,7 +98,9 @@ export default function LiveGames({
   edits,
   confirm,
   onCannot,
-  onEditWanted,
+  suggestedTeams,
+  myTeamName,
+  onGoToImport,
 }: {
   source: LiveViewSource;
   year: number | undefined;
@@ -100,7 +112,11 @@ export default function LiveGames({
   edits: LiveEdits;
   confirm: Confirmation["request"];
   onCannot: () => void;
-  onEditWanted: () => void;
+  /** The page's clubs, as its board lists them: the names the form and the import offer. */
+  suggestedTeams: ScoutTeam[];
+  myTeamName: string;
+  /** Takes the reader to the Import section, where GameChanger is pulled. */
+  onGoToImport: () => void;
 }) {
   const { view, failed } = useLiveView(source, gamesKey(year, pageId), coerceGames, decodedGames);
   useEffect(() => {
@@ -148,6 +164,18 @@ export default function LiveGames({
   const editingGameId = editing && editing.of === view ? editing.id : null;
   const [scoreA, setScoreA] = useState("");
   const [scoreB, setScoreB] = useState("");
+  const [draft, setDraft] = useState(EMPTY_ADD_GAME_DRAFT);
+  const [importOpen, setImportOpen] = useState(false);
+  const teamNameOptions = useMemo(() => suggestedTeams.map((team) => team.name), [suggestedTeams]);
+  /** The pasted rows' checks, asked of the server, which holds the roster they are checked against. */
+  const checker = useMemo<NamedChecker>(
+    () => ({
+      kind: "asked",
+      check: async (named) =>
+        (await ask({ kind: "games.check", page: pageId, games: [...named] }))?.checks ?? null,
+    }),
+    [ask, pageId]
+  );
   const startEditScore = (gameId: string) => {
     setEditing({ of: view, id: gameId });
     setScoreA("");
@@ -214,6 +242,49 @@ export default function LiveGames({
       { done: excluded ? "Game no longer counts." : "Game counts again." }
     );
   };
+  /**
+   * The form's game, added by the server once it has said whether the page has it already, which
+   * is asked first as the device's form asks it (`findDuplicateGame`).
+   */
+  const addGame = async () => {
+    const named = namedOfDraft(draft, mintGameId(Date.now()));
+    if (!named) {
+      say("Enter both team names, and either both scores or neither.");
+      return;
+    }
+    const answer = await ask({ kind: "games.check", page: pageId, games: [named] });
+    if (!answer) return;
+    const [check] = answer.checks ?? [];
+    if (!check) {
+      say("That page is no longer in the cloud's Team Rankings, so nothing was added.");
+      return;
+    }
+    const played = named.teamAScore !== undefined;
+    if (check.logged) {
+      const scoreLine = played
+        ? `${named.teamA} ${named.teamAScore} – ${named.teamB} ${named.teamBScore}`
+        : `${named.teamA} vs ${named.teamB} (scheduled, no score yet)`;
+      const confirmed = await confirm({
+        title: "Already logged?",
+        message: `${scoreLine}${named.date ? ` on ${named.date}` : ""} is already in this age group with the same date and score.\n\nAdding it again counts it twice in the rankings.`,
+        confirmLabel: "Add anyway",
+      });
+      if (!confirmed) return;
+    }
+    const made = await edit(
+      { kind: "game.import", year: squadYear, page: pageId, games: [named] },
+      { done: played ? "Game added." : "Added to schedule." }
+    );
+    if (made) setDraft(EMPTY_ADD_GAME_DRAFT);
+  };
+  /** A reviewed schedule's rows, added by the server as one change, with an Undo for the lot. */
+  const importGames = async (named: NamedGame[]) => {
+    const made = await edit(
+      { kind: "game.import", year: squadYear, page: pageId, games: named },
+      { done: `Added ${named.length} game${named.length === 1 ? "" : "s"}.`, undo: true }
+    );
+    if (made) setImportOpen(false);
+  };
   const removeGame = async (game: ScoutGame) => {
     const teamA = names.get(game.teamAId) ?? "?";
     const teamB = names.get(game.teamBId) ?? "?";
@@ -238,21 +309,20 @@ export default function LiveGames({
       groupName={groupName}
       ageGroupId={pageId}
       hasAgeGroups
-      draft={EMPTY_ADD_GAME_DRAFT}
-      onDraftChange={nothing}
-      teamNameOptions={NO_TEAMS}
-      myTeamName=""
-      addGameValid={false}
-      onAddGame={nothing}
-      onGoToImport={onEditWanted}
-      importOpen={false}
-      onOpenImport={nothing}
-      onCloseImport={nothing}
-      allTeams={NO_TEAMS}
-      suggestedTeams={NO_TEAMS}
-      existingGames={NO_TEAMS}
-      onImportGames={nothing}
-      showToast={nothing}
+      draft={draft}
+      onDraftChange={(patch) => setDraft((was) => ({ ...was, ...patch }))}
+      teamNameOptions={teamNameOptions}
+      myTeamName={myTeamName}
+      addGameValid={namedOfDraft(draft, "check") !== null}
+      onAddGame={() => void addGame()}
+      onGoToImport={onGoToImport}
+      importOpen={importOpen}
+      onOpenImport={() => setImportOpen(true)}
+      onCloseImport={() => setImportOpen(false)}
+      suggestedTeams={suggestedTeams}
+      checker={checker}
+      onImportGames={(named) => void importGames(named)}
+      showToast={(message) => say(message)}
       loggedGames={shownGames}
       gamesWindow={gamesWindow}
       keep={NOTHING_KEPT}
@@ -266,8 +336,6 @@ export default function LiveGames({
       onSaveScore={(gameId) => void saveScore(gameId)}
       onToggleExcluded={(game) => void toggleExcluded(game)}
       onRemoveGame={(game) => void removeGame(game)}
-      readOnly
-      onEditWanted={onEditWanted}
     />
   );
 }

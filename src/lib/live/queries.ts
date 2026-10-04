@@ -33,6 +33,12 @@ import {
   storedGamesByYear,
 } from "../teamRankingsStorage";
 import { loggedGamesOn } from "../teamRankings/gamesWindow";
+import {
+  checkNamedGames,
+  coerceNamedGames,
+  type NamedCheck,
+  type NamedGame,
+} from "../teamRankings/namedGames";
 import { planClubAges, type AgeAsked } from "./agePlan";
 import { deriveAllKnown, gamesOnPages, type SeasonReader } from "./allKnown";
 import {
@@ -110,6 +116,13 @@ export type PoolQuery =
    * asked before the Games tab edits one, of the page's games in `year` (null: no year).
    */
   | { kind: "games.find"; year: number | null; page: string; at: number; game: GameSeen }
+  /**
+   * What the Games tab says of games typed in or pasted before they are added by name
+   * (`game.import`): which names are worth a second look, and which games page `page` already has,
+   * against the year's clubs and games as the page knows them, League Standings' among them
+   * (`checkNamedGames`). Null where there is no such page.
+   */
+  | { kind: "games.check"; page: string; games: NamedGame[] }
   /**
    * What winning or losing one fixture would do to a club's place on a page's board of `segment`
    * (null: the year's), refitted with the result in it (`whatIfCurve`), as Scouting asks. The
@@ -223,6 +236,7 @@ export type QueryAnswers = {
   "ageless.file": { csv: string };
   "ageless.clearPlan": AgelessClearPlanAnswer;
   "games.find": { gameId: string | null };
+  "games.check": { checks: NamedCheck[] | null };
   "scouting.whatIf": { curve: WhatIfCurve | null };
   "model.check": { answer: ModelCheckAnswer | null };
   "import.status": ImportStatus;
@@ -291,6 +305,7 @@ const LEAGUE_ASKED: ReadonlySet<QueryKind> = new Set<QueryKind>([
   "scouting.whatIf",
   "model.check",
   "year.archivePreview",
+  "games.check",
 ]);
 
 /** Whether `query` is answered with the copy's League Standings seasons (`answerQuery`'s `seasons`). */
@@ -444,6 +459,23 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
     case "games.find": {
       const listed = loggedGamesOn(loadScoutGamesForYear(query.year ?? undefined), query.page);
       return { kind: "games.find", gameId: findListed(listed, query.at, query.game) };
+    }
+    case "games.check": {
+      const ageGroups = loadAgeGroups();
+      const page = ageGroups.find((group) => group.id === query.page);
+      if (!page || !seasons) return { kind: "games.check", checks: null };
+      // The year as the page knows it, and every game on the page, League Standings' included.
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: loadScoutTeams(),
+        yearGames: loadScoutGamesForYear(ageGroupYear(page)),
+        readSeason: seasons,
+      });
+      const onPage = known.games.filter((game) => game.ageGroupId === page.id);
+      return {
+        kind: "games.check",
+        checks: checkNamedGames(query.games, known.teams, onPage, page.id),
+      };
     }
     case "ages.plan":
       return {
@@ -605,6 +637,11 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
           at: raw.at,
           game,
         };
+      break;
+    }
+    case "games.check": {
+      const games = coerceNamedGames(raw.games);
+      if (isString(raw.page) && games) query = { kind: "games.check", page: raw.page, games };
       break;
     }
     case "scouting.whatIf": {

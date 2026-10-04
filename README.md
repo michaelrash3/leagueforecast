@@ -4148,6 +4148,31 @@ and 55 ms found by the scan. Each guard of the overlay, the question, the device
 the typed scores was broken in turn and seen to fail a test, 26 of 26, the score
 boxes put away only once a test saved a score the copy already held.
 
+**Adding games by name** (1.6). A game typed into the form and a schedule pasted into the
+import are added on the live page too, through the server. The device holds no roster, and
+the year's is 116,485 clubs, so the names go as they were typed (`NamedGame`,
+`namedGames.ts`), each game with the id the page mints for it, and the server resolves them
+against the year's clubs as the page knows them, League Standings' among them
+(`deriveAllKnown`), with the very functions the device's tab uses (`gamesOfNamed`,
+`resolveOrCreateTeam`), and adds them as one change (`game.import`, made into a `game.add`
+by `addOfNamed`, a club the roster lacks adopted with it and a held club whose state the file
+fills put back first). The device's own tab now resolves a pasted schedule through the same
+`addOfNamed`, so a schedule added either way adds the same clubs and games. What the
+device's import checks against its roster, the server checks for the live page
+(`games.check`, `checkNamedGames`): a name that is a placeholder or a near miss of a club
+there, and a game the page already has, League Standings' included. The form's one game
+is asked about before it is added, and a game already logged is confirmed first, as on the
+device; the import's rows are asked about as they are reviewed, a moment after each stops
+changing, by what the check reads of the row, so a box ticked asks nothing and an edited
+name asks about that row alone. Nothing is added while a row is unanswered, and a
+question that fails says so with a Check again. The schedule comes with an Undo, which
+takes its games back out and the clubs it brought. The names are resolved against the year's
+clubs, League Standings' among them, not the roster alone, so a club League Standings made is
+adopted under the id the page knows it by: minted afresh, a name would take the first id of its
+stem, which may be another League club's, and the board's ids would all shift. Each guard was
+broken in turn, 27, and 26 failed a test; the other, the page's games kept to the page, cannot
+change an answer, since a game is only ever taken for one on its own page (`findDuplicateGame`).
+
 **Scouting.** The tab works out its report, its upcoming games and its comparison
 as Team Rankings does, off the board's rows and the club cards rather than the
 year's pool (`LiveScouting`, `scoutingFromCards.ts`). The report reads only the

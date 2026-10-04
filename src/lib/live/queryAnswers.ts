@@ -2,6 +2,7 @@ import { GC_PAIRING_EVIDENCE_LABEL } from "../gcPairingEvidence";
 import type { AgelessAside } from "../agelessQueue";
 import type { AgelessGroup } from "../agelessSitting";
 import type { ModelCheckAnswer, ScoutBacktestResult } from "../scoutBacktest";
+import { coerceNamedCheck } from "../teamRankings/namedGames";
 import { coerceCommand, everyOne, oneAgeless } from "./commands";
 import type { AgelessSearchAnswer, AnswerOf, FoldCounts, QueryAnswer, QueryKind } from "./queries";
 import { fits, type Shape } from "./shapes";
@@ -462,6 +463,13 @@ const agelessClearPlanOf = (raw: Record<string, unknown>): AnswerOf<"ageless.cle
       }
     : null;
 
+/** The server's checks of named games, each read back (`coerceNamedCheck`), or none. */
+const namedChecksOf = (raw: Record<string, unknown>): AnswerOf<"games.check"> | null => {
+  if (raw.checks === null) return { kind: "games.check", checks: null };
+  const checks = everyOne(raw.checks, coerceNamedCheck);
+  return checks ? { kind: "games.check", checks } : null;
+};
+
 /**
  * The commands an approval sends back as an edit, read as any command is (`coerceCommand`): all of
  * them, or none.
@@ -508,6 +516,8 @@ export const coerceQueryAnswer = <K extends QueryKind>(
       return agesPlanOf(raw) as AnswerOf<K> | null;
     case "games.find":
       return ofShape<K>(raw, { record: { gameId: { nullable: "id" } } });
+    case "games.check":
+      return namedChecksOf(raw) as AnswerOf<K> | null;
     case "scouting.whatIf":
       return ofShape<K>(raw, { record: { curve: { nullable: WHAT_IF_CURVE } } });
     case "model.check":

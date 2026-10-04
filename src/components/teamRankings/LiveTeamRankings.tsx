@@ -309,6 +309,11 @@ function LiveBoard({
   );
   const board = live.board;
   const rows = useMemo(() => (board ? withMine(board.view.rows, myTeamId) : []), [board, myTeamId]);
+  // The page's clubs as its board lists them: the names the Games tab's form and import offer.
+  const boardTeams = useMemo(
+    () => rows.map((row) => ({ id: row.teamId, name: row.teamName })),
+    [rows]
+  );
   // Last week's places, as the page's arrows read them, and the page's own club's rank line.
   const lastWeek = useMemo(() => (board ? lastWeekOf(board.view) : null), [board]);
   const rankHistory =
@@ -629,7 +634,9 @@ function LiveBoard({
                 edits={edits}
                 confirm={confirm}
                 onCannot={cannotListGames}
-                onEditWanted={wantPage}
+                suggestedTeams={boardTeams}
+                myTeamName={rows.find((row) => row.isMine)?.teamName ?? ""}
+                onGoToImport={() => openSection("import")}
               />
             </Suspense>
           ) : (

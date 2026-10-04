@@ -308,6 +308,75 @@ describe("a game a page's list shows, asked by its place", () => {
   });
 });
 
+describe("games typed or pasted, checked before they are added by name", () => {
+  const CHECK: PoolQuery = {
+    kind: "games.check",
+    page: "ag_10u_2027",
+    games: [
+      { id: "r1", teamA: "Club A", teamB: "Club C", teamAScore: 3, teamBScore: 2 },
+      { id: "r2", teamA: "Club A", teamB: "Club Cee" },
+      { id: "r3", teamA: "Club A", teamB: "League Foxez", teamAScore: 1, teamBScore: 0 },
+    ],
+  };
+  /** A League Standings season on the page, its Foxes a club the roster does not hold. */
+  const SEASON = {
+    teams: [
+      { id: "a", name: "Club A" },
+      { id: "f", name: "League Foxes" },
+    ],
+    matchups: [{ id: "m", date: "2027-04-03", away: "a", home: "f" }],
+    logs: {},
+  };
+
+  it("are checked against the year's clubs and the page's games, League Standings' among them", () => {
+    saveAgeGroups(
+      GROUPS.map((group) => (group.id === "ag_10u_2027" ? { ...group, seasonIds: ["s"] } : group))
+    );
+    const seasons = (id: string) => (id === "s" ? SEASON : { teams: [], matchups: [], logs: {} });
+    const answer = answerQuery(CHECK, seasons);
+    const checks = answer.kind === "games.check" ? answer.checks : null;
+    // Club A beat Club C 3-2 on the page already (g3): logged; the others are not.
+    expect(checks?.map(({ logged }) => logged)).toEqual([true, false, false]);
+    // A near miss of a club is said: one of the roster's, and League Foxes, which the page knows
+    // from League Standings and the roster does not hold.
+    expect(checks?.[1]?.notes[1]).toEqual({ kind: "similar", to: "Club C" });
+    expect(checks?.[2]?.notes[1]).toEqual({ kind: "similar", to: "League Foxes" });
+    // Without the season the page claims, nobody is called League Foxes.
+    expect(answerQuery(CHECK, () => ({ teams: [], matchups: [], logs: {} }))).toMatchObject({
+      checks: [{}, {}, { notes: [expect.anything(), null] }],
+    });
+    // No page, or no seasons read: nothing to say.
+    expect(answerQuery({ ...CHECK, page: "gone" }, seasons)).toEqual({
+      kind: "games.check",
+      checks: null,
+    });
+    expect(answerQuery(CHECK)).toEqual({ kind: "games.check", checks: null });
+  });
+
+  it("is asked exactly, and its answer read back exactly", () => {
+    expect(coerceQuery(JSON.parse(JSON.stringify(CHECK)))).toEqual(CHECK);
+    for (const raw of [
+      { ...CHECK, page: "" },
+      { ...CHECK, games: [] },
+      { ...CHECK, games: [{ id: "r1", teamA: "Club A" }] },
+      { ...CHECK, extra: 1 },
+    ])
+      expect(coerceQuery(raw)).toBeNull();
+    const answer = { kind: "games.check", checks: [{ notes: [null, null], logged: true }] };
+    expect(coerceQueryAnswer(answer, "games.check")).toEqual(answer);
+    expect(coerceQueryAnswer({ kind: "games.check", checks: null }, "games.check")).toEqual({
+      kind: "games.check",
+      checks: null,
+    });
+    expect(
+      coerceQueryAnswer(
+        { kind: "games.check", checks: [{ notes: [], logged: true }] },
+        "games.check"
+      )
+    ).toBeNull();
+  });
+});
+
 describe("a what-if as the server reads it", () => {
   const WHAT_IF: PoolQuery = {
     kind: "scouting.whatIf",

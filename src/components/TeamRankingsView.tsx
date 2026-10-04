@@ -164,6 +164,9 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { TEAM_PANEL_ID, TeamDetailPanel } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
+import type { NamedChecker } from "./ScheduleImportPanel";
+import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
+import { addOfNamed } from "../lib/live/namedAdd";
 import { gamesWindowFor, loggedGamesOn } from "../lib/teamRankings/gamesWindow";
 import {
   NATIONAL_TOP,
@@ -1946,24 +1949,23 @@ export function TeamRankingsView({
   };
 
   /**
-   * Commits a reviewed batch of imported games. The panel has already resolved names
-   * through `resolveOrCreateTeam` (so they arrive age-free and linked to existing teams) and has
-   * dropped anything already logged here, so this just saves and offers an undo for the lot.
+   * Commits a reviewed batch of imported games, by their clubs' names. The panel has dropped
+   * anything already logged here; the names are resolved here as the server resolves the live
+   * page's (`addOfNamed`), so they arrive age-free and linked to the clubs they name, and the lot is
+   * saved with an undo.
    */
-  const importGames = (nextTeams: ScoutTeam[], newGames: ScoutGame[]) => {
-    const held = new Set(scoutTeams.map((team) => team.id));
-    const named = new Set(newGames.flatMap((game) => [game.teamAId, game.teamBId]));
-    const adopt = nextTeams.filter((team) => !held.has(team.id) && named.has(team.id));
-    const run = runCommand(
-      withHeals(heldHeals(nextTeams, named), {
-        kind: "game.add",
-        year: selectedYear ?? null,
-        games: newGames,
-        adopt,
-      })
-    );
+  const importGames = (named: NamedGame[]) => {
+    const add = addOfNamed({
+      year: selectedYear ?? null,
+      page: selectedAgeGroupId,
+      named,
+      known: allKnown.teams,
+      roster: scoutTeams,
+    });
+    const run = runCommand(add);
     if (!run.ok) return;
-    noteAdded(newGames.map((game) => game.id));
+    const newGames = named.map((game) => game.id);
+    noteAdded(newGames);
     setImportOpen(false);
     // Undo takes the games back out, and the clubs they brought with them.
     showToast(`Added ${newGames.length} game${newGames.length === 1 ? "" : "s"}.`, {
@@ -2250,6 +2252,14 @@ This cannot be undone. Cancel and download the backups first if there is any cha
     [selectedAgeGroupId, ageGroups, allKnown.teams, chainGames]
   );
   const teamNameOptions = useMemo(() => suggestedTeams.map((team) => team.name), [suggestedTeams]);
+  // A pasted schedule's rows checked here, against this device's roster and the page's games.
+  const importChecker = useMemo<NamedChecker>(
+    () => ({
+      kind: "here",
+      check: (named) => checkNamedGames(named, allKnown.teams, ageGroupGames, selectedAgeGroupId),
+    }),
+    [allKnown.teams, ageGroupGames, selectedAgeGroupId]
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -2348,9 +2358,8 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               importOpen={importOpen}
               onOpenImport={() => setImportOpen(true)}
               onCloseImport={() => setImportOpen(false)}
-              allTeams={allKnown.teams}
               suggestedTeams={suggestedTeams}
-              existingGames={ageGroupGames}
+              checker={importChecker}
               onImportGames={importGames}
               showToast={showToast}
               loggedGames={ageGroupManualGames}

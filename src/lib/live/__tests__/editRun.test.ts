@@ -36,6 +36,9 @@ import {
 } from "../../teamRankingsBackup";
 import { LEAGUE_DOC_SCHEMA } from "../leagueDocs";
 import { EDIT_DEVICE, runEdit, runQuery } from "../editRun";
+import type { PoolCommand } from "../commands";
+import { deriveAllKnown } from "../allKnown";
+import { seasonReaderOf } from "../publishCopy";
 import type { PoolQuery } from "../queries";
 import { runRebuild } from "../rebuild";
 import { createEditPool, type EditPool } from "../poolCache";
@@ -889,6 +892,154 @@ describe("Team Rankings restored from a backup by the copy's owner", () => {
     expect(cloud.manifest()?.version).toBe(version);
     // Kept for the nightly to sweep, rather than taken on a refusal the owner may want to see.
     expect(uploads.held.size).toBe(5);
+  });
+});
+
+describe("games added by their clubs' names, resolved on the server", () => {
+  const IMPORT: Extract<PoolCommand, { kind: "game.import" }> = {
+    kind: "game.import",
+    year: 2027,
+    page: "ag_10u_2027",
+    games: [
+      { id: "imp1", teamA: "club a", teamB: "Club Z", stateB: "KY", teamAScore: 4, teamBScore: 1 },
+      { id: "imp2", teamA: "Club Z", teamB: "Club B" },
+    ],
+  };
+
+  it("resolves the names against the cloud's clubs, adds a club it lacks, and is undone exactly", async () => {
+    const cloud = await copyOfPool();
+    const before = new Map(cloud.manifest()!.parts.map((part) => [part.key, part.hash]));
+    const cache = editPool();
+    const done = await edit(cache, cloud.store, IMPORT);
+    if (!done.ok) throw new Error(done.why);
+    expect(done.changed).toEqual(expect.arrayContaining([TEAMS_KEY, YEAR_2027]));
+    await pool?.drop();
+    await reopen(cloud);
+    const clubZ = loadScoutTeams().find((team) => team.name === "Club Z");
+    expect(clubZ).toMatchObject({ state: "KY" });
+    // "club a" is Club A, by name; Club Z one club, minted once, for both of its games.
+    expect(
+      loadScoutGamesForYear(2027)
+        .filter((game) => game.id.startsWith("imp"))
+        .map(({ id, teamAId, teamBId, teamAScore, teamBScore }) => ({
+          id,
+          teamAId,
+          teamBId,
+          teamAScore,
+          teamBScore,
+        }))
+    ).toEqual([
+      { id: "imp1", teamAId: "A", teamBId: clubZ?.id, teamAScore: 4, teamBScore: 1 },
+      {
+        id: "imp2",
+        teamAId: clubZ?.id,
+        teamBId: "B",
+        teamAScore: undefined,
+        teamBScore: undefined,
+      },
+    ]);
+    // Its Undo takes the games back out, and the club they brought.
+    const undone = await edit(editPool(), cloud.store, done.inverse);
+    if (!undone.ok) throw new Error(undone.why);
+    expect(new Map(cloud.manifest()!.parts.map((part) => [part.key, part.hash]))).toEqual(before);
+  });
+
+  it("knows League Standings' clubs: asked about, and adopted by name rather than made again", async () => {
+    const cloud = await copyOfPool();
+    // A season on the 2027 page, with a club the roster does not hold.
+    const league = {
+      seasons: [
+        {
+          id: "s",
+          name: "Season 1",
+          createdAt: "2026-08-01T12:00:00.000Z",
+          // Two clubs the roster does not hold, whose names mint from one stem.
+          teams: [
+            { id: "a", name: "Club A" },
+            { id: "f", name: "League Foxes" },
+            { id: "o", name: "League Owls" },
+          ],
+          matchups: [
+            { id: "m", date: "4/3", away: "a", home: "f" },
+            { id: "n", date: "4/4", away: "o", home: "a" },
+          ],
+          logs: {},
+          bracketLogs: {},
+        },
+      ],
+    };
+    const leagued = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [{ key: LEAGUE_PART, value: league, at: 2 }],
+      device: "phone",
+      now: NOW,
+    });
+    if (!leagued.ok) throw new Error("not saved");
+    const cache = editPool();
+    const paged = await edit(cache, cloud.store, {
+      kind: "group.put",
+      group: { ...GROUPS[1]!, seasonIds: ["s"] },
+    });
+    if (!paged.ok) throw new Error(paged.why);
+    const asked = await runQuery({
+      pool: cache,
+      store: cloud.store,
+      leagueDocs: NO_LEAGUE_DOCS,
+      query: {
+        kind: "games.check",
+        page: "ag_10u_2027",
+        games: [{ id: "r", teamA: "Club A", teamB: "League Foxez" }],
+      },
+    });
+    // A near miss of the club League Standings made, which only its season names.
+    const checked = asked.ok && asked.answer.kind === "games.check" ? asked.answer.checks : null;
+    expect(checked?.[0]?.notes[1]).toEqual({ kind: "similar", to: "League Foxes" });
+    // The ids the page knows League Standings' clubs by, which its board and cards carry.
+    const knownAs = () => {
+      const read = seasonReaderOf(league);
+      if (!read) throw new Error("no seasons");
+      const known = deriveAllKnown({
+        ageGroups: loadAgeGroups(),
+        teams: loadScoutTeams(),
+        yearGames: loadScoutGamesForYear(2027),
+        readSeason: read,
+      });
+      return new Map(known.teams.map((team) => [team.name, team.id]));
+    };
+    const before = knownAs();
+    const done = await edit(cache, cloud.store, {
+      kind: "game.import",
+      year: 2027,
+      page: "ag_10u_2027",
+      games: [{ id: "imp", teamA: "Club A", teamB: "League Owls" }],
+    });
+    if (!done.ok) throw new Error(done.why);
+    await pool?.drop();
+    await reopen(cloud);
+    // The Owls League Standings made, adopted under the id the page knew them by: minted afresh
+    // from the roster alone, the name would take the stem's first id, which is the Foxes', and
+    // every club of that stem would be known by another id after.
+    const owls = loadScoutTeams().filter((team) => team.name === "League Owls");
+    expect(owls.map(({ id }) => id)).toEqual([before.get("League Owls")]);
+    expect(loadScoutGamesForYear(2027).find((game) => game.id === "imp")?.teamBId).toBe(
+      before.get("League Owls")
+    );
+    expect(knownAs()).toEqual(before);
+  });
+
+  it("refuses a page the copy does not hold, or a year the page is not in, and saves nothing", async () => {
+    const cloud = await copyOfPool();
+    const version = cloud.manifest()?.version;
+    expect(await edit(editPool(), cloud.store, { ...IMPORT, page: "gone" })).toMatchObject({
+      ok: false,
+      why: "missing",
+    });
+    expect(await edit(editPool(), cloud.store, { ...IMPORT, year: 2026 })).toMatchObject({
+      ok: false,
+      why: "refused",
+    });
+    expect(cloud.manifest()?.version).toBe(version);
   });
 });
 

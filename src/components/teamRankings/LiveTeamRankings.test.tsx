@@ -1273,25 +1273,126 @@ describe("the Games tab on the cloud's board", () => {
     expect(screen.getByText(/2 more are hidden \(1 still need a score\)/)).toBeTruthy();
     expect(screen.getByText("Placeholder S-1 7")).toBeTruthy();
     expect(screen.getByText(/Placeholder S-3 vs/)).toBeTruthy();
-    // Each game's own, sent to the server; adding and importing are on this device's copy.
+    // Each game's own, and adding and importing, all sent to the server.
     expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Enter score" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Don't count" })).toBeTruthy();
     for (const name of ["Add Game", "Import games"])
-      expect(screen.queryByRole("button", { name })).toBeNull();
+      expect(screen.getByRole("button", { name })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Show all 4 games" }));
     expect(screen.getByText("Not counted")).toBeTruthy();
     expect(screen.getByText("All 4 games on this page.")).toBeTruthy();
     expect(handedOver()).toBeNull();
   });
 
-  it("hands over to add a game", async () => {
+  /** The edit function asked to add games: whether the page has the one typed, and the edit. */
+  const addingServer = ({ logged = false } = {}) =>
+    editFunction((data) => {
+      const query = data.query as { kind: string; games: unknown[] } | undefined;
+      if (!query)
+        return {
+          ...made(5, ["league_forecast_scout_games_v2:2027"]),
+          inverse: { kind: "game.remove", year: 2027, gameIds: ["added"] },
+        };
+      return answered({
+        kind: "games.check",
+        checks: query.games.map(() => ({ notes: [null, null], logged })),
+      });
+    });
+  const typeGame = (a: string, b: string, scores: [string, string] = ["", ""]) => {
+    fireEvent.change(screen.getByPlaceholderText("Team name"), { target: { value: a } });
+    fireEvent.change(screen.getByPlaceholderText("Opponent name"), { target: { value: b } });
+    const [scoreA, scoreB] = screen.getAllByPlaceholderText("Score");
+    fireEvent.change(scoreA!, { target: { value: scores[0] } });
+    fireEvent.change(scoreB!, { target: { value: scores[1] } });
+  };
+
+  it("adds a game typed in through the server, by its clubs' names, asking first if it is new", async () => {
     await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
     pool.wants = false;
     onGames();
-    open(sourcesOf(live));
-    fireEvent.click(await screen.findByRole("button", { name: "Add, import or pull games" }));
-    await waitFor(() => expect(handedOver()).not.toBeNull());
+    const server = addingServer();
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    typeGame("Placeholder S-1", "Placeholder Newcomers", ["6", "5"]);
+    fireEvent.click(screen.getByRole("button", { name: "Add Game" }));
+    await waitFor(() => expect(said.toasts).toContain("Game added."));
+    const [check] = server.sent.flatMap((data) => (data.query ? [data.query] : []));
+    expect(check).toMatchObject({
+      kind: "games.check",
+      page: PAGE,
+      games: [{ teamA: "Placeholder S-1", teamB: "Placeholder Newcomers" }],
+    });
+    expect(edited(server.sent)).toEqual([
+      {
+        command: {
+          kind: "game.import",
+          year: 2027,
+          page: PAGE,
+          games: [
+            {
+              id: expect.stringMatching(/^scout_/),
+              teamA: "Placeholder S-1",
+              teamB: "Placeholder Newcomers",
+              teamAScore: 6,
+              teamBScore: 5,
+            },
+          ],
+        },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    // The form cleared for the next one, and nothing handed to this device's copy.
+    expect(screen.getByPlaceholderText("Opponent name")).toHaveValue("");
+    expect(said.asked).toEqual([]);
+    expect(handedOver()).toBeNull();
+  });
+
+  it("asks before adding a game the page already has, and adds nothing when told not to", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = addingServer({ logged: true });
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    said.confirming = false;
+    typeGame("Placeholder S-1", "Placeholder S-2", ["7", "2"]);
+    fireEvent.click(screen.getByRole("button", { name: "Add Game" }));
+    await waitFor(() => expect(said.asked).toEqual(["Already logged?"]));
+    expect(edited(server.sent)).toEqual([]);
+    expect(screen.getByPlaceholderText("Opponent name")).toHaveValue("Placeholder S-2");
+  });
+
+  it("adds a pasted schedule through the server once it has checked the rows, with an Undo", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    pool.wants = false;
+    onGames();
+    const server = addingServer();
+    open(sourcesOf(live, { call: server.call }));
+    await screen.findByText(/^Today's games/);
+    fireEvent.click(screen.getByRole("button", { name: "Import games" }));
+    fireEvent.change(screen.getByLabelText("Games to import"), {
+      target: {
+        value: "Date,Team,Opponent,Us,Them\n2027-05-02,Placeholder S-1,Placeholder Newcomers,3,1",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Read games" }));
+    await waitFor(() => expect(screen.queryByText(/checking these games/i)).toBeNull(), {
+      timeout: 3000,
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add 1 game/i }));
+    await waitFor(() => expect(said.toasts).toContain("Added 1 game."));
+    expect(edited(server.sent)).toMatchObject([
+      {
+        command: {
+          kind: "game.import",
+          year: 2027,
+          page: PAGE,
+          games: [{ teamA: "Placeholder S-1", teamB: "Placeholder Newcomers", date: "2027-05-02" }],
+        },
+      },
+    ]);
+    expect(said.actions.has("Added 1 game.")).toBe(true);
   });
 
   it("hands over when the page has no list to read", async () => {
@@ -1301,6 +1402,9 @@ describe("the Games tab on the cloud's board", () => {
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 
+  /** The score boxes open on a game of the list, the add form's own left out. */
+  const rowScoreBoxes = () =>
+    screen.queryAllByPlaceholderText("Score").filter((box) => box.closest("li") !== null);
   const rowOf = (text: RegExp) => {
     const row = screen.getByText(text).closest("li");
     if (!row) throw new Error(`no row for ${text}`);
@@ -1354,7 +1458,7 @@ describe("the Games tab on the cloud's board", () => {
     ]);
     // Drawn as played before any publish carries it, and the boxes put away.
     expect(screen.getByText("Placeholder S-3 4")).toBeTruthy();
-    expect(screen.queryByPlaceholderText("Score")).toBeNull();
+    expect(rowScoreBoxes()).toEqual([]);
     expect(handedOver()).toBeNull();
   });
 
@@ -1414,7 +1518,7 @@ describe("the Games tab on the cloud's board", () => {
     await republish([ROWS[0]!, NEWCOMER, ROWS[1]!]);
     await screen.findByText(/Placeholder S-2 vs/);
     expect(within(rowOf(/Placeholder S-2 vs/)).queryByPlaceholderText("Score")).toBeNull();
-    expect(screen.queryByPlaceholderText("Score")).toBeNull();
+    expect(rowScoreBoxes()).toEqual([]);
     expect(edited(server.sent)).toEqual([]);
   });
 
@@ -1453,7 +1557,7 @@ describe("the Games tab on the cloud's board", () => {
     fireEvent.change(b!, { target: { value: "5" } });
     fireEvent.click(within(owed()).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(said.toasts).toContain("Score saved."));
-    expect(screen.queryByPlaceholderText("Score")).toBeNull();
+    expect(rowScoreBoxes()).toEqual([]);
   });
 
   it("keeps a game out of the maths, and removes one once asked, with an Undo", async () => {

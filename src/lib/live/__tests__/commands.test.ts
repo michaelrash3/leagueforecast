@@ -10,6 +10,7 @@ import {
   changeBetween,
   coerceCommand,
   isOwnerCommand,
+  isServerCommand,
   MAX_COMMAND_STEPS,
   poolParts,
   type PoolParts,
@@ -1585,5 +1586,31 @@ describe("Team Rankings restored from a staged backup, the copy's owner's alone"
     ])
       expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
     expect(applyCommand(memory(POOL()).read, RESTORE)).toEqual({ ok: false, why: "refused" });
+  });
+});
+
+describe("games added by their clubs' names, the server's to resolve", () => {
+  const IMPORT: PoolCommand = {
+    kind: "game.import",
+    year: 2027,
+    page: "ag_10u_2027",
+    games: [{ id: "scout_1_0_1", teamA: "Club A", teamB: "Club Z", teamAScore: 3, teamBScore: 2 }],
+  };
+
+  it("is read exactly as sent, on its own, is any member's, and is run by the server alone", () => {
+    expect(coerceCommand(JSON.parse(JSON.stringify(IMPORT)))).toEqual(IMPORT);
+    expect(coerceCommand({ ...IMPORT, year: null })).toEqual({ ...IMPORT, year: null });
+    expect(isOwnerCommand(IMPORT)).toBe(false);
+    expect(isServerCommand(IMPORT)).toBe(true);
+    for (const raw of [
+      { kind: "batch", commands: [IMPORT] },
+      { ...IMPORT, page: "" },
+      { ...IMPORT, year: "2027" },
+      { ...IMPORT, games: [] },
+      { ...IMPORT, games: [{ id: "x", teamA: "Club A" }] },
+    ])
+      expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
+    // A pool alone holds no League Standings to resolve names against: refused, for the server.
+    expect(applyCommand(memory(POOL()).read, IMPORT)).toEqual({ ok: false, why: "refused" });
   });
 });

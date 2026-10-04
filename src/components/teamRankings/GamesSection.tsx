@@ -4,7 +4,8 @@ import { isScoutGamePlayed } from "../../lib/teamRankings";
 import { formatIsoDayShort } from "../../lib/date";
 import { windowGames, type GamesWindow } from "../../lib/teamRankings/gamesWindow";
 import type { ToastTone } from "../../hooks/useToast";
-import { ScheduleImportPanel } from "../ScheduleImportPanel";
+import { ScheduleImportPanel, type NamedChecker } from "../ScheduleImportPanel";
+import type { NamedGame } from "../../lib/teamRankings/namedGames";
 import { TeamNameCombobox } from "../TeamNameCombobox";
 import { button, card, pill } from "../../styles/tokens";
 
@@ -45,10 +46,11 @@ type GamesSectionProps = {
   importOpen: boolean;
   onOpenImport: () => void;
   onCloseImport: () => void;
-  allTeams: ScoutTeam[];
   suggestedTeams: ScoutTeam[];
-  existingGames: ScoutGame[];
-  onImportGames: (teams: ScoutTeam[], games: ScoutGame[]) => void;
+  /** How a pasted schedule's rows are checked: here, or by the server (`ScheduleImportPanel`). */
+  checker: NamedChecker;
+  /** A pasted schedule's rows to add, by their clubs' names. */
+  onImportGames: (games: NamedGame[]) => void;
   showToast: (message: string, options?: { tone?: ToastTone }) => void;
   /**
    * The page's stored games, pulled, pasted or typed in, newest first. League Standings fixtures
@@ -69,13 +71,6 @@ type GamesSectionProps = {
   onSaveScore: (gameId: string) => void;
   onToggleExcluded: (game: ScoutGame) => void;
   onRemoveGame: (game: ScoutGame) => void;
-  /**
-   * No games added here: the live board's list (`LiveGames`), drawn without this device's copy.
-   * The form and the import give way to one button that asks for the copy (`onEditWanted`); each
-   * game's own buttons stay, the board sending them to the server.
-   */
-  readOnly?: boolean;
-  onEditWanted?: () => void;
 };
 
 /** Everything that puts a result into the pool by hand: the form, the paste/CSV import, the log. */
@@ -105,9 +100,8 @@ export function GamesSection({
   importOpen,
   onOpenImport,
   onCloseImport,
-  allTeams,
   suggestedTeams,
-  existingGames,
+  checker,
   onImportGames,
   showToast,
   loggedGames,
@@ -123,8 +117,6 @@ export function GamesSection({
   onSaveScore,
   onToggleExcluded,
   onRemoveGame,
-  readOnly = false,
-  onEditWanted,
 }: GamesSectionProps) {
   /*
    * Whether every game is listed rather than the one day's. Keyed on the page
@@ -163,125 +155,112 @@ export function GamesSection({
 
   return (
     <>
-      {readOnly ? (
-        <div className={`${card} flex flex-wrap items-center justify-between gap-3 p-5`}>
+      <div className={`${card} p-5`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Add a game
           </h2>
-          <button type="button" onClick={onEditWanted} className={button.ghost}>
-            Add, import or pull games
-          </button>
-        </div>
-      ) : (
-        <div className={`${card} p-5`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Add a game
-            </h2>
-            {ageGroupId && !importOpen && (
-              <button
-                type="button"
-                onClick={onOpenImport}
-                className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Import games
-              </button>
-            )}
+          {ageGroupId && !importOpen && (
             <button
               type="button"
-              onClick={onGoToImport}
+              onClick={onOpenImport}
               className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
             >
-              Pull from GameChanger
+              Import games
             </button>
-          </div>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {!hasAgeGroups
-              ? "Pulling from GameChanger creates the pages it needs. To log a game by hand instead, set up an age group in Setup first — every game needs one to know which ranking it belongs to."
-              : "Leave both scores blank to log an upcoming/scheduled game (useful for building out your own team's future schedule) — come back and fill in the score once it's played."}
-          </p>
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_90px_1fr_90px]">
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">
-                <TeamNameCombobox
-                  id="scout-team-a-name"
-                  value={draft.teamAName}
-                  onChange={(value) => onDraftChange({ teamAName: value })}
-                  options={teamNameOptions}
-                  placeholder="Team name"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-                />
-              </div>
-              {myTeamName && (
-                <button
-                  type="button"
-                  onClick={() => onDraftChange({ teamAName: myTeamName })}
-                  className="shrink-0 whitespace-nowrap text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  Use my team
-                </button>
-              )}
-            </div>
-            <input
-              type="number"
-              min={0}
-              inputMode="numeric"
-              value={draft.teamAScore}
-              onChange={(event) => onDraftChange({ teamAScore: event.target.value })}
-              placeholder="Score"
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-            />
-            <TeamNameCombobox
-              id="scout-team-b-name"
-              value={draft.teamBName}
-              onChange={(value) => onDraftChange({ teamBName: value })}
-              options={teamNameOptions}
-              placeholder="Opponent name"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-            />
-            <input
-              type="number"
-              min={0}
-              inputMode="numeric"
-              value={draft.teamBScore}
-              onChange={(event) => onDraftChange({ teamBScore: event.target.value })}
-              placeholder="Score"
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-            />
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <input
-              type="date"
-              value={draft.date}
-              onChange={(event) => onDraftChange({ date: event.target.value })}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-            />
-            <input
-              type="text"
-              value={draft.event}
-              onChange={(event) => onDraftChange({ event: event.target.value })}
-              placeholder="Tournament / event (optional)"
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
-            />
-          </div>
+          )}
           <button
             type="button"
-            onClick={onAddGame}
-            disabled={!addGameValid}
-            className={`${button.primary} mt-3`}
+            onClick={onGoToImport}
+            className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
           >
-            Add Game
+            Pull from GameChanger
           </button>
         </div>
-      )}
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          {!hasAgeGroups
+            ? "Pulling from GameChanger creates the pages it needs. To log a game by hand instead, set up an age group in Setup first — every game needs one to know which ranking it belongs to."
+            : "Leave both scores blank to log an upcoming/scheduled game (useful for building out your own team's future schedule) — come back and fill in the score once it's played."}
+        </p>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_90px_1fr_90px]">
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <TeamNameCombobox
+                id="scout-team-a-name"
+                value={draft.teamAName}
+                onChange={(value) => onDraftChange({ teamAName: value })}
+                options={teamNameOptions}
+                placeholder="Team name"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+              />
+            </div>
+            {myTeamName && (
+              <button
+                type="button"
+                onClick={() => onDraftChange({ teamAName: myTeamName })}
+                className="shrink-0 whitespace-nowrap text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Use my team
+              </button>
+            )}
+          </div>
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={draft.teamAScore}
+            onChange={(event) => onDraftChange({ teamAScore: event.target.value })}
+            placeholder="Score"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+          />
+          <TeamNameCombobox
+            id="scout-team-b-name"
+            value={draft.teamBName}
+            onChange={(value) => onDraftChange({ teamBName: value })}
+            options={teamNameOptions}
+            placeholder="Opponent name"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+          />
+          <input
+            type="number"
+            min={0}
+            inputMode="numeric"
+            value={draft.teamBScore}
+            onChange={(event) => onDraftChange({ teamBScore: event.target.value })}
+            placeholder="Score"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+          />
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <input
+            type="date"
+            value={draft.date}
+            onChange={(event) => onDraftChange({ date: event.target.value })}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+          />
+          <input
+            type="text"
+            value={draft.event}
+            onChange={(event) => onDraftChange({ event: event.target.value })}
+            placeholder="Tournament / event (optional)"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onAddGame}
+          disabled={!addGameValid}
+          className={`${button.primary} mt-3`}
+        >
+          Add Game
+        </button>
+      </div>
 
-      {!readOnly && importOpen && ageGroupId && (
+      {importOpen && ageGroupId && (
         <ScheduleImportPanel
-          ageGroupId={ageGroupId}
           ageGroupName={groupName}
-          teams={allTeams}
           suggestedTeams={suggestedTeams}
-          existingGames={existingGames}
+          checker={checker}
           defaultSubjectTeam={myTeamName}
           onImport={onImportGames}
           onClose={onCloseImport}
