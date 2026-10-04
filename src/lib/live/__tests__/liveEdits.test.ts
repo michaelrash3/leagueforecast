@@ -204,6 +204,7 @@ describe("what the person is told", () => {
       "unknown-key",
       "damaged",
       "league-unreadable",
+      "newer-league",
       "store-refused",
     ];
     expect(Object.keys(EDIT_REFUSED).sort()).toEqual([...refusals].sort());

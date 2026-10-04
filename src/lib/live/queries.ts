@@ -35,10 +35,29 @@ import {
 import { loggedGamesOn } from "../teamRankings/gamesWindow";
 import { planClubAges, type AgeAsked } from "./agePlan";
 import { deriveAllKnown, gamesOnPages, type SeasonReader } from "./allKnown";
-import { everyOne, MAX_COMMAND_STEPS, oneGame, oneTeam, sameValue } from "./commands";
+import {
+  everyOne,
+  isClockTime,
+  isSquadYear,
+  MAX_COMMAND_STEPS,
+  oneGame,
+  oneTeam,
+  sameValue,
+} from "./commands";
 import { cardGamesOf, panelGame } from "./views/clubs";
 import { isCount, isRecord, isString } from "./queryAnswers";
 import { findListed, type GameSeen } from "./views/gamesShape";
+import type { YearArchivePreview, YearDeletePreview, YearSummary } from "../yearSummary";
+import {
+  planYearArchive,
+  planYearDelete,
+  yearArchivePreview,
+  yearDeletePreview,
+  yearList,
+} from "./yearOps";
+
+/** No seasons: what a question that reads League Standings is answered with when none are read. */
+const NO_SEASONS: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
 
 /**
  * Read-only questions a member's device asks of the pool the edit function keeps warm (1.5): what
@@ -116,7 +135,16 @@ export type PoolQuery =
    * much is in it, as the nightly works it out (`storedRota`); when each level was last refreshed;
    * and what the Organizations files kept come to.
    */
-  | { kind: "import.status"; at: string };
+  | { kind: "import.status"; at: string }
+  /**
+   * What archiving squad year `year` would keep and take, for the owner's confirmation, worked out
+   * as the archive is (`planYearArchive`), with League Standings' games in the year.
+   */
+  | { kind: "year.archivePreview"; year: number }
+  /** What deleting squad year `year` would take, for the owner's confirmation (`planYearDelete`). */
+  | { kind: "year.deletePreview"; year: number }
+  /** Every year with anything to archive or delete, as Setup's Archive card lists them. */
+  | { kind: "year.list" };
 
 /**
  * What folding one club into another touches: the stored games that name the club folded away,
@@ -198,6 +226,9 @@ export type QueryAnswers = {
   "scouting.whatIf": { curve: WhatIfCurve | null };
   "model.check": { answer: ModelCheckAnswer | null };
   "import.status": ImportStatus;
+  "year.archivePreview": { preview: YearArchivePreview };
+  "year.deletePreview": { preview: YearDeletePreview };
+  "year.list": { years: YearSummary[] };
 };
 
 export type QueryKind = PoolQuery["kind"];
@@ -256,7 +287,11 @@ export const cardFixture = (games: readonly ScoutGame[], shown: ScoutGame): Scou
 };
 
 /** The questions answered with League Standings' games in the year, as the boards are built. */
-const LEAGUE_ASKED: ReadonlySet<QueryKind> = new Set<QueryKind>(["scouting.whatIf", "model.check"]);
+const LEAGUE_ASKED: ReadonlySet<QueryKind> = new Set<QueryKind>([
+  "scouting.whatIf",
+  "model.check",
+  "year.archivePreview",
+]);
 
 /** Whether `query` is answered with the copy's League Standings seasons (`answerQuery`'s `seasons`). */
 export const asksLeague = (query: PoolQuery): boolean => LEAGUE_ASKED.has(query.kind);
@@ -314,6 +349,16 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         answer: checkTheModel(page.id, known.teams, known.games, ageGroups),
       };
     }
+    case "year.archivePreview":
+      // The time the tables would be stamped with says nothing of what they hold.
+      return {
+        kind: "year.archivePreview",
+        preview: yearArchivePreview(planYearArchive(query.year, seasons ?? NO_SEASONS, "")),
+      };
+    case "year.deletePreview":
+      return { kind: "year.deletePreview", preview: yearDeletePreview(planYearDelete(query.year)) };
+    case "year.list":
+      return { kind: "year.list", years: yearList() };
     case "import.status": {
       const membership = loadOrgMembership();
       const orgAges = orgAgesByTeam(membership);
@@ -452,17 +497,8 @@ const isDay = (value: unknown): value is string => {
 const strings = (value: unknown): string[] | null =>
   Array.isArray(value) && value.every(isString) ? [...(value as string[])] : null;
 
-/**
- * An instant as a device's clock writes one (`toISOString`), in a year the app could be used in.
- * Any string `Date.parse` would take was taken: "1", "Oct 4", and the year -271821, which reached
- * a refresh's day arithmetic and threw, ending the edit worker and the pool it kept warm.
- */
-const isTime = (value: unknown): value is string => {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))
-    return false;
-  const at = Date.parse(value);
-  return !Number.isNaN(at) && value >= "2000" && value < "2200";
-};
+/** An instant as a device's clock writes one, in a year the app could be used in. */
+const isTime = isClockTime;
 
 /** The longest text a question carries: a name, or what is typed in a search box. */
 const MAX_TEXT = 200;
@@ -596,6 +632,13 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
       break;
     case "import.status":
       if (isTime(raw.at)) query = { kind: "import.status", at: raw.at };
+      break;
+    case "year.archivePreview":
+    case "year.deletePreview":
+      if (isSquadYear(raw.year)) query = { kind: raw.kind, year: raw.year };
+      break;
+    case "year.list":
+      query = { kind: "year.list" };
       break;
     case "ages.plan": {
       // As many as one edit may file (`MAX_COMMAND_STEPS`, a step a club): each is planned against

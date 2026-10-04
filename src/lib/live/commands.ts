@@ -192,7 +192,16 @@ export type PoolCommand =
    */
   | { kind: "orgs.merge"; orgs: MemberOrg[]; at: string }
   /** The organizations kept, put back as they were: the inverse of `orgs.merge`. */
-  | { kind: "orgs.put"; membership: OrgMembership };
+  | { kind: "orgs.put"; membership: OrgMembership }
+  /**
+   * Squad year `year` archived, its final tables kept and the year taken out of the pool, or
+   * deleted with nothing kept: the owner's alone (`OWNER_COMMANDS`), and the server's to run
+   * (`yearOps.ts`), since an archive is made from the year as its boards show it, League Standings'
+   * games in it, and writes the archived tables no pool command touches. Never taken back. `at` is
+   * when it was asked, which the archived tables are stamped with.
+   */
+  | { kind: "year.archive"; year: number; at: string }
+  | { kind: "year.delete"; year: number };
 
 /** The pool as a command reads it: the parts it may change, as storage decodes them. */
 export type PoolRead = {
@@ -789,6 +798,10 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
   switch (command.kind) {
     case "none":
       return unchanged();
+    // A server's to run, on more than a pool holds (`yearOps.ts`): never applied as a pool's step.
+    case "year.archive":
+    case "year.delete":
+      return { ok: false, why: "refused" };
     case "batch":
       return applySteps(
         read,
@@ -1402,6 +1415,30 @@ const strings = (value: unknown): string[] | null =>
 const yearOf = (value: unknown): number | null | undefined =>
   value === null ? null : Number.isInteger(value) ? (value as number) : undefined;
 
+/**
+ * An instant as a device's clock writes one (`toISOString`), in a year the app could be used in.
+ * Any string `Date.parse` would take was taken: "1", "Oct 4", and the year -271821, which reached
+ * a refresh's day arithmetic and threw, ending the edit worker and the pool it kept warm.
+ */
+export const isClockTime = (value: unknown): value is string => {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))
+    return false;
+  const at = Date.parse(value);
+  return !Number.isNaN(at) && value >= "2000" && value < "2200";
+};
+
+/** A squad year the app could hold a page of. */
+export const isSquadYear = (value: unknown): value is number =>
+  Number.isInteger(value) && (value as number) >= 2000 && (value as number) < 2200;
+
+/** The commands only the copy's owner may send, which only the server runs (`yearOps.ts`). */
+export const OWNER_COMMANDS: ReadonlySet<PoolCommand["kind"]> = new Set([
+  "year.archive",
+  "year.delete",
+]);
+
+export const isOwnerCommand = (command: PoolCommand): boolean => OWNER_COMMANDS.has(command.kind);
+
 /*
  * A record read back exactly as it was sent, or null: one whose fields storage would have to drop
  * or change to keep (a state that is a number, a link with no page) is not the record that was
@@ -1711,6 +1748,13 @@ const readCommand = (raw: unknown, depth: number): PoolCommand | null => {
       const membership = oneMembership(raw.membership);
       return membership ? { kind: "orgs.put", membership } : null;
     }
+    // On their own, never a step of a batch: each is the whole of what the server is asked to do.
+    case "year.archive":
+      return depth === 0 && isSquadYear(raw.year) && isClockTime(raw.at)
+        ? { kind: "year.archive", year: raw.year, at: raw.at }
+        : null;
+    case "year.delete":
+      return depth === 0 && isSquadYear(raw.year) ? { kind: "year.delete", year: raw.year } : null;
     default:
       return null;
   }

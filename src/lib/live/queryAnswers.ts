@@ -74,6 +74,37 @@ const IMPORT_STATUS: Shape = {
   },
 };
 
+/** What archiving a year would keep and take (`yearArchivePreview`). */
+const YEAR_ARCHIVE_PREVIEW: Shape = {
+  record: {
+    preview: {
+      record: {
+        tables: { list: { record: { name: "string", rows: "count" } } },
+        droppedGames: "count",
+        droppedTeams: "count",
+        archivedLeagueGames: "count",
+        unranked: { list: { record: { name: "string", games: "count" } } },
+      },
+    },
+  },
+};
+
+/** What deleting a year would take (`yearDeletePreview`). */
+const YEAR_DELETE_PREVIEW: Shape = {
+  record: {
+    preview: {
+      record: {
+        pages: { list: "string" },
+        droppedGames: "count",
+        droppedTeams: "count",
+        unlinkedTeams: "count",
+        tables: "count",
+        leagueSeasons: "count",
+      },
+    },
+  },
+};
+
 /** A count or a number with no end: JSON writes `Infinity` as null, which is read back as it. */
 const UNBOUNDED: Shape = { nullable: "number" };
 const unbounded = (value: number | null): number => (value === null ? Infinity : value);
@@ -483,6 +514,26 @@ export const coerceQueryAnswer = <K extends QueryKind>(
       return modelCheckOf(raw) as AnswerOf<K> | null;
     case "import.status":
       return ofShape<K>(raw, IMPORT_STATUS);
+    case "year.archivePreview":
+      return ofShape<K>(raw, YEAR_ARCHIVE_PREVIEW);
+    case "year.deletePreview":
+      return ofShape<K>(raw, YEAR_DELETE_PREVIEW);
+    case "year.list":
+      return ofShape<K>(raw, {
+        record: {
+          years: {
+            list: {
+              record: {
+                year: "count",
+                pages: "count",
+                games: "count",
+                teams: "count",
+                archives: "count",
+              },
+            },
+          },
+        },
+      });
     case "merge.preview": {
       const fold = foldOf(raw);
       if (fold && typeof raw.found === "boolean")

@@ -29,6 +29,8 @@ parentPort?.on("message", (request: EditRequest) => {
         pool,
         // The one function that writes the copy on a member's behalf.
         store: firestoreRestStore({ ...restAccess(), writable: true }),
+        // League Standings, read only, for a year's archive; no edit writes a season.
+        leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...restAccess(), writable: false })),
         command: ask.command,
         ...(ask.copy === undefined ? {} : { copy: ask.copy }),
         now,

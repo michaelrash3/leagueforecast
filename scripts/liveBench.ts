@@ -283,7 +283,13 @@ const main = async () => {
   /** One command made on the copy, and said; the run, or null when it was refused. */
   const edit = async (pass: number, kind: string, command: PoolCommand) => {
     started = performance.now();
-    const done = await runEdit({ pool, store: cloud.store, command, now: () => at });
+    const done = await runEdit({
+      pool,
+      store: cloud.store,
+      leagueDocs: NO_LEAGUE_DOCS,
+      command,
+      now: () => at,
+    });
     const total = ms(started);
     if (!done.ok) {
       print({ pass, step: "edit", kind, refused: done.why, ms: total });
@@ -307,7 +313,13 @@ const main = async () => {
   };
   const undo = async (pass: number, kind: string, inverse: PoolCommand) => {
     started = performance.now();
-    const undone = await runEdit({ pool, store: cloud.store, command: inverse, now: () => at });
+    const undone = await runEdit({
+      pool,
+      store: cloud.store,
+      leagueDocs: NO_LEAGUE_DOCS,
+      command: inverse,
+      now: () => at,
+    });
     print({
       pass,
       step: "undo",

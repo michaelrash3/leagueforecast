@@ -26,6 +26,8 @@ import type { ApiRequest, ApiResponse } from "./apiShared";
 export type MemberVerdict =
   /** On the list. */
   | "member"
+  /** On the list as its owner (`role: "owner"`), who alone may archive or delete a year. */
+  | "owner"
   /** No usable sign-in: none sent, or one Firestore does not accept (expired, forged, elsewhere). */
   | "signed-out"
   /** Signed in with an account that is not on the list. */
@@ -34,6 +36,24 @@ export type MemberVerdict =
   | "unavailable";
 
 export type MemberCheck = (authorization: string | undefined) => Promise<MemberVerdict>;
+
+/** Whether a verdict lets the caller in: any account on the list, its owner included. */
+export const onTheList = (verdict: MemberVerdict): verdict is "member" | "owner" =>
+  verdict === "member" || verdict === "owner";
+
+/**
+ * The role a member's entry gives, read off Firestore's answer for it: the owner's only when the
+ * entry says so in so many words, and a member's for anything else on the list, since a member let
+ * in as one is never let past what a member may do.
+ */
+const roleOf = async (response: Response): Promise<"owner" | "member"> => {
+  try {
+    const entry = (await response.json()) as { fields?: { role?: { stringValue?: unknown } } };
+    return entry.fields?.role?.stringValue === "owner" ? "owner" : "member";
+  } catch {
+    return "member";
+  }
+};
 
 /** How long an answer is kept. */
 export const MEMBER_CHECK_TTL_MS = 10 * 60_000;
@@ -124,6 +144,7 @@ export const createMemberCheck = ({
     if (expiry !== null && expiry <= at) return "signed-out";
 
     let status: number;
+    let role: "owner" | "member" = "member";
     try {
       // A list that does not answer is one that could not be asked, rather than a call held open.
       const response = await fetchImpl(
@@ -136,12 +157,13 @@ export const createMemberCheck = ({
         }
       );
       status = response.status;
+      if (status === 200) role = await roleOf(response);
     } catch {
       return "unavailable";
     }
     const verdict: MemberVerdict =
       status === 200
-        ? "member"
+        ? role
         : status === 401
           ? "signed-out"
           : status === 403 || status === 404
@@ -165,6 +187,10 @@ export const EDIT_MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", str
   "not-member":
     "This Google account is not on the cloud copy's list, so it cannot edit it. Ask the list's owner to add it.",
 };
+
+/** What a member is told who asks for what only the copy's owner may do. */
+export const OWNER_ONLY_MESSAGE =
+  "Only the cloud copy's owner can archive or delete a year. Ask them to do it from their own account.";
 
 /** What a caller turned away is told, by why. */
 export const MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", string> = {
@@ -195,7 +221,7 @@ export const membersOnly =
     if (url.searchParams.get("probe") === "1") return handler(req, res);
 
     const verdict = await check(authorizationOf(req));
-    if (verdict === "member") return handler(req, res);
+    if (onTheList(verdict)) return handler(req, res);
 
     res.setHeader("cache-control", "no-store");
     if (verdict === "unavailable") {

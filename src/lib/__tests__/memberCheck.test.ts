@@ -34,7 +34,7 @@ const signedIn = (email: string, exp = NOW / 1000 + 3_600, extra: Record<string,
   token({ email, exp, ...extra });
 
 /** A Firestore that answers every read with `status`, and records what it was asked. */
-const firestore = (status: number | "down") => {
+const firestore = (status: number | "down", body = "{}") => {
   const asked: Array<{ url: string; authorization: string | null }> = [];
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     asked.push({
@@ -42,7 +42,7 @@ const firestore = (status: number | "down") => {
       authorization: new Headers(init?.headers).get("authorization"),
     });
     if (status === "down") throw new TypeError("fetch failed");
-    return new Response("{}", { status });
+    return new Response(body, { status });
   }) as unknown as typeof fetch;
   return { fetchImpl, asked };
 };
@@ -67,8 +67,8 @@ describe("reading a sign-in", () => {
 });
 
 describe("the check against the list", () => {
-  const check = (status: number | "down", now = () => NOW) => {
-    const store = firestore(status);
+  const check = (status: number | "down", now = () => NOW, body?: string) => {
+    const store = firestore(status, body);
     return {
       ...store,
       run: createMemberCheck({
@@ -89,6 +89,17 @@ describe("the check against the list", () => {
         authorization: `Bearer ${sent}`,
       },
     ]);
+  });
+
+  it("reads the entry's role: the owner's only when it says so, and a member's for anything else", async () => {
+    const entry = (role: unknown) =>
+      JSON.stringify({ name: "members/a@b.c", fields: { role: { stringValue: role } } });
+    const caller = `Bearer ${signedIn("a@b.c")}`;
+    expect(await check(200, () => NOW, entry("owner")).run(caller)).toBe("owner");
+    expect(await check(200, () => NOW, entry("member")).run(caller)).toBe("member");
+    expect(await check(200, () => NOW, entry("Owner")).run(caller)).toBe("member");
+    expect(await check(200, () => NOW, "not json").run(caller)).toBe("member");
+    expect(await check(200, () => NOW, JSON.stringify({ fields: {} })).run(caller)).toBe("member");
   });
 
   it("reads Firestore's answer: refused or missing is not on the list, unauthenticated is signed out", async () => {
@@ -221,10 +232,12 @@ describe("the proxy behind the list", () => {
     async () =>
       verdict;
 
-  it("lets a member through to the handler", async () => {
-    const { handler, sent } = await call(answers("member"), "/api/gc-team?id=x", "Bearer t");
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(sent.status).toBe(200);
+  it("lets a member through to the handler, and the owner", async () => {
+    for (const verdict of ["member", "owner"] as const) {
+      const { handler, sent } = await call(answers(verdict), "/api/gc-team?id=x", "Bearer t");
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(sent.status).toBe(200);
+    }
   });
 
   it("tells a browser with no sign-in to sign in, and an account not on the list to ask", async () => {

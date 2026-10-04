@@ -5,7 +5,7 @@ import type { PoolCommand } from "../../lib/live/commands";
 import { overlayGroups, seasonAssignedSaid } from "../../lib/live/groupsOverlay";
 import type { SeasonMeta } from "../../lib/storage";
 import type { AgeGroup, AgeGroupSeason, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
-import { createAgeGroupId, seasonYearOptions } from "../../lib/teamRankings/seasons";
+import { ageGroupYear, createAgeGroupId, seasonYearOptions } from "../../lib/teamRankings/seasons";
 import { button, card } from "../../styles/tokens";
 
 const NO_TEAMS: ScoutTeam[] = [];
@@ -19,6 +19,7 @@ export const CHECK_UNANSWERED = "No answer came back, for the reason just shown.
 import { DiagnosticsCard } from "./DiagnosticsCard";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { LiveAgelessCard } from "./LiveAgelessCard";
+import { LiveArchiveCard } from "./LiveArchiveCard";
 import { LivePoolHealthCard } from "./LivePoolHealthCard";
 import { ModelCheckCard } from "./ModelCheckCard";
 import { AgeGroupsCard, SetupIntroCard } from "./SetupCards";
@@ -120,13 +121,18 @@ export default function LiveSetup({
         check={checkModel}
         unanswered={CHECK_UNANSWERED}
       />
+      <LiveArchiveCard
+        edits={edits}
+        confirm={confirm}
+        currentYear={ageGroupYear(shown.find((group) => group.id === pageId))}
+      />
       <DiagnosticsCard />
       <div className={`${card} p-5`}>
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           The rest of Setup
         </h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Archiving a year and starting again open on this device&apos;s copy for now.
+          Starting again opens on this device&apos;s copy for now.
         </p>
         <button type="button" onClick={onRestWanted} className={`${button.ghost} mt-3`}>
           Open them on this device&apos;s copy

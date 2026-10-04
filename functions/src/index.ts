@@ -22,7 +22,7 @@ import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pul
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
 import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
-import { coerceCommand } from "../../src/lib/live/commands";
+import { coerceCommand, isOwnerCommand } from "../../src/lib/live/commands";
 import { chargeQueue, handleEdit, handleQuery, handleWarm } from "../../src/lib/live/editHandle";
 import {
   EDIT_CONCURRENCY,
@@ -49,6 +49,8 @@ import {
   createMemberCheck,
   EDIT_MEMBERS_ONLY_MESSAGES,
   MEMBERS_ONLY_MESSAGES,
+  onTheList,
+  OWNER_ONLY_MESSAGE,
   WRITE_CHECK_TTL_MS,
 } from "../../src/lib/memberCheck";
 import { enqueueLeg, enqueueRebuild, REGION, restAccess, zoneOf } from "./pullAccess";
@@ -163,7 +165,7 @@ export const startPull = !CLOUD_PULLS
             "Could not check this account against the cloud copy's list just now. Try again in a minute."
           );
         }
-        if (verdict !== "member") {
+        if (!onTheList(verdict)) {
           throw new HttpsError(
             verdict === "signed-out" ? "unauthenticated" : "permission-denied",
             MEMBERS_ONLY_MESSAGES[verdict]
@@ -534,7 +536,7 @@ export const edit = !LIVE_REBUILD
             "Could not check this account against the cloud copy's list just now. Try again in a minute."
           );
         }
-        if (verdict !== "member") {
+        if (!onTheList(verdict)) {
           throw new HttpsError(
             verdict === "signed-out" ? "unauthenticated" : "permission-denied",
             EDIT_MEMBERS_ONLY_MESSAGES[verdict]
@@ -554,6 +556,11 @@ export const edit = !LIVE_REBUILD
         const copy = data?.copy;
         if (!warm && !command && !query) {
           throw new HttpsError("invalid-argument", "That is not an edit this server knows.");
+        }
+        // A year's archive or delete is the owner's alone: the rules let only the owner delete a
+        // season, and this is the pool's like of it.
+        if (command && isOwnerCommand(command) && verdict !== "owner") {
+          throw new HttpsError("permission-denied", OWNER_ONLY_MESSAGE);
         }
         if (copy !== undefined && (typeof copy !== "string" || !COPY_ID.test(copy))) {
           throw new HttpsError("invalid-argument", "That is not a copy's id.");

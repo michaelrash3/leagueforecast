@@ -165,6 +165,7 @@ const QUERY_REFUSALS: Record<QueryRefusal, true> = {
 /** Why an edit was not made, each named once. */
 const EDIT_REFUSALS: Record<EditRefusal, true> = {
   ...ENSURE_REFUSALS,
+  "newer-league": true,
   missing: true,
   refused: true,
   unsaved: true,

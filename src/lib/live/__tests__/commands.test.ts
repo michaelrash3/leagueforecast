@@ -9,6 +9,7 @@ import {
   applyCommand,
   changeBetween,
   coerceCommand,
+  isOwnerCommand,
   MAX_COMMAND_STEPS,
   poolParts,
   type PoolParts,
@@ -1496,5 +1497,40 @@ describe("a command as it arrives from elsewhere", () => {
       }),
     ])
       expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
+  });
+});
+
+describe("a year archived or deleted, the copy's owner's alone", () => {
+  const ARCHIVE: PoolCommand = { kind: "year.archive", year: 2026, at: "2026-10-04T12:00:00.000Z" };
+  const DELETE: PoolCommand = { kind: "year.delete", year: 2026 };
+
+  it("is read exactly as sent, on its own, and is the owner's", () => {
+    expect(coerceCommand(JSON.parse(JSON.stringify(ARCHIVE)))).toEqual(ARCHIVE);
+    expect(coerceCommand(DELETE)).toEqual(DELETE);
+    expect([ARCHIVE, DELETE].map(isOwnerCommand)).toEqual([true, true]);
+    expect(isOwnerCommand({ kind: "club.drop", teamId: "A" })).toBe(false);
+  });
+
+  it("is refused in a batch, for a year the app holds no page of, or at a time no clock writes", () => {
+    for (const raw of [
+      { kind: "batch", commands: [DELETE] },
+      { kind: "batch", commands: [ARCHIVE] },
+      { ...DELETE, year: 1999 },
+      { ...DELETE, year: 2200 },
+      { ...DELETE, year: 2026.5 },
+      { ...DELETE, year: "2026" },
+      { ...ARCHIVE, at: "yesterday" },
+      { ...ARCHIVE, at: "-271821-04-20T00:00:00.000Z" },
+      { kind: "year.archive", year: 2026 },
+      { ...DELETE, at: ARCHIVE.at },
+    ])
+      expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
+  });
+
+  it("is never a pool's step: only the server runs it, on more than a pool holds", () => {
+    const pool = memory(POOL());
+    for (const command of [ARCHIVE, DELETE]) {
+      expect(applyCommand(pool.read, command)).toEqual({ ok: false, why: "refused" });
+    }
   });
 });

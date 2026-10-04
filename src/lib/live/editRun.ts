@@ -9,7 +9,7 @@ import {
 import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { readCloudPoolValue } from "../teamRankingsStorage";
-import type { PoolCommand } from "./commands";
+import { isOwnerCommand, type PoolCommand } from "./commands";
 import type { EditPool, PoolEnsure } from "./poolCache";
 import { asksLeague, answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
 import type { SeasonReader } from "./allKnown";
@@ -17,6 +17,7 @@ import { readCloudLeague, type CloudLeague, type LeagueDocsList } from "./cloudL
 import { seasonReaderOf } from "./publishCopy";
 import { EDIT_DEVICE } from "./rebuildPlan";
 import { runPoolCommand } from "./runPoolCommand";
+import { runYearArchive, runYearDelete } from "./yearOps";
 
 /**
  * A Team Rankings edit run on the server, on the cloud copy (1.4): the command a device sends,
@@ -45,6 +46,8 @@ const MAX_TRIES = 3;
  * - `kept-moving`: other saves landed between each read and commit.
  * - `unsure`: the save went out and no answer came back, nor would the copy read to tell, so the
  *   edit may or may not be in it; the copy says which.
+ * - `newer-league`: a year's archive, made with League Standings' games in it, met a season a newer
+ *   build saved (`readCloudLeague`).
  * - the copy's own refusals, as `PoolEnsure` names them.
  */
 export type EditRefusal =
@@ -53,6 +56,7 @@ export type EditRefusal =
   | "unsaved"
   | "copy-replaced"
   | "unsure"
+  | "newer-league"
   | Extract<PoolEnsure, { ok: false }>["reason"];
 
 export type EditRun =
@@ -94,6 +98,7 @@ const changesOf = async (keys: ReadonlySet<string>, at: number): Promise<Change[
 export const runEdit = async ({
   pool,
   store,
+  leagueDocs,
   command,
   copy,
   now,
@@ -101,6 +106,8 @@ export const runEdit = async ({
 }: {
   pool: EditPool;
   store: CloudStore;
+  /** The League Standings seasons' documents (`league/`), read only, for a year's archive. */
+  leagueDocs: LeagueDocsList;
   command: PoolCommand;
   copy?: string;
   now: () => string;
@@ -124,7 +131,9 @@ export const runEdit = async ({
      * slower, and never wrong. Only a commit the copy turned away is let go of key by key.
      */
     const applying = clock();
-    const run = runPoolCommand(command);
+    const run = isOwnerCommand(command)
+      ? await runOwnerCommand(command, () => leagueOf(store, ensured.manifest, leagueDocs))
+      : runPoolCommand(command);
     if (!run.ok) return { ok: false, why: run.why, tries };
     const changes = await changesOf(pool.written(), Date.parse(now()));
     const applyMs = Math.round(clock() - applying);
@@ -171,6 +180,32 @@ export const runEdit = async ({
     await pool.forget();
   }
   return { ok: false, why: "kept-moving", tries: MAX_TRIES };
+};
+
+/** What takes back an owner's command: nothing, since neither is ever taken back. */
+const NOT_TAKEN_BACK: PoolCommand = { kind: "none" };
+
+/**
+ * An owner's command run on the process's store (`yearOps.ts`): a year's archive with League
+ * Standings' seasons as the boards are built with them (`seasons`, read only for it), or a year's
+ * delete. What it wrote is what the edit commits, as a pool command's is.
+ */
+const runOwnerCommand = async (
+  command: PoolCommand,
+  seasons: () => Promise<SeasonReader | QueryRefusal>
+): Promise<{ ok: true; inverse: PoolCommand } | { ok: false; why: EditRefusal }> => {
+  if (command.kind === "year.delete") {
+    const done = await runYearDelete(command.year);
+    return done.ok ? { ok: true, inverse: NOT_TAKEN_BACK } : done;
+  }
+  if (command.kind !== "year.archive") return { ok: false, why: "refused" };
+  const read = await seasons();
+  if (typeof read === "string") {
+    // Only the copy's own refusals, and a season a newer build saved, come of reading seasons.
+    return { ok: false, why: read === "day-spent" || read === "month-spent" ? "refused" : read };
+  }
+  const done = await runYearArchive(command.year, read, command.at);
+  return done.ok ? { ok: true, inverse: NOT_TAKEN_BACK } : done;
 };
 
 /**

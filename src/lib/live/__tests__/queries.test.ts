@@ -189,6 +189,20 @@ describe("a question as the server reads one", () => {
   it("is the question exactly as sent", () => {
     expect(coerceQuery(JSON.parse(JSON.stringify(MERGE)))).toEqual(MERGE);
     expect(coerceQuery(RENAME)).toEqual(RENAME);
+    for (const query of [
+      { kind: "year.archivePreview", year: 2026 },
+      { kind: "year.deletePreview", year: 2026 },
+      { kind: "year.list" },
+    ] as const) {
+      expect(coerceQuery(JSON.parse(JSON.stringify(query)))).toEqual(query);
+    }
+    for (const raw of [
+      { kind: "year.archivePreview", year: 1999 },
+      { kind: "year.deletePreview", year: "2026" },
+      { kind: "year.archivePreview" },
+      { kind: "year.list", year: 2026 },
+    ])
+      expect([raw, coerceQuery(raw)]).toEqual([raw, null]);
   });
 
   it("is refused when it carries more than any device sends, which the server would spend its time on", () => {
@@ -552,6 +566,49 @@ describe("the copy's refresh as the Import tab asks for it", () => {
 });
 
 describe("an answer as a device reads one", () => {
+  it("is a year's preview and the list of years exactly, and nothing of another shape", () => {
+    const archive = {
+      kind: "year.archivePreview",
+      preview: {
+        tables: [{ name: "9U · Fall 2025", rows: 3 }],
+        droppedGames: 8,
+        droppedTeams: 6,
+        archivedLeagueGames: 0,
+        unranked: [{ name: "8U 2026", games: 2 }],
+      },
+    };
+    const remove = {
+      kind: "year.deletePreview",
+      preview: {
+        pages: ["9U 2026"],
+        droppedGames: 8,
+        droppedTeams: 6,
+        unlinkedTeams: 1,
+        tables: 0,
+        leagueSeasons: 1,
+      },
+    };
+    const years = {
+      kind: "year.list",
+      years: [{ year: 2026, pages: 3, games: 8, teams: 7, archives: 0 }],
+    };
+    expect(coerceQueryAnswer(archive, "year.archivePreview")).toEqual(archive);
+    expect(coerceQueryAnswer(remove, "year.deletePreview")).toEqual(remove);
+    expect(coerceQueryAnswer(years, "year.list")).toEqual(years);
+    for (const [raw, kind] of [
+      [{ ...archive, preview: { ...archive.preview, droppedGames: -1 } }, "year.archivePreview"],
+      [
+        { ...archive, preview: { ...archive.preview, tables: [{ name: 9 }] } },
+        "year.archivePreview",
+      ],
+      [{ ...remove, preview: { ...remove.preview, pages: [9] } }, "year.deletePreview"],
+      [{ ...years, years: [{ year: 2026, pages: 3, games: 8, teams: 7 }] }, "year.list"],
+      [years, "year.archivePreview"],
+    ] as const) {
+      expect([raw, coerceQueryAnswer(raw, kind)]).toEqual([raw, null]);
+    }
+  });
+
   it("is the answer exactly, of the kind it asked", () => {
     const merged = { kind: "merge.preview", found: true, games: 4, dropped: 2 };
     expect(coerceQueryAnswer(merged, "merge.preview")).toEqual(merged);

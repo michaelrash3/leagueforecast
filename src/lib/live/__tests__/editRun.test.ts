@@ -13,6 +13,7 @@ import {
   initTeamRankingsStore,
   LEGACY_GAMES_KEY,
   loadAgeGroups,
+  loadArchiveIndex,
   loadRealClubs,
   loadOrgMembership,
   loadRefreshCadence,
@@ -72,12 +73,12 @@ const GAMES: ScoutGame[] = [
 ];
 
 /** Every value a browser holding the pool would put in its copy, as stored. */
-const poolValues = async (): Promise<Map<string, unknown>> => {
+const poolValues = async (games = GAMES): Promise<Map<string, unknown>> => {
   resetTeamRankingsStore();
   await initTeamRankingsStore(memoryIo());
   saveAgeGroups(GROUPS);
   saveScoutTeams(TEAMS);
-  saveScoutGames(GAMES);
+  saveScoutGames(games);
   saveRealClubs(new Set(["gcA"]));
   await flushPoolWrites();
   const values = new Map<string, unknown>();
@@ -88,12 +89,12 @@ const poolValues = async (): Promise<Map<string, unknown>> => {
 };
 
 /** A copy holding the pool, saved by a phone. */
-const copyOfPool = async (): Promise<MemoryCloud> => {
+const copyOfPool = async (games = GAMES): Promise<MemoryCloud> => {
   const cloud = memoryCloud();
   const saved = await commitChanges({
     store: cloud.store,
     base: null,
-    changes: [...(await poolValues())].map(([key, value]) => ({ key, value, at: 1 })),
+    changes: [...(await poolValues(games))].map(([key, value]) => ({ key, value, at: 1 })),
     device: "phone",
     now: NOW,
   });
@@ -145,7 +146,15 @@ const edit = (
   store: CloudStore,
   command: Parameters<typeof runEdit>[0]["command"],
   copy?: string
-) => runEdit({ pool: cache, store, command, ...(copy ? { copy } : {}), now: () => NOW });
+) =>
+  runEdit({
+    pool: cache,
+    store,
+    leagueDocs: NO_LEAGUE_DOCS,
+    command,
+    ...(copy ? { copy } : {}),
+    now: () => NOW,
+  });
 
 describe("an edit on the cloud copy", () => {
   it("commits the parts the command changed, and only those, as the server's save", async () => {
@@ -356,6 +365,94 @@ describe("an edit on the cloud copy", () => {
     await reopen(cloud);
     expect(loadScoutGamesForYear(2028).map((game) => game.id)).toEqual(["new"]);
     expect(loadAgeGroups()).toEqual(GROUPS);
+  });
+});
+
+describe("a year archived or deleted by the copy's owner", () => {
+  const ARCHIVE_INDEX = "league_forecast_scout_archive_v1";
+  /** The pool with 2026's game dated, so its page keeps a table of the autumn it was played in. */
+  const DATED = GAMES.map((game) => (game.id === "old" ? { ...game, date: "2025-09-20" } : game));
+  const rowsKeys = (manifest: CloudManifest | null) =>
+    (manifest?.parts ?? []).map(({ key }) => key).filter((key) => key.includes("_archive_rows_"));
+
+  it("archives a year in one save: its tables, their index, and the pool without the year", async () => {
+    const cloud = await copyOfPool(DATED);
+    const before = cloud.manifest();
+    const done = await edit(editPool(), cloud.store, {
+      kind: "year.archive",
+      year: 2026,
+      at: NOW,
+    });
+    if (!done.ok) throw new Error(done.why);
+    // Never taken back, and one version on: every part in the one save.
+    expect(done.inverse).toEqual({ kind: "none" });
+    expect(done.version).toBe((before?.version ?? 0) + 1);
+    const after = cloud.manifest();
+    const rows = rowsKeys(after);
+    expect(rows).toHaveLength(1);
+    expect(done.changed).toEqual(expect.arrayContaining([ARCHIVE_INDEX, ...rows, YEAR_2026]));
+    expect(after?.device).toBe(EDIT_DEVICE);
+    // What a device opening the copy now reads: the year gone, its table under the archive.
+    await reopen(cloud);
+    expect(loadAgeGroups().map((group) => group.id)).toEqual(["ag_10u_2027", "ag_10u_2028"]);
+    expect(loadScoutGamesForYear(2026)).toEqual([]);
+    const index = loadArchiveIndex();
+    expect(index.map((entry) => entry.year)).toEqual([2026]);
+    const part = after?.parts.find(({ key }) => key === rows[0]);
+    if (!part) throw new Error("no rows part");
+    const fetched = await fetchValues({ store: cloud.store, parts: [part] });
+    if (!fetched.ok) throw new Error("the rows did not read");
+    expect(fetched.values.get(part.key)).toMatchObject({ id: index[0]?.id });
+  });
+
+  it("deletes a year in one save, its archived tables taken out of the copy with it", async () => {
+    const cloud = await copyOfPool(DATED);
+    const cache = editPool();
+    const archived = await edit(cache, cloud.store, { kind: "year.archive", year: 2026, at: NOW });
+    if (!archived.ok) throw new Error(archived.why);
+    expect(rowsKeys(cloud.manifest())).toHaveLength(1);
+    const deleted = await edit(cache, cloud.store, { kind: "year.delete", year: 2026 });
+    expect(deleted).toMatchObject({ ok: true, inverse: { kind: "none" } });
+    expect(rowsKeys(cloud.manifest())).toEqual([]);
+    await reopen(cloud);
+    expect(loadArchiveIndex()).toEqual([]);
+  });
+
+  it("deletes a year with nothing archived, as the device's delete does", async () => {
+    const cloud = await copyOfPool();
+    const done = await edit(editPool(), cloud.store, { kind: "year.delete", year: 2027 });
+    expect(done).toMatchObject({ ok: true });
+    await reopen(cloud);
+    expect(loadAgeGroups().map((group) => group.id)).toEqual(["ag_10u_2026", "ag_10u_2028"]);
+    expect(loadScoutGamesForYear(2027)).toEqual([]);
+  });
+
+  it("saves nothing for a year with nothing under it, nor for a season a newer build saved", async () => {
+    const cloud = await copyOfPool();
+    const version = cloud.manifest()?.version;
+    for (const command of [
+      { kind: "year.archive", year: 2031, at: NOW },
+      { kind: "year.delete", year: 2031 },
+    ] as const) {
+      expect(await edit(editPool(), cloud.store, command)).toMatchObject({
+        ok: false,
+        why: "missing",
+      });
+    }
+    const docs = docsOf(seasonsOf(poolFixture({ seed: 7, clubsPerPage: 10 }).seasons));
+    const [first, ...rest] = docs;
+    if (!first) throw new Error("no documents");
+    const newer = { ...first, fields: { ...first.fields, schema: LEAGUE_DOC_SCHEMA + 1 } };
+    expect(
+      await runEdit({
+        pool: editPool(),
+        store: cloud.store,
+        leagueDocs: listing([...rest, newer]),
+        command: { kind: "year.archive", year: 2026, at: NOW },
+        now: () => NOW,
+      })
+    ).toMatchObject({ ok: false, why: "newer-league" });
+    expect(cloud.manifest()?.version).toBe(version);
   });
 });
 

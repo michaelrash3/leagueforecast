@@ -100,6 +100,8 @@ export const EDIT_REFUSED: Record<EditRefusal, string> = {
   "unknown-key": "A newer version of the app saved the cloud copy. Reload the page to edit it.",
   damaged: "The cloud copy could not be read, so nothing was changed.",
   "league-unreadable": "The cloud copy could not be read, so nothing was changed.",
+  "newer-league":
+    "A newer version of the app saved a League Standings season, so nothing was changed. Reload the page.",
   "store-refused":
     "The cloud would not answer just now, so nothing was changed. Try again in a minute.",
 };

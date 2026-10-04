@@ -4048,8 +4048,9 @@ carries them, rather than this device's copy, which an edit made here does not m
 not yet published are drawn over them (`overlayGroups`, by the command the server runs), so a
 season put on a page shows there at once and the next one put at that age joins it. This
 browser's diagnostics are its own, as on the device's Setup. The model check of the page open is
-the server's (`model.check`, 1.5), described below. The rest of Setup (archiving a year and
-starting again) opens on this device's copy when asked, until each is live.
+the server's (`model.check`, 1.5), described below, and archiving or deleting a year is the
+owner's on the server (1.6, below). Starting again opens on this device's copy when asked, until it
+is live.
 Every card here asks in its own effect once edits are on; the copy they ask of is held before
 any effect runs (`useLiveEdits`), since the network's first answer brings it and turns edits on
 in one render, and a Setup opened straight from a link had its first questions refused for want
@@ -4813,9 +4814,31 @@ to double over a season.
 Two kinds of write are not commands. The browser's own pull engine saves as it goes and is removed
 for members in the cleanup (1.7), pulls having moved to the server; and resetting the app or
 restoring a backup replace League Standings and the settings as well as the pool. Those become
-owner's operations on the server copy at the cutover (1.6), with deleting or archiving a year:
-until then a member's device writes the copy itself, as the rules let it, so a check in the edit
-function of who may do them would guard nothing.
+owner's operations on the server copy at the cutover (1.6), as archiving and deleting a year
+already have.
+
+**A year archived or deleted by the owner** (1.6). Setup's Archive card on the live page lists
+the years as the server counts them (`year.list`, the device card's own `summariseYears` over the
+server's store), and asks the server first what an archive or a delete would keep and take
+(`year.archivePreview`, `year.deletePreview`), in the device card's own words
+(`yearSummary.ts`, which the device's page now asks in too: a test holds both confirmations and
+the message after to the letter). Then it sends `year.archive` or `year.delete`, two commands of
+their own that only the server runs (`yearOps.ts`), since an archive is made from the year as its
+boards show it, League Standings' games in it (`deriveAllKnown` with the seasons the boards are
+built with), and writes the archived tables, which no pool command touches; the pool's own
+`applyCommand` refuses them. They are never in a batch, and never taken back. The server runs the
+device's very functions (`archiveSquadYear`, `deleteSquadYear`) on its warm pool: the tables into
+the archive, then the pool written part by part where it changed (`poolWritesBetween`, by the
+records' identity), then the tidy stamp where the pool was tidy, all committed as one save, so a
+year is never half archived in the copy. The device lays an archive down record by record
+(`changeBetween`), but a year's archive throws out thousands of clubs, and each, as a step of its
+own, would scan every game and keep a roster of its own until the batch ended. Only the copy's
+owner may send either: the member check reads the caller's entry on the list (`memberCheck.ts`),
+and an entry whose `role` says `owner` in so many words is the owner's, anything else a member's;
+a member's year archive or delete is refused before the worker has it, with "Only the cloud copy's
+owner can archive or delete a year". `yearOps.test.ts` holds the server's archive and delete to
+the device's functions on the seeded pool, League Standings' games included, and `editRun.test.ts`
+the one save each makes; the functions' smoke run holds a member's delete refused.
 
 ## AI write-ups
 

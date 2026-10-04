@@ -2439,7 +2439,8 @@ describe("Setup on the cloud's board", () => {
       query: { kind: "ageless.queue", today: TODAY, pinned: [] },
       copy: MANIFEST.copy,
     });
-    expect(asked(server.sent)).toEqual(["ageless.queue", "health.summary"]);
+    // The Archive card's years, asked once beside it (`LiveArchiveCard`).
+    expect(asked(server.sent)).toEqual(["ageless.queue", "health.summary", "year.list"]);
     // Deleted at once, and what the pool then shows asked for again.
     fireEvent.click(screen.getByRole("button", { name: "Delete club" }));
     await waitFor(() => expect(said.toasts).toContain("Deleted Placeholder S-1."));
@@ -2447,7 +2448,12 @@ describe("Setup on the cloud's board", () => {
       { command: { kind: "club.drop", teamId: "S-1" }, copy: MANIFEST.copy },
     ]);
     await waitFor(() =>
-      expect(asked(server.sent)).toEqual(["ageless.queue", "health.summary", "health.summary"])
+      expect(asked(server.sent)).toEqual([
+        "ageless.queue",
+        "health.summary",
+        "health.summary",
+        "year.list",
+      ])
     );
     expect(handedOver()).toBeNull();
   });
@@ -2579,7 +2585,7 @@ describe("Setup on the cloud's board", () => {
       copy: MANIFEST.copy,
     });
     // Nothing of it is this device's copy's: the rest of Setup no longer offers it.
-    expect(screen.getByText(/open on this device's copy for now/).textContent).not.toContain(
+    expect(screen.getByText(/on this device's copy for now/).textContent).not.toContain(
       "model check"
     );
     expect(handedOver()).toBeNull();
