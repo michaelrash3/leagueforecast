@@ -4296,16 +4296,20 @@ change needs that the pool does not hold travels in the command. Each command co
 inverse, and a property test draws hundreds of edits on pools of every shape and checks that the
 inverse puts every part the command touched back as it was, to the stored byte.
 
-| Command                                                                          | What it changes                                                                                                                                                                       |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `answers`                                                                        | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart.                                                                       |
-| `team.state`, `team.unlinkGc`                                                    | A club's state; one GameChanger id taken off a club.                                                                                                                                  |
-| `game.score`, `game.exclude`, `game.confirm`                                     | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now.                                                                     |
-| `game.add`, `game.remove`                                                        | Games added at the end of their year, with the new clubs they name (and only those); games taken out of their year.                                                                   |
-| `page.myTeam`                                                                    | A page's own team marked or unmarked.                                                                                                                                                 |
-| `club.leavePage`                                                                 | A club taken off one page: its games there, the page's mark if it was the page's own team, and the club itself only when no game in any year names it and no row is filed against it. |
-| `team.put`, `team.insert`, `team.remove`, `game.put`, `game.insert`, `group.put` | A record put back as it was, in its place: what inverses are made of.                                                                                                                 |
-| `batch`                                                                          | Several commands as one, each reading what the last wrote.                                                                                                                            |
+| Command                                                                                                                                                               | What it changes                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `answers`                                                                                                                                                             | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart.                                                                                                    |
+| `team.state`, `team.unlinkGc`                                                                                                                                         | A club's state; one GameChanger id taken off a club.                                                                                                                                                               |
+| `game.score`, `game.exclude`, `game.confirm`                                                                                                                          | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now.                                                                                                  |
+| `game.add`, `game.remove`                                                                                                                                             | Games added at the end of their year, with the new clubs they name (and only those); games taken out of their year.                                                                                                |
+| `page.myTeam`                                                                                                                                                         | A page's own team marked or unmarked.                                                                                                                                                                              |
+| `club.leavePage`                                                                                                                                                      | A club taken off one page: its games there, the page's mark if it was the page's own team, and the club itself only when no game in any year names it and no row is filed against it.                              |
+| `games.drop`, `club.drop`                                                                                                                                             | Games thrown out of whichever years hold them, the rows that scored them remembered so that a pull does not file them again; a club thrown out with every game it is in, its GameChanger ids refused from then on. |
+| `season.assign`                                                                                                                                                       | A League Standings season put on the page of its age, the page made under the id the command names if there is none, or taken off Team Rankings.                                                                   |
+| `club.age`, `club.ageClear`                                                                                                                                           | A pulled club filed at the age somebody says it plays at and held there whatever a later pull says; and that taken back, each of its ids to the level the app had it at.                                           |
+| `teams.merge`, `team.rename`                                                                                                                                          | One club folded into another, every page whose own team it was following it; a club renamed, refused onto a name another club goes by, since that is a merge and only the person asking can say which club stays.  |
+| `team.put`, `team.insert`, `team.remove`, `game.put`, `game.insert`, `group.put`, `group.insert`, `group.remove`, `namedAges`, `games.set`, `teams.set`, `groups.set` | A record put back as it was, in its place, or a part put back whole: what inverses are made of.                                                                                                                    |
+| `batch`                                                                                                                                                               | Several commands as one, each reading what the last wrote.                                                                                                                                                         |
 
 On this browser a command runs through `runPoolCommand`, which writes only the parts it changed
 (vouching for a score writes that game's year, not every year as it once did) and the roster as it
@@ -4320,6 +4324,24 @@ the Undo both stand afterwards, where the old Undo wrote back the year as it was
 the score. An Undo of an import takes its games out and the clubs it brought with them. Removing a
 game or a club can set off a tidy that prunes a stand-in nothing stands on any more, so the Undo
 then puts back, from the roster as it was at Remove, any club its games name that is gone.
+
+The clean-up commands (thrown-out clubs and games, a league season's page, a club's age, merges
+and renames) are the functions the page always used (`withoutClub`, `seasonAtAge`, `setClubAge`,
+`mergeScoutTeams`), with what to write and how to undo it read off a diff of each part, record by
+record by id (`settle` in `commands.ts`): the inverse puts back exactly the records that changed,
+so an edit made in between stands through an undo, and only a part whose kept records moved
+relative to each other is put back whole. Identity is what says a record changed, so a command
+reads each part once: the store decodes a year afresh on every read, and two copies of one year
+would make every game in it look changed, which an undo would then write back over whatever was
+entered since. Storage files a game under its page's year, so the pages are written around the
+games: a page a command makes before the games filed on it, and a page an undo takes away only
+after its games have left it. A command never mints an id: a page it may need comes named in it.
+
+Making these edits commands fixed four things on the way. Renaming a club wrote League Standings'
+teams into the roster; folding a page's own team into another club left the page's star on a club
+that no longer existed (renaming onto a taken name already moved it); the Undo of a club's age
+wrote back the whole year as it stood, losing any score entered since; and deleting a club or a
+lopsided game rewrote every year's games, not only the years they were in.
 
 ## AI write-ups
 

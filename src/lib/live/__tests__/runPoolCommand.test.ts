@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { markTaken, resetCloudGuard } from "../../cloud/cloudGuard";
 import {
   gamesShardLabel,
+  loadAgeGroups,
   loadRealClubs,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -140,5 +141,48 @@ describe("a command on this browser's pool", () => {
       ok: false,
       why: "missing",
     });
+  });
+});
+
+describe("pages and the games filed on them", () => {
+  it("stores a page made before the games filed on it, and lets it go only after they have left it", () => {
+    saveScoutTeams([
+      {
+        id: "A",
+        name: "Club A",
+        gcTeams: [{ teamId: "gcA", name: "Club A 10U", ageGroupId: "ag_10u_2027" }],
+      },
+      { id: "B", name: "Club B" },
+    ]);
+    saveScoutGames([
+      {
+        id: "own",
+        ageGroupId: "ag_10u_2027",
+        teamAId: "A",
+        teamBId: "B",
+        source: { kind: "gamechanger", teamId: "gcA", gameId: "r1" },
+      },
+    ]);
+    const aged = runPoolCommand({
+      kind: "club.age",
+      year: 2027,
+      teamId: "A",
+      level: 11,
+      at: "2026-09-30T12:00:00.000Z",
+      pageId: "ag_11u_2027",
+    });
+    if (!aged.ok) throw new Error(aged.why);
+    // Filed onto the page just made, in its year: none of it under no year.
+    expect(loadScoutGamesForYear(2027).map((game) => [game.id, game.ageGroupId])).toEqual([
+      ["own", "ag_11u_2027"],
+    ]);
+    expect(loadScoutGamesForYear(undefined)).toEqual([]);
+    const undone = runPoolCommand(aged.inverse);
+    expect(undone.ok).toBe(true);
+    expect(loadAgeGroups().map((group) => group.id)).toEqual(["ag_10u_2026", "ag_10u_2027"]);
+    expect(loadScoutGamesForYear(2027).map((game) => [game.id, game.ageGroupId])).toEqual([
+      ["own", "ag_10u_2027"],
+    ]);
+    expect(loadScoutGamesForYear(undefined)).toEqual([]);
   });
 });

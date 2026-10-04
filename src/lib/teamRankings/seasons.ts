@@ -319,12 +319,13 @@ export const createAgeGroupId = (): string =>
  *
  * A season comes off whatever group held it before, because one league season is played at one
  * age: leaving it on both would count its games twice, once on each table. `null` takes it off
- * Team Rankings altogether.
+ * Team Rankings altogether. `pageId` is the id a group that has to be made gets.
  */
 export const seasonAtAge = (
   seasonId: string,
   season: AgeGroupSeason | null,
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  pageId: string = createAgeGroupId()
 ): { ageGroups: AgeGroup[]; group?: AgeGroup; created: boolean } => {
   const without = ageGroups.map((group) =>
     group.seasonIds.includes(seasonId)
@@ -344,7 +345,7 @@ export const seasonAtAge = (
   }
 
   const group: AgeGroup = {
-    id: createAgeGroupId(),
+    id: pageId,
     name: formatAgeGroupName(season.ageLevel, season.year),
     ageLevel: season.ageLevel,
     year: season.year,

@@ -1,13 +1,19 @@
 import {
   loadAgeGroups,
   loadAgeRightClubs,
+  loadDeletedGames,
+  loadDroppedClubs,
   loadKeptApart,
+  loadNamedAges,
   loadRealClubs,
   loadScoutGamesForYear,
   loadScoutTeams,
   saveAgeGroups,
   saveAgeRightClubs,
+  saveDeletedGames,
+  saveDroppedClubs,
   saveKeptApart,
+  saveNamedAges,
   saveRealClubs,
   saveScoutGamesForYear,
   saveScoutTeams,
@@ -31,12 +37,16 @@ const LOADERS: Record<AnswerList, () => ReadonlySet<string>> = {
   realClubs: loadRealClubs,
   ageRight: loadAgeRightClubs,
   keptApart: loadKeptApart,
+  droppedClubs: loadDroppedClubs,
+  deletedGames: loadDeletedGames,
 };
 
 const SAVERS: Record<AnswerList, (ids: ReadonlySet<string>) => boolean> = {
   realClubs: saveRealClubs,
   ageRight: saveAgeRightClubs,
   keptApart: saveKeptApart,
+  droppedClubs: saveDroppedClubs,
+  deletedGames: saveDeletedGames,
 };
 
 /** The pool as this browser's store holds it. */
@@ -46,24 +56,45 @@ export const storedPool: PoolRead = {
   years: () => storedGamesByYear().map((entry) => entry.year ?? null),
   games: (year) => loadScoutGamesForYear(year ?? undefined),
   answers: (list) => LOADERS[list](),
+  namedAges: loadNamedAges,
 };
 
-/** Writes each part, every one tried; false when any was refused. */
-export const writePool = (writes: readonly PoolWrite[]): boolean =>
-  writes
-    .map((write) => {
-      switch (write.part) {
-        case "teams":
-          return saveScoutTeams(write.teams);
-        case "groups":
-          return saveAgeGroups(write.groups);
-        case "games":
-          return saveScoutGamesForYear(write.year ?? undefined, write.games);
-        case "answers":
-          return SAVERS[write.list](write.ids);
-      }
-    })
-    .every(Boolean);
+const writePart = (write: PoolWrite): boolean => {
+  switch (write.part) {
+    case "teams":
+      return saveScoutTeams(write.teams);
+    case "groups":
+      return saveAgeGroups(write.groups);
+    case "games":
+      return saveScoutGamesForYear(write.year ?? undefined, write.games);
+    case "answers":
+      return SAVERS[write.list](write.ids);
+    case "namedAges":
+      return saveNamedAges(write.named);
+  }
+};
+
+/**
+ * Writes each part, every one tried; false when any was refused.
+ *
+ * The pages around the games, because storage files a game under its page's year: a page a change
+ * makes is stored before the games filed on it, which would otherwise be filed under no year, and
+ * a page it takes away is let go only after its games have left it, since storing the pages
+ * without one refiles whatever is still on it (`saveAgeGroups`). So the pages are stored first
+ * with every page the store has kept on, and then, once the games are written, as they are to be.
+ */
+export const writePool = (writes: readonly PoolWrite[]): boolean => {
+  const pages = writes.find((write) => write.part === "groups");
+  const kept = pages?.part === "groups" ? new Set(pages.groups.map((group) => group.id)) : null;
+  const leaving = kept ? loadAgeGroups().filter((group) => !kept.has(group.id)) : [];
+  const written: boolean[] = [];
+  if (pages?.part === "groups") written.push(saveAgeGroups([...pages.groups, ...leaving]));
+  writes.forEach((write) => {
+    if (write.part !== "groups") written.push(writePart(write));
+  });
+  if (pages?.part === "groups" && leaving.length > 0) written.push(saveAgeGroups(pages.groups));
+  return written.every(Boolean);
+};
 
 export type CommandRun =
   /** Applied and written: the parts as written, and what takes it back. */
@@ -89,6 +120,10 @@ export const runPoolCommand = (command: PoolCommand): CommandRun => {
 /** The roster a run wrote, if it wrote one. */
 export const writtenTeams = (run: CommandRun) =>
   run.ok ? run.writes.find((write) => write.part === "teams")?.teams : undefined;
+
+/** The named ages a run wrote, if it wrote them. */
+export const writtenNamedAges = (run: CommandRun) =>
+  run.ok ? run.writes.find((write) => write.part === "namedAges")?.named : undefined;
 
 /** The pages a run wrote, if it wrote them. */
 export const writtenGroups = (run: CommandRun) =>

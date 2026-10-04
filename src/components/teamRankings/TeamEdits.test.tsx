@@ -60,6 +60,29 @@ const pool = (extra: Partial<Pool> = {}): Pool => ({
   ...extra,
 });
 
+/** A league season on the page with two clubs of its own the roster does not hold. */
+const leagueOnPage = (): Partial<Pool> => ({
+  league: {
+    teams: [
+      { id: "L-HAWKS", name: "Hawks" },
+      { id: "L-WRENS", name: "Wrens" },
+    ],
+    matchups: [{ id: "m1", date: "9/20", away: "L-HAWKS", home: "L-WRENS" }],
+    logs: {
+      m1: {
+        awayRuns: "4",
+        awayHits: "",
+        awayK: "",
+        homeRuns: "2",
+        homeHits: "",
+        homeK: "",
+        innings: "6",
+        isFinal: true,
+      },
+    },
+  },
+});
+
 /** The logged game dated `date`, every game shown. */
 const gameRow = async (user: ReturnType<typeof userEvent.setup>, date: string) => {
   const showAll = screen.queryByRole("button", { name: /^Show all \d+ games$/ });
@@ -79,6 +102,15 @@ const watchWrites = () => {
   return keys;
 };
 const shardOf = (year: number) => gamesShardLabel(year);
+
+/**
+ * The writes an edit made itself: those before the tidy that any change to the pool sets off,
+ * which saves the whole pool when it changes anything and is no part of the edit.
+ */
+const ownWrites = (keys: readonly string[]) => {
+  const tidy = keys.findIndex((key) => key.endsWith("gc_tidy_v1"));
+  return tidy < 0 ? keys : keys.slice(0, tidy);
+};
 
 describe("a game's score and whether it counts", () => {
   it("takes a score entered for a game still to be played, in its own year alone", async () => {
@@ -251,28 +283,6 @@ describe("a page whose year is in its name alone", () => {
 });
 
 describe("games added and taken away", () => {
-  const leagueOnPage = (): Partial<Pool> => ({
-    league: {
-      teams: [
-        { id: "L-HAWKS", name: "Hawks" },
-        { id: "L-WRENS", name: "Wrens" },
-      ],
-      matchups: [{ id: "m1", date: "9/20", away: "L-HAWKS", home: "L-WRENS" }],
-      logs: {
-        m1: {
-          awayRuns: "4",
-          awayHits: "",
-          awayK: "",
-          homeRuns: "2",
-          homeHits: "",
-          homeK: "",
-          innings: "6",
-          isFinal: true,
-        },
-      },
-    },
-  });
-
   it("adds a game with the new clubs it names, and no club League Standings made but did not name", async () => {
     const user = userEvent.setup();
     renderTeamRankings(pool(leagueOnPage()));
@@ -371,5 +381,128 @@ describe("games added and taken away", () => {
         "myTeamId"
       )
     );
+  });
+});
+
+describe("the clean-up edits", () => {
+  /** A club's panel, opened from the full table. */
+  const openClub = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+    await user.click(await screen.findByRole("button", { name: /show all \d+ teams/i }));
+    await user.click(within(screen.getByRole("table")).getByRole("button", { name }));
+    return screen.getByRole("region", { name });
+  };
+
+  it("renames a club, the roster keeping no team League Standings made", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ ...leagueOnPage(), search: "?age=10&year=2027" }));
+    const panel = await openClub(user, "Rays");
+    const input = within(panel).getByLabelText("Team name");
+    await user.clear(input);
+    await user.type(input, "Rays Blue");
+    await user.click(within(panel).getByRole("button", { name: "Rename" }));
+    await waitFor(() =>
+      expect(loadScoutTeams().map((entry) => entry.name)).toEqual(["Rays Blue", "Jays", "Owls"])
+    );
+  });
+
+  it("folds a page's own team into another club, the page's mark going with it", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(
+      pool({
+        ageGroups: [lastYear, { ...thisYear, myTeamId: "S-RAYS" }],
+        search: "?age=10&year=2027",
+      })
+    );
+    const panel = await openClub(user, "Rays");
+    const box = within(panel).getByLabelText("Same team as");
+    await user.type(box, "jays");
+    const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+    await user.click(
+      within(within(list).getByRole("option", { name: /Jays/ })).getByRole("button")
+    );
+    await user.click(within(panel).getByRole("button", { name: "Fold into it" }));
+    await waitFor(() =>
+      expect(loadScoutTeams().map((entry) => entry.id)).toEqual(["S-JAYS", "S-OWLS"])
+    );
+    expect(loadAgeGroups().find((group) => group.id === thisYear.id)?.myTeamId).toBe("S-JAYS");
+  });
+
+  it("folds a club into one League Standings made, which joins the roster under its own id", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ ...leagueOnPage(), search: "?age=10&year=2027" }));
+    const panel = await openClub(user, "Rays");
+    const box = within(panel).getByLabelText("Same team as");
+    await user.type(box, "hawks");
+    const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
+    await user.click(
+      within(within(list).getByRole("option", { name: /Hawks/ })).getByRole("button")
+    );
+    await user.click(within(panel).getByRole("button", { name: "Fold into it" }));
+    await waitFor(() =>
+      expect(loadScoutTeams().map((entry) => entry.name)).toEqual(["Jays", "Owls", "Hawks"])
+    );
+    // Rays' game against Jays now belongs to the club the league made.
+    const hawks = loadScoutTeams().find((entry) => entry.name === "Hawks")!;
+    expect(stored("played")?.teamAId).toBe(hawks.id);
+  });
+
+  it("sets a club's age, and Undo puts it back keeping a score entered since", async () => {
+    const user = userEvent.setup();
+    const own = game("own", thisYear.id, "S-RAYS", "S-OWLS", 3, 2, {
+      date: "2026-09-05",
+      source: { kind: "gamechanger", teamId: "gcS-RAYS", gameId: "r1" },
+    });
+    const harness = renderTeamRankings(
+      pool({ games: [...pool().games, own], search: "?age=10&year=2027" })
+    );
+    const panel = await openClub(user, "Rays");
+    await user.selectOptions(within(panel).getByLabelText("Age"), "11");
+    await user.click(within(panel).getByRole("button", { name: "Set age" }));
+    await waitFor(() => expect(stored("own")?.ageGroupId).not.toBe(thisYear.id));
+    // A score entered on another game of the year before the Undo.
+    await user.click(screen.getByRole("tab", { name: "Games" }));
+    const open = await gameRow(user, "2026-09-26");
+    await user.click(within(open).getByRole("button", { name: "Enter score" }));
+    const [a, b] = within(open).getAllByPlaceholderText("Score");
+    await user.type(a as HTMLElement, "6");
+    await user.type(b as HTMLElement, "3");
+    await user.click(within(open).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(stored("open")).toMatchObject({ teamAScore: 6 }));
+    const call = harness.showToast.mock.calls.find((entry) =>
+      String(entry[0]).startsWith("Rays is 11U now")
+    )!;
+    act(() => (call[1] as { onAction: () => void }).onAction());
+    await waitFor(() => expect(stored("own")?.ageGroupId).toBe(thisYear.id));
+    expect(stored("open")).toMatchObject({ teamAScore: 6, teamBScore: 3 });
+  });
+
+  it("throws a club out, writing only the years its games were in", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ search: "?age=10&year=2027" }));
+    await user.click(screen.getByRole("tab", { name: "Setup" }));
+    await user.click(await screen.findByRole("button", { name: "Check the pool" }));
+    const list = (await screen.findByText(/^Clubs that may not be real$/)).closest("div")!;
+    const owls = within(list).getByText("Owls").closest("li") as HTMLElement;
+    const writes = watchWrites();
+    await user.click(within(owls).getByRole("button", { name: "Delete club" }));
+    await waitFor(() =>
+      expect(loadScoutTeams().map((entry) => entry.id)).toEqual(["S-RAYS", "S-JAYS"])
+    );
+    expect(ownWrites(writes).some((key) => key.endsWith(shardOf(2026)))).toBe(false);
+    expect(ownWrites(writes).some((key) => key.endsWith(shardOf(2027)))).toBe(true);
+    expect(loadScoutGamesForYear(2026).map((entry) => entry.id)).toEqual(["old"]);
+  });
+
+  it("deletes a lopsided game, writing that game's year alone", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ search: "?age=10&year=2027" }));
+    await user.click(screen.getByRole("tab", { name: "Setup" }));
+    await user.click(await screen.findByRole("button", { name: "Check the pool" }));
+    const list = (await screen.findByText(/^Won by more than \d+ runs$/)).closest("div")!;
+    const writes = watchWrites();
+    await user.click(within(list).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(stored("lopsided")).toBeUndefined());
+    expect(ownWrites(writes).some((key) => key.endsWith(shardOf(2026)))).toBe(false);
+    expect(ownWrites(writes).some((key) => key.endsWith(shardOf(2027)))).toBe(true);
   });
 });

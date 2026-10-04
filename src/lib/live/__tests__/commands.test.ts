@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings/types";
+import { namedAgesList, type NamedAge } from "../../namedAges";
 import { encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
 import {
   applyCommand,
@@ -21,6 +22,7 @@ type Parts = {
   groups: AgeGroup[];
   games: Map<number | null, ScoutGame[]>;
   answers: Map<AnswerList, Set<string>>;
+  named: Map<string, NamedAge>;
 };
 
 const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
@@ -28,7 +30,8 @@ const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
     if (one.part === "teams") parts.teams = one.teams;
     else if (one.part === "groups") parts.groups = one.groups;
     else if (one.part === "games") parts.games.set(one.year, one.games);
-    else parts.answers.set(one.list, one.ids);
+    else if (one.part === "answers") parts.answers.set(one.list, one.ids);
+    else parts.named = one.named;
   });
 
 const memory = (parts: Parts) => {
@@ -38,6 +41,7 @@ const memory = (parts: Parts) => {
     years: () => [...parts.games.keys()],
     games: (year) => parts.games.get(year) ?? [],
     answers: (list) => parts.answers.get(list) ?? new Set(),
+    namedAges: () => parts.named,
   };
   const write = (writes: readonly PoolWrite[]) => applyWrites(parts, writes);
   /** Applies, writes, and hands back what came of it; throws when it was not applied. */
@@ -60,6 +64,7 @@ const stored = (parts: Parts) => ({
   answers: [...parts.answers.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([list, ids]) => [list, [...ids].sort()]),
+  named: JSON.stringify(namedAgesList(parts.named)),
 });
 
 const clone = (parts: Parts): Parts => ({
@@ -67,6 +72,7 @@ const clone = (parts: Parts): Parts => ({
   groups: structuredClone(parts.groups),
   games: new Map([...parts.games].map(([year, games]) => [year, structuredClone(games)])),
   answers: new Map([...parts.answers].map(([list, ids]) => [list, new Set(ids)])),
+  named: new Map(parts.named),
 });
 
 const club = (id: string, extra: Partial<ScoutTeam> = {}): ScoutTeam => ({
@@ -112,7 +118,10 @@ const POOL = (): Parts => ({
     ["realClubs", new Set(["gcA"])],
     ["ageRight", new Set()],
     ["keptApart", new Set()],
+    ["droppedClubs", new Set()],
+    ["deletedGames", new Set()],
   ]),
+  named: new Map(),
 });
 
 describe("a command's change", () => {
@@ -384,6 +393,284 @@ describe("a command's change", () => {
   });
 });
 
+describe("the clean-up commands", () => {
+  const own = (id: string, gcTeamId: string, a: string, b: string) => ({
+    ...played(id, a, b, 3, 1),
+    source: { kind: "gamechanger" as const, teamId: gcTeamId, gameId: `row-${id}` },
+  });
+
+  it("throws games out of whichever years hold them, remembering the rows that scored them", () => {
+    const pool = memory(POOL());
+    pool.run({ kind: "games.drop", gameIds: ["g2", "old", "nowhere"] });
+    expect(pool.parts.games.get(2027)?.map((one) => one.id)).toEqual(["g1"]);
+    expect(pool.parts.games.get(2026)).toEqual([]);
+    expect([...(pool.parts.answers.get("deletedGames") ?? [])].sort()).toEqual(["g2", "old"]);
+    expect(applyCommand(pool.read, { kind: "games.drop", gameIds: ["nowhere"] })).toEqual({
+      ok: false,
+      why: "missing",
+    });
+  });
+
+  it("throws a club out: its games, their rows, its GameChanger ids and the club", () => {
+    const parts = POOL();
+    parts.games.set(2027, [...(parts.games.get(2027) ?? []), own("mine", "gcB1", "B", "C")]);
+    const pool = memory(parts);
+    pool.run({ kind: "club.drop", teamId: "B" });
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "C"]);
+    expect(pool.parts.games.get(2027)).toEqual([]);
+    expect(pool.parts.games.get(null)).toEqual([]);
+    expect([...(pool.parts.answers.get("droppedClubs") ?? [])].sort()).toEqual(["gcB1", "gcB2"]);
+    // The game's own id, and the row it was made from, which a pull matches on.
+    expect([...(pool.parts.answers.get("deletedGames") ?? [])].sort()).toEqual(
+      ["g1", "g2", "gc_gcB1_row-mine", "mine", "open"].sort()
+    );
+    expect(applyCommand(pool.read, { kind: "club.drop", teamId: "B" })).toEqual({
+      ok: false,
+      why: "missing",
+    });
+  });
+
+  it("puts a league season on the page of its age, making the page under the id it is given", () => {
+    const pool = memory(POOL());
+    const made = { kind: "season.assign", seasonId: "s1", pageId: "ag_new" } as const;
+    pool.run({ ...made, season: { ageLevel: 11, year: 2027 } });
+    expect(pool.parts.groups.map((group) => group.id)).toContain("ag_new");
+    expect(pool.parts.groups.find((group) => group.id === "ag_new")?.seasonIds).toEqual(["s1"]);
+    // Moved to a page that is there, it leaves the one it was on.
+    pool.run({ ...made, pageId: "ag_unused", season: { ageLevel: 10, year: 2027 } });
+    expect(pool.parts.groups.find((group) => group.id === "ag_new")?.seasonIds).toEqual([]);
+    expect(pool.parts.groups[1]?.seasonIds).toEqual(["s1"]);
+    pool.run({ ...made, season: null });
+    expect(pool.parts.groups[1]?.seasonIds).toEqual([]);
+    // A page to make under an id a page has already is refused.
+    expect(
+      applyCommand(pool.read, { ...made, pageId: "ag_old", season: { ageLevel: 12, year: 2027 } })
+    ).toEqual({ ok: false, why: "refused" });
+  });
+
+  it("files a club at the age it is said to play, holding it there, and takes that back", () => {
+    const parts = POOL();
+    parts.games.set(2027, [...(parts.games.get(2027) ?? []), own("mine", "gcA", "A", "C")]);
+    const pool = memory(parts);
+    pool.run({
+      kind: "club.age",
+      year: 2027,
+      teamId: "A",
+      level: 11,
+      at: "2026-09-30T12:00:00.000Z",
+      pageId: "ag_11",
+    });
+    expect(pool.parts.groups.find((group) => group.id === "ag_11")?.name).toBe("11U 2027");
+    expect(pool.parts.teams[0]?.gcTeams?.[0]).toMatchObject({
+      ageGroupId: "ag_11",
+      ageLevel: 11,
+      ageFrom: "you",
+    });
+    // Its own schedule's row moves with it; the other clubs' rows stay where they were filed.
+    expect(pool.parts.games.get(2027)?.find((one) => one.id === "mine")?.ageGroupId).toBe("ag_11");
+    expect(pool.parts.games.get(2027)?.find((one) => one.id === "g1")?.ageGroupId).toBe(
+      "ag_10u_2027"
+    );
+    expect(pool.parts.named.get("gcA")).toEqual({
+      teamId: "gcA",
+      level: 11,
+      name: "Club A 10U",
+      namedAt: "2026-09-30T12:00:00.000Z",
+      pinned: true,
+      was: 10,
+    });
+    pool.run({ kind: "club.ageClear", year: 2027, teamId: "A", pageId: "ag_back" });
+    expect(pool.parts.named.has("gcA")).toBe(false);
+    expect(pool.parts.teams[0]?.gcTeams?.[0]).toMatchObject({
+      ageGroupId: "ag_10u_2027",
+      ageLevel: 10,
+    });
+    expect(pool.parts.teams[0]?.gcTeams?.[0]).not.toHaveProperty("ageFrom");
+    expect(pool.parts.games.get(2027)?.find((one) => one.id === "mine")?.ageGroupId).toBe(
+      "ag_10u_2027"
+    );
+  });
+
+  it("takes back an age held on ids the app had at two levels, each to its own, and undoes that exactly", () => {
+    const parts = POOL();
+    // gcB3 was filed at 11U on the 10U page (its own level recorded), so no 11U page is there.
+    parts.teams[1] = {
+      ...parts.teams[1]!,
+      gcTeams: [
+        ...(parts.teams[1]?.gcTeams ?? []),
+        { teamId: "gcB3", name: "Club B 11U", ageGroupId: "ag_10u_2027", ageLevel: 11 },
+      ],
+    };
+    const pool = memory(parts);
+    pool.run({ kind: "club.age", year: 2027, teamId: "B", level: 12, at: "t", pageId: "ag_12" });
+    expect(pool.parts.named.get("gcB1")?.was).toBe(10);
+    expect(pool.parts.named.get("gcB3")?.was).toBe(11);
+    const held = stored(clone(pool.parts));
+    const cleared = pool.run({ kind: "club.ageClear", year: 2027, teamId: "B", pageId: "ag_back" });
+    const links = pool.parts.teams[1]?.gcTeams ?? [];
+    expect(links.find((link) => link.teamId === "gcB1")).toMatchObject({
+      ageGroupId: "ag_10u_2027",
+      ageLevel: 10,
+    });
+    // The second level back needed a page, made under the second id the command names.
+    expect(links.find((link) => link.teamId === "gcB3")).toMatchObject({
+      ageGroupId: "ag_back-1",
+      ageLevel: 11,
+    });
+    expect(pool.parts.groups.find((group) => group.id === "ag_back-1")?.name).toBe("11U 2027");
+    pool.run(cleared.inverse);
+    expect(stored(pool.parts)).toEqual(held);
+  });
+
+  it("tells what it changed by identity, from a store that decodes every read afresh", () => {
+    const parts = POOL();
+    parts.games.set(2027, [...(parts.games.get(2027) ?? []), own("mine", "gcA", "A", "C")]);
+    const pool = memory(parts);
+    // As the browser's store does: a year read twice is two copies of it.
+    const decoding: PoolRead = {
+      ...pool.read,
+      games: (year) => structuredClone(pool.read.games(year)),
+    };
+    const result = applyCommand(decoding, {
+      kind: "club.age",
+      year: 2027,
+      teamId: "A",
+      level: 11,
+      at: "t",
+      pageId: "ag_11",
+    });
+    if (!result.ok) throw new Error(result.why);
+    // The undo puts back the one game that moved, not the year as it stood.
+    const steps = result.inverse.kind === "batch" ? result.inverse.commands : [result.inverse];
+    const flat = steps.flatMap((step) => (step.kind === "batch" ? step.commands : [step]));
+    const put = flat.find((step) => step.kind === "game.put");
+    expect(put?.kind === "game.put" && put.games.map((game) => game.id)).toEqual(["mine"]);
+    expect(flat.some((step) => step.kind === "games.set")).toBe(false);
+  });
+
+  it("refuses an age it does not rank, a club with no link that year, and a taken page id", () => {
+    const pool = memory(POOL());
+    const age = (teamId: string, level: number, pageId = "ag_new") =>
+      applyCommand(pool.read, { kind: "club.age", year: 2027, teamId, level, at: "t", pageId });
+    expect(age("A", 3)).toEqual({ ok: false, why: "refused" });
+    expect(age("C", 11)).toEqual({ ok: false, why: "refused" });
+    expect(age("A", 11, "ag_old")).toEqual({ ok: false, why: "refused" });
+    expect(age("S-NONE", 11)).toEqual({ ok: false, why: "missing" });
+    // A page that is there already needs no id, so a taken one does not matter.
+    expect(age("A", 10, "ag_old").ok).toBe(true);
+  });
+
+  it("folds one club into another, every page's mark following it", () => {
+    const pool = memory(POOL());
+    pool.run({ kind: "teams.merge", fromId: "C", intoId: "A", adopt: [] });
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "B"]);
+    expect(pool.parts.games.get(2027)?.find((one) => one.id === "g2")).toMatchObject({
+      teamAId: "B",
+      teamBId: "A",
+    });
+    // A game between the two cannot survive: a club does not play itself.
+    expect(pool.parts.games.get(2026)).toEqual([]);
+    expect(pool.parts.groups[1]?.myTeamId).toBe("A");
+  });
+
+  it("folds into a club League Standings made, and refuses a club offered that is not one of the two", () => {
+    const pool = memory(POOL());
+    const merge = (adopt: ScoutTeam[], intoId = "S-L1") =>
+      applyCommand(pool.read, { kind: "teams.merge", fromId: "C", intoId, adopt });
+    expect(merge([club("S-L1"), club("S-L2")])).toEqual({ ok: false, why: "refused" });
+    expect(merge([])).toEqual({ ok: false, why: "missing" });
+    expect(merge([], "C")).toEqual({ ok: false, why: "refused" });
+    pool.run({ kind: "teams.merge", fromId: "C", intoId: "S-L1", adopt: [club("S-L1")] });
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "B", "S-L1"]);
+  });
+
+  it("renames a club, and refuses a name another club goes by", () => {
+    const pool = memory(POOL());
+    pool.run({ kind: "team.rename", teamId: "C", name: "  Club   Z " });
+    expect(pool.parts.teams[2]?.name).toBe("Club Z");
+    const rename = (teamId: string, name: string) =>
+      applyCommand(pool.read, { kind: "team.rename", teamId, name });
+    expect(rename("C", "club a")).toEqual({ ok: false, why: "refused" });
+    expect(rename("C", "  ")).toEqual({ ok: false, why: "refused" });
+    // A club League Standings made takes its name from the league.
+    expect(rename("S-L1", "Hawks")).toEqual({ ok: false, why: "missing" });
+  });
+
+  it("puts back a part whose records it left in another order, whole", () => {
+    const pool = memory(POOL());
+    const result = pool.run({ kind: "teams.set", teams: [club("C"), club("A"), club("B")] });
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["C", "A", "B"]);
+    expect(result.inverse.kind).toBe("teams.set");
+    pool.run(result.inverse);
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["A", "B", "C"]);
+  });
+
+  it("puts back a year holding one id twice exactly, whole", () => {
+    const parts = POOL();
+    const twice = played("g1", "A", "C", 9, 9);
+    parts.games.set(2027, [...(parts.games.get(2027) ?? []), twice]);
+    const pool = memory(parts);
+    const held = stored(clone(pool.parts));
+    const result = pool.run({ kind: "games.set", year: 2027, games: [twice] });
+    expect(result.inverse.kind).toBe("games.set");
+    pool.run(result.inverse);
+    expect(stored(pool.parts)).toEqual(held);
+  });
+
+  it("puts back no game the year does not hold", () => {
+    const pool = memory(POOL());
+    expect(
+      applyCommand(pool.read, {
+        kind: "game.put",
+        year: 2026,
+        games: [played("g1", "A", "B", 1, 0)],
+      })
+    ).toEqual({ ok: false, why: "missing" });
+  });
+
+  it("puts back no page over one held", () => {
+    const pool = memory(POOL());
+    expect(
+      applyCommand(pool.read, { kind: "group.insert", group: pool.parts.groups[0]!, at: 0 })
+    ).toEqual({ ok: false, why: "refused" });
+  });
+
+  it("refuses to take back an age onto a page it would make under an id a page has", () => {
+    const parts = POOL();
+    // gcB3 was filed at 11U on the 10U page, so going back needs an 11U page.
+    parts.teams[1] = {
+      ...parts.teams[1]!,
+      gcTeams: [{ teamId: "gcB3", name: "Club B 11U", ageGroupId: "ag_10u_2027", ageLevel: 11 }],
+    };
+    const pool = memory(parts);
+    pool.run({ kind: "club.age", year: 2027, teamId: "B", level: 12, at: "t", pageId: "ag_12" });
+    expect(
+      applyCommand(pool.read, { kind: "club.ageClear", year: 2027, teamId: "B", pageId: "ag_old" })
+    ).toEqual({ ok: false, why: "refused" });
+  });
+
+  it("files every game of a merge under the year storage reads off its page, an old page's name too", () => {
+    const parts = POOL();
+    parts.groups.push({ id: "ag_named", name: "11U 2027", seasonIds: [] });
+    parts.games.set(2027, [
+      ...(parts.games.get(2027) ?? []),
+      { ...played("named", "A", "B", 3, 2), ageGroupId: "ag_named" },
+    ]);
+    const pool = memory(parts);
+    pool.run({ kind: "teams.merge", fromId: "C", intoId: "A", adopt: [] });
+    expect(pool.parts.games.get(2027)?.map((one) => one.id)).toEqual(["g1", "g2", "named"]);
+    expect(pool.parts.games.get(null)?.map((one) => one.id)).toEqual(["open"]);
+  });
+
+  it("takes away no page a game is on", () => {
+    const pool = memory(POOL());
+    expect(applyCommand(pool.read, { kind: "group.remove", groupId: "ag_10u_2026" })).toEqual({
+      ok: false,
+      why: "refused",
+    });
+  });
+});
+
 /** A small seeded generator, so a failing draw can be run again. */
 const seeded = (seed: number) => {
   let state = seed >>> 0;
@@ -404,7 +691,8 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
   const game = games.length > 0 ? pick(games) : undefined;
   const team = pick(parts.teams);
   const ids = ["gcA", "gcB1", "gcB2", "gcC", "gcZ"];
-  switch (Math.floor(next() * 12)) {
+  const n = Math.floor(next() * 1000);
+  switch (Math.floor(next() * 19)) {
     case 0:
       return game
         ? {
@@ -448,7 +736,6 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
         remove: ids.filter(() => next() < 0.3),
       };
     case 7: {
-      const n = Math.floor(next() * 1000);
       const other = pick(parts.teams);
       const fresh = next() < 0.5 ? club(`S-NEW${n}`) : undefined;
       return {
@@ -460,6 +747,10 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
             ageGroupId: year === 2027 ? "ag_10u_2027" : year === 2026 ? "ag_10u_2026" : "ag_old",
             teamAId: fresh?.id ?? team.id,
             teamBId: other.id === (fresh?.id ?? team.id) ? "A" : other.id,
+            // Off a club's own schedule, half the time, so that an age set on it moves the row.
+            ...(next() < 0.5
+              ? { source: { kind: "gamechanger" as const, teamId: pick(ids), gameId: `r${n}` } }
+              : {}),
           },
         ],
         adopt: fresh ? [fresh] : [],
@@ -482,6 +773,69 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
     }
     case 10:
       return { kind: "club.leavePage", ageGroupId: pick(parts.groups).id, teamId: team.id };
+    case 11:
+      return {
+        kind: "games.drop",
+        gameIds: [...parts.games.values()]
+          .flat()
+          .filter(() => next() < 0.3)
+          .map((one) => one.id),
+      };
+    case 12:
+      return { kind: "club.drop", teamId: team.id };
+    case 13:
+      return {
+        kind: "season.assign",
+        seasonId: pick(["s1", "s2"]),
+        season: next() < 0.2 ? null : { ageLevel: pick([10, 11]), year: pick([2026, 2027]) },
+        pageId: `ag_p${n}`,
+      };
+    case 14:
+      return {
+        kind: "club.age",
+        year: pick([2026, 2027]),
+        teamId: team.id,
+        level: pick([9, 10, 11]),
+        at: `t${n}`,
+        pageId: `ag_p${n}`,
+      };
+    case 15: {
+      const year = pick([2026, 2027]);
+      const clear: PoolCommand = {
+        kind: "club.ageClear",
+        year,
+        teamId: team.id,
+        pageId: `ag_q${n}`,
+      };
+      // On a club with an age held, alone; otherwise after holding one, so there is one to clear.
+      return team.gcTeams?.some((link) => parts.named.get(link.teamId)?.pinned)
+        ? clear
+        : {
+            kind: "batch",
+            commands: [
+              {
+                kind: "club.age",
+                year,
+                teamId: team.id,
+                level: pick([9, 11]),
+                at: `t${n}`,
+                pageId: `ag_p${n}`,
+              },
+              clear,
+            ],
+          };
+    }
+    case 16: {
+      const league = next() < 0.3 ? club(`S-L${n % 3}`) : undefined;
+      return {
+        kind: "teams.merge",
+        fromId: team.id,
+        intoId: league?.id ?? pick(parts.teams).id,
+        adopt: league ? [league] : [],
+      };
+    }
+    case 17:
+      return { kind: "team.rename", teamId: team.id, name: pick(["Club A", "Club Z", "Club Q"]) };
     default:
       return {
         kind: "batch",
@@ -526,7 +880,11 @@ describe("a command as it arrives from elsewhere", () => {
       const command = drawCommand(POOL(), seeded(seed));
       expect(coerceCommand(JSON.parse(JSON.stringify(command)))).toEqual(command);
     }
-    const put: PoolCommand = { kind: "game.put", year: 2027, game: played("g1", "A", "B", 5, 4) };
+    const put: PoolCommand = {
+      kind: "game.put",
+      year: 2027,
+      games: [played("g1", "A", "B", 5, 4)],
+    };
     expect(coerceCommand(JSON.parse(JSON.stringify(put)))).toEqual(put);
     const back: PoolCommand = { kind: "team.put", team: club("A", { state: "OH" }) };
     expect(coerceCommand(JSON.parse(JSON.stringify(back)))).toEqual(back);

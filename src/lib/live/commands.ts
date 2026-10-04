@@ -1,10 +1,20 @@
 import { ratedMargin, withScoreTyped } from "../teamRankings/games";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings/types";
-import { filedTeamIds, unlinkGcTeam } from "../teamRankings";
-import { normalizeState } from "../teamRankings/names";
-import { ageGroupYear } from "../teamRankings/seasons";
+import { filedTeamIds, gcLinkSquadYear, mergeScoutTeams, unlinkGcTeam } from "../teamRankings";
+import { cleanTeamName, normalizeState, teamNameKey } from "../teamRankings/names";
+import { ageGroupYear, seasonAtAge, type AgeGroupSeason } from "../teamRankings/seasons";
 import { coerceScoutGames, coerceScoutTeams } from "../teamRankingsCompact";
 import { coerceAgeGroups } from "../teamRankingsStorage";
+import { setClubAge, type ClubAgeState } from "../clubAge";
+import { rowsOfGames, scoringRowsOf } from "../deletedGames";
+import {
+  coerceNamedAges,
+  forgetNamedAge,
+  nameAge,
+  type NamedAge,
+  type NamedAges,
+} from "../namedAges";
+import { withoutClub } from "../unrealClubs";
 
 /**
  * Team Rankings' edits as commands: what a person asked for, written down so that the same
@@ -20,10 +30,20 @@ import { coerceAgeGroups } from "../teamRankingsStorage";
  * seasons are walked and are not the roster's to keep.
  */
 
-/** The lists of answers the user has given about clubs, each kept as a set of ids. */
-export type AnswerList = "realClubs" | "ageRight" | "keptApart";
+/**
+ * The lists of answers the user has given, each kept as a set of ids: clubs said to be real, ages
+ * said to be right, pairs kept apart, and what a pull is to refuse: the GameChanger ids of clubs
+ * thrown out (`droppedClubs`) and the rows of games thrown out (`deletedGames`).
+ */
+export type AnswerList = "realClubs" | "ageRight" | "keptApart" | "droppedClubs" | "deletedGames";
 
-const ANSWER_LISTS: readonly AnswerList[] = ["realClubs", "ageRight", "keptApart"];
+const ANSWER_LISTS: readonly AnswerList[] = [
+  "realClubs",
+  "ageRight",
+  "keptApart",
+  "droppedClubs",
+  "deletedGames",
+];
 
 export type PoolCommand =
   /** Nothing: the inverse of a command that changed nothing. */
@@ -84,8 +104,60 @@ export type PoolCommand =
   | { kind: "game.exclude"; year: number | null; gameId: string; excluded: boolean }
   /** A lopsided score the user vouches for, at the margin it reads now. */
   | { kind: "game.confirm"; year: number | null; gameId: string }
-  /** A game's record put back as it was, in its place. */
-  | { kind: "game.put"; year: number | null; game: ScoutGame };
+  /** Games' records put back as they were, each in its place. */
+  | { kind: "game.put"; year: number | null; games: ScoutGame[] }
+  /**
+   * A year's games, the roster or the pages put back whole: the inverse of a change that left the
+   * records it kept in another order, which a record-by-record inverse could not put back exactly.
+   */
+  | { kind: "games.set"; year: number | null; games: ScoutGame[] }
+  | { kind: "teams.set"; teams: ScoutTeam[] }
+  | { kind: "groups.set"; groups: AgeGroup[] }
+  /** A page taken away: only ever the inverse of one a command made, and never one a game is on. */
+  | { kind: "group.remove"; groupId: string }
+  /** A page put back at its place: the inverse of `group.remove`. */
+  | { kind: "group.insert"; group: AgeGroup; at: number }
+  /** Named ages set (each under its GameChanger id) and taken back. */
+  | { kind: "namedAges"; put: NamedAge[]; forget: string[] }
+  /**
+   * Games thrown out, from whichever years hold them, with the rows that carried their scores
+   * remembered (`scoringRowsOf`) so that pulling those schedules again does not file them back.
+   */
+  | { kind: "games.drop"; gameIds: string[] }
+  /**
+   * A club thrown out: every game it is in, the rows they stood on remembered, its GameChanger ids
+   * refused from now on, and the club itself, except where another club's row was filed against it
+   * (`withoutClub`).
+   */
+  | { kind: "club.drop"; teamId: string }
+  /**
+   * A League Standings season put on the page of its age, or taken off Team Rankings (null).
+   * `pageId` is the id the page gets if there is none for that age yet.
+   */
+  | { kind: "season.assign"; seasonId: string; season: AgeGroupSeason | null; pageId: string }
+  /**
+   * A pulled club filed at the age somebody says it plays at in squad year `year`, and held there
+   * whatever a later pull says (`setClubAge`, `NamedAge.pinned`). `at` is when it was said;
+   * `pageId` the id of the page for that age if there is none yet.
+   */
+  | { kind: "club.age"; year: number; teamId: string; level: number; at: string; pageId: string }
+  /**
+   * An age set on a club taken back in squad year `year`: the holds come off and each of its ids
+   * goes back to the level the app had it at. `pageId` names any page that has to be made for it
+   * (the second and later are `${pageId}-1`, `${pageId}-2`, ...).
+   */
+  | { kind: "club.ageClear"; year: number; teamId: string; pageId: string }
+  /**
+   * One club folded into another (`mergeScoutTeams`), every page's mark following it. `adopt` is
+   * either club as League Standings made it, when the roster does not hold it yet.
+   */
+  | { kind: "teams.merge"; fromId: string; intoId: string; adopt: ScoutTeam[] }
+  /**
+   * A club the roster holds renamed. A name another club it holds already goes by is refused: that
+   * is a merge (`teams.merge`), and only the person asking can say which club survives. A club
+   * League Standings made takes its name from the league, so it is never renamed here.
+   */
+  | { kind: "team.rename"; teamId: string; name: string };
 
 /** The pool as a command reads it: the parts it may change, as storage decodes them. */
 export type PoolRead = {
@@ -96,6 +168,8 @@ export type PoolRead = {
   /** One squad year's games; null for the games whose page has no year. */
   games: (year: number | null) => readonly ScoutGame[];
   answers: (list: AnswerList) => ReadonlySet<string>;
+  /** The ages people have named, by GameChanger id. */
+  namedAges: () => NamedAges;
 };
 
 /** One part of the pool, as a command would leave it. */
@@ -103,7 +177,8 @@ export type PoolWrite =
   | { part: "teams"; teams: ScoutTeam[] }
   | { part: "groups"; groups: AgeGroup[] }
   | { part: "games"; year: number | null; games: ScoutGame[] }
-  | { part: "answers"; list: AnswerList; ids: Set<string> };
+  | { part: "answers"; list: AnswerList; ids: Set<string> }
+  | { part: "namedAges"; named: Map<string, NamedAge> };
 
 export type Applied = { ok: true; writes: PoolWrite[]; inverse: PoolCommand };
 
@@ -138,6 +213,7 @@ const overlay = (read: PoolRead, writes: readonly PoolWrite[]): PoolRead => {
   const answers = new Map(
     writes.flatMap((write) => (write.part === "answers" ? [[write.list, write.ids] as const] : []))
   );
+  const named = writes.filter((write) => write.part === "namedAges").pop();
   return {
     teams: () => (teams?.part === "teams" ? teams.teams : read.teams()),
     groups: () => (groups?.part === "groups" ? groups.groups : read.groups()),
@@ -148,6 +224,7 @@ const overlay = (read: PoolRead, writes: readonly PoolWrite[]): PoolRead => {
     ],
     games: (year) => games.get(year) ?? read.games(year),
     answers: (list) => answers.get(list) ?? read.answers(list),
+    namedAges: () => (named?.part === "namedAges" ? named.named : read.namedAges()),
   };
 };
 
@@ -188,7 +265,7 @@ const editGame = (
   return {
     ok: true,
     writes: [{ part: "games", year, games: written }],
-    inverse: { kind: "game.put", year, game: was },
+    inverse: { kind: "game.put", year, games: [was] },
   };
 };
 
@@ -241,22 +318,254 @@ const withExcluded = (game: ScoutGame, excluded: boolean): ScoutGame => {
   return excluded ? { ...rest, excluded: true } : rest;
 };
 
+/** One step of a change, made on the pool as the steps before it left it. */
+type Step = (read: PoolRead) => CommandResult;
+
+/** Steps made in order as one change, each reading what the last wrote; undone last first. */
+const applySteps = (read: PoolRead, steps: readonly Step[]): CommandResult => {
+  const writes: PoolWrite[] = [];
+  const inverses: PoolCommand[] = [];
+  for (const step of steps) {
+    const result = step(overlay(read, writes));
+    if (!result.ok) return result;
+    writes.push(...result.writes);
+    if (result.inverse.kind !== "none") inverses.unshift(result.inverse);
+  }
+  return { ok: true, writes: lastPerPart(writes), inverse: undoing(inverses) };
+};
+
+/**
+ * How a list of records went from `before` to `after`, record by record by id: the ids added, the
+ * records taken away with their places, and the records changed as they were. Null when that
+ * cannot put `before` back exactly: an id twice in either list, or the records both hold standing
+ * in another order.
+ */
+const listChange = <T extends { id: string }>(before: readonly T[], after: readonly T[]) => {
+  const now = new Map(after.map((item) => [item.id, item]));
+  const was = new Set(before.map((item) => item.id));
+  if (now.size !== after.length || was.size !== before.length) return null;
+  const removed: { item: T; at: number }[] = [];
+  const changed: T[] = [];
+  const kept: string[] = [];
+  before.forEach((item, at) => {
+    const next = now.get(item.id);
+    if (next === undefined) removed.push({ item, at });
+    else {
+      kept.push(item.id);
+      if (next !== item) changed.push(item);
+    }
+  });
+  const added: string[] = [];
+  let place = 0;
+  for (const item of after) {
+    if (!was.has(item.id)) added.push(item.id);
+    else if (kept[place++] !== item.id) return null;
+  }
+  return added.length + removed.length + changed.length === 0
+    ? "same"
+    : { added, removed, changed };
+};
+
+/** The parts a change leaves, each given only when the change computed it. */
+type After = {
+  teams?: readonly ScoutTeam[];
+  groups?: readonly AgeGroup[];
+  /** Games by squad year; a year the pool holds and this does not name is left as it is. */
+  games?: ReadonlyMap<number | null, readonly ScoutGame[]>;
+};
+
+/**
+ * The writes that take the pool `read` holds to `after`, each part written only when it changed,
+ * and the inverse that puts back exactly what changed: record by record, so that whatever else is
+ * changed meanwhile stands through an undo, or the part whole where the records it kept moved.
+ *
+ * The inverse puts the games back first, then the roster, then the pages, so that a page it takes
+ * away has no game left on it by then (`group.remove`).
+ */
+const settle = (read: PoolRead, after: After): Applied => {
+  const writes: PoolWrite[] = [];
+  const inverses: PoolCommand[] = [];
+  after.games?.forEach((games, year) => {
+    const before = read.games(year);
+    const change = listChange(before, games);
+    if (change === "same") return;
+    writes.push({ part: "games", year, games: [...games] });
+    inverses.push(
+      change === null
+        ? { kind: "games.set", year, games: [...before] }
+        : undoing([
+            change.added.length > 0 ? { kind: "game.remove", year, gameIds: change.added } : NONE,
+            change.changed.length > 0 ? { kind: "game.put", year, games: change.changed } : NONE,
+            change.removed.length > 0
+              ? {
+                  kind: "game.insert",
+                  year,
+                  games: change.removed.map(({ item, at }) => ({ game: item, at })),
+                }
+              : NONE,
+          ])
+    );
+  });
+  if (after.teams) {
+    const before = read.teams();
+    const change = listChange(before, after.teams);
+    if (change !== "same") {
+      writes.push({ part: "teams", teams: [...after.teams] });
+      inverses.push(
+        change === null
+          ? { kind: "teams.set", teams: [...before] }
+          : undoing([
+              ...change.added.map((teamId): PoolCommand => ({ kind: "team.remove", teamId })),
+              ...change.changed.map((team): PoolCommand => ({ kind: "team.put", team })),
+              ...change.removed.map(({ item, at }): PoolCommand => ({
+                kind: "team.insert",
+                team: item,
+                at,
+              })),
+            ])
+      );
+    }
+  }
+  if (after.groups) {
+    const before = read.groups();
+    const change = listChange(before, after.groups);
+    if (change !== "same") {
+      writes.push({ part: "groups", groups: [...after.groups] });
+      inverses.push(
+        change === null
+          ? { kind: "groups.set", groups: [...before] }
+          : undoing([
+              ...change.added.map((groupId): PoolCommand => ({ kind: "group.remove", groupId })),
+              ...change.changed.map((group): PoolCommand => ({ kind: "group.put", group })),
+              ...change.removed.map(({ item, at }): PoolCommand => ({
+                kind: "group.insert",
+                group: item,
+                at,
+              })),
+            ])
+      );
+    }
+  }
+  return { ok: true, writes, inverse: undoing(inverses) };
+};
+
+/** Whether no two pages share an id: a page made under an id one has already would. */
+const uniqueIds = (groups: readonly AgeGroup[]): boolean =>
+  new Set(groups.map((group) => group.id)).size === groups.length;
+
+/** Every game the pool holds, year after year in the order the pool lists its years. */
+const everyGame = (read: PoolRead): ScoutGame[] => read.years().flatMap((year) => read.games(year));
+
+/**
+ * Games split by the squad year storage files each under (`ageGroupYear` of its page), every year
+ * the pool holds named, so that a year left with no games is written empty.
+ */
+const byYear = (
+  read: PoolRead,
+  games: readonly ScoutGame[],
+  groups: readonly AgeGroup[]
+): Map<number | null, ScoutGame[]> => {
+  const yearOf = new Map(groups.map((group) => [group.id, ageGroupYear(group) ?? null]));
+  const split = new Map<number | null, ScoutGame[]>(read.years().map((year) => [year, []]));
+  games.forEach((game) => {
+    const year = yearOf.get(game.ageGroupId) ?? null;
+    const list = split.get(year);
+    if (list) list.push(game);
+    else split.set(year, [game]);
+  });
+  return split;
+};
+
+/** The ids given added to an answer list, as a step. */
+const remember =
+  (list: AnswerList, ids: readonly string[]): Step =>
+  (read) =>
+    apply(read, { kind: "answers", list, add: [...ids], remove: [] });
+
+/**
+ * The named ages for a club's ids just filed at `level` by hand: each held there (`pinned`), with
+ * the level the app had it at kept through a second change, so taking it back reaches the app's.
+ */
+const pinnedAges = (
+  named: NamedAges,
+  club: ScoutTeam | undefined,
+  gcTeamIds: readonly string[],
+  levels: Readonly<Record<string, number>>,
+  level: number,
+  at: string
+): Map<string, NamedAge> => {
+  let next = new Map(named);
+  gcTeamIds.forEach((gcTeamId) => {
+    const link = club?.gcTeams?.find((entry) => entry.teamId === gcTeamId);
+    const held = named.get(gcTeamId);
+    const was = held?.pinned ? held.was : levels[gcTeamId];
+    next = nameAge(next, {
+      teamId: gcTeamId,
+      level,
+      ...(link?.name ? { name: link.name } : {}),
+      namedAt: at,
+      pinned: true,
+      ...(was === undefined ? {} : { was }),
+    });
+  });
+  return next;
+};
+
+/** A write of the named ages, and the command that puts back the entries it changed. */
+const namedAgesChange = (before: NamedAges, after: ReadonlyMap<string, NamedAge>): Applied => {
+  const put: NamedAge[] = [];
+  const forget: string[] = [];
+  new Set([...before.keys(), ...after.keys()]).forEach((id) => {
+    const was = before.get(id);
+    const now = after.get(id);
+    if (was === now) return;
+    if (was === undefined) forget.push(id);
+    else put.push(was);
+  });
+  return put.length + forget.length === 0
+    ? unchanged()
+    : {
+        ok: true,
+        writes: [{ part: "namedAges", named: new Map(after) }],
+        inverse: { kind: "namedAges", put, forget },
+      };
+};
+
+/**
+ * `read` answering each part from the first time it was asked. A command tells what it changed by
+ * identity (`listChange`), and a store may decode a part afresh on every read, which would make
+ * every record look changed: an undo would then write back a whole year as it stood, over whatever
+ * was changed since.
+ */
+const readOnce = (read: PoolRead): PoolRead => {
+  const parts = new Map<string, unknown>();
+  const once = <T>(key: string, load: () => T): T => {
+    if (!parts.has(key)) parts.set(key, load());
+    return parts.get(key) as T;
+  };
+  return {
+    teams: () => once("teams", read.teams),
+    groups: () => once("groups", read.groups),
+    years: () => once("years", read.years),
+    games: (year) => once(`games:${year ?? "none"}`, () => read.games(year)),
+    answers: (list) => once(`answers:${list}`, () => read.answers(list)),
+    namedAges: () => once("namedAges", read.namedAges),
+  };
+};
+
 /** Makes `command`'s change to the pool `read` holds, or says why it cannot. */
-export const applyCommand = (read: PoolRead, command: PoolCommand): CommandResult => {
+export const applyCommand = (read: PoolRead, command: PoolCommand): CommandResult =>
+  apply(readOnce(read), command);
+
+const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
   switch (command.kind) {
     case "none":
       return unchanged();
-    case "batch": {
-      const writes: PoolWrite[] = [];
-      const inverses: PoolCommand[] = [];
-      for (const step of command.commands) {
-        const result = applyCommand(overlay(read, writes), step);
-        if (!result.ok) return result;
-        writes.push(...result.writes);
-        if (result.inverse.kind !== "none") inverses.unshift(result.inverse);
-      }
-      return { ok: true, writes: lastPerPart(writes), inverse: undoing(inverses) };
-    }
+    case "batch":
+      return applySteps(
+        read,
+        command.commands.map((step) => (pool: PoolRead) => apply(pool, step))
+      );
     case "answers": {
       const was = read.answers(command.list);
       const added = command.add.filter((id) => !was.has(id));
@@ -497,8 +806,253 @@ export const applyCommand = (read: PoolRead, command: PoolCommand): CommandResul
           ? game
           : { ...game, scoreConfirmed: margin };
       });
-    case "game.put":
-      return editGame(read, command.year, command.game.id, () => command.game);
+    case "game.put": {
+      const games = read.games(command.year);
+      const next = new Map(command.games.map((game) => [game.id, game]));
+      const held = new Set(games.map((game) => game.id));
+      if (command.games.some((game) => !held.has(game.id))) return { ok: false, why: "missing" };
+      if (next.size === 0) return unchanged();
+      const was = games.filter((game) => next.has(game.id));
+      return {
+        ok: true,
+        writes: [
+          {
+            part: "games",
+            year: command.year,
+            games: games.map((game) => next.get(game.id) ?? game),
+          },
+        ],
+        inverse: { kind: "game.put", year: command.year, games: was },
+      };
+    }
+    case "games.set":
+      return settle(read, { games: new Map([[command.year, command.games]]) });
+    case "teams.set":
+      return settle(read, { teams: command.teams });
+    case "groups.set":
+      return settle(read, { groups: command.groups });
+    case "group.remove": {
+      const groups = read.groups();
+      const at = groups.findIndex((group) => group.id === command.groupId);
+      const was = groups[at];
+      if (!was) return { ok: false, why: "missing" };
+      // Storing the pages without one refiles whatever is still on it (`saveAgeGroups`).
+      if (everyGame(read).some((game) => game.ageGroupId === command.groupId))
+        return { ok: false, why: "refused" };
+      return {
+        ok: true,
+        writes: [
+          { part: "groups", groups: groups.filter((group) => group.id !== command.groupId) },
+        ],
+        inverse: { kind: "group.insert", group: was, at },
+      };
+    }
+    case "group.insert": {
+      const groups = read.groups();
+      if (groups.some((group) => group.id === command.group.id))
+        return { ok: false, why: "refused" };
+      const next = groups.slice();
+      next.splice(Math.min(command.at, next.length), 0, command.group);
+      return {
+        ok: true,
+        writes: [{ part: "groups", groups: next }],
+        inverse: { kind: "group.remove", groupId: command.group.id },
+      };
+    }
+    case "namedAges": {
+      const before = read.namedAges();
+      let after: Map<string, NamedAge> = new Map(before);
+      command.forget.forEach((id) => (after = forgetNamedAge(after, id)));
+      command.put.forEach((entry) => (after = nameAge(after, entry)));
+      return namedAgesChange(before, after);
+    }
+    case "games.drop": {
+      const all = everyGame(read);
+      const drop = new Set(command.gameIds);
+      const found = all.filter((game) => drop.has(game.id)).map((game) => game.id);
+      if (found.length === 0) return { ok: false, why: "missing" };
+      const rows = scoringRowsOf(all, found);
+      return applySteps(read, [
+        // The rows go down first, as they did before: a pull that started between the two writes
+        // would otherwise file the games straight back.
+        remember("deletedGames", rows),
+        ...read.years().map(
+          (year): Step =>
+            (pool) =>
+              apply(pool, { kind: "game.remove", year, gameIds: found })
+        ),
+      ]);
+    }
+    case "club.drop": {
+      const teams = read.teams();
+      const club = teams.find((team) => team.id === command.teamId);
+      if (!club) return { ok: false, why: "missing" };
+      const all = everyGame(read);
+      const gameIds = all
+        .filter((game) => game.teamAId === club.id || game.teamBId === club.id)
+        .map((game) => game.id);
+      const gcTeamIds = (club.gcTeams ?? []).map((link) => link.teamId);
+      return applySteps(read, [
+        remember("droppedClubs", gcTeamIds),
+        remember("deletedGames", rowsOfGames(all, gameIds)),
+        (pool) => {
+          // Another club's row one of its games held as a claim stands back up rather than go.
+          const left = withoutClub({ teamId: club.id, gameIds }, pool.teams(), everyGame(pool), [
+            ...pool.groups(),
+          ]);
+          return settle(pool, {
+            teams: left.teams,
+            games: byYear(pool, left.games, pool.groups()),
+          });
+        },
+      ]);
+    }
+    case "season.assign": {
+      const made = seasonAtAge(
+        command.seasonId,
+        command.season,
+        [...read.groups()],
+        command.pageId
+      );
+      if (!uniqueIds(made.ageGroups)) return { ok: false, why: "refused" };
+      return settle(read, { groups: made.ageGroups });
+    }
+    case "club.age": {
+      const teams = read.teams();
+      const club = teams.find((team) => team.id === command.teamId);
+      if (!club) return { ok: false, why: "missing" };
+      const groups = read.groups();
+      const before: ClubAgeState = {
+        teams: [...teams],
+        games: [...read.games(command.year)],
+        ageGroups: [...groups],
+      };
+      const change = setClubAge(
+        before,
+        command.teamId,
+        command.level,
+        command.year,
+        "you",
+        undefined,
+        command.pageId
+      );
+      // A level this app does not rank, a club with no GameChanger link in the year, or a page to
+      // make under an id a page has already.
+      if (!change || !uniqueIds(change.ageGroups)) return { ok: false, why: "refused" };
+      const named = pinnedAges(
+        read.namedAges(),
+        club,
+        change.gcTeamIds,
+        change.levels,
+        command.level,
+        command.at
+      );
+      return applySteps(read, [
+        (pool) =>
+          settle(pool, {
+            teams: change.teams === before.teams ? teams : change.teams,
+            groups: change.ageGroups === before.ageGroups ? groups : change.ageGroups,
+            games: new Map([
+              [
+                command.year,
+                change.games === before.games ? read.games(command.year) : change.games,
+              ],
+            ]),
+          }),
+        (pool) => namedAgesChange(pool.namedAges(), named),
+      ]);
+    }
+    case "club.ageClear": {
+      const teams = read.teams();
+      const club = teams.find((team) => team.id === command.teamId);
+      if (!club) return { ok: false, why: "missing" };
+      const groups = read.groups();
+      const ids = (club.gcTeams ?? [])
+        .filter((link) => gcLinkSquadYear(link, [...groups]) === command.year)
+        .map((link) => link.teamId);
+      const pinned = read.namedAges();
+      let named: Map<string, NamedAge> = new Map(pinned);
+      const back = new Map<number, Set<string>>();
+      ids.forEach((id) => {
+        const entry = pinned.get(id);
+        if (!entry?.pinned) return;
+        named = forgetNamedAge(named, id);
+        const to = entry.was ?? entry.level;
+        back.set(to, (back.get(to) ?? new Set()).add(id));
+      });
+      if (back.size === 0) return unchanged();
+      const before: ClubAgeState = {
+        teams: [...teams],
+        games: [...read.games(command.year)],
+        ageGroups: [...groups],
+      };
+      // The whole club at once when every id goes back to one level, so the other clubs' rows
+      // that recorded an age for it go back too; otherwise each id with its own schedule's rows.
+      const whole = back.size === 1 && [...back.values()][0]?.size === ids.length;
+      let after = before;
+      [...back].forEach(([level, gcIds], at) => {
+        after =
+          setClubAge(
+            after,
+            command.teamId,
+            level,
+            command.year,
+            null,
+            whole ? undefined : gcIds,
+            at === 0 ? command.pageId : `${command.pageId}-${at}`
+          ) ?? after;
+      });
+      if (!uniqueIds(after.ageGroups)) return { ok: false, why: "refused" };
+      return applySteps(read, [
+        (pool) =>
+          settle(pool, {
+            teams: after.teams === before.teams ? teams : after.teams,
+            groups: after.ageGroups === before.ageGroups ? groups : after.ageGroups,
+            games: new Map([
+              [command.year, after.games === before.games ? read.games(command.year) : after.games],
+            ]),
+          }),
+        (pool) => namedAgesChange(pool.namedAges(), named),
+      ]);
+    }
+    case "teams.merge": {
+      if (command.fromId === command.intoId) return { ok: false, why: "refused" };
+      const teams = read.teams();
+      const held = new Set(teams.map((team) => team.id));
+      const pair = new Set([command.fromId, command.intoId]);
+      const offered = new Set(command.adopt.map((team) => team.id));
+      if (offered.size < command.adopt.length || [...offered].some((id) => !pair.has(id)))
+        return { ok: false, why: "refused" };
+      const roster = [...teams, ...command.adopt.filter((team) => !held.has(team.id))];
+      const ids = new Set(roster.map((team) => team.id));
+      if (!ids.has(command.fromId) || !ids.has(command.intoId))
+        return { ok: false, why: "missing" };
+      const groups = read.groups();
+      const merged = mergeScoutTeams(command.fromId, command.intoId, roster, everyGame(read), [
+        ...groups,
+      ]);
+      // Every page whose own team was the club folded away follows it to the one that stays.
+      const marked = groups.map((group) =>
+        group.myTeamId === command.fromId ? withMyTeam(group, command.intoId) : group
+      );
+      return settle(read, {
+        teams: merged.teams,
+        groups: marked.some((group, at) => group !== groups[at]) ? marked : groups,
+        games: byYear(read, merged.games, groups),
+      });
+    }
+    case "team.rename": {
+      const name = cleanTeamName(command.name).trim();
+      if (!name) return { ok: false, why: "refused" };
+      const teams = read.teams();
+      const held = teams.find((team) => team.id === command.teamId);
+      if (!held) return { ok: false, why: "missing" };
+      const key = teamNameKey(name);
+      if (teams.some((team) => team.id !== command.teamId && teamNameKey(team.name) === key))
+        return { ok: false, why: "refused" };
+      if (held.name === name) return unchanged();
+      return settle(read, { teams: replaceTeam(teams, held.id, { ...held, name }) });
+    }
   }
 };
 
@@ -539,6 +1093,21 @@ const everyOne = <T>(raw: unknown, one: (item: unknown) => T | null): T[] | null
   }
   return out;
 };
+
+/** A named age, every field read back exactly as it was sent, or null. */
+const oneNamedAge = (raw: unknown): NamedAge | null => {
+  const [entry] = coerceNamedAges([raw]).values();
+  return entry && JSON.stringify(entry) === JSON.stringify(raw) ? entry : null;
+};
+
+/** An age and a squad year, or undefined. */
+const oneSeason = (raw: unknown): AgeGroupSeason | undefined =>
+  isRecord(raw) &&
+  Number.isInteger(raw.ageLevel) &&
+  Number.isInteger(raw.year) &&
+  Object.keys(raw).length === 2
+    ? { ageLevel: raw.ageLevel as number, year: raw.year as number }
+    : undefined;
 
 const oneGame = (raw: unknown): ScoutGame | null => {
   const [game] = coerceScoutGames([raw]);
@@ -662,9 +1231,79 @@ export const coerceCommand = (raw: unknown, depth = 0): PoolCommand | null => {
     }
     case "game.put": {
       const year = yearOf(raw.year);
-      const game = oneGame(raw.game);
-      return year !== undefined && game ? { kind: "game.put", year, game } : null;
+      const games = everyOne(raw.games, oneGame);
+      return year !== undefined && games ? { kind: "game.put", year, games } : null;
     }
+    case "games.set": {
+      const year = yearOf(raw.year);
+      const games = everyOne(raw.games, oneGame);
+      return year !== undefined && games ? { kind: "games.set", year, games } : null;
+    }
+    case "teams.set": {
+      const teams = everyOne(raw.teams, oneTeam);
+      return teams ? { kind: "teams.set", teams } : null;
+    }
+    case "groups.set": {
+      const groups = everyOne(raw.groups, oneGroup);
+      return groups ? { kind: "groups.set", groups } : null;
+    }
+    case "group.remove":
+      return isString(raw.groupId) ? { kind: "group.remove", groupId: raw.groupId } : null;
+    case "group.insert": {
+      const group = oneGroup(raw.group);
+      return group && isPlace(raw.at) ? { kind: "group.insert", group, at: raw.at } : null;
+    }
+    case "namedAges": {
+      const put = everyOne(raw.put, oneNamedAge);
+      const forget = strings(raw.forget);
+      return put && forget ? { kind: "namedAges", put, forget } : null;
+    }
+    case "games.drop": {
+      const gameIds = strings(raw.gameIds);
+      return gameIds ? { kind: "games.drop", gameIds } : null;
+    }
+    case "club.drop":
+      return isString(raw.teamId) ? { kind: "club.drop", teamId: raw.teamId } : null;
+    case "season.assign": {
+      if (!isString(raw.seasonId) || !isString(raw.pageId)) return null;
+      const season = raw.season === null ? null : oneSeason(raw.season);
+      if (season === undefined) return null;
+      return { kind: "season.assign", seasonId: raw.seasonId, season, pageId: raw.pageId };
+    }
+    case "club.age":
+      return Number.isInteger(raw.year) &&
+        isString(raw.teamId) &&
+        Number.isInteger(raw.level) &&
+        isString(raw.at) &&
+        isString(raw.pageId)
+        ? {
+            kind: "club.age",
+            year: raw.year as number,
+            teamId: raw.teamId,
+            level: raw.level as number,
+            at: raw.at,
+            pageId: raw.pageId,
+          }
+        : null;
+    case "club.ageClear":
+      return Number.isInteger(raw.year) && isString(raw.teamId) && isString(raw.pageId)
+        ? {
+            kind: "club.ageClear",
+            year: raw.year as number,
+            teamId: raw.teamId,
+            pageId: raw.pageId,
+          }
+        : null;
+    case "teams.merge": {
+      const adopt = everyOne(raw.adopt, oneTeam);
+      return isString(raw.fromId) && isString(raw.intoId) && adopt
+        ? { kind: "teams.merge", fromId: raw.fromId, intoId: raw.intoId, adopt }
+        : null;
+    }
+    case "team.rename":
+      return isString(raw.teamId) && typeof raw.name === "string"
+        ? { kind: "team.rename", teamId: raw.teamId, name: raw.name }
+        : null;
     default:
       return null;
   }

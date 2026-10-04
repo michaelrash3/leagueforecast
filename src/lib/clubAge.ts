@@ -52,6 +52,9 @@ export type ClubAgeChange = ClubAgeState & {
  * `only` narrows it to some of the club's ids in the year, for putting back a club whose ids the
  * app had filed at different levels: each id's link and the rows its own schedule filed. Another
  * club's row is left as it is then, since nothing on it says which of the club's ids it was about.
+ *
+ * `pageId` is the id a page for the level gets when there is none yet: a command names it, so the
+ * change is the same wherever it is made.
  */
 export const setClubAge = (
   state: ClubAgeState,
@@ -59,7 +62,8 @@ export const setClubAge = (
   level: number,
   year: number,
   source?: GcAgeSource | null,
-  only?: ReadonlySet<string>
+  only?: ReadonlySet<string>,
+  pageId: string = createAgeGroupId()
 ): ClubAgeChange | null => {
   if (!Number.isInteger(level) || level < MIN_AGE_LEVEL || level > MAX_AGE_LEVEL) return null;
   const club = state.teams.find((team) => team.id === clubId);
@@ -83,7 +87,7 @@ export const setClubAge = (
     (group) => ageGroupLevel(group) === level && ageGroupYear(group) === year
   );
   const page: AgeGroup = existing ?? {
-    id: createAgeGroupId(),
+    id: pageId,
     name: formatAgeGroupName(level, year),
     ageLevel: level,
     year,
