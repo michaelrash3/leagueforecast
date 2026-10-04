@@ -514,9 +514,6 @@ describe("a rebuild in the worker", () => {
       ensure: async () => ({ ok: false, reason }),
       drop: async () => undefined,
       held: () => ({ copy: null, version: null, keys: 0 }),
-      written: () => new Set(),
-      committed: async () => undefined,
-      forget: async () => undefined,
     });
     const ends: Array<[Extract<PoolEnsure, { ok: false }>["reason"], boolean]> = [
       ["no-copy", false],

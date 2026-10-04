@@ -5,6 +5,7 @@ import { memoryIo } from "../cloud/cloudRunner";
 import { stampFromNewerRules } from "../gameChangerImport";
 import {
   applyCloudPoolValues,
+  cloudPoolKeys,
   initTeamRankingsStore,
   isCloudPoolKey,
   isPoolStoreOpen,
@@ -85,6 +86,14 @@ export type PoolCache = {
   drop: () => Promise<void>;
   /** The copy the store holds, and how many of its parts. */
   held: () => { copy: string | null; version: number | null; keys: number };
+};
+
+/**
+ * A pool an edit runs on (`createEditPool`): every part a command reads, and what the edit wrote.
+ * Only such a pool may be handed to an edit (`runEdit`): a rebuild's keeps the boards' parts alone,
+ * and a command run on it would read the rest as empty and save that over the copy.
+ */
+export type EditPool = PoolCache & {
   /**
    * The keys written to the store since it last stood as a copy holds it: what a command run on the
    * pool changed (`editRun.ts`). A build writes none.
@@ -107,12 +116,20 @@ export type PoolCache = {
 const boardParts = (key: string): boolean => isBoardInput(key) || key === TIDY_STAMP_KEY;
 
 /**
- * Every part of the pool a command may read or write (`commands.ts`), League Standings among them:
- * all but an archived season's rows, which nothing on the pool reads and a server never writes.
+ * Every part of the pool a command may read or write (`commands.ts`): all but an archived season's
+ * rows, which nothing on the pool reads and a server never writes, and League Standings, which no
+ * command reads (a club League Standings made comes in the command, `adopt`), so a season that would
+ * not read, or a score saved there, is nothing to an edit.
  */
-export const everyPart = (key: string): boolean => !key.includes("_archive_rows_");
+const editParts = (key: string): boolean => key !== LEAGUE_PART && !key.includes("_archive_rows_");
 
 const NO_SEASONS: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
+
+type PoolOptions = {
+  maxTries?: number;
+  /** The store's backing, made afresh on each start; in memory by default. */
+  io?: () => PoolStoreIo;
+};
 
 /**
  * A cache for one process. The pool store is the module's, so a process has one pool and one cache:
@@ -130,18 +147,28 @@ const NO_SEASONS: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
  * Otherwise it fetches the parts whose hash differs from the one it holds, by what they say rather
  * than which upload holds them, and takes out the keys the copy no longer has. Everything is fetched
  * before the store is touched, so a fetch that fails leaves the store as the last `ensure` did.
+ *
+ * This one keeps the parts a rebuild reads (`boardParts`); an edit runs on `createEditPool`'s.
  */
-export const createPoolCache = ({
+export const createPoolCache = (options: PoolOptions = {}): PoolCache =>
+  makePool({ ...options, loaded: boardParts });
+
+/**
+ * The cache an edit runs on: as `createPoolCache`, of every part a command reads (`editParts`)
+ * rather than the boards' alone, with the keys the edit wrote and what became of them.
+ */
+export const createEditPool = (options: PoolOptions = {}): EditPool =>
+  makePool({ ...options, loaded: editParts });
+
+/** Both caches, told apart by the parts they keep. */
+const makePool = ({
   maxTries = 3,
   io = memoryIo,
-  loads: loaded = boardParts,
-}: {
-  maxTries?: number;
-  /** The store's backing, made afresh on each start; in memory by default. */
-  io?: () => PoolStoreIo;
-  /** Which of the copy's parts it keeps: a rebuild's by default, `everyPart` for edits. */
-  loads?: (key: string) => boolean;
-} = {}): PoolCache => {
+  loaded,
+}: PoolOptions & {
+  /** Which of the copy's parts it keeps. */
+  loaded: (key: string) => boolean;
+}): EditPool => {
   /** Each part the store holds, by key, with the hash of its value. */
   const held = new Map<string, string>();
   let copy: string | null = null;
@@ -190,6 +217,15 @@ export const createPoolCache = ({
     // of the games is the split's, not the copy's, so they are not read back. That the split took
     // is: one the backing would not write leaves the one key standing.
     if (split && (await readCloudPoolValue(LEGACY_GAMES_KEY)) != null) return false;
+    // The split is the store's own and unheard, so it is told here as written, and an edit's commit
+    // carries it (the years, their index, and the one key emptied) as a browser's next save carries
+    // the split it heard. Left untold, the copy would keep the one key, and every opening, the next
+    // edit's included, would split it over the years again, over a year an edit had saved.
+    if (split) {
+      [...values.keys(), ...cloudPoolKeys()]
+        .filter(isScoutGamesKey)
+        .forEach((key) => dirty.add(key));
+    }
     const opened = await Promise.all(
       [...values.keys()].map(
         async (key) => (split && isScoutGamesKey(key)) || (await readCloudPoolValue(key)) != null

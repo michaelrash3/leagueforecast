@@ -13,11 +13,11 @@ import { parentPort } from "node:worker_threads";
 import { firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
 import { runEdit } from "../../src/lib/live/editRun";
 import { answerEdit, type EditRequest } from "../../src/lib/live/editWorkerProtocol";
-import { createPoolCache, everyPart } from "../../src/lib/live/poolCache";
+import { createEditPool } from "../../src/lib/live/poolCache";
 import { memoryOf } from "../../src/lib/live/rebuildWorkerProtocol";
 import { restAccess } from "./pullAccess";
 
-const pool = createPoolCache({ loads: everyPart });
+const pool = createEditPool();
 
 const now = () => new Date().toISOString();
 

@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { memoryCloud, type MemoryCloud } from "../../cloud/__tests__/memoryCloud";
-import { commitChanges, type CloudStore } from "../../cloud/cloudEngine";
+import { commitChanges, fetchValues, type CloudStore } from "../../cloud/cloudEngine";
 import type { CloudManifest } from "../../cloud/cloudManifest";
+import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { loadPoolFrom, memoryIo } from "../../cloud/cloudRunner";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings";
-import { encodeScoutTeams } from "../../teamRankingsCompact";
+import { decodePoolGames, encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
 import {
   cloudPoolKeys,
   flushPoolWrites,
   initTeamRankingsStore,
+  LEGACY_GAMES_KEY,
   loadAgeGroups,
   loadRealClubs,
   loadScoutGamesForYear,
@@ -22,7 +24,7 @@ import {
 } from "../../teamRankingsStorage";
 import { EDIT_DEVICE, runEdit } from "../editRun";
 import { runRebuild } from "../rebuild";
-import { createPoolCache, everyPart, type PoolCache } from "../poolCache";
+import { createEditPool, type EditPool } from "../poolCache";
 import { memoryLive } from "./memoryLive";
 
 /*
@@ -33,10 +35,12 @@ import { memoryLive } from "./memoryLive";
  */
 
 const NOW = "2026-10-04T12:00:00.000Z";
+const YEAR_2026 = "league_forecast_scout_games_v2:2026";
 const YEAR_2027 = "league_forecast_scout_games_v2:2027";
 const YEAR_2028 = "league_forecast_scout_games_v2:2028";
 const TEAMS_KEY = "league_forecast_scout_teams_v1";
 const REAL_KEY = "league_forecast_gc_real_clubs_v1";
+const INDEX_KEY = "league_forecast_scout_games_v2_index";
 
 const GROUPS: AgeGroup[] = [
   { id: "ag_10u_2026", name: "10U 2026", ageLevel: 10, year: 2026, seasonIds: [] },
@@ -118,9 +122,9 @@ const phoneSaves = async (cloud: MemoryCloud, state: string) => {
   if (!saved.ok) throw new Error("the phone's save did not land");
 };
 
-let pool: PoolCache | null = null;
+let pool: EditPool | null = null;
 const editPool = () => {
-  pool = createPoolCache({ loads: everyPart });
+  pool = createEditPool();
   return pool;
 };
 afterEach(async () => {
@@ -130,7 +134,7 @@ afterEach(async () => {
 });
 
 const edit = (
-  cache: PoolCache,
+  cache: EditPool,
   store: CloudStore,
   command: Parameters<typeof runEdit>[0]["command"],
   copy?: string
@@ -385,5 +389,168 @@ describe("the pool an edit keeps", () => {
     await cache.ensure(cloud.store);
     await cache.committed({ ...(cloud.manifest() as CloudManifest), copy: "another" });
     expect(await cache.ensure(cloud.store)).toMatchObject({ ok: true, cold: true });
+  });
+});
+
+describe("a copy keeping an older pool's games under one key", () => {
+  /** The copy as an older build saved it: every game under the one key, no years and no index. */
+  const oneKeyCopy = async (): Promise<MemoryCloud> => {
+    const values = new Map(
+      [...(await poolValues())].filter(([key]) => !key.startsWith("league_forecast_scout_games_v2"))
+    );
+    values.set(LEGACY_GAMES_KEY, encodeScoutGames(GAMES));
+    const cloud = memoryCloud();
+    const saved = await commitChanges({
+      store: cloud.store,
+      base: null,
+      changes: [...values].map(([key, value]) => ({ key, value, at: 1 })),
+      device: "phone",
+      now: NOW,
+    });
+    if (!saved.ok) throw new Error("the copy was not saved");
+    return cloud;
+  };
+  const SCORE = {
+    kind: "game.score",
+    year: 2027,
+    gameId: "open",
+    teamAScore: 6,
+    teamBScore: 3,
+  } as const;
+
+  it("carries the split into years with the edit, so a device opening the copy reads the edit", async () => {
+    const cloud = await oneKeyCopy();
+    expect(await edit(editPool(), cloud.store, SCORE)).toMatchObject({ ok: true });
+    const keys = cloud.manifest()?.parts.map(({ key }) => key) ?? [];
+    expect(keys).not.toContain(LEGACY_GAMES_KEY);
+    expect(keys).toEqual(expect.arrayContaining([YEAR_2026, YEAR_2027, INDEX_KEY]));
+    await pool?.drop();
+    await reopen(cloud);
+    expect(loadScoutGamesForYear(2027).find((game) => game.id === "open")).toMatchObject({
+      teamAScore: 6,
+      teamBScore: 3,
+    });
+    expect(loadScoutGamesForYear(2026).map((game) => game.id)).toEqual(["old"]);
+  });
+
+  it("keeps the edit on the pool's next read, and a second edit to the year keeps the first", async () => {
+    const cloud = await oneKeyCopy();
+    const cache = editPool();
+    expect(await edit(cache, cloud.store, SCORE)).toMatchObject({ ok: true });
+    expect(await cache.ensure(cloud.store)).toMatchObject({ ok: true, cold: false, fetched: [] });
+    expect(loadScoutGamesForYear(2027).find((game) => game.id === "open")).toMatchObject({
+      teamAScore: 6,
+      teamBScore: 3,
+    });
+    expect(
+      await edit(cache, cloud.store, {
+        kind: "game.exclude",
+        year: 2027,
+        gameId: "g1",
+        excluded: true,
+      })
+    ).toMatchObject({ ok: true });
+    // The year's own part in the copy, read as it is stored.
+    const year = cloud.manifest()?.parts.find((part) => part.key === YEAR_2027);
+    if (!year) throw new Error("no year");
+    const fetched = await fetchValues({ store: cloud.store, parts: [year] });
+    if (!fetched.ok) throw new Error("not fetched");
+    const games = decodePoolGames(fetched.values.get(YEAR_2027));
+    expect(games.find((game) => game.id === "g1")).toMatchObject({ excluded: true });
+    expect(games.find((game) => game.id === "open")).toMatchObject({
+      teamAScore: 6,
+      teamBScore: 3,
+    });
+  });
+});
+
+describe("an edit whose save's answer was lost", () => {
+  const STATE = { kind: "team.state", teamId: "B", state: "KY" } as const;
+
+  it("is the edit made, with its inverse, when the commit threw after it landed", async () => {
+    const cloud = await copyOfPool();
+    const dropped: CloudStore = {
+      ...cloud.store,
+      commitManifest: async (expected, next) => {
+        await cloud.store.commitManifest(expected, next);
+        throw new TypeError("fetch failed");
+      },
+    };
+    expect(await edit(editPool(), dropped, STATE)).toMatchObject({
+      ok: true,
+      changed: [TEAMS_KEY],
+      inverse: { kind: "team.put", team: { id: "B", name: "Club B" } },
+      tries: 1,
+    });
+    expect(cloud.manifest()?.device).toBe(EDIT_DEVICE);
+  });
+
+  it("says it cannot tell when the copy would not read after, and fetches what it wrote again", async () => {
+    const cloud = await copyOfPool();
+    let down = false;
+    const blind: CloudStore = {
+      ...cloud.store,
+      commitManifest: async () => {
+        down = true;
+        throw new TypeError("fetch failed");
+      },
+      readManifest: async () => {
+        if (down) throw new TypeError("fetch failed");
+        return cloud.store.readManifest();
+      },
+    };
+    const cache = editPool();
+    expect(await edit(cache, blind, STATE)).toEqual({ ok: false, why: "unsure", tries: 1 });
+    // The copy never took it, and the pool reads the copy's own roster back.
+    expect(await cache.ensure(cloud.store)).toMatchObject({
+      ok: true,
+      cold: false,
+      fetched: [TEAMS_KEY],
+    });
+    expect(loadScoutTeams().find((team) => team.id === "B")?.state).toBeUndefined();
+  });
+
+  it("says it cannot tell when the commit threw and is not in the copy, since it may land yet", async () => {
+    const cloud = await copyOfPool();
+    const slow: CloudStore = {
+      ...cloud.store,
+      commitManifest: async () => {
+        throw new TypeError("fetch failed");
+      },
+    };
+    expect(await edit(editPool(), slow, STATE)).toEqual({ ok: false, why: "unsure", tries: 1 });
+    expect(cloud.manifest()?.device).toBe("phone");
+  });
+
+  it("throws a save that never went, a piece refused, for the function to say it was not made", async () => {
+    const cloud = await copyOfPool();
+    const refusing: CloudStore = {
+      ...cloud.store,
+      putChunk: async () => {
+        throw new TypeError("fetch failed");
+      },
+    };
+    await expect(edit(editPool(), refusing, STATE)).rejects.toThrow("fetch failed");
+    expect(cloud.manifest()?.device).toBe("phone");
+  });
+});
+
+describe("League Standings in the copy", () => {
+  it("is nothing to an edit: a part that would not read refuses none, and is left as it was", async () => {
+    const cloud = await copyOfPool();
+    const added = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [{ key: LEAGUE_PART, value: "not a league", at: 2 }],
+      device: "phone",
+      now: NOW,
+    });
+    if (!added.ok) throw new Error("not saved");
+    const league = cloud.manifest()?.parts.find((part) => part.key === LEAGUE_PART);
+    expect(league).toBeDefined();
+    expect(
+      await edit(editPool(), cloud.store, { kind: "team.state", teamId: "B", state: "KY" })
+    ).toMatchObject({ ok: true, changed: [TEAMS_KEY] });
+    expect(cloud.manifest()?.parts.find((part) => part.key === LEAGUE_PART)).toEqual(league);
   });
 });

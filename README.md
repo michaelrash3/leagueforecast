@@ -4384,25 +4384,38 @@ and the clubs a pull finds invented go through the same commands; the waiting li
 pull's and stays as it was.
 
 On the server a command runs on the cloud copy itself (`runEdit` in `editRun.ts`), in a process that
-keeps every part of the pool warm (`createPoolCache` with `everyPart`): brought to the copy as it
-stands, the command applied through the same `runPoolCommand` a browser uses, and the parts it wrote
-committed onto the version read as one save, named `live-edit`. A save that lands in between moves
+keeps every part of the pool a command reads warm (`createEditPool`: all but an archived season's
+rows and League Standings, which no command reads): brought to the copy as it stands, the command
+applied through the same `runPoolCommand` a browser uses, and the parts it wrote committed onto the
+version read as one save, named `live-edit`. Only that pool may be handed to an edit: a rebuild's
+keeps the boards' parts alone, and a command run on it would save the rest over the copy as empty. A save that lands in between moves
 the copy on; the written keys are then let go of one by one (`forget`), so the next read fetches
 those and whatever the other save changed rather than the whole pool, and the command runs again on
 the copy as it now is, up to three times. Its ids and times travel in it, so the second run makes
 the same change or is refused where the newer pool no longer allows it. A device may name the copy
 it edited, and an edit is refused on any other, as it is on a copy started again under the run. A
 commit that lands tells the pool its writes now stand in the copy (`committed`), so the next edit
-fetches none of them back; a run that is refused or throws leaves the pool to start afresh on its
-next read, which is slower and never wrong. The tests show an edit on a warm pool
-fetches no piece but those another save moved.
+fetches none of them back. A command refused writes nothing, and the pool stays warm; a store that
+would not take a write, or a run that throws, leaves the pool to start afresh on its next read, which
+is slower and never wrong. A copy an older build saved with its games under one key is split into
+years as the pool opens, and the split goes with the edit's commit, the one key taken out, as a
+browser's next save carries the split it made; left behind, every opening would split the one key
+over the years again, over a year the edit had saved. A commit whose answer never came is found by
+its save id like one answered no (`commitChanges`): landed, the edit is made; not in the copy, it may
+still be on its way, so its pieces stay for a late landing to be whole and the edit answers
+`unsure`, the device told it may or may not be in the copy, and the pool fetches what it wrote again.
+Only a save that never went (a piece the store would not take) fails as not made. The tests show an
+edit on a warm pool fetches no piece but those another save moved.
 
 The edit function (`edit` in `functions/src/index.ts`) is that run behind a call: a member's
 device sends `{ command, copy }`, signed in, and the function checks the caller against the list
 as the GameChanger proxy does (`memberCheck.ts`), reads the command back exactly
 (`coerceCommand`), and refuses anything else before a worker starts. The edits run one at a time
 in a worker that keeps the pool from call to call (`editWorkerProtocol.ts`), one instance taking
-several calls at once and queueing them. The edit is made whatever the rebuilds' switch says,
+several calls at once and queueing them. The instance has 4 GiB, half a rebuild's, since the edits
+build no boards (measured below); the worker's heap is held to 2.5 GB, and a worker past 2 GB of
+heap or 3 GB in all is started afresh between edits (`EDIT_RECYCLE_AT`). The edit is made whatever
+the rebuilds' switch says,
 since it is a member's change to the copy, and its compute is charged to the ledger's totals
 (`handleEdit`); the call answers as soon as the save has landed, with the version saved, the
 inverse for an Undo, and what changed. It does not build the boards: every board of the real pool
@@ -4419,13 +4432,21 @@ host (`functionsUrl.ts`). It is built and deployed with the rebuilds (LIVE_REBUI
 account, and asks nothing more of the project; nothing in the app calls it until the sections go
 live (1.5).
 
-Measured with `npm run live:bench` on the 29 September 2026 pool (255,579 games, 116,485 clubs;
-`npm run live:bench -- <backup.json>`, or `-- --fixture <clubs a page>` for the seeded pool),
-in memory, so Firestore's round trips and uploads come on top: the pool came up cold in 1.3 s;
-an edit took from 2 ms (a Pool health answer) through 1.1 s (a club's state) and 2.7 s (a game
-kept out of the maths, or thrown out) to 4.2 s (a club's age) and 4.7 s (a merge), apply and
-commit together, and its Undo about the same; and building and publishing every board after one
-took 29 to 32 s, its heap at most about 690 MB.
+Measured with `npm run live:bench` on the 29 September 2026 pool (255,579 games, 116,485 clubs),
+in memory, so Firestore's round trips and uploads come on top. The pool came up cold in 1.4 s. An
+edit took from 2 ms (a Pool health answer) through 1.1 s (a club's state), 2.8 s (games thrown out),
+3.0 s (a game kept out of the maths) and 3.1 s (a score) to 4.1 s (a club's age), 4.3 s (a club
+thrown out) and 4.5 s (a merge), apply and commit together, and its Undo about as long. After an edit
+that changed what the boards read, the rebuild's own pool fetched the parts it changed in 0.6 to
+2.2 s (a year of games is 18 pieces), and building and publishing every board took 30 to 34 s. The
+bench is run on a backup (`npm run live:bench -- <backup.json>`) or the seeded pool (`-- --fixture
+<clubs a page>`); it keeps the copy it makes in a file (`--save <copy.json>`) and runs again from
+that (`-- --copy <copy.json>`), and only such a run reports the most the process held, since one
+that read a backup holds what reading it took. From the copy, the process held at most 1.1 GB
+bringing the pool up and making and undoing the edits, which is what sets the edit function's 4 GiB.
+The first build of every board took it to 2.6 GB, and builds after it to 3.8 GB (2.3 GB with the heap
+held to 2.5 GB, the builds taking as long), so the rebuild keeps its 8 GiB, with room for the pool
+to double over a season.
 
 Two kinds of write are not commands. The browser's own pull engine saves as it goes and is removed
 for members in the cleanup (1.7), pulls having moved to the server; and resetting the app or

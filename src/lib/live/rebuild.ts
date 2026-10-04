@@ -361,16 +361,15 @@ export const handleRebuildTask = async ({
  * When to start a fresh worker after a run: once its heap or the process has grown past what a
  * warm pool and one build should leave, or after enough runs that whatever creeps has had its
  * chance. A fresh start costs seconds; a worker that runs out of memory mid-build costs the run.
+ * The edit function, on a smaller instance, passes its own (`EDIT_RECYCLE_AT`).
  */
 export const RECYCLE_AT = { heapUsedMb: 3_072, rssMb: 6_144, runs: 200 } as const;
 
 export const shouldRecycle = (
   memory: { heapUsedMb: number; rssMb: number },
-  runs: number
-): boolean =>
-  memory.heapUsedMb > RECYCLE_AT.heapUsedMb ||
-  memory.rssMb > RECYCLE_AT.rssMb ||
-  runs >= RECYCLE_AT.runs;
+  runs: number,
+  at: { heapUsedMb: number; rssMb: number; runs: number } = RECYCLE_AT
+): boolean => memory.heapUsedMb > at.heapUsedMb || memory.rssMb > at.rssMb || runs >= at.runs;
 
 /**
  * The line the trigger logs for a save it queued a rebuild for, which `liveLags` reads beside the

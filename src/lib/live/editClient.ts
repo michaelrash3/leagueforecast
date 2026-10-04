@@ -128,6 +128,7 @@ const EDIT_REFUSALS: Record<EditRefusal, true> = {
   refused: true,
   unsaved: true,
   "copy-replaced": true,
+  unsure: true,
 };
 
 /** Whether `value` is one of `names`' keys, its own rather than one every object has. */

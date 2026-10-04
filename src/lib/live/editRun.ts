@@ -1,12 +1,18 @@
-import { commitChanges, type Change, type CloudStore } from "../cloud/cloudEngine";
+import {
+  CommitUnanswered,
+  commitChanges,
+  type Change,
+  type CloudStore,
+  type CommitResult,
+} from "../cloud/cloudEngine";
 import { readCloudPoolValue } from "../teamRankingsStorage";
 import type { PoolCommand } from "./commands";
-import type { PoolCache, PoolEnsure } from "./poolCache";
+import type { EditPool, PoolEnsure } from "./poolCache";
 import { runPoolCommand } from "./runPoolCommand";
 
 /**
  * A Team Rankings edit run on the server, on the cloud copy (1.4): the command a device sends,
- * applied to the pool the server keeps warm (`createPoolCache` with `everyPart`), and the parts it
+ * applied to the pool the server keeps warm (`createEditPool`), and the parts it
  * changed committed to the copy as one save. The same `applyCommand` a browser runs on its own store
  * (`runPoolCommand`), on this process's store, so the copy changes exactly as the device's pool
  * would have.
@@ -29,6 +35,8 @@ const MAX_TRIES = 3;
  * - `unsaved`: the server's store would not take a write.
  * - `copy-replaced`: the copy is not the one the device edited, or was started again under the run.
  * - `kept-moving`: other saves landed between each read and commit.
+ * - `unsure`: the save went out and no answer came back, nor would the copy read to tell, so the
+ *   edit may or may not be in it; the copy says which.
  * - the copy's own refusals, as `PoolEnsure` names them.
  */
 export type EditRefusal =
@@ -36,6 +44,7 @@ export type EditRefusal =
   | "refused"
   | "unsaved"
   | "copy-replaced"
+  | "unsure"
   | Extract<PoolEnsure, { ok: false }>["reason"];
 
 export type EditRun =
@@ -53,7 +62,7 @@ export type EditRun =
       /** How the last run through found the pool: started afresh, and the parts it fetched. */
       cold: boolean;
       fetched: number;
-      /** How long the last run through took to bring the pool up, apply, and commit, in ms. */
+      /** How long the last run through took to bring the pool up, apply, and commit, in whole ms. */
       loadMs: number;
       applyMs: number;
       commitMs: number;
@@ -80,20 +89,21 @@ export const runEdit = async ({
   command,
   copy,
   now,
-  clock = Date.now,
+  clock = () => performance.now(),
 }: {
-  pool: PoolCache;
+  pool: EditPool;
   store: CloudStore;
   command: PoolCommand;
   copy?: string;
   now: () => string;
+  /** A clock for the timings, which never steps back as the wall clock may. */
   clock?: () => number;
 }): Promise<EditRun> => {
   let editing = copy ?? null;
   for (let tries = 1; tries <= MAX_TRIES; tries += 1) {
     const loading = clock();
     const ensured = await pool.ensure(store);
-    const loadMs = clock() - loading;
+    const loadMs = Math.round(clock() - loading);
     if (!ensured.ok) return { ok: false, why: ensured.reason, tries };
     if (editing !== null && ensured.manifest.copy !== editing) {
       return { ok: false, why: "copy-replaced", tries };
@@ -109,18 +119,29 @@ export const runEdit = async ({
     const run = runPoolCommand(command);
     if (!run.ok) return { ok: false, why: run.why, tries };
     const changes = await changesOf(pool.written(), Date.parse(now()));
-    const applyMs = clock() - applying;
+    const applyMs = Math.round(clock() - applying);
     const committing = clock();
-    const commit = await commitChanges({
-      store,
-      base: ensured.manifest,
-      changes,
-      device: EDIT_DEVICE,
-      now: now(),
-    });
-    const commitMs = clock() - committing;
+    let commit: CommitResult;
+    try {
+      commit = await commitChanges({
+        store,
+        base: ensured.manifest,
+        changes,
+        device: EDIT_DEVICE,
+        now: now(),
+      });
+    } catch (error) {
+      // The save went out, and neither an answer nor the copy says whether it landed: the writes
+      // are let go of, so the next read fetches whatever the copy holds, and the device is told
+      // the edit may or may not be in it. Anything else thrown is a save known not to have landed.
+      if (!(error instanceof CommitUnanswered)) throw error;
+      await pool.forget();
+      return { ok: false, why: "unsure", tries };
+    }
+    const commitMs = Math.round(clock() - committing);
     if (commit.ok) {
-      await pool.committed(commit.manifest);
+      // The save is in the copy whatever the pool makes of it: one that cannot follow starts afresh.
+      await pool.committed(commit.manifest).catch(() => pool.drop());
       // What the save moved, read off the two manifests: a value written as the copy already had
       // it is named from its own pieces, and a commit that moves nothing writes nothing.
       const was = new Map(ensured.manifest.parts.map((part) => [part.key, part.hash]));

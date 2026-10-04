@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CloudTimeoutError,
+  CommitUnanswered,
   commitChanges,
   fetchValues,
   sweepUploads,
@@ -267,6 +268,100 @@ describe("a save onto the copy", () => {
       onUploads: (ids) => recorded.push(ids),
     });
     expect(result).toEqual({ ok: false, reason: "moved" });
+    const ids = recorded[recorded.length - 1] ?? [];
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids.every((id) => sky.chunks.has(id))).toBe(true);
+  });
+
+  /*
+   * A commit whose answer never came throws (a dropped connection, or Firestore failing after the
+   * write was made) rather than answering false: found by its id all the same.
+   */
+  it("knows its own commit when the commit threw after it landed", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { league: { a: 1 } });
+    const dropped: CloudStore = {
+      ...sky.store,
+      commitManifest: async (expected, next) => {
+        await sky.store.commitManifest(expected, next);
+        throw new TypeError("fetch failed");
+      },
+    };
+    const result = await commitChanges({
+      store: dropped,
+      base: v1,
+      changes: [change("league", { a: 2 })],
+      device: "phone",
+      now: NOW,
+    });
+    expect(result.ok).toBe(true);
+    expect(await valuesOf(sky.store, sky.manifest() as CloudManifest)).toEqual({
+      league: { a: 2 },
+    });
+  });
+
+  /*
+   * A commit that threw may still be on its way, and land after the copy is read: its pieces stay,
+   * so a late landing is whole, and the save is said to be neither made nor refused.
+   */
+  it("says it cannot tell, its pieces kept, when the commit threw and is not in the copy", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { league: { a: 1 } });
+    let late: (() => Promise<boolean>) | null = null;
+    const slow: CloudStore = {
+      ...sky.store,
+      commitManifest: async (expected, next) => {
+        late = () => sky.store.commitManifest(expected, next);
+        throw new TypeError("fetch failed");
+      },
+    };
+    const recorded: string[][] = [];
+    const teams = noise(2);
+    const saving = commitChanges({
+      store: slow,
+      base: v1,
+      changes: [change("teams", teams)],
+      device: "phone",
+      now: NOW,
+      onUploads: (ids) => recorded.push(ids),
+    });
+    await expect(saving).rejects.toBeInstanceOf(CommitUnanswered);
+    await expect(saving).rejects.toThrow("fetch failed");
+    expect(sky.manifest()).toEqual(v1);
+    const ids = recorded[recorded.length - 1] ?? [];
+    expect(ids.length).toBeGreaterThan(1);
+    expect(ids.every((id) => sky.chunks.has(id))).toBe(true);
+    // It lands after all, and the copy it makes is whole.
+    expect(await late?.()).toBe(true);
+    expect((await valuesOf(sky.store, sky.manifest() as CloudManifest)).teams).toEqual(teams);
+  });
+
+  it("says it cannot tell, its pieces kept, when the commit threw and the copy will not read", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { league: { a: 1 } });
+    let down = false;
+    const blind: CloudStore = {
+      ...sky.store,
+      commitManifest: async () => {
+        down = true;
+        throw new TypeError("fetch failed");
+      },
+      readManifest: async () => {
+        if (down) throw new TypeError("fetch failed");
+        return sky.store.readManifest();
+      },
+    };
+    const recorded: string[][] = [];
+    const saving = commitChanges({
+      store: blind,
+      base: v1,
+      changes: [change("teams", ["t1"])],
+      device: "phone",
+      now: NOW,
+      onUploads: (ids) => recorded.push(ids),
+    });
+    await expect(saving).rejects.toBeInstanceOf(CommitUnanswered);
+    await expect(saving).rejects.toThrow("fetch failed");
     const ids = recorded[recorded.length - 1] ?? [];
     expect(ids.length).toBeGreaterThan(0);
     expect(ids.every((id) => sky.chunks.has(id))).toBe(true);

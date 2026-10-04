@@ -3,15 +3,17 @@ import type { EditRun } from "../editRun";
 import {
   answerEdit,
   EDIT_LIMIT_S,
+  EDIT_RECYCLE_AT,
   EDIT_SIZE,
   EDIT_TIMEOUT_S,
+  EDIT_WORKER_HEAP_MB,
   editRunner,
   type EditPort,
   type EditRequest,
   type EditWorkerAnswer,
 } from "../editWorkerProtocol";
 import { RECYCLE_AT } from "../rebuild";
-import { REBUILD_WORKER_HEAP_MB, type WorkerMemory } from "../rebuildWorkerProtocol";
+import type { WorkerMemory } from "../rebuildWorkerProtocol";
 
 /*
  * The edit function's worker, without a worker (`editWorkerProtocol.ts`): what it answers, and how
@@ -78,8 +80,10 @@ describe("the edit function's sizes", () => {
   it("leave an edit inside the timeout behind three queued ahead of it, and the worker inside the instance", () => {
     expect(EDIT_LIMIT_S * 4).toBeLessThan(EDIT_TIMEOUT_S);
     expect(EDIT_TIMEOUT_S).toBeLessThanOrEqual(540);
-    expect(RECYCLE_AT.rssMb).toBeLessThan(EDIT_SIZE.gib * 1024);
-    expect(REBUILD_WORKER_HEAP_MB).toBeLessThan(EDIT_SIZE.gib * 1024);
+    expect(EDIT_SIZE).toEqual({ gib: 4, cpu: 2 });
+    expect(EDIT_RECYCLE_AT.heapUsedMb).toBeLessThan(EDIT_WORKER_HEAP_MB);
+    expect(EDIT_RECYCLE_AT.rssMb).toBeLessThan(EDIT_SIZE.gib * 1024);
+    expect(EDIT_WORKER_HEAP_MB).toBeLessThan(EDIT_SIZE.gib * 1024);
   });
 });
 
@@ -211,14 +215,27 @@ describe("the main thread's worker", () => {
     expect(await runner.edit(ASK)).toEqual(EDITED);
   });
 
-  it("starts a fresh worker once the heap has grown past the recycle point", async () => {
-    const big: WorkerMemory = { heapUsedMb: RECYCLE_AT.heapUsedMb + 1, rssMb: 100, heapLimitMb: 1 };
-    const workers = fakeWorkers(answering(big));
+  it("starts a fresh worker once the heap or the process has grown past the edit function's own recycle point", async () => {
+    // The process's, past the edit function's point and well short of the rebuild's.
+    expect(EDIT_RECYCLE_AT.rssMb + 1).toBeLessThan(RECYCLE_AT.rssMb);
+    const grown: WorkerMemory[] = [
+      { heapUsedMb: EDIT_RECYCLE_AT.heapUsedMb + 1, rssMb: 100, heapLimitMb: 1 },
+      { heapUsedMb: 100, rssMb: EDIT_RECYCLE_AT.rssMb + 1, heapLimitMb: 1 },
+    ];
+    for (const memory of grown) {
+      const workers = fakeWorkers(answering(memory));
+      const runner = editRunner({ spawn: workers.spawn });
+      await runner.edit(ASK);
+      await runner.edit(ASK);
+      expect([memory, workers.started, workers.ended]).toEqual([memory, [1, 2], [1, 2]]);
+    }
+    const atThePoint: WorkerMemory = { ...EDIT_RECYCLE_AT, heapLimitMb: 1 };
+    const workers = fakeWorkers(answering(atThePoint));
     const runner = editRunner({ spawn: workers.spawn });
     await runner.edit(ASK);
     await runner.edit(ASK);
-    expect(workers.started).toEqual([1, 2]);
-    expect(workers.ended).toEqual([1, 2]);
+    expect(workers.started).toEqual([1]);
+    expect(workers.ended).toEqual([]);
   });
 
   it("says a worker that ran out of memory did", async () => {

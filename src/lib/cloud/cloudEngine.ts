@@ -119,6 +119,22 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean => {
 };
 
 /**
+ * A commit of the manifest that threw, and is not in the copy as read after it: one still on its
+ * way may land later, so the save may or may not be made. Every other failure of `commitChanges` is
+ * a save that did not land. The message is the commit's own, which says what went wrong.
+ */
+export class CommitUnanswered extends Error {
+  /** What the commit threw. */
+  readonly lost: unknown;
+
+  constructor(lost: unknown) {
+    super(lost instanceof Error ? lost.message : String(lost));
+    this.name = "CommitUnanswered";
+    this.lost = lost;
+  }
+}
+
+/**
  * One commit to the cloud copy, onto `base`, the manifest this device read (null: a first copy,
  * where there must be none). In one step, it can:
  * - `changes`: put values in the copy, or take keys out of it;
@@ -132,7 +148,8 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean => {
  * again. Every upload gets pieces of its own name, recorded through `onUploads` before the first is
  * sent, so pieces a save left behind can be found and cleared. The manifest goes last, and only
  * onto the version and copy read; if that moved on, this save's own pieces that no copy names are
- * cleared and the answer is `moved`. A commit whose reply was lost is recognised by its save id.
+ * cleared and the answer is `moved`. A commit whose reply was lost, refused or thrown, is recognised
+ * by its save id; one that threw and is not in the copy throws `CommitUnanswered`, its pieces kept.
  * The pieces the old manifest named and the new one does not are deleted afterwards, as best it
  * can. A value the copy already keeps is not kept a second time.
  */
@@ -265,12 +282,20 @@ export const commitChanges = async ({
     parts: nextParts,
     kept,
   };
-  let committed = await store.commitManifest(
-    base ? { version: base.version, copy: base.copy } : null,
-    next
-  );
+  let committed = false;
+  let thrown: { error: unknown } | null = null;
+  try {
+    committed = await store.commitManifest(
+      base ? { version: base.version, copy: base.copy } : null,
+      next
+    );
+  } catch (error) {
+    thrown = { error };
+  }
   if (!committed) {
-    // A commit that landed, whose reply was lost and retried, reads as refused: found by its id.
+    // A commit that landed but whose reply was lost reads as refused where the store tried it
+    // again, and throws where the reply never came (a dropped connection, or an error after the
+    // write was made): either way it is found by its id.
     let current: CloudManifest | null | undefined;
     try {
       current = await store.readManifest();
@@ -279,6 +304,11 @@ export const commitChanges = async ({
     }
     if (current?.save === next.save) {
       committed = true;
+    } else if (thrown) {
+      // Not in the copy yet, and never refused: a commit still on its way may land after this
+      // read, so its pieces all stay, recorded for `sweepUploads`, and nobody can say whether the
+      // save was made.
+      throw new CommitUnanswered(thrown.error);
     } else {
       // These pieces are this save's alone, by name. A copy that is not this save's names them
       // only when this save did land, its reply lost, and another device saved onto it before this

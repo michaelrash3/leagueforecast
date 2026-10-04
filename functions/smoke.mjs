@@ -276,10 +276,10 @@ if (process.env.LIVE_REBUILD !== "on") {
 } else {
   const called = edit.__endpoint;
   check(
-    "an edit is a call, as the rebuilds' account, one instance taking several at the rebuild's size",
+    "an edit is a call, as the rebuilds' account, one instance taking several at half the rebuild's size",
     called.callableTrigger !== undefined &&
       called.serviceAccountEmail === "live-runner@" &&
-      called.availableMemoryMb === 8192 &&
+      called.availableMemoryMb === 4096 &&
       called.cpu === 2 &&
       called.timeoutSeconds === 540 &&
       called.maxInstances === 1 &&

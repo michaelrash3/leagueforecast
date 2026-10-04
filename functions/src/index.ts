@@ -26,6 +26,7 @@ import { handleEdit, handleWarm } from "../../src/lib/live/editHandle";
 import {
   EDIT_SIZE,
   EDIT_TIMEOUT_S,
+  EDIT_WORKER_HEAP_MB,
   editRunner,
   type EditPort,
 } from "../../src/lib/live/editWorkerProtocol";
@@ -426,10 +427,10 @@ export const rebuild = !LIVE_REBUILD
 /** Whether a caller of `edit` is on the cloud copy's list, asked once per instance. */
 const editCheck = createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projectId });
 
-/** A worker for the edits, with the rebuild's heap cap and for the same reason. */
+/** A worker for the edits, with a heap cap of its own for the smaller instance (`EDIT_SIZE`). */
 const startEditWorker = (): EditPort => {
   const worker = new Worker(new URL("./editWorker.js", import.meta.url), {
-    resourceLimits: { maxOldGenerationSizeMb: REBUILD_WORKER_HEAP_MB },
+    resourceLimits: { maxOldGenerationSizeMb: EDIT_WORKER_HEAP_MB },
   });
   return {
     post: (request) => worker.postMessage(request),
@@ -465,7 +466,7 @@ export const edit = !LIVE_REBUILD
         region: REGION,
         invoker: "public",
         serviceAccount: LIVE_RUNNER,
-        memory: "8GiB",
+        memory: "4GiB",
         cpu: EDIT_SIZE.cpu,
         timeoutSeconds: EDIT_TIMEOUT_S,
         maxInstances: 1,

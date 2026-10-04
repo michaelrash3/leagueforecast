@@ -9,14 +9,34 @@ import type { WorkerMemory } from "./rebuildWorkerProtocol";
  * `functions/src/editWorker.ts` only wires `answerEdit` to the message port, and
  * `functions/src/index.ts` hands `editRunner` a way to start one.
  *
- * The worker keeps every part of the pool warm from request to request (`createPoolCache` with
- * `everyPart`), so an edit after the first fetches only what other saves moved. As the rebuild's
+ * The worker keeps every part of the pool a command reads warm from request to request
+ * (`createEditPool`), so an edit after the first fetches only what other saves moved. As the rebuild's
  * worker, nothing there empties the store but the pool itself, and a pool that is to go goes with
  * its worker.
  */
 
-/** The function's instance, as a run's cost is reckoned (`runCost`). */
-export const EDIT_SIZE = { gib: 8, cpu: 2 } as const;
+/**
+ * The function's instance, as a run's cost is reckoned (`runCost`): half the rebuild's, since the
+ * edits build no boards. On the 29 September 2026 pool, a process that brought the pool up cold and
+ * made and undid one edit of each of six kinds held at most 1,128 MB, where building every board
+ * then took it to 2.5 GB and, build after build, 3.5 GB (`npm run live:bench -- --copy`, 4
+ * October).
+ */
+export const EDIT_SIZE = { gib: 4, cpu: 2 } as const;
+
+/**
+ * The most the edit worker's heap may hold, in MiB: five times the most the edits above left it
+ * holding (466 MB), for a pool that grows through the season, and below the instance's 4 GiB with
+ * the main thread and the worker's buffers beside it.
+ */
+export const EDIT_WORKER_HEAP_MB = 2_560;
+
+/**
+ * When the edit worker is started afresh, as `RECYCLE_AT` says for the rebuild's: below its heap's
+ * cap and the instance's memory, so a worker that grows is let go between edits rather than running
+ * out in the middle of one.
+ */
+export const EDIT_RECYCLE_AT = { heapUsedMb: 2_048, rssMb: 3_072, runs: 200 } as const;
 
 /** The function's timeout: room for a cold edit behind a few queued ahead of it. */
 export const EDIT_TIMEOUT_S = 540;
@@ -100,7 +120,8 @@ type Asked = { kind: "edit"; ask: EditAsk } | { kind: "warm" };
  * a time in the order they came, since the function takes several at once and the pool is one. A
  * worker is ended, and the next request starts another (whose pool starts cold), when it died, ran
  * past its limit, or answered that a request threw (which may have left its store part-written),
- * and when `shouldRecycle` says its heap or the process has grown too far or it has run enough.
+ * and when `shouldRecycle` says, at `EDIT_RECYCLE_AT`, that its heap or the process has grown too
+ * far or it has run enough.
  */
 export const editRunner = ({
   spawn,
@@ -187,7 +208,7 @@ export const editRunner = ({
       );
     }
     worker.runs += 1;
-    if (shouldRecycle(answer.memory, worker.runs)) await end(worker);
+    if (shouldRecycle(answer.memory, worker.runs, EDIT_RECYCLE_AT)) await end(worker);
     return answer;
   };
 
