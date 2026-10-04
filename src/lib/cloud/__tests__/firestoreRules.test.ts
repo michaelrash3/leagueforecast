@@ -426,7 +426,9 @@ describe.skipIf(!HOST)(
       );
 
     it("lets in the accounts on the list, whatever case Google hands their address back in", async () => {
-      expect(await verdictFor(OWNER)).toBe("member");
+      // The owner as the owner, by the role on its own entry, which the edit function reads to
+      // keep the owner's commands to the owner (1.6).
+      expect(await verdictFor(OWNER)).toBe("owner");
       expect(await verdictFor(LAPTOP)).toBe("member");
       expect(await verdictFor({ ...LAPTOP, email: "Laptop@Example.COM" })).toBe("member");
     });
