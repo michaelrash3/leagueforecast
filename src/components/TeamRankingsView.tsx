@@ -787,6 +787,8 @@ export function TeamRankingsView({
      * ratings would be describing a team that does not exist.
      */
     ...(selectedSegment === undefined ? {} : { segment: selectedSegment }),
+    // The cloud's board stands in only on a page it handed over to.
+    liveStandIn: handover !== undefined,
   });
   // Once, as the first board settles; nothing a render reads changes with it.
   if (!boardShown && !rankingsStale) setBoardShown(true);
@@ -860,14 +862,16 @@ export function TeamRankingsView({
   const reportForId =
     reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId || "";
   /** Opponents asked for by name in the scouting report, beyond the two lists it shows by default. */
-  const [pickedOpponentIds, setPickedOpponentIds] = useState<string[]>([]);
+  const [pickedOpponentIds, setPickedOpponentIds] = useState<string[]>(
+    () => handover?.pickedOpponentIds ?? []
+  );
 
   /**
    * A club to set beside the report's team (`compareClubs`): their meetings, the clubs both have
    * played, and each one's best wins, worst losses and latest results, off the games this board
    * counts in the half it is showing.
    */
-  const [compareId, setCompareId] = useState("");
+  const [compareId, setCompareId] = useState(handover?.compareTeamId ?? "");
   const comparison = useMemo(() => {
     if (!compareId || !reportForId || compareId === reportForId) return null;
     return compareClubs(

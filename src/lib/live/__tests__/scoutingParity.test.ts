@@ -26,7 +26,13 @@ import {
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { gamesOnPages, type SeasonReader } from "../allKnown";
-import { gamesOfTwo, poolGamesOfCard, teamsOfCard } from "../scoutingFromCards";
+import { whatIfDeclines } from "../../scoutWhatIf";
+import {
+  boardWhatIfDeclines,
+  gamesOfTwo,
+  poolGamesOfCard,
+  teamsOfCard,
+} from "../scoutingFromCards";
 import { boardViews, buildBoardsAndFacts } from "../views/board";
 import { coerceBoardView, withMine } from "../views/boardShape";
 import { clubViews } from "../views/clubs";
@@ -120,7 +126,16 @@ describe("Scouting on the cloud's board", { timeout: 60_000 }, () => {
       if (!read) throw new Error(`bucket ${key} does not read back`);
       buckets.set(key, read);
     }
-    const seen = { reports: 0, upcoming: 0, comparisons: 0, meetings: 0, common: 0, apart: 0 };
+    const seen = {
+      reports: 0,
+      upcoming: 0,
+      comparisons: 0,
+      meetings: 0,
+      common: 0,
+      apart: 0,
+      offered: 0,
+      declined: 0,
+    };
     for (const group of ageGroups) {
       const year = ageGroupYear(group);
       const known = built.known.get(year);
@@ -164,6 +179,43 @@ describe("Scouting on the cloud's board", { timeout: 60_000 }, () => {
           const theirs = buildUpcomingSchedule(teamId, rows, poolGames, known.teams, FIXTURE_TODAY);
           expect(withoutIds(ours), at).toEqual(withoutIds(theirs));
           seen.upcoming += theirs.length;
+          /*
+           * The what-ifs offered, with the URL naming this half or none: never one the page would
+           * not offer; a game refused on sight refused as the page refuses it; and an opponent the
+           * board does not rank declined, though the page may rate it on another page of its pool.
+           */
+          const cardGames = new Map(poolGamesOfCard(card, poolIds).map((game) => [game.id, game]));
+          const poolGameById = new Map(poolGames.map((game) => [game.id, game]));
+          const fixturesOurs = ours.flatMap((one) => cardGames.get(one.gameId) ?? []);
+          const fixturesTheirs = theirs.flatMap((one) => poolGameById.get(one.gameId) ?? []);
+          const rated = new Set(rows.map((row) => row.teamId));
+          const declined = (route: SeasonSegment | undefined) => ({
+            ours: [...boardWhatIfDeclines(fixturesOurs, teamId, rated, ageGroups, route).values()],
+            theirs: [
+              ...whatIfDeclines(
+                fixturesTheirs,
+                teamId,
+                group.id,
+                known.teams,
+                poolGames,
+                ageGroups,
+                route,
+                FIXTURE_TODAY
+              ).values(),
+            ],
+          });
+          for (const route of segment ? [segment, undefined] : []) {
+            const both = declined(route);
+            both.ours.forEach((one, index) => {
+              const page = both.theirs[index];
+              const which = `what-if ${index} for ${at}, URL half ${route ?? "none"}`;
+              if (one === null) {
+                expect(page, which).toBeNull();
+                seen.offered += 1;
+              } else if (one !== "unrated-opponent") expect(page, which).toBe(one);
+              else seen.declined += 1;
+            });
+          }
           // A game of the club's on a page outside this one's pool, which its card holds.
           if (card.games.some((game) => !poolIds.has(game.ageGroupId))) seen.apart += 1;
         }

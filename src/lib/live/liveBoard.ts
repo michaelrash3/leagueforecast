@@ -9,8 +9,9 @@ import { withMine, type BoardRow } from "./views/boardShape";
  * one only this device's last visit.
  *
  * Held in memory for the page load, never stored: the live page reads it from the device's view
- * cache on the next open. Held without a star, which is the page's own to set by the worker's rule
- * (`withMine`), legacy roster star and all, now that the roster is in hand.
+ * cache on the next open. Only a page opened by a handover reads it (`RankingsInput.liveStandIn`),
+ * and it is let go when the live page closes. Held without a star, which is the page's own to set
+ * by the worker's rule (`withMine`), legacy roster star and all, now that the roster is in hand.
  */
 
 type Held = { page: string; rows: readonly BoardRow[] };
@@ -67,7 +68,10 @@ export const liveBoardFor = (
   return out;
 };
 
-/** Lets go of the held board: for tests, and for an account that may no longer read it. */
+/**
+ * Lets go of the held board: when the live page closes, for an account that may no longer read
+ * it, and for tests.
+ */
 export const forgetLiveBoard = (): void => {
   held = null;
   starred = null;
@@ -75,13 +79,16 @@ export const forgetLiveBoard = (): void => {
 
 /**
  * Where the live page left off when it handed over to Team Rankings on this device's own copy, so
- * the page opens there: the club tapped, the search asked for, the club Scouting was reporting on,
- * and the state boards as they were.
+ * the page opens there: the club tapped, the search asked for, the clubs Scouting was on (the one
+ * reported on, the one set beside it, and opponents asked for by name), and the state boards as
+ * they were.
  */
 export type RankingsHandover = {
   openTeamId?: string;
   focusSearch?: boolean;
   reportTeamId?: string;
+  compareTeamId?: string;
+  pickedOpponentIds?: string[];
   stateTop?: string | null;
   stateFilter?: string;
   showAll?: boolean;

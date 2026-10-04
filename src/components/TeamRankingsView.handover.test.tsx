@@ -5,8 +5,8 @@ import { ageGroup, game, renderTeamRankings, seasonDate, team } from "../test/te
 
 /*
  * Team Rankings taking over from the live board (`LiveTeamRankings`): it opens where the board
- * left off, on the club tapped, the search asked for, the club Scouting was reporting on, and the
- * state boards as they were.
+ * left off, on the club tapped, the search asked for, the clubs Scouting was on, and the state
+ * boards as they were.
  */
 
 const pool = () => ({
@@ -62,5 +62,16 @@ describe("Team Rankings taking over from the live board", () => {
     });
     const box = await screen.findByRole("combobox", { name: /How would/ });
     await waitFor(() => expect(box).toHaveValue("Badgers"));
+  });
+
+  it("sets beside it the club compared on the board, with the opponents asked for", async () => {
+    renderTeamRankings({
+      ...pool(),
+      search: "?view=rankings&age=10&year=2027&section=scouting",
+      handover: { reportTeamId: "S-B", compareTeamId: "S-C", pickedOpponentIds: ["S-A"] },
+    });
+    expect(await screen.findByRole("region", { name: "Badgers and Comets compared" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByLabelText("Compare with")).toHaveValue("Comets"));
+    expect(screen.getAllByRole("button", { name: "Remove Aces from the report" }).length).toBe(1);
   });
 });

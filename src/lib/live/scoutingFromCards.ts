@@ -1,4 +1,5 @@
-import type { ScoutGame, ScoutTeam } from "../teamRankings";
+import { refuseOnSight, type WhatIfDeclined } from "../scoutWhatIf";
+import type { AgeGroup, ScoutGame, ScoutTeam, SeasonSegment } from "../teamRankings";
 import type { ClubCard } from "./views/clubShape";
 
 /**
@@ -58,3 +59,29 @@ export const gamesOfTwo = (
   takeB(false);
   return out;
 };
+
+/**
+ * Why Scouting would not ask a what-if of each of `forTeamId`'s coming `fixtures`, worked out as
+ * Team Rankings works it out (`whatIfDeclines`) as far as the board can: what is refused on sight
+ * (`refuseOnSight`, on the URL's half as the page reads it) is refused alike, and an opponent the
+ * board does not rank (`rated`, its rows) is declined as one with no counted game. Every club the
+ * board ranks has one, so the board never offers a what-if the page would not; but the page rates
+ * opponents across its whole pool and over the whole year where the URL names no half, so a club
+ * ranked only on another page of the pool, or only in the other half, is declined here though the
+ * page would ask. `scoutingParity.test.ts` holds both on the seeded fixture.
+ */
+export const boardWhatIfDeclines = (
+  fixtures: readonly ScoutGame[],
+  forTeamId: string,
+  rated: ReadonlySet<string>,
+  ageGroups: AgeGroup[],
+  routeSegment: SeasonSegment | undefined
+): Map<string, WhatIfDeclined | null> =>
+  new Map(
+    fixtures.map((fixture) => {
+      const onSight = refuseOnSight(fixture, ageGroups, routeSegment);
+      if (onSight) return [fixture.id, onSight];
+      const opponentId = fixture.teamAId === forTeamId ? fixture.teamBId : fixture.teamAId;
+      return [fixture.id, rated.has(opponentId) ? null : "unrated-opponent"];
+    })
+  );

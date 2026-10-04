@@ -32,6 +32,12 @@ type RankingsInput = {
   ageGroups: AgeGroup[];
   /** One half of the baseball year, or the whole of it when absent. */
   segment?: SeasonSegment;
+  /**
+   * Whether the cloud's board the live page held (`liveBoard.ts`) may stand in before the first
+   * fit: only on a page the live page handed over to, never on one opened the old way, which a
+   * board held from an earlier visit must not stand in for.
+   */
+  liveStandIn?: boolean;
 };
 
 /**
@@ -795,7 +801,9 @@ export function useRankingsWorker(input: RankingsInput): {
    * built it, or else the board this device last fitted (`savedBoard.ts`), last visit's.
    */
   const live =
-    settledSnapshot === null ? liveBoardFor({ ...snapshot, roster: snapshot.teams }) : null;
+    settledSnapshot === null && input.liveStandIn
+      ? liveBoardFor({ ...snapshot, roster: snapshot.teams })
+      : null;
   const saved = settledSnapshot === null && !live ? savedBoardFor(snapshot) : null;
   return {
     rows: live ?? saved ?? rows,

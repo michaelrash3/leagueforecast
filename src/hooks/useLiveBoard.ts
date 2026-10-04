@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { copySeen, liveReader, type CopySeen } from "../lib/cloud/cloudSession";
 import { loadCloudState, owedChanges } from "../lib/cloud/cloudState";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
@@ -71,8 +71,16 @@ export type LiveBoardState = {
   /** Why the network's board for the key cannot be drawn, once asked. */
   boardMiss: Extract<BoardRead, { ok: false }>["why"] | null;
   /**
-   * When the server last vouched for the meta, as an ISO instant: the network's read, or the
-   * watch's last word from the server; for a kept meta, when this account read it. Null before any.
+   * Whether the board for the key was looked for in what this device kept, while the meta is the
+   * kept one, and not found: with no network to read it from, there is then nothing to draw.
+   */
+  keptMissed: boolean;
+  /**
+   * When the server last vouched for what is drawn, as an ISO instant: the network's read of the
+   * meta, or the watch's last word from the server; for a kept meta, when this account read it.
+   * While the network's board for the key cannot be read for want of a connection and an older
+   * one stays drawn, when that board was last vouched for, so the label never dates it later.
+   * Null before any.
    */
   heardAt: string | null;
   /**
@@ -90,7 +98,23 @@ export type LiveBoardState = {
 };
 
 /** A meta, and what its views are read through (`readView`). */
-export type LiveViewSource = { reader: LiveReader; meta: LiveMeta; cache: ViewCache };
+export type LiveViewSource = {
+  reader: LiveReader;
+  meta: LiveMeta;
+  cache: ViewCache;
+  /**
+   * Whether a view this source cannot read cannot be had: the meta is the network's, or the
+   * network has given none. Before that, the meta is only the one this device kept and its reader
+   * reads only what was kept, so a view it lacks is still to come from the network's source.
+   */
+  settled: boolean;
+  /**
+   * For a read of a view the rules refused: every board kept and held is let go and the page told
+   * the account is refused, as a refused read of the meta does, since the account may no longer see
+   * any of it.
+   */
+  refused: () => void;
+};
 
 const NO_GAMES = { fall: 0, spring: 0 } as const;
 
@@ -134,6 +158,21 @@ export function useLiveBoard({
   const show = (next: LiveBoardState["board"]) => {
     boardRef.current = next;
     setBoard(next);
+  };
+  // When the board on screen was last vouched for, and when the kept meta was read.
+  const [boardAt, setBoardAt] = useState<string | null>(null);
+  const keptAtRef = useRef<string | null>(null);
+  /*
+   * Why the network's board could not be read, for the watch to see, and a count it moves on when
+   * the server is heard again after a board read failed for want of a connection, so that board is
+   * read again then rather than at the next publish.
+   */
+  const boardMissRef = useRef<LiveBoardState["boardMiss"]>(null);
+  const [keptMissKey, setKeptMissKey] = useState<string | null>(null);
+  const [retries, setRetries] = useState(0);
+  const missBoard = (why: LiveBoardState["boardMiss"]) => {
+    boardMissRef.current = why;
+    setBoardMiss(why);
   };
 
   useEffect(() => {
@@ -184,6 +223,7 @@ export function useLiveBoard({
         const kept = await cache.meta(uid).catch(() => null);
         const read = kept ? checkLiveMeta(kept.meta) : null;
         if (alive && kept && read?.ok) {
+          keptAtRef.current = kept.readAt;
           setMeta((shown) => shown ?? { meta: read.meta, pages: read.pages, from: "cache" });
           setHeardAt((at) => at ?? kept.readAt);
         }
@@ -205,6 +245,7 @@ export function useLiveBoard({
         next: (raw, fromServer) => {
           if (!alive) return;
           setLink(fromServer ? "live" : "cut-off");
+          if (fromServer && boardMissRef.current === "offline") setRetries((count) => count + 1);
           // Cut off, it hears only what it last heard: nothing to take.
           if (fromServer) void take(checkLiveMeta(raw));
         },
@@ -246,7 +287,8 @@ export function useLiveBoard({
       if (!alive) return;
       if (read.ok) {
         show({ key, h: read.entry.h, view: read.view, checked: network });
-        if (network) setBoardMiss(null);
+        setBoardAt(network ? sources.now() : keptAtRef.current);
+        if (network) missBoard(null);
         const uid = sources.uid();
         if (network && uid)
           void sources.cache.keepLastShown(uid, { key, h: read.entry.h }).catch(() => undefined);
@@ -255,14 +297,22 @@ export function useLiveBoard({
           forgetLiveBoard();
           show(null);
         }
-        setBoardMiss(read.why);
-      }
+        missBoard(read.why);
+      } else setKeptMissKey(key);
     })();
     return () => {
       alive = false;
     };
-  }, [meta, key, sources]);
+  }, [meta, key, sources, retries]);
 
+  const refuse = useCallback(() => {
+    forgetLiveBoard();
+    boardRef.current = null;
+    setBoard(null);
+    setMeta(null);
+    setMetaMiss("refused");
+  }, []);
+  const settled = meta?.from === "network" || metaMiss !== null;
   const source = useMemo(
     (): LiveViewSource | null =>
       meta
@@ -270,10 +320,14 @@ export function useLiveBoard({
             reader: (meta.from === "network" ? networkReader : null) ?? KEPT_ONLY,
             meta: meta.meta,
             cache: sources.cache,
+            settled,
+            refused: refuse,
           }
         : null,
-    [meta, networkReader, sources]
+    [meta, networkReader, sources, settled, refuse]
   );
+  const shownBoard = board && board.key === key ? board : null;
+  const shownMiss = board && board.key !== key ? null : boardMiss;
 
   return {
     meta,
@@ -281,9 +335,10 @@ export function useLiveBoard({
     standing,
     segment,
     key,
-    board: board && board.key === key ? board : null,
-    boardMiss: board && board.key !== key ? null : boardMiss,
-    heardAt,
+    board: shownBoard,
+    boardMiss: shownMiss,
+    keptMissed: meta?.from === "cache" && keptMissKey === key,
+    heardAt: shownBoard && shownMiss === "offline" ? (boardAt ?? heardAt) : heardAt,
     link,
     source,
   };

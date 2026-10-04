@@ -32,6 +32,7 @@ import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive
 import type { AgeGroup } from "../../lib/teamRankings";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
 import type { LiveSources } from "../../hooks/useLiveBoard";
+import { useRankingsPages } from "../../hooks/useRankingsPages";
 
 /*
  * Team Rankings opened on the cloud's board (`LiveTeamRankings`), from a board published to an
@@ -47,7 +48,10 @@ const pool = vi.hoisted(() => ({
 }));
 vi.mock("../../lib/cloud/cloudSession", () => ({
   poolWantsCloud: () => pool.wants,
-  poolOnScreen: () => undefined,
+  // Team Rankings on screen: the pool no longer waits to be brought in (`poolWantsCloud`).
+  poolOnScreen: () => {
+    pool.wants = false;
+  },
   preparePool: () => {
     pool.prepared += 1;
     pool.ready ??= new Promise<void>((resolve) => {
@@ -312,7 +316,10 @@ describe("Team Rankings on the cloud's board", () => {
   it("hands over at once for a page with no published board", async () => {
     window.history.replaceState(null, "", "/?view=rankings&age=11&year=2027");
     open(sourcesOf(live));
-    expect(await screen.findByText(/Checking your cloud copy/)).toBeTruthy();
+    // The page's header stays, with how far the pool has got and what opens once it is in.
+    expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
+    expect(screen.getByText("This opens on this device's copy as soon as it is in…")).toBeTruthy();
+    expect(handedOver()).toBeNull();
     await act(async () => pool.finish());
     expect(handedOver()).toEqual({ stateTop: null, stateFilter: "", showAll: false });
   });
@@ -327,7 +334,7 @@ describe("Team Rankings on the cloud's board", () => {
     const moved = { ...MANIFEST, parts: [part(LEAGUE_PART, h(9)), MANIFEST.parts[1]!] };
     open(sourcesOf(live, { seen: () => seenOf(moved) }));
     expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
-    expect(screen.getAllByText("Placeholder S-1").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Placeholder S-1")).length).toBeGreaterThan(0);
     expect(screen.getByText("The cloud's board, from before the latest changes")).toBeTruthy();
     await act(async () => pool.finish());
     expect(handedOver()).toEqual({ stateTop: null, stateFilter: "", showAll: false });
@@ -1037,5 +1044,558 @@ describe("Scouting on the cloud's board", () => {
     onScouting();
     open(sourcesOf(live));
     await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+});
+
+describe("what the board reads beside it, while the meta is only the one this device kept", () => {
+  const WITH_VIEWS: PublishedView[] = [
+    { key: `board:2027:${PAGE}:spring`, value: SPRING },
+    { key: `board:2027:${PAGE}:fall`, value: FALL },
+    { key: `board:2027:${PAGE}:year`, value: SPRING },
+    {
+      key: gamesKey(2027, PAGE),
+      value: encodeGames({
+        page: PAGE,
+        games: [
+          {
+            id: "g1",
+            teamAId: "S-1",
+            teamBId: "S-2",
+            ageGroupId: PAGE,
+            teamAScore: 7,
+            teamBScore: 2,
+            date: TODAY,
+          },
+        ],
+        names: new Map([
+          ["S-1", "Placeholder S-1"],
+          ["S-2", "Placeholder S-2"],
+        ]),
+      }),
+    },
+    {
+      key: clubKey(2027, clubBucketOf("S-1")),
+      value: {
+        clubs: {
+          "S-1": encodeClubCard({
+            team: { id: "S-1", name: "Placeholder S-1", state: "OH" },
+            games: [
+              {
+                id: "g1",
+                teamAId: "S-1",
+                teamBId: "S-2",
+                ageGroupId: PAGE,
+                teamAScore: 5,
+                teamBScore: 3,
+                date: "2027-03-20",
+              },
+            ],
+            names: { "S-2": "Placeholder S-2" },
+            age: { level: 12 },
+          }),
+        },
+      },
+    },
+  ];
+
+  /** One visit on the board alone, so the meta and the board are kept and nothing else. */
+  const visitOnce = async () => {
+    await publish(live, WITH_VIEWS);
+    const first = open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    first.unmount();
+    forgetDecodedBoards();
+  };
+  /** The network's reader, its meta read held back until `answer`: a slow network. */
+  const slow = () => {
+    let answer = (): void => undefined;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const reader = readerOf(live);
+    const held: LiveReader = {
+      ...reader,
+      readMeta: async () => {
+        await answered;
+        return reader.readMeta();
+      },
+    };
+    return { answer: () => answer(), reader: held };
+  };
+  const pause = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+
+  it("waits for the network's meta for a Games list it did not keep, and draws it then", async () => {
+    await visitOnce();
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=games");
+    pool.wants = false;
+    const net = slow();
+    open(sourcesOf(live, { reader: async () => net.reader }));
+    await pause(100);
+    expect(handedOver()).toBeNull();
+    await act(async () => net.answer());
+    expect(await screen.findByText("Placeholder S-1 7")).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("waits for the network's meta for a club's card it did not keep, and opens the panel then", async () => {
+    await visitOnce();
+    const net = slow();
+    open(sourcesOf(live, { reader: async () => net.reader }));
+    expect(await screen.findByText("The cloud's board · checking for a newer one…")).toBeTruthy();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Placeholder S-1" }))[0]!);
+    await pause(100);
+    expect(handedOver()).toBeNull();
+    await act(async () => net.answer());
+    expect(await screen.findByRole("region", { name: "Placeholder S-1" })).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("hands over for a list it did not keep once the network has none to give", async () => {
+    await visitOnce();
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=games");
+    pool.wants = false;
+    const offline: LiveReader = {
+      readMeta: () => Promise.reject({ code: "unavailable" }),
+      getChunk: () => Promise.reject({ code: "unavailable" }),
+    };
+    open(sourcesOf(live, { reader: async () => offline }));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+
+  it("forgets every board it kept and held, and hands over, when the rules refuse a card", async () => {
+    await publish(live, WITH_VIEWS);
+    const bucket = live.meta()?.views[clubKey(2027, clubBucketOf("S-1"))];
+    if (!bucket) throw new Error("no bucket");
+    const reader = readerOf(live);
+    const refusingCards: LiveReader = {
+      ...reader,
+      getChunk: (id) =>
+        id.startsWith(bucket.id)
+          ? Promise.reject({ code: "permission-denied" })
+          : reader.getChunk(id),
+    };
+    open(sourcesOf(live, { reader: async () => refusingCards }));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    expect(screen.getByText(/^Schedules last pulled/)).toBeTruthy();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Placeholder S-1" }))[0]!);
+    await waitFor(() => expect(kept.size).toBe(0));
+    // Nothing the refused account read stays on screen while the pool comes in, or held after.
+    expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
+    expect(screen.queryByText(/^Schedules last pulled/)).toBeNull();
+    expect(screen.queryAllByText("Placeholder S-2")).toHaveLength(0);
+    expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
+    await act(async () => pool.finish());
+    expect(handedOver()).not.toBeNull();
+  });
+
+  it("reads a board again once the server is heard again, dating the old one by its own read", async () => {
+    const first = open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    first.unmount();
+    forgetDecodedBoards();
+    const NEXT = { rows: [row("S-7", 1, { state: "OH" }), ...SPRING.rows.slice(1)] };
+    await publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: NEXT },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: NEXT },
+    ]);
+    let down = true;
+    const net = slow();
+    const flaky: LiveReader = {
+      ...net.reader,
+      getChunk: (id) => (down ? Promise.reject({ code: "unavailable" }) : net.reader.getChunk(id)),
+    };
+    const later = `${TODAY}T15:00:00.000Z`;
+    open(sourcesOf(live, { reader: async () => flaky, now: () => later }));
+    expect(await screen.findByText("The cloud's board · checking for a newer one…")).toBeTruthy();
+    await act(async () => net.answer());
+    const asOf = (heardAt: string) =>
+      liveLabel({
+        check: "offline",
+        standing: null,
+        rules: undefined,
+        boardDay: TODAY,
+        today: TODAY,
+        heardAt,
+      });
+    // The rows on screen are the board read at T, and the label dates them by that read.
+    expect(await screen.findByText(asOf(T))).toBeTruthy();
+    expect(screen.queryAllByText("Placeholder S-7")).toHaveLength(0);
+    await waitFor(() => expect(live.watching()).toBe(1));
+    down = false;
+    act(() => live.reconnect());
+    expect((await screen.findAllByText("Placeholder S-7")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/^Offline · the cloud's board as of /)).toBeNull();
+  });
+});
+
+describe("what it hands over, when, and what stays after", () => {
+  const pause = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+  const cardOf = (teamId: string, games: ClubCard["games"]): ClubCard => ({
+    team: { id: teamId, name: `Placeholder ${teamId}` },
+    games,
+    names: Object.fromEntries(
+      ["S-1", "S-2", "S-3", "S-7"]
+        .filter((id) => id !== teamId)
+        .map((id) => [id, `Placeholder ${id}`])
+    ),
+  });
+  const MEETING = {
+    id: "0",
+    teamAId: "S-2",
+    teamBId: "S-3",
+    ageGroupId: PAGE,
+    teamAScore: 4,
+    teamBScore: 2,
+    date: "2027-03-20",
+  };
+  const CARDS = [
+    cardOf("S-1", [
+      {
+        id: "0",
+        teamAId: "S-1",
+        teamBId: "S-2",
+        ageGroupId: PAGE,
+        teamAScore: 5,
+        teamBScore: 3,
+        date: "2027-03-20",
+      },
+    ]),
+    cardOf("S-2", [
+      MEETING,
+      { id: "1", teamAId: "S-7", teamBId: "S-2", ageGroupId: PAGE, date: "2027-04-20" },
+    ]),
+    cardOf("S-3", [MEETING]),
+  ];
+  const withCards = (cards: ClubCard[] = CARDS, more: PublishedView[] = []) => {
+    const buckets = new Map<string, Record<string, ReturnType<typeof encodeClubCard>>>();
+    for (const one of cards) {
+      const key = clubKey(2027, clubBucketOf(one.team.id));
+      buckets.set(key, { ...(buckets.get(key) ?? {}), [one.team.id]: encodeClubCard(one) });
+    }
+    return publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: SPRING },
+      { key: `board:2027:${PAGE}:fall`, value: SPRING },
+      { key: `board:2027:${PAGE}:year`, value: SPRING },
+      ...[...buckets].map(([key, clubs]) => ({ key, value: { clubs } })),
+      ...more,
+    ]);
+  };
+  const onScouting = () =>
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=scouting");
+  const pick = async (user: ReturnType<typeof userEvent.setup>, box: HTMLElement, name: string) => {
+    await user.click(box);
+    await user.type(box, name);
+    const listbox = document.getElementById(box.getAttribute("aria-controls") ?? "");
+    if (!listbox) throw new Error("no listbox");
+    const option = within(listbox)
+      .getAllByRole("option")
+      .find((one) => one.textContent?.includes(name));
+    if (!option) throw new Error(`no option ${name}`);
+    await user.click(within(option).getByRole("button"));
+  };
+
+  it("gives a half moved to after the first board a while of its own to draw", async () => {
+    pool.wants = false;
+    const reader = readerOf(live);
+    const fall = live.meta()?.views[`board:2027:${PAGE}:fall`];
+    if (!fall) throw new Error("no fall board");
+    let release = (): void => undefined;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const slowFall: LiveReader = {
+      ...reader,
+      getChunk: async (id) => {
+        if (id.startsWith(fall.id)) await released;
+        return reader.getChunk(id);
+      },
+    };
+    open(sourcesOf(live, { reader: async () => slowFall }), { waitMs: 200 });
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    // The first while runs out with the board drawn.
+    await pause(300);
+    fireEvent.click(screen.getByRole("button", { name: /^Fall 2026/ }));
+    expect(handedOver()).toBeNull();
+    expect(screen.getByText("Reading the cloud's board…")).toBeTruthy();
+    // The half's own while runs out with its board not drawn: it hands over.
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+    release();
+  });
+
+  it("opens a club picked in Find a team on another page from its card, long after opening", async () => {
+    const ELEVEN = "ag_11u_2027";
+    const NINERS: ClubCard = {
+      team: { id: "S-9", name: "Placeholder S-9", state: "OH" },
+      games: [],
+      names: {},
+    };
+    await publish(
+      live,
+      [
+        { key: `board:2027:${PAGE}:spring`, value: SPRING },
+        { key: `board:2027:${PAGE}:fall`, value: FALL },
+        { key: `board:2027:${PAGE}:year`, value: SPRING },
+        { key: `board:2027:${ELEVEN}:spring`, value: { rows: [row("S-9", 1, { state: "OH" })] } },
+        { key: `board:2027:${ELEVEN}:fall`, value: { rows: [] } },
+        { key: `board:2027:${ELEVEN}:year`, value: { rows: [] } },
+        {
+          key: searchKey(2027),
+          value: encodeSearch({
+            options: [{ id: "S-9", label: "Placeholder S-9", detail: "11U 2027 · OH" }],
+            pageOf: new Map([["S-9", ELEVEN]]),
+            held: { dropped: new Set(), ageless: [], tooYoung: new Set() },
+          }),
+        },
+        {
+          key: clubKey(2027, clubBucketOf("S-9")),
+          value: { clubs: { "S-9": encodeClubCard(NINERS) } },
+        },
+      ],
+      {
+        pulledAt: T,
+        halves: { [PAGE]: { fall: 10, spring: 20 }, [ELEVEN]: { fall: 0, spring: 5 } },
+      }
+    );
+    const user = userEvent.setup();
+    open(sourcesOf(live), { waitMs: 150 });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search every team or coach, any age or season" })
+    );
+    const box = await screen.findByRole("combobox", { name: /find a team/i });
+    await pause(250);
+    await pick(user, box, "Placeholder S-9");
+    expect(await screen.findByRole("region", { name: "Placeholder S-9" })).toBeTruthy();
+    expect(screen.queryByText(/Loading this device's copy/)).toBeNull();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("goes when Team Rankings opens, so Back to a page only Team Rankings knows stays there", async () => {
+    const THIRTEEN: AgeGroup = {
+      id: "ag_13u_2027",
+      name: "13U 2027",
+      ageLevel: 13,
+      year: 2027,
+      seasonIds: [],
+    };
+    function Page() {
+      const { selectedAgeGroupId } = useRankingsPages([...GROUPS, THIRTEEN], TODAY);
+      return <p data-testid="probe">{selectedAgeGroupId}</p>;
+    }
+    pool.wants = false;
+    render(
+      <LiveTeamRankings
+        status={{ kind: "connecting" }}
+        renderPage={() => <Page />}
+        preloadPage={() => Promise.resolve()}
+        sources={sourcesOf(live)}
+        quietMs={100}
+        waitMs={60_000}
+      />
+    );
+    await screen.findByTestId("probe");
+    // Its listener went with it.
+    expect(live.watching()).toBe(0);
+    act(() => {
+      window.history.pushState(null, "", "/?view=rankings&age=13&year=2027");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await pause(50);
+    expect(screen.getByTestId("probe").textContent).toBe("ag_13u_2027");
+    expect(window.location.search).toContain("age=13");
+  });
+
+  it("lets go of the board it held for Team Rankings when it closes", async () => {
+    const shown = open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).not.toBeNull();
+    shown.unmount();
+    expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
+  });
+
+  it("does not hand over on its own while somebody types into Scouting's club box", async () => {
+    await withCards();
+    pool.wants = false;
+    onScouting();
+    const user = userEvent.setup();
+    open(sourcesOf(live), { quietMs: 300 });
+    const box = await screen.findByRole("combobox", { name: /How would/ });
+    await user.click(box);
+    await user.clear(box);
+    await user.type(box, "Placeholder S");
+    await pause(800);
+    expect(handedOver()).toBeNull();
+    expect(document.activeElement).toBe(box);
+  });
+
+  it("opens Team Rankings on the club compared and the opponents asked for, kept across a half", async () => {
+    await withCards();
+    onScouting();
+    const user = userEvent.setup();
+    open(sourcesOf(live), { quietMs: 1500 });
+    await pick(user, await screen.findByLabelText("Compare with"), "Placeholder S-3");
+    const compared = { name: "Placeholder S-2 and Placeholder S-3 compared" };
+    expect(await screen.findByRole("region", compared)).toBeTruthy();
+    // A half moved to reads its board again, and the comparison stays.
+    fireEvent.click(screen.getByRole("button", { name: /^Fall 2026/ }));
+    await waitFor(() => expect(window.location.search).toContain("fall"));
+    expect(await screen.findByRole("region", compared)).toBeTruthy();
+    await pick(user, screen.getByLabelText("Check a team"), "Placeholder S-1");
+    expect(
+      await screen.findByRole("button", { name: "Remove Placeholder S-1 from the report" })
+    ).toBeTruthy();
+    act(() => (document.activeElement as HTMLElement | null)?.blur());
+    await act(async () => pool.finish());
+    await waitFor(() => expect(handedOver()).not.toBeNull(), { timeout: 5_000 });
+    expect(handedOver()).toMatchObject({ compareTeamId: "S-3", pickedOpponentIds: ["S-1"] });
+  });
+
+  it("does not hand over on its own while the search list asked for is on its way", async () => {
+    await withCards(CARDS, [
+      {
+        key: searchKey(2027),
+        value: encodeSearch({
+          options: [{ id: "S-1", label: "Placeholder S-1", detail: "12U 2027 · Springfield, OH" }],
+          pageOf: new Map([["S-1", PAGE]]),
+          held: { dropped: new Set(), ageless: [], tooYoung: new Set() },
+        }),
+      },
+    ]);
+    const entry = live.meta()?.views[searchKey(2027)];
+    if (!entry) throw new Error("no list");
+    let release = (): void => undefined;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const reader = readerOf(live);
+    pool.wants = false;
+    open(
+      sourcesOf(live, {
+        reader: async () => ({
+          ...reader,
+          getChunk: async (id: string) => {
+            if (id.startsWith(entry.id)) await released;
+            return reader.getChunk(id);
+          },
+        }),
+      }),
+      { quietMs: 150 }
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search every team or coach, any age or season" })
+    );
+    await pause(600);
+    expect(handedOver()).toBeNull();
+    await act(async () => release());
+    const box = await screen.findByRole("combobox", { name: /find a team/i });
+    await waitFor(() => expect(document.activeElement).toBe(box));
+  });
+
+  it("keeps the board, and the focus in it, when it hands over while the pool comes in", async () => {
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    const before = screen.getByTestId("live-board");
+    const rankings = screen.getByRole("tab", { name: "Rankings" });
+    rankings.focus();
+    fireEvent.keyDown(rankings, { key: "ArrowRight" });
+    fireEvent.keyDown(document.activeElement ?? rankings, { key: "ArrowRight" });
+    expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
+    expect(screen.getByTestId("live-board")).toBe(before);
+    expect(document.activeElement?.textContent).toBe("Import");
+  });
+
+  it("says an area it cannot draw opens on this device's copy, while the pool comes in", async () => {
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
+    expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
+    const panel = document.getElementById("team-rankings-panel");
+    if (!panel) throw new Error("no panel");
+    expect(panel.getAttribute("aria-labelledby")).toBe("team-rankings-tab-setup");
+    expect(within(panel).queryAllByText("Placeholder S-1")).toHaveLength(0);
+    expect(
+      within(panel).getByText("This opens on this device's copy as soon as it is in…")
+    ).toBeTruthy();
+  });
+
+  it("opens Team Rankings on the club open once the pool is in, though another was handed over", async () => {
+    await withCards(CARDS.filter((one) => one.team.id !== "S-3"));
+    open(sourcesOf(live));
+    // S-3 has no card: it hands over, with the pool still coming in.
+    fireEvent.click((await screen.findAllByRole("button", { name: "Placeholder S-3" }))[0]!);
+    expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
+    expect(
+      screen.getByText("This club opens on this device's copy as soon as it is in…")
+    ).toBeTruthy();
+    // The board still opens clubs from their cards meanwhile.
+    fireEvent.click((await screen.findAllByRole("button", { name: "Placeholder S-1" }))[0]!);
+    expect(await screen.findByRole("region", { name: "Placeholder S-1" })).toBeTruthy();
+    await act(async () => pool.finish());
+    expect(handedOver()).toMatchObject({ openTeamId: "S-1" });
+  });
+
+  it("hands a club with no card tapped while the pool comes in over to Team Rankings", async () => {
+    await withCards(CARDS.filter((one) => one.team.id !== "S-3"));
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
+    open(sourcesOf(live));
+    expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Rankings" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Placeholder S-3" }))[0]!);
+    expect(
+      await screen.findByText("This club opens on this device's copy as soon as it is in…")
+    ).toBeTruthy();
+    await act(async () => pool.finish());
+    expect(handedOver()).toMatchObject({ openTeamId: "S-3" });
+  });
+
+  it("offers no what-if on a game against a club the board does not rank", async () => {
+    await withCards();
+    onScouting();
+    open(sourcesOf(live));
+    const next = await screen.findAllByRole("table", { name: "Next up" });
+    expect(next[0]).toHaveTextContent("Placeholder S-7");
+    expect(within(next[0]!).queryAllByRole("button", { name: /^What if\?/ })).toHaveLength(0);
+  });
+
+  it("hands over offline for a page whose board this device never kept", async () => {
+    await publish(
+      live,
+      [
+        { key: `board:2027:${PAGE}:spring`, value: SPRING },
+        { key: `board:2027:${PAGE}:fall`, value: FALL },
+        { key: `board:2027:${PAGE}:year`, value: SPRING },
+        { key: "board:2027:ag_11u_2027:spring", value: FALL },
+        { key: "board:2027:ag_11u_2027:fall", value: FALL },
+        { key: "board:2027:ag_11u_2027:year", value: FALL },
+      ],
+      {
+        pulledAt: T,
+        halves: { [PAGE]: { fall: 10, spring: 20 }, ag_11u_2027: { fall: 10, spring: 20 } },
+      }
+    );
+    const first = open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    first.unmount();
+    forgetDecodedBoards();
+    window.history.replaceState(null, "", "/?view=rankings&age=11&year=2027");
+    pool.wants = false;
+    open(sourcesOf(null));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+
+  it("draws the board it kept when the network fails before that board is read", async () => {
+    const first = open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    first.unmount();
+    forgetDecodedBoards();
+    const offline: LiveReader = {
+      readMeta: () => Promise.reject({ code: "unavailable" }),
+      getChunk: () => Promise.reject({ code: "unavailable" }),
+    };
+    pool.wants = false;
+    open(sourcesOf(live, { reader: async () => offline }));
+    expect(await screen.findByText(/^Offline · the cloud's board as of /)).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("opens Team Rankings at once when asked to stop waiting for the pool", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
+    open(sourcesOf(live));
+    fireEvent.click(await screen.findByRole("button", { name: "Show this device's copy now" }));
+    expect(handedOver()).toEqual({ stateTop: null, stateFilter: "", showAll: false });
   });
 });

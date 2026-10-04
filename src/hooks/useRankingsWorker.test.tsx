@@ -89,6 +89,7 @@ type Props = {
   games?: ScoutGame[];
   segment?: "fall" | "spring";
   myTeamId?: string;
+  liveStandIn?: boolean;
 };
 const render = (initial: Props) =>
   renderHook(
@@ -100,6 +101,7 @@ const render = (initial: Props) =>
         ageGroups: groups,
         ...(props.segment === undefined ? {} : { segment: props.segment }),
         ...(props.myTeamId === undefined ? {} : { myTeamId: props.myTeamId }),
+        ...(props.liveStandIn ? { liveStandIn: true } : {}),
       }),
     { initialProps: initial }
   );
@@ -458,13 +460,13 @@ describe("opening on the board the live page drew", () => {
   it("shows the published board in place of the saved one, stale, until its own fit lands", () => {
     saveBoard({ ageGroupId: "u10" }, savedRows, { get: async () => null, set: async () => true });
     holdLiveBoard({ ageGroupId: "u10" }, published);
-    const { result, rerender } = render({ ageGroupId: "u10" });
+    const { result, rerender } = render({ ageGroupId: "u10", liveStandIn: true });
     expect(result.current.rows).toEqual(published.map((one) => ({ ...one, isMine: false })));
     expect(result.current.stale).toBe(true);
     expect(result.current.standIn).toBe("live");
     // The same rows for the same board and star, render after render.
     const first = result.current.rows;
-    rerender({ ageGroupId: "u10" });
+    rerender({ ageGroupId: "u10", liveStandIn: true });
     expect(result.current.rows).toBe(first);
 
     settle();
@@ -480,11 +482,18 @@ describe("opening on the board the live page drew", () => {
 
   it("stars the page's own club, or where it names none the roster's, as the worker does", () => {
     holdLiveBoard({ ageGroupId: "u10" }, published);
-    const mine = render({ ageGroupId: "u10", myTeamId: "S-2" }).result.current.rows;
+    const mine = render({ ageGroupId: "u10", myTeamId: "S-2", liveStandIn: true }).result.current
+      .rows;
     expect(mine.map((one) => one.isMine)).toEqual([false, true]);
     const starred = teams.map((team) => (team.id === "S-1" ? { ...team, isMine: true } : team));
     const { result } = renderHook(() =>
-      useRankingsWorker({ ageGroupId: "u10", teams: starred, games, ageGroups: groups })
+      useRankingsWorker({
+        ageGroupId: "u10",
+        teams: starred,
+        games,
+        ageGroups: groups,
+        liveStandIn: true,
+      })
     );
     expect(result.current.rows.map((one) => one.isMine)).toEqual([true, false]);
   });
@@ -495,12 +504,20 @@ describe("opening on the board the live page drew", () => {
       set: async () => true,
     });
     holdLiveBoard({ ageGroupId: "u10" }, published);
-    const fall = render({ ageGroupId: "u10", segment: "fall" }).result.current;
+    const fall = render({ ageGroupId: "u10", segment: "fall", liveStandIn: true }).result.current;
     expect(fall.rows).toEqual(savedRows);
     expect(fall.standIn).toBe("saved");
-    const other = render({ ageGroupId: "u11" }).result.current;
+    const other = render({ ageGroupId: "u11", liveStandIn: true }).result.current;
     expect(other.rows).toEqual([]);
     expect(other.standIn).toBeNull();
+  });
+
+  it("is not shown on a page opened the old way, which the saved board stands in for", () => {
+    saveBoard({ ageGroupId: "u10" }, savedRows, { get: async () => null, set: async () => true });
+    holdLiveBoard({ ageGroupId: "u10" }, published);
+    const opened = render({ ageGroupId: "u10" }).result.current;
+    expect(opened.rows).toEqual(savedRows);
+    expect(opened.standIn).toBe("saved");
   });
 });
 

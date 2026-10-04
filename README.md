@@ -3856,16 +3856,32 @@ The board is a stand-in, as the saved board is. Behind it the pool is brought in
 step with the copy and Team Rankings' own code loads, and the page hands over to
 Team Rankings on this device's copy once a second has passed with no tap, key or
 scroll after all three are ready. It hands over at once for whatever the board
-cannot do or should not stand in for: a club opened, the search asked for,
-another area of the page, a page with no published board, a meta this build
-cannot read or the rules refuse, nothing drawn within 4 s, or a board built
-before changes it does not have. It then shows the pool's progress under the
-board until the pool is in. Team Rankings opens where the board left off (the
-club tapped, the search, the state boards as they were) and on the same rows,
-starred by the worker's own rule, roster star and all (`liveBoard.ts`), marked
-as refitting until its own fit lands; once it has taken over it stays. Nothing
-can be changed on the board itself: marking a club, removing one and the
-schedule wait for the page.
+cannot do or should not stand in for: a club with no card, an edit, another area
+of the page, a page with no published board, a meta this build cannot read or the
+rules refuse, nothing drawn within 4 s of opening (or of moving to another page,
+half or year once a board has drawn, each of which has its own 4 s), or a board
+built before changes it does not have. Offline, it hands over for want of a board
+only once the board it kept has been looked for and not found, rather than when
+the network's failure beats the read of what it kept. It does not hand over on its
+own while somebody types in any box, Find a team's or Scouting's, nor while a
+search list asked for is on its way.
+
+Handed over while the pool is still coming in, the board stays on screen and
+works as before, with the pool's progress above it and a button to stop waiting;
+an area it cannot draw, or a club with no card, says it opens on this device's
+copy as soon as that is in. Team Rankings opens once the pool is in where the
+board then is, so nothing done meanwhile is lost: the club open, the search, the
+clubs Scouting is on (the one reported on, the one set beside it, and opponents
+asked for), and the state boards. Then the board goes, its route, listener and
+effects with it, and Team Rankings alone has the page; a board left mounted under
+Team Rankings used to rewrite the address when Back landed on a page it did not
+know. Team Rankings opens on the same rows, starred by the worker's own rule,
+roster star and all (`liveBoard.ts`), marked as refitting until its own fit lands;
+once it has taken over it stays. Only a page opened by a handover reads those
+rows, and they are let go when the page closes, so a page opened the old way later
+(the switch turned off, or signed out) stands in its own saved board. Nothing can
+be changed on the board itself: marking a club, removing one and the schedule wait
+for the page.
 
 The page reads one meta and the pieces of the one board on screen, and none at
 all for a board this device kept. Its code is 5.3 KB gzipped, loaded only with
@@ -3876,8 +3892,10 @@ an in-memory store through the real reader, cache and checks: the rows, places,
 star, state boards and badges as the page draws them, last week's arrows and the
 club's own rank line (and no line made for another club), the half from the published
 counts, each reason to hand over at once, the quiet handover waiting for the pool
-and put off by input, a kept board drawn and labelled offline, and a refusal
-forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and that
+and put off by input, typing or a list on its way, a half moved to given its own
+while, the board kept on screen and in focus through a handover while the pool
+comes in, and what is done there carried into Team Rankings, a kept board drawn
+and labelled offline, and a refusal forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and that
 the choice holds for the open; `TeamRankingsView.handover.test.tsx` the page
 opening where the board left off. Each guard was broken in turn and seen to fail
 a test, 33 of 33, two of them only after their tests were tightened.
@@ -3889,7 +3907,8 @@ unlink, age, state or fold, which wait for this device's copy. The panel and the
 pool's codec it checks a card by load only when a club is opened. A club whose
 card cannot be read (no card, a bucket damaged or gone, a refusal, or offline with
 none kept) opens on Team Rankings, as every club did before there were cards, and so
-does the club open when the board hands over.
+does the club open when the board hands over; tapped while the pool comes in, it
+says so until Team Rankings opens on it.
 
 **Find a team.** The board's search box reads its year's list (`useLiveSearch`)
 only when somebody taps it, says "Bringing in every team…" until the list is in,
@@ -3919,11 +3938,20 @@ the pool has it. Two results of one day used to be put in game id order, which a
 card cannot give, since its ids are only its places. They now keep the pool's
 order, as a club's panel always has, on Team Rankings too. A what-if refits the
 year, which the board cannot, so asking one hands over to Team Rankings on the
-club being scouted (`reportTeamId`), as a card that cannot be read does.
+club being scouted (`reportTeamId`), as a card that cannot be read does. One is
+offered only where Team Rankings would offer it, as far as the board can tell
+(`boardWhatIfDeclines`): a game refused on sight is refused alike, and one
+against a club the board does not rank is declined. Every club it ranks has a
+counted game, so it never offers a what-if the page would not; but the page rates
+opponents across its whole pool, and over the whole year when the address names
+no half, so the board declines a few the page would ask. The clubs Scouting is on
+are the board's to keep, so a half or page read again keeps them, and Team
+Rankings opens on them (`compareTeamId`, `pickedOpponentIds`).
 
 `scoutingParity.test.ts` holds the report, every scouted club's upcoming games and
 comparisons with the clubs beside it and the clubs it met to Team Rankings' own, on
-every page and half of the seeded fixture. A second page with no year was added,
+every page and half of the seeded fixture, and each what-if offered to one the page
+offers, with the address naming the half or none. A second page with no year was added,
 since a card holds a club's games of every such page and each is a pool of its own.
 `scoutingFromCards.test.ts` takes the case consistent cards never give. Each guard
 was broken in turn and seen to fail a test, 14 of 14, three only after a test was
@@ -3948,8 +3976,7 @@ late effect. The listener's test caught it about one run in four.
 
 **Kept up to date while it is open.** Once its first read is in, the page listens
 to the meta (`watchMeta`), so a publish while it is open is drawn in place. It
-listens for as long as Team Rankings is open, past the handover, so the board
-Team Rankings opens a page on stays the latest. The copy's lite Firestore reads
+listens until Team Rankings opens, and stops with the board. The copy's lite Firestore reads
 but cannot listen, so the listener is the full SDK (`watchLiveMeta` in
 `firebaseCloud.ts`), loaded then and never before. Its parts the app uses are a
 module of their own (`firestoreListen.ts`), and so a chunk of their own: 121 KB
@@ -3970,10 +3997,25 @@ When the connection drops, Firestore says so with a snapshot from its cache. The
 board stays, labelled "Offline · the cloud's board as of 7:42 PM": the time the
 server last vouched for it, or the day if not today. For a board opened offline,
 that is when this account read the meta it kept. Once the server is heard again
-the label goes. A refusal heard ends the watch and forgets every board, as a
-refused read does; a watch that ends for any other reason leaves the board,
-offline. Firestore bills a listener a read for each change it hears, and a read
-again when it reconnects after half an hour away.
+the label goes. A board the network's meta names that cannot be fetched for want
+of a connection leaves the older board drawn, labelled as of that board's own read
+rather than the meta's, and is fetched again the next time the server is heard,
+rather than at the next publish. A refusal heard ends the watch and forgets every
+board, as a refused read does; a watch that ends for any other reason leaves the
+board, offline. A listener whose own code cannot be fetched (the page opened
+offline, its chunk never downloaded, which the service worker does not store) is
+not tried again by the page, and a browser may keep the failed fetch for the visit:
+the board can stay labelled offline, hearing no publish, until the app is loaded
+again online. Firestore bills a listener a read for each change it hears,
+and a read again when it reconnects after half an hour away.
+
+What the board reads beside it (a club's card, a page's Games list, the year's
+search list) is read through the meta on screen, and while that is only the one
+this account kept, through what it kept. A view not kept then is not yet a view
+that cannot be had: it is read again through the network's meta once that is in,
+and only a miss after that, or once the network has given no meta at all, hands
+the page over. Each such read that the rules refuse forgets every board kept and
+held and hands over, as a refused read of the meta or a board does.
 
 With the listener in, the first download is 230.7 KB gzipped against 232.1 KB
 before, as the build folded the cloud session's code back into the entry, and
@@ -3986,6 +4028,11 @@ delivers each version of the meta as Firestore does. It checks:
 - an unchanged meta taken as nothing new;
 - the later of two metas winning;
 - the offline label as of the read that kept the board, and gone on reconnecting;
+- a board that could not be fetched offline, dated by its own read, and fetched
+  again once the server is heard;
+- a card and a Games list read once the network's meta is in, not handed over
+  before it, and a list handed over once the network has given none;
+- a refusal heard through a card's read, forgetting every board;
 - a refusal heard, and a watch ended otherwise;
 - a newer build's meta handing over;
 - the watch stopped on closing, and never started after a refused read.

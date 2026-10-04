@@ -6,7 +6,10 @@ import type { LiveViewSource } from "./useLiveBoard";
  * One published view the live board draws beside its board, read through the same checks and cache
  * as a board (`readView`) once `key` names it, and again for each newer meta, which costs nothing
  * when the meta names the same view. `failed` says the view under `key` could not be read: none
- * published, damaged, refused, or offline with none kept.
+ * published, damaged, refused, or offline with none kept. Not while the meta is only the one this
+ * device kept and the network has yet to answer: a view it lacks is read again through the
+ * network's source, as a board is (`useLiveBoard`). A refusal is the source's to hear too, since it
+ * means the account may see none of the views.
  */
 export function useLiveView<T>(
   source: LiveViewSource | null,
@@ -30,7 +33,10 @@ export function useLiveView<T>(
     }).then((done) => {
       if (!alive) return;
       if (done.ok) setRead({ key, view: done.view });
-      else setFailedKey(key);
+      else if (done.why === "refused") {
+        source.refused();
+        setFailedKey(key);
+      } else if (source.settled) setFailedKey(key);
     });
     return () => {
       alive = false;
