@@ -7,12 +7,15 @@
  * listener is no use offline, and a browser that never opens a live board never needs it.
  */
 export {
+  collection,
   connectFirestoreEmulator,
+  deleteDoc,
   deleteField,
   disableNetwork,
   doc,
   enableNetwork,
   FieldPath,
+  getDocs,
   getFirestore,
   onSnapshot,
   runTransaction,

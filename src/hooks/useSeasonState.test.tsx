@@ -1,7 +1,8 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
+import { useLayoutEffect, useTransition } from "react";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, type GameLog } from "../lib/types";
-import { useSeasonState, type SeasonState } from "./useSeasonState";
+import { useSeasonState, type SeasonState, type SeasonStateControls } from "./useSeasonState";
 
 const score = (away: string, home: string): GameLog => ({
   awayRuns: away,
@@ -110,5 +111,30 @@ describe("the open season as one piece of state", () => {
     expect([result.current.setTeams, result.current.setLogs, result.current.setSettings]).toEqual(
       setters
     );
+  });
+
+  it("renders a change made in a transition as one, the scores as they were first", () => {
+    const commits: string[] = [];
+    const held: {
+      controls: SeasonStateControls | null;
+      start: ((change: () => void) => void) | null;
+    } = { controls: null, start: null };
+    const Probe = () => {
+      const season = useSeasonState(() => ({ id: "s1", season: START }));
+      const [pending, startTransition] = useTransition();
+      held.controls = season;
+      held.start = startTransition;
+      const shown = `${pending}:${season.logs.g1?.awayRuns ?? "-"}`;
+      useLayoutEffect(() => {
+        commits.push(shown);
+      });
+      return null;
+    };
+    render(<Probe />);
+    act(() => held.start?.(() => held.controls?.setLogs({ g1: score("7", "4") })));
+    // Pending over the scores as they were, then the new ones, as a score box's keystroke renders.
+    expect(commits).toEqual(["false:-", "true:-", "false:7"]);
+    // What reads the store sees the score at once, whatever the page is still rendering.
+    expect(held.controls?.store.get().season.logs.g1?.awayRuns).toBe("7");
   });
 });

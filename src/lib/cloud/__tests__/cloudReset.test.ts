@@ -4,6 +4,7 @@ import type { SeasonSnapshot } from "../../storage";
 import type { FirebaseCloud } from "../firebaseCloud";
 import type { LeagueValue } from "../leagueMerge";
 import { memoryCloud, memoryMembers } from "./memoryCloud";
+import { memoryLeague } from "../../live/__tests__/memoryLeague";
 
 /*
  * Delete everything, pressed while a save is on its way: the save must not send what it reads from
@@ -107,6 +108,7 @@ const saveCaughtByReset = async ({
     members: memoryMembers([], () => ME.email),
     store: sky.store,
     live: { readMeta: async () => null, getChunk: async () => null },
+    league: memoryLeague().store,
   };
   session.resetCloudSession();
   session.setCloudTestHooks({

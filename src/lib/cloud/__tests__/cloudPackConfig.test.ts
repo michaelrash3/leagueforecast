@@ -11,6 +11,7 @@ import {
   type KeptPart,
 } from "../cloudManifest";
 import { memoryCloud, memoryMembers } from "./memoryCloud";
+import { memoryLeague } from "../../live/__tests__/memoryLeague";
 
 /*
  * The small parts of keeping data in the cloud: a value's fingerprint and packing, the Firebase
@@ -71,6 +72,7 @@ describe("the Firebase project the app keeps its copy in", () => {
         members: memoryMembers([], () => null),
         store: memoryCloud().store,
         live: { readMeta: async () => null, getChunk: async () => null },
+        league: memoryLeague().store,
       };
       session.setCloudTestHooks({
         openCloud: async (config) => {

@@ -394,15 +394,24 @@ export const readLeagueSnapshot = (): LeagueSnapshot => {
   ensureInitialized();
   return {
     activeSeasonId: activeId(),
-    seasons: readSeasons().map((season) => ({
-      ...season,
-      teams: loadTeamsFor(season.id),
-      matchups: loadMatchupsFor(season.id),
-      logs: loadLogsFor(season.id),
-      bracketLogs: loadBracketLogsForSeason(season.id),
-      settings: loadSettingsFor(season.id),
-    })),
+    seasons: readSeasons().map(snapshotOf),
   };
+};
+
+const snapshotOf = (season: SeasonMeta): SeasonSnapshot => ({
+  ...season,
+  teams: loadTeamsFor(season.id),
+  matchups: loadMatchupsFor(season.id),
+  logs: loadLogsFor(season.id),
+  bracketLogs: loadBracketLogsForSeason(season.id),
+  settings: loadSettingsFor(season.id),
+});
+
+/** One season and all of its data, as a backup carries it, or null for a season not here. */
+export const readSeasonSnapshot = (id: string): SeasonSnapshot | null => {
+  ensureInitialized();
+  const season = readSeasons().find((one) => one.id === id);
+  return season ? snapshotOf(season) : null;
 };
 
 /**
@@ -422,6 +431,43 @@ export const replaceLeagueSnapshot = (
     return replaceSeasons(snapshot);
   } finally {
     if (fromCloud) arriving -= 1;
+  }
+};
+
+/**
+ * Adds seasons this browser does not hold, each under its own id, after those it has: seasons made
+ * on another device and taken in from the cloud (`leagueSeasons.ts`). A season whose id is already
+ * here is left as it is. Written as the cloud's own arriving, which owes the cloud copy nothing.
+ */
+export const addSeasons = (seasons: readonly SeasonSnapshot[]): boolean => {
+  ensureInitialized();
+  const held = readSeasons();
+  const taken = new Set(held.map((season) => season.id));
+  const fresh = seasons.filter((season) => !taken.has(season.id));
+  if (fresh.length === 0) return true;
+  arriving += 1;
+  try {
+    let ok = true;
+    fresh.forEach((season) => {
+      const write = (dataKey: DataKey, value: unknown) => {
+        if (!safeSet(seasonKey(season.id, dataKey), JSON.stringify(value))) ok = false;
+      };
+      write("teams", season.teams);
+      write("matchups", season.matchups);
+      write("logs", season.logs);
+      write("bracketLogs", season.bracketLogs);
+      write("settings", season.settings);
+    });
+    const meta = fresh.map(({ id, name, createdAt, updatedAt }) => ({
+      id,
+      name,
+      createdAt,
+      ...(updatedAt ? { updatedAt } : {}),
+    }));
+    if (!writeSeasons([...held, ...meta])) ok = false;
+    return ok;
+  } finally {
+    arriving -= 1;
   }
 };
 

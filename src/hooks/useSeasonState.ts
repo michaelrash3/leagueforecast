@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
+import { useLayoutEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import {
   createSeasonStore,
   type OpenSeason,
@@ -38,7 +38,17 @@ export type SeasonStateControls = SeasonState & {
  */
 export function useSeasonState(load: () => OpenSeason): SeasonStateControls {
   const [store] = useState(() => createSeasonStore(load()));
-  const open = useSyncExternalStore(store.subscribe, store.get, store.get);
+  /*
+   * The page renders from its own copy of the store, set from the store's notice. The notice runs
+   * inside the setter's call, so the copy is set with the priority the change was made with: a
+   * score box's keystroke, made in a transition (`GamesView`), renders as one, interruptibly, as
+   * it did before the store, rather than at once as an external store's reads would force.
+   * Whatever reads the store itself (`leagueSync.ts`) still sees every change the moment it is
+   * made. Nothing changes the store between the first render and this subscription: the live
+   * store starts in an effect, after it.
+   */
+  const [open, setOpen] = useState(() => store.get());
+  useLayoutEffect(() => store.subscribe(() => setOpen(store.get())), [store]);
   const setters = useMemo(() => {
     const part =
       <K extends keyof SeasonState>(key: K): Dispatch<SetStateAction<SeasonState[K]>> =>

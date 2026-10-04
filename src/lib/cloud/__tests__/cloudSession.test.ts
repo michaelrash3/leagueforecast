@@ -7,6 +7,8 @@ import type { LeagueValue } from "../leagueMerge";
 import type { CloudAccount, FirebaseCloud } from "../firebaseCloud";
 import { memoryCloud, memoryMembers, type MemoryCloud } from "./memoryCloud";
 import { gcAuthorization } from "../../gcAuthorization";
+import { memoryLeague } from "../../live/__tests__/memoryLeague";
+import { writeLiveLeague } from "../../preferences";
 
 /*
  * The cloud session end to end, with Firebase, the browser's stores and its other tabs stood in
@@ -134,6 +136,7 @@ const ME: CloudAccount = { uid: "owner-1", email: "owner@example.test" };
 const CONFIG = { apiKey: "k", authDomain: "d", projectId: "p", appId: "a" };
 
 let sky: MemoryCloud;
+let skyLeague: ReturnType<typeof memoryLeague>;
 let reloads = 0;
 let clock = Date.parse("2026-09-29T12:00:00.000Z");
 
@@ -161,6 +164,7 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
         return () => undefined;
       },
     },
+    league: skyLeague.store,
   };
 };
 
@@ -218,6 +222,7 @@ beforeEach(() => {
   clock = Date.parse("2026-09-29T12:00:00.000Z");
   vi.setSystemTime(clock);
   sky = memoryCloud();
+  skyLeague = memoryLeague();
   pull.live = false;
   pull.elsewhere = false;
   reloads = 0;
@@ -1033,5 +1038,47 @@ describe("a browser wiped by Delete everything", () => {
     expect(owedChanges()).toEqual({});
     await session.saveNow();
     expect(await cloudValue(TEAMS)).toEqual(["laptop pool"]);
+  });
+});
+
+describe("League Standings kept live on a device", () => {
+  it("is neither sent to the copy nor taken from it, and owes it nothing", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    writeLiveLeague(true);
+    const before = await cloudLogs();
+    edit(laptop, "league", league(season("fall", { g1: log(9, 1) })));
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false });
+    await session.saveNow();
+    expect(await cloudLogs()).toEqual(before);
+    // A device still on the copy changes League; the live one takes none of it in.
+    runAs(phone);
+    edit(phone, "league", league(season("fall", { g2: log(2, 2) })));
+    await session.saveNow();
+    await open(laptop);
+    expect(logsOf(laptop)).toEqual({ g1: log(9, 1) });
+    expect(reloads).toBe(0);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: [] });
+  });
+
+  it("leaves League out of a first copy, which carries the pool alone", async () => {
+    const laptop = device({ league: fall, [TEAMS]: ["laptop pool"] });
+    runAs(laptop);
+    writeLiveLeague(true);
+    await session.signInToCloud();
+    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual([TEAMS]);
+  });
+
+  it("goes back to the copy when turned off, sending what changed meanwhile", async () => {
+    const { laptop } = await inStep();
+    await open(laptop);
+    writeLiveLeague(true);
+    edit(laptop, "league", league(season("fall", { g1: log(4, 0) })));
+    await session.saveNow();
+    // Marked owed to the copy all along, and only not sent.
+    expect(Object.keys(owedChanges())).toEqual(["league"]);
+    writeLiveLeague(false);
+    await session.saveNow();
+    expect(await cloudLogs()).toEqual({ g1: log(4, 0) });
   });
 });

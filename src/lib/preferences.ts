@@ -170,3 +170,39 @@ export const subscribeLiveBoard = (listener: () => void): (() => void) => {
     liveBoardListeners.delete(listener);
   };
 };
+
+const LIVE_LEAGUE_KEY = "lf_live_league_v1";
+const liveLeagueListeners = new Set<() => void>();
+
+/**
+ * Whether League Standings is kept live with the cloud on this device (`leagueSync.ts`): each
+ * season one document, written as it is edited and taken in as other devices edit it, in place of
+ * the cloud copy's League part. A member turns it on in the Cloud panel; off unless turned on.
+ * Kept per device, never in a backup or the cloud copy, and cleared with the rest of the app's keys
+ * by a reset. Every device should be switched together: one left off keeps League in the copy,
+ * apart from the devices that have it on.
+ */
+export const readLiveLeague = (): boolean => safeGet(LIVE_LEAGUE_KEY) === "on";
+
+export const writeLiveLeague = (on: boolean): boolean => {
+  let written: boolean;
+  if (on) written = safeSet(LIVE_LEAGUE_KEY, "on");
+  else {
+    try {
+      localStorage.removeItem(LIVE_LEAGUE_KEY);
+      written = true;
+    } catch {
+      written = false;
+    }
+  }
+  liveLeagueListeners.forEach((listener) => listener());
+  return written;
+};
+
+/** Calls `listener` whenever League's switch is written here; for `useSyncExternalStore`. */
+export const subscribeLiveLeague = (listener: () => void): (() => void) => {
+  liveLeagueListeners.add(listener);
+  return () => {
+    liveLeagueListeners.delete(listener);
+  };
+};

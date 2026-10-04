@@ -4192,6 +4192,55 @@ which a device that predates a newer one would otherwise write over; and only
 the owner deletes a season, since a season deleted here is gone from every
 device at once.
 
+**On a device.** A member turns it on in the Cloud panel, **Keep League
+Standings live**, per device and off until turned on. Turn it on on every device
+together: a device left off keeps League in the cloud copy, apart from the
+devices that have it on. With it on:
+
+- **The open season is kept live** (`leagueSync.ts`). A change is written 0.7 s
+  after the last edit, or as soon as the page lets go of the field, or when the
+  page is hidden, in one transaction: what changed here since this device last
+  took the document in, laid over the document as it then stands, by the same
+  record-by-record merge the cloud copy uses (`leagueLive.ts`), and only the
+  fields that differ written. Another device's change is laid over the season on
+  screen the moment it arrives, unsent edits included, except while a field is
+  being typed in: then it waits until the page lets go, so nothing changes under
+  the cursor.
+- **The base** a merge works from is the document as this device last took it
+  in, which moves only with what the listener hears, so it never goes back, and
+  is kept between visits (`leagueBase.ts`): a game deleted on another device while
+  this one was closed stays deleted, rather than coming back from this device's
+  copy. The first time a device meets a season, it starts from the season as the
+  cloud copy last shared it.
+- **Undo** puts back only what no other device has changed since the step
+  (`guardedUndo`): undoing a deleted game here does not take back a score
+  entered there since.
+- **The page is read-only, every control in it, with a line saying why,**
+  whenever the season may not be written: offline (as the listener reports it),
+  while the cloud's version is first read, for a season a newer version of the
+  app wrote, one deleted on another device, one the rules refuse this account,
+  and one that was started apart on another device under the same id (every
+  browser's first season is `default`), which is never merged into this one.
+- **The season list** is met with the cloud's once a visit (`leagueSeasons.ts`):
+  a season made on another device comes down whole; one only this device holds
+  goes up, which is how the seasons a device kept in the cloud copy become
+  documents the first time it goes live; and one this device met before that the
+  cloud no longer has was deleted elsewhere, and is not sent back. Deleting a
+  season deletes its document first, which only the owner may; a member is told
+  so, and nothing is deleted.
+- **The cloud copy leaves League alone** (`cloudSession.ts`): it neither sends
+  League nor takes it in, and a League change is no change owed to it. It is
+  still marked, though, so that turning the switch off sends to the copy what
+  changed while League was live, rather than the copy's older seasons replacing
+  it.
+
+The season on screen is held in a small store outside React
+(`seasonStore.ts`), which the live store reads and changes in one step, so an
+arrival is merged into exactly what is there and nothing lands between the read
+and the write; the page renders from its own copy of it, set from the store's
+notice with the priority of the change, so a score box's keystroke still renders
+as a transition.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**

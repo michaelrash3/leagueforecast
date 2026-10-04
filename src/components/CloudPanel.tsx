@@ -17,7 +17,14 @@ import {
   type CloudStatus,
   type KeptVersion,
 } from "../lib/cloud/cloudSession";
-import { readLiveBoard, subscribeLiveBoard, writeLiveBoard } from "../lib/preferences";
+import {
+  readLiveBoard,
+  readLiveLeague,
+  subscribeLiveBoard,
+  subscribeLiveLeague,
+  writeLiveBoard,
+  writeLiveLeague,
+} from "../lib/preferences";
 import { button } from "../styles/tokens";
 import { CloudMembers, type MembersApi } from "./CloudMembers";
 
@@ -104,6 +111,36 @@ const LiveBoardSwitch = () => {
         <Note>
           The board the cloud last built shows at once, then this device&apos;s own copy takes over.
           On this device only, from the next time Team Rankings opens.
+        </Note>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * This device's switch for keeping League Standings live with the cloud (`useLiveLeague`): read
+ * as it changes, so the season on screen goes live, or back to the cloud copy, at once.
+ */
+const LiveLeagueSwitch = () => {
+  const on = useSyncExternalStore(subscribeLiveLeague, readLiveLeague, () => false);
+  const id = useId();
+  return (
+    <div className="flex items-start gap-2">
+      <input
+        id={id}
+        type="checkbox"
+        checked={on}
+        onChange={(event) => writeLiveLeague(event.target.checked)}
+        className="mt-1"
+      />
+      <div className="flex flex-col gap-1">
+        <label htmlFor={id} className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Keep League Standings live
+        </label>
+        <Note>
+          A score entered on any device shows on every other one in moments, and editing pauses
+          while this device is offline. Turn it on on every device you use, together: a device left
+          off keeps League in the cloud copy, apart from the rest.
         </Note>
       </div>
     </div>
@@ -324,6 +361,7 @@ function Body({
             .
           </Note>
           <LiveBoardSwitch />
+          <LiveLeagueSwitch />
           <CloudMembers api={members} />
           {kept.length > 0 && (
             <div className="flex flex-col gap-2">

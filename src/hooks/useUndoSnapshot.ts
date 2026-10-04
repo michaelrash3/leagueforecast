@@ -22,6 +22,11 @@ export type UndoableSeason = {
    * so a setting changed after a deleted game is not taken back by undoing the delete.
    */
   settings?: Settings;
+  /**
+   * When the snapshot was taken, on a season being put back: League kept live puts back only what
+   * no other device has changed since (`guardedUndo`).
+   */
+  takenAt?: number;
 };
 
 export type UndoSnapshotOptions = {
@@ -99,6 +104,7 @@ export function useUndoSnapshot({
       bracketLogs: snapshot.bracketLogs ?? {},
       // Off storage as well, so read the way stored settings always are.
       ...(snapshot.settings !== undefined ? { settings: coerceSettings(snapshot.settings) } : {}),
+      ...(typeof snapshot.timestamp === "number" ? { takenAt: snapshot.timestamp } : {}),
     });
     // Snapshots come back off localStorage, so the pool is re-validated rather than trusted.
     const rankings = coerceTeamRankingsBackup(snapshot.teamRankings);

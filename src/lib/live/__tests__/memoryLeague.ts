@@ -100,6 +100,19 @@ export const memoryLeague = () => {
       }
       throw Object.assign(new Error("contention"), { code: "aborted" });
     },
+    list: async () => {
+      if (!online) throw Object.assign(new Error("offline"), { code: "unavailable" });
+      return [...docs.keys()].sort().map((docId) => ({
+        docId,
+        data: structuredClone(docs.get(docId)),
+      }));
+    },
+    remove: async (docId) => {
+      if (!online) throw Object.assign(new Error("offline"), { code: "unavailable" });
+      docs.delete(docId);
+      bump(docId);
+      tell(docId);
+    },
   };
 
   return {

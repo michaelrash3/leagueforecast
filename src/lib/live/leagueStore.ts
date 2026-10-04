@@ -37,6 +37,10 @@ export type LeagueStore = {
     docId: string,
     plan: (remote: LeagueRemote) => { write: LeagueWrite | null; result: T }
   ) => Promise<T>;
+  /** Every season in the cloud: a read for each, so asked for once a visit. */
+  list: () => Promise<{ docId: string; data: unknown }[]>;
+  /** Deletes a season's document; the rules let only the owner. */
+  remove: (docId: string) => Promise<void>;
 };
 
 /** The seasons in Firestore, through the full SDK `load` gives: the one that listens. */
@@ -88,5 +92,14 @@ export const firestoreLeague = (load: () => Promise<FullFirestore>): LeagueStore
       }
       return result;
     });
+  },
+  list: async () => {
+    const { sdk, db } = await load();
+    const snaps = await sdk.getDocs(sdk.collection(db, LEAGUE_COLLECTION));
+    return snaps.docs.map((snap) => ({ docId: snap.id, data: snap.data() }));
+  },
+  remove: async (docId) => {
+    const { sdk, db } = await load();
+    await sdk.deleteDoc(sdk.doc(db, LEAGUE_COLLECTION, docId));
   },
 });

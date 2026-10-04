@@ -53,6 +53,16 @@ describe("useUndoSnapshot", () => {
     expect(showToast).toHaveBeenCalledWith("Restored: Enter score.", { tone: "success" });
   });
 
+  it("says when the snapshot was taken, which a season shared live puts back by", () => {
+    const { result, applySeason } = setup(() => season("before"));
+    const before = Date.now();
+    act(() => result.current.capture("Delete game"));
+    act(() => result.current.restore());
+    const takenAt = applySeason.mock.calls[0]?.[0].takenAt as number;
+    expect(takenAt).toBeGreaterThanOrEqual(before);
+    expect(takenAt).toBeLessThanOrEqual(Date.now());
+  });
+
   it("carries settings only when asked, so an ordinary undo leaves them as they are now", () => {
     const withSettings = { ...season("before"), settings: { ...DEFAULT_SETTINGS, goldCutoff: 3 } };
     const { result, applySeason } = setup(() => withSettings);

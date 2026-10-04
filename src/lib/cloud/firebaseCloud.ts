@@ -22,6 +22,7 @@ import {
 import type * as FullSdk from "./firestoreListen";
 import type { FirebaseWebConfig } from "./cloudConfig";
 import type { CloudStore } from "./cloudEngine";
+import { firestoreLeague, type LeagueStore } from "../live/leagueStore";
 import type { LiveReader, MetaWatch } from "../live/viewStore";
 import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
 import {
@@ -82,6 +83,8 @@ export type FirebaseCloud = {
   store: CloudStore;
   /** The views a server publishes from the copy, as the signed-in member may read them. */
   live: LiveReader;
+  /** League Standings seasons, one document each, as the signed-in member may keep them live. */
+  league: LeagueStore;
 };
 
 export type CloudMembers = {
@@ -265,5 +268,6 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     members: firestoreMembers(db, () => auth.currentUser?.email ?? null),
     store: firestoreStore(db),
     live: { ...firestoreLive(db), watchMeta: watchLiveMeta(fullFirestoreOf(app)) },
+    league: firestoreLeague(fullFirestoreOf(app)),
   };
 };

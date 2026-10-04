@@ -1,5 +1,8 @@
 import { coerceBackup } from "../backup";
+import type { LeagueStore } from "../live/leagueStore";
 import type { LiveReader } from "../live/viewStore";
+import { readLiveLeague, subscribeLiveLeague } from "../preferences";
+import type { SeasonSnapshot } from "../storage";
 import { onLeagueWrite } from "../storage";
 import { isCloudPoolKey, onCloudPoolWrite } from "../teamRankingsStorage";
 import { isPoolBusy, poolJobElsewhere, watchPull } from "../pullSession";
@@ -356,7 +359,28 @@ const exclusively = async (
   }
 };
 
-const owedHere = (): boolean => Object.keys(owedChanges()).length > 0;
+/*
+ * League Standings kept live (`leagueSync.ts`) leaves the copy altogether: each season is its own
+ * document, written as it is edited, and the copy's League part would be a second, slower record
+ * of the same seasons, merged and reloaded over the live one. So with the switch on this device
+ * neither sends League to the copy nor takes League from it, and a League change it still marks
+ * as owed is no change owed to the copy.
+ */
+const leagueLive = (): boolean => readLiveLeague();
+
+/** The areas of the copy this device settles: League only while it is not kept live. */
+const copyAreas = (areas: readonly Area[]): readonly Area[] =>
+  leagueLive() ? areas.filter((area) => area !== "league") : areas;
+
+/** The changes made here that are owed to the copy. */
+const owedToCopy = (): Record<string, number> => {
+  const owed = owedChanges();
+  if (!leagueLive() || !(LEAGUE_PART in owed)) return owed;
+  const { [LEAGUE_PART]: _live, ...rest } = owed;
+  return rest;
+};
+
+const owedHere = (): boolean => Object.keys(owedToCopy()).length > 0;
 
 type Waiting = "pull" | "storage" | "unreadable";
 
@@ -440,6 +464,29 @@ export const liveReader = async (): Promise<LiveReader | null> => {
     // A watch has no limit: it says itself when the connection drops.
     ...(live.watchMeta ? { watchMeta: live.watchMeta } : {}),
   };
+};
+
+/**
+ * League Standings seasons in the cloud, as this browser's signed-in member may keep them live, or
+ * null when it may not: for the same reasons as `liveReader`.
+ */
+export const leagueStore = async (): Promise<LeagueStore | null> => {
+  const state = loadCloudState();
+  if (!state.enabled || !state.uid) return null;
+  const current = await loadSession();
+  if (!current) return null;
+  const account = await current.cloud.account();
+  if (!account || account.uid !== state.uid) return null;
+  return current.cloud.league;
+};
+
+/**
+ * A season as this device and the cloud copy last agreed on it, or null: what League kept live
+ * meets the cloud's version from the first time, before it has a base of its own (`leagueSync.ts`).
+ */
+export const copyLeagueSeason = (id: string): SeasonSnapshot | null => {
+  const base = loadLeagueBase();
+  return leagueOf(base?.value)?.seasons.find((season) => season.id === id) ?? null;
 };
 
 /** Every League Standings season in `raw`, read as a backup is, or null for anything else. */
@@ -550,6 +597,7 @@ const settleLocked = async (
   mode: ApplyMode,
   attempt = 0
 ): Promise<boolean> => {
+  areas = copyAreas(areas);
   if (!local.usable()) {
     setStatus({ kind: "error", account, message: UNUSABLE });
     return false;
@@ -945,7 +993,7 @@ const firstCopy = async (
   const notStored = local.notStored();
   const changes: Change[] = [];
   const values = new Map<string, unknown>();
-  for (const key of [...local.keys("league"), ...local.keys("pool")]) {
+  for (const key of [...(leagueLive() ? [] : local.keys("league")), ...local.keys("pool")]) {
     if (notStored.has(key)) continue;
     const value = await local.read(key);
     if (value === null || value === undefined) continue;
@@ -1173,7 +1221,16 @@ export const startCloudSession = (): (() => void) => {
   drawn = true;
   lastInput = now();
   onCloudPoolWrite(noteChange);
-  onLeagueWrite(() => noteChange(LEAGUE_PART));
+  onLeagueWrite(() => {
+    // Kept live, a League change is still marked owed to the copy, and only not sent: should
+    // League go back to the copy, what changed meanwhile goes with it rather than being taken
+    // over by the copy's older seasons.
+    if (leagueLive()) markCloudDirty(LEAGUE_PART);
+    else noteChange(LEAGUE_PART);
+  });
+  const stopLeagueSwitch = subscribeLiveLeague(() => {
+    if (!leagueLive() && signedIn() && owedHere()) scheduleSave(5_000);
+  });
   const stopWatching = watchPull(() => {
     if (!signedIn() || isPoolBusy()) return;
     // The pull or tidy that held saves back has finished: save what it changed.
@@ -1206,6 +1263,7 @@ export const startCloudSession = (): (() => void) => {
     onCloudPoolWrite(null);
     onLeagueWrite(null);
     stopWatching();
+    stopLeagueSwitch();
     document.removeEventListener("visibilitychange", onVisibility);
     window.removeEventListener("pointerdown", onInput);
     window.removeEventListener("keydown", onInput);
@@ -1368,7 +1426,7 @@ export const bringBack = async (group: string): Promise<void> => {
       });
       return;
     }
-    const owed = owedChanges();
+    const owed = owedToCopy();
     if (bringing.some((part) => part.key in owed)) {
       setStatus({
         kind: "error",
