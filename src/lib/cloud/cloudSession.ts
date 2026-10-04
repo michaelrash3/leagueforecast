@@ -396,6 +396,13 @@ const owedToCopy = (): Record<string, number> => {
   return rest;
 };
 
+/**
+ * The parts this device owes the copy, by key (`owedToCopy`): what the live board asks about before
+ * it calls itself the copy's (`boardStanding`). League kept live is owed to no copy, and counted
+ * as owed it held every board as waiting on this device for good.
+ */
+export const copyOwed = (): string[] => Object.keys(owedToCopy());
+
 const owedHere = (): boolean => Object.keys(owedToCopy()).length > 0;
 
 type Waiting = "pull" | "storage" | "unreadable";

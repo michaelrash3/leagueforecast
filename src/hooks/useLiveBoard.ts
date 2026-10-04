@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { copyReader, copySeen, liveReader, type CopySeen } from "../lib/cloud/cloudSession";
+import {
+  copyOwed,
+  copyReader,
+  copySeen,
+  liveReader,
+  type CopySeen,
+} from "../lib/cloud/cloudSession";
 import type { CopyReader } from "../lib/live/copyArchive";
 import type { CallDeps } from "../lib/live/editClient";
-import { loadCloudState, owedChanges } from "../lib/cloud/cloudState";
+import { loadCloudState } from "../lib/cloud/cloudState";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
 import {
   boardStanding,
@@ -30,7 +36,7 @@ export type LiveSources = {
   cache: ViewCache;
   /** The copy as this device last read or saved it (`copySeen`). */
   seen: () => CopySeen | null;
-  /** The parts this device owes the copy (`owedChanges`). */
+  /** The parts this device owes the copy (`copyOwed`): none of League while it is kept live. */
   owed: () => string[];
   now: () => string;
   /** How edits reach the edit function: the member's own sign-in and `fetch` when not given. */
@@ -40,13 +46,14 @@ export type LiveSources = {
 };
 
 let browserSources: LiveSources | null = null;
-const browser = (): LiveSources =>
+/** The browser's own sources, made once. */
+export const browserLiveSources = (): LiveSources =>
   (browserSources ??= {
     uid: () => loadCloudState().uid,
     reader: liveReader,
     cache: openViewCache(),
     seen: copySeen,
-    owed: () => Object.keys(owedChanges()),
+    owed: copyOwed,
     now: () => new Date().toISOString(),
     copy: copyReader,
   });
@@ -142,7 +149,7 @@ export function useLiveBoard({
   year,
   routeSegment,
   calendarSegment,
-  sources = browser(),
+  sources = browserLiveSources(),
 }: {
   pageId: string;
   year: number | undefined;
