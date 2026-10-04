@@ -242,6 +242,9 @@ const canonical = (value: unknown): string =>
 const same = (a: unknown, b: unknown): boolean =>
   a === b || (a !== undefined && b !== undefined && canonical(a) === canonical(b));
 
+/** Whether two values hold the same, whatever order their objects' fields are in. */
+export const sameContent = same;
+
 /**
  * What to write to turn the document `base` into `next`: each record, setting and order that
  * differs, as a field of its own, and nothing else. Two edits on two devices then touch two

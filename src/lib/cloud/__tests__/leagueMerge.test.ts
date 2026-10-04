@@ -281,6 +281,30 @@ describe("merging League Standings two devices both changed", () => {
     );
   });
 
+  it("reads a record with its fields in another order as the same record", () => {
+    // The laptop's copy came back from Firestore, which hands a record's fields back in an order
+    // of its own; the phone changed the score.
+    const reordered = (one: GameLog): GameLog =>
+      Object.fromEntries(Object.entries(one).reverse()) as GameLog;
+    const scored = league(season("fall", { logs: { g1: log(1, 0), g2: log(2, 2) } }));
+    const phone = edit(scored, "fall", (one) => ({
+      ...one,
+      logs: { ...one.logs, g1: log(5, 3) },
+    }));
+    const laptop = edit(scored, "fall", (one) => ({
+      ...one,
+      logs: Object.fromEntries(Object.entries(one.logs).map(([id, one]) => [id, reordered(one)])),
+      settings: Object.fromEntries(
+        Object.entries(one.settings).reverse()
+      ) as SeasonSnapshot["settings"],
+    }));
+    for (const prefer of ["cloud", "local"] as const) {
+      const merged = mergeLeague(scored, phone, laptop, prefer);
+      expect(merged.conflicts).toBe(0);
+      expect(seasonOf(merged.value, "fall").logs.g1).toEqual(log(5, 3));
+    }
+  });
+
   it("changes nothing where neither side did, and takes one side's changes whole", () => {
     expect(mergeLeague(base, base, base, "cloud").value).toEqual(base);
     const phone = edit(base, "fall", (one) => ({ ...one, logs: { g1: log(5, 3) } }));

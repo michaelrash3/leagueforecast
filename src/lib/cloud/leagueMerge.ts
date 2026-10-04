@@ -32,12 +32,27 @@ export type Prefer = "local" | "cloud";
 
 type Keyed<T> = { order: string[]; byId: Map<string, T> };
 
+/** A value as text with every object's keys in order, so two orders of one record read alike. */
+const canonical = (value: unknown): string =>
+  JSON.stringify(value, (_key, item: unknown) =>
+    item !== null && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(
+          Object.keys(item)
+            .sort()
+            .map((key) => [key, (item as Record<string, unknown>)[key]])
+        )
+      : item
+  );
+
 /*
- * Equality by content. Records here are small (a team, a game, a score), and JSON of a value this
- * app built is canonical enough: the same code writes both sides, in the same key order.
+ * Equality by content, whatever order a record's fields are in. Records here are small (a team, a
+ * game, a score). The copy's two sides are built by the same code in the same order, but a season
+ * read back from Firestore (`leagueDocs.ts`) has each record's fields in an order of its own, and
+ * a record merely reordered must not count as changed: changed on both sides, it would be settled
+ * as a conflict and the other side's real change thrown away.
  */
 const same = (a: unknown, b: unknown): boolean =>
-  a === b || (a !== undefined && b !== undefined && JSON.stringify(a) === JSON.stringify(b));
+  a === b || (a !== undefined && b !== undefined && canonical(a) === canonical(b));
 
 const keyedList = <T extends { id: string }>(list: readonly T[] | undefined): Keyed<T> => {
   const byId = new Map<string, T>();
@@ -88,7 +103,7 @@ const mergedOrder = (
   return out;
 };
 
-type Counter = { conflicts: number };
+export type Counter = { conflicts: number };
 
 /**
  * One record from three versions of it (absent is `undefined`). A change on one side wins over no
@@ -222,8 +237,11 @@ const restoreNeeded = <T>(
   }
 };
 
-/** One season both sides hold, merged inside: its records, then its name and settings. */
-const mergeSeason = (
+/**
+ * One season both sides hold, merged inside: its records, then its name and settings. A record
+ * both changed differently is settled toward `prefer` and counted in `counter`.
+ */
+export const mergeSeason = (
   base: SeasonSnapshot | undefined,
   local: SeasonSnapshot,
   cloud: SeasonSnapshot,
