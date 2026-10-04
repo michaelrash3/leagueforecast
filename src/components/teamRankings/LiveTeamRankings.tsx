@@ -1,5 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLiveBoard, type LiveSources } from "../../hooks/useLiveBoard";
+import type { Confirmation } from "../../hooks/useConfirmation";
+import { useLiveEdits, type ShowToast } from "../../hooks/useLiveEdits";
 import { useLiveSearch } from "../../hooks/useLiveSearch";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
 import {
@@ -11,6 +13,7 @@ import {
 import { todayIsoDay } from "../../lib/date";
 import { whereIsGcId } from "../../lib/gcIdWhereabouts";
 import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
+import { editLock } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { lastWeekOf, withMine } from "../../lib/live/views/boardShape";
 import { myTeamGlance } from "../../lib/myTeamGlance";
@@ -33,6 +36,7 @@ import { RankingsHeader } from "./RankingsHeader";
 import { NATIONAL_TOP, RankingsSection, STATE_TOP } from "./RankingsSection";
 import { SECTION_PANEL_ID, sectionTabId } from "./SectionNav";
 import { TEAM_PANEL_ID } from "../teamPanelId";
+import type { MergeCandidate } from "../TeamDetailPanel";
 
 /** A club's panel from its card, loaded with the pool's codec only when a club is opened. */
 const LiveClubPanel = lazy(() => import("./LiveClubPanel"));
@@ -47,11 +51,6 @@ const LiveScouting = lazy(() => import("./LiveScouting"));
  * board has drawn is given as long again for its own.
  */
 export const LIVE_WAIT_MS = 4_000;
-/** How long with no tap, key or scroll before the board hands over to this device's own copy. */
-export const QUIET_MS = 1_000;
-
-const INPUT_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"] as const;
-
 const NO_OPTIONS: [] = [];
 const NO_GROUPS: AgeGroup[] = [];
 const NO_IDS: string[] = [];
@@ -60,27 +59,16 @@ const NOWHERE: RankingsHandover = {};
 /** Find a team's box (`RankingsSection`). */
 const SEARCH_BOX_ID = "scout-team-search";
 
-/** The inputs a person types into, rather than picks from. */
-const TEXT_TYPES = new Set(["text", "search", "email", "number", "tel", "url", "password"]);
-
-/**
- * Whether somebody is typing into `element`: Find a team's box, Scouting's club boxes, any box.
- * The page would open on boxes of its own, with what they typed and the clubs it found gone.
- */
-const typingIn = (element: Element | null): boolean =>
-  element instanceof HTMLTextAreaElement ||
-  (element instanceof HTMLInputElement && TEXT_TYPES.has(element.type)) ||
-  (element instanceof HTMLElement && element.isContentEditable);
-
 /**
  * Team Rankings opened on the cloud's published board (`LiveBoard`), for a member who turned it
  * on in the Cloud panel: the board the server built, drawn as the page draws it, while this
  * device's copy of the pool is brought in and Team Rankings' own code loads behind it.
  *
- * The board is a stand-in, never the answer. It hands over to Team Rankings on this device's copy
- * (`renderPage`) once it is drawn, the pool is in, the page's code is loaded, and a second has
- * passed with nobody touching the screen; and at once for anything it cannot do (a team it has no
- * card for, an edit, another area of the page) or a board it should not stand in for: none
+ * It stays the page while it can (1.5): a club's panel edits through the edit function
+ * (`useLiveEdits`), and the page no longer goes to this device's copy once all is quiet, as it did
+ * while the board was only a stand-in for it. It hands over to Team Rankings on this device's copy
+ * (`renderPage`) for what it cannot do yet (a team it has no card for, an edit the Games tab or
+ * Scouting asks for, another area of the page) and for a board it should not stand in for: none
  * published for the page, one this build cannot read or check, or one built before changes the
  * copy or this device has since made. Once handed over it stays handed over.
  *
@@ -98,8 +86,9 @@ export function LiveTeamRankings({
   renderPage,
   preloadPage,
   sources,
+  showToast,
+  confirm,
   waitMs = LIVE_WAIT_MS,
-  quietMs = QUIET_MS,
 }: {
   status: CloudStatus;
   /** Team Rankings on this device's own copy, opened where the board left off. */
@@ -107,28 +96,26 @@ export function LiveTeamRankings({
   /** Loads Team Rankings' code, so it is there by the time the board hands over. */
   preloadPage: () => Promise<unknown>;
   sources?: LiveSources;
-  /** `LIVE_WAIT_MS` and `QUIET_MS`, but for a test. */
+  /** The page's toast and confirmation, which the edits say themselves through. */
+  showToast: ShowToast;
+  confirm: Confirmation["request"];
+  /** `LIVE_WAIT_MS`, but for a test. */
   waitMs?: number;
-  quietMs?: number;
 }) {
   const [handedOver, setHandedOver] = useState(false);
   // Where the board is, kept up to date by it, and where Team Rankings opened, once it has.
   const [where, setWhere] = useState<RankingsHandover>(NOWHERE);
   const [opened, setOpened] = useState<RankingsHandover | null>(null);
   const [poolReady, setPoolReady] = useState(() => !poolWantsCloud());
-  const [pageLoaded, setPageLoaded] = useState(false);
 
-  // The pool and the page's code come in under the board.
+  // The pool and the page's code come in under the board, for what it hands over.
   useEffect(() => {
     let alive = true;
     if (poolWantsCloud())
       void preparePool().finally(() => {
         if (alive) setPoolReady(true);
       });
-    const loaded = () => {
-      if (alive) setPageLoaded(true);
-    };
-    void preloadPage().then(loaded, loaded);
+    void preloadPage().catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -148,10 +135,9 @@ export function LiveTeamRankings({
     <LiveBoard
       status={status}
       {...(sources ? { sources } : {})}
+      showToast={showToast}
+      confirm={confirm}
       waitMs={waitMs}
-      quietMs={quietMs}
-      poolReady={poolReady}
-      pageLoaded={pageLoaded}
       handedOver={handedOver}
       onHandOver={handOver}
       onWhere={setWhere}
@@ -169,10 +155,9 @@ export function LiveTeamRankings({
 function LiveBoard({
   status,
   sources,
+  showToast,
+  confirm,
   waitMs,
-  quietMs,
-  poolReady,
-  pageLoaded,
   handedOver,
   onHandOver,
   onWhere,
@@ -180,10 +165,9 @@ function LiveBoard({
 }: {
   status: CloudStatus;
   sources?: LiveSources;
+  showToast: ShowToast;
+  confirm: Confirmation["request"];
   waitMs: number;
-  quietMs: number;
-  poolReady: boolean;
-  pageLoaded: boolean;
   handedOver: boolean;
   onHandOver: () => void;
   onWhere: (where: RankingsHandover) => void;
@@ -360,33 +344,28 @@ function LiveBoard({
     if (handOverNow && !handedOver) onHandOver();
   }, [handOverNow, handedOver, onHandOver]);
 
-  // A second with nobody touching the screen, once the board, the pool and the page's code are in,
-  // and not while a search list asked for is still on its way.
   const searchLoading = search.asked && !search.view && !search.failed;
-  const settled = board !== null && poolReady && pageLoaded && !handedOver && !searchLoading;
-  useEffect(() => {
-    if (!settled) return;
-    // Not while somebody is typing: it waits the while again once they stop.
-    const quietly = () => {
-      if (typingIn(document.activeElement)) {
-        timer = setTimeout(quietly, quietMs);
-        return;
-      }
-      setWanted(true);
-    };
-    let timer = setTimeout(quietly, quietMs);
-    const restart = () => {
-      clearTimeout(timer);
-      timer = setTimeout(quietly, quietMs);
-    };
-    INPUT_EVENTS.forEach((type) =>
-      window.addEventListener(type, restart, { capture: true, passive: true })
-    );
-    return () => {
-      clearTimeout(timer);
-      INPUT_EVENTS.forEach((type) => window.removeEventListener(type, restart, { capture: true }));
-    };
-  }, [settled, quietMs]);
+
+  // A member's edits, sent to the edit function against the copy the views are of: off offline, and
+  // until the network has answered for the board.
+  const metaCopy = live.meta?.meta.copy ?? null;
+  const edits = useLiveEdits({
+    copy: metaCopy,
+    locked: editLock({ offline, heard: live.meta?.from === "network" }),
+    showToast,
+    ...(sources?.call ? { deps: sources.call } : {}),
+  });
+  // What a club's panel offers to fold it into: the board's clubs, by the names the board shows.
+  const foldInto = useMemo(
+    (): MergeCandidate[] =>
+      rows.map((row) => ({
+        id: row.teamId,
+        name: row.teamName,
+        ...(row.state ? { state: row.state } : {}),
+      })),
+    [rows]
+  );
+  const followFold = useCallback((intoId: string) => setOpenClub(intoId), []);
 
   const clubs = useMemo(() => clubsOfBoard(rows), [rows]);
   const places = useMemo(() => placesOf(clubs), [clubs]);
@@ -636,6 +615,10 @@ function LiveBoard({
           >
             <LiveClubPanel
               key={openClub}
+              edits={edits}
+              confirm={confirm}
+              candidates={foldInto}
+              onFolded={followFold}
               source={live.source}
               year={selectedYear}
               teamId={openClub}

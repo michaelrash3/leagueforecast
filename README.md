@@ -3889,19 +3889,19 @@ another version of the app, or yesterday's.
 It opens on what this account last read and kept, so a board is drawn before any
 network read, and then on the network's.
 
-The board is a stand-in, as the saved board is. Behind it the pool is brought in
-step with the copy and Team Rankings' own code loads, and the page hands over to
-Team Rankings on this device's copy once a second has passed with no tap, key or
-scroll after all three are ready. It hands over at once for whatever the board
-cannot do or should not stand in for: a club with no card, an edit, another area
-of the page, a page with no published board, a meta this build cannot read or the
-rules refuse, nothing drawn within 4 s of opening (or of moving to another page,
-half or year once a board has drawn, each of which has its own 4 s), or a board
-built before changes it does not have. Offline, it hands over for want of a board
-only once the board it kept has been looked for and not found, rather than when
-the network's failure beats the read of what it kept. It does not hand over on its
-own while somebody types in any box, Find a team's or Scouting's, nor while a
-search list asked for is on its way.
+The board stays the page while it can (1.5). Until 1.5 it was a stand-in, as the
+saved board is, and went to Team Rankings on this device's copy once a second had
+passed with no tap, key or scroll; now a club's panel edits through the edit
+function, and the sections follow, so it no longer goes on its own. Behind it the
+pool is still brought in step with the copy and Team Rankings' own code loads, for
+what it hands over: whatever the board cannot do yet or should not stand in for (a
+club with no card, an edit the Games tab or Scouting asks for, another area of the
+page), a page with no published board, a meta this build cannot read or the rules
+refuse, nothing drawn within 4 s of opening (or of moving to another page, half or
+year once a board has drawn, each of which has its own 4 s), or a board built
+before changes it does not have. Offline, it hands over for want of a board only
+once the board it kept has been looked for and not found, rather than when the
+network's failure beats the read of what it kept.
 
 Handed over while the pool is still coming in, the board stays on screen and
 works as before, with the pool's progress above it and a button to stop waiting;
@@ -3928,8 +3928,8 @@ Firebase stays out of it. `LiveTeamRankings.test.tsx` draws boards published to
 an in-memory store through the real reader, cache and checks: the rows, places,
 star, state boards and badges as the page draws them, last week's arrows and the
 club's own rank line (and no line made for another club), the half from the published
-counts, each reason to hand over at once, the quiet handover waiting for the pool
-and put off by input, typing or a list on its way, a half moved to given its own
+counts, each reason to hand over at once, the board staying the page however long
+nobody touches it, the pool in or not, a half moved to given its own
 while, the board kept on screen and in focus through a handover while the pool
 comes in, and what is done there carried into Team Rankings, a kept board drawn
 and labelled offline, and a refusal forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and that
@@ -3939,22 +3939,37 @@ a test, 33 of 33, two of them only after their tests were tightened.
 
 **A club's panel.** A club tapped on the board opens its panel from its card
 (`LiveClubPanel`): its bucket read through the same checks as a board, and drawn by
-Team Rankings' own panel with nothing on it to change (`readOnly`): no rename,
-unlink, age, state or fold, which wait for this device's copy. The panel and the
-pool's codec it checks a card by load only when a club is opened. A club whose
-card cannot be read (no card, a bucket damaged or gone, a refusal, or offline with
-none kept) opens on Team Rankings, as every club did before there were cards, and so
-does the club open when the board hands over; tapped while the pool comes in, it
-says so until Team Rankings opens on it.
+Team Rankings' own panel. The panel and the pool's codec it checks a card by load
+only when a club is opened. A club whose card cannot be read (no card, a bucket
+damaged or gone, a refusal, or offline with none kept) opens on Team Rankings, as
+every club did before there were cards, and so does the club open when the board
+hands over; tapped while the pool comes in, it says so until Team Rankings opens on
+it.
+
+Its edits go to the edit function (`useLiveEdits`, 1.5): a state, a name, a
+GameChanger link taken off, an age set or taken back, and a fold into another
+club on the board, each sent as a command against the copy the board is of, and
+each answer said in a toast: the edit made (an age with an Undo that sends its
+inverse), or why not, in plain words, a refusal as the server named it and a call
+that came to nothing in the call's own words, which say an edit may or may not have
+been made wherever the server did not prove it was not. A rename onto a name
+another club holds, and a fold, are asked about first, with what the server says
+they move (`rename.preview`, `merge.preview`). An edit made is drawn over the card
+until a publish of its version or later is out (`overlayCard`): the state, name,
+links and level it gave the club, and a club folded away opens the one it went
+into. An edit that changed nothing the views read (a Pool health answer) asks for
+no rebuild and is not waited on. Opening a panel brings the server's pool up
+(`warm`), at most once in ten minutes of calls. While the device is offline, or
+before the network has answered for the board (what is drawn being only what this
+device kept), the panel changes nothing and nothing is sent.
 
 **Find a team.** The board's search box reads its year's list (`useLiveSearch`)
 only when somebody taps it, says "Bringing in every team…" until the list is in,
 then puts the caret in the box. A pick opens the club's page and its panel from its
 card, as Team Rankings does. A pick on another year's page leaves that page's box to
-be asked again, rather than read a second list unasked. While somebody is in the box
-the board does not hand over on its own: Team Rankings would open on a box of its
-own, without what they typed. A list that cannot be read hands over to Team
-Rankings with its box focused, as every search did before there were lists.
+be asked again, rather than read a second list unasked. A list that cannot be read
+hands over to Team Rankings with its box focused, as every search did before there
+were lists.
 
 **The Games tab.** On the board the tab reads its page's list (`LiveGames`) and is
 drawn by Team Rankings' own tab with nothing on it to change (`GamesSection`
@@ -4457,8 +4472,8 @@ turned away, or `aborted`). Any other failure (a 500, the platform's own answer 
 out, a request lost, an answer cut off) says the edit may or may not have been made, which the copy
 then settles, since any of them can follow a save that landed. The page's content policy lets the app reach the project's functions
 host (`functionsUrl.ts`). It is built and deployed with the rebuilds (LIVE_REBUILD), runs as their
-account, and asks nothing more of the project; nothing in the app calls it until the sections go
-live (1.5).
+account, and asks nothing more of the project. The live page's club panel is the first thing in
+the app to call it (1.5); the other sections follow.
 
 The function also answers questions about the copy (`{ query, copy }`, `queries.ts`), which the
 sections ask as they go live (1.5): what a section has to say before an edit, worked out on the copy
@@ -4736,7 +4751,7 @@ the deterministic story is shown. To exercise the AI path locally, run
     its first render is one long task of up to 10.6 s on the phone (2.2 s on
     the desktop), against 5.2 s (1.1 s) after the saved board, whose wait
     comes before its rows instead. Its own fit lands about as late as without
-    Live: the handover waits for a quiet second.
+    Live, once the board has handed over to it.
 
 - Every page of a squad year is fitted over the same games, so the rankings
   worker fits a year once and cuts each page from that fit, keyed on the pool,

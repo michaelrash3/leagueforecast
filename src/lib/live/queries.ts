@@ -48,6 +48,10 @@ export type QueryKind = PoolQuery["kind"];
 /** An answer, with the kind of question it answers. */
 export type QueryAnswer = { [K in QueryKind]: { kind: K } & QueryAnswers[K] }[QueryKind];
 
+/** The question of kind `K`, and its answer. */
+export type QueryOf<K extends QueryKind> = Extract<PoolQuery, { kind: K }>;
+export type AnswerOf<K extends QueryKind> = { kind: K } & QueryAnswers[K];
+
 export const foldCounts = (
   fromId: string,
   intoId: string,
@@ -144,7 +148,7 @@ const foldOf = (raw: Record<string, unknown>): FoldCounts | null =>
 export const coerceQueryAnswer = <K extends QueryKind>(
   raw: unknown,
   kind: K
-): ({ kind: K } & QueryAnswers[K]) | null => {
+): AnswerOf<K> | null => {
   if (!isRecord(raw) || raw.kind !== kind) return null;
   const fold = foldOf(raw);
   if (!fold) return null;
@@ -170,5 +174,5 @@ export const coerceQueryAnswer = <K extends QueryKind>(
       break;
     }
   }
-  return answer as ({ kind: K } & QueryAnswers[K]) | null;
+  return answer as AnswerOf<K> | null;
 };

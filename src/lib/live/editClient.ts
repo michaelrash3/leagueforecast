@@ -3,7 +3,7 @@ import { functionUrl } from "../cloud/functionsUrl";
 import { coerceCommand, type PoolCommand } from "./commands";
 import type { EditReply, WarmResult } from "./editHandle";
 import type { EditRefusal, QueryRefusal } from "./editRun";
-import { coerceQueryAnswer, type PoolQuery, type QueryAnswers, type QueryKind } from "./queries";
+import { coerceQueryAnswer, type AnswerOf, type QueryKind, type QueryOf } from "./queries";
 
 /**
  * A member's device asking the edit function (`edit`, `functions/src/index.ts`) to make an edit or
@@ -212,7 +212,7 @@ export const coerceEditReply = (raw: unknown): EditReply | null => {
 
 /** What a question of kind `K` is answered: its answer, of which copy and version, or why none. */
 export type QueryReplyOf<K extends QueryKind> =
-  | { ok: true; copy: string; version: number; answer: { kind: K } & QueryAnswers[K] }
+  | { ok: true; copy: string; version: number; answer: AnswerOf<K> }
   | { ok: false; why: QueryRefusal };
 
 /** A question's reply as the function makes one, for a question of kind `kind`, or null. */
@@ -271,7 +271,7 @@ export const callWarm = (deps: CallDeps): Promise<Called<WarmResult>> =>
  * nothing, so an answer that never came is only a question to ask again (`failed`).
  */
 export const callQuery = <K extends QueryKind>(
-  ask: { query: PoolQuery & { kind: K }; copy?: string },
+  ask: { query: QueryOf<K>; copy?: string },
   deps: CallDeps
 ): Promise<Called<QueryReplyOf<K>>> =>
   call(

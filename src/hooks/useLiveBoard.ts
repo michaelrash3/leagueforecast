@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { copySeen, liveReader, type CopySeen } from "../lib/cloud/cloudSession";
+import type { CallDeps } from "../lib/live/editClient";
 import { loadCloudState, owedChanges } from "../lib/cloud/cloudState";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
 import {
@@ -31,6 +32,8 @@ export type LiveSources = {
   /** The parts this device owes the copy (`owedChanges`). */
   owed: () => string[];
   now: () => string;
+  /** How edits reach the edit function: the member's own sign-in and `fetch` when not given. */
+  call?: CallDeps;
 };
 
 let browserSources: LiveSources | null = null;

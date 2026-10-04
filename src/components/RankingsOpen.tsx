@@ -1,4 +1,6 @@
 import { lazy, useState, type ReactNode } from "react";
+import type { Confirmation } from "../hooks/useConfirmation";
+import type { ShowToast } from "../hooks/useLiveEdits";
 import type { CloudStatus } from "../lib/cloud/cloudSession";
 import { loadCloudState } from "../lib/cloud/cloudState";
 import type { RankingsHandover } from "../lib/live/liveBoard";
@@ -38,9 +40,14 @@ export const liveBoardWanted = (status: CloudStatus): boolean =>
 export function RankingsOpen({
   status,
   page,
+  showToast,
+  confirm,
 }: {
   status: CloudStatus;
   page: (handover?: RankingsHandover) => ReactNode;
+  /** The app's toast and confirmation, which the live page's edits are said through. */
+  showToast: ShowToast;
+  confirm: Confirmation["request"];
 }) {
   const [live] = useState(() => liveBoardWanted(status));
   if (!live) return <CloudPoolGate status={status}>{page()}</CloudPoolGate>;
@@ -49,6 +56,8 @@ export function RankingsOpen({
       status={status}
       renderPage={(handover) => page(handover)}
       preloadPage={loadTeamRankingsView}
+      showToast={showToast}
+      confirm={confirm}
     />
   );
 }

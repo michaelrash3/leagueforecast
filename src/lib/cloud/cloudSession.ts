@@ -241,6 +241,14 @@ export const resetCloudSession = (): void => {
  */
 setGcAuthorization(async () => (session ? session.cloud.idToken() : null));
 
+/**
+ * The signed-in member's token for the edit function (`editClient.ts`), as the proxy's is, but
+ * thrown where one could not be had just now, so a call says to try again rather than that nobody
+ * is signed in. None with no session open, as for the proxy.
+ */
+export const memberToken = async (): Promise<string | null> =>
+  session ? session.cloud.idToken() : null;
+
 export const cloudStatus = (): CloudStatus => status;
 
 export const subscribeCloud = (listener: (status: CloudStatus) => void): (() => void) => {

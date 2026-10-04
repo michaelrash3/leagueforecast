@@ -7,6 +7,7 @@ import type { CopySeen } from "../../lib/cloud/cloudSession";
 import { BOARD_FAMILY, builtFrom } from "../../lib/live/boardInputs";
 import { forgetDecodedBoards } from "../../lib/live/liveClient";
 import { forgetLiveBoard, liveBoardFor, type RankingsHandover } from "../../lib/live/liveBoard";
+import { EDIT_REFUSED } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { openViewCache, type ViewCache, type ViewCacheIo } from "../../lib/live/viewCache";
 import { publishViews, type LiveReader, type PublishedView } from "../../lib/live/viewStore";
@@ -64,6 +65,7 @@ vi.mock("../../lib/cloud/cloudSession", () => ({
   },
   copySeen: () => null,
   liveReader: async () => null,
+  memberToken: async () => null,
 }));
 
 const { LiveTeamRankings } = await import("./LiveTeamRankings");
@@ -196,14 +198,25 @@ const sourcesOf = (live: MemoryLive | null, more: Partial<LiveSources> = {}): Li
 
 const page = (handover: RankingsHandover) => <p data-testid="page">{JSON.stringify(handover)}</p>;
 
-const open = (sources: LiveSources, { quietMs = 60_000, waitMs = 60_000 } = {}) =>
+/** What the page said in toasts, and the questions it asked before an edit, in turn. */
+const said = { toasts: [] as string[], asked: [] as string[], confirming: true };
+const showToast = (message: string) => {
+  said.toasts.push(message);
+};
+const confirm = async ({ title }: { title: string }) => {
+  said.asked.push(title);
+  return said.confirming;
+};
+
+const open = (sources: LiveSources, { waitMs = 60_000 } = {}) =>
   render(
     <LiveTeamRankings
       status={{ kind: "connecting" }}
       renderPage={page}
       preloadPage={() => Promise.resolve()}
       sources={sources}
-      quietMs={quietMs}
+      showToast={showToast}
+      confirm={confirm}
       waitMs={waitMs}
     />
   );
@@ -230,6 +243,9 @@ beforeEach(async () => {
   window.localStorage.clear();
   saveAgeGroups(GROUPS);
   window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027");
+  said.toasts = [];
+  said.asked = [];
+  said.confirming = true;
   live = memoryLive();
   await publish(live);
 });
@@ -370,18 +386,14 @@ describe("Team Rankings on the cloud's board", () => {
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 
-  it("hands over on its own only once nobody has touched the screen for a while", async () => {
+  it("stays the page however long nobody touches the screen, and hands over for what it cannot draw", async () => {
     pool.wants = false;
-    open(sourcesOf(live), { quietMs: 150 });
+    open(sourcesOf(live));
     await screen.findByText("The cloud's board");
-    // Taps, keys and scrolling put it off.
-    for (let step = 0; step < 6; step += 1) {
-      await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
-      fireEvent.pointerDown(window);
-      fireEvent.scroll(window);
-    }
+    await act(() => new Promise((resolve) => setTimeout(resolve, 1_500)));
     expect(handedOver()).toBeNull();
-    await waitFor(() => expect(handedOver()).not.toBeNull(), { timeout: 2_000 });
+    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 
   it("draws the board it kept when the network is not there, and says so", async () => {
@@ -429,15 +441,17 @@ describe("Team Rankings on the cloud's board", () => {
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 
-  it("does not hand over on its own while the pool is still coming in", async () => {
-    open(sourcesOf(live), { quietMs: 50 });
+  it("stays the page while the pool comes in and once it is in", async () => {
+    open(sourcesOf(live));
     await screen.findByText("The cloud's board");
     await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
     // Not handed over at all: no wait for this device's copy on screen, as there is after one.
     expect(handedOver()).toBeNull();
     expect(screen.queryByText(/Loading this device's copy/)).toBeNull();
     await act(async () => pool.finish());
-    await waitFor(() => expect(handedOver()).not.toBeNull());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+    expect(handedOver()).toBeNull();
+    expect(screen.getByText("The cloud's board")).toBeTruthy();
   });
 });
 
@@ -645,20 +659,44 @@ describe("a club's panel on the cloud's board", () => {
     names: { "S-2": "Placeholder S-2", "S-4": "Placeholder S-4" },
     age: { level: 12 },
   };
-  const withCard = () =>
-    publish(live, [
+  /** The board, with S-1's card, and another club's card where one is given. */
+  const withCard = (other?: ClubCard) => {
+    const buckets = new Map<number, Record<string, ReturnType<typeof encodeClubCard>>>();
+    for (const card of other ? [CARD, other] : [CARD]) {
+      const bucket = clubBucketOf(card.team.id);
+      buckets.set(bucket, { ...buckets.get(bucket), [card.team.id]: encodeClubCard(card) });
+    }
+    return publish(live, [
       { key: `board:2027:${PAGE}:spring`, value: SPRING },
       { key: `board:2027:${PAGE}:fall`, value: FALL },
       { key: `board:2027:${PAGE}:year`, value: SPRING },
-      {
-        key: clubKey(2027, clubBucketOf("S-1")),
-        value: { clubs: { "S-1": encodeClubCard(CARD) } },
-      },
+      ...[...buckets].map(([bucket, clubs]) => ({ key: clubKey(2027, bucket), value: { clubs } })),
     ]);
+  };
+  /** S-1's card published again as `card`, of the copy at `version`. */
+  const publishCard = async (card: ClubCard, version: number) =>
+    publishViews({
+      store: live.store,
+      views: [
+        { key: `board:2027:${PAGE}:spring`, value: SPRING },
+        { key: `board:2027:${PAGE}:fall`, value: FALL },
+        { key: `board:2027:${PAGE}:year`, value: SPRING },
+        {
+          key: clubKey(2027, clubBucketOf("S-1")),
+          value: { clubs: { "S-1": encodeClubCard(card) } },
+        },
+      ],
+      owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY, GAMES_FAMILY],
+      copy: { id: MANIFEST.copy, version },
+      today: TODAY,
+      now: T,
+      built: { family: BOARD_FAMILY, from: await builtFrom({ ...MANIFEST, version }, TODAY) },
+      inline: { pages: { pulledAt: T, halves: { [PAGE]: { fall: 10, spring: 20 } } } },
+    });
   const tapClub = async (name: string) =>
     fireEvent.click((await screen.findAllByRole("button", { name }))[0]!);
 
-  it("opens from its card, with its record and games, and nothing on it to change", async () => {
+  it("opens from its card, with its record and games", async () => {
     await withCard();
     open(sourcesOf(live));
     await tapClub("Placeholder S-1");
@@ -669,21 +707,200 @@ describe("a club's panel on the cloud's board", () => {
     expect(panel).toHaveTextContent("5–3 · 2027-03-20 · Placeholder Classic");
     expect(panel).toHaveTextContent("2–6 · 2027-03-27");
     expect(within(panel).getByText("Sched")).toBeTruthy();
-    for (const name of ["Rename", "Merge", "Set age", "Fold into it", "Unlink"])
-      expect(within(panel).queryByRole("button", { name })).toBeNull();
-    expect(within(panel).queryByRole("textbox")).toBeNull();
     expect(handedOver()).toBeNull();
+  });
+
+  const pause = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+
+  /** The edit function, as the page reaches it: what it was sent, and its answer to each. */
+  const editFunction = (answer: (data: Record<string, unknown>) => unknown) => {
+    const sent: Array<Record<string, unknown>> = [];
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const { data } = JSON.parse(String(init?.body)) as { data: Record<string, unknown> };
+      sent.push(data);
+      return new Response(JSON.stringify({ result: answer(data) }), { status: 200 });
+    }) as typeof fetch;
+    return { sent, call: { token: async () => "id-token", fetchImpl } };
+  };
+  const WARMED = { warmed: { ok: true, cold: false, fetched: 0, loadMs: 1 } };
+  const made = (version: number, changed = ["league_forecast_scout_teams_v1"]) => ({
+    ok: true,
+    copy: MANIFEST.copy,
+    version,
+    inverse: { kind: "none" },
+    changed,
+    ms: { load: 1, apply: 1, commit: 1 },
+  });
+  const answered = (answer: Record<string, unknown>) => ({
+    ok: true,
+    copy: MANIFEST.copy,
+    version: MANIFEST.version,
+    answer,
+  });
+  const edited = (sent: Array<Record<string, unknown>>) =>
+    sent.filter((data) => data.command !== undefined);
+
+  it("sends an edit made on its panel to the edit function, against the board's copy, and says so", async () => {
+    await withCard();
+    const server = editFunction((data) => (data.warm ? WARMED : made(5)));
+    open(sourcesOf(live, { call: server.call }));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    fireEvent.change(within(panel).getByLabelText("State"), { target: { value: "KY" } });
+    await waitFor(() => expect(said.toasts).toContain("Set to KY."));
+    expect(edited(server.sent)).toEqual([
+      {
+        command: { kind: "team.state", teamId: "S-1", state: "KY", adopt: CARD.team },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    expect(handedOver()).toBeNull();
+  });
+
+  it("draws a new name at once, and the card as published once a publish of the edit's version is out", async () => {
+    await withCard();
+    const server = editFunction((data) =>
+      data.warm
+        ? WARMED
+        : data.query
+          ? answered({
+              kind: "rename.preview",
+              name: "Placeholder Q",
+              into: null,
+              games: 0,
+              dropped: 0,
+            })
+          : made(5)
+    );
+    open(sourcesOf(live, { call: server.call }));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    fireEvent.change(within(panel).getByLabelText("Team name"), {
+      target: { value: "Placeholder Q" },
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Rename" }));
+    expect(await screen.findByRole("region", { name: "Placeholder Q" })).toBeTruthy();
+    expect(said.toasts).toContain("Team renamed.");
+    expect(edited(server.sent)).toEqual([
+      { command: { kind: "team.rename", teamId: "S-1", name: "Placeholder Q" }, copy: "c0ffee" },
+    ]);
+    // A publish of an older version than the edit's leaves the edit drawn over it.
+    await act(() => publishCard({ ...CARD, team: { ...CARD.team, name: "Placeholder Old" } }, 4));
+    await pause(50);
+    expect(screen.getByRole("region", { name: "Placeholder Q" })).toBeTruthy();
+    // One of its version, or later, is the card to draw: whatever it says is the copy's word.
+    await act(() => publishCard({ ...CARD, team: { ...CARD.team, name: "Placeholder R" } }, 5));
+    expect(await screen.findByRole("region", { name: "Placeholder R" })).toBeTruthy();
+  });
+
+  it("asks before folding a club renamed onto another's name, and opens the club it went into", async () => {
+    await withCard({
+      team: { id: "S-2", name: "Placeholder S-2" },
+      games: [],
+      names: {},
+    });
+    const server = editFunction((data) =>
+      data.warm
+        ? WARMED
+        : data.query
+          ? answered({
+              kind: "rename.preview",
+              name: "Placeholder S-2",
+              into: { id: "S-2", name: "Placeholder S-2" },
+              games: 3,
+              dropped: 2,
+            })
+          : made(5, ["league_forecast_scout_teams_v1", "league_forecast_scout_games_v2:2027"])
+    );
+    open(sourcesOf(live, { call: server.call }));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    const rename = () => {
+      fireEvent.change(within(panel).getByLabelText("Team name"), {
+        target: { value: "placeholder s-2" },
+      });
+      fireEvent.click(within(panel).getByRole("button", { name: /Rename|Merge/ }));
+    };
+    said.confirming = false;
+    rename();
+    await waitFor(() => expect(said.asked).toEqual(["Fold Placeholder S-1 into Placeholder S-2?"]));
+    expect(edited(server.sent)).toEqual([]);
+    said.confirming = true;
+    rename();
+    expect(await screen.findByRole("region", { name: "Placeholder S-2" })).toBeTruthy();
+    expect(said.toasts).toContain("Folded into Placeholder S-2.");
+    expect(edited(server.sent)).toEqual([
+      {
+        command: { kind: "teams.merge", fromId: "S-1", intoId: "S-2", adopt: [CARD.team] },
+        copy: "c0ffee",
+      },
+    ]);
+  });
+
+  it("says why an edit was not made, and draws nothing of it", async () => {
+    await withCard();
+    const server = editFunction((data) =>
+      data.warm
+        ? WARMED
+        : data.query
+          ? answered({ kind: "rename.preview", name: "Gone", into: null, games: 0, dropped: 0 })
+          : { ok: false, why: "missing" }
+    );
+    open(sourcesOf(live, { call: server.call }));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    fireEvent.change(within(panel).getByLabelText("Team name"), { target: { value: "Gone" } });
+    fireEvent.click(within(panel).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(said.toasts).toContain(EDIT_REFUSED.missing));
+    expect(screen.getByRole("region", { name: "Placeholder S-1" })).toBeTruthy();
+  });
+
+  it("brings the server's pool up as a club opens, and not again soon after a call", async () => {
+    await withCard();
+    const server = editFunction(() => WARMED);
+    open(sourcesOf(live, { call: server.call }));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    await waitFor(() => expect(server.sent).toEqual([{ warm: true }]));
+    fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
+    await tapClub("Placeholder S-1");
+    await screen.findByRole("region", { name: "Placeholder S-1" });
+    await pause(50);
+    expect(server.sent).toEqual([{ warm: true }]);
+  });
+
+  it("changes nothing, and sends nothing, before the network has answered for the board", async () => {
+    await withCard();
+    const first = open(sourcesOf(live));
+    await tapClub("Placeholder S-1");
+    await screen.findByRole("region", { name: "Placeholder S-1" });
+    first.unmount();
+    forgetDecodedBoards();
+    forgetDecodedClubs();
+    const server = editFunction(() => WARMED);
+    const hanging: LiveReader = {
+      readMeta: () => new Promise(() => undefined),
+      getChunk: () => new Promise(() => undefined),
+    };
+    open(sourcesOf(live, { reader: async () => hanging, call: server.call }));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    expect(within(panel).queryByLabelText("Team name")).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Rename" })).toBeNull();
+    await pause(50);
+    expect(server.sent).toEqual([]);
   });
 
   it("closes, and opens Team Rankings on the club open when it hands over", async () => {
     await withCard();
-    open(sourcesOf(live), { quietMs: 100 });
+    open(sourcesOf(live));
     await tapClub("Placeholder S-1");
     const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
     fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("region", { name: "Placeholder S-1" })).toBeNull();
     await tapClub("Placeholder S-1");
     await screen.findByRole("region", { name: "Placeholder S-1" });
+    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
     await act(async () => pool.finish());
     await waitFor(() => expect(handedOver()).toMatchObject({ openTeamId: "S-1" }), {
       timeout: 2_000,
@@ -820,20 +1037,6 @@ describe("Find a team on the cloud's board", () => {
     await user.type(box, "gcDROPPED001");
     expect(await screen.findByText(/That team was thrown out, so pulls refuse it/)).toBeTruthy();
     expect(handedOver()).toBeNull();
-  });
-
-  it("does not hand over on its own while somebody is in the search box", async () => {
-    await withList();
-    pool.wants = false;
-    open(sourcesOf(live), { quietMs: 100 });
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Search every team or coach, any age or season" })
-    );
-    const box = await screen.findByRole("combobox", { name: /find a team/i });
-    await act(() => new Promise((resolve) => setTimeout(resolve, 400)));
-    expect(handedOver()).toBeNull();
-    act(() => box.blur());
-    await waitFor(() => expect(handedOver()).not.toBeNull(), { timeout: 2_000 });
   });
 
   it("asks again on another year's pages rather than read that year's list unasked", async () => {
@@ -1379,13 +1582,16 @@ describe("what it hands over, when, and what stays after", () => {
       return <p data-testid="probe">{selectedAgeGroupId}</p>;
     }
     pool.wants = false;
+    // An area the board does not draw: it hands over at once.
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
     render(
       <LiveTeamRankings
         status={{ kind: "connecting" }}
         renderPage={() => <Page />}
         preloadPage={() => Promise.resolve()}
         sources={sourcesOf(live)}
-        quietMs={100}
+        showToast={showToast}
+        confirm={confirm}
         waitMs={60_000}
       />
     );
@@ -1409,26 +1615,11 @@ describe("what it hands over, when, and what stays after", () => {
     expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
   });
 
-  it("does not hand over on its own while somebody types into Scouting's club box", async () => {
-    await withCards();
-    pool.wants = false;
-    onScouting();
-    const user = userEvent.setup();
-    open(sourcesOf(live), { quietMs: 300 });
-    const box = await screen.findByRole("combobox", { name: /How would/ });
-    await user.click(box);
-    await user.clear(box);
-    await user.type(box, "Placeholder S");
-    await pause(800);
-    expect(handedOver()).toBeNull();
-    expect(document.activeElement).toBe(box);
-  });
-
   it("opens Team Rankings on the club compared and the opponents asked for, kept across a half", async () => {
     await withCards();
     onScouting();
     const user = userEvent.setup();
-    open(sourcesOf(live), { quietMs: 1500 });
+    open(sourcesOf(live));
     await pick(user, await screen.findByLabelText("Compare with"), "Placeholder S-3");
     const compared = { name: "Placeholder S-2 and Placeholder S-3 compared" };
     expect(await screen.findByRole("region", compared)).toBeTruthy();
@@ -1440,13 +1631,13 @@ describe("what it hands over, when, and what stays after", () => {
     expect(
       await screen.findByRole("button", { name: "Remove Placeholder S-1 from the report" })
     ).toBeTruthy();
-    act(() => (document.activeElement as HTMLElement | null)?.blur());
+    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
     await act(async () => pool.finish());
     await waitFor(() => expect(handedOver()).not.toBeNull(), { timeout: 5_000 });
     expect(handedOver()).toMatchObject({ compareTeamId: "S-3", pickedOpponentIds: ["S-1"] });
   });
 
-  it("does not hand over on its own while the search list asked for is on its way", async () => {
+  it("puts the caret in the search box once the list asked for is in, however long it takes", async () => {
     await withCards(CARDS, [
       {
         key: searchKey(2027),
@@ -1472,8 +1663,7 @@ describe("what it hands over, when, and what stays after", () => {
             return reader.getChunk(id);
           },
         }),
-      }),
-      { quietMs: 150 }
+      })
     );
     fireEvent.click(
       await screen.findByRole("button", { name: "Search every team or coach, any age or season" })

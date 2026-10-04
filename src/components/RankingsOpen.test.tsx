@@ -26,11 +26,14 @@ const { RankingsOpen } = await import("./RankingsOpen");
 const ME = { uid: "uid-1", email: "member@example.com" };
 const SAVED: CloudStatus = { kind: "saved", account: ME, owed: false, newer: [] };
 
+const showToast = () => undefined;
+const confirm = async () => true;
+
 const open = (status: CloudStatus) => {
   const page = vi.fn(() => <p data-testid="page">the page</p>);
   const shown = render(
     <Suspense fallback={null}>
-      <RankingsOpen status={status} page={page} />
+      <RankingsOpen status={status} page={page} showToast={showToast} confirm={confirm} />
     </Suspense>
   );
   return { page, shown };
@@ -80,7 +83,12 @@ describe("which Team Rankings opens", () => {
     writeLiveBoard(true);
     shown.rerender(
       <Suspense fallback={null}>
-        <RankingsOpen status={SAVED} page={() => <p data-testid="page">the page</p>} />
+        <RankingsOpen
+          status={SAVED}
+          page={() => <p data-testid="page">the page</p>}
+          showToast={showToast}
+          confirm={confirm}
+        />
       </Suspense>
     );
     expect(screen.getByTestId("page")).toBeTruthy();
