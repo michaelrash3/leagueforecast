@@ -36,7 +36,7 @@ import { coerceQuery } from "../../src/lib/live/queries";
 import { handleRebuildTask } from "../../src/lib/live/rebuild";
 import { coerceLedger, restLedgerStore } from "../../src/lib/live/rebuildLedger";
 import { coerceRebuildTask } from "../../src/lib/live/rebuildPlan";
-import { handleCopyWrite } from "../../src/lib/live/rebuildTrigger";
+import { handleCopyWrite, handleLeagueWrite } from "../../src/lib/live/rebuildTrigger";
 import {
   REBUILD_SIZE,
   REBUILD_TIMEOUT_S,
@@ -322,6 +322,38 @@ export const onCopyWrite = !LIVE_REBUILD
           change: event.data,
           eventTime: event.time,
           // A switch that is not there, or not one, is off; a read that throws counts as on.
+          readSwitch: async () => coerceLedger((await ledger.read()).raw)?.on === true,
+          enqueue: enqueueRebuild,
+        });
+        logger[level](message, line);
+      }
+    );
+
+/**
+ * Each write of a League Standings season's document, `league/{season}` (`rebuildTrigger.ts`): one
+ * that moved a team, a game or a score queues the rebuild of its window, since the boards are built
+ * with the seasons' documents (`cloudLeague.ts`) and a device writes them straight to Firestore,
+ * with no server in between to ask. Not tried again, as the copy's trigger is not.
+ */
+export const onLeagueWrite = !LIVE_REBUILD
+  ? undefined
+  : onDocumentWritten(
+      {
+        document: "league/{season}",
+        region: REGION,
+        serviceAccount: LIVE_RUNNER,
+        memory: "256MiB",
+        timeoutSeconds: 60,
+        maxInstances: 2,
+        retry: false,
+      },
+      async (event) => {
+        const ledger = restLedgerStore(firestoreRestDocuments(restAccess()));
+        const { level, message, line } = await handleLeagueWrite({
+          change: event.data,
+          docId: event.params.season,
+          eventTime: event.time,
+          // As the copy's trigger reads it: absent or not one is off, a read that throws is on.
           readSwitch: async () => coerceLedger((await ledger.read()).raw)?.on === true,
           enqueue: enqueueRebuild,
         });

@@ -3,19 +3,22 @@ import { coerceManifest, DATA_SCHEMA, type CloudManifest } from "../cloud/cloudM
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { isCloudPoolKey } from "../teamRankingsStorage";
 import { boardInputsPrint } from "./boardInputs";
+import { docToSeason, type LeagueDocRead } from "./leagueDocs";
 
 /**
- * What a save of the copy asks of the views, decided on the save alone: whether it could have moved
- * a board, and when the rebuild it asks for runs. The function a write to the copy triggers
- * (`onCopyWrite`) runs this and queues what it says; it is kept here, pure, so it is tested.
+ * What a save of the copy, or a write of a League Standings season's document, asks of the views,
+ * decided on the write alone: whether it could have moved a board, and when the rebuild it asks for
+ * runs. The functions those writes trigger (`onCopyWrite`, `onLeagueWrite`) run this and queue what
+ * it says; it is kept here, pure, so it is tested.
  */
 
 /**
  * Who saved: a device, whose edits come in bursts a person is waiting on; a server that publishes
- * the boards of what it saved (the nightly), whose own publish should already be in; or the edit
- * function (`editRun.ts`), which saves one member's change at a time and publishes nothing itself.
+ * the boards of what it saved (the nightly), whose own publish should already be in; the edit
+ * function (`editRun.ts`), which saves one member's change at a time and publishes nothing itself;
+ * or a device writing a League Standings season, a score at a time as a game is entered.
  */
-export type RebuildKind = "edit" | "server" | "live";
+export type RebuildKind = "edit" | "server" | "live" | "league";
 
 /**
  * How long the saves of one kind gather into one rebuild, in seconds: every save in a window shares
@@ -28,7 +31,7 @@ export type RebuildKind = "edit" | "server" | "live";
  * with `npm run live:bench` on 4 October); what keeps a run of such edits from building back to back
  * is the spacing (`LIVE_SPACING_S`).
  */
-export const REBUILD_WINDOW_S = { edit: 120, server: 900, live: 15 } as const;
+export const REBUILD_WINDOW_S = { edit: 120, server: 900, live: 15, league: 120 } as const;
 
 /**
  * How long after its window closes a rebuild runs, in seconds. A window is by each save's commit
@@ -36,9 +39,12 @@ export const REBUILD_WINDOW_S = { edit: 120, server: 900, live: 15 } as const;
  * difference between Firestore's clock and the queue's. A device's edits are rebuilt five seconds
  * after their window, and the edit function's three. A server's are checked ten minutes after: its
  * own publish should be in by then, and the check finds it current at the cost of three reads, or
- * publishes it if that publish failed.
+ * publishes it if that publish failed. A League Standings season's writes come as a device's edits
+ * do, a score each as a person enters a day's games, and gather in the same two minutes: the season
+ * itself is live on every device as it is typed (`leagueSync.ts`), and only Team Rankings, which
+ * the boards are, waits on the rebuild.
  */
-export const REBUILD_SETTLE_S = { edit: 5, server: 600, live: 3 } as const;
+export const REBUILD_SETTLE_S = { edit: 5, server: 600, live: 3, league: 5 } as const;
 
 /**
  * The least time between the end of one rebuild run and the start of a quick one (`live`), in
@@ -75,7 +81,7 @@ export const LIVE_DEVICES: ReadonlySet<string> = new Set([EDIT_DEVICE]);
 
 /** A rebuild a save asks for: of which copy and version, after which kind of save. */
 export type RebuildAsk = {
-  kind: RebuildKind;
+  kind: Exclude<RebuildKind, "league">;
   copy: string;
   version: number;
   /** The copy is new: a first save, or one after the copy was made afresh. */
@@ -143,20 +149,29 @@ export const askRebuild = async (
   };
 };
 
-/** What a queued rebuild carries: enough to log, never what to build, which is read when it runs. */
-export type RebuildTask = { copy: string; kind: RebuildKind; window: number; savedAt: string };
+/**
+ * What a queued rebuild carries: enough to log, never what to build, which is read when it runs.
+ * What was written is the copy, by its id, or for a League Standings season's write (`league`) the
+ * season's document, by its id (`season`).
+ */
+export type RebuildTask =
+  | { copy: string; kind: Exclude<RebuildKind, "league">; window: number; savedAt: string }
+  | { season: string; kind: "league"; window: number; savedAt: string };
 
 /**
  * A task as the queue hands it back, or null for anything this build did not queue: only the
- * rebuild's own trigger queues to it, so one of another shape is a mistake to log, not to run.
+ * rebuild's own triggers queue to it, so one of another shape is a mistake to log, not to run.
  */
 export const coerceRebuildTask = (raw: unknown): RebuildTask | null => {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
-  const { copy, kind, window, savedAt } = raw as Record<string, unknown>;
-  if (typeof copy !== "string" || copy === "") return null;
-  if (kind !== "edit" && kind !== "server" && kind !== "live") return null;
+  const { copy, season, kind, window, savedAt } = raw as Record<string, unknown>;
   if (typeof window !== "number" || !Number.isSafeInteger(window) || window < 0) return null;
   if (typeof savedAt !== "string" || Number.isNaN(Date.parse(savedAt))) return null;
+  if (kind === "league") {
+    return typeof season === "string" && season !== "" ? { season, kind, window, savedAt } : null;
+  }
+  if (typeof copy !== "string" || copy === "") return null;
+  if (kind !== "edit" && kind !== "server" && kind !== "live") return null;
   return { copy, kind, window, savedAt };
 };
 
@@ -169,7 +184,7 @@ export const coerceRebuildTask = (raw: unknown): RebuildTask | null => {
  * which spreads the queue's ids as the queue asks; never one counting up.
  */
 export const rebuildTask = async (
-  ask: RebuildAsk,
+  ask: RebuildAsk | LeagueAsk,
   eventTime: string
 ): Promise<{ id: string; scheduleTime: Date; task: RebuildTask }> => {
   const at = Date.parse(eventTime);
@@ -180,7 +195,10 @@ export const rebuildTask = async (
   return {
     id,
     scheduleTime: new Date((window + 1) * span + REBUILD_SETTLE_S[ask.kind] * 1000),
-    task: { copy: ask.copy, kind: ask.kind, window, savedAt: eventTime },
+    task:
+      ask.kind === "league"
+        ? { season: ask.season, kind: ask.kind, window, savedAt: eventTime }
+        : { copy: ask.copy, kind: ask.kind, window, savedAt: eventTime },
   };
 };
 
@@ -223,6 +241,90 @@ export const planCopyWrite = async ({
   const asked = await askRebuild(before, after);
   if ("skip" in asked) return asked;
   // A reader that throws before it has a promise to hand back has failed to read as surely.
+  const on = await Promise.resolve()
+    .then(readSwitch)
+    .catch(() => true);
+  if (!on) return { skip: "off" };
+  return { enqueue: await rebuildTask(asked.ask, eventTime), ask: asked.ask };
+};
+
+/** A rebuild a League Standings season's write asks for: of the season's document, by its id. */
+export type LeagueAsk = { kind: "league"; season: string };
+
+/**
+ * - `no-document`: neither side of the write is a document.
+ * - `unreadable`: the season written is not one this build can read, which would stop every
+ *   rebuild's read of the seasons (`readCloudLeague`) until it is put right.
+ * - `newer-league`: a newer build wrote it, at a layout this build does not read; the rebuilds wait
+ *   for this build to be replaced.
+ * - `no-board-input`: nothing a board reads of the season moved, its teams, games and scores (a
+ *   name, a setting, a bracket game's score).
+ */
+export type LeagueSkip = "no-document" | "unreadable" | "newer-league" | "no-board-input";
+
+/**
+ * What the boards read of a season's document as it stood on one side of a write: its teams, games
+ * and scores (`readCloudLeague`), none where there is no document, or how it could not be read.
+ */
+const boardSideOf = async (
+  raw: unknown,
+  docId: string
+): Promise<
+  { read: string } | { refused: Extract<LeagueDocRead, { ok: false }>["reason"] } | null
+> => {
+  if (raw === null || raw === undefined) return null;
+  const read = docToSeason(raw, docId);
+  if (!read.ok) return { refused: read.reason };
+  const { teams, matchups, logs } = read.season;
+  return { read: await hashValue([teams, matchups, logs]) };
+};
+
+/**
+ * Whether a write of the season's document `docId`, from `before` to `after` (its fields as
+ * stored, `null` or `undefined` where there is no document), asks for the boards to be built
+ * again. A season made, or deleted, asks whatever it holds: the boards read every season once any
+ * has a document, and none of the copy's beside them, so the first document turns them over to the
+ * documents and a season gone takes its games off the boards. A season that could not be read
+ * before asks too, since it stopped every rebuild until now.
+ */
+export const askLeagueRebuild = async (
+  before: unknown,
+  after: unknown,
+  docId: string
+): Promise<{ ask: LeagueAsk } | { skip: LeagueSkip }> => {
+  const was = await boardSideOf(before, docId);
+  const now = await boardSideOf(after, docId);
+  if (now && "refused" in now) {
+    return { skip: now.refused === "newer" ? "newer-league" : "unreadable" };
+  }
+  if (!was && !now) return { skip: "no-document" };
+  if (was && now && "read" in was && was.read === now.read) return { skip: "no-board-input" };
+  return { ask: { kind: "league", season: docId } };
+};
+
+/**
+ * What to do about one write of a League Standings season's document `docId`: queue a rebuild, or
+ * skip it and say why. The switch is read as for a save of the copy (`planCopyWrite`), and only for
+ * a write that asks for one.
+ */
+export const planLeagueWrite = async ({
+  before,
+  after,
+  docId,
+  eventTime,
+  readSwitch,
+}: {
+  before: unknown;
+  after: unknown;
+  docId: string;
+  eventTime: string;
+  readSwitch: () => Promise<boolean>;
+}): Promise<
+  | { enqueue: { id: string; scheduleTime: Date; task: RebuildTask }; ask: LeagueAsk }
+  | { skip: LeagueSkip | "off" }
+> => {
+  const asked = await askLeagueRebuild(before, after, docId);
+  if ("skip" in asked) return asked;
   const on = await Promise.resolve()
     .then(readSwitch)
     .catch(() => true);

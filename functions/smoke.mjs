@@ -17,7 +17,7 @@ process.env.GCLOUD_PROJECT = "smoke-project";
 // the list, which the stand-in below answers). Read once, as the SDK loads.
 process.env.FIREBASE_DEBUG_MODE = "true";
 process.env.FIREBASE_DEBUG_FEATURES = JSON.stringify({ skipTokenVerification: true });
-const { gcTeam, billingCap, startPull, runPull, onCopyWrite, rebuild, edit } =
+const { gcTeam, billingCap, startPull, runPull, onCopyWrite, onLeagueWrite, rebuild, edit } =
   await import("./lib/index.js");
 
 const call = (url, headers = {}) =>
@@ -303,8 +303,11 @@ if (process.env.CLOUD_PULLS !== "on") {
 if (process.env.LIVE_REBUILD !== "on") {
   check(
     "the rebuilds after saves and the edits are left out of a build without LIVE_REBUILD",
-    onCopyWrite === undefined && rebuild === undefined && edit === undefined,
-    `${typeof onCopyWrite} ${typeof rebuild} ${typeof edit}`
+    onCopyWrite === undefined &&
+      onLeagueWrite === undefined &&
+      rebuild === undefined &&
+      edit === undefined,
+    `${typeof onCopyWrite} ${typeof onLeagueWrite} ${typeof rebuild} ${typeof edit}`
   );
 } else {
   const called = edit.__endpoint;
@@ -413,6 +416,15 @@ if (process.env.LIVE_REBUILD !== "on") {
       written.serviceAccountEmail === "live-runner@",
     JSON.stringify(written)
   );
+  const seasonWritten = onLeagueWrite.__endpoint;
+  check(
+    "a write of any League Standings season's document triggers the rebuilds' account",
+    seasonWritten.eventTrigger?.eventType === "google.cloud.firestore.document.v1.written" &&
+      seasonWritten.eventTrigger?.eventFilterPathPatterns?.document === "league/{season}" &&
+      seasonWritten.eventTrigger?.retry === false &&
+      seasonWritten.serviceAccountEmail === "live-runner@",
+    JSON.stringify(seasonWritten)
+  );
   const queued = rebuild.__endpoint;
   check(
     "a rebuild runs one at a time, as the rebuilds' account, at the size the ledger prices",
@@ -467,7 +479,7 @@ if (process.env.LIVE_REBUILD !== "on") {
       kept: { arrayValue: {} },
     },
   });
-  const event = (oldValue, value) => ({
+  const event = (oldValue, value, document = "copies/main") => ({
     specversion: "1.0",
     id: "smoke-write",
     source: "//firestore.googleapis.com/projects/smoke-project/databases/(default)",
@@ -477,8 +489,45 @@ if (process.env.LIVE_REBUILD !== "on") {
     project: "smoke-project",
     database: "(default)",
     namespace: "(default)",
-    document: "copies/main",
+    document,
     data: { ...(oldValue ? { oldValue } : {}), ...(value ? { value } : {}) },
+  });
+  // A League Standings season's document, with one game whose away side scored `runs`.
+  const SEASON = "projects/smoke-project/databases/(default)/documents/league/season-2";
+  const mapOf = (fields) => ({ mapValue: { fields } });
+  const season = (runs, name = "Placeholder league") => ({
+    name: SEASON,
+    createTime: "2026-10-03T00:00:00Z",
+    updateTime: "2026-10-03T00:00:00Z",
+    fields: {
+      schema: int(1),
+      rev: int(1),
+      name: str(name),
+      createdAt: str("2026-10-01T00:00:00.000Z"),
+      teams: mapOf({
+        A: mapOf({ id: str("A"), name: str("Aces") }),
+        B: mapOf({ id: str("B"), name: str("Bears") }),
+      }),
+      teamOrder: { arrayValue: { values: [str("A"), str("B")] } },
+      matchups: mapOf({
+        g1: mapOf({ id: str("g1"), date: str("2026-10-02"), away: str("A"), home: str("B") }),
+      }),
+      order: { arrayValue: { values: [str("g1")] } },
+      logs: mapOf({
+        g1: mapOf({
+          awayRuns: str(String(runs)),
+          awayHits: str(""),
+          awayK: str(""),
+          homeRuns: str("2"),
+          homeHits: str(""),
+          homeK: str(""),
+          innings: str("6"),
+          isFinal: { booleanValue: true },
+        }),
+      }),
+      bracketLogs: mapOf({}),
+      settings: mapOf({}),
+    },
   });
   /** The lines a call logs: the functions logger writes one JSON line each. */
   const logged = async (call) => {
@@ -523,6 +572,23 @@ if (process.env.LIVE_REBUILD !== "on") {
     const lines = await logged(() => onCopyWrite(event(before, after)));
     skips.push([label, lines.find((line) => line.event === "skip")?.why]);
   }
+  const seasonSkips = [];
+  for (const [before, after] of [
+    [season(3), season(3, "Another name")],
+    [season(3), { ...season(4), fields: { ...season(4).fields, schema: int(9) } }],
+  ]) {
+    const lines = await logged(() => onLeagueWrite(event(before, after, "league/season-2")));
+    seasonSkips.push(lines.find((line) => line.event === "skip"));
+  }
+  check(
+    "a season's new name and a season a newer build wrote are skipped, by the season's document",
+    JSON.stringify(seasonSkips.map((line) => [line?.season, line?.why])) ===
+      JSON.stringify([
+        ["season-2", "no-board-input"],
+        ["season-2", "newer-league"],
+      ]),
+    JSON.stringify(seasonSkips)
+  );
   check(
     "a delete, an unreadable manifest and a save no board reads are skipped as such",
     JSON.stringify(skips.map(([, why]) => why)) ===
@@ -590,12 +656,16 @@ if (process.env.LIVE_REBUILD !== "on") {
     await onCopyWrite(event(manifest(4, "a"), manifest(5, "b")));
     await onCopyWrite(event(manifest(5, "b"), manifest(6, "c")));
   });
+  const copyTasks = [...tasks];
+  const scores = await logged(async () => {
+    await onLeagueWrite(event(season(3), season(4), "league/season-2"));
+  });
   queue.close();
   const saved = saves.filter((line) => line.event === "save");
   check(
     "a save that moves a board queues its window's rebuild, waited on past the timeout",
-    tasks.length === 2 &&
-      tasks.every(
+    copyTasks.length === 2 &&
+      copyTasks.every(
         (task) =>
           task.url === "/projects/smoke-project/locations/us-central1/queues/rebuild/tasks" &&
           /\/tasks\/[0-9a-f]{40}$/.test(task.name) &&
@@ -610,6 +680,18 @@ if (process.env.LIVE_REBUILD !== "on") {
     saved.length === 2 &&
       saved.every((line) => line.queued === true && line.task === tasks[0]?.name.slice(-40)),
     JSON.stringify(saves)
+  );
+  const scored = scores.find((line) => line.event === "season");
+  check(
+    "a score saved in a League Standings season queues its window's rebuild, of that season",
+    tasks.length === 3 &&
+      scored?.queued === true &&
+      scored.season === "season-2" &&
+      scored.task === tasks[2]?.name.slice(-40) &&
+      tasks[2]?.name !== tasks[0]?.name &&
+      JSON.parse(Buffer.from(tasks[2]?.httpRequest?.body ?? "", "base64").toString()).data
+        ?.season === "season-2",
+    JSON.stringify({ scores, task: tasks[2] })
   );
   globalThis.fetch = realFetch;
 }

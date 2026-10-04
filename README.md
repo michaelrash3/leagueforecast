@@ -3697,7 +3697,19 @@ sixteen minutes, and no board moved again that day (simulated in the 1.4 review 
 the ledger's own rules and the bench's build times); every board of the real pool
 takes about half a minute to build (26 to 31 s on the 29 September 2026 pool,
 `npm run live:bench`). Pool health's answers change nothing the boards read, so
-they ask for no rebuild at all. A pull run in the cloud publishes nothing of its
+they ask for no rebuild at all.
+
+A write of a League Standings season's document asks too (`askLeagueRebuild`),
+since the boards are built with those seasons once any has a document ("League
+Standings in the cloud") and a device writes them straight to Firestore, with no
+server in between to ask. It asks when the season's teams, games or scores moved,
+which is all a board reads of it, and when a season is made or deleted, whatever
+it holds; a new name, a setting or a bracket game's score asks for nothing, nor
+does a season this build cannot read or one a newer build wrote. Its writes share
+a two-minute window, run five seconds after it closes, as a device's saves of the
+copy do: the season itself is live on every device as a score is typed, and only
+Team Rankings waits on the rebuild, so a day's scores entered one after another
+are one rebuild every two minutes at most. A pull run in the cloud publishes nothing of its
 own, so its saves are rebuilt as a device's are. Who saved is
 whatever the saving client says it is, so the name only picks the delay; nothing
 is skipped for it. A save is queued only while the switch is on, and a switch
@@ -3782,11 +3794,16 @@ worker's half against the copy and `live/` in memory on a seeded pool, its views
 the very ones the nightly publishes from the same copy, and the main thread's
 against a stand-in worker; each guard was broken in turn and seen to fail a test.
 
-Two functions run it (`functions/src/index.ts`), built and deployed only once
+Three functions run it (`functions/src/index.ts`), built and deployed only once
 their setup is done. `onCopyWrite` takes each write of `copies/main`, and of
 nothing under it, plans it (`rebuildTrigger.ts`), queues the task it asks for, and
 logs one line: a skip and why, or the save with the task it shares and whether the
-queue took it. It is not tried again when the queue refuses, since the next save,
+queue took it. `onLeagueWrite` does the same for each write of a season's
+document, `league/{season}`, its line naming the season's document. Both stay
+once the copy is the server's alone to write: every server that saves it (the
+nightly, the edit function, a pull's legs) reaches the boards through the copy's
+trigger, rather than each queueing its own rebuild after its commit, where a
+queue that failed would leave a save unpublished until the night. It is not tried again when the queue refuses, since the next save,
 or the night, publishes that one, and a write that failed every time would
 otherwise be retried for days. `rebuild` takes each task on one instance of 8 GiB
 and two vCPUs, one at a time, with a 300 s timeout. The queue tries a task again
@@ -4360,7 +4377,8 @@ need, and gave the deploy account `roles/eventarc.admin`.
 4. In GitHub, **Settings → Secrets and variables → Actions → Variables → New
    repository variable**: name `LIVE_REBUILD`, value `on`.
 5. **Actions → Firebase functions → Run workflow** on `main`. When it is green,
-   the Firebase console's **Functions** page lists `onCopyWrite` and `rebuild`.
+   the Firebase console's **Functions** page lists `onCopyWrite`, `onLeagueWrite`
+   and `rebuild`.
 
 Then save anything that moves a board, wait three minutes, and find the rebuild's
 line in **Logs Explorer** (`jsonPayload.end` is in every one). A dry run that
@@ -4371,11 +4389,11 @@ the runs, failures and compute the ledger counted ("The nightly refresh on
 GitHub"), so a dry week can be judged there. Once `mode` is `live`,
 `npm run live:lag` reads how long saves took to reach the boards.
 
-Setting `LIVE_REBUILD` to anything but `on` builds without the two functions. With
+Setting `LIVE_REBUILD` to anything but `on` builds without the three functions. With
 the pulls on, the next deploy then takes them down; without, it leaves them as
 they were. `on: false` in `ops/rebuild` stops them either way, and
-`firebase functions:delete onCopyWrite rebuild --region us-central1` takes them
-down.
+`firebase functions:delete onCopyWrite onLeagueWrite rebuild --region us-central1`
+takes them down.
 
 ### League Standings in the cloud
 
