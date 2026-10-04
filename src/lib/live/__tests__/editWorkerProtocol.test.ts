@@ -10,12 +10,8 @@ import {
   type EditRequest,
   type EditWorkerAnswer,
 } from "../editWorkerProtocol";
-import { RECYCLE_AT, type RebuildResult } from "../rebuild";
-import {
-  REBUILD_LIMIT_S,
-  REBUILD_WORKER_HEAP_MB,
-  type WorkerMemory,
-} from "../rebuildWorkerProtocol";
+import { RECYCLE_AT } from "../rebuild";
+import { REBUILD_WORKER_HEAP_MB, type WorkerMemory } from "../rebuildWorkerProtocol";
 
 /*
  * The edit function's worker, without a worker (`editWorkerProtocol.ts`): what it answers, and how
@@ -35,7 +31,6 @@ const EDITED: EditRun = {
   applyMs: 1,
   commitMs: 1,
 };
-const PUBLISHED: RebuildResult = { end: "published", retryable: false, tries: 1, wrote: true };
 const SMALL: WorkerMemory = { heapUsedMb: 900.4, rssMb: 1_800.6, heapLimitMb: 5_168.2 };
 const ASK = { command: { kind: "team.state", teamId: "B", state: "KY" } } as const;
 
@@ -72,9 +67,6 @@ const answering =
   (memory: WorkerMemory = SMALL) =>
   (request: EditRequest): EditWorkerAnswer => {
     if (request.kind === "edit") return { kind: "edited", id: request.id, result: EDITED, memory };
-    if (request.kind === "publish") {
-      return { kind: "published", id: request.id, result: PUBLISHED, memory };
-    }
     if (request.kind === "warm") {
       const result = { ok: true as const, cold: true, fetched: 9, loadMs: 5 };
       return { kind: "warmed", id: request.id, result, memory };
@@ -83,8 +75,8 @@ const answering =
   };
 
 describe("the edit function's sizes", () => {
-  it("leave an edit and a publish inside the timeout, and the worker inside the instance", () => {
-    expect(EDIT_LIMIT_S + REBUILD_LIMIT_S).toBeLessThan(EDIT_TIMEOUT_S);
+  it("leave an edit inside the timeout behind three queued ahead of it, and the worker inside the instance", () => {
+    expect(EDIT_LIMIT_S * 4).toBeLessThan(EDIT_TIMEOUT_S);
     expect(EDIT_TIMEOUT_S).toBeLessThanOrEqual(540);
     expect(RECYCLE_AT.rssMb).toBeLessThan(EDIT_SIZE.gib * 1024);
     expect(REBUILD_WORKER_HEAP_MB).toBeLessThan(EDIT_SIZE.gib * 1024);
@@ -95,9 +87,8 @@ describe("the worker's answer", () => {
   it("is each request's result with the worker's memory, a request that threw, or a pong", async () => {
     const memory = () => SMALL;
     const edit = vi.fn(async () => EDITED);
-    const publish = vi.fn(async () => PUBLISHED);
     const warm = vi.fn(async () => ({ ok: false as const, reason: "no-copy" as const }));
-    const deps = { edit, publish, warm, memory };
+    const deps = { edit, warm, memory };
     expect(await answerEdit({ kind: "edit", id: 1, ask: ASK }, deps)).toEqual({
       kind: "edited",
       id: 1,
@@ -105,13 +96,6 @@ describe("the worker's answer", () => {
       memory: SMALL,
     });
     expect(edit).toHaveBeenCalledWith(ASK);
-    expect(await answerEdit({ kind: "publish", id: 2, dry: true, deadline: 9 }, deps)).toEqual({
-      kind: "published",
-      id: 2,
-      result: PUBLISHED,
-      memory: SMALL,
-    });
-    expect(publish).toHaveBeenCalledWith({ dry: true, deadline: 9 });
     expect(await answerEdit({ kind: "warm", id: 3 }, deps)).toMatchObject({
       kind: "warmed",
       result: { ok: false, reason: "no-copy" },
@@ -130,22 +114,15 @@ describe("the worker's answer", () => {
 });
 
 describe("the main thread's worker", () => {
-  it("keeps one worker for the edits and the publishes after them", async () => {
+  it("keeps one worker for the edits and the warm-ups between them", async () => {
     const workers = fakeWorkers(answering());
-    const runner = editRunner({ spawn: workers.spawn, clock: () => 1_000 });
-    expect(await runner.edit(ASK)).toEqual(EDITED);
-    expect(await runner.publish({ dry: false })).toEqual({
-      ...PUBLISHED,
-      heapUsedMb: 900,
-      rssMb: 1_801,
-      heapLimitMb: 5_168,
-    });
+    const runner = editRunner({ spawn: workers.spawn });
     expect(await runner.warm()).toEqual({ ok: true, cold: true, fetched: 9, loadMs: 5 });
+    expect(await runner.edit(ASK)).toEqual(EDITED);
+    expect(await runner.edit(ASK)).toEqual(EDITED);
     expect(workers.started).toEqual([1]);
     expect(workers.ended).toEqual([]);
-    // The publish carries its pass deadline, from the clock.
-    expect(workers.posted[1]).toMatchObject({ kind: "publish", dry: false });
-    expect((workers.posted[1] as { deadline: number }).deadline).toBeGreaterThan(1_000);
+    expect(workers.posted.map((request) => request.kind)).toEqual(["warm", "edit", "edit"]);
   });
 
   it("sends requests one at a time, in the order they came", async () => {
@@ -165,16 +142,16 @@ describe("the main thread's worker", () => {
       },
     });
     const first = runner.edit(ASK);
-    const second = runner.publish({ dry: true });
+    const second = runner.warm();
     for (let tick = 0; tick < 5; tick += 1) await Promise.resolve();
-    // The publish waits on the edit, which the worker has not answered.
+    // The warm-up waits on the edit, which the worker has not answered.
     expect(waiting.map((request) => request.kind)).toEqual(["edit"]);
     ports[0]?.(answering()(waiting[0]!));
     expect(await first).toEqual(EDITED);
     for (let tick = 0; tick < 5; tick += 1) await Promise.resolve();
-    expect(waiting.map((request) => request.kind)).toEqual(["edit", "publish"]);
+    expect(waiting.map((request) => request.kind)).toEqual(["edit", "warm"]);
     ports[0]?.(answering()(waiting[1]!));
-    expect(await second).toMatchObject({ end: "published" });
+    expect(await second).toMatchObject({ ok: true, cold: true });
   });
 
   it("ends a worker that died, ran past its limit, or answered that a request threw", async () => {

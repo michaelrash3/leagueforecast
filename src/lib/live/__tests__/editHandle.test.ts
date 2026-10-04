@@ -1,23 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { EditRun } from "../editRun";
 import { handleEdit, handleWarm, type EditWorker } from "../editHandle";
-import type { RebuildResult } from "../rebuild";
-import {
-  coerceLedger,
-  DEFAULT_CAPS,
-  RUN_CEILING,
-  type Ledger,
-  type LedgerStore,
-} from "../rebuildLedger";
+import { coerceLedger, DEFAULT_CAPS, type Ledger, type LedgerStore } from "../rebuildLedger";
 
 /*
  * One request to the edit function on its main thread (`editHandle.ts`): the edit made whatever the
- * ledger says and its compute charged, then the boards published from the same pool under a run
- * reserved as a rebuild's is, or left to the save's own rebuild where the ledger says no.
+ * ledger says, its compute charged, and the device answered as soon as the save has landed; the
+ * boards are the save's own rebuild's to publish.
  */
 
 const TODAY = "2027-04-15";
-const NOW = "2027-04-15T14:00:00.000Z";
 const SIZE = { gib: 8, cpu: 2 };
 
 const ledgerOf = (more: Partial<Ledger> = {}): Ledger => ({
@@ -71,38 +63,26 @@ const EDITED: EditRun = {
   commitMs: 300,
 };
 
-const PUBLISHED: RebuildResult = { end: "published", retryable: false, tries: 1, wrote: true };
-
-/** A worker whose edit takes `editS` seconds and publish `publishS`, on the clock it moves. */
+/** A worker whose edit takes `editS` seconds and warm-up four, on the clock it moves. */
 const setUp = ({
   edit = async () => EDITED,
-  publish = async () => PUBLISHED,
   editS = 2,
-  publishS = 10,
 }: {
   edit?: EditWorker["edit"];
-  publish?: EditWorker["publish"];
   editS?: number;
-  publishS?: number;
 } = {}) => {
   let t = 1_000_000;
-  const asked: Array<{ dry: boolean }> = [];
   const worker: EditWorker = {
     edit: async (ask) => {
       t += editS * 1000;
       return edit(ask);
-    },
-    publish: async (request) => {
-      asked.push(request);
-      t += publishS * 1000;
-      return publish(request);
     },
     warm: async () => {
       t += 4_000;
       return { ok: true, cold: true, fetched: 12, loadMs: 4_000 };
     },
   };
-  return { worker, asked, clock: () => t };
+  return { worker, clock: () => t };
 };
 
 const run = (
@@ -115,89 +95,59 @@ const run = (
     ledger,
     worker,
     today: () => TODAY,
-    now: () => NOW,
     clock,
     size: SIZE,
     startupS: () => startupS,
-    runId: "req-1",
   });
 
 describe("an edit request", () => {
-  it("makes the edit, then publishes the boards live from the same pool", async () => {
+  it("makes the edit and answers as soon as it is saved, its compute charged", async () => {
     const ledger = memoryLedger(ledgerOf());
-    const setup = setUp();
-    const { reply, line } = await run(ledger.store, setup, 3);
+    const { reply, line } = await run(ledger.store, setUp(), 3);
     expect(reply).toEqual({
       ok: true,
       copy: "c1",
       version: 8,
       inverse: EDITED.ok ? EDITED.inverse : null,
       changed: EDITED.ok ? EDITED.changed : [],
-      publish: "published",
-      published: true,
-      ms: { load: 40, apply: 5, commit: 300, publish: 10_000 },
+      ms: { load: 40, apply: 5, commit: 300 },
     });
-    expect(setup.asked).toEqual([{ dry: false }]);
-    // The edit's 2 s and the start-up's 3, then the publish's 10, at 8 GiB and 2 vCPUs.
+    // The edit's 2 s and the start-up's 3, at 8 GiB and 2 vCPUs; no run reserved or counted.
     expect(ledger.held()).toMatchObject({
-      dayGiBs: 40 + 80,
-      dayRuns: 1,
-      monthGiBs: 120,
-      monthVcpuS: 10 + 20,
+      dayGiBs: 40,
+      dayRuns: 0,
+      monthGiBs: 40,
+      monthVcpuS: 10,
       open: null,
-      failures: 0,
     });
-    expect(line).toMatchObject({ kind: "team.state", end: "edited", publish: "published" });
+    expect(line).toMatchObject({
+      kind: "team.state",
+      end: "edited",
+      copy: "c1",
+      version: 8,
+      changed: 1,
+      gibs: 40,
+    });
   });
 
-  it("publishes dry where the switch says dry, writing no member's boards", async () => {
-    const ledger = memoryLedger(ledgerOf({ mode: "dry" }));
-    const setup = setUp();
-    const { reply } = await run(ledger.store, setup);
-    expect(setup.asked).toEqual([{ dry: true }]);
-    expect(reply).toMatchObject({ ok: true, publish: "published", published: false });
-  });
-
-  it("makes and charges the edit with the switch off, and publishes nothing", async () => {
-    const ledger = memoryLedger(ledgerOf({ on: false }));
-    const setup = setUp();
-    const { reply } = await run(ledger.store, setup);
-    expect(reply).toMatchObject({ ok: true, version: 8, publish: "off", published: false });
-    expect(setup.asked).toEqual([]);
-    expect(ledger.held()).toMatchObject({ dayGiBs: 16, dayRuns: 0 });
-  });
-
-  it("leaves the boards to the run already going, or to the caps, without waiting", async () => {
-    const open = { at: NOW, day: TODAY, cost: RUN_CEILING, task: "rebuild", by: "other" };
-    for (const [held, why] of [
-      [ledgerOf({ open }), "busy"],
-      [ledgerOf({ dayGiBs: DEFAULT_CAPS.dayGiBs }), "day-cap"],
-      [ledgerOf({ pausedDay: TODAY, failures: 3 }), "failing"],
-    ] as const) {
-      const setup = setUp();
-      expect((await run(memoryLedger(held).store, setup)).reply).toMatchObject({
-        ok: true,
-        publish: why,
-      });
-      expect(setup.asked).toEqual([]);
+  it("makes and charges the edit with the switch off, at the caps, and while paused", async () => {
+    for (const held of [
+      ledgerOf({ on: false }),
+      ledgerOf({ dayGiBs: DEFAULT_CAPS.dayGiBs }),
+      ledgerOf({ pausedDay: TODAY, failures: 3 }),
+    ]) {
+      const ledger = memoryLedger(held);
+      expect((await run(ledger.store, setUp())).reply).toMatchObject({ ok: true, version: 8 });
+      expect(ledger.held()?.dayGiBs).toBe(held.dayGiBs + 16);
     }
   });
 
-  it("publishes nothing for an edit that moved nothing, reserving no run", async () => {
-    const ledger = memoryLedger(ledgerOf());
-    const setup = setUp({ edit: async () => ({ ...EDITED, changed: [] }) as EditRun });
-    expect((await run(ledger.store, setup)).reply).toMatchObject({ ok: true, publish: "none" });
-    expect(setup.asked).toEqual([]);
-    expect(ledger.held()).toMatchObject({ dayRuns: 0, open: null, dayGiBs: 16 });
-  });
-
-  it("says why an edit was refused, its compute charged and nothing published", async () => {
+  it("says why an edit was refused, its compute charged", async () => {
     const ledger = memoryLedger(ledgerOf());
     const setup = setUp({ edit: async () => ({ ok: false, why: "missing", tries: 1 }) });
     const { reply, line } = await run(ledger.store, setup);
     expect(reply).toEqual({ ok: false, why: "missing" });
     expect(line).toMatchObject({ end: "missing", tries: 1 });
-    expect(setup.asked).toEqual([]);
     expect(ledger.held()).toMatchObject({ dayGiBs: 16, dayRuns: 0 });
   });
 
@@ -212,34 +162,16 @@ describe("an edit request", () => {
     expect(ledger.held()).toMatchObject({ dayGiBs: 16 });
   });
 
-  it("settles a publish that threw as a failed run, the edit still made", async () => {
-    const ledger = memoryLedger(ledgerOf());
-    const setup = setUp({
-      publish: async () => {
-        throw new Error("out of memory");
-      },
-    });
-    const { reply, line } = await run(ledger.store, setup);
-    expect(reply).toMatchObject({ ok: true, publish: "threw", published: false });
-    expect(line).toMatchObject({ publishError: "out of memory" });
-    expect(ledger.held()).toMatchObject({ failures: 1, dayFailed: 1, open: null });
-  });
-
-  it("answers the edit made when the ledger cannot be reached, publishing nothing", async () => {
+  it("answers the edit made when the ledger cannot be charged", async () => {
     const failing: LedgerStore = {
       read: async () => {
         throw new Error("Firestore is busy");
       },
       replace: async () => false,
     };
-    const setup = setUp();
-    const { reply, line } = await run(failing, setup);
-    expect(reply).toMatchObject({ ok: true, version: 8, publish: "unreachable", published: false });
-    expect(line).toMatchObject({
-      chargeError: "Firestore is busy",
-      reserveError: "Firestore is busy",
-    });
-    expect(setup.asked).toEqual([]);
+    const { reply, line } = await run(failing, setUp());
+    expect(reply).toMatchObject({ ok: true, version: 8 });
+    expect(line).toMatchObject({ chargeError: "Firestore is busy" });
   });
 });
 

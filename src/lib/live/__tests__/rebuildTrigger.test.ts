@@ -192,6 +192,11 @@ describe("a rebuild task as the queue hands it back", () => {
       AT
     );
     expect(coerceRebuildTask(JSON.parse(JSON.stringify(task)))).toEqual(task);
+    const { task: live } = await rebuildTask(
+      { kind: "live", copy: "c0ffee", version: 5, reset: false },
+      AT
+    );
+    expect(coerceRebuildTask(JSON.parse(JSON.stringify(live)))).toEqual(live);
     const bad: unknown[] = [
       null,
       "task",

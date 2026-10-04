@@ -1,7 +1,7 @@
 import type { EditAsk, WarmResult } from "./editHandle";
 import type { EditRun } from "./editRun";
-import { shouldRecycle, type RebuildResult } from "./rebuild";
-import { REBUILD_LIMIT_S, REBUILD_PASS_S, type WorkerMemory } from "./rebuildWorkerProtocol";
+import { shouldRecycle } from "./rebuild";
+import type { WorkerMemory } from "./rebuildWorkerProtocol";
 
 /**
  * What crosses between the edit function's main thread and the worker that holds the pool, and how
@@ -10,33 +10,32 @@ import { REBUILD_LIMIT_S, REBUILD_PASS_S, type WorkerMemory } from "./rebuildWor
  * `functions/src/index.ts` hands `editRunner` a way to start one.
  *
  * The worker keeps every part of the pool warm from request to request (`createPoolCache` with
- * `everyPart`), so an edit after the first fetches only what other saves moved, and the publish
- * after it builds from the very pool the edit left. As the rebuild's worker, nothing there empties
- * the store but the pool itself, and a pool that is to go goes with its worker.
+ * `everyPart`), so an edit after the first fetches only what other saves moved. As the rebuild's
+ * worker, nothing there empties the store but the pool itself, and a pool that is to go goes with
+ * its worker.
  */
 
 /** The function's instance, as a run's cost is reckoned (`runCost`). */
 export const EDIT_SIZE = { gib: 8, cpu: 2 } as const;
 
-/** The function's timeout: room for a cold edit and a publish behind a few queued ahead of it. */
+/** The function's timeout: room for a cold edit behind a few queued ahead of it. */
 export const EDIT_TIMEOUT_S = 540;
 
 /**
- * How long an edit may take in the worker before the main thread ends the worker and says so: a
- * cold start reads the whole pool, a few seconds on the real copy (`REBUILD_PASS_S` notes a load
- * of a few seconds and a build of about seven), so this is generous for a store that answers slowly.
+ * How long an edit may take in the worker before the main thread ends the worker and says so. On
+ * the 29 September 2026 pool a cold start read every part in 1.3 s and the costliest edit, a merge,
+ * took 4.7 s to apply and commit (`npm run live:bench`, 4 October), both in memory; Firestore adds
+ * a round trip a read and the upload of the parts changed, so this leaves a slow store a wide berth.
  */
 export const EDIT_LIMIT_S = 120;
 
 export type EditRequest =
   | { kind: "edit"; id: number; ask: EditAsk }
-  | { kind: "publish"; id: number; dry: boolean; deadline: number }
   | { kind: "warm"; id: number }
   | { kind: "ping"; id: number };
 
 export type EditWorkerAnswer =
   | { kind: "edited"; id: number; result: EditRun; memory: WorkerMemory }
-  | { kind: "published"; id: number; result: RebuildResult; memory: WorkerMemory }
   | { kind: "warmed"; id: number; result: WarmResult; memory: WorkerMemory }
   | { kind: "failed"; id: number; error: string; memory: WorkerMemory }
   | { kind: "pong"; id: number };
@@ -49,12 +48,10 @@ export const answerEdit = async (
   request: EditRequest,
   {
     edit,
-    publish,
     warm,
     memory,
   }: {
     edit: (ask: EditAsk) => Promise<EditRun>;
-    publish: (asked: { dry: boolean; deadline: number }) => Promise<RebuildResult>;
     warm: () => Promise<WarmResult>;
     memory: () => WorkerMemory;
   }
@@ -66,10 +63,6 @@ export const answerEdit = async (
         return { kind: "pong", id };
       case "edit":
         return { kind: "edited", id, result: await edit(request.ask), memory: memory() };
-      case "publish": {
-        const asked = { dry: request.dry, deadline: request.deadline };
-        return { kind: "published", id, result: await publish(asked), memory: memory() };
-      }
       case "warm":
         return { kind: "warmed", id, result: await warm(), memory: memory() };
     }
@@ -100,10 +93,7 @@ type Held = {
 };
 
 /** Requests without their id, which the runner gives each. */
-type Asked =
-  | { kind: "edit"; ask: EditAsk }
-  | { kind: "publish"; dry: boolean; deadline: number }
-  | { kind: "warm" };
+type Asked = { kind: "edit"; ask: EditAsk } | { kind: "warm" };
 
 /**
  * The main thread's side: one worker, kept from request to request, and requests sent to it one at
@@ -114,24 +104,17 @@ type Asked =
  */
 export const editRunner = ({
   spawn,
-  clock = Date.now,
-  editLimitS = EDIT_LIMIT_S,
-  publishLimitS = REBUILD_LIMIT_S,
-  passS = REBUILD_PASS_S,
+  limitS = EDIT_LIMIT_S,
   setTimer = (done, ms) => {
     const timer = setTimeout(done, ms);
     return () => clearTimeout(timer);
   },
 }: {
   spawn: () => EditPort;
-  clock?: () => number;
-  editLimitS?: number;
-  publishLimitS?: number;
-  passS?: number;
+  limitS?: number;
   setTimer?: (done: () => void, ms: number) => () => void;
 }): {
   edit: (ask: EditAsk) => Promise<EditRun>;
-  publish: (asked: { dry: boolean }) => Promise<RebuildResult>;
   warm: () => Promise<WarmResult>;
   stop: () => Promise<void>;
 } => {
@@ -173,7 +156,7 @@ export const editRunner = ({
   };
 
   /** One request, answered by the worker: ended and thrown when it died or the request threw. */
-  const send = async (asked: Asked, limitS: number): Promise<EditWorkerAnswer> => {
+  const send = async (asked: Asked): Promise<EditWorkerAnswer> => {
     if (held?.dead) await end(held);
     const worker = held ?? start();
     held = worker;
@@ -220,25 +203,13 @@ export const editRunner = ({
   return {
     edit: (ask) =>
       inTurn(async () => {
-        const answer = await send({ kind: "edit", ask }, editLimitS);
+        const answer = await send({ kind: "edit", ask });
         if (answer.kind !== "edited") throw wrong(answer, "an edit");
         return answer.result;
       }),
-    publish: ({ dry }) =>
-      inTurn(async () => {
-        const deadline = clock() + passS * 1000;
-        const answer = await send({ kind: "publish", dry, deadline }, publishLimitS);
-        if (answer.kind !== "published") throw wrong(answer, "a publish");
-        return {
-          ...answer.result,
-          heapUsedMb: Math.round(answer.memory.heapUsedMb),
-          rssMb: Math.round(answer.memory.rssMb),
-          heapLimitMb: Math.round(answer.memory.heapLimitMb),
-        };
-      }),
     warm: () =>
       inTurn(async () => {
-        const answer = await send({ kind: "warm" }, editLimitS);
+        const answer = await send({ kind: "warm" });
         if (answer.kind !== "warmed") throw wrong(answer, "a warm-up");
         return answer.result;
       }),

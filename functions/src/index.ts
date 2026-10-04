@@ -418,9 +418,9 @@ export const rebuild = !LIVE_REBUILD
 /*
  * Edits on the server (README, "Team Rankings edits as commands"): a member's device sends a
  * command, and `edit` runs it on the cloud copy in a worker that keeps every part of the pool warm,
- * then publishes the boards from that same pool as a rebuild would, under the ledger in
- * `ops/rebuild`. Built with the rebuilds (LIVE_REBUILD), whose account it runs as and whose ledger
- * meters it; it needs nothing of the project they do not.
+ * answering once the save has landed; the save's own rebuild publishes the boards soon after. Built
+ * with the rebuilds (LIVE_REBUILD), whose account it runs as and whose ledger meters it; it needs
+ * nothing of the project they do not.
  */
 
 /** Whether a caller of `edit` is on the cloud copy's list, asked once per instance. */
@@ -455,8 +455,8 @@ const COPY_ID = /^[0-9a-f]{8,64}$/;
  * (`handleEdit`), or brings the pool up ahead of one (`handleWarm`). For the accounts on the cloud
  * copy's list, as the rules make anything that touches the copy (`memberCheck.ts`, with the sign-in
  * the call carries). One instance, taking several calls at once and running them one at a time in
- * its worker, since the pool is one; the timeout leaves a cold edit and its publish room behind a
- * few queued ahead of them.
+ * its worker, since the pool is one; the timeout leaves a cold edit room behind a few queued ahead
+ * of it.
  */
 export const edit = !LIVE_REBUILD
   ? undefined
@@ -519,7 +519,6 @@ export const edit = !LIVE_REBUILD
           const { reply, line } = await handleEdit({
             ...deps,
             ask: { command, ...(typeof copy === "string" ? { copy } : {}) },
-            now: () => new Date().toISOString(),
           });
           logger.info("edit", line);
           return reply;

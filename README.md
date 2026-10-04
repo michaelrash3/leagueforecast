@@ -3676,10 +3676,13 @@ whose id is a hash of the kind and the window, so a burst of edits is one
 rebuild, and so is a burst of saves each under a new copy id (a run builds
 whatever copy stands when it runs): two minutes for a device's saves, run five seconds after the window
 closes; a quarter of an hour for a server's that publishes what it saved (the
-nightly, a server's edit), run ten minutes after, by which time that server's own
-publish should be in and the rebuild finds the boards current for three reads. A
-pull run in the cloud publishes nothing of its own, so its saves are rebuilt as a
-device's are. Who saved is
+nightly), run ten minutes after, by which time that server's own
+publish should be in and the rebuild finds the boards current for three reads;
+and a quarter of a minute for the edit function's (`live-edit`), run three seconds
+after, since a member is waiting to see each one and every board of the real pool
+takes about half a minute to build (26 to 31 s on the 29 September 2026 pool,
+`npm run live:bench`). A pull run in the cloud publishes nothing of its own, so
+its saves are rebuilt as a device's are. Who saved is
 whatever the saving client says it is, so the name only picks the delay; nothing
 is skipped for it. A save is queued only while the switch is on, and a switch
 that cannot be read counts as on, since the rebuild reads it again before it
@@ -4400,22 +4403,36 @@ as the GameChanger proxy does (`memberCheck.ts`), reads the command back exactly
 (`coerceCommand`), and refuses anything else before a worker starts. The edits run one at a time
 in a worker that keeps the pool from call to call (`editWorkerProtocol.ts`), one instance taking
 several calls at once and queueing them. The edit is made whatever the rebuilds' switch says,
-since it is a member's change to the copy, and its compute is charged to the ledger's totals; then,
-if it changed the copy, the boards are published from that same warm pool as a rebuild would
-publish them, under a run reserved in `ops/rebuild` like a rebuild's (`handleEdit`), so the switch,
-dry or live, the pause and the caps all hold, and only one run writes the boards at a time. A
-publish the ledger turns away (off, busy, paused, at a cap, or unreachable) is left to the rebuild
-the save itself asks for, which checks a server's save ten minutes on, or to the night; nothing
-after the commit fails the call, which answers the version saved, the inverse for an Undo, what
-changed, and how the publish went. `{ warm: true }` brings the pool up ahead of an edit, charged
-the same way. It is built and deployed with the rebuilds (LIVE_REBUILD), runs as their account,
-and asks nothing more of the project; nothing in the app calls it until the sections go live
-(1.5).
+since it is a member's change to the copy, and its compute is charged to the ledger's totals
+(`handleEdit`); the call answers as soon as the save has landed, with the version saved, the
+inverse for an Undo, and what changed. It does not build the boards: every board of the real pool
+takes about half a minute, which the member would wait on and which would hold every edit queued
+behind it. The save asks for them itself, and the trigger rebuilds the edit function's saves a
+quarter of a minute after each window, on the rebuilds' own instance, under their ledger and
+switch, so a run of quick edits is one build. `{ warm: true }` brings the pool up ahead of an edit,
+charged the same way. A device calls it through `callEdit` and `callWarm` (`editClient.ts`): the
+callable protocol over `fetch` with the member's sign-in, no Firebase functions SDK in the bundle,
+and nothing of the answer taken on trust, an inverse least of all, since it is what the device
+sends back for an Undo; a call that gets no answer says the edit may or may not have been made,
+which the copy then settles. The page's content policy lets the app reach the project's functions
+host (`functionsUrl.ts`). It is built and deployed with the rebuilds (LIVE_REBUILD), runs as their
+account, and asks nothing more of the project; nothing in the app calls it until the sections go
+live (1.5).
+
+Measured with `npm run live:bench` on the 29 September 2026 pool (255,579 games, 116,485 clubs;
+`npm run live:bench -- <backup.json>`, or `-- --fixture <clubs a page>` for the seeded pool),
+in memory, so Firestore's round trips and uploads come on top: the pool came up cold in 1.3 s;
+an edit took from 2 ms (a Pool health answer) through 1.1 s (a club's state) and 2.7 s (a game
+kept out of the maths, or thrown out) to 4.2 s (a club's age) and 4.7 s (a merge), apply and
+commit together, and its Undo about the same; and building and publishing every board after one
+took 29 to 32 s, its heap at most about 690 MB.
 
 Two kinds of write are not commands. The browser's own pull engine saves as it goes and is removed
 for members in the cleanup (1.7), pulls having moved to the server; and resetting the app or
-restoring a backup replace League Standings and the settings as well as the pool, which becomes an
-owner's operation on the server copy in 1.4.
+restoring a backup replace League Standings and the settings as well as the pool. Those become
+owner's operations on the server copy at the cutover (1.6), with deleting or archiving a year:
+until then a member's device writes the copy itself, as the rules let it, so a check in the edit
+function of who may do them would guard nothing.
 
 ## AI write-ups
 

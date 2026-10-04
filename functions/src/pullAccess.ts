@@ -7,11 +7,13 @@
  */
 import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
 import { getFunctions } from "firebase-admin/functions";
+import { FUNCTIONS_REGION } from "../../src/lib/cloud/functionsUrl";
 import type { LegTask } from "../../src/lib/cloud/pullJobRunner";
 import type { RebuildTask } from "../../src/lib/live/rebuildPlan";
 import { REBUILD_DISPATCH_S } from "../../src/lib/live/rebuildWorkerProtocol";
 
-export const REGION = "us-central1";
+/** Where every function is deployed, and where the app sends its calls (`functionsUrl.ts`). */
+export const REGION = FUNCTIONS_REGION;
 
 const projectId = (): string => {
   const named =

@@ -11,26 +11,32 @@ import { boardInputsPrint } from "./boardInputs";
  */
 
 /**
- * Who saved: a device, whose edits come in bursts a person is waiting on, or a server that publishes
- * the boards of what it saved (the nightly, an edit run on a server), whose own publish should
- * already be in.
+ * Who saved: a device, whose edits come in bursts a person is waiting on; a server that publishes
+ * the boards of what it saved (the nightly), whose own publish should already be in; or the edit
+ * function (`editRun.ts`), which saves one member's change at a time and publishes nothing itself.
  */
-export type RebuildKind = "edit" | "server";
+export type RebuildKind = "edit" | "server" | "live";
 
 /**
  * How long the saves of one kind gather into one rebuild, in seconds: every save in a window shares
- * one task. Two minutes holds a burst of edits to one rebuild while a person can still wait for it;
- * a quarter of an hour is plenty for a server's saves, which come a few a night.
+ * one task. Two minutes holds a burst of a device's edits to one rebuild while a person can still
+ * wait for it; a quarter of an hour is plenty for a server's saves, which come a few a night. The
+ * edit function's saves are each a change a member made on purpose and is waiting to see, and the
+ * boards take about half a minute to build at the real size (26 to 31 s for every board of the 29
+ * September 2026 pool, measured with `npm run live:bench` on 4 October), so a quarter of a minute
+ * gathers a quick run of them, a page of Pool health answers, into one build without adding much to
+ * the wait.
  */
-export const REBUILD_WINDOW_S = { edit: 120, server: 900 } as const;
+export const REBUILD_WINDOW_S = { edit: 120, server: 900, live: 15 } as const;
 
 /**
  * How long after its window closes a rebuild runs, in seconds. A device's edits are rebuilt five
  * seconds after their window, so the last save in it has committed. A server's are checked ten
  * minutes after: its own publish should be in by then, and the check finds it current at the cost
- * of three reads, or publishes it if that publish failed.
+ * of three reads, or publishes it if that publish failed. The edit function's are rebuilt three
+ * seconds after: the trigger hears each save once it has committed.
  */
-export const REBUILD_SETTLE_S = { edit: 5, server: 600 } as const;
+export const REBUILD_SETTLE_S = { edit: 5, server: 600, live: 3 } as const;
 
 /**
  * The devices that are servers publishing their own saves' boards. `device` is whatever the saving
@@ -39,7 +45,13 @@ export const REBUILD_SETTLE_S = { edit: 5, server: 600 } as const;
  * it. A pull run in the cloud (`cloud-pull`) is not one: it saves each leg and publishes nothing,
  * so its saves are rebuilt as a device's are, rather than checked a quarter of an hour on.
  */
-export const SERVER_DEVICES: ReadonlySet<string> = new Set(["nightly", "live-edit"]);
+export const SERVER_DEVICES: ReadonlySet<string> = new Set(["nightly"]);
+
+/**
+ * The edit function's own name for its saves (`EDIT_DEVICE`), rebuilt soon after each. A device
+ * naming itself so only has its saves rebuilt sooner, metered as any other run.
+ */
+export const LIVE_DEVICES: ReadonlySet<string> = new Set(["live-edit"]);
 
 /** A rebuild a save asks for: of which copy and version, after which kind of save. */
 export type RebuildAsk = {
@@ -99,7 +111,11 @@ export const askRebuild = async (
   }
   return {
     ask: {
-      kind: SERVER_DEVICES.has(next.device) ? "server" : "edit",
+      kind: LIVE_DEVICES.has(next.device)
+        ? "live"
+        : SERVER_DEVICES.has(next.device)
+          ? "server"
+          : "edit",
       copy: next.copy,
       version: next.version,
       reset: false,
@@ -118,7 +134,7 @@ export const coerceRebuildTask = (raw: unknown): RebuildTask | null => {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const { copy, kind, window, savedAt } = raw as Record<string, unknown>;
   if (typeof copy !== "string" || copy === "") return null;
-  if (kind !== "edit" && kind !== "server") return null;
+  if (kind !== "edit" && kind !== "server" && kind !== "live") return null;
   if (typeof window !== "number" || !Number.isSafeInteger(window) || window < 0) return null;
   if (typeof savedAt !== "string" || Number.isNaN(Date.parse(savedAt))) return null;
   return { copy, kind, window, savedAt };

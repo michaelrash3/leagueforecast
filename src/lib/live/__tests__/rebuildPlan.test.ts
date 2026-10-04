@@ -7,6 +7,7 @@ import {
   planCopyWrite,
   REBUILD_SETTLE_S,
   REBUILD_WINDOW_S,
+  LIVE_DEVICES,
   rebuildTask,
   SERVER_DEVICES,
   type RebuildAsk,
@@ -170,15 +171,20 @@ describe("whether a save asks for a rebuild", () => {
   });
 
   it("asks a server's later check when a server saved it, and only delays it for a name that says so", async () => {
-    expect([...SERVER_DEVICES].sort()).toEqual(["live-edit", "nightly"]);
+    expect([...SERVER_DEVICES].sort()).toEqual(["nightly"]);
     for (const device of SERVER_DEVICES) {
       expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device })), device).toEqual({
         ask: { kind: "server", copy: "c0ffee", version: 5, reset: false },
       });
     }
+    // An edit the edit function made publishes nothing of its own: it is rebuilt soon after.
+    expect([...LIVE_DEVICES]).toEqual(["live-edit"]);
+    expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device: "live-edit" }))).toEqual({
+      ask: { kind: "live", copy: "c0ffee", version: 5, reset: false },
+    });
     // A device is whatever the saving client says; only these exact names are servers. A pull run
     // in the cloud publishes nothing of its own, so its saves are rebuilt as a device's are.
-    for (const device of ["Nightly", "nightly ", "phone", "", "cloud-pull"]) {
+    for (const device of ["Nightly", "nightly ", "phone", "", "cloud-pull", "Live-Edit"]) {
       expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device })), device).toEqual({
         ask: { kind: "edit", copy: "c0ffee", version: 5, reset: false },
       });
@@ -218,8 +224,9 @@ describe("the task a save queues", () => {
       (await rebuildTask(ASK, "2027-04-15T10:02:00.000Z")).id,
       (await rebuildTask(ASK, "2027-04-15T09:59:59.999Z")).id,
       (await rebuildTask(SERVER, at)).id,
+      (await rebuildTask({ ...ASK, kind: "live" }, at)).id,
     ]);
-    expect(ids.size).toBe(4);
+    expect(ids.size).toBe(5);
     for (const id of ids) expect(id).toMatch(/^[0-9a-f]{40}$/);
     // A run builds whatever copy stands when it runs: saves under new copy ids in one window,
     // a client starting the copy afresh at every save, are still one task.
@@ -237,9 +244,16 @@ describe("the task a save queues", () => {
     expect(edit.id).not.toBe(server.id);
   });
 
-  it("runs after its window has closed and settled: five seconds for an edit, ten minutes for a server", async () => {
-    expect(REBUILD_WINDOW_S).toEqual({ edit: 120, server: 900 });
-    expect(REBUILD_SETTLE_S).toEqual({ edit: 5, server: 600 });
+  it("runs after its window has closed and settled: five seconds for an edit, ten minutes for a server, three for an edit made on the server", async () => {
+    expect(REBUILD_WINDOW_S).toEqual({ edit: 120, server: 900, live: 15 });
+    expect(REBUILD_SETTLE_S).toEqual({ edit: 5, server: 600, live: 3 });
+    const live: RebuildAsk = { ...ASK, kind: "live" };
+    expect((await rebuildTask(live, "2027-04-15T10:00:14.999Z")).scheduleTime.toISOString()).toBe(
+      "2027-04-15T10:00:18.000Z"
+    );
+    expect((await rebuildTask(live, "2027-04-15T10:00:15.000Z")).scheduleTime.toISOString()).toBe(
+      "2027-04-15T10:00:33.000Z"
+    );
     const runs = async (ask: RebuildAsk, at: string) =>
       (await rebuildTask(ask, at)).scheduleTime.toISOString();
     for (const at of [

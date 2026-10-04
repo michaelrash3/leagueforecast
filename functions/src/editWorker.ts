@@ -1,8 +1,7 @@
 /**
- * The worker the edit function runs edits and their publishes in (`editWorkerProtocol.ts`), started
- * by the `edit` function (`index.ts`) and kept from request to request, so an edit after the first
- * fetches only what other saves moved, and the publish after an edit builds from the very pool it
- * left.
+ * The worker the edit function runs edits in (`editWorkerProtocol.ts`), started by the `edit`
+ * function (`index.ts`) and kept from request to request, so an edit after the first fetches only
+ * what other saves moved.
  *
  * It holds one pool for its whole life, of every part a command may touch. Nothing here empties the
  * pool store but the pool itself: no reset of the store, and no load of a pool by any other way,
@@ -11,12 +10,10 @@
  */
 import { getHeapStatistics } from "node:v8";
 import { parentPort } from "node:worker_threads";
-import { firestoreRestLive, firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
-import { todayIsoDay } from "../../src/lib/date";
+import { firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
 import { runEdit } from "../../src/lib/live/editRun";
 import { answerEdit, type EditRequest } from "../../src/lib/live/editWorkerProtocol";
 import { createPoolCache, everyPart } from "../../src/lib/live/poolCache";
-import { runRebuild } from "../../src/lib/live/rebuild";
 import { memoryOf } from "../../src/lib/live/rebuildWorkerProtocol";
 import { restAccess } from "./pullAccess";
 
@@ -35,20 +32,6 @@ parentPort?.on("message", (request: EditRequest) => {
         ...(ask.copy === undefined ? {} : { copy: ask.copy }),
         now,
       }),
-    publish: ({ dry, deadline }) => {
-      const access = restAccess();
-      return runRebuild({
-        // Built from the pool the edit left; `live/` is written only by a live run.
-        copyStore: firestoreRestStore({ ...access, writable: false }),
-        liveStore: firestoreRestLive({ ...access, writable: !dry }),
-        pool,
-        // The zone is New York's: the function set it before it started this worker.
-        today: () => todayIsoDay(),
-        now,
-        dry,
-        deadline,
-      });
-    },
     warm: async () => {
       const started = Date.now();
       const ensured = await pool.ensure(firestoreRestStore({ ...restAccess(), writable: false }));
