@@ -30,6 +30,7 @@ import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
 import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesShape";
 import { forgetDecodedGames, GAME_MOVED } from "./LiveGames";
 import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY } from "./LiveSetup";
+import type { BackupAnswer, BackupRequest } from "../../workers/backupProtocol";
 import { SEARCH_UNREAD } from "./RankingsSection";
 import { forgetDecodedArchive } from "./LiveArchive";
 import { ORGS_NO_NAMES, ORGS_NO_TEAMS, ORGS_NOTHING_NEW } from "./LiveImport";
@@ -3160,10 +3161,6 @@ describe("Setup on the cloud's board", () => {
       query: { kind: "model.check", page: PAGE },
       copy: MANIFEST.copy,
     });
-    // Nothing of it is this device's copy's: the rest of Setup no longer offers it.
-    expect(screen.getByText(/on this device's copy for now/).textContent).not.toContain(
-      "model check"
-    );
     expect(handedOver()).toBeNull();
   });
 
@@ -3184,13 +3181,55 @@ describe("Setup on the cloud's board", () => {
     expect(screen.getByText(CHECK_UNANSWERED)).toBeTruthy();
   });
 
-  it("opens the rest of Setup on this device's copy when asked", async () => {
+  it("downloads a backup made of the cloud's copy, and brings no pool in for it", async () => {
     onSetup();
     pool.wants = false;
-    const server = editFunction(setupAnswers);
-    open(sourcesOf(live, { call: server.call }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open them on this device's copy" }));
-    await waitFor(() => expect(handedOver()).not.toBeNull());
+    const cloud = memoryCloud();
+    const saved = await commitChanges({
+      store: cloud.store,
+      base: null,
+      changes: [{ key: "league_forecast_scout_teams_v1", value: [], at: 1 }],
+      device: "phone",
+      now: T,
+    });
+    if (!saved.ok) throw new Error("not saved");
+    // The backup worker, which answers with the file it made of the pieces it was handed.
+    const asked: BackupRequest[] = [];
+    vi.stubGlobal(
+      "Worker",
+      class {
+        onmessage: ((event: { data: BackupAnswer }) => void) | null = null;
+        postMessage(request: BackupRequest) {
+          asked.push(request);
+          const answer: BackupAnswer = { ok: true, file: ['{"format":', "1}"] };
+          queueMicrotask(() => this.onmessage?.({ data: answer }));
+        }
+        terminate() {}
+      }
+    );
+    const files: string[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:backup");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      files.push(this.download);
+    });
+    try {
+      const server = editFunction(setupAnswers);
+      open(sourcesOf(live, { call: server.call, copy: async () => cloud.store }));
+      fireEvent.click(await screen.findByRole("button", { name: "Download a backup" }));
+      await waitFor(() => expect(said.toasts).toContain("Backup downloaded (12 bytes)."));
+      expect(files).toEqual([expect.stringMatching(/^Team_Rankings_Backup_.*\.json$/)]);
+      expect(asked.map(({ want, parts }) => [want, parts.map(({ key }) => key)])).toEqual([
+        ["file", ["league_forecast_scout_teams_v1"]],
+      ]);
+      expect(handedOver()).toBeNull();
+      expect(pool.prepared).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
   });
 });
 

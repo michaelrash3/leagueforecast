@@ -8,8 +8,9 @@ import {
   type LiveSeasonData,
 } from "../lib/backup";
 import { noteBackupTaken } from "../lib/lastBackup";
+import { copyBackup, notMade } from "../lib/live/copyBackup";
 import { teamRankingsBackupIsEmpty } from "../lib/teamRankingsBackup";
-import { restoresInCloud, restoreTeamRankingsInCloud } from "../lib/cloud/cloudSession";
+import { copyReader, restoresInCloud, restoreTeamRankingsInCloud } from "../lib/cloud/cloudSession";
 import type { ConfirmState } from "./useConfirmation";
 
 export type FullBackupOptions = {
@@ -35,11 +36,18 @@ export type FullBackupOptions = {
 };
 
 export type FullBackupControls = {
-  /** Downloads everything in this browser, and records that a backup was taken. */
+  /**
+   * Downloads everything in this browser, and records that a backup was taken: in the cloud, with
+   * Team Rankings as the cloud's copy holds it, read for the file (1.6e).
+   */
   exportBackup: () => void;
   /** Asks, then replaces everything in this browser with what the file holds. */
   restoreFullBackup: (backup: FullBackup) => Promise<void>;
 };
+
+/** Said while the backup reads Team Rankings off the cloud's copy, which can take a while. */
+export const READING_THE_COPY =
+  "Reading Team Rankings from the cloud for the backup. It downloads once that is in.";
 
 /** Saving a file is the one part of this that is a browser act rather than a decision. */
 const saveAsFile = (backup: FullBackup) => {
@@ -70,9 +78,32 @@ export function useFullBackup({
   onRestored,
 }: FullBackupOptions): FullBackupControls {
   const exportBackup = useCallback(() => {
-    saveAsFile(readFullBackup(liveSeason()));
-    noteBackupTaken("league");
-  }, [liveSeason]);
+    if (!restoresInCloud()) {
+      saveAsFile(readFullBackup(liveSeason()));
+      noteBackupTaken("league");
+      return;
+    }
+    /*
+     * In the cloud the pool is the copy's, which a restore of this file goes back to (above), and a
+     * member's device holds none of its own, or none kept in step: the file carries the copy's,
+     * read when it is asked for, or is not made at all rather than made with a pool that is not.
+     */
+    showToast(READING_THE_COPY);
+    void (async () => {
+      const made = await copyBackup({
+        copy: copyReader,
+        want: "backup",
+        savedAt: new Date().toISOString(),
+      });
+      if (!made.ok || !made.backup) {
+        showToast(notMade(made.ok ? "failed" : made.why), { tone: "error" });
+        return;
+      }
+      // The season as it then stands, which may have moved while the copy was read.
+      saveAsFile(readFullBackup(liveSeason(), made.backup));
+      noteBackupTaken("league");
+    })();
+  }, [liveSeason, showToast]);
 
   const restoreFullBackup = useCallback(
     async (backup: FullBackup) => {

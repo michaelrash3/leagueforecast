@@ -15,6 +15,8 @@ import { createSeason, saveMatchups, saveTeams, setActiveSeason } from "./lib/st
 const server = vi.hoisted(() => ({
   asked: [] as QueryOf<"league.bridge" | "league.clubs" | "league.fill">[],
   plan: null as LeagueFillPlan | null,
+  /** The squad year the server's bridge gives the season, where it answers one. */
+  squadYear: null as number | null,
   /** Held until let go, where set: the fill's answer coming while the page moves on. */
   hold: null as Promise<void> | null,
 }));
@@ -23,6 +25,19 @@ vi.mock("./lib/live/leagueAsk", () => ({
   LEAGUE_UNANSWERED: "Team Rankings could not be asked.",
   askLeague: async (query: QueryOf<"league.bridge" | "league.clubs" | "league.fill">) => {
     server.asked.push(query);
+    if (query.kind === "league.bridge" && server.squadYear !== null)
+      return {
+        kind: "league.bridge",
+        bridge: {
+          results: [],
+          seasonLinked: false,
+          rows: [],
+          linkedCount: 0,
+          countedResults: 0,
+          squadYear: server.squadYear,
+        },
+        candidates: [],
+      };
     if (query.kind !== "league.fill") return null;
     await server.hold;
     return server.plan && { kind: "league.fill", plan: server.plan };
@@ -70,6 +85,7 @@ describe("League Standings asking the server what Team Rankings has", () => {
     );
     server.asked = [];
     server.plan = PLAN;
+    server.squadYear = null;
     server.hold = null;
     writeLiveBoard(true);
     saveTeams([
@@ -94,6 +110,47 @@ describe("League Standings asking the server what Team Rankings has", () => {
       ],
       fixtures: [{ away: "Aces", home: "Bears", date: "5/1" }],
     });
+  });
+
+  it("reads a CSV's bare dates in the squad year the server's bridge gives the season", async () => {
+    // A nil-nil is a result only on a day gone by, which a bare "M/D" needs the year to say; this
+    // device holds no pages to read the year off.
+    const nilNil = new File(
+      [
+        [
+          "Game ID,Date,Away Team,Innings,Away Runs,Away Hits,Away K,Home Team,Home Runs,Home Hits,Home K",
+          "g1,4/5,Aces,6,0,9,,Bears,0,6,",
+        ].join("\n"),
+      ],
+      "schedule.csv",
+      { type: "text/csv" }
+    );
+    const scored = /1 imported scored game will load into the Scoreboard/;
+    const importing = async () => {
+      fireEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+      fireEvent.change(screen.getByLabelText("Import schedule CSV"), {
+        target: { files: [nilNil] },
+      });
+      return screen.findByRole("heading", { name: "Import schedule CSV?" });
+    };
+    const answered = () =>
+      waitFor(() => expect(server.asked.map((query) => query.kind)).toContain("league.bridge"), {
+        timeout: 5_000,
+      });
+
+    // With no year from the server there is none to read the date in.
+    const { unmount } = render(<App />);
+    await answered();
+    expect((await importing()).closest("[role=dialog]")?.textContent).not.toMatch(scored);
+    unmount();
+
+    server.squadYear = 2020;
+    server.asked = [];
+    render(<App />);
+    await answered();
+    // The answer lands a tick after it is asked.
+    await act(async () => {});
+    expect((await importing()).closest("[role=dialog]")?.textContent).toMatch(scored);
   });
 
   it("asks for the scores to fill, and opens them", async () => {

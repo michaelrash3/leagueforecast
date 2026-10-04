@@ -1736,6 +1736,9 @@ export default function App() {
   const { importCSV, exportCSV, importBackup, exportBackup, resetSeason } = useSeasonFiles({
     liveSeason: liveSeasonData,
     activeSeasonId,
+    ...(rankingsLive && scoutBridge.squadYear !== undefined
+      ? { cloudSquadYear: scoutBridge.squadYear }
+      : {}),
     teams,
     matchups,
     logs,

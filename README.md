@@ -2933,6 +2933,29 @@ versions in the Cloud panel.
 A CSV with no section markers is treated as all schedule, so every CSV exported
 before sections existed, and every hand-made one, still imports unchanged.
 
+**In the cloud, a backup's Team Rankings is the copy's** (1.6e). A member's device is to hold no
+pool, or none it keeps in step, so the three things that write Team Rankings into a file read it
+off the cloud's copy when they are asked: Setup's **Download a backup** on the live page, Backup
+JSON, and Export CSV. The page fetches the pieces of every pool part the copy's manifest names,
+League Standings' part aside, a part at a time, as a take fetches them (`copyBackup.ts`); a copy
+that moves on while it is read, a piece swept since the manifest was read, is read again once,
+off its manifest as it then stands. The pieces go to a worker of their own (`backup.worker.ts`),
+which unpacks and checks them as a take does (`unpackChunks`), lays them into a pool store in
+memory (`applyCloudPoolValues`) and reads them back with the very loaders the device's own
+backup reads with, so the file is the one a device holding that pool would write, to the byte:
+`backupProtocol.test.ts` holds the Team Rankings file, the CSV's sections and the whole-browser
+file's pool, each to the device's own, over a seeded pool with an archived table and a dropped
+club in it. It is a worker because it has to be, not for speed alone: the pool store is a module
+of one per realm, and on the page it is the device's own, which this would empty and fill with
+the copy, so a browser that cannot start the worker makes no backup rather than make it there.
+Each button says what it is doing, and why when it cannot ("The cloud's copy could not be read
+just now, so no backup was made."): Setup's and Backup JSON make no file without the copy's Team
+Rankings, while Export CSV saves the schedule without the sections and says so, the schedule
+being what that button is mostly for. A sign-in that will not load, a worker that fails and a
+part that will not unpack are each said that way, never thrown. A bare date in a CSV read in
+while Team Rankings is live is read in the squad year the server's bridge gives the season
+(`league.bridge`, 1.6e), as the device's own reads it off its age groups.
+
 ### Your data on every device
 
 A browser can keep a copy of everything in the cloud, so the app opens on the
@@ -3976,7 +3999,7 @@ on this device's copy only where that is the right page or the only one: an
 account the rules refuse, or, on the areas that read the published views (the
 board, Scouting and Games), a browser with no member signed in to read them as and
 no board kept to show, both of which the visitor's own app is for; and what it
-cannot do yet, the rest of Setup (a backup) and a pasted list pulled. Only then is
+cannot do yet, a pasted list pulled (1.8). Only then is
 the pool brought in step, behind it, and Team Rankings' own code loads under the
 board from the start, so it is there by then. The pages are the meta's whenever
 it carries them (`LivePages.groups`), kept or read, rather than this device's own,
@@ -4106,8 +4129,9 @@ not yet published are drawn over them (`overlayGroups`, by the command the serve
 season put on a page shows there at once and the next one put at that age joins it. This
 browser's diagnostics are its own, as on the device's Setup. The model check of the page open is
 the server's (`model.check`, 1.5), described below, and archiving or deleting a year, and
-starting Team Rankings again, are the owner's on the server (1.6, below). Downloading a backup
-opens on this device's copy when asked, until it is live.
+starting Team Rankings again, are the owner's on the server (1.6, below). A backup of Team
+Rankings is the cloud copy's, read off it when **Download a backup** is pressed (1.6e, under
+"Backups").
 Every card here asks in its own effect once edits are on; the copy they ask of is held before
 any effect runs (`useLiveEdits`), since the network's first answer brings it and turns edits on
 in one render, and a Setup opened straight from a link had its first questions refused for want

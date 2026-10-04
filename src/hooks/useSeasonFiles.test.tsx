@@ -4,6 +4,8 @@ import { useSeasonFiles, type SeasonFilesOptions } from "./useSeasonFiles";
 import { DEFAULT_SETTINGS } from "../lib/types";
 import type { LiveSeasonData } from "../lib/backup";
 import * as cloudSession from "../lib/cloud/cloudSession";
+import * as copyBackupLib from "../lib/live/copyBackup";
+import { COPY_UNREAD } from "../lib/live/copyBackup";
 import * as rankingsBackup from "../lib/teamRankingsBackup";
 import { teamRankingsJson } from "../lib/teamRankingsBackup";
 
@@ -186,5 +188,93 @@ describe("a pool imported in the cloud", () => {
       expect(calls.showToast.mock.calls[0]?.[0]).toContain("Team Rankings restored")
     );
     vi.restoreAllMocks();
+  });
+});
+
+/*
+ * A schedule's CSV, and the year a CSV's bare dates are read in, in the cloud (1.6e): the pool's
+ * sections are the copy's, read for the file, and the year is the server's bridge's, since a
+ * member's device holds no pool of its own to read either off.
+ */
+describe("a season's CSV in the cloud", () => {
+  const saved: Blob[] = [];
+  const catching = () => {
+    saved.length = 0;
+    vi.stubGlobal("URL", {
+      createObjectURL: (blob: Blob) => {
+        saved.push(blob);
+        return "blob:csv";
+      },
+      revokeObjectURL: () => undefined,
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+  };
+  const done = () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  };
+
+  it("carries the copy's Team Rankings sections, read for the file", async () => {
+    catching();
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const reader = { readManifest: vi.fn(), getChunk: vi.fn() };
+    vi.spyOn(cloudSession, "copyReader").mockResolvedValue(reader);
+    const read = vi
+      .spyOn(copyBackupLib, "copyBackup")
+      .mockResolvedValue({ ok: true, csv: "PLACEHOLDER-SECTIONS" });
+    const local = vi.spyOn(rankingsBackup, "readTeamRankingsBackup");
+    const { result } = harness();
+    result.current.exportCSV();
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(read).toHaveBeenCalledWith(expect.objectContaining({ want: "csv" }));
+    expect(await read.mock.calls[0]?.[0].copy?.()).toBe(reader);
+    expect(await saved[0]?.text()).toContain("PLACEHOLDER-SECTIONS");
+    expect(local).not.toHaveBeenCalled();
+    done();
+  });
+
+  it("goes without them when the copy cannot be read, and says so", async () => {
+    catching();
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    // A sign-in that would not load: the schedule is still saved.
+    vi.spyOn(cloudSession, "copyReader").mockRejectedValue(new Error("no sign-in"));
+    const { result, calls } = harness();
+    result.current.exportCSV();
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(await saved[0]?.text()).not.toContain("TEAM RANKINGS");
+    expect(calls.showToast).toHaveBeenCalledWith(
+      `${COPY_UNREAD.unreachable}, so the schedule was saved without Team Rankings.`,
+      { tone: "error" }
+    );
+    done();
+  });
+
+  it("is this device's own pool's sections anywhere else", async () => {
+    catching();
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(false);
+    const read = vi.spyOn(copyBackupLib, "copyBackup");
+    const local = vi.spyOn(rankingsBackup, "readTeamRankingsBackup");
+    const { result } = harness();
+    result.current.exportCSV();
+    expect(saved).toHaveLength(1);
+    expect(local).toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    done();
+  });
+
+  it("reads a bare date in the season's year as the server's bridge says it", async () => {
+    // A nil-nil is a result only on a day gone by, which a bare "M/D" needs the year to say.
+    const nilNil = [
+      "Game ID,Date,Away Team,Innings,Away Runs,Away Hits,Away K,Home Team,Home Runs,Home Hits,Home K",
+      "g1,4/5,Aces,6,0,9,,Bruins,0,6,",
+    ].join("\n");
+    const csv = () => new File([nilNil], "schedule.csv", { type: "text/csv" });
+    const known = harness({ cloudSquadYear: 2020 });
+    known.result.current.importCSV(csv());
+    await waitFor(() => expect(known.calls.setActiveView).toHaveBeenCalledWith("games"));
+    // With no year from the cloud and no pages here, it is no result.
+    const unknown = harness();
+    unknown.result.current.importCSV(csv());
+    await waitFor(() => expect(unknown.calls.setActiveView).toHaveBeenCalledWith("standings"));
   });
 });

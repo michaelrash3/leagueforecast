@@ -82,8 +82,13 @@ const nowIso = (): string => {
 /**
  * Assemble the whole-browser backup. `live` is the active season's React state: scores are written
  * to storage on a debounce, so reading storage alone can miss an edit made a moment ago.
+ * `teamRankings` is the pool the file carries: this browser's own unless given, as a browser in the
+ * cloud gives the copy's, which its own pool, if it holds one, is not kept in step with (1.6e).
  */
-export const readFullBackup = (live?: LiveSeasonData): FullBackup => {
+export const readFullBackup = (
+  live?: LiveSeasonData,
+  teamRankings?: TeamRankingsBackup
+): FullBackup => {
   const league: LeagueSnapshot = readLeagueSnapshot();
   const theme = readTheme();
   const appMode = readAppMode();
@@ -96,7 +101,7 @@ export const readFullBackup = (live?: LiveSeasonData): FullBackup => {
     seasons: league.seasons.map((season) =>
       live && season.id === league.activeSeasonId ? { ...season, ...live } : season
     ),
-    teamRankings: readTeamRankingsBackup(),
+    teamRankings: teamRankings ?? readTeamRankingsBackup(),
     preferences: {
       ...(theme ? { theme } : {}),
       ...(appMode ? { appMode } : {}),

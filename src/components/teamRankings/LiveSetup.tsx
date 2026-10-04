@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import type { Confirmation } from "../../hooks/useConfirmation";
-import type { LiveEdits } from "../../hooks/useLiveEdits";
+import type { LiveEdits, ShowToast } from "../../hooks/useLiveEdits";
+import type { LiveSources } from "../../hooks/useLiveBoard";
 import type { PoolCommand } from "../../lib/live/commands";
 import { overlayGroups, seasonAssignedSaid } from "../../lib/live/groupsOverlay";
 import type { SeasonMeta } from "../../lib/storage";
 import type { AgeGroup, AgeGroupSeason, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { ageGroupYear, createAgeGroupId, seasonYearOptions } from "../../lib/teamRankings/seasons";
-import { button, card } from "../../styles/tokens";
 
 const NO_TEAMS: ScoutTeam[] = [];
 const NO_GAMES: ScoutGame[] = [];
@@ -20,6 +20,7 @@ import { DiagnosticsCard } from "./DiagnosticsCard";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { LiveAgelessCard } from "./LiveAgelessCard";
 import { LiveArchiveCard } from "./LiveArchiveCard";
+import { LiveBackupCard } from "./LiveBackupCard";
 import { LivePoolHealthCard } from "./LivePoolHealthCard";
 import { LiveStartAgainCard } from "./LiveStartAgainCard";
 import { ModelCheckCard } from "./ModelCheckCard";
@@ -33,8 +34,8 @@ import { AgeGroupsCard, SetupIntroCard } from "./SetupCards";
  * own diagnostics. The pages are the cloud's (`groups`, the ones its last publish carries) with
  * the edits made here drawn over them until a publish carries those too, so a season put on a page
  * shows there at once. A year archived or deleted, and Team Rankings started again, are the
- * server's, the copy's owner's alone (1.6). Downloading a backup is opened on this device's copy
- * until it is live too, by asking for it: the page hands over to Team Rankings there, on Setup.
+ * server's, the copy's owner's alone (1.6). A backup of Team Rankings is the cloud copy's, read off
+ * it when it is asked for (`LiveBackupCard`), so it needs no pool on this device either.
  */
 export default function LiveSetup({
   edits,
@@ -45,7 +46,8 @@ export default function LiveSetup({
   groups,
   seasons,
   onOpenTeam,
-  onRestWanted,
+  copy,
+  showToast,
 }: {
   edits: LiveEdits;
   confirm: Confirmation["request"];
@@ -59,8 +61,9 @@ export default function LiveSetup({
   seasons: SeasonMeta[];
   /** Opens a club's panel, in the squad year its row is of where it says one. */
   onOpenTeam: (teamId: string, year?: number) => void;
-  /** Opens the rest of Setup on this device's copy. */
-  onRestWanted: () => void;
+  /** The cloud's copy as this member may read it, which a backup is made of. */
+  copy: LiveSources["copy"];
+  showToast: ShowToast;
 }) {
   const { pending, edit, ask, say } = edits;
   const shown = useMemo(
@@ -129,18 +132,8 @@ export default function LiveSetup({
         currentYear={ageGroupYear(shown.find((group) => group.id === pageId))}
       />
       <DiagnosticsCard />
+      <LiveBackupCard copy={copy} showToast={showToast} />
       <LiveStartAgainCard edits={edits} confirm={confirm} />
-      <div className={`${card} p-5`}>
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          The rest of Setup
-        </h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Downloading a backup of Team Rankings opens on this device&apos;s copy for now.
-        </p>
-        <button type="button" onClick={onRestWanted} className={`${button.ghost} mt-3`}>
-          Open them on this device&apos;s copy
-        </button>
-      </div>
     </>
   );
 }

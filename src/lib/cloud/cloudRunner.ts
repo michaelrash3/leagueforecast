@@ -16,6 +16,7 @@ import {
 } from "../gameChangerImport";
 import { markRefreshed, type DueRefresh } from "../gameChangerSchedule";
 import { orgAgesByTeam } from "../orgMembership";
+import { memoryIo } from "../poolMemoryIo";
 import { persistPool } from "../poolPersist";
 import { settleRunLists } from "../pullLists";
 import { storedRota } from "../storedRota";
@@ -40,7 +41,6 @@ import {
   saveDroppedClubs,
   saveRefreshLog,
   saveTidyStamp,
-  type PoolStoreIo,
 } from "../teamRankingsStorage";
 import { commitChanges, fetchValues, type Change, type CloudStore } from "./cloudEngine";
 import { DATA_SCHEMA, type CloudManifest } from "./cloudManifest";
@@ -147,22 +147,7 @@ export type CloudPullResult = {
 const MAX_TRIES = 3;
 
 /** The store in memory, empty until the cloud's values are laid in. */
-export const memoryIo = (): PoolStoreIo => {
-  const values = new Map<string, unknown>();
-  return {
-    keys: async () => [...values.keys()],
-    get: async (key) => values.get(key),
-    set: async (key, value) => {
-      values.set(key, value);
-      return true;
-    },
-    remove: async (key) => {
-      values.delete(key);
-    },
-    readLocal: () => null,
-    clearLocal: () => undefined,
-  };
-};
+export { memoryIo };
 
 /** A key a pull never reads from the copy, never writes, and must never send. */
 const outOfReach = (key: string): boolean => key === LEAGUE_PART || key.includes("_archive_rows_");

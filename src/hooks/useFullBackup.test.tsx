@@ -1,8 +1,10 @@
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useFullBackup } from "./useFullBackup";
+import { READING_THE_COPY, useFullBackup } from "./useFullBackup";
 import * as backupLib from "../lib/backup";
 import * as cloudSession from "../lib/cloud/cloudSession";
+import * as copyBackupLib from "../lib/live/copyBackup";
+import { notMade } from "../lib/live/copyBackup";
 import type { FullBackup, LiveSeasonData } from "../lib/backup";
 
 /**
@@ -30,6 +32,7 @@ describe("useFullBackup", () => {
 
   beforeEach(() => {
     clicked = [];
+    window.localStorage.clear();
     vi.stubGlobal("URL", {
       createObjectURL: vi.fn().mockReturnValue("blob:x"),
       revokeObjectURL: vi.fn(),
@@ -222,11 +225,55 @@ describe("useFullBackup", () => {
 
   it("records that a backup was taken when one is exported", async () => {
     vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("current"));
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(false);
     const { result } = setup(true, { ok: true, failed: [] });
 
     result.current.exportBackup();
 
     expect(clicked).toHaveLength(1);
+    expect(backupLib.readFullBackup).toHaveBeenCalledWith({});
     expect(window.localStorage.getItem("league_forecast_last_backup_v1")).toBeTruthy();
+  });
+
+  it("in the cloud, exports the copy's Team Rankings, read for the file", async () => {
+    const COPY_POOL = {
+      ageGroups: [],
+      teams: [{ id: "S-2", name: "Placeholder Copy" }],
+      games: [],
+    };
+    vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("current"));
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const reader = { readManifest: vi.fn(), getChunk: vi.fn() };
+    vi.spyOn(cloudSession, "copyReader").mockResolvedValue(reader);
+    const read = vi
+      .spyOn(copyBackupLib, "copyBackup")
+      .mockResolvedValue({ ok: true, backup: COPY_POOL });
+    const { result, showToast } = setup(true, { ok: true, failed: [] });
+
+    result.current.exportBackup();
+
+    expect(showToast).toHaveBeenCalledWith(READING_THE_COPY);
+    await waitFor(() => expect(clicked).toHaveLength(1));
+    expect(read).toHaveBeenCalledWith(expect.objectContaining({ want: "backup" }));
+    expect(await read.mock.calls[0]?.[0].copy?.()).toBe(reader);
+    expect(backupLib.readFullBackup).toHaveBeenCalledWith({}, COPY_POOL);
+    expect(window.localStorage.getItem("league_forecast_last_backup_v1")).toBeTruthy();
+  });
+
+  it("in the cloud, makes no file without the copy's Team Rankings, and says why", async () => {
+    vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("current"));
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    // A sign-in that would not load: no reader, and nothing thrown past the button.
+    vi.spyOn(cloudSession, "copyReader").mockRejectedValue(new Error("no sign-in"));
+    const { result, showToast } = setup(true, { ok: true, failed: [] });
+
+    result.current.exportBackup();
+
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(notMade("unreachable"), { tone: "error" })
+    );
+    expect(clicked).toEqual([]);
+    expect(backupLib.readFullBackup).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("league_forecast_last_backup_v1")).toBeNull();
   });
 });

@@ -17,7 +17,8 @@ import {
   type TeamRankingsBackup,
 } from "../lib/teamRankingsBackup";
 import { loadAgeGroups, replaceArchivedSeasons } from "../lib/teamRankingsStorage";
-import { restoresInCloud, restoreTeamRankingsInCloud } from "../lib/cloud/cloudSession";
+import { copyReader, restoresInCloud, restoreTeamRankingsInCloud } from "../lib/cloud/cloudSession";
+import { copyBackup, COPY_UNREAD } from "../lib/live/copyBackup";
 import { squadYearForLeagueSeason } from "../lib/teamRankings/seasons";
 import { useFullBackup } from "./useFullBackup";
 import type { AppMode } from "./useAppMode";
@@ -46,6 +47,12 @@ export type SeasonFilesOptions = {
   liveSeason: () => LiveSeasonData;
   /** The season a bare "M/D" in a CSV is dated against. */
   activeSeasonId: string;
+  /**
+   * That season's squad year as Team Rankings in the cloud says it (the server's bridge, 1.6e),
+   * where Team Rankings is the cloud's: a device that holds no pool has no pages of its own to read
+   * it off. Absent, this device's own pages are read.
+   */
+  cloudSquadYear?: number;
   teams: TeamBase[];
   matchups: Matchup[];
   logs: Record<string, GameLog>;
@@ -104,6 +111,7 @@ export type SeasonFiles = {
 export function useSeasonFiles({
   liveSeason,
   activeSeasonId,
+  cloudSquadYear,
   teams,
   matchups,
   logs,
@@ -223,7 +231,7 @@ export function useSeasonFiles({
         } = parseScheduleCsvImport(
           raw,
           new Date(),
-          squadYearForLeagueSeason(activeSeasonId, loadAgeGroups())
+          cloudSquadYear ?? squadYearForLeagueSeason(activeSeasonId, loadAgeGroups())
         );
         // A CSV exported as a backup carries the Team Rankings sections after the schedule; a
         // plain schedule CSV carries none, and parses to null so the pool is left alone.
@@ -308,21 +316,44 @@ This will replace the current season data and save an undo snapshot.`,
   };
 
   const exportCSV = useCallback(() => {
-    const csv = buildScheduleCsv({
-      matchups,
-      logs,
-      teamsById: teamBaseById,
-      pitchMode: settings.pitchMode,
-      rankingsSections: teamRankingsCsvSections(readTeamRankingsBackup()),
-    });
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = scheduleCsvFilename(settings.seasonLabel);
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }, [settings, matchups, logs, teamBaseById]);
+    const write = (rankingsSections: string) => {
+      const csv = buildScheduleCsv({
+        matchups,
+        logs,
+        teamsById: teamBaseById,
+        pitchMode: settings.pitchMode,
+        rankingsSections,
+      });
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = scheduleCsvFilename(settings.seasonLabel);
+      anchor.click();
+      URL.revokeObjectURL(url);
+    };
+    if (!restoresInCloud()) {
+      write(teamRankingsCsvSections(readTeamRankingsBackup()));
+      return;
+    }
+    /*
+     * In the cloud the pool sections are the copy's, read for the file (1.6e), since this device
+     * holds no pool, or none kept in step. A copy that cannot be read leaves the schedule to go
+     * without them, and says so: the schedule is what the button is mostly for.
+     */
+    void (async () => {
+      const made = await copyBackup({
+        copy: copyReader,
+        want: "csv",
+        savedAt: new Date().toISOString(),
+      });
+      write(made.ok ? (made.csv ?? "") : "");
+      if (!made.ok)
+        showToast(`${COPY_UNREAD[made.why]}, so the schedule was saved without Team Rankings.`, {
+          tone: "error",
+        });
+    })();
+  }, [settings, matchups, logs, teamBaseById, showToast]);
 
   /**
    * Put React back in step with storage, which is the source of truth once a restore has written

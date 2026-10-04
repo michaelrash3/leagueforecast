@@ -298,7 +298,7 @@ function LiveBoard({
   const [scoutedTeam, setScoutedTeam] = useState("");
   const [comparedTeam, setComparedTeam] = useState("");
   const [pickedOpponents, setPickedOpponents] = useState<string[]>(NO_IDS);
-  // Something asked for that is still this device's page's: the rest of Setup, a pasted list pulled.
+  // Something asked for that is still this device's page's: a pasted list pulled (1.8).
   const [wanted, setWanted] = useState(false);
 
   const offline =
@@ -783,7 +783,8 @@ function LiveBoard({
               groups={cloudGroups}
               seasons={seasons}
               onOpenTeam={openTeamIn}
-              onRestWanted={wantPage}
+              copy={sources ? sources.copy : copyReader}
+              showToast={showToast}
             />
           </Suspense>
         ) : section === "archive" ? (
