@@ -10,7 +10,8 @@
  */
 import { getHeapStatistics } from "node:v8";
 import { parentPort } from "node:worker_threads";
-import { firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
+import { firestoreRestDocuments, firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
+import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
 import { runEdit, runQuery } from "../../src/lib/live/editRun";
 import { answerEdit, type EditRequest } from "../../src/lib/live/editWorkerProtocol";
 import { createEditPool } from "../../src/lib/live/poolCache";
@@ -37,6 +38,7 @@ parentPort?.on("message", (request: EditRequest) => {
       runQuery({
         pool,
         store: firestoreRestStore({ ...restAccess(), writable: false }),
+        leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...restAccess(), writable: false })),
         query: ask.query,
         ...(ask.copy === undefined ? {} : { copy: ask.copy }),
       }),

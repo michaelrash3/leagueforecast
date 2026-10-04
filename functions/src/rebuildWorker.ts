@@ -10,8 +10,13 @@
  */
 import { getHeapStatistics } from "node:v8";
 import { parentPort } from "node:worker_threads";
-import { firestoreRestLive, firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
+import {
+  firestoreRestDocuments,
+  firestoreRestLive,
+  firestoreRestStore,
+} from "../../src/lib/cloud/firestoreRest";
 import { todayIsoDay } from "../../src/lib/date";
+import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
 import { createPoolCache } from "../../src/lib/live/poolCache";
 import { runRebuild } from "../../src/lib/live/rebuild";
 import {
@@ -31,6 +36,8 @@ parentPort?.on("message", (request: RebuildRequest) => {
         // The copy is only read; `live/` is written only by a live run.
         copyStore: firestoreRestStore({ ...access, writable: false }),
         liveStore: firestoreRestLive({ ...access, writable: !dry }),
+        // League Standings, read only: a rebuild writes no season.
+        leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...access, writable: false })),
         pool,
         // The zone is New York's: the function set it before it started this worker.
         today: () => todayIsoDay(),

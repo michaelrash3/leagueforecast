@@ -734,6 +734,18 @@ describe("the day, the rules and what a publish was built from", () => {
       },
     });
     expect(read?.built).toEqual({ "board:": FROM, "teams:": floor });
+    // Seasons read from their documents are vouched for by a fingerprint, which a floor never has.
+    const seasons = { ...FROM, league: "l1" };
+    const vouched = coerceLiveMeta({
+      ...meta,
+      built: {
+        "board:": seasons,
+        "moves:": { ...FROM, league: "" },
+        "games:": { ...FROM, league: 7 },
+        "teams:": { ...floor, league: "l1" },
+      },
+    });
+    expect(vouched?.built).toEqual({ "board:": seasons });
   });
 
   it("takes out the retired uploads past their grace with a commit it makes anyway, and deletes their pieces after", async () => {

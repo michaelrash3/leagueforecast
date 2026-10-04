@@ -255,6 +255,12 @@ export type FirestoreRestDocuments = {
     fields: Record<string, unknown>,
     token: string | null
   ) => Promise<boolean>;
+  /**
+   * Every document of `collection`, with its id and its fields as plain values, page by page: the
+   * League Standings seasons (`league/{season}`), a handful of documents of 10 to 70 KB each, which
+   * a server reads whole to build the boards with.
+   */
+  list: (collection: string) => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
 };
 
 export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocuments => {
@@ -277,6 +283,26 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
         token === null ? { exists: false } : { updateTime: token },
         `replacing ${path}`
       ),
+    list: async (collection) => {
+      const found: Array<{ id: string; fields: Record<string, unknown> }> = [];
+      let page: string | undefined;
+      do {
+        const query = ["pageSize=100"];
+        if (page) query.push(`pageToken=${encodeURIComponent(page)}`);
+        const response = await call(`${documents}/${collection}?${query.join("&")}`);
+        if (!response.ok) throw new FirestoreError(response.status, `listing ${collection}`);
+        const answer = (await response.json()) as {
+          documents?: FirestoreDocument[];
+          nextPageToken?: string;
+        };
+        for (const one of answer.documents ?? []) {
+          const id = one.name?.split("/").pop();
+          if (id) found.push({ id: decodeURIComponent(id), fields: fieldsOf(one.fields ?? {}) });
+        }
+        page = answer.nextPageToken;
+      } while (page);
+      return found;
+    },
     update: async (path, patch) => {
       const mask = Object.keys(patch)
         .filter((name) => patch[name] !== undefined)

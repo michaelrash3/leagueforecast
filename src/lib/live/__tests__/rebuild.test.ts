@@ -19,6 +19,8 @@ import {
   saveTidyStamp,
 } from "../../teamRankingsStorage";
 import { BOARD_FAMILY, builtFrom } from "../boardInputs";
+import { NO_LEAGUE_DOCS, readCloudLeague } from "../cloudLeague";
+import { LEAGUE_DOC_SCHEMA } from "../leagueDocs";
 import { createPoolCache, type PoolCache, type PoolEnsure } from "../poolCache";
 import { publishCopyViews } from "../publishCopy";
 import {
@@ -35,6 +37,7 @@ import { coerceLedger, type Ledger, type LedgerStore } from "../rebuildLedger";
 import { LIVE_SPACING_S, spacedTask, type RebuildTask } from "../rebuildPlan";
 import { BOARD_RULES } from "../views/board";
 import { LIVE_SCHEMA, type LiveMeta, type LiveStore } from "../viewStore";
+import { docsOf, listing, rescored, seasonsOf, type ListedDoc } from "./leagueDocsFixture";
 import { memoryLive, type MemoryLive } from "./memoryLive";
 
 /*
@@ -164,7 +167,7 @@ const viewsOf = (meta: LiveMeta | null) =>
 const rebuild = (
   over: Partial<Parameters<typeof runRebuild>[0]> &
     Pick<Parameters<typeof runRebuild>[0], "copyStore" | "liveStore" | "pool">
-) => runRebuild({ today, now, locale: "en-US", ...over });
+) => runRebuild({ today, now, locale: "en-US", leagueDocs: NO_LEAGUE_DOCS, ...over });
 
 /** The boards a nightly publishes from what `cloud` holds now, into `live`. */
 const nightly = async (cloud: MemoryCloud, live: MemoryLive) => {
@@ -182,6 +185,19 @@ const nightly = async (cloud: MemoryCloud, live: MemoryLive) => {
   resetTeamRankingsStore();
   return loaded.manifest;
 };
+
+/** The fixture's seasons as their documents, and with one final score changed. */
+const SEASONS = seasonsOf(fixture.seasons);
+const DOCS = docsOf(SEASONS);
+const RESCORED = docsOf(SEASONS.map((season, index) => (index === 0 ? rescored(season) : season)));
+const printOf = async (docs: readonly ListedDoc[]): Promise<string> => {
+  const league = await readCloudLeague(listing(docs));
+  if (!league.ok || league.from !== "docs") throw new Error("not read from the documents");
+  return league.print;
+};
+const NEWER: ListedDoc[] = DOCS.map((doc, index) =>
+  index === 0 ? { ...doc, fields: { ...doc.fields, schema: LEAGUE_DOC_SCHEMA + 1 } } : doc
+);
 
 let V1 = new Map<string, unknown>();
 let V2 = new Map<string, unknown>();
@@ -550,6 +566,70 @@ describe("a rebuild in the worker", () => {
     await pool.drop();
   });
 
+  it("publishes again when only a League Standings season's document changed, at the copy's own version", async () => {
+    const cloud = memoryCloud();
+    const manifest = await save(cloud, null, V1);
+    const live = memoryLive();
+    const pool = createPoolCache();
+    let held = DOCS;
+    const run = () =>
+      rebuild({
+        copyStore: readOnly(cloud),
+        liveStore: live.store,
+        pool,
+        leagueDocs: async () => held,
+      });
+    expect(await run()).toMatchObject({ end: "published", version: 1, wrote: true });
+    expect(live.meta()?.built[BOARD_FAMILY]).toEqual(
+      await builtFrom(manifest, TODAY, await printOf(DOCS))
+    );
+    const views = viewsOf(live.meta());
+    expect(await run()).toMatchObject({ end: "current" });
+    // A score saved on a phone: the copy has not moved, and nothing of it is fetched.
+    held = RESCORED;
+    expect(await run()).toMatchObject({ end: "published", version: 1, fetched: 0, wrote: true });
+    expect(live.meta()?.built[BOARD_FAMILY]?.league).toBe(await printOf(RESCORED));
+    const moved = Object.entries(viewsOf(live.meta())).filter(([key, h]) => views[key] !== h);
+    expect(moved.length).toBeGreaterThan(0);
+    // The boards built from the copy's part, with no documents, are another build's: stale.
+    held = [];
+    expect(await run()).toMatchObject({ end: "published", version: 1 });
+    expect(live.meta()?.built[BOARD_FAMILY]).toEqual(await builtFrom(manifest, TODAY));
+    await pool.drop();
+  });
+
+  it("leaves a season a newer build saved, and goes again when a season changed under its commit", async () => {
+    const cloud = memoryCloud();
+    await save(cloud, null, V1);
+    const live = memoryLive();
+    const pool = createPoolCache();
+    // Boards current for the copy's own part, before any season had a document.
+    expect(
+      await rebuild({ copyStore: readOnly(cloud), liveStore: live.store, pool })
+    ).toMatchObject({ end: "published" });
+    const published = live.meta();
+    const newer = await rebuild({
+      copyStore: readOnly(cloud),
+      liveStore: live.store,
+      pool,
+      leagueDocs: listing(NEWER),
+    });
+    expect(newer).toMatchObject({ end: "newer-league", retryable: false });
+    expect(live.meta()).toEqual(published);
+    live.setMeta(null);
+    // Read once for the run, and again just before the commit, by when a score had been saved.
+    let reads = 0;
+    const moving = await rebuild({
+      copyStore: readOnly(cloud),
+      liveStore: live.store,
+      pool,
+      leagueDocs: async () => (++reads > 1 ? RESCORED : DOCS),
+    });
+    expect(moving).toMatchObject({ end: "kept-moving", retryable: true });
+    expect(live.meta()).toBeNull();
+    await pool.drop();
+  });
+
   it("counts as failures only the ends that are not its job done or a newer one's", () => {
     for (const end of [
       "published",
@@ -564,6 +644,7 @@ describe("a rebuild in the worker", () => {
       "newer-schema",
       "newer-rules",
       "unknown-key",
+      "newer-league",
     ] as const) {
       expect(isRebuildFailure(end), end).toBe(false);
     }
@@ -627,6 +708,7 @@ describe("a rebuild task on the main thread", () => {
     return handleRebuildTask({
       copyStore: readOnly(cloud),
       liveStore: live.store,
+      leagueDocs: NO_LEAGUE_DOCS,
       run: async () => {
         clock += 61_200;
         return { end: "published", retryable: false, tries: 1 };
@@ -667,6 +749,45 @@ describe("a rebuild task on the main thread", () => {
     expect(run).not.toHaveBeenCalled();
     expect(ledger.reads.count + cloud.costs.reads + live.costs.reads - reads).toBe(3);
     expect(ledger.held()).toMatchObject({ dayGiBs: 0, open: null });
+  });
+
+  it("reads the seasons' documents beside the copy: boards built before a season changed are stale", async () => {
+    const { cloud, live } = await setUp({ current: true });
+    const ledger = memoryLedger(SWITCH);
+    const run = vi.fn<() => Promise<RebuildResult>>(async () => ({
+      end: "published",
+      retryable: false,
+      tries: 1,
+    }));
+    // The nightly built them from the copy's part; the seasons now have documents.
+    const done = await handle({
+      ledger: ledger.store,
+      cloud,
+      live,
+      run,
+      leagueDocs: listing(DOCS),
+    });
+    expect(done.line.end).toBe("published");
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a season a newer build saved before reserving anything", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    const run = vi.fn<() => Promise<RebuildResult>>();
+    const done = await handle({
+      ledger: ledger.store,
+      cloud,
+      live,
+      run,
+      leagueDocs: listing(NEWER),
+    });
+    expect(done).toEqual({
+      line: { end: "newer-league", copy: cloud.manifest()!.copy, version: 2 },
+      rethrow: false,
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(ledger.held()?.open).toBeNull();
   });
 
   it("leaves newer rules' boards before reserving anything", async () => {

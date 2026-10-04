@@ -40,19 +40,29 @@ export const boardInputsPrintOf = async (
   return (await hashJson(pairs)).hash;
 };
 
-/** What boards built from `manifest` for the members' day `today`, under these rules, came from. */
-export const builtFrom = async (manifest: CloudManifest, today: string): Promise<BuiltFrom> => ({
+/**
+ * What boards built from `manifest` for the members' day `today`, under these rules, came from:
+ * with `league`, the fingerprint of the League Standings seasons when they were read from their
+ * own documents (`leaguePrintOf`), and none when they were the copy's part, which `inputs` covers.
+ */
+export const builtFrom = async (
+  manifest: CloudManifest,
+  today: string,
+  league = ""
+): Promise<BuiltFrom> => ({
   k: manifest.copy,
   v: manifest.version,
   inputs: await boardInputsPrint(manifest),
+  ...(league === "" ? {} : { league }),
   today,
   rules: BOARD_RULES,
 });
 
 /**
- * Where the published boards stand against the copy `manifest` for the day `today`:
- * - `current`: built from this very version of the copy, for this day, under these rules, in this
- *   build's shape, so building them again would publish nothing new.
+ * Where the published boards stand against the copy `manifest` and the League Standings seasons
+ * `league` names (`builtFrom`) for the day `today`:
+ * - `current`: built from this very version of the copy and these seasons, for this day, under
+ *   these rules, in this build's shape, so building them again would publish nothing new.
  * - `newer-schema`: published by a newer build, whose meta this one must leave alone.
  * - `older-rules`: built by newer rules than this build's, which must leave them alone.
  * - `older-day`: built for a later day than `today`, so this build's day has passed.
@@ -66,7 +76,8 @@ export const builtFrom = async (manifest: CloudManifest, today: string): Promise
 export const boardsState = async (
   meta: LiveMeta | null,
   manifest: CloudManifest,
-  today: string
+  today: string,
+  league = ""
 ): Promise<"current" | "stale" | "newer-schema" | "older-rules" | "older-day"> => {
   if (meta && meta.schema > LIVE_SCHEMA) return "newer-schema";
   const built = meta?.built[BOARD_FAMILY];
@@ -79,6 +90,7 @@ export const boardsState = async (
     built.v === manifest.version &&
     built.today === today &&
     built.rules === BOARD_RULES &&
+    (built.league ?? "") === league &&
     built.inputs === (await boardInputsPrint(manifest));
   return current ? "current" : "stale";
 };

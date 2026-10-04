@@ -22,9 +22,13 @@ import {
   saveScoutGames,
   saveScoutTeams,
 } from "../../teamRankingsStorage";
+import type { SeasonSnapshot } from "../../storage";
+import { DEFAULT_SETTINGS } from "../../types";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import type { SeasonReader } from "../allKnown";
 import { BOARD_FAMILY, builtFrom } from "../boardInputs";
+import { readCloudLeague, type LeagueDocsList } from "../cloudLeague";
+import { LEAGUE_DOC_SCHEMA, seasonDocId, seasonToDoc } from "../leagueDocs";
 import { dryLiveStore, publishCopyViews, seasonReaderOf } from "../publishCopy";
 import { RETIRE_GRACE_MS, STRAY_AGE_MS, publishViews, sweepViews } from "../viewStore";
 import { boardViews, buildBoardsAndFacts, livePagesOf } from "../views/board";
@@ -61,6 +65,26 @@ const LEAGUE = {
     bracketLogs: {},
   })),
 };
+
+/** Each season as its document, as Firestore's REST interface lists it, from the stored seasons. */
+const DOCS = Object.keys(fixture.seasons).map((id, index) => {
+  const season: SeasonSnapshot = {
+    id,
+    name: `Season ${index + 1}`,
+    createdAt: "2026-08-01T12:00:00.000Z",
+    ...storedSeason(id),
+    bracketLogs: {},
+    settings: DEFAULT_SETTINGS,
+  };
+  return {
+    id: seasonDocId(id),
+    fields: JSON.parse(JSON.stringify(seasonToDoc(season))) as Record<string, unknown>,
+  };
+});
+const docsList =
+  (docs: typeof DOCS): LeagueDocsList =>
+  async () =>
+    docs;
 
 /** A copy holding `league` (none at all when undefined), as a phone saved it. */
 const copyWith = async (
@@ -513,6 +537,85 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
       sweep: { ok: false, why: "Firestore answered HTTP 503 listing the views' pieces" },
     });
     expect(live.meta()?.copy).toEqual({ id: manifest.copy, version: manifest.version });
+  });
+
+  it("builds from the seasons' documents once there are any, reading none of the copy's League part", async () => {
+    // The copy's part is one no browser would take in: it is not read at all.
+    const { cloud, manifest } = await copyWith({ seasons: [{ name: "no id" }] });
+    const reads = cloud.costs.reads;
+    const live = memoryLive();
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: live.store,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      leagueDocs: docsList(DOCS),
+    });
+    expect(result).toMatchObject({ ok: true, boards: 33 });
+    // The manifest, read again before the commit; no piece.
+    expect(cloud.costs.reads - reads).toBe(1);
+    for (const { key, value } of boardsWith(storedSeason)) {
+      expect(await decode(live, key)).toEqual(JSON.parse(JSON.stringify(value)));
+    }
+    // What they were built from names the seasons, so a score saved since makes them stale.
+    const league = await readCloudLeague(docsList(DOCS));
+    if (!league.ok || league.from !== "docs") throw new Error("not read from the documents");
+    expect(live.meta()?.built).toEqual({
+      [BOARD_FAMILY]: await builtFrom(manifest, FIXTURE_TODAY, league.print),
+    });
+  });
+
+  it("publishes nothing when a season's document changed before the commit", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const live = memoryLive();
+    let started = false;
+    const [first, ...rest] = DOCS;
+    if (!first) throw new Error("no documents");
+    // A score saved once the first piece is up: the season's document changes.
+    const later = [{ ...first, fields: { ...first.fields, rev: 2, logs: {} } }, ...rest];
+    const uploading = {
+      ...live.store,
+      putChunk: async (id: string, data: Uint8Array<ArrayBuffer>) => {
+        started = true;
+        await live.store.putChunk(id, data);
+      },
+    };
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: uploading,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      leagueDocs: async () => (started ? later : DOCS),
+    });
+    expect(result).toEqual({ ok: false, reason: "league-moved" });
+    // Nothing named, nothing left behind: its uploads are taken back.
+    expect(live.meta()).toBeNull();
+    expect(live.chunks.size).toBe(0);
+  });
+
+  it("publishes nothing, reading no piece, when a season's document is of a later layout", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const [first, ...rest] = DOCS;
+    if (!first) throw new Error("no documents");
+    const newer = { ...first, fields: { ...first.fields, schema: LEAGUE_DOC_SCHEMA + 1 } };
+    const reads = cloud.costs.reads;
+    const live = memoryLive();
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: live.store,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      leagueDocs: docsList([newer, ...rest]),
+    });
+    expect(result).toEqual({ ok: false, reason: "newer-league" });
+    expect(cloud.costs.reads).toBe(reads);
+    expect(live.costs.writes).toBe(0);
   });
 
   it("passes on a publish the meta refuses, and sweeps nothing after it", async () => {

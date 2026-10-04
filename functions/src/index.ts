@@ -21,6 +21,7 @@ import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pullJobRunner";
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
+import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
 import { coerceCommand } from "../../src/lib/live/commands";
 import { chargeQueue, handleEdit, handleQuery, handleWarm } from "../../src/lib/live/editHandle";
 import {
@@ -396,6 +397,7 @@ export const rebuild = !LIVE_REBUILD
             ledger: restLedgerStore(firestoreRestDocuments(access)),
             copyStore: firestoreRestStore({ ...access, writable: false }),
             liveStore: firestoreRestLive({ ...access, writable: false }),
+            leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...access, writable: false })),
             run: runner.run,
             today: () => todayIsoDay(),
             now: () => new Date().toISOString(),

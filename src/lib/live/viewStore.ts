@@ -60,16 +60,25 @@ export type ViewEntry = { h: string; id: string; c: number; b: number; k: string
 export type RetiredUpload = { id: string; c: number; at: string };
 /**
  * What a family of views was last built from, as the publish that built them vouched: the copy by
- * id and version, a fingerprint of the stored values the family reads (`inputs`), the members'
- * day, and the version of the rules that turn those values into views. A rebuild that finds all of
- * them its own has nothing to do.
+ * id and version, a fingerprint of the stored values the family reads (`inputs`), one of the League
+ * Standings seasons read from their own documents when the family was built from those
+ * (`league`, `cloudLeague.ts`; absent when it was built from the copy's), the members' day, and the
+ * version of the rules that turn those values into views. A rebuild that finds all of them its own
+ * has nothing to do.
  *
  * When no one build can vouch for every view of the family (a late publish wrote over some, or a
  * publish wrote them without saying what from), the copy and inputs are empty and the record is
  * only a floor: the newest rules and the latest day any of its views were built under, which no
  * publish of the family may go below. It never reads as any copy's.
  */
-export type BuiltFrom = { k: string; v: number; inputs: string; today: string; rules: number };
+export type BuiltFrom = {
+  k: string;
+  v: number;
+  inputs: string;
+  league?: string;
+  today: string;
+  rules: number;
+};
 
 /** A family's record once no one build vouches for all its views: what it may not go below. */
 const floorOf = (kept: BuiltFrom | undefined, from: BuiltFrom | undefined): BuiltFrom | null => {
@@ -172,12 +181,15 @@ const entryOf = (raw: unknown): ViewEntry | null => {
 
 const builtOf = (raw: unknown): BuiltFrom | null => {
   if (!isRecord(raw)) return null;
-  const { k, v, inputs, today, rules } = raw;
+  const { k, v, inputs, league, today, rules } = raw;
   if (typeof k !== "string" || !isCount(v) || !isCount(rules)) return null;
   if (typeof inputs !== "string" || typeof today !== "string") return null;
   // Vouched for in full, or a floor with neither copy nor inputs; never half of each.
   if ((k === "") !== (inputs === "")) return null;
-  return { k, v, inputs, today, rules };
+  if (league === undefined) return { k, v, inputs, today, rules };
+  // A floor vouches for no seasons either.
+  if (typeof league !== "string" || league === "" || k === "") return null;
+  return { k, v, inputs, league, today, rules };
 };
 
 const retiredOf = (raw: unknown): RetiredUpload | null => {

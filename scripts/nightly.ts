@@ -113,8 +113,11 @@ const tellRebuilds = async (): Promise<void> => {
 
 const REFUSED: Record<Extract<CopyPublish, { ok: false }>["reason"], string> = {
   locale: "the collation is not English, so tied rows would sit in another order than the page's",
-  "league-unreadable": "the copy's League Standings could not be read",
+  "league-unreadable": "the League Standings seasons could not be read",
+  "newer-league": "a League Standings season was saved by a newer build",
   "copy-moved": "a device saved the copy during the run, so the next run publishes its views",
+  "league-moved":
+    "a League Standings season changed during the run, and the rebuild it asked for publishes it",
   "copy-replaced": "the copy was deleted and started again during the run, so these are not its",
   unreadable: "the published meta is not one this build reads",
   "newer-schema": "the published views were made by a newer build",
@@ -209,10 +212,13 @@ const main = async (): Promise<void> => {
         manifest: result.manifest,
         today: todayIsoDay(),
         now: () => new Date().toISOString(),
+        leagueDocs: opened.leagueDocs,
       });
       tellViews(views, dry !== null);
-      // A copy saved during the run is no fault of the run's; anything else that stops is.
-      if (views.ok ? !views.sweep.ok : views.reason !== "copy-moved") process.exitCode = 1;
+      // A copy or a season saved during the run is no fault of the run's; anything else that
+      // stops is.
+      const moved = !views.ok && (views.reason === "copy-moved" || views.reason === "league-moved");
+      if (views.ok ? !views.sweep.ok : !moved) process.exitCode = 1;
     } catch (error) {
       console.log(
         `Publishing the views stopped: ${error instanceof Error ? error.message : String(error)}`

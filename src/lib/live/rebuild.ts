@@ -1,6 +1,7 @@
 import type { CloudStore } from "../cloud/cloudEngine";
 import { UnreadableCopyError, type CloudManifest } from "../cloud/cloudManifest";
 import { boardsState } from "./boardInputs";
+import { leaguePrintOf, readCloudLeague, type LeagueDocsList } from "./cloudLeague";
 import type { PoolCache, PoolEnsure } from "./poolCache";
 import { dryLiveStore, publishCopyViews, type CopyPublish } from "./publishCopy";
 import {
@@ -40,6 +41,8 @@ import { coerceLiveMeta, type LiveStore } from "./viewStore";
  * - `unreadable`: the published meta is not one this build can read.
  * - `unreadable-copy`: the copy's manifest is not one this build can read, which no run of it gets
  *   past, and whose saves ask for nothing (`askRebuild`).
+ * - `newer-league`: a League Standings season's document is of a later layout than this build
+ *   reads (`readCloudLeague`), written by a newer version of the app.
  * - the copy's own refusals (`newer-schema` to `kept-moving`), as `PoolEnsure` names them, and the
  *   publish's (`kept-changing`, `locale`, `too-large`).
  */
@@ -52,6 +55,7 @@ export type RebuildEnd =
   | "copy-replaced"
   | "unreadable"
   | "unreadable-copy"
+  | "newer-league"
   | "kept-changing"
   | "locale"
   | "too-large"
@@ -96,8 +100,8 @@ const RETRYABLE: ReadonlySet<RebuildEnd> = new Set([
 
 /**
  * The ends that are the rebuild doing its job or standing aside for a newer one: boards a newer one
- * published (by newer rules, for a later day, or by a newer build), and a copy a newer build saved
- * or tidied (`newer-schema`, `unknown-key`, `newer-rules`). The main thread leaves most of those
+ * published (by newer rules, for a later day, or by a newer build), and a copy or a season a newer
+ * build saved or tidied (`newer-schema`, `unknown-key`, `newer-rules`, `newer-league`). The main thread leaves most of those
  * before reserving; a run that meets one finds this build due to be replaced, which no pause would
  * hasten, and a pause would hold every save's rebuild for the rest of the day, past that deploy.
  * Every other end is a failure the ledger counts toward a pause: a copy or a meta this build cannot
@@ -114,20 +118,23 @@ const FINE: ReadonlySet<RebuildEnd> = new Set([
   "newer-schema",
   "unknown-key",
   "newer-rules",
+  "newer-league",
 ]);
 
 const endOfPublish = (reason: Extract<CopyPublish, { ok: false }>["reason"]): RebuildEnd => {
   if (reason === "newer-schema") return "newer-live-schema";
   // A publish handed the seasons never reads the copy's League Standings part, which is the only
-  // way it says a save moved the copy; were it to, the run is one a retry gets past.
-  if (reason === "copy-moved") return "kept-moving";
+  // way it says a save moved the copy; were it to, the run is one a retry gets past. A season
+  // changed under the run asks for its own, and a retry gets past it too.
+  if (reason === "copy-moved" || reason === "league-moved") return "kept-moving";
   return reason;
 };
 
 /**
- * Brings `pool` to the copy as `copyStore` holds it now and publishes every board from it, unless
- * the published boards are already that copy's for `today()` (`boardsState`), both read against
- * the very manifest the pool was brought to. On a dry run the publish writes nothing. A publish
+ * Brings `pool` to the copy as `copyStore` holds it now and publishes every board from it and the
+ * League Standings seasons (`readCloudLeague`, read once a run through), unless the published
+ * boards are already that copy's and those seasons' for `today()` (`boardsState`), both read
+ * against the very manifest the pool was brought to. On a dry run the publish writes nothing. A publish
  * turned away because the published boards are for a later day than it read goes once more if the
  * New York day turned while it ran, before `deadline` (by `clock`), and otherwise ends there.
  */
@@ -135,6 +142,7 @@ export const runRebuild = async ({
   copyStore,
   liveStore,
   pool,
+  leagueDocs,
   today,
   now,
   dry = false,
@@ -146,6 +154,8 @@ export const runRebuild = async ({
   copyStore: CloudStore;
   liveStore: LiveStore;
   pool: PoolCache;
+  /** The League Standings seasons' documents (`league/`), read only. */
+  leagueDocs: LeagueDocsList;
   /** New York's day, asked for as each run through starts. */
   today: () => string;
   now: () => string;
@@ -175,10 +185,12 @@ export const runRebuild = async ({
       loadMs,
     };
 
+    const league = await readCloudLeague(leagueDocs);
+    if (!league.ok) return { ...base, end: league.reason, retryable: false };
     const read = await liveStore.readMeta();
     const meta = read ? coerceLiveMeta(read.meta) : null;
     if (read && !meta) return { ...base, end: "unreadable", retryable: false };
-    const state = await boardsState(meta, ensured.manifest, day);
+    const state = await boardsState(meta, ensured.manifest, day, leaguePrintOf(league));
     if (state === "older-day" && again()) continue;
     if (state !== "stale") {
       const end = state === "newer-schema" ? "newer-live-schema" : state;
@@ -193,6 +205,8 @@ export const runRebuild = async ({
       today: day,
       now,
       readSeason: ensured.readSeason,
+      leagueDocs,
+      league,
       sweep: "due",
       ...(locale === undefined ? {} : { locale }),
     });
@@ -223,10 +237,10 @@ export const isRebuildFailure = (end: RebuildEnd): boolean => !FINE.has(end);
  * One queued rebuild, on the main thread of the function that runs it. In order, each step stopping
  * there when it says so:
  * 1. The switch (`ops/rebuild`): absent, unreadable or off ends it.
- * 2. Whether the published boards are already the copy's, or another's to leave alone, or the copy
- *    one this build cannot load (a newer build's, as its manifest shows, or one it cannot read at
- *    all): the ledger, the manifest and the meta, three reads, reserving nothing and starting no
- *    worker. A read that failed is thrown, for the queue to try again. A quick rebuild (`live`)
+ * 2. Whether the published boards are already the copy's and the League Standings seasons', or
+ *    another's to leave alone, or the copy or a season one this build cannot load (a newer build's,
+ *    as its manifest or the season's document shows, or one it cannot read at all): the ledger, the
+ *    manifest, the seasons and the meta, a read each, reserving nothing and starting no worker. A read that failed is thrown, for the queue to try again. A quick rebuild (`live`)
  *    asked for sooner than `LIVE_SPACING_S` after the last run ended is queued again for then
  *    (`spacedTask`, through `enqueue`), and ends there.
  * 3. A reservation of the run's ceiling, which the caps, a pause or a run still going may refuse,
@@ -246,6 +260,7 @@ export const handleRebuildTask = async ({
   ledger,
   copyStore,
   liveStore,
+  leagueDocs,
   run,
   today,
   now,
@@ -260,6 +275,8 @@ export const handleRebuildTask = async ({
   ledger: LedgerStore;
   copyStore: CloudStore;
   liveStore: LiveStore;
+  /** The League Standings seasons' documents (`league/`), read only. */
+  leagueDocs: LeagueDocsList;
   run: (request: { dry: boolean; warm: boolean }) => Promise<RebuildResult>;
   today: () => string;
   now: () => string;
@@ -299,10 +316,12 @@ export const handleRebuildTask = async ({
   const loaded = { copy: manifest.copy, version: manifest.version };
   const newer = newerBuildOf(manifest);
   if (newer) return { line: { ...asked, ...loaded, end: newer }, rethrow: false };
+  const league = await readCloudLeague(leagueDocs);
+  if (!league.ok) return { line: { ...asked, ...loaded, end: league.reason }, rethrow: false };
   const read = await liveStore.readMeta();
   const meta = read ? coerceLiveMeta(read.meta) : null;
   if (read && !meta) return { line: { ...asked, ...loaded, end: "unreadable" }, rethrow: false };
-  const state = await boardsState(meta, manifest, day);
+  const state = await boardsState(meta, manifest, day, leaguePrintOf(league));
   if (state !== "stale") {
     const end = state === "newer-schema" ? "newer-live-schema" : state;
     return { line: { ...asked, ...loaded, end }, rethrow: false };

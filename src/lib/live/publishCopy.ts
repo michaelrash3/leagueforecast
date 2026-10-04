@@ -15,6 +15,13 @@ import {
 } from "../teamRankingsStorage";
 import type { LeagueSeasonData, SeasonReader } from "./allKnown";
 import { BOARD_FAMILY, builtFrom } from "./boardInputs";
+import {
+  leaguePrintOf,
+  NO_LEAGUE_DOCS,
+  readCloudLeague,
+  type CloudLeague,
+  type LeagueDocsList,
+} from "./cloudLeague";
 import { boardViews, buildBoardsAndFacts, livePagesOf } from "./views/board";
 import { clubViews } from "./views/clubs";
 import { CLUB_FAMILY } from "./views/clubShape";
@@ -26,9 +33,9 @@ import { publishViews, sweepViews, type LiveStore, type PublishResult } from "./
 
 /**
  * What a server publishes after it has saved the copy: every board, built from the pool its own
- * store holds in memory and the copy's League Standings, published to `live/` (`viewStore.ts`), and
- * then a sweep of what readers can no longer be fetching. The nightly refresh runs it; it is kept
- * out of the script so it is tested.
+ * store holds in memory and the League Standings seasons (`cloudLeague.ts`), published to `live/`
+ * (`viewStore.ts`), and then a sweep of what readers can no longer be fetching. The nightly refresh
+ * runs it; it is kept out of the script so it is tested.
  */
 
 const NOTHING: LeagueSeasonData = { teams: [], matchups: [], logs: {} };
@@ -98,12 +105,18 @@ export type CopyPublish =
        * nothing is published; the next run publishes. `copy-replaced`: the copy was deleted and
        * started again by the time the boards were to be committed, so they are another copy's;
        * publishing them would replace the fresh copy's, since two copies have no order.
+       * `league-moved`: a season's document changed by the time the boards were to be committed,
+       * so they would put older scores over boards a rebuild since may have published with the
+       * new ones; that change asks for its own rebuild. `newer-league`, `league-unreadable`: a
+       * season's document this build cannot read (`readCloudLeague`), or the copy's part.
        */
       reason:
         | "locale"
         | "league-unreadable"
+        | "newer-league"
         | "copy-moved"
         | "copy-replaced"
+        | "league-moved"
         | Exclude<Extract<PublishResult, { ok: false }>["reason"], "not-current">;
     };
 
@@ -114,10 +127,13 @@ export type CopyPublish =
  *
  * It refuses under any collation but English, the one the members' browsers sort ties by, rather
  * than publish boards whose tied rows sit in another order than the page would put them. The
- * League Standings seasons come from the copy itself, read from `copyStore`: a pull never touches
- * them, so a dry run's would-be copy still names the copy's own pieces, unless a device saved them
- * during the run, which deletes the pieces they replace at once. A part that cannot be read is put
- * down to that when the copy no longer names it, and to damage only when it still does.
+ * League Standings seasons are their documents' (`leagueDocs`), read once, unless the caller read
+ * them (`league`), and read again before each commit, which a change since turns away
+ * (`league-moved`). With no document, they come from the copy itself, read from `copyStore`: a
+ * pull never touches them, so a dry run's would-be copy still names the copy's own pieces, unless
+ * a device saved them during the run, which deletes the pieces they replace at once. A part that
+ * cannot be read is put down to that when the copy no longer names it, and to damage only when it
+ * still does.
  */
 export const publishCopyViews = async ({
   copyStore,
@@ -126,6 +142,8 @@ export const publishCopyViews = async ({
   today,
   now,
   readSeason: seasonsHeld,
+  leagueDocs = NO_LEAGUE_DOCS,
+  league: leagueRead,
   sweep: sweeping = "full",
   locale = boardLocale(),
 }: {
@@ -137,6 +155,10 @@ export const publishCopyViews = async ({
   now: () => string;
   /** The seasons of `manifest`'s own League Standings part, when the caller has read them. */
   readSeason?: SeasonReader;
+  /** The seasons' documents (`league/`); none by default. */
+  leagueDocs?: LeagueDocsList;
+  /** What `leagueDocs` held, when the caller has read them for the same run. */
+  league?: CloudLeague;
   /**
    * `full`, a sweep after the publish, strays and all (the nightly's); `due`, only the retired
    * uploads past their grace, taken out by the publish's own commit when it writes anyway.
@@ -145,21 +167,28 @@ export const publishCopyViews = async ({
   locale?: string;
 }): Promise<CopyPublish> => {
   if (!/^en(-|$)/.test(locale)) return { ok: false, reason: "locale" };
-  const leagueOf = (copy: CloudManifest | null) =>
-    copy?.parts.find((one) => one.key === LEAGUE_PART) ?? null;
-  const ours = leagueOf(manifest);
-  const fetched = seasonsHeld
-    ? null
-    : await fetchValues({ store: copyStore, parts: ours ? [ours] : [] });
-  const readSeason =
-    seasonsHeld ?? (fetched?.ok ? seasonReaderOf(fetched.values.get(LEAGUE_PART)) : null);
-  if (!readSeason) {
-    // By part, not by version: a dry run's would-be copy has a version the store never had.
-    const current = await copyStore.readManifest();
-    const theirs = leagueOf(current);
-    const moved =
-      current?.copy !== manifest.copy || theirs?.id !== ours?.id || theirs?.hash !== ours?.hash;
-    return { ok: false, reason: moved ? "copy-moved" : "league-unreadable" };
+  const league = leagueRead ?? (await readCloudLeague(leagueDocs));
+  if (!league.ok) return { ok: false, reason: league.reason };
+  const leaguePrint = leaguePrintOf(league);
+  let readSeason: SeasonReader | null;
+  if (league.from === "docs") readSeason = league.readSeason;
+  else {
+    const leagueOf = (copy: CloudManifest | null) =>
+      copy?.parts.find((one) => one.key === LEAGUE_PART) ?? null;
+    const ours = leagueOf(manifest);
+    const fetched = seasonsHeld
+      ? null
+      : await fetchValues({ store: copyStore, parts: ours ? [ours] : [] });
+    readSeason =
+      seasonsHeld ?? (fetched?.ok ? seasonReaderOf(fetched.values.get(LEAGUE_PART)) : null);
+    if (!readSeason) {
+      // By part, not by version: a dry run's would-be copy has a version the store never had.
+      const current = await copyStore.readManifest();
+      const theirs = leagueOf(current);
+      const moved =
+        current?.copy !== manifest.copy || theirs?.id !== ours?.id || theirs?.hash !== ours?.hash;
+      return { ok: false, reason: moved ? "copy-moved" : "league-unreadable" };
+    }
   }
 
   const started = Date.now();
@@ -190,6 +219,8 @@ export const publishCopyViews = async ({
   const pages = livePagesOf(built, latestImportedAt(teams), ageGroups);
   const buildMs = Date.now() - started;
 
+  /** Whether the last look before a commit found the seasons changed since they were read. */
+  let leagueMoved = false;
   const publish = await publishViews({
     store: liveStore,
     views,
@@ -197,20 +228,24 @@ export const publishCopyViews = async ({
     copy: { id: manifest.copy, version: manifest.version },
     today,
     now: now(),
-    // What they were built from, so a rebuild finding the same copy, inputs, day and rules stops.
-    built: { family: BOARD_FAMILY, from: await builtFrom(manifest, today) },
+    // What they were built from, so a rebuild finding the same copy, inputs, seasons, day and
+    // rules stops.
+    built: { family: BOARD_FAMILY, from: await builtFrom(manifest, today, leaguePrint) },
     // What a device lays the page out by before it reads a board, published with the boards.
     inline: { pages },
     collectDue: sweeping === "due",
     // Read again just before each commit, uploads and retries included: a copy started again
-    // while the boards were built or went up is not theirs.
-    stillCurrent: async () => (await copyStore.readManifest())?.copy === manifest.copy,
+    // while the boards were built or went up is not theirs, and nor are seasons changed since.
+    stillCurrent: async () => {
+      if ((await copyStore.readManifest())?.copy !== manifest.copy) return false;
+      const now = await readCloudLeague(leagueDocs);
+      leagueMoved = !now.ok || leaguePrintOf(now) !== leaguePrint;
+      return !leagueMoved;
+    },
   });
   if (!publish.ok) {
-    return {
-      ok: false,
-      reason: publish.reason === "not-current" ? "copy-replaced" : publish.reason,
-    };
+    if (publish.reason !== "not-current") return { ok: false, reason: publish.reason };
+    return { ok: false, reason: leagueMoved ? "league-moved" : "copy-replaced" };
   }
   // The views are out once the meta is committed; a sweep that fails after says so on its own.
   let sweep: Extract<CopyPublish, { ok: true }>["sweep"];

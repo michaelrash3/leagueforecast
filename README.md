@@ -3265,8 +3265,9 @@ What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 device. Six are kept, for 30 days at most.
 
 Then it publishes every board for members to read ("Views a server
-publishes"): built from the pool it holds and the copy's own League Standings,
-under the copy and version it saved, then a sweep of what readers can no longer
+publishes"): built from the pool it holds and the League Standings seasons (from
+their own documents once there are any, "League Standings in the cloud"), under
+the copy and version it saved, then a sweep of what readers can no longer
 be fetching (`publishCopyViews`). It publishes only when the pool it holds is a
 copy, the one it saved or, with nothing to save or nothing due, the one it read;
 never after a run that ended without one, whose filing no copy has. The seasons
@@ -3593,13 +3594,14 @@ Two more rules keep a slower or older server from undoing what a newer one
 published. A publish for an earlier members' day than the meta's writes nothing,
 whatever its version: it was built for a day that has passed. And each family of
 views records what it was last built from (`built`): the copy and its version, a
-fingerprint of the stored values the family reads, the day, and the version of
-the rules that make the views. A publish under older rules than that record
+fingerprint of the stored values the family reads, one of the League Standings
+seasons when they came from their own documents (`league`, below), the day, and
+the version of the rules that make the views. A publish under older rules than that record
 writes nothing, so code left running after a failed deploy cannot write over
 newer boards (the version only ever goes up, a change undone included); and a
 server that finds the record matching the copy at this very version, its inputs,
-the day and its own rules knows the boards are current without building them
-(`boardsState`). A later version with the same inputs is built again all the
+the seasons, the day and its own rules knows the boards are current without
+building them (`boardsState`). A later version with the same inputs is built again all the
 same, at no upload's cost, so the copy's mark moves and a slower build of a
 version in between cannot publish over it. Where a publish writes a family's
 views but cannot vouch for them all (a late one, or one that does not say what
@@ -4429,6 +4431,33 @@ here is gone from every device at once. A delete runs as a transaction, which
 reads the season first, so it fails at once offline rather than waiting there
 to land later, and the season is gone from the list here only once it is gone
 from the cloud.
+
+**On the server.** The boards are built with the seasons' documents once there are
+any (`cloudLeague.ts`): the nightly's publish, each rebuild, and the edit
+function's questions that refit a year (a what-if, the model check) all list
+`league/` and read each season as a device does (`docToSeason`), so a season
+reads the same to the boards as it did from the copy's part, to the record
+(`cloudLeague.test.ts` holds every season of the seeded fixture to it). Until
+some device has gone live there are no documents, and the copy's part is League
+as before. Once there are, the part is never read beside them: a device with
+League live leaves the part alone, so it keeps a season deleted since, which
+read beside the documents would come back. A document of a later layout than
+the build reads (`newer-league`) or one that is not a season's stops the read,
+as a part that cannot be read does.
+
+What the boards read of a season is its teams, games and scores, so the record
+of what they were built from carries a fingerprint of exactly that, every
+season's by its id, in id order (`league`, beside the copy's `inputs`). A score
+saved on a phone leaves the copy as it was and still makes the boards stale, so
+a rebuild publishes them again at the copy's own version; a season renamed, or a
+setting changed, which no board reads, does not. The documents are read once for
+a run and again just before each commit of the meta: a season changed between
+the two would otherwise let a slow build put older scores over boards a rebuild
+since had published with the new ones, so the publish takes its uploads back and
+says the seasons moved (`league-moved`), which turns no night red, and the
+change's own rebuild publishes it. A listing reads each season, a few reads for
+a handful of seasons of 10 to 70 KB each, beside the three reads a rebuild
+already makes before deciding to run.
 
 **On a device.** A member turns it on in the Cloud panel, **Keep League
 Standings live**, per device and off until turned on. Turn it on on every device

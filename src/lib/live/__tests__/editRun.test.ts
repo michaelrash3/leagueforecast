@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { poolFixture } from "../../../../scripts/poolFixture";
 import { memoryCloud, type MemoryCloud } from "../../cloud/__tests__/memoryCloud";
 import { commitChanges, fetchValues, type CloudStore } from "../../cloud/cloudEngine";
 import type { CloudManifest } from "../../cloud/cloudManifest";
@@ -24,10 +25,13 @@ import {
   saveScoutGames,
   saveScoutTeams,
 } from "../../teamRankingsStorage";
+import { NO_LEAGUE_DOCS } from "../cloudLeague";
+import { LEAGUE_DOC_SCHEMA } from "../leagueDocs";
 import { EDIT_DEVICE, runEdit, runQuery } from "../editRun";
 import type { PoolQuery } from "../queries";
 import { runRebuild } from "../rebuild";
 import { createEditPool, type EditPool } from "../poolCache";
+import { docsOf, listing, seasonsOf } from "./leagueDocsFixture";
 import { memoryLive } from "./memoryLive";
 
 /*
@@ -360,6 +364,7 @@ describe("a question about the cloud copy", () => {
     runQuery({
       pool: cache,
       store,
+      leagueDocs: NO_LEAGUE_DOCS,
       query: { kind: "rename.preview", teamId: "A", name: "Club Z" },
       ...(copy ? { copy } : {}),
     });
@@ -427,6 +432,7 @@ describe("the boards after an edit", () => {
       copyStore: cloud.store,
       liveStore: live.store,
       pool: cache,
+      leagueDocs: NO_LEAGUE_DOCS,
       today: () => "2026-10-04",
       now: () => NOW,
       locale: "en-US",
@@ -667,23 +673,33 @@ describe("League Standings in the copy", () => {
     };
     const cache = editPool();
     // With no part, as a copy that never held League Standings: nothing to read.
-    expect(await runQuery({ pool: cache, store, query: WHAT_IF })).toMatchObject({
+    expect(
+      await runQuery({ pool: cache, store, leagueDocs: NO_LEAGUE_DOCS, query: WHAT_IF })
+    ).toMatchObject({
       ok: true,
       answer: { kind: "scouting.whatIf" },
     });
     await saveLeague(cloud, { seasons: [] });
     const warm = read.length;
     // Not for a question that refits nothing.
-    expect(await runQuery({ pool: cache, store, query: RENAME })).toMatchObject({ ok: true });
+    expect(
+      await runQuery({ pool: cache, store, leagueDocs: NO_LEAGUE_DOCS, query: RENAME })
+    ).toMatchObject({ ok: true });
     expect(read).toHaveLength(warm);
-    expect(await runQuery({ pool: cache, store, query: WHAT_IF })).toMatchObject({ ok: true });
+    expect(
+      await runQuery({ pool: cache, store, leagueDocs: NO_LEAGUE_DOCS, query: WHAT_IF })
+    ).toMatchObject({ ok: true });
     const once = read.length;
     expect(once).toBeGreaterThan(warm);
-    expect(await runQuery({ pool: cache, store, query: WHAT_IF })).toMatchObject({ ok: true });
+    expect(
+      await runQuery({ pool: cache, store, leagueDocs: NO_LEAGUE_DOCS, query: WHAT_IF })
+    ).toMatchObject({ ok: true });
     expect(read).toHaveLength(once);
     // A new version of the part is read again.
     await saveLeague(cloud, { seasons: [], kept: 1 });
-    expect(await runQuery({ pool: cache, store, query: WHAT_IF })).toMatchObject({ ok: true });
+    expect(
+      await runQuery({ pool: cache, store, leagueDocs: NO_LEAGUE_DOCS, query: WHAT_IF })
+    ).toMatchObject({ ok: true });
     expect(read.length).toBeGreaterThan(once);
   });
 
@@ -692,13 +708,59 @@ describe("League Standings in the copy", () => {
     await saveLeague(cloud, "not a league");
     const cache = editPool();
     for (const query of [WHAT_IF, MODEL_CHECK])
-      expect(await runQuery({ pool: cache, store: cloud.store, query })).toEqual({
+      expect(
+        await runQuery({ pool: cache, store: cloud.store, leagueDocs: NO_LEAGUE_DOCS, query })
+      ).toEqual({
         ok: false,
         why: "league-unreadable",
       });
-    expect(await runQuery({ pool: cache, store: cloud.store, query: RENAME })).toMatchObject({
+    expect(
+      await runQuery({ pool: cache, store: cloud.store, leagueDocs: NO_LEAGUE_DOCS, query: RENAME })
+    ).toMatchObject({
       ok: true,
     });
+  });
+
+  it("is the seasons' documents' once there are any, listed for each question, and never the copy's part", async () => {
+    const cloud = await copyOfPool();
+    // A part no browser would take in: read, it would refuse the question.
+    await saveLeague(cloud, "not a league");
+    const docs = docsOf(seasonsOf(poolFixture({ seed: 7, clubsPerPage: 10 }).seasons));
+    let listed = 0;
+    const leagueDocs = async () => {
+      listed += 1;
+      return docs;
+    };
+    const cache = editPool();
+    for (const query of [WHAT_IF, MODEL_CHECK, WHAT_IF]) {
+      expect(await runQuery({ pool: cache, store: cloud.store, leagueDocs, query })).toMatchObject({
+        ok: true,
+      });
+    }
+    expect(listed).toBe(3);
+    // Not for a question that refits nothing.
+    await runQuery({ pool: cache, store: cloud.store, leagueDocs, query: RENAME });
+    expect(listed).toBe(3);
+    // A season a newer build saved, and a listing that fails: refused, not thrown out of.
+    const [first, ...rest] = docs;
+    if (!first) throw new Error("no documents");
+    const newer = { ...first, fields: { ...first.fields, schema: LEAGUE_DOC_SCHEMA + 1 } };
+    expect(
+      await runQuery({
+        pool: cache,
+        store: cloud.store,
+        leagueDocs: listing([...rest, newer]),
+        query: MODEL_CHECK,
+      })
+    ).toEqual({ ok: false, why: "newer-league" });
+    expect(
+      await runQuery({
+        pool: cache,
+        store: cloud.store,
+        leagueDocs: () => Promise.reject(new Error("unavailable")),
+        query: MODEL_CHECK,
+      })
+    ).toEqual({ ok: false, why: "store-refused" });
   });
 
   it("says why the part could not be had, and is refused rather than thrown when the store fails", async () => {
@@ -712,7 +774,14 @@ describe("League Standings in the copy", () => {
       ...cloud.store,
       getChunk: (id) => (ofLeague(id) ? Promise.resolve(null) : cloud.store.getChunk(id)),
     };
-    expect(await runQuery({ pool: editPool(), store: gone, query: MODEL_CHECK })).toEqual({
+    expect(
+      await runQuery({
+        pool: editPool(),
+        store: gone,
+        leagueDocs: NO_LEAGUE_DOCS,
+        query: MODEL_CHECK,
+      })
+    ).toEqual({
       ok: false,
       why: "damaged",
     });
@@ -744,12 +813,26 @@ describe("League Standings in the copy", () => {
         }
       );
     });
-    expect(await runQuery({ pool: editPool(), store: replaced, query: MODEL_CHECK })).toEqual({
+    expect(
+      await runQuery({
+        pool: editPool(),
+        store: replaced,
+        leagueDocs: NO_LEAGUE_DOCS,
+        query: MODEL_CHECK,
+      })
+    ).toEqual({
       ok: false,
       why: "kept-moving",
     });
     const unread = goneThen(() => Promise.reject(new Error("unavailable")));
-    expect(await runQuery({ pool: editPool(), store: unread, query: MODEL_CHECK })).toEqual({
+    expect(
+      await runQuery({
+        pool: editPool(),
+        store: unread,
+        leagueDocs: NO_LEAGUE_DOCS,
+        query: MODEL_CHECK,
+      })
+    ).toEqual({
       ok: false,
       why: "store-refused",
     });
@@ -759,7 +842,14 @@ describe("League Standings in the copy", () => {
       getChunk: (id) =>
         ofLeague(id) ? Promise.reject(new Error("unavailable")) : cloud.store.getChunk(id),
     };
-    expect(await runQuery({ pool: editPool(), store: failing, query: MODEL_CHECK })).toEqual({
+    expect(
+      await runQuery({
+        pool: editPool(),
+        store: failing,
+        leagueDocs: NO_LEAGUE_DOCS,
+        query: MODEL_CHECK,
+      })
+    ).toEqual({
       ok: false,
       why: "store-refused",
     });

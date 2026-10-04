@@ -17,6 +17,7 @@ import {
   firestoreRestLive,
   firestoreRestStore,
 } from "../src/lib/cloud/firestoreRest.ts";
+import { restLeagueDocs, type LeagueDocsList } from "../src/lib/live/cloudLeague.ts";
 import { REBUILD_LEDGER_PATH } from "../src/lib/live/rebuildLedger.ts";
 import type { LiveStore } from "../src/lib/live/viewStore.ts";
 import { loadPoolFrom, type LoadedCopy } from "../src/lib/cloud/cloudRunner.ts";
@@ -97,13 +98,20 @@ export const openCloudStore = (keyJson: string, writable: boolean): CloudStore =
 export const openStores = (
   keyJson: string,
   writable: boolean
-): { copy: CloudStore; live: LiveStore; readLedger: () => Promise<unknown> } => {
+): {
+  copy: CloudStore;
+  live: LiveStore;
+  leagueDocs: LeagueDocsList;
+  readLedger: () => Promise<unknown>;
+} => {
   const account = accountOf(keyJson);
   const access = { projectId: account.project_id, token: tokens(account), writable };
   const docs = firestoreRestDocuments(access);
   return {
     copy: firestoreRestStore(access),
     live: firestoreRestLive(access),
+    // Read only, whatever the stores are opened for: nothing here writes a season.
+    leagueDocs: restLeagueDocs(docs),
     readLedger: () => docs.read(REBUILD_LEDGER_PATH),
   };
 };

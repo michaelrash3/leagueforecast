@@ -218,6 +218,7 @@ describe("what the person is told", () => {
       "unknown-key",
       "damaged",
       "league-unreadable",
+      "newer-league",
       "store-refused",
       "kept-moving",
       "day-spent",

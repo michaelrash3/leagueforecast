@@ -303,6 +303,20 @@ describe("where the published boards stand against a copy", () => {
     );
   });
 
+  it("are current only when built from the same League Standings seasons, whether documents or the copy's part", async () => {
+    // Built from the copy's part: no fingerprint of their own, which the copy's inputs cover.
+    expect(await builtFrom(copy, "2027-04-15")).not.toHaveProperty("league");
+    expect(await boardsState(await metaWith(), copy, "2027-04-15", "")).toBe("current");
+    expect(await boardsState(await metaWith(), copy, "2027-04-15", "l1")).toBe("stale");
+    // Built from the seasons' documents: current only for those very seasons.
+    const fromDocs = await builtFrom(copy, "2027-04-15", "l1");
+    expect(fromDocs.league).toBe("l1");
+    const meta = await metaWith({ league: "l1" });
+    expect(await boardsState(meta, copy, "2027-04-15", "l1")).toBe("current");
+    expect(await boardsState(meta, copy, "2027-04-15", "l2")).toBe("stale");
+    expect(await boardsState(meta, copy, "2027-04-15", "")).toBe("stale");
+  });
+
   it("are another build's to leave when newer rules built them, and a passed day's when built later", async () => {
     expect(await boardsState(await metaWith({ rules: BOARD_RULES + 1 }), copy, "2027-04-15")).toBe(
       "older-rules"

@@ -34,6 +34,7 @@ import { memoryIo } from "../src/lib/cloud/cloudRunner.ts";
 import { CLEARABLE_RULES } from "../src/lib/agelessTriage.ts";
 import { isBoardInput } from "../src/lib/live/boardInputs.ts";
 import type { PoolCommand } from "../src/lib/live/commands.ts";
+import { NO_LEAGUE_DOCS } from "../src/lib/live/cloudLeague.ts";
 import { runEdit, runQuery } from "../src/lib/live/editRun.ts";
 import type { PoolQuery } from "../src/lib/live/queries.ts";
 import { coerceQueryAnswer } from "../src/lib/live/queryAnswers.ts";
@@ -425,7 +426,8 @@ const main = async () => {
   ];
   for (const query of questions) {
     started = performance.now();
-    const asked = await runQuery({ pool, store: cloud.store, query });
+    // League Standings as the copy file holds it: there are no seasons' documents here.
+    const asked = await runQuery({ pool, store: cloud.store, leagueDocs: NO_LEAGUE_DOCS, query });
     const sent = asked.ok ? JSON.stringify(asked.answer) : "";
     print({
       step: "question",
@@ -467,6 +469,7 @@ const main = async () => {
       copyStore: cloud.store,
       liveStore: live.store,
       pool,
+      leagueDocs: NO_LEAGUE_DOCS,
       today: () => today,
       now: () => at,
       locale: "en-US",

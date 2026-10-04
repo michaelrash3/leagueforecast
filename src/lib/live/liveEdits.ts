@@ -113,6 +113,7 @@ export const QUERY_REFUSED: Record<QueryRefusal, string> = {
   "unknown-key": "A newer version of the app saved the cloud copy. Reload the page.",
   damaged: "The cloud copy could not be read just now.",
   "league-unreadable": "The cloud copy could not be read just now.",
+  "newer-league": "A newer version of the app saved a League Standings season. Reload the page.",
   "store-refused": "The cloud would not answer just now. Try again in a minute.",
   "kept-moving": "The cloud copy kept changing. Try again in a minute.",
   "day-spent":

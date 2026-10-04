@@ -13,6 +13,7 @@ import type { PoolCommand } from "./commands";
 import type { EditPool, PoolEnsure } from "./poolCache";
 import { asksLeague, answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
 import type { SeasonReader } from "./allKnown";
+import { readCloudLeague, type CloudLeague, type LeagueDocsList } from "./cloudLeague";
 import { seasonReaderOf } from "./publishCopy";
 import { EDIT_DEVICE } from "./rebuildPlan";
 import { runPoolCommand } from "./runPoolCommand";
@@ -178,7 +179,11 @@ export const runEdit = async ({
  * `month-spent`, said by `handleQuery` before the question reaches the pool).
  */
 export type QueryRefusal =
-  "copy-replaced" | "day-spent" | "month-spent" | Extract<PoolEnsure, { ok: false }>["reason"];
+  | "copy-replaced"
+  | "day-spent"
+  | "month-spent"
+  | "newer-league"
+  | Extract<PoolEnsure, { ok: false }>["reason"];
 
 export type QueryRun =
   | {
@@ -199,14 +204,24 @@ export type QueryRun =
 let leagueRead: { id: string; hash: string; seasons: SeasonReader } | null = null;
 
 /**
- * The League Standings seasons of `manifest`, which the boards are built with (`seasonReaderOf`):
- * read once for each version of the part, since an edit's pool leaves League out (no command reads
- * it) and only a question that refits a year needs it; or why they could not be read.
+ * The League Standings seasons the boards are built with (`readCloudLeague`): their documents', read
+ * afresh for each question, or with none, those of `manifest`'s part (`seasonReaderOf`), read once
+ * for each version of it, since an edit's pool leaves League out (no command reads it) and only a
+ * question that refits a year needs it; or why they could not be read.
  */
 const leagueOf = async (
   store: CloudStore,
-  manifest: CloudManifest
+  manifest: CloudManifest,
+  leagueDocs: LeagueDocsList
 ): Promise<SeasonReader | QueryRefusal> => {
+  let league: CloudLeague;
+  try {
+    league = await readCloudLeague(leagueDocs);
+  } catch {
+    return "store-refused";
+  }
+  if (!league.ok) return league.reason;
+  if (league.from === "docs") return league.readSeason;
   const part = manifest.parts.find(({ key }) => key === LEAGUE_PART);
   if (!part) return seasonReaderOf(undefined) ?? "league-unreadable";
   const held = leagueRead;
@@ -246,12 +261,15 @@ const leagueOf = async (
 export const runQuery = async ({
   pool,
   store,
+  leagueDocs,
   query,
   copy,
   clock = () => performance.now(),
 }: {
   pool: EditPool;
   store: CloudStore;
+  /** The League Standings seasons' documents (`league/`), read only. */
+  leagueDocs: LeagueDocsList;
   query: PoolQuery;
   copy?: string;
   clock?: () => number;
@@ -264,7 +282,9 @@ export const runQuery = async ({
     return { ok: false, why: "copy-replaced" };
   }
   const answering = clock();
-  const seasons = asksLeague(query) ? await leagueOf(store, ensured.manifest) : undefined;
+  const seasons = asksLeague(query)
+    ? await leagueOf(store, ensured.manifest, leagueDocs)
+    : undefined;
   if (typeof seasons === "string") return { ok: false, why: seasons };
   const answer = answerQuery(query, seasons);
   return {

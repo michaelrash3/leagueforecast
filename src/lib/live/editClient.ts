@@ -159,6 +159,7 @@ const QUERY_REFUSALS: Record<QueryRefusal, true> = {
   "copy-replaced": true,
   "day-spent": true,
   "month-spent": true,
+  "newer-league": true,
 };
 
 /** Why an edit was not made, each named once. */
