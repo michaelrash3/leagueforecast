@@ -274,8 +274,9 @@ export const buildBoardsAndFacts = ({
       return ranks;
     };
     const lastWeek = { asOf: daysBefore(today), ranks: ranksOn(daysBefore(today)) };
+    // A page that names no club of its own, the empty id a restore can leave included, has no line.
     const teamId = page?.myTeamId;
-    if (teamId === undefined) return { pageId, half, rows, past: lastWeek };
+    if (!teamId) return { pageId, half, rows, past: lastWeek };
 
     /*
      * The page's own club's rank line, walked with the page's own step (`rankLineStep`): a week

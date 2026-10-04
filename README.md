@@ -3501,7 +3501,12 @@ back through JSON and its check in 137 ms (Node, unthrottled, median of five). T
 backup holds no held ids, and coaches' names are about a third of it (an earlier
 encoding came to 2.4 MB gzipped without them). It is read only when somebody goes
 to search, and kept by fingerprint like a board. The lists read the copy's lists of
-held ids, so their keys are board inputs now.
+held ids, so their keys are board inputs now. A save is judged by each key's hash,
+not by what in it a view reads, so a save that changes only a waiting club's
+bookkeeping (when it was last tried, and how often) asks for a rebuild that
+publishes the same views: a run's cost and a rewritten meta, for nothing. A pull
+that files anything saves teams or games too, which rebuild anyway; how often a
+save touches the waiting list alone has not been measured.
 
 `searchParity.test.ts` holds every year's list, read back through JSON and its own
 check, to the page's own search on the seeded fixture, with coaches on a club and an
