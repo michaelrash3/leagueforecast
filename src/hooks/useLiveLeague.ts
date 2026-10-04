@@ -48,6 +48,11 @@ export type LiveLeagueOptions = {
   onSeasonsAdded: () => void;
   /** Writes a season's data to this device's storage at once (`writeSeasonData`). */
   persist: (id: string, parts: SeasonParts) => void;
+  /**
+   * Gives a season in the list the cloud's creation time, once it has taken the cloud's season in
+   * whole (`adoptSeasonCreatedAt`), and has the list read again.
+   */
+  adopt: (id: string, createdAt: string) => void;
   /** Where the seasons are; the signed-in member's, by default. */
   open?: () => Promise<LeagueStore | null>;
   bases?: BaseKeeper;
@@ -57,7 +62,10 @@ export type LiveLeague = {
   state: LiveLeagueState;
   /** What an undo taken at `takenAt` puts back while live, or null when not live. */
   guardUndo: (target: UndoTarget, takenAt: number) => SeasonParts | null;
-  /** Deletes the season's document while live; false when there is none to delete it from. */
+  /**
+   * Deletes the season's document, if it is this device's season and not another of the same id;
+   * false when there is no cloud to delete it from.
+   */
   removeSeason: (id: string) => Promise<boolean>;
 };
 
@@ -74,15 +82,16 @@ export function useLiveLeague({
   local,
   onSeasonsAdded,
   persist,
+  adopt,
   open = leagueStore,
   bases = storedBases,
 }: LiveLeagueOptions): LiveLeague {
   const [state, setState] = useState<LiveLeagueState>(OFF);
   const sync = useRef<LeagueSync | null>(null);
   const store = useRef<LeagueStore | null>(null);
-  const latest = useRef({ entryOf, local, onSeasonsAdded, persist });
+  const latest = useRef({ entryOf, local, onSeasonsAdded, persist, adopt });
   useEffect(() => {
-    latest.current = { entryOf, local, onSeasonsAdded, persist };
+    latest.current = { entryOf, local, onSeasonsAdded, persist, adopt };
   });
 
   useEffect(() => {
@@ -103,6 +112,7 @@ export function useLiveLeague({
           entryOf: (id) => latest.current.entryOf(id),
           bases,
           persist: (id, parts) => latest.current.persist(id, parts),
+          adopt: (id, createdAt) => latest.current.adopt(id, createdAt),
           editing: () => isTyping(document.activeElement),
           onState: (next) => {
             if (!cancelled) setState(next);
@@ -158,7 +168,9 @@ export function useLiveLeague({
     async (id: string) => {
       const found = store.current;
       if (!found) return false;
-      await found.remove(seasonDocId(id));
+      // Another season under this id, kept apart from this one, is left in the cloud: deleting
+      // this device's season deletes it here alone.
+      await found.remove(seasonDocId(id), latest.current.entryOf(id)?.createdAt ?? "");
       bases.remove(seasonDocId(id));
       return true;
     },

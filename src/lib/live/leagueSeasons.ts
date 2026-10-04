@@ -1,6 +1,6 @@
 import type { SeasonMeta, SeasonSnapshot } from "../storage";
 import type { BaseKeeper } from "./leagueBase";
-import { decodeKey, docToSeason, seasonDocId, seasonToDoc } from "./leagueDocs";
+import { createdApart, decodeKey, docToSeason, seasonDocId, seasonToDoc } from "./leagueDocs";
 import type { LeagueStore } from "./leagueStore";
 
 /**
@@ -84,7 +84,7 @@ export const meetSeasons = async ({
     const known = bases.read(docId);
     // Met before and gone from the cloud since: deleted elsewhere. A base kept for a season made
     // at another moment is a deleted season's whose id this one reuses, and says nothing of it.
-    if (known && known.season.createdAt === entry.createdAt) {
+    if (known && !createdApart(known.season.createdAt, entry.createdAt)) {
       met.gone.push(entry.id);
       continue;
     }

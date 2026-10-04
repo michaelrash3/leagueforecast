@@ -4215,8 +4215,11 @@ devices that have it on. With it on:
   on screen the moment it arrives, unsent edits included, except while a text
   box is being typed in and the change would alter what is on screen: then it
   waits until the page lets go, so nothing changes under the cursor. A select is
-  not typed in, and holds nothing back. A listener that fails is started again
-  after 2 s, the page read-only and saying it is offline meanwhile.
+  not typed in, and holds nothing back. A version heard while this device's own
+  write is out waits until the write has said what number it landed as, so the
+  write is never taken for another device's change and a change made on screen
+  meanwhile is not undone. A listener that fails is started again after 2 s, the
+  page read-only and saying it is offline meanwhile.
 - **The base** a merge works from is the document as this device last took it
   in, with the write it was at, and this device's own writes that have landed
   since, each with the write number it landed as (`leagueBase.ts`). An arrival
@@ -4230,7 +4233,9 @@ devices that have it on. With it on:
   season it was kept for, one made at the same moment; a season made since under
   a deleted season's id is a season of its own. With no base, the first meeting
   keeps everything either side holds, the cloud's record winning where both hold
-  one.
+  one; a season here that held nothing takes the cloud's in whole and from then on
+  carries its creation time (`adoptSeasonCreatedAt`), so the next visit knows it
+  for the same season.
 - **Undo** puts back only what no other device has changed since the step
   (`guardedUndo`): undoing a deleted game here does not take back a score
   entered there since.
@@ -4240,13 +4245,16 @@ devices that have it on. With it on:
   app wrote, one deleted on another device, one the rules refuse this account,
   one with a team or game id too long to be a key in Firestore, and one that was
   started apart on another device under the same id (every browser's first
-  season is `default`, and a deleted season's id can be made again elsewhere),
-  which is never merged into this one. The controls that only read it stay
+  season is `default`, and a deleted season's id can be made again elsewhere):
+  once this device knows when its season was made, any version made at another
+  moment is another season, and is never merged into this one. The controls that only read it stay
   usable: a team's stats, the filters, the exports, the season switcher, and
   making a new season to carry on in (`EditLock`). The lock is on the season
   itself as well (`seasonStore.ts`): an edit that comes from outside the page's
   controls, a shared link, the command palette, a toast's Undo, is refused, with
-  the same reason.
+  the same reason, and before it does anything else: an Undo puts back none of
+  its step rather than the pool alone, and keeps it; a shared link is asked about
+  only once the season may be written, and kept until then.
 - **The season list** is met with the cloud's once a visit (`leagueSeasons.ts`):
   a season made on another device comes down whole; one only this device holds
   goes up, which is how the seasons a device kept in the cloud copy become
@@ -4254,7 +4262,10 @@ devices that have it on. With it on:
   cloud no longer has was deleted elsewhere, and is not sent back. A season
   brought down comes with its base, so the same holds for it. Deleting a season
   deletes its document first, which only the owner may, and which needs the
-  cloud: a member, or a device offline, is told so, and nothing is deleted. A
+  cloud to answer: a member, or a device offline, is told so, and nothing is
+  deleted. The document is deleted only if it is this device's season, made at the
+  same moment; another season under the id, kept apart from this one, is left in
+  the cloud, and this device's is deleted here alone. A
   season deleted before some other device has first gone live comes back from
   that device, which has no base to tell a deletion from a season the cloud has
   not seen; this is the other reason to turn it on everywhere together.

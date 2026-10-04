@@ -1,5 +1,11 @@
-import { applyChanges, type LeagueDocChange } from "../leagueDocs";
-import type { LeagueHeard, LeagueRemote, LeagueStore, LeagueWrite } from "../leagueStore";
+import { applyChanges, createdApart, type LeagueDocChange } from "../leagueDocs";
+import {
+  madeAt,
+  type LeagueHeard,
+  type LeagueRemote,
+  type LeagueStore,
+  type LeagueWrite,
+} from "../leagueStore";
 
 /**
  * League seasons in memory, behaving as Firestore does where the live store leans on it: a
@@ -95,11 +101,15 @@ export const memoryLeague = () => {
         data: structuredClone(docs.get(docId)),
       }));
     },
-    remove: async (docId) => {
+    remove: async (docId, createdAt) => {
       if (!online) throw Object.assign(new Error("offline"), { code: "unavailable" });
+      const data = docs.get(docId);
+      if (!data) return "absent";
+      if (createdApart(madeAt(data) ?? "", createdAt)) return "other";
       docs.delete(docId);
       bump(docId);
       tell(docId);
+      return "deleted";
     },
   };
 

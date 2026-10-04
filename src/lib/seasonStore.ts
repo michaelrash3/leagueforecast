@@ -34,6 +34,12 @@ export type SeasonStore = {
    * every way an edit comes in is shut, not only the controls on the page.
    */
   lock: (why: string | null) => void;
+  /**
+   * Why the page's edits are locked out, or null. For a change that does more than edit the season
+   * (takes an undo step, writes the pool, says it is done) to ask before any of it, rather than
+   * do the rest and have only its season edit refused.
+   */
+  locked: () => string | null;
   /** Hears each edit refused while locked, with the reason. */
   onRefused: (listener: ((why: string) => void) | null) => void;
   subscribe: (listener: () => void) => () => void;
@@ -63,6 +69,7 @@ export const createSeasonStore = (initial: OpenSeason): SeasonStore => {
     lock: (why) => {
       locked = why;
     },
+    locked: () => locked,
     onRefused: (listener) => {
       refused = listener;
     },

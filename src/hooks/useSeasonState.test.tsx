@@ -169,6 +169,16 @@ describe("the open season locked against the page's edits", () => {
     expect(result.current.season).toBe(START);
   });
 
+  it("says why it is locked, for a change that does more than edit the season to ask first", () => {
+    const { result } = renderHook(() => useSeasonState(() => ({ id: "s1", season: START })));
+    const { store } = result.current;
+    expect(store.locked()).toBeNull();
+    store.lock("Offline.");
+    expect(store.locked()).toBe("Offline.");
+    store.lock(null);
+    expect(store.locked()).toBeNull();
+  });
+
   it("takes the page's edits again once unlocked", () => {
     const { result } = renderHook(() => useSeasonState(() => ({ id: "s1", season: START })));
     const { store } = result.current;

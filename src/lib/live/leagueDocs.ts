@@ -366,4 +366,10 @@ export const storableSeason = (season: SeasonSnapshot): boolean => {
   );
 };
 
+/**
+ * Whether two creation times are two seasons: both known, and not the same moment. A time left
+ * blank (a season from before times were kept) says nothing either way.
+ */
+export const createdApart = (a: string, b: string): boolean => a !== "" && b !== "" && a !== b;
+
 export { isRecord };

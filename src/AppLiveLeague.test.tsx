@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { editingOffBecause } from "./components/league/LiveLeagueBanner";
 import type { LiveLeagueState } from "./lib/live/leagueSync";
 import { buildShareUrl } from "./lib/share";
-import { loadTeams, saveMatchups, saveTeams } from "./lib/storage";
+import { writeLiveLeague } from "./lib/preferences";
+import { createSeason, listSeasons, loadTeams, saveMatchups, saveTeams } from "./lib/storage";
 import { DEFAULT_SETTINGS } from "./lib/types";
 
 /*
@@ -111,8 +111,8 @@ describe("League Standings kept live, on the page", () => {
     ).toBeEnabled();
   });
 
-  it("refuses a shared link's season while read-only, saying why, and keeps its own", async () => {
-    live.state = { kind: "offline" };
+  it("asks about a shared link once the season may be written, keeping it until then", async () => {
+    live.state = { kind: "connecting" };
     const shared = {
       v: 1 as const,
       teams: [
@@ -124,13 +124,75 @@ describe("League Standings kept live, on the page", () => {
       settings: { ...DEFAULT_SETTINGS, seasonLabel: "Their League" },
     };
     window.history.replaceState(null, "", buildShareUrl(window.location.href, shared));
-    render(<App />);
+    const view = render(<App />);
+    await screen.findByRole("tab", { name: /schedule/i });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    live.state = { kind: "live" };
+    view.rerender(<App />);
     fireEvent.click(
       within(await screen.findByRole("dialog")).getByRole("button", { name: "Load snapshot" })
     );
-    const why = editingOffBecause({ kind: "offline" }) ?? "";
-    // The banner says it, and so does the refusal, after whatever the link's own word was.
-    await waitFor(() => expect(screen.getAllByText(why)).toHaveLength(2));
+    await waitFor(() => expect(loadTeams().map((team) => team.name)).toEqual(["Xylos", "Yetis"]));
+  });
+
+  it("lets a team be followed while read-only: the pick is this browser's own", async () => {
+    live.state = { kind: "offline" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Dashboard" }));
+    expect(await screen.findByLabelText(/follow a team/i)).toBeEnabled();
+  });
+
+  it("deletes another season while the open one is kept apart, the cloud answering", async () => {
+    writeLiveLeague(true);
+    const fall = createSeason("Fall");
+    live.state = { kind: "apart" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+    const seasonList = await screen.findByRole("region", { name: "Seasons" });
+    const row = within(seasonList).getByText("Fall").closest("li");
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Delete" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete season" })
+    );
+    await waitFor(() => expect(listSeasons().map((season) => season.id)).not.toContain(fall.id));
+  });
+
+  it("refuses a delete while offline, with no cloud to delete it from", async () => {
+    writeLiveLeague(true);
+    const fall = createSeason("Fall");
+    live.state = { kind: "offline" };
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+    const seasonList = await screen.findByRole("region", { name: "Seasons" });
+    const row = within(seasonList).getByText("Fall").closest("li");
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Delete" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete season" })
+    );
+    expect(await screen.findByText(/connect to the cloud/i)).toBeInTheDocument();
+    expect(listSeasons().map((season) => season.id)).toContain(fall.id);
+  });
+
+  it("refuses the demo season from the command palette before it asks anything", async () => {
+    live.state = { kind: "offline" };
+    render(<App />);
+    await screen.findByRole("tab", { name: /schedule/i });
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    fireEvent.click(await screen.findByText("Load demo season"));
+    await waitFor(() => expect(screen.getAllByText(/offline/i).length).toBeGreaterThan(1));
+    expect(screen.queryByText("Load demo season?")).toBeNull();
     expect(loadTeams().map((team) => team.name)).toEqual(["Aces", "Bears"]);
+  });
+
+  it("offers the tour and the blank schedule on an empty season while read-only, and no edits", async () => {
+    saveTeams([]);
+    saveMatchups([]);
+    live.state = { kind: "offline" };
+    render(<App />);
+    expect(await screen.findByRole("button", { name: /take the quick tour/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Blank CSV" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "Load Demo" })[0]).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Create Schedule" })[0]).toBeDisabled();
+    expect(screen.getByLabelText("Import schedule CSV")).toBeDisabled();
   });
 });

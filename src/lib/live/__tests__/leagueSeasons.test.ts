@@ -152,6 +152,25 @@ describe("this device's seasons met with the cloud's", () => {
     expect(cloud.read(seasonDocId("old"))).toBeUndefined();
   });
 
+  it("never sends back a deleted season it met with no creation time of its own", async () => {
+    const cloud = memoryLeague();
+    const bases = basesOf();
+    // A season from before creation times were kept, met in the cloud and deleted there since.
+    bases.write(seasonDocId("old"), {
+      season: { ...season("old"), createdAt: "" },
+      rev: 2,
+      landed: [],
+    });
+    const met = await meetSeasons({
+      store: cloud.store,
+      local: localOf([season("spring"), season("old")]),
+      bases,
+      openId: () => "spring",
+    });
+    expect(met.gone).toEqual(["old"]);
+    expect(cloud.read(seasonDocId("old"))).toBeUndefined();
+  });
+
   it("brings down no season a later version of the app wrote", async () => {
     const cloud = memoryLeague();
     cloud.put(seasonDocId("next"), {

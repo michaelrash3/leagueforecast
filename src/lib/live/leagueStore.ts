@@ -1,5 +1,11 @@
 import type { FullFirestore } from "../cloud/firebaseCloud";
-import { LEAGUE_COLLECTION, type LeagueDoc, type LeagueDocChange } from "./leagueDocs";
+import {
+  createdApart,
+  isRecord,
+  LEAGUE_COLLECTION,
+  type LeagueDoc,
+  type LeagueDocChange,
+} from "./leagueDocs";
 
 /**
  * Where League Standings seasons live for the accounts on the list: a season's document, listened
@@ -19,6 +25,12 @@ export type LeagueHeard = {
   /** The watch has ended: the rules refused it, or the SDK would not load. */
   error: (error: unknown) => void;
 };
+
+/**
+ * What a delete found: the season, now deleted; no season at all; or another season under its id,
+ * made at another moment, which is left alone.
+ */
+export type LeagueRemoved = "deleted" | "absent" | "other";
 
 /** What one write makes of a season's document: the whole of it, or some of its fields. */
 export type LeagueWrite = { create: LeagueDoc } | { changes: readonly LeagueDocChange[] };
@@ -40,11 +52,18 @@ export type LeagueStore = {
   /** Every season in the cloud: a read for each, so asked for once a visit. */
   list: () => Promise<{ docId: string; data: unknown }[]>;
   /**
-   * Deletes a season's document; the rules let only the owner. In a transaction, so it fails
-   * rather than waits with no connection, and no listener hears it before the cloud has agreed.
+   * Deletes a season's document if it is the season made at `createdAt`; the rules let only the
+   * owner. A season kept apart from this device's under the same id (`leagueSync.ts`) is another
+   * device's, and deleting this device's must not delete it. In a transaction, so it reads what it
+   * deletes, fails rather than waits with no connection, and no listener hears it before the cloud
+   * has agreed.
    */
-  remove: (docId: string) => Promise<void>;
+  remove: (docId: string, createdAt: string) => Promise<LeagueRemoved>;
 };
+
+/** When a season's document says its season was made, if it says. */
+export const madeAt = (data: unknown): string | null =>
+  isRecord(data) && typeof data.createdAt === "string" ? data.createdAt : null;
 
 /** The seasons in Firestore, through the full SDK `load` gives: the one that listens. */
 export const firestoreLeague = (load: () => Promise<FullFirestore>): LeagueStore => ({
@@ -101,12 +120,15 @@ export const firestoreLeague = (load: () => Promise<FullFirestore>): LeagueStore
     const snaps = await sdk.getDocs(sdk.collection(db, LEAGUE_COLLECTION));
     return snaps.docs.map((snap) => ({ docId: snap.id, data: snap.data() }));
   },
-  remove: async (docId) => {
+  remove: async (docId, createdAt) => {
     const { sdk, db } = await load();
     const where = sdk.doc(db, LEAGUE_COLLECTION, docId);
-    await sdk.runTransaction(db, async (transaction) => {
-      await transaction.get(where);
+    return sdk.runTransaction(db, async (transaction): Promise<LeagueRemoved> => {
+      const snap = await transaction.get(where);
+      if (!snap.exists()) return "absent";
+      if (createdApart(madeAt(snap.data()) ?? "", createdAt)) return "other";
       transaction.delete(where);
+      return "deleted";
     });
   },
 });

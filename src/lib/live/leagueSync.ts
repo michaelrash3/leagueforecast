@@ -3,6 +3,7 @@ import type { OpenSeason, SeasonStore } from "../seasonStore";
 import type { SeasonSnapshot } from "../storage";
 import type { BaseKeeper, Landed } from "./leagueBase";
 import {
+  createdApart,
   docToSeason,
   readBack,
   sameContent,
@@ -82,6 +83,16 @@ export type LiveLeagueState =
 export const editable = (state: LiveLeagueState): boolean =>
   state.kind === "off" || state.kind === "live";
 
+/**
+ * Whether the cloud is answering in `state`: the season heard from it, whatever it said of the
+ * season. A season may be deleted then, not while connecting, offline, or refused.
+ */
+export const reachable = (state: LiveLeagueState): boolean =>
+  state.kind !== "off" &&
+  state.kind !== "connecting" &&
+  state.kind !== "offline" &&
+  state.kind !== "refused";
+
 export type LeagueSyncOptions = {
   store: LeagueStore;
   seasons: SeasonStore;
@@ -94,6 +105,11 @@ export type LeagueSyncOptions = {
    * on a season missing what the base has, and read that as deleted here.
    */
   persist: (id: string, parts: SeasonParts) => void;
+  /**
+   * Gives a season in this device's list the creation time of the cloud's season it took in whole,
+   * held nothing itself (`adoptSeasonCreatedAt`): from then on it is that season.
+   */
+  adopt?: (id: string, createdAt: string) => void;
   /** Whether a field is being typed in, which an arrival must not change. */
   editing: () => boolean;
   onState: (state: LiveLeagueState) => void;
@@ -138,6 +154,12 @@ type Watch = {
   timer: ReturnType<typeof setTimeout> | null;
   relisten: ReturnType<typeof setTimeout> | null;
   flushing: boolean;
+  /**
+   * The latest version heard while a write was out: taken in once the write has said what it
+   * landed as, since a write heard before it is known to be this device's would be taken for
+   * another device's change, and undo a change made on screen meanwhile.
+   */
+  pending: { remote: LeagueRemote; fromServer: boolean } | null;
   again: boolean;
   failures: number;
   listenFailures: number;
@@ -166,10 +188,23 @@ const keepParts = (prev: SeasonParts, next: SeasonParts): SeasonParts => ({
 
 /** Two seasons given one id (every browser's first is `default`), not one season twice. */
 const startedApart = (local: SeasonSnapshot, theirs: SeasonSnapshot): boolean =>
-  !isEmptySeason(local) &&
-  local.createdAt !== "" &&
-  theirs.createdAt !== "" &&
-  local.createdAt !== theirs.createdAt;
+  !isEmptySeason(local) && createdApart(local.createdAt, theirs.createdAt);
+
+/**
+ * Whether the cloud's version is another season than this device's of the same id. Once this
+ * device knows when its season was made (a base, or the cloud's met this visit), any version made
+ * at another moment is another season: one made elsewhere since under this id, after this one was
+ * deleted there, which laid over this one would take its place. Before that, this device's season
+ * is the cloud's unless both hold something and were made at two moments.
+ */
+const otherSeason = (
+  watch: { createdAt: string | null },
+  local: SeasonSnapshot,
+  theirs: SeasonSnapshot
+): boolean =>
+  watch.createdAt !== null
+    ? createdApart(watch.createdAt, theirs.createdAt)
+    : startedApart(local, theirs);
 
 /** Whether `season` was read from `parts`, part for part. */
 const readFrom = (season: SeasonSnapshot, parts: SeasonParts): boolean =>
@@ -185,6 +220,7 @@ export const startLeagueSync = ({
   entryOf,
   bases,
   persist,
+  adopt,
   editing,
   onState,
   now = () => new Date(),
@@ -304,20 +340,23 @@ export const startLeagueSync = ({
     const theirs = unsaved(read.season);
     const first = !watch.met;
     watch.met = true;
-    watch.createdAt = theirs.createdAt;
-    // Met for the first time this visit: a season made at another moment is another season,
-    // base or none. With a base, it is one made elsewhere since under this one's id, after this
-    // one was deleted there, and laid over this one it would take its place.
-    if (first && startedApart(watch.local, theirs)) {
+    if (otherSeason(watch, watch.local, theirs)) {
       block(watch, "apart");
       return;
+    }
+    if (watch.createdAt === null) {
+      // Met for the first time: this device's season held nothing, or is the cloud's. Either way
+      // it is the cloud's from now on, made when that one was, and its entry says so.
+      watch.createdAt = theirs.createdAt;
+      if (theirs.createdAt !== "" && entryOf(watch.id)?.createdAt !== theirs.createdAt)
+        adopt?.(watch.id, theirs.createdAt);
     }
     tell(watch, { kind: "live" });
     // Nothing past what this device already holds (a version it took in, or one it made), but
     // word from the cloud all the same: what is still owed here goes now, not at the next retry.
     if (read.rev <= watch.baseRev) {
       const known = effective(watch);
-      if (known && !watch.flushing && !sameSeason(watch.local, known)) schedule(watch);
+      if (known && !sameSeason(watch.local, known)) schedule(watch);
       return;
     }
     const mergeBase = effective(watch, read.rev);
@@ -378,7 +417,7 @@ export const startLeagueSync = ({
         const theirs = unsaved(read.season);
         // Made elsewhere a moment before, met here for the first time inside the write; or made
         // elsewhere since under a deleted season's id, before the listener has said so.
-        if (startedApart(local, theirs)) return { write: null, result: { kind: "apart" } };
+        if (otherSeason(watch, local, theirs)) return { write: null, result: { kind: "apart" } };
         const changes = writesFor(theirs, read.rev, layOver(known, local, theirs), savedAt);
         return changes.length > 0
           ? { write: { changes }, result: { kind: "sent", rev: read.rev + 1, changes } }
@@ -409,6 +448,9 @@ export const startLeagueSync = ({
       }
     } finally {
       watch.flushing = false;
+      const pending = watch.pending;
+      watch.pending = null;
+      if (pending) heard(watch, pending.remote, pending.fromServer);
       if (watch.again) {
         watch.again = false;
         void flush(watch);
@@ -420,7 +462,8 @@ export const startLeagueSync = ({
     watch.unwatch = store.watch(watch.docId, {
       next: (remote, fromServer) => {
         watch.listenFailures = 0;
-        heard(watch, remote, fromServer);
+        if (watch.flushing) watch.pending = { remote, fromServer };
+        else heard(watch, remote, fromServer);
       },
       error: (error) => {
         if (watch.ended || stopped || watch.blocked) return;
@@ -451,7 +494,7 @@ export const startLeagueSync = ({
     const stored = bases.read(docId);
     // A base kept for a season deleted since, whose id this one reuses, is not this season's.
     const known =
-      stored && (!entry?.createdAt || stored.season.createdAt === entry.createdAt) ? stored : null;
+      stored && !createdApart(stored.season.createdAt, entry?.createdAt ?? "") ? stored : null;
     if (stored && !known) bases.remove(docId);
     const watch: Watch = {
       id: open.id,
@@ -468,6 +511,7 @@ export const startLeagueSync = ({
       timer: null,
       relisten: null,
       flushing: false,
+      pending: null,
       again: false,
       failures: 0,
       listenFailures: 0,

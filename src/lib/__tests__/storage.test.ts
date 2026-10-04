@@ -3,6 +3,7 @@ import {
   loadSettingsForSeason,
   readSeasonSnapshot,
   addSeasons,
+  adoptSeasonCreatedAt,
   createSeason,
   deleteSeason,
   duplicateSeason,
@@ -296,6 +297,15 @@ describe("multi-season storage", () => {
     expect(readSeasonSnapshot(first.id)?.teams).toEqual([{ id: "A", name: "Aces" }]);
     expect(getActiveSeasonId()).toBe(first.id);
     expect(readSeasonSnapshot("nowhere")).toBeNull();
+  });
+
+  it("gives a season the creation time of the season it has become, and no other", () => {
+    const first = listSeasons()[0]!;
+    expect(adoptSeasonCreatedAt(first.id, "2026-08-01T00:00:00.000Z")).toBe(true);
+    expect(listSeasons()[0]).toMatchObject({ id: first.id, createdAt: "2026-08-01T00:00:00.000Z" });
+    expect(adoptSeasonCreatedAt(first.id, "2026-08-01T00:00:00.000Z")).toBe(false);
+    expect(adoptSeasonCreatedAt("nowhere", "2026-08-01T00:00:00.000Z")).toBe(false);
+    expect(listSeasons()).toHaveLength(1);
   });
 });
 

@@ -67,6 +67,7 @@ const mount = (over: Partial<LiveLeagueOptions> = {}) => {
     local: localOf(),
     onSeasonsAdded: () => added.push(1),
     persist: () => {},
+    adopt: () => {},
     open: async () => cloud.store,
     bases: memoryBases(),
     ...over,
@@ -150,6 +151,36 @@ describe("League kept live on the page", () => {
     expect(bases.held.has(seasonDocId("spring"))).toBe(true);
     expect(await result.current.removeSeason("spring")).toBe(true);
     expect(bases.held.has(seasonDocId("spring"))).toBe(false);
+  });
+
+  it("leaves in the cloud another season of the same id, made at another moment", async () => {
+    const cloud = memoryLeague();
+    const theirs = { ...ENTRY, createdAt: "2026-05-01T00:00:00.000Z", ...PARTS };
+    cloud.put(seasonDocId("spring"), seasonToDoc(theirs));
+    const { result } = mount({ open: async () => cloud.store });
+    await act(settled);
+    expect(result.current.state.kind).toBe("apart");
+    expect(await result.current.removeSeason("spring")).toBe(true);
+    expect(cloud.read(seasonDocId("spring"))).toBeDefined();
+  });
+
+  it("gives the season the cloud's creation time once it has taken the cloud's season in", async () => {
+    const cloud = memoryLeague();
+    const theirs = { ...ENTRY, createdAt: "2026-05-01T00:00:00.000Z", ...PARTS };
+    cloud.put(seasonDocId("spring"), seasonToDoc(theirs));
+    const adopted: [string, string][] = [];
+    const seasons = createSeasonStore({
+      id: "spring",
+      season: { ...PARTS, teams: [], matchups: [] },
+    });
+    const { result } = mount({
+      open: async () => cloud.store,
+      seasons,
+      adopt: (id, createdAt) => adopted.push([id, createdAt]),
+    });
+    await act(settled);
+    expect(result.current.state.kind).toBe("live");
+    expect(adopted).toEqual([["spring", theirs.createdAt]]);
   });
 
   it("keeps the base when the delete does not reach the cloud", async () => {

@@ -24,7 +24,7 @@ import {
   subscribeCloud,
   type CloudStatus,
 } from "./lib/cloud/cloudSession";
-import { editable } from "./lib/live/leagueSync";
+import { editable, reachable } from "./lib/live/leagueSync";
 import type { LocalSeasons } from "./lib/live/leagueSeasons";
 import { readLiveLeague, subscribeLiveLeague } from "./lib/preferences";
 import { useLiveLeague } from "./hooks/useLiveLeague";
@@ -127,6 +127,7 @@ import {
 import { buildTrendStates } from "./lib/trend";
 import {
   addSeasons,
+  adoptSeasonCreatedAt,
   getActiveSeasonId,
   listSeasons,
   loadBracketLogs,
@@ -616,6 +617,13 @@ export default function App() {
   const activeSeasonId = seasons.activeId;
 
   const leagueLiveOn = useSyncExternalStore(subscribeLiveLeague, readLiveLeague, () => false);
+  const refreshSeasons = seasons.refresh;
+  const adoptSeason = useCallback(
+    (id: string, createdAt: string) => {
+      if (adoptSeasonCreatedAt(id, createdAt)) refreshSeasons();
+    },
+    [refreshSeasons]
+  );
   const liveLeague = useLiveLeague({
     enabled: leagueLiveOn && memberSignedIn(cloud),
     seasons: seasonStore,
@@ -624,10 +632,11 @@ export default function App() {
     local: LOCAL_SEASONS,
     onSeasonsAdded: seasons.refresh,
     persist: writeSeasonData,
+    adopt: adoptSeason,
   });
   const leagueEditable = editable(liveLeague.state);
   const { guardUndo, removeSeason } = liveLeague;
-  const leagueLive = liveLeague.state.kind === "live";
+  const leagueReachable = reachable(liveLeague.state);
   /*
    * The lock is on the season itself, not only on the controls on the page: the team drawer, the
    * command palette, a shared link and a toast's Undo all reach the season from outside them, and
@@ -647,10 +656,10 @@ export default function App() {
   useEffect(() => {
     removeLiveSeason.current = async (id) => {
       // A season every device shares goes from the cloud first, or not at all: deleted here
-      // alone, it would come back on the next visit. With League kept live switched on but not
-      // live this moment, there is no cloud to delete it from, and so no deleting it.
+      // alone, it would come back on the next visit. With League kept live switched on and no
+      // word from the cloud this moment, there is no cloud to delete it from, and so no deleting.
       if (!leagueLiveOn) return true;
-      if (!leagueLive) {
+      if (!leagueReachable) {
         showToast("Connect to the cloud to delete a season every device shares.", {
           tone: "error",
         });
@@ -669,7 +678,7 @@ export default function App() {
         return false;
       }
     };
-  }, [leagueLiveOn, leagueLive, removeSeason, showToast]);
+  }, [leagueLiveOn, leagueReachable, removeSeason, showToast]);
 
   /** What Team Rankings has for this season: the results, the picks and the search behind them. */
   const {
@@ -1643,6 +1652,7 @@ export default function App() {
     applySeason: applySeasonFromUndo,
     onRankingsRestored: noteScoutChange,
     showToast,
+    blocked: seasonStore.locked,
   });
 
   /*
@@ -1906,6 +1916,13 @@ export default function App() {
   };
 
   const loadDemoSeason = useCallback(async () => {
+    // Reached from the command palette as well as the page: refused before it asks, or takes an
+    // undo step over the one there, while the season may not be written.
+    const lockedBecause = seasonStore.locked();
+    if (lockedBecause) {
+      showToast(lockedBecause, { tone: "error" });
+      return;
+    }
     // Nothing to overwrite on an empty season, and the first thing a new user
     // is invited to do should not open with a warning about losing data.
     if (teams.length > 0 || matchups.length > 0) {
@@ -1939,6 +1956,7 @@ export default function App() {
     closeTeamData,
     showToast,
     restoreUndo,
+    seasonStore,
     setTeams,
     setMatchups,
     setLogs,
@@ -2334,13 +2352,23 @@ export default function App() {
   restoreUndoRef.current = restoreUndo;
 
   useEffect(() => {
-    if (!sharedSnapshot || sharedHandledRef.current) return;
+    // Asked once the season may be written: League kept live opens read-only until the cloud's
+    // version is in, and a link loaded then would be refused, and lost.
+    if (!sharedSnapshot || sharedHandledRef.current || !leagueEditable) return;
     sharedHandledRef.current = true;
     requestConfirmation({
       title: "Load shared season snapshot?",
       message: `${sharedSnapshot.teams.length} teams · ${sharedSnapshot.matchups.length} games found in this URL.\n\nReplace your current local data? Cancel keeps your data; the URL snapshot will still be cleared.`,
       confirmLabel: "Load snapshot",
     }).then((ok) => {
+      const why = ok ? seasonStore.locked() : null;
+      if (why) {
+        // Gone read-only while the question was up: the link is kept, and asked about again
+        // once the season may be written.
+        sharedHandledRef.current = false;
+        showToast(why, { tone: "error" });
+        return;
+      }
       if (ok) {
         captureUndo("Load shared snapshot", { withSettings: true });
         setTeams(sharedSnapshot.teams);
@@ -2360,14 +2388,17 @@ export default function App() {
       clearSharedSnapshot();
     });
     /*
-     * All four are stable callbacks, so listing them changes nothing about when this runs — and
+     * The callbacks are stable, so listing them changes nothing about when this runs — and
      * `sharedHandledRef` makes a second run a no-op regardless. The point of listing them is that
      * the next person to add a closure here gets told, rather than inheriting a comment that was
-     * true when it was written.
+     * true when it was written. `leagueEditable` is the one that does change it: the question is
+     * put once the season may be written.
      */
   }, [
     sharedSnapshot,
     sharedUiState,
+    leagueEditable,
+    seasonStore,
     captureUndo,
     clearSharedSnapshot,
     requestConfirmation,
@@ -2763,18 +2794,16 @@ export default function App() {
               it is off (`EditLock`), and what only reads it stays usable. */}
             <SeasonEditable value={leagueEditable}>
               {teams.length === 0 ? (
-                <EditLock>
-                  <EmptyState
-                    importCSV={importCSV}
-                    createSeasonFromTeamList={createSeasonFromTeamList}
-                    downloadRoundRobinCSV={downloadRoundRobinCSV}
-                    seasonBuilderText={seasonBuilderText}
-                    setSeasonBuilderText={setSeasonBuilderText}
-                    teams={teams}
-                    loadDemoSeason={loadDemoSeason}
-                    openTour={() => setShowTour(true)}
-                  />
-                </EditLock>
+                <EmptyState
+                  importCSV={importCSV}
+                  createSeasonFromTeamList={createSeasonFromTeamList}
+                  downloadRoundRobinCSV={downloadRoundRobinCSV}
+                  seasonBuilderText={seasonBuilderText}
+                  setSeasonBuilderText={setSeasonBuilderText}
+                  teams={teams}
+                  loadDemoSeason={loadDemoSeason}
+                  openTour={() => setShowTour(true)}
+                />
               ) : activeView === "dashboard" ? (
                 <DashboardView
                   engine={predictionEngine}
@@ -2783,18 +2812,18 @@ export default function App() {
                   matchups={matchups}
                   setActiveView={setActiveView}
                   ourTeam={
-                    <EditLock>
-                      <OurTeamCard
-                        summary={ourTeam}
-                        {...(ourClubRank ? { clubRank: ourClubRank } : {})}
-                        teams={teams}
-                        onPick={pickOurTeam}
-                        onEnterScore={(teamId) => {
-                          setScoreboardTeamFilter(teamId);
-                          setActiveView("games");
-                        }}
-                      />
-                    </EditLock>
+                    // Not locked: the team followed is this browser's own pick, never a setting
+                    // that travels, and "Enter a score" only goes to the schedule.
+                    <OurTeamCard
+                      summary={ourTeam}
+                      {...(ourClubRank ? { clubRank: ourClubRank } : {})}
+                      teams={teams}
+                      onPick={pickOurTeam}
+                      onEnterScore={(teamId) => {
+                        setScoreboardTeamFilter(teamId);
+                        setActiveView("games");
+                      }}
+                    />
                   }
                 />
               ) : activeView === "power" ? (

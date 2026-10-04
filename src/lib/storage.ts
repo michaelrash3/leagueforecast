@@ -362,6 +362,20 @@ export const renameSeason = (id: string, name: string): boolean => {
   return true;
 };
 
+/**
+ * Gives a season the creation time of the season it has become: League kept live, a device whose
+ * season of this id held nothing takes in the cloud's season of it whole (`leagueSync.ts`), and from
+ * then on it is that season, made when that one was. Without it, the next visit would take the two
+ * times for two seasons and keep them apart.
+ */
+export const adoptSeasonCreatedAt = (id: string, createdAt: string): boolean => {
+  ensureInitialized();
+  const seasons = readSeasons();
+  const season = seasons.find((one) => one.id === id);
+  if (!season || season.createdAt === createdAt) return false;
+  return writeSeasons(seasons.map((one) => (one.id === id ? { ...one, createdAt } : one)));
+};
+
 /** Copy every stored key of `id` into a brand-new season and return its metadata. */
 export const duplicateSeason = (id: string, name: string): SeasonMeta | null => {
   ensureInitialized();

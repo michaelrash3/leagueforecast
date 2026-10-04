@@ -5,6 +5,7 @@
 import { DesignFlowPanel, type DesignFlowStep } from "../DesignFlowPanel";
 import type { TeamBase } from "../../lib/types";
 import { displayName } from "../../lib/format";
+import { EditLock } from "./EditLock";
 
 export function EmptyState({
   importCSV,
@@ -36,6 +37,7 @@ export function EmptyState({
         {
           label: "Import CSV",
           tone: "primary",
+          edits: true,
           file: {
             accept: ".csv,text/csv",
             ariaLabel: "Import schedule CSV",
@@ -51,7 +53,7 @@ export function EmptyState({
       meta: "Great for a clean new season",
       tone: "amber",
       actions: [
-        { label: "Create Schedule", tone: "dark", onClick: createSeasonFromTeamList },
+        { label: "Create Schedule", tone: "dark", edits: true, onClick: createSeasonFromTeamList },
         { label: "Blank CSV", onClick: downloadRoundRobinCSV },
       ],
     },
@@ -68,7 +70,7 @@ export function EmptyState({
       body: "Load a sample season to see the model, cut line, and recap flow before importing yours.",
       meta: "Safe sandbox mode",
       tone: "red",
-      actions: [{ label: "Load Demo", onClick: loadDemoSeason }],
+      actions: [{ label: "Load Demo", edits: true, onClick: loadDemoSeason }],
     },
   ];
 
@@ -112,12 +114,14 @@ export function EmptyState({
             className="mt-4 h-44 w-full resize-none rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-950 outline-hidden focus:border-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-white"
           />
           <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              onClick={createSeasonFromTeamList}
-              className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xs hover:bg-slate-800"
-            >
-              Create Schedule
-            </button>
+            <EditLock>
+              <button
+                onClick={createSeasonFromTeamList}
+                className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-bold text-white shadow-xs hover:bg-slate-800"
+              >
+                Create Schedule
+              </button>
+            </EditLock>
             <button
               onClick={downloadRoundRobinCSV}
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"

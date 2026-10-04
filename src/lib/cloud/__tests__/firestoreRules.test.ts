@@ -911,9 +911,18 @@ describe.skipIf(!HOST)("League seasons' rules, on the Firestore emulator", () =>
 
   it("are deleted by the owner alone, and never before the cloud agrees", async () => {
     await make(LAPTOP);
-    await expect(leagueAs(LAPTOP).remove(DOC_ID)).rejects.toMatchObject(REFUSED);
+    await expect(leagueAs(LAPTOP).remove(DOC_ID, SEASON.createdAt)).rejects.toMatchObject(REFUSED);
     expect((await getDoc(where(as(OWNER)))).exists()).toBe(true);
-    await leagueAs(OWNER).remove(DOC_ID);
+    expect(await leagueAs(OWNER).remove(DOC_ID, SEASON.createdAt)).toBe("deleted");
     expect((await getDoc(where(as(OWNER)))).exists()).toBe(false);
+    expect(await leagueAs(OWNER).remove(DOC_ID, SEASON.createdAt)).toBe("absent");
+  });
+
+  it("are not deleted for another season of the same id, made at another moment", async () => {
+    await make(LAPTOP);
+    expect(await leagueAs(OWNER).remove(DOC_ID, "2026-01-01T00:00:00.000Z")).toBe("other");
+    expect((await getDoc(where(as(OWNER)))).exists()).toBe(true);
+    // A member asking for another season's delete is told so, and deletes nothing either.
+    expect(await leagueAs(LAPTOP).remove(DOC_ID, "2026-01-01T00:00:00.000Z")).toBe("other");
   });
 });

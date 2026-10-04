@@ -68,6 +68,7 @@ const setup = ({
   bases = memoryBases(events),
   id = "spring",
   entry = ENTRY,
+  adopted = [],
 }: {
   cloud?: ReturnType<typeof memoryLeague>;
   parts?: SeasonState;
@@ -75,6 +76,7 @@ const setup = ({
   bases?: ReturnType<typeof memoryBases>;
   id?: string;
   entry?: SeasonEntry;
+  adopted?: [string, string][];
 } = {}) => {
   const seasons = createSeasonStore({ id, season: parts });
   const states: LiveLeagueState["kind"][] = [];
@@ -89,6 +91,7 @@ const setup = ({
       events.push(`persist ${one} ${JSON.stringify(data.logs)}`);
       stored.set(one, data);
     },
+    adopt: (one, createdAt) => adopted.push([one, createdAt]),
     editing: () => typing.now,
     onState: (state) => states.push(state.kind),
     now: () => new Date(clock),
@@ -714,6 +717,108 @@ describe("what the review of 1.2 found", () => {
     expect(cloud.counts.writes).toBe(writes);
     cloud.release();
     await settled();
+  });
+
+  it("takes the cloud's season into an empty one whole, and is that season on every visit after", async () => {
+    const cloud = memoryLeague();
+    const made = "2026-11-01T00:00:00.000Z";
+    cloud.put(DOC_ID, docOf(PARTS, { ...ENTRY, createdAt: made }));
+    const bases = memoryBases();
+    const adopted: [string, string][] = [];
+    const empty = { ...PARTS, teams: [], matchups: [] };
+    const first = setup({ cloud, bases, adopted, parts: empty });
+    await settled();
+    expect(last(first.states)).toBe("live");
+    expect(first.seasons.get().season.teams).toEqual(PARTS.teams);
+    expect(adopted).toEqual([["spring", made]]);
+    first.sync.stop();
+    await settled();
+    // The next visit, with the season's entry as the adoption left it, adopts nothing more.
+    const adoptedAgain: [string, string][] = [];
+    const again = setup({
+      cloud,
+      bases,
+      adopted: adoptedAgain,
+      parts: first.seasons.get().season,
+      entry: { ...ENTRY, createdAt: made },
+    });
+    await settled();
+    expect(last(again.states)).toBe("live");
+    expect(adoptedAgain).toEqual([]);
+  });
+
+  it("changes no season's creation time when it is the cloud's already", async () => {
+    const cloud = memoryLeague();
+    cloud.put(DOC_ID, docOf(PARTS));
+    const adopted: [string, string][] = [];
+    const { states } = setup({ cloud, adopted });
+    await settled();
+    expect(last(states)).toBe("live");
+    expect(adopted).toEqual([]);
+  });
+
+  it("keeps apart, even for a season holding nothing, one made at another moment than it met", async () => {
+    const cloud = memoryLeague();
+    const bases = memoryBases();
+    const empty = { ...PARTS, teams: [], matchups: [] };
+    bases.write(DOC_ID, { season: liveSeason(ENTRY, empty), rev: 2, landed: [] });
+    cloud.put(DOC_ID, docOf(PARTS, { ...ENTRY, createdAt: "2027-05-01T00:00:00.000Z" }));
+    const { seasons, states } = setup({ cloud, bases, parts: empty });
+    await settled();
+    expect(last(states)).toBe("apart");
+    expect(seasons.get().season.teams).toEqual([]);
+  });
+
+  it("keeps apart a season deleted and made again elsewhere while this device was offline", async () => {
+    const { cloud, seasons, states } = setup();
+    await settled();
+    cloud.offline();
+    await settled();
+    cloud.remove(DOC_ID);
+    cloud.put(
+      DOC_ID,
+      docOf(
+        { ...PARTS, teams: [{ id: "X", name: "Club X" }], matchups: [] },
+        { ...ENTRY, createdAt: "2027-05-01T00:00:00.000Z" }
+      )
+    );
+    const writes = cloud.counts.writes;
+    cloud.online();
+    await settled();
+    expect(last(states)).toBe("apart");
+    expect(seasons.get().season.teams).toEqual(PARTS.teams);
+    expect(cloud.counts.writes).toBe(writes);
+  });
+
+  it("keeps a change made on screen while its write was out, the write heard back first", async () => {
+    const { cloud, seasons, setLogs, sync, cloudSeason } = setup();
+    await settled();
+    setLogs({ g1: score("7", "0") });
+    // Cleared again after the write was read and before it came back.
+    cloud.interfere(() => seasons.setSeason((prev) => ({ ...prev, logs: {} })));
+    sync.settle();
+    await settled();
+    sync.settle();
+    await settled();
+    expect(seasons.get().season.logs).toEqual({});
+    expect(cloudSeason().logs).toEqual({});
+  });
+
+  it("keeps a change made on screen while the season was first being made", async () => {
+    const cloud = memoryLeague();
+    const { seasons, sync, cloudSeason } = setup({
+      cloud,
+      parts: { ...PARTS, logs: { g1: score("1", "0") } },
+    });
+    // A score changes on screen between the season's first write being read and landing.
+    cloud.interfere(() =>
+      seasons.setSeason((prev) => ({ ...prev, logs: { g1: score("2", "0") } }))
+    );
+    await settled();
+    sync.settle();
+    await settled();
+    expect(seasons.get().season.logs).toEqual({ g1: score("2", "0") });
+    expect(cloudSeason().logs).toEqual({ g1: score("2", "0") });
   });
 
   it("keeps a season with an id too long for any key out of the cloud, read-only", async () => {
