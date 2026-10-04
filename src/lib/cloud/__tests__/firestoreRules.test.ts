@@ -5,7 +5,9 @@ import {
   collection,
   connectFirestoreEmulator,
   deleteDoc,
+  deleteField,
   doc,
+  FieldPath,
   getDoc,
   getDocs,
   getFirestore,
@@ -32,6 +34,16 @@ import { checkLiveMeta, forgetDecodedBoards, readBoard, readLive } from "../../l
 import { firestoreRestDocuments, firestoreRestLive } from "../firestoreRest";
 import { coerceLedger, REBUILD_LEDGER_PATH, restLedgerStore } from "../../live/rebuildLedger";
 import { unpackChunks } from "../cloudPack";
+import {
+  docChanges,
+  docToSeason,
+  LEAGUE_COLLECTION,
+  seasonDocId,
+  seasonToDoc,
+  type LeagueDocChange,
+} from "../../live/leagueDocs";
+import type { SeasonSnapshot } from "../../storage";
+import { DEFAULT_SETTINGS, type GameLog } from "../../types";
 
 /*
  * The rules that open the cloud copy to the Google accounts on its list and to nothing else, and
@@ -740,5 +752,127 @@ describe.skipIf(!HOST)("the rebuilds' switch and ledger, on the Firestore emulat
       await expect(setDoc(doc(db, "ops/other"), { on: true })).rejects.toMatchObject(REFUSED);
     }
     expect((await server().read()).raw).toEqual(before);
+  });
+});
+
+describe.skipIf(!HOST)("League seasons' rules, on the Firestore emulator", () => {
+  const final = (away: string, home: string): GameLog => ({
+    awayRuns: away,
+    awayHits: "",
+    awayK: "",
+    homeRuns: home,
+    homeHits: "",
+    homeK: "",
+    innings: "6",
+    isFinal: true,
+  });
+  const SEASON: SeasonSnapshot = {
+    id: "Spring 2027",
+    name: "Spring 2027",
+    createdAt: "2027-02-01T00:00:00.000Z",
+    teams: [
+      { id: "A", name: "Club A" },
+      { id: "B.1", name: "Club B" },
+      { id: "C", name: "Club C" },
+    ],
+    matchups: [
+      { id: "g1", date: "4/3", away: "A", home: "B.1" },
+      { id: "Row 2: B.1 @ C", date: "4/3", away: "B.1", home: "C" },
+    ],
+    logs: {},
+    bracketLogs: {},
+    settings: { ...DEFAULT_SETTINGS },
+  };
+  const DOC_ID = seasonDocId(SEASON.id);
+  const where = (db: Firestore, id = DOC_ID) => doc(db, LEAGUE_COLLECTION, id);
+
+  /** The changes as the one write the app sends: each field by its path, taken out or set. */
+  const write = async (db: Firestore, changes: readonly LeagueDocChange[]) => {
+    const pairs = changes.flatMap((change) => [
+      new FieldPath(...change.path),
+      "remove" in change ? deleteField() : change.value,
+    ]);
+    const [field, value, ...rest] = pairs;
+    if (!(field instanceof FieldPath)) throw new Error("no change to write");
+    await updateDoc(where(db), field, value, ...rest);
+  };
+  const edited = (edit: (season: SeasonSnapshot) => SeasonSnapshot) =>
+    docChanges(seasonToDoc(SEASON), seasonToDoc(edit(SEASON)));
+  const readAs = async (db: Firestore) => {
+    const read = docToSeason((await getDoc(where(db))).data(), DOC_ID);
+    if (!read.ok) throw new Error(`unread: ${read.reason}`);
+    return read.season;
+  };
+
+  it("are read and written by the list, a record at a time, so two devices' scores both land", async () => {
+    await setDoc(where(as(OWNER)), seasonToDoc(SEASON));
+    expect(await readAs(as(LAPTOP))).toEqual(SEASON);
+    // Each device scores its own game from the season as it last read it, without the other's.
+    await write(
+      as(LAPTOP),
+      edited((season) => ({ ...season, logs: { g1: final("7", "4") } }))
+    );
+    await write(
+      as(OWNER),
+      edited((season) => ({ ...season, logs: { "Row 2: B.1 @ C": final("2", "3") } }))
+    );
+    expect((await readAs(as(OWNER))).logs).toEqual({
+      g1: final("7", "4"),
+      "Row 2: B.1 @ C": final("2", "3"),
+    });
+    // A record taken out is taken out, and only it.
+    await write(
+      as(LAPTOP),
+      docChanges(seasonToDoc({ ...SEASON, logs: { g1: final("7", "4") } }), seasonToDoc(SEASON))
+    );
+    expect(Object.keys((await readAs(as(OWNER))).logs)).toEqual(["Row 2: B.1 @ C"]);
+    const listed = await getDocs(collection(as(LAPTOP), LEAGUE_COLLECTION));
+    expect(listed.docs.map((one) => one.id)).toEqual([DOC_ID]);
+  });
+
+  it("are closed to everyone else", async () => {
+    await setDoc(where(as(OWNER)), seasonToDoc(SEASON));
+    const unverified: Account = { ...LAPTOP, unverified: true };
+    for (const account of [STRANGER, unverified, null]) {
+      const db = as(account);
+      await expect(getDoc(where(db))).rejects.toMatchObject(REFUSED);
+      await expect(getDocs(collection(db, LEAGUE_COLLECTION))).rejects.toMatchObject(REFUSED);
+      await expect(setDoc(where(db, "season-9"), seasonToDoc(SEASON))).rejects.toMatchObject(
+        REFUSED
+      );
+      await expect(updateDoc(where(db), { name: "Taken" })).rejects.toMatchObject(REFUSED);
+      await expect(deleteDoc(where(db))).rejects.toMatchObject(REFUSED);
+    }
+  });
+
+  it("take a season only whole, under the name the app gives it, with no other field, each of its kind", async () => {
+    const db = as(LAPTOP);
+    const whole = seasonToDoc(SEASON);
+    const { order: _order, ...noOrder } = whole;
+    await expect(setDoc(where(db, "season-8"), noOrder)).rejects.toMatchObject(REFUSED);
+    await expect(setDoc(where(db, "season-8"), { ...whole, owner: "x" })).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(setDoc(where(db, "Spring 2027"), whole)).rejects.toMatchObject(REFUSED);
+    await expect(setDoc(where(db, "a.b"), whole)).rejects.toMatchObject(REFUSED);
+    await setDoc(where(db), whole);
+    await expect(updateDoc(where(db), { extra: 1 })).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { teams: [] })).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { order: "g1" })).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { updatedAt: 5 })).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { schema: "1" })).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { schema: 1.5 })).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { logs: deleteField() })).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { schema: deleteField() })).rejects.toMatchObject(REFUSED);
+    await updateDoc(where(db), { schema: 2 });
+    await expect(updateDoc(where(db), { schema: 1 })).rejects.toMatchObject(REFUSED);
+    await updateDoc(where(db), { updatedAt: "2027-04-10T00:00:00.000Z" });
+  });
+
+  it("are deleted by the owner alone", async () => {
+    await setDoc(where(as(LAPTOP)), seasonToDoc(SEASON));
+    await expect(deleteDoc(where(as(LAPTOP)))).rejects.toMatchObject(REFUSED);
+    await deleteDoc(where(as(OWNER)));
+    expect((await getDoc(where(as(OWNER)))).exists()).toBe(false);
   });
 });

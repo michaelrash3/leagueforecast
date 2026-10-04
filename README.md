@@ -4143,6 +4143,55 @@ they were. `on: false` in `ops/rebuild` stops them either way, and
 `firebase functions:delete onCopyWrite rebuild --region us-central1` takes them
 down.
 
+### League Standings in the cloud
+
+For the accounts on the list, each League Standings season is one Firestore
+document, `league/{season}`, which every device listens to and writes into
+directly, with no server in between (`src/lib/live/leagueDocs.ts`). A season is
+small, 10 to 70 KB, so the whole of it fits one document with room to spare.
+One document per game was weighed and turned down: a listener is billed a read
+for every document it holds again after half an hour away, so a season of 240
+games would have cost 240 reads each time a device opened it.
+
+The document holds the season record by record rather than as one value:
+
+| Field                            | What it holds                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------ |
+| `schema`                         | The layout's version, 1. A device reads and writes no document of a later one. |
+| `name`, `createdAt`, `updatedAt` | As the season's entry in the switcher has them.                                |
+| `teams`, `teamOrder`             | Each team under its id, and the teams' ids in the season's order.              |
+| `matchups`, `order`              | Each game under its id, and the games' ids in schedule order.                  |
+| `logs`                           | Each game's score, under the game's id.                                        |
+| `bracketLogs`                    | Each bracket game's score, under its slot.                                     |
+| `settings`                       | The season's settings, a field each.                                           |
+
+So a write sends only what changed (`docChanges`): one score is the single field
+`logs.<game>`, one setting `settings.<field>`, a game added is the game and the
+new `order`. Two devices scoring two games at once write two different fields,
+and neither undoes the other. A map keeps no order, and the order matters: the
+forecast plays the games out in schedule order with seeded draws, so two devices
+holding the games in two orders would show two different forecasts of one
+season. The orders travel whole beside the maps, and a record an order leaves
+out (two devices each adding a game and each writing an order without the
+other's) is read after the listed ones, by key, the same on every device.
+
+Records are kept under their ids as they are where Firestore takes them that way:
+the ids this app makes (`ABCD`, `game_<time>_<n>`, `season-2`), up to 64 letters,
+digits, `_` and `-`. Any other id, such as one a schedule file brought in, which
+can be any text, is kept as `~` and its UTF-8 in base64url (`encodeKey`). A
+season's document is named the same way. A record found under a key that is not
+its own id's, or under a key `encodeKey` would never write, is left unread, and
+every record is checked by the same validators storage reads with, so nothing
+reaches a device unchecked.
+
+The rules (`firestore.rules`, tried on the emulator by `npm run test:rules`) let
+the accounts on the list read, list, make and change seasons, and nobody else
+anything. A season is made with every field it has and never carries another;
+each field must be of its kind; its `schema` never goes back to an older layout,
+which a device that predates a newer one would otherwise write over; and only
+the owner deletes a season, since a season deleted here is gone from every
+device at once.
+
 ## AI write-ups
 
 Two panels are written by Gemini when a key is configured: the **League Story**
