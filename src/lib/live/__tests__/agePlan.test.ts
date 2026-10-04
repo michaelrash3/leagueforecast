@@ -39,6 +39,7 @@ describe("approving several ages at once", () => {
       games: () => [],
       answers: () => new Set(),
       namedAges: () => new Map(),
+      ageless: () => [],
     };
     const result = applyCommand(read, { kind: "batch", commands: plan.commands });
     if (!result.ok) throw new Error(result.why);

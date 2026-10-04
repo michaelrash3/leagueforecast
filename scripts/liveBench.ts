@@ -31,6 +31,7 @@ import { memoryCloud, type MemoryCloud } from "../src/lib/cloud/__tests__/memory
 import { commitChanges, fetchValues } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { memoryIo } from "../src/lib/cloud/cloudRunner.ts";
+import { CLEARABLE_RULES } from "../src/lib/agelessTriage.ts";
 import { isBoardInput } from "../src/lib/live/boardInputs.ts";
 import type { PoolCommand } from "../src/lib/live/commands.ts";
 import { runEdit, runQuery } from "../src/lib/live/editRun.ts";
@@ -331,6 +332,11 @@ const main = async () => {
     { kind: "health.summary", today },
     { kind: "health.inspect", today },
     { kind: "health.toPull" },
+    { kind: "ageless.queue", today, pinned: [] },
+    // A word most club names hold, so the search reads far past what it shows.
+    { kind: "ageless.search", today, query: "baseball" },
+    { kind: "ageless.file", today },
+    { kind: "ageless.clearPlan", today, rules: [...CLEARABLE_RULES] },
   ];
   for (const query of questions) {
     started = performance.now();

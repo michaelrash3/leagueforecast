@@ -3,6 +3,7 @@ import { markTaken, resetCloudGuard } from "../../cloud/cloudGuard";
 import {
   gamesShardLabel,
   loadAgeGroups,
+  loadAgeUnknown,
   loadDroppedClubs,
   loadRealClubs,
   loadScoutGamesForYear,
@@ -10,6 +11,7 @@ import {
   onCloudPoolWrite,
   resetTeamRankingsStore,
   saveAgeGroups,
+  saveAgeUnknown,
   saveScoutGames,
   saveScoutGamesForYear,
   saveScoutTeams,
@@ -115,6 +117,30 @@ describe("a command on this browser's pool", () => {
       runPoolCommand({ kind: "answers", list: "realClubs", add: ["gcA"], remove: [] })
     );
     expect(keys).toEqual([]);
+  });
+
+  it("takes a team nobody could age off the list it waits on, and its undo puts it back", () => {
+    const waiting = (teamId: string) => ({
+      teamId,
+      name: `Placeholder ${teamId}`,
+      firstSeen: "2027-04-01T00:00:00.000Z",
+      lastTried: "2027-04-08T00:00:00.000Z",
+      tries: 1,
+    });
+    saveAgeUnknown([waiting("gcW1"), waiting("gcW2")]);
+    const run = runPoolCommand({
+      kind: "batch",
+      commands: [
+        { kind: "answers", list: "droppedClubs", add: ["gcW1"], remove: [] },
+        { kind: "ageless.forget", teamIds: ["gcW1"] },
+      ],
+    });
+    if (!run.ok) throw new Error(run.why);
+    expect(loadAgeUnknown()).toEqual([waiting("gcW2")]);
+    expect([...loadDroppedClubs()]).toEqual(["gcW1"]);
+    expect(runPoolCommand(run.inverse).ok).toBe(true);
+    expect(loadAgeUnknown()).toEqual([waiting("gcW1"), waiting("gcW2")]);
+    expect([...loadDroppedClubs()]).toEqual([]);
   });
 
   it("says a write the store refused was not made", () => {

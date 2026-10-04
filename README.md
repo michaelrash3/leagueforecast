@@ -3963,8 +3963,17 @@ no rebuild and is not waited on. Opening a panel brings the server's pool up
 before the network has answered for the board (what is drawn being only what this
 device kept), the panel changes nothing and nothing is sent.
 
-**Setup.** On the board, Setup draws Pool health from the server's pool
-(`LivePoolHealthCard`, 1.5) with the device's own card's drawing (`PoolHealthView`): what
+**Setup.** On the board, Setup draws the teams waiting on an age and Pool health from the
+server's pool. The teams waiting on an age (`LiveAgelessCard`) are drawn by the device's own
+card's drawing (`AgelessReviewView`) from the ten in front of the person and the rules' rows
+(`ageless.queue`), the entries alone, which the device makes rows of as its own card does; the
+ten are held there by being sent back with each question, as the device's card pins them. Its
+search asks once the typing stops (`ageless.search`, 300 ms), and its file is the server's
+(`ageless.file`). Naming an age sends `namedAges`; throwing a team out sends it to the refused
+clubs and off the list as one edit (`ageless.forget`, with an Undo); a pass over the rules ticked
+is planned on the server (`ageless.clearPlan`), asked about with its counts, and sent the same
+way. After each, and after an Undo, the list is asked for again. Pool health
+(`LivePoolHealthCard`, 1.5) is drawn with the device's own card's drawing (`PoolHealthView`): what
 it shows as it opens, asked on the device's day as Setup opens (`health.summary`), and what
 it finds once **Check the pool** is pressed (`health.inspect`). Each button is sent as the
 edit the device's card makes: rows thrown out (`games.drop`), a club deleted
@@ -3978,9 +3987,10 @@ go, since it was asked before the answer was given. The file of every club worth
 is the server's, asked for when **Download the list** is pressed (`health.toPull`). The
 settle is the nightly refresh's, which tidies the pool after every pull, and the pool's
 research files (its names, its stand-in fixtures) are made only where the whole pool is
-held. The rest of Setup (the league seasons, the teams waiting on an age, the model check,
-archiving a year and starting again) opens on this device's copy when asked, until each is
-live. `LivePoolHealthCard.test.tsx` holds each button's edit and what the card shows after
+held. The rest of Setup (the league seasons, the model check, archiving a year and starting
+again) opens on this device's copy when asked, until each is live. `LiveAgelessCard.test.tsx`
+holds the waiting card's answers and questions as `LivePoolHealthCard.test.tsx` holds Pool
+health's. `LivePoolHealthCard.test.tsx` holds each button's edit and what the card shows after
 it, against a stand-in for the edit function that keeps the answers it is given. Each guard of
 the questions, their shapes, the summary, the card's drawing and its two wrappers was broken in
 turn and seen to fail a test, 54 of 54, two of them only once tests were written for them.
@@ -4364,6 +4374,7 @@ inverse puts every part the command touched back as it was, to the stored byte.
 | `club.age`, `club.ageClear`                                                                                                                                           | A pulled club filed at the age somebody says it plays at and held there whatever a later pull says; and that taken back, each of its ids to the level the app had it at.                                           |
 | `teams.merge`, `team.rename`                                                                                                                                          | One club folded into another, every page whose own team it was following it; a club renamed, refused onto a name another club goes by, since that is a merge and only the person asking can say which club stays.  |
 | `team.put`, `team.insert`, `team.remove`, `game.put`, `game.insert`, `group.put`, `group.insert`, `group.remove`, `namedAges`, `games.set`, `teams.set`, `groups.set` | A record put back as it was, in its place, or a part put back whole: what inverses, and work laid down from a copy, are made of.                                                                                   |
+| `ageless.forget`, `ageless.insert`                                                                                                                                    | Teams taken off the list of those nobody could age (1.5), and put back at their places, a team a pull has asked about since left as the pull left it.                                                              |
 | `batch`                                                                                                                                                               | Several commands as one, each reading what the last wrote.                                                                                                                                                         |
 
 On this browser a command runs through `runPoolCommand`, which writes only the parts it changed
@@ -4521,6 +4532,14 @@ pulling the card draws, and how many there are: on the 29 September pool the 51,
 (`shapes.ts`): the type said once as data, every field it names checked as the device reads it, and
 a field it does not name let through for a newer server to say. On that pool, in memory, the
 summary took 0.33 s (130 KB), the look 6.2 s and the file 0.5 s, and each answer read back whole.
+
+The card of teams waiting on an age asks four more: the card at a sitting (`ageless.queue`,
+`agelessSitting`), a search of the whole list (`ageless.search`), the file of every team waiting
+(`ageless.file`) and what a pass over the rules ticked would clear (`ageless.clearPlan`). Each
+team is sent as the entry storage keeps and read back as storage reads one (`oneAgeless`), every
+line of its row worked out on the device from it. The 29 September copy's list held 13,338 teams
+(5.9 MB), 10,509 of them waiting: the sitting took 0.19 s (5 KB), a search 59 ms (12 KB), the file
+0.11 s (2.9 MB, asked for only to download) and a plan 0.12 s.
 
 Measured with `npm run live:bench` on the 29 September 2026 pool (255,579 games, 116,485 clubs),
 in memory, so Firestore's round trips and uploads come on top. The pool came up cold in 1.4 s. An

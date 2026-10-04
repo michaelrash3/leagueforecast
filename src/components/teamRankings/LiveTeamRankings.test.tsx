@@ -1826,19 +1826,50 @@ describe("Setup on the cloud's board", () => {
     },
     answers: { ageRight: [], realClubs: [], keptApart: [] },
   };
+  const WAITING = {
+    kind: "ageless.queue",
+    listed: 1,
+    waiting: 1,
+    batch: [
+      {
+        teamId: "gcWAIT0001",
+        name: "Placeholder Waiting",
+        firstSeen: "2027-04-01T00:00:00.000Z",
+        lastTried: "2027-04-08T00:00:00.000Z",
+        tries: 1,
+      },
+    ],
+    groups: [],
+  };
+  /** The edit function's answer to each question Setup asks, and an edit made otherwise. */
+  const setupAnswers = (data: Record<string, unknown>) => {
+    const query = data.query as { kind?: string } | undefined;
+    if (!query) return made(5);
+    return answered(query.kind === "ageless.queue" ? WAITING : OPENED);
+  };
+  const asked = (sent: Array<Record<string, unknown>>) =>
+    sent.flatMap((data) => (data.query ? [(data.query as { kind: string }).kind] : [])).sort();
   const onSetup = () =>
     window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
 
   it("draws Pool health from the server's pool, and stays the page", async () => {
     onSetup();
     pool.wants = false;
-    const server = editFunction((data) => (data.query ? answered(OPENED) : made(5)));
+    const server = editFunction(setupAnswers);
     open(sourcesOf(live, { call: server.call }));
     expect(await screen.findByText("Scored on a day that has not happened")).toBeTruthy();
     expect(screen.getByText(/Placeholder S-1 3–2 Placeholder S-2/)).toBeTruthy();
-    expect(server.sent).toEqual([
-      { query: { kind: "health.summary", today: TODAY }, copy: MANIFEST.copy },
-    ]);
+    // The teams waiting on an age, above it, as on this device's Setup.
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    expect(server.sent).toContainEqual({
+      query: { kind: "health.summary", today: TODAY },
+      copy: MANIFEST.copy,
+    });
+    expect(server.sent).toContainEqual({
+      query: { kind: "ageless.queue", today: TODAY, pinned: [] },
+      copy: MANIFEST.copy,
+    });
+    expect(asked(server.sent)).toEqual(["ageless.queue", "health.summary"]);
     // Deleted at once, and what the pool then shows asked for again.
     fireEvent.click(screen.getByRole("button", { name: "Delete club" }));
     await waitFor(() => expect(said.toasts).toContain("Deleted Placeholder S-1."));
@@ -1846,7 +1877,7 @@ describe("Setup on the cloud's board", () => {
       { command: { kind: "club.drop", teamId: "S-1" }, copy: MANIFEST.copy },
     ]);
     await waitFor(() =>
-      expect(server.sent.filter((data) => data.query !== undefined)).toHaveLength(2)
+      expect(asked(server.sent)).toEqual(["ageless.queue", "health.summary", "health.summary"])
     );
     expect(handedOver()).toBeNull();
   });
@@ -1854,7 +1885,7 @@ describe("Setup on the cloud's board", () => {
   it("opens the rest of Setup on this device's copy when asked", async () => {
     onSetup();
     pool.wants = false;
-    const server = editFunction(() => answered(OPENED));
+    const server = editFunction(setupAnswers);
     open(sourcesOf(live, { call: server.call }));
     fireEvent.click(await screen.findByRole("button", { name: "Open them on this device's copy" }));
     await waitFor(() => expect(handedOver()).not.toBeNull());

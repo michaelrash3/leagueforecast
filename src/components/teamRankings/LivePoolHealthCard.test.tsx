@@ -475,7 +475,7 @@ describe("Pool health's buttons, sent as edits", () => {
         at: expect.any(String),
         pageId: expect.any(String),
       },
-      said: { done: "Placeholder Larks is 10U now.", undo: true },
+      said: { done: "Placeholder Larks is 10U now.", undo: true, afterUndo: expect.any(Function) },
     });
   });
 
@@ -520,6 +520,7 @@ describe("Pool health's buttons, sent as edits", () => {
       said: {
         done: "1 club moved to its suggested age groups; 3 games refiled. 1 club could not be changed and remain in the review list.",
         undo: true,
+        afterUndo: expect.any(Function),
       },
     });
     // The club that moved leaves the list; the one that could not stays.

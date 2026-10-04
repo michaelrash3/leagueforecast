@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings/types";
 import { namedAgesList, type NamedAge } from "../../namedAges";
+import type { AgeUnknownTeam } from "../../ageUnknown";
 import { encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
 import {
   applyCommand,
@@ -27,6 +28,7 @@ type Parts = {
   games: Map<number | null, ScoutGame[]>;
   answers: Map<AnswerList, Set<string>>;
   named: Map<string, NamedAge>;
+  ageless: AgeUnknownTeam[];
 };
 
 const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
@@ -35,7 +37,8 @@ const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
     else if (one.part === "groups") parts.groups = one.groups;
     else if (one.part === "games") parts.games.set(one.year, one.games);
     else if (one.part === "answers") parts.answers.set(one.list, one.ids);
-    else parts.named = one.named;
+    else if (one.part === "namedAges") parts.named = one.named;
+    else parts.ageless = one.list;
   });
 
 const memory = (parts: Parts) => {
@@ -46,6 +49,7 @@ const memory = (parts: Parts) => {
     games: (year) => parts.games.get(year) ?? [],
     answers: (list) => parts.answers.get(list) ?? new Set(),
     namedAges: () => parts.named,
+    ageless: () => parts.ageless,
   };
   const write = (writes: readonly PoolWrite[]) => applyWrites(parts, writes);
   /** Applies, writes, and hands back what came of it; throws when it was not applied. */
@@ -69,6 +73,7 @@ const stored = (parts: Parts) => ({
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([list, ids]) => [list, [...ids].sort()]),
   named: JSON.stringify(namedAgesList(parts.named)),
+  ageless: JSON.stringify(parts.ageless),
 });
 
 const clone = (parts: Parts): Parts => ({
@@ -77,6 +82,7 @@ const clone = (parts: Parts): Parts => ({
   games: new Map([...parts.games].map(([year, games]) => [year, structuredClone(games)])),
   answers: new Map([...parts.answers].map(([list, ids]) => [list, new Set(ids)])),
   named: new Map(parts.named),
+  ageless: structuredClone(parts.ageless),
 });
 
 const club = (id: string, extra: Partial<ScoutTeam> = {}): ScoutTeam => ({
@@ -92,6 +98,30 @@ const played = (id: string, a: string, b: string, scoreA: number, scoreB: number
   teamBId: b,
   teamAScore: scoreA,
   teamBScore: scoreB,
+});
+
+/** A team nobody could age, waiting on somebody to say, one of them with what was kept about it. */
+const waitingOn = (teamId: string): AgeUnknownTeam => ({
+  teamId,
+  name: `Placeholder ${teamId}`,
+  firstSeen: "2026-09-01T00:00:00.000Z",
+  lastTried: "2026-09-08T00:00:00.000Z",
+  tries: 2,
+  ...(teamId === "gcW2"
+    ? {
+        evidence: {
+          games: 3,
+          scored: 2,
+          aheadOfToday: 0,
+          shutoutBlowouts: 1,
+          opponents: 3,
+          namedAnAge: 0,
+          tally: [],
+          city: "Sampleton",
+          state: "OH",
+        },
+      }
+    : {}),
 });
 
 const POOL = (): Parts => ({
@@ -126,6 +156,7 @@ const POOL = (): Parts => ({
     ["deletedGames", new Set()],
   ]),
   named: new Map(),
+  ageless: [1, 2, 3, 4].map((at) => waitingOn(`gcW${at}`)),
 });
 
 describe("a command's change", () => {
@@ -975,7 +1006,7 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
   const team = pick(parts.teams);
   const ids = ["gcA", "gcB1", "gcB2", "gcC", "gcZ"];
   const n = Math.floor(next() * 1000);
-  switch (Math.floor(next() * 19)) {
+  switch (Math.floor(next() * 20)) {
     case 0:
       return game
         ? {
@@ -1119,6 +1150,11 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
     }
     case 17:
       return { kind: "team.rename", teamId: team.id, name: pick(["Club A", "Club Z", "Club Q"]) };
+    case 18:
+      return {
+        kind: "ageless.forget",
+        teamIds: ["gcW1", "gcW2", "gcW3", "gcW4", "gcW9"].filter(() => next() < 0.4),
+      };
     default:
       return {
         kind: "batch",
@@ -1151,7 +1187,12 @@ describe("a command's inverse", () => {
       if (between.ok) applyWrites(again.parts, between.writes);
       expect([
         seed,
-        stored({ ...again.parts, answers: pool.parts.answers, named: pool.parts.named }),
+        stored({
+          ...again.parts,
+          answers: pool.parts.answers,
+          named: pool.parts.named,
+          ageless: pool.parts.ageless,
+        }),
       ]).toEqual([seed, after]);
       const undone = applyCommand(pool.read, result.inverse);
       expect([seed, undone.ok]).toEqual([seed, true]);
@@ -1163,6 +1204,73 @@ describe("a command's inverse", () => {
       expect([seed, redone.ok]).toEqual([seed, true]);
       if (redone.ok) applyWrites(pool.parts, redone.writes);
       expect([seed, stored(pool.parts)]).toEqual([seed, after]);
+    }
+  });
+});
+
+describe("the teams nobody could age, taken off their list and put back", () => {
+  it("takes the teams named off, and puts each back at its place", () => {
+    const pool = memory(POOL());
+    const before = stored(pool.parts);
+    const forgot = pool.run({ kind: "ageless.forget", teamIds: ["gcW2", "gcW4", "gcZ"] });
+    expect(pool.parts.ageless.map((entry) => entry.teamId)).toEqual(["gcW1", "gcW3"]);
+    expect(forgot.writes.map((write) => write.part)).toEqual(["ageless"]);
+    expect(forgot.inverse).toEqual({
+      kind: "ageless.insert",
+      rows: [
+        { entry: waitingOn("gcW2"), at: 1 },
+        { entry: waitingOn("gcW4"), at: 3 },
+      ],
+    });
+    pool.run(forgot.inverse);
+    expect(stored(pool.parts)).toEqual(before);
+    // Put back at their places whatever order the rows come in.
+    const firstTwo = pool.run({ kind: "ageless.forget", teamIds: ["gcW1", "gcW2"] });
+    if (firstTwo.inverse.kind !== "ageless.insert") throw new Error("not an insert");
+    pool.run({ ...firstTwo.inverse, rows: [...firstTwo.inverse.rows].reverse() });
+    expect(stored(pool.parts)).toEqual(before);
+    // Nothing on the list to take off is no change, and nothing to undo.
+    expect(applyCommand(pool.read, { kind: "ageless.forget", teamIds: ["gcZ"] })).toEqual({
+      ok: true,
+      writes: [],
+      inverse: { kind: "none" },
+    });
+  });
+
+  it("leaves a team a pull has asked about again as the pull left it, and undoes only what it put back", () => {
+    const pool = memory(POOL());
+    const forgot = pool.run({ kind: "ageless.forget", teamIds: ["gcW1", "gcW2"] });
+    // A pull asks about gcW2 again before the undo: its row is the pull's now.
+    const relearned = { ...waitingOn("gcW2"), tries: 3 };
+    pool.parts.ageless = [...pool.parts.ageless, relearned];
+    const back = pool.run(forgot.inverse);
+    expect(pool.parts.ageless.map((entry) => entry.teamId)).toEqual([
+      "gcW1",
+      "gcW3",
+      "gcW4",
+      "gcW2",
+    ]);
+    expect(pool.parts.ageless[3]).toBe(relearned);
+    expect(back.inverse).toEqual({ kind: "ageless.forget", teamIds: ["gcW1"] });
+  });
+
+  it("is read back exactly, and refused with a row storage would have to change to keep", () => {
+    const insert: PoolCommand = {
+      kind: "ageless.insert",
+      rows: [{ entry: waitingOn("gcW2"), at: 1 }],
+    };
+    expect(coerceCommand(JSON.parse(JSON.stringify(insert)))).toEqual(insert);
+    const forget: PoolCommand = { kind: "ageless.forget", teamIds: ["gcW1"] };
+    expect(coerceCommand(forget)).toEqual(forget);
+    for (const raw of [
+      { kind: "ageless.insert", rows: [{ entry: { ...waitingOn("gcW1"), tries: "2" }, at: 0 }] },
+      { kind: "ageless.insert", rows: [{ entry: waitingOn("gcW1"), at: -1 }] },
+      { kind: "ageless.insert", rows: [{ entry: waitingOn("gcW1"), at: 0, why: "rule" }] },
+      { kind: "ageless.insert", rows: [{ entry: { ...waitingOn("gcW1"), mood: 1 }, at: 0 }] },
+      { kind: "ageless.forget", teamIds: [""] },
+      { kind: "ageless.forget", teamIds: "gcW1" },
+    ]) {
+      expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
     }
   });
 });

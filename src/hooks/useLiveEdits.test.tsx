@@ -76,6 +76,33 @@ describe("an edit from the live page", () => {
     expect(toasts[1]).toEqual(["Undone.", { tone: "success" }]);
   });
 
+  it("tells the screen once its Undo is made, and not when the Undo was refused", async () => {
+    // The two edits, the first's Undo made, the second's refused.
+    const call = server(made(5), made(6), made(7), {
+      body: { result: { ok: false, why: "missing" } },
+    });
+    const { result, toasts } = hook(call);
+    const undone: string[] = [];
+    await act(async () => {
+      await result.current.edit(STATE, {
+        done: "Set.",
+        undo: true,
+        afterUndo: () => undone.push("first"),
+      });
+      await result.current.edit(STATE, {
+        done: "Set again.",
+        undo: true,
+        afterUndo: () => undone.push("second"),
+      });
+    });
+    await act(async () => (toasts[0]?.[1]?.onAction as () => void)());
+    await vi.waitFor(() => expect(undone).toEqual(["first"]));
+    await act(async () => (toasts[1]?.[1]?.onAction as () => void)());
+    await vi.waitFor(() => expect(call.sent).toHaveLength(4));
+    await act(() => Promise.resolve());
+    expect(undone).toEqual(["first"]);
+  });
+
   it("is drawn until views of its version are out, and not at all once they already were", async () => {
     const call = server(made(5), made(6));
     const { result, rerender } = hook(call);

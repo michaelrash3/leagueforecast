@@ -19,8 +19,11 @@ export type ShowToast = (
   options?: { tone?: ToastTone; actionLabel?: string; onAction?: () => void; durationMs?: number }
 ) => void;
 
-/** What the person is told once an edit is made, and whether its toast offers to take it back. */
-export type EditSaid = { done: string; undo?: boolean };
+/**
+ * What the person is told once an edit is made, whether its toast offers to take it back, and what
+ * the screen does once it has been taken back (asks again for what the undo changed).
+ */
+export type EditSaid = { done: string; undo?: boolean; afterUndo?: () => void };
 
 export type LiveEdits = {
   /** Why edits are off now, as the person is told, or null when they can be sent. */
@@ -114,7 +117,10 @@ export function useLiveEdits({
             ? {
                 tone: "undo",
                 actionLabel: "Undo",
-                onAction: () => void send(reply.inverse, { done: "Undone." }),
+                onAction: () =>
+                  void send(reply.inverse, { done: "Undone." }).then((undone) => {
+                    if (undone) said.afterUndo?.();
+                  }),
               }
             : { tone: "success" }
         );

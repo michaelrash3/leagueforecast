@@ -75,6 +75,38 @@ describe("the review card for teams waiting on an age", () => {
     );
   });
 
+  it("holds the ten in front of the person while they are answered, not sliding the next in", async () => {
+    const user = userEvent.setup();
+    const list = twelve();
+    const card = (named: Map<string, { teamId: string; level: number; namedAt: string }>) => (
+      <AgelessReviewCard
+        ageless={list}
+        named={named}
+        dropped={new Set()}
+        onNameAge={vi.fn()}
+        onThrowOut={vi.fn()}
+        onUndo={vi.fn()}
+        onClearRows={vi.fn()}
+        now={NOW}
+      />
+    );
+    const { rerender } = render(card(new Map()));
+    expect(rows()).toHaveLength(10);
+    const first = rows()[0]!;
+    const name = within(first).getAllByText(/^Club \d+$/)[0]!.textContent ?? "";
+    const answered = list.find((one) => one.name === name)!;
+    await user.selectOptions(within(first).getByLabelText(`Age for ${name}`), "10");
+    // The page stores the answer, and the card is drawn again with it.
+    rerender(
+      card(
+        new Map([
+          [answered.teamId, { teamId: answered.teamId, level: 10, namedAt: NOW.toISOString() }],
+        ])
+      )
+    );
+    expect(rows()).toHaveLength(9);
+  });
+
   it("says why each one could not be aged", () => {
     show([team("ID0", "Club 0", { evidence: evidence({ tally: [[9, 2]], namedAnAge: 2 }) })]);
     expect(

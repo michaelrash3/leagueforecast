@@ -80,9 +80,9 @@ export function LivePoolHealthCard({
   }, [locked, ask, today, asked]);
   const askAgain = () => setAsked((times) => times + 1);
 
-  /** An edit that changes the pool, after which the lists it leaves are asked for. */
+  /** An edit that changes the pool, after which (and after its Undo) the lists are asked for. */
   const change = async (command: PoolCommand, done: string, undo = false): Promise<boolean> => {
-    const made = await edit(command, { done, undo });
+    const made = await edit(command, { done, undo, ...(undo ? { afterUndo: askAgain } : {}) });
     if (made) askAgain();
     return made;
   };

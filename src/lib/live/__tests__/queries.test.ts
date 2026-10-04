@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTidyHandler, packPool, type WorkerResponse } from "../../../workers/tidyProtocol";
 import { memoryIo } from "../../cloud/cloudRunner";
+import { agelessCsvParts } from "../../agelessCsv";
+import { agelessSearch, agelessWaiting } from "../../agelessQueue";
+import { agelessClearPlan, agelessSitting } from "../../agelessSitting";
+import { agelessClearable } from "../../agelessTriage";
+import type { AgeUnknownTeam } from "../../ageUnknown";
 import { poolSignature, type GcImportState } from "../../gameChangerImport";
 import { apartKey, keptApartList } from "../../keptApart";
 import { poolHealthSummary } from "../../poolHealthSummary";
@@ -20,7 +25,10 @@ import {
   resetTeamRankingsStore,
   saveAgeGroups,
   saveAgeRightClubs,
+  saveAgeUnknown,
+  saveDroppedClubs,
   saveKeptApart,
+  saveNamedAges,
   saveRealClubs,
   saveScoutGames,
   saveScoutTeams,
@@ -531,5 +539,152 @@ describe("what Pool health asks of the server's pool", () => {
         expect([path, coerceQueryAnswer(changed(answer, path, to), kind)]).toEqual([path, null]);
       }
     });
+  });
+});
+
+describe("what the card of teams waiting on an age asks of the server's pool", () => {
+  const TODAY = "2026-09-27";
+  const waiting = (teamId: string, name: string, games = 2): AgeUnknownTeam => ({
+    teamId,
+    name,
+    firstSeen: "2026-09-01T00:00:00.000Z",
+    lastTried: `2026-09-${String(10 + (teamId.length % 9)).padStart(2, "0")}T00:00:00.000Z`,
+    tries: 1,
+    evidence: {
+      games,
+      scored: games,
+      aheadOfToday: 0,
+      shutoutBlowouts: 0,
+      opponents: games,
+      namedAnAge: 0,
+      tally: [],
+      state: "OH",
+    },
+  });
+  const LIST: AgeUnknownTeam[] = [
+    waiting("gcVOID", "Placeholder VOID do not use"),
+    // More than the search shows at once (`AGELESS_HITS`).
+    ...Array.from({ length: 26 }, (_, at) => waiting(`gcQ${at}`, `Placeholder Q${at}`, at)),
+    waiting("gcNAMED", "Placeholder Named"),
+    waiting("gcDROPPED", "Placeholder Dropped"),
+  ];
+  const NAMED = new Map([
+    ["gcNAMED", { teamId: "gcNAMED", level: 10, namedAt: "2026-09-20T00:00:00.000Z" }],
+  ]);
+  const DROPPED = new Set(["gcDROPPED"]);
+  const now = new Date(TODAY);
+
+  beforeEach(() => {
+    saveAgeUnknown(LIST);
+    saveNamedAges(NAMED);
+    saveDroppedClubs(DROPPED);
+  });
+
+  const asked = <K extends QueryKind>(query: Extract<PoolQuery, { kind: K }>): AnswerOf<K> => {
+    const answer = answerQuery(query);
+    if (answer.kind !== query.kind) throw new Error(`answered ${answer.kind}`);
+    return answer as unknown as AnswerOf<K>;
+  };
+
+  it("hands over the card at a sitting as the device's own card works it out, the rows as entries", () => {
+    const sitting = agelessSitting(LIST, NAMED, DROPPED, now, []);
+    const answer = asked({ kind: "ageless.queue", today: TODAY, pinned: [] });
+    expect(answer).toEqual({
+      kind: "ageless.queue",
+      listed: 29,
+      waiting: sitting.waiting,
+      batch: sitting.batch.map((row) => row.entry),
+      groups: sitting.groups,
+    });
+    // Worth something: a full ten from more waiting than that, and a rule's rows to clear.
+    expect([answer.batch.length, answer.waiting]).toEqual([10, 27]);
+    expect(answer.groups.map(({ rule, count }) => [rule.id, count])).toEqual([["void-name", 1]]);
+    // The ten the device holds stay in front of the person, less the ones answered.
+    const pinned = asked({ kind: "ageless.queue", today: TODAY, pinned: ["gcQ3", "gcNAMED"] });
+    expect(pinned.batch.map((entry) => entry.teamId)).toEqual(["gcQ3"]);
+  });
+
+  it("finds a team on the whole list by name, and says what stands between it and the queue", () => {
+    const answer = asked({ kind: "ageless.search", today: TODAY, query: "placeholder" });
+    const found = agelessSearch(LIST, NAMED, DROPPED, now, "placeholder");
+    expect(answer).toEqual({
+      kind: "ageless.search",
+      total: found.total,
+      hits: found.hits.map(({ row, aside }) => ({ entry: row.entry, ...(aside ? { aside } : {}) })),
+    });
+    expect(answer.total).toBeGreaterThan(answer.hits.length);
+    const named = asked({ kind: "ageless.search", today: TODAY, query: "placeholder named" });
+    expect(named.hits).toEqual([
+      { entry: LIST.find((one) => one.teamId === "gcNAMED"), aside: "named" },
+    ]);
+  });
+
+  it("sends the file of every team waiting, and plans a pass over the rules ticked", () => {
+    const rows = agelessWaiting(LIST, NAMED, DROPPED, now).map((row) => row.entry);
+    expect(asked({ kind: "ageless.file", today: TODAY })).toEqual({
+      kind: "ageless.file",
+      csv: agelessCsvParts(rows).join(""),
+    });
+    const plan = asked({ kind: "ageless.clearPlan", today: TODAY, rules: ["void-name"] });
+    expect(plan).toEqual({
+      kind: "ageless.clearPlan",
+      ...agelessClearPlan(agelessClearable(rows), new Set(["void-name"])),
+    });
+    expect(plan.teamIds).toEqual(["gcVOID"]);
+    expect(asked({ kind: "ageless.clearPlan", today: TODAY, rules: ["tee-ball"] })).toMatchObject({
+      teamIds: [],
+      byRule: [],
+    });
+  });
+
+  it("is asked exactly, and refused inexactly", () => {
+    for (const query of [
+      { kind: "ageless.queue", today: TODAY, pinned: ["gcQ1"] },
+      { kind: "ageless.search", today: TODAY, query: "" },
+      { kind: "ageless.file", today: TODAY },
+      { kind: "ageless.clearPlan", today: TODAY, rules: ["void-name"] },
+    ] as const) {
+      expect(coerceQuery(JSON.parse(JSON.stringify(query)))).toEqual(query);
+    }
+    for (const raw of [
+      { kind: "ageless.queue", today: TODAY },
+      { kind: "ageless.queue", today: TODAY, pinned: [""] },
+      { kind: "ageless.search", today: TODAY, query: 5 },
+      { kind: "ageless.file", today: "today" },
+      { kind: "ageless.clearPlan", today: TODAY, rules: "void-name" },
+      { kind: "ageless.file", today: TODAY, all: true },
+    ]) {
+      expect([raw, coerceQuery(raw)]).toEqual([raw, null]);
+    }
+  });
+
+  it("is read back as sent, and refused whole with any part spoiled", () => {
+    const sent = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
+    const queue = asked({ kind: "ageless.queue", today: TODAY, pinned: [] });
+    expect(coerceQueryAnswer(sent(queue), "ageless.queue")).toEqual(queue);
+    const search = asked({ kind: "ageless.search", today: TODAY, query: "placeholder" });
+    expect(coerceQueryAnswer(sent(search), "ageless.search")).toEqual(search);
+    const file = asked({ kind: "ageless.file", today: TODAY });
+    expect(coerceQueryAnswer(sent(file), "ageless.file")).toEqual(file);
+    const plan = asked({ kind: "ageless.clearPlan", today: TODAY, rules: ["void-name"] });
+    expect(coerceQueryAnswer(sent(plan), "ageless.clearPlan")).toEqual(plan);
+    const entry = queue.batch[0]!;
+    for (const [raw, kind] of [
+      [{ ...queue, batch: [{ ...entry, tries: "1" }] }, "ageless.queue"],
+      [{ ...queue, batch: [{ ...entry, mood: 1 }] }, "ageless.queue"],
+      [{ ...queue, waiting: -1 }, "ageless.queue"],
+      [
+        { ...queue, groups: [{ rule: { id: "void-name" }, count: 1, examples: [] }] },
+        "ageless.queue",
+      ],
+      [{ ...search, hits: [{ entry, aside: "elsewhere" }] }, "ageless.search"],
+      [{ ...search, total: 0 }, "ageless.search"],
+      [{ ...file, csv: null }, "ageless.file"],
+      [{ ...plan, teamIds: [""] }, "ageless.clearPlan"],
+      [{ ...plan, byRule: [{ label: "x", count: -1 }] }, "ageless.clearPlan"],
+      [queue, "ageless.search"],
+    ] as const) {
+      expect([raw, coerceQueryAnswer(raw, kind)]).toEqual([raw, null]);
+    }
   });
 });

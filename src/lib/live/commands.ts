@@ -15,6 +15,7 @@ import {
   type NamedAges,
 } from "../namedAges";
 import { withoutClub } from "../unrealClubs";
+import { coerceAgeUnknown, type AgeUnknownList, type AgeUnknownTeam } from "../ageUnknown";
 
 /**
  * Team Rankings' edits as commands: what a person asked for, written down so that the same
@@ -157,7 +158,19 @@ export type PoolCommand =
    * is a merge (`teams.merge`), and only the person asking can say which club survives. A club
    * League Standings made takes its name from the league, so it is never renamed here.
    */
-  | { kind: "team.rename"; teamId: string; name: string };
+  | { kind: "team.rename"; teamId: string; name: string }
+  /**
+   * Teams taken off the list of those nobody could age (`AgeUnknownList`), by GameChanger id: a
+   * club thrown out from it, or a pass of the rows a rule has settled. A pull puts one back if it
+   * asks about the team again.
+   */
+  | { kind: "ageless.forget"; teamIds: string[] }
+  /**
+   * Rows put back on that list at their places, as they were: the inverse of a forget. A team the
+   * list holds again by then (a pull asked about it since) is left as the pull left it, since two
+   * rows for one team would be two questions about it for ever.
+   */
+  | { kind: "ageless.insert"; rows: { entry: AgeUnknownTeam; at: number }[] };
 
 /** The pool as a command reads it: the parts it may change, as storage decodes them. */
 export type PoolRead = {
@@ -170,6 +183,8 @@ export type PoolRead = {
   answers: (list: AnswerList) => ReadonlySet<string>;
   /** The ages people have named, by GameChanger id. */
   namedAges: () => NamedAges;
+  /** The teams nobody could age, waiting on somebody to say. */
+  ageless: () => AgeUnknownList;
 };
 
 /** One part of the pool, as a command would leave it. */
@@ -178,7 +193,8 @@ export type PoolWrite =
   | { part: "groups"; groups: AgeGroup[] }
   | { part: "games"; year: number | null; games: ScoutGame[] }
   | { part: "answers"; list: AnswerList; ids: Set<string> }
-  | { part: "namedAges"; named: Map<string, NamedAge> };
+  | { part: "namedAges"; named: Map<string, NamedAge> }
+  | { part: "ageless"; list: AgeUnknownTeam[] };
 
 export type Applied = { ok: true; writes: PoolWrite[]; inverse: PoolCommand };
 
@@ -214,6 +230,7 @@ const overlay = (read: PoolRead, writes: readonly PoolWrite[]): PoolRead => {
     writes.flatMap((write) => (write.part === "answers" ? [[write.list, write.ids] as const] : []))
   );
   const named = writes.filter((write) => write.part === "namedAges").pop();
+  const ageless = writes.filter((write) => write.part === "ageless").pop();
   return {
     teams: () => (teams?.part === "teams" ? teams.teams : read.teams()),
     groups: () => (groups?.part === "groups" ? groups.groups : read.groups()),
@@ -225,6 +242,7 @@ const overlay = (read: PoolRead, writes: readonly PoolWrite[]): PoolRead => {
     games: (year) => games.get(year) ?? read.games(year),
     answers: (list) => answers.get(list) ?? read.answers(list),
     namedAges: () => (named?.part === "namedAges" ? named.named : read.namedAges()),
+    ageless: () => (ageless?.part === "ageless" ? ageless.list : read.ageless()),
   };
 };
 
@@ -657,6 +675,7 @@ const readOnce = (read: PoolRead): PoolRead => {
     games: (year) => once(`games:${year ?? "none"}`, () => read.games(year)),
     answers: (list) => once(`answers:${list}`, () => read.answers(list)),
     namedAges: () => once("namedAges", read.namedAges),
+    ageless: () => once("ageless", read.ageless),
   };
 };
 
@@ -707,6 +726,7 @@ export const changeBetween = (before: PoolParts, after: PoolParts): PoolCommand 
     games: (year) => after.games.get(year) ?? [],
     answers: () => new Set(),
     namedAges: () => new Map(),
+    ageless: () => [],
   };
   return settle(read, {
     teams: before.teams,
@@ -1062,6 +1082,38 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       command.put.forEach((entry) => (after = nameAge(after, entry)));
       return namedAgesChange(before, after);
     }
+    case "ageless.forget": {
+      const going = new Set(command.teamIds);
+      const rows: { entry: AgeUnknownTeam; at: number }[] = [];
+      const kept: AgeUnknownTeam[] = [];
+      read.ageless().forEach((entry, at) => {
+        if (going.has(entry.teamId)) rows.push({ entry, at });
+        else kept.push(entry);
+      });
+      if (rows.length === 0) return unchanged();
+      return {
+        ok: true,
+        writes: [{ part: "ageless", list: kept }],
+        inverse: { kind: "ageless.insert", rows },
+      };
+    }
+    case "ageless.insert": {
+      const list = read.ageless();
+      const held = new Set(list.map((entry) => entry.teamId));
+      // Each at the place it held, the earliest first, so every later place counts the ones before.
+      const back = command.rows
+        .filter(({ entry }) => !held.has(entry.teamId))
+        .slice()
+        .sort((a, b) => a.at - b.at);
+      if (back.length === 0) return unchanged();
+      const next = list.slice();
+      back.forEach(({ entry, at }) => next.splice(Math.min(at, next.length), 0, entry));
+      return {
+        ok: true,
+        writes: [{ part: "ageless", list: next }],
+        inverse: { kind: "ageless.forget", teamIds: back.map(({ entry }) => entry.teamId) },
+      };
+    }
     case "games.drop": {
       const all = everyGame(read);
       const drop = new Set(command.gameIds);
@@ -1325,6 +1377,18 @@ const oneGame = (raw: unknown): ScoutGame | null => {
   return game && sameValue(game, raw) ? game : null;
 };
 
+/** A team nobody could age, read back exactly as storage keeps one, or null. */
+export const oneAgeless = (raw: unknown): AgeUnknownTeam | null => {
+  const [entry] = coerceAgeUnknown([raw]);
+  return entry && sameValue(entry, raw) ? entry : null;
+};
+
+const oneAgelessRow = (raw: unknown): { entry: AgeUnknownTeam; at: number } | null => {
+  if (!isRecord(raw) || !isPlace(raw.at) || Object.keys(raw).length !== 2) return null;
+  const entry = oneAgeless(raw.entry);
+  return entry ? { entry, at: raw.at } : null;
+};
+
 /**
  * The most steps a command may take, counting each in a batch: a bound on the work and the memory a
  * request can ask of the server, far past any batch the page makes. Each step that sets a club's
@@ -1538,6 +1602,14 @@ const readCommand = (raw: unknown, depth: number): PoolCommand | null => {
       return isString(raw.teamId) && typeof raw.name === "string"
         ? { kind: "team.rename", teamId: raw.teamId, name: raw.name }
         : null;
+    case "ageless.forget": {
+      const teamIds = strings(raw.teamIds);
+      return teamIds ? { kind: "ageless.forget", teamIds } : null;
+    }
+    case "ageless.insert": {
+      const rows = everyOne(raw.rows, oneAgelessRow);
+      return rows ? { kind: "ageless.insert", rows } : null;
+    }
     default:
       return null;
   }

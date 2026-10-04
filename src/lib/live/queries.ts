@@ -1,3 +1,8 @@
+import { agelessCsvParts } from "../agelessCsv";
+import { agelessSearch, agelessWaiting, type AgelessAside } from "../agelessQueue";
+import { agelessClearPlan, agelessSitting, type AgelessGroup } from "../agelessSitting";
+import { agelessClearable } from "../agelessTriage";
+import type { AgeUnknownTeam } from "../ageUnknown";
 import { GC_PAIRING_EVIDENCE_LABEL, type GcImportState } from "../gameChangerImport";
 import { poolHealth, settleableNow, type PoolHealth } from "../poolHealth";
 import { poolHealthSummary, type PoolHealthSummary } from "../poolHealthSummary";
@@ -8,7 +13,10 @@ import { unpulledClubs, unpulledClubsCsv } from "../unpulledClubs";
 import {
   loadAgeGroups,
   loadAgeRightClubs,
+  loadAgeUnknown,
+  loadDroppedClubs,
   loadKeptApart,
+  loadNamedAges,
   loadRealClubs,
   loadScoutGames,
   loadScoutTeams,
@@ -16,7 +24,7 @@ import {
   storedGamesByYear,
 } from "../teamRankingsStorage";
 import { planClubAges, type AgeAsked } from "./agePlan";
-import { coerceCommand, everyOne, oneTeam } from "./commands";
+import { coerceCommand, everyOne, oneAgeless, oneTeam } from "./commands";
 import { fits, type Shape } from "./shapes";
 
 /**
@@ -44,6 +52,15 @@ import { fits, type Shape } from "./shapes";
  * - `health.toPull`: every club worth pulling, as the file the card downloads (`unpulledClubsCsv`).
  * - `ages.plan`: Pool health's suggested ages, approved together, as the commands that file them
  *   (`planClubAges`), with page ids from `base`, for the device to send as one edit.
+ * - `ageless.queue`: the card of teams waiting on an age at a sitting, on the device's day
+ *   (`agelessSitting`), with the ten the device holds pinned: the entries alone, which the device
+ *   makes rows of as its own card does (`agelessRowFor`), since every line of a row is worked out
+ *   from its entry.
+ * - `ageless.search`: the teams on that list answering to `query`, whatever stands between each and
+ *   the queue (`agelessSearch`), as entries.
+ * - `ageless.file`: the card's file of every team still waiting (`agelessCsvParts`).
+ * - `ageless.clearPlan`: what clearing the rows of the rules ticked takes off the list
+ *   (`agelessClearPlan`), for the device to ask about and send as one edit.
  */
 export type PoolQuery =
   | { kind: "merge.preview"; fromId: string; intoId: string; adopt: ScoutTeam[] }
@@ -51,7 +68,11 @@ export type PoolQuery =
   | { kind: "health.summary"; today: string }
   | { kind: "health.inspect"; today: string }
   | { kind: "health.toPull" }
-  | { kind: "ages.plan"; clubs: AgeAsked[]; at: string; base: string };
+  | { kind: "ages.plan"; clubs: AgeAsked[]; at: string; base: string }
+  | { kind: "ageless.queue"; today: string; pinned: string[] }
+  | { kind: "ageless.search"; today: string; query: string }
+  | { kind: "ageless.file"; today: string }
+  | { kind: "ageless.clearPlan"; today: string; rules: string[] };
 
 /**
  * What folding one club into another touches: the stored games that name the club folded away,
@@ -92,6 +113,20 @@ export type HealthToPullAnswer = { csv: string };
 
 export type AgesPlan = ReturnType<typeof planClubAges>;
 
+export type AgelessQueueAnswer = {
+  listed: number;
+  waiting: number;
+  batch: AgeUnknownTeam[];
+  groups: AgelessGroup[];
+};
+
+export type AgelessSearchAnswer = {
+  total: number;
+  hits: { entry: AgeUnknownTeam; aside?: AgelessAside }[];
+};
+
+export type AgelessClearPlanAnswer = ReturnType<typeof agelessClearPlan>;
+
 export type QueryAnswers = {
   "merge.preview": MergePreview;
   "rename.preview": RenamePreview;
@@ -99,6 +134,10 @@ export type QueryAnswers = {
   "health.inspect": HealthInspectAnswer;
   "health.toPull": HealthToPullAnswer;
   "ages.plan": AgesPlan;
+  "ageless.queue": AgelessQueueAnswer;
+  "ageless.search": AgelessSearchAnswer;
+  "ageless.file": { csv: string };
+  "ageless.clearPlan": AgelessClearPlanAnswer;
 };
 
 export type QueryKind = PoolQuery["kind"];
@@ -135,9 +174,55 @@ const storedState = (): GcImportState => ({
   games: loadScoutGames(),
 });
 
+/** The teams still waiting on a person, on `today`, from the process's store. */
+const waitingOn = (today: string) =>
+  agelessWaiting(loadAgeUnknown(), loadNamedAges(), loadDroppedClubs(), new Date(today)).map(
+    (row) => row.entry
+  );
+
 /** Answers `query` from the process's store, as the page would have answered it from its own. */
 export const answerQuery = (query: PoolQuery): QueryAnswer => {
   switch (query.kind) {
+    case "ageless.queue": {
+      const sitting = agelessSitting(
+        loadAgeUnknown(),
+        loadNamedAges(),
+        loadDroppedClubs(),
+        new Date(query.today),
+        query.pinned
+      );
+      return {
+        kind: "ageless.queue",
+        listed: sitting.listed,
+        waiting: sitting.waiting,
+        batch: sitting.batch.map((row) => row.entry),
+        groups: sitting.groups,
+      };
+    }
+    case "ageless.search": {
+      const found = agelessSearch(
+        loadAgeUnknown(),
+        loadNamedAges(),
+        loadDroppedClubs(),
+        new Date(query.today),
+        query.query
+      );
+      return {
+        kind: "ageless.search",
+        total: found.total,
+        hits: found.hits.map(({ row, aside }) => ({
+          entry: row.entry,
+          ...(aside ? { aside } : {}),
+        })),
+      };
+    }
+    case "ageless.file":
+      return { kind: "ageless.file", csv: agelessCsvParts(waitingOn(query.today)).join("") };
+    case "ageless.clearPlan":
+      return {
+        kind: "ageless.clearPlan",
+        ...agelessClearPlan(agelessClearable(waitingOn(query.today)), new Set(query.rules)),
+      };
     case "health.summary":
       return {
         kind: "health.summary",
@@ -220,6 +305,9 @@ const isDay = (value: unknown): value is string => {
   return !Number.isNaN(at) && new Date(at).toISOString().slice(0, 10) === value;
 };
 
+const strings = (value: unknown): string[] | null =>
+  Array.isArray(value) && value.every(isString) ? [...(value as string[])] : null;
+
 const isTime = (value: unknown): value is string =>
   typeof value === "string" && value !== "" && !Number.isNaN(Date.parse(value));
 
@@ -262,6 +350,23 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
     case "health.toPull":
       query = { kind: "health.toPull" };
       break;
+    case "ageless.queue": {
+      const pinned = strings(raw.pinned);
+      if (isDay(raw.today) && pinned) query = { kind: "ageless.queue", today: raw.today, pinned };
+      break;
+    }
+    case "ageless.search":
+      if (isDay(raw.today) && typeof raw.query === "string")
+        query = { kind: "ageless.search", today: raw.today, query: raw.query };
+      break;
+    case "ageless.file":
+      if (isDay(raw.today)) query = { kind: "ageless.file", today: raw.today };
+      break;
+    case "ageless.clearPlan": {
+      const rules = strings(raw.rules);
+      if (isDay(raw.today) && rules) query = { kind: "ageless.clearPlan", today: raw.today, rules };
+      break;
+    }
     case "ages.plan": {
       const clubs = everyOne(raw.clubs, ageAsked);
       if (clubs && isTime(raw.at) && isString(raw.base))
@@ -468,6 +573,74 @@ const HEALTH_INSPECT: Shape = {
 const ofShape = <K extends QueryKind>(raw: Record<string, unknown>, shape: Shape) =>
   fits(raw, shape) ? (raw as unknown as AnswerOf<K>) : null;
 
+/** What may stand between a team found by search and the queue (`AgelessAside`), every one. */
+const ASIDES: Record<AgelessAside, true> = {
+  dropped: true,
+  named: true,
+  "high-school": true,
+  "short-roster": true,
+  "left-alone": true,
+};
+
+const AGELESS_GROUPS: Shape = {
+  list: {
+    record: {
+      rule: { record: { id: "id", label: "string", because: "string" } },
+      count: "count",
+      examples: { list: "string" },
+    },
+  },
+};
+
+/** The card at a sitting, every entry read back exactly as storage keeps one (`oneAgeless`). */
+const agelessQueueOf = (raw: Record<string, unknown>): AnswerOf<"ageless.queue"> | null => {
+  const batch = everyOne(raw.batch, oneAgeless);
+  if (!batch || !isCount(raw.listed) || !isCount(raw.waiting) || !fits(raw.groups, AGELESS_GROUPS))
+    return null;
+  return {
+    kind: "ageless.queue",
+    listed: raw.listed,
+    waiting: raw.waiting,
+    batch,
+    groups: raw.groups as AgelessGroup[],
+  };
+};
+
+const agelessHit = (raw: unknown): AgelessSearchAnswer["hits"][number] | null => {
+  if (!isRecord(raw)) return null;
+  const entry = oneAgeless(raw.entry);
+  const aside = raw.aside;
+  if (!entry) return null;
+  if (aside === undefined) return { entry };
+  return typeof aside === "string" && Object.prototype.hasOwnProperty.call(ASIDES, aside)
+    ? { entry, aside: aside as AgelessAside }
+    : null;
+};
+
+const agelessSearchOf = (raw: Record<string, unknown>): AnswerOf<"ageless.search"> | null => {
+  const hits = everyOne(raw.hits, agelessHit);
+  return hits && isCount(raw.total) && raw.total >= hits.length
+    ? { kind: "ageless.search", total: raw.total, hits }
+    : null;
+};
+
+const agelessClearPlanOf = (raw: Record<string, unknown>): AnswerOf<"ageless.clearPlan"> | null =>
+  fits(raw, {
+    record: {
+      teamIds: { list: "id" },
+      byRule: { list: { record: { label: "string", count: "count" } } },
+    },
+  })
+    ? {
+        kind: "ageless.clearPlan",
+        teamIds: [...(raw.teamIds as string[])],
+        byRule: (raw.byRule as { label: string; count: number }[]).map(({ label, count }) => ({
+          label,
+          count,
+        })),
+      }
+    : null;
+
 /**
  * The commands an approval sends back as an edit, read as any command is (`coerceCommand`): all of
  * them, or none.
@@ -502,7 +675,14 @@ export const coerceQueryAnswer = <K extends QueryKind>(
     case "health.inspect":
       return ofShape<K>(raw, HEALTH_INSPECT);
     case "health.toPull":
+    case "ageless.file":
       return ofShape<K>(raw, { record: { csv: "string" } });
+    case "ageless.queue":
+      return agelessQueueOf(raw) as AnswerOf<K> | null;
+    case "ageless.search":
+      return agelessSearchOf(raw) as AnswerOf<K> | null;
+    case "ageless.clearPlan":
+      return agelessClearPlanOf(raw) as AnswerOf<K> | null;
     case "ages.plan":
       return agesPlanOf(raw) as AnswerOf<K> | null;
     case "merge.preview": {

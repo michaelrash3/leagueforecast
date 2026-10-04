@@ -1,5 +1,6 @@
 import {
   loadAgeGroups,
+  loadAgeUnknown,
   loadAgeRightClubs,
   loadDeletedGames,
   loadDroppedClubs,
@@ -10,6 +11,7 @@ import {
   loadScoutTeams,
   saveAgeGroups,
   saveAgeRightClubs,
+  saveAgeUnknown,
   saveDeletedGames,
   saveDroppedClubs,
   saveKeptApart,
@@ -58,6 +60,7 @@ export const storedPool: PoolRead = {
   games: (year) => loadScoutGamesForYear(year ?? undefined),
   answers: (list) => LOADERS[list](),
   namedAges: loadNamedAges,
+  ageless: loadAgeUnknown,
 };
 
 const writePart = (write: PoolWrite): boolean => {
@@ -72,6 +75,8 @@ const writePart = (write: PoolWrite): boolean => {
       return SAVERS[write.list](write.ids);
     case "namedAges":
       return saveNamedAges(write.named);
+    case "ageless":
+      return saveAgeUnknown(write.list);
   }
 };
 
