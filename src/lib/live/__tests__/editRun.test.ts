@@ -27,6 +27,13 @@ import {
   saveScoutTeams,
 } from "../../teamRankingsStorage";
 import { NO_LEAGUE_DOCS } from "../cloudLeague";
+import { packUpload, type PackedUpload, type UploadStore } from "../../cloud/uploads";
+import type { ArchivedSeason } from "../../teamRankingsArchive";
+import {
+  parseTeamRankingsJson,
+  teamRankingsJson,
+  writeTeamRankingsBackup,
+} from "../../teamRankingsBackup";
 import { LEAGUE_DOC_SCHEMA } from "../leagueDocs";
 import { EDIT_DEVICE, runEdit, runQuery } from "../editRun";
 import type { PoolQuery } from "../queries";
@@ -637,6 +644,191 @@ describe("Team Rankings started again or brought back by the copy's owner", () =
     await reopen(cloud);
     expect(group).not.toBe("");
     expect(loadScoutTeams().find((team) => team.id === "B")?.state).toBe("TN");
+  });
+});
+
+describe("Team Rankings restored from a backup by the copy's owner", () => {
+  /** Uploads as Firestore holds what `stageUpload` wrote, and as the server deletes them. */
+  const memoryUploads = () => {
+    const held = new Map<string, PackedUpload>();
+    const store: UploadStore = {
+      record: async (id) => structuredClone(held.get(id)?.record ?? null),
+      getChunk: async (id, chunk) =>
+        held.get(id)?.pieces.find((piece) => piece.id === chunk)?.data ?? null,
+      remove: async (id) => {
+        held.delete(id);
+      },
+      list: async () => [...held].map(([id, packed]) => ({ id, record: packed.record })),
+    };
+    const stage = async (value: unknown) => {
+      const packed = await packUpload("team-rankings", value, NOW);
+      held.set(packed.id, packed);
+      return packed.id;
+    };
+    return { store, stage, held };
+  };
+  /** The file a device would stage for the pool `games` makes: its Team Rankings JSON. */
+  const backupOf = (games: ScoutGame[], teams = TEAMS) =>
+    teamRankingsJson({ ageGroups: GROUPS, teams, games }, NOW);
+  const restore = (cache: EditPool, store: CloudStore, uploads: UploadStore, upload: string) =>
+    runEdit({
+      pool: cache,
+      store,
+      leagueDocs: NO_LEAGUE_DOCS,
+      uploads,
+      command: { kind: "backup.restore", upload },
+      now: () => NOW,
+    });
+
+  it("writes the file's pool in one save, keeps whole what it replaced, and deletes the upload", async () => {
+    const cloud = await copyOfPool();
+    const before = new Map(cloud.manifest()!.parts.map((part) => [part.key, part.hash]));
+    const renamed = TEAMS.map((team) => ({ ...team, name: `${team.name} restored` }));
+    const scored = GAMES.map((game) =>
+      game.id === "open" ? { ...game, teamAScore: 1, teamBScore: 0 } : game
+    );
+    const uploads = memoryUploads();
+    const id = await uploads.stage(backupOf(scored, renamed));
+    const done = await restore(editPool(), cloud.store, uploads.store, id);
+    if (!done.ok) throw new Error(done.why);
+    expect(done.inverse).toEqual({ kind: "none" });
+    expect(done.changed).toEqual(expect.arrayContaining([TEAMS_KEY, YEAR_2027]));
+    expect(uploads.held.size).toBe(0);
+    // What it replaced, kept as one version the Cloud panel brings back.
+    const after = cloud.manifest()!;
+    const group = after.kept.find((part) => part.key === TEAMS_KEY)?.group;
+    const keptKeys = after.kept.filter((part) => part.group === group).map(({ key }) => key);
+    // Every part it moved, and any it wrote as it was, which brought back changes nothing.
+    expect(keptKeys).toEqual(
+      expect.arrayContaining([...done.changed].filter((key) => before.has(key)))
+    );
+    for (const part of after.kept.filter((one) => one.group === group)) {
+      expect(part.hash).toBe(before.get(part.key));
+    }
+    await pool?.drop();
+    await reopen(cloud);
+    expect(loadScoutTeams().map((team) => team.name)).toEqual([
+      "Club A restored",
+      "Club B restored",
+    ]);
+    expect(loadScoutGamesForYear(2027).find((game) => game.id === "open")).toMatchObject({
+      teamAScore: 1,
+      teamBScore: 0,
+    });
+  });
+
+  it("is the pool a device restoring the same file writes for itself", async () => {
+    const cloud = await copyOfPool();
+    const uploads = memoryUploads();
+    const file = backupOf(GAMES.filter((game) => game.id !== "old"));
+    const done = await restore(editPool(), cloud.store, uploads.store, await uploads.stage(file));
+    if (!done.ok) throw new Error(done.why);
+    await pool?.drop();
+    await reopen(cloud);
+    const server = {
+      groups: loadAgeGroups(),
+      teams: loadScoutTeams(),
+      games: loadScoutGamesForYear(2026),
+    };
+    // The device's own restore of the same file, on a store of its own.
+    resetTeamRankingsStore();
+    await initTeamRankingsStore(memoryIo());
+    const parsed = parseTeamRankingsJson(file);
+    if (!parsed || !writeTeamRankingsBackup(parsed)) throw new Error("the device did not restore");
+    expect(server).toEqual({
+      groups: loadAgeGroups(),
+      teams: loadScoutTeams(),
+      games: loadScoutGamesForYear(2026),
+    });
+    // The year the file has nothing for is gone on both.
+    expect(server.games).toEqual([]);
+  });
+
+  it("leaves the archive alone for a file that says nothing of it, and replaces it for one that does", async () => {
+    const DATED = GAMES.map((game) => (game.id === "old" ? { ...game, date: "2025-09-20" } : game));
+    const cloud = await copyOfPool(DATED);
+    const cache = editPool();
+    const archived = await edit(cache, cloud.store, { kind: "year.archive", year: 2026, at: NOW });
+    if (!archived.ok) throw new Error(archived.why);
+    const uploads = memoryUploads();
+    const silent = await restore(
+      cache,
+      cloud.store,
+      uploads.store,
+      await uploads.stage(backupOf(GAMES))
+    );
+    expect(silent).toMatchObject({ ok: true });
+    await pool?.drop();
+    await reopen(cloud);
+    expect(loadArchiveIndex().map((entry) => entry.year)).toEqual([2026]);
+    // A file that carries an archive of its own replaces the one the copy holds.
+    // The table as the copy keeps it, its rows a part of their own.
+    const rowsPart = cloud.manifest()?.parts.find(({ key }) => key.includes("_archive_rows_"));
+    if (!rowsPart) throw new Error("no rows part");
+    const fetched = await fetchValues({ store: cloud.store, parts: [rowsPart] });
+    const table = fetched.ok
+      ? (fetched.values.get(rowsPart.key) as ArchivedSeason | undefined)
+      : undefined;
+    if (!table) throw new Error("no archived table");
+    const carried = teamRankingsJson(
+      {
+        ageGroups: GROUPS,
+        teams: TEAMS,
+        games: GAMES,
+        archives: [{ ...table, name: "Placeholder Kept" }],
+      },
+      NOW
+    );
+    await pool?.drop();
+    expect(
+      await restore(editPool(), cloud.store, uploads.store, await uploads.stage(carried))
+    ).toMatchObject({
+      ok: true,
+    });
+    await pool?.drop();
+    await reopen(cloud);
+    expect(loadArchiveIndex().map((one) => one.name)).toEqual(["Placeholder Kept"]);
+  });
+
+  it("saves nothing for an upload not there, not whole, or not a Team Rankings backup", async () => {
+    const cloud = await copyOfPool();
+    const version = cloud.manifest()?.version;
+    const uploads = memoryUploads();
+    expect(await restore(editPool(), cloud.store, uploads.store, "f".repeat(32))).toMatchObject({
+      ok: false,
+      why: "missing",
+    });
+    const cut = await uploads.stage(backupOf(GAMES));
+    uploads.held.set(cut, { ...uploads.held.get(cut)!, pieces: [] });
+    expect(await restore(editPool(), cloud.store, uploads.store, cut)).toMatchObject({
+      ok: false,
+      why: "missing",
+    });
+    for (const value of ['{"format":"something else"}', { not: "text" }]) {
+      const id = await uploads.stage(value);
+      expect(await restore(editPool(), cloud.store, uploads.store, id)).toMatchObject({
+        ok: false,
+        why: "refused",
+      });
+    }
+    // Whole, but its pieces are another file's: refused, not read as a file that never came.
+    const swapped = await uploads.stage(backupOf(GAMES));
+    const other = await packUpload("team-rankings", backupOf([]), NOW);
+    const held = uploads.held.get(swapped)!;
+    uploads.held.set(swapped, {
+      ...held,
+      pieces: held.pieces.map((piece, index) => ({
+        ...piece,
+        data: other.pieces[index]?.data ?? piece.data,
+      })),
+    });
+    expect(await restore(editPool(), cloud.store, uploads.store, swapped)).toMatchObject({
+      ok: false,
+      why: "refused",
+    });
+    expect(cloud.manifest()?.version).toBe(version);
+    // Kept for the nightly to sweep, rather than taken on a refusal the owner may want to see.
+    expect(uploads.held.size).toBe(4);
   });
 });
 

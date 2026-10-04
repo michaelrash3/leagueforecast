@@ -1,6 +1,7 @@
 import type { LiveMeta, LiveStore } from "../live/viewStore";
 import type { CloudStore } from "./cloudEngine";
 import { coerceManifest, UnreadableCopyError, type CloudManifest } from "./cloudManifest";
+import { UPLOADS, uploadChunksPath, uploadPath, type UploadStore } from "./uploads";
 
 /**
  * The cloud copy's documents through Firestore's REST API, for a job that runs outside a browser:
@@ -313,6 +314,42 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
       );
       if (!response.ok) throw new FirestoreError(response.status, `updating ${path}`);
     },
+  };
+};
+
+/**
+ * What the copy's owner staged for the server (`uploads.ts`), through the REST API: read by the
+ * edit function, and deleted by it once used, or by the nightly once a day old. The server's
+ * account, which the rules do not apply to, is the only reader there is besides the owner.
+ */
+export const firestoreRestUploads = (access: RestAccess): UploadStore => {
+  const client = restClient(access);
+  const { documents, call, read } = client;
+  const record = async (id: string) => {
+    const found = await read(uploadPath(id));
+    return found ? fieldsOf(found.fields ?? {}) : null;
+  };
+  return {
+    record,
+    getChunk: (id, chunk) => pieceCalls(client, uploadChunksPath(id), false).getChunk(chunk),
+    remove: async (id) => {
+      // Every piece there is, listed rather than counted off the record: Firestore keeps a
+      // document's collections when the document goes, and an upload whose record would not read,
+      // or that stopped short of its record, would otherwise leave its pieces for ever.
+      const pieces = pieceCalls(client, uploadChunksPath(id), true);
+      for (const piece of await firestoreRestDocuments(access).list(uploadChunksPath(id))) {
+        await pieces.deleteChunk(piece.id);
+      }
+      const response = await call(`${documents}/${uploadPath(id)}`, { method: "DELETE" });
+      if (!response.ok && response.status !== 404) {
+        throw new FirestoreError(response.status, `deleting upload ${id}`);
+      }
+    },
+    list: async () =>
+      (await firestoreRestDocuments(access).list(UPLOADS)).map(({ id, fields }) => ({
+        id,
+        record: fields,
+      })),
   };
 };
 

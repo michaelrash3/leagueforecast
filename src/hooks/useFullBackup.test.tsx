@@ -2,6 +2,7 @@ import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useFullBackup } from "./useFullBackup";
 import * as backupLib from "../lib/backup";
+import * as cloudSession from "../lib/cloud/cloudSession";
 import type { FullBackup, LiveSeasonData } from "../lib/backup";
 
 /**
@@ -128,6 +129,58 @@ describe("useFullBackup", () => {
     await result.current.restoreFullBackup(fullBackup("incoming"));
 
     expect(order).toEqual(["restored", "toast"]);
+  });
+
+  it("in the cloud, writes the seasons here and has the server restore the pool", async () => {
+    vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("replaced"));
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const restore = vi
+      .spyOn(cloudSession, "restoreTeamRankingsInCloud")
+      .mockResolvedValue({ ok: true });
+    const { result, showToast, requestConfirmation } = setup(true, { ok: true, failed: [] });
+    const incoming = {
+      ...fullBackup("incoming"),
+      teamRankings: { ageGroups: [], teams: [], games: [] },
+    };
+
+    await result.current.restoreFullBackup(incoming);
+
+    expect(backupLib.applyFullBackup).toHaveBeenCalledWith(incoming, { teamRankings: false });
+    expect(restore).toHaveBeenCalledWith(incoming.teamRankings, { reload: false });
+    expect(requestConfirmation.mock.calls[0]?.[0].message).toContain(
+      "the cloud's Team Rankings for every device"
+    );
+    expect(showToast.mock.calls[0]?.[1].tone).toBe("success");
+  });
+
+  it("says the pool was not restored when the server would not", async () => {
+    vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("replaced"));
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    vi.spyOn(cloudSession, "restoreTeamRankingsInCloud").mockResolvedValue({
+      ok: false,
+      message: "Only the owner.",
+    });
+    const { result, showToast } = setup(true, { ok: true, failed: [] });
+
+    await result.current.restoreFullBackup(fullBackup("incoming"));
+
+    const [message, options] = showToast.mock.calls[0] ?? [];
+    expect(message).toContain("could not write Team Rankings (Only the owner.)");
+    expect(options.tone).toBe("error");
+  });
+
+  it("anywhere else, writes the pool here as it always did", async () => {
+    vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("replaced"));
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(false);
+    const restore = vi.spyOn(cloudSession, "restoreTeamRankingsInCloud");
+    const { result } = setup(true, { ok: true, failed: [] });
+
+    await result.current.restoreFullBackup(fullBackup("incoming"));
+
+    expect(backupLib.applyFullBackup).toHaveBeenCalledWith(expect.anything(), {
+      teamRankings: true,
+    });
+    expect(restore).not.toHaveBeenCalled();
   });
 
   it("records that a backup was taken when one is exported", async () => {

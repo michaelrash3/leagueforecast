@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type GameLog } from "../../types";
 import type { SeasonSnapshot } from "../../storage";
 import { commitChanges } from "../cloudEngine";
+import { readUpload, type PackedUpload } from "../uploads";
+import { parseTeamRankingsJson } from "../../teamRankingsBackup";
 import type { CloudManifest } from "../cloudManifest";
 import type { LocalSource } from "../cloudLocal";
 import type { LeagueValue } from "../leagueMerge";
@@ -143,6 +145,9 @@ let reloads = 0;
 /** The versions the server was asked to bring back, and its refusal when it is to refuse. */
 let restored: string[] = [];
 let serverSays: string | null = null;
+/** The uploads staged, and the backups the server was asked to restore from them. */
+const staged = new Map<string, PackedUpload>();
+let restoredBackups: string[] = [];
 let clock = Date.parse("2026-09-29T12:00:00.000Z");
 
 const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
@@ -183,6 +188,39 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
         store: sky.store,
         base,
         restore: group,
+        device: "live-edit",
+        now: new Date(clock).toISOString(),
+      });
+      return done.ok ? { ok: true } : { ok: false, message: "Kept moving." };
+    },
+    stageUpload: async (packed) => {
+      staged.set(packed.id, packed);
+    },
+    // The server's `backup.restore`, standing in for writing the file's pool: the roster made
+    // what the staged file names its first team, so the device can be seen to take it.
+    restoreBackup: async (upload, copy) => {
+      restoredBackups.push(upload);
+      if (serverSays) return { ok: false, message: serverSays };
+      const packed = staged.get(upload);
+      const base = await sky.store.readManifest();
+      if (!packed || !base || base.copy !== copy) return { ok: false, message: "No such upload." };
+      const read = await readUpload(
+        {
+          record: async () => packed.record,
+          getChunk: async (_id, chunk) =>
+            packed.pieces.find((piece) => piece.id === chunk)?.data ?? null,
+        },
+        upload,
+        "team-rankings"
+      );
+      const file =
+        read.ok && typeof read.value === "string" ? parseTeamRankingsJson(read.value) : null;
+      if (!file) return { ok: false, message: "Not a backup." };
+      const done = await commitChanges({
+        store: sky.store,
+        base,
+        changes: [{ key: TEAMS, value: [file.teams[0]?.name ?? ""], at: clock }],
+        keepReplaced: [TEAMS],
         device: "live-edit",
         now: new Date(clock).toISOString(),
       });
@@ -251,6 +289,8 @@ beforeEach(() => {
   reloads = 0;
   restored = [];
   serverSays = null;
+  staged.clear();
+  restoredBackups = [];
   tabs.announced = 0;
 });
 
@@ -1021,6 +1061,108 @@ describe("bringing a kept version back", () => {
     expect(session.cloudStatus()).toMatchObject({ kind: "error", message: serverSays });
     expect(sky.manifest()?.version).toBe(version);
     expect(phone.values.get(TEAMS)).toEqual(["laptop's pull"]);
+  });
+
+  /** A Team Rankings backup of one placeholder club, as a file would carry it. */
+  const FILE = {
+    ageGroups: [],
+    teams: [{ id: "S-1", name: "Placeholder Restored" }],
+    games: [],
+  };
+
+  it("restores Team Rankings in the cloud: staged as the file, made by the server, taken here", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    edit(phone, TEAMS, ["phone's edit"]);
+    later();
+    await open(laptop);
+    await open(phone);
+    await session.preparePool();
+    const answer = await session.restoreTeamRankingsInCloud(FILE, { reload: true });
+    expect(answer).toEqual({ ok: true });
+    expect(restoredBackups).toHaveLength(1);
+    // Staged as the Team Rankings JSON the device would have written for the file.
+    const packed = staged.get(restoredBackups[0] ?? "");
+    if (!packed) throw new Error("nothing staged");
+    const read = await readUpload(
+      {
+        record: async () => packed.record,
+        getChunk: async (_id, chunk) =>
+          packed.pieces.find((piece) => piece.id === chunk)?.data ?? null,
+      },
+      packed.id,
+      "team-rankings"
+    );
+    expect(
+      read.ok && typeof read.value === "string" && parseTeamRankingsJson(read.value)
+    ).toMatchObject({ teams: [{ id: "S-1", name: "Placeholder Restored" }] });
+    expect(await cloudValue(TEAMS)).toEqual(["Placeholder Restored"]);
+    expect(phone.values.get(TEAMS)).toEqual(["Placeholder Restored"]);
+  });
+
+  it("leaves this device's pool to be taken later when told not to reload", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    edit(phone, TEAMS, ["phone's edit"]);
+    later();
+    await open(laptop);
+    await open(phone);
+    await session.preparePool();
+    const reloadsBefore = reloads;
+    expect(await session.restoreTeamRankingsInCloud(FILE, { reload: false })).toEqual({ ok: true });
+    expect(await cloudValue(TEAMS)).toEqual(["Placeholder Restored"]);
+    expect(phone.values.get(TEAMS)).toEqual(["phone's edit"]);
+    expect(reloads).toBe(reloadsBefore);
+  });
+
+  it("sends this device's unsaved edits first, so the version the restore replaces holds them", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    await open(laptop);
+    await open(phone);
+    await session.preparePool();
+    edit(phone, TEAMS, ["phone's unsaved edit"]);
+    expect(await session.restoreTeamRankingsInCloud(FILE, { reload: false })).toEqual({ ok: true });
+    expect(await cloudValue(TEAMS)).toEqual(["Placeholder Restored"]);
+    const [replaced] = session.cloudKept();
+    const fetched = await fetchValues({
+      store: sky.store,
+      parts: (sky.manifest()?.kept ?? []).filter(
+        (part) => part.group === replaced?.group && part.key === TEAMS
+      ),
+    });
+    expect(fetched.ok && fetched.values.get(TEAMS)).toEqual(["phone's unsaved edit"]);
+  });
+
+  it("says why the server would not restore it, and changes nothing", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    edit(phone, TEAMS, ["phone's edit"]);
+    later();
+    await open(laptop);
+    await open(phone);
+    await session.preparePool();
+    const version = sky.manifest()?.version;
+    serverSays = "Only the cloud copy's owner can restore a backup.";
+    expect(await session.restoreTeamRankingsInCloud(FILE, { reload: true })).toEqual({
+      ok: false,
+      message: serverSays,
+    });
+    expect(session.cloudStatus()).toMatchObject({ kind: "error", message: serverSays });
+    expect(sky.manifest()?.version).toBe(version);
+    expect(phone.values.get(TEAMS)).toEqual(["phone's edit"]);
+  });
+
+  it("stages nothing while a pull holds Team Rankings", async () => {
+    const { laptop, phone } = await inStep();
+    runAs(phone);
+    await open(laptop);
+    await open(phone);
+    pull.live = true;
+    const answer = await session.restoreTeamRankingsInCloud(FILE, { reload: true });
+    expect(answer.ok).toBe(false);
+    expect(staged.size).toBe(0);
+    expect(restoredBackups).toEqual([]);
   });
 
   it("waits for a pull to finish before bringing Team Rankings back", async () => {

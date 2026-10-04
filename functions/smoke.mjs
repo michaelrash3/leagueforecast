@@ -371,6 +371,7 @@ if (process.env.LIVE_REBUILD !== "on") {
     { kind: "year.delete", year: 2026 },
     { kind: "copy.reset" },
     { kind: "copy.restore", group: "0123456789abcdef0123456789abcdef" },
+    { kind: "backup.restore", upload: "0123456789abcdef0123456789abcdef" },
   ];
   const notOwner = [];
   for (const owned of ownersOnly) {
@@ -379,7 +380,7 @@ if (process.env.LIVE_REBUILD !== "on") {
     );
   }
   check(
-    "and a member's archive or delete of a year, start again or bring back is the owner's alone, refused before it runs",
+    "and a member's archive or delete of a year, start again, bring back or restore is the owner's alone, refused before it runs",
     notOwner.every(
       (answer) =>
         answer.status === 403 &&

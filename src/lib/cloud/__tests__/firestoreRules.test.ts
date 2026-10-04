@@ -31,7 +31,9 @@ import { coercePullJob, jobPath, jobPiecePath, newPullJob, packJobList } from ".
 import { createMemberCheck } from "../../memberCheck";
 import { coerceLiveMeta, publishViews } from "../../live/viewStore";
 import { checkLiveMeta, forgetDecodedBoards, readBoard, readLive } from "../../live/liveClient";
-import { firestoreRestDocuments, firestoreRestLive } from "../firestoreRest";
+import { firestoreRestDocuments, firestoreRestLive, firestoreRestUploads } from "../firestoreRest";
+import { stageUploadIn } from "../firebaseCloud";
+import { packUpload, readUpload, uploadChunksPath, uploadPath } from "../uploads";
 import { coerceLedger, REBUILD_LEDGER_PATH, restLedgerStore } from "../../live/rebuildLedger";
 import { unpackChunks } from "../cloudPack";
 import { docToSeason, LEAGUE_COLLECTION, seasonDocId, seasonToDoc } from "../../live/leagueDocs";
@@ -928,3 +930,97 @@ describe.skipIf(!HOST)("League seasons' rules, on the Firestore emulator", () =>
     expect(await leagueAs(LAPTOP).remove(DOC_ID, "2026-01-01T00:00:00.000Z")).toBe("other");
   });
 });
+
+describe.skipIf(!HOST)(
+  "a backup the owner stages for the server, on the Firestore emulator",
+  () => {
+    const AT = "2026-10-04T12:00:00.000Z";
+    /** The uploads as the edit function reads and deletes them, past the rules. */
+    const server = () =>
+      firestoreRestUploads({
+        projectId: PROJECT,
+        token: async () => "owner",
+        origin: `http://${HOST}`,
+      });
+    const staged = () => packUpload("team-rankings", "placeholder Team Rankings JSON", AT);
+
+    it("is staged by the owner, record first, and read back by the server whole", async () => {
+      const packed = await staged();
+      await stageUploadIn(as(OWNER), packed);
+      expect(await readUpload(server(), packed.id, "team-rankings")).toEqual({
+        ok: true,
+        value: "placeholder Team Rankings JSON",
+      });
+      expect((await server().list()).map(({ id }) => id)).toEqual([packed.id]);
+      // The owner reads back what it staged, and may take it away.
+      expect((await getDoc(doc(as(OWNER), uploadPath(packed.id)))).exists()).toBe(true);
+    });
+
+    it("is the owner's alone: a member, a stranger and a browser nobody signed in to may not", async () => {
+      const packed = await staged();
+      for (const account of [LAPTOP, STRANGER, null]) {
+        await expect(stageUploadIn(as(account), packed)).rejects.toMatchObject(REFUSED);
+      }
+      await stageUploadIn(as(OWNER), packed);
+      for (const account of [LAPTOP, STRANGER, null]) {
+        const db = as(account);
+        await expect(getDoc(doc(db, uploadPath(packed.id)))).rejects.toMatchObject(REFUSED);
+        await expect(
+          getDoc(doc(db, uploadChunksPath(packed.id), `${packed.id}-0`))
+        ).rejects.toMatchObject(REFUSED);
+        await expect(deleteDoc(doc(db, uploadPath(packed.id)))).rejects.toMatchObject(REFUSED);
+      }
+      // Nobody lists them, the owner included: the server does, past the rules.
+      await expect(getDocs(collection(as(OWNER), "uploads"))).rejects.toMatchObject(REFUSED);
+    });
+
+    it("takes only a record and pieces of the shapes the server reads, and changes neither once written", async () => {
+      const packed = await staged();
+      const db = as(OWNER);
+      const record = doc(db, uploadPath(packed.id));
+      for (const bad of [
+        { ...packed.record, extra: 1 },
+        { ...packed.record, kind: "league" },
+        { ...packed.record, hash: "short" },
+        { ...packed.record, chunks: 0 },
+        { ...packed.record, chunks: 201 },
+        { ...packed.record, bytes: "9" },
+      ]) {
+        await expect(setDoc(record, bad)).rejects.toMatchObject(REFUSED);
+      }
+      await expect(setDoc(doc(db, uploadPath("not-an-id")), packed.record)).rejects.toMatchObject(
+        REFUSED
+      );
+      await setDoc(record, packed.record);
+      await expect(setDoc(record, { ...packed.record, bytes: 1 })).rejects.toMatchObject(REFUSED);
+      const pieces = uploadChunksPath(packed.id);
+      const bytes = (size: number) => Bytes.fromUint8Array(new Uint8Array(size));
+      // Named for this upload, holding bytes alone, no bigger than a piece is ever made.
+      await expect(setDoc(doc(db, pieces, "other-0"), { data: bytes(9) })).rejects.toMatchObject(
+        REFUSED
+      );
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(9), extra: 1 })
+      ).rejects.toMatchObject(REFUSED);
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: "text" })
+      ).rejects.toMatchObject(REFUSED);
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(1_000_001) })
+      ).rejects.toMatchObject(REFUSED);
+      await setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(9) });
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(8) })
+      ).rejects.toMatchObject(REFUSED);
+    });
+
+    it("is deleted whole by the server, its pieces and then its record", async () => {
+      const packed = await staged();
+      await stageUploadIn(as(OWNER), packed);
+      await server().remove(packed.id);
+      expect(await server().record(packed.id)).toBeNull();
+      expect(await server().getChunk(packed.id, `${packed.id}-0`)).toBeNull();
+      expect(await server().list()).toEqual([]);
+    });
+  }
+);

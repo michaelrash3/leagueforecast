@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { useSeasonFiles, type SeasonFilesOptions } from "./useSeasonFiles";
 import { DEFAULT_SETTINGS } from "../lib/types";
 import type { LiveSeasonData } from "../lib/backup";
+import * as cloudSession from "../lib/cloud/cloudSession";
+import * as rankingsBackup from "../lib/teamRankingsBackup";
+import { teamRankingsJson } from "../lib/teamRankingsBackup";
 
 const CSV = [
   "Game ID,Date,Away Team,Innings,Away Runs,Away Hits,Away K,Home Team,Home Runs,Home Hits,Home K",
@@ -78,5 +81,81 @@ describe("replacing a season drops the recap of the last score", () => {
     await result.current.resetSeason();
     expect(calls.applySeason).toHaveBeenCalled();
     expect(calls.clearLastImpact).toHaveBeenCalled();
+  });
+});
+
+/*
+ * A Team Rankings pool imported from a file, in the cloud (1.6): restored by the server rather than
+ * written into this browser, which a device of the copy no longer does for itself. Placeholder names.
+ */
+describe("a pool imported in the cloud", () => {
+  const POOL = { ageGroups: [], teams: [{ id: "S-1", name: "Placeholder Restored" }], games: [] };
+  const file = (text: string) => new File([text], "backup.json", { type: "application/json" });
+
+  it("is the server's to restore, reloading on it, for the Team Rankings file alone", async () => {
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const restore = vi
+      .spyOn(cloudSession, "restoreTeamRankingsInCloud")
+      .mockResolvedValue({ ok: true });
+    const written = vi.spyOn(rankingsBackup, "writeTeamRankingsBackup");
+    const { result, calls } = harness();
+    result.current.importBackup(file(teamRankingsJson(POOL, "2026-10-04T12:00:00.000Z")));
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
+    expect(restore.mock.calls[0]?.[0]).toMatchObject({ teams: POOL.teams });
+    expect(restore.mock.calls[0]?.[1]).toEqual({ reload: true });
+    expect(written).not.toHaveBeenCalled();
+    expect(calls.showToast).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("says why when the server would not", async () => {
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    vi.spyOn(cloudSession, "restoreTeamRankingsInCloud").mockResolvedValue({
+      ok: false,
+      message: "Only the owner.",
+    });
+    const { result, calls } = harness();
+    result.current.importBackup(file(teamRankingsJson(POOL, "2026-10-04T12:00:00.000Z")));
+    await waitFor(() =>
+      expect(calls.showToast).toHaveBeenCalledWith(
+        "Team Rankings was not restored: Only the owner.",
+        {
+          tone: "error",
+        }
+      )
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("leaves the pool out of a season backup's Undo, and does not reload under the season", async () => {
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const restore = vi
+      .spyOn(cloudSession, "restoreTeamRankingsInCloud")
+      .mockResolvedValue({ ok: true });
+    const { result, calls } = harness();
+    result.current.importBackup(
+      file(JSON.stringify({ teams: [], matchups: [], logs: {}, teamRankings: POOL }))
+    );
+    await waitFor(() => expect(calls.applySeason).toHaveBeenCalledTimes(1));
+    expect(calls.captureUndo).toHaveBeenCalledWith(
+      "Backup import",
+      expect.objectContaining({ withTeamRankings: false })
+    );
+    expect(restore.mock.calls[0]?.[1]).toEqual({ reload: false });
+    vi.restoreAllMocks();
+  });
+
+  it("is written here, as it always was, anywhere else", async () => {
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(false);
+    const restore = vi.spyOn(cloudSession, "restoreTeamRankingsInCloud");
+    const written = vi.spyOn(rankingsBackup, "writeTeamRankingsBackup").mockReturnValue(true);
+    const { result, calls } = harness();
+    result.current.importBackup(file(teamRankingsJson(POOL, "2026-10-04T12:00:00.000Z")));
+    await waitFor(() => expect(written).toHaveBeenCalledTimes(1));
+    expect(restore).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(calls.showToast.mock.calls[0]?.[0]).toContain("Team Rankings restored")
+    );
+    vi.restoreAllMocks();
   });
 });

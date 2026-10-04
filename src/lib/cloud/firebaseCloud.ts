@@ -25,7 +25,8 @@ import type { CloudStore } from "./cloudEngine";
 import { firestoreLeague, type LeagueStore } from "../live/leagueStore";
 import type { LiveReader, MetaWatch } from "../live/viewStore";
 import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
-import { restoreOnServer, type RestoreAnswer } from "./serverRestore";
+import { restoreBackupOnServer, restoreOnServer, type RestoreAnswer } from "./serverRestore";
+import { uploadChunksPath, uploadPath, type PackedUpload } from "./uploads";
 import {
   coerceMember,
   memberAddress,
@@ -91,6 +92,14 @@ export type FirebaseCloud = {
    * the copy's owner's to do.
    */
   restore: (group: string, copy: string) => Promise<RestoreAnswer>;
+  /**
+   * Stages a packed upload for the server (`uploads.ts`): its record first, then its pieces, so an
+   * upload cut short leaves a record the server finds a piece missing from, and the nightly sweeps.
+   * The owner's to do: the rules refuse anyone else.
+   */
+  stageUpload: (packed: PackedUpload) => Promise<void>;
+  /** Restores Team Rankings in copy `copy` from staged upload `upload`, by asking the server. */
+  restoreBackup: (upload: string, copy: string) => Promise<RestoreAnswer>;
 };
 
 export type CloudMembers = {
@@ -108,6 +117,20 @@ const accountOf = (user: User | null): CloudAccount | null =>
   user ? { uid: user.uid, email: user.email } : null;
 
 export { UnreadableCopyError };
+
+/** Writes `packed` under `uploads/`: its record, then each piece, a few at a time. */
+export const stageUploadIn = async (db: Firestore, packed: PackedUpload): Promise<void> => {
+  await setDoc(doc(db, uploadPath(packed.id)), packed.record);
+  for (let at = 0; at < packed.pieces.length; at += 4) {
+    await Promise.all(
+      packed.pieces
+        .slice(at, at + 4)
+        .map(({ id, data }) =>
+          setDoc(doc(db, uploadChunksPath(packed.id), id), { data: Bytes.fromUint8Array(data) })
+        )
+    );
+  }
+};
 
 /** A piece's bytes, as `{ data: Bytes }` holds them, or null when it is not there or not bytes. */
 const bytesOf = async (db: Firestore, collectionPath: string, id: string) => {
@@ -275,6 +298,11 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     store: firestoreStore(db),
     live: { ...firestoreLive(db), watchMeta: watchLiveMeta(fullFirestoreOf(app)) },
     league: firestoreLeague(fullFirestoreOf(app)),
+    stageUpload: (packed) => stageUploadIn(db, packed),
+    restoreBackup: (upload, copy) =>
+      restoreBackupOnServer(upload, copy, {
+        token: async () => (auth.currentUser ? auth.currentUser.getIdToken() : null),
+      }),
     restore: (group, copy) =>
       restoreOnServer(group, copy, {
         token: async () => (auth.currentUser ? auth.currentUser.getIdToken() : null),

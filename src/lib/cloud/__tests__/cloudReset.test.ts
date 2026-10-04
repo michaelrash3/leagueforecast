@@ -110,6 +110,8 @@ const saveCaughtByReset = async ({
     live: { readMeta: async () => null, getChunk: async () => null },
     league: memoryLeague().store,
     restore: async () => ({ ok: false, message: "Not asked here." }),
+    stageUpload: async () => undefined,
+    restoreBackup: async () => ({ ok: false, message: "Not asked here." }),
   };
   session.resetCloudSession();
   session.setCloudTestHooks({

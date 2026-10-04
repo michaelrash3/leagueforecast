@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { EDIT_REFUSED } from "../../live/liveEdits";
-import { NO_LONGER_KEPT, restoreOnServer } from "../serverRestore";
+import {
+  NO_LONGER_KEPT,
+  restoreBackupOnServer,
+  restoreOnServer,
+  UPLOAD_GONE,
+  UPLOAD_UNREADABLE,
+} from "../serverRestore";
 
 /*
  * The Cloud panel's Bring back asked of the server (`serverRestore.ts`): the edit function's
@@ -57,5 +63,31 @@ describe("an earlier version brought back by the server", () => {
     const answer = await restoreOnServer("g1", "copy-1", server.deps);
     expect(answer.ok).toBe(false);
     expect(answer.ok || answer.message).toContain("owner");
+  });
+});
+
+describe("a backup restored by the server", () => {
+  const UPLOAD = "0123456789abcdef0123456789abcdef";
+
+  it("asks for the upload on the copy it was staged for, and says it was restored", async () => {
+    const server = answering(200, { result: MADE });
+    expect(await restoreBackupOnServer(UPLOAD, "copy-1", server.deps)).toEqual({ ok: true });
+    expect(server.sent).toEqual([
+      { data: { command: { kind: "backup.restore", upload: UPLOAD }, copy: "copy-1" } },
+    ]);
+  });
+
+  it("says an upload not whole, or not a backup, in words of its own", async () => {
+    for (const [why, message] of [
+      ["missing", UPLOAD_GONE],
+      ["refused", UPLOAD_UNREADABLE],
+      ["kept-moving", EDIT_REFUSED["kept-moving"]],
+    ] as const) {
+      const server = answering(200, { result: { ok: false, why } });
+      expect(await restoreBackupOnServer(UPLOAD, "copy-1", server.deps)).toEqual({
+        ok: false,
+        message,
+      });
+    }
   });
 });

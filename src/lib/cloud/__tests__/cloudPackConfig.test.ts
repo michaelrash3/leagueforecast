@@ -74,6 +74,8 @@ describe("the Firebase project the app keeps its copy in", () => {
         live: { readMeta: async () => null, getChunk: async () => null },
         league: memoryLeague().store,
         restore: async () => ({ ok: false, message: "Not asked here." }),
+        stageUpload: async () => undefined,
+        restoreBackup: async () => ({ ok: false, message: "Not asked here." }),
       };
       session.setCloudTestHooks({
         openCloud: async (config) => {

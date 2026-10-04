@@ -32,6 +32,7 @@ import { dryLiveStore, publishCopyViews, type CopyPublish } from "../src/lib/liv
 import { describeRebuilds } from "../src/lib/live/rebuildReport.ts";
 import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
+import { sweepStaleUploads } from "../src/lib/cloud/uploads.ts";
 import { handlerFetch } from "./handlerFetch.ts";
 
 declare const process: {
@@ -225,6 +226,21 @@ const main = async (): Promise<void> => {
       );
       process.exitCode = 1;
     }
+  }
+  // Backups the owner staged for the server that nothing used within a day (`uploads.ts`).
+  try {
+    const swept = await sweepStaleUploads(opened.uploads, new Date().toISOString(), live);
+    if (swept.stale > 0) {
+      console.log(
+        live
+          ? `  ${swept.deleted} of ${swept.stale} staged backups a day old deleted.`
+          : `  ${swept.stale} staged backups a day old would have been deleted.`
+      );
+    }
+  } catch (error) {
+    console.log(
+      `  The staged backups were not swept: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
   console.log(
     `  Memory at the end: ${mb(process.memoryUsage().rss)} (at most ${mb(process.resourceUsage().maxRSS * 1024)}).`

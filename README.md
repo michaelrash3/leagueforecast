@@ -2912,6 +2912,16 @@ say so, including the case a count would not reveal: a file saved while the pool
 was empty clears it. A file with no rankings data at all — including any backup
 written before this shipped — leaves the live pool exactly as it is.
 
+**In the cloud, the server restores the pool** (1.6). A browser signed in to the
+cloud copy does not write the pool itself: it stages the file for the server
+and asks it to restore that, the copy's owner alone (see "Team Rankings restored
+from a backup" below). The seasons, theme and mode are still written here. The
+Team Rankings file restored on its own reloads the page on the restored pool; with
+a season backup, a CSV or a whole-browser file, the pool is taken from the copy
+when Team Rankings next reads it, so the season being written is not reloaded
+away. Undo after such an import covers the season alone: the copy keeps the pool
+it replaced, under Earlier versions in the Cloud panel.
+
 A CSV with no section markers is treated as all schedule, so every CSV exported
 before sections existed, and every hand-made one, still imports unchanged.
 
@@ -4878,6 +4888,30 @@ copy to bring a version back. Both are the owner's alone, refused to a member wi
 copy's owner can …", as the functions' smoke run holds for all four of the owner's commands.
 `editRun.test.ts` holds the start, its Undo, a version a device kept brought back, the boards
 emptied and published again, and a save landing between.
+
+**Team Rankings restored from a backup by the owner** (1.6). A backup of Team Rankings is
+tens of megabytes (70 MB of JSON on the 29 September backup), far past what a call may carry, so
+the owner's browser stages it where only the owner may write (`uploads.ts`): its record at
+`uploads/{id}`, written first, then the file's JSON gzipped into pieces of at most 900 KB at
+`uploads/{id}/chunks/{id}-{n}`, as the copy stores a part; the 29 September backup stages as 25
+pieces, 22.5 MB gzipped, packed in 6 s on a desktop, which the rules' limit of 200 pieces leaves
+far behind. What is staged is the Team Rankings
+JSON the browser would have written for the file (`teamRankingsJson`), whichever backup it was
+handed, so the server reads one format, with the very function a device reads it with. Then
+`backup.restore` names the upload, and the server reads it back piece by piece, checks it against
+the record's fingerprint, reads it (`parseTeamRankingsJson`) and writes it onto its pool as a
+device restoring the file writes its own (`writeTeamRankingsBackup`, the archived tables with it
+where the file carries them; `backupRestore.ts`). The edit run commits what that wrote as one
+save, keeping the whole of what it replaced as an earlier version, and deletes the upload. An
+upload not whole is `missing`, and one that is not what was fingerprinted, or not a Team Rankings
+backup, `refused`; neither saves anything, and the upload is left, as is one whose restore never
+came: the nightly deletes any a day old (`sweepStaleUploads`), and says how many in its log. It is
+never taken back by an Undo, since one key the file brought that the pool did not have would
+stay; the Cloud panel brings back what it replaced. The rules let the owner create a record and
+its pieces, read them and delete them, each of the shapes the server reads and never changed once
+written, and nobody else anything (`firestoreRules.test.ts`); the server reads them as a service
+account the rules do not apply to. `editRun.test.ts` holds the restore to a device's own restore
+of the same file, and the functions' smoke run holds a member's restore refused.
 
 ## AI write-ups
 

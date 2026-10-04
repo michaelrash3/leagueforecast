@@ -10,7 +10,11 @@
  */
 import { getHeapStatistics } from "node:v8";
 import { parentPort } from "node:worker_threads";
-import { firestoreRestDocuments, firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
+import {
+  firestoreRestDocuments,
+  firestoreRestStore,
+  firestoreRestUploads,
+} from "../../src/lib/cloud/firestoreRest";
 import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
 import { runEdit, runQuery } from "../../src/lib/live/editRun";
 import { answerEdit, type EditRequest } from "../../src/lib/live/editWorkerProtocol";
@@ -31,6 +35,8 @@ parentPort?.on("message", (request: EditRequest) => {
         store: firestoreRestStore({ ...restAccess(), writable: true }),
         // League Standings, read only, for a year's archive; no edit writes a season.
         leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...restAccess(), writable: false })),
+        // What the copy's owner staged to restore, deleted once restored.
+        uploads: firestoreRestUploads(restAccess()),
         command: ask.command,
         ...(ask.copy === undefined ? {} : { copy: ask.copy }),
         now,

@@ -204,12 +204,16 @@ export type FullRestoreResult = { ok: boolean; failed: string[] };
  * Write a whole-browser backup back into storage. Each part reports separately so a partial
  * failure (a quota that runs out mid-restore) can be named rather than reported as success.
  */
-export const applyFullBackup = (backup: FullBackup): FullRestoreResult => {
+export const applyFullBackup = (
+  backup: FullBackup,
+  /** False where the pool is the cloud's, restored there by the server instead (1.6). */
+  { teamRankings = true }: { teamRankings?: boolean } = {}
+): FullRestoreResult => {
   const failed: string[] = [];
   if (!replaceLeagueSnapshot({ activeSeasonId: backup.activeSeasonId, seasons: backup.seasons })) {
     failed.push("seasons");
   }
-  if (!writeTeamRankingsBackup(backup.teamRankings)) failed.push("Team Rankings");
+  if (teamRankings && !writeTeamRankingsBackup(backup.teamRankings)) failed.push("Team Rankings");
   if (backup.preferences.theme && !writeTheme(backup.preferences.theme)) failed.push("theme");
   if (backup.preferences.appMode && !writeAppMode(backup.preferences.appMode)) {
     failed.push("app mode");

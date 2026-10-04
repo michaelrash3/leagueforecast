@@ -1,4 +1,7 @@
 import { coerceBackup } from "../backup";
+import { teamRankingsJson, type TeamRankingsBackup } from "../teamRankingsBackup";
+import type { RestoreAnswer } from "./serverRestore";
+import { packUpload } from "./uploads";
 import type { LeagueStore } from "../live/leagueStore";
 import type { CopyReader } from "../live/copyArchive";
 import type { LiveReader } from "../live/viewStore";
@@ -1488,6 +1491,66 @@ export const bringBack = async (group: string): Promise<void> => {
     await settleLocked(current, account, ["league", "pool"], "page");
   });
 };
+
+/** Whether this browser is signed in to the cloud copy, so Team Rankings is restored there. */
+export const restoresInCloud = (): boolean => signedIn() !== null;
+
+/**
+ * Restores Team Rankings from `backup` in the cloud copy (1.6), as the owner alone may: what
+ * this browser owes is sent first, so nothing unsaved stands over the restore; the file is staged
+ * for the server (`uploads.ts`), as the Team Rankings JSON it would have written; the server
+ * writes it into the copy, keeping what it replaced as an earlier version; and this browser takes
+ * it as it takes any other save. With `reload`, at once, reloading on it as a Bring back does; else
+ * as any newer copy is taken, so a restore made together with League Standings' own (a season
+ * backup, a CSV) does not reload the page under the season being written. Says what came of it,
+ * for the person who asked.
+ */
+export const restoreTeamRankingsInCloud = async (
+  backup: TeamRankingsBackup,
+  { reload }: { reload: boolean }
+): Promise<RestoreAnswer> => {
+  let answer: RestoreAnswer = { ok: false, message: NOT_SIGNED_IN_TO_RESTORE };
+  await withSession(async (current, account) => {
+    await settleLocked(current, account, ["league", "pool"], "none");
+    const manifest = await current.store.readManifest();
+    if (!manifest) {
+      setStatus({ kind: "gone", account });
+      answer = { ok: false, message: "There is no cloud copy to restore Team Rankings into." };
+      return;
+    }
+    // A pull or a tidy holds the pool in memory and writes it back as it goes, over the restore.
+    if (isPoolBusy() || (await poolJobElsewhere())) {
+      answer = {
+        ok: false,
+        message:
+          "Team Rankings is being pulled or tidied. Restore the file once that has finished.",
+      };
+      setStatus({ kind: "error", account, message: answer.message });
+      return;
+    }
+    setStatus({ kind: "working", account, label: "Sending the backup to the cloud…" });
+    const packed = await packUpload("team-rankings", teamRankingsJson(backup, nowIso()), nowIso());
+    try {
+      await current.cloud.stageUpload(packed);
+    } catch (error) {
+      answer = { ok: false, message: messageOf(error) };
+      setStatus({ kind: "error", account, message: answer.message });
+      return;
+    }
+    setStatus({ kind: "working", account, label: "Restoring Team Rankings…" });
+    answer = await current.cloud.restoreBackup(packed.id, manifest.copy);
+    if (!answer.ok) {
+      setStatus({ kind: "error", account, message: answer.message });
+      return;
+    }
+    notice =
+      "Team Rankings restored in the cloud copy. What it replaced is kept under Earlier versions.";
+    await settleLocked(current, account, ["league", "pool"], reload ? "page" : "none");
+  });
+  return answer;
+};
+
+const NOT_SIGNED_IN_TO_RESTORE = "Sign in to the cloud to restore Team Rankings there.";
 
 /** Tries the last thing again after an error, from scratch. */
 export const retryCloud = async (): Promise<void> => {

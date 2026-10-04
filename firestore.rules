@@ -97,6 +97,38 @@ service cloud.firestore {
       allow delete: if isOwner();
     }
 
+    // A file the owner stages for the server (`src/lib/cloud/uploads.ts`): a Team Rankings backup
+    // to restore, too big for a call. Its record, `uploads/{id}`, says what it is and how many
+    // pieces it has, and is written first; the pieces, `uploads/{id}/chunks/{id}-{n}`, are the
+    // gzipped JSON as the copy keeps a part, each at most a document's size. The owner's alone,
+    // since restoring a backup is, and never changed once written: the server reads it as a
+    // service account the rules do not apply to, checks it against the record's fingerprint, and
+    // deletes it once used, as the nightly does any left a day.
+    function isUploadRecord(data) {
+      return data.keys().hasOnly(["kind", "hash", "bytes", "chunks", "createdAt"])
+        && data.kind == "team-rankings"
+        && data.hash is string && data.hash.matches("^[0-9a-f]{64}$")
+        && data.bytes is int && data.bytes >= 0
+        && data.chunks is int && data.chunks >= 1 && data.chunks <= 200
+        && data.createdAt is string;
+    }
+
+    match /uploads/{upload} {
+      allow get, delete: if isOwner();
+      allow create: if isOwner()
+        && upload.matches("^[0-9a-f]{32}$")
+        && isUploadRecord(request.resource.data);
+
+      match /chunks/{piece} {
+        allow get, delete: if isOwner();
+        allow create: if isOwner()
+          && piece.matches("^" + upload + "-[0-9]{1,3}$")
+          && request.resource.data.keys().hasOnly(["data"])
+          && request.resource.data.data is bytes
+          && request.resource.data.data.size() <= 1000000;
+      }
+    }
+
     // The list. A member may read their own entry, which is how the app learns whether they are
     // the owner; the owner reads all of it, adds accounts to it and takes them off. The owner's own
     // entry is never changed from the app, so no click can lock the owner out or hand the list

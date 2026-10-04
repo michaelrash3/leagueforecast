@@ -5,6 +5,7 @@ import { cleanTeamName, normalizeState, teamNameKey } from "../teamRankings/name
 import { ageGroupYear, seasonAtAge, type AgeGroupSeason } from "../teamRankings/seasons";
 import { coerceScoutGames, coerceScoutTeams } from "../teamRankingsCompact";
 import { coerceAgeGroups } from "../teamRankingsStorage";
+import { isUploadId } from "../cloud/uploadId";
 import { setClubAge, type ClubAgeState } from "../clubAge";
 import { rowsOfGames, scoringRowsOf } from "../deletedGames";
 import {
@@ -210,7 +211,13 @@ export type PoolCommand =
    * pool (`copyOps.ts`). The start's inverse is bringing back what it kept.
    */
   | { kind: "copy.reset" }
-  | { kind: "copy.restore"; group: string };
+  | { kind: "copy.restore"; group: string }
+  /**
+   * Team Rankings restored from a backup the owner staged (`uploads.ts`, by `upload`, its id): the
+   * pool written from the file as a device restoring it writes its own, what it replaces kept whole
+   * as an earlier version. The owner's alone, and the server's to run (`backupRestore.ts`).
+   */
+  | { kind: "backup.restore"; upload: string };
 
 /** The pool as a command reads it: the parts it may change, as storage decodes them. */
 export type PoolRead = {
@@ -813,6 +820,7 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
     case "year.delete":
     case "copy.reset":
     case "copy.restore":
+    case "backup.restore":
       return { ok: false, why: "refused" };
     case "batch":
       return applySteps(
@@ -1452,6 +1460,7 @@ export const OWNER_COMMANDS: ReadonlySet<PoolCommand["kind"]> = new Set([
   "year.delete",
   "copy.reset",
   "copy.restore",
+  "backup.restore",
 ]);
 
 export const isOwnerCommand = (command: PoolCommand): boolean => OWNER_COMMANDS.has(command.kind);
@@ -1787,6 +1796,10 @@ const readCommand = (raw: unknown, depth: number): PoolCommand | null => {
     case "copy.restore":
       return depth === 0 && isGroupId(raw.group)
         ? { kind: "copy.restore", group: raw.group }
+        : null;
+    case "backup.restore":
+      return depth === 0 && isUploadId(raw.upload)
+        ? { kind: "backup.restore", upload: raw.upload }
         : null;
     default:
       return null;

@@ -11,6 +11,8 @@ import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { readCloudPoolValue } from "../teamRankingsStorage";
 import { isCopyCommand, isOwnerCommand, type PoolCommand } from "./commands";
 import { keptBy, planCopyCommand } from "./copyOps";
+import { runBackupRestore } from "./backupRestore";
+import { NO_UPLOADS, type UploadReader, type UploadStore } from "../cloud/uploads";
 import type { EditPool, PoolEnsure } from "./poolCache";
 import { asksLeague, answerQuery, type PoolQuery, type QueryAnswer } from "./queries";
 import type { SeasonReader } from "./allKnown";
@@ -103,6 +105,7 @@ export const runEdit = async ({
   pool,
   store,
   leagueDocs,
+  uploads = NO_UPLOADS,
   command,
   copy,
   now,
@@ -112,6 +115,8 @@ export const runEdit = async ({
   store: CloudStore;
   /** The League Standings seasons' documents (`league/`), read only, for a year's archive. */
   leagueDocs: LeagueDocsList;
+  /** What the copy's owner staged (`uploads.ts`): a backup to restore, deleted once restored. */
+  uploads?: UploadStore;
   command: PoolCommand;
   copy?: string;
   now: () => string;
@@ -141,7 +146,11 @@ export const runEdit = async ({
       leagueDocs,
       written: pool.written,
       now,
-      runOwner: () => runOwnerCommand(command, () => leagueOf(store, ensured.manifest, leagueDocs)),
+      runOwner: () =>
+        runOwnerCommand(command, {
+          seasons: () => leagueOf(store, ensured.manifest, leagueDocs),
+          uploads,
+        }),
     });
     if (!saving.ok) return { ok: false, why: saving.why, tries };
     const applyMs = Math.round(clock() - applying);
@@ -170,6 +179,10 @@ export const runEdit = async ({
     if (commit.ok) {
       // The save is in the copy whatever the pool makes of it: one that cannot follow starts afresh.
       await pool.committed(commit.manifest).catch(() => pool.drop());
+      // A restored backup's upload is used: deleted now, or by the nightly's sweep if this fails.
+      if (command.kind === "backup.restore") {
+        await uploads.remove(command.upload).catch(() => undefined);
+      }
       // What the save moved, read off the two manifests: a value written as the copy already had
       // it is named from its own pieces, and a commit that moves nothing writes nothing.
       const was = new Map(ensured.manifest.parts.map((part) => [part.key, part.hash]));
@@ -256,11 +269,15 @@ const saveOf = async ({
   }
   const run = isOwnerCommand(command) ? await runOwner() : runPoolCommand(command);
   if (!run.ok) return run;
+  const changes = await changesOf(written(), Date.parse(now()));
+  // A restore keeps the whole of what it replaced, as a start of Team Rankings does, so the Cloud
+  // panel can bring it back; every other edit keeps nothing, as before.
+  const keep = command.kind === "backup.restore";
   return {
     ok: true,
-    changes: await changesOf(written(), Date.parse(now())),
-    keepReplaced: [],
-    keepWhole: false,
+    changes,
+    keepReplaced: keep ? changes.map(({ key }) => key) : [],
+    keepWhole: keep,
     inverse: () => run.inverse,
   };
 };
@@ -272,8 +289,15 @@ const saveOf = async ({
  */
 const runOwnerCommand = async (
   command: PoolCommand,
-  seasons: () => Promise<SeasonReader | QueryRefusal>
+  {
+    seasons,
+    uploads,
+  }: { seasons: () => Promise<SeasonReader | QueryRefusal>; uploads: UploadReader }
 ): Promise<{ ok: true; inverse: PoolCommand } | { ok: false; why: EditRefusal }> => {
+  if (command.kind === "backup.restore") {
+    const done = await runBackupRestore(uploads, command.upload);
+    return done.ok ? { ok: true, inverse: NOT_TAKEN_BACK } : done;
+  }
   if (command.kind === "year.delete") {
     const done = await runYearDelete(command.year);
     return done.ok ? { ok: true, inverse: NOT_TAKEN_BACK } : done;

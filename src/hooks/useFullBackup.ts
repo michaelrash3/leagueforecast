@@ -8,6 +8,7 @@ import {
   type LiveSeasonData,
 } from "../lib/backup";
 import { noteBackupTaken } from "../lib/lastBackup";
+import { restoresInCloud, restoreTeamRankingsInCloud } from "../lib/cloud/cloudSession";
 import type { ConfirmState } from "./useConfirmation";
 
 export type FullBackupOptions = {
@@ -76,18 +77,31 @@ export function useFullBackup({
     async (backup: FullBackup) => {
       // Read first. After applyFullBackup there is nothing left to read it from.
       const replaced = readFullBackup(liveSeason());
+      // In the cloud, the pool is the copy's, and the server restores it (1.6): this browser
+      // writes the seasons and settings, and takes the pool from the copy when Team Rankings next
+      // reads it. What the copy replaces it keeps, so the cloud's pool can be brought back.
+      const inCloud = restoresInCloud();
       const confirmed = await requestConfirmation({
         title: "Restore full backup?",
         message: `${summarizeFullBackup(backup)}
 
 This replaces everything currently in this browser: all ${seasonCount} season${
           seasonCount === 1 ? "" : "s"
-        }, the Team Rankings pool, and your theme and mode. It cannot be undone — the toast afterwards offers a download of the data being replaced.`,
+        }, ${
+          inCloud
+            ? "and your theme and mode; and the cloud's Team Rankings for every device, which keeps the pool it replaces under Earlier versions in the Cloud panel"
+            : "the Team Rankings pool, and your theme and mode"
+        }. It cannot be undone — the toast afterwards offers a download of the data being replaced.`,
         confirmLabel: "Restore everything",
       });
       if (!confirmed) return;
 
-      const result = applyFullBackup(backup);
+      const result = applyFullBackup(backup, { teamRankings: !inCloud });
+      const failed = [...result.failed];
+      if (inCloud) {
+        const pool = await restoreTeamRankingsInCloud(backup.teamRankings, { reload: false });
+        if (!pool.ok) failed.push(`Team Rankings (${pool.message})`);
+      }
       onRestored(backup);
 
       const offerReplaced = {
@@ -95,8 +109,8 @@ This replaces everything currently in this browser: all ${seasonCount} season${
         onAction: () => saveAsFile(replaced),
         durationMs: 12000,
       };
-      if (!result.ok) {
-        showToast(`Restore incomplete — could not write ${result.failed.join(", ")}.`, {
+      if (failed.length > 0) {
+        showToast(`Restore incomplete — could not write ${failed.join(", ")}.`, {
           tone: "error",
           ...offerReplaced,
         });

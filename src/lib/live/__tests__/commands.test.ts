@@ -1566,3 +1566,24 @@ describe("Team Rankings started again or brought back, the copy's owner's alone"
     }
   });
 });
+
+describe("Team Rankings restored from a staged backup, the copy's owner's alone", () => {
+  const RESTORE: PoolCommand = {
+    kind: "backup.restore",
+    upload: "0123456789abcdef0123456789abcdef",
+  };
+
+  it("is read exactly as sent, on its own, names an upload as one is named, and is the owner's", () => {
+    expect(coerceCommand(JSON.parse(JSON.stringify(RESTORE)))).toEqual(RESTORE);
+    expect(isOwnerCommand(RESTORE)).toBe(true);
+    for (const raw of [
+      { kind: "batch", commands: [RESTORE] },
+      { kind: "backup.restore" },
+      { kind: "backup.restore", upload: "../copies/main" },
+      { kind: "backup.restore", upload: "ABCDEF0123456789abcdef0123456789" },
+      { kind: "backup.restore", upload: "0123456789abcdef" },
+    ])
+      expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
+    expect(applyCommand(memory(POOL()).read, RESTORE)).toEqual({ ok: false, why: "refused" });
+  });
+});
