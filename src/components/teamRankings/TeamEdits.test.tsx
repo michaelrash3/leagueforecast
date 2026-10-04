@@ -240,9 +240,9 @@ describe("a club's state, further", () => {
 });
 
 describe("a club said to be real", () => {
-  it("stays on the list when the store will not keep the answer", async () => {
+  it("stays on the list when the store will not keep the answer, which the page says", async () => {
     const user = userEvent.setup();
-    renderTeamRankings(pool({ search: "?age=10&year=2027" }));
+    const harness = renderTeamRankings(pool({ search: "?age=10&year=2027" }));
     await user.click(screen.getByRole("tab", { name: "Setup" }));
     await user.click(await screen.findByRole("button", { name: "Check the pool" }));
     const list = (await screen.findByText(/^Clubs that may not be real$/)).closest("div")!;
@@ -251,6 +251,7 @@ describe("a club said to be real", () => {
     await user.click(within(owls).getByRole("button", { name: /It.s real/ }));
     expect(loadRealClubs().size).toBe(0);
     expect(within(list).getByText("Owls")).toBeInTheDocument();
+    expect(harness.toasts()).toContain("Could not save (storage full).");
   });
 });
 
@@ -358,6 +359,62 @@ describe("games added and taken away", () => {
     expect(loadScoutTeams().map((entry) => entry.name)).toEqual(["Rays", "Jays", "Owls"]);
   });
 
+  it("keeps what an import puts right on a held club: its name cleaned, a state from the file", async () => {
+    const user = userEvent.setup();
+    // Stored before age labels were taken off names, and with no state.
+    const hornets = team("S-HORN", "Hornets 10U");
+    // Its name already clean: the state is all the file has for it.
+    const oaks = team("S-OAKS", "Oaks");
+    const harness = renderTeamRankings(pool({ teams: [...pool().teams, hornets, oaks] }));
+    await user.click(screen.getByRole("button", { name: "Import games" }));
+    await user.click(screen.getByLabelText("Games to import"));
+    await user.paste(
+      "Date,Opponent,Us,Them,State\n2026-08-22,Hornets,6,5,KY\n2026-08-23,Oaks,2,1,IN"
+    );
+    await user.click(screen.getByRole("button", { name: "Read games" }));
+    await user.type(screen.getByLabelText("Whose schedule is this?"), "Rays");
+    await user.click(screen.getByRole("button", { name: /^Add 2 games$/ }));
+    const held = (id: string) => loadScoutTeams().find((entry) => entry.id === id);
+    await waitFor(() => expect(held("S-HORN")).toMatchObject({ name: "Hornets", state: "KY" }));
+    expect(held("S-OAKS")).toEqual({ ...oaks, state: "IN" });
+    // The club that already had a state keeps it.
+    expect(held("S-RAYS")?.state).toBe("OH");
+    const call = harness.showToast.mock.calls.find((entry) => entry[0] === "Added 2 games.")!;
+    act(() => (call[1] as { onAction: () => void }).onAction());
+    await waitFor(() => expect(held("S-HORN")).toEqual(hornets));
+    expect(held("S-OAKS")).toEqual(oaks);
+  });
+
+  it("writes no club an import does not name, for all the league's walk cleaned its name", async () => {
+    const user = userEvent.setup();
+    // League Standings' Hawks are found by name on this club, and the walk cleans its name as it
+    // finds it; the import below names other clubs, and leaves this one as it is stored.
+    const hawks = team("S-HAWK", "Hawks 10U");
+    renderTeamRankings(pool({ ...leagueOnPage(), teams: [...pool().teams, hawks] }));
+    await user.click(screen.getByRole("button", { name: "Import games" }));
+    await user.click(screen.getByLabelText("Games to import"));
+    await user.paste("Date,Opponent,Us,Them\n2026-08-22,Velocirabbits,6,5");
+    await user.click(screen.getByRole("button", { name: "Read games" }));
+    await user.type(screen.getByLabelText("Whose schedule is this?"), "Rays");
+    await user.click(screen.getByRole("button", { name: /^Add 1 game$/ }));
+    await waitFor(() =>
+      expect(loadScoutTeams().map((entry) => entry.name)).toContain("Velocirabbits")
+    );
+    expect(loadScoutTeams().find((entry) => entry.id === "S-HAWK")).toEqual(hawks);
+  });
+
+  it("keeps a held club's name cleaned when a game is added against it", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ teams: [...pool().teams, team("S-HORN", "Hornets 10U")] }));
+    await user.type(screen.getByPlaceholderText("Team name"), "Hornets");
+    await user.type(screen.getByPlaceholderText("Opponent name"), "Rays");
+    await user.click(screen.getByRole("button", { name: "Add Game" }));
+    await waitFor(() =>
+      expect(loadScoutTeams().find((entry) => entry.id === "S-HORN")?.name).toBe("Hornets")
+    );
+    expect(loadScoutTeams()).toHaveLength(4);
+  });
+
   it("marks a club League Standings made as the page's own, the club joining the roster alone", async () => {
     const user = userEvent.setup();
     renderTeamRankings(pool({ ...leagueOnPage(), search: "?age=10&year=2027" }));
@@ -403,6 +460,19 @@ describe("the clean-up edits", () => {
     await waitFor(() =>
       expect(loadScoutTeams().map((entry) => entry.name)).toEqual(["Rays Blue", "Jays", "Owls"])
     );
+  });
+
+  it("locks the name of a club League Standings made on a page its league games are not on", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ ...leagueOnPage(), search: "?age=10&year=2027" }));
+    const panel = await openClub(user, "Hawks");
+    expect(within(panel).getByLabelText("Team name")).toBeDisabled();
+    // The panel stays open on the season before's page, where the club has no league game.
+    await user.selectOptions(screen.getByLabelText("Season"), "2026");
+    await waitFor(() => expect(screen.getByLabelText("Season")).toHaveValue("2026"));
+    const still = screen.getByRole("region", { name: "Hawks" });
+    expect(within(still).getByLabelText("Team name")).toBeDisabled();
+    expect(within(still).getByRole("button", { name: "Rename" })).toBeDisabled();
   });
 
   it("folds a page's own team into another club, the page's mark going with it", async () => {

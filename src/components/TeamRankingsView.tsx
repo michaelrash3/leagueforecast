@@ -469,11 +469,17 @@ export function TeamRankingsView({
   const [namedAges, setNamedAges] = useState<NamedAges>(() => loadNamedAges());
   const [droppedClubs, setDroppedClubs] = useState<DeletedClubs>(() => loadDroppedClubs());
   const runCommand = useCallback(
-    (command: PoolCommand, { quiet = false }: { quiet?: boolean } = {}): CommandRun => {
+    (
+      command: PoolCommand,
+      { quiet = false, explains = false }: { quiet?: boolean; explains?: boolean } = {}
+    ): CommandRun => {
       const run = runPoolCommand(command);
       // Work done in the background (the tidy) that the pool has moved on from is not news: it
       // comes round again on the pool as it is. A store that would not take a write still is.
       if (!run.ok && quiet && run.why !== "unsaved") return run;
+      // A caller that says what a refusal leaves behind itself (the archive, whose tables are
+      // kept either way) is the one message shown.
+      if (!run.ok && explains) return run;
       if (!run.ok) {
         showToast(
           run.why === "unsaved"
@@ -1675,6 +1681,27 @@ export function TeamRankingsView({
         : allKnown.teams.filter((team) => team.id === id)
     );
 
+  /**
+   * What games added put right on the clubs they name that the roster already holds: a name the
+   * lookup cleaned of an age label it was stored with (`resolveOrCreateTeam`), and a state the
+   * schedule import filled in from its file where the club had none (it never replaces one). Only
+   * those two, laid over the club as stored, so nothing else League Standings worked out for it on
+   * the fly is written; and only on the clubs the games name, so a club the add did not touch is
+   * not written for a name the walk cleaned on its own.
+   */
+  const heldHeals = (next: readonly ScoutTeam[], named: ReadonlySet<string>): PoolCommand[] =>
+    next.flatMap((team): PoolCommand[] => {
+      if (!named.has(team.id)) return [];
+      const was = scoutTeams.find((held) => held.id === team.id);
+      if (!was || (was.name === team.name && was.state === team.state)) return [];
+      const state = team.state === undefined ? {} : { state: team.state };
+      return [{ kind: "team.put", team: { ...was, name: team.name, ...state } }];
+    });
+
+  /** Games added, with the heals of the held clubs they name, as one change. */
+  const withHeals = (heals: PoolCommand[], add: PoolCommand): PoolCommand =>
+    heals.length === 0 ? add : { kind: "batch", commands: [...heals, add] };
+
   const mergeInto = async (fromId: string, intoId: string): Promise<boolean> => {
     const from = allKnown.teams.find((team) => team.id === fromId);
     const into = allKnown.teams.find((team) => team.id === intoId);
@@ -1891,11 +1918,15 @@ export function TeamRankingsView({
     // the first time, or one League Standings made. Every other club League Standings made stays
     // out of it, its id holding only for the walk that minted it.
     const held = new Set(scoutTeams.map((team) => team.id));
-    const adopt = teams.filter(
-      (team) => !held.has(team.id) && (team.id === newGame.teamAId || team.id === newGame.teamBId)
-    );
-    if (!runCommand({ kind: "game.add", year: selectedYear ?? null, games: [newGame], adopt }).ok)
-      return;
+    const named = new Set([newGame.teamAId, newGame.teamBId]);
+    const adopt = teams.filter((team) => !held.has(team.id) && named.has(team.id));
+    const add: PoolCommand = {
+      kind: "game.add",
+      year: selectedYear ?? null,
+      games: [newGame],
+      adopt,
+    };
+    if (!runCommand(withHeals(heldHeals(teams, named), add)).ok) return;
     noteAdded([newGame.id]);
     setGameDraft(EMPTY_ADD_GAME_DRAFT);
     showToast(scoresBothValid ? "Game added." : "Added to schedule.", { tone: "success" });
@@ -1910,12 +1941,14 @@ export function TeamRankingsView({
     const held = new Set(scoutTeams.map((team) => team.id));
     const named = new Set(newGames.flatMap((game) => [game.teamAId, game.teamBId]));
     const adopt = nextTeams.filter((team) => !held.has(team.id) && named.has(team.id));
-    const run = runCommand({
-      kind: "game.add",
-      year: selectedYear ?? null,
-      games: newGames,
-      adopt,
-    });
+    const run = runCommand(
+      withHeals(heldHeals(nextTeams, named), {
+        kind: "game.add",
+        year: selectedYear ?? null,
+        games: newGames,
+        adopt,
+      })
+    );
     if (!run.ok) return;
     noteAdded(newGames.map((game) => game.id));
     setImportOpen(false);
@@ -2143,7 +2176,10 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
       }
       // Only now: the tables are on disk, so the games they replace can go. The year empties
       // before its pages go, as storage needs (`writePool`).
-      if (!runCommand(changeBetween(poolParts(stored), poolParts(done.state))).ok) {
+      const deleted = runCommand(changeBetween(poolParts(stored), poolParts(done.state)), {
+        explains: true,
+      });
+      if (!deleted.ok) {
         showToast("The tables are kept under Archive, but the year's games could not be deleted.", {
           tone: "error",
         });
@@ -2526,6 +2562,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onOpenTeam: openListedTeam,
                 onSetAge: setTeamAge,
                 onSetAges: setTeamAges,
+                runCommand: (command) => runCommand(command),
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so
@@ -2569,11 +2606,15 @@ This cannot be undone. Cancel and download the backups first if there is any cha
           ageGroupName={selectedGroupName}
           teamNameById={teamNameById}
           leagueLink={
-            leagueGameTeamIds.has(openTeam.id)
-              ? allKnown.pickedOnly.has(openTeam.id)
-                ? "pick"
-                : "name"
-              : undefined
+            // A club the roster does not hold is one League Standings made, named there and
+            // nowhere else: a rename would have no club to write to.
+            !scoutTeams.some((team) => team.id === openTeam.id)
+              ? "name"
+              : leagueGameTeamIds.has(openTeam.id)
+                ? allKnown.pickedOnly.has(openTeam.id)
+                  ? "pick"
+                  : "name"
+                : undefined
           }
           onRename={(nextName) => void renameTeam(openTeam.id, nextName)}
           onUnlinkGc={(gcTeamId) => unlinkGc(openTeam.id, gcTeamId)}

@@ -18,6 +18,7 @@ import {
   saveScoutGamesForYear,
   saveScoutTeams,
   storedGamesByYear,
+  writePoolTogether,
 } from "../teamRankingsStorage";
 import {
   applyCommand,
@@ -75,7 +76,8 @@ const writePart = (write: PoolWrite): boolean => {
 };
 
 /**
- * Writes each part, every one tried; false when any was refused.
+ * Writes every part or none: the first part the store refuses ends the run, and the parts written
+ * before it are put back (`writePoolTogether`), so a command is never left half-done in the store.
  *
  * The pages around the games, because storage files a game under its page's year: a page a change
  * makes is stored before the games filed on it, which would otherwise be filed under no year, and
@@ -83,18 +85,15 @@ const writePart = (write: PoolWrite): boolean => {
  * without one refiles whatever is still on it (`saveAgeGroups`). So the pages are stored first
  * with every page the store has kept on, and then, once the games are written, as they are to be.
  */
-export const writePool = (writes: readonly PoolWrite[]): boolean => {
-  const pages = writes.find((write) => write.part === "groups");
-  const kept = pages?.part === "groups" ? new Set(pages.groups.map((group) => group.id)) : null;
-  const leaving = kept ? loadAgeGroups().filter((group) => !kept.has(group.id)) : [];
-  const written: boolean[] = [];
-  if (pages?.part === "groups") written.push(saveAgeGroups([...pages.groups, ...leaving]));
-  writes.forEach((write) => {
-    if (write.part !== "groups") written.push(writePart(write));
+export const writePool = (writes: readonly PoolWrite[]): boolean =>
+  writePoolTogether(() => {
+    const pages = writes.find((write) => write.part === "groups");
+    const kept = pages?.part === "groups" ? new Set(pages.groups.map((group) => group.id)) : null;
+    const leaving = kept ? loadAgeGroups().filter((group) => !kept.has(group.id)) : [];
+    if (pages?.part === "groups" && !saveAgeGroups([...pages.groups, ...leaving])) return false;
+    if (!writes.every((write) => write.part === "groups" || writePart(write))) return false;
+    return pages?.part !== "groups" || leaving.length === 0 || saveAgeGroups(pages.groups);
   });
-  if (pages?.part === "groups" && leaving.length > 0) written.push(saveAgeGroups(pages.groups));
-  return written.every(Boolean);
-};
 
 export type CommandRun =
   /** Applied and written: the parts as written, and what takes it back. */

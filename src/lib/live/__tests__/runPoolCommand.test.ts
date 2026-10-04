@@ -3,6 +3,7 @@ import { markTaken, resetCloudGuard } from "../../cloud/cloudGuard";
 import {
   gamesShardLabel,
   loadAgeGroups,
+  loadDroppedClubs,
   loadRealClubs,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -10,6 +11,7 @@ import {
   resetTeamRankingsStore,
   saveAgeGroups,
   saveScoutGames,
+  saveScoutGamesForYear,
   saveScoutTeams,
 } from "../../teamRankingsStorage";
 import { runPoolCommand, writtenTeams } from "../runPoolCommand";
@@ -75,6 +77,19 @@ const writtenBy = (act: () => void): string[] => {
   return keys;
 };
 
+/** Storage that refuses any key ending in `label`, as a full one refuses the key that tips it. */
+const fullFor = (label: string) =>
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => backing.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      if (k.endsWith(label)) throw new Error("quota");
+      backing.set(k, v);
+    },
+    removeItem: (k: string) => {
+      backing.delete(k);
+    },
+  });
+
 describe("a command on this browser's pool", () => {
   it("writes the year of the game it changes, and nothing else", () => {
     const keys = writtenBy(() => {
@@ -112,19 +127,10 @@ describe("a command on this browser's pool", () => {
     expect(loadScoutTeams()[1]).not.toHaveProperty("state");
   });
 
-  it("says a command was not made when any part of it was refused", () => {
-    // The roster is kept, the year's games are not: storage full, for that key alone.
-    const games = gamesShardLabel(2027);
-    vi.stubGlobal("localStorage", {
-      getItem: (k: string) => backing.get(k) ?? null,
-      setItem: (k: string, v: string) => {
-        if (k.endsWith(games)) throw new Error("quota");
-        backing.set(k, v);
-      },
-      removeItem: (k: string) => {
-        backing.delete(k);
-      },
-    });
+  it("says a command was not made when any part of it was refused, and leaves none of it", () => {
+    // The roster is taken, the year's games are not: storage full, for that key alone.
+    fullFor(gamesShardLabel(2027));
+    const before = new Map(backing);
     expect(
       runPoolCommand({
         kind: "batch",
@@ -134,6 +140,30 @@ describe("a command on this browser's pool", () => {
         ],
       })
     ).toEqual({ ok: false, why: "unsaved" });
+    expect(backing).toEqual(before);
+    expect(loadScoutTeams()[1]).not.toHaveProperty("state");
+  });
+
+  it("keeps a club thrown out on the roster when its games could not be taken out", () => {
+    // A game of two other clubs keeps the year from emptying, so the year is rewritten, not let go.
+    saveScoutTeams([
+      { id: "A", name: "Club A" },
+      { id: "B", name: "Club B" },
+      { id: "C", name: "Club C" },
+    ]);
+    saveScoutGamesForYear(2027, [
+      ...loadScoutGamesForYear(2027),
+      { id: "kept", ageGroupId: "ag_10u_2027", teamAId: "B", teamBId: "C" },
+    ]);
+    fullFor(gamesShardLabel(2027));
+    const before = new Map(backing);
+    expect(runPoolCommand({ kind: "club.drop", teamId: "A" })).toEqual({
+      ok: false,
+      why: "unsaved",
+    });
+    expect(backing).toEqual(before);
+    expect(loadScoutTeams().map((team) => team.id)).toEqual(["A", "B", "C"]);
+    expect(loadDroppedClubs().size).toBe(0);
   });
 
   it("says what it names is not in the pool", () => {
@@ -184,5 +214,40 @@ describe("pages and the games filed on them", () => {
       ["own", "ag_10u_2027"],
     ]);
     expect(loadScoutGamesForYear(undefined)).toEqual([]);
+  });
+
+  it("takes back a page it made when the games could not be moved onto it", () => {
+    saveScoutTeams([
+      {
+        id: "A",
+        name: "Club A",
+        gcTeams: [{ teamId: "gcA", name: "Club A 10U", ageGroupId: "ag_10u_2027" }],
+      },
+      { id: "B", name: "Club B" },
+    ]);
+    saveScoutGames([
+      {
+        id: "own",
+        ageGroupId: "ag_10u_2027",
+        teamAId: "A",
+        teamBId: "B",
+        source: { kind: "gamechanger", teamId: "gcA", gameId: "r1" },
+      },
+    ]);
+    fullFor(gamesShardLabel(2027));
+    const before = new Map(backing);
+    expect(
+      runPoolCommand({
+        kind: "club.age",
+        year: 2027,
+        teamId: "A",
+        level: 11,
+        at: "2026-09-30T12:00:00.000Z",
+        pageId: "ag_11u_2027",
+      })
+    ).toEqual({ ok: false, why: "unsaved" });
+    expect(backing).toEqual(before);
+    expect(loadAgeGroups().map((group) => group.id)).toEqual(["ag_10u_2026", "ag_10u_2027"]);
+    expect(loadScoutGamesForYear(2027).map((game) => game.ageGroupId)).toEqual(["ag_10u_2027"]);
   });
 });

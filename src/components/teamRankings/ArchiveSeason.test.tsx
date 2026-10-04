@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ageGroup,
   game,
@@ -125,6 +125,34 @@ describe("archiving a finished season from the app", () => {
 
     expect(loadScoutGames()).toHaveLength(9);
     expect(loadArchiveIndex()).toEqual([]);
+  });
+
+  it("says once that the games stay when the store will not take their deletion, and keeps them", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool());
+    // Storage full for the roster: the tables are written, the year's deletion is refused.
+    const setItem = Storage.prototype.setItem;
+    const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string
+    ) {
+      if (key === "league_forecast_scout_teams_v1") throw new Error("quota");
+      setItem.call(this, key, value);
+    });
+    try {
+      await archive2026(user);
+      await waitFor(() =>
+        expect(harness.toasts()).toContain(
+          "The tables are kept under Archive, but the year's games could not be deleted."
+        )
+      );
+    } finally {
+      full.mockRestore();
+    }
+    expect(harness.toasts()).toHaveLength(1);
+    expect(loadScoutGames()).toHaveLength(9);
+    expect(loadScoutTeams()).toHaveLength(8);
   });
 
   it("shows the frozen table under Archive, read-only", async () => {

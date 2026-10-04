@@ -11,8 +11,8 @@ import {
   loadRealClubs,
   storedGamesByYear,
 } from "../../lib/teamRankingsStorage";
-import type { AnswerList } from "../../lib/live/commands";
-import { runPoolCommand, storedPool, writtenAnswers } from "../../lib/live/runPoolCommand";
+import type { AnswerList, PoolCommand } from "../../lib/live/commands";
+import { storedPool, writtenAnswers, type CommandRun } from "../../lib/live/runPoolCommand";
 import { IMPLAUSIBLE_MARGIN, isImplausibleScore, ratedMargin } from "../../lib/teamRankings";
 import { apartKey, isKeptApart } from "../../lib/keptApart";
 import type { PoolLists } from "../../workers/tidyProtocol";
@@ -73,6 +73,8 @@ type PoolHealthCardProps = {
   onSetAge?: (teamId: string, level: number, year: number) => boolean;
   /** Confirms and files all the evidence-backed suggestions as one saved, undoable change. */
   onSetAges?: (clubs: readonly WrongAgeClub[]) => Promise<BulkAgeResult | null>;
+  /** Runs a command on the pool as the page runs every edit, saying so when the store refuses it. */
+  runCommand: (command: PoolCommand) => CommandRun;
 };
 
 /** Why a list's rows are being thrown out, which is what the question before it says. */
@@ -120,6 +122,7 @@ export function PoolHealthCard({
   onOpenTeam,
   onSetAge,
   onSetAges,
+  runCommand,
 }: PoolHealthCardProps) {
   /*
    * What each squad year holds, from the stored sizes rather than from the pool in hand, so it
@@ -313,11 +316,11 @@ export function PoolHealthCard({
 
   /**
    * Adds and takes ids on one of the user's answer lists, as a command (`commands.ts`), and hands
-   * back the list as it now stands, or null when the store refused the write: the card shows only
-   * an answer that was kept.
+   * back the list as it now stands, or null when the store refused the write, which the page says:
+   * the card shows only an answer that was kept.
    */
   const answer = (list: AnswerList, add: string[], remove: string[]): Set<string> | null => {
-    const run = runPoolCommand({ kind: "answers", list, add, remove });
+    const run = runCommand({ kind: "answers", list, add, remove });
     if (!run.ok) return null;
     return new Set(writtenAnswers(run, list) ?? storedPool.answers(list));
   };

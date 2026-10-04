@@ -511,6 +511,62 @@ const readValue = (key: string): unknown => {
 };
 
 /**
+ * The value each key held before `writePoolTogether` began, kept from the first write to it on,
+ * while one runs; null otherwise. On `localStorage` the raw string, or null for a key not there.
+ */
+let journal: Map<string, unknown> | null = null;
+
+const noteBefore = (key: string): void => {
+  if (!journal || journal.has(key)) return;
+  journal.set(key, usingIdb ? (cache.get(key) ?? null) : safeGet(key));
+};
+
+/**
+ * A key put back to what it held, past the cloud guard: this tab is taking back its own write of a
+ * moment ago, not laying an old value over a newer copy.
+ */
+const putBack = (key: string, before: unknown): void => {
+  if (!usingIdb) {
+    if (typeof before === "string") safeSet(key, before);
+    else safeRemove(key);
+    return;
+  }
+  cache.set(key, before);
+  // Queued in write order, for the reason in `writeValue`; it goes after the write it takes back.
+  pendingWrites.delete(key);
+  pendingWrites.set(key, before);
+  void flushWrites();
+  broadcast.post(key);
+};
+
+/**
+ * Runs `write`, a run of saves that stands or falls as one, and when it answers false puts every
+ * key it wrote back as it was, the last written first.
+ *
+ * A change made of several parts is otherwise left half-done by a store that takes some and
+ * refuses the next: `localStorage` full for one year's key, say, so that a club thrown out is gone
+ * from the roster while its games still name it, or a page is made with none of its games moved
+ * onto it. On IndexedDB a write is refused only when the pool cannot be reached or the cloud guard
+ * holds it, which refuses the first as well as the rest; a write accepted there that later fails
+ * to land is not seen here at all, but reported once it fails (`onPoolWriteError`).
+ *
+ * Nested, the outer one is the one that puts back.
+ */
+export const writePoolTogether = (write: () => boolean): boolean => {
+  if (journal) return write();
+  const written = new Map<string, unknown>();
+  journal = written;
+  let ok = false;
+  try {
+    ok = write();
+  } finally {
+    journal = null;
+    if (!ok) [...written].reverse().forEach(([key, before]) => putBack(key, before));
+  }
+  return ok;
+};
+
+/**
  * Writes a value. On IndexedDB this returns whether the write was *accepted* — the cache has it
  * and it is queued — because the transaction has not finished yet and the caller cannot wait. A
  * write that then fails is reported through `onPoolWriteError`. On `localStorage` it is the old
@@ -525,6 +581,7 @@ const writeValue = (key: string, value: unknown, quiet = false): boolean => {
   // Refused rather than written somewhere nothing will read it back.
   if (poolUnavailable) return false;
   if (isCloudPoolKey(key) && !mayWrite("pool")) return false;
+  noteBefore(key);
   // On localStorage the browser raises `storage` in every other tab by itself, so there is nothing
   // to send: the value is already shared and the notification comes free.
   if (!usingIdb) {
@@ -553,6 +610,7 @@ const writeValue = (key: string, value: unknown, quiet = false): boolean => {
 
 const forgetValue = (key: string, quiet = false): void => {
   if (isCloudPoolKey(key) && !mayWrite("pool")) return;
+  noteBefore(key);
   if (!usingIdb) {
     safeRemove(key);
     if (!quiet) noteCloudWrite(key);
@@ -1296,9 +1354,14 @@ export const saveScoutGamesForYear = (year: number | undefined, games: ScoutGame
   ensureGamesSharded();
   const label = labelForYear(year);
   const key = shardKeyFor(label);
-  // Pin first, so `writeShards` re-pins this year to the array it writes.
-  if (decodedYear?.key !== key) decodedYear = { key, source: readValue(key), games: [] };
-  return writeRouted(games, new Set([label]));
+  // Pin first, so `writeShards` re-pins this year to the array it writes. A pin made here that the
+  // write did not replace holds no games against the year as it is still stored, and would read
+  // it as empty from then on; it goes.
+  const seed = decodedYear?.key === key ? null : { key, source: readValue(key), games: [] };
+  if (seed) decodedYear = seed;
+  const written = writeRouted(games, new Set([label]));
+  if (decodedYear === seed) decodedYear = null;
+  return written;
 };
 
 /** The shard label of a year, for callers that key their own caches the way storage does. */

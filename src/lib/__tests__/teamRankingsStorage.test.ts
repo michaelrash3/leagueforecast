@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { GcTeamLink, ScoutGame, ScoutTeam } from "../teamRankings";
 import { emptyPullRunLog } from "../pullTracker";
+import { markTaken, resetCloudGuard } from "../cloud/cloudGuard";
 import {
   clearTeamRankings,
   coerceGcTeamLink,
@@ -27,6 +28,7 @@ import {
   saveScoutGames,
   saveScoutGamesForYear,
   saveScoutTeams,
+  writePoolTogether,
   type PoolStoreIo,
 } from "../teamRankingsStorage";
 
@@ -663,5 +665,123 @@ describe("a store that throws rather than answer", () => {
     expect(saveTidyStamp("r1|kept")).toBe(true);
     expect(await flushPoolWrites()).toBe(true);
     expect([...poolKeysNotStored()]).toEqual([]);
+  });
+});
+
+describe("a run of saves that stands or falls as one", () => {
+  const memoryIo = (store: Map<string, unknown>): PoolStoreIo => ({
+    keys: async () => [...store.keys()],
+    get: async (key) => store.get(key) ?? null,
+    set: async (key, value) => {
+      store.set(key, value);
+      return true;
+    },
+    readLocal: () => null,
+    clearLocal: () => {},
+  });
+
+  beforeEach(() => resetCloudGuard());
+
+  it("puts back what it wrote when a later save is refused, and forgets a key it made", () => {
+    saveScoutTeams([{ id: "A", name: "Aces" }]);
+    saveAgeGroups([{ id: "ag1", name: "10U 2026", ageLevel: 10, year: 2026, seasonIds: [] }]);
+    const before = new Map(backing);
+    const games = [...backing.keys()].length;
+    // Storage full for the year's games alone: the roster and the pages go in, the games do not.
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        if (k.endsWith(":2026")) throw new Error("quota");
+        backing.set(k, v);
+      },
+      removeItem: (k: string) => {
+        backing.delete(k);
+      },
+    });
+    const written = writePoolTogether(
+      () =>
+        saveScoutTeams([
+          { id: "A", name: "Aces" },
+          { id: "B", name: "Bears" },
+        ]) &&
+        saveTidyStamp("r1|first") &&
+        // A key written twice is put back to what it held before the first.
+        saveTidyStamp("r1|second") &&
+        saveScoutGamesForYear(2026, [
+          { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1", teamAScore: 5, teamBScore: 3 },
+        ])
+    );
+    expect(written).toBe(false);
+    expect(backing).toEqual(before);
+    expect([...backing.keys()]).toHaveLength(games);
+    expect(loadScoutTeams()).toEqual([{ id: "A", name: "Aces" }]);
+    expect(loadTidyStamp()).toBeNull();
+  });
+
+  it("keeps everything when every save goes in", () => {
+    expect(writePoolTogether(() => saveTidyStamp("r1|kept") && saveScoutTeams([]))).toBe(true);
+    expect(loadTidyStamp()).toBe("r1|kept");
+  });
+
+  it("puts back on IndexedDB too, in the cache and then in the store", async () => {
+    const store = new Map<string, unknown>();
+    await initTeamRankingsStore(memoryIo(store));
+    saveScoutTeams([{ id: "A", name: "Aces" }]);
+    await flushPoolWrites();
+    const stored = new Map(store);
+    expect(
+      writePoolTogether(() => {
+        saveScoutTeams([{ id: "B", name: "Bears" }]);
+        saveTidyStamp("r1|thrown");
+        return false;
+      })
+    ).toBe(false);
+    expect(loadScoutTeams()).toEqual([{ id: "A", name: "Aces" }]);
+    expect(loadTidyStamp()).toBeNull();
+    expect(await flushPoolWrites()).toBe(true);
+    // A key that was not there is forgotten the way the store forgets one: set to nothing.
+    expect(new Map([...store].filter(([, value]) => value !== null))).toEqual(stored);
+  });
+
+  it("leaves the putting back to the outer run when one runs inside another", () => {
+    expect(
+      writePoolTogether(() => {
+        writePoolTogether(() => {
+          saveTidyStamp("r1|inner");
+          return false;
+        });
+        return true;
+      })
+    ).toBe(true);
+    expect(loadTidyStamp()).toBe("r1|inner");
+  });
+});
+
+describe("a year's save the store refuses", () => {
+  it("leaves the year reading as it is stored, not as empty", async () => {
+    const store = new Map<string, unknown>();
+    await initTeamRankingsStore({
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    });
+    resetCloudGuard();
+    saveAgeGroups([
+      { id: "ag26", name: "10U 2026", ageLevel: 10, year: 2026, seasonIds: [] },
+      { id: "ag27", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
+    ]);
+    const kept: ScoutGame = { id: "g27", teamAId: "A", teamBId: "B", ageGroupId: "ag27" };
+    saveScoutGames([{ id: "g26", teamAId: "A", teamBId: "B", ageGroupId: "ag26" }, kept]);
+    // Another year is the one held decoded, so the save below has to pin 2027 for itself.
+    loadScoutGamesForYear(2026);
+    // Another tab took a newer copy in, so this one's writes are refused.
+    markTaken("pool", false);
+    expect(saveScoutGamesForYear(2027, [{ ...kept, teamAScore: 4, teamBScore: 1 }])).toBe(false);
+    expect(loadScoutGamesForYear(2027)).toEqual([kept]);
   });
 });

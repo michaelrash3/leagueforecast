@@ -258,6 +258,8 @@ const editGame = (
   const at = games.findIndex((game) => game.id === gameId);
   const was = games[at];
   if (!was) return { ok: false, why: "missing" };
+  // The undo puts a game back by its id, which would put this copy over the other one too.
+  if (heldTwice(games, new Set([gameId]))) return { ok: false, why: "refused" };
   const next = edit(was);
   if (next === was) return unchanged();
   const written = games.slice();
@@ -294,6 +296,28 @@ const namedBy = (games: readonly ScoutGame[]): Set<string> => {
   return ids;
 };
 
+/**
+ * Whether every game is filed, by its page, under squad year `year`: storage keeps a game in its
+ * page's year whatever year it was written under, so one that is not would land in another year's
+ * games, over a record there with its id, and its undo would look for it in the wrong year. A game
+ * whose page is not in the pool is filed with the games that have no year, as storage files it.
+ */
+const inYear = (read: PoolRead, year: number | null, games: readonly ScoutGame[]): boolean => {
+  const yearOf = new Map(read.groups().map((group) => [group.id, ageGroupYear(group) ?? null]));
+  return games.every((game) => (yearOf.get(game.ageGroupId) ?? null) === year);
+};
+
+/** Whether the year holds any of these ids twice, which a change by id could not keep apart. */
+const heldTwice = (games: readonly ScoutGame[], ids: ReadonlySet<string>): boolean => {
+  const seen = new Set<string>();
+  return games.some((game) => {
+    if (!ids.has(game.id)) return false;
+    if (seen.has(game.id)) return true;
+    seen.add(game.id);
+    return false;
+  });
+};
+
 const replaceGroup = (groups: readonly AgeGroup[], next: AgeGroup): AgeGroup[] =>
   groups.map((group) => (group.id === next.id ? next : group));
 
@@ -302,9 +326,15 @@ const withMyTeam = (group: AgeGroup, teamId: string | null): AgeGroup => {
   return teamId === null ? rest : { ...rest, myTeamId: teamId };
 };
 
-/** The inverses of a command's steps, as the one command that undoes them all. */
+/**
+ * The inverses of a command's steps, as the one command that undoes them all: one flat batch, a
+ * batch inside a batch being the same steps in the same order, so an inverse stays shallow enough
+ * to be read back from elsewhere (`coerceCommand`).
+ */
 const undoing = (inverses: readonly PoolCommand[]): PoolCommand => {
-  const steps = inverses.filter((step) => step.kind !== "none");
+  const steps = inverses
+    .flatMap((step) => (step.kind === "batch" ? step.commands : [step]))
+    .filter((step) => step.kind !== "none");
   return steps.length === 0
     ? NONE
     : steps.length === 1
@@ -405,22 +435,105 @@ type After = {
 };
 
 /**
+ * Where each record a change took away goes back, counted in the list as it stands while the
+ * records the change added are still in it: the inverse puts records back before it takes the
+ * added ones away (`settle`), so a place counted in the list as it was before would land a record
+ * beside the wrong neighbours. The two lists merged, the kept records in the order both hold them.
+ */
+const placesBack = <T extends { id: string }>(
+  before: readonly T[],
+  after: readonly T[],
+  change: { added: string[]; removed: { item: T; at: number }[] }
+): { item: T; at: number }[] => {
+  const added = new Set(change.added);
+  const removed = new Set(change.removed.map(({ item }) => item.id));
+  const places: { item: T; at: number }[] = [];
+  let place = 0;
+  let a = 0;
+  let b = 0;
+  while (a < after.length || b < before.length) {
+    const next = after[a];
+    const was = before[b];
+    if (next && added.has(next.id)) a += 1;
+    else if (was && removed.has(was.id)) {
+      places.push({ item: was, at: place });
+      b += 1;
+    } else {
+      a += 1;
+      b += 1;
+    }
+    place += 1;
+  }
+  return places;
+};
+
+/**
  * The writes that take the pool `read` holds to `after`, each part written only when it changed,
  * and the inverse that puts back exactly what changed: record by record, so that whatever else is
  * changed meanwhile stands through an undo, or the part whole where the records it kept moved.
  *
- * The inverse puts the games back first, then the roster, then the pages, so that a page it takes
- * away has no game left on it by then (`group.remove`).
+ * The inverse puts back what the change took away before the games, and takes away what it added
+ * after them, clubs outside pages: clubs brought back, then pages (so a page's mark comes back on a
+ * club that is there, and the games put back on a page have somewhere to be filed, `inYear`), then
+ * the games, then pages taken away (once no game is left on them, `group.remove`), then clubs
+ * taken away (once no game and no page's mark names them, `team.remove`). An inverse's own inverse
+ * keeps that shape, so an undo can be redone exactly.
  */
 const settle = (read: PoolRead, after: After): Applied => {
   const writes: PoolWrite[] = [];
-  const inverses: PoolCommand[] = [];
-  after.games?.forEach((games, year) => {
+  const clubsBack: PoolCommand[] = [];
+  const first: PoolCommand[] = [];
+  const games: PoolCommand[] = [];
+  const last: PoolCommand[] = [];
+  const clubsAway: PoolCommand[] = [];
+  if (after.groups) {
+    const before = read.groups();
+    const change = listChange(before, after.groups);
+    if (change !== "same") {
+      writes.push({ part: "groups", groups: [...after.groups] });
+      if (change === null) first.push({ kind: "groups.set", groups: [...before] });
+      else {
+        first.push(
+          ...change.changed.map((group): PoolCommand => ({ kind: "group.put", group })),
+          ...placesBack(before, after.groups, change).map(({ item, at }): PoolCommand => ({
+            kind: "group.insert",
+            group: item,
+            at,
+          }))
+        );
+        last.push(
+          ...change.added.map((groupId): PoolCommand => ({ kind: "group.remove", groupId }))
+        );
+      }
+    }
+  }
+  if (after.teams) {
+    const before = read.teams();
+    const change = listChange(before, after.teams);
+    if (change !== "same") {
+      writes.push({ part: "teams", teams: [...after.teams] });
+      if (change === null) clubsBack.push({ kind: "teams.set", teams: [...before] });
+      else {
+        clubsBack.push(
+          ...change.changed.map((team): PoolCommand => ({ kind: "team.put", team })),
+          ...placesBack(before, after.teams, change).map(({ item, at }): PoolCommand => ({
+            kind: "team.insert",
+            team: item,
+            at,
+          }))
+        );
+        clubsAway.push(
+          ...change.added.map((teamId): PoolCommand => ({ kind: "team.remove", teamId }))
+        );
+      }
+    }
+  }
+  after.games?.forEach((list, year) => {
     const before = read.games(year);
-    const change = listChange(before, games);
+    const change = listChange(before, list);
     if (change === "same") return;
-    writes.push({ part: "games", year, games: [...games] });
-    inverses.push(
+    writes.push({ part: "games", year, games: [...list] });
+    games.push(
       change === null
         ? { kind: "games.set", year, games: [...before] }
         : undoing([
@@ -436,47 +549,11 @@ const settle = (read: PoolRead, after: After): Applied => {
           ])
     );
   });
-  if (after.teams) {
-    const before = read.teams();
-    const change = listChange(before, after.teams);
-    if (change !== "same") {
-      writes.push({ part: "teams", teams: [...after.teams] });
-      inverses.push(
-        change === null
-          ? { kind: "teams.set", teams: [...before] }
-          : undoing([
-              ...change.added.map((teamId): PoolCommand => ({ kind: "team.remove", teamId })),
-              ...change.changed.map((team): PoolCommand => ({ kind: "team.put", team })),
-              ...change.removed.map(({ item, at }): PoolCommand => ({
-                kind: "team.insert",
-                team: item,
-                at,
-              })),
-            ])
-      );
-    }
-  }
-  if (after.groups) {
-    const before = read.groups();
-    const change = listChange(before, after.groups);
-    if (change !== "same") {
-      writes.push({ part: "groups", groups: [...after.groups] });
-      inverses.push(
-        change === null
-          ? { kind: "groups.set", groups: [...before] }
-          : undoing([
-              ...change.added.map((groupId): PoolCommand => ({ kind: "group.remove", groupId })),
-              ...change.changed.map((group): PoolCommand => ({ kind: "group.put", group })),
-              ...change.removed.map(({ item, at }): PoolCommand => ({
-                kind: "group.insert",
-                group: item,
-                at,
-              })),
-            ])
-      );
-    }
-  }
-  return { ok: true, writes, inverse: undoing(inverses) };
+  return {
+    ok: true,
+    writes,
+    inverse: undoing([...clubsBack, ...first, ...games, ...last, ...clubsAway]),
+  };
 };
 
 /** Whether no two pages share an id: a page made under an id one has already would. */
@@ -718,6 +795,13 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       const at = teams.findIndex((team) => team.id === command.teamId);
       const was = teams[at];
       if (!was) return { ok: false, why: "missing" };
+      // Kept, and nothing to undo, while a game or a page's mark still names it: something made
+      // since the club came (a game against it, the page's star) has made it the pool's.
+      if (
+        read.groups().some((group) => group.myTeamId === command.teamId) ||
+        namedBy(everyGame(read)).has(command.teamId)
+      )
+        return unchanged();
       return {
         ok: true,
         writes: [{ part: "teams", teams: teams.filter((team) => team.id !== command.teamId) }],
@@ -765,6 +849,13 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       };
     }
     case "game.add": {
+      const pages = new Set(read.groups().map((group) => group.id));
+      // A game for no page, or for a page of another year, is not this year's to add.
+      if (
+        command.games.some((game) => !pages.has(game.ageGroupId)) ||
+        !inYear(read, command.year, command.games)
+      )
+        return { ok: false, why: "refused" };
       const games = read.games(command.year);
       const taken = new Set(games.map((game) => game.id));
       const fresh = new Set<string>();
@@ -812,7 +903,14 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
     case "game.insert": {
       const games = read.games(command.year);
       const taken = new Set(games.map((game) => game.id));
-      if (command.games.some(({ game }) => taken.has(game.id)))
+      if (
+        command.games.some(({ game }) => taken.has(game.id)) ||
+        !inYear(
+          read,
+          command.year,
+          command.games.map(({ game }) => game)
+        )
+      )
         return { ok: false, why: "refused" };
       if (command.games.length === 0) return unchanged();
       const next = games.slice();
@@ -849,11 +947,10 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       );
       const { kept, removed } = removeGames(read, year, here);
       const writes: PoolWrite[] = [];
+      // Undone club first, then its games, then the page's mark: the club comes back before the
+      // games that name it, so the undo's own undo takes the games away before the club.
       const inverses: PoolCommand[] = [];
-      if (removed.length > 0) {
-        writes.push({ part: "games", year, games: kept });
-        inverses.push({ kind: "game.insert", year, games: removed });
-      }
+      if (removed.length > 0) writes.push({ part: "games", year, games: kept });
       // Every year, not this one alone: a club with games in another season keeps its record, and
       // one a claimed row elsewhere was filed against stays for that row to go back to.
       const named = read
@@ -866,9 +963,20 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
         writes.push({ part: "teams", teams: teams.filter((team) => team.id !== club.id) });
         inverses.push({ kind: "team.insert", team: club, at });
       }
-      if (group.myTeamId === command.teamId) {
-        writes.push({ part: "groups", groups: replaceGroup(groups, withMyTeam(group, null)) });
-        inverses.push({ kind: "group.put", group });
+      if (removed.length > 0) inverses.push({ kind: "game.insert", year, games: removed });
+      // This page's mark comes off with the club; every page's, when the club leaves the roster.
+      const marked = groups.filter(
+        (page) =>
+          page.myTeamId === command.teamId &&
+          (page.id === group.id || (club !== undefined && !named))
+      );
+      if (marked.length > 0) {
+        const going = new Set(marked.map((page) => page.id));
+        writes.push({
+          part: "groups",
+          groups: groups.map((page) => (going.has(page.id) ? withMyTeam(page, null) : page)),
+        });
+        inverses.push(...marked.map((page): PoolCommand => ({ kind: "group.put", group: page })));
       }
       return writes.length === 0 ? unchanged() : { ok: true, writes, inverse: undoing(inverses) };
     }
@@ -896,6 +1004,8 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       const next = new Map(command.games.map((game) => [game.id, game]));
       const held = new Set(games.map((game) => game.id));
       if (command.games.some((game) => !held.has(game.id))) return { ok: false, why: "missing" };
+      if (heldTwice(games, new Set(next.keys())) || !inYear(read, command.year, command.games))
+        return { ok: false, why: "refused" };
       if (next.size === 0) return unchanged();
       const was = games.filter((game) => next.has(game.id));
       return {
@@ -911,6 +1021,7 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       };
     }
     case "games.set":
+      if (!inYear(read, command.year, command.games)) return { ok: false, why: "refused" };
       return settle(read, { games: new Map([[command.year, command.games]]) });
     case "teams.set":
       return settle(read, { teams: command.teams });
@@ -969,25 +1080,35 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       ]);
     }
     case "club.drop": {
-      const teams = read.teams();
-      const club = teams.find((team) => team.id === command.teamId);
-      if (!club) return { ok: false, why: "missing" };
+      const club = read.teams().find((team) => team.id === command.teamId);
       const all = everyGame(read);
       const gameIds = all
-        .filter((game) => game.teamAId === club.id || game.teamBId === club.id)
+        .filter((game) => game.teamAId === command.teamId || game.teamBId === command.teamId)
         .map((game) => game.id);
-      const gcTeamIds = (club.gcTeams ?? []).map((link) => link.teamId);
+      // A club its games still name though the roster holds no entry for it (Pool health lists
+      // clubs off the games) goes with its games, and has no GameChanger ids to refuse.
+      if (!club && gameIds.length === 0) return { ok: false, why: "missing" };
+      const gcTeamIds = (club?.gcTeams ?? []).map((link) => link.teamId);
       return applySteps(read, [
         remember("droppedClubs", gcTeamIds),
         remember("deletedGames", rowsOfGames(all, gameIds)),
         (pool) => {
           // Another club's row one of its games held as a claim stands back up rather than go.
-          const left = withoutClub({ teamId: club.id, gameIds }, pool.teams(), everyGame(pool), [
-            ...pool.groups(),
-          ]);
+          const left = withoutClub(
+            { teamId: command.teamId, gameIds },
+            pool.teams(),
+            everyGame(pool),
+            [...pool.groups()]
+          );
+          // No page keeps a club thrown out as its own team.
+          const groups = pool.groups();
+          const unmarked = groups.map((group) =>
+            group.myTeamId === command.teamId ? withMyTeam(group, null) : group
+          );
           return settle(pool, {
             teams: left.teams,
-            games: byYear(pool, left.games, pool.groups()),
+            groups: unmarked,
+            games: byYear(pool, left.games, groups),
           });
         },
       ]);
@@ -1154,14 +1275,19 @@ const strings = (value: unknown): string[] | null =>
 const yearOf = (value: unknown): number | null | undefined =>
   value === null ? null : Number.isInteger(value) ? (value as number) : undefined;
 
+/*
+ * A record read back exactly as it was sent, or null: one whose fields storage would have to drop
+ * or change to keep (a state that is a number, a link with no page) is not the record that was
+ * meant, and putting it back would quietly lose what it dropped.
+ */
 const oneTeam = (raw: unknown): ScoutTeam | null => {
   const [team] = coerceScoutTeams([raw]);
-  return team && isRecord(raw) && team.id === raw.id ? team : null;
+  return team && sameValue(team, raw) ? team : null;
 };
 
 const oneGroup = (raw: unknown): AgeGroup | null => {
   const [group] = coerceAgeGroups([raw]);
-  return group && isRecord(raw) && group.id === raw.id ? group : null;
+  return group && sameValue(group, raw) ? group : null;
 };
 
 const isPlace = (value: unknown): value is number =>
@@ -1196,7 +1322,7 @@ const oneSeason = (raw: unknown): AgeGroupSeason | undefined =>
 
 const oneGame = (raw: unknown): ScoutGame | null => {
   const [game] = coerceScoutGames([raw]);
-  return game && isRecord(raw) && game.id === raw.id ? game : null;
+  return game && sameValue(game, raw) ? game : null;
 };
 
 /**
@@ -1210,7 +1336,7 @@ export const coerceCommand = (raw: unknown, depth = 0): PoolCommand | null => {
     case "none":
       return NONE;
     case "batch": {
-      if (depth > 2 || !Array.isArray(raw.commands)) return null;
+      if (depth > 4 || !Array.isArray(raw.commands)) return null;
       const commands = raw.commands.map((step) => coerceCommand(step, depth + 1));
       return commands.every((step): step is PoolCommand => step !== null)
         ? { kind: "batch", commands }

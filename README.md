@@ -4315,8 +4315,18 @@ On this browser a command runs through `runPoolCommand`, which writes only the p
 (vouching for a score writes that game's year, not every year as it once did) and the roster as it
 is stored, never with the teams League Standings makes on the fly, whose ids hold only for the
 walk that made them. A club League Standings made joins the roster only when it is given something
-to keep, and then alone. The page shows a change once it is written: a write the store refuses (full,
-or held by a newer tab) is said to be refused and is not shown as done.
+to keep, and then alone; its name is set there, so its panel locks the name on every page, not only
+on the page its league games are on. Games added keep what they put right on the clubs they name
+that the roster holds, a name cleaned of an age label it was stored with and a state from the
+import's file where the club had none, and nothing else the walk worked out.
+
+The page shows a change once it is written, and a command is written whole or not at all
+(`writePoolTogether`): when the store refuses a part (full, or held by a newer tab), the parts
+written before it are put back and the change is said to be refused, so a club thrown out is never
+left gone from the roster with its games still naming it, nor a page made with none of its games
+moved onto it. On IndexedDB the store refuses a write only when the pool cannot be reached or a
+newer tab holds it, which refuses the first part as well as the rest; a write it accepted that then
+fails to land is told afterwards (`onPoolWriteError`), since by then the command has returned.
 
 Undo runs the change's own inverse, so it puts back exactly what was taken, where it stood, and
 leaves alone whatever was changed in between: a game removed and a score entered on another before
@@ -4337,11 +4347,24 @@ entered since. Storage files a game under its page's year, so the pages are writ
 games: a page a command makes before the games filed on it, and a page an undo takes away only
 after its games have left it. A command never mints an id: a page it may need comes named in it.
 
+An inverse puts clubs back first, then pages, then games, then takes away the pages and then the
+clubs the change had made, so that what it restores always has the club and the page it names, and
+an undo of an undo comes back in the same shape; a batch's undo is its steps' inverses run flat, in
+reverse. The commands never leave the pool naming nothing: a game filed on a page of another year
+than the command's, or an id two games hold, is refused; a club an undo takes off the roster stays
+while a page marks it as its own or a game names it, something made since it came having made it
+the pool's. Throwing a club out takes every page's mark off it, and takes out a club the roster no
+longer holds whose games are still there. A command that comes
+in from outside (`coerceCommand`, for the server) is taken only when it reads back as exactly what
+was sent, so a field the reader does not know is refused rather than dropped.
+
 Making these edits commands fixed four things on the way. Renaming a club wrote League Standings'
 teams into the roster; folding a page's own team into another club left the page's star on a club
 that no longer existed (renaming onto a taken name already moved it); the Undo of a club's age
 wrote back the whole year as it stood, losing any score entered since; and deleting a club or a
-lopsided game rewrote every year's games, not only the years they were in.
+lopsided game rewrote every year's games, not only the years they were in. And one in storage: a
+year whose save was refused no longer reads as empty until the next change to it, since the save
+pinned the year decoded with no games before writing, and a refusal left the pin standing.
 
 Work done on a copy of the pool (the tidy, in its worker, and a year archived or deleted) is laid
 onto the pool as it is when the work is done, record by record (`changeBetween`): what the work
