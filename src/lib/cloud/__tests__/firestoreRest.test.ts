@@ -30,6 +30,7 @@ import {
   restLedgerStore,
   updateLedger,
 } from "../../live/rebuildLedger";
+import { describeRebuilds } from "../../live/rebuildReport";
 
 /*
  * The cloud copy through Firestore's REST API (`firestoreRestStore`), as the nightly refresh on
@@ -421,6 +422,8 @@ describe("a document written only if nobody has since, through Firestore's REST 
       mode: "dry",
       day: "2027-04-15",
       dayGiBs: 2_560,
+      dayRuns: 1,
+      monthRuns: 1,
       pausedDay: null,
       open: { at: "2027-04-15T14:00:00.000Z", day: "2027-04-15", task: "T1", by: "h1" },
     });
@@ -429,11 +432,16 @@ describe("a document written only if nobody has since, through Firestore's REST 
       [
         "caps",
         "day",
+        "dayFailed",
         "dayGiBs",
+        "dayRuns",
         "failures",
+        "lastDay",
         "mode",
         "month",
+        "monthFailed",
         "monthGiBs",
+        "monthRuns",
         "monthVcpuS",
         "on",
         "open",
@@ -441,6 +449,28 @@ describe("a document written only if nobody has since, through Firestore's REST 
         "warm",
       ].sort()
     );
+    // And the nightly reads it back, never writing, for its lines on the rebuilds.
+    expect(describeRebuilds(await docsOn(firestore).read(REBUILD_LEDGER_PATH))).toEqual([
+      "Rebuilds after saves: on, dry: each builds every board and publishes none.",
+      "  2027-04-15: 1 run, 0 failed; 2,560 of 10,000 GiB-seconds.",
+      "  2027-04: 1 run, 0 failed; 2,560 of 120,000 GiB-seconds and 640 of 30,000 vCPU-seconds.",
+      "  0 failed in a row, of the 3 that pause them; a run reserved at 2027-04-15T14:00:00.000Z has not settled.",
+    ]);
+    // A ledger with every field set is written and read back as it was.
+    const full = coerceLedger(written);
+    if (!full) throw new Error("no ledger");
+    const set = {
+      ...full,
+      dayFailed: 1,
+      lastDay: { day: "2027-04-14", runs: 6, failed: 1, gibs: 4_321 },
+      monthRuns: 9,
+      monthFailed: 2,
+      failures: 1,
+      pausedDay: "2027-04-14",
+    };
+    const at = await store.read();
+    expect(await store.replace(at.token, set)).toBe(true);
+    expect(coerceLedger((await store.read()).raw)).toEqual(set);
   });
 });
 

@@ -12,7 +12,12 @@
  */
 import { createSign } from "node:crypto";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
-import { firestoreRestLive, firestoreRestStore } from "../src/lib/cloud/firestoreRest.ts";
+import {
+  firestoreRestDocuments,
+  firestoreRestLive,
+  firestoreRestStore,
+} from "../src/lib/cloud/firestoreRest.ts";
+import { REBUILD_LEDGER_PATH } from "../src/lib/live/rebuildLedger.ts";
 import type { LiveStore } from "../src/lib/live/viewStore.ts";
 import { loadPoolFrom, type LoadedCopy } from "../src/lib/cloud/cloudRunner.ts";
 
@@ -86,15 +91,21 @@ export const openCloudStore = (keyJson: string, writable: boolean): CloudStore =
 
 /**
  * The cloud copy's store and the published views' (`live/`), for the key's project, on one
- * sign-in: read only unless `writable`.
+ * sign-in: read only unless `writable`. With them, a read of the rebuilds' ledger
+ * (`rebuildLedger.ts`): its fields as written, or null where there is none, and never a write.
  */
 export const openStores = (
   keyJson: string,
   writable: boolean
-): { copy: CloudStore; live: LiveStore } => {
+): { copy: CloudStore; live: LiveStore; readLedger: () => Promise<unknown> } => {
   const account = accountOf(keyJson);
   const access = { projectId: account.project_id, token: tokens(account), writable };
-  return { copy: firestoreRestStore(access), live: firestoreRestLive(access) };
+  const docs = firestoreRestDocuments(access);
+  return {
+    copy: firestoreRestStore(access),
+    live: firestoreRestLive(access),
+    readLedger: () => docs.read(REBUILD_LEDGER_PATH),
+  };
 };
 
 export type CloudPool = LoadedCopy;
