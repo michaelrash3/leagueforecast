@@ -120,11 +120,12 @@ const LiveBoardSwitch = () => {
 };
 
 /**
- * This device's switch for keeping League Standings live with the cloud (`useLiveLeague`): read
- * as it changes, so the season on screen goes live, or back to the cloud copy, at once.
+ * This device's switch for keeping League Standings live with the cloud (`useLiveLeague`): on
+ * unless turned off (1.6e), and read as it changes, so the season on screen goes live, or back to
+ * the cloud copy, at once.
  */
 const LiveLeagueSwitch = () => {
-  const on = useSyncExternalStore(subscribeLiveLeague, readLiveLeague, () => false);
+  const on = useSyncExternalStore(subscribeLiveLeague, readLiveLeague, () => true);
   const id = useId();
   return (
     <div className="flex items-start gap-2">
@@ -141,8 +142,9 @@ const LiveLeagueSwitch = () => {
         </label>
         <Note>
           A score entered on any device shows on every other one in moments, and editing pauses
-          while this device is offline. Turn it on on every device you use, together: a device left
-          off keeps League in the cloud copy, apart from the rest.
+          while this device is offline. The first time, this device&apos;s seasons are brought in
+          step with the cloud copy before they go live. Turned off, this device keeps League in the
+          cloud copy, apart from the devices kept live.
         </Note>
       </div>
     </div>

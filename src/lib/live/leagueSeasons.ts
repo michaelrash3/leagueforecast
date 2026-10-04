@@ -14,6 +14,15 @@ import type { LeagueStore } from "./leagueStore";
  * A season this device has met in the cloud before (it has a base, `leagueBase.ts`, kept for a
  * season made at the same moment) and the cloud no longer has was deleted on another device, and
  * is never sent back. A season brought down comes with its base, so the same holds for it.
+ *
+ * A device meeting the cloud's seasons for the first time (1.6e) holds them as the cloud copy last
+ * gave them, and the cloud may have moved on since, live, on devices that met it earlier. A season
+ * held both here and there, with no base of its own, takes the copy's as its base (`agreed`, at
+ * write 0, before any of the document's), so the open season's first meeting is three-way: a game
+ * deleted live since is not brought back by this device, and what changed here since is kept. Only
+ * a season the cloud holds: a season here alone is sent up as ever, since one the cloud lacks may
+ * be one the copy's first device to go live never held, and sending a deleted season back is
+ * better than losing one.
  */
 
 export type LocalSeasons = {
@@ -25,6 +34,8 @@ export type LocalSeasons = {
 export type SeasonsMet = {
   /** Seasons made elsewhere, now in this device's list. */
   added: string[];
+  /** Seasons held both here and in the cloud that took the copy's as their base. */
+  agreed: string[];
   /** Seasons only this device held, now in the cloud. */
   sent: string[];
   /** Seasons met before that the cloud no longer has: deleted on another device. */
@@ -38,11 +49,17 @@ export const meetSeasons = async ({
   local,
   bases,
   openId,
+  agreed,
   now = () => new Date(),
 }: {
   store: LeagueStore;
   local: LocalSeasons;
   bases: BaseKeeper;
+  /**
+   * The seasons as this device and the cloud copy last agreed on them, given at its first meeting:
+   * each held both here and in the cloud with no base of its own takes the copy's as its base.
+   */
+  agreed?: readonly SeasonSnapshot[];
   /**
    * The season open on screen, which the live store keeps (`leagueSync.ts`) and this leaves alone:
    * storage can be half a second behind the screen, and sent from storage, the season would reach
@@ -51,7 +68,7 @@ export const meetSeasons = async ({
   openId: () => string;
   now?: () => Date;
 }): Promise<SeasonsMet> => {
-  const met: SeasonsMet = { added: [], sent: [], gone: [], unread: [] };
+  const met: SeasonsMet = { added: [], agreed: [], sent: [], gone: [], unread: [] };
   const remote = await store.list();
   const here = local.list();
   const heldIds = new Set(here.map((season) => season.id));
@@ -69,6 +86,20 @@ export const meetSeasons = async ({
     }
     arrivals.push({ season: read.season, rev: read.rev });
   }
+  if (agreed) {
+    const asAgreed = new Map(agreed.map((season) => [season.id, season]));
+    for (const entry of here) {
+      const season = asAgreed.get(entry.id);
+      const docId = seasonDocId(entry.id);
+      // The copy's of this season, made at the same moment: a season since made under its id,
+      // after one was deleted, is not the season the copy agreed on.
+      if (!inCloud.has(entry.id) || !season || bases.read(docId)) continue;
+      if (createdApart(season.createdAt, entry.createdAt)) continue;
+      bases.write(docId, { season, rev: 0, landed: [] });
+      met.agreed.push(entry.id);
+    }
+  }
+
   if (arrivals.length > 0 && local.add(arrivals.map((one) => one.season))) {
     // Each comes down with its base, stored after the season itself: met here, a deletion made
     // elsewhere later is a deletion, not a season this device holds and the cloud lacks.

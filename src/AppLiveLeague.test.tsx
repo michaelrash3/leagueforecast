@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { LiveLeagueState } from "./lib/live/leagueSync";
 import { buildShareUrl } from "./lib/share";
-import { writeLiveLeague } from "./lib/preferences";
+import { loadCloudState, saveCloudState } from "./lib/cloud/cloudState";
+import { noteLeagueMet, writeLiveLeague } from "./lib/preferences";
 import { createSeason, listSeasons, loadTeams, saveMatchups, saveTeams } from "./lib/storage";
 import { DEFAULT_SETTINGS } from "./lib/types";
 
@@ -12,15 +13,34 @@ import { DEFAULT_SETTINGS } from "./lib/types";
  * and read-only, every control, with a line saying why, whenever the season may not be written.
  */
 
-const live = vi.hoisted(() => ({ state: { kind: "off" } as LiveLeagueState }));
+const live = vi.hoisted(() => ({
+  state: { kind: "off" } as LiveLeagueState,
+  /** Seasons deleted from the cloud, and what the page asked of whether League is kept live. */
+  removed: 0,
+  wanted: [] as { on: boolean; met: boolean }[],
+}));
 
 vi.mock("./hooks/useLiveLeague", () => ({
   useLiveLeague: () => ({
     state: live.state,
     guardUndo: () => null,
-    removeSeason: async () => true,
+    removeSeason: async () => {
+      live.removed += 1;
+      return true;
+    },
   }),
 }));
+
+vi.mock("./lib/live/leagueWanted", async (actual) => {
+  const real = await actual<typeof import("./lib/live/leagueWanted")>();
+  return {
+    ...real,
+    leagueLiveWanted: (asked: Parameters<typeof real.leagueLiveWanted>[0]) => {
+      live.wanted.push({ on: asked.on, met: asked.met });
+      return real.leagueLiveWanted(asked);
+    },
+  };
+});
 
 describe("League Standings kept live, on the page", () => {
   beforeEach(() => {
@@ -45,6 +65,36 @@ describe("League Standings kept live, on the page", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     live.state = { kind: "off" };
+    live.removed = 0;
+    live.wanted = [];
+  });
+
+  it("asks whether League is kept live by the switch and the meeting this device has had", async () => {
+    render(<App />);
+    await screen.findByRole("tab", { name: "Settings" });
+    // On by default, and nothing met here.
+    expect(live.wanted[live.wanted.length - 1]).toEqual({ on: true, met: false });
+    cleanup();
+    writeLiveLeague(false);
+    saveCloudState({ ...loadCloudState(), uid: "member-uid" });
+    noteLeagueMet("member-uid");
+    render(<App />);
+    await screen.findByRole("tab", { name: "Settings" });
+    expect(live.wanted[live.wanted.length - 1]).toEqual({ on: false, met: true });
+  });
+
+  it("deletes a season here alone where League is not kept live, asking no cloud", async () => {
+    const fall = createSeason("Fall");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+    const seasonList = await screen.findByRole("region", { name: "Seasons" });
+    const row = within(seasonList).getByText("Fall").closest("li");
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Delete" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete season" })
+    );
+    await waitFor(() => expect(listSeasons().map((season) => season.id)).not.toContain(fall.id));
+    expect(live.removed).toBe(0);
   });
 
   it("takes scores while live, with nothing said", async () => {

@@ -7,7 +7,15 @@ import { createSeasonStore, type SeasonState } from "../lib/seasonStore";
 import type { SeasonSnapshot } from "../lib/storage";
 import { DEFAULT_SETTINGS, type GameLog } from "../lib/types";
 import { memoryLeague, settled } from "../lib/live/__tests__/memoryLeague";
-import { isTyping, useLiveLeague, type LiveLeagueOptions } from "./useLiveLeague";
+import { loadCloudState, saveCloudState } from "../lib/cloud/cloudState";
+import { leagueMetAs } from "../lib/preferences";
+import {
+  deviceFirstMeeting,
+  isTyping,
+  useLiveLeague,
+  type FirstMeeting,
+  type LiveLeagueOptions,
+} from "./useLiveLeague";
 
 const score = (away: string, home: string): GameLog => ({
   awayRuns: away,
@@ -190,6 +198,107 @@ describe("League kept live on the page", () => {
     cloud.offline();
     await expect(result.current.removeSeason("spring")).rejects.toThrow();
     expect(bases.held.has(seasonDocId("spring"))).toBe(true);
+  });
+});
+
+/*
+ * This device's first meeting with the cloud's seasons (1.6e): before the open season goes live,
+ * with the copy's seasons as the bases of the ones both hold, and noted once done.
+ */
+describe("a device's first meeting with the cloud's seasons", () => {
+  // The season as the copy gave it, with a game the cloud has deleted since, live elsewhere.
+  const AS_COPIED: SeasonState = {
+    ...PARTS,
+    matchups: [...PARTS.matchups, { id: "g2", date: "4/4", away: "B", home: "A" }],
+  };
+  const meeting = (due: boolean) => {
+    const told = { agreed: 0, done: 0 };
+    const first: FirstMeeting = {
+      due: () => due,
+      agreed: () => {
+        told.agreed += 1;
+        return [{ ...ENTRY, ...AS_COPIED }];
+      },
+      done: () => {
+        told.done += 1;
+      },
+    };
+    return { told, first };
+  };
+  const deletedSince = () => {
+    const cloud = memoryLeague();
+    cloud.put(seasonDocId("spring"), seasonToDoc({ ...ENTRY, ...PARTS }, 3));
+    return cloud;
+  };
+
+  it("meets first, from the copy's seasons, so a game deleted live since stays gone", async () => {
+    const cloud = deletedSince();
+    const { told, first } = meeting(true);
+    const seasons = createSeasonStore({ id: "spring", season: AS_COPIED });
+    const { result } = mount({ seasons, open: async () => cloud.store, firstMeeting: first });
+    await act(settled);
+    expect(result.current.state.kind).toBe("live");
+    expect(seasons.get().season.matchups.map(({ id }) => id)).toEqual(["g1"]);
+    expect(told).toEqual({ agreed: 1, done: 1 });
+  });
+
+  it("goes live at once on a device that met the cloud before, and notes nothing", async () => {
+    const cloud = deletedSince();
+    const { told, first } = meeting(false);
+    const seasons = createSeasonStore({ id: "spring", season: AS_COPIED });
+    const { result } = mount({ seasons, open: async () => cloud.store, firstMeeting: first });
+    await act(settled);
+    expect(result.current.state.kind).toBe("live");
+    expect(told).toEqual({ agreed: 0, done: 0 });
+    // Met before with no base here, the season keeps what either side holds.
+    expect(seasons.get().season.matchups.map(({ id }) => id)).toContain("g2");
+  });
+
+  it("neither notes a first meeting nor goes live when turned off before it is done", async () => {
+    const cloud = deletedSince();
+    const { told, first } = meeting(true);
+    let letList = (): void => undefined;
+    const held = new Promise<void>((resolve) => (letList = resolve));
+    const { result, rerender, options } = mount({
+      open: async () => ({
+        ...cloud.store,
+        list: async () => {
+          await held;
+          return cloud.store.list();
+        },
+      }),
+      firstMeeting: first,
+    });
+    await act(settled);
+    rerender({ ...options, enabled: false });
+    letList();
+    await act(settled);
+    expect(told.done).toBe(0);
+    expect(result.current.state.kind).toBe("off");
+  });
+
+  it("is this device's own, as the account its cloud record is for", () => {
+    window.localStorage.clear();
+    saveCloudState({ ...loadCloudState(), enabled: true, uid: "member-uid" });
+    expect(deviceFirstMeeting.due()).toBe(true);
+    deviceFirstMeeting.done();
+    expect(leagueMetAs()).toBe("member-uid");
+    expect(deviceFirstMeeting.due()).toBe(false);
+    // With no base kept from the copy, it agreed on no seasons.
+    expect(deviceFirstMeeting.agreed()).toEqual([]);
+    window.localStorage.clear();
+  });
+
+  it("goes live all the same when the first meeting's list will not come, and meets again next time", async () => {
+    const cloud = deletedSince();
+    const { told, first } = meeting(true);
+    const { result } = mount({
+      open: async () => ({ ...cloud.store, list: () => Promise.reject(new Error("offline")) }),
+      firstMeeting: first,
+    });
+    await act(settled);
+    expect(result.current.state.kind).toBe("live");
+    expect(told.done).toBe(0);
   });
 });
 

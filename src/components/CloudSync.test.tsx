@@ -139,16 +139,16 @@ describe("the cloud panel", () => {
     expect(readLiveBoard()).toBe(true);
   });
 
-  it("offers to keep League Standings live on this device, off until turned on", async () => {
+  it("offers to keep League Standings live on this device, on until turned off", async () => {
     window.localStorage.clear();
     panel(saved());
     const box = screen.getByRole("checkbox", { name: "Keep League Standings live" });
-    expect(box).not.toBeChecked();
-    await userEvent.click(box);
     expect(box).toBeChecked();
-    expect(readLiveLeague()).toBe(true);
     await userEvent.click(box);
+    expect(box).not.toBeChecked();
     expect(readLiveLeague()).toBe(false);
+    await userEvent.click(box);
+    expect(readLiveLeague()).toBe(true);
   });
 
   it("saves waiting changes on request", async () => {

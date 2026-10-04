@@ -32,6 +32,7 @@ import { joinLeagues, mergeLeague, type LeagueValue, type Prefer } from "./leagu
 import {
   clearOwed,
   CLOUD_STATE_KEY,
+  leagueMetHere,
   loadCloudState,
   loadLeagueBase,
   markCloudDirty,
@@ -380,9 +381,13 @@ const exclusively = async (
  * document, written as it is edited, and the copy's League part would be a second, slower record
  * of the same seasons, merged and reloaded over the live one. So with the switch on this device
  * neither sends League to the copy nor takes League from it, and a League change it still marks
- * as owed is no change owed to the copy.
+ * as owed is no change owed to the copy. Only once this device has met the cloud's documents as
+ * this account, though (`leagueMetAs`, 1.6e): with the switch on by default, every device goes
+ * live at its own next visit, and the copy keeps carrying League until then, so that one going
+ * live is in step with the copy before its seasons meet the cloud's, and sends up the copy's
+ * seasons, rather than its own older ones, to a cloud that holds none yet.
  */
-const leagueLive = (): boolean => readLiveLeague();
+const leagueLive = (): boolean => readLiveLeague() && leagueMetHere();
 
 /** The areas of the copy this device settles: League only while it is not kept live. */
 const copyAreas = (areas: readonly Area[]): readonly Area[] =>
@@ -527,6 +532,19 @@ export const leagueStore = async (): Promise<LeagueStore | null> => {
 const leagueOf = (raw: unknown): LeagueValue | null => {
   const parsed = coerceBackup(raw);
   return parsed?.kind === "full" ? { seasons: parsed.backup.seasons } : null;
+};
+
+/**
+ * The League Standings seasons this device and the cloud copy last agreed on, the base a merge with
+ * the copy starts from (`loadLeagueBase`, and only while it is the copy's as this device last met
+ * it), or none. A device's first meeting with the cloud's League documents takes them as the bases
+ * of the seasons both hold (`meetSeasons`, 1.6e).
+ */
+export const leagueAgreedWithCopy = (): LeagueValue["seasons"] => {
+  const base = loadLeagueBase();
+  const agreed =
+    base && base.hash === loadCloudState().hashes[LEAGUE_PART] ? leagueOf(base.value) : null;
+  return agreed?.seasons ?? [];
 };
 
 /**

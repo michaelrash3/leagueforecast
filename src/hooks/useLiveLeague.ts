@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { leagueStore } from "../lib/cloud/cloudSession";
+import { leagueAgreedWithCopy, leagueStore } from "../lib/cloud/cloudSession";
+import { leagueMetHere, loadCloudState } from "../lib/cloud/cloudState";
 import { storedBases, type BaseKeeper } from "../lib/live/leagueBase";
 import { seasonDocId } from "../lib/live/leagueDocs";
 import type { SeasonEntry, SeasonParts, UndoTarget } from "../lib/live/leagueLive";
 import { meetSeasons, type LocalSeasons } from "../lib/live/leagueSeasons";
 import type { LeagueStore } from "../lib/live/leagueStore";
 import { startLeagueSync, type LeagueSync, type LiveLeagueState } from "../lib/live/leagueSync";
+import { noteLeagueMet } from "../lib/preferences";
 import type { SeasonStore } from "../lib/seasonStore";
+import type { SeasonSnapshot } from "../lib/storage";
 
 const OFF: LiveLeagueState = { kind: "off" };
 const CONNECTING: LiveLeagueState = { kind: "connecting" };
@@ -35,6 +38,28 @@ export const isTyping = (element: Element | null): boolean => {
   return element instanceof HTMLElement && element.isContentEditable === true;
 };
 
+/**
+ * This device's first meeting with the cloud's League documents (1.6e): whether it is still to
+ * come, the seasons as this device and the cloud copy last agreed on them, which the seasons both
+ * hold take as their bases (`meetSeasons`), and noting it done, after which the copy leaves League
+ * alone here (`cloudSession.ts`).
+ */
+export type FirstMeeting = {
+  due: () => boolean;
+  agreed: () => readonly SeasonSnapshot[];
+  done: () => void;
+};
+
+/** This device's own: met as the account its cloud record is for, and noted against it. */
+export const deviceFirstMeeting: FirstMeeting = {
+  due: () => !leagueMetHere(),
+  agreed: leagueAgreedWithCopy,
+  done: () => {
+    const uid = loadCloudState().uid;
+    if (uid !== null) noteLeagueMet(uid);
+  },
+};
+
 export type LiveLeagueOptions = {
   /** Kept live at all: a member, signed in, with League's switch on. */
   enabled: boolean;
@@ -56,6 +81,7 @@ export type LiveLeagueOptions = {
   /** Where the seasons are; the signed-in member's, by default. */
   open?: () => Promise<LeagueStore | null>;
   bases?: BaseKeeper;
+  firstMeeting?: FirstMeeting;
 };
 
 export type LiveLeague = {
@@ -85,6 +111,7 @@ export function useLiveLeague({
   adopt,
   open = leagueStore,
   bases = storedBases,
+  firstMeeting = deviceFirstMeeting,
 }: LiveLeagueOptions): LiveLeague {
   const [state, setState] = useState<LiveLeagueState>(OFF);
   const sync = useRef<LeagueSync | null>(null);
@@ -106,31 +133,48 @@ export function useLiveLeague({
           return;
         }
         store.current = found;
-        running = startLeagueSync({
-          store: found,
-          seasons,
-          entryOf: (id) => latest.current.entryOf(id),
-          bases,
-          persist: (id, parts) => latest.current.persist(id, parts),
-          adopt: (id, createdAt) => latest.current.adopt(id, createdAt),
-          editing: () => isTyping(document.activeElement),
-          onState: (next) => {
-            if (!cancelled) setState(next);
-          },
-        });
-        sync.current = running;
+        const start = () => {
+          running = startLeagueSync({
+            store: found,
+            seasons,
+            entryOf: (id) => latest.current.entryOf(id),
+            bases,
+            persist: (id, parts) => latest.current.persist(id, parts),
+            adopt: (id, createdAt) => latest.current.adopt(id, createdAt),
+            editing: () => isTyping(document.activeElement),
+            onState: (next) => {
+              if (!cancelled) setState(next);
+            },
+          });
+          sync.current = running;
+        };
+        /*
+         * This device's first meeting with the cloud's seasons comes before the open season goes
+         * live, which then starts from the bases it laid; the season waits, read-only, until it
+         * has. Met before, the season is live at once and the lists meet beside it.
+         */
+        const first = firstMeeting.due();
+        if (!first) start();
         meetSeasons({
           store: found,
           local: latest.current.local,
           bases,
           openId: () => seasons.get().id,
+          ...(first ? { agreed: firstMeeting.agreed() } : {}),
         }).then(
           (met) => {
-            if (!cancelled && met.added.length > 0) latest.current.onSeasonsAdded();
+            if (cancelled) return;
+            if (first) {
+              firstMeeting.done();
+              start();
+            }
+            if (met.added.length > 0) latest.current.onSeasonsAdded();
           },
-          // A list that would not come is tried again on the next visit; the open season is
-          // live regardless.
-          () => {}
+          // A list that would not come is tried again on the next visit, a first meeting with it;
+          // the open season is live regardless.
+          () => {
+            if (!cancelled && first) start();
+          }
         );
       },
       () => {
@@ -153,7 +197,7 @@ export function useLiveLeague({
       store.current = null;
       setState(OFF);
     };
-  }, [enabled, seasons, open, bases]);
+  }, [enabled, seasons, open, bases, firstMeeting]);
 
   useEffect(() => {
     sync.current?.entryChanged();

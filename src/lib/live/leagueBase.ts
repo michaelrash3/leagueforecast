@@ -62,7 +62,10 @@ export const storedBases: BaseKeeper = {
       if (!isRecord(parsed)) return null;
       const read = docToSeason(parsed.doc, docId);
       const landed = landedOf(parsed.landed);
-      return read.ok && landed ? { season: read.season, rev: read.rev, landed } : null;
+      if (!read.ok || !landed) return null;
+      // The copy's season, taken as the base at a first meeting (`meetSeasons`): before any of
+      // the document's writes, at a number no document itself is at.
+      return { season: read.season, rev: parsed.fromCopy === true ? 0 : read.rev, landed };
     } catch {
       return null;
     }
@@ -71,7 +74,11 @@ export const storedBases: BaseKeeper = {
     try {
       localStorage.setItem(
         keyOf(docId),
-        JSON.stringify({ doc: seasonToDoc(known.season, known.rev), landed: known.landed })
+        JSON.stringify({
+          doc: seasonToDoc(known.season, Math.max(known.rev, 1)),
+          ...(known.rev === 0 ? { fromCopy: true } : {}),
+          landed: known.landed,
+        })
       );
     } catch {
       // Storage full: the next visit meets the cloud without a base, and keeps everything either

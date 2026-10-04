@@ -4617,10 +4617,34 @@ change's own rebuild publishes it. A listing reads each season, a few reads for
 a handful of seasons of 10 to 70 KB each, beside the three reads a rebuild
 already makes before deciding to run.
 
-**On a device.** A member turns it on in the Cloud panel, **Keep League
-Standings live**, per device and off until turned on. Turn it on on every device
-together: a device left off keeps League in the cloud copy, apart from the
-devices that have it on. With it on:
+**On a device.** It is on for a member unless **Keep League Standings live** is
+turned off in the Cloud panel: on by default since 1.6e, per device, and off,
+once turned off, until turned on again (`lf_live_league_v1` keeps "off" or "on",
+and anything else, or nothing, is on). A device turned off keeps League in the
+cloud copy, apart from the devices kept live. With it on:
+
+- **The first meeting** (1.6e). On by default, every device goes live at its own
+  next visit rather than all together, so the cloud copy keeps carrying League on
+  a device until it has met the cloud's League documents as the account signed in
+  (`lf_league_met_v1` holds that account): the copy brings the device in step
+  first, at boot as ever, and its seasons then meet the cloud's
+  (`meetSeasons`), the open season waiting, read-only, until they have, after
+  which the copy leaves League alone there. League goes live for a first meeting
+  only once the copy has brought the device in step, no newer League waiting in
+  it (`leagueLiveWanted`): a boot whose take of the copy was too slow, or a device
+  offline, stays carried by the copy, editable as before, rather than sending
+  older seasons of its own up to a cloud that holds none yet. A season held both here and in the
+  cloud, with no base of its own yet, takes the copy's season as this device last
+  agreed it (`leagueAgreedWithCopy`, the base a merge with the copy starts from)
+  as its base, at write 0, before any of the document's (kept as `fromCopy` by
+  `leagueBase.ts`, since no document is at write 0). So the open season's first
+  meeting is three-way: a game another device deleted live since stays deleted,
+  and a score entered here since is kept and sent, where with no base everything
+  either side holds would be kept. A season the cloud does not hold is still sent
+  up rather than taken for deleted: one the first device to go live never held
+  would otherwise be lost, and a season deleted live and sent back is the lesser
+  harm. A first meeting whose list does not come leaves the season live without
+  the bases, and is met again at the next visit.
 
 - **The open season is kept live** (`leagueSync.ts`). A change is written 0.7 s
   after the last edit, or as soon as the page lets go of the field, or when the
@@ -4687,8 +4711,10 @@ devices that have it on. With it on:
   the cloud, and this device's is deleted here alone. A
   season deleted before some other device has first gone live comes back from
   that device, which has no base to tell a deletion from a season the cloud has
-  not seen; this is the other reason to turn it on everywhere together.
-- **The cloud copy leaves League alone** (`cloudSession.ts`): it neither sends
+  not seen; a game deleted within a season does not, its season having the
+  copy's as its base (the first meeting, above).
+- **The cloud copy leaves League alone** (`cloudSession.ts`), once the first
+  meeting is done: it neither sends
   League nor takes it in, a League change is no change owed to it, a newer
   League in it is not mentioned, and an earlier League version it keeps is
   neither offered nor brought back. A League change is still marked, though, so

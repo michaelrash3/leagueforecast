@@ -675,6 +675,49 @@ describe("what the review of 1.2 found", () => {
     expect(cloud.counts.writes).toBe(writes);
   });
 
+  it("meets the cloud first from the copy's season as its base: a game deleted since stays gone", async () => {
+    const cloud = memoryLeague();
+    const bases = memoryBases();
+    // This device's first meeting: the copy's season as the base, before any of the document's.
+    bases.write(DOC_ID, { season: liveSeason(ENTRY, PARTS), rev: 0, landed: [] });
+    // Since the copy, another device went live, deleted g2 and scored g1.
+    const theirs: SeasonState = {
+      ...PARTS,
+      matchups: PARTS.matchups.filter(({ id }) => id !== "g2"),
+      logs: { g1: score("5", "2") },
+    };
+    cloud.put(DOC_ID, seasonToDoc(liveSeason(ENTRY, theirs), 3));
+    // And this device scored a game since it last met the copy.
+    const { seasons, sync, states, cloudSeason } = setup({
+      cloud,
+      bases,
+      parts: { ...PARTS, logs: { "Row 3": score("4", "4") } },
+    });
+    await settled();
+    expect(last(states)).toBe("live");
+    const both = { g1: score("5", "2"), "Row 3": score("4", "4") };
+    expect(seasons.get().season.matchups.map(({ id }) => id)).toEqual(["g1", "Row 3"]);
+    expect(seasons.get().season.logs).toEqual(both);
+    sync.settle();
+    await settled();
+    expect(cloudSeason().matchups.map(({ id }) => id)).toEqual(["g1", "Row 3"]);
+    expect(cloudSeason().logs).toEqual(both);
+  });
+
+  it("keeps everything either side holds when it meets the cloud with no base at all", async () => {
+    const cloud = memoryLeague();
+    const theirs: SeasonState = {
+      ...PARTS,
+      matchups: PARTS.matchups.filter(({ id }) => id !== "g2"),
+      logs: { g1: score("5", "2") },
+    };
+    cloud.put(DOC_ID, seasonToDoc(liveSeason(ENTRY, theirs), 3));
+    const { seasons } = setup({ cloud, parts: { ...PARTS, logs: { "Row 3": score("4", "4") } } });
+    await settled();
+    // Nothing tells a game deleted there from one added here: it stays.
+    expect(seasons.get().season.matchups.map(({ id }) => id)).toContain("g2");
+  });
+
   it("keeps apart a season made elsewhere since under a deleted season's id, base or none", async () => {
     const cloud = memoryLeague();
     const bases = memoryBases();

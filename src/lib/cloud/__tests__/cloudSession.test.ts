@@ -13,7 +13,7 @@ import type { CloudAccount, FirebaseCloud } from "../firebaseCloud";
 import { memoryCloud, memoryMembers, type MemoryCloud } from "./memoryCloud";
 import { gcAuthorization } from "../../gcAuthorization";
 import { memoryLeague } from "../../live/__tests__/memoryLeague";
-import { writeLiveLeague } from "../../preferences";
+import { noteLeagueMet, writeLiveLeague } from "../../preferences";
 import { saveLogs } from "../../storage";
 
 /*
@@ -39,7 +39,7 @@ vi.mock("../cloudTabs", () => ({
 }));
 
 const session = await import("../cloudSession");
-const { loadCloudState, loadLeagueBase, owedChanges, forgetCloudCopyHere } =
+const { loadCloudState, loadLeagueBase, saveLeagueBase, owedChanges, forgetCloudCopyHere } =
   await import("../cloudState");
 const { resetCloudGuard } = await import("../cloudGuard");
 const { areaOf } = await import("../cloudPlan");
@@ -1354,11 +1354,55 @@ describe("a browser wiped by Delete everything", () => {
   });
 });
 
+describe("the seasons this device last agreed with the copy", () => {
+  it("are the copy's League as this device last met it, and none once the base is not", async () => {
+    const { laptop } = await inStep();
+    await open(laptop);
+    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
+    await session.saveNow();
+    expect(session.leagueAgreedWithCopy().map(({ id, logs }) => ({ id, logs }))).toEqual([
+      { id: "fall", logs: { g1: log(5, 3) } },
+    ]);
+    // A base kept from some other agreement than the one this device last made is no base.
+    const base = loadLeagueBase();
+    if (!base) throw new Error("no base");
+    saveLeagueBase({ ...base, hash: "not-the-copy's" });
+    expect(session.leagueAgreedWithCopy()).toEqual([]);
+  });
+});
+
 describe("League Standings kept live on a device", () => {
+  /** League's switch on, and the cloud's seasons met here as this account (`useLiveLeague`). */
+  const keepLive = () => {
+    writeLiveLeague(true);
+    noteLeagueMet(ME.uid);
+  };
+
+  it("is carried by the copy as ever, switch on, until this device has met the cloud's seasons", async () => {
+    const { laptop, phone } = await inStep();
+    await open(laptop);
+    // On by default, and nothing met here yet: a change goes to the copy.
+    edit(laptop, "league", league(season("fall", { g1: log(9, 1) })));
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: true });
+    await session.saveNow();
+    expect(await cloudLogs()).toEqual({ g1: log(9, 1) });
+    // Met as another account says nothing of this one: the copy's newer League is taken in.
+    noteLeagueMet("someone-else");
+    await open(phone);
+    edit(phone, "league", league(season("fall", { g1: log(9, 1), g2: log(2, 2) })));
+    await session.saveNow();
+    await open(laptop);
+    expect(logsOf(laptop)).toEqual({ g1: log(9, 1), g2: log(2, 2) });
+    // Met as this one, it is League kept live, and the copy leaves it alone.
+    noteLeagueMet(ME.uid);
+    edit(laptop, "league", league(season("fall", { g3: log(1, 0) })));
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false });
+  });
+
   it("is neither sent to the copy nor taken from it, and owes it nothing", async () => {
     const { laptop, phone } = await inStep();
     await open(laptop);
-    writeLiveLeague(true);
+    keepLive();
     const before = await cloudLogs();
     edit(laptop, "league", league(season("fall", { g1: log(9, 1) })));
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false });
@@ -1377,7 +1421,7 @@ describe("League Standings kept live on a device", () => {
   it("leaves League out of a first copy, which carries the pool alone", async () => {
     const laptop = device({ league: fall, [TEAMS]: ["laptop pool"] });
     runAs(laptop);
-    writeLiveLeague(true);
+    keepLive();
     await session.signInToCloud();
     expect(sky.manifest()?.parts.map((part) => part.key)).toEqual([TEAMS]);
     // It met no League in the copy, so going back to the copy merges rather than takes over.
@@ -1390,7 +1434,7 @@ describe("League Standings kept live on a device", () => {
     onScreen();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval"] });
     const stop = session.startCloudSession();
-    writeLiveLeague(true);
+    keepLive();
     // The page writes a score to storage, which tells the session, as on the site.
     laptop.values.set("league", league(season("fall", { g1: log(4, 0) })));
     saveLogs({ g1: log(4, 0) });
@@ -1422,7 +1466,7 @@ describe("League Standings kept live on a device", () => {
     await session.saveNow();
     const [kept] = session.cloudKept();
     expect(kept?.what).toEqual(["League Standings"]);
-    writeLiveLeague(true);
+    keepLive();
     expect(session.cloudKept()).toEqual([]);
     const version = sky.manifest()?.version;
     await session.bringBack(kept?.group ?? "");
@@ -1444,7 +1488,7 @@ describe("League Standings kept live on a device", () => {
     const stop = session.startCloudSession();
     await session.bootCloud();
     expect(session.cloudStatus()).toMatchObject({ newer: ["league"] });
-    writeLiveLeague(true);
+    keepLive();
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: [] });
     stop();
   });
@@ -1452,7 +1496,7 @@ describe("League Standings kept live on a device", () => {
   it("goes back to the copy when turned off, sending what changed meanwhile", async () => {
     const { laptop } = await inStep();
     await open(laptop);
-    writeLiveLeague(true);
+    keepLive();
     edit(laptop, "league", league(season("fall", { g1: log(4, 0) })));
     await session.saveNow();
     // Marked owed to the copy all along, and only not sent.

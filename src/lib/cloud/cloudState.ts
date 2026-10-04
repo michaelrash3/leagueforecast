@@ -1,3 +1,4 @@
+import { leagueMetAs } from "../preferences";
 import { areaOf, type Area } from "./cloudPlan";
 
 /**
@@ -102,6 +103,15 @@ export const loadCloudState = (): DeviceCloudState => {
     ...(typeof stored.syncedAt === "string" ? { syncedAt: stored.syncedAt } : {}),
     uploads: Array.isArray(stored.uploads) ? stored.uploads.flatMap(batchOf) : [],
   };
+};
+
+/**
+ * Whether this device has met the cloud's League Standings documents as the account its record is
+ * for (`leagueMetAs`, 1.6e): until it has, the copy keeps carrying League here, switch or no.
+ */
+export const leagueMetHere = (): boolean => {
+  const uid = loadCloudState().uid;
+  return uid !== null && leagueMetAs() === uid;
 };
 
 /**

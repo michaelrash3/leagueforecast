@@ -188,3 +188,90 @@ describe("this device's seasons met with the cloud's", () => {
     expect(local.held.map((one) => one.id)).toEqual(["spring"]);
   });
 });
+
+/*
+ * A device meeting the cloud's seasons for the first time (1.6e), holding them as the cloud copy
+ * last gave them: a season the cloud holds too takes the copy's as its base, so the open season's
+ * first meeting is three-way rather than everything either side holds.
+ */
+describe("a first meeting, from the seasons the copy gave", () => {
+  /** The copy's season `id` with game `g2` in it, which the cloud may have deleted since. */
+  const agreedOf = (id: string): SeasonSnapshot => ({
+    ...season(id),
+    matchups: [...season(id).matchups, { id: "g2", date: "4/4", away: "B", home: "A" }],
+  });
+
+  it("takes the copy's season as the base of one the cloud holds too, before any write of its", async () => {
+    const cloud = memoryLeague();
+    cloud.put(seasonDocId("fall"), seasonToDoc(season("fall"), 4));
+    const bases = basesOf();
+    const met = await meetSeasons({
+      store: cloud.store,
+      local: localOf([season("spring"), agreedOf("fall")]),
+      bases,
+      openId: () => "spring",
+      agreed: [agreedOf("fall"), agreedOf("spring")],
+    });
+    expect(met.agreed).toEqual(["fall"]);
+    expect(bases.held.get(seasonDocId("fall"))).toEqual({
+      season: agreedOf("fall"),
+      rev: 0,
+      landed: [],
+    });
+    // The season on screen too, when the cloud holds it.
+    cloud.put(seasonDocId("spring"), seasonToDoc(season("spring"), 2));
+    const again = basesOf();
+    await meetSeasons({
+      store: cloud.store,
+      local: localOf([season("spring")]),
+      bases: again,
+      openId: () => "spring",
+      agreed: [agreedOf("spring")],
+    });
+    expect(again.held.get(seasonDocId("spring"))?.rev).toBe(0);
+  });
+
+  it("takes none where a meeting is not the first, or the season has a base of its own", async () => {
+    const cloud = memoryLeague();
+    cloud.put(seasonDocId("fall"), seasonToDoc(season("fall"), 4));
+    cloud.put(seasonDocId("winter"), seasonToDoc(season("winter"), 4));
+    const bases = basesOf(["winter"]);
+    const met = await meetSeasons({
+      store: cloud.store,
+      local: localOf([season("spring"), season("fall"), season("winter")]),
+      bases,
+      openId: () => "spring",
+    });
+    expect(met.agreed).toEqual([]);
+    expect(bases.held.has(seasonDocId("fall"))).toBe(false);
+    const first = await meetSeasons({
+      store: cloud.store,
+      local: localOf([season("spring"), season("fall"), season("winter")]),
+      bases,
+      openId: () => "spring",
+      agreed: [agreedOf("winter")],
+    });
+    expect(first.agreed).toEqual([]);
+    expect(bases.held.get(seasonDocId("winter"))?.rev).toBe(3);
+  });
+
+  it("sends up a season the cloud lacks, and takes no base for one made at another moment", async () => {
+    const cloud = memoryLeague();
+    const remade = { ...season("fall"), createdAt: "2027-03-01T00:00:00.000Z" };
+    cloud.put(seasonDocId("fall"), seasonToDoc(remade, 4));
+    const bases = basesOf();
+    const met = await meetSeasons({
+      store: cloud.store,
+      local: localOf([season("spring"), remade, agreedOf("summer")]),
+      bases,
+      openId: () => "spring",
+      agreed: [agreedOf("fall"), agreedOf("summer")],
+    });
+    // The copy's fall is another season than the one under its id here and in the cloud.
+    expect(met.agreed).toEqual([]);
+    expect(bases.held.has(seasonDocId("fall"))).toBe(false);
+    // A season the cloud lacks may never have reached it: sent, rather than taken as deleted.
+    expect(met.sent).toEqual(["summer"]);
+    expect(bases.held.get(seasonDocId("summer"))?.rev).toBe(1);
+  });
+});

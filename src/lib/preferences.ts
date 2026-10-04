@@ -167,26 +167,36 @@ const LIVE_LEAGUE_KEY = "lf_live_league_v1";
 const liveLeagueListeners = new Set<() => void>();
 
 /**
- * Whether League Standings is kept live with the cloud on this device (`leagueSync.ts`): each
- * season one document, written as it is edited and taken in as other devices edit it, in place of
- * the cloud copy's League part. A member turns it on in the Cloud panel; off unless turned on.
- * Kept per device, never in a backup or the cloud copy, and cleared with the rest of the app's keys
- * by a reset. Every device should be switched together: one left off keeps League in the copy,
- * apart from the devices that have it on.
+ * Whether League Standings is kept live with the cloud on this device (`leagueSync.ts`) for a
+ * member: each season one document, written as it is edited and taken in as other devices edit it,
+ * in place of the cloud copy's League part. On unless turned off in the Cloud panel (1.6e), and then
+ * off until turned on again, the word kept being the member's choice either way. Kept per device,
+ * never in a backup or the cloud copy, and cleared with the rest of the app's keys by a reset, which
+ * puts it back on. A device turned off keeps League in the copy, apart from the devices kept live.
  */
-export const readLiveLeague = (): boolean => safeGet(LIVE_LEAGUE_KEY) === "on";
+export const readLiveLeague = (): boolean => safeGet(LIVE_LEAGUE_KEY) !== "off";
 
 export const writeLiveLeague = (on: boolean): boolean => {
-  let written: boolean;
-  if (on) written = safeSet(LIVE_LEAGUE_KEY, "on");
-  else {
-    try {
-      localStorage.removeItem(LIVE_LEAGUE_KEY);
-      written = true;
-    } catch {
-      written = false;
-    }
-  }
+  const written = safeSet(LIVE_LEAGUE_KEY, on ? "on" : "off");
+  liveLeagueListeners.forEach((listener) => listener());
+  return written;
+};
+
+const LEAGUE_MET_KEY = "lf_league_met_v1";
+
+/**
+ * The account this device has met the cloud's League Standings documents as (`meetSeasons`), once
+ * it has. Until then the cloud copy keeps carrying League here, as for a device not kept live, so a
+ * device going live for the first time is in step with the copy before its seasons meet the
+ * cloud's, and sends the copy's seasons up rather than older ones of its own (`cloudSession.ts`).
+ * Kept per device, for one account (another signing in meets them afresh), and cleared with the
+ * rest of the app's keys by a reset.
+ */
+export const leagueMetAs = (): string | null => safeGet(LEAGUE_MET_KEY);
+
+/** Notes that this device has met the cloud's League documents as `uid`, and says so. */
+export const noteLeagueMet = (uid: string): boolean => {
+  const written = safeSet(LEAGUE_MET_KEY, uid);
   liveLeagueListeners.forEach((listener) => listener());
   return written;
 };

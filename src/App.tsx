@@ -18,13 +18,10 @@ import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
 import { CloudButton, useCloudPanel } from "./components/CloudButton";
 import { liveBoardWanted, RankingsOpen } from "./components/RankingsOpen";
 import { loadTeamRankingsView } from "./components/teamRankingsChunk";
-import {
-  cloudStatus,
-  startCloudSession,
-  subscribeCloud,
-  type CloudStatus,
-} from "./lib/cloud/cloudSession";
+import { cloudStatus, startCloudSession, subscribeCloud } from "./lib/cloud/cloudSession";
+import { leagueMetHere } from "./lib/cloud/cloudState";
 import { editable, reachable } from "./lib/live/leagueSync";
+import { leagueLiveWanted } from "./lib/live/leagueWanted";
 import type { LocalSeasons } from "./lib/live/leagueSeasons";
 import {
   readLiveBoard,
@@ -304,14 +301,6 @@ const LOCAL_SEASONS: LocalSeasons = {
 
 /** A season's entry in this device's season list. */
 const entryOfSeason = (id: string) => listSeasons().find((season) => season.id === id);
-
-/** Signed in to the cloud as an account on its list, whatever the copy itself is doing. */
-const memberSignedIn = (status: CloudStatus): boolean =>
-  status.kind === "working" ||
-  status.kind === "saved" ||
-  status.kind === "gone" ||
-  status.kind === "update" ||
-  (status.kind === "error" && status.account !== null);
 
 /** The active season's data as storage holds it. */
 const loadOpenSeason = (): SeasonState => ({
@@ -635,7 +624,7 @@ export default function App() {
   });
   const activeSeasonId = seasons.activeId;
 
-  const leagueLiveOn = useSyncExternalStore(subscribeLiveLeague, readLiveLeague, () => false);
+  const leagueLiveOn = useSyncExternalStore(subscribeLiveLeague, readLiveLeague, () => true);
   const refreshSeasons = seasons.refresh;
   const adoptSeason = useCallback(
     (id: string, createdAt: string) => {
@@ -643,8 +632,9 @@ export default function App() {
     },
     [refreshSeasons]
   );
+  const leagueMet = useSyncExternalStore(subscribeLiveLeague, leagueMetHere, () => false);
   const liveLeague = useLiveLeague({
-    enabled: leagueLiveOn && memberSignedIn(cloud),
+    enabled: leagueLiveWanted({ on: leagueLiveOn, status: cloud, met: leagueMet }),
     seasons: seasonStore,
     entryOf: entryOfSeason,
     entryKey: seasons.all,
@@ -656,6 +646,9 @@ export default function App() {
   const leagueEditable = editable(liveLeague.state);
   const { guardUndo, removeSeason } = liveLeague;
   const leagueReachable = reachable(liveLeague.state);
+  // Kept live this moment, rather than switched on: a visitor, or a member's device still carried
+  // by the copy before its first meeting, is not.
+  const leagueKeptLive = liveLeague.state.kind !== "off";
   /*
    * The lock is on the season itself, not only on the controls on the page: the team drawer, the
    * command palette, a shared link and a toast's Undo all reach the season from outside them, and
@@ -675,9 +668,9 @@ export default function App() {
   useEffect(() => {
     removeLiveSeason.current = async (id) => {
       // A season every device shares goes from the cloud first, or not at all: deleted here
-      // alone, it would come back on the next visit. With League kept live switched on and no
-      // word from the cloud this moment, there is no cloud to delete it from, and so no deleting.
-      if (!leagueLiveOn) return true;
+      // alone, it would come back on the next visit. With League kept live and no word from the
+      // cloud this moment, there is no cloud to delete it from, and so no deleting.
+      if (!leagueKeptLive) return true;
       if (!leagueReachable) {
         showToast("Connect to the cloud to delete a season every device shares.", {
           tone: "error",
@@ -697,7 +690,7 @@ export default function App() {
         return false;
       }
     };
-  }, [leagueLiveOn, leagueReachable, removeSeason, showToast]);
+  }, [leagueKeptLive, leagueReachable, removeSeason, showToast]);
 
   /** What Team Rankings has for this season: the results, the picks and the search behind them. */
   const {
