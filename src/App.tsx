@@ -24,6 +24,7 @@ import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useSeasons } from "./hooks/useSeasons";
 import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
+import { useSeasonState } from "./hooks/useSeasonState";
 import { useScoutBridge } from "./hooks/useScoutBridge";
 import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings";
 import { CompareDrawer } from "./components/CompareDrawer";
@@ -133,7 +134,6 @@ import {
   type ActiveShareView,
   type GameLog,
   type Matchup,
-  type Settings,
   type SwingGame,
   type Team,
   type LastImpact,
@@ -267,12 +267,25 @@ export const settleSide = (teams: readonly TeamBase[], held: string, fallback: n
 
 export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>("dashboard");
-  const [teams, setTeams] = useState<TeamBase[]>(() => loadTeams());
-  const [matchups, setMatchups] = useState<Matchup[]>(() => loadMatchups());
-  const [logs, setLogs] = useState<Record<string, GameLog>>(() => loadLogs());
+  const {
+    teams,
+    setTeams,
+    matchups,
+    setMatchups,
+    logs,
+    setLogs,
+    bracketLogs,
+    setBracketLogs,
+    settings,
+    setSettings,
+  } = useSeasonState(() => ({
+    teams: loadTeams(),
+    matchups: loadMatchups(),
+    logs: loadLogs(),
+    bracketLogs: loadBracketLogs(),
+    settings: loadSettings(),
+  }));
   const deferredLogs = useDeferredValue(logs);
-  const [bracketLogs, setBracketLogs] = useState<Record<string, GameLog>>(() => loadBracketLogs());
-  const [settings, setSettings] = useState<Settings>(() => loadSettings());
 
   const [newDate, setNewDate] = useState("");
   const [newAway, setNewAway] = useState("");
@@ -405,7 +418,7 @@ export default function App() {
       setTeams((prev) => prev.map((team) => (team.id === teamId ? { ...team, name } : team)));
       showToast(`Renamed to ${name}.`, { tone: "success" });
     },
-    [showToast]
+    [showToast, setTeams]
   );
 
   const closeTeamData = useCallback(() => {
@@ -1516,7 +1529,7 @@ export default function App() {
       if (season.settings) setSettings(season.settings);
       closeTeamData();
     },
-    [closeTeamData]
+    [closeTeamData, setTeams, setMatchups, setLogs, setBracketLogs, setSettings]
   );
 
   const {
@@ -1571,13 +1584,16 @@ export default function App() {
    * carried them — a schedule CSV does not, and inventing them would quietly replace whatever the
    * manager had chosen.
    */
-  const applySeason = useCallback((next: ImportedSeason) => {
-    setTeams(next.teams);
-    setMatchups(next.matchups);
-    setLogs(next.logs);
-    setBracketLogs(next.bracketLogs);
-    if (next.settings) setSettings(next.settings);
-  }, []);
+  const applySeason = useCallback(
+    (next: ImportedSeason) => {
+      setTeams(next.teams);
+      setMatchups(next.matchups);
+      setLogs(next.logs);
+      setBracketLogs(next.bracketLogs);
+      if (next.settings) setSettings(next.settings);
+    },
+    [setTeams, setMatchups, setLogs, setBracketLogs, setSettings]
+  );
 
   const clearLastImpact = useCallback(() => setLastImpact(null), []);
 
@@ -1636,7 +1652,7 @@ export default function App() {
         };
       });
     },
-    [settings.defaultGameInnings]
+    [settings.defaultGameInnings, setLogs]
   );
 
   const updateBracketLog = useCallback(
@@ -1654,23 +1670,26 @@ export default function App() {
         };
       });
     },
-    []
+    [setBracketLogs]
   );
 
-  const toggleBracketFinal = useCallback((gameId: string) => {
-    setBracketLogs((prev) => {
-      const current = prev[gameId] || blankLog();
-      return {
-        ...prev,
-        [gameId]: {
-          ...current,
-          awayK: current.awayK || "0",
-          homeK: current.homeK || "0",
-          isFinal: !current.isFinal,
-        },
-      };
-    });
-  }, []);
+  const toggleBracketFinal = useCallback(
+    (gameId: string) => {
+      setBracketLogs((prev) => {
+        const current = prev[gameId] || blankLog();
+        return {
+          ...prev,
+          [gameId]: {
+            ...current,
+            awayK: current.awayK || "0",
+            homeK: current.homeK || "0",
+            isFinal: !current.isFinal,
+          },
+        };
+      });
+    },
+    [setBracketLogs]
+  );
 
   const clearBracketScores = useCallback(
     (gameIds: string[], label: string) => {
@@ -1680,7 +1699,7 @@ export default function App() {
       );
       showToast(`${label} scores cleared.`, { tone: "success" });
     },
-    [showToast]
+    [showToast, setBracketLogs]
   );
 
   const addGameValid = !!newAway && !!newHome && newAway !== newHome;
@@ -1813,7 +1832,20 @@ export default function App() {
       actionLabel: "Undo",
       onAction: restoreUndo,
     });
-  }, [teams, matchups, requestConfirmation, captureUndo, closeTeamData, showToast, restoreUndo]);
+  }, [
+    teams,
+    matchups,
+    requestConfirmation,
+    captureUndo,
+    closeTeamData,
+    showToast,
+    restoreUndo,
+    setTeams,
+    setMatchups,
+    setLogs,
+    setBracketLogs,
+    setSettings,
+  ]);
 
   // ---------- Season builder ----------
 
@@ -2241,6 +2273,11 @@ export default function App() {
     clearSharedSnapshot,
     requestConfirmation,
     showToast,
+    setTeams,
+    setMatchups,
+    setLogs,
+    setBracketLogs,
+    setSettings,
   ]);
 
   const shareSeason = useCallback(async () => {
