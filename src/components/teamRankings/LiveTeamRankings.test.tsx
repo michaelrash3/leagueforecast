@@ -7,7 +7,7 @@ import type { CopySeen } from "../../lib/cloud/cloudSession";
 import { BOARD_FAMILY, builtFrom } from "../../lib/live/boardInputs";
 import { forgetDecodedBoards } from "../../lib/live/liveClient";
 import { forgetLiveBoard, liveBoardFor, type RankingsHandover } from "../../lib/live/liveBoard";
-import { EDIT_REFUSED } from "../../lib/live/liveEdits";
+import { EDIT_REFUSED, QUERY_REFUSED } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { openViewCache, type ViewCache, type ViewCacheIo } from "../../lib/live/viewCache";
 import { publishViews, type LiveReader, type PublishedView } from "../../lib/live/viewStore";
@@ -29,6 +29,8 @@ import { forgetDecodedClubs } from "../../hooks/useClubCard";
 import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
 import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesShape";
 import { forgetDecodedGames, GAME_MOVED } from "./LiveGames";
+import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY } from "./LiveSetup";
+import { checkTheModel } from "../../lib/scoutBacktest";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
 import type { AgeGroup } from "../../lib/teamRankings";
 import type { SeasonMeta } from "../../lib/storage";
@@ -2235,6 +2237,54 @@ describe("Setup on the cloud's board", () => {
       },
     ]);
     expect(seasonRow("Not on Team Rankings yet")).toBeTruthy();
+  });
+
+  /** The edit function's answers, with `check` its answer to the model check. */
+  const checkedWith = (check: unknown) => (data: Record<string, unknown>) =>
+    (data.query as { kind?: string } | undefined)?.kind === "model.check"
+      ? check
+      : setupAnswers(data);
+
+  it("checks the model of the page open on the server, and draws its answer", async () => {
+    onSetup();
+    pool.wants = false;
+    // A check of a page with nothing dated to hold back, as the server would send it.
+    const answer = JSON.parse(JSON.stringify(checkTheModel(PAGE, [], [], GROUPS))) as unknown;
+    const server = editFunction(checkedWith(answered({ kind: "model.check", answer })));
+    open(sourcesOf(live, { call: server.call }));
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    expect(screen.getByText(/later ones, which the fit never saw/).textContent).toContain(
+      "earlier games in 12U 2027"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Check the model" }));
+    expect(await screen.findByText(/Not enough dated games here to hold any back/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Run it again" })).toBeTruthy();
+    expect(server.sent).toContainEqual({
+      query: { kind: "model.check", page: PAGE },
+      copy: MANIFEST.copy,
+    });
+    // Nothing of it is this device's copy's: the rest of Setup no longer offers it.
+    expect(screen.getByText(/open on this device's copy for now/).textContent).not.toContain(
+      "model check"
+    );
+    expect(handedOver()).toBeNull();
+  });
+
+  it("says why a model check went unanswered, and not that the pool changed", async () => {
+    onSetup();
+    pool.wants = false;
+    let check: unknown = answered({ kind: "model.check", answer: null });
+    const server = editFunction((data) => checkedWith(check)(data));
+    open(sourcesOf(live, { call: server.call }));
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Check the model" }));
+    await waitFor(() => expect(said.toasts).toContain(PAGE_NOT_ON_COPY));
+    expect(await screen.findByText(CHECK_UNANSWERED)).toBeTruthy();
+    expect(screen.queryByText(/The pool changed while this ran/)).toBeNull();
+    check = { ok: false, why: "kept-moving" };
+    fireEvent.click(screen.getByRole("button", { name: "Check the model" }));
+    await waitFor(() => expect(said.toasts).toContain(QUERY_REFUSED["kept-moving"]));
+    expect(screen.getByText(CHECK_UNANSWERED)).toBeTruthy();
   });
 
   it("opens the rest of Setup on this device's copy when asked", async () => {

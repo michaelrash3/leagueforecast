@@ -7,6 +7,7 @@ import { GC_PAIRING_EVIDENCE_LABEL, type GcImportState } from "../gameChangerImp
 import { poolHealth, settleableNow, type PoolHealth } from "../poolHealth";
 import { poolHealthSummary, type PoolHealthSummary } from "../poolHealthSummary";
 import { poolLists, TO_PULL_DRAWN, type PoolLists } from "../poolLists";
+import { checkTheModel, type ModelCheckAnswer, type ScoutBacktestResult } from "../scoutBacktest";
 import { whatIfCurve, type WhatIfCurve } from "../scoutWhatIf";
 import { ageGroupYear, rankingPoolGroupIds, type SeasonSegment } from "../teamRankings/seasons";
 import type { ScoutGame, ScoutTeam } from "../teamRankings/types";
@@ -98,7 +99,13 @@ export type PoolQuery =
       forTeamId: string;
       game: ScoutGame;
       today: string;
-    };
+    }
+  /**
+   * Setup's model check for a page (`checkTheModel`): every run in one question, since the runs
+   * are compared game by game and each run's errors, kept for that, came to 2.3 MB on 12U of 29
+   * September, against 16 KB for the answer the card draws.
+   */
+  | { kind: "model.check"; page: string };
 
 /**
  * What folding one club into another touches: the stored games that name the club folded away,
@@ -166,6 +173,7 @@ export type QueryAnswers = {
   "ageless.clearPlan": AgelessClearPlanAnswer;
   "games.find": { gameId: string | null };
   "scouting.whatIf": { curve: WhatIfCurve | null };
+  "model.check": { answer: ModelCheckAnswer | null };
 };
 
 export type QueryKind = PoolQuery["kind"];
@@ -224,7 +232,7 @@ export const cardFixture = (games: readonly ScoutGame[], shown: ScoutGame): Scou
 };
 
 /** The questions answered with League Standings' games in the year, as the boards are built. */
-const LEAGUE_ASKED: ReadonlySet<QueryKind> = new Set<QueryKind>(["scouting.whatIf"]);
+const LEAGUE_ASKED: ReadonlySet<QueryKind> = new Set<QueryKind>(["scouting.whatIf", "model.check"]);
 
 /** Whether `query` is answered with the copy's League Standings seasons (`answerQuery`'s `seasons`). */
 export const asksLeague = (query: PoolQuery): boolean => LEAGUE_ASKED.has(query.kind);
@@ -265,6 +273,22 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         : null;
       // Named as the device named it, its place on the card.
       return { kind: "scouting.whatIf", curve: curve && { ...curve, gameId: query.game.id } };
+    }
+    case "model.check": {
+      const ageGroups = loadAgeGroups();
+      const page = ageGroups.find((group) => group.id === query.page);
+      if (!page || !seasons) return { kind: "model.check", answer: null };
+      // The year as the page knows it, League Standings' games in it, as the page checks it.
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: loadScoutTeams(),
+        yearGames: loadScoutGamesForYear(ageGroupYear(page)),
+        readSeason: seasons,
+      });
+      return {
+        kind: "model.check",
+        answer: checkTheModel(page.id, known.teams, known.games, ageGroups),
+      };
     }
     case "ageless.queue": {
       const sitting = agelessSitting(
@@ -516,6 +540,9 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
         };
       break;
     }
+    case "model.check":
+      if (isString(raw.page)) query = { kind: "model.check", page: raw.page };
+      break;
     case "ages.plan": {
       const clubs = everyOne(raw.clubs, ageAsked);
       if (clubs && isTime(raw.at) && isString(raw.base))
@@ -555,6 +582,118 @@ const WHAT_IF_CURVE: Shape = {
     lossRecord: "string",
     rankedCount: "count",
   },
+};
+
+/** A count or a number with no end: JSON writes `Infinity` as null, which is read back as it. */
+const UNBOUNDED: Shape = { nullable: "number" };
+const unbounded = (value: number | null): number => (value === null ? Infinity : value);
+
+/** One run of the model check (`ScoutBacktestResult`), without the errors kept to compare runs. */
+const BACKTEST_RESULT: Shape = {
+  record: {
+    sampleSize: "count",
+    meanAbsoluteError: { nullable: "number" },
+    baselineError: { nullable: "number" },
+    winnerAccuracy: { nullable: "number" },
+    crossAgeSamples: "count",
+    crossAgeError: { nullable: "number" },
+    fittedAgeGapRuns: "number",
+    ageGapPrior: "number",
+    recencyKey: "string",
+    cap: UNBOUNDED,
+    buckets: {
+      list: {
+        record: {
+          fromDays: "number",
+          toDays: UNBOUNDED,
+          label: "string",
+          sampleSize: "count",
+          meanAbsoluteError: { nullable: "number" },
+          baselineError: { nullable: "number" },
+          winnerAccuracy: { nullable: "number" },
+        },
+      },
+    },
+    span: {
+      nullable: {
+        record: { trainFrom: "string", trainTo: "string", testFrom: "string", testTo: "string" },
+      },
+    },
+    trainSize: "count",
+    unratedSides: "count",
+    ratedError: { nullable: "number" },
+    ratedSamples: "count",
+    meanAbsolutePrediction: { nullable: "number" },
+    trainComponents: "count",
+    largestComponent: "count",
+    splitSamples: "count",
+    residuals: {
+      list: {
+        record: {
+          gameId: "id",
+          daysAfter: "number",
+          predicted: "number",
+          actual: "number",
+          error: "number",
+          baseline: "number",
+          connected: "boolean",
+        },
+      },
+    },
+  },
+};
+const IMPROVEMENT: Shape = {
+  nullable: {
+    record: { value: UNBOUNDED, by: "number", standardError: "number", samples: "count" },
+  },
+};
+const MODEL_CHECK: Shape = {
+  record: {
+    answer: {
+      nullable: {
+        record: {
+          result: BACKTEST_RESULT,
+          gaps: { list: BACKTEST_RESULT },
+          caps: { list: BACKTEST_RESULT },
+          betterGap: IMPROVEMENT,
+          betterCap: IMPROVEMENT,
+        },
+      },
+    },
+  },
+};
+
+type Wire<T> = { [K in keyof T]: T[K] extends number ? number | null : T[K] };
+
+/**
+ * The model check as a device reads it: of its shape, and with every number that has no end (the
+ * uncapped run's cap, the last bucket's end, a better cap that is no cap) its own again, where JSON
+ * had written it as null.
+ */
+const modelCheckOf = (raw: Record<string, unknown>): AnswerOf<"model.check"> | null => {
+  if (!fits(raw, MODEL_CHECK)) return null;
+  const sent = (raw as { answer: Wire<ModelCheckAnswer> | null }).answer;
+  if (!sent) return { kind: "model.check", answer: null };
+  const run = (one: Wire<ScoutBacktestResult>): ScoutBacktestResult => ({
+    ...(one as ScoutBacktestResult),
+    cap: unbounded(one.cap),
+    buckets: one.buckets.map((bucket) => ({
+      ...bucket,
+      toDays: unbounded(bucket.toDays as number | null),
+    })),
+  });
+  const better = (one: ModelCheckAnswer["betterCap"]) =>
+    one && { ...one, value: unbounded(one.value as number | null) };
+  return {
+    kind: "model.check",
+    answer: {
+      result: run(sent.result as Wire<ScoutBacktestResult>),
+      gaps: sent.gaps.map((one) => run(one as Wire<ScoutBacktestResult>)),
+      caps: sent.caps.map((one) => run(one as Wire<ScoutBacktestResult>)),
+      betterGap: better(sent.betterGap),
+      betterCap: better(sent.betterCap),
+    },
+  };
 };
 
 /** What Pool health shows as it opens, and the answers its lists leave out. */
@@ -850,6 +989,8 @@ export const coerceQueryAnswer = <K extends QueryKind>(
       return ofShape<K>(raw, { record: { gameId: { nullable: "id" } } });
     case "scouting.whatIf":
       return ofShape<K>(raw, { record: { curve: { nullable: WHAT_IF_CURVE } } });
+    case "model.check":
+      return modelCheckOf(raw) as AnswerOf<K> | null;
     case "merge.preview": {
       const fold = foldOf(raw);
       if (fold && typeof raw.found === "boolean")

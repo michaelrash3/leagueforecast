@@ -3994,8 +3994,9 @@ device's words). The pages it and the age groups card read are the cloud's, as i
 carries them, rather than this device's copy, which an edit made here does not move; the edits
 not yet published are drawn over them (`overlayGroups`, by the command the server runs), so a
 season put on a page shows there at once and the next one put at that age joins it. This
-browser's diagnostics are its own, as on the device's Setup. The rest of Setup (the model check,
-archiving a year and starting again) opens on this device's copy when asked, until each is live.
+browser's diagnostics are its own, as on the device's Setup. The model check of the page open is
+the server's (`model.check`, 1.5), described below. The rest of Setup (archiving a year and
+starting again) opens on this device's copy when asked, until each is live.
 Every card here asks in its own effect once edits are on; the copy they ask of is held before
 any effect runs (`useLiveEdits`), since the network's first answer brings it and turns edits on
 in one render, and a Setup opened straight from a link had its first questions refused for want
@@ -4087,12 +4088,29 @@ was broken in turn and seen to fail a test, 14 of 14, three only after a test wa
 added: the pool's pages, a meeting off the second card, and a bucket without the
 club.
 
-`whatIfParity.test.ts` holds the server's what-if to the page's own (`whatIfCurve` on
+`refitParity.test.ts` holds the server's what-if to the page's own (`whatIfCurve` on
 the page's pool, with the real game), each fixture named as the published card holds
 it, for the top clubs of every page and half of the seeded fixture and for the clubs
 of a League Standings season with a game still to play, added since the fixture's
 own are all played. `editRun.test.ts` holds the League part read for such a question
 alone, once for each version of it, and refused alone when it would not read.
+
+**The model check.** Setup's card asks the server for the check of the page open
+(`model.check`, 1.5), which works it out as the page does (`checkTheModel`) on the year
+derived with the copy's League Standings seasons, as a what-if is. Every run goes in one
+question rather than one a run, as the device's worker takes them: the runs are compared
+game by game, so each run's errors are kept until all are in, and on 12U of the 29 Sep
+copy those came to 2.3 MB a run, against 16 KB for the answer the card draws. There the
+check took 15.1 s, 38,631 games held back, the process at 2.2 GB at most, during which the
+edit function's other calls wait, as they do on a what-if. JSON has no
+`Infinity`, which the uncapped run's cap, each result's last bucket and a better cap that
+is no cap all are, so it sends them as null and the device's reader makes each its own
+again. A check that comes back with no answer says why in a toast, as every question
+does, and the card says so under its button, rather than that the pool changed, which is
+the device's own card's reason. `refitParity.test.ts` holds the answer, read back as a
+device reads it, to the page's own on the seeded fixture's 12U 2027, League Standings'
+games in it; `queries.test.ts` the question and the reader. Each guard was broken in turn
+and seen to fail a test, 14 of 14.
 
 **On a device with no copy.** The page is laid out by the age groups, which a
 device reads from its own copy. One that has never held a copy has none, so the

@@ -419,6 +419,8 @@ const main = async () => {
     // Twice: the second with the League Standings part already read.
     ...whatIfs,
     ...whatIfs,
+    // The biggest page's model check, every run in one question.
+    ...(biggest ? ([{ kind: "model.check", page: biggest.id }] satisfies PoolQuery[]) : []),
   ];
   for (const query of questions) {
     started = performance.now();
@@ -435,6 +437,13 @@ const main = async () => {
             // Whether a what-if came back with a curve to draw.
             ...(asked.answer.kind === "scouting.whatIf"
               ? { drawn: asked.answer.curve !== null }
+              : {}),
+            // And a model check with games to hold back, which is what the card draws from.
+            ...(asked.answer.kind === "model.check"
+              ? {
+                  checked: asked.answer.answer !== null,
+                  heldBack: asked.answer.answer?.result.sampleSize ?? 0,
+                }
               : {}),
           }
         : { refused: asked.why }),

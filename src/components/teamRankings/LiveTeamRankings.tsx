@@ -571,6 +571,8 @@ function LiveBoard({
               edits={edits}
               confirm={confirm}
               today={today}
+              pageId={selectedAgeGroupId}
+              groupName={group?.name ?? ""}
               groups={cloudGroups}
               seasons={seasons}
               onOpenTeam={openTeam}

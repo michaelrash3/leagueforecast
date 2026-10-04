@@ -624,6 +624,7 @@ describe("League Standings in the copy", () => {
     game: { id: "1", teamAId: "B", teamBId: "A", ageGroupId: "ag_10u_2027" },
     today: "2027-04-15",
   };
+  const MODEL_CHECK: PoolQuery = { kind: "model.check", page: "ag_10u_2027" };
   const RENAME: PoolQuery = { kind: "rename.preview", teamId: "A", name: "Club Z" };
   const saveLeague = async (cloud: MemoryCloud, value: unknown) => {
     const saved = await commitChanges({
@@ -672,10 +673,11 @@ describe("League Standings in the copy", () => {
     const cloud = await copyOfPool();
     await saveLeague(cloud, "not a league");
     const cache = editPool();
-    expect(await runQuery({ pool: cache, store: cloud.store, query: WHAT_IF })).toEqual({
-      ok: false,
-      why: "league-unreadable",
-    });
+    for (const query of [WHAT_IF, MODEL_CHECK])
+      expect(await runQuery({ pool: cache, store: cloud.store, query })).toEqual({
+        ok: false,
+        why: "league-unreadable",
+      });
     expect(await runQuery({ pool: cache, store: cloud.store, query: RENAME })).toMatchObject({
       ok: true,
     });

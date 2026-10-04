@@ -10,6 +10,7 @@ import { poolSignature, type GcImportState } from "../../gameChangerImport";
 import { apartKey, keptApartList } from "../../keptApart";
 import { poolHealthSummary } from "../../poolHealthSummary";
 import { TO_PULL_DRAWN } from "../../poolLists";
+import type { ModelCheckAnswer, ScoutBacktestResult } from "../../scoutBacktest";
 import {
   mergeScoutTeams,
   renameScoutTeam,
@@ -314,6 +315,117 @@ describe("a what-if as the server reads it", () => {
     ])
       expect(coerceQueryAnswer({ kind: "scouting.whatIf", curve }, "scouting.whatIf")).toBeNull();
     expect(coerceQueryAnswer({ kind: "scouting.whatIf" }, "scouting.whatIf")).toBeNull();
+  });
+});
+
+describe("a model check as the server and a device read it", () => {
+  const RUN: ScoutBacktestResult = {
+    sampleSize: 40,
+    meanAbsoluteError: 3.2,
+    baselineError: 4.1,
+    winnerAccuracy: 0.7,
+    crossAgeSamples: 2,
+    crossAgeError: null,
+    fittedAgeGapRuns: 1.9,
+    ageGapPrior: 2,
+    recencyKey: "flat",
+    cap: 12,
+    buckets: [
+      {
+        fromDays: 0,
+        toDays: 14,
+        label: "0-14 days later",
+        sampleSize: 30,
+        meanAbsoluteError: 3,
+        baselineError: 4,
+        winnerAccuracy: 0.7,
+      },
+      {
+        fromDays: 120,
+        toDays: Infinity,
+        label: "120+ days later",
+        sampleSize: 10,
+        meanAbsoluteError: null,
+        baselineError: null,
+        winnerAccuracy: null,
+      },
+    ],
+    span: {
+      trainFrom: "2026-09-01",
+      trainTo: "2027-03-01",
+      testFrom: "2027-03-02",
+      testTo: "2027-04-01",
+    },
+    trainSize: 90,
+    unratedSides: 1,
+    ratedError: 3.1,
+    ratedSamples: 38,
+    meanAbsolutePrediction: 2.5,
+    trainComponents: 1,
+    largestComponent: 12,
+    splitSamples: 0,
+    residuals: [],
+  };
+  const ANSWER: ModelCheckAnswer = {
+    result: RUN,
+    gaps: [RUN, { ...RUN, ageGapPrior: 1.5 }],
+    caps: [{ ...RUN, cap: Infinity }, RUN],
+    betterGap: null,
+    betterCap: { value: Infinity, by: 0.05, standardError: 0.01, samples: 40 },
+  };
+  const sent = () =>
+    JSON.parse(JSON.stringify({ kind: "model.check", answer: ANSWER })) as {
+      answer: { result: Record<string, unknown>; betterCap: Record<string, unknown> };
+    };
+
+  it("is asked of a page, and of nothing else", () => {
+    expect(coerceQuery({ kind: "model.check", page: "ag_12u_2027" })).toEqual({
+      kind: "model.check",
+      page: "ag_12u_2027",
+    });
+    for (const raw of [
+      { kind: "model.check" },
+      { kind: "model.check", page: "" },
+      { kind: "model.check", page: 12 },
+      { kind: "model.check", page: "ag_12u_2027", extra: 1 },
+    ])
+      expect(coerceQuery(raw)).toBeNull();
+  });
+
+  it("reads back as worked out, every number with no end its own again", () => {
+    const wire = sent();
+    // JSON has no Infinity: each is null as sent.
+    expect(wire.answer.betterCap.value).toBeNull();
+    expect(coerceQueryAnswer(wire, "model.check")).toEqual({ kind: "model.check", answer: ANSWER });
+    expect(coerceQueryAnswer({ kind: "model.check", answer: null }, "model.check")).toEqual({
+      kind: "model.check",
+      answer: null,
+    });
+    const gapBetter = {
+      ...ANSWER,
+      betterGap: { value: 1.5, by: 0.1, standardError: 0.02, samples: 38 },
+    };
+    expect(
+      coerceQueryAnswer(
+        JSON.parse(JSON.stringify({ kind: "model.check", answer: gapBetter })),
+        "model.check"
+      )
+    ).toEqual({ kind: "model.check", answer: gapBetter });
+  });
+
+  it("is refused with any part of it spoiled", () => {
+    const spoiled = (spoil: (wire: ReturnType<typeof sent>) => void) => {
+      const wire = sent();
+      spoil(wire);
+      return coerceQueryAnswer(wire, "model.check");
+    };
+    expect(spoiled((wire) => (wire.answer.result.sampleSize = 1.5))).toBeNull();
+    expect(spoiled((wire) => (wire.answer.result.cap = "12"))).toBeNull();
+    expect(spoiled((wire) => (wire.answer.result.buckets = [{ fromDays: 0 }]))).toBeNull();
+    expect(spoiled((wire) => (wire.answer.result.span = { trainFrom: "x" }))).toBeNull();
+    expect(spoiled((wire) => (wire.answer.betterCap.by = null))).toBeNull();
+    expect(spoiled((wire) => delete (wire.answer as Record<string, unknown>).gaps)).toBeNull();
+    expect(coerceQueryAnswer({ kind: "model.check" }, "model.check")).toBeNull();
   });
 });
 

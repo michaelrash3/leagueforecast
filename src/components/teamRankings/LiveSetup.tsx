@@ -4,29 +4,41 @@ import type { LiveEdits } from "../../hooks/useLiveEdits";
 import type { PoolCommand } from "../../lib/live/commands";
 import { overlayGroups, seasonAssignedSaid } from "../../lib/live/groupsOverlay";
 import type { SeasonMeta } from "../../lib/storage";
-import type { AgeGroup, AgeGroupSeason } from "../../lib/teamRankings";
+import type { AgeGroup, AgeGroupSeason, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { createAgeGroupId, seasonYearOptions } from "../../lib/teamRankings/seasons";
 import { button, card } from "../../styles/tokens";
+
+const NO_TEAMS: ScoutTeam[] = [];
+const NO_GAMES: ScoutGame[] = [];
+const NO_GROUPS: AgeGroup[] = [];
+
+/** Said when the server has no such page to check. */
+export const PAGE_NOT_ON_COPY = "That age group is not on the cloud's copy any more.";
+/** Under the model check's button when the server's answer did not come. */
+export const CHECK_UNANSWERED = "No answer came back, for the reason just shown. Run it again.";
 import { DiagnosticsCard } from "./DiagnosticsCard";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { LiveAgelessCard } from "./LiveAgelessCard";
 import { LivePoolHealthCard } from "./LivePoolHealthCard";
+import { ModelCheckCard } from "./ModelCheckCard";
 import { AgeGroupsCard, SetupIntroCard } from "./SetupCards";
 
 /**
  * Setup on the live page (1.5), card for card as the device's Setup draws it, from the cloud's
  * pool: the league seasons put on its pages, or taken off, as edits sent to the edit function; the
  * pages that hold anything; the teams waiting on an age and Pool health from the server's lists;
- * and this browser's own diagnostics. The pages are the cloud's (`groups`, the ones its last
- * publish carries) with the edits made here drawn over them until a publish carries those too, so
- * a season put on a page shows there at once. The model check, archiving a year and starting again
- * are opened on this device's copy until each is live too, by asking for it: the page hands over
- * to Team Rankings there, on Setup.
+ * the model check of the page open, worked out on the server (`model.check`); and this browser's
+ * own diagnostics. The pages are the cloud's (`groups`, the ones its last publish carries) with
+ * the edits made here drawn over them until a publish carries those too, so a season put on a page
+ * shows there at once. Archiving a year and starting again are opened on this device's copy until
+ * each is live too, by asking for it: the page hands over to Team Rankings there, on Setup.
  */
 export default function LiveSetup({
   edits,
   confirm,
   today,
+  pageId,
+  groupName,
   groups,
   seasons,
   onOpenTeam,
@@ -35,6 +47,9 @@ export default function LiveSetup({
   edits: LiveEdits;
   confirm: Confirmation["request"];
   today: string;
+  /** The page open on the board, which the model check is of. */
+  pageId: string;
+  groupName: string;
   /** The cloud's pages as its last publish carries them. */
   groups: readonly AgeGroup[];
   /** League Standings' seasons, which the league seasons card asks about. */
@@ -43,7 +58,7 @@ export default function LiveSetup({
   /** Opens the rest of Setup on this device's copy. */
   onRestWanted: () => void;
 }) {
-  const { pending, edit } = edits;
+  const { pending, edit, ask, say } = edits;
   const shown = useMemo(
     () =>
       overlayGroups(
@@ -69,6 +84,19 @@ export default function LiveSetup({
     void edit(command, { done: seasonAssignedSaid(shown, command) });
   };
 
+  /*
+   * The whole check in one question: twelve fits of the page's year, 15.1 s on 12U of 29
+   * September (`npm run live:bench`), on the server's pool with the copy's League Standings
+   * seasons in it, as the boards were fitted. Nothing else is edited on the server meanwhile, as
+   * with a what-if.
+   */
+  const checkModel = async () => {
+    const asked = await ask({ kind: "model.check", page: pageId });
+    if (!asked) return null;
+    if (!asked.answer) say(PAGE_NOT_ON_COPY);
+    return asked.answer;
+  };
+
   return (
     <>
       <SetupIntroCard />
@@ -81,14 +109,23 @@ export default function LiveSetup({
       <AgeGroupsCard ageGroups={shown} seasons={seasons} />
       <LiveAgelessCard edits={edits} confirm={confirm} today={today} />
       <LivePoolHealthCard edits={edits} confirm={confirm} today={today} onOpenTeam={onOpenTeam} />
+      {/* The pool is the server's, so the card is given none of its own to check on the page. */}
+      <ModelCheckCard
+        ageGroupId={pageId}
+        groupName={groupName}
+        teams={NO_TEAMS}
+        games={NO_GAMES}
+        ageGroups={NO_GROUPS}
+        check={checkModel}
+        unanswered={CHECK_UNANSWERED}
+      />
       <DiagnosticsCard />
       <div className={`${card} p-5`}>
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           The rest of Setup
         </h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          The model check, archiving a year and starting again open on this device&apos;s copy for
-          now.
+          Archiving a year and starting again open on this device&apos;s copy for now.
         </p>
         <button type="button" onClick={onRestWanted} className={`${button.ghost} mt-3`}>
           Open them on this device&apos;s copy

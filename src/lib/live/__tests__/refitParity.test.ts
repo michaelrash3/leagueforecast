@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
 import { memoryIo } from "../../cloud/cloudRunner";
+import { checkTheModel } from "../../scoutBacktest";
 import { whatIfCurve } from "../../scoutWhatIf";
 import {
   ageGroupYear,
@@ -22,8 +23,8 @@ import {
   saveScoutTeams,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
-import { gamesOnPages, type SeasonReader } from "../allKnown";
-import { answerQuery, cardFixture } from "../queries";
+import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../allKnown";
+import { answerQuery, cardFixture, coerceQueryAnswer } from "../queries";
 import { boardWhatIfDeclines, poolGamesOfCard, teamsOfCard } from "../scoutingFromCards";
 import { boardViews, buildBoardsAndFacts } from "../views/board";
 import { coerceBoardView, withMine } from "../views/boardShape";
@@ -31,11 +32,16 @@ import { cardGamesOf, clubViews, panelGame } from "../views/clubs";
 import { clubBucketOf, clubKey, coerceClubBucket, type ClubBucket } from "../views/clubShape";
 
 /**
- * A what-if asked of the server (`scouting.whatIf`) says what the page's own says (`whatIfCurve`
- * on the page's pool): the fixture named as the live board holds it, a game off the scouted club's
- * published card whose id is its place there, and found on the server's pool by that place and
- * what the card shows of it (`cardFixture`). The pool is the seeded fixture with its League
- * Standings seasons (`scripts/poolFixture.ts`), as `scoutingParity.test.ts` reads it.
+ * The questions the server answers by refitting a year with the copy's League Standings seasons
+ * say what the page's own work says.
+ * - A what-if (`scouting.whatIf`) is the page's own curve (`whatIfCurve` on the page's pool): the
+ *   fixture named as the live board holds it, a game off the scouted club's published card whose id
+ *   is its place there, and found on the server's pool by that place and what the card shows of it
+ *   (`cardFixture`).
+ * - A model check (`model.check`), as a device reads it back, is the page's own (`checkTheModel` on
+ *   the year the page knows, League Standings' games in it).
+ * The pool is the seeded fixture with its League Standings seasons (`scripts/poolFixture.ts`), as
+ * `scoutingParity.test.ts` reads it.
  */
 
 const fixture = poolFixture({ seed: 17, clubsPerPage: 60 });
@@ -264,5 +270,43 @@ describe("a fixture named by its place on a club's card", () => {
     ];
     expect(cardGamesOf(year, "A").map(({ id }) => id)).toEqual(["g1", "g2", "g3"]);
     expect(cardGamesOf(year, "B").map(({ id }) => id)).toEqual(["g1", "g2", "g3", "x2"]);
+  });
+});
+
+describe("a model check asked of the server", { timeout: 120_000 }, () => {
+  it("reads back as the page's own, worked out on the year with League Standings' games", () => {
+    const page = ageGroups.find((one) => one.id === AHEAD_PAGE);
+    if (!page) throw new Error(`the fixture has no ${AHEAD_PAGE}`);
+    const asked = answerQuery({ kind: "model.check", page: page.id }, readSeason);
+    const read = coerceQueryAnswer(JSON.parse(JSON.stringify(asked)), "model.check");
+    const known = deriveAllKnown({
+      ageGroups,
+      teams: loadScoutTeams(),
+      yearGames: loadScoutGamesForYear(ageGroupYear(page)),
+      readSeason,
+    });
+    const own = checkTheModel(page.id, known.teams, known.games, ageGroups);
+    expect(read).toEqual({ kind: "model.check", answer: own });
+    // Numbers with no end among them, which JSON writes as null: the uncapped run, the last bucket.
+    expect(own.caps.some(({ cap }) => cap === Infinity)).toBe(true);
+    const buckets = own.result.buckets;
+    expect(buckets[buckets.length - 1]?.toDays).toBe(Infinity);
+    expect(own.result.sampleSize).toBeGreaterThan(0);
+    // And League Standings' games in it: the year without them checks otherwise.
+    const league = new Set(known.derivedGames.map(({ id }) => id));
+    const without = known.games.filter(({ id }) => !league.has(id));
+    expect(without.length).toBeLessThan(known.games.length);
+    expect(checkTheModel(page.id, known.teams, without, ageGroups)).not.toEqual(own);
+  });
+
+  it("is no answer for a page the copy does not hold, or without its League Standings seasons", () => {
+    expect(answerQuery({ kind: "model.check", page: "ag_nowhere" }, readSeason)).toEqual({
+      kind: "model.check",
+      answer: null,
+    });
+    expect(answerQuery({ kind: "model.check", page: AHEAD_PAGE })).toEqual({
+      kind: "model.check",
+      answer: null,
+    });
   });
 });
