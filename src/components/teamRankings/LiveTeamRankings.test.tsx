@@ -3315,7 +3315,6 @@ describe("the Archive tab on the cloud's board", () => {
   });
 
   it("says when the copy cannot be read, and reads it again on asking", async () => {
-    onArchive();
     let reads = 0;
     open(
       sourcesOf(live, {
@@ -3325,12 +3324,41 @@ describe("the Archive tab on the cloud's board", () => {
         },
       })
     );
+    // The board first, so the meta is in before the tab reads the copy: a read that failed
+    // before it is read again when it comes (below), which would race the button here.
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Archive" }));
     expect(await screen.findByText(LIVE_UNREAD.archive)).toBeTruthy();
     expect(handedOver()).toBeNull();
     const asked = reads;
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText(LIVE_UNREAD.archive)).toBeTruthy();
     await waitFor(() => expect(reads).toBeGreaterThan(asked));
+  });
+
+  it("reads the copy again once the meta comes, when it could not be read before it", async () => {
+    onArchive();
+    let reads = 0;
+    let letIn = (): void => undefined;
+    const held = new Promise<void>((resolve) => (letIn = resolve));
+    open(
+      sourcesOf(live, {
+        reader: async () => {
+          await held;
+          return readerOf(live);
+        },
+        copy: async () => {
+          reads += 1;
+          return null;
+        },
+      })
+    );
+    expect(await screen.findByText(LIVE_UNREAD.archive)).toBeTruthy();
+    expect(reads).toBe(1);
+    // The network's meta, come since: what failed before it is read again, as on a publish.
+    letIn();
+    await waitFor(() => expect(reads).toBe(2));
+    expect(await screen.findByText(LIVE_UNREAD.archive)).toBeTruthy();
   });
 });
 
