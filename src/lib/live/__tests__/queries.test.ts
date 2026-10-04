@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createTidyHandler, packPool, type WorkerResponse } from "../../../workers/tidyProtocol";
 import { memoryIo } from "../../cloud/cloudRunner";
+import { poolSignature, type GcImportState } from "../../gameChangerImport";
+import { apartKey, keptApartList } from "../../keptApart";
+import { poolHealthSummary } from "../../poolHealthSummary";
+import { TO_PULL_DRAWN } from "../../poolLists";
 import {
   mergeScoutTeams,
   renameScoutTeam,
@@ -9,18 +14,29 @@ import {
 } from "../../teamRankings";
 import {
   initTeamRankingsStore,
+  loadKeptApart,
   loadScoutGames,
+  loadTidyStamp,
   resetTeamRankingsStore,
   saveAgeGroups,
+  saveAgeRightClubs,
+  saveKeptApart,
+  saveRealClubs,
   saveScoutGames,
   saveScoutTeams,
+  saveTidyStamp,
+  storedGamesByYear,
 } from "../../teamRankingsStorage";
+import { unpulledClubs, unpulledClubsCsv } from "../../unpulledClubs";
+import { planClubAges } from "../agePlan";
 import {
   answerQuery,
   coerceQuery,
   coerceQueryAnswer,
   foldCounts,
+  type AnswerOf,
   type PoolQuery,
+  type QueryKind,
 } from "../queries";
 
 /*
@@ -211,5 +227,309 @@ describe("an answer as a device reads one", () => {
     ] as const) {
       expect(coerceQueryAnswer(raw, kind)).toBeNull();
     }
+  });
+});
+
+describe("what Pool health asks of the server's pool", () => {
+  const TODAY = "2026-09-27";
+  const PAGES: AgeGroup[] = [
+    { id: "ag9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },
+    { id: "ag10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
+  ];
+  type Link = NonNullable<ScoutTeam["gcTeams"]>[number];
+  const pulled = (id: string, name: string, link: Partial<Link> = {}): ScoutTeam => ({
+    id,
+    name,
+    city: "Sampleton",
+    state: "NJ",
+    gcTeams: [{ teamId: `gc${id}`, name, ageGroupId: "ag9", ageLevel: 9, ...link }],
+  });
+  const at10 = { ageGroupId: "ag10", ageLevel: 10 };
+  const fall = { season: "fall", seasonYear: 2026, staff: ["Ezra Sampleby", "Fable Sampleton"] };
+  const CLUBS: ScoutTeam[] = [
+    // One squad on GameChanger twice: both post the same games.
+    pulled("GRN", "Placeholder Green"),
+    pulled("CUBS", "Placeholder Cubs"),
+    pulled("BULL", "Placeholder Bulldogs"),
+    pulled("HAWK", "Placeholder Hawks"),
+    // Known only from the Hawks' schedule, and six more from the Ambush's: more to pull than drawn.
+    { id: "S-OWLS", name: "Placeholder Owls", nameOnly: true },
+    ...[1, 2, 3, 4, 5, 6].map((at): ScoutTeam => ({
+      id: `S-${at}`,
+      name: `Placeholder ${at}`,
+      nameOnly: true,
+    })),
+    // One roster listed twice in a season by the same coaches, one entry with no schedule.
+    pulled("SHELL", "Placeholder Ambush 9U", fall),
+    pulled("REAL", "Placeholder Ambush 9U", fall),
+    // Filed at 9U under a name saying 10U, and playing 10U clubs.
+    pulled("LARK", "Placeholder Larks 10U"),
+    pulled("X10", "Placeholder X", at10),
+    pulled("Y10", "Placeholder Y", at10),
+  ];
+  let serial = 0;
+  /** A row of `clubId`'s own schedule, its score first. */
+  const row = (
+    clubId: string,
+    against: string,
+    date: string,
+    clock: string,
+    score: [number, number]
+  ): ScoutGame => {
+    serial += 1;
+    return {
+      id: `gc_gc${clubId}_${serial}`,
+      teamAId: clubId,
+      teamBId: against,
+      teamAScore: score[0],
+      teamBScore: score[1],
+      ageGroupId: "ag9",
+      date,
+      startTs: `${date}T${clock}:00.000Z`,
+      source: { kind: "gamechanger", teamId: `gc${clubId}`, gameId: String(serial) },
+    };
+  };
+  const ROWS: ScoutGame[] = [
+    row("GRN", "BULL", "2026-09-19", "14:00", [4, 7]),
+    row("CUBS", "BULL", "2026-09-19", "14:00", [4, 7]),
+    row("GRN", "HAWK", "2026-09-19", "17:00", [9, 1]),
+    row("CUBS", "HAWK", "2026-09-19", "17:00", [9, 1]),
+    row("HAWK", "S-OWLS", "2026-09-19", "19:00", [3, 2]),
+    row("REAL", "BULL", "2026-09-13", "10:00", [5, 4]),
+    ...[1, 2, 3, 4, 5, 6].map((at) => row("REAL", `S-${at}`, `2026-08-0${at}`, "10:00", [at, 0])),
+    row("LARK", "X10", "2026-09-20", "10:00", [3, 5]),
+    row("LARK", "Y10", "2026-09-20", "13:00", [2, 8]),
+    // Scored on a day still to come, and won by forty.
+    row("HAWK", "BULL", "2026-10-03", "10:00", [6, 5]),
+    row("BULL", "HAWK", "2026-09-12", "10:00", [40, 0]),
+  ];
+  const POOL: GcImportState = { ageGroups: PAGES, teams: CLUBS, games: ROWS };
+
+  // A store of this pool alone: saving it over the one above would keep that one's games.
+  beforeEach(async () => {
+    resetTeamRankingsStore();
+    await initTeamRankingsStore(memoryIo());
+    saveAgeGroups(PAGES);
+    saveScoutTeams(CLUBS);
+    saveScoutGames(ROWS);
+  });
+
+  /** `query`'s answer, as the kind it asked. */
+  const asked = <K extends QueryKind>(query: Extract<PoolQuery, { kind: K }>): AnswerOf<K> => {
+    const answer = answerQuery(query);
+    if (answer.kind !== query.kind) throw new Error(`answered ${answer.kind}`);
+    return answer as unknown as AnswerOf<K>;
+  };
+
+  /** What the tidy worker answers when the page asks it to look harder at the same pool. */
+  const inspectedByWorker = () => {
+    const posted: WorkerResponse[] = [];
+    createTidyHandler((response) => posted.push(response))({
+      kind: "inspect",
+      id: 1,
+      state: packPool(POOL),
+      stamp: loadTidyStamp() ?? "",
+      today: TODAY,
+      apart: keptApartList(loadKeptApart()),
+    });
+    const answer = posted[0];
+    if (answer?.kind !== "inspect") throw new Error("no inspection");
+    const { health, settleable, lists } = answer;
+    // Of the clubs worth pulling, the ones the card draws, and how many there are.
+    return {
+      health,
+      settleable,
+      lists: { ...lists, toPull: lists.toPull.slice(0, TO_PULL_DRAWN) },
+      toPullCount: lists.toPull.length,
+    };
+  };
+
+  it("opens on what the page's own card works out, with the answers its lists leave out", () => {
+    saveRealClubs(new Set(["gcHAWK"]));
+    saveAgeRightClubs(new Set(["gcLARK"]));
+    saveKeptApart(new Set([apartKey("gcGRN", "gcCUBS")]));
+    const answer = asked({ kind: "health.summary", today: TODAY });
+    expect(answer).toEqual({
+      kind: "health.summary",
+      summary: poolHealthSummary(POOL, TODAY, storedGamesByYear()),
+      answers: {
+        ageRight: ["gcLARK"],
+        realClubs: ["gcHAWK"],
+        keptApart: [apartKey("gcGRN", "gcCUBS")],
+      },
+    });
+    // The fixture is worth something: a row ahead, a rout, and the clubs they belong to.
+    expect([answer.summary.datedAhead.length, answer.summary.implausible.length]).toEqual([1, 1]);
+    expect(answer.summary.suspected.length).toBeGreaterThan(0);
+  });
+
+  it("looks harder as the tidy worker does, against the copy's own tidy stamp", () => {
+    saveTidyStamp(poolSignature(POOL));
+    const answer = asked({ kind: "health.inspect", today: TODAY });
+    expect(answer).toEqual({ kind: "health.inspect", ...inspectedByWorker() });
+    expect(answer.health.tidied).toBe(true);
+    // Every list holds something, so each is worth reading back below.
+    expect(Object.entries(answer.lists).filter(([, list]) => list.length === 0)).toEqual([]);
+    // More clubs to pull than the card draws, of which only those are sent.
+    expect([answer.lists.toPull.length, answer.toPullCount]).toEqual([TO_PULL_DRAWN, 7]);
+  });
+
+  it("sends every club worth pulling as the card's file, when asked for it", () => {
+    expect(asked({ kind: "health.toPull" })).toEqual({
+      kind: "health.toPull",
+      csv: unpulledClubsCsv(unpulledClubs(POOL)),
+    });
+    expect(asked({ kind: "health.toPull" }).csv.split("\n")).toHaveLength(1 + 7);
+  });
+
+  it("leaves a pair the answers keep apart off its lists, as the worker does", () => {
+    saveKeptApart(new Set([apartKey("gcGRN", "gcCUBS")]));
+    const answer = asked({ kind: "health.inspect", today: TODAY });
+    expect(answer.lists.twins).toEqual([]);
+    expect(answer).toEqual({ kind: "health.inspect", ...inspectedByWorker() });
+  });
+
+  it("plans the ages approved together as the page plans them, for one edit", () => {
+    const clubs = [
+      { teamId: "LARK", level: 10, year: 2027 },
+      // A club with no GameChanger link cannot move, and is counted out.
+      { teamId: "S-OWLS", level: 9, year: 2027 },
+    ];
+    const when = "2026-09-27T12:00:00.000Z";
+    const answer = asked({ kind: "ages.plan", clubs, at: when, base: "ag_new" });
+    expect(answer).toEqual({
+      kind: "ages.plan",
+      ...planClubAges({ teams: CLUBS, games: ROWS, ageGroups: PAGES }, clubs, when, "ag_new"),
+    });
+    expect(answer).toMatchObject({ changedTeamIds: ["LARK"], failed: 1 });
+  });
+
+  describe("asked", () => {
+    it("is read back exactly", () => {
+      for (const query of [
+        { kind: "health.summary", today: TODAY },
+        { kind: "health.inspect", today: "2028-02-29" },
+        {
+          kind: "ages.plan",
+          clubs: [{ teamId: "LARK", level: 10, year: 2027 }],
+          at: "2026-09-27T12:00:00.000Z",
+          base: "ag_new",
+        },
+        { kind: "ages.plan", clubs: [], at: "2026-09-27T12:00:00.000Z", base: "ag_new" },
+        { kind: "health.toPull" },
+      ] as const) {
+        expect(coerceQuery(JSON.parse(JSON.stringify(query)))).toEqual(query);
+      }
+    });
+
+    it("is refused on a day the calendar lacks, a club asked oddly, or a field it does not read", () => {
+      const plan = {
+        kind: "ages.plan",
+        clubs: [{ teamId: "LARK", level: 10, year: 2027 }],
+        at: "2026-09-27T12:00:00.000Z",
+        base: "ag_new",
+      };
+      for (const raw of [
+        { kind: "health.summary" },
+        { kind: "health.summary", today: "2026-9-27" },
+        { kind: "health.summary", today: "2026-02-30" },
+        { kind: "health.inspect", today: "2026-13-01" },
+        { kind: "health.inspect", today: 20260927 },
+        { kind: "health.inspect", today: TODAY, apart: [] },
+        { kind: "health.toPull", today: TODAY },
+        { ...plan, clubs: [{ teamId: "LARK", level: 10.5, year: 2027 }] },
+        { ...plan, clubs: [{ teamId: "LARK", level: 10 }] },
+        { ...plan, clubs: [{ teamId: "", level: 10, year: 2027 }] },
+        { ...plan, clubs: [{ teamId: "LARK", level: 10, year: 2027, why: "name" }] },
+        { ...plan, clubs: "LARK" },
+        { ...plan, at: "soon" },
+        { ...plan, base: "" },
+        { ...plan, extra: true },
+      ]) {
+        expect([raw, coerceQuery(raw)]).toEqual([raw, null]);
+      }
+    });
+  });
+
+  describe("answered", () => {
+    type Path = ReadonlyArray<string | number>;
+    /** A copy of `value` as sent, with the field at `path` made `to`. */
+    const changed = (value: unknown, path: Path, to: unknown): unknown => {
+      const copy = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+      let at = copy;
+      for (const key of path.slice(0, -1)) at = at[key] as Record<string, unknown>;
+      at[path[path.length - 1]!] = to;
+      return copy;
+    };
+    const sent = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
+
+    it("is read back as sent, each kind, and a field a newer server adds is let be", () => {
+      saveTidyStamp(poolSignature(POOL));
+      const opened = asked({ kind: "health.summary", today: TODAY });
+      expect(coerceQueryAnswer(sent(opened), "health.summary")).toEqual(opened);
+      expect(coerceQueryAnswer({ ...opened, newer: 1 }, "health.summary")).toEqual({
+        ...opened,
+        newer: 1,
+      });
+      const inspected = asked({ kind: "health.inspect", today: TODAY });
+      expect(coerceQueryAnswer(sent(inspected), "health.inspect")).toEqual(inspected);
+      const plan = asked({
+        kind: "ages.plan",
+        clubs: [{ teamId: "LARK", level: 10, year: 2027 }],
+        at: "2026-09-27T12:00:00.000Z",
+        base: "ag_new",
+      });
+      expect(plan.commands).toHaveLength(1);
+      expect(coerceQueryAnswer(sent(plan), "ages.plan")).toEqual(plan);
+      const file = asked({ kind: "health.toPull" });
+      expect(coerceQueryAnswer(sent(file), "health.toPull")).toEqual(file);
+      // An answer to another question is none.
+      expect(coerceQueryAnswer(sent(opened), "health.inspect")).toBeNull();
+      expect(coerceQueryAnswer(sent(plan), "health.summary")).toBeNull();
+    });
+
+    it("is refused whole when any field it names is not of its kind", () => {
+      saveTidyStamp(poolSignature(POOL));
+      const opened = asked({ kind: "health.summary", today: TODAY });
+      const inspected = asked({ kind: "health.inspect", today: TODAY });
+      const plan = asked({
+        kind: "ages.plan",
+        clubs: [{ teamId: "LARK", level: 10, year: 2027 }],
+        at: "2026-09-27T12:00:00.000Z",
+        base: "ag_new",
+      });
+      const spoiled: Array<[QueryKind, unknown, Path, unknown]> = [
+        ["health.summary", opened, ["summary"], null],
+        ["health.summary", opened, ["summary", "datedAhead", 0, "year"], "2027"],
+        ["health.summary", opened, ["summary", "datedAhead", 0, "filers"], ["HAWK", ""]],
+        ["health.summary", opened, ["summary", "implausible", 0, "margin"], null],
+        ["health.summary", opened, ["summary", "implausible", 0, "game", "teamAScore"], -40],
+        ["health.summary", opened, ["summary", "suspected", 0, "gameIds"], "all"],
+        ["health.summary", opened, ["summary", "clubs", "HAWK", "name"], 5],
+        ["health.summary", opened, ["summary", "holdings", 0, "emptied"], "no"],
+        ["health.summary", opened, ["answers", "realClubs"], "gcHAWK"],
+        ["health.inspect", inspected, ["health", "games"], -1],
+        ["health.inspect", inspected, ["health", "tidied"], "yes"],
+        ["health.inspect", inspected, ["settleable"], 1.5],
+        ["health.inspect", inspected, ["toPullCount"], -1],
+        ["health.inspect", inspected, ["lists", "toPull", 0, "levels"], ["9"]],
+        ["health.inspect", inspected, ["lists", "duplicates", 0, "evidence", 0], "vibes"],
+        ["health.inspect", inspected, ["lists", "duplicates", 0, "confidence"], "certain"],
+        ["health.inspect", inspected, ["lists", "twins", 0, "shared", 0, "ownScore"], "4"],
+        ["health.inspect", inspected, ["lists", "twins", 0, "fromRecord"], { win: 1 }],
+        ["health.inspect", inspected, ["lists", "twice", 0, "games", 0, "startTs"], 0],
+        ["health.inspect", inspected, ["lists", "wrongAge", 0, "reason"], "height"],
+        ["health.inspect", inspected, ["lists", "wrongAge"], null],
+        ["ages.plan", plan, ["commands", 0, "kind"], "club.ages"],
+        ["ages.plan", plan, ["commands"], "all"],
+        ["ages.plan", plan, ["changedTeamIds", 0], ""],
+        ["ages.plan", plan, ["moved"], -1],
+        ["ages.plan", plan, ["failed"], "1"],
+        ["health.toPull", { kind: "health.toPull", csv: "x" }, ["csv"], 5],
+      ];
+      for (const [kind, answer, path, to] of spoiled) {
+        expect([path, coerceQueryAnswer(changed(answer, path, to), kind)]).toEqual([path, null]);
+      }
+    });
   });
 });

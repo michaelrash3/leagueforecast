@@ -44,6 +44,8 @@ const LiveClubPanel = lazy(() => import("./LiveClubPanel"));
 const LiveGames = lazy(() => import("./LiveGames"));
 /** The Scouting tab from the board and club cards, loaded only when the tab is opened. */
 const LiveScouting = lazy(() => import("./LiveScouting"));
+/** Setup, with Pool health from the server's pool, loaded only when the tab is opened. */
+const LiveSetup = lazy(() => import("./LiveSetup"));
 
 /**
  * How long the page waits for a board to draw before it goes to this device's copy the old way:
@@ -295,7 +297,10 @@ function LiveBoard({
   const nothingToDraw =
     !board && (live.meta === null || live.keptMissed || live.boardMiss !== null);
   const handOverNow =
-    (section !== "rankings" && section !== "games" && section !== "scouting") ||
+    (section !== "rankings" &&
+      section !== "games" &&
+      section !== "scouting" &&
+      section !== "setup") ||
     cannotList ||
     // No page: once there are pages to choose from, this device's or the meta's, and the meta's
     // are the ones laid out by, which is a render after the meta that brings them.
@@ -540,6 +545,16 @@ function LiveBoard({
           ) : (
             readingBoard
           )
+        ) : section === "setup" ? (
+          <Suspense fallback={statusCard("Reading the pool's health…")}>
+            <LiveSetup
+              edits={edits}
+              confirm={confirm}
+              today={today}
+              onOpenTeam={openTeam}
+              onRestWanted={wantPage}
+            />
+          </Suspense>
         ) : section !== "rankings" ? (
           onCopySoon
         ) : board ? (

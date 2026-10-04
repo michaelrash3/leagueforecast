@@ -3963,6 +3963,28 @@ no rebuild and is not waited on. Opening a panel brings the server's pool up
 before the network has answered for the board (what is drawn being only what this
 device kept), the panel changes nothing and nothing is sent.
 
+**Setup.** On the board, Setup draws Pool health from the server's pool
+(`LivePoolHealthCard`, 1.5) with the device's own card's drawing (`PoolHealthView`): what
+it shows as it opens, asked on the device's day as Setup opens (`health.summary`), and what
+it finds once **Check the pool** is pressed (`health.inspect`). Each button is sent as the
+edit the device's card makes: rows thrown out (`games.drop`), a club deleted
+(`club.drop`), a rout counted (`game.confirm`), a fold (`teams.merge`, asked about first
+with what the server says it moves), an age (`club.age`, with an Undo), every suggested
+age at once (planned on the server's pool, `ages.plan`, and sent as one batch with one
+Undo), and the answers (a club real, a club at the right age, two clubs kept apart). Once
+an edit is made, what the pool shows is asked for again, so the lists are the copy's as it
+now stands; an answer kept is shown at once, and the question already on its way is let
+go, since it was asked before the answer was given. The file of every club worth pulling
+is the server's, asked for when **Download the list** is pressed (`health.toPull`). The
+settle is the nightly refresh's, which tidies the pool after every pull, and the pool's
+research files (its names, its stand-in fixtures) are made only where the whole pool is
+held. The rest of Setup (the league seasons, the teams waiting on an age, the model check,
+archiving a year and starting again) opens on this device's copy when asked, until each is
+live. `LivePoolHealthCard.test.tsx` holds each button's edit and what the card shows after
+it, against a stand-in for the edit function that keeps the answers it is given. Each guard of
+the questions, their shapes, the summary, the card's drawing and its two wrappers was broken in
+turn and seen to fail a test, 54 of 54, two of them only once tests were written for them.
+
 **Find a team.** The board's search box reads its year's list (`useLiveSearch`)
 only when somebody taps it, says "Bringing in every team…" until the list is in,
 then puts the caret in the box. A pick opens the club's page and its panel from its
@@ -4487,6 +4509,18 @@ nothing, so a question the worker failed with, or never had, is only a question 
 (`callQuery` reads any unclear answer as failed). A worker that answers a request with anything but
 what the request was due is ended as one that died would be. On the 29 September 2026 pool, in
 memory, a merge preview took 67 ms and a rename preview 139 ms.
+
+Pool health asks four more as Setup goes live: what it shows as it opens (`health.summary`, worked
+out by `poolHealthSummary`, which the device's own card uses too), what it shows once asked to look
+harder (`health.inspect`, as the tidy worker answers it, which the tests check it against), the file
+of every club worth pulling (`health.toPull`), and the suggested ages approved together, as the
+commands that file them (`ages.plan`, `planClubAges`). The look sends only the five clubs worth
+pulling the card draws, and how many there are: on the 29 September pool the 51,298 of them were
+7.5 of the 7.9 MB the answer came to, sent on every look for a card that draws five. Cut, it is
+377 KB, and the file comes to 2.8 MB when asked for. A larger answer is read through its shape
+(`shapes.ts`): the type said once as data, every field it names checked as the device reads it, and
+a field it does not name let through for a newer server to say. On that pool, in memory, the
+summary took 0.33 s (130 KB), the look 6.2 s and the file 0.5 s, and each answer read back whole.
 
 Measured with `npm run live:bench` on the 29 September 2026 pool (255,579 games, 116,485 clubs),
 in memory, so Firestore's round trips and uploads come on top. The pool came up cold in 1.4 s. An

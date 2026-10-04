@@ -126,7 +126,7 @@ import type { AgelessAnswered } from "../lib/agelessTriage";
 /** Referentially stable, so the card's own memos do not re-run when Setup is closed. */
 const NO_AGELESS: AgeUnknownList = [];
 import type { UnrealClub } from "../lib/unrealClubs";
-import type { GamesDropped } from "./teamRankings/PoolHealthCard";
+import type { GamesDropped } from "./teamRankings/PoolHealthView";
 import type { WrongAgeClub } from "../lib/wrongAge";
 import {
   estimateBackupBytes,

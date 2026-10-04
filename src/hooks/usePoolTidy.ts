@@ -5,6 +5,7 @@ import { keptApartList } from "../lib/keptApart";
 import { loadKeptApart } from "../lib/teamRankingsStorage";
 import { todayIsoDay } from "../lib/date";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
+import { poolLists, type PoolLists } from "../lib/poolLists";
 import {
   beginTidy,
   endTidy,
@@ -18,8 +19,6 @@ import {
   packPool,
   type WorkerRequest,
   type WorkerResponse,
-  poolLists,
-  type PoolLists,
 } from "../workers/tidyProtocol";
 import { createWorker } from "./createWorker";
 

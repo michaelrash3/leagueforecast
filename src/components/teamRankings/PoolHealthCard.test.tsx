@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -9,7 +9,13 @@ import {
   team,
 } from "../../test/teamRankingsHarness";
 import type { ScoutGame, ScoutTeam } from "../../lib/teamRankings";
-import { loadDeletedGames, loadRealClubs, loadScoutGames } from "../../lib/teamRankingsStorage";
+import {
+  loadDeletedGames,
+  loadRealClubs,
+  loadScoutGames,
+  saveRealClubs,
+} from "../../lib/teamRankingsStorage";
+import { beginPull, endPull } from "../../lib/pullSession";
 
 const openSetup = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole("tab", { name: "Setup" }));
@@ -98,6 +104,28 @@ describe("seeing what the pool is made of", () => {
     await look(user);
 
     expect(await screen.findByText(/nobody has pulled the other side/i)).toBeInTheDocument();
+  });
+
+  it("holds the settle while a pull is running, since both write the whole pool", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(withStandIn());
+    await openSetup(user);
+    await look(user);
+    const settle = await screen.findByRole("button", { name: /settle 1 of them/i });
+    let session: ReturnType<typeof beginPull> = null;
+    act(() => {
+      session = beginPull(new Date().toISOString());
+    });
+    const running = session;
+    try {
+      expect(running).not.toBeNull();
+      expect(settle).toBeDisabled();
+      expect(screen.getByText(/A pull is running, so this waits/)).toBeInTheDocument();
+    } finally {
+      // Ended whatever happened, so no test after this one finds a pull running.
+      if (running) act(() => endPull(running));
+    }
+    expect(settle).toBeEnabled();
   });
 
   it("says whether the pool is in the shape the tidy left it", async () => {
@@ -328,6 +356,19 @@ describe("the impossible games, worst club first", () => {
     // Remembered by its GameChanger id, as a club thrown out is, so a pull does not put it back.
     expect([...loadRealClubs()]).toEqual(["gcINVENT0001"]);
     expect(screen.getByText(/1 club you said is real is kept off this list\./)).toBeInTheDocument();
+  });
+
+  it("reads the answers as stored when it looks, so one given in another tab is kept", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await openSetup(user);
+    expect(screen.queryByText(/kept off this list/)).toBeNull();
+    // Said in another tab, while this one was open.
+    saveRealClubs(new Set(["gcINVENT0001"]));
+    await look(user);
+    expect(
+      await screen.findByText(/1 club you said is real is kept off this list\./)
+    ).toBeInTheDocument();
   });
 
   /*

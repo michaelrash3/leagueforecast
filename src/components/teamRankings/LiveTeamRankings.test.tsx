@@ -379,8 +379,8 @@ describe("Team Rankings on the cloud's board", () => {
     });
   });
 
-  it("hands over at once for any area but the boards and the games", async () => {
-    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
+  it("hands over at once for an area it does not draw yet", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     pool.wants = false;
     open(sourcesOf(live));
     await waitFor(() => expect(handedOver()).not.toBeNull());
@@ -392,7 +392,7 @@ describe("Team Rankings on the cloud's board", () => {
     await screen.findByText("The cloud's board");
     await act(() => new Promise((resolve) => setTimeout(resolve, 1_500)));
     expect(handedOver()).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 
@@ -631,6 +631,34 @@ describe("the cloud's board while it is open", () => {
  * A club tapped on the board opens its panel from the card a server published for it
  * (`LiveClubPanel`), drawn by Team Rankings' own panel with nothing on it to change.
  */
+/** The edit function, as the page reaches it: what it was sent, and its answer to each. */
+const editFunction = (answer: (data: Record<string, unknown>) => unknown) => {
+  const sent: Array<Record<string, unknown>> = [];
+  const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+    const { data } = JSON.parse(String(init?.body)) as { data: Record<string, unknown> };
+    sent.push(data);
+    return new Response(JSON.stringify({ result: answer(data) }), { status: 200 });
+  }) as typeof fetch;
+  return { sent, call: { token: async () => "id-token", fetchImpl } };
+};
+const WARMED = { warmed: { ok: true, cold: false, fetched: 0, loadMs: 1 } };
+const made = (version: number, changed = ["league_forecast_scout_teams_v1"]) => ({
+  ok: true,
+  copy: MANIFEST.copy,
+  version,
+  inverse: { kind: "none" },
+  changed,
+  ms: { load: 1, apply: 1, commit: 1 },
+});
+const answered = (answer: Record<string, unknown>) => ({
+  ok: true,
+  copy: MANIFEST.copy,
+  version: MANIFEST.version,
+  answer,
+});
+const edited = (sent: Array<Record<string, unknown>>) =>
+  sent.filter((data) => data.command !== undefined);
+
 describe("a club's panel on the cloud's board", () => {
   const CARD: ClubCard = {
     team: { id: "S-1", name: "Placeholder S-1", state: "OH" },
@@ -711,34 +739,6 @@ describe("a club's panel on the cloud's board", () => {
   });
 
   const pause = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
-
-  /** The edit function, as the page reaches it: what it was sent, and its answer to each. */
-  const editFunction = (answer: (data: Record<string, unknown>) => unknown) => {
-    const sent: Array<Record<string, unknown>> = [];
-    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
-      const { data } = JSON.parse(String(init?.body)) as { data: Record<string, unknown> };
-      sent.push(data);
-      return new Response(JSON.stringify({ result: answer(data) }), { status: 200 });
-    }) as typeof fetch;
-    return { sent, call: { token: async () => "id-token", fetchImpl } };
-  };
-  const WARMED = { warmed: { ok: true, cold: false, fetched: 0, loadMs: 1 } };
-  const made = (version: number, changed = ["league_forecast_scout_teams_v1"]) => ({
-    ok: true,
-    copy: MANIFEST.copy,
-    version,
-    inverse: { kind: "none" },
-    changed,
-    ms: { load: 1, apply: 1, commit: 1 },
-  });
-  const answered = (answer: Record<string, unknown>) => ({
-    ok: true,
-    copy: MANIFEST.copy,
-    version: MANIFEST.version,
-    answer,
-  });
-  const edited = (sent: Array<Record<string, unknown>>) =>
-    sent.filter((data) => data.command !== undefined);
 
   it("sends an edit made on its panel to the edit function, against the board's copy, and says so", async () => {
     await withCard();
@@ -900,7 +900,7 @@ describe("a club's panel on the cloud's board", () => {
     expect(screen.queryByRole("region", { name: "Placeholder S-1" })).toBeNull();
     await tapClub("Placeholder S-1");
     await screen.findByRole("region", { name: "Placeholder S-1" });
-    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
     await act(async () => pool.finish());
     await waitFor(() => expect(handedOver()).toMatchObject({ openTeamId: "S-1" }), {
       timeout: 2_000,
@@ -1583,7 +1583,7 @@ describe("what it hands over, when, and what stays after", () => {
     }
     pool.wants = false;
     // An area the board does not draw: it hands over at once.
-    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     render(
       <LiveTeamRankings
         status={{ kind: "connecting" }}
@@ -1631,7 +1631,7 @@ describe("what it hands over, when, and what stays after", () => {
     expect(
       await screen.findByRole("button", { name: "Remove Placeholder S-1 from the report" })
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
     await act(async () => pool.finish());
     await waitFor(() => expect(handedOver()).not.toBeNull(), { timeout: 5_000 });
     expect(handedOver()).toMatchObject({ compareTeamId: "S-3", pickedOpponentIds: ["S-1"] });
@@ -1691,11 +1691,11 @@ describe("what it hands over, when, and what stays after", () => {
   it("says an area it cannot draw opens on this device's copy, while the pool comes in", async () => {
     open(sourcesOf(live));
     expect(await screen.findByText("The cloud's board")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
     expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
     const panel = document.getElementById("team-rankings-panel");
     if (!panel) throw new Error("no panel");
-    expect(panel.getAttribute("aria-labelledby")).toBe("team-rankings-tab-setup");
+    expect(panel.getAttribute("aria-labelledby")).toBe("team-rankings-tab-import");
     expect(within(panel).queryAllByText("Placeholder S-1")).toHaveLength(0);
     expect(
       within(panel).getByText("This opens on this device's copy as soon as it is in…")
@@ -1720,7 +1720,7 @@ describe("what it hands over, when, and what stays after", () => {
 
   it("hands a club with no card tapped while the pool comes in over to Team Rankings", async () => {
     await withCards(CARDS.filter((one) => one.team.id !== "S-3"));
-    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     open(sourcesOf(live));
     expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Rankings" }));
@@ -1783,9 +1783,80 @@ describe("what it hands over, when, and what stays after", () => {
   });
 
   it("opens Team Rankings at once when asked to stop waiting for the pool", async () => {
-    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     open(sourcesOf(live));
     fireEvent.click(await screen.findByRole("button", { name: "Show this device's copy now" }));
     expect(handedOver()).toEqual({ stateTop: null, stateFilter: "", showAll: false });
+  });
+});
+
+describe("Setup on the cloud's board", () => {
+  const OPENED = {
+    kind: "health.summary",
+    summary: {
+      holdings: [{ year: 2027, pages: 2, teams: 3, games: 9, emptied: false }],
+      datedAhead: [
+        {
+          id: "g-ahead",
+          date: "2027-05-01",
+          teamAId: "S-1",
+          teamBId: "S-2",
+          teamAScore: 3,
+          teamBScore: 2,
+          year: 2027,
+          filers: ["S-1"],
+        },
+      ],
+      implausible: [],
+      suspected: [
+        {
+          teamId: "S-1",
+          name: "Placeholder S-1",
+          ahead: 1,
+          implausible: 0,
+          played: 2,
+          gcTeamIds: ["gc-1"],
+          gameIds: ["g-ahead"],
+        },
+      ],
+      clubs: {
+        "S-1": { name: "Placeholder S-1", gcId: "gc-1" },
+        "S-2": { name: "Placeholder S-2" },
+      },
+    },
+    answers: { ageRight: [], realClubs: [], keptApart: [] },
+  };
+  const onSetup = () =>
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
+
+  it("draws Pool health from the server's pool, and stays the page", async () => {
+    onSetup();
+    pool.wants = false;
+    const server = editFunction((data) => (data.query ? answered(OPENED) : made(5)));
+    open(sourcesOf(live, { call: server.call }));
+    expect(await screen.findByText("Scored on a day that has not happened")).toBeTruthy();
+    expect(screen.getByText(/Placeholder S-1 3–2 Placeholder S-2/)).toBeTruthy();
+    expect(server.sent).toEqual([
+      { query: { kind: "health.summary", today: TODAY }, copy: MANIFEST.copy },
+    ]);
+    // Deleted at once, and what the pool then shows asked for again.
+    fireEvent.click(screen.getByRole("button", { name: "Delete club" }));
+    await waitFor(() => expect(said.toasts).toContain("Deleted Placeholder S-1."));
+    expect(edited(server.sent)).toEqual([
+      { command: { kind: "club.drop", teamId: "S-1" }, copy: MANIFEST.copy },
+    ]);
+    await waitFor(() =>
+      expect(server.sent.filter((data) => data.query !== undefined)).toHaveLength(2)
+    );
+    expect(handedOver()).toBeNull();
+  });
+
+  it("opens the rest of Setup on this device's copy when asked", async () => {
+    onSetup();
+    pool.wants = false;
+    const server = editFunction(() => answered(OPENED));
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open them on this device's copy" }));
+    await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 });
