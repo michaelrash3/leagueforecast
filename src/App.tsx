@@ -24,7 +24,7 @@ import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useSeasons } from "./hooks/useSeasons";
 import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
-import { useSeasonState } from "./hooks/useSeasonState";
+import { useSeasonState, type SeasonState } from "./hooks/useSeasonState";
 import { useScoutBridge } from "./hooks/useScoutBridge";
 import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings";
 import { CompareDrawer } from "./components/CompareDrawer";
@@ -114,6 +114,7 @@ import {
 } from "./lib/sim";
 import { buildTrendStates } from "./lib/trend";
 import {
+  getActiveSeasonId,
   loadBracketLogs,
   loadLogs,
   loadMatchups,
@@ -265,6 +266,15 @@ export const settleSide = (teams: readonly TeamBase[], held: string, fallback: n
   return teams[fallback]?.id ?? "";
 };
 
+/** The active season's data as storage holds it. */
+const loadOpenSeason = (): SeasonState => ({
+  teams: loadTeams(),
+  matchups: loadMatchups(),
+  logs: loadLogs(),
+  bracketLogs: loadBracketLogs(),
+  settings: loadSettings(),
+});
+
 export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>("dashboard");
   const {
@@ -278,13 +288,8 @@ export default function App() {
     setBracketLogs,
     settings,
     setSettings,
-  } = useSeasonState(() => ({
-    teams: loadTeams(),
-    matchups: loadMatchups(),
-    logs: loadLogs(),
-    bracketLogs: loadBracketLogs(),
-    settings: loadSettings(),
-  }));
+    openSeason,
+  } = useSeasonState(() => ({ id: getActiveSeasonId(), season: loadOpenSeason() }));
   const deferredLogs = useDeferredValue(logs);
 
   const [newDate, setNewDate] = useState("");
@@ -1551,11 +1556,8 @@ export default function App() {
    */
   useEffect(() => {
     loadActiveSeasonRef.current = () => {
-      setTeams(loadTeams());
-      setMatchups(loadMatchups());
-      setLogs(loadLogs());
-      setBracketLogs(loadBracketLogs());
-      setSettings(loadSettings());
+      // The season's id and data together, so nothing reading the season takes one for the other.
+      openSeason(getActiveSeasonId(), loadOpenSeason());
       setSelectedTeamId(null);
       setCompareTeamId(null);
       setLastImpact(null);
