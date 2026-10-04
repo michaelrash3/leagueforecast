@@ -1,10 +1,12 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
+import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { EDIT_LOCKS, EDIT_REFUSED, QUERY_REFUSED, WARM_AFTER_MS } from "../lib/live/liveEdits";
 
 vi.mock("../lib/cloud/cloudSession", () => ({ memberToken: async () => null }));
 
 const { useLiveEdits } = await import("./useLiveEdits");
+type LiveEdits = ReturnType<typeof useLiveEdits>;
 
 /*
  * A member's edits from the live page (`useLiveEdits`): sent against the copy the views are of,
@@ -197,6 +199,40 @@ describe("a question from the live page", () => {
     });
     expect(answer).toBeNull();
     expect(toasts).toEqual([[QUERY_REFUSED["copy-replaced"], { tone: "error" }]]);
+  });
+  /*
+   * A card asks in its own effect once edits are on, as every live card does. The network's first
+   * answer for the board brings the copy and turns edits on in the one render, and a card's effects
+   * run before its page's: the copy has to be there for them already.
+   */
+  it("is asked of the copy the views are of in the very render that brings it", async () => {
+    const call = server({
+      body: { result: { ok: true, copy: COPY.id, version: 4, answer: ANSWER } },
+    });
+    const toasts: string[] = [];
+    const answers: unknown[] = [];
+    function Card({ edits }: { edits: LiveEdits }) {
+      const { locked, ask } = edits;
+      useEffect(() => {
+        if (locked) return;
+        void ask(QUESTION).then((answer) => answers.push(answer));
+      }, [locked, ask]);
+      return null;
+    }
+    function Page({ copy, locked }: { copy: typeof COPY | null; locked: string | null }) {
+      const edits = useLiveEdits({
+        copy,
+        locked,
+        showToast: (message) => void toasts.push(message),
+        deps: call.deps,
+      });
+      return <Card edits={edits} />;
+    }
+    const shown = render(<Page copy={null} locked={EDIT_LOCKS.waiting} />);
+    shown.rerender(<Page copy={COPY} locked={null} />);
+    await vi.waitFor(() => expect(answers).toEqual([ANSWER]));
+    expect(call.sent).toEqual([{ query: QUESTION, copy: "c0ffee" }]);
+    expect(toasts).toEqual([]);
   });
 });
 

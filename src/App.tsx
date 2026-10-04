@@ -2768,6 +2768,7 @@ export default function App() {
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
               <RankingsOpen
                 status={cloud}
+                seasons={seasons.all}
                 showToast={showToast}
                 confirm={requestConfirmation}
                 page={(handover) => (

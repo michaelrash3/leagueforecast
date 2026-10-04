@@ -5,6 +5,7 @@ import type { CloudStatus } from "../lib/cloud/cloudSession";
 import { loadCloudState } from "../lib/cloud/cloudState";
 import type { RankingsHandover } from "../lib/live/liveBoard";
 import { readLiveBoard } from "../lib/preferences";
+import type { SeasonMeta } from "../lib/storage";
 import { CloudPoolGate } from "./CloudPoolGate";
 import { loadTeamRankingsView } from "./teamRankingsChunk";
 
@@ -40,11 +41,14 @@ export const liveBoardWanted = (status: CloudStatus): boolean =>
 export function RankingsOpen({
   status,
   page,
+  seasons,
   showToast,
   confirm,
 }: {
   status: CloudStatus;
   page: (handover?: RankingsHandover) => ReactNode;
+  /** League Standings' seasons, which the live page's Setup asks about. */
+  seasons: SeasonMeta[];
   /** The app's toast and confirmation, which the live page's edits are said through. */
   showToast: ShowToast;
   confirm: Confirmation["request"];
@@ -56,6 +60,7 @@ export function RankingsOpen({
       status={status}
       renderPage={(handover) => page(handover)}
       preloadPage={loadTeamRankingsView}
+      seasons={seasons}
       showToast={showToast}
       confirm={confirm}
     />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { memberToken } from "../lib/cloud/cloudSession";
 import type { PoolCommand } from "../lib/live/commands";
 import { callEdit, callQuery, callWarm, type CallDeps } from "../lib/live/editClient";
@@ -76,7 +76,13 @@ export function useLiveEdits({
   const lastCall = useRef<number | null>(null);
   const callDeps = useMemo<CallDeps>(() => deps ?? { token: memberToken }, [deps]);
 
-  useEffect(() => {
+  /*
+   * Kept before any effect runs, not in one: the network's first answer brings the copy and turns
+   * edits on in a single render, and the cards below ask in their own effects, which run before
+   * this page's. Held in an effect, the copy was still the one before it, and the first question
+   * of a Setup opened straight from a link was refused for want of one.
+   */
+  useLayoutEffect(() => {
     current.current = copy;
   }, [copy]);
   const pending = useMemo(

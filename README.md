@@ -3987,13 +3987,24 @@ go, since it was asked before the answer was given. The file of every club worth
 is the server's, asked for when **Download the list** is pressed (`health.toPull`). The
 settle is the nightly refresh's, which tidies the pool after every pull, and the pool's
 research files (its names, its stand-in fixtures) are made only where the whole pool is
-held. The rest of Setup (the league seasons, the model check, archiving a year and starting
-again) opens on this device's copy when asked, until each is live. `LiveAgelessCard.test.tsx`
+held. The league seasons are put on a page, or taken off, by the device's own card
+(`LeagueSeasonsCard`), each answer sent as the device's edit (`season.assign`, said in the
+device's words). The pages it and the age groups card read are the cloud's, as its last publish
+carries them, rather than this device's copy, which an edit made here does not move; the edits
+not yet published are drawn over them (`overlayGroups`, by the command the server runs), so a
+season put on a page shows there at once and the next one put at that age joins it. This
+browser's diagnostics are its own, as on the device's Setup. The rest of Setup (the model check,
+archiving a year and starting again) opens on this device's copy when asked, until each is live.
+Every card here asks in its own effect once edits are on; the copy they ask of is held before
+any effect runs (`useLiveEdits`), since the network's first answer brings it and turns edits on
+in one render, and a Setup opened straight from a link had its first questions refused for want
+of it. `LiveAgelessCard.test.tsx`
 holds the waiting card's answers and questions as `LivePoolHealthCard.test.tsx` holds Pool
 health's. `LivePoolHealthCard.test.tsx` holds each button's edit and what the card shows after
 it, against a stand-in for the edit function that keeps the answers it is given. Each guard of
 the questions, their shapes, the summary, the card's drawing and its two wrappers was broken in
-turn and seen to fail a test, 54 of 54, two of them only once tests were written for them.
+turn and seen to fail a test, 54 of 54, two of them only once tests were written for them; and
+the league seasons' and the copy's, 15 of 15, the intro card's only once a test looked for it.
 
 **Find a team.** The board's search box reads its year's list (`useLiveSearch`)
 only when somebody taps it, says "Bringing in every team…" until the list is in,

@@ -31,6 +31,7 @@ import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesS
 import { forgetDecodedGames } from "./LiveGames";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
 import type { AgeGroup } from "../../lib/teamRankings";
+import type { SeasonMeta } from "../../lib/storage";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
 import type { LiveSources } from "../../hooks/useLiveBoard";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
@@ -208,13 +209,14 @@ const confirm = async ({ title }: { title: string }) => {
   return said.confirming;
 };
 
-const open = (sources: LiveSources, { waitMs = 60_000 } = {}) =>
+const open = (sources: LiveSources, { waitMs = 60_000, seasons = [] as SeasonMeta[] } = {}) =>
   render(
     <LiveTeamRankings
       status={{ kind: "connecting" }}
       renderPage={page}
       preloadPage={() => Promise.resolve()}
       sources={sources}
+      seasons={seasons}
       showToast={showToast}
       confirm={confirm}
       waitMs={waitMs}
@@ -1590,6 +1592,7 @@ describe("what it hands over, when, and what stays after", () => {
         renderPage={() => <Page />}
         preloadPage={() => Promise.resolve()}
         sources={sourcesOf(live)}
+        seasons={[]}
         showToast={showToast}
         confirm={confirm}
         waitMs={60_000}
@@ -1880,6 +1883,108 @@ describe("Setup on the cloud's board", () => {
       expect(asked(server.sent)).toEqual(["ageless.queue", "health.summary", "health.summary"])
     );
     expect(handedOver()).toBeNull();
+  });
+
+  const LEAGUE: SeasonMeta[] = [{ id: "season-1", name: "Placeholder League", createdAt: T }];
+  const seasonRow = (text: string) => {
+    const row = screen
+      .getByText("Placeholder League", { selector: "span.font-bold" })
+      .closest("li");
+    if (!row) throw new Error("no row for the league season");
+    return within(row).getByText(text);
+  };
+
+  it("puts a league season on a page through the server, and shows it there at once", async () => {
+    onSetup();
+    pool.wants = false;
+    const server = editFunction(setupAnswers);
+    open(sourcesOf(live, { call: server.call }), { seasons: LEAGUE });
+    // Once the network has answered for the board, and edits can be sent.
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    expect(screen.getByText("Not on Team Rankings yet")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Age"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("Year"), { target: { value: "2027" } });
+    fireEvent.click(screen.getByRole("button", { name: "Put on 12U 2027" }));
+    await waitFor(() => expect(said.toasts).toContain("League season added to 12U 2027."));
+    expect(edited(server.sent)).toEqual([
+      {
+        command: {
+          kind: "season.assign",
+          seasonId: "season-1",
+          season: { ageLevel: 12, year: 2027 },
+          pageId: expect.any(String),
+        },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    // On the page at once, in both cards, before any publish carries it.
+    expect(seasonRow("On 12U 2027")).toBeTruthy();
+    const pages = screen.getByRole("heading", { name: "Age groups" }).parentElement;
+    expect(pages?.querySelector("li")?.textContent).toBe("12U 2027Placeholder League");
+    // What Team Rankings is, and this browser's own diagnostics, as on this device's Setup.
+    expect(screen.getByRole("heading", { name: "What Team Rankings is" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "What has gone wrong here" })).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("says what a season joins by the pages drawn, the edits not yet published among them", async () => {
+    onSetup();
+    pool.wants = false;
+    const server = editFunction(setupAnswers);
+    const two: SeasonMeta[] = [
+      { id: "season-1", name: "Placeholder League", createdAt: T },
+      { id: "season-2", name: "Placeholder Cup", createdAt: T },
+    ];
+    open(sourcesOf(live, { call: server.call }), { seasons: two });
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    const put = (index: number) => {
+      fireEvent.change(screen.getAllByLabelText("Age")[index]!, { target: { value: "9" } });
+      fireEvent.change(screen.getAllByLabelText("Year")[index]!, { target: { value: "2028" } });
+      fireEvent.click(screen.getByRole("button", { name: "Put on 9U 2028" }));
+    };
+    put(0);
+    await waitFor(() =>
+      expect(said.toasts).toContain("9U 2028 created, with your league season on it.")
+    );
+    // The page the first made is drawn already, so the second joins it rather than making another.
+    put(1);
+    await waitFor(() => expect(said.toasts).toContain("League season added to 9U 2028."));
+    const [first, second] = edited(server.sent).map(
+      (data) => data.command as { pageId: string; seasonId: string }
+    );
+    expect([first?.seasonId, second?.seasonId]).toEqual(["season-1", "season-2"]);
+    const pages = screen.getByRole("heading", { name: "Age groups" }).parentElement;
+    expect(pages?.querySelector("li")?.textContent).toBe(
+      "9U 2028Placeholder League, Placeholder Cup"
+    );
+  });
+
+  it("reads which page holds a season off the cloud's pages, not this device's copy", async () => {
+    await publish(live, undefined, {
+      pulledAt: T,
+      halves: { [PAGE]: { fall: 10, spring: 20 } },
+      groups: [GROUPS[0], { ...GROUPS[1], seasonIds: ["season-1"] }],
+    });
+    onSetup();
+    pool.wants = false;
+    const server = editFunction(setupAnswers);
+    open(sourcesOf(live, { call: server.call }), { seasons: LEAGUE });
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    expect(screen.getByText("On 11U 2027")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Take off" }));
+    await waitFor(() => expect(said.toasts).toContain("League season taken off Team Rankings."));
+    expect(edited(server.sent)).toEqual([
+      {
+        command: {
+          kind: "season.assign",
+          seasonId: "season-1",
+          season: null,
+          pageId: expect.any(String),
+        },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    expect(seasonRow("Not on Team Rankings yet")).toBeTruthy();
   });
 
   it("opens the rest of Setup on this device's copy when asked", async () => {

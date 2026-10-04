@@ -17,7 +17,7 @@ import { button, card } from "../../styles/tokens";
 
 type LeagueSeasonsCardProps = {
   seasons: SeasonMeta[];
-  ageGroups: AgeGroup[];
+  ageGroups: readonly AgeGroup[];
   yearOptions: number[];
   /** Puts this League Standings season at that age, or takes it off Team Rankings with `null`. */
   onAssign: (seasonId: string, season: AgeGroupSeason | null) => void;

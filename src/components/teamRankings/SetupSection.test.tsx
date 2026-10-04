@@ -60,6 +60,7 @@ describe("the age groups list", () => {
       games: [],
     });
     await openSetup(user);
+    expect(screen.getByRole("heading", { name: "What Team Rankings is" })).toBeInTheDocument();
 
     // GameChanger owns them: a 9U schedule lands on the 9U page whether or not anybody made it.
     expect(screen.getByText("9U 2027")).toBeInTheDocument();

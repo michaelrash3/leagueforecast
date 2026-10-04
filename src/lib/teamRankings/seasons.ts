@@ -117,7 +117,7 @@ export const rankingPoolGroupIds = (ageGroupId: string, ageGroups: AgeGroup[]): 
  * group already sits in. The union matters in both directions — a season imported from an older
  * install can be before the run, and advancing a season enough times walks past the end of it.
  */
-export const seasonYearOptions = (ageGroups: AgeGroup[] = []): number[] => {
+export const seasonYearOptions = (ageGroups: readonly AgeGroup[] = []): number[] => {
   const years = new Set<number>();
   for (let index = 0; index < SEASON_YEAR_SPAN; index += 1) years.add(MIN_SEASON_YEAR + index);
   ageGroups.forEach((group) => {

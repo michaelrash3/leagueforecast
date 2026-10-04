@@ -29,6 +29,7 @@ import {
 } from "../../lib/teamRankings/boardDisplay";
 import { filterRankingsByState, statesInUse } from "../../lib/teamRankings/names";
 import { coerceAgeGroups, loadAgeGroups } from "../../lib/teamRankingsStorage";
+import type { SeasonMeta } from "../../lib/storage";
 import { button, card } from "../../styles/tokens";
 import { CloudPoolGate } from "../CloudPoolGate";
 import { warmTeamSearch } from "../TeamSearchSelect";
@@ -88,6 +89,7 @@ export function LiveTeamRankings({
   renderPage,
   preloadPage,
   sources,
+  seasons,
   showToast,
   confirm,
   waitMs = LIVE_WAIT_MS,
@@ -98,6 +100,8 @@ export function LiveTeamRankings({
   /** Loads Team Rankings' code, so it is there by the time the board hands over. */
   preloadPage: () => Promise<unknown>;
   sources?: LiveSources;
+  /** League Standings' seasons, which Setup asks which page each plays on. */
+  seasons: SeasonMeta[];
   /** The page's toast and confirmation, which the edits say themselves through. */
   showToast: ShowToast;
   confirm: Confirmation["request"];
@@ -137,6 +141,7 @@ export function LiveTeamRankings({
     <LiveBoard
       status={status}
       {...(sources ? { sources } : {})}
+      seasons={seasons}
       showToast={showToast}
       confirm={confirm}
       waitMs={waitMs}
@@ -157,6 +162,7 @@ export function LiveTeamRankings({
 function LiveBoard({
   status,
   sources,
+  seasons,
   showToast,
   confirm,
   waitMs,
@@ -167,6 +173,7 @@ function LiveBoard({
 }: {
   status: CloudStatus;
   sources?: LiveSources;
+  seasons: SeasonMeta[];
   showToast: ShowToast;
   confirm: Confirmation["request"];
   waitMs: number;
@@ -211,6 +218,15 @@ function LiveBoard({
   });
   const metaGroups = live.meta?.pages.groups;
   if (localGroups.length === 0 && metaGroups !== publishedRaw) setPublishedRaw(metaGroups);
+  /*
+   * The pages as the cloud holds them, for Setup, which edits them there: the meta's whenever it
+   * carries them, since a season put on a page here changes the cloud's pages and the next publish
+   * says so, while this device's copy, read as the page opened, does not move with it.
+   */
+  const cloudGroups = useMemo(
+    () => (metaGroups ? coerceAgeGroups(metaGroups) : ageGroups),
+    [metaGroups, ageGroups]
+  );
 
   const [stateTop, setStateTop] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState("");
@@ -551,6 +567,8 @@ function LiveBoard({
               edits={edits}
               confirm={confirm}
               today={today}
+              groups={cloudGroups}
+              seasons={seasons}
               onOpenTeam={openTeam}
               onRestWanted={wantPage}
             />

@@ -33,7 +33,13 @@ const open = (status: CloudStatus) => {
   const page = vi.fn(() => <p data-testid="page">the page</p>);
   const shown = render(
     <Suspense fallback={null}>
-      <RankingsOpen status={status} page={page} showToast={showToast} confirm={confirm} />
+      <RankingsOpen
+        status={status}
+        page={page}
+        seasons={[]}
+        showToast={showToast}
+        confirm={confirm}
+      />
     </Suspense>
   );
   return { page, shown };
@@ -86,6 +92,7 @@ describe("which Team Rankings opens", () => {
         <RankingsOpen
           status={SAVED}
           page={() => <p data-testid="page">the page</p>}
+          seasons={[]}
           showToast={showToast}
           confirm={confirm}
         />
