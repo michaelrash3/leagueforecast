@@ -5,6 +5,7 @@ import type { ModelCheckAnswer, ScoutBacktestResult } from "../scoutBacktest";
 import { coerceNamedCheck } from "../teamRankings/namedGames";
 import { coerceCommand, everyOne, oneAgeless } from "./commands";
 import type { AgelessSearchAnswer, AnswerOf, FoldCounts, QueryAnswer, QueryKind } from "./queries";
+import { clubOptionsOf, fillPlanOf, leagueBridgeAnswerOf } from "./leagueAnswers";
 import { fits, type Shape } from "./shapes";
 
 /*
@@ -518,6 +519,21 @@ export const coerceQueryAnswer = <K extends QueryKind>(
       return ofShape<K>(raw, { record: { gameId: { nullable: "id" } } });
     case "games.check":
       return namedChecksOf(raw) as AnswerOf<K> | null;
+    case "league.bridge": {
+      const read = leagueBridgeAnswerOf({ bridge: raw.bridge, candidates: raw.candidates });
+      if (read) answer = { kind: "league.bridge", ...read };
+      break;
+    }
+    case "league.clubs": {
+      const clubs = clubOptionsOf(raw.clubs);
+      if (clubs) answer = { kind: "league.clubs", clubs };
+      break;
+    }
+    case "league.fill": {
+      const plan = fillPlanOf(raw.plan);
+      if (plan) answer = { kind: "league.fill", plan };
+      break;
+    }
     case "scouting.whatIf":
       return ofShape<K>(raw, { record: { curve: { nullable: WHAT_IF_CURVE } } });
     case "model.check":

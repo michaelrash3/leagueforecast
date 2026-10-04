@@ -16,7 +16,7 @@ import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
 import { CloudButton, useCloudPanel } from "./components/CloudButton";
-import { RankingsOpen } from "./components/RankingsOpen";
+import { liveBoardWanted, RankingsOpen } from "./components/RankingsOpen";
 import { loadTeamRankingsView } from "./components/teamRankingsChunk";
 import {
   cloudStatus,
@@ -26,7 +26,13 @@ import {
 } from "./lib/cloud/cloudSession";
 import { editable, reachable } from "./lib/live/leagueSync";
 import type { LocalSeasons } from "./lib/live/leagueSeasons";
-import { readLiveLeague, subscribeLiveLeague } from "./lib/preferences";
+import {
+  readLiveBoard,
+  readLiveLeague,
+  subscribeLiveBoard,
+  subscribeLiveLeague,
+} from "./lib/preferences";
+import { askLeague, LEAGUE_UNANSWERED } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import { editingOffBecause, LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
@@ -85,7 +91,13 @@ import {
   useSimulationTrend,
 } from "./hooks/useSimulationWorker";
 import { clinchingPathsForTeams, goldCutLineSnapshot } from "./lib/clinchingPaths";
-import { formatGameDate, normalizeDateInput, parseDateValue, seasonStartMonth } from "./lib/date";
+import {
+  formatGameDate,
+  normalizeDateInput,
+  parseDateValue,
+  seasonStartMonth,
+  todayIsoDay,
+} from "./lib/date";
 import {
   builderTeamNames,
   buildRoundRobin,
@@ -417,6 +429,13 @@ export default function App() {
   useEffect(() => startCloudSession(), []);
   const cloud = useSyncExternalStore(subscribeCloud, cloudStatus);
   const cloudPanel = useCloudPanel(cloud);
+  /*
+   * Team Rankings is the cloud's for this member (`liveBoardWanted`): League Standings asks the
+   * server for what Team Rankings has for its seasons (`askLeague`), which a device that holds no
+   * pool cannot work out (1.6e), and which the board on the Team Rankings side is built from.
+   */
+  const liveBoardOn = useSyncExternalStore(subscribeLiveBoard, readLiveBoard, () => false);
+  const rankingsLive = liveBoardOn && liveBoardWanted(cloud);
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -685,7 +704,8 @@ export default function App() {
     bridge: scoutBridge,
     externalResults,
     candidatesFor: scoutCandidatesFor,
-    allClubs: allScoutClubs,
+    wideOptions: scoutWideOptions,
+    wantWide: wantScoutWide,
     noteChange: noteScoutChange,
   } = useScoutBridge({
     activeSeasonId,
@@ -693,6 +713,7 @@ export default function App() {
     seasonFixtures,
     useScoutResults: settings.useScoutResults,
     onLink: setScoutLink,
+    ...(rankingsLive ? { asker: askLeague } : {}),
   });
 
   const predictionEngine = useMemo(
@@ -1830,22 +1851,56 @@ export default function App() {
   /**
    * Filling this season's scores from the Team Rankings pool — in practice, from a GameChanger
    * pull. The plan is built when the panel opens rather than continuously: it reads the pool off
-   * storage, and nothing about it changes while the review is on screen.
+   * storage, and nothing about it changes while the review is on screen. Where Team Rankings is the
+   * cloud's, the server makes the same plan from the season as this device holds it (`league.fill`).
    */
   const [scoreFillPlan, setScoreFillPlan] = useState<LeagueFillPlan | null>(null);
+  // The season open now, for a plan the server answers after another one was switched to.
+  const activeSeasonRef = useRef(activeSeasonId);
+  useLayoutEffect(() => {
+    activeSeasonRef.current = activeSeasonId;
+  }, [activeSeasonId]);
 
   const openScoreFill = () => {
-    setScoreFillPlan(
-      planLeagueScoreFill({
-        seasonId: activeSeasonId,
-        teams,
-        matchups,
-        logs,
-        ageGroups: loadAgeGroups(),
-        scoutTeams: loadScoutTeams(),
-        scoutGames: loadScoutGamesForSeason(activeSeasonId),
-      })
-    );
+    if (!rankingsLive) {
+      setScoreFillPlan(
+        planLeagueScoreFill({
+          seasonId: activeSeasonId,
+          teams,
+          matchups,
+          logs,
+          ageGroups: loadAgeGroups(),
+          scoutTeams: loadScoutTeams(),
+          scoutGames: loadScoutGamesForSeason(activeSeasonId),
+        })
+      );
+      return;
+    }
+    const season = activeSeasonId;
+    void askLeague({
+      kind: "league.fill",
+      season,
+      teams: teams.map(({ id, name, scoutTeamId }) => ({
+        id,
+        name,
+        ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+      })),
+      matchups: matchups.map(({ id, date, away, home }) => ({ id, date, away, home })),
+      runs: Object.entries(logs).map(([id, log]) => ({
+        id,
+        awayRuns: log.awayRuns,
+        homeRuns: log.homeRuns,
+        ...(log.isFinal ? { isFinal: true as const } : {}),
+      })),
+      today: todayIsoDay(),
+    }).then((answer) => {
+      if (!answer) {
+        showToast(LEAGUE_UNANSWERED, { tone: "error" });
+        return;
+      }
+      // Opened for the season it was asked about, not one switched to while it was asked.
+      if (season === activeSeasonRef.current) setScoreFillPlan(answer.plan);
+    });
   };
 
   const applyScoreFill = (matchupIds: string[], otherVersion: string[]) => {
@@ -2975,7 +3030,8 @@ export default function App() {
                     <ScoutLinkPanel
                       bridge={scoutBridge}
                       candidatesFor={scoutCandidatesFor}
-                      allClubs={allScoutClubs}
+                      wideOptions={scoutWideOptions}
+                      onWide={wantScoutWide}
                       seasonLabel={settings.seasonLabel}
                       countingOn={settings.useScoutResults}
                       onPick={setScoutLink}

@@ -215,6 +215,17 @@ export const withMine = (
   }));
 
 /**
+ * A League Standings season page `page` claims: the club each of the season's teams is there, as
+ * [league team id, club id] pairs, and the halves its games are in.
+ */
+export type LeagueOnPage = {
+  page: string;
+  season: string;
+  clubs: [string, string][];
+  halves: SeasonSegment[];
+};
+
+/**
  * What the boards' publisher says of every page beside its boards, under `inline.pages` in
  * `live/meta`, so a device can lay out the page before it reads a board: when the roster was
  * last pulled from GameChanger (`latestImportedAt`), left out when never, and for each page how
@@ -224,6 +235,12 @@ export const withMine = (
 export type LivePages = {
   pulledAt?: string;
   halves: Record<string, Record<SeasonSegment, number>>;
+  /**
+   * Each page's League Standings seasons and their clubs (`deriveAllKnown`'s `leagueClubs` and
+   * `leagueHalves`): what a board's places of those clubs are written under for League Standings'
+   * "Our team" card (`leagueClubRanksFrom`), as the device's own board writes them.
+   */
+  league?: LeagueOnPage[];
   /**
    * The copy's age groups as its store holds them, for a device that holds no copy to lay the page
    * out by. Read through the store's own check (`coerceAgeGroups`) where they are used, as a copy's
@@ -250,9 +267,36 @@ export const coerceLivePages = (raw: unknown): LivePages | null => {
     halves[pageId] = { fall: counts.fall, spring: counts.spring };
   }
   if (raw.groups !== undefined && !Array.isArray(raw.groups)) return null;
+  let league: LeagueOnPage[] | undefined;
+  if (raw.league !== undefined) {
+    if (!Array.isArray(raw.league)) return null;
+    league = [];
+    for (const entry of raw.league) {
+      const read = leagueOnPage(entry);
+      if (!read) return null;
+      league.push(read);
+    }
+  }
   return {
     ...(pulledAt === undefined ? {} : { pulledAt }),
     halves,
+    ...(league === undefined ? {} : { league }),
     ...(raw.groups === undefined ? {} : { groups: raw.groups as unknown[] }),
   };
+};
+
+const isId = (value: unknown): value is string => typeof value === "string" && value !== "";
+
+/** One season's clubs on a page, as `livePagesOf` writes them, or null. */
+const leagueOnPage = (raw: unknown): LeagueOnPage | null => {
+  if (!isRecord(raw) || !isId(raw.page) || !isId(raw.season)) return null;
+  const { clubs, halves } = raw;
+  if (!Array.isArray(clubs) || !Array.isArray(halves)) return null;
+  const pairs: [string, string][] = [];
+  for (const pair of clubs) {
+    if (!Array.isArray(pair) || pair.length !== 2 || !isId(pair[0]) || !isId(pair[1])) return null;
+    pairs.push([pair[0], pair[1]]);
+  }
+  if (!halves.every((half) => half === "fall" || half === "spring")) return null;
+  return { page: raw.page, season: raw.season, clubs: pairs, halves: halves as SeasonSegment[] };
 };

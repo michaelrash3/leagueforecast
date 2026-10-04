@@ -8,6 +8,7 @@ import {
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
+  type SeasonSegment,
 } from "../../teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
 import { filterRankingsByState, statesInUse, UNKNOWN_STATE } from "../../teamRankings/names";
@@ -47,8 +48,11 @@ import {
   ratingPools,
   withMine,
   type BoardRow,
+  type BoardsBuilt,
   type PageBoard,
+  type PageFacts,
 } from "../views/board";
+import { coerceLivePages } from "../views/boardShape";
 
 /**
  * The boards a server builds are the boards a browser draws, to the last digit.
@@ -609,6 +613,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
     const lastYear = { fall: 714, spring: 1808 };
     const thisYear = { fall: 1771, spring: 2010 };
     expect(pages).toEqual({
+      league: expect.any(Array),
       pulledAt: "2027-04-15T07:20:00.000Z",
       halves: {
         ag_9u_2026: lastYear,
@@ -627,6 +632,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
     // In the order the boards come out in, and with no pull time where the roster was never pulled.
     expect(Object.keys(pages.halves)).toEqual(ratingPools(ageGroups).flat());
     expect(livePagesOf(buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }), null)).toEqual({
+      league: pages.league,
       halves: pages.halves,
     });
     // A score dated ahead of the day counts in no half, as it rates nobody: a month earlier, the
@@ -636,6 +642,57 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       null
     ).halves;
     expect(earlier.ag_12u_2027).toEqual({ fall: 1771, spring: 1505 });
+  });
+
+  it("name each League Standings team's club on each page claiming its season, as the page does", () => {
+    const { league = [] } = livePagesOf(
+      buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }),
+      null
+    );
+    // The page's own: what it knows of its year (`deriveAllKnown`), as its board writes the
+    // league's clubs' places for League Standings' "Our team" card (`TeamRankingsView`).
+    const expected = ageGroups.flatMap((page) => {
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: loadScoutTeams(),
+        yearGames: loadScoutGamesForYear(ageGroupYear(page)),
+        readSeason,
+      });
+      return [...(known.leagueClubs.get(page.id) ?? new Map<string, Map<string, string>>())].map(
+        ([season, clubs]) => ({
+          page: page.id,
+          season,
+          clubs: [...clubs],
+          halves: [...(known.leagueHalves.get(page.id)?.get(season) ?? [])].sort(),
+        })
+      );
+    });
+    expect(league).toEqual(expect.arrayContaining(expected));
+    expect(league).toHaveLength(expected.length);
+    // The fixture's seasons do claim pages, and their teams are clubs there. A season none of whose
+    // teams is a club there yet is published too, with no clubs: the page writes its places away.
+    expect(league.length).toBeGreaterThan(0);
+    expect(league.some((entry) => entry.clubs.length > 0)).toBe(true);
+    expect(coerceLivePages({ halves: {}, league })).toEqual({ halves: {}, league });
+  });
+
+  it("say a season's halves in one order, whatever its games' order, and nothing of no season", () => {
+    const built = (seasons: PageFacts["seasons"]): BoardsBuilt => ({
+      boards: [],
+      facts: new Map([
+        ["p", { halves: { fall: 0, spring: 0 }, league: new Set(), places: new Map(), seasons }],
+      ]),
+      known: new Map(),
+    });
+    // A spring game listed before a fall one, as a season's schedule may be put in.
+    const halves = new Set<SeasonSegment>(["spring", "fall"]);
+    expect(
+      livePagesOf(built(new Map([["s", { clubs: new Map([["lt", "S-1"]]), halves }]])), null)
+    ).toEqual({
+      halves: { p: { fall: 0, spring: 0 } },
+      league: [{ page: "p", season: "s", clubs: [["lt", "S-1"]], halves: ["fall", "spring"] }],
+    });
+    expect(livePagesOf(built(new Map()), null)).toEqual({ halves: { p: { fall: 0, spring: 0 } } });
   });
 
   it("hold still: the whole fixture's boards, pinned on every engine, under these board rules", () => {

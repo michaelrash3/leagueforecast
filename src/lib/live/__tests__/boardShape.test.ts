@@ -187,6 +187,32 @@ describe("the pages' inline counts", () => {
     expect(coerceLivePages({ ...PAGES, groups })).toEqual({ ...PAGES, groups });
   });
 
+  it("carry each page's League Standings seasons, with the club each league team is there", () => {
+    const league = [
+      { page: "ag_9u", season: "spring", clubs: [["lt_1", "S-ACES"]], halves: ["fall", "spring"] },
+      // A season none of whose teams is a club there yet, whose places the page writes away.
+      { page: "ag_9u", season: "summer", clubs: [], halves: [] },
+    ];
+    expect(coerceLivePages({ ...PAGES, league })).toEqual({ ...PAGES, league });
+    const entry = league[0];
+    const bad: unknown[] = [
+      {},
+      [{ ...entry, page: "" }],
+      [{ ...entry, season: 7 }],
+      [{ ...entry, clubs: { lt_1: "S-ACES" } }],
+      [{ ...entry, clubs: [["lt_1"]] }],
+      [{ ...entry, clubs: [["lt_1", "S-ACES", "S-BEARS"]] }],
+      [{ ...entry, clubs: [["lt_1", ""]] }],
+      [{ ...entry, clubs: [[5, "S-ACES"]] }],
+      [{ ...entry, halves: "fall" }],
+      [{ ...entry, halves: ["summer"] }],
+      [entry, null],
+    ];
+    for (const raw of bad) {
+      expect(coerceLivePages({ ...PAGES, league: raw }), JSON.stringify(raw)).toBeNull();
+    }
+  });
+
   it("are nothing when any page's counts, or the pull time, are not what they should be", () => {
     const bad: unknown[] = [
       null,

@@ -127,6 +127,14 @@ export type PageFacts = {
   halves: Record<SeasonSegment, number>;
   league: ReadonlySet<string>;
   places: ReadonlyMap<string, { city?: string; state?: string }>;
+  /**
+   * The League Standings seasons the page claims, each with the club each of its teams is on the
+   * page and the halves its games are in (`deriveAllKnown`'s `leagueClubs` and `leagueHalves`).
+   */
+  seasons: ReadonlyMap<
+    string,
+    { clubs: ReadonlyMap<string, string>; halves: ReadonlySet<SeasonSegment> }
+  >;
 };
 
 /** Every board in a stored pool, and what its pages say beside them. */
@@ -218,6 +226,17 @@ export const buildBoardsAndFacts = ({
       ),
       league: leagueTeamIdsOn(known.derivedGames, pageId),
       places,
+      seasons: new Map(
+        [...(known.leagueClubs.get(pageId) ?? new Map<string, Map<string, string>>())].map(
+          ([season, clubs]) => [
+            season,
+            {
+              clubs,
+              halves: known.leagueHalves.get(pageId)?.get(season) ?? new Set<SeasonSegment>(),
+            },
+          ]
+        )
+      ),
     };
   };
   // Held for one rating pool at a time and let go before the next, as the worker lets a year's fit
@@ -350,15 +369,26 @@ export const boardViews = (
 
 /**
  * What the publisher says of every page beside its boards (`LivePages`), in the order the boards
- * come out in: the roster's last pull, each page's counted games by half, and, when given, the
- * copy's age groups themselves.
+ * come out in: the roster's last pull, each page's counted games by half, the clubs of the League
+ * Standings seasons it claims, and, when given, the copy's age groups themselves.
  */
 export const livePagesOf = (
   { facts }: BoardsBuilt,
   pulledAt: string | null,
   ageGroups?: AgeGroup[]
-): LivePages => ({
-  ...(pulledAt ? { pulledAt } : {}),
-  halves: Object.fromEntries([...facts].map(([pageId, page]) => [pageId, { ...page.halves }])),
-  ...(ageGroups ? { groups: ageGroups } : {}),
-});
+): LivePages => {
+  const league = [...facts].flatMap(([page, { seasons }]) =>
+    [...seasons].map(([season, { clubs, halves }]) => ({
+      page,
+      season,
+      clubs: [...clubs],
+      halves: [...halves].sort(),
+    }))
+  );
+  return {
+    ...(pulledAt ? { pulledAt } : {}),
+    halves: Object.fromEntries([...facts].map(([pageId, page]) => [pageId, { ...page.halves }])),
+    ...(league.length > 0 ? { league } : {}),
+    ...(ageGroups ? { groups: ageGroups } : {}),
+  };
+};

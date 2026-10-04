@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ScoutLinkPanel } from "./ScoutLinkPanel";
 import type { LeagueScoutBridge, ScoutLinkCandidate, ScoutTeam } from "../lib/teamRankings";
+import { clubPickOption } from "../lib/leagueLinkOptions";
 
 /**
  * Two clubs of one name in one town, which is the ordinary case on a nationwide pool and the one
@@ -44,7 +45,7 @@ const renderPanel = (over: Partial<Parameters<typeof ScoutLinkPanel>[0]> = {}) =
     <ScoutLinkPanel
       bridge={bridge}
       candidatesFor={() => [candidate("S-9", 9), candidate("S-10", 10)]}
-      allClubs={() => [wideClub("S-9", 9), wideClub("S-10", 10)]}
+      wideOptions={() => [wideClub("S-9", 9), wideClub("S-10", 10)].map(clubPickOption)}
       seasonLabel="Spring 2027"
       countingOn
       onPick={vi.fn()}
@@ -78,15 +79,16 @@ describe("picking which club a league team is", () => {
   it("finds a club by its coach in the wide search too", async () => {
     const user = userEvent.setup();
     renderPanel({
-      allClubs: () => [
-        wideClub("S-9", 9),
-        {
-          ...wideClub("S-10", 10),
-          gcTeams: [
-            { teamId: "gc10", name: "Stix Navy", ageGroupId: "ag10", staff: ["Sam Sample"] },
-          ],
-        },
-      ],
+      wideOptions: () =>
+        [
+          wideClub("S-9", 9),
+          {
+            ...wideClub("S-10", 10),
+            gcTeams: [
+              { teamId: "gc10", name: "Stix Navy", ageGroupId: "ag10", staff: ["Sam Sample"] },
+            ],
+          },
+        ].map(clubPickOption),
     });
     await user.click(screen.getByRole("checkbox", { name: /search every gamechanger club/i }));
     await user.click(screen.getByRole("combobox"));

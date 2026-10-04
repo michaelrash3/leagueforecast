@@ -16,6 +16,16 @@ import { ageGroupYear, rankingPoolGroupIds, type SeasonSegment } from "../teamRa
 import type { ScoutGame, ScoutTeam } from "../teamRankings/types";
 import { cleanTeamName, teamNameKey } from "../teamRankings/names";
 import { unpulledClubs, unpulledClubsCsv } from "../unpulledClubs";
+import { planLeagueScoreFill, type LeagueFillPlan } from "../leagueScoreFill";
+import { clubPickOption, pickableClubs, type ClubPickOption } from "../leagueLinkOptions";
+import {
+  leagueScoutBridge,
+  scoutLinkCandidates,
+  type LeagueFixture,
+  type LeagueTeamLink,
+} from "../teamRankings";
+import type { Matchup } from "../types";
+import type { LeagueBridgeAnswer } from "./leagueAnswers";
 import {
   loadAgeGroups,
   loadAgeRightClubs,
@@ -27,6 +37,7 @@ import {
   loadRealClubs,
   loadRefreshLog,
   loadScoutGames,
+  loadScoutGamesForSeason,
   loadScoutGamesForYear,
   loadScoutTeams,
   loadTidyStamp,
@@ -157,7 +168,31 @@ export type PoolQuery =
   /** What deleting squad year `year` would take, for the owner's confirmation (`planYearDelete`). */
   | { kind: "year.deletePreview"; year: number }
   /** Every year with anything to archive or delete, as Setup's Archive card lists them. */
-  | { kind: "year.list" };
+  | { kind: "year.list" }
+  /**
+   * What Team Rankings has for League Standings season `season` (`leagueScoutBridge`), worked out
+   * from the season's teams and fixtures as the device holds them: the results its forecast reads,
+   * which club each league team is, and the clubs each could be (`scoutLinkCandidates`). A member's
+   * device holds no pool to work it out from (1.6e).
+   */
+  | { kind: "league.bridge"; season: string; teams: LeagueTeamLink[]; fixtures: LeagueFixture[] }
+  /** Every club a team of season `season` could be picked as by hand (`pickableClubs`). */
+  | { kind: "league.clubs"; season: string }
+  /**
+   * The scores the pool could fill in for season `season`'s games (`planLeagueScoreFill`), from the
+   * season's teams, games and the runs recorded for each, as the device holds them, on `today`.
+   */
+  | {
+      kind: "league.fill";
+      season: string;
+      teams: LeagueTeamLink[];
+      matchups: Matchup[];
+      runs: LeagueRuns[];
+      today: string;
+    };
+
+/** The runs recorded for a league game, as its two boxes hold them, and whether it is final. */
+export type LeagueRuns = { id: string; awayRuns: string; homeRuns: string; isFinal?: true };
 
 /**
  * What folding one club into another touches: the stored games that name the club folded away,
@@ -243,6 +278,9 @@ export type QueryAnswers = {
   "year.archivePreview": { preview: YearArchivePreview };
   "year.deletePreview": { preview: YearDeletePreview };
   "year.list": { years: YearSummary[] };
+  "league.bridge": LeagueBridgeAnswer;
+  "league.clubs": { clubs: ClubPickOption[] };
+  "league.fill": { plan: LeagueFillPlan };
 };
 
 export type QueryKind = PoolQuery["kind"];
@@ -460,6 +498,52 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
       const listed = loggedGamesOn(loadScoutGamesForYear(query.year ?? undefined), query.page);
       return { kind: "games.find", gameId: findListed(listed, query.at, query.game) };
     }
+    case "league.bridge": {
+      const ageGroups = loadAgeGroups();
+      const teams = loadScoutTeams();
+      const games = loadScoutGamesForSeason(query.season);
+      return {
+        kind: "league.bridge",
+        bridge: leagueScoutBridge(
+          query.season,
+          ageGroups,
+          teams,
+          games,
+          query.teams,
+          query.fixtures
+        ),
+        candidates: query.teams.map((team) => ({
+          name: team.name,
+          clubs: scoutLinkCandidates(
+            team.name,
+            query.season,
+            ageGroups,
+            teams,
+            games,
+            query.fixtures
+          ),
+        })),
+      };
+    }
+    case "league.clubs":
+      return {
+        kind: "league.clubs",
+        clubs: pickableClubs(query.season, loadAgeGroups(), loadScoutTeams()).map(clubPickOption),
+      };
+    case "league.fill":
+      return {
+        kind: "league.fill",
+        plan: planLeagueScoreFill({
+          seasonId: query.season,
+          teams: query.teams,
+          matchups: query.matchups,
+          logs: Object.fromEntries(query.runs.map(({ id, ...recorded }) => [id, recorded])),
+          ageGroups: loadAgeGroups(),
+          scoutTeams: loadScoutTeams(),
+          scoutGames: loadScoutGamesForSeason(query.season),
+          today: query.today,
+        }),
+      };
     case "games.check": {
       const ageGroups = loadAgeGroups();
       const page = ageGroups.find((group) => group.id === query.page);
@@ -576,6 +660,74 @@ const keptWhole = (raw: Record<string, unknown>, read: object): boolean =>
   Object.keys(raw).every((key) => Object.prototype.hasOwnProperty.call(read, key));
 
 /**
+ * The most teams and games of one League Standings season a question carries: past any league's,
+ * as `MAX_COMMAND_STEPS` is past any edit's, so a question cannot hold the one edit worker long.
+ */
+export const LEAGUE_TEAMS_MAX = 200;
+export const LEAGUE_GAMES_MAX = 3000;
+
+/** A run total as a fixture carries one: any number of runs, none or more. */
+const isRuns = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+/** A league team as the bridge reads it: its id, its name, and the club a person picked, if any. */
+const leagueTeamLink = (raw: unknown): LeagueTeamLink | null => {
+  if (!isRecord(raw) || !isString(raw.id) || !isText(raw.name)) return null;
+  const { scoutTeamId } = raw;
+  if (scoutTeamId !== undefined && !isString(scoutTeamId)) return null;
+  const link: LeagueTeamLink = {
+    id: raw.id,
+    name: raw.name,
+    ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+  };
+  return keptWhole(raw, link) ? link : null;
+};
+
+/** A fixture as the bridge reads it: the two teams' names, the league's day, and runs once final. */
+const leagueFixture = (raw: unknown): LeagueFixture | null => {
+  if (!isRecord(raw) || !isText(raw.away) || !isText(raw.home) || !isText(raw.date)) return null;
+  const { awayRuns, homeRuns } = raw;
+  if (
+    (awayRuns !== undefined && !isRuns(awayRuns)) ||
+    (homeRuns !== undefined && !isRuns(homeRuns))
+  )
+    return null;
+  const fixture: LeagueFixture = {
+    away: raw.away,
+    home: raw.home,
+    date: raw.date,
+    ...(awayRuns === undefined ? {} : { awayRuns }),
+    ...(homeRuns === undefined ? {} : { homeRuns }),
+  };
+  return keptWhole(raw, fixture) ? fixture : null;
+};
+
+/** A league game as the fill reads it: its id, its day, and its two teams' ids. */
+const leagueMatchup = (raw: unknown): Matchup | null => {
+  if (!isRecord(raw) || !isString(raw.id) || !isText(raw.date)) return null;
+  if (!isString(raw.away) || !isString(raw.home)) return null;
+  const matchup: Matchup = { id: raw.id, date: raw.date, away: raw.away, home: raw.home };
+  return keptWhole(raw, matchup) ? matchup : null;
+};
+
+/** What the two run boxes of a league game hold: a score as typed, no longer than one could be. */
+const isRunsText = (value: unknown): value is string =>
+  typeof value === "string" && value.length <= 8;
+
+const leagueRuns = (raw: unknown): LeagueRuns | null => {
+  if (!isRecord(raw) || !isString(raw.id)) return null;
+  if (!isRunsText(raw.awayRuns) || !isRunsText(raw.homeRuns)) return null;
+  // An `isFinal` that is not `true` is not kept, so the whole is refused.
+  const runs: LeagueRuns = {
+    id: raw.id,
+    awayRuns: raw.awayRuns,
+    homeRuns: raw.homeRuns,
+    ...(raw.isFinal === true ? { isFinal: true } : {}),
+  };
+  return keptWhole(raw, runs) ? runs : null;
+};
+
+/**
  * A question read back exactly, as a command is (`coerceCommand`): one with a field this build does
  * not read, or one it would have to change to read, is refused rather than half answered.
  */
@@ -677,6 +829,46 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
     case "year.list":
       query = { kind: "year.list" };
       break;
+    case "league.bridge": {
+      const teams = everyOne(raw.teams, leagueTeamLink);
+      const fixtures = everyOne(raw.fixtures, leagueFixture);
+      if (
+        isString(raw.season) &&
+        teams &&
+        teams.length <= LEAGUE_TEAMS_MAX &&
+        fixtures &&
+        fixtures.length <= LEAGUE_GAMES_MAX
+      )
+        query = { kind: "league.bridge", season: raw.season, teams, fixtures };
+      break;
+    }
+    case "league.clubs":
+      if (isString(raw.season)) query = { kind: "league.clubs", season: raw.season };
+      break;
+    case "league.fill": {
+      const teams = everyOne(raw.teams, leagueTeamLink);
+      const matchups = everyOne(raw.matchups, leagueMatchup);
+      const runs = everyOne(raw.runs, leagueRuns);
+      if (
+        isString(raw.season) &&
+        teams &&
+        teams.length <= LEAGUE_TEAMS_MAX &&
+        matchups &&
+        matchups.length <= LEAGUE_GAMES_MAX &&
+        runs &&
+        runs.length <= LEAGUE_GAMES_MAX &&
+        isDay(raw.today)
+      )
+        query = {
+          kind: "league.fill",
+          season: raw.season,
+          teams,
+          matchups,
+          runs,
+          today: raw.today,
+        };
+      break;
+    }
     case "ages.plan": {
       // As many as one edit may file (`MAX_COMMAND_STEPS`, a step a club): each is planned against
       // every game in the pool, so an unbounded list held the one edit worker past its time.

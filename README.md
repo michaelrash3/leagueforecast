@@ -3911,7 +3911,10 @@ device's own pool, which may not be taken in yet: current when the board was bui
 from the very board inputs the copy held (`boardInputsPrintOf`), behind when the
 copy has moved on or no one build vouches for the boards, owed when this device
 has unsaved changes to a board input, and unknown before it has read the copy.
-A change to anything a board does not read counts for nothing.
+A change to anything a board does not read counts for nothing, and neither does a
+League change while League Standings is kept live (`copyOwed`): it goes to the
+season's own document, which the boards are built from, and is never sent to the
+copy, so counted owed it held every board as waiting on this device for good.
 
 `liveClient.test.ts` reads boards published to an in-memory store: whole and
 strictly equal to what was published, free from memory or the device's cache, one
@@ -4641,6 +4644,51 @@ devices that have it on. With it on:
   that turning the switch off sends to the copy what changed while League was
   live, rather than the copy's older seasons replacing it; and a first copy made
   while League is live counts as having met no League, so going back merges.
+
+**What Team Rankings has, asked of the server.** Where Team Rankings opens on
+the cloud's board (`liveBoardWanted`: turned on in the Cloud panel, in a browser
+that keeps a cloud copy, signed in as a member or still finding out), League
+Standings no longer reads Team Rankings off the device's own pool, which a
+member's device is to stop holding. It asks the edit function instead, as the
+member, three questions (`leagueAnswers.ts`, answered in `queries.ts` by the very
+functions the device would run, over the cloud's pool):
+
+- `league.bridge`: the season's bridge, which the forecast reads its outside
+  results from and the link panel its rows, and the clubs each league team could
+  be. It carries the season's teams and its fixtures as this device holds them,
+  since a season edited here may not have reached the cloud yet. It is asked 0.8 s
+  after the teams and final scores stop changing, so a run of edits asks once, and
+  again whenever the page is shown anew, since the nightly may have pulled since;
+  an answer for teams or scores since changed is dropped. The last answer for a
+  season is kept on the device (`lf_league_bridge_v1`, the last four seasons, the
+  open one alone when storage is full) and read back through the same checks as
+  one from the network, so the forecast has its outside results the moment the
+  season opens, and offline.
+- `league.clubs`: every club the link panel's wide picker lists, asked once a
+  season, when the picker is first widened.
+- `league.fill`: the scores Team Rankings could fill in, asked when **Fill scores
+  from Team Rankings** is pressed, with the season's teams, games and scores. An
+  answer for a season switched away from meanwhile opens nothing; no answer says
+  that the cloud could not be asked, and opens nothing either.
+
+A question carries at most 200 teams and 3,000 games, well past any league's, so
+none holds the one edit worker long, and the server refuses one with anything it
+does not read. An answer is read back whole or not at all, and a bridge with a
+result that is not neutral is refused, since a neutral result is all the forecast
+is ever given.
+
+**Our team's places, off the cloud's board.** The Dashboard's "Our team" card
+shows where each team's club stands on Team Rankings (`leagueClubRanks.ts`), as
+the board on the page last stood. The device's own page writes those places
+whenever its board is up; the cloud's page now writes them too. The publisher
+says, beside each page's counts, which League Standings seasons the page claims,
+the club each of their teams is there, and the halves the season's games are in
+(`LivePages.league`), worked out as the page works them out (`deriveAllKnown`,
+which `boardParity.test.ts` holds it to on the seeded fixture). The cloud's page
+writes a season's places only off its own board once drawn, and only off a half
+the season plays its games in, as the device's page does; a season none of whose
+teams is a club there yet has the places the card was showing taken away, and a
+season the meta does not name keeps what it had.
 
 The season on screen is held in a small store outside React
 (`seasonStore.ts`), which the live store reads and changes in one step, so an

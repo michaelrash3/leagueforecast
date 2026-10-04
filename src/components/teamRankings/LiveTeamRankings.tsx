@@ -28,6 +28,7 @@ import { editLock, myTeamShown } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { poolGamesOfCard, teamsOfCard } from "../../lib/live/scoutingFromCards";
 import { lastWeekOf, withMine } from "../../lib/live/views/boardShape";
+import { leagueClubRanksFrom, writeLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { myTeamGlance } from "../../lib/myTeamGlance";
 import { movementOf } from "../../lib/rankMovement";
 import {
@@ -450,6 +451,56 @@ function LiveBoard({
     [rows, clubs, stateFilter]
   );
   const stateById = useMemo(() => new Map(clubs.map((club) => [club.id, club.state])), [clubs]);
+
+  /*
+   * Where the clubs of the league seasons this page claims stand on its board, written for League
+   * Standings' "Our team" card (`leagueClubRanksFrom`), as the device's own board writes them: off
+   * the page's own board once it is drawn (the board is never another page's or half's, which
+   * `useLiveBoard` holds back until its own comes), and only off a half the season plays its games
+   * in. The clubs each season's teams are come with the meta (`LivePages.league`), worked out on
+   * the server as the device works them out (`deriveAllKnown`).
+   */
+  const leagueOnPages = live.meta?.pages.league;
+  useEffect(() => {
+    if (!board) return;
+    const group = cloudGroups.find((one) => one.id === selectedAgeGroupId);
+    if (!group) return;
+    const segment = live.segment;
+    const label =
+      segment === undefined || selectedYear === undefined
+        ? group.name
+        : `${group.name} · ${segmentLabel(selectedYear, segment)}`;
+    const at = new Date().toISOString();
+    group.seasonIds.forEach((seasonId) => {
+      const season = leagueOnPages?.find(
+        (entry) => entry.page === group.id && entry.season === seasonId
+      );
+      if (!season) return;
+      if (segment !== undefined && season.halves.length > 0 && !season.halves.includes(segment))
+        return;
+      writeLeagueClubRanks(
+        seasonId,
+        leagueClubRanksFrom(
+          rows,
+          new Map(season.clubs),
+          (teamId) => stateById.get(teamId),
+          lastWeek,
+          label,
+          at
+        )
+      );
+    });
+  }, [
+    board,
+    live.segment,
+    cloudGroups,
+    selectedAgeGroupId,
+    selectedYear,
+    leagueOnPages,
+    rows,
+    stateById,
+    lastWeek,
+  ]);
   const leagueIds = useMemo(
     () => new Set((board?.view.rows ?? []).filter((row) => row.league).map((row) => row.teamId)),
     [board]

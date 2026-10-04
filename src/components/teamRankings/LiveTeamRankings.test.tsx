@@ -41,6 +41,7 @@ import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive
 import type { AgeGroup, ScoutGame } from "../../lib/teamRankings";
 import { NAMED_GAMES_MAX } from "../../lib/teamRankings/namedGames";
 import type { SeasonMeta } from "../../lib/storage";
+import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
 import type { LiveSources } from "../../hooks/useLiveBoard";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
@@ -341,6 +342,104 @@ describe("Team Rankings on the cloud's board", () => {
     expect(await screen.findAllByLabelText("up 2 since last week")).not.toHaveLength(0);
     const mine = screen.getByRole("region", { name: "My team" });
     expect(mine.querySelector('[aria-label^="Place by week:"]')).toBeNull();
+  });
+
+  /** The page's league seasons, as the meta names them, and the places a card was showing. */
+  const STALE = { clubId: "S-1", board: "12U 2027 · Fall 2026", rank: 9, of: 9, at: T };
+  const withSeasons = async (league: LivePages["league"]) => {
+    saveAgeGroups([{ ...GROUPS[0]!, seasonIds: ["season-1", "season-2", "season-3"] }, GROUPS[1]!]);
+    window.localStorage.setItem(
+      "lf_league_club_ranks_v1",
+      JSON.stringify({
+        "season-1": { "L-1": STALE },
+        "season-2": { "L-9": STALE },
+        "season-3": { "L-8": STALE },
+      })
+    );
+    await publish(live, undefined, {
+      pulledAt: T,
+      halves: { [PAGE]: { fall: 10, spring: 20 } },
+      ...(league ? { league } : {}),
+    });
+  };
+
+  it("writes where its league seasons' clubs stand on its board, for League Standings' card", async () => {
+    await withSeasons([
+      // Another page claiming the season too, whose clubs are not this page's.
+      {
+        page: "ag_11u_2027",
+        season: "season-1",
+        clubs: [["L-1", "S-3"]],
+        halves: ["spring"],
+      },
+      {
+        page: PAGE,
+        season: "season-1",
+        clubs: [
+          ["L-1", "S-2"],
+          ["L-2", "S-3"],
+        ],
+        halves: ["spring"],
+      },
+      // A fall league, which the spring board says nothing of.
+      { page: PAGE, season: "season-2", clubs: [["L-9", "S-1"]], halves: ["fall"] },
+      // A season none of whose teams is a club here: what the card showed of it goes.
+      { page: PAGE, season: "season-3", clubs: [], halves: [] },
+    ]);
+    open(sourcesOf(live));
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    await waitFor(() => expect(readLeagueClubRanks()["season-1"]?.["L-2"]).toBeDefined());
+    const board = "12U 2027 · Spring 2027";
+    expect(readLeagueClubRanks()).toEqual({
+      "season-1": {
+        "L-1": {
+          clubId: "S-2",
+          board,
+          rank: 2,
+          of: 3,
+          state: "OH",
+          stateRank: 2,
+          stateOf: 2,
+          movement: 0,
+          at: expect.any(String),
+        },
+        "L-2": {
+          clubId: "S-3",
+          board,
+          rank: 3,
+          of: 3,
+          state: "KY",
+          stateRank: 1,
+          stateOf: 1,
+          movement: "new",
+          at: expect.any(String),
+        },
+      },
+      "season-2": { "L-9": STALE },
+    });
+  });
+
+  it("writes no places before its board is drawn, nor for a season the meta does not name", async () => {
+    await withSeasons([{ page: PAGE, season: "season-1", clubs: [["L-1", "S-2"]], halves: [] }]);
+    const reader = readerOf(live);
+    let release = (): void => undefined;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const held: LiveReader = {
+      ...reader,
+      getChunk: async (id) => {
+        await released;
+        return reader.getChunk(id);
+      },
+    };
+    open(sourcesOf(live, { reader: async () => held }));
+    expect(await screen.findByText("Reading the cloud's board…")).toBeTruthy();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(Object.keys(readLeagueClubRanks())).toEqual(["season-1", "season-2", "season-3"]);
+    expect(readLeagueClubRanks()["season-1"]).toEqual({ "L-1": STALE });
+    release();
+    await waitFor(() => expect(readLeagueClubRanks()["season-1"]?.["L-1"]?.rank).toBe(2));
+    expect(readLeagueClubRanks()["season-2"]).toEqual({ "L-9": STALE });
+    expect(readLeagueClubRanks()["season-3"]).toEqual({ "L-8": STALE });
   });
 
   it("opens on the half the published counts say is worth reading", async () => {

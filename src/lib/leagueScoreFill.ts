@@ -122,11 +122,14 @@ const pairKey = (a: string, b: string) => [a, b].sort().join("|");
 const matchKey = (teamKeyA: string, teamKeyB: string, date: string) =>
   `${pairKey(teamKeyA, teamKeyB)}@${date}`;
 
-const runsText = (log: GameLog | undefined, side: "away" | "home") =>
+/** What the fill reads of a league game's log: the runs its two boxes hold, and whether it is final. */
+export type RecordedRuns = Pick<GameLog, "awayRuns" | "homeRuns" | "isFinal">;
+
+const runsText = (log: RecordedRuns | undefined, side: "away" | "home") =>
   (side === "away" ? log?.awayRuns : log?.homeRuns) ?? "";
 
 /** A league game already carries a result when both run boxes hold a number. */
-const hasRecordedRuns = (log: GameLog | undefined) =>
+const hasRecordedRuns = (log: RecordedRuns | undefined) =>
   runsText(log, "away").trim() !== "" && runsText(log, "home").trim() !== "";
 
 /**
@@ -160,7 +163,8 @@ export type LeagueScoreFillInput = {
   seasonId: string;
   teams: TeamBase[];
   matchups: Matchup[];
-  logs: Record<string, GameLog>;
+  /** Each game's runs as recorded, and whether it is final: all the plan reads of a log. */
+  logs: Record<string, RecordedRuns>;
   ageGroups: AgeGroup[];
   scoutTeams: ScoutTeam[];
   scoutGames: ScoutGame[];

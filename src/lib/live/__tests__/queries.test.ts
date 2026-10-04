@@ -48,10 +48,16 @@ import {
   answerQuery,
   coerceQuery,
   foldCounts,
+  LEAGUE_GAMES_MAX,
+  LEAGUE_TEAMS_MAX,
   type AnswerOf,
   type PoolQuery,
   type QueryKind,
 } from "../queries";
+import { clubPickOption, pickableClubs } from "../../leagueLinkOptions";
+import { planLeagueScoreFill } from "../../leagueScoreFill";
+import { leagueScoutBridge, scoutLinkCandidates } from "../../teamRankings";
+import { loadScoutGamesForSeason, loadScoutTeams } from "../../teamRankingsStorage";
 import { coerceQueryAnswer } from "../queryAnswers";
 import type { GameSeen } from "../views/gamesShape";
 import { callableEncode } from "./callableEncode";
@@ -374,6 +380,184 @@ describe("games typed or pasted, checked before they are added by name", () => {
         "games.check"
       )
     ).toBeNull();
+  });
+});
+
+describe("what League Standings asks of Team Rankings, for a device that holds no pool", () => {
+  /** The 2027 page claims the season, and Club A and Club B are clubs GameChanger knows there. */
+  const claimed = () => {
+    const groups = GROUPS.map((group) =>
+      group.id === "ag_10u_2027" ? { ...group, seasonIds: ["s"] } : group
+    );
+    saveAgeGroups(groups);
+    saveScoutTeams(
+      TEAMS.map((team) =>
+        team.id === "C"
+          ? team
+          : {
+              ...team,
+              gcTeams: [{ teamId: `gc-${team.id}`, name: team.name, ageGroupId: "ag_10u_2027" }],
+            }
+      )
+    );
+    saveScoutGames([
+      ...GAMES,
+      { ...game("g6", "ag_10u_2027", "A", "B"), date: "2027-04-03", teamAScore: 6 },
+    ]);
+    return groups;
+  };
+  const LEAGUE_TEAMS = [
+    { id: "a", name: "Club A" },
+    { id: "b", name: "Club B", scoutTeamId: "B" },
+  ];
+  const FIXTURES = [{ away: "Club A", home: "Club B", date: "4/3" }];
+  const BRIDGE: PoolQuery = {
+    kind: "league.bridge",
+    season: "s",
+    teams: LEAGUE_TEAMS,
+    fixtures: FIXTURES,
+  };
+  const FILL: PoolQuery = {
+    kind: "league.fill",
+    season: "s",
+    teams: LEAGUE_TEAMS,
+    matchups: [{ id: "m", date: "4/3", away: "a", home: "b" }],
+    runs: [{ id: "m", awayRuns: "", homeRuns: "" }],
+    today: "2027-05-01",
+  };
+
+  it("are answered as the device answers them from its own pool, and read back whole", () => {
+    const groups = claimed();
+    const games = loadScoutGamesForSeason("s");
+    const bridge = answerQuery(BRIDGE);
+    expect(bridge).toEqual({
+      kind: "league.bridge",
+      bridge: leagueScoutBridge("s", groups, loadScoutTeams(), games, LEAGUE_TEAMS, FIXTURES),
+      candidates: LEAGUE_TEAMS.map(({ name }) => ({
+        name,
+        clubs: scoutLinkCandidates(name, "s", groups, loadScoutTeams(), games, FIXTURES),
+      })),
+    });
+    // Club A's games outside the league reach the forecast, and Club B is the club picked.
+    expect(bridge).toMatchObject({
+      bridge: {
+        seasonLinked: true,
+        rows: [{ how: "guessed" }, { how: "picked", scoutTeamId: "B" }],
+      },
+    });
+    const clubs = answerQuery({ kind: "league.clubs", season: "s" });
+    expect(clubs).toEqual({
+      kind: "league.clubs",
+      clubs: pickableClubs("s", groups, loadScoutTeams()).map(clubPickOption),
+    });
+    // Club C has no GameChanger team behind it, so no pick could land on it.
+    expect(clubs).toMatchObject({ clubs: [{ id: "A", gcIds: ["gc-A"] }, { id: "B" }] });
+    const fill = answerQuery(FILL);
+    expect(fill).toEqual({
+      kind: "league.fill",
+      plan: planLeagueScoreFill({
+        seasonId: "s",
+        teams: LEAGUE_TEAMS,
+        matchups: [{ id: "m", date: "4/3", away: "a", home: "b" }],
+        logs: { m: { awayRuns: "", homeRuns: "" } },
+        ageGroups: groups,
+        scoutTeams: loadScoutTeams(),
+        scoutGames: games,
+        today: "2027-05-01",
+      }),
+    });
+    // The pull's 6-2 of 3 April fills the league's game, with nothing recorded there yet.
+    expect(fill).toMatchObject({ plan: { rows: [{ matchupId: "m", awayRuns: 6, homeRuns: 2 }] } });
+    for (const [answer, kind] of [
+      [bridge, "league.bridge"],
+      [clubs, "league.clubs"],
+      [fill, "league.fill"],
+    ] as const)
+      expect(coerceQueryAnswer(callableEncode(asJson(answer)), kind)).toEqual(answer);
+  });
+
+  it("says the same of a game marked final, which the fill says it is", () => {
+    claimed();
+    const recorded: PoolQuery = {
+      ...FILL,
+      kind: "league.fill",
+      runs: [{ id: "m", awayRuns: "6", homeRuns: "2", isFinal: true }],
+    } as PoolQuery;
+    expect(answerQuery(recorded)).toMatchObject({
+      plan: { rows: [{ action: "unchanged" }] },
+    });
+    expect(
+      answerQuery({ ...recorded, runs: [{ id: "m", awayRuns: "6", homeRuns: "2" }] } as PoolQuery)
+    ).toMatchObject({
+      plan: { rows: [{ action: "unchanged", detail: "Same score, not yet marked final." }] },
+    });
+  });
+
+  it("are asked exactly, and refused otherwise", () => {
+    for (const query of [BRIDGE, FILL, { kind: "league.clubs", season: "s" }])
+      expect(coerceQuery(JSON.parse(JSON.stringify(query)))).toEqual(query);
+    const tooMany = Array.from({ length: LEAGUE_TEAMS_MAX + 1 }, (_, at) => ({
+      id: `t${at}`,
+      name: `Team ${at}`,
+    }));
+    // As many as a season may ask about, and one more.
+    const many = <T>(one: T, count = LEAGUE_GAMES_MAX) => Array.from({ length: count }, () => one);
+    const most = [
+      { ...BRIDGE, teams: tooMany.slice(1) },
+      { ...BRIDGE, fixtures: many(FIXTURES[0]) },
+      {
+        ...FILL,
+        teams: tooMany.slice(1),
+        matchups: many({ id: "m", date: "4/3", away: "a", home: "b" }),
+        runs: many({ id: "m", awayRuns: "", homeRuns: "" }),
+      },
+    ];
+    for (const query of most) expect(coerceQuery(query)).toEqual(query);
+    for (const raw of [
+      { ...BRIDGE, season: "" },
+      { ...BRIDGE, extra: 1 },
+      { ...BRIDGE, teams: [{ id: "a", name: "Club A", extra: 1 }] },
+      { ...BRIDGE, teams: [{ id: "a", name: "Club A", scoutTeamId: "" }] },
+      { ...BRIDGE, teams: tooMany },
+      { ...BRIDGE, fixtures: many(FIXTURES[0], LEAGUE_GAMES_MAX + 1) },
+      { ...BRIDGE, fixtures: [{ ...FIXTURES[0], awayRuns: -1 }] },
+      { ...BRIDGE, fixtures: [{ ...FIXTURES[0], extra: 1 }] },
+      { ...FILL, today: "May 1" },
+      { ...FILL, teams: tooMany },
+      {
+        ...FILL,
+        matchups: many({ id: "m", date: "4/3", away: "a", home: "b" }, LEAGUE_GAMES_MAX + 1),
+      },
+      { ...FILL, runs: many({ id: "m", awayRuns: "", homeRuns: "" }, LEAGUE_GAMES_MAX + 1) },
+      { ...FILL, runs: [{ id: "m", awayRuns: "", homeRuns: "", isFinal: false }] },
+      { ...FILL, runs: [{ id: "m", awayRuns: "123456789", homeRuns: "" }] },
+      { ...FILL, matchups: [{ id: "m", date: "4/3", away: "a" }] },
+      { kind: "league.clubs", season: "s", extra: 1 },
+    ])
+      expect(coerceQuery(raw), JSON.stringify(raw).slice(0, 200)).toBeNull();
+  });
+
+  it("are read back only whole, every result neutral", () => {
+    claimed();
+    const bridge = answerQuery(BRIDGE) as AnswerOf<"league.bridge">;
+    const result = { home: "Club A", away: "Club C", homeMargin: 1, neutral: true };
+    const withResult = { ...bridge, bridge: { ...bridge.bridge, results: [result] } };
+    expect(coerceQueryAnswer(withResult, "league.bridge")).toEqual(withResult);
+    const [linkRow] = withResult.bridge.rows;
+    for (const raw of [
+      { ...withResult, bridge: { ...withResult.bridge, results: [{ ...result, neutral: false }] } },
+      { ...withResult, bridge: { ...withResult.bridge, rows: [{ ...linkRow, how: "maybe" }] } },
+      { ...withResult, candidates: [{ name: "Club A", clubs: [{ scoutTeamId: "A" }] }] },
+    ])
+      expect(coerceQueryAnswer(raw, "league.bridge")).toBeNull();
+    expect(
+      coerceQueryAnswer({ kind: "league.clubs", clubs: [{ label: "Club A" }] }, "league.clubs")
+    ).toBeNull();
+    const fill = answerQuery(FILL) as AnswerOf<"league.fill">;
+    const [fillRow] = fill.plan.rows;
+    expect(coerceQueryAnswer(fill, "league.fill")).toEqual(fill);
+    for (const plan of [{ rows: [] }, { ...fill.plan, rows: [{ ...fillRow, action: "maybe" }] }])
+      expect(coerceQueryAnswer({ kind: "league.fill", plan }, "league.fill")).toBeNull();
   });
 });
 
