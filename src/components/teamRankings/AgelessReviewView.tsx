@@ -178,6 +178,9 @@ function Row({
               onChange={(event) => {
                 const level = Number(event.target.value);
                 if (!Number.isFinite(level) || level === 0) return;
+                // Back to "Choose…": an answer kept takes the row off the list, and one the
+                // server would not keep left the box naming an age nobody had kept.
+                event.target.value = "";
                 beforeAnswer();
                 onNameAge(row.entry.teamId, row.entry.name, level);
               }}

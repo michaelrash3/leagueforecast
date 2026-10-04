@@ -15,7 +15,7 @@ const NO_GROUPS: AgeGroup[] = [];
 /** Said when the server has no such page to check. */
 export const PAGE_NOT_ON_COPY = "That age group is not on the cloud's copy any more.";
 /** Under the model check's button when the server's answer did not come. */
-export const CHECK_UNANSWERED = "No answer came back, for the reason just shown. Run it again.";
+export const CHECK_UNANSWERED = "No answer came back, for the reason just shown.";
 import { DiagnosticsCard } from "./DiagnosticsCard";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { LiveAgelessCard } from "./LiveAgelessCard";
@@ -54,7 +54,8 @@ export default function LiveSetup({
   groups: readonly AgeGroup[];
   /** League Standings' seasons, which the league seasons card asks about. */
   seasons: SeasonMeta[];
-  onOpenTeam: (teamId: string) => void;
+  /** Opens a club's panel, in the squad year its row is of where it says one. */
+  onOpenTeam: (teamId: string, year?: number) => void;
   /** Opens the rest of Setup on this device's copy. */
   onRestWanted: () => void;
 }) {

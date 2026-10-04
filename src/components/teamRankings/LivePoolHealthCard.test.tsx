@@ -226,7 +226,10 @@ const confirm = async ({ title }: { title: string }) => {
   return confirming;
 };
 
-const show = (call: ReturnType<typeof editFunction>, onOpenTeam?: (teamId: string) => void) =>
+const show = (
+  call: ReturnType<typeof editFunction>,
+  onOpenTeam?: (teamId: string, year?: number) => void
+) =>
   render(
     <LivePoolHealthCard
       edits={call.edits}
@@ -709,13 +712,47 @@ describe("Pool health's buttons, sent as edits", () => {
     expect(await screen.findByText("Placeholder Larks")).toBeTruthy();
   });
 
-  it("opens a listed club's own panel", async () => {
-    const opened: string[] = [];
+  it("opens a club counted twice in the squad year of the day it played", async () => {
+    const opened: Array<[string, number | undefined]> = [];
+    const twice = {
+      teamId: "T-9",
+      teamName: "Placeholder Twice",
+      date: "2026-05-03",
+      own: 5,
+      opponent: 2,
+      games: [
+        {
+          gameId: "a",
+          opponentId: "X-1",
+          opponentName: "Placeholder X",
+          startTs: "2026-05-03T14:00:00.000Z",
+        },
+        {
+          gameId: "b",
+          opponentId: "X-2",
+          opponentName: "Placeholder X",
+          startTs: "2026-05-03T14:10:00.000Z",
+        },
+      ],
+      minutesApart: 10,
+    };
+    const call = editFunction({
+      "health.summary": OPENED,
+      "health.inspect": { ...LOOKED, lists: { ...LOOKED.lists, twice: [twice] } },
+    });
+    show(call, (teamId, year) => opened.push([teamId, year]));
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Placeholder Twice" }));
+    expect(opened).toEqual([["T-9", 2026]]);
+  });
+
+  it("opens a listed club's own panel, in the squad year its row is of", async () => {
+    const opened: Array<[string, number | undefined]> = [];
     const call = editFunction({ "health.summary": OPENED, "health.inspect": LOOKED });
-    show(call, (teamId) => opened.push(teamId));
+    show(call, (teamId, year) => opened.push([teamId, year]));
     fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
     fireEvent.click(await screen.findByRole("button", { name: "Placeholder Wrens" }));
-    expect(opened).toEqual(["W-2"]);
+    expect(opened).toEqual([["W-2", 2027]]);
   });
 
   it("holds every edit that changes the pool while edits are off", async () => {

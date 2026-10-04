@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { GcSeasonPairing, GcTwinSquad } from "../../lib/gameChangerImport";
-import { GC_PAIRING_EVIDENCE_LABEL } from "../../lib/gameChangerImport";
+import { GC_PAIRING_EVIDENCE_LABEL } from "../../lib/gcPairingEvidence";
 import type { PoolHealth } from "../../lib/poolHealth";
 import {
   aheadWorstFirst,
@@ -9,7 +9,7 @@ import {
   type PoolHealthSummary,
 } from "../../lib/poolHealthSummary";
 import { TO_PULL_DRAWN, type PoolLists } from "../../lib/poolLists";
-import { IMPLAUSIBLE_MARGIN } from "../../lib/teamRankings";
+import { IMPLAUSIBLE_MARGIN, segmentOn } from "../../lib/teamRankings";
 import { apartKey, isKeptApart, type KeptApart } from "../../lib/keptApart";
 import type { WrongAgeClub } from "../../lib/wrongAge";
 import type { UnrealClub } from "../../lib/unrealClubs";
@@ -88,8 +88,12 @@ export type PoolHealthActions = {
   setAge?: (club: WrongAgeClub) => Promise<boolean> | boolean;
   /** Confirms and files all the evidence-backed suggestions as one saved, undoable change. */
   setAges?: (clubs: readonly WrongAgeClub[]) => Promise<BulkAgeResult | null>;
-  /** Opens a club's own panel, for a list that names clubs to look at. */
-  openTeam?: (teamId: string) => void;
+  /**
+   * Opens a club's own panel, for a list that names clubs to look at, with the squad year its row
+   * is of where the row says one: the live page reads a club's card by year, and opened a club of
+   * another year on the board's, which has no card of it.
+   */
+  openTeam?: (teamId: string, year?: number) => void;
   /** Downloads every club worth pulling, as a file. */
   downloadToPull: () => void;
 };
@@ -988,7 +992,7 @@ export function PoolHealthView({
                 {actions.openTeam ? (
                   <button
                     type="button"
-                    onClick={() => actions.openTeam?.(group.teamId)}
+                    onClick={() => actions.openTeam?.(group.teamId, segmentOn(group.date).year)}
                     className="font-bold text-blue-600 hover:underline dark:text-blue-400"
                   >
                     {group.teamName}
@@ -1061,7 +1065,7 @@ export function PoolHealthView({
                       {actions.openTeam ? (
                         <button
                           type="button"
-                          onClick={() => actions.openTeam?.(club.teamId)}
+                          onClick={() => actions.openTeam?.(club.teamId, club.year)}
                           className="font-bold text-blue-600 hover:underline dark:text-blue-400"
                         >
                           {club.name}

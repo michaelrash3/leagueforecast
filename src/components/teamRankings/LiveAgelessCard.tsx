@@ -56,7 +56,9 @@ export function LiveAgelessCard({
 
   // The search, asked once the typing stops, and again with the list after an answer.
   const [query, setQuery] = useState("");
-  const [found, setFound] = useState(NOTHING_FOUND);
+  // What a search found, with the words it was asked for: another search's answer is not drawn
+  // under words it was not asked for while theirs is on its way.
+  const [found, setFound] = useState<{ query: string; found: typeof NOTHING_FOUND } | null>(null);
   useEffect(() => {
     if (locked || query.trim() === "") return;
     let alive = true;
@@ -64,11 +66,14 @@ export function LiveAgelessCard({
       void ask({ kind: "ageless.search", today, query }).then((answer) => {
         if (alive && answer)
           setFound({
-            total: answer.total,
-            hits: answer.hits.map(({ entry, aside }) => ({
-              row: agelessRowFor(entry),
-              ...(aside ? { aside } : {}),
-            })),
+            query,
+            found: {
+              total: answer.total,
+              hits: answer.hits.map(({ entry, aside }) => ({
+                row: agelessRowFor(entry),
+                ...(aside ? { aside } : {}),
+              })),
+            },
           });
       });
     }, AGELESS_SEARCH_WAIT_MS);
@@ -89,8 +94,14 @@ export function LiveAgelessCard({
     [queue]
   );
 
+  if (!sitting && locked)
+    return (
+      <div className={`${card} mt-4 p-5`} role="status">
+        <p className="text-sm text-slate-600 dark:text-slate-300">{locked}</p>
+      </div>
+    );
   if (!sitting)
-    return unread && !locked ? (
+    return unread ? (
       <div className={`${card} mt-4 p-5`} role="status">
         <p className="text-sm text-slate-600 dark:text-slate-300">
           The teams waiting on an age could not be read from the cloud just now.
@@ -145,7 +156,7 @@ export function LiveAgelessCard({
       }}
       query={query}
       onQuery={setQuery}
-      found={query.trim() === "" ? NOTHING_FOUND : found}
+      found={query.trim() !== "" && found?.query === query ? found.found : NOTHING_FOUND}
       onNameAge={(teamId, name, level) =>
         void answer(
           {

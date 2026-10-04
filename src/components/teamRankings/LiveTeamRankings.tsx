@@ -541,6 +541,11 @@ function LiveBoard({
       document.getElementById(TEAM_PANEL_ID)?.scrollIntoView?.({ block: "start" })
     );
   };
+  // A club named in Setup, in the squad year its row is of: its card is that year's.
+  const openTeamIn = (teamId: string, year?: number) => {
+    if (year !== undefined && year !== selectedYear) openYear(year);
+    openTeam(teamId);
+  };
   const closeClub = useCallback(() => setOpenClub(null), []);
   const cannotListGames = useCallback(() => setCannotList(true), []);
   const wantPage = useCallback(() => setWanted(true), []);
@@ -670,7 +675,7 @@ function LiveBoard({
               groupName={group?.name ?? ""}
               groups={cloudGroups}
               seasons={seasons}
-              onOpenTeam={openTeam}
+              onOpenTeam={openTeamIn}
               onRestWanted={wantPage}
             />
           </Suspense>

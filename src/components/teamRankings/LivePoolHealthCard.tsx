@@ -48,7 +48,7 @@ export function LivePoolHealthCard({
   confirm: Confirmation["request"];
   /** The device's day, which "a day that has not happened" is judged by. */
   today: string;
-  onOpenTeam?: (teamId: string) => void;
+  onOpenTeam?: (teamId: string, year?: number) => void;
 }) {
   const { locked, edit, ask, say } = edits;
   const [opened, setOpened] = useState<HealthSummaryAnswer | null>(null);

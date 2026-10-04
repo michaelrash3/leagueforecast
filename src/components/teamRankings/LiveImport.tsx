@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { parseGcOrgList } from "../../lib/gameChangerApi";
 import {
@@ -15,6 +15,9 @@ import { button, card } from "../../styles/tokens";
 /** Said for an Organizations file that names no team under any organization. */
 export const ORGS_NO_TEAMS =
   "That file names no teams under its organizations: it needs the Team IDs column.";
+/** Said for an Organizations file whose organizations with teams have no names to read an age from. */
+export const ORGS_NO_NAMES =
+  "That file's organizations have no names, which a team's age is read from: it needs the Entity Name column.";
 /** Said for an Organizations file whose every organization is kept already. */
 export const ORGS_NOTHING_NEW =
   "Nothing new in that file: every organization in it is already kept.";
@@ -56,8 +59,14 @@ export default function LiveImport({
   const [unread, setUnread] = useState(false);
   const [asked, setAsked] = useState(0);
   const askAgain = () => setAsked((times) => times + 1);
-  // The cadence just chosen, shown while the edit that keeps it is on its way.
+  /*
+   * The cadence chosen here, shown from the choice until a status that carries it is read: cleared
+   * once the edit was made, it flipped back to the old one until the status came, and stayed so
+   * when that read failed. `sending` holds the choice while the edit is on its way.
+   */
   const [chosen, setChosen] = useState<RefreshCadence | null>(null);
+  const [sending, setSending] = useState(false);
+  const sendingNow = useRef(false);
   const [showWeek, setShowWeek] = useState(false);
 
   useEffect(() => {
@@ -66,7 +75,10 @@ export default function LiveImport({
     void ask({ kind: "import.status", at: now() }).then((answer) => {
       if (!alive) return;
       setUnread(answer === null);
-      if (answer) setStatus(answer);
+      if (!answer) return;
+      setStatus(answer);
+      // A status read with no edit on its way has the cadence as the copy keeps it.
+      if (!sendingNow.current) setChosen(null);
     });
     return () => {
       alive = false;
@@ -74,7 +86,10 @@ export default function LiveImport({
   }, [locked, ask, now, asked]);
 
   const choose = (cadence: RefreshCadence) => {
+    const was = chosen;
     setChosen(cadence);
+    sendingNow.current = true;
+    setSending(true);
     void edit(
       { kind: "refresh.cadence", cadence },
       {
@@ -83,19 +98,25 @@ export default function LiveImport({
             ? "The nightly refresh now pulls every age group."
             : "The nightly refresh now pulls one or two levels a day.",
       }
-    ).then(() => {
-      setChosen(null);
+    ).then((made) => {
+      sendingNow.current = false;
+      setSending(false);
+      if (!made) {
+        setChosen(was);
+        return;
+      }
       askAgain();
     });
   };
 
   const readOrgFile = (text: string) => {
     // Only what the copy keeps: an organization with a name and a team under it.
-    const orgs: MemberOrg[] = parseGcOrgList(text).orgs.flatMap(({ orgId, name, teamIds }) =>
+    const read = parseGcOrgList(text).orgs;
+    const orgs: MemberOrg[] = read.flatMap(({ orgId, name, teamIds }) =>
       name && teamIds?.length ? [{ orgId, name, teamIds }] : []
     );
     if (orgs.length === 0) {
-      say(ORGS_NO_TEAMS);
+      say(read.some(({ teamIds }) => teamIds?.length) ? ORGS_NO_NAMES : ORGS_NO_TEAMS);
       return;
     }
     void edit(
@@ -131,7 +152,9 @@ export default function LiveImport({
     return (
       <>
         <div className={`${card} p-5`} role="status" aria-live="polite">
-          {unread && !locked ? (
+          {locked ? (
+            <p className="text-sm text-slate-600 dark:text-slate-300">{locked}</p>
+          ) : unread ? (
             <>
               <p className="text-sm text-slate-600 dark:text-slate-300">
                 The cloud&apos;s refresh could not be read just now.
@@ -175,7 +198,7 @@ export default function LiveImport({
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           {describeCadence(cadence)}
         </p>
-        <fieldset className="mt-3" disabled={locked !== null || chosen !== null}>
+        <fieldset className="mt-3" disabled={locked !== null || sending}>
           <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             How much comes round at once
           </legend>

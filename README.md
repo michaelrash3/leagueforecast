@@ -4041,6 +4041,15 @@ it, against a stand-in for the edit function that keeps the answers it is given.
 the questions, their shapes, the summary, the card's drawing and its two wrappers was broken in
 turn and seen to fail a test, 54 of 54, two of them only once tests were written for them; and
 the league seasons' and the copy's, 15 of 15, the intro card's only once a test looked for it.
+A club Pool health names opens in the squad year its row is of (a club filed at the wrong
+age in its year, a club counted twice in the year of the day it played), since a club's
+card is read by year and one of another year was looked for on the board's, found
+missing, and handed over. A search on the waiting card draws its answer only under the
+words it was asked for, and an age named and not kept leaves the box choosing again.
+The model check's line under an unanswered check no longer says to run it again, which
+a page no longer on the copy, or a day's compute spent, would not change. Each guard of
+these, with the Import tab's above, was broken in turn and seen to fail a test, 13 of
+13, the cadence's lock only once its test looked at the fieldset around it.
 
 **Find a team.** The board's search box reads its year's list (`useLiveSearch`)
 only when somebody taps it, says "Bringing in every team…" until the list is in,
@@ -4191,6 +4200,14 @@ one; with every other area drawn, that card is now the tests' way to hand the pa
 drawing it, each edit, and the refresh read again after one. Each guard was broken in turn
 and seen to fail a test, 14 of 14, four only after the tests gave the tab a clock of its
 own, put the days in order, and named a waiting team under no organization.
+
+The cadence chosen is shown from the choice until a refresh read after its edit says
+what the copy keeps: cleared once the edit was made, it flipped back to the old one until
+the refresh was read again, and stayed so when that read failed; one not made is put
+back. A file whose organizations have teams but no names is told it needs the names,
+which a team's age is read from, rather than that it names no teams; and with edits off
+and nothing read yet the tab says why, as the waiting card above Pool health now does,
+rather than that it is still reading.
 
 **On a device with no copy.** The page is laid out by the age groups, which a
 device reads from its own copy. One that has never held a copy has none, so the

@@ -7,7 +7,7 @@ import type { CopySeen } from "../../lib/cloud/cloudSession";
 import { BOARD_FAMILY, builtFrom } from "../../lib/live/boardInputs";
 import { forgetDecodedBoards } from "../../lib/live/liveClient";
 import { forgetLiveBoard, liveBoardFor, type RankingsHandover } from "../../lib/live/liveBoard";
-import { EDIT_REFUSED, QUERY_REFUSED } from "../../lib/live/liveEdits";
+import { EDIT_LOCKS, EDIT_REFUSED, QUERY_REFUSED } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { openViewCache, type ViewCache, type ViewCacheIo } from "../../lib/live/viewCache";
 import { publishViews, type LiveReader, type PublishedView } from "../../lib/live/viewStore";
@@ -31,7 +31,7 @@ import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesS
 import { forgetDecodedGames, GAME_MOVED } from "./LiveGames";
 import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY } from "./LiveSetup";
 import { forgetDecodedArchive } from "./LiveArchive";
-import { ORGS_NO_TEAMS, ORGS_NOTHING_NEW } from "./LiveImport";
+import { ORGS_NO_NAMES, ORGS_NO_TEAMS, ORGS_NOTHING_NEW } from "./LiveImport";
 import { commitChanges } from "../../lib/cloud/cloudEngine";
 import { memoryCloud } from "../../lib/cloud/__tests__/memoryCloud";
 import type { ArchivedSeason } from "../../lib/teamRankingsArchive";
@@ -2365,6 +2365,63 @@ describe("Setup on the cloud's board", () => {
   const onSetup = () =>
     window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=setup");
 
+  it("opens a club Pool health names in the squad year its row is of", async () => {
+    saveAgeGroups([
+      ...GROUPS,
+      { id: "ag_12u_2026", name: "12U 2026", ageLevel: 12, year: 2026, seasonIds: [] },
+    ]);
+    const LOOKED = {
+      kind: "health.inspect",
+      health: {
+        games: 9,
+        played: 9,
+        teams: 3,
+        clubs: 3,
+        nameOnly: 0,
+        placeholders: 0,
+        standInGames: 0,
+        standInPlayed: 0,
+        undated: 0,
+        futureDated: 0,
+        tidied: true,
+      },
+      settleable: 0,
+      lists: {
+        toPull: [],
+        duplicates: [],
+        twins: [],
+        twice: [],
+        wrongAge: [
+          {
+            teamId: "W-1",
+            name: "Placeholder Larks",
+            year: 2026,
+            gcTeamIds: ["gc-w1"],
+            filed: 11,
+            suggested: 12,
+            reason: "name",
+            opponentsAtSuggested: 2,
+            opponentsKnown: 2,
+            weeks: 1,
+          },
+        ],
+      },
+      toPullCount: 0,
+    };
+    onSetup();
+    pool.wants = false;
+    const server = editFunction((data) => {
+      const query = data.query as { kind?: string } | undefined;
+      if (query?.kind === "health.inspect") return answered(LOOKED);
+      return setupAnswers(data);
+    });
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Placeholder Larks" }));
+    await waitFor(() => expect(window.location.search).toContain("year=2026"));
+    expect(window.location.search).toContain("section=setup");
+  });
+
   it("draws Pool health from the server's pool, and stays the page", async () => {
     onSetup();
     pool.wants = false;
@@ -2720,6 +2777,79 @@ describe("the Import tab on the cloud's board", () => {
     await waitFor(() => expect(queried(server.sent)).toHaveLength(2));
   });
 
+  it("shows the cadence chosen until the refresh is read again, and still when that read fails", async () => {
+    onImport();
+    pool.wants = false;
+    // The refresh is read once; the read after the edit fails.
+    let reads = 0;
+    const server = editFunction((data) => {
+      if (!data.query) return made(5, ["league_forecast_gc_refresh_v1"]);
+      reads += 1;
+      return reads === 1 ? answered(STATUS) : { ok: false, why: "store-refused" };
+    });
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(await screen.findByLabelText("One or two levels a day"));
+    await waitFor(() => expect(queried(server.sent)).toHaveLength(2));
+    await waitFor(() =>
+      expect(said.toasts).toContain("The cloud would not answer just now. Try again in a minute.")
+    );
+    expect(screen.getByLabelText("One or two levels a day")).toHaveProperty("checked", true);
+    // Nothing on its way: the choice is open again, the fieldset around it included.
+    expect(screen.getByLabelText("One or two levels a day")).not.toBeDisabled();
+  });
+
+  it("keeps the cadence chosen through a refresh read while its edit is on its way", async () => {
+    onImport();
+    pool.wants = false;
+    const server = editFunction(importAnswers(STATUS, ["league_forecast_gc_org_membership_v1"]));
+    // The cadence's edit waits until let go; everything else is answered at once.
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const call = {
+      ...server.call,
+      fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(init?.body).includes("refresh.cadence")) await held;
+        return server.call.fetchImpl(url, init);
+      }) as typeof fetch,
+    };
+    open(sourcesOf(live, { call, now: () => AT }));
+    fireEvent.click(await screen.findByLabelText("One or two levels a day"));
+    // An Organizations file kept meanwhile reads the refresh again, from before the cadence.
+    const user = userEvent.setup();
+    await user.upload(
+      screen.getByLabelText("Organizations CSV"),
+      orgFile([
+        `"travel","Placeholder 8U Fall 2026","orgPH0000001","Sampleton","TN","fall","2026","baseball","","","","2","Placeholder01; Placeholder02","x","",""`,
+      ])
+    );
+    await waitFor(() => expect(queried(server.sent)).toHaveLength(2));
+    expect(screen.getByLabelText("One or two levels a day")).toHaveProperty("checked", true);
+    release();
+    await waitFor(() => expect(queried(server.sent)).toHaveLength(3));
+  });
+
+  it("says why the refresh is not read with no reader of the cloud, and stays the page", async () => {
+    onImport();
+    pool.wants = false;
+    open(sourcesOf(null));
+    expect(await screen.findByText(EDIT_LOCKS.unlinked)).toBeTruthy();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("puts the cadence back when the edit was not made", async () => {
+    onImport();
+    pool.wants = false;
+    const server = editFunction((data) =>
+      data.query ? answered(STATUS) : { ok: false, why: "unsaved" }
+    );
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(await screen.findByLabelText("One or two levels a day"));
+    await waitFor(() => expect(edited(server.sent)).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Every age group, daily")).toHaveProperty("checked", true)
+    );
+  });
+
   it("keeps an Organizations file's organizations on the copy, and says when it had nothing new", async () => {
     onImport();
     pool.wants = false;
@@ -2769,6 +2899,22 @@ describe("the Import tab on the cloud's board", () => {
       )
     );
     await waitFor(() => expect(said.toasts).toContain(ORGS_NO_TEAMS));
+    expect(edited(server.sent)).toEqual([]);
+  });
+
+  it("says a file's organizations have no names, rather than no teams, when they have teams", async () => {
+    onImport();
+    pool.wants = false;
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call }));
+    const user = userEvent.setup();
+    await user.upload(
+      await screen.findByLabelText("Organizations CSV"),
+      orgFile([
+        `"travel","","orgPH0000001","Sampleton","TN","fall","2026","baseball","","","","2","Placeholder01; Placeholder02","x","",""`,
+      ])
+    );
+    await waitFor(() => expect(said.toasts).toContain(ORGS_NO_NAMES));
     expect(edited(server.sent)).toEqual([]);
   });
 

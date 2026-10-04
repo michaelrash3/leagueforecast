@@ -61,7 +61,10 @@ const QUEUE: AnswerOf<"ageless.queue"> = {
 type Answers = { [K in QueryKind]?: AnswerOf<K> | null };
 
 /** The edit function as the card reaches it: what it was asked and sent. */
-const editFunction = (answers: Answers, { locked = null }: { locked?: string | null } = {}) => {
+const editFunction = (
+  answers: Answers,
+  { locked = null, makes = true }: { locked?: string | null; makes?: boolean } = {}
+) => {
   const asked: PoolQuery[] = [];
   const sent: Array<{ command: PoolCommand; said: EditSaid }> = [];
   const edits: LiveEdits = {
@@ -69,7 +72,7 @@ const editFunction = (answers: Answers, { locked = null }: { locked?: string | n
     pending: [],
     edit: async (command, said) => {
       sent.push({ command, said });
-      return true;
+      return makes;
     },
     ask: async <K extends QueryKind>(query: QueryOf<K>) => {
       asked.push(query);
@@ -112,11 +115,17 @@ describe("the teams waiting on an age, from the server's list", () => {
     expect(call.asked).toEqual([{ kind: "ageless.queue", today: TODAY, pinned: [] }]);
   });
 
-  it("asks nothing while edits are off, and draws nothing until it has an answer", async () => {
+  it("asks nothing while edits are off, and says why rather than drawing nothing", async () => {
     const call = editFunction({ "ageless.queue": QUEUE }, { locked: "Placeholder: offline." });
     const { container } = show(call);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(call.asked).toEqual([]);
+    expect(container.textContent).toBe("Placeholder: offline.");
+  });
+
+  it("draws nothing while the list is on its way", async () => {
+    const call = editFunction({});
+    const { container } = show(call);
     expect(container.textContent).toBe("");
   });
 
@@ -156,6 +165,16 @@ describe("the answers, sent as edits", () => {
     if (!row) throw new Error(`no row for ${name}`);
     return row;
   };
+
+  it("leaves the age box choosing again when the age named was not kept", async () => {
+    const call = editFunction({ "ageless.queue": QUEUE }, { makes: false });
+    show(call);
+    const row = await rowOf("Placeholder Alpha");
+    const box = within(row).getByLabelText("Age for Placeholder Alpha");
+    fireEvent.change(box, { target: { value: "10" } });
+    await waitFor(() => expect(call.sent).toHaveLength(1));
+    expect(box).toHaveProperty("value", "");
+  });
 
   it("names an age, then asks again with the ten held in front of the person", async () => {
     const call = editFunction({ "ageless.queue": QUEUE });
@@ -237,6 +256,25 @@ describe("the answers, sent as edits", () => {
         { kind: "namedAges", put: [], forget: ["gcN"] },
       ],
     });
+  });
+
+  it("draws a search's answer only under the words it was asked for", async () => {
+    const named = waiting("gcN", "Placeholder November");
+    const call = editFunction({
+      "ageless.queue": QUEUE,
+      "ageless.search": {
+        kind: "ageless.search",
+        total: 1,
+        hits: [{ entry: named, aside: "named" }],
+      },
+    });
+    show(call);
+    const box = await screen.findByPlaceholderText("Name or GameChanger id");
+    fireEvent.change(box, { target: { value: "november" } });
+    await rowOf("Placeholder November");
+    // Other words typed: the last answer goes until theirs is in.
+    fireEvent.change(box, { target: { value: "oscar" } });
+    expect(screen.queryByText("Placeholder November")).toBeNull();
   });
 
   it("clears the rows of the rules ticked as one edit the server planned, once asked", async () => {
