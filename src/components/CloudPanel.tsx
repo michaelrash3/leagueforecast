@@ -313,10 +313,10 @@ function Body({
             <button
               type="button"
               onClick={actions.save}
-              disabled={!status.owed || status.waiting === "pull"}
+              disabled={status.waiting === "pull"}
               className={button.dark}
             >
-              Save now
+              Look now
             </button>
             <button type="button" onClick={actions.signOut} className={button.ghost}>
               Sign out

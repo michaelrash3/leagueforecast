@@ -3127,14 +3127,12 @@ version, a layout number, a schema number and the id of the copy it belongs to.
   type by the compiler, so a field added anywhere fails the build until the
   schema goes up with it.
 
-**When it saves.** Twenty seconds after the last change, so a burst of edits
-is one save, and only what changed travels. Not the pool during a pull or a
-tidy, in this tab or any other (a job holds a Web Lock the other tabs can see):
-a pull writes the pool every couple of thousand teams, and the pool is saved
-once, when it has finished; League Standings still save meanwhile. A change is
-recorded as owed in storage, not memory, so one made just before a tab closed
-is still sent the next time the app opens. It is also sent when the page is
-left, where the browser allows it.
+**When it saves.** Never, since 1.6f: a device sends the copy nothing. Until
+then it saved twenty seconds after the last change, and when the page was left;
+1.7 removed that timer, the retries after a refused save and the record of
+uploads a save left behind. A change is still recorded in storage (League's, for
+the first meeting with the cloud's League documents), and the panel's button
+looks at the copy now, taking in what it may.
 
 **When it loads.** League Standings before the app draws. A browser that keeps
 a copy waits at most four seconds to reach the cloud (`STARTUP_WAIT_MS`) and six

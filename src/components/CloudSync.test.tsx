@@ -132,21 +132,21 @@ describe("the cloud panel", () => {
     const actions = panel(saved({ syncedAt: "2026-09-28T11:55:00Z" }));
     expect(screen.getByText(/owner@example\.test/)).toBeInTheDocument();
     expect(screen.getByText("Everything is saved. Last saved 5 minutes ago.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save now" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Look now" })).toBeEnabled();
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(actions.signOut).toHaveBeenCalledTimes(1);
   });
 
-  it("saves waiting changes on request", async () => {
-    const actions = panel(saved({ owed: true }));
-    await userEvent.click(screen.getByRole("button", { name: "Save now" }));
+  it("looks at the copy on request, which sends nothing (1.6f)", async () => {
+    const actions = panel(saved());
+    await userEvent.click(screen.getByRole("button", { name: "Look now" }));
     expect(actions.save).toHaveBeenCalledTimes(1);
   });
 
-  it("holds Save now while a pull runs, and says why", () => {
+  it("holds Look now while a pull runs, and says why", () => {
     panel(saved({ owed: true, waiting: "pull" }));
     expect(screen.getByText(/will save once the pull or tidy finishes/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save now" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Look now" })).toBeDisabled();
   });
 
   it("says when a change here could not be stored, and so is not in the cloud", () => {
