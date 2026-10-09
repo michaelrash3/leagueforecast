@@ -3961,7 +3961,10 @@ member, or still finding out. An account the copy refuses partway through a visi
 is asked again whether it may read the copy at all (`owns`), and refused that too,
 it is not a member any more, as at a sign-in (`not-owner`), so it opens Team
 Rankings on its own pool from then on; a member refused something the rules keep
-from devices is only told so. Its page draws the published
+from devices is only told so, and so is an account whose second look fails or has
+not come back within the 20 s the copy's own reads are given (`timedStore`): that
+look reads the copy outside them, and unanswered it left a refused save saying it
+was saving, with every later look waiting on it. Its page draws the published
 board as Team Rankings draws its own: the same header, places, state top ten and
 filter, League badges, full table and the member's own club card, from the same
 code (`boardDisplay.ts`), with the half the page would open on decided from the
@@ -3994,6 +3997,9 @@ it says, and stays:
   could not be read: said where it was asked, with **Try again**, and read again by
   itself once the cloud publishes, so another page or area is read for itself
   rather than said to have failed with it;
+- a club Scouting is on that the cloud has no card for in the year on screen,
+  which is no read gone wrong: one picked is let go, and the page's own club with
+  none says so in place of its games, the picker kept;
 - Find a team's list not read: said under its button, and searching again reads it
   again.
 
@@ -4002,9 +4008,11 @@ and the reader's own limits (10 s for the meta, 30 s a piece) end in offline. A
 board built before changes it does not have, the copy's or this device's own,
 stays up under its label rather than handing over. It hands over to Team Rankings
 on this device's copy only where that is the right page or the only one: an
-account the rules refuse, or, on the areas that read the published views (the
-board, Scouting and Games), a browser with no member signed in to read them as and
-no board kept to show, both of which the visitor's own app is for; and what it
+account the rules refuse (its meta, its watch, or any view it reads, the board of
+a half or page moved to after the meta was read among them), or, on the areas that
+read the published views (the board, Scouting and Games), a browser with no member
+signed in to read them as and no board kept to show, both of which the visitor's
+own app is for; and what it
 cannot do yet, a pasted list pulled (1.8). Only then is
 the pool brought in step, behind it, and Team Rankings' own code loads under the
 board from the start, so it is there by then. The pages are the meta's whenever
@@ -4081,7 +4089,9 @@ a test, 33 of 33, two of them only after their tests were tightened.
 Team Rankings' own panel. The panel and the pool's codec it checks a card by load
 only when a club is opened. A club whose card cannot be read (no card, a bucket
 damaged or gone, or offline with none kept) says so in the panel's place, with Try
-again and Close (1.6e); a refusal hands the page over, as every refusal does. The
+again and Close (1.6e), kept with the meta it was read by, as a list not read is, so
+the panel is drawn again, reading the card, once the cloud publishes; a refusal
+hands the page over, as every refusal does. The
 club open when the board hands over opens on Team Rankings, and one tapped while
 the pool comes in says so until Team Rankings opens on it.
 
@@ -4283,8 +4293,17 @@ an edit's pool leaves it out; one that would not read refuses that question alon
 On the 29 Sep copy a what-if on 12U, the year's 255,579 games one rating pool, took
 7.1 s (6.9 s asked again, the League part read already), its answer 1 KB and the
 process at 1.9 GB at most, during which the edit function's other calls wait, as an edit waits on
-another; the device's own worker takes as long. A card that cannot be read hands
-over to Team Rankings as before. One is
+another; the device's own worker takes as long. A card that could not be read
+(offline, damaged, gone) is said in the report's place, with Try again, and read
+again once the cloud publishes (1.6e). A club the cloud has no card for in the year
+on screen (its bucket read and holding none, or no bucket for it in the meta the
+page settled on) is no read gone wrong, and reading it again finds the same: said
+so, it replaced the tab and its picker, so a club picked on 2027 left 2026's
+Scouting with nothing to do but try again. A club picked, there or on another
+year or page, or folded or deleted since, is let go, so the report is on the page's
+own club again and nothing is compared; the page's own club with no card says so
+in place of its games, its report off the rows and the picker kept for another
+(`useClubCard`'s `absent`). A what-if is
 offered only where Team Rankings would offer it, as far as the board can tell
 (`boardWhatIfDeclines`): a game refused on sight is refused alike, and one
 against a club the board does not rank is declined. Every club it ranks has a
@@ -4425,7 +4444,12 @@ that cannot be had: it is read again through the network's meta once that is in,
 and only a miss after that, or once the network has given no meta at all, is said
 (1.6e: before, it handed the page over). Each such read that the rules refuse
 forgets every board kept and held and hands over, as a refused read of the meta or
-a board does.
+a board does: a board refused after its meta was read, as one for a half moved to
+once the account is off the list, is the meta's refusal too, where missed alone it
+said nothing and read for ever with edits on. A view that failed and is read since,
+as a publish reads it again, has not failed: the page's own club's card, on screen
+throughout, says its club has no game ahead once a publish brings it, where before
+it stayed unread for the visit.
 
 With the listener in, the first download is 230.7 KB gzipped against 232.1 KB
 before, as the build folded the cloud session's code back into the entry, and

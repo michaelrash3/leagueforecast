@@ -31,6 +31,10 @@ import { card as cardStyle } from "../../styles/tokens";
 
 const NOT_ASKED: WhatIfState = { status: "idle" };
 
+/** Said in place of a club's games still to play when the cloud has no card for it to give. */
+export const SCOUTING_NO_CARD =
+  "The cloud has no card for this club in this year, so its games still to play cannot be shown.";
+
 /**
  * The Scouting tab on the cloud's board: the report, the upcoming games and the comparison, worked
  * out as Team Rankings works them out, off the board's rows and the club cards a server publishes
@@ -39,11 +43,14 @@ const NOT_ASKED: WhatIfState = { status: "idle" };
  * of the server (`scouting.whatIf`, 1.5), which refits it as the boards are built, League
  * Standings' games in it, and answered as the page answers one, one fixture open at a time, held
  * against the board it was opened on. One is offered only where the page would offer it, as far as
- * the board can tell (`boardWhatIfDeclines`). A card that cannot be read is said in the report's
- * place (`onCannot`), with Try again (1.6e). The clubs it is on (the one scouted, the one
- * set beside it, the opponents asked for) are the board's to keep (`onReportTeam`,
- * `onCompareChange`, `onPickedOpponentIdsChange`), so they outlast a half or page read again and
- * Team Rankings opens on them whenever it hands over.
+ * the board can tell (`boardWhatIfDeclines`). A card that could not be read (offline, damaged,
+ * gone) is said in the report's place (`onCannot`), with Try again (1.6e). The clubs it is on (the
+ * one scouted, the one set beside it, the opponents asked for) are the board's to keep
+ * (`onReportTeam`, `onCompareChange`, `onPickedOpponentIdsChange`), so they outlast a half, page or
+ * year read again and Team Rankings opens on them whenever it hands over. A club the cloud has no
+ * card for there (`absent`) is not a read that failed, which Try again would only read again: one
+ * picked is let go, back to the page's own club or no club set beside it, and the page's own with
+ * none says so in place of its games, the picker kept for another.
  *
  * Loaded only when the tab is opened, with the tab's own code.
  */
@@ -119,10 +126,23 @@ export default function LiveScouting({
     year,
     compareId && compareId !== reportForId ? compareId : null
   );
-  const failed = scouted.failed || compared.failed;
+  const failed = (scouted.failed && !scouted.absent) || (compared.failed && !compared.absent);
   useEffect(() => {
     if (failed) onCannot();
   }, [failed, onCannot]);
+  /*
+   * A club picked on another year or page, or folded or deleted since, with no card here: let go,
+   * so the report is on the page's own club again and nothing is compared, rather than a report
+   * that can never be read standing where the picker was.
+   */
+  const scoutedAbsent = scouted.absent && reportTeamId !== "";
+  useEffect(() => {
+    if (scoutedAbsent) onReportTeam("");
+  }, [scoutedAbsent, onReportTeam]);
+  const comparedAbsent = compared.absent && compareId !== "";
+  useEffect(() => {
+    if (comparedAbsent) onCompareChange("");
+  }, [comparedAbsent, onCompareChange]);
 
   // The games the page's board is fitted over, as Team Rankings hands Scouting them.
   const poolIds = useMemo(
@@ -249,7 +269,7 @@ export default function LiveScouting({
 
   return (
     <>
-      {reportForId && !scouted.card ? (
+      {reportForId && !scouted.card && !scouted.absent ? (
         <div className={`${cardStyle} p-5`} role="status" aria-live="polite">
           <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
             Reading the cloud&apos;s report…
@@ -271,6 +291,7 @@ export default function LiveScouting({
             onPickedOpponentIdsChange(pickedOpponentIds.filter((entry) => entry !== id))
           }
           upcomingRows={upcomingRows}
+          {...(scouted.absent ? { upcomingUnread: SCOUTING_NO_CARD } : {})}
           explanation={explanation}
           placeOf={placeOf}
           whatIfGameId={whatIfGameId}

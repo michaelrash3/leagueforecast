@@ -279,9 +279,15 @@ function LiveBoard({
   const [stateTop, setStateTop] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState("");
   const [showAll, setShowAll] = useState(false);
-  // The club whose panel is open, from its card, and one whose card could not be read.
+  /*
+   * The club whose panel is open, from its card, and one whose card could not be read, with the
+   * meta it was read by, as a list not read is kept (`cannotList`): a publish since reads it again.
+   */
   const [openClub, setOpenClub] = useState<string | null>(null);
-  const [cannotOpen, setCannotOpen] = useState<string | null>(null);
+  const [cannotOpenAt, setCannotOpenAt] = useState<{
+    teamId: string;
+    source: LiveViewSource | null;
+  } | null>(null);
   // Find a team, from the year's published list once somebody goes to search.
   const search = useLiveSearch(live.source, selectedYear);
   /*
@@ -409,6 +415,16 @@ function LiveBoard({
   const listWhere = `${section}|${selectedAgeGroupId}|${selectedYear ?? ""}`;
   const listUnread = cannotList?.where === listWhere && cannotList.source === live.source;
   const readListAgain = () => setCannotList(null);
+  /*
+   * A club's card not read, while the meta it was read by is the one on screen. Once the cloud
+   * publishes, the club open (the one that could not be) draws its panel again, which reads it.
+   */
+  const cannotOpen =
+    cannotOpenAt && cannotOpenAt.source === live.source ? cannotOpenAt.teamId : null;
+  const cannotReadClub = useCallback(
+    (teamId: string) => setCannotOpenAt({ teamId, source: live.source }),
+    [live.source]
+  );
 
   // Where Team Rankings is to open: the club open, or the one that could not be, the search, the
   // clubs Scouting was on, and the state boards as they are.
@@ -604,14 +620,15 @@ function LiveBoard({
 
   /**
    * A club tapped on the board opens its panel from its card (`LiveClubPanel`); with no meta to
-   * read a card through, or a card that could not be read, the panel says so and offers to try again.
+   * read a card through, or a card that could not be read, the panel says so and offers to try again,
+   * and reads it again by itself once the cloud publishes.
    */
   const openTeam = (teamId: string) => {
     if (!live.source) {
-      setCannotOpen(teamId);
+      cannotReadClub(teamId);
       return;
     }
-    setCannotOpen(null);
+    setCannotOpenAt(null);
     setOpenClub(teamId);
     window.requestAnimationFrame(() =>
       document.getElementById(TEAM_PANEL_ID)?.scrollIntoView?.({ block: "start" })
@@ -624,7 +641,7 @@ function LiveBoard({
   };
   const closeClub = useCallback(() => setOpenClub(null), []);
   const shutUnread = () => {
-    setCannotOpen(null);
+    setCannotOpenAt(null);
     setOpenClub(null);
   };
   // A list a section could not read, marked where it was asked, which is where it is said.
@@ -902,7 +919,7 @@ function LiveBoard({
               ageGroups={ageGroups}
               segment={segment}
               onClose={closeClub}
-              onCannot={setCannotOpen}
+              onCannot={cannotReadClub}
             />
           </Suspense>
         )

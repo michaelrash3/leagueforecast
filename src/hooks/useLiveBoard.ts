@@ -285,6 +285,19 @@ export function useLiveBoard({
     : undefined;
   const key = meta && pageId ? boardKey(year, pageId, segment ?? "year") : null;
 
+  /*
+   * A read the rules refused, of a board or of another view the page reads beside it: every board
+   * kept and held is let go and the page told the account is refused, as a refused read of the meta
+   * does, since the account may no longer see any of it.
+   */
+  const refuse = useCallback(() => {
+    forgetLiveBoard();
+    boardRef.current = null;
+    setBoard(null);
+    setMeta(null);
+    setMetaMiss("refused");
+  }, []);
+
   useEffect(() => {
     if (!meta || !key) return;
     const network = meta.from === "network";
@@ -307,25 +320,18 @@ export function useLiveBoard({
         if (network && uid)
           void sources.cache.keepLastShown(uid, { key, h: read.entry.h }).catch(() => undefined);
       } else if (network) {
-        if (read.why === "refused") {
-          forgetLiveBoard();
-          show(null);
-        }
         missBoard(read.why);
+        // A board refused, though its meta was read (a half or page moved to after the account was
+        // taken off the list), is the meta's refusal: missed alone, it would say nothing and keep
+        // reading for ever, with edits on that the server refuses.
+        if (read.why === "refused") refuse();
       } else setKeptMissKey(key);
     })();
     return () => {
       alive = false;
     };
-  }, [meta, key, sources, retries]);
+  }, [meta, key, sources, retries, refuse]);
 
-  const refuse = useCallback(() => {
-    forgetLiveBoard();
-    boardRef.current = null;
-    setBoard(null);
-    setMeta(null);
-    setMetaMiss("refused");
-  }, []);
   const settled = meta?.from === "network" || metaMiss !== null;
   const source = useMemo(
     (): LiveViewSource | null =>

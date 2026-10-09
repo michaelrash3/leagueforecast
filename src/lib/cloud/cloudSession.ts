@@ -19,6 +19,7 @@ import { DATA_SCHEMA, type CloudManifest, type KeptPart } from "./cloudManifest"
 import {
   commitChanges,
   fetchValues,
+  STORE_LIMITS,
   sweepUploads,
   timed,
   timedStore,
@@ -1221,10 +1222,16 @@ const withSession = async (
  * mid-visit, and refused a look at the copy when asked again (`owns`), as at a sign-in. Then it is
  * no member any more, and so neither live (`liveBoardWanted`) nor kept in step, as an account
  * turned away at a sign-in is not. A refusal of a member, of a write the rules keep from devices,
- * is only an error: the look is let.
+ * is only an error: the look is let. So is a look that fails or does not come back. The look reads
+ * the manifest outside the limits the copy's own reads have (`timedStore`), so it is given the same
+ * limit: unanswered, it would leave a refused save saying it is saving for good, and the looks that
+ * follow, which wait until nothing is saving, would stop until the next change or a reload.
  */
 const takenOffList = async (current: Session, error: unknown): Promise<boolean> =>
-  codeOf(error) === "permission-denied" && !(await current.cloud.owns().catch(() => true));
+  codeOf(error) === "permission-denied" &&
+  !(await timed(current.cloud.owns(), STORE_LIMITS.manifest, "checking the list").catch(
+    () => true
+  ));
 
 /** Whether this page may take changes in now: left, or left alone a while. */
 const quietNow = (): boolean =>

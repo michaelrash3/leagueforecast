@@ -167,10 +167,10 @@ let restoredBackups: string[] = [];
 /** The role the list answers with where a case says otherwise than the list itself. */
 let roleSays: { role: MemberRole | null } | null = null;
 /**
- * Whether the owner's account is on the list still: taken off it, the copy refuses it a look, and
- * `unreachable` is a look that does not come back at all.
+ * Whether the owner's account is on the list still: taken off it, the copy refuses it a look;
+ * `unreachable` is a look the network fails, and `silent` one that never comes back at all.
  */
-let listed: boolean | "unreachable" = true;
+let listed: boolean | "unreachable" | "silent" = true;
 let clock = Date.parse("2026-09-29T12:00:00.000Z");
 
 const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
@@ -185,6 +185,7 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
     idToken: async () => (current ? `token-of-${current.uid}` : null),
     owns: async () => {
       if (listed === "unreachable") throw new Error("offline");
+      if (listed === "silent") return new Promise<boolean>(() => undefined);
       return listed && current?.uid === ME.uid;
     },
     members: (() => {
@@ -935,10 +936,39 @@ describe("an account the copy refuses mid-visit", () => {
     sky.store.readManifest = () => Promise.reject(new Error("Failed to fetch"));
     await session.lookAgain({ forced: true });
     expect(session.cloudStatus()).toMatchObject({ kind: "error", account: ME });
-    // Nor does a refusal whose second look never comes back.
+    // Nor does a refusal whose second look the network fails.
     listed = "unreachable";
     sky.store.readManifest = refused;
     await session.lookAgain({ forced: true });
+    expect(session.cloudStatus()).toMatchObject({ kind: "error", account: ME });
+  });
+
+  it("ends a refused save as an error when the second look never comes back", async () => {
+    const { phone } = await inStep();
+    await open(phone);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+    // A piece of the save refused, and the network silent from the very next request on.
+    listed = "silent";
+    let pieceRefused = false;
+    sky.store.putChunk = () => {
+      pieceRefused = true;
+      return refused();
+    };
+    edit(phone, TEAMS, ["phone pool, changed"]);
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    let ended = false;
+    const saving = session.saveNow({ asked: true }).then(() => {
+      ended = true;
+    });
+    // Once the save has packed its pieces and sent one, as long as the copy's own reads are given,
+    // and a little over.
+    await vi.waitFor(() => expect(pieceRefused).toBe(true));
+    await vi.advanceTimersByTimeAsync(21_000);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Ended rather than saving for good, which would keep every later look away: an error, since
+    // the look that could have said the account is off the list said nothing.
+    expect(ended).toBe(true);
+    await saving;
     expect(session.cloudStatus()).toMatchObject({ kind: "error", account: ME });
   });
 });

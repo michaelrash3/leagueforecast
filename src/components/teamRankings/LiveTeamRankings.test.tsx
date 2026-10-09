@@ -29,6 +29,7 @@ import { forgetDecodedClubs } from "../../hooks/useClubCard";
 import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
 import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesShape";
 import { forgetDecodedGames, GAME_MOVED } from "./LiveGames";
+import { SCOUTING_NO_CARD } from "./LiveScouting";
 import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY } from "./LiveSetup";
 import type { BackupAnswer, BackupRequest } from "../../workers/backupProtocol";
 import { SEARCH_UNREAD } from "./RankingsSection";
@@ -642,6 +643,9 @@ describe("Team Rankings on the cloud's board", () => {
     open(sourcesOf(live, { reader: async () => refusing }));
     await waitFor(() => expect(kept.size).toBe(0));
     expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
+    // Handed over first, which is when the pool is asked for: finished before that, it finishes
+    // nothing, which a loaded machine showed once.
+    await waitFor(() => expect(pool.prepared).toBe(1));
     await act(async () => pool.finish());
     expect(handedOver()).not.toBeNull();
     // Refused, it does not listen either.
@@ -696,6 +700,50 @@ describe("the cloud's board while it is open", () => {
     expect((await screen.findAllByText("Placeholder S-7")).length).toBeGreaterThan(0);
     expect(screen.getByText("The cloud's board")).toBeTruthy();
     expect(handedOver()).toBeNull();
+  });
+
+  it("says the page's own club has no game ahead once a publish brings its card", async () => {
+    const PAST: ClubCard = {
+      team: { id: "S-2", name: "Placeholder S-2" },
+      games: [
+        {
+          id: "0",
+          teamAId: "S-2",
+          teamBId: "S-1",
+          ageGroupId: PAGE,
+          teamAScore: 4,
+          teamBScore: 2,
+          date: "2027-03-20",
+        },
+      ],
+      names: { "S-1": "Placeholder S-1" },
+    };
+    open(sourcesOf(live));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    // No card published yet: nothing is said of its next game.
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "My team" }).textContent).not.toContain(
+        "Next game: loading…"
+      )
+    );
+    expect(screen.getByRole("region", { name: "My team" }).textContent).not.toContain(
+      "No game on the schedule"
+    );
+    // The next publish carries its card, with no game still to play.
+    await publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: SPRING },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: SPRING },
+      {
+        key: clubKey(2027, clubBucketOf("S-2")),
+        value: { clubs: { "S-2": encodeClubCard(PAST) } },
+      },
+    ]);
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "My team" }).textContent).toContain(
+        "No game on the schedule yet."
+      )
+    );
   });
 
   it("leaves the board on screen as it is when a publish names the same one", async () => {
@@ -2271,28 +2319,174 @@ describe("Scouting on the cloud's board", () => {
     expect(handedOver()).toBeNull();
   });
 
-  it("says when the club it reports on has no card, and stays", async () => {
+  it("says in place of its games when the club it reports on has no card, and stays", async () => {
+    // No bucket for it at all in the meta the page settled on.
     onScouting();
     open(sourcesOf(live));
-    expect(await screen.findByText(LIVE_UNREAD.scouting)).toBeTruthy();
+    expect(await screen.findByText(SCOUTING_NO_CARD)).toBeTruthy();
+    // A card the cloud has none of is no read that failed: nothing to try again, and the picker
+    // stays for another club.
+    expect(screen.queryByText(LIVE_UNREAD.scouting)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("combobox", { name: /How would/ })).toHaveValue("Placeholder S-2");
     expect(handedOver()).toBeNull();
     expect(pool.prepared).toBe(0);
   });
 
-  it("says when its card's bucket holds no card for the club it reports on", async () => {
-    // The bucket the page's own club would be in, read whole, with only another club in it.
+  it("says when its card's bucket holds no card for the club it reports on, and reports on another picked", async () => {
+    // The bucket the page's own club would be in, read whole, with only another club in it; and
+    // the card of a club the member may pick instead.
+    const buckets = new Map<string, Record<string, ReturnType<typeof encodeClubCard>>>([
+      [clubKey(2027, clubBucketOf("S-2")), { "S-9": encodeClubCard(card("S-9", [])) }],
+    ]);
+    const theirs = clubKey(2027, clubBucketOf("S-3"));
+    buckets.set(theirs, { ...(buckets.get(theirs) ?? {}), "S-3": encodeClubCard(THEIRS) });
     await publish(live, [
       { key: `board:2027:${PAGE}:spring`, value: SPRING },
       { key: `board:2027:${PAGE}:fall`, value: FALL },
       { key: `board:2027:${PAGE}:year`, value: SPRING },
-      {
-        key: clubKey(2027, clubBucketOf("S-2")),
-        value: { clubs: { "S-9": encodeClubCard(card("S-9", [])) } },
-      },
+      ...[...buckets].map(([key, clubs]) => ({ key, value: { clubs } })),
     ]);
     onScouting();
     open(sourcesOf(live));
+    expect(await screen.findByText(SCOUTING_NO_CARD)).toBeTruthy();
+    expect(screen.queryByText(LIVE_UNREAD.scouting)).toBeNull();
+    const user = userEvent.setup();
+    const box = screen.getByRole("combobox", { name: /How would/ });
+    await user.click(box);
+    await user.type(box, "Placeholder S-3");
+    const listbox = document.getElementById(box.getAttribute("aria-controls") ?? "")!;
+    const option = within(listbox)
+      .getAllByRole("option")
+      .find((one) => one.textContent?.includes("Placeholder S-3"));
+    await user.click(within(option!).getByRole("button"));
+    await waitFor(() =>
+      expect(screen.getAllByRole("table", { name: "Next up" })[0]).toHaveTextContent(
+        "Placeholder S-1"
+      )
+    );
+    expect(screen.queryByText(SCOUTING_NO_CARD)).toBeNull();
+    expect(handedOver()).toBeNull();
+  });
+
+  it("says when the card it reports on could not be read, and reads it again when asked", async () => {
+    await withCards([MINE]);
+    const reader = readerOf(live);
+    const bucket = live.meta()?.views[clubKey(2027, clubBucketOf("S-2"))];
+    if (!bucket) throw new Error("no bucket");
+    let failing = true;
+    const flaky: LiveReader = {
+      ...reader,
+      getChunk: async (id) => {
+        if (failing && id.startsWith(bucket.id)) throw { code: "unavailable" };
+        return reader.getChunk(id);
+      },
+    };
+    onScouting();
+    open(sourcesOf(live, { reader: async () => flaky }));
+    // Offline, the card is there to be had: said with Try again, not as a card the cloud lacks.
     expect(await screen.findByText(LIVE_UNREAD.scouting)).toBeTruthy();
+    expect(screen.queryByText(SCOUTING_NO_CARD)).toBeNull();
+    failing = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    const next = await screen.findAllByRole("table", { name: "Next up" });
+    expect(next[0]).toHaveTextContent("Placeholder S-3");
+    expect(handedOver()).toBeNull();
+  });
+
+  /*
+   * The clubs Scouting is on outlast a change of year, and a club picked on one year may have no
+   * card on another: 2027 has both clubs' cards, 2026 only the page's own club's.
+   */
+  const twoYears = async () => {
+    const LAST = "ag_12u_2026";
+    saveAgeGroups([
+      ...GROUPS,
+      { id: LAST, name: "12U 2026", ageLevel: 12, year: 2026, seasonIds: [], myTeamId: "S-2" },
+    ]);
+    const buckets = new Map<string, Record<string, ReturnType<typeof encodeClubCard>>>();
+    const put = (year: number, one: ClubCard) => {
+      const key = clubKey(year, clubBucketOf(one.team.id));
+      buckets.set(key, { ...(buckets.get(key) ?? {}), [one.team.id]: encodeClubCard(one) });
+    };
+    put(2027, MINE);
+    put(2027, THEIRS);
+    put(2026, card("S-2", []));
+    await publish(
+      live,
+      [
+        { key: `board:2027:${PAGE}:spring`, value: SPRING },
+        { key: `board:2027:${PAGE}:fall`, value: FALL },
+        { key: `board:2027:${PAGE}:year`, value: SPRING },
+        { key: `board:2026:${LAST}:spring`, value: SPRING },
+        { key: `board:2026:${LAST}:fall`, value: SPRING },
+        { key: `board:2026:${LAST}:year`, value: SPRING },
+        ...[...buckets].map(([key, clubs]) => ({ key, value: { clubs } })),
+      ],
+      {
+        pulledAt: T,
+        halves: { [PAGE]: { fall: 10, spring: 20 }, [LAST]: { fall: 10, spring: 20 } },
+      }
+    );
+  };
+  const toLastYear = () =>
+    fireEvent.change(document.getElementById("scout-season-year")!, {
+      target: { value: "2026" },
+    });
+
+  it("keeps a way to pick another club when the one scouted on another year has no card here", async () => {
+    await twoYears();
+    onScouting();
+    open(sourcesOf(live));
+    // Scouts S-3 on 2027, then moves to 2026, where S-3 has no card.
+    const user = userEvent.setup();
+    const box = await screen.findByRole("combobox", { name: /How would/ });
+    await user.click(box);
+    await user.type(box, "Placeholder S-3");
+    const listbox = document.getElementById(box.getAttribute("aria-controls") ?? "")!;
+    const option = within(listbox)
+      .getAllByRole("option")
+      .find((one) => one.textContent?.includes("Placeholder S-3"));
+    await user.click(within(option!).getByRole("button"));
+    await waitFor(() =>
+      expect(screen.getAllByRole("table", { name: "Next up" })[0]).toHaveTextContent(
+        "Placeholder S-1"
+      )
+    );
+    toLastYear();
+    // Back on the page's own club, whose card that year is there, with the picker to choose another;
+    // no card said to have failed to read, which reading again could never mend.
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /How would/ })).toHaveValue("Placeholder S-2")
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+    expect(screen.queryByText(LIVE_UNREAD.scouting)).toBeNull();
+    expect(screen.queryByText(SCOUTING_NO_CARD)).toBeNull();
+    expect(screen.getByRole("combobox", { name: /How would/ })).toHaveValue("Placeholder S-2");
+    expect(handedOver()).toBeNull();
+  });
+
+  it("lets go of a club compared on another year that has no card here, and keeps the report", async () => {
+    await twoYears();
+    onScouting();
+    const user = userEvent.setup();
+    open(sourcesOf(live));
+    const compare = await screen.findByLabelText("Compare with");
+    await user.click(compare);
+    await user.type(compare, "Placeholder S-3");
+    const listbox = document.getElementById(compare.getAttribute("aria-controls") ?? "")!;
+    const option = within(listbox)
+      .getAllByRole("option")
+      .find((one) => one.textContent?.includes("Placeholder S-3"));
+    await user.click(within(option!).getByRole("button"));
+    const compared = { name: "Placeholder S-2 and Placeholder S-3 compared" };
+    expect(await screen.findByRole("region", compared)).toBeTruthy();
+    toLastYear();
+    await waitFor(() => expect(screen.getByLabelText("Compare with")).toHaveValue(""));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
+    expect(screen.queryByText(LIVE_UNREAD.scouting)).toBeNull();
+    expect(screen.queryByRole("region", compared)).toBeNull();
+    expect(screen.getByRole("combobox", { name: /How would/ })).toHaveValue("Placeholder S-2");
     expect(handedOver()).toBeNull();
   });
 });
@@ -2567,6 +2761,31 @@ describe("what it hands over, when, and what stays after", () => {
     expect(await screen.findAllByText("Placeholder S-F")).not.toHaveLength(0);
   });
 
+  it("hands over when the rules refuse a half's board moved to, though the meta was read", async () => {
+    const reader = readerOf(live);
+    const fall = live.meta()?.views[`board:2027:${PAGE}:fall`];
+    if (!fall) throw new Error("no fall board");
+    const refusingFall: LiveReader = {
+      ...reader,
+      getChunk: (id) =>
+        id.startsWith(fall.id)
+          ? Promise.reject({ code: "permission-denied" })
+          : reader.getChunk(id),
+    };
+    open(sourcesOf(live, { reader: async () => refusingFall }));
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Fall 2026/ }));
+    // The refusal is heard: every board kept is let go.
+    await waitFor(() => expect(kept.size).toBe(0));
+    await pause(300);
+    // Refused, the account may see none of it: the page hands over, as a refused card or meta does,
+    // rather than reading for ever.
+    expect(screen.queryByText("Reading the cloud's board…")).toBeNull();
+    await waitFor(() => expect(pool.prepared).toBe(1));
+    await act(async () => pool.finish());
+    expect(handedOver()).not.toBeNull();
+  });
+
   it("opens a club picked in Find a team on another page from its card, long after opening", async () => {
     const ELEVEN = "ag_11u_2027";
     const NINERS: ClubCard = {
@@ -2780,6 +2999,29 @@ describe("what it hands over, when, and what stays after", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("region", { name: "Placeholder S-1" })).toBeTruthy();
     expect(handedOver()).toBeNull();
+  });
+
+  it("reads a club's card again by itself once the cloud publishes, after it could not be read", async () => {
+    await withCards();
+    const reader = readerOf(live);
+    const bucket = live.meta()?.views[clubKey(2027, clubBucketOf("S-1"))];
+    if (!bucket) throw new Error("no bucket");
+    let failing = true;
+    const flaky: LiveReader = {
+      ...reader,
+      getChunk: async (id) => {
+        if (failing && id.startsWith(bucket.id)) throw { code: "unavailable" };
+        return reader.getChunk(id);
+      },
+    };
+    open(sourcesOf(live, { reader: async () => flaky }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Placeholder S-1" }))[0]!);
+    expect(await screen.findByText(LIVE_UNREAD.club)).toBeTruthy();
+    failing = false;
+    // A publish of another page's board: a new meta, with no Try again pressed.
+    await act(() => withCards(CARDS, [{ key: "board:2027:ag_11u_2027:spring", value: FALL }]));
+    expect(await screen.findByRole("region", { name: "Placeholder S-1" })).toBeTruthy();
+    expect(screen.queryByText(LIVE_UNREAD.club)).toBeNull();
   });
 
   it("hands a club with no card tapped while the pool comes in over to Team Rankings", async () => {

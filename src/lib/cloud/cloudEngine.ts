@@ -66,13 +66,16 @@ export const timed = <T>(work: Promise<T>, ms: number, what: string): Promise<T>
     );
   });
 
+/** How long a call on the copy may take: the manifest is one small document, a piece 900 KB. */
+export const STORE_LIMITS = { manifest: 20_000, chunk: 90_000 } as const;
+
 /**
  * `store` with a limit on every call. Firestore's lite SDK sets none: a request the network drops
  * without closing waits for ever, and with it everything waiting on this device's lock.
  */
 export const timedStore = (
   store: CloudStore,
-  limits: { manifest: number; chunk: number } = { manifest: 20_000, chunk: 90_000 }
+  limits: { manifest: number; chunk: number } = STORE_LIMITS
 ): CloudStore => ({
   readManifest: () => timed(store.readManifest(), limits.manifest, "reading the copy"),
   commitManifest: (expected, next) =>
