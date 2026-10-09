@@ -4,7 +4,6 @@ import type { ShowToast } from "../hooks/useLiveEdits";
 import type { CloudStatus } from "../lib/cloud/cloudSession";
 import { loadCloudState } from "../lib/cloud/cloudState";
 import type { RankingsHandover } from "../lib/live/liveBoard";
-import { readLiveBoard } from "../lib/preferences";
 import type { SeasonMeta } from "../lib/storage";
 import { CloudPoolGate } from "./CloudPoolGate";
 import { loadTeamRankingsView } from "./teamRankingsChunk";
@@ -26,17 +25,18 @@ const NO_MEMBER = new Set<CloudStatus["kind"]>([
 ]);
 
 /**
- * Whether Team Rankings opens on the cloud's board: unless turned off in the Cloud panel, in a
- * browser that keeps a cloud copy, and signed in as a member, or still finding out.
+ * Whether Team Rankings opens on the cloud's board: in a browser that keeps a cloud copy, signed in
+ * as a member, or still finding out. Always, for a member (1.6f): no device writes the copy, so
+ * there is no switch to keep this device's own page apart.
  */
 export const liveBoardWanted = (status: CloudStatus): boolean =>
-  readLiveBoard() && loadCloudState().enabled && !NO_MEMBER.has(status.kind);
+  loadCloudState().enabled && !NO_MEMBER.has(status.kind);
 
 /**
- * Team Rankings as it opens: on the cloud's board (`LiveTeamRankings`) for a member, unless turned
- * off, or as it always has, once its pool is in step with the cloud copy (`CloudPoolGate`). Which
- * is decided as the page opens and kept until it closes, so turning the switch, or the cloud's
- * state moving, never swaps one page for the other under the reader.
+ * Team Rankings as it opens: on the cloud's board (`LiveTeamRankings`) for a member, or as it always
+ * has, once its pool is in step with the cloud copy (`CloudPoolGate`). Which is decided as the page
+ * opens and kept until it closes, so the cloud's state moving never swaps one page for the other
+ * under the reader.
  */
 export function RankingsOpen({
   status,

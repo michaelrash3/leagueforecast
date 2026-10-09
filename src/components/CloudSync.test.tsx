@@ -1,17 +1,28 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CloudStatus, KeptVersion } from "../lib/cloud/cloudSession";
+import { loadDisplacedLeague, saveDisplacedLeague } from "../lib/cloud/cloudState";
 import { CloudButton, useCloudPanel } from "./CloudButton";
 import type { MembersApi } from "./CloudMembers";
 import { CloudPanel, savedWhen, sizeOf, type CloudActions } from "./CloudPanel";
-import { readLiveBoard, readLiveLeague } from "../lib/preferences";
 
 /*
  * The cloud copy's header button and panel, as views of a status: what each status says, and which
  * button calls which action. Nothing here asks which copy wins: changes on two devices are merged,
  * and whatever a merge had to replace is listed to be brought back.
  */
+const downloads = vi.hoisted(() => ({ json: [] as Array<[string, unknown]> }));
+vi.mock("../lib/download", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/download")>()),
+  downloadJson: (name: string, value: unknown) => void downloads.json.push([name, value]),
+}));
+
+afterEach(() => {
+  localStorage.clear();
+  downloads.json = [];
+});
+
 const ME = { uid: "owner-1", email: "owner@example.test" };
 const NOW = new Date("2026-09-28T12:00:00Z");
 const saved = (over: Partial<Extract<CloudStatus, { kind: "saved" }>> = {}): CloudStatus => ({
@@ -40,7 +51,6 @@ const panel = (
     signOut: vi.fn(),
     loadNewer: vi.fn(),
     retry: vi.fn(),
-    restart: vi.fn(),
     bringBack: vi.fn(),
     dismissNotice: vi.fn(),
     reloadApp: vi.fn(),
@@ -127,30 +137,6 @@ describe("the cloud panel", () => {
     expect(actions.signOut).toHaveBeenCalledTimes(1);
   });
 
-  it("offers this device the cloud's board for Team Rankings, on until turned off", async () => {
-    window.localStorage.clear();
-    panel(saved());
-    const box = screen.getByRole("checkbox", { name: "Open Team Rankings on the cloud's board" });
-    expect(box).toBeChecked();
-    await userEvent.click(box);
-    expect(box).not.toBeChecked();
-    expect(readLiveBoard()).toBe(false);
-    await userEvent.click(box);
-    expect(readLiveBoard()).toBe(true);
-  });
-
-  it("offers to keep League Standings live on this device, on until turned off", async () => {
-    window.localStorage.clear();
-    panel(saved());
-    const box = screen.getByRole("checkbox", { name: "Keep League Standings live" });
-    expect(box).toBeChecked();
-    await userEvent.click(box);
-    expect(box).not.toBeChecked();
-    expect(readLiveLeague()).toBe(false);
-    await userEvent.click(box);
-    expect(readLiveLeague()).toBe(true);
-  });
-
   it("saves waiting changes on request", async () => {
     const actions = panel(saved({ owed: true }));
     await userEvent.click(screen.getByRole("button", { name: "Save now" }));
@@ -206,11 +192,13 @@ describe("the cloud panel", () => {
     expect(actions.bringBack).toHaveBeenCalledWith("g1");
   });
 
-  it("starts a copy that is gone again only when asked", async () => {
+  it("says a copy that is gone is the servers' to make, and offers only to sign out", async () => {
     const actions = panel({ kind: "gone", account: ME });
-    expect(screen.getByText(/cloud copy is gone/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Start it again from this browser" }));
-    expect(actions.restart).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/There is no cloud copy to read/)).toBeInTheDocument();
+    expect(screen.getByText(/Only the cloud's own servers make one/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Start it again/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(actions.signOut).toHaveBeenCalledTimes(1);
   });
 
   it("says the account is not on the copy's list, and offers to sign out", async () => {
@@ -306,5 +294,35 @@ describe("when a save is said to have been", () => {
     const sameDay = new Date(earlier).toDateString() === NOW.toDateString();
     expect(savedWhen(earlier, NOW)).toMatch(sameDay ? /^today at / : /^\w{3} \d+ at /);
     expect(savedWhen("2026-09-20T08:00:00Z", NOW)).toMatch(/^\w{3} \d+ at /);
+  });
+});
+
+describe("this device's League Standings, displaced at its first meeting (1.6f)", () => {
+  const HELD = { seasons: [{ id: "fall", name: "Fall", logs: {} }] };
+  const SAVE = "Save this device's League Standings";
+
+  it("is offered as a file, and forgotten once saved", async () => {
+    saveDisplacedLeague(HELD);
+    panel(saved());
+    await userEvent.click(screen.getByRole("button", { name: SAVE }));
+    expect(downloads.json).toEqual([
+      [expect.stringMatching(/^league-standings-this-device-\d{4}-\d{2}-\d{2}\.json$/), HELD],
+    ]);
+    expect(loadDisplacedLeague()).toBeNull();
+    expect(screen.queryByRole("button", { name: SAVE })).toBeNull();
+  });
+
+  it("is let go, with no file, when asked", async () => {
+    saveDisplacedLeague(HELD);
+    panel(saved());
+    await userEvent.click(screen.getByRole("button", { name: "Let them go" }));
+    expect(downloads.json).toEqual([]);
+    expect(loadDisplacedLeague()).toBeNull();
+    expect(screen.queryByRole("button", { name: SAVE })).toBeNull();
+  });
+
+  it("is not offered where nothing was displaced", () => {
+    panel(saved());
+    expect(screen.queryByRole("button", { name: SAVE })).toBeNull();
   });
 });

@@ -34,12 +34,7 @@ import {
   seasonDeleteRoute,
 } from "./lib/live/leagueWanted";
 import type { LocalSeasons } from "./lib/live/leagueSeasons";
-import {
-  readLiveBoard,
-  readLiveLeague,
-  subscribeLiveBoard,
-  subscribeLiveLeague,
-} from "./lib/preferences";
+import { subscribeLeagueMet } from "./lib/preferences";
 import { askLeague, LEAGUE_UNANSWERED } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import { editingOffBecause, LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
@@ -435,8 +430,7 @@ export default function App() {
    * server for what Team Rankings has for its seasons (`askLeague`), which a device that holds no
    * pool cannot work out (1.6e), and which the board on the Team Rankings side is built from.
    */
-  const liveBoardOn = useSyncExternalStore(subscribeLiveBoard, readLiveBoard, () => true);
-  const rankingsLive = liveBoardOn && liveBoardWanted(cloud);
+  const rankingsLive = liveBoardWanted(cloud);
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -636,7 +630,6 @@ export default function App() {
   });
   const activeSeasonId = seasons.activeId;
 
-  const leagueLiveOn = useSyncExternalStore(subscribeLiveLeague, readLiveLeague, () => true);
   const refreshSeasons = seasons.refresh;
   const adoptSeason = useCallback(
     (id: string, createdAt: string) => {
@@ -644,11 +637,10 @@ export default function App() {
     },
     [refreshSeasons]
   );
-  const leagueMet = useSyncExternalStore(subscribeLiveLeague, leagueMetHere, () => false);
+  const leagueMet = useSyncExternalStore(subscribeLeagueMet, leagueMetHere, () => false);
   const leagueSettled = useSyncExternalStore(subscribeCloud, leagueInStep, () => false);
   const liveLeague = useLiveLeague({
     enabled: leagueLiveWanted({
-      on: leagueLiveOn,
       status: cloud,
       met: leagueMet,
       inStep: leagueSettled,
@@ -690,7 +682,6 @@ export default function App() {
       // there is no cloud to delete it from, and so no deleting; on a member's device that is
       // so whenever League is not live, met or about to be (1.6e review).
       const route = seasonDeleteRoute({
-        on: leagueLiveOn,
         live: leagueKeptLive,
         // A member's device: one a member has signed in to, its record keeping the account,
         // which any device that met the cloud's seasons has.
@@ -716,7 +707,7 @@ export default function App() {
         return false;
       }
     };
-  }, [leagueLiveOn, leagueKeptLive, leagueReachable, removeSeason, showToast]);
+  }, [leagueKeptLive, leagueReachable, removeSeason, showToast]);
 
   /**
    * What Team Rankings has for this season: the results, the picks and the search behind them.

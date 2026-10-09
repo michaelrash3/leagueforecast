@@ -216,6 +216,31 @@ export const saveLeagueBase = (base: LeagueBase | null): void => {
   }
 };
 
+const DISPLACED_KEY = "league_forecast_cloud_displaced_league_v1";
+
+/**
+ * This device's League Standings as they were when the copy's took their place at a first meeting
+ * (1.6f): no device writes the copy, so they are kept here, for the Cloud panel to offer as a file
+ * until the person saves or lets them go. A full storage costs the offer, not the seasons taken in.
+ */
+export const saveDisplacedLeague = (value: unknown): void => {
+  try {
+    localStorage.setItem(DISPLACED_KEY, JSON.stringify(value));
+  } catch {
+    /* nothing more to do */
+  }
+};
+
+export const loadDisplacedLeague = (): unknown => readJson(DISPLACED_KEY);
+
+export const forgetDisplacedLeague = (): void => {
+  try {
+    localStorage.removeItem(DISPLACED_KEY);
+  } catch {
+    /* nothing more to do */
+  }
+};
+
 /**
  * Forgets this browser's cloud copy entirely, before anything else is written: a browser whose data
  * is being wiped must not record the wiping as changes owed to every other device.

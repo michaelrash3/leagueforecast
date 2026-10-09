@@ -6,7 +6,6 @@ import * as copyBackupLib from "./lib/live/copyBackup";
 import type { LeagueFillPlan } from "./lib/leagueScoreFill";
 import type { LeagueBridgeAnswer } from "./lib/live/leagueAnswers";
 import type { QueryOf } from "./lib/live/queries";
-import { writeLiveBoard } from "./lib/preferences";
 import {
   createSeason,
   loadLogs,
@@ -121,7 +120,6 @@ describe("League Standings asking the server what Team Rankings has", () => {
     server.signedIn = true;
     server.live = true;
     server.bridge = null;
-    writeLiveBoard(true);
     saveTeams([
       { id: "A", name: "Aces" },
       { id: "B", name: "Bears", scoutTeamId: "S-BEARS" },
@@ -187,7 +185,7 @@ describe("League Standings asking the server what Team Rankings has", () => {
     expect((await importing()).closest("[role=dialog]")?.textContent).toMatch(scored);
   });
 
-  it("reads the copy for Backup JSON on the cloud's board, and this device's pool with it off", async () => {
+  it("reads the copy for Backup JSON on the cloud's board, never this device's pool", async () => {
     vi.stubGlobal("URL", { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined });
     const saved = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
@@ -207,13 +205,6 @@ describe("League Standings asking the server what Team Rankings has", () => {
       expect(read).toHaveBeenCalledTimes(1);
       expect(saved).not.toHaveBeenCalled();
       unmount();
-
-      // Turned off, Team Rankings is this device's own pool, kept in step, as before 1.6e.
-      writeLiveBoard(false);
-      render(<App />);
-      await backingUp();
-      expect(read).toHaveBeenCalledTimes(1);
-      expect(saved).toHaveBeenCalledTimes(1);
     } finally {
       vi.restoreAllMocks();
     }

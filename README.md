@@ -3008,7 +3008,8 @@ never changes it, so no click can lock the owner out or hand the list to someone
 else. The owner sees **Who can use the cloud copy** in the panel, adds an
 account there by its address and takes one off with **Remove**; every other
 entry is `role: "member"` with the time it was added. A member reads the copy
-and changes it as the owner does, and reads its own entry and no other. The same
+as the owner does, and reads its own entry and no other; neither writes the copy
+(below). The same
 list says who may pull from GameChanger (**The GameChanger proxy on Firebase**), and
 who may read the views a server publishes from the copy (**Views a server
 publishes**), which no browser writes. Google
@@ -3018,10 +3019,23 @@ and changed it.
 
 The header's cloud button signs in, and after that shows where the copy stands;
 **Settings → Your data on every device** opens the same panel. From then on it
-saves and loads by itself. A browser nobody has signed in on never downloads
-Firebase's code. Once it is signed in, the panel also offers **Open Team
-Rankings on the cloud's board**, a switch for this device alone, off until
-turned on ("The live board on a member's device").
+loads by itself. A browser nobody has signed in on never downloads Firebase's
+code. A member's device opens Team Rankings on the cloud's board ("The live board
+on a member's device") and keeps League Standings live ("League Standings in the
+cloud"), with no switch for either since 1.6f.
+
+**Read-only to every browser (1.6f).** No browser writes the copy, the owner's
+included: the rules let the list read `copies/**` by name and nothing more. Only
+the cloud's servers write it, as service accounts the rules do not apply to: the
+nightly refresh, the edit function a member's edits go through, the rebuilds, and
+the pulls in the cloud. A device takes what the servers wrote and sends nothing:
+a change made here stays here, marked, and League's reaches the cloud's own
+League documents at the device's first meeting with them. A pool value changed
+both here and in the copy is the copy's. Before 1.6f every device saved into the
+copy, and the copy merged what they sent (below); that machinery is what the
+servers' edits replaced, and 1.7 removes what is left of it on the device. A
+build from before 1.6f, still open somewhere, has its saves refused until it is
+reloaded.
 
 **What travels.** Every League Standings season, as one value, and the Team
 Rankings pool key by key, as it is stored: the teams, the age groups, each
@@ -3033,7 +3047,8 @@ would collide with scores entered on the laptop. An undo snapshot is scratch
 state for one action. A pull's own place (its progress, what it tracks, what it
 cleared) belongs to the browser running the pull.
 
-**Nothing asks which copy wins.** The first version did, in a dialog, whenever
+**Nothing asks which copy wins** (until 1.6f, when devices still saved). The
+first version did, in a dialog, whenever
 two devices had both changed something, and a second review found every answer
 to it lost somebody's work: scores entered on the phone at one field and the
 laptop at another were one copy or the other, never both. Now changes are
@@ -3058,13 +3073,14 @@ merged, and whatever a merge had to replace is kept.
   copy's owner alone (1.6), and the device then takes it like any other save.
 
 **Meeting a copy for the first time.** A browser signing in with seasons of its
-own joins them to the copy's, merged where they share records. The pool is
-taken whole: a device's own pool is kept in the copy as lost, to be brought back
-if it was the one that mattered, rather than mixed key by key into a pool it was
-never part of. So sign in first on the device that holds the pool. A browser
-holding nothing anybody made (an untouched first season, a pool with no teams
-and no archived season, whose tables could not be made again) simply takes the
-copy.
+own keeps them here beside the copy's, merged where they share records; the copy
+is sent none of them. Where both changed one record, the copy's wins, and this
+device's League as it was is kept in the browser (`saveDisplacedLeague`): the
+panel offers it once as a file, **Save this device's League Standings**, or
+**Let them go**. The pool is taken whole, and a device's own pool is not kept
+anywhere, since the copy is the pool every device shares. A browser holding
+nothing anybody made (an untouched first season, a pool with no teams and no
+archived season, whose tables could not be made again) simply takes the copy.
 
 **What is never lost.** A value leaves the copy only because a device recorded
 removing it, and leaves a device only because the copy dropped a value that
@@ -3139,12 +3155,12 @@ data before another took a copy in is refused any write of it (each tab
 remembers which copy it read, and storage says which is current), so its old
 data cannot go back over the new; it reloads instead.
 
-**When the copy is gone.** A browser that has synced before and finds no copy
-(deleted in the console) does not start one again by itself, since that would
-hand every other device whatever the first browser to open happened to hold. It
-says so, and **Start it again from this browser** makes a new copy. A new copy
-has a new id, so every other device meets it as it would a copy for the first
-time rather than taking it for a later version of the one it knew.
+**When the copy is gone.** A browser that finds no copy (deleted in the console)
+says so and changes nothing here. Before 1.6f it offered **Start it again from
+this browser**; now no browser makes a copy, so the panel offers only Sign out
+and says to ask the app's owner. Do not delete `copies` in the console: the
+owner's **Start again** (1.6c) empties the copy on the server, keeping what it
+replaces as an earlier version, and is the way to start over.
 
 **Free.** The largest pool measured, 115,588 teams and 245,021 games, is
 61.4 MB stored and 20.3 MB gzipped: about 23 pieces. Firestore's free tier is
@@ -3184,12 +3200,12 @@ save is a few writes.
 4. The rules deploy with the functions on merge (`firebase.yml`), tested there
    against the Firestore emulator first (`npm run test:rules` locally; it needs
    Java 21).
-5. Sign in first on the device that holds the data, so its copy becomes the
-   cloud's; then on the others. Add anyone else from the panel.
+5. Sign in on each device, and add anyone else from the panel. The copy already
+   exists: a device made the first one before 1.6f, and since then only the
+   servers write it.
 
-To start the copy over, delete the `copies` collection in the Firestore
-console, then use **Start it again from this browser** on the device whose data
-should be the copy.
+To start the copy over, use **Start again** in the Cloud panel as the owner; the
+server empties the copy and keeps what it replaces.
 Sign-in opens Google in a pop-up, so a browser that blocks pop-ups has to allow
 them for the site.
 
@@ -4007,13 +4023,13 @@ refused to a stranger and an unverified address. Each guard was broken in turn a
 seen to fail a test, 27 of 27.
 
 **Team Rankings on the cloud's board.** A member opens Team Rankings on it
-(`LiveTeamRankings`) unless **Open Team Rankings on the cloud's board** is turned
-off in the Cloud panel: on by default since 1.6e, and off, once turned off, until
-turned on again (`lf_live_v1` keeps "off" or "on", and anything else, or nothing,
-is on). The switch is read as the page opens and kept until it closes, so turning
-it, or the cloud's state moving, never swaps one page for the other under the
-reader; it applies only in a browser that keeps a cloud copy and is signed in as a
-member, or still finding out. An account the copy refuses partway through a visit
+(`LiveTeamRankings`), in a browser that keeps a cloud copy and is signed in as a
+member, or still finding out. From 1.6e to 1.6f a switch, **Open Team Rankings on
+the cloud's board**, could turn it off; with the copy read-only to devices (1.6f)
+a device's own pool would save nowhere, so the switch is gone, and `lf_live_v1` is
+no longer read. Whether it applies is read as the page opens and kept until it
+closes, so the cloud's state moving never swaps one page for the other under the
+reader. An account the copy refuses partway through a visit
 is asked again whether it may read the copy at all (`owns`), and refused that too,
 it is not a member any more, as at a sign-in (`not-owner`), so it opens Team
 Rankings on its own pool from then on; a member refused something the rules keep
@@ -4699,11 +4715,10 @@ change's own rebuild publishes it. A listing reads each season, a few reads for
 a handful of seasons of 10 to 70 KB each, beside the three reads a rebuild
 already makes before deciding to run.
 
-**On a device.** It is on for a member unless **Keep League Standings live** is
-turned off in the Cloud panel: on by default since 1.6e, per device, and off,
-once turned off, until turned on again (`lf_live_league_v1` keeps "off" or "on",
-and anything else, or nothing, is on). A device turned off keeps League in the
-cloud copy, apart from the devices kept live. With it on:
+**On a device.** It is on for every member's device. From 1.6e to 1.6f a switch,
+**Keep League Standings live**, could keep a device's League in the cloud copy
+instead; with the copy read-only to devices (1.6f) that would save nowhere, so the
+switch is gone, and `lf_live_league_v1` is no longer read.
 
 - **The first meeting** (1.6e). On by default, every device goes live at its own
   next visit rather than all together. Until a device has met the cloud's League
@@ -4711,8 +4726,8 @@ cloud copy, apart from the devices kept live. With it on:
   after, since every account on the list shares one cloud), the copy still brings
   League in there, so the device is in step with the copy before its seasons meet
   the cloud's (`meetSeasons`); the open season waits, read-only, until they have.
-  But with the switch on, the copy is sent no League at all, met or not
-  (`leagueToCopy`): a change made before the first meeting waits, owed, and
+  But the copy is sent no League at all, met or not, as it is sent nothing
+  (1.6f): a change made before the first meeting waits, owed, and
   reaches the cloud's documents at it. The copy's League a device has met is the
   base its first meeting starts from, and a change of its own in that base, which
   the documents had never held, would read as one they had deleted since, and be
@@ -4728,8 +4743,8 @@ cloud copy, apart from the devices kept live. With it on:
     yet, takes the copy's season as this device last took it in
     (`leagueAgreedWithCopy`) as its base, at write 0, before any of the document's
     (kept as `fromCopy` by `leagueBase.ts`, since no document is at write 0); never
-    a version this device sent the copy itself, with its switch off (`mine`), which
-    could hold a change of its own the documents lack. So the open season's first
+    a version this device sent the copy itself before 1.6f (`mine`), which could
+    hold a change of its own the documents lack. So the open season's first
     meeting is three-way: a game another device deleted live since stays deleted,
     and a score entered here since is kept and sent, where with no base everything
     either side holds would be kept.
@@ -4812,26 +4827,23 @@ cloud copy, apart from the devices kept live. With it on:
   is not live this moment (offline, signed out, or still to meet the cloud's
   seasons), nothing is deleted either, and the member is told why
   (`seasonDeleteRoute`): deleted here alone, the season's document would bring it
-  back at the next meeting. A device with the switch off, or a browser no member
-  has signed in to, deletes its own seasons here. The document is deleted only if it is this device's season, made at the
+  back at the next meeting. A browser no member has signed in to deletes its own
+  seasons here. The document is deleted only if it is this device's season, made at the
   same moment; another season under the id, kept apart from this one, is left in
   the cloud, and this device's is deleted here alone. A
   season deleted before some other device has first gone live comes back from
   that device, which has no base to tell a deletion from a season the cloud has
   not seen; a game deleted within a season does not, its season having the
   copy's as its base (the first meeting, above).
-- **The cloud copy leaves League alone** (`cloudSession.ts`): with the switch on
-  it is sent no League, a League change is no change owed to it, and an earlier
-  League version it keeps is neither offered nor brought back; once the first
-  meeting is done it takes no League in either, and a newer League in it is not
-  mentioned. A League change is still marked, though, so that turning the switch
-  off sends to the copy what changed meanwhile, merged with the copy's from the
-  base this device last took in, rather than the copy's older seasons replacing
-  it; and a first copy made with the switch on counts as having met no League, so
-  going back merges.
+- **The cloud copy leaves League alone** (`cloudSession.ts`): it is sent no
+  League, a League change is no change owed to it, and an earlier League version
+  it keeps is neither offered nor brought back; once the first meeting is done it
+  takes no League in either, and a newer League in it is not mentioned. A League
+  change is still marked, so that the copy's League, taken in before the first
+  meeting, merges with it rather than replacing it.
 
 **What Team Rankings has, asked of the server.** Where Team Rankings opens on
-the cloud's board (`liveBoardWanted`: unless turned off in the Cloud panel, in a browser
+the cloud's board (`liveBoardWanted`: in a browser
 that keeps a cloud copy, signed in as a member or still finding out), League
 Standings no longer reads Team Rankings off the device's own pool, which a
 member's device is to stop holding. It asks the edit function instead, as the

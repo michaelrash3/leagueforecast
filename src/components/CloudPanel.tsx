@@ -1,4 +1,4 @@
-import { useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 import {
   addCloudMember,
@@ -9,7 +9,6 @@ import {
   dismissCloudNotice,
   loadNewer,
   removeCloudMember,
-  restartCloud,
   retryCloud,
   saveNow,
   signInToCloud,
@@ -17,14 +16,8 @@ import {
   type CloudStatus,
   type KeptVersion,
 } from "../lib/cloud/cloudSession";
-import {
-  readLiveBoard,
-  readLiveLeague,
-  subscribeLiveBoard,
-  subscribeLiveLeague,
-  writeLiveBoard,
-  writeLiveLeague,
-} from "../lib/preferences";
+import { forgetDisplacedLeague, loadDisplacedLeague } from "../lib/cloud/cloudState";
+import { downloadJson, fileDay } from "../lib/download";
 import { button } from "../styles/tokens";
 import { CloudMembers, type MembersApi } from "./CloudMembers";
 
@@ -34,7 +27,6 @@ export type CloudActions = {
   signOut: () => void;
   loadNewer: () => void;
   retry: () => void;
-  restart: () => void;
   bringBack: (group: string) => void;
   dismissNotice: () => void;
   reloadApp: () => void;
@@ -47,7 +39,6 @@ const SESSION_ACTIONS: CloudActions = {
   signOut: () => void signOutOfCloud(),
   loadNewer: () => void loadNewer(),
   retry: () => void retryCloud(),
-  restart: () => void restartCloud(),
   bringBack: (group) => void bringBack(group),
   dismissNotice: () => dismissCloudNotice(),
   reloadApp: () => window.location.reload(),
@@ -88,64 +79,36 @@ const Line = ({ children }: { children: ReactNode }) => (
 );
 
 /**
- * This device's switch for opening Team Rankings on the cloud's published board
- * (`LiveTeamRankings`). On unless turned off (1.6e), and read as Team Rankings opens, so it changes
- * the next open and never the page on screen.
+ * This device's League Standings as they were when the copy's took their place at its first
+ * meeting (1.6f), kept here since no device writes the copy: offered as a file until saved or let go.
  */
-const LiveBoardSwitch = () => {
-  const on = useSyncExternalStore(subscribeLiveBoard, readLiveBoard, () => true);
-  const id = useId();
+const DisplacedLeague = () => {
+  const [held, setHeld] = useState(() => loadDisplacedLeague());
+  if (held === null) return null;
+  const letGo = () => {
+    forgetDisplacedLeague();
+    setHeld(null);
+  };
   return (
-    <div className="flex items-start gap-2">
-      <input
-        id={id}
-        type="checkbox"
-        checked={on}
-        onChange={(event) => writeLiveBoard(event.target.checked)}
-        className="mt-1"
-      />
-      <div className="flex flex-col gap-1">
-        <label htmlFor={id} className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Open Team Rankings on the cloud&apos;s board
-        </label>
-        <Note>
-          Team Rankings is read from the cloud as it is looked at, and edited there, so this device
-          downloads none of its pool. Turned off, it opens on this device&apos;s own copy of the
-          pool instead, downloaded and kept in step with the cloud. On this device only, from the
-          next time Team Rankings opens.
-        </Note>
-      </div>
-    </div>
-  );
-};
-
-/**
- * This device's switch for keeping League Standings live with the cloud (`useLiveLeague`): on
- * unless turned off (1.6e), and read as it changes, so the season on screen goes live, or back to
- * the cloud copy, at once.
- */
-const LiveLeagueSwitch = () => {
-  const on = useSyncExternalStore(subscribeLiveLeague, readLiveLeague, () => true);
-  const id = useId();
-  return (
-    <div className="flex items-start gap-2">
-      <input
-        id={id}
-        type="checkbox"
-        checked={on}
-        onChange={(event) => writeLiveLeague(event.target.checked)}
-        className="mt-1"
-      />
-      <div className="flex flex-col gap-1">
-        <label htmlFor={id} className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Keep League Standings live
-        </label>
-        <Note>
-          A score entered on any device shows on every other one in moments, and editing pauses
-          while this device is offline. The first time, this device&apos;s seasons are brought in
-          step with the cloud copy before they go live. Turned off, this device keeps League in the
-          cloud copy, apart from the devices kept live.
-        </Note>
+    <div className="flex flex-col gap-2">
+      <Note>
+        The cloud&apos;s League Standings took the place of this device&apos;s own when they first
+        met. This device&apos;s are kept here until you save them or let them go.
+      </Note>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            downloadJson(`league-standings-this-device-${fileDay()}.json`, held);
+            letGo();
+          }}
+          className={button.ghost}
+        >
+          Save this device&apos;s League Standings
+        </button>
+        <button type="button" onClick={letGo} className={button.ghost}>
+          Let them go
+        </button>
       </div>
     </div>
   );
@@ -360,12 +323,10 @@ function Body({
             </button>
           </div>
           <Note>
-            Signing out leaves everything in this browser as it is. It only stops saving to the
-            cloud{status.owed ? "; the changes still waiting are saved when you sign in again" : ""}
-            .
+            Signing out leaves everything in this browser as it is. Team Rankings and League
+            Standings are read and edited in the cloud while signed in.
           </Note>
-          <LiveBoardSwitch />
-          <LiveLeagueSwitch />
+          <DisplacedLeague />
           <CloudMembers api={members} />
           {kept.length > 0 && (
             <div className="flex flex-col gap-2">
@@ -399,17 +360,10 @@ function Body({
         <>
           <Account email={status.account.email} />
           <Line>
-            The cloud copy is gone: deleted in the Firebase console, most likely. Nothing in this
-            browser has been changed.
-          </Line>
-          <Line>
-            Starting it again from here makes this browser&apos;s data the cloud copy. Every other
-            device then adds its seasons to it, and keeps its own Team Rankings aside.
+            There is no cloud copy to read. Nothing in this browser has been changed. Only the
+            cloud&apos;s own servers make one, never a browser: ask the app&apos;s owner.
           </Line>
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={actions.restart} className={button.dark}>
-              Start it again from this browser
-            </button>
             <button type="button" onClick={actions.signOut} className={button.ghost}>
               Sign out
             </button>

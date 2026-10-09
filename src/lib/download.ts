@@ -30,5 +30,16 @@ export const downloadCsv = (name: string, body: string | readonly string[]) => {
   URL.revokeObjectURL(url);
 };
 
+/** Saves a value as a JSON file. */
+export const downloadJson = (name: string, value: unknown) => {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.click();
+  URL.revokeObjectURL(url);
+};
+
 /** Today, as "2026-09-17", so two days' files do not overwrite each other. */
 export const fileDay = (at: Date = new Date()): string => at.toISOString().slice(0, 10);

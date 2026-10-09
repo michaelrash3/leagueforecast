@@ -4,7 +4,7 @@ import App from "./App";
 import type { LiveLeagueState } from "./lib/live/leagueSync";
 import { buildShareUrl } from "./lib/share";
 import { loadCloudState, saveCloudState } from "./lib/cloud/cloudState";
-import { noteLeagueMet, writeLiveLeague } from "./lib/preferences";
+import { noteLeagueMet } from "./lib/preferences";
 import { createSeason, listSeasons, loadTeams, saveMatchups, saveTeams } from "./lib/storage";
 import { DEFAULT_SETTINGS } from "./lib/types";
 
@@ -17,7 +17,7 @@ const live = vi.hoisted(() => ({
   state: { kind: "off" } as LiveLeagueState,
   /** Seasons deleted from the cloud, and what the page asked of whether League is kept live. */
   removed: 0,
-  wanted: [] as { on: boolean; met: boolean; inStep: boolean }[],
+  wanted: [] as { met: boolean; inStep: boolean }[],
 }));
 
 vi.mock("./hooks/useLiveLeague", () => ({
@@ -36,7 +36,7 @@ vi.mock("./lib/live/leagueWanted", async (actual) => {
   return {
     ...real,
     leagueLiveWanted: (asked: Parameters<typeof real.leagueLiveWanted>[0]) => {
-      live.wanted.push({ on: asked.on, met: asked.met, inStep: asked.inStep });
+      live.wanted.push({ met: asked.met, inStep: asked.inStep });
       return real.leagueLiveWanted(asked);
     },
   };
@@ -69,19 +69,17 @@ describe("League Standings kept live, on the page", () => {
     live.wanted = [];
   });
 
-  it("asks whether League is kept live by the switch and the meeting this device has had", async () => {
+  it("asks whether League is kept live by the meeting this device has had", async () => {
     render(<App />);
     await screen.findByRole("tab", { name: "Settings" });
-    // On by default, and nothing met here.
-    // Not in step with a copy no settlement here has read.
-    expect(live.wanted[live.wanted.length - 1]).toEqual({ on: true, met: false, inStep: false });
+    // Nothing met here, and not in step with a copy no settlement here has read.
+    expect(live.wanted[live.wanted.length - 1]).toEqual({ met: false, inStep: false });
     cleanup();
-    writeLiveLeague(false);
     saveCloudState({ ...loadCloudState(), uid: "member-uid" });
     noteLeagueMet("member-uid");
     render(<App />);
     await screen.findByRole("tab", { name: "Settings" });
-    expect(live.wanted[live.wanted.length - 1]).toEqual({ on: false, met: true, inStep: false });
+    expect(live.wanted[live.wanted.length - 1]).toEqual({ met: true, inStep: false });
   });
 
   /** Deletes Fall from Settings' season list, and says whether it is still listed. */
@@ -230,7 +228,6 @@ describe("League Standings kept live, on the page", () => {
   });
 
   it("deletes another season while the open one is kept apart, the cloud answering", async () => {
-    writeLiveLeague(true);
     const fall = createSeason("Fall");
     live.state = { kind: "apart" };
     render(<App />);
@@ -245,7 +242,6 @@ describe("League Standings kept live, on the page", () => {
   });
 
   it("refuses a delete while offline, with no cloud to delete it from", async () => {
-    writeLiveLeague(true);
     const fall = createSeason("Fall");
     live.state = { kind: "offline" };
     render(<App />);

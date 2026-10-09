@@ -3,7 +3,6 @@ import { Suspense } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudStatus } from "../lib/cloud/cloudSession";
 import { loadCloudState, saveCloudState } from "../lib/cloud/cloudState";
-import { writeLiveBoard } from "../lib/preferences";
 
 /*
  * Which Team Rankings opens (`RankingsOpen`): the cloud's board for a member who turned it on, or
@@ -51,15 +50,7 @@ beforeEach(() => {
 });
 
 describe("which Team Rankings opens", () => {
-  it("is the page as it always was once the switch is turned off", () => {
-    writeLiveBoard(false);
-    const { page } = open(SAVED);
-    expect(screen.getByTestId("page")).toBeTruthy();
-    expect(screen.queryByTestId("live")).toBeNull();
-    expect(page).toHaveBeenCalledWith();
-  });
-
-  it("is the cloud's board for a member unless turned off, signed in or still finding out", async () => {
+  it("is the cloud's board for a member, signed in or still finding out", async () => {
     open(SAVED);
     expect((await screen.findByTestId("live")).textContent).toBe("cloud's board, saved");
     expect(screen.queryByTestId("page")).toBeNull();
@@ -81,24 +72,5 @@ describe("which Team Rankings opens", () => {
     // Nor in a browser that keeps no cloud copy.
     saveCloudState({ ...loadCloudState(), enabled: false });
     expect(open(SAVED).shown.getByTestId("page")).toBeTruthy();
-  });
-
-  it("stays the one it opened as when the switch is turned while it is open", async () => {
-    writeLiveBoard(false);
-    const { shown } = open(SAVED);
-    writeLiveBoard(true);
-    shown.rerender(
-      <Suspense fallback={null}>
-        <RankingsOpen
-          status={SAVED}
-          page={() => <p data-testid="page">the page</p>}
-          seasons={[]}
-          showToast={showToast}
-          confirm={confirm}
-        />
-      </Suspense>
-    );
-    expect(screen.getByTestId("page")).toBeTruthy();
-    expect(screen.queryByTestId("live")).toBeNull();
   });
 });

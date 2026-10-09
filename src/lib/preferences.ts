@@ -138,49 +138,8 @@ export const writeDefaultAge = (pick: DefaultAge | null): boolean => {
 export const defaultLevelIn = (pick: DefaultAge, year: number): number =>
   year - (pick.year - pick.level);
 
-const LIVE_BOARD_KEY = "lf_live_v1";
-const liveBoardListeners = new Set<() => void>();
-
-/**
- * Whether Team Rankings opens on the cloud's published board on this device (`LiveTeamRankings`)
- * for a member: on unless turned off in the Cloud panel (1.6e), and then off until turned on again,
- * so the word kept is the member's choice either way. Kept per device, never in a backup or the
- * cloud copy, and cleared with the rest of the app's keys by a reset, which puts it back on.
- */
-export const readLiveBoard = (): boolean => safeGet(LIVE_BOARD_KEY) !== "off";
-
-export const writeLiveBoard = (on: boolean): boolean => {
-  const written = safeSet(LIVE_BOARD_KEY, on ? "on" : "off");
-  liveBoardListeners.forEach((listener) => listener());
-  return written;
-};
-
-/** Calls `listener` whenever the switch is written here; for `useSyncExternalStore`. */
-export const subscribeLiveBoard = (listener: () => void): (() => void) => {
-  liveBoardListeners.add(listener);
-  return () => {
-    liveBoardListeners.delete(listener);
-  };
-};
-
-const LIVE_LEAGUE_KEY = "lf_live_league_v1";
-const liveLeagueListeners = new Set<() => void>();
-
-/**
- * Whether League Standings is kept live with the cloud on this device (`leagueSync.ts`) for a
- * member: each season one document, written as it is edited and taken in as other devices edit it,
- * in place of the cloud copy's League part. On unless turned off in the Cloud panel (1.6e), and then
- * off until turned on again, the word kept being the member's choice either way. Kept per device,
- * never in a backup or the cloud copy, and cleared with the rest of the app's keys by a reset, which
- * puts it back on. A device turned off keeps League in the copy, apart from the devices kept live.
- */
-export const readLiveLeague = (): boolean => safeGet(LIVE_LEAGUE_KEY) !== "off";
-
-export const writeLiveLeague = (on: boolean): boolean => {
-  const written = safeSet(LIVE_LEAGUE_KEY, on ? "on" : "off");
-  liveLeagueListeners.forEach((listener) => listener());
-  return written;
-};
+/** Listeners told when this device first meets the cloud's League documents (`noteLeagueMet`). */
+const leagueMetListeners = new Set<() => void>();
 
 const LEAGUE_MET_KEY = "lf_league_met_v1";
 
@@ -197,14 +156,14 @@ export const leagueMetAs = (): string | null => safeGet(LEAGUE_MET_KEY);
 /** Notes that this device has met the cloud's League documents as `uid`, and says so. */
 export const noteLeagueMet = (uid: string): boolean => {
   const written = safeSet(LEAGUE_MET_KEY, uid);
-  liveLeagueListeners.forEach((listener) => listener());
+  leagueMetListeners.forEach((listener) => listener());
   return written;
 };
 
-/** Calls `listener` whenever League's switch is written here; for `useSyncExternalStore`. */
-export const subscribeLiveLeague = (listener: () => void): (() => void) => {
-  liveLeagueListeners.add(listener);
+/** Calls `listener` whenever this device's first meeting is noted; for `useSyncExternalStore`. */
+export const subscribeLeagueMet = (listener: () => void): (() => void) => {
+  leagueMetListeners.add(listener);
   return () => {
-    liveLeagueListeners.delete(listener);
+    leagueMetListeners.delete(listener);
   };
 };

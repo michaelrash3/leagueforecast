@@ -13,7 +13,7 @@ import type { CloudAccount, FirebaseCloud } from "../firebaseCloud";
 import { memoryCloud, memoryMembers, type MemoryCloud } from "./memoryCloud";
 import { gcAuthorization } from "../../gcAuthorization";
 import { memoryLeague, settled as settledLeague } from "../../live/__tests__/memoryLeague";
-import { noteLeagueMet, writeLiveLeague } from "../../preferences";
+import { noteLeagueMet } from "../../preferences";
 import { leagueLiveWanted } from "../../live/leagueWanted";
 import { docToSeason, seasonDocId, seasonToDoc } from "../../live/leagueDocs";
 import type { BaseKeeper, Known } from "../../live/leagueBase";
@@ -49,12 +49,12 @@ const {
   saveLeagueBase,
   owedChanges,
   forgetCloudCopyHere,
+  loadDisplacedLeague,
 } = await import("../cloudState");
 const { resetCloudGuard } = await import("../cloudGuard");
 const { areaOf } = await import("../cloudPlan");
 const { isEmptyLeague } = await import("../leagueMerge");
 const { fetchValues } = await import("../cloudEngine");
-const { hashValue } = await import("../cloudPack");
 
 const TEAMS = "league_forecast_scout_teams_v1";
 const GROUPS = "league_forecast_scout_age_groups_v1";
@@ -122,11 +122,7 @@ type Device = {
 const device = (entries: Record<string, unknown>): Device => {
   const values = new Map<string, unknown>(Object.entries(entries));
   const notStored = new Set<string>();
-  // League's switch off, as on a device kept apart from the live ones: the copy's own League sync
-  // is what most of these tests are about, and with the switch on the copy only brings League in
-  // (1.6e review). The tests of League kept live turn it on.
   const storage = memoryStorage();
-  storage.setItem("lf_live_league_v1", "off");
   return {
     values,
     storage,
@@ -331,27 +327,49 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** The laptop, holding the data, signs in first; its copy becomes the cloud's. */
+/**
+ * The cloud's servers change the copy, as an edit through the edit function or the nightly does:
+ * no device writes it (1.6f).
+ */
+const serverWrites = async (
+  entries: Record<string, unknown>,
+  { by = "live-edit", keep = false }: { by?: string; keep?: boolean } = {}
+) => {
+  const done = await commitChanges({
+    store: sky.store,
+    base: sky.manifest(),
+    changes: Object.entries(entries).map(([key, value]) => ({ key, value, at: clock })),
+    keepReplaced: keep ? Object.keys(entries) : [],
+    device: by,
+    now: new Date(clock).toISOString(),
+  });
+  if (!done.ok) throw new Error("the server's write did not land");
+};
+
+/** The copy the servers made, holding `entries`, and the laptop, holding the same, signed in. */
 const laptopFirst = async (
   entries: Record<string, unknown> = { league: fall, [TEAMS]: ["laptop pool"] }
 ) => {
+  await serverWrites(entries, { by: "nightly" });
   const laptop = device(entries);
   runAs(laptop);
   await session.signInToCloud();
   return laptop;
 };
 
-describe("the first device to sign in", () => {
-  it("sends everything it holds, League Standings and the pool, as the first copy", async () => {
-    await laptopFirst();
-    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual(["league", TEAMS]);
+describe("a device signing in to the copy the servers made", () => {
+  it("meets it, holding the same, and writes the copy nothing", async () => {
+    await serverWrites({ league: fall, [TEAMS]: ["laptop pool"] }, { by: "nightly" });
+    const writes = sky.costs.writes;
+    runAs(device({ league: fall, [TEAMS]: ["laptop pool"] }));
+    await session.signInToCloud();
+    expect(sky.costs.writes).toBe(writes);
     expect(loadCloudState()).toMatchObject({ enabled: true, uid: ME.uid, version: 1 });
     expect(loadCloudState().met).toEqual({
       league: sky.manifest()?.copy,
       pool: sky.manifest()?.copy,
     });
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false, newer: [] });
-    expect(await cloudValue(TEAMS)).toEqual(["laptop pool"]);
   });
 });
 
@@ -370,7 +388,7 @@ describe("a second device signing in", () => {
     expect(reloads).toBe(1);
   });
 
-  it("adds its own seasons to the copy, keeping apart a first season that only shares an id", async () => {
+  it("keeps its own seasons here beside the copy's, apart from a first season that only shares an id", async () => {
     await laptopFirst({ league: league(season("default", {}, "2026-08-01T00:00:00Z")) });
     const phone = device({
       league: league(season("default", { g1: log(3, 1) }, "2026-05-01T00:00:00Z")),
@@ -380,10 +398,10 @@ describe("a second device signing in", () => {
     const seasons = (phone.values.get("league") as LeagueValue).seasons;
     expect(seasons.map((one) => one.id)).toEqual(["default", "season-2"]);
     expect(seasons[1]?.logs).toEqual({ g1: log(3, 1) });
-    expect(((await cloudValue("league")) as LeagueValue).seasons).toHaveLength(2);
+    expect(((await cloudValue("league")) as LeagueValue).seasons).toHaveLength(1);
   });
 
-  it("keeps its own pool in the copy, where it can be brought back, and takes the copy's", async () => {
+  it("takes the copy's pool over its own, and keeps none of its own in the copy", async () => {
     await laptopFirst();
     const phone = device({ league: fall, [TEAMS]: ["phone's old pool"], [CADENCE]: "daily" });
     runAs(phone);
@@ -392,15 +410,8 @@ describe("a second device signing in", () => {
     expect(phone.values.get(TEAMS)).toEqual(["laptop pool"]);
     expect(phone.values.has(CADENCE)).toBe(false);
     expect(await cloudValue(TEAMS)).toEqual(["laptop pool"]);
-    expect(session.cloudKept()).toMatchObject([
-      { why: "lost", fromHere: true, what: ["Team Rankings"] },
-    ]);
-    expect(
-      sky
-        .manifest()
-        ?.kept.map((part) => part.key)
-        .sort()
-    ).toEqual([CADENCE, TEAMS].sort());
+    expect(sky.manifest()?.kept).toEqual([]);
+    expect(session.cloudKept()).toEqual([]);
   });
 
   it("is refused for an account the copy does not belong to, and changes nothing", async () => {
@@ -500,19 +511,17 @@ describe("the copy as this device last found it", () => {
       parts: manifest.parts.map((part) => [part.key, part.hash]),
     };
 
-  it("is the manifest this device's own save committed, and the next one it read", async () => {
+  it("is the manifest this device last read", async () => {
     const { laptop, phone } = await inStep();
     expect(session.copySeen()).toEqual(seenOf(sky.manifest()));
     runAs(laptop);
     expect(session.copySeen()).toBeNull();
     await session.bootCloud();
     expect(session.copySeen()).toEqual(seenOf(sky.manifest()));
-    edit(laptop, "league", league(season("fall", { g1: log(3, 2) })));
-    await session.saveNow();
+    await serverWrites({ league: league(season("fall", { g1: log(3, 2) })) });
     const saved = sky.manifest();
     expect(saved?.version).toBe(2);
-    expect(session.copySeen()).toEqual(seenOf(saved));
-    // The phone, opened again, reads the laptop's save on its way in.
+    // The phone, opened again, reads the servers' write on its way in.
     await open(phone);
     expect(session.copySeen()).toEqual(seenOf(saved));
   });
@@ -540,73 +549,32 @@ const inStep = async () => {
   return { laptop, phone };
 };
 
-describe("changes on two devices", () => {
-  it("keeps a score entered on each device for different games, and asks nothing", async () => {
-    const { laptop, phone } = await inStep();
+describe("a change made on a device (1.6f)", () => {
+  it("stays on it: the copy is written nothing", async () => {
+    const { laptop } = await inStep();
     await open(laptop);
+    const writes = sky.costs.writes;
     edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
-    await session.saveNow();
-    later();
-    // The phone, still on the old seasons, enters another game's score, and next opens the app.
-    runAs(phone);
-    edit(phone, "league", league(season("fall", { g2: log(1, 7) })));
-    await session.bootCloud();
-    await session.saveNow();
+    edit(laptop, TEAMS, ["laptop's own edit"]);
+    await session.saveNow({ asked: true });
+    expect(sky.costs.writes).toBe(writes);
+    expect(sky.manifest()?.version).toBe(1);
+    expect(await cloudValue(TEAMS)).toEqual(["laptop pool"]);
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false });
-    expect(await cloudLogs()).toEqual({ g1: log(5, 3), g2: log(1, 7) });
-    expect(logsOf(phone)).toEqual({ g1: log(5, 3), g2: log(1, 7) });
-    await open(laptop);
-    expect(logsOf(laptop)).toEqual({ g1: log(5, 3), g2: log(1, 7) });
-    expect(sky.manifest()?.kept).toEqual([]);
   });
 
-  it("keeps the later of two different scores for one game, and the other in the copy", async () => {
-    const { laptop, phone } = await inStep();
-    runAs(phone);
-    edit(phone, "league", league(season("fall", { g1: log(5, 3) })));
+  it("gives way to the servers' write to a pool key, even one made before it", async () => {
+    const { laptop } = await inStep();
+    await serverWrites({ [TEAMS]: ["the servers' pool"] });
     later();
+    // Made after the servers' write, which this device has not read yet.
+    runAs(laptop);
+    edit(laptop, TEAMS, ["laptop's own edit"]);
     await open(laptop);
-    edit(laptop, "league", league(season("fall", { g1: log(6, 3) })));
-    await session.saveNow();
-    await open(phone);
-    await session.saveNow();
-    // The laptop's score was entered later.
-    expect(logsOf(phone)).toEqual({ g1: log(6, 3) });
-    expect(session.cloudStatus()).toMatchObject({
-      notice: expect.stringContaining("later change"),
-    });
-    expect(session.cloudKept()).toMatchObject([
-      { why: "lost", fromHere: true, what: ["League Standings"] },
-    ]);
-  });
-
-  it("gives a pool key both changed to the later change, keeping the other", async () => {
-    const { laptop, phone } = await inStep();
-    runAs(phone);
-    edit(phone, TEAMS, ["phone's edit"]);
-    later();
-    await open(laptop);
-    edit(laptop, TEAMS, ["laptop's pull"]);
-    await session.saveNow();
-    await open(phone);
     await session.preparePool();
-    expect(phone.values.get(TEAMS)).toEqual(["laptop's pull"]);
-    expect(await cloudValue(TEAMS)).toEqual(["laptop's pull"]);
-    expect(session.cloudKept()).toMatchObject([{ why: "lost", fromHere: true }]);
-  });
-
-  it("sees no conflict where both made the same change", async () => {
-    const { laptop, phone } = await inStep();
-    const same = league(season("fall", { g1: log(2, 2) }));
-    runAs(phone);
-    edit(phone, "league", same);
-    await open(laptop);
-    edit(laptop, "league", same);
-    await session.saveNow();
-    await open(phone);
-    await session.saveNow();
-    expect(sky.manifest()?.kept).toEqual([]);
+    expect(laptop.values.get(TEAMS)).toEqual(["the servers' pool"]);
     expect(owedChanges()).toEqual({});
+    expect(sky.manifest()?.kept).toEqual([]);
   });
 });
 
@@ -637,7 +605,7 @@ describe("an edit made while a copy downloads", () => {
     expect(Object.keys(owedChanges())).toEqual(["league"]);
     await session.loadNewer();
     expect(logsOf(phone)).toEqual({ g1: log(5, 3), g2: log(0, 4) });
-    expect(await cloudLogs()).toEqual({ g1: log(5, 3), g2: log(0, 4) });
+    expect(await cloudLogs()).toEqual({ g1: log(5, 3) });
   });
 });
 
@@ -658,13 +626,6 @@ const holdDownloads = (): (() => void) => {
   };
 };
 
-/** The kept versions of `key` the copy holds, as values. */
-const keptValues = async (key: string): Promise<unknown[]> => {
-  const parts = (sky.manifest() as CloudManifest).kept.filter((part) => part.key === key);
-  const fetched = await fetchValues({ store: sky.store, parts });
-  return fetched.ok ? [...fetched.values.values()] : ["fetch failed"];
-};
-
 /** A page on screen: what `startCloudSession` listens to, as the test runs outside a browser. */
 const onScreen = () => {
   const quiet = { addEventListener: () => undefined, removeEventListener: () => undefined };
@@ -673,11 +634,9 @@ const onScreen = () => {
 };
 
 describe("Team Rankings drawn before its pool has arrived", () => {
-  it("leaves what arrives to be asked for, so the view's next save keeps the other device's pool", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, TEAMS, ["laptop pool", "laptop's pull"]);
-    await session.saveNow();
+  it("leaves what arrives to be asked for, and sends the copy none of the view's old pool", async () => {
+    const { phone } = await inStep();
+    await serverWrites({ [TEAMS]: ["laptop pool", "laptop's pull"] });
     await open(phone);
     const release = holdDownloads();
     const preparing = session.preparePool();
@@ -688,20 +647,16 @@ describe("Team Rankings drawn before its pool has arrived", () => {
     await preparing;
     expect(phone.values.get(TEAMS)).toEqual(["laptop pool"]);
     expect(session.cloudStatus()).toMatchObject({ newer: ["pool"] });
-    // The view, still holding the old pool, saves an edit of it: the later change wins, and the
-    // laptop's pull is kept rather than lost.
+    // The view, still holding the old pool, saves an edit of it: the copy is sent none of it.
     later();
     edit(phone, TEAMS, ["laptop pool", "phone's edit"]);
     await session.saveNow();
-    expect(await cloudValue(TEAMS)).toEqual(["laptop pool", "phone's edit"]);
-    expect(await keptValues(TEAMS)).toEqual([["laptop pool", "laptop's pull"]]);
+    expect(await cloudValue(TEAMS)).toEqual(["laptop pool", "laptop's pull"]);
   });
 
   it("waits again for a pool still arriving when Team Rankings is left and opened again", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, TEAMS, ["laptop pool", "laptop's pull"]);
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({ [TEAMS]: ["laptop pool", "laptop's pull"] });
     await open(phone);
     const release = holdDownloads();
     const preparing = session.preparePool();
@@ -715,10 +670,8 @@ describe("Team Rankings drawn before its pool has arrived", () => {
   });
 
   it("is not told of a newer pool when Team Rankings has not been opened here", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, TEAMS, ["laptop pool", "laptop's pull"]);
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({ [TEAMS]: ["laptop pool", "laptop's pull"] });
     await open(phone);
     await session.lookAgain({ forced: true });
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: [] });
@@ -726,109 +679,13 @@ describe("Team Rankings drawn before its pool has arrived", () => {
   });
 });
 
-describe("a save cut off waiting for its commit", () => {
-  it("leaves its pieces for as long as the commit could still land, so a late landing is whole", async () => {
-    const { laptop, phone } = await inStep();
-    await open(phone);
-    edit(phone, "league", league(season("fall", { g1: log(4, 4) })));
-    // The commit stalls on the network past its limit, and lands later.
-    const store = sky.store;
-    const real = store.commitManifest;
-    let land: () => void = () => undefined;
-    let landed: Promise<boolean> | null = null;
-    store.commitManifest = (expected, next) => {
-      store.commitManifest = real;
-      landed = new Promise<boolean>((resolve) => {
-        land = () => resolve(real(expected, next));
-      });
-      return landed;
-    };
-    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
-    const cutOff = session.saveNow();
-    await vi.waitFor(() => expect(landed).not.toBeNull());
-    await vi.advanceTimersByTimeAsync(21_000);
-    await cutOff;
-    vi.useFakeTimers({ toFake: ["Date"] });
-    expect(session.cloudStatus()).toMatchObject({ kind: "error" });
-    // Saving again, the stalled commit lands while the new save uploads.
-    const realPut = store.putChunk;
-    store.putChunk = async (id, data) => {
-      store.putChunk = realPut;
-      land();
-      await landed;
-      return realPut(id, data);
-    };
-    await session.saveNow();
-    later();
-    await open(laptop);
-    expect(await cloudLogs()).toEqual({ g1: log(4, 4) });
-    expect(logsOf(laptop)).toEqual({ g1: log(4, 4) });
-    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
-  });
-});
-
-describe("League Standings found in step while a save runs", () => {
-  it("keep as their base the version the copy holds, not an edit made meanwhile", async () => {
-    const { laptop, phone } = await inStep();
-    const scored = league(season("fall", { g1: log(5, 3) }));
-    await open(laptop);
-    edit(laptop, "league", scored);
-    await session.saveNow();
-    later();
-    // The phone made the same change, and a pool change whose upload the user types through.
-    runAs(phone);
-    edit(phone, "league", scored);
-    edit(phone, TEAMS, ["phone's pool edit"]);
-    const real = sky.store.putChunk;
-    sky.store.putChunk = async (id, data) => {
-      sky.store.putChunk = real;
-      edit(phone, "league", league(season("fall", { g1: log(5, 3), g2: log(1, 7) })));
-      return real(id, data);
-    };
-    await session.signInToCloud();
-    const base = loadLeagueBase();
-    expect(base?.hash).toBe(await hashValue(scored));
-    expect((base?.value as LeagueValue).seasons[0]?.logs).toEqual({ g1: log(5, 3) });
-    // The laptop renames the season; the phone's unsent score survives the merge that follows.
-    later();
-    await open(laptop);
-    edit(laptop, "league", league({ ...season("fall", { g1: log(5, 3) }), name: "Fall ball" }));
-    await session.saveNow();
-    later();
-    await open(phone);
-    await session.saveNow();
-    expect(await cloudLogs()).toEqual({ g1: log(5, 3), g2: log(1, 7) });
-  });
-});
-
-describe("League Standings with no season in them", () => {
-  it("are never sent, since no device could take them", async () => {
-    const { laptop } = await inStep();
-    await open(laptop);
-    edit(laptop, "league", { seasons: [] });
-    await session.saveNow();
-    expect(await cloudLogs()).toEqual({});
-    expect(((await cloudValue("league")) as LeagueValue).seasons).toHaveLength(1);
-    expect(session.cloudStatus()).toMatchObject({ waiting: "unreadable" });
-  });
-
-  it("are left out of a first copy", async () => {
-    await laptopFirst({ league: { seasons: [] }, [TEAMS]: ["laptop pool"] });
-    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual([TEAMS]);
-  });
-});
-
 describe("a copy with a piece missing", () => {
   it("is not downloaded again at every look: looks back off as saves do", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(
-      laptop,
-      TEAMS,
-      Array.from({ length: 5000 }, (_, i) => `team ${i}`)
-    );
-    edit(laptop, "league_forecast_scout_games_v2:2026", ["games 2026"]);
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({
+      [TEAMS]: Array.from({ length: 5000 }, (_, i) => `team ${i}`),
+      "league_forecast_scout_games_v2:2026": ["games 2026"],
+    });
     const manifest = sky.manifest() as CloudManifest;
     const games = manifest.parts.find((part) => part.key === "league_forecast_scout_games_v2:2026");
     sky.chunks.delete(`${games?.id}-0`);
@@ -848,10 +705,8 @@ describe("a copy with a piece missing", () => {
 
 describe("an app already on screen", () => {
   it("does not take League Standings in under itself when its start is run again", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({ league: league(season("fall", { g1: log(5, 3) })) });
     runAs(phone);
     onScreen();
     const stop = session.startCloudSession();
@@ -861,40 +716,19 @@ describe("an app already on screen", () => {
     stop();
   });
 
-  it("merges and sends League Standings both devices changed when Save now is pressed", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
-    await session.saveNow();
-    // The phone, open since before the laptop saved, enters another game's score.
+  it("merges League Standings both changed when Save now is pressed, and sends the copy none", async () => {
+    const { phone } = await inStep();
+    await serverWrites({ league: league(season("fall", { g1: log(5, 3) })) });
+    // The phone, open since before the servers' write, enters another game's score.
     runAs(phone);
     onScreen();
     const stop = session.startCloudSession();
     edit(phone, "league", league(season("fall", { g2: log(1, 7) })));
     await session.bootCloud();
     await session.saveNow({ asked: true });
-    expect(await cloudLogs()).toEqual({ g1: log(5, 3), g2: log(1, 7) });
+    expect(logsOf(phone)).toEqual({ g1: log(5, 3), g2: log(1, 7) });
+    expect(await cloudLogs()).toEqual({ g1: log(5, 3) });
     stop();
-  });
-});
-
-describe("an edit made while a save uploads", () => {
-  it("is still owed once the save lands, and goes with the next one", async () => {
-    const { laptop } = await inStep();
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g1: log(1, 0) })));
-    const real = sky.store.putChunk;
-    sky.store.putChunk = async (id, data) => {
-      sky.store.putChunk = real;
-      edit(laptop, "league", league(season("fall", { g1: log(1, 0), g2: log(2, 2) })));
-      return real(id, data);
-    };
-    await session.saveNow();
-    expect(await cloudLogs()).toEqual({ g1: log(1, 0) });
-    expect(Object.keys(owedChanges())).toEqual(["league"]);
-    await session.saveNow();
-    expect(await cloudLogs()).toEqual({ g1: log(1, 0), g2: log(2, 2) });
-    expect(owedChanges()).toEqual({});
   });
 });
 
@@ -943,29 +777,26 @@ describe("an account the copy refuses mid-visit", () => {
     expect(session.cloudStatus()).toMatchObject({ kind: "error", account: ME });
   });
 
-  it("ends a refused save as an error when the second look never comes back", async () => {
+  it("ends a refused look as an error when the second look never comes back", async () => {
     const { phone } = await inStep();
     await open(phone);
     expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
-    // A piece of the save refused, and the network silent from the very next request on.
+    // The copy refused, and the network silent from the very next request on.
     listed = "silent";
-    let pieceRefused = false;
-    sky.store.putChunk = () => {
-      pieceRefused = true;
+    let copyRefused = false;
+    sky.store.readManifest = () => {
+      copyRefused = true;
       return refused();
     };
-    edit(phone, TEAMS, ["phone pool, changed"]);
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     let ended = false;
     const saving = session.saveNow({ asked: true }).then(() => {
       ended = true;
     });
-    // Once the save has packed its pieces and sent one, as long as the copy's own reads are given,
-    // and a little over.
-    await vi.waitFor(() => expect(pieceRefused).toBe(true));
+    await vi.waitFor(() => expect(copyRefused).toBe(true));
     await vi.advanceTimersByTimeAsync(21_000);
     vi.useFakeTimers({ toFake: ["Date"] });
-    // Ended rather than saving for good, which would keep every later look away: an error, since
+    // Ended rather than waiting for good, which would keep every later look away: an error, since
     // the look that could have said the account is off the list said nothing.
     expect(ended).toBe(true);
     await saving;
@@ -1057,20 +888,16 @@ describe("a device short of storage", () => {
 
 describe("startup", () => {
   it("takes another device's seasons before the app draws, with no reload", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({ league: league(season("fall", { g1: log(5, 3) })) });
     await open(phone);
     expect(logsOf(phone)).toEqual({ g1: log(5, 3) });
     expect(reloads).toBe(0);
   });
 
   it("opens on this device's data when the seasons are slow, and says newer ones are there", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({ league: league(season("fall", { g1: log(5, 3) })) });
     runAs(phone);
     const real = sky.store.getChunk;
     let release: () => void = () => undefined;
@@ -1091,38 +918,6 @@ describe("startup", () => {
     expect(logsOf(phone)).toEqual({});
     await session.loadNewer();
     expect(logsOf(phone)).toEqual({ g1: log(5, 3) });
-  });
-});
-
-describe("what cannot be sent", () => {
-  it("waits for a pool value this device could not store, and sends the rest", async () => {
-    const { laptop } = await inStep();
-    await open(laptop);
-    edit(laptop, TEAMS, ["refused by the disk"]);
-    edit(laptop, "league", league(season("fall", { g1: log(1, 0) })));
-    laptop.notStored.add(TEAMS);
-    await session.saveNow();
-    expect(await cloudValue(TEAMS)).toEqual(["laptop pool"]);
-    expect(await cloudLogs()).toEqual({ g1: log(1, 0) });
-    expect(Object.keys(owedChanges())).toEqual([TEAMS]);
-    expect(session.cloudStatus()).toMatchObject({ waiting: "storage" });
-    laptop.notStored.clear();
-    await session.saveNow();
-    expect(await cloudValue(TEAMS)).toEqual(["refused by the disk"]);
-  });
-
-  it("holds the pool back while a pull runs, and still saves the seasons", async () => {
-    const { laptop } = await inStep();
-    await open(laptop);
-    edit(laptop, TEAMS, ["half a pull"]);
-    edit(laptop, "league", league(season("fall", { g2: log(3, 3) })));
-    pull.live = true;
-    await session.saveNow();
-    expect(await cloudValue(TEAMS)).toEqual(["laptop pool"]);
-    expect(await cloudLogs()).toEqual({ g2: log(3, 3) });
-    pull.live = false;
-    await session.saveNow();
-    expect(await cloudValue(TEAMS)).toEqual(["half a pull"]);
   });
 });
 
@@ -1159,68 +954,58 @@ describe("a copy this build must not touch", () => {
 });
 
 describe("a copy that is gone", () => {
-  it("is said to be gone, and started again only when asked, as a new copy others meet", async () => {
-    const { laptop, phone } = await inStep();
-    const first = sky.manifest()?.copy;
+  it("is said to be gone, sent nothing, and made again by no device (1.6f)", async () => {
+    const { laptop } = await inStep();
+    const writesBefore = sky.costs.writes;
     sky.setManifest(null);
     runAs(laptop);
     await session.bootCloud();
     edit(laptop, "league", league(season("fall", { g1: log(9, 0) })));
-    await session.saveNow();
+    await session.saveNow({ asked: true });
     expect(session.cloudStatus()).toMatchObject({ kind: "gone" });
     expect(sky.manifest()).toBeNull();
-    await session.restartCloud();
-    expect(sky.manifest()?.copy).not.toBe(first);
-    // The phone meets it: its seasons join, and nothing of it is thrown away.
-    await open(phone);
-    expect(logsOf(phone)).toEqual({ g1: log(9, 0) });
+    // A device that never met a copy finds none, and makes none either.
+    runAs(device({ league: fall, [TEAMS]: ["tablet pool"] }));
+    await session.signInToCloud();
+    expect(session.cloudStatus()).toMatchObject({ kind: "gone" });
+    expect(sky.manifest()).toBeNull();
+    expect(sky.costs.writes).toBe(writesBefore);
   });
 });
 
 describe("signing out and back in", () => {
-  it("records what changes meanwhile, and sends it on signing in again", async () => {
+  it("records what changes meanwhile, and sends none of it on signing in again", async () => {
     const { laptop } = await inStep();
     await open(laptop);
     await session.signOutOfCloud();
     edit(laptop, "league", league(season("fall", { g1: log(7, 7) })));
     expect(Object.keys(owedChanges())).toEqual(["league"]);
     await session.signInToCloud();
-    expect(await cloudLogs()).toEqual({ g1: log(7, 7) });
+    expect(await cloudLogs()).toEqual({});
+    expect(logsOf(laptop)).toEqual({ g1: log(7, 7) });
   });
 });
 
 describe("bringing a kept version back", () => {
-  it("makes it current in the copy and here, keeping what it replaces", async () => {
-    const { laptop, phone } = await inStep();
-    runAs(phone);
-    edit(phone, TEAMS, ["phone's edit"]);
-    later();
-    await open(laptop);
-    edit(laptop, TEAMS, ["laptop's pull"]);
-    await session.saveNow();
+  it("makes it current in the copy and here", async () => {
+    const { phone } = await inStep();
+    // The servers replace the pool, keeping the one it replaces.
+    await serverWrites({ [TEAMS]: ["laptop's pull"] }, { keep: true });
     await open(phone);
     await session.preparePool();
+    expect(phone.values.get(TEAMS)).toEqual(["laptop's pull"]);
     const [version] = session.cloudKept();
     await session.bringBack(version?.group ?? "");
     // Made by the server, which this device then takes from the copy.
     expect(restored).toEqual([version?.group]);
     expect(sky.manifest()?.device).toBe("live-edit");
-    expect(phone.values.get(TEAMS)).toEqual(["phone's edit"]);
-    expect(await cloudValue(TEAMS)).toEqual(["phone's edit"]);
-    expect(session.cloudKept()).toMatchObject([{ why: "replaced" }]);
-    await open(laptop);
-    await session.preparePool();
-    expect(laptop.values.get(TEAMS)).toEqual(["phone's edit"]);
+    expect(phone.values.get(TEAMS)).toEqual(["laptop pool"]);
+    expect(await cloudValue(TEAMS)).toEqual(["laptop pool"]);
   });
 
   it("says why the server would not bring it back, and changes nothing here", async () => {
-    const { laptop, phone } = await inStep();
-    runAs(phone);
-    edit(phone, TEAMS, ["phone's edit"]);
-    later();
-    await open(laptop);
-    edit(laptop, TEAMS, ["laptop's pull"]);
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({ [TEAMS]: ["laptop's pull"] }, { keep: true });
     await open(phone);
     await session.preparePool();
     const version = sky.manifest()?.version;
@@ -1285,10 +1070,8 @@ describe("bringing a kept version back", () => {
     expect(reloads).toBe(reloadsBefore);
   });
 
-  it("sends this device's unsaved edits first, so the version the restore replaces holds them", async () => {
-    const { laptop, phone } = await inStep();
-    runAs(phone);
-    await open(laptop);
+  it("keeps the copy's pool as the version a restore replaces, sending none of this device's", async () => {
+    const { phone } = await inStep();
     await open(phone);
     await session.preparePool();
     edit(phone, TEAMS, ["phone's unsaved edit"]);
@@ -1301,7 +1084,7 @@ describe("bringing a kept version back", () => {
         (part) => part.group === replaced?.group && part.key === TEAMS
       ),
     });
-    expect(fetched.ok && fetched.values.get(TEAMS)).toEqual(["phone's unsaved edit"]);
+    expect(fetched.ok && fetched.values.get(TEAMS)).toEqual(["laptop pool"]);
   });
 
   it("says why the server would not restore it, and changes nothing", async () => {
@@ -1396,13 +1179,8 @@ describe("bringing a kept version back", () => {
   });
 
   it("waits for a pull to finish before bringing Team Rankings back", async () => {
-    const { laptop, phone } = await inStep();
-    runAs(phone);
-    edit(phone, TEAMS, ["phone's edit"]);
-    later();
-    await open(laptop);
-    edit(laptop, TEAMS, ["laptop's pull"]);
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({ [TEAMS]: ["laptop's pull"] }, { keep: true });
     await open(phone);
     await session.preparePool();
     const version = sky.manifest()?.version;
@@ -1416,36 +1194,6 @@ describe("bringing a kept version back", () => {
     });
     expect(sky.manifest()?.version).toBe(version);
     expect(phone.values.get(TEAMS)).toEqual(["laptop's pull"]);
-  });
-});
-
-describe("a tab that read its pool before another tab took a copy in", () => {
-  // Without a word from the other tab (no BroadcastChannel), the stale tab still holds a key the
-  // copy since deleted, and its own record no longer names it: it must not send it back up.
-  it("sends none of its old pool, so a deletion it missed is not undone", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, CADENCE, "daily");
-    await session.saveNow();
-    await open(phone);
-    await session.preparePool();
-    expect(phone.values.get(CADENCE)).toBe("daily");
-    // The laptop takes the cadence out of the copy.
-    await open(laptop);
-    edit(laptop, CADENCE, null);
-    await session.saveNow();
-    // Another tab on the phone takes that in: the phone's record and token move on, while this
-    // tab's own view of the pool still holds the cadence.
-    await open(phone);
-    const record = loadCloudState();
-    const { [CADENCE]: _gone, ...hashes } = record.hashes;
-    phone.storage.setItem(
-      "league_forecast_cloud_v2",
-      JSON.stringify({ ...record, hashes, version: sky.manifest()?.version })
-    );
-    phone.storage.setItem("league_forecast_cloud_taken_pool", "another-tab");
-    await session.lookAgain({ forced: true });
-    expect(await cloudValue(CADENCE)).toBeNull();
   });
 });
 
@@ -1463,52 +1211,25 @@ describe("a browser wiped by Delete everything", () => {
 });
 
 describe("the seasons this device last agreed with the copy", () => {
-  it("are the copy's League as this device last took it in, and none it sent itself", async () => {
+  it("are the copy's League as this device last took it in", async () => {
     const { laptop, phone } = await inStep();
+    const agreed = () => session.leagueAgreedWithCopy().map(({ id, logs }) => ({ id, logs }));
+    // Met at its sign-in, holding what the servers' copy holds.
     await open(laptop);
-    // The laptop's own first copy, still the copy's League: its own, sent from here.
-    expect(session.leagueAgreedWithCopy()).toEqual([]);
-    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
-    await session.saveNow();
-    // Sent from here, the copy's League holds this device's own change, which the cloud's
-    // documents may never have had: a first meeting's base holding it would read their lack of
-    // it as a deletion, and drop it (1.6e review).
-    expect(session.leagueAgreedWithCopy()).toEqual([]);
-    await session.saveNow();
-    expect(session.leagueAgreedWithCopy()).toEqual([]);
+    expect(agreed()).toEqual([{ id: "fall", logs: {} }]);
     // Taken in from the copy, it is the copy's.
+    await serverWrites({ league: league(season("fall", { g1: log(5, 3) })) });
     await open(phone);
-    expect(session.leagueAgreedWithCopy().map(({ id, logs }) => ({ id, logs }))).toEqual([
-      { id: "fall", logs: { g1: log(5, 3) } },
-    ]);
-    // Merged here with another device's change and sent, it is this device's own again.
-    await open(laptop);
-    await commitChanges({
-      store: sky.store,
-      base: sky.manifest(),
-      changes: [
-        {
-          key: "league",
-          value: league(season("fall", { g1: log(5, 3), g2: log(2, 2) })),
-          at: Date.now(),
-        },
-      ],
-      device: "phone",
-      now: new Date().toISOString(),
-    });
-    edit(laptop, "league", league(season("fall", { g1: log(6, 3) })));
-    await session.saveNow();
-    expect(await cloudLogs()).toEqual({ g1: log(6, 3), g2: log(2, 2) });
-    expect(session.leagueAgreedWithCopy()).toEqual([]);
-    // Found again the same on both sides, with the record forgetting which version it last met,
-    // what this device sent is still its own (on the page as reloaded once the merge was in).
-    await open(laptop);
-    saveCloudState({ ...loadCloudState(), hashes: { ...loadCloudState().hashes, league: "lost" } });
-    session.noteChange("league");
-    await session.saveNow();
-    expect(loadCloudState().hashes.league).not.toBe("lost");
-    expect(session.leagueAgreedWithCopy()).toEqual([]);
+    expect(agreed()).toEqual([{ id: "fall", logs: { g1: log(5, 3) } }]);
+    // Merged here with a change of its own, it is still the copy's, which holds none of it: a
+    // first meeting's base holding this device's change would read the documents' lack of it as
+    // a deletion, and drop it (1.6e review).
+    edit(phone, "league", league(season("fall", { g1: log(5, 3), g2: log(1, 1) })));
+    later();
+    await serverWrites({ league: league(season("fall", { g1: log(6, 3) })) });
     await open(phone);
+    expect(logsOf(phone)).toEqual({ g1: log(6, 3), g2: log(1, 1) });
+    expect(agreed()).toEqual([{ id: "fall", logs: { g1: log(6, 3) } }]);
     // A base kept from some other agreement than the one this device last made is no base.
     const base = loadLeagueBase();
     if (!base) throw new Error("no base");
@@ -1518,160 +1239,77 @@ describe("the seasons this device last agreed with the copy", () => {
 });
 
 describe("League Standings kept live on a device", () => {
-  /** League's switch on, and the cloud's seasons met here as this account (`useLiveLeague`). */
-  const keepLive = () => {
-    writeLiveLeague(true);
-    noteLeagueMet(ME.uid);
-  };
-
-  it("is taken in from the copy, switch on, until this device has met the cloud's seasons, and sends it none", async () => {
-    const { laptop, phone } = await inStep();
-    // The phone's switch on, as by default, and nothing met there yet.
-    runAs(phone);
-    writeLiveLeague(true);
+  it("is taken in from the copy until this device has met the cloud's seasons, and never after", async () => {
+    const { phone } = await inStep();
     await open(phone);
     edit(phone, "league", league(season("fall", { g1: log(5, 3) })));
     // Owed to the cloud's documents, at the first meeting, and to no copy.
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false });
     await session.saveNow();
     expect(await cloudLogs()).toEqual({});
-    // The laptop, kept apart with its switch off, scores another game into the copy.
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g2: log(2, 2) })));
-    await session.saveNow();
-    // The phone takes it in beside its own score, and still sends the copy nothing.
+    // The servers score another game into the copy: the phone takes it in beside its own.
+    await serverWrites({ league: league(season("fall", { g2: log(2, 2) })) });
     await open(phone);
     expect(logsOf(phone)).toEqual({ g1: log(5, 3), g2: log(2, 2) });
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false, newer: [] });
-    await session.saveNow();
-    expect(await cloudLogs()).toEqual({ g2: log(2, 2) });
-    // A score changed both here and in the copy since keeps this device's, which nothing keeps in
-    // the copy, held back for the cloud's documents.
-    edit(phone, "league", league(season("fall", { g1: log(5, 3), g2: log(7, 7) })));
-    later();
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g2: log(8, 8) })));
-    await session.saveNow();
-    await open(phone);
-    expect(logsOf(phone)).toEqual({ g1: log(5, 3), g2: log(7, 7) });
-    edit(phone, "league", league(season("fall", { g1: log(5, 3), g2: log(2, 2) })));
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g2: log(2, 2) })));
-    await session.saveNow();
-    await open(phone);
-    // What it agrees with the copy on is the copy's, which holds none of its own score.
-    expect(session.leagueAgreedWithCopy().map(({ logs }) => logs)).toEqual([{ g2: log(2, 2) }]);
     // Met, it is League kept live, and the copy leaves it alone.
     noteLeagueMet(ME.uid);
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g2: log(3, 3) })));
-    await session.saveNow();
+    await serverWrites({ league: league(season("fall", { g2: log(3, 3) })) });
     await open(phone);
     expect(logsOf(phone)).toEqual({ g1: log(5, 3), g2: log(2, 2) });
-    // Turned off, it is a device kept apart, and what it held back goes to the copy, merged with
-    // the copy's from the base it took in.
-    writeLiveLeague(false);
-    await session.saveNow();
-    expect(await cloudLogs()).toEqual({ g1: log(5, 3), g2: log(3, 3) });
-  });
-
-  it("is neither sent to the copy nor taken from it, and owes it nothing", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    keepLive();
-    const before = await cloudLogs();
-    edit(laptop, "league", league(season("fall", { g1: log(9, 1) })));
-    expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false });
-    await session.saveNow();
-    expect(await cloudLogs()).toEqual(before);
-    // A device still on the copy changes League; the live one takes none of it in.
-    runAs(phone);
-    edit(phone, "league", league(season("fall", { g2: log(2, 2) })));
-    await session.saveNow();
-    await open(laptop);
-    expect(logsOf(laptop)).toEqual({ g1: log(9, 1) });
     expect(reloads).toBe(0);
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: [] });
   });
 
-  it("takes the copy's at its first meeting with the copy, keeping this device's there as an earlier version", async () => {
+  it("takes the copy's at its first meeting with the copy, keeping this device's here to save", async () => {
     await laptopFirst({
       league: league(season("fall", { g1: log(5, 3) })),
       [TEAMS]: ["laptop pool"],
     });
     const before = await cloudLogs();
-    expect(before).toEqual({ g1: log(5, 3) });
     // One whose season differs from the copy's in nothing both hold takes the copy's beside its
-    // own, and keeps no version of its own there: it lost nothing.
+    // own, and has lost nothing to keep.
     const phone = device({ league: league(season("fall", { g2: log(2, 2) })) });
     runAs(phone);
-    writeLiveLeague(true);
     await session.signInToCloud();
     expect(logsOf(phone)).toEqual({ g1: log(5, 3), g2: log(2, 2) });
-    expect(await cloudLogs()).toEqual(before);
-    expect(sky.manifest()?.kept.filter((part) => part.key === "league")).toEqual([]);
-    // A device with its own version of the copy's season meets the copy, its switch on.
+    expect(loadDisplacedLeague()).toBeNull();
+    // A device with its own version of the copy's season meets the copy: the copy's is taken, and
+    // this device's kept here, for the panel to offer as a download, since no device writes the
+    // copy an earlier version (1.6f).
     const tablet = device({ league: league(season("fall", { g1: log(1, 1) })) });
     runAs(tablet);
-    writeLiveLeague(true);
     await session.signInToCloud();
     expect(logsOf(tablet)).toEqual(before);
     expect(await cloudLogs()).toEqual(before);
-    const kept = (await keptValues("league")) as LeagueValue[];
-    expect(kept.map((value) => value.seasons[0]?.logs)).toContainEqual({ g1: log(1, 1) });
+    expect(sky.manifest()?.kept).toEqual([]);
+    expect((loadDisplacedLeague() as LeagueValue).seasons[0]?.logs).toEqual({ g1: log(1, 1) });
   });
 
-  it("leaves League out of a first copy, which carries the pool alone", async () => {
-    const laptop = device({ league: fall, [TEAMS]: ["laptop pool"] });
-    runAs(laptop);
-    // Its switch on, met or not.
-    writeLiveLeague(true);
-    await session.signInToCloud();
-    expect(sky.manifest()?.parts.map((part) => part.key)).toEqual([TEAMS]);
-    // It met no League in the copy, so going back to the copy merges rather than takes over.
-    expect(loadCloudState().met).toEqual({ pool: sky.manifest()?.copy });
-  });
-
-  it("marks a score the page writes while live, sends none of it, and sends it once turned off", async () => {
+  it("marks a score the page writes, and sends the copy none of it", async () => {
     const { laptop } = await inStep();
     await open(laptop);
     onScreen();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval"] });
     const stop = session.startCloudSession();
-    keepLive();
+    noteLeagueMet(ME.uid);
     // The page writes a score to storage, which tells the session, as on the site.
     laptop.values.set("league", league(season("fall", { g1: log(4, 0) })));
     saveLogs({ g1: log(4, 0) });
     expect(Object.keys(owedChanges())).toEqual(["league"]);
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: false });
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(await cloudLogs()).toEqual({});
-    writeLiveLeague(false);
-    expect(session.cloudStatus()).toMatchObject({ kind: "saved", owed: true });
-    await vi.advanceTimersByTimeAsync(4_000);
-    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
-    await vi.advanceTimersByTimeAsync(1_001);
-    // The save has started; the copy's packing runs on the real clock.
     vi.useFakeTimers({ toFake: ["Date"] });
-    await vi.waitFor(() => expect(session.cloudStatus()).toMatchObject({ owed: false }));
-    expect(await cloudLogs()).toEqual({ g1: log(4, 0) });
+    expect(await cloudLogs()).toEqual({});
     stop();
   });
 
-  it("neither offers nor brings back an earlier League version while live", async () => {
-    const { laptop, phone } = await inStep();
-    runAs(phone);
-    edit(phone, "league", league(season("fall", { g1: log(5, 3) })));
-    later();
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g1: log(6, 3) })));
-    await session.saveNow();
+  it("neither offers nor brings back an earlier League version", async () => {
+    const { phone } = await inStep();
+    await serverWrites({ league: league(season("fall", { g1: log(6, 3) })) }, { keep: true });
     await open(phone);
-    await session.saveNow();
-    const [kept] = session.cloudKept();
-    expect(kept?.what).toEqual(["League Standings"]);
-    // Its switch on, met or not.
-    writeLiveLeague(true);
+    const [kept] = sky.manifest()?.kept ?? [];
+    expect(kept?.key).toBe("league");
     expect(session.cloudKept()).toEqual([]);
     const version = sky.manifest()?.version;
     await session.bringBack(kept?.group ?? "");
@@ -1684,31 +1322,16 @@ describe("League Standings kept live on a device", () => {
   });
 
   it("says no newer League is in the copy once League is kept live", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({ league: league(season("fall", { g1: log(5, 3) })) });
     runAs(phone);
     onScreen();
     const stop = session.startCloudSession();
     await session.bootCloud();
     expect(session.cloudStatus()).toMatchObject({ newer: ["league"] });
-    keepLive();
+    noteLeagueMet(ME.uid);
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: [] });
     stop();
-  });
-
-  it("goes back to the copy when turned off, sending what changed meanwhile", async () => {
-    const { laptop } = await inStep();
-    await open(laptop);
-    keepLive();
-    edit(laptop, "league", league(season("fall", { g1: log(4, 0) })));
-    await session.saveNow();
-    // Marked owed to the copy all along, and only not sent.
-    expect(Object.keys(owedChanges())).toEqual(["league"]);
-    writeLiveLeague(false);
-    await session.saveNow();
-    expect(await cloudLogs()).toEqual({ g1: log(4, 0) });
   });
 });
 
@@ -1757,7 +1380,6 @@ describe("League Standings before this device's first meeting (1.6e review)", ()
   };
   const wanted = (met = false) =>
     leagueLiveWanted({
-      on: true,
       status: session.cloudStatus(),
       met,
       inStep: session.leagueInStep(),
@@ -1769,7 +1391,6 @@ describe("League Standings before this device's first meeting (1.6e review)", ()
     skyLeague.put(seasonDocId("fall"), seasonToDoc(season("fall"), 3));
     // The phone, its switch on, opens offline at the field: not met, and not in step.
     runAs(phone);
-    writeLiveLeague(true);
     const read = sky.store.readManifest;
     sky.store.readManifest = () => Promise.reject(new Error("Failed to fetch"));
     await open(phone);
@@ -1810,7 +1431,6 @@ describe("League Standings before this device's first meeting (1.6e review)", ()
       hashes: {},
       uploads: [],
     });
-    writeLiveLeague(true);
     noteLeagueMet("member-a");
     // Member B, on the same list and the same cloud, signs in on it.
     await session.signInToCloud();
@@ -1821,12 +1441,9 @@ describe("League Standings before this device's first meeting (1.6e review)", ()
   });
 
   it("is not in step with the copy at a boot that never read it", async () => {
-    const { laptop, phone } = await inStep();
-    await open(laptop);
-    edit(laptop, "league", league(season("fall", { g1: log(5, 3) })));
-    await session.saveNow();
+    const { phone } = await inStep();
+    await serverWrites({ league: league(season("fall", { g1: log(5, 3) })) });
     runAs(phone);
-    writeLiveLeague(true);
     // The copy is slow: past the boot's wait, inside the store's limit.
     const real = sky.store.readManifest;
     let release: () => void = () => undefined;
@@ -1862,7 +1479,6 @@ describe("League Standings before this device's first meeting (1.6e review)", ()
   it("is not in step with the copy while a League that arrived is set aside for an edit", async () => {
     const { phone } = await inStep();
     runAs(phone);
-    writeLiveLeague(true);
     await open(phone);
     expect(wanted()).toBe(true);
     // Another device saves a score straight into the copy, while the phone is open.
@@ -1898,7 +1514,6 @@ describe("League Standings before this device's first meeting (1.6e review)", ()
   it("is in step only as the account and copy the copy was settled with", async () => {
     const { phone } = await inStep();
     runAs(phone);
-    writeLiveLeague(true);
     await open(phone);
     expect(session.leagueInStep()).toBe(true);
     // A copy this record no longer names is not the one League was settled with.

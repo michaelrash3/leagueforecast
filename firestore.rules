@@ -40,10 +40,13 @@ service cloud.firestore {
       return isMember() && get(entry()).data.role == "owner";
     }
 
-    // The copy itself, `copies/main` and its `chunks`, and the pulls a device leaves beside it for
-    // the cloud to run, `copies/main/jobs`. The first version's `cloud/` is open to nobody.
+    // The copy itself, `copies/main` and its `chunks`: read by the list, written by no browser,
+    // the owner's included (1.6f). Only the cloud's servers write it, as service accounts the rules
+    // do not apply to: the nightly, the edit and rebuild functions, and the pulls in the cloud.
+    // Every edit a member makes goes through them, or into League Standings' own documents. Got
+    // by name and never listed. The first version's `cloud/` is open to nobody.
     match /copies/{document=**} {
-      allow read, write: if isMember();
+      allow get: if isMember();
     }
 
     // The views a server publishes from the copy for the list to read: `live/meta`, which names

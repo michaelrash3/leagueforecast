@@ -10,7 +10,7 @@ import { packUpload } from "./uploads";
 import type { LeagueStore } from "../live/leagueStore";
 import type { CopyReader } from "../live/copyArchive";
 import type { LiveReader } from "../live/viewStore";
-import { readLiveLeague, subscribeLiveLeague } from "../preferences";
+import { subscribeLeagueMet } from "../preferences";
 import { onLeagueWrite } from "../storage";
 import { isCloudPoolKey, onCloudPoolWrite } from "../teamRankingsStorage";
 import { isPoolBusy, poolJobElsewhere, watchPull } from "../pullSession";
@@ -20,7 +20,6 @@ import {
   commitChanges,
   fetchValues,
   STORE_LIMITS,
-  sweepUploads,
   timed,
   timedStore,
   type Change,
@@ -44,6 +43,7 @@ import {
   settleOwed,
   type DeviceCloudState,
   type UploadBatch,
+  saveDisplacedLeague,
 } from "./cloudState";
 import { markTaken, mayWrite } from "./cloudGuard";
 import { announceTaken, reloadWhenFree } from "./cloudTabs";
@@ -394,30 +394,17 @@ const exclusively = async (
  * seasons, rather than its own older ones, to a cloud that holds none yet; but it sends League
  * nothing, as `leagueToCopy` says.
  */
-const leagueLive = (): boolean => readLiveLeague() && leagueMetHere();
-
-/*
- * Whether this device sends League Standings to the copy at all: only with its switch off, as a
- * device kept apart from the live ones (1.6e review). With it on, a change made here before the
- * first meeting waits for it, owed, and reaches the cloud's documents there (`meetSeasons`): the
- * copy's League a device has met is the base its first meeting starts from, and a change of its
- * own in that base, which the documents had never held, read as one the documents had deleted
- * since, and was dropped. Nor could another device going live tell such a change in the copy,
- * made after the documents were, from one they had deleted.
- */
-const leagueToCopy = (): boolean => !readLiveLeague();
+const leagueLive = (): boolean => leagueMetHere();
 
 /** The areas of the copy this device settles: League only while it is not kept live. */
 const copyAreas = (areas: readonly Area[]): readonly Area[] =>
   leagueLive() ? areas.filter((area) => area !== "league") : areas;
 
-/** The changes made here that are owed to the copy: League's only while it goes to the copy. */
-const owedToCopy = (): Record<string, number> => {
-  const owed = owedChanges();
-  if (leagueToCopy() || !(LEAGUE_PART in owed)) return owed;
-  const { [LEAGUE_PART]: _live, ...rest } = owed;
-  return rest;
-};
+/**
+ * The changes made here that are owed to the copy: none, since no device writes it (1.6f). A change
+ * made here stays marked, and League's reaches the cloud's documents at the first meeting.
+ */
+const owedToCopy = (): Record<string, number> => ({});
 
 /**
  * The parts this device owes the copy, by key (`owedToCopy`): what the live board asks about before
@@ -685,37 +672,19 @@ const settleLocked = async (
   attempt = 0
 ): Promise<boolean> => {
   areas = copyAreas(areas);
-  // Taken in and never sent, with League's switch on (`leagueToCopy`): decided once for the whole
-  // settlement, which a switch turned meanwhile would otherwise split.
-  const holdLeague = !leagueToCopy();
   // Brought in step again only by this settlement's end, should it get there (`leagueInStep`).
   if (areas.includes("league")) leagueInStepWith = null;
   if (!local.usable()) {
     setStatus({ kind: "error", account, message: UNUSABLE });
     return false;
   }
-  let state = loadCloudState();
+  const state = loadCloudState();
   if (!state.enabled || state.uid !== account.uid) return true;
   const manifest = await current.store.readManifest();
-  // Pieces of saves that never committed, once no commit of theirs can still land.
-  const due = state.uploads.filter((batch) => now() - batch.at > SWEEP_AFTER_MS);
-  if (due.length > 0) {
-    await sweepUploads(
-      current.store,
-      manifest,
-      due.flatMap((batch) => batch.ids)
-    );
-    const swept = new Set(due.map((batch) => batch.ids[0]));
-    const after = loadCloudState();
-    state = { ...after, uploads: after.uploads.filter((batch) => !swept.has(batch.ids[0])) };
-    saveCloudState(state);
-  }
+  // No copy to take from, met before or not: only a server makes one (1.6f).
   if (!manifest) {
-    if (state.met.league || state.met.pool) {
-      setStatus({ kind: "gone", account });
-      return true;
-    }
-    return firstCopy(current, account, state);
+    setStatus({ kind: "gone", account });
+    return true;
   }
   kept = manifest.kept;
   // Refused before anything is downloaded: a copy from a newer build, or one naming keys this build
@@ -770,7 +739,13 @@ const settleLocked = async (
       localHash,
     });
     const writable = mayApply(area, mode);
-    const writes = [...plan.actions.values()].some(needsWriteHere);
+    // No device writes the copy (1.6f). A change made here alone stays here, owed, and League's
+    // reaches the cloud's documents at the first meeting; a pool key changed on both sides is the
+    // copy's, which only the servers write.
+    const actions = [...plan.actions].flatMap(([key, action]): [string, KeyAction][] =>
+      action === "send" ? [] : [[key, action === "local-wins" ? "cloud-wins" : action]]
+    );
+    const writes = actions.some(([, action]) => needsWriteHere(action));
     if (plan.meeting) {
       // A first meeting is all or nothing: half a pool taken over half a pool kept is neither.
       if (writes && !writable) {
@@ -779,11 +754,7 @@ const settleLocked = async (
       }
       meetings.add(area);
     }
-    for (const [key, action] of plan.actions) {
-      // Held back, League's change here stays owed, for the cloud's documents.
-      if (key === LEAGUE_PART && holdLeague && (action === "send" || action === "local-wins")) {
-        continue;
-      }
+    for (const [key, action] of actions) {
       if (needsWriteHere(action) && !writable) deferred.add(area);
       else execute.push([key, action]);
     }
@@ -852,8 +823,7 @@ const settleLocked = async (
     // Held back, this device's change loses nothing it would otherwise keep in the copy, which is
     // sent none of it: so a record changed on both sides keeps this device's, for the cloud's
     // documents, and the copy's stays in the copy. Not at a meeting, where what differs is no change.
-    const prefer: Prefer =
-      !meeting && (holdLeague || (owed[LEAGUE_PART] ?? 0) > part.at) ? "local" : "cloud";
+    const prefer: Prefer = !meeting ? "local" : "cloud";
     const base = loadLeagueBase();
     const was =
       !meeting && base && base.hash === state.hashes[LEAGUE_PART] ? leagueOf(base.value) : null;
@@ -867,55 +837,20 @@ const settleLocked = async (
   const changes: Change[] = [];
   const keepReplaced: string[] = [];
   const keepLost: Change[] = [];
-  const notStored = local.notStored();
   let waiting: Waiting | undefined;
   const sentValues = new Map<string, unknown>();
+  let displaced: unknown = null;
   for (const [key, action] of execute) {
-    const at = owed[key] ?? now();
-    if (action === "send" || action === "local-wins") {
-      if (notStored.has(key)) {
-        waiting = "storage";
-        continue;
-      }
-      const value = await local.read(key);
-      if ((value === null || value === undefined) && local.keys(areaOf(key)).includes(key)) {
-        // Listed and yet not readable: a read that failed, not a value removed. That key waits;
-        // the rest of the save goes on.
-        waiting = "unreadable";
-        continue;
-      }
-      // Seasons that would not read back would stop every device taking League Standings at all.
-      if (key === LEAGUE_PART && !holdsSeasons(value)) {
-        waiting = "unreadable";
-        continue;
-      }
-      changes.push({ key, value: value ?? null, at });
-      sentValues.set(key, value ?? null);
-      if (action === "local-wins" && manifest.parts.some((part) => part.key === key)) {
-        keepReplaced.push(key);
-      }
-    } else if (action === "cloud-wins") {
-      const value = await local.read(key);
-      if (value !== null && value !== undefined) keepLost.push({ key, value, at });
-    } else if (action === "merge" && merged) {
+    if (action === "merge" && merged) {
       if (!holdsSeasons(merged.value)) {
         waiting = "unreadable";
         continue;
       }
       // Merged here and sent nowhere: the copy's change is taken in, this device's held back. A
-      // version of this device's the copy's displaced at a meeting is kept in the copy as an
-      // earlier version all the same, which leaves the copy's League as it is.
-      if (key === LEAGUE_PART && holdLeague) {
-        if (merged.conflicts > 0 && merged.prefer === "cloud") {
-          keepLost.push({ key, value: merged.mine, at });
-        }
-        continue;
-      }
-      changes.push({ key, value: merged.value, at: now() });
-      sentValues.set(key, merged.value);
-      if (merged.conflicts > 0) {
-        if (merged.prefer === "local") keepReplaced.push(key);
-        else keepLost.push({ key, value: merged.mine, at });
+      // version of this device's League the copy's displaced at a meeting is kept here, to
+      // download, since no device writes the copy an earlier version of it.
+      if (key === LEAGUE_PART && merged.conflicts > 0 && merged.prefer === "cloud") {
+        displaced = merged.mine;
       }
     }
   }
@@ -983,6 +918,7 @@ const settleLocked = async (
   const applied =
     arriving.size === 0 ||
     (await local.apply(arriving, merged ? { renamed: merged.renamed } : undefined));
+  if (applied && displaced !== null && arriving.has(LEAGUE_PART)) saveDisplacedLeague(displaced);
 
   // This device's record, as it now stands.
   const next = loadCloudState();
@@ -1018,25 +954,19 @@ const settleLocked = async (
         const mine = before?.hash === hash && before.mine === true;
         leagueShared = { hash, value: await readOnce(key), ...(mine ? { mine } : {}) };
       }
-    } else if (key === LEAGUE_PART && action === "merge" && holdLeague) {
+    } else if (action === "merge") {
       // Taken in and held back: the copy's version is the one this device has now met, and its
       // own changes stay owed. The base is the copy's, as it came, which holds none of them.
       if (!arriving.has(key) || !applied) continue;
       const hash = cloudHash(key);
       record(key, hash);
-      if (hash) leagueShared = { hash, value: fetched.get(key) };
+      if (key === LEAGUE_PART && hash) leagueShared = { hash, value: fetched.get(key) };
     } else if (arriving.has(key) && applied) {
-      // A merge sent but not written here stays owed, against its old base: merged again next time.
-      const hash = action === "merge" ? sent[key] : cloudHash(key);
+      // The copy's, taken in whole.
+      const hash = cloudHash(key);
       record(key, hash);
       clear();
-      if (key === LEAGUE_PART && hash) {
-        leagueShared = {
-          hash,
-          value: arriving.get(key),
-          ...(action === "merge" ? { mine: true as const } : {}),
-        };
-      }
+      if (key === LEAGUE_PART && hash) leagueShared = { hash, value: arriving.get(key) };
     }
   }
   const met = { ...next.met };
@@ -1109,82 +1039,6 @@ const settleLocked = async (
   // Still owed for a reason that waiting 20 seconds will not change (a pull, a refused write, a
   // failed read) is sent by what ends the wait, not by reading the copy again every 20 seconds.
   if (owedHere() && !poolBusy && !waiting) scheduleSave();
-  return true;
-};
-
-/**
- * This browser's data as the first copy there is: everything it holds, League Standings and pool,
- * sent whole. Refused if a copy appeared first, which is then met like any other.
- */
-const firstCopy = async (
-  current: Session,
-  account: CloudAccount,
-  state: DeviceCloudState
-): Promise<boolean> => {
-  if (isPoolBusy() || (await poolJobElsewhere())) {
-    setStatus(savedStatus(account, "pull"));
-    scheduleSave(60_000);
-    return true;
-  }
-  const owed = owedChanges();
-  const notStored = local.notStored();
-  const changes: Change[] = [];
-  const values = new Map<string, unknown>();
-  for (const key of [...(leagueToCopy() ? local.keys("league") : []), ...local.keys("pool")]) {
-    if (notStored.has(key)) continue;
-    const value = await local.read(key);
-    if (value === null || value === undefined) continue;
-    if (key === LEAGUE_PART && !holdsSeasons(value)) continue;
-    changes.push({ key, value, at: owed[key] ?? now() });
-    values.set(key, value);
-  }
-  if (!stillOurs(state, account)) return true;
-  setStatus({ kind: "working", account, label: "Saving to the cloud…" });
-  const batch = uploadRecord();
-  const result = await commitChanges({
-    store: current.store,
-    base: null,
-    changes,
-    device: state.device,
-    now: nowIso(),
-    onUploads: batch.note,
-    onProgress: (done, total) =>
-      setStatus({
-        kind: "working",
-        account,
-        label: "Saving to the cloud…",
-        progress: [done, total],
-      }),
-  }).finally(batch.stamp);
-  if (!result.ok) {
-    // Another browser made the first copy first: meet it.
-    return settleLocked(current, account, ["league", "pool"], "none");
-  }
-  for (const change of changes) {
-    const at = owed[change.key];
-    if (at !== undefined) settleOwed(change.key, at);
-  }
-  const hashes = Object.fromEntries(
-    Object.entries(result.sent).filter((entry): entry is [string, string] => entry[1] !== null)
-  );
-  saveCloudState({
-    ...loadCloudState(),
-    // League held back sent none, so has met none: going back to the copy, it meets the copy's
-    // League afresh and merges, rather than taking it over its own as a copy it had agreed with.
-    met: {
-      ...(leagueToCopy() ? { league: result.manifest.copy } : {}),
-      pool: result.manifest.copy,
-    },
-    hashes,
-    copy: result.manifest.copy,
-    version: result.manifest.version,
-    syncedAt: nowIso(),
-    uploads: batch.without(loadCloudState().uploads),
-  });
-  const league = hashes[LEAGUE_PART];
-  if (league) saveLeagueBase({ hash: league, value: values.get(LEAGUE_PART), mine: true });
-  kept = result.manifest.kept;
-  setStatus(savedStatus(account));
   return true;
 };
 
@@ -1382,19 +1236,16 @@ export const startCloudSession = (): (() => void) => {
   lastInput = now();
   onCloudPoolWrite(noteChange);
   onLeagueWrite(() => {
-    // Held back from the copy, a League change is still marked owed to it, and only not sent:
-    // should League go back to the copy, what changed meanwhile goes with it rather than being
-    // taken over by the copy's older seasons.
-    if (leagueToCopy()) noteChange(LEAGUE_PART);
-    else markCloudDirty(LEAGUE_PART);
+    // Never sent to the copy, a League change is still marked: made before the first meeting, it
+    // reaches the cloud's documents there, rather than being taken over by the copy's seasons.
+    markCloudDirty(LEAGUE_PART);
   });
-  const stopLeagueSwitch = subscribeLiveLeague(() => {
+  const stopLeagueSwitch = subscribeLeagueMet(() => {
     const account = signedIn();
     if (!account) return;
-    // What is owed to the copy and what is newer in it both leave League out while it is kept
-    // live, so the panel says them again either way.
+    // What is newer in the copy leaves League out once its documents are met, so the panel says
+    // it again.
     if (status.kind === "saved") setStatus(savedStatus(account, status.waiting));
-    if (leagueToCopy() && owedHere()) scheduleSave(5_000);
   });
   const stopWatching = watchPull(() => {
     if (!signedIn() || isPoolBusy()) return;
@@ -1541,16 +1392,6 @@ export const signOutOfCloud = async (): Promise<void> => {
   }
 };
 
-/** The answer to `gone`: this browser's data becomes a new copy, which every device then meets. */
-export const restartCloud = async (): Promise<void> => {
-  await withSession(async (current, account) => {
-    const state = loadCloudState();
-    const fresh: DeviceCloudState = { ...state, met: {}, hashes: {}, copy: null, version: null };
-    saveCloudState(fresh);
-    await firstCopy(current, account, fresh);
-  });
-};
-
 /** Takes in another device's newer changes now, and reloads onto them. */
 export const loadNewer = async (): Promise<void> => {
   await withSession((current, account) =>
@@ -1592,8 +1433,8 @@ export const bringBack = async (group: string): Promise<void> => {
       });
       return;
     }
-    if (!leagueToCopy() && bringing.some((part) => part.key === LEAGUE_PART)) {
-      // The copy's League is not this device's League while its switch is on: brought back, it
+    if (bringing.some((part) => part.key === LEAGUE_PART)) {
+      // The copy's League is not this device's League, which is kept live: brought back, it
       // would replace the seasons here and then be written over every device's.
       setStatus({
         kind: "error",
@@ -1742,10 +1583,9 @@ export const cloudKept = (): KeptVersion[] => {
   const device = loadCloudState().device;
   const groups = new Map<string, KeptPart[]>();
   for (const part of kept) groups.set(part.group, [...(groups.get(part.group) ?? []), part]);
-  // An earlier League version is not offered while League's switch is on: it cannot come back here.
-  const live = !leagueToCopy();
+  // An earlier League version is not offered: League is kept live, so it cannot come back here.
   return [...groups.entries()]
-    .filter(([, parts]) => !live || !parts.some((part) => part.key === LEAGUE_PART))
+    .filter(([, parts]) => !parts.some((part) => part.key === LEAGUE_PART))
     .map(([group, parts]) => ({
       group,
       keptAt: parts[0]?.keptAt ?? "",

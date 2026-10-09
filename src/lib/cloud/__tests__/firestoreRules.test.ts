@@ -31,7 +31,12 @@ import { coercePullJob, jobPath, jobPiecePath, newPullJob, packJobList } from ".
 import { createMemberCheck } from "../../memberCheck";
 import { coerceLiveMeta, publishViews } from "../../live/viewStore";
 import { checkLiveMeta, forgetDecodedBoards, readBoard, readLive } from "../../live/liveClient";
-import { firestoreRestDocuments, firestoreRestLive, firestoreRestUploads } from "../firestoreRest";
+import {
+  firestoreRestDocuments,
+  firestoreRestLive,
+  firestoreRestStore,
+  firestoreRestUploads,
+} from "../firestoreRest";
 import { stageUploadIn } from "../firebaseCloud";
 import { packUpload, readUpload, uploadChunksPath, uploadPath } from "../uploads";
 import { coerceLedger, REBUILD_LEDGER_PATH, restLedgerStore } from "../../live/rebuildLedger";
@@ -143,9 +148,21 @@ const manifestOf = (version: number): CloudManifest => ({
   kept: [],
 });
 
-const firstCopy = async (db: Firestore, values: Record<string, unknown>) => {
+/**
+ * The copy as the servers write it (the nightly, the edit function, a pull in the cloud), past the
+ * rules, as an administrator: no browser writes it (1.6f).
+ */
+const serverCopy = () =>
+  firestoreRestStore({
+    projectId: PROJECT,
+    token: async () => "owner",
+    origin: `http://${HOST}`,
+    writable: true,
+  });
+
+const firstCopy = async (values: Record<string, unknown>) => {
   const result = await commitChanges({
-    store: firestoreStore(db),
+    store: serverCopy(),
     base: null,
     changes: Object.entries(values).map(([key, value]) => ({ key, value, at: 1 })),
     device: "phone",
@@ -234,9 +251,9 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     await expect(getDoc(doc(owner, "elsewhere/doc"))).rejects.toMatchObject(REFUSED);
   });
 
-  it("carry the data from one Google sign-in to another, and to nothing else", async () => {
+  it("carry the data the servers write to every account on the list, and to nothing else", async () => {
     const values = { league: { seasons: [{ name: "Spring" }] }, teams: [["a", "Hawks"]] };
-    const sent = await firstCopy(as(OWNER), values);
+    const sent = await firstCopy(values);
     const laptopStore = firestoreStore(as(LAPTOP));
     const manifest = (await laptopStore.readManifest()) as CloudManifest;
     expect(manifest.parts.map((part) => part.key)).toEqual(["league", "teams"]);
@@ -255,8 +272,30 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     ).rejects.toMatchObject(REFUSED);
   });
 
+  it("are written by no browser, the owner's and a member's included (1.6f)", async () => {
+    const sent = await firstCopy({ teams: [["a", "Hawks"]] });
+    const piece = chunkId(sent.parts[0]?.id ?? "", 0);
+    for (const account of [OWNER, LAPTOP]) {
+      const store = firestoreStore(as(account));
+      // Read, every piece the manifest names.
+      expect((await store.readManifest())?.save).toBe(sent.save);
+      expect(await store.getChunk(piece)).not.toBeNull();
+      // And nothing written: no first copy, no save over it, no piece put or taken away.
+      await expect(
+        store.commitManifest({ version: sent.version, copy: sent.copy }, manifestOf(2))
+      ).rejects.toMatchObject(REFUSED);
+      await expect(store.putChunk("b-0", new Uint8Array([1]))).rejects.toMatchObject(REFUSED);
+      await expect(store.deleteChunk(piece)).rejects.toMatchObject(REFUSED);
+      await expect(
+        setDoc(doc(as(account), "copies/main"), { ...manifestOf(9) })
+      ).rejects.toMatchObject(REFUSED);
+      await expect(deleteDoc(doc(as(account), "copies/main"))).rejects.toMatchObject(REFUSED);
+    }
+    expect((await serverCopy().readManifest())?.save).toBe(sent.save);
+  });
+
   it("refuse a save onto a copy that moved on, or onto another copy, in one step with the read", async () => {
-    const store = firestoreStore(as(OWNER));
+    const store = serverCopy();
     expect(await store.commitManifest(null, manifestOf(1))).toBe(true);
     expect(await store.commitManifest(null, manifestOf(1))).toBe(false);
     expect(await store.commitManifest({ version: 1, copy: "copy-a" }, manifestOf(2))).toBe(true);
@@ -268,11 +307,13 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
   it("never take a manifest this build cannot read for no copy at all", async () => {
     const owner = as(OWNER);
     // A later build's layout, as this one would find it.
-    await setDoc(doc(owner, "copies/main"), { ...manifestOf(4), format: MANIFEST_FORMAT + 1 });
-    const store = firestoreStore(owner);
-    await expect(store.readManifest()).rejects.toBeInstanceOf(UnreadableCopyError);
+    const server = serverCopy();
+    expect(
+      await server.commitManifest(null, { ...manifestOf(4), format: MANIFEST_FORMAT + 1 })
+    ).toBe(true);
+    await expect(firestoreStore(owner).readManifest()).rejects.toBeInstanceOf(UnreadableCopyError);
     // Nor write a first copy over it.
-    expect(await store.commitManifest(null, manifestOf(1))).toBe(false);
+    expect(await server.commitManifest(null, manifestOf(1))).toBe(false);
     expect((await getDoc(doc(owner, "copies/main"))).get("format")).toBe(MANIFEST_FORMAT + 1);
   });
 
@@ -283,7 +324,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
       crypto.getRandomValues(bytes.subarray(at, at + 65_536));
     }
     const noise = Array.from(bytes, (byte) => byte.toString(36)).join("");
-    const manifest = await firstCopy(as(OWNER), { teams: noise });
+    const manifest = await firstCopy({ teams: noise });
     expect(manifest.parts[0]?.chunks).toBeGreaterThan(1);
     const fetched = await fetchValues({ store: firestoreStore(as(OWNER)), parts: manifest.parts });
     expect(fetched.ok && fetched.values.get("teams")).toBe(noise);
