@@ -53,6 +53,21 @@ describe("the open season as one piece of state", () => {
     expect(told).toBe(0);
   });
 
+  it("keeps the final games' scores while only a game still being played changes (2.2)", () => {
+    const { result } = renderHook(() => useSeasonState(() => ({ id: "s1", season: START })));
+    act(() => result.current.setLogs({ g1: score("1", "0") }));
+    const finals = result.current.finalLogs;
+    expect(finals).toEqual({ g1: score("1", "0") });
+    act(() =>
+      result.current.setLogs((prev) => ({ ...prev, g2: { ...score("3", ""), isFinal: false } }))
+    );
+    expect(result.current.finalLogs).toBe(finals);
+    act(() => result.current.setTeams((prev) => [...prev]));
+    expect(result.current.finalLogs).toBe(finals);
+    act(() => result.current.setLogs((prev) => ({ ...prev, g2: score("3", "2") })));
+    expect(result.current.finalLogs).toEqual({ g1: score("1", "0"), g2: score("3", "2") });
+  });
+
   it("is read and changed at once, before anything renders", () => {
     const { result } = renderHook(() => useSeasonState(() => ({ id: "s1", season: START })));
     const { store } = result.current;

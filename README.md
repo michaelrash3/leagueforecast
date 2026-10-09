@@ -5471,6 +5471,36 @@ the deterministic story is shown. To exercise the AI path locally, run
   - **The numbers did not move.** `src/AppLeagueNumbers.test.tsx` pins what each
     tab shows on a fixed six-team season, the forecast seeded from the season;
     it was recorded before the split and matches after it.
+- **League Standings works out only what is on screen** (2.2). Every number it
+  shows is read from the games marked final, so its calculations are keyed on
+  those scores alone (`finalLogsOf`, held by `useSeasonState`), which stay the same
+  object while a score is typed into a game still being played: a keystroke there
+  works nothing out again, and the season is worked out once, when the game is
+  marked final. What one tab alone shows waits for that tab: the model's backtest
+  (Dashboard and Forecast) and the season timeline, the bubble and the games that
+  matter most (Forecast), joining the clinch paths, seed ranges, scenario impacts,
+  game forecasts and bracket odds that already did. The backtest and the timeline,
+  each of which refits the season once per game played, remember their last answer
+  (`rememberLast`), so a tab opened again on an unchanged season costs nothing.
+  Worker results were already safe from going stale: each job carries an id and
+  the key of its input, and an answer for an older one is dropped
+  (`useWorkerJob`).
+  - **Measured** (`npm run score:bench` on the built app, CPU slowed four times at
+    phone width, the old and new builds run back to back): on a twelve-team season
+    with 54 games left, a key in a score box took a median 416 ms to show (p90
+    520 ms) and now takes 24 ms (p90 32 ms); after marking a game final the page
+    was busy for 566 ms and is now busy for 167 ms. On an eight-team season with 12
+    left, keys went from 64 ms to 16 ms and the time busy after a final from 167 ms
+    to none at all over 50 ms. **The cost:** the first Forecast opened after new
+    finals now works out its timeline and backtest then, 2.4 s against 1.7 s on the
+    twelve-team season (unchanged on the eight-team one); opened again, it is 1.0 s
+    as before.
+  - **The numbers did not move.** The pin above holds a half-scored game that is
+    not final; it matched before the change and after it.
+  - **Guarded** by `src/AppOnScreen.test.tsx`, which counts the calculations
+    themselves: none while a score is typed, no backtest, timeline or bubble when a
+    game is marked final on the Schedule, and each once when its tab opens, not
+    again on a second visit.
 - Simulation and trend work run in `src/workers/sim.worker.ts`.
 - The rankings worker keeps one decoded pool and the page names it by revision.
   The pool crosses to it only when the pool itself changes, in the compact form

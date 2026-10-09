@@ -138,7 +138,8 @@ import {
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
   type RecapPool,
 } from "./lib/impactRecap";
-import { buildSeasonTimeline } from "./lib/seasonTimeline";
+import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
+import { rememberLast } from "./lib/rememberLast";
 import {
   applyResult,
   attachAdjustedRatings,
@@ -230,6 +231,16 @@ const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
 // responsive by falling back to current standings until the schedule is small
 // enough for synchronous projection work.
 const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
+
+/*
+ * The two heaviest calculations one tab alone shows, each remembering its last answer, so going
+ * back to its tab on an unchanged season gives it at once (`rememberLast`, 2.2); and what stands in
+ * for each while no tab showing it is open.
+ */
+const rememberedBacktest = rememberLast(backtestPredictions);
+const rememberedTimeline = rememberLast(buildSeasonTimeline);
+const NO_BACKTEST = backtestPredictions([], [], {}, DEFAULT_SETTINGS);
+const NO_TIMELINE: SeasonTimelineEntry[] = [];
 
 const replaceTeamDataUrl = (teamId: string | null) => {
   if (typeof window === "undefined") return;
@@ -359,7 +370,16 @@ export default function App() {
     setSettings,
     openSeason,
     store: seasonStore,
+    finalLogs: storedFinalLogs,
   } = useSeasonState(() => ({ id: getActiveSeasonId(), season: loadOpenSeason() }));
+  /*
+   * What every calculation from the scores is keyed on: the final games' scores alone, which stay
+   * the same object while a score is typed into a game still being played (`finalLogsOf`), so a
+   * keystroke there works none of the season out again (2.2). Deferred, so marking a game final
+   * draws its box at once and the season follows. The playoff machine alone reads the whole
+   * score map, since a pick there keeps the innings typed into its game.
+   */
+  const finalLogs = useDeferredValue(storedFinalLogs);
   const deferredLogs = useDeferredValue(logs);
 
   const [newDate, setNewDate] = useState("");
@@ -591,8 +611,8 @@ export default function App() {
   // ---------- Derived state ----------
 
   const baseTeams = useMemo(
-    () => calculateTeams(teams, matchups, deferredLogs, settings),
-    [teams, matchups, deferredLogs, settings]
+    () => calculateTeams(teams, matchups, finalLogs, settings),
+    [teams, matchups, finalLogs, settings]
   );
 
   /**
@@ -606,10 +626,7 @@ export default function App() {
    * result does: the bridge reads the pool from storage whenever this changes, and typing a score
    * into a game still in progress must not make it.
    */
-  const finalScores = useMemo(
-    () => finalScoresKey(matchups, deferredLogs),
-    [matchups, deferredLogs]
-  );
+  const finalScores = useMemo(() => finalScoresKey(matchups, finalLogs), [matchups, finalLogs]);
   const seasonFixtures = useMemo(
     () => leagueFixturesOf(teams, matchups, finalScores),
     [teams, matchups, finalScores]
@@ -769,12 +786,12 @@ export default function App() {
       buildPredictionEngine(
         baseTeams,
         matchups,
-        deferredLogs,
+        finalLogs,
         settings,
         externalResults,
         scoutBridge.squadYear
       ),
-    [baseTeams, matchups, deferredLogs, settings, externalResults, scoutBridge.squadYear]
+    [baseTeams, matchups, finalLogs, settings, externalResults, scoutBridge.squadYear]
   );
 
   /**
@@ -811,31 +828,31 @@ export default function App() {
     [matchups]
   );
   const remainingGames = useMemo(
-    () => matchups.filter((game) => !isFinal(deferredLogs[game.id])),
-    [matchups, deferredLogs]
+    () => matchups.filter((game) => !isFinal(finalLogs[game.id])),
+    [matchups, finalLogs]
   );
   const completedGames = useMemo(
     () =>
       matchups
-        .filter((game) => isFinal(deferredLogs[game.id]))
+        .filter((game) => isFinal(finalLogs[game.id]))
         .sort((a, b) => parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart)),
-    [matchups, deferredLogs, seasonStart]
+    [matchups, finalLogs, seasonStart]
   );
   const leagueAverageStats = useMemo(
-    () => buildLeagueAverageStats(matchups, deferredLogs),
-    [matchups, deferredLogs]
+    () => buildLeagueAverageStats(matchups, finalLogs),
+    [matchups, finalLogs]
   );
   const statRankings = useMemo(
     () =>
       buildTeamStatRankings(
         teams,
         matchups,
-        deferredLogs,
+        finalLogs,
         settings.pitchMode,
         settings.trackErrors,
         runsOnly
       ),
-    [teams, matchups, deferredLogs, settings.pitchMode, settings.trackErrors, runsOnly]
+    [teams, matchups, finalLogs, settings.pitchMode, settings.trackErrors, runsOnly]
   );
   const remainingCounts = useMemo(
     () =>
@@ -869,10 +886,10 @@ export default function App() {
     () =>
       simulationSeed(
         matchups,
-        deferredLogs,
+        finalLogs,
         `odds-${goldCutoff}-${settings.modelAggression}-${settings.winPoints}-${settings.tiePoints}-${settings.tiebreakerOrder.join(",")}`
       ),
-    [matchups, deferredLogs, goldCutoff, settings]
+    [matchups, finalLogs, goldCutoff, settings]
   );
 
   const oddsInput = useMemo(
@@ -899,7 +916,7 @@ export default function App() {
         settings,
       };
     }
-    const built = buildTrendStates(teams, matchups, deferredLogs, completedGames, {
+    const built = buildTrendStates(teams, matchups, finalLogs, completedGames, {
       states: TREND_STATES,
       goldCutoff,
       settings,
@@ -911,7 +928,7 @@ export default function App() {
   }, [
     teams,
     matchups,
-    deferredLogs,
+    finalLogs,
     completedGames,
     goldCutoff,
     settings,
@@ -934,9 +951,17 @@ export default function App() {
   );
   const { bracketOdds } = useSimulationBracket(bracketInput);
 
+  /*
+   * How the model has done on the games played, which the Dashboard and the Forecast show and no
+   * other tab does: worked out only while one of them is open, and remembered, so opening one again
+   * on an unchanged season costs nothing (2.2). It refits the season once per game played, the
+   * heaviest single thing League works out: 62 ms on a twelve-team season with 78 games played,
+   * about a quarter of a second on a phone, which every final on the Schedule used to wait behind.
+   */
+  const backtestShown = activeView === "dashboard" || activeView === "model";
   const backtestResult = useMemo(
-    () => backtestPredictions(teams, matchups, deferredLogs, settings),
-    [teams, matchups, deferredLogs, settings]
+    () => (backtestShown ? rememberedBacktest(teams, matchups, finalLogs, settings) : NO_BACKTEST),
+    [backtestShown, teams, matchups, finalLogs, settings]
   );
 
   // ---------- Dashboard / scenario computations ----------
@@ -1114,9 +1139,14 @@ export default function App() {
     [dashboardRows, goldCutoff, settings]
   );
 
+  // The Forecast's timeline, which plays the season through game by game: as heavy as the
+  // backtest, and only the Forecast shows it (2.2).
   const timelineEntries = useMemo(
-    () => buildSeasonTimeline(teams, matchups, deferredLogs, settings, 6),
-    [teams, matchups, deferredLogs, settings]
+    () =>
+      activeView === "model"
+        ? rememberedTimeline(teams, matchups, finalLogs, settings, 6)
+        : NO_TIMELINE,
+    [activeView, teams, matchups, finalLogs, settings]
   );
 
   const controlLevelMap = useMemo(() => {
@@ -1213,8 +1243,8 @@ export default function App() {
 
   const scheduleDifficultyForTeam = useCallback(
     (teamId: string) =>
-      buildScheduleDifficultyForTeam(teamId, remainingGames, dashboardRows, matchups, deferredLogs),
-    [remainingGames, dashboardRows, matchups, deferredLogs]
+      buildScheduleDifficultyForTeam(teamId, remainingGames, dashboardRows, matchups, finalLogs),
+    [remainingGames, dashboardRows, matchups, finalLogs]
   );
 
   const gameImportance = useCallback(
@@ -1335,7 +1365,9 @@ export default function App() {
     return "bg-slate-200 text-slate-600";
   };
 
+  // The Forecast's list alone, and the clinch questions behind each line are not free (2.2).
   const gamesThatMatterMost = useMemo(() => {
+    if (activeView !== "model") return [];
     return [...remainingGames]
       .sort((a, b) => gameImportance(b) - gameImportance(a))
       .slice(0, 5)
@@ -1356,16 +1388,31 @@ export default function App() {
           date: formatGameDate(game.date),
         };
       });
-  }, [remainingGames, dashboardById, getGameScenarioImpactMap, gameStatusForGame, gameImportance]);
+  }, [
+    activeView,
+    remainingGames,
+    dashboardById,
+    getGameScenarioImpactMap,
+    gameStatusForGame,
+    gameImportance,
+  ]);
 
+  // The Forecast's bubble, each team's schedule strength read off every game (2.2).
   const bubbleRows = useMemo(() => {
+    if (activeView !== "model") return [];
     return dashboardRows.map((team) => ({
       team,
       tier: bubbleTierForTeam(team),
       sos: scheduleDifficultyForTeam(team.id),
       control: controlLevelForTeam(team),
     }));
-  }, [dashboardRows, bubbleTierForTeam, scheduleDifficultyForTeam, controlLevelForTeam]);
+  }, [
+    activeView,
+    dashboardRows,
+    bubbleTierForTeam,
+    scheduleDifficultyForTeam,
+    controlLevelForTeam,
+  ]);
 
   const bubbleMovementRows = useMemo(() => {
     const byId = new Map(bubbleRows.map((row) => [row.team.id, row]));

@@ -11,7 +11,8 @@ import type { GameLog } from "./lib/types";
  * it was; a change that is meant to move one updates this file, and its commit says so. A table's
  * rows are kept whole, so a team moving rows shows; the rest of a tab is kept as its numbers, in
  * order, so a reworded label does not count as a moved number. The forecast is seeded from the
- * season (`simulationSeed`), so it comes out the same every run. Placeholder names.
+ * season (`simulationSeed`), so it comes out the same every run. One game is half scored and not
+ * final, as it is while a score is being typed. Placeholder names.
  */
 
 const final = (away: number, home: number, awayHits = 6, homeHits = 5): GameLog => ({
@@ -59,6 +60,9 @@ const SCORES: Record<string, GameLog> = {
   g7: final(5, 2),
   g8: final(1, 8, 2, 9),
   g9: final(4, 3, 6, 6),
+  // A game being scored and not yet marked final: no number may count it (2.2 keys the season's
+  // calculations on the final games alone).
+  g10: { ...final(5, 2), homeRuns: "", isFinal: false },
 };
 
 /**
