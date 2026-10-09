@@ -1,8 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { RANKINGS_COMMAND_SECTIONS } from "./lib/rankingsRoute";
+import { prefetchAllViews } from "./components/league/leagueViews";
+
+// League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
+beforeAll(() => prefetchAllViews());
 
 /**
  * Team Rankings had the palette and the shortcut sheet from the start — those are the app's, not
@@ -17,7 +21,9 @@ import { RANKINGS_COMMAND_SECTIONS } from "./lib/rankingsRoute";
 const openRankings = async (user: ReturnType<typeof userEvent.setup>) => {
   render(<App />);
   await user.click(await screen.findByRole("tab", { name: /team rankings/i }));
-  await screen.findByRole("tablist", { name: "Team Rankings section" });
+  // Team Rankings is a chunk of its own, and the first file to load it compiles it cold: past a
+  // second when this file runs alone, which the default wait read as the sections never coming.
+  await screen.findByRole("tablist", { name: "Team Rankings section" }, { timeout: 15_000 });
 };
 
 describe("moving around Team Rankings from the keyboard", () => {

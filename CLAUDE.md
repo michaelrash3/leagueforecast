@@ -11,7 +11,7 @@ Everything lives in the browser (localStorage and IndexedDB); two Vercel functio
 The gate CI runs, in this order, and what a change must pass before it is pushed:
 
 ```sh
-npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build
+npm run format:check && npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run bundle:check
 ```
 
 - One test file: `npx vitest run src/lib/__tests__/sim.test.ts`

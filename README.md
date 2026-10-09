@@ -5445,6 +5445,32 @@ the deterministic story is shown. To exercise the AI path locally, run
 
 ## Performance notes
 
+- **League Standings' views load on demand** (2.1, `src/components/league/leagueViews.ts`).
+  Dashboard, Power Ratings, Schedule, Standings, League Stats, Forecast (with its
+  playoff machine), Settings and the team drawer are chunks of their own; the first
+  download carries the app's state and calculations, and a view's markup arrives
+  when it is first shown. A view already loaded is drawn at once, with no
+  placeholder, so going back to a tab never flickers; one still loading shows
+  "Loading Forecast…" in its place, and a load that fails is that view's **Try
+  again** (which fetches afresh) or **Reload the page**, never a blank page. A tab
+  starts loading when it is pointed at or focused, and once a tab is drawn and the
+  page has been idle 1.5 s, the tab most often opened next does too: the Schedule
+  after the Dashboard, the Forecast after the Standings, and nothing else, so a
+  phone on one bar fetches only what it is likely to show.
+  - **Measured** (gzipped, level 9, `npm run bundle:check`): the first download
+    went from 261.6 KB to 229.7 KB, and its entry chunk from 120.1 KB to 86.9 KB.
+    Opening a view now adds 2.2 KB (League Stats) to 11.7 KB (Forecast);
+    Team Rankings adds 138.9 KB, against 134.5 KB before, since code it shared
+    with League's views is now its own chunk rather than in the first download,
+    so a visit straight to Team Rankings fetches 368.6 KB rather than 396.1 KB.
+  - **The bundle budget.** `scripts/bundleBudget.mjs`, run in CI after the build,
+    holds the first download, the entry chunk, the stylesheet and each view's own
+    load to limits about a tenth above these numbers (at least 1.5 KB for the
+    small views), writes them to `dist/bundle-report.json`, and fails naming what
+    grew. Source maps are built but never downloaded, so they are not counted.
+  - **The numbers did not move.** `src/AppLeagueNumbers.test.tsx` pins what each
+    tab shows on a fixed six-team season, the forecast seeded from the season;
+    it was recorded before the split and matches after it.
 - Simulation and trend work run in `src/workers/sim.worker.ts`.
 - The rankings worker keeps one decoded pool and the page names it by revision.
   The pool crosses to it only when the pool itself changes, in the compact form

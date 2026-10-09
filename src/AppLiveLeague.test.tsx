@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { LiveLeagueState } from "./lib/live/leagueSync";
 import { buildShareUrl } from "./lib/share";
@@ -7,6 +7,10 @@ import { loadCloudState, saveCloudState } from "./lib/cloud/cloudState";
 import { noteLeagueMet } from "./lib/preferences";
 import { createSeason, listSeasons, loadTeams, saveMatchups, saveTeams } from "./lib/storage";
 import { DEFAULT_SETTINGS } from "./lib/types";
+import { prefetchAllViews } from "./components/league/leagueViews";
+
+// League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
+beforeAll(() => prefetchAllViews());
 
 /*
  * League Standings kept live, as the page shows it: editable while live or not kept live at all,

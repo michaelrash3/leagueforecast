@@ -111,6 +111,9 @@ export default defineConfig({
   },
   build: {
     sourcemap: true,
+    // Which chunk each module landed in and what it imports, for the bundle budget's per-view sizes
+    // (`scripts/bundleBudget.mjs`, 2.1). Written to `dist/.vite/`, beside the build.
+    manifest: true,
     rollupOptions: {
       output: {
         /*

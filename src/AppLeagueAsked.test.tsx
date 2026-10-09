@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import * as cloudSession from "./lib/cloud/cloudSession";
 import * as copyBackupLib from "./lib/live/copyBackup";
@@ -15,6 +15,10 @@ import {
   setActiveSeason,
 } from "./lib/storage";
 import { blankLog } from "./lib/util";
+import { prefetchAllViews } from "./components/league/leagueViews";
+
+// League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
+beforeAll(() => prefetchAllViews());
 
 /*
  * League Standings on a member's device, where Team Rankings is the cloud's (1.6e): what Team

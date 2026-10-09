@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { buildShareUrl } from "./lib/share";
 import {
@@ -14,6 +14,10 @@ import {
   saveTeams,
 } from "./lib/storage";
 import { DEFAULT_SETTINGS, type GameLog } from "./lib/types";
+import { prefetchAllViews } from "./components/league/leagueViews";
+
+// League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
+beforeAll(() => prefetchAllViews());
 
 /*
  * Load Demo and a shared link replace a league's settings along with its teams and games, and their
