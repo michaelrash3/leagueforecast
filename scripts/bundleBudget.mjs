@@ -38,6 +38,7 @@ const BUDGET = {
     Standings: 8_000,
     "League Stats": 3_700,
     Forecast: 13_200,
+    "Data Quality": 3_500,
     Settings: 12_600,
     "Team Rankings": 153_000,
   },
@@ -51,6 +52,7 @@ const VIEWS = {
   Standings: ["src/components/league/StandingsView.tsx"],
   "League Stats": ["src/components/league/TeamStatsView.tsx"],
   Forecast: ["src/components/league/ModelView.tsx", "src/components/league/PlayoffMachine.tsx"],
+  "Data Quality": ["src/components/league/DataQualityView.tsx"],
   Settings: [
     "src/components/league/SeasonManager.tsx",
     "src/components/ScoutLinkPanel.tsx",
@@ -101,7 +103,10 @@ const report = {
   ),
 };
 
-writeFileSync(`${DIST}/bundle-report.json`, `${JSON.stringify({ budget: BUDGET, report }, null, 2)}\n`);
+writeFileSync(
+  `${DIST}/bundle-report.json`,
+  `${JSON.stringify({ budget: BUDGET, report }, null, 2)}\n`
+);
 
 const kb = (bytes) => `${(bytes / 1000).toFixed(1)} KB`;
 const over = [];

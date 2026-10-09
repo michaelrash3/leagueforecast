@@ -4,6 +4,8 @@
  * here rather than inside their hooks so a whole-browser backup can read and restore them without
  * duplicating the storage keys.
  */
+import type { FindingSeverity } from "./leagueFindings";
+
 export type Theme = "light" | "dark";
 export type AppMode = "league" | "rankings";
 
@@ -93,6 +95,55 @@ export const writeOurTeam = (seasonId: string, teamId: string | null): boolean =
   if (teamId === null) delete all[seasonId];
   else all[seasonId] = teamId;
   return safeSet(OUR_TEAM_KEY, JSON.stringify(all));
+};
+
+const PUT_ASIDE_KEY = "lf_league_findings_put_aside_v1";
+
+const SEVERITIES: readonly string[] = ["attention", "review", "info"];
+
+const readAllPutAside = (): Record<string, Record<string, FindingSeverity>> => {
+  try {
+    const parsed: unknown = JSON.parse(safeGet(PUT_ASIDE_KEY) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).flatMap(([seasonId, entries]: [string, unknown]) =>
+        entries && typeof entries === "object" && !Array.isArray(entries)
+          ? [
+              [
+                seasonId,
+                Object.fromEntries(
+                  Object.entries(entries).filter(
+                    (entry): entry is [string, FindingSeverity] =>
+                      typeof entry[1] === "string" && SEVERITIES.includes(entry[1])
+                  )
+                ),
+              ],
+            ]
+          : []
+      )
+    );
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * The League data-quality findings put aside on this device, one set per season: each finding's
+ * fingerprint, with the severity it had when put aside (`isDismissed`, 2.3). Kept here and not in
+ * the season, like the team this browser follows: what one commissioner has looked at and decided
+ * to live with is theirs, and the season's document and backups carry the season.
+ */
+export const readPutAside = (seasonId: string): Record<string, FindingSeverity> =>
+  readAllPutAside()[seasonId] ?? {};
+
+export const writePutAside = (
+  seasonId: string,
+  putAside: Readonly<Record<string, FindingSeverity>>
+): boolean => {
+  const all = readAllPutAside();
+  if (Object.keys(putAside).length === 0) delete all[seasonId];
+  else all[seasonId] = { ...putAside };
+  return safeSet(PUT_ASIDE_KEY, JSON.stringify(all));
 };
 
 const DEFAULT_AGE_KEY = "lf_rankings_default_age_v1";

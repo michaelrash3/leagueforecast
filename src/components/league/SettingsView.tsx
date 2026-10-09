@@ -149,6 +149,7 @@ export function SettingsView({
                 </span>
                 <input
                   id={cutoffId}
+                  data-setting="goldCutoff"
                   type="number"
                   min={1}
                   max={Math.max(1, teamsCount)}
@@ -201,6 +202,7 @@ export function SettingsView({
               </span>
               <input
                 id={regularSeasonGamesId}
+                data-setting="regularSeasonGamesPerTeam"
                 type="number"
                 min={0}
                 value={settings.regularSeasonGamesPerTeam}

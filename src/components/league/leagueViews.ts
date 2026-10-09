@@ -80,6 +80,10 @@ export const scheduleView = viewChunk(
   () => import("./GamesView").then((module) => module.GamesView),
   "GamesView"
 );
+export const qualityView = viewChunk(
+  () => import("./DataQualityView").then((module) => module.DataQualityView),
+  "DataQualityView"
+);
 export const settingsView = viewChunk(
   () => import("./SettingsView").then((module) => module.SettingsView),
   "SettingsView"
@@ -108,6 +112,7 @@ const CHUNKS_OF: Record<ActiveView, readonly Loadable[]> = {
   teamStats: [statsView],
   model: [forecastView, playoffMachineView],
   games: [scheduleView],
+  quality: [qualityView],
   settings: [seasonManagerView, scoutLinkView, settingsView],
 };
 

@@ -8,6 +8,7 @@ import { displayName } from "../../lib/format";
 import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
+import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFindings";
 import { EmptyPanel } from "./EmptyPanel";
 import { PowerRatingsView } from "./PowerRatingsView";
 import { button as buttonClasses } from "../../styles/tokens";
@@ -110,6 +111,7 @@ export function DashboardView({
   teamsById,
   matchups,
   setActiveView,
+  findings,
   ourTeam,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
@@ -117,6 +119,8 @@ export function DashboardView({
   teamsById: Map<string, Team>;
   matchups: Matchup[];
   setActiveView: (view: ActiveShareView) => void;
+  /** The season's data-quality findings not put aside, counted here and listed on their own tab. */
+  findings: readonly Finding[];
   /** The team this browser follows, which leads the page (`OurTeamCard`). */
   ourTeam?: ReactNode;
 }) {
@@ -175,40 +179,64 @@ export function DashboardView({
             />
           )}
         </div>
-        <DataQualityPanel engine={engine} />
+        <DataQualityPanel
+          engine={engine}
+          findings={findings}
+          onOpen={() => setActiveView("quality")}
+        />
       </section>
       <PowerRatingsView engine={engine} compact />
     </div>
   );
 }
 
-function DataQualityNotes({ notes }: { notes: string[] }) {
-  if (notes.length === 0) {
-    return (
-      <p className="mt-3 text-sm font-semibold text-slate-500 dark:text-slate-400">
-        Nothing to flag — the model has what it needs from the games entered so far.
-      </p>
-    );
-  }
-  return (
-    <ul className="mt-4 space-y-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
-      {notes.slice(0, 6).map((item) => (
-        <li key={item}>• {item}</li>
-      ))}
-    </ul>
+/**
+ * The season's data quality, in brief (2.3): the forecast's own grade of how much it has to go
+ * on, how many findings there are of each severity, whether any of them makes the forecast less
+ * to be trusted, and the way to the Data Quality tab, where each is listed with what to do.
+ */
+function DataQualityPanel({
+  engine,
+  findings,
+  onOpen,
+}: {
+  engine: ReturnType<typeof buildPredictionEngine>;
+  findings: readonly Finding[];
+  onOpen: () => void;
+}) {
+  const counts = severityCounts(findings);
+  const forecastAffected = findings.some(
+    (finding) => finding.affectsForecast && finding.severity !== "info"
   );
-}
-
-function DataQualityPanel({ engine }: { engine: ReturnType<typeof buildPredictionEngine> }) {
   return (
     <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Data Quality
       </p>
       <h3 className="mt-2 text-2xl font-black">{engine.dataQuality.tier}</h3>
-      <DataQualityNotes
-        notes={[...engine.dataQuality.warnings, ...engine.dataQuality.recommendedActions]}
-      />
+      {findings.length === 0 ? (
+        <p className="mt-3 text-sm font-semibold text-slate-500 dark:text-slate-400">
+          Nothing to flag in the season&rsquo;s games, teams or settings.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
+          {(["attention", "review", "info"] as const)
+            .filter((severity) => counts[severity] > 0)
+            .map((severity) => (
+              <li key={severity}>
+                {counts[severity]} {SEVERITY_LABEL[severity].toLowerCase()}
+              </li>
+            ))}
+        </ul>
+      )}
+      {forecastAffected && (
+        <p className="mt-3 text-sm font-bold text-red-700 dark:text-red-300">
+          The forecast is less reliable until these are put right.
+        </p>
+      )}
+      <button type="button" onClick={onOpen} className={`${buttonClasses.ghost} mt-4 w-full`}>
+        {findings.length ? "Review data quality" : "Open Data Quality"}
+      </button>
     </aside>
   );
 }

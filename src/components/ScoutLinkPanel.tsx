@@ -165,7 +165,8 @@ function ScoutLinkPanelInner({
   }, [wide, onWide]);
 
   return (
-    <div className={`${card} p-5`}>
+    // Where a data-quality finding about a link opens (`data-setting`, 2.3).
+    <div className={`${card} p-5`} data-setting="scoutLinks" tabIndex={-1}>
       <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Which Team Rankings club is each team?
       </h2>

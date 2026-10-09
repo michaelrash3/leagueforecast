@@ -57,6 +57,7 @@ import {
   playoffMachineView,
   powerView,
   prefetchView,
+  qualityView,
   resetView,
   scheduleView,
   scoutLinkView,
@@ -82,8 +83,10 @@ import {
 } from "./lib/teamRankingsStorage";
 import {
   readOurTeam,
+  readPutAside,
   readSummaryMode,
   writeOurTeam,
+  writePutAside,
   writeSummaryMode,
   type SummaryMode,
 } from "./lib/preferences";
@@ -140,6 +143,17 @@ import {
 } from "./lib/impactRecap";
 import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
 import { rememberLast } from "./lib/rememberLast";
+import {
+  auditLeague,
+  isDismissed,
+  repairIsDestructive,
+  repairPreview,
+  type Finding,
+  type FindingRepair,
+  type FindingSeverity,
+  type FindingTarget,
+} from "./lib/leagueFindings";
+import { useToday } from "./hooks/useToday";
 import {
   applyResult,
   attachAdjustedRatings,
@@ -262,6 +276,7 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   teamStats: "League Stats",
   games: "Schedule",
   model: "Forecast",
+  quality: "Data Quality",
   settings: "Settings",
 };
 
@@ -272,6 +287,7 @@ const VIEW_ORDER: ActiveView[] = [
   "standings",
   "teamStats",
   "model",
+  "quality",
   "settings",
 ];
 
@@ -283,6 +299,7 @@ const TeamStatsView = statsView.View;
 const ModelView = forecastView.View;
 const PlayoffMachine = playoffMachineView.View;
 const GamesView = scheduleView.View;
+const DataQualityView = qualityView.View;
 const SettingsView = settingsView.View;
 const SeasonManager = seasonManagerView.View;
 const ScoutLinkPanel = scoutLinkView.View;
@@ -2086,6 +2103,182 @@ export default function App() {
     });
   };
 
+  // ---------- Data quality (2.3) ----------
+
+  const today = useToday();
+  /*
+   * Every finding on the season. Read from the scores as they stand, since a game scored and not
+   * marked final is one of the things it looks for, and deferred like them; cheap (one pass over
+   * the games), so it is kept whatever tab is open, for the Dashboard's count.
+   */
+  const findings = useMemo(
+    () =>
+      auditLeague({
+        teams,
+        matchups,
+        logs: deferredLogs,
+        settings,
+        links: scoutBridge.rows,
+        today,
+      }),
+    [teams, matchups, deferredLogs, settings, scoutBridge.rows, today]
+  );
+  /* The findings put aside on this device, held by season id as the team followed is. */
+  const [putAsideHeld, setPutAsideHeld] = useState(() => ({
+    seasonId: activeSeasonId,
+    entries: readPutAside(activeSeasonId),
+  }));
+  const putAsideEntries =
+    putAsideHeld.seasonId === activeSeasonId ? putAsideHeld.entries : readPutAside(activeSeasonId);
+  const openFindings = useMemo(
+    () => findings.filter((finding) => !isDismissed(finding, putAsideEntries)),
+    [findings, putAsideEntries]
+  );
+  const asideFindings = useMemo(
+    () => findings.filter((finding) => isDismissed(finding, putAsideEntries)),
+    [findings, putAsideEntries]
+  );
+  const setPutAside = useCallback(
+    (entries: Record<string, FindingSeverity>) => {
+      writePutAside(activeSeasonId, entries);
+      setPutAsideHeld({ seasonId: activeSeasonId, entries });
+    },
+    [activeSeasonId]
+  );
+  const putFindingAside = useCallback(
+    (finding: Finding) =>
+      setPutAside({ ...putAsideEntries, [finding.fingerprint]: finding.severity }),
+    [putAsideEntries, setPutAside]
+  );
+  const bringFindingBack = useCallback(
+    (finding: Finding) =>
+      setPutAside(
+        Object.fromEntries(
+          Object.entries(putAsideEntries).filter(([print]) => print !== finding.fingerprint)
+        )
+      ),
+    [putAsideEntries, setPutAside]
+  );
+
+  /*
+   * The element a finding's link goes to, once its tab has drawn it: a game's card, or a setting
+   * marked `data-setting`. Looked for a frame at a time, since the tab may still be loading.
+   */
+  const [focusAfterOpen, setFocusAfterOpen] = useState<
+    { gameId: string } | { setting: string } | null
+  >(null);
+  useEffect(() => {
+    if (!focusAfterOpen) return;
+    let frames = 0;
+    let frame = 0;
+    const look = () => {
+      const found =
+        "gameId" in focusAfterOpen
+          ? document.getElementById(`game-card-${focusAfterOpen.gameId}`)
+          : document.querySelector<HTMLElement>(`[data-setting="${focusAfterOpen.setting}"]`);
+      if (found) {
+        found.scrollIntoView?.({ block: "center" });
+        const control = found.matches("input, select, button")
+          ? found
+          : found.querySelector<HTMLElement>("input, select, button");
+        (control ?? found).focus({ preventScroll: true });
+        setFocusAfterOpen(null);
+        return;
+      }
+      frames += 1;
+      if (frames < 180) frame = requestAnimationFrame(look);
+      else setFocusAfterOpen(null);
+    };
+    frame = requestAnimationFrame(look);
+    return () => cancelAnimationFrame(frame);
+  }, [focusAfterOpen, activeView]);
+
+  const openFindingTarget = useCallback(
+    (target: FindingTarget) => {
+      if (target.kind === "team") {
+        openTeamData(target.id);
+      } else if (target.kind === "game") {
+        setScoreboardTeamFilter("ALL");
+        setActiveView("games");
+        setFocusAfterOpen({ gameId: target.id });
+      } else {
+        setActiveView("settings");
+        setFocusAfterOpen({ setting: target.id });
+      }
+    },
+    [openTeamData]
+  );
+
+  /*
+   * A finding's repair, made: asked first when it deletes, taken as one undo step, and reported by
+   * what it actually changed, which is worked out again from the season as it is now rather than
+   * as the finding saw it, so a game scored since is never deleted and one marked final since is
+   * not counted.
+   */
+  const repairFinding = async (finding: Finding) => {
+    const repair = finding.repair;
+    if (!repair) return;
+    const lockedBecause = seasonStore.locked();
+    if (lockedBecause) {
+      showToast(lockedBecause, { tone: "error" });
+      return;
+    }
+    const lines = repairPreview(repair, { teams, matchups, logs });
+    if (repairIsDestructive(repair)) {
+      const confirmed = await requestConfirmation({
+        title: lines.length === 1 ? "Delete this game?" : `Delete these ${lines.length} games?`,
+        message: `${lines.join(" ")} An undo snapshot will be saved.`,
+        confirmLabel: lines.length === 1 ? "Delete game" : "Delete games",
+      });
+      if (!confirmed) return;
+    }
+    const now = seasonStore.get().season;
+    const unscored = (id: string) => {
+      const log = now.logs[id];
+      return !isFinal(log) && !log?.awayRuns.trim() && !log?.homeRuns.trim();
+    };
+    const scoredOpen = (id: string) => {
+      const log = now.logs[id];
+      return !isFinal(log) && Boolean(log?.awayRuns.trim()) && Boolean(log?.homeRuns.trim());
+    };
+    const undo = { tone: "undo" as const, actionLabel: "Undo", onAction: restoreUndo };
+    if (repair.kind === "removeGames") {
+      const ids = new Set(
+        repair.gameIds.filter((id) => now.matchups.some((game) => game.id === id) && unscored(id))
+      );
+      if (!ids.size) {
+        showToast("Nothing to delete: those games have changed since.", { tone: "error" });
+        return;
+      }
+      captureUndo(`Deleted ${ids.size === 1 ? "a duplicate game" : `${ids.size} duplicate games`}`);
+      setMatchups((prev) => prev.filter((game) => !ids.has(game.id)));
+      setLogs((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => !ids.has(id))));
+      showToast(ids.size === 1 ? "Deleted 1 game." : `Deleted ${ids.size} games.`, undo);
+    } else if (repair.kind === "markFinal") {
+      const ids = repair.gameIds.filter(scoredOpen);
+      if (!ids.length) {
+        showToast("Nothing to mark: those games have changed since.", { tone: "error" });
+        return;
+      }
+      captureUndo(`Marked ${ids.length === 1 ? "a game" : `${ids.length} games`} final`);
+      setLogs((prev) =>
+        ids.reduce((next, id) => withFinal(next, id, true, settings.defaultGameInnings), prev)
+      );
+      showToast(
+        ids.length === 1 ? "Marked 1 game final." : `Marked ${ids.length} games final.`,
+        undo
+      );
+    } else {
+      captureUndo(`Games per team ${repair.from} to ${repair.to}`);
+      setSettings((prev) => ({ ...prev, regularSeasonGamesPerTeam: repair.to }));
+      showToast(`Games per team is now ${repair.to}.`, undo);
+    }
+  };
+  const previewRepair = useCallback(
+    (repair: FindingRepair) => repairPreview(repair, { teams, matchups, logs }),
+    [teams, matchups, logs]
+  );
+
   const loadDemoSeason = useCallback(async () => {
     // Reached from the command palette as well as the page: refused before it asks, or takes an
     // undo step over the one there, while the season may not be written.
@@ -2198,6 +2391,7 @@ export default function App() {
     teamStats: null,
     games: null,
     model: null,
+    quality: null,
     settings: null,
   });
 
@@ -2996,6 +3190,7 @@ export default function App() {
                       teamsById={liveById}
                       matchups={matchups}
                       setActiveView={setActiveView}
+                      findings={openFindings}
                       ourTeam={
                         // Not locked: the team followed is this browser's own pick, never a setting
                         // that travels, and "Enter a score" only goes to the schedule.
@@ -3143,6 +3338,17 @@ export default function App() {
                           iterations={SIM_ITERATIONS}
                         />
                       }
+                    />
+                  ) : activeView === "quality" ? (
+                    <DataQualityView
+                      findings={openFindings}
+                      putAside={asideFindings}
+                      tier={predictionEngine.dataQuality.tier}
+                      preview={previewRepair}
+                      onOpen={openFindingTarget}
+                      onRepair={(finding) => void repairFinding(finding)}
+                      onPutAside={putFindingAside}
+                      onBringBack={bringFindingBack}
                     />
                   ) : activeView === "settings" ? (
                     <div className="space-y-6">

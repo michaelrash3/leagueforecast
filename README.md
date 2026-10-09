@@ -66,6 +66,7 @@ starts in its June. A season inside one calendar year is ordered exactly as befo
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                       |
 | **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                  |
+| **Data Quality**     | Findings on the season's games, teams and settings, grouped by severity, with links to each, previewed repairs and undo.                                |
 | **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
 | **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
 | **Our team**         | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
@@ -2734,6 +2735,37 @@ leaving the last ones showing. Only a board of a half the season plays its games
 writes them: a fall league's places are read off the fall board, and looking at the
 spring one, which holds none of the league's games, leaves the card as it was rather
 than blanking it.
+
+## Data Quality
+
+What in a season's games, teams and settings is wrong or worth a second look, each as a
+finding (`src/lib/leagueFindings.ts`, 2.3) with a stable code, a severity, the games, teams or
+setting it is about, why it matters, what to do, whether it makes the forecast less to be
+trusted, and a fingerprint. The Dashboard keeps only the count of each severity and a line when
+the forecast is affected; the **Data Quality** tab lists them in three groups:
+
+- **Needs attention**: a game naming a team not on the roster, a team against itself, a final
+  with a score missing (counted as if that side scored nothing), the same game final twice, a
+  past game scored and never marked final (not counted at all), a Gold cut line every team is on
+  one side of, one Team Rankings club linked to two league teams while its results count.
+- **Worth reviewing**: the same game on the schedule twice, a past game still without a score, a
+  date that cannot be read, a final over 40 runs a side or won by more than 30, fewer games
+  scheduled than the games-per-team setting (which holds clinching back), teams without a final
+  once the league has played about three games each, two teams of one name, a link to a club
+  Team Rankings no longer has.
+- **Information**: an undated game, a schedule giving teams two or more games apart, teams
+  without a final early on, a link guessed from a name more than one club carries.
+
+A date is read in the year nearest today, since League dates carry none: a March game seen in
+February is next month's, a December one seen in January last month's. Each finding links to
+what it is about: a game opens the Schedule with its card focused, a team its panel, a setting
+the field in Settings. Three can be put right from the tab, each after a preview of exactly what
+it will do, as one undo step, and reported by what it actually changed, worked out again from
+the season as it stands: **Delete the extra copies** (only copies with no score, and asked
+first), **Mark them final** (past games with both scores in), and **Use the schedule's count**
+for games per team. A finding that does not need attention can be **put aside** on this device,
+per season (`readPutAside`); it comes back when what it is about changes or it grows more
+serious, and a finding that needs attention cannot be put aside.
 
 ## Settings
 
