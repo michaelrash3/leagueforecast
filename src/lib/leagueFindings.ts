@@ -160,11 +160,15 @@ export const auditLeague = ({
       ].join("|"),
     });
 
-  if (teams.length < 2) {
+  /*
+   * One team, not none: a season with no teams yet is one being set up, which the season builder
+   * on the Dashboard is already walking through, and a warning there would only be noise.
+   */
+  if (teams.length === 1) {
     add({
       code: "too-few-teams",
       severity: "attention",
-      summary: teams.length === 0 ? "No teams yet" : "Only one team",
+      summary: "Only one team",
       detail: "The forecast compares teams, so it needs at least two to say anything.",
       suggestion: "Add teams in Settings, or import a schedule.",
       targets: [],

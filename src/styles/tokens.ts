@@ -38,8 +38,17 @@ export const pill = (tone: PillTone = "neutral") =>
 export const card =
   "rounded-lg border border-slate-200 bg-white shadow-xs shadow-slate-200/70 ring-1 ring-white/70 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20 dark:ring-slate-900";
 
-export const tab = (active: boolean) =>
-  `whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold transition sm:px-5 sm:py-2.5 ${focusRing} ${
+/**
+ * A tab. `fill` shares a phone's row equally with its siblings, its type sized with the screen
+ * (2.4): the app-mode switch's two tabs at the regular size measured 336px against the 288px a
+ * 320px screen leaves, which widened the whole page on the narrowest phones.
+ */
+export const tab = (active: boolean, size: "regular" | "fill" = "regular") =>
+  `whitespace-nowrap rounded-lg font-bold transition ${
+    size === "fill"
+      ? "min-w-0 flex-1 px-2 py-2 text-[clamp(11px,3.6vw,14px)] sm:flex-none sm:px-5 sm:py-2.5 sm:text-sm"
+      : "px-4 py-2 text-sm sm:px-5 sm:py-2.5"
+  } ${focusRing} ${
     active
       ? "bg-slate-950 text-white shadow-xs dark:bg-white dark:text-slate-950"
       : "text-slate-500 hover:bg-white hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"

@@ -32,3 +32,24 @@ export const useWideViewport = (): boolean => {
 
   return useSyncExternalStore(subscribe, read, () => true);
 };
+
+const NARROW = "(max-width: 639px)";
+
+/**
+ * Whether the viewport is below `sm`, a phone held upright, where the app's tab rows become a bar
+ * along the bottom of the screen with More for the rest (2.4).
+ *
+ * Asked as a question of its own rather than as `!useWideViewport()`, so that a `matchMedia` that
+ * answers no to everything (jsdom's stub in the app's tests) or none at all keeps the tab row every
+ * caller had before the bar, not the bar. In a browser the two queries split at the same width.
+ */
+export const useNarrowViewport = (): boolean => {
+  const subscribe = useCallback((notify: () => void) => {
+    const query = window.matchMedia?.(NARROW);
+    if (!query) return () => {};
+    query.addEventListener("change", notify);
+    return () => query.removeEventListener("change", notify);
+  }, []);
+  const read = useCallback(() => window.matchMedia?.(NARROW).matches ?? false, []);
+  return useSyncExternalStore(subscribe, read, () => false);
+};

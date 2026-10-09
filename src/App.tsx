@@ -1,4 +1,4 @@
-import React, {
+import {
   lazy,
   startTransition,
   useCallback,
@@ -10,6 +10,7 @@ import React, {
   useState,
   useSyncExternalStore,
   Suspense,
+  type ReactNode,
 } from "react";
 import { registerSW } from "virtual:pwa-register";
 import type { Command } from "./components/CommandPalette";
@@ -154,6 +155,9 @@ import {
   type FindingTarget,
 } from "./lib/leagueFindings";
 import { useToday } from "./hooks/useToday";
+import { useNarrowViewport } from "./hooks/useWideViewport";
+import { TabNav, type TabNavItem } from "./components/TabNav";
+import { NAV_ICONS } from "./components/navIcons";
 import {
   applyResult,
   attachAdjustedRatings,
@@ -278,6 +282,18 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   model: "Forecast",
   quality: "Data Quality",
   settings: "Settings",
+};
+
+/**
+ * The tabs a phone keeps in its row (2.4): where a season is read and scored. The rest are under
+ * More, with Data Quality out in the row whenever something needs attention.
+ */
+const PHONE_VIEWS: readonly ActiveView[] = ["dashboard", "games", "standings", "model"];
+const VIEW_ICONS: Partial<Record<ActiveView, ReactNode>> = {
+  dashboard: NAV_ICONS.dashboard,
+  games: NAV_ICONS.games,
+  standings: NAV_ICONS.standings,
+  model: NAV_ICONS.model,
 };
 
 const VIEW_ORDER: ActiveView[] = [
@@ -2134,6 +2150,26 @@ export default function App() {
     () => findings.filter((finding) => !isDismissed(finding, putAsideEntries)),
     [findings, putAsideEntries]
   );
+  /*
+   * What the tab row marks (2.4): Data Quality with what needs attention, which also brings it out
+   * of More on a phone. A setting at fault (the cut line, games per team, a link) is one of those
+   * findings, so it is counted there rather than marked twice.
+   */
+  const viewBadges = useMemo((): Partial<Record<ActiveView, TabNavItem<ActiveView>["badge"]>> => {
+    const attention = openFindings.filter((finding) => finding.severity === "attention").length;
+    return {
+      ...(attention
+        ? {
+            quality: {
+              count: attention,
+              describe: `${attention} ${attention === 1 ? "needs" : "need"} attention`,
+              urgent: true,
+            },
+          }
+        : {}),
+    };
+  }, [openFindings]);
+  const narrowScreen = useNarrowViewport();
   const asideFindings = useMemo(
     () => findings.filter((finding) => isDismissed(finding, putAsideEntries)),
     [findings, putAsideEntries]
@@ -2383,31 +2419,6 @@ export default function App() {
   };
 
   // ---------- Header / selection ----------
-
-  const tabRefs = useRef<Record<ActiveView, HTMLButtonElement | null>>({
-    dashboard: null,
-    power: null,
-    standings: null,
-    teamStats: null,
-    games: null,
-    model: null,
-    quality: null,
-    settings: null,
-  });
-
-  const onTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-    event.preventDefault();
-    const idx = VIEW_ORDER.indexOf(activeView);
-    const nextIdx =
-      event.key === "ArrowRight"
-        ? (idx + 1) % VIEW_ORDER.length
-        : (idx - 1 + VIEW_ORDER.length) % VIEW_ORDER.length;
-    const nextView = VIEW_ORDER[nextIdx];
-    if (!nextView) return;
-    setActiveView(nextView);
-    tabRefs.current[nextView]?.focus();
-  };
 
   const selectedTeam = selectedTeamId ? (dashboardById.get(selectedTeamId) ?? null) : null;
   const selectedTeamSplitSummary = useMemo(
@@ -2939,6 +2950,35 @@ export default function App() {
     </button>
   );
 
+  // League's tab row: a sticky row at the top of a wide screen, a bar along the bottom of a phone's.
+  const leagueTabs = (
+    <TabNav
+      label="Main views"
+      items={VIEW_ORDER.map((view) => {
+        const badge = viewBadges[view];
+        return {
+          key: view,
+          label: VIEW_LABELS[view],
+          tabId: `tab-${view}`,
+          controls: `panel-${view}`,
+          ...(VIEW_ICONS[view] ? { icon: VIEW_ICONS[view] } : {}),
+          ...(badge ? { badge } : {}),
+        };
+      })}
+      current={activeView}
+      onSelect={setActiveView}
+      narrow={narrowScreen}
+      primary={PHONE_VIEWS}
+      actions={[
+        { label: "Take the tour", onSelect: () => setShowTour(true) },
+        { label: "Keyboard shortcuts", onSelect: () => setShowShortcuts(true) },
+      ]}
+      // A tab about to be opened starts loading before the press (2.1).
+      onPreview={(view) => void prefetchView(view)}
+      className="mx-auto max-w-7xl px-4 py-1.5 sm:px-6 lg:px-8"
+    />
+  );
+
   return (
     <>
       {/*
@@ -2994,14 +3034,14 @@ export default function App() {
                 <div
                   role="tablist"
                   aria-label="App mode"
-                  className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900"
+                  className="flex w-full items-center gap-1 rounded-lg bg-slate-100 p-1 sm:inline-flex sm:w-auto dark:bg-slate-900"
                 >
                   <button
                     type="button"
                     role="tab"
                     aria-selected={appMode === "league"}
                     onClick={() => setAppMode("league")}
-                    className={tab(appMode === "league")}
+                    className={tab(appMode === "league", "fill")}
                   >
                     League Standings
                   </button>
@@ -3010,7 +3050,7 @@ export default function App() {
                     role="tab"
                     aria-selected={appMode === "rankings"}
                     onClick={() => setAppMode("rankings")}
-                    className={tab(appMode === "rankings")}
+                    className={tab(appMode === "rankings", "fill")}
                   >
                     Team Rankings
                   </button>
@@ -3095,43 +3135,21 @@ export default function App() {
           </div>
         </header>
 
-        {appMode === "league" && (
-          <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-xs shadow-slate-200/60 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90 dark:shadow-black/20">
-            <div
-              role="tablist"
-              aria-label="Main views"
-              className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-1.5 sm:px-6 lg:px-8"
-            >
-              {VIEW_ORDER.map((view) => (
-                <button
-                  key={view}
-                  ref={(el) => {
-                    tabRefs.current[view] = el;
-                  }}
-                  role="tab"
-                  id={`tab-${view}`}
-                  aria-selected={activeView === view}
-                  aria-controls={`panel-${view}`}
-                  tabIndex={activeView === view ? 0 : -1}
-                  onClick={() => setActiveView(view)}
-                  onKeyDown={onTabKeyDown}
-                  // A tab about to be opened starts loading before the press (2.1).
-                  onMouseEnter={() => void prefetchView(view)}
-                  onFocus={() => void prefetchView(view)}
-                  className={tab(activeView === view)}
-                >
-                  {VIEW_LABELS[view]}
-                </button>
-              ))}
+        {appMode === "league" &&
+          (narrowScreen ? (
+            leagueTabs
+          ) : (
+            <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-xs shadow-slate-200/60 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90 dark:shadow-black/20">
+              {leagueTabs}
             </div>
-          </div>
-        )}
+          ))}
 
         {appMode === "rankings" ? (
           <main
             id="main-content"
             tabIndex={-1}
-            className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+            // Room below on a phone for the tab bar fixed along the bottom of the screen (2.4).
+            className="mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 sm:pb-6 lg:px-8"
           >
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
               <RankingsOpen
@@ -3154,7 +3172,8 @@ export default function App() {
           </main>
         ) : (
           <main
-            className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+            // Room below on a phone for the tab bar fixed along the bottom of the screen (2.4).
+            className="mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 sm:pb-6 lg:px-8"
             tabIndex={-1}
             id={`panel-${activeView}`}
             role="tabpanel"

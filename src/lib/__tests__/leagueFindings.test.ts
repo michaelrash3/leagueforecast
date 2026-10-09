@@ -69,13 +69,11 @@ describe("auditing a League Standings season", () => {
     expect(audit()).toEqual([]);
   });
 
-  it("says when there are too few teams to forecast", () => {
-    expect(only(audit({ teams: [], matchups: [], logs: {} }), "too-few-teams").severity).toBe(
-      "attention"
-    );
-    expect(codes(audit({ teams: TEAMS.slice(0, 1), matchups: [], logs: {} }))).toContain(
-      "too-few-teams"
-    );
+  it("says when one team is too few to forecast, and nothing of a season not set up yet", () => {
+    expect(
+      only(audit({ teams: TEAMS.slice(0, 1), matchups: [], logs: {} }), "too-few-teams").severity
+    ).toBe("attention");
+    expect(audit({ teams: [], matchups: [], logs: {} })).toEqual([]);
   });
 
   it("finds games with a team not on the roster, and a team against itself", () => {

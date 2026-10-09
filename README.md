@@ -2744,7 +2744,8 @@ setting it is about, why it matters, what to do, whether it makes the forecast l
 trusted, and a fingerprint. The Dashboard keeps only the count of each severity and a line when
 the forecast is affected; the **Data Quality** tab lists them in three groups:
 
-- **Needs attention**: a game naming a team not on the roster, a team against itself, a final
+- **Needs attention**: a season of one team (one with none is still being set up, and
+  raises nothing), a game naming a team not on the roster, a team against itself, a final
   with a score missing (counted as if that side scored nothing), the same game final twice, a
   past game scored and never marked final (not counted at all), a Gold cut line every team is on
   one side of, one Team Rankings club linked to two league teams while its results count.
@@ -5642,6 +5643,35 @@ the deterministic story is shown. To exercise the AI path locally, run
   longest line, so at 360px every card was 421 to 438px in a 286px scroller and all
   18 of the demo's run boxes and Set Final buttons sat past the edge. From `sm` up
   the rounds run left to right as before; `e2e/phone.spec.ts` holds both.
+
+- **On a phone the tabs are a bar along the bottom of the screen** (2.4,
+  `src/components/TabNav.tsx`, below `sm` as `useNarrowViewport` asks it). League
+  Standings' bar holds Dashboard, Schedule, Standings and Forecast, each an icon over
+  its label, and **More** for Power Ratings, League Stats, Data Quality, Settings,
+  the tour and the keyboard shortcuts; Team Rankings' holds Rankings, Games, Import
+  and Scouting, with Archive and Setup under More. Before, all eight League tabs sat
+  in one row that scrolled sideways, with Settings past the edge. A row of the five
+  would not fit either: their labels alone measured 295px in 12px type against the
+  288px a 320px screen leaves, so the bar sizes its labels with the screen, 9px at
+  320px and below to 11px from 390px, which keeps "Dashboard" inside its cell even
+  at 125% browser zoom (a 360px phone is then 288px of page).
+  - A view under More whose badge is urgent, Data Quality while something needs
+    attention, is also a strip across the top of the bar ("Data Quality: 1 needs
+    attention") rather than a sixth cell, which would not fit. More carries the
+    badges of what is behind it, and names the view open under it to a screen reader
+    ("More: Settings"). A badge's words describe its tab rather than join its name.
+  - The cells keep their tab roles, the roving `tabIndex`, the arrow keys and now
+    Home and End; More is a disclosure button, and Escape or a tap elsewhere closes
+    it. Wide screens keep the row of tabs, with the same keys and badges. Pages leave
+    room below for the bar, and toasts sit above it.
+  - The app-mode switch fills a phone's row in two halves. At its old size it was
+    336px wide in the 288px a 320px screen leaves, which widened the whole page
+    there; the new 320px checks found it.
+  - `e2e/phone.spec.ts` holds the bar at 320, 360 and 390px and at 125% zoom (every
+    cell and More on screen, each label inside its cell, More's list on screen), the
+    last of a page clear of the bar, and a tablet keeping all eight tabs in a row.
+    Team Rankings' sections keep their links (`?section=`); League's views are, as
+    before, carried by a share link rather than the address.
 
 ## Platform baseline
 
