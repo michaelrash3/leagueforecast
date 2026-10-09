@@ -28,6 +28,7 @@ import { leagueMetHere, loadCloudState } from "./lib/cloud/cloudState";
 import { editable, reachable } from "./lib/live/leagueSync";
 import {
   leagueLiveWanted,
+  memberSignedIn,
   SEASON_DELETE_OFFLINE,
   seasonDeleteRefused,
   seasonDeleteRoute,
@@ -62,6 +63,7 @@ import {
   planLeagueScoreFill,
   summarizeLeagueFill,
   type LeagueFillPlan,
+  type RecordedRuns,
 } from "./lib/leagueScoreFill";
 import {
   loadAgeGroups,
@@ -716,12 +718,18 @@ export default function App() {
     };
   }, [leagueLiveOn, leagueKeptLive, leagueReachable, removeSeason, showToast]);
 
-  /** What Team Rankings has for this season: the results, the picks and the search behind them. */
+  /**
+   * What Team Rankings has for this season: the results, the picks and the search behind them.
+   * Asked of the server, it is asked again when the sign-in comes through and on coming back from
+   * Team Rankings, where the member may have changed what it reads.
+   */
   const {
     bridge: scoutBridge,
     externalResults,
+    unanswered: scoutUnanswered,
     candidatesFor: scoutCandidatesFor,
     wideOptions: scoutWideOptions,
+    wideStatus: scoutWideStatus,
     wantWide: wantScoutWide,
     noteChange: noteScoutChange,
   } = useScoutBridge({
@@ -730,7 +738,13 @@ export default function App() {
     seasonFixtures,
     useScoutResults: settings.useScoutResults,
     onLink: setScoutLink,
-    ...(rankingsLive ? { asker: askLeague } : {}),
+    ...(rankingsLive
+      ? {
+          asker: askLeague,
+          signedIn: memberSignedIn(cloud),
+          leagueOnScreen: appMode === "league",
+        }
+      : {}),
   });
 
   const predictionEngine = useMemo(
@@ -1875,6 +1889,13 @@ export default function App() {
    * cloud's, the server makes the same plan from the season as this device holds it (`league.fill`).
    */
   const [scoreFillPlan, setScoreFillPlan] = useState<LeagueFillPlan | null>(null);
+  /*
+   * The scores the open plan was made from: a game scored here since, while the server was asked
+   * or with the panel open, is not filled over (`applyLeagueScoreFill`).
+   */
+  const scoreFillSeen = useRef<Record<string, RecordedRuns>>({});
+  // Asked of the server and not answered yet: the button says so and takes no second press.
+  const [scoreFillAsking, setScoreFillAsking] = useState(false);
   // The season open now, for a plan the server answers after another one was switched to.
   const activeSeasonRef = useRef(activeSeasonId);
   useLayoutEffect(() => {
@@ -1883,6 +1904,7 @@ export default function App() {
 
   const openScoreFill = () => {
     if (!rankingsLive) {
+      scoreFillSeen.current = logs;
       setScoreFillPlan(
         planLeagueScoreFill({
           seasonId: activeSeasonId,
@@ -1897,6 +1919,8 @@ export default function App() {
       return;
     }
     const season = activeSeasonId;
+    const seen = logs;
+    setScoreFillAsking(true);
     void askLeague({
       kind: "league.fill",
       season,
@@ -1914,37 +1938,44 @@ export default function App() {
       })),
       today: todayIsoDay(),
     }).then((answer) => {
+      setScoreFillAsking(false);
       if (!answer) {
         showToast(LEAGUE_UNANSWERED, { tone: "error" });
         return;
       }
       // Opened for the season it was asked about, not one switched to while it was asked.
-      if (season === activeSeasonRef.current) setScoreFillPlan(answer.plan);
+      if (season !== activeSeasonRef.current) return;
+      scoreFillSeen.current = seen;
+      setScoreFillPlan(answer.plan);
     });
   };
 
   const applyScoreFill = (matchupIds: string[], otherVersion: string[]) => {
     const plan = scoreFillPlan;
     if (!plan) return;
-    const result = applyLeagueScoreFill(
-      plan,
-      matchupIds,
-      logs,
-      settings.defaultGameInnings,
-      otherVersion
-    );
+    const seen = scoreFillSeen.current;
+    const innings = settings.defaultGameInnings;
+    const result = applyLeagueScoreFill(plan, matchupIds, logs, innings, otherVersion, seen);
     setScoreFillPlan(null);
     if (result.filled === 0) {
-      showToast("Nothing was filled in.", { tone: "info" });
+      showToast(
+        result.changed === 0
+          ? "Nothing was filled in."
+          : `Nothing was filled in: ${
+              result.changed === 1
+                ? "1 game changed here since, left as it is"
+                : `${result.changed} games changed here since, left as they are`
+            }.`,
+        { tone: "info" }
+      );
       return;
     }
     captureUndo("Filled scores from Team Rankings");
     // Filled onto the scores as they are by then, not as this handler saw them.
     setLogs(
-      (prev) =>
-        applyLeagueScoreFill(plan, matchupIds, prev, settings.defaultGameInnings, otherVersion).logs
+      (prev) => applyLeagueScoreFill(plan, matchupIds, prev, innings, otherVersion, seen).logs
     );
-    showToast(summarizeLeagueFill(plan, result.filled), {
+    showToast(summarizeLeagueFill(plan, result.filled, result.changed), {
       tone: "undo",
       actionLabel: "Undo",
       onAction: restoreUndo,
@@ -3049,8 +3080,10 @@ export default function App() {
                   <EditLock>
                     <ScoutLinkPanel
                       bridge={scoutBridge}
+                      {...(scoutUnanswered ? { unanswered: scoutUnanswered } : {})}
                       candidatesFor={scoutCandidatesFor}
                       wideOptions={scoutWideOptions}
+                      {...(scoutWideStatus ? { wideStatus: scoutWideStatus } : {})}
                       onWide={wantScoutWide}
                       seasonLabel={settings.seasonLabel}
                       countingOn={settings.useScoutResults}
@@ -3104,6 +3137,7 @@ export default function App() {
                   updateBracketLog={updateBracketLog}
                   toggleBracketFinal={toggleBracketFinal}
                   scoreFillPlan={scoreFillPlan}
+                  scoreFillAsking={scoreFillAsking}
                   openScoreFill={openScoreFill}
                   closeScoreFill={() => setScoreFillPlan(null)}
                   applyScoreFill={applyScoreFill}

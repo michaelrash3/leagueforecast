@@ -418,6 +418,51 @@ describe("applyLeagueScoreFill", () => {
     expect(result.filled).toBe(1);
   });
 
+  it("fills no game whose score has changed since the plan was made", () => {
+    // Three games with nothing recorded when the plan was asked for, each offered as a fill.
+    const seen: Record<string, GameLog> = {};
+    const plan = planLeagueScoreFill(
+      input({
+        matchups: [
+          matchup("g1", "5/1", "ACES", "BEAR"),
+          matchup("g2", "5/2", "BEAR", "CUBS"),
+          matchup("g3", "5/3", "ACES", "CUBS"),
+        ],
+        logs: seen,
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-05-01"),
+          scoutGame("s2", "S-BEAR", "S-CUBS", 1, 0, "2026-05-02"),
+          scoutGame("s3", "S-ACES", "S-CUBS", 4, 2, "2026-05-03"),
+        ],
+      })
+    );
+    expect(defaultFillSelection(plan)).toEqual(["g1", "g2", "g3"]);
+    /*
+     * Meanwhile, before the server's answer came or with the panel open: g1 typed in by hand, g2
+     * marked final with its boxes still empty, g3 given hits and nothing that the plan reads.
+     */
+    const now: Record<string, GameLog> = {
+      g1: { ...blankLog(), awayRuns: "3", homeRuns: "1" },
+      g2: { ...blankLog(), isFinal: true },
+      g3: { ...blankLog(), awayHits: "6" },
+    };
+    const result = applyLeagueScoreFill(plan, defaultFillSelection(plan), now, 6, [], seen);
+    expect(result.logs.g1).toEqual(now.g1);
+    expect(result.logs.g2).toEqual(now.g2);
+    expect(result.logs.g3).toMatchObject({ awayRuns: "4", homeRuns: "2", awayHits: "6" });
+    expect(result).toMatchObject({ filled: 1, changed: 2 });
+    expect(summarizeLeagueFill(plan, result.filled, result.changed)).toBe(
+      "Filled 1 game · 2 changed here since, left as they are."
+    );
+    // As the plan saw them, every one is filled; and a log taken away is one changed too.
+    expect(applyLeagueScoreFill(plan, ["g1", "g2", "g3"], seen, 6, [], seen).filled).toBe(3);
+    const finalSeen = { g1: { ...blankLog(), isFinal: true } };
+    expect(applyLeagueScoreFill(plan, ["g1"], {}, 6, [], finalSeen)).toMatchObject({
+      filled: 0,
+      changed: 1,
+    });
+  });
+
   it("writes nothing for an ambiguous row even if it is selected", () => {
     const plan = planLeagueScoreFill(
       input({

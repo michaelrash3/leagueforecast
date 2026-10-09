@@ -540,6 +540,9 @@ winner or a tie it waits as **Check score**.
 Games the league itself put into the pool are excluded on the way back, so a
 season can never confirm its own scores. Anything already typed into a game —
 hits, strikeouts, the innings it was stored with — survives the fill untouched.
+So does a score typed in after the review was made: a game whose runs or final
+mark have changed since, while the review was open or while the server was
+asked for it, is left as it is, and the message says how many were.
 
 **One fixture, one game.** A club that tracks a league here and also pulls the
 GameChanger team playing in it has the same fixture twice over: once derived
@@ -4781,22 +4784,44 @@ member, three questions (`leagueAnswers.ts`, answered in `queries.ts` by the ver
 functions the device would run, over the cloud's pool):
 
 - `league.bridge`: the season's bridge, which the forecast reads its outside
-  results from and the link panel its rows, and the clubs each league team could
-  be. It carries the season's teams and its fixtures as this device holds them,
-  since a season edited here may not have reached the cloud yet. It is asked 0.8 s
-  after the teams and final scores stop changing, so a run of edits asks once, and
-  again whenever the page is shown anew, since the nightly may have pulled since;
-  an answer for teams or scores since changed is dropped. The last answer for a
-  season is kept on the device (`lf_league_bridge_v1`, the last four seasons, the
-  open one alone when storage is full) and read back through the same checks as
-  one from the network, so the forecast has its outside results the moment the
-  season opens, and offline.
-- `league.clubs`: every club the link panel's wide picker lists, asked once a
-  season, when the picker is first widened.
+  results from and the link panel its rows, and the best of the clubs each league
+  team could be: the first 50 by opponents in common and then games, as many as
+  the panel's picker draws at once, and the club the team is picked as wherever it
+  falls (`leagueCandidates`). Every club with a game on the season's pages went
+  to every team before: on the seeded fixture's page of 8,689 clubs, the size of
+  the real one a ten-team league was linked to, an eight-team season's answer was
+  7,076,653 characters, and is 70,746 now; a club further down shares none of the
+  team's opponents, and the wide picker finds it by name. It carries the season's
+  teams and its fixtures as this device holds them, since a season edited here
+  may not have reached the cloud yet. It is asked 0.8 s after the teams and final
+  scores stop changing, so a run of edits asks once; again on coming back to
+  League Standings from Team Rankings, where the member may just have ticked the
+  season on a page or merged a club; when the member's sign-in comes through,
+  since a question asked at boot before it did goes unanswered; when the device
+  comes back online; and when the page is shown anew on League Standings, since
+  the nightly may have pulled since, at most once every five minutes. A question
+  out is never thrown away for another about the same teams: a change noted
+  meanwhile is asked about once its answer is in, and being shown anew asks
+  nothing while one is out. An answer for teams or scores since changed is
+  dropped. A question unanswered is asked again after 5 s, 30 s, and then every
+  2 minutes until one is answered. The last bridge for a season, the bridge alone
+  and never the clubs, about 2,400 characters, is kept on the device
+  (`lf_league_bridge_v2`, the last four seasons, the open one alone when storage is
+  full; what an earlier build kept under `lf_league_bridge_v1`, every club with it,
+  is let go of) and read back through the same checks as one from the network, so
+  the forecast has its outside results the moment the season opens, and offline.
+  Until there is a bridge to show, the link panel says it is asking, or that it
+  could not ask and will again, rather than that no age group claims the season.
+- `league.clubs`: every club the link panel's wide picker lists, asked for the open
+  season while the box is ticked, so a season switched to with it ticked lists its
+  own; the panel says the list is coming, or that it could not be asked for, with
+  Try again.
 - `league.fill`: the scores Team Rankings could fill in, asked when **Fill scores
-  from Team Rankings** is pressed, with the season's teams, games and scores. An
-  answer for a season switched away from meanwhile opens nothing; no answer says
-  that the cloud could not be asked, and opens nothing either.
+  from Team Rankings** is pressed, with the season's teams, games and scores. The
+  button says the scores are being asked for and takes no second press until the
+  answer comes. An answer for a season switched away from meanwhile opens nothing;
+  no answer says that the cloud could not be asked, and opens nothing either. A
+  game scored here while it was asked is not filled over (the fill above).
 
 A question carries at most 200 teams and 3,000 games, well past any league's, so
 none holds the one edit worker long, and the server refuses one with anything it

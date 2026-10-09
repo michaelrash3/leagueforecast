@@ -11,7 +11,10 @@ import { fits, type Shape } from "./shapes";
  * Standings, which every visit loads, reads an answer, or one it kept, without either.
  */
 
-/** The clubs each league team could be, by the team's name, best evidence first. */
+/**
+ * The clubs each league team could be, by the team's name, best evidence first: the best few the
+ * picker draws, and the team's picked club (`leagueCandidates`), held in memory and never kept.
+ */
 export type LeagueCandidates = { name: string; clubs: ScoutLinkCandidate[] }[];
 
 export type LeagueBridgeAnswer = { bridge: LeagueScoutBridge; candidates: LeagueCandidates };
@@ -121,14 +124,20 @@ const FILL_PLAN: Shape = {
 };
 
 /**
- * The bridge and the candidates as the server sends them, or as this device kept them, read back
- * whole, or null. Every result is a neutral one, which is all the forecast is ever given.
+ * A season's bridge as this device kept it, read back whole, or null. Every result is a neutral
+ * one, which is all the forecast is ever given.
  */
-export const leagueBridgeAnswerOf = (raw: unknown): LeagueBridgeAnswer | null => {
-  if (!fits(raw, BRIDGE_ANSWER)) return null;
-  const answer = raw as LeagueBridgeAnswer;
-  return answer.bridge.results.every((result) => result.neutral === true) ? answer : null;
+export const leagueBridgeOf = (raw: unknown): LeagueScoutBridge | null => {
+  if (!fits(raw, BRIDGE)) return null;
+  const bridge = raw as LeagueScoutBridge;
+  return bridge.results.every((result) => result.neutral === true) ? bridge : null;
 };
+
+/** The bridge and the candidates as the server sends them, read back whole, or null. */
+export const leagueBridgeAnswerOf = (raw: unknown): LeagueBridgeAnswer | null =>
+  fits(raw, BRIDGE_ANSWER) && leagueBridgeOf((raw as LeagueBridgeAnswer).bridge)
+    ? (raw as LeagueBridgeAnswer)
+    : null;
 
 /** The wide picker's clubs, read back whole, or null. */
 export const clubOptionsOf = (raw: unknown): ClubPickOption[] | null =>

@@ -94,6 +94,7 @@ export const renderGamesView = (over: GamesViewOverrides = {}): GamesHarness => 
       updateBracketLog={over.updateBracketLog ?? vi.fn()}
       toggleBracketFinal={over.toggleBracketFinal ?? vi.fn()}
       scoreFillPlan={over.scoreFillPlan ?? null}
+      scoreFillAsking={over.scoreFillAsking ?? false}
       openScoreFill={over.openScoreFill ?? spies.openScoreFill}
       closeScoreFill={over.closeScoreFill ?? vi.fn()}
       applyScoreFill={over.applyScoreFill ?? vi.fn()}

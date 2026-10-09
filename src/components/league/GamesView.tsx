@@ -292,6 +292,7 @@ export function GamesView({
   updateBracketLog,
   toggleBracketFinal,
   scoreFillPlan,
+  scoreFillAsking = false,
   openScoreFill,
   closeScoreFill,
   applyScoreFill,
@@ -337,6 +338,11 @@ export function GamesView({
   toggleBracketFinal: (gameId: string) => void;
   /** Set while the fill review is open; null when it is not. */
   scoreFillPlan: LeagueFillPlan | null;
+  /**
+   * Whether the scores to fill are being asked of the server, which on a cold instance takes many
+   * seconds: the button says so and takes no second press, which would ask, and open, twice.
+   */
+  scoreFillAsking?: boolean;
   openScoreFill: () => void;
   closeScoreFill: () => void;
   applyScoreFill: (matchupIds: string[], otherVersion: string[]) => void;
@@ -494,13 +500,16 @@ export function GamesView({
               <button
                 type="button"
                 onClick={openScoreFill}
-                className="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400"
+                disabled={scoreFillAsking}
+                aria-busy={scoreFillAsking}
+                className="text-xs font-bold text-blue-600 hover:underline disabled:cursor-wait disabled:opacity-60 disabled:no-underline dark:text-blue-400"
               >
                 Fill scores from Team Rankings
               </button>
               <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
-                Reads results already in the pool — a GameChanger pull, usually — and offers them
-                for this schedule. Nothing is written until you have looked.
+                {scoreFillAsking
+                  ? "Asking Team Rankings in the cloud for this schedule’s results… A score you enter meanwhile is kept as you entered it."
+                  : "Reads results already in the pool — a GameChanger pull, usually — and offers them for this schedule. Nothing is written until you have looked."}
               </span>
             </div>
           )}

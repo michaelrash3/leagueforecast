@@ -23,6 +23,7 @@ import {
   scoutLinkCandidates,
   type LeagueFixture,
   type LeagueTeamLink,
+  type ScoutLinkCandidate,
 } from "../teamRankings";
 import type { Matchup } from "../types";
 import type { LeagueBridgeAnswer } from "./leagueAnswers";
@@ -172,8 +173,8 @@ export type PoolQuery =
   /**
    * What Team Rankings has for League Standings season `season` (`leagueScoutBridge`), worked out
    * from the season's teams and fixtures as the device holds them: the results its forecast reads,
-   * which club each league team is, and the clubs each could be (`scoutLinkCandidates`). A member's
-   * device holds no pool to work it out from (1.6e).
+   * which club each league team is, and the best of the clubs each could be (`scoutLinkCandidates`,
+   * `leagueCandidates`). A member's device holds no pool to work it out from (1.6e).
    */
   | { kind: "league.bridge"; season: string; teams: LeagueTeamLink[]; fixtures: LeagueFixture[] }
   /** Every club a team of season `season` could be picked as by hand (`pickableClubs`). */
@@ -336,6 +337,31 @@ export const cardFixture = (games: readonly ScoutGame[], shown: ScoutGame): Scou
   if (there && reads(there)) return there;
   const like = games.filter(reads);
   return like.length === 1 && like[0] ? like[0] : null;
+};
+
+/**
+ * The most clubs the bridge sends for one league team: as many as the link panel's picker draws at
+ * once (`TEAM_SEARCH_LIMIT`), the best evidence first. Every club with a game on the season's pages
+ * was sent before, the same few thousand once per league team: 5,453 for each of an eight-team
+ * season's teams on a page of 8,689 clubs (the seeded fixture at the real page's size), 7,076,653
+ * characters an answer, which no device could keep and every final score asked for again. A team's
+ * own club shares its league opponents and comes in the first few; a club further down shares none
+ * of them, and the wide picker, which lists every club at the age, finds it by name as well.
+ */
+export const LEAGUE_CANDIDATES_MAX = 50;
+
+/**
+ * A league team's clubs as the bridge sends them: the first `LEAGUE_CANDIDATES_MAX` of the
+ * device's list, and the club the team is picked as wherever it falls in the rest, since the
+ * panel names a picked club off the list it is offered.
+ */
+export const leagueCandidates = (
+  clubs: readonly ScoutLinkCandidate[],
+  picked: string | undefined
+): ScoutLinkCandidate[] => {
+  const best = clubs.slice(0, LEAGUE_CANDIDATES_MAX);
+  const pick = clubs.slice(LEAGUE_CANDIDATES_MAX).find((club) => club.scoutTeamId === picked);
+  return pick ? [...best, pick] : best;
 };
 
 /** The questions answered with League Standings' games in the year, as the boards are built. */
@@ -514,13 +540,9 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         ),
         candidates: query.teams.map((team) => ({
           name: team.name,
-          clubs: scoutLinkCandidates(
-            team.name,
-            query.season,
-            ageGroups,
-            teams,
-            games,
-            query.fixtures
+          clubs: leagueCandidates(
+            scoutLinkCandidates(team.name, query.season, ageGroups, teams, games, query.fixtures),
+            team.scoutTeamId
           ),
         })),
       };

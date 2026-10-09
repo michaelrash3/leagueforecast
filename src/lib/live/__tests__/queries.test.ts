@@ -48,8 +48,10 @@ import {
   answerQuery,
   coerceQuery,
   foldCounts,
+  LEAGUE_CANDIDATES_MAX,
   LEAGUE_GAMES_MAX,
   LEAGUE_TEAMS_MAX,
+  leagueCandidates,
   type AnswerOf,
   type PoolQuery,
   type QueryKind,
@@ -433,9 +435,12 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
     expect(bridge).toEqual({
       kind: "league.bridge",
       bridge: leagueScoutBridge("s", groups, loadScoutTeams(), games, LEAGUE_TEAMS, FIXTURES),
-      candidates: LEAGUE_TEAMS.map(({ name }) => ({
+      candidates: LEAGUE_TEAMS.map(({ name, scoutTeamId }) => ({
         name,
-        clubs: scoutLinkCandidates(name, "s", groups, loadScoutTeams(), games, FIXTURES),
+        clubs: leagueCandidates(
+          scoutLinkCandidates(name, "s", groups, loadScoutTeams(), games, FIXTURES),
+          scoutTeamId
+        ),
       })),
     });
     // Club A's games outside the league reach the forecast, and Club B is the club picked.
@@ -474,6 +479,26 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
       [fill, "league.fill"],
     ] as const)
       expect(coerceQueryAnswer(callableEncode(asJson(answer)), kind)).toEqual(answer);
+  });
+
+  it("sends a team the best of its clubs, and the one it is picked as wherever it falls", () => {
+    // Listed best evidence first, as `scoutLinkCandidates` lists them.
+    const clubs = Array.from({ length: LEAGUE_CANDIDATES_MAX + 10 }, (_, at) => ({
+      scoutTeamId: `S-${at}`,
+      name: `Placeholder S-${at}`,
+      sharedOpponents: [],
+      games: 100 - at,
+    }));
+    const best = clubs.slice(0, LEAGUE_CANDIDATES_MAX);
+    expect(leagueCandidates(clubs, undefined)).toEqual(best);
+    expect(leagueCandidates(clubs, "S-3")).toEqual(best);
+    expect(leagueCandidates(clubs, `S-${LEAGUE_CANDIDATES_MAX + 7}`)).toEqual([
+      ...best,
+      clubs[LEAGUE_CANDIDATES_MAX + 7],
+    ]);
+    // A club none of the season's pages has a game for is nothing to offer.
+    expect(leagueCandidates(clubs, "S-ELSEWHERE")).toEqual(best);
+    expect(leagueCandidates(clubs.slice(0, 3), "S-1")).toEqual(clubs.slice(0, 3));
   });
 
   it("says the same of a game marked final, which the fill says it is", () => {
