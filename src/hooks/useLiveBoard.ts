@@ -4,10 +4,13 @@ import {
   copyReader,
   copySeen,
   liveReader,
+  memberToken,
+  pullJobStore,
   type CopySeen,
 } from "../lib/cloud/cloudSession";
 import type { CopyReader } from "../lib/live/copyArchive";
-import type { CallDeps } from "../lib/live/editClient";
+import { callStartPull, type CallDeps } from "../lib/live/editClient";
+import type { PullSender } from "../lib/cloud/cloudPulls";
 import { loadCloudState } from "../lib/cloud/cloudState";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
 import {
@@ -43,6 +46,8 @@ export type LiveSources = {
   call?: CallDeps;
   /** The signed-in member's reader of the copy itself, or null (`copyReader`): none, when not given. */
   copy?: () => Promise<CopyReader | null>;
+  /** Where a pull is sent to be run in the cloud (`cloudPulls.ts`), or null: none, when not given. */
+  pulls?: () => PullSender | null;
 };
 
 let browserSources: LiveSources | null = null;
@@ -56,6 +61,10 @@ export const browserLiveSources = (): LiveSources =>
     owed: copyOwed,
     now: () => new Date().toISOString(),
     copy: copyReader,
+    pulls: () => {
+      const jobs = pullJobStore();
+      return jobs ? { jobs, start: (jobId) => callStartPull(jobId, { token: memberToken }) } : null;
+    },
   });
 
 /** Reads nothing but what the device holds: a board not kept reads as offline. */

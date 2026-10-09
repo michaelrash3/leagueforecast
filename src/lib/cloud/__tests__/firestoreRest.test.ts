@@ -305,12 +305,12 @@ describe("a pull's job through Firestore's REST API", () => {
     });
     // As the device leaves it: the list's pieces, then the job.
     packed.pieces.forEach((piece, index) =>
-      firestore.docs.set(`copies/main/jobs/${JOB}/pieces/${index}`, {
+      firestore.docs.set(`pullJobs/${JOB}/pieces/${index}`, {
         fields: firestoreFieldsOf({ data: piece }),
         updateTime: "t0",
       })
     );
-    firestore.docs.set(`copies/main/jobs/${JOB}`, {
+    firestore.docs.set(`pullJobs/${JOB}`, {
       fields: firestoreFieldsOf(job),
       updateTime: "t0",
     });
@@ -326,7 +326,7 @@ describe("a pull's job through Firestore's REST API", () => {
     expect(await jobs.piece(JOB, 0)).toEqual(packed.pieces[0]);
     expect(await jobs.piece(JOB, packed.pieces.length)).toBeNull();
     // A piece that holds anything but bytes is no piece.
-    firestore.docs.set(`copies/main/jobs/${JOB}/pieces/9`, {
+    firestore.docs.set(`pullJobs/${JOB}/pieces/9`, {
       fields: firestoreFieldsOf({ data: "not bytes" }),
       updateTime: "t0",
     });

@@ -27,6 +27,9 @@ export const CALL_LIMIT_MS = 600_000;
 /** The edit function's address for the app's own project. */
 export const EDIT_URL = functionUrl(FIREBASE_WEB_CONFIG.projectId, "edit");
 
+/** `startPull`, which queues the first leg of a pull a member has left for the cloud. */
+export const START_PULL_URL = functionUrl(FIREBASE_WEB_CONFIG.projectId, "startPull");
+
 /**
  * Why a call came to nothing the server said.
  * - `signed-out`, `not-member`: who is asking (no sign-in, or an account not on the list).
@@ -290,4 +293,17 @@ export const callQuery = <K extends QueryKind>(
     (result) => coerceQueryReply(result, ask.query.kind),
     deps,
     "failed"
+  );
+
+/**
+ * Asks the cloud to start pull `jobId`, which this device has just written (`cloudPulls.ts`). An
+ * answer that never came may still have started it: the job's own document says, once read.
+ */
+export const callStartPull = (jobId: string, deps: CallDeps): Promise<Called<{ status: string }>> =>
+  call(
+    { jobId },
+    (result) =>
+      isRecord(result) && typeof result.status === "string" ? { status: result.status } : null,
+    { url: START_PULL_URL, limitMs: 60_000, ...deps },
+    "unanswered"
   );

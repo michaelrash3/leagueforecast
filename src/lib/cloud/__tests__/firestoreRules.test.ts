@@ -289,7 +289,7 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     expect(fetched.ok && fetched.values.get("teams")).toBe(noise);
   }, 60_000);
 
-  it("take a pull a Google sign-in leaves beside the copy, and give it to no one else", async () => {
+  it("take a pull a member leaves for the cloud, and give it to no one else", async () => {
     const job = "0123456789abcdef0123456789abcdef";
     const packed = await packJobList([{ teamId: "gcACES000001" }]);
     const sent = newPullJob({
@@ -310,10 +310,56 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     expect((await getDoc(doc(laptop, jobPiecePath(job, 0)))).get("data").toUint8Array()).toEqual(
       packed.pieces[0]
     );
-    for (const outsider of [as(null), as({ uid: "anon", provider: "anonymous" })]) {
+    for (const outsider of [as(null), as({ uid: "anon", provider: "anonymous" }), as(STRANGER)]) {
       await expect(getDoc(doc(outsider, jobPath(job)))).rejects.toMatchObject(REFUSED);
       await expect(setDoc(doc(outsider, jobPath(job)), sent)).rejects.toMatchObject(REFUSED);
     }
+  });
+
+  it("let a member make a job only as a new one is made, and change nothing of it but a stop", async () => {
+    const job = "fedcba9876543210fedcba9876543210";
+    const packed = await packJobList([{ teamId: "gcACES000002" }]);
+    const sent = newPullJob({
+      list: packed.list,
+      seasonYears: [],
+      timeZone: "America/New_York",
+      device: "laptop",
+      now: "2026-10-09T12:00:00.000Z",
+    });
+    const laptop = as(LAPTOP);
+    // Named as a job is, and new: queued, no leg run, no stop asked.
+    await expect(setDoc(doc(laptop, jobPath("not-an-id")), sent)).rejects.toMatchObject(REFUSED);
+    for (const bad of [
+      { ...sent, status: "done" },
+      { ...sent, legsDone: 1 },
+      { ...sent, stopAsked: true },
+      { ...sent, format: 2 },
+    ]) {
+      await expect(setDoc(doc(laptop, jobPath(job)), bad)).rejects.toMatchObject(REFUSED);
+    }
+    // Its pieces hold bytes alone, no bigger than a piece is made, and never change once written.
+    const piece = doc(laptop, jobPiecePath(job, 0));
+    await expect(setDoc(piece, { data: "text" })).rejects.toMatchObject(REFUSED);
+    await expect(
+      setDoc(piece, { data: Bytes.fromUint8Array(new Uint8Array(1_000_001)) })
+    ).rejects.toMatchObject(REFUSED);
+    await setDoc(piece, { data: Bytes.fromUint8Array(packed.pieces[0]!) });
+    await expect(
+      setDoc(piece, { data: Bytes.fromUint8Array(new Uint8Array(3)) })
+    ).rejects.toMatchObject(REFUSED);
+    await setDoc(doc(laptop, jobPath(job)), sent);
+    // Once made, a member may ask it to stop, and change nothing else of it.
+    await expect(
+      setDoc(doc(laptop, jobPath(job)), { ...sent, status: "done" })
+    ).rejects.toMatchObject(REFUSED);
+    await expect(
+      setDoc(doc(laptop, jobPath(job)), { ...sent, stopAsked: true, legsDone: 1 })
+    ).rejects.toMatchObject(REFUSED);
+    await setDoc(doc(laptop, jobPath(job)), { ...sent, stopAsked: true });
+    expect(coercePullJob((await getDoc(doc(laptop, jobPath(job)))).data())?.stopAsked).toBe(true);
+    // Nobody deletes one, or lists them: the function keeps them, past the rules.
+    await expect(deleteDoc(doc(laptop, jobPath(job)))).rejects.toMatchObject(REFUSED);
+    await expect(getDocs(collection(laptop, "pullJobs"))).rejects.toMatchObject(REFUSED);
   });
 });
 

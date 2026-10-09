@@ -1,6 +1,11 @@
 import { todayIsoDay } from "../date";
 import { forgetClubs, isDeletedClub } from "../deletedGames";
-import { withListed, type GcTeamListEntry, type GcTeamResponse } from "../gameChangerApi";
+import {
+  PASTE_HANDFUL,
+  withListed,
+  type GcTeamListEntry,
+  type GcTeamResponse,
+} from "../gameChangerApi";
 import {
   PULL_CONCURRENCY,
   PULL_MAX_CONCURRENCY,
@@ -16,10 +21,13 @@ import {
 } from "../gameChangerImport";
 import { markRefreshed, type DueRefresh } from "../gameChangerSchedule";
 import { orgAgesByTeam } from "../orgMembership";
+import { isRefusedClub } from "../refusedClubs";
 import { memoryIo } from "../poolMemoryIo";
 import { persistPool } from "../poolPersist";
 import { settleRunLists } from "../pullLists";
 import { storedRota } from "../storedRota";
+import { pulledGcTeamIds } from "../teamRankings";
+import { isTooYoungClub } from "../tooYoungClubs";
 import {
   applyCloudPoolValues,
   flushPoolWrites,
@@ -34,6 +42,7 @@ import {
   loadScoutGames,
   loadScoutTeams,
   loadTidyStamp,
+  loadRefusedClubs,
   loadTooYoungClubs,
   onCloudPoolWrite,
   readCloudPoolValue,
@@ -72,8 +81,16 @@ export type CloudPullJob =
    * `limit`, only the first that many, for a trial run; the day is then not logged as refreshed.
    */
   | { kind: "rota"; force?: boolean; limit?: number }
-  /** A pasted list, as the device that sent it filtered it, filed in these squad years only. */
-  | { kind: "list"; entries: readonly GcTeamListEntry[]; seasonYears: readonly number[] };
+  /**
+   * A list of teams, filed in these squad years only: a paste, of which only the teams the pool
+   * lacks are pulled, or with `refresh` a catch-up, every team on it (`listIds`).
+   */
+  | {
+      kind: "list";
+      entries: readonly GcTeamListEntry[];
+      seasonYears: readonly number[];
+      refresh?: boolean;
+    };
 
 export type CloudPullDeps = {
   store: CloudStore;
@@ -208,6 +225,28 @@ export const loadPoolFrom = async (store: CloudStore): Promise<LoadedCopy | null
 };
 
 /** Whether a copy is not this build's to change: saved by a newer build, or tidied by newer rules. */
+/**
+ * A list's teams worth a request, as the device's own pull panel picks them from a paste: none
+ * refused for good or as another season's, and none too young to rank, which would be refused at
+ * filing after costing a request. Of a paste, only the teams the pool lacks; a handful pasted by
+ * hand with none new is a refresh of those, which is how a schedule that changed today is read
+ * before the rota comes round. A catch-up (`refresh`) pulls every one again.
+ */
+const listIds = (job: Extract<CloudPullJob, { kind: "list" }>): string[] => {
+  const refused = loadRefusedClubs();
+  const tooYoung = loadTooYoungClubs();
+  const kept = job.entries
+    .map((entry) => entry.teamId)
+    .filter(
+      (teamId) =>
+        !isRefusedClub(refused, teamId, job.seasonYears) && !isTooYoungClub(tooYoung, teamId)
+    );
+  if (job.refresh === true) return kept;
+  const pulled = pulledGcTeamIds(loadScoutTeams());
+  const fresh = kept.filter((teamId) => !pulled.has(teamId));
+  return fresh.length > 0 ? fresh : kept.length <= PASTE_HANDFUL ? kept : [];
+};
+
 const tooNew = (manifest: CloudManifest): boolean =>
   manifest.schema > DATA_SCHEMA || stampFromNewerRules(loadTidyStamp());
 
@@ -317,7 +356,7 @@ export const runCloudPull = async (
 
   const due = job.kind === "rota" ? storedRota(deps.now(), job.force) : null;
   const dropped = loadDroppedClubs();
-  const wanted = (due ? due.teamIds : job.kind === "list" ? job.entries.map((e) => e.teamId) : [])
+  const wanted = (due ? due.teamIds : job.kind === "list" ? listIds(job) : [])
     .filter((teamId, at, all) => all.indexOf(teamId) === at)
     .filter((teamId) => !isDeletedClub(dropped, teamId));
   const limit = job.kind === "rota" ? job.limit : undefined;

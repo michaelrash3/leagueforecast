@@ -9,7 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import { readClubCard, useClubCard } from "../../hooks/useClubCard";
-import { useLiveBoard, type LiveSources, type LiveViewSource } from "../../hooks/useLiveBoard";
+import {
+  browserLiveSources,
+  useLiveBoard,
+  type LiveSources,
+  type LiveViewSource,
+} from "../../hooks/useLiveBoard";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import { useLiveEdits, type ShowToast } from "../../hooks/useLiveEdits";
 import { useLiveSearch } from "../../hooks/useLiveSearch";
@@ -21,6 +26,7 @@ import {
   preparePool,
   type CloudStatus,
 } from "../../lib/cloud/cloudSession";
+import { loadCloudState } from "../../lib/cloud/cloudState";
 import { todayIsoDay } from "../../lib/date";
 import { whereIsGcId } from "../../lib/gcIdWhereabouts";
 import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
@@ -57,6 +63,9 @@ import { TEAM_PANEL_ID } from "../teamPanelId";
 import type { MergeCandidate } from "../TeamDetailPanel";
 
 /** A club's panel from its card, loaded with the pool's codec only when a club is opened. */
+
+/** No cloud to send a pull to: a page given sources that do not say how. */
+const noPulls = (): null => null;
 const LiveClubPanel = lazy(() => import("./LiveClubPanel"));
 /** The Games tab from its page's list, loaded with the tab's code only when the tab is opened. */
 const LiveGames = lazy(() => import("./LiveGames"));
@@ -304,8 +313,6 @@ function LiveBoard({
   const [scoutedTeam, setScoutedTeam] = useState("");
   const [comparedTeam, setComparedTeam] = useState("");
   const [pickedOpponents, setPickedOpponents] = useState<string[]>(NO_IDS);
-  // Something asked for that is still this device's page's: a pasted list pulled (1.8).
-  const [wanted, setWanted] = useState(false);
 
   const offline =
     live.metaMiss === "offline" ||
@@ -382,9 +389,7 @@ function LiveBoard({
   const nothingToDraw =
     !board && (live.meta === null || live.keptMissed || live.boardMiss !== null);
   const handOverNow =
-    live.metaMiss === "refused" ||
-    (readsViews && live.metaMiss === "no-reader" && nothingToDraw) ||
-    wanted;
+    live.metaMiss === "refused" || (readsViews && live.metaMiss === "no-reader" && nothingToDraw);
 
   /*
    * What it says instead of drawing, where it cannot draw: why the network gave no meta to draw by,
@@ -646,7 +651,6 @@ function LiveBoard({
   };
   // A list a section could not read, marked where it was asked, which is where it is said.
   const cannotListHere = () => setCannotList({ where: listWhere, source: live.source });
-  const wantPage = useCallback(() => setWanted(true), []);
 
   /**
    * A club picked in Find a team opens on the page its list says, with its panel from its card, as
@@ -817,7 +821,8 @@ function LiveBoard({
             <LiveImport
               edits={edits}
               now={sources ? sources.now : nowIso}
-              onPullWanted={wantPage}
+              pulls={sources ? (sources.pulls ?? noPulls) : (browserLiveSources().pulls ?? noPulls)}
+              device={loadCloudState().device}
             />
           </Suspense>
         ) : board ? (

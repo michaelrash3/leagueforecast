@@ -778,12 +778,29 @@ describe("the copy's refresh as the Import tab asks for it", () => {
       expect(coerceQuery(raw)).toBeNull();
   });
 
-  it("is what the nightly would pull, when each level was refreshed, and the organizations kept", () => {
+  it("is what the nightly would pull, when each level was refreshed, the organizations kept, and the catch-ups", () => {
     saveScoutTeams([
       {
         id: "A",
         name: "Club A",
-        gcTeams: [{ teamId: "gcA", name: "Club A", ageGroupId: "ag_10u_2027" }],
+        gcTeams: [
+          // Short of a team, and last counted long enough ago to be due a look.
+          {
+            teamId: "gcA",
+            name: "Club A",
+            ageGroupId: "ag_10u_2027",
+            playerCount: 4,
+            countedAt: "2027-03-01T00:00:00.000Z",
+          },
+          // Short too, but counted last week: not due a look yet.
+          {
+            teamId: "gcA2",
+            name: "Club A two",
+            ageGroupId: "ag_10u_2027",
+            playerCount: 5,
+            countedAt: "2027-04-10T00:00:00.000Z",
+          },
+        ],
       },
       ...TEAMS.slice(1),
     ]);
@@ -823,8 +840,11 @@ describe("the copy's refresh as the Import tab asks for it", () => {
         { level: 10, day: "2027-04-14" },
       ],
       orgs: { orgs: 2, teams: 2, aged: 2, waitingAged: 1 },
+      agelessIds: storedRota(new Date(AT)).agelessIds,
+      rosterIds: ["gcA"],
     });
-    expect(answer).toMatchObject({ due: { cadence: "daily", teams: 1 } });
+    // Club A's two GameChanger pages, both due on a daily cadence.
+    expect(answer).toMatchObject({ due: { cadence: "daily", teams: 2 } });
     expect(coerceQueryAnswer(JSON.parse(JSON.stringify(answer)), "import.status")).toEqual(answer);
   });
 

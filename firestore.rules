@@ -131,6 +131,33 @@ service cloud.firestore {
       }
     }
 
+    // A pull a member leaves for the cloud to run (`src/lib/cloud/pullJobs.ts`): the job,
+    // `pullJobs/{job}`, and its list in pieces, `pullJobs/{job}/pieces/{n}`, written pieces first.
+    // Outside the copy, which only servers write. A member makes a job as a new one is made, reads
+    // any, and may change one thing of one once made: ask it to stop. The function that runs it
+    // keeps it up to date as a service account the rules do not apply to.
+    match /pullJobs/{job} {
+      allow get: if isMember();
+      allow create: if isMember()
+        && job.matches("^[0-9a-f]{32}$")
+        && request.resource.data.format == 1
+        && request.resource.data.status == "queued"
+        && request.resource.data.legsDone == 0
+        && request.resource.data.stopAsked == false;
+      allow update: if isMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["stopAsked"])
+        && request.resource.data.stopAsked == true;
+
+      match /pieces/{piece} {
+        allow get: if isMember();
+        allow create: if isMember()
+          && piece.matches("^[0-9]{1,3}$")
+          && request.resource.data.keys().hasOnly(["data"])
+          && request.resource.data.data is bytes
+          && request.resource.data.data.size() <= 1000000;
+      }
+    }
+
     // The list. A member may read their own entry, which is how the app learns whether they are
     // the owner; the owner reads all of it, adds accounts to it and takes them off. The owner's own
     // entry is never changed from the app, so no click can lock the owner out or hand the list

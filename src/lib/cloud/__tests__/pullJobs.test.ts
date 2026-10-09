@@ -103,6 +103,10 @@ describe("a pull's job", () => {
     const written = { ...job(), end: "finished" as const, version: 42, error: "tried again" };
     expect(coercePullJob(fieldsOf(firestoreFieldsOf(written)))).toEqual(written);
     expect(coercePullJob(fieldsOf(firestoreFieldsOf(job())))).toEqual(job());
+    // A catch-up keeps saying so; anything but true there is no job this build reads.
+    const catchUp = { ...job(), refresh: true as const };
+    expect(coercePullJob(fieldsOf(firestoreFieldsOf(catchUp)))).toEqual(catchUp);
+    expect(coercePullJob({ ...job(), refresh: "yes" })).toBeNull();
   });
 
   it("is not read at all when it is of a newer format, or anything is missing or wrong", () => {

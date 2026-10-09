@@ -3231,20 +3231,42 @@ red.
 
 ### A pasted list, pulled in the cloud
 
-A device signed in to the cloud copy can hand a pasted list to a Firebase
-function and close the tab. The device's side of this, the button and the
-notice when the pull is done, is the next step; this part is the cloud's.
+A member hands a list to a Firebase function from the live page's Import tab and
+may close the tab (1.8): a member's device holds no pool to pull into, so this is
+how a pasted list is pulled at all.
 
-**The job.** The device writes the list beside the copy, where the rules already
-let it write (`src/lib/cloud/pullJobs.ts`):
+**On the page** (`LiveCloudPulls.tsx`, `src/lib/cloud/cloudPulls.ts`). The paste
+box reads a list or a spreadsheet export as the device's own pull panel does,
+leaving out wiffle ball, high school squads and adult or college teams, which cost
+no request. Two more buttons appear when the server's import status names teams
+for them: the teams nobody could age, asked again on a catch-up day, and the
+GameChanger pages playing this season whose roster is short and due a look. Those
+two are catch-ups: their teams are pulled again whether or not the pool has them,
+filed in the season being played alone. Each pull sent is remembered on this
+device until its end has been said once, read again every 15 s while one is on
+its way, and can be asked to stop.
 
-- `copies/main/jobs/{jobId}/pieces/{n}` holds the list's pieces, gzipped and
+**What the cloud pulls of a list** (`cloudRunner.ts`, `listIds`). Never a club
+refused for good or as another season's, nor one too young to rank. Of a paste,
+only the teams the pool lacks, or a handful pasted by hand with none new, which
+is how a schedule that changed today is read before the rota comes round; the
+rest of an export is the nightly's to refresh. A catch-up pulls every team on it.
+
+**The job.** The device writes the list in a collection of its own, outside the
+copy, which only servers write (`src/lib/cloud/pullJobs.ts`):
+
+- `pullJobs/{jobId}/pieces/{n}` holds the list's pieces, gzipped and
   fingerprinted as the copy's values are, so a list is never pulled half from one
   upload and half from another.
-- `copies/main/jobs/{jobId}` holds the job, written last. It carries the squad
-  years to file into, the device's time zone (the day the importer and the day
-  log keep, since Google's servers keep their own), and everything the device
-  shows while it waits: the stage, the teams asked so far, and the tally.
+- `pullJobs/{jobId}` holds the job, written last. It carries the squad years to
+  file into, whether it is a catch-up, the device's time zone (the day the
+  importer and the day log keep, since Google's servers keep their own), and
+  everything the device shows while it waits: the stage, the teams asked so far,
+  and the tally.
+
+The rules let a member make a job as a new one is made (queued, no leg run, no
+stop asked) and its pieces, read them, and change one thing of a job once made:
+ask it to stop. Nobody lists or deletes them from a browser.
 
 The device then calls `startPull` with the job's id. That function is for the
 accounts on the copy's list, as the copy is, checked as the proxy checks them
@@ -4046,8 +4068,8 @@ account the rules refuse (its meta, its watch, or any view it reads, the board o
 a half or page moved to after the meta was read among them), or, on the areas that
 read the published views (the board, Scouting and Games), a browser with no member
 signed in to read them as and no board kept to show, both of which the visitor's
-own app is for; and what it
-cannot do yet, a pasted list pulled (1.8). Only then is
+own app is for. A pasted list is pulled in the cloud from the Import tab, with
+no hand-over (1.8, "A pasted list, pulled in the cloud"). Only then is
 the pool brought in step, behind it, and Team Rankings' own code loads under the
 board from the start, so it is there by then. The pages are the meta's whenever
 it carries them (`LivePages.groups`), kept or read, rather than this device's own,
@@ -4061,7 +4083,9 @@ this page is in the copy and on the next board, and not yet in what this device
 read, so the board it rebuilt was once read as behind and the page handed over a
 minute after its own edit, to a copy without it.
 
-Handed over while the pool is still coming in, the board stays on screen and
+Since 1.8 a member never asks for a hand-over, and the two left draw nothing kept
+(a refusal forgets every board first), so what follows no longer comes about; 1.7
+takes it out. Handed over while the pool is still coming in, the board stays on screen and
 works as before, with the pool's progress above it and a button to stop waiting;
 an area it cannot draw, or a club with no card, says it opens on this device's
 copy as soon as that is in. Team Rankings opens once the pool is in where the

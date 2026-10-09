@@ -17,11 +17,13 @@ import {
   getFirestore,
   runTransaction,
   setDoc,
+  updateDoc,
   type Firestore,
 } from "firebase/firestore/lite";
 import type * as FullSdk from "./firestoreListen";
 import type { FirebaseWebConfig } from "./cloudConfig";
 import type { CloudStore } from "./cloudEngine";
+import { coercePullJob, jobPath, jobPiecePath, type PullJob } from "./pullJobs";
 import { firestoreLeague, type LeagueStore } from "../live/leagueStore";
 import type { LiveReader, MetaWatch } from "../live/viewStore";
 import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
@@ -100,7 +102,34 @@ export type FirebaseCloud = {
   stageUpload: (packed: PackedUpload) => Promise<void>;
   /** Restores Team Rankings in copy `copy` from staged upload `upload`, by asking the server. */
   restoreBackup: (upload: string, copy: string) => Promise<RestoreAnswer>;
+  /** Pulls left for the cloud to run (`pullJobs.ts`); a stand-in cloud may have none. */
+  jobs?: PullJobStore;
 };
+
+/** A pull's documents as a device sees them: written once, then read until it is over. */
+export type PullJobStore = {
+  /** Writes the list's pieces, and the job last, so a job is never there without its list. */
+  put: (jobId: string, job: PullJob, pieces: readonly Uint8Array[]) => Promise<void>;
+  read: (jobId: string) => Promise<PullJob | null>;
+  /** Asks the leg running to stop; it files what it has fetched, saves, and runs no more. */
+  askStop: (jobId: string) => Promise<void>;
+};
+
+export const firestoreJobs = (db: Firestore): PullJobStore => ({
+  put: async (jobId, job, pieces) => {
+    for (const [index, piece] of pieces.entries()) {
+      await setDoc(doc(db, jobPiecePath(jobId, index)), { data: Bytes.fromUint8Array(piece) });
+    }
+    await setDoc(doc(db, jobPath(jobId)), job);
+  },
+  read: async (jobId) => {
+    const snap = await getDoc(doc(db, jobPath(jobId)));
+    return snap.exists() ? coercePullJob(snap.data()) : null;
+  },
+  askStop: async (jobId) => {
+    await updateDoc(doc(db, jobPath(jobId)), { stopAsked: true });
+  },
+});
 
 export type CloudMembers = {
   /** The signed-in account's own place on the list, or null when it is not on it. */
@@ -296,6 +325,7 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     owns: () => ownsCopy(db),
     members: firestoreMembers(db, () => auth.currentUser?.email ?? null),
     store: firestoreStore(db),
+    jobs: firestoreJobs(db),
     live: { ...firestoreLive(db), watchMeta: watchLiveMeta(fullFirestoreOf(app)) },
     league: firestoreLeague(fullFirestoreOf(app)),
     stageUpload: (packed) => stageUploadIn(db, packed),

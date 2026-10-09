@@ -155,7 +155,7 @@ const memoryJobs = () => {
   };
   const put = async (
     entries: GcTeamListEntry[],
-    options: { legTeams?: number; timeZone?: string; jobId?: string } = {}
+    options: { legTeams?: number; timeZone?: string; jobId?: string; refresh?: boolean } = {}
   ) => {
     const jobId = options.jobId ?? JOB;
     const packed = await packJobList(entries);
@@ -167,6 +167,7 @@ const memoryJobs = () => {
       device: "phone",
       now: "2026-09-29T12:00:00.000Z",
       ...(options.legTeams ? { legTeams: options.legTeams } : {}),
+      ...(options.refresh ? { refresh: true } : {}),
     });
     jobs.set(jobId, job);
     return job;
@@ -230,6 +231,24 @@ describe("a pull the cloud runs a leg at a time", () => {
     expect(jobs.job().tally.gamesAdded).toBeGreaterThan(0);
     // Each leg's day is the device's.
     expect(zones).toEqual(["America/New_York", "America/New_York"]);
+  });
+
+  it("asks a catch-up's every team again, where a paste of them asks only what the copy lacks", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const jobs = memoryJobs();
+    const unknown = Array.from({ length: 23 }, (_, at) => ({
+      teamId: `gcNONE${String(at).padStart(6, "0")}`,
+    }));
+    await jobs.put(LIST);
+    await runPullLeg({ jobId: JOB, leg: 0 }, legDeps(cloud, jobs).deps);
+    const fetched: string[][] = [];
+    const { deps } = legDeps(cloud, jobs, { fetchTeams: answering(fetched) });
+    await jobs.put([...LIST, ...unknown], { jobId: "b".repeat(32) });
+    await runPullLeg({ jobId: "b".repeat(32), leg: 0 }, deps);
+    await jobs.put([...LIST, ...unknown], { jobId: "c".repeat(32), refresh: true });
+    await runPullLeg({ jobId: "c".repeat(32), leg: 0 }, deps);
+    expect(fetched.map((ids) => ids.length)).toEqual([23, 26]);
   });
 
   it("says how far the leg has got while it runs", async () => {

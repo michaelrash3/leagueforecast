@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import type { PullSender } from "../../lib/cloud/cloudPulls";
+import { todayIsoDay } from "../../lib/date";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { parseGcOrgList } from "../../lib/gameChangerApi";
 import {
@@ -10,7 +12,11 @@ import {
 } from "../../lib/gameChangerSchedule";
 import type { ImportStatus } from "../../lib/live/queries";
 import type { MemberOrg } from "../../lib/orgMembership";
+import { segmentOn } from "../../lib/teamRankings/seasons";
 import { button, card } from "../../styles/tokens";
+import LiveCloudPulls from "./LiveCloudPulls";
+
+const NO_IDS: readonly string[] = [];
 
 /** Said for an Organizations file that names no team under any organization. */
 export const ORGS_NO_TEAMS =
@@ -39,20 +45,24 @@ const byDay = (refreshed: ImportStatus["refreshed"]): [string, number[]][] => {
  * (`import.status`), what it is for today and when each level was last refreshed, with how much
  * comes round at once chosen here and kept on the copy (`refresh.cadence`), which the nightly
  * reads; and an Organizations file read here and kept on the copy (`orgs.merge`), which the
- * nightly ages teams by. Pulling a pasted list of teams is the pull in this browser, so it opens on
- * this device's copy (`onPullWanted`) until the cloud runs one.
+ * nightly ages teams by. A pasted list of teams, and the catch-ups the status names, are pulled in
+ * the cloud (`LiveCloudPulls`, 1.8).
  *
  * Loaded only when the tab is opened, with the tab's own code.
  */
 export default function LiveImport({
   edits,
   now,
-  onPullWanted,
+  pulls,
+  device,
 }: {
   edits: LiveEdits;
   /** The time a question is asked at, and a file read at, as an ISO string. */
   now: () => string;
-  onPullWanted: () => void;
+  /** Where a pull is sent to be run in the cloud, or null with nobody signed in. */
+  pulls: () => PullSender | null;
+  /** This browser, as a pull's job names the device that sent it. */
+  device: string;
 }) {
   const { locked, ask, edit, say } = edits;
   const [status, setStatus] = useState<ImportStatus | null>(null);
@@ -132,20 +142,17 @@ export default function LiveImport({
     });
   };
 
-  // Pulling a list never waits on the copy's refresh: it is this device's to run.
+  // Pulling a list never waits on the copy's refresh: the cloud runs it beside the nightly.
   const pullCard = (
-    <div className={`${card} p-5`}>
-      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        Pull a list of teams
-      </h2>
-      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        Pasting a list of teams, or a whole spreadsheet export, pulls them in this browser, so it
-        opens on this device&apos;s copy for now.
-      </p>
-      <button type="button" onClick={onPullWanted} className={`${button.ghost} mt-3`}>
-        Open the pull on this device&apos;s copy
-      </button>
-    </div>
+    <LiveCloudPulls
+      pulls={pulls}
+      locked={locked}
+      agelessIds={status?.agelessIds ?? NO_IDS}
+      rosterIds={status?.rosterIds ?? NO_IDS}
+      playing={segmentOn(todayIsoDay()).year}
+      device={device}
+      now={now}
+    />
   );
 
   if (!status)

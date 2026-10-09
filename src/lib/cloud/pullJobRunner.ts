@@ -170,7 +170,12 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
     let result: CloudPullResult;
     try {
       result = await runCloudPull(
-        { kind: "list", entries: share, seasonYears: job.seasonYears },
+        {
+          kind: "list",
+          entries: share,
+          seasonYears: job.seasonYears,
+          ...(job.refresh === true ? { refresh: true } : {}),
+        },
         {
           store: deps.store,
           fetchTeams: deps.fetchTeams,

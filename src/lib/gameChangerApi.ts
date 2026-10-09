@@ -1840,6 +1840,12 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
  * with the first line winning, so a re-pasted row cannot double a team. `skipped` lists every
  * non-blank line that produced no entry, so the panel can say how many were ignored.
  */
+/**
+ * How many pasted ids still count as a hand-typed list rather than an export: with none new, they
+ * are pulled again as a refresh, where an export's teams already pulled are left to the rota.
+ */
+export const PASTE_HANDFUL = 25;
+
 export const parseGcTeamList = (
   text: string
 ): { entries: GcTeamListEntry[]; skipped: string[] } => {

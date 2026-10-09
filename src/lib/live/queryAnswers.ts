@@ -73,6 +73,8 @@ const IMPORT_STATUS: Shape = {
     },
     refreshed: { list: { record: { level: "count", day: "string" } } },
     orgs: { record: { orgs: "count", teams: "count", aged: "count", waitingAged: "count" } },
+    agelessIds: { list: "string" },
+    rosterIds: { list: "string" },
   },
 };
 

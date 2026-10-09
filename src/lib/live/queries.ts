@@ -4,6 +4,8 @@ import { agelessClearPlan, agelessSitting, type AgelessGroup } from "../agelessS
 import { agelessClearable, CLEARABLE_RULES } from "../agelessTriage";
 import type { AgeUnknownTeam } from "../ageUnknown";
 import type { GcImportState } from "../gameChangerImport";
+import { todayIsoDay } from "../date";
+import { rosterWatchOf } from "../gcRoster";
 import { dueSummary, type DueSummary } from "../gameChangerSchedule";
 import { orgAgesByTeam } from "../orgMembership";
 import { poolHealth, settleableNow, type PoolHealth } from "../poolHealth";
@@ -12,13 +14,19 @@ import { poolLists, TO_PULL_DRAWN, type PoolLists } from "../poolLists";
 import { storedRota } from "../storedRota";
 import { checkTheModel, type ModelCheckAnswer } from "../scoutBacktest";
 import { whatIfCurve, type WhatIfCurve } from "../scoutWhatIf";
-import { ageGroupYear, rankingPoolGroupIds, type SeasonSegment } from "../teamRankings/seasons";
+import {
+  ageGroupYear,
+  rankingPoolGroupIds,
+  segmentOn,
+  type SeasonSegment,
+} from "../teamRankings/seasons";
 import type { ScoutGame, ScoutTeam } from "../teamRankings/types";
 import { cleanTeamName, teamNameKey } from "../teamRankings/names";
 import { unpulledClubs, unpulledClubsCsv } from "../unpulledClubs";
 import { planLeagueScoreFill, type LeagueFillPlan } from "../leagueScoreFill";
 import { clubPickOption, pickableClubs, type ClubPickOption } from "../leagueLinkOptions";
 import {
+  gcLinkSquadYearIn,
   leagueScoutBridge,
   scoutLinkCandidates,
   type LeagueFixture,
@@ -258,6 +266,14 @@ export type ImportStatus = {
    * age, and how many of the teams waiting on an age are among those.
    */
   orgs: { orgs: number; teams: number; aged: number; waitingAged: number };
+  /**
+   * The catch-up's two pulls, as the device's pull panel offers them: the teams nobody could age,
+   * asked again on a catch-up day (`DueRefresh.agelessIds`), and the GameChanger pages playing this
+   * season whose roster is due a look (`rosterWatchOf`). A member's device holds no pool to find
+   * them in, so the server names them, and the page sends them to be pulled in the cloud (1.8).
+   */
+  agelessIds: string[];
+  rosterIds: string[];
 };
 
 export type QueryAnswers = {
@@ -441,9 +457,11 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
     case "import.status": {
       const membership = loadOrgMembership();
       const orgAges = orgAgesByTeam(membership);
+      const at = new Date(query.at);
+      const rota = storedRota(at);
       return {
         kind: "import.status",
-        due: dueSummary(storedRota(new Date(query.at))),
+        due: dueSummary(rota),
         refreshed: Object.entries(loadRefreshLog())
           .flatMap(([level, day]) => (/^\d+$/.test(level) ? [{ level: Number(level), day }] : []))
           .sort((a, b) => a.level - b.level),
@@ -453,6 +471,15 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
           aged: orgAges.size,
           waitingAged: loadAgeUnknown().filter((entry) => orgAges.has(entry.teamId)).length,
         },
+        agelessIds: rota.agelessIds,
+        rosterIds: rosterWatchOf(
+          loadScoutTeams(),
+          gcLinkSquadYearIn(loadAgeGroups()),
+          segmentOn(todayIsoDay(at)).year,
+          at.getTime()
+        )
+          .filter((entry) => entry.due)
+          .map((entry) => entry.teamId),
       };
     }
     case "ageless.queue": {

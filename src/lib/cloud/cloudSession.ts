@@ -47,7 +47,7 @@ import {
 } from "./cloudState";
 import { markTaken, mayWrite } from "./cloudGuard";
 import { announceTaken, reloadWhenFree } from "./cloudTabs";
-import type { CloudAccount, FirebaseCloud } from "./firebaseCloud";
+import type { CloudAccount, FirebaseCloud, PullJobStore } from "./firebaseCloud";
 import type { Member } from "./members";
 import { setGcAuthorization } from "../gcAuthorization";
 
@@ -263,6 +263,9 @@ setGcAuthorization(async () => (session ? session.cloud.idToken() : null));
  */
 export const memberToken = async (): Promise<string | null> =>
   session ? session.cloud.idToken() : null;
+
+/** Where this browser's member leaves pulls for the cloud to run, or null with no session. */
+export const pullJobStore = (): PullJobStore | null => session?.cloud.jobs ?? null;
 
 export const cloudStatus = (): CloudStatus => status;
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
   parseGcOrgList,
   parseGcTeamList,
+  PASTE_HANDFUL,
   squadYearsForGcSeason,
   withListed,
   type GcTeamListEntry,
@@ -92,7 +93,7 @@ import {
   gcImportProblemsCsv,
   type GcImportProblem,
 } from "../lib/gameChangerReport";
-import { rosterWatchList, MIN_REAL_ROSTER } from "../lib/gcRoster";
+import { rosterWatchOf, MIN_REAL_ROSTER } from "../lib/gcRoster";
 import {
   AGE_UNKNOWN_MAX_TRIES,
   describeAgeUnknown,
@@ -272,9 +273,6 @@ const estimatedMinutes = (fresh: number): number => {
   const seconds = (requests / PULL_CONCURRENCY) * SECONDS_PER_BATCH;
   return Math.max(1, Math.ceil(seconds / 60));
 };
-
-/** How many pasted ids still count as a hand-typed list rather than an export. */
-const HANDFUL = 25;
 
 /** A baseball year as the picker names it: "2027: Fall 2026 to Summer 2027". */
 const seasonYearLabel = (year: number): string => `${year}: Fall ${year - 1} to Summer ${year}`;
@@ -608,7 +606,7 @@ export function GameChangerImportPanel({
      * in it is offered as a refresh rather than refused.
      */
     const refresh =
-      fresh.length === 0 && parsed.entries.length > 0 && parsed.entries.length <= HANDFUL
+      fresh.length === 0 && parsed.entries.length > 0 && parsed.entries.length <= PASTE_HANDFUL
         ? parsed.entries
         : [];
     return { fresh, seen, refresh };
@@ -740,21 +738,11 @@ export function GameChangerImportPanel({
    * as after its year is archived or deleted, so last season's six-player page stayed on this list
    * and asking about it again filed the squad back onto a page of the year that was put away.
    */
-  const rosterWatch = useMemo(() => {
-    const playing = segmentOn(todayIsoDay()).year;
-    const yearOf = gcLinkSquadYearIn(pool.ageGroups);
-    return rosterWatchList(
-      pool.teams.flatMap((team) =>
-        (team.gcTeams ?? [])
-          .filter((link) => (yearOf(link) ?? playing) === playing)
-          .map((link) => ({
-            teamId: link.teamId,
-            ...(link.playerCount === undefined ? {} : { playerCount: link.playerCount }),
-            ...(link.countedAt ? { countedAt: link.countedAt } : {}),
-          }))
-      )
-    );
-  }, [pool.teams, pool.ageGroups]);
+  const rosterWatch = useMemo(
+    () =>
+      rosterWatchOf(pool.teams, gcLinkSquadYearIn(pool.ageGroups), segmentOn(todayIsoDay()).year),
+    [pool.teams, pool.ageGroups]
+  );
   const rosterDue = rosterWatch.filter((entry) => entry.due);
 
   /**

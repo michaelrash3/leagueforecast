@@ -1,4 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { PullSender } from "../../lib/cloud/cloudPulls";
+import type { PullJob } from "../../lib/cloud/pullJobs";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudManifest, ManifestPart } from "../../lib/cloud/cloudManifest";
@@ -47,7 +49,6 @@ import type { SeasonMeta } from "../../lib/storage";
 import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
 import type { LiveSources } from "../../hooks/useLiveBoard";
-import { useRankingsPages } from "../../hooks/useRankingsPages";
 
 /*
  * Team Rankings opened on the cloud's board (`LiveTeamRankings`), from a board published to an
@@ -527,7 +528,7 @@ describe("Team Rankings on the cloud's board", () => {
   it("says on the board's own area, not another, that a page's board is not published", async () => {
     window.history.replaceState(null, "", "/?view=rankings&age=11&year=2027&section=import");
     open(sourcesOf(live));
-    expect(await screen.findByRole("heading", { name: "Pull a list of teams" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Pull teams in the cloud" })).toBeTruthy();
     expect(screen.queryByText(LIVE_NOTICES.missing)).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Rankings" }));
     expect(await screen.findByText(LIVE_NOTICES.missing)).toBeTruthy();
@@ -599,12 +600,82 @@ describe("Team Rankings on the cloud's board", () => {
     expect(pool.prepared).toBe(0);
   });
 
-  it("draws the Import tab, and hands over to pull a pasted list", async () => {
+  it("draws the Import tab, and sends a pasted list to be pulled in the cloud, staying the page", async () => {
     window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     pool.wants = false;
-    open(sourcesOf(live));
-    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
-    await waitFor(() => expect(handedOver()).not.toBeNull());
+    const cloud = cloudPulls();
+    open(sourcesOf(live, { pulls: () => cloud.sender }));
+    fireEvent.change(await screen.findByLabelText("Teams to pull"), {
+      target: { value: "gcACES000001\ngcACES000002" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Pull 2 teams in the cloud" }));
+    await waitFor(() => expect(cloud.started).toHaveLength(1));
+    const [job] = [...cloud.jobs.values()];
+    // A paste: any squad year, and only the teams the pool lacks, which the cloud works out.
+    expect(job).toMatchObject({ status: "queued", list: { teams: 2 }, seasonYears: [] });
+    expect(job?.refresh).toBeUndefined();
+    expect(await screen.findByText("Pulling 2 teams in the cloud: waiting to start.")).toBeTruthy();
+    expect(handedOver()).toBeNull();
+    expect(pool.prepared).toBe(0);
+  });
+
+  it("sends the catch-ups the server names to be pulled again, in the season being played", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
+    pool.wants = false;
+    const cloud = cloudPulls();
+    const server = editFunction(() =>
+      answered({
+        kind: "import.status",
+        due: {
+          ageLevels: [],
+          heldBack: 0,
+          label: "",
+          catchUp: true,
+          cadence: "daily",
+          agelessTotal: 1,
+          teams: 0,
+          agelessDue: 1,
+        },
+        refreshed: [],
+        orgs: { orgs: 0, teams: 0, aged: 0, waitingAged: 0 },
+        agelessIds: ["gcW1"],
+        rosterIds: ["gcR1", "gcR2"],
+      })
+    );
+    open(sourcesOf(live, { call: server.call, pulls: () => cloud.sender }));
+    fireEvent.click(await screen.findByRole("button", { name: "Check 2 short rosters again" }));
+    await waitFor(() => expect(cloud.started).toHaveLength(1));
+    const [job] = [...cloud.jobs.values()];
+    expect(job).toMatchObject({ list: { teams: 2 }, refresh: true });
+    expect(job?.seasonYears).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Ask again about 1 team nobody could age" })
+    ).toBeTruthy();
+  });
+
+  it("asks a pull on its way to stop, and says once how one ended", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
+    pool.wants = false;
+    const cloud = cloudPulls();
+    open(sourcesOf(live, { pulls: () => cloud.sender }));
+    fireEvent.change(await screen.findByLabelText("Teams to pull"), {
+      target: { value: "gcACES000001" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Pull 1 team in the cloud" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
+    await waitFor(() => expect([...cloud.jobs.values()][0]?.stopAsked).toBe(true));
+    cleanup();
+    // Ended, as a later visit finds it: said once, and gone when told.
+    const [id, job] = [...cloud.jobs.entries()][0]!;
+    cloud.jobs.set(id, { ...job, status: "cancelled", stopAsked: true });
+    open(sourcesOf(live, { pulls: () => cloud.sender }));
+    expect(await screen.findByText(/The pull in the cloud was stopped/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    expect(screen.queryByText(/The pull in the cloud was stopped/)).toBeNull();
+    cleanup();
+    open(sourcesOf(live, { pulls: () => cloud.sender }));
+    await screen.findByLabelText("Teams to pull");
+    expect(screen.queryByText(/The pull in the cloud was stopped/)).toBeNull();
   });
 
   it("stays the page however long nobody touches the screen, and hands over for what it cannot draw", async () => {
@@ -613,7 +684,7 @@ describe("Team Rankings on the cloud's board", () => {
     await screen.findByText("The cloud's board");
     await act(() => new Promise((resolve) => setTimeout(resolve, 1_500)));
     expect(handedOver()).toBeNull();
-    await pullOnDevice();
+    await pullOnDevice(live);
     await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 
@@ -935,13 +1006,36 @@ const answered = (answer: Record<string, unknown>) => ({
 const edited = (sent: Array<Record<string, unknown>>) =>
   sent.filter((data) => data.command !== undefined);
 
-/** The Import tab's way to this device's copy, which every area the board draws offers one of. */
-const PULL_HERE = "Open the pull on this device's copy";
-/** Hands the page over by asking to pull a pasted list, the Import tab opened first if need be. */
-const pullOnDevice = async () => {
-  if (!screen.queryByRole("button", { name: PULL_HERE }))
-    fireEvent.click(screen.getByRole("tab", { name: "Import" }));
-  fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
+/** A cloud to send pulls to, in memory: the jobs written, and each start asked for. */
+const cloudPulls = () => {
+  const jobs = new Map<string, PullJob>();
+  const started: string[] = [];
+  const sender: PullSender = {
+    jobs: {
+      put: async (jobId, job) => {
+        jobs.set(jobId, job);
+      },
+      read: async (jobId) => jobs.get(jobId) ?? null,
+      askStop: async (jobId) => {
+        const job = jobs.get(jobId);
+        if (job) jobs.set(jobId, { ...job, stopAsked: true });
+      },
+    },
+    start: async (jobId) => {
+      started.push(jobId);
+      return { ok: true, value: { status: "queued" } };
+    },
+  };
+  return { jobs, started, sender };
+};
+
+/**
+ * Hands the page over the one way a member's page still does (1.8): the rules end its watch, the
+ * account taken off the list partway through a visit.
+ */
+const pullOnDevice = async (watched: { failWatches: (error: unknown) => void }) => {
+  act(() => watched.failWatches({ code: "permission-denied" }));
+  await Promise.resolve();
 };
 
 describe("a club's panel on the cloud's board", () => {
@@ -1091,7 +1185,7 @@ describe("a club's panel on the cloud's board", () => {
     const server = editFunction((data) => (data.warm ? WARMED : made(5)));
     open(sourcesOf(live, { call: server.call }));
     expect(await screen.findByText("The cloud's board")).toBeTruthy();
-    await pullOnDevice();
+    await pullOnDevice(live);
     // The pool is still coming in; the board is drawn again, with nothing to mark on it.
     fireEvent.click(screen.getByRole("tab", { name: "Rankings" }));
     fireEvent.click(await screen.findByRole("button", { name: "Show all 3 teams" }));
@@ -1277,22 +1371,6 @@ describe("a club's panel on the cloud's board", () => {
     expect(within(panel).queryByRole("button", { name: "Rename" })).toBeNull();
     await pause(50);
     expect(server.sent).toEqual([]);
-  });
-
-  it("closes, and opens Team Rankings on the club open when it hands over", async () => {
-    await withCard();
-    open(sourcesOf(live));
-    await tapClub("Placeholder S-1");
-    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
-    fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
-    expect(screen.queryByRole("region", { name: "Placeholder S-1" })).toBeNull();
-    await tapClub("Placeholder S-1");
-    await screen.findByRole("region", { name: "Placeholder S-1" });
-    await pullOnDevice();
-    await act(async () => pool.finish());
-    await waitFor(() => expect(handedOver()).toMatchObject({ openTeamId: "S-1" }), {
-      timeout: 2_000,
-    });
   });
 });
 
@@ -2833,73 +2911,12 @@ describe("what it hands over, when, and what stays after", () => {
     expect(handedOver()).toBeNull();
   });
 
-  it("goes when Team Rankings opens, so Back to a page only Team Rankings knows stays there", async () => {
-    const THIRTEEN: AgeGroup = {
-      id: "ag_13u_2027",
-      name: "13U 2027",
-      ageLevel: 13,
-      year: 2027,
-      seasonIds: [],
-    };
-    function Page() {
-      const { selectedAgeGroupId } = useRankingsPages([...GROUPS, THIRTEEN], TODAY);
-      return <p data-testid="probe">{selectedAgeGroupId}</p>;
-    }
-    pool.wants = false;
-    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
-    render(
-      <LiveTeamRankings
-        status={{ kind: "connecting" }}
-        renderPage={() => <Page />}
-        preloadPage={() => Promise.resolve()}
-        sources={sourcesOf(live)}
-        seasons={[]}
-        showToast={showToast}
-        confirm={confirm}
-      />
-    );
-    // The pull of a pasted list hands over at once, the pool being in.
-    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
-    await screen.findByTestId("probe");
-    // Its listener went with it.
-    expect(live.watching()).toBe(0);
-    act(() => {
-      window.history.pushState(null, "", "/?view=rankings&age=13&year=2027");
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    });
-    await pause(50);
-    expect(screen.getByTestId("probe").textContent).toBe("ag_13u_2027");
-    expect(window.location.search).toContain("age=13");
-  });
-
   it("lets go of the board it held for Team Rankings when it closes", async () => {
     const shown = open(sourcesOf(live));
     expect(await screen.findByText("The cloud's board")).toBeTruthy();
     expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).not.toBeNull();
     shown.unmount();
     expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
-  });
-
-  it("opens Team Rankings on the club compared and the opponents asked for, kept across a half", async () => {
-    await withCards();
-    onScouting();
-    const user = userEvent.setup();
-    open(sourcesOf(live));
-    await pick(user, await screen.findByLabelText("Compare with"), "Placeholder S-3");
-    const compared = { name: "Placeholder S-2 and Placeholder S-3 compared" };
-    expect(await screen.findByRole("region", compared)).toBeTruthy();
-    // A half moved to reads its board again, and the comparison stays.
-    fireEvent.click(screen.getByRole("button", { name: /^Fall 2026/ }));
-    await waitFor(() => expect(window.location.search).toContain("fall"));
-    expect(await screen.findByRole("region", compared)).toBeTruthy();
-    await pick(user, screen.getByLabelText("Check a team"), "Placeholder S-1");
-    expect(
-      await screen.findByRole("button", { name: "Remove Placeholder S-1 from the report" })
-    ).toBeTruthy();
-    await pullOnDevice();
-    await act(async () => pool.finish());
-    await waitFor(() => expect(handedOver()).not.toBeNull(), { timeout: 5_000 });
-    expect(handedOver()).toMatchObject({ compareTeamId: "S-3", pickedOpponentIds: ["S-1"] });
   });
 
   it("puts the caret in the search box once the list asked for is in, however long it takes", async () => {
@@ -2949,22 +2966,10 @@ describe("what it hands over, when, and what stays after", () => {
     fireEvent.keyDown(rankings, { key: "ArrowRight" });
     fireEvent.keyDown(document.activeElement ?? rankings, { key: "ArrowRight" });
     expect(document.activeElement?.textContent).toBe("Import");
-    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
+    await pullOnDevice(live);
     expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
     expect(screen.getByTestId("live-board")).toBe(before);
     expect(document.activeElement?.textContent).toBe("Import");
-  });
-
-  it("keeps the Import tab drawn while the pool its pull asked for comes in", async () => {
-    open(sourcesOf(live));
-    expect(await screen.findByText("The cloud's board")).toBeTruthy();
-    await pullOnDevice();
-    expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
-    const panel = document.getElementById("team-rankings-panel");
-    if (!panel) throw new Error("no panel");
-    expect(panel.getAttribute("aria-labelledby")).toBe("team-rankings-tab-import");
-    expect(within(panel).queryAllByText("Placeholder S-1")).toHaveLength(0);
-    expect(within(panel).getByRole("button", { name: PULL_HERE })).toBeTruthy();
   });
 
   it("says a club with no card could not be read, and opens another from its card", async () => {
@@ -3022,21 +3027,6 @@ describe("what it hands over, when, and what stays after", () => {
     await act(() => withCards(CARDS, [{ key: "board:2027:ag_11u_2027:spring", value: FALL }]));
     expect(await screen.findByRole("region", { name: "Placeholder S-1" })).toBeTruthy();
     expect(screen.queryByText(LIVE_UNREAD.club)).toBeNull();
-  });
-
-  it("hands a club with no card tapped while the pool comes in over to Team Rankings", async () => {
-    await withCards(CARDS.filter((one) => one.team.id !== "S-3"));
-    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
-    open(sourcesOf(live));
-    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
-    expect(await screen.findByText(/Loading this device's copy/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Rankings" }));
-    fireEvent.click((await screen.findAllByRole("button", { name: "Placeholder S-3" }))[0]!);
-    expect(
-      await screen.findByText("This club opens on this device's copy as soon as it is in…")
-    ).toBeTruthy();
-    await act(async () => pool.finish());
-    expect(handedOver()).toMatchObject({ openTeamId: "S-3" });
   });
 
   it("offers no what-if on a game against a club the board does not rank", async () => {
@@ -3111,14 +3101,6 @@ describe("what it hands over, when, and what stays after", () => {
     open(sourcesOf(live, { reader: async () => offline }));
     expect(await screen.findByText(/^Offline · the cloud's board as of /)).toBeTruthy();
     expect(handedOver()).toBeNull();
-  });
-
-  it("opens Team Rankings at once when asked to stop waiting for the pool", async () => {
-    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
-    open(sourcesOf(live));
-    fireEvent.click(await screen.findByRole("button", { name: PULL_HERE }));
-    fireEvent.click(await screen.findByRole("button", { name: "Show this device's copy now" }));
-    expect(handedOver()).toEqual({ stateTop: null, stateFilter: "", showAll: false });
   });
 });
 
@@ -3623,6 +3605,8 @@ describe("the Import tab on the cloud's board", () => {
       { level: 11, day: "2027-04-15" },
     ],
     orgs: { orgs: 0, teams: 0, aged: 0, waitingAged: 0 },
+    agelessIds: [],
+    rosterIds: [],
   };
   /** The edit function's answer to the tab's question, and to an edit, which changes `changed`. */
   const importAnswers =
