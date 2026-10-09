@@ -1,6 +1,7 @@
 import type { LiveMeta, LiveStore } from "../live/viewStore";
 import type { CloudStore } from "./cloudEngine";
 import { coerceManifest, UnreadableCopyError, type CloudManifest } from "./cloudManifest";
+import { UPLOADS, uploadChunksPath, uploadPath, type UploadStore } from "./uploads";
 
 /**
  * The cloud copy's documents through Firestore's REST API, for a job that runs outside a browser:
@@ -196,6 +197,38 @@ const restClient = ({
 
 const refuseWrite = () => Promise.reject(new Error("This store was opened to read, not to write."));
 
+/**
+ * Every document of `collection` by name and by when Firestore made it, page by page, and nothing
+ * else: a mask naming no field Firestore holds leaves every piece's data out, which listed whole
+ * would download the lot to learn its names.
+ */
+const namesAndTimes = async (
+  client: ReturnType<typeof restClient>,
+  collection: string,
+  what: string
+): Promise<Array<{ id: string; createdAt: string }>> => {
+  const { documents, call } = client;
+  const found: Array<{ id: string; createdAt: string }> = [];
+  let page: string | undefined;
+  do {
+    const query = ["pageSize=300", "mask.fieldPaths=none"];
+    if (page) query.push(`pageToken=${encodeURIComponent(page)}`);
+    const response = await call(`${documents}/${collection}?${query.join("&")}`);
+    if (!response.ok) throw new FirestoreError(response.status, `listing ${what}`);
+    const answer = (await response.json()) as {
+      documents?: FirestoreDocument[];
+      nextPageToken?: string;
+    };
+    for (const one of answer.documents ?? []) {
+      const id = one.name?.split("/").pop();
+      if (id && one.createTime)
+        found.push({ id: decodeURIComponent(id), createdAt: one.createTime });
+    }
+    page = answer.nextPageToken;
+  } while (page);
+  return found;
+};
+
 /** The pieces kept under `collection`, each a document `{ data: Bytes }` named by its id. */
 const pieceCalls = (
   client: ReturnType<typeof restClient>,
@@ -255,6 +288,12 @@ export type FirestoreRestDocuments = {
     fields: Record<string, unknown>,
     token: string | null
   ) => Promise<boolean>;
+  /**
+   * Every document of `collection`, with its id and its fields as plain values, page by page: the
+   * League Standings seasons (`league/{season}`), a handful of documents of 10 to 70 KB each, which
+   * a server reads whole to build the boards with.
+   */
+  list: (collection: string) => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
 };
 
 export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocuments => {
@@ -277,6 +316,26 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
         token === null ? { exists: false } : { updateTime: token },
         `replacing ${path}`
       ),
+    list: async (collection) => {
+      const found: Array<{ id: string; fields: Record<string, unknown> }> = [];
+      let page: string | undefined;
+      do {
+        const query = ["pageSize=100"];
+        if (page) query.push(`pageToken=${encodeURIComponent(page)}`);
+        const response = await call(`${documents}/${collection}?${query.join("&")}`);
+        if (!response.ok) throw new FirestoreError(response.status, `listing ${collection}`);
+        const answer = (await response.json()) as {
+          documents?: FirestoreDocument[];
+          nextPageToken?: string;
+        };
+        for (const one of answer.documents ?? []) {
+          const id = one.name?.split("/").pop();
+          if (id) found.push({ id: decodeURIComponent(id), fields: fieldsOf(one.fields ?? {}) });
+        }
+        page = answer.nextPageToken;
+      } while (page);
+      return found;
+    },
     update: async (path, patch) => {
       const mask = Object.keys(patch)
         .filter((name) => patch[name] !== undefined)
@@ -286,6 +345,59 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
         { method: "PATCH", body: JSON.stringify({ fields: firestoreFieldsOf(patch) }) }
       );
       if (!response.ok) throw new FirestoreError(response.status, `updating ${path}`);
+    },
+  };
+};
+
+/**
+ * What the copy's owner staged for the server (`uploads.ts`), through the REST API: read by the
+ * edit function, and deleted by it once used, or by the nightly once a day old. The server's
+ * account, which the rules do not apply to, is the only reader there is besides the owner. Read
+ * only unless `writable`, as the nightly's dry run opens it.
+ */
+export const firestoreRestUploads = ({
+  writable,
+  ...access
+}: RestAccess & { writable: boolean }): UploadStore => {
+  const client = restClient(access);
+  const { documents, call, read } = client;
+  const record = async (id: string) => {
+    const found = await read(uploadPath(id));
+    return found ? fieldsOf(found.fields ?? {}) : null;
+  };
+  return {
+    record,
+    getChunk: (id, chunk) => pieceCalls(client, uploadChunksPath(id), false).getChunk(chunk),
+    remove: !writable
+      ? refuseWrite
+      : async (id) => {
+          // Every piece there is, listed by name rather than counted off the record: Firestore
+          // keeps a document's collections when the document goes, and an upload whose record
+          // would not read, or that stopped short of its record, would otherwise leave its pieces
+          // for ever.
+          const pieces = pieceCalls(client, uploadChunksPath(id), true);
+          for (const piece of await namesAndTimes(client, uploadChunksPath(id), "an upload")) {
+            await pieces.deleteChunk(piece.id);
+          }
+          const response = await call(`${documents}/${uploadPath(id)}`, { method: "DELETE" });
+          if (!response.ok && response.status !== 404) {
+            throw new FirestoreError(response.status, `deleting upload ${id}`);
+          }
+        },
+    list: async () => {
+      // When Firestore made each, by its own clock: a device's clock wrong by a day would make an
+      // upload stale the moment it was staged, or never.
+      const made = new Map(
+        (await namesAndTimes(client, UPLOADS, "the uploads")).map(({ id, createdAt }) => [
+          id,
+          createdAt,
+        ])
+      );
+      return (await firestoreRestDocuments(access).list(UPLOADS)).map(({ id, fields }) => ({
+        id,
+        record: fields,
+        ...(made.has(id) ? { stagedAt: made.get(id) } : {}),
+      }));
     },
   };
 };
@@ -343,7 +455,7 @@ export const firestoreRestLive = ({
   ...access
 }: RestAccess & { writable: boolean }): LiveStore => {
   const client = restClient(access);
-  const { documents, call, read, commit } = client;
+  const { read, commit } = client;
   return {
     readMeta: async () => {
       const found = await read(LIVE_META);
@@ -359,27 +471,6 @@ export const firestoreRestLive = ({
             "saving the views' meta"
           ),
     ...pieceCalls(client, LIVE_CHUNKS, writable),
-    listChunks: async () => {
-      // Names and times only: a mask naming no field Firestore holds leaves every piece's data out.
-      const pieces: Array<{ id: string; createdAt: string }> = [];
-      let page: string | undefined;
-      do {
-        const query = ["pageSize=300", "mask.fieldPaths=none"];
-        if (page) query.push(`pageToken=${encodeURIComponent(page)}`);
-        const response = await call(`${documents}/${LIVE_CHUNKS}?${query.join("&")}`);
-        if (!response.ok) throw new FirestoreError(response.status, "listing the views' pieces");
-        const answer = (await response.json()) as {
-          documents?: FirestoreDocument[];
-          nextPageToken?: string;
-        };
-        for (const found of answer.documents ?? []) {
-          const id = found.name?.split("/").pop();
-          if (id && found.createTime)
-            pieces.push({ id: decodeURIComponent(id), createdAt: found.createTime });
-        }
-        page = answer.nextPageToken;
-      } while (page);
-      return pieces;
-    },
+    listChunks: () => namesAndTimes(client, LIVE_CHUNKS, "the views' pieces"),
   };
 };

@@ -4,7 +4,9 @@ import { reloadApp, resetApp } from "../lib/resetApp";
 import { myTeamGlance } from "../lib/myTeamGlance";
 import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
-import { setClubAge, type ClubAgeState } from "../lib/clubAge";
+import { setClubAge } from "../lib/clubAge";
+import { createAgeGroupId } from "../lib/teamRankings/seasons";
+import { planClubAges } from "../lib/live/agePlan";
 import { whereIsGcId } from "../lib/gcIdWhereabouts";
 import { leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
 import { TournamentPanel } from "./teamRankings/TournamentPanel";
@@ -16,38 +18,29 @@ import {
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
   countedInWindow,
-  countsTowardRating,
   dedupeLeagueFixtures,
   leagueStandIns,
   filedTeamIds,
   findDuplicateGame,
-  gcAgeLevels,
   gcLinkSquadYear,
-  isRankedAgeLevel,
   isScoutGamePlayed,
   IMPLAUSIBLE_MARGIN,
-  ratedMargin,
   mergeScoutTeams,
-  MIN_RANKED_AGE_LEVEL,
   rankingPoolGroupIds,
   segmentLabel,
-  segmentOfDate,
   resolveOrCreateTeam,
-  seasonAtAge,
   seasonYearOptions,
+  typedScores,
   filterRankingsByState,
   normalizeState,
   renameScoutTeam,
   statesInUse,
   teamNameSuggestions,
-  unlinkGcTeam,
-  withScoreTyped,
   type AgeGroup,
   type AgeGroupSeason,
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
-  type SeasonSegment,
 } from "../lib/teamRankings";
 import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClient";
 import {
@@ -60,7 +53,30 @@ import {
   latestImportedAt,
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
-import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../lib/live/allKnown";
+import {
+  deriveAllKnown,
+  gamesOnPages,
+  leagueTeamIdsOn,
+  type SeasonReader,
+} from "../lib/live/allKnown";
+import { countedByHalf } from "../lib/teamRankings/halves";
+import {
+  defaultStateOf,
+  placesOf,
+  unknownStateCountOf,
+  unrankedLevelNoteFor,
+} from "../lib/teamRankings/boardDisplay";
+import type { RankingsHandover } from "../lib/live/liveBoard";
+import type { PoolCommand } from "../lib/live/commands";
+import { changeBetween, poolParts } from "../lib/live/commands";
+import {
+  runPoolCommand,
+  writtenAnswers,
+  writtenGroups,
+  writtenNamedAges,
+  writtenTeams,
+  type CommandRun,
+} from "../lib/live/runPoolCommand";
 import {
   loadLogsForSeason,
   loadMatchupsForSeason,
@@ -78,40 +94,26 @@ import {
   loadScoutTeams,
   loadTidyStamp,
   onPoolChangedElsewhere,
-  saveAgeGroups,
   savePullProgress,
   loadAllArchivedSeasons,
   saveArchivedSeasons,
   forgetArchivedSeason,
   saveRefreshLog,
-  saveScoutGames,
-  saveScoutGamesForYear,
-  saveScoutTeams,
   saveTidyStamp,
   storedGamesByYear,
-  loadDeletedGames,
   loadAgeUnknown,
   loadTooYoungClubs,
   loadDroppedClubs,
   loadNamedAges,
-  saveNamedAges,
-  saveDeletedGames,
-  saveDroppedClubs,
   saveAgeUnknown,
   loadAgelessCleared,
   saveAgelessCleared,
   clearAgelessCleared,
 } from "../lib/teamRankingsStorage";
 import { persistPool } from "../lib/poolPersist";
-import {
-  forgetClubs,
-  forgetGames,
-  restoreClubs,
-  rowsOfGames,
-  scoringRowsOf,
-  type DeletedClubs,
-} from "../lib/deletedGames";
-import { forgetNamedAge, nameAge, type NamedAges } from "../lib/namedAges";
+import type { DeletedClubs } from "../lib/deletedGames";
+import type { NamedAges } from "../lib/namedAges";
+import { clubAgeOf } from "../lib/teamRankings/clubAge";
 import { forgetAgeless, type AgeUnknownList } from "../lib/ageUnknown";
 import {
   agelessClearedPass,
@@ -124,8 +126,8 @@ import type { AgelessAnswered } from "../lib/agelessTriage";
 
 /** Referentially stable, so the card's own memos do not re-run when Setup is closed. */
 const NO_AGELESS: AgeUnknownList = [];
-import { withoutClub, type UnrealClub } from "../lib/unrealClubs";
-import type { GamesDropped } from "./teamRankings/PoolHealthCard";
+import type { UnrealClub } from "../lib/unrealClubs";
+import type { GamesDropped } from "./teamRankings/PoolHealthView";
 import type { WrongAgeClub } from "../lib/wrongAge";
 import {
   estimateBackupBytes,
@@ -142,7 +144,19 @@ import {
 } from "../lib/rankingsRoute";
 import type { Command } from "./CommandPalette";
 import { archiveSquadYear, type ArchiveEntry } from "../lib/teamRankingsArchive";
-import { deletableYears, deleteSquadYear } from "../lib/deleteSquadYear";
+import { deleteSquadYear } from "../lib/deleteSquadYear";
+import {
+  archiveConfirmation,
+  archivedSaid,
+  archivePreviewOf,
+  archivesAnything,
+  archiveTableOf,
+  deleteConfirmation,
+  deletePreviewOf,
+  deletesAnything,
+  nothingUnder,
+  summariseYears,
+} from "../lib/yearSummary";
 import { ArchiveSection } from "./teamRankings/ArchiveSection";
 import { isPoolBusy, isPullLive, watchPull } from "../lib/pullSession";
 import { usePoolTidy } from "../hooks/usePoolTidy";
@@ -150,7 +164,10 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { GameChangerImportPanel } from "./GameChangerImportPanel";
 import { TEAM_PANEL_ID, TeamDetailPanel } from "./TeamDetailPanel";
 import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRankings/GamesSection";
-import { gamesWindowFor } from "../lib/teamRankings/gamesWindow";
+import type { NamedChecker } from "./ScheduleImportPanel";
+import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
+import { addOfNamed } from "../lib/live/namedAdd";
+import { gamesWindowFor, loggedGamesOn } from "../lib/teamRankings/gamesWindow";
 import {
   NATIONAL_TOP,
   RankingsSection as RankingsBoards,
@@ -164,6 +181,7 @@ import { SECTION_PANEL_ID, sectionTabId } from "./teamRankings/SectionNav";
 import { SetupSection } from "./teamRankings/SetupSection";
 import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useClubSearch } from "../hooks/useClubSearch";
+import { clubSearchGames } from "../lib/clubSearch";
 import { coachesOf } from "../lib/gcStaff";
 import { segmentWorthShowing, useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
@@ -203,6 +221,8 @@ type TeamRankingsViewProps = {
    * than lift a route's worth of state up this hands the actions down as closures.
    */
   onCommands?: (commands: Command[]) => void;
+  /** Where the live board left off, when this page takes over from it (`LiveTeamRankings`). */
+  handover?: RankingsHandover;
 };
 
 /**
@@ -274,6 +294,7 @@ export function TeamRankingsView({
   requestConfirmation,
   onDataChange,
   onCommands,
+  handover,
 }: TeamRankingsViewProps) {
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
   /*
@@ -432,72 +453,75 @@ export function TeamRankingsView({
   const [poolBackupAt, setPoolBackupAt] = useState(() => lastBackupTakenAt("pool"));
   /** The newest GameChanger fetch in the stored pool: what the rankings are "as of". */
   const pulledAt = useMemo(() => latestImportedAt(scoutTeams), [scoutTeams]);
-  const [reportTeamId, setReportTeamId] = useState<string>("");
+  const [reportTeamId, setReportTeamId] = useState<string>(handover?.reportTeamId ?? "");
 
   const [gameDraft, setGameDraft] = useState<AddGameDraft>(EMPTY_ADD_GAME_DRAFT);
 
   const [importOpen, setImportOpen] = useState(false);
   const [pullProgress, setPullProgress] = useState(() => loadPullProgress());
   const [refreshLog, setRefreshLog] = useState(() => loadRefreshLog());
-  const [openTeamId, setOpenTeamId] = useState<string | null>(null);
-  const [stateFilter, setStateFilter] = useState("");
+  const [openTeamId, setOpenTeamId] = useState<string | null>(handover?.openTeamId ?? null);
+  const [stateFilter, setStateFilter] = useState(handover?.stateFilter ?? "");
   /** Which state the top ten shows; `null` means the one picked for you. */
-  const [stateTop, setStateTop] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
+  const [stateTop, setStateTop] = useState<string | null>(handover?.stateTop ?? null);
+  const [showAll, setShowAll] = useState(handover?.showAll ?? false);
+  // Somebody went to search on the live board: the search they asked for, now it has its list.
+  const focusSearch = handover?.focusSearch === true;
+  useEffect(() => {
+    if (focusSearch) document.getElementById("scout-team-search")?.focus();
+  }, [focusSearch]);
 
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [editScoreA, setEditScoreA] = useState("");
   const [editScoreB, setEditScoreB] = useState("");
 
-  const lastDeletedGameRef = useRef<ScoutGame | null>(null);
-  const lastDeletedTeamRef = useRef<{ team: ScoutTeam; games: ScoutGame[] } | null>(null);
-
-  // Stable, so the effects that save through them do not re-run on every render.
-  const persistTeams = useCallback(
-    (teams: ScoutTeam[]) => {
-      setScoutTeams(teams);
-      if (!saveScoutTeams(teams))
-        showToast("Could not save teams (storage full).", { tone: "error" });
-      onDataChange?.();
-    },
-    [showToast, onDataChange]
-  );
   /**
-   * Saves the season on screen's games, and only those; see `scoutGames`. Another year's, for the
-   * one change made from outside it (a club's age set from Pool health's list), when it is named.
+   * Makes an edit as a command (`commands.ts`), on this browser's pool, and shows it once it is
+   * written: a change the store refused is a change that is not there, so the page keeps showing
+   * the pool as stored and says so. Only the parts the command changed are written.
    */
-  const persistGames = useCallback(
-    (games: ScoutGame[], year: number | undefined = selectedYear) => {
-      if (!saveScoutGamesForYear(year, games))
-        showToast("Could not save games (storage full).", { tone: "error" });
-      bumpPool();
+  // Held here as well as stored: a club's age and a thrown-out club change what is on screen at
+  // once, and a list pasted in this session skips a club thrown out in it.
+  const [namedAges, setNamedAges] = useState<NamedAges>(() => loadNamedAges());
+  const [droppedClubs, setDroppedClubs] = useState<DeletedClubs>(() => loadDroppedClubs());
+  const runCommand = useCallback(
+    (
+      command: PoolCommand,
+      { quiet = false, explains = false }: { quiet?: boolean; explains?: boolean } = {}
+    ): CommandRun => {
+      const run = runPoolCommand(command);
+      // Work done in the background (the tidy) that the pool has moved on from is not news: it
+      // comes round again on the pool as it is. A store that would not take a write still is.
+      if (!run.ok && quiet && run.why !== "unsaved") return run;
+      // A caller that says what a refusal leaves behind itself (the archive, whose tables are
+      // kept either way) is the one message shown.
+      if (!run.ok && explains) return run;
+      if (!run.ok) {
+        showToast(
+          run.why === "unsaved"
+            ? "Could not save (storage full)."
+            : run.why === "missing"
+              ? "That is no longer in the pool. Reload to see it as it is."
+              : "That is not a change the pool takes.",
+          { tone: "error" }
+        );
+        return run;
+      }
+      if (run.writes.length === 0) return run;
+      const teams = writtenTeams(run);
+      if (teams) setScoutTeams(teams);
+      // A page's mark lives on the page, so a page written is the one the board reads its ★ from.
+      const groups = writtenGroups(run);
+      if (groups) setAgeGroups(groups);
+      const named = writtenNamedAges(run);
+      if (named) setNamedAges(named);
+      const dropped = writtenAnswers(run, "droppedClubs");
+      if (dropped) setDroppedClubs(dropped);
+      if (run.writes.some((write) => write.part === "games")) bumpPool();
       onDataChange?.();
-    },
-    [selectedYear, showToast, onDataChange, bumpPool]
-  );
-  /**
-   * Saves the whole pool, every year. Only for the operations that hold all of it — and storage
-   * no longer takes that on trust: a year it holds and `games` does not is left as it was unless
-   * `emptying` names it, and the save says so rather than passing for a clean one.
-   */
-  const persistAllGames = useCallback(
-    (games: ScoutGame[], emptying: readonly (number | undefined)[] = []) => {
-      const write = saveScoutGames(games, emptying);
-      if (!write.written) showToast("Could not save games (storage full).", { tone: "error" });
-      else if (write.spared.length > 0) showToast(sparedYears(write.spared), { tone: "error" });
-      bumpPool();
-      onDataChange?.();
+      return run;
     },
     [showToast, onDataChange, bumpPool]
-  );
-  const persistAgeGroups = useCallback(
-    (groups: AgeGroup[]) => {
-      setAgeGroups(groups);
-      if (!saveAgeGroups(groups))
-        showToast("Could not save age groups (storage full).", { tone: "error" });
-      onDataChange?.();
-    },
-    [showToast, onDataChange]
   );
 
   /**
@@ -532,6 +556,19 @@ export function TeamRankingsView({
    * stand-ins settled, exactly as at the end of a pull.
    */
   const { tidy: tidyInWorker } = usePoolTidy();
+  /**
+   * What a tidy changed, laid onto the pool as it is now rather than its copy saved whole
+   * (`changeBetween`), and the stamp that says the pool is tidy written only once that landed:
+   * refused, the stamp is left alone and the tidy comes round again on the pool as it is.
+   */
+  const layDownTidy = useCallback(
+    (before: GcImportState, after: GcImportState, options: { quiet?: boolean } = {}): boolean => {
+      if (!runCommand(changeBetween(poolParts(before), poolParts(after)), options).ok) return false;
+      saveTidyStamp(poolSignature(after));
+      return true;
+    },
+    [runCommand]
+  );
   const tidyingRef = useRef(false);
   /**
    * Whether the page's first board has come back, or there is none to wait for: what the tidy on
@@ -582,10 +619,7 @@ export function TeamRankingsView({
         // was working. Either way the stamp is untouched, so it comes round again.
         if (!outcome || !live) return;
         const tidy: PoolTidy = { ...outcome.tidy, state: outcome.state };
-        saveTidyStamp(poolSignature(tidy.state));
-        if (tidy.state.ageGroups !== pool.ageGroups) persistAgeGroups(tidy.state.ageGroups);
-        if (tidy.state.teams !== pool.teams) persistTeams(tidy.state.teams);
-        if (tidy.state.games !== pool.games) persistAllGames(tidy.state.games);
+        if (!layDownTidy(pool, tidy.state, { quiet: true })) return;
         const lines = describeTidy(tidy);
         if (lines.length > 0) showToast(lines.join(" "));
       }
@@ -600,9 +634,7 @@ export function TeamRankingsView({
     storedGameCount,
     boardShown,
     pullProgress,
-    persistAgeGroups,
-    persistTeams,
-    persistAllGames,
+    layDownTidy,
     showToast,
     tidyInWorker,
   ]);
@@ -629,17 +661,21 @@ export function TeamRankingsView({
    * page your own league belongs on: nothing in a GameChanger schedule mentions your league at all.
    */
   const assignSeasonToAge = (seasonId: string, season: AgeGroupSeason | null) => {
-    const result = seasonAtAge(seasonId, season, ageGroups);
-    persistAgeGroups(result.ageGroups);
-    if (!result.group) {
+    const pageId = createAgeGroupId();
+    const run = runCommand({ kind: "season.assign", seasonId, season, pageId });
+    if (!run.ok) return;
+    const group = season
+      ? (writtenGroups(run) ?? ageGroups).find((page) => page.seasonIds.includes(seasonId))
+      : undefined;
+    if (!group) {
       showToast("League season taken off Team Rankings.");
       return;
     }
-    pickPage(result.group.id);
+    pickPage(group.id);
     showToast(
-      result.created
-        ? `${result.group.name} created, with your league season on it.`
-        : `League season added to ${result.group.name}.`,
+      group.id === pageId
+        ? `${group.name} created, with your league season on it.`
+        : `League season added to ${group.name}.`,
       { tone: "success" }
     );
   };
@@ -686,15 +722,10 @@ export function TeamRankingsView({
     [chainGames, selectedAgeGroupId]
   );
 
-  // Teams whose game here came from a League Standings season rather than being logged by hand.
-  // Derived games only, so a manually added game never reads as a league one.
+  // Teams whose game here came from a League Standings season rather than being logged by hand
+  // (`leagueTeamIdsOn`, which the published boards flag their rows by too).
   const leagueGameTeamIds = useMemo(
-    () =>
-      new Set(
-        allKnown.derivedGames
-          .filter((game) => game.ageGroupId === selectedAgeGroupId)
-          .flatMap((game) => [game.teamAId, game.teamBId])
-      ),
+    () => leagueTeamIdsOn(allKnown.derivedGames, selectedAgeGroupId),
     [allKnown.derivedGames, selectedAgeGroupId]
   );
 
@@ -720,26 +751,19 @@ export function TeamRankingsView({
   );
 
   /**
-   * How many counted games each half of this year holds.
-   *
-   * So a half with nothing in it can say so on its own tab instead of being an empty board with no
-   * explanation, and so the board opens on a half worth reading (`segmentWorthShowing`). Off
-   * `poolGames`, which is the same list the boards are fitted from, and by the rule the fit counts
-   * a game by (`countsTowardRating`), so the count and the table cannot disagree. Counted as merely
-   * scored, a score typed ahead on a day not yet played, or a game kept only for the record, was a
-   * spring the board opened on in January and fitted with nothing: the 26 September 2026 pool
-   * already held two scores dated March 2027.
+   * How many counted games each half of this year holds (`countedByHalf`), off `poolGames`, the
+   * same list the boards are fitted from: so a half with nothing in it says so on its own tab, and
+   * the board opens on a half worth reading (`segmentWorthShowing`).
    */
-  const segmentGames = useMemo(() => {
-    const year = ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId));
-    const counts: Record<SeasonSegment, number> = { fall: 0, spring: 0 };
-    poolGames.forEach((game) => {
-      if (!countsTowardRating(game, today)) return;
-      const half = segmentOfDate(game.date, year);
-      if (half) counts[half] += 1;
-    });
-    return counts;
-  }, [poolGames, ageGroups, selectedAgeGroupId, today]);
+  const segmentGames = useMemo(
+    () =>
+      countedByHalf(
+        poolGames,
+        ageGroupYear(ageGroups.find((group) => group.id === selectedAgeGroupId)),
+        today
+      ),
+    [poolGames, ageGroups, selectedAgeGroupId, today]
+  );
 
   /**
    * Which half of the year the boards are for.
@@ -763,6 +787,7 @@ export function TeamRankingsView({
   const {
     rows: rankings,
     stale: rankingsStale,
+    standIn,
     whatIf,
     askWhatIf,
     checkModel,
@@ -781,6 +806,8 @@ export function TeamRankingsView({
      * ratings would be describing a team that does not exist.
      */
     ...(selectedSegment === undefined ? {} : { segment: selectedSegment }),
+    // The cloud's board stands in only on a page it handed over to.
+    liveStandIn: handover !== undefined,
   });
   // Once, as the first board settles; nothing a render reads changes with it.
   if (!boardShown && !rankingsStale) setBoardShown(true);
@@ -807,42 +834,16 @@ export function TeamRankingsView({
    */
   const nationalTop = useMemo(() => rankings.slice(0, NATIONAL_TOP), [rankings]);
 
-  /**
-   * Which state the top ten is for. Yours if we know it, otherwise whichever state has the most
-   * teams on this page — the one most likely to be the reason you are here.
-   */
-  const defaultState = useMemo(() => {
-    const mine = rankedTeams.find((team) => team.id === myTeamId)?.state;
-    if (mine) return mine;
-    const counts = new Map<string, number>();
-    rankedTeams.forEach((team) => {
-      if (team.state) counts.set(team.state, (counts.get(team.state) ?? 0) + 1);
-    });
-    let best = "";
-    let most = 0;
-    counts.forEach((count, state) => {
-      if (count > most) {
-        most = count;
-        best = state;
-      }
-    });
-    return best;
-  }, [rankedTeams, myTeamId]);
+  /** Which state the top ten is for (`defaultStateOf`), shared with the live board. */
+  const defaultState = useMemo(
+    () => defaultStateOf(rankedTeams, myTeamId),
+    [rankedTeams, myTeamId]
+  );
 
   const shownState = stateTop === null ? defaultState : stateTop;
 
-  /**
-   * "Prosper, TX" — where a club is from, which is what tells five Rangers apart in a list. The
-   * town comes from GameChanger for a pulled club; a stand-in has neither and shows nothing.
-   */
-  const placeById = useMemo(() => {
-    const places = new Map<string, string | undefined>();
-    rankedTeams.forEach((team) => {
-      if (!places.has(team.id))
-        places.set(team.id, [team.city, team.state].filter(Boolean).join(", ") || undefined);
-    });
-    return places;
-  }, [rankedTeams]);
+  /** "Prosper, TX" for each club on the page (`placesOf`), shared with the live board. */
+  const placeById = useMemo(() => placesOf(rankedTeams), [rankedTeams]);
   // A lookup rather than a search of the page's clubs per call: the Scouting picker asks it of
   // every row, and on a four-thousand-club page that was 288 ms of searching against about 5.
   const placeOf = useCallback((teamId: string) => placeById.get(teamId), [placeById]);
@@ -863,7 +864,7 @@ export function TeamRankingsView({
         : [],
     [rankings, rankedTeams, shownState]
   );
-  const unknownStateCount = rankedTeams.filter((team) => !team.state).length;
+  const unknownStateCount = unknownStateCountOf(rankedTeams);
 
   // Filtering is presentational: ratings come from every game, because a team's strength does not
   // depend on which rows are on screen. Only the numbering changes.
@@ -880,14 +881,16 @@ export function TeamRankingsView({
   const reportForId =
     reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId || "";
   /** Opponents asked for by name in the scouting report, beyond the two lists it shows by default. */
-  const [pickedOpponentIds, setPickedOpponentIds] = useState<string[]>([]);
+  const [pickedOpponentIds, setPickedOpponentIds] = useState<string[]>(
+    () => handover?.pickedOpponentIds ?? []
+  );
 
   /**
    * A club to set beside the report's team (`compareClubs`): their meetings, the clubs both have
    * played, and each one's best wins, worst losses and latest results, off the games this board
    * counts in the half it is showing.
    */
-  const [compareId, setCompareId] = useState("");
+  const [compareId, setCompareId] = useState(handover?.compareTeamId ?? "");
   const comparison = useMemo(() => {
     if (!compareId || !reportForId || compareId === reportForId) return null;
     return compareClubs(
@@ -1094,16 +1097,9 @@ export function TeamRankingsView({
 
   const selectedGroupName = ageGroups.find((g) => g.id === selectedAgeGroupId)?.name ?? "";
 
-  /**
-   * A level below `MIN_RANKED_AGE_LEVEL` has no table by design, so its page would otherwise read
-   * as "no teams yet" however many games were logged on it. Said plainly instead, because the
-   * games are not being ignored — they are evidence about the older teams that played down.
-   */
+  /** Why a page below the ranked ages has no table (`unrankedLevelNoteFor`). */
   const selectedAgeLevel = ageGroupLevel(ageGroups.find((g) => g.id === selectedAgeGroupId));
-  const unrankedLevelNote =
-    selectedAgeGroupId && !isRankedAgeLevel(selectedAgeLevel)
-      ? `${selectedAgeLevel}U is not ranked — at that age the results say more about which league is machine pitch than about the teams. Games logged here still count as evidence about the ${MIN_RANKED_AGE_LEVEL}U and older teams that played down against them.`
-      : null;
+  const unrankedLevelNote = unrankedLevelNoteFor(selectedAgeGroupId, selectedAgeLevel);
 
   const explanationRequest = useMemo(() => {
     if (!reportRow || reportRow.games === 0) return null;
@@ -1117,11 +1113,7 @@ export function TeamRankingsView({
   const explanation = useLeagueSummary(explanationRequest);
 
   const ageGroupManualGames = useMemo(
-    () =>
-      scoutGames
-        .filter((game) => game.ageGroupId === selectedAgeGroupId)
-        .slice()
-        .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")),
+    () => loggedGamesOn(scoutGames, selectedAgeGroupId),
     [scoutGames, selectedAgeGroupId]
   );
   /**
@@ -1156,14 +1148,20 @@ export function TeamRankingsView({
    */
   const setTeamState = (teamId: string, nextState: string) => {
     const state = normalizeState(nextState);
-    const exists = allKnown.teams.some((team) => team.id === teamId);
-    if (!exists) return;
-    persistTeams(
-      allKnown.teams.map((team) =>
-        team.id === teamId ? { ...team, ...(state ? { state } : { state: undefined }) } : team
-      )
-    );
-    showToast(state ? `Set to ${state}.` : "State cleared.", { tone: "success" });
+    // A club League Standings made joins the roster with its state, and no other club with it:
+    // the rest of the league's clubs have ids that hold only for the walk that made them.
+    const adopt = scoutTeams.some((team) => team.id === teamId)
+      ? undefined
+      : allKnown.teams.find((team) => team.id === teamId);
+    const run = runCommand({
+      kind: "team.state",
+      teamId,
+      state: state ?? null,
+      ...(adopt ? { adopt } : {}),
+    });
+    if (run.ok && run.writes.length > 0)
+      showToast(state ? `Set to ${state}.` : "State cleared.", { tone: "success" });
+    return run.ok;
   };
 
   /**
@@ -1173,16 +1171,16 @@ export function TeamRankingsView({
    */
   const setMyTeam = (teamId: string) => {
     if (!selectedAgeGroupId) return;
-    if (!scoutTeams.some((team) => team.id === teamId)) {
-      persistTeams([...scoutTeams, ...allKnown.teams.filter((t) => t.id === teamId)]);
-    }
-    persistAgeGroups(
-      ageGroups.map((group) =>
-        group.id === selectedAgeGroupId
-          ? { ...group, myTeamId: group.myTeamId === teamId ? undefined : teamId }
-          : group
-      )
-    );
+    const marked = ageGroups.find((group) => group.id === selectedAgeGroupId)?.myTeamId;
+    const adopt = scoutTeams.some((team) => team.id === teamId)
+      ? undefined
+      : allKnown.teams.find((team) => team.id === teamId);
+    runCommand({
+      kind: "page.myTeam",
+      ageGroupId: selectedAgeGroupId,
+      teamId: marked === teamId ? null : teamId,
+      ...(adopt ? { adopt } : {}),
+    });
   };
 
   /**
@@ -1197,7 +1195,7 @@ export function TeamRankingsView({
    * game against one brought the game back and not its opponent. The roster is read now, not from
    * the render that showed the toast, so whatever else the tidy did is kept.
    */
-  const restoreRosterFor = (games: readonly ScoutGame[], before: readonly ScoutTeam[]) => {
+  const rosterFor = (games: readonly ScoutGame[], before: readonly ScoutTeam[]): PoolCommand[] => {
     const roster = loadScoutTeams();
     const held = new Set(roster.map((team) => team.id));
     const named = filedTeamIds(games);
@@ -1205,8 +1203,20 @@ export function TeamRankingsView({
       named.add(game.teamAId);
       named.add(game.teamBId);
     });
-    const gone = before.filter((team) => named.has(team.id) && !held.has(team.id));
-    if (gone.length > 0) persistTeams([...roster, ...gone]);
+    return before
+      .filter((team) => named.has(team.id) && !held.has(team.id))
+      .map((team, index) => ({ kind: "team.insert", team, at: roster.length + index }));
+  };
+
+  /**
+   * Undoes a removal with its own inverse, which puts back exactly what it took and leaves every
+   * change made since; then puts back the clubs a tidy pruned meanwhile that its games name
+   * (`rosterFor`), read once the inverse has run, so a club it put back is not put back twice.
+   */
+  const undoRemoval = (inverse: PoolCommand, games: readonly ScoutGame[], before: ScoutTeam[]) => {
+    if (!runCommand(inverse).ok) return;
+    const missing = rosterFor(games, before);
+    if (missing.length > 0) runCommand({ kind: "batch", commands: missing });
   };
 
   const removeGame = async (game: ScoutGame) => {
@@ -1221,18 +1231,13 @@ export function TeamRankingsView({
       confirmLabel: "Remove",
     });
     if (!confirmed) return;
-    lastDeletedGameRef.current = game;
-    persistGames(scoutGames.filter((g) => g.id !== game.id));
+    const before = scoutTeams;
+    const run = runCommand({ kind: "game.remove", year: selectedYear ?? null, gameIds: [game.id] });
+    if (!run.ok) return;
     showToast("Game removed.", {
       tone: "undo",
       actionLabel: "Undo",
-      onAction: () => {
-        const restored = lastDeletedGameRef.current;
-        if (!restored) return;
-        const games = [...scoutGames.filter((g) => g.id !== restored.id), restored];
-        restoreRosterFor(games, scoutTeams);
-        persistGames(games);
-      },
+      onAction: () => undoRemoval(run.inverse, [game], before),
     });
   };
 
@@ -1273,34 +1278,18 @@ export function TeamRankingsView({
       confirmLabel: "Remove",
     });
     if (!confirmed) return;
-    lastDeletedTeamRef.current = { team, games: relatedGames };
-    if (!playedElsewhere) persistTeams(scoutTeams.filter((t) => t.id !== team.id));
-    persistGames(scoutGames.filter((game) => !isHere(game)));
-    if (myTeamId === team.id) {
-      persistAgeGroups(
-        ageGroups.map((group) =>
-          group.id === selectedAgeGroupId ? { ...group, myTeamId: undefined } : group
-        )
-      );
-    }
+    const before = scoutTeams;
+    const run = runCommand({
+      kind: "club.leavePage",
+      ageGroupId: selectedAgeGroupId,
+      teamId: team.id,
+    });
+    if (!run.ok) return;
+    // The ★ taken off with the club, and the club itself, come back with its games on Undo.
     showToast(`${team.name} removed.`, {
       tone: "undo",
       actionLabel: "Undo",
-      onAction: () => {
-        const restored = lastDeletedTeamRef.current;
-        if (!restored) return;
-        const games = [...scoutGames.filter((game) => !isHere(game)), ...restored.games];
-        restoreRosterFor(games, scoutTeams);
-        persistGames(games);
-        // Remove took the ★ off this page when it was this club; Undo puts it back.
-        if (myTeamId === restored.team.id) {
-          persistAgeGroups(
-            loadAgeGroups().map((group) =>
-              group.id === selectedAgeGroupId ? { ...group, myTeamId: restored.team.id } : group
-            )
-          );
-        }
-      },
+      onAction: () => undoRemoval(run.inverse, relatedGames, before),
     });
   };
 
@@ -1316,17 +1305,9 @@ export function TeamRankingsView({
    * otherwise.
    */
   const unlinkGc = (teamId: string, gcTeamId: string) => {
-    const next = unlinkGcTeam(teamId, gcTeamId, scoutTeams);
-    if (next === scoutTeams) return;
-    persistTeams(next);
-    showToast("Unlinked from GameChanger.", { tone: "success" });
-  };
-
-  /** Saves what `setClubAge` changed, and only what it changed, the games into `year`'s. */
-  const saveClubAge = (before: ClubAgeState, after: ClubAgeState, year = selectedYear) => {
-    if (after.ageGroups !== before.ageGroups) persistAgeGroups(after.ageGroups);
-    if (after.teams !== before.teams) persistTeams(after.teams);
-    if (after.games !== before.games) persistGames(after.games, year);
+    const run = runCommand({ kind: "team.unlinkGc", teamId, gcTeamId });
+    if (run.ok && run.writes.length > 0)
+      showToast("Unlinked from GameChanger.", { tone: "success" });
   };
 
   /**
@@ -1343,44 +1324,31 @@ export function TeamRankingsView({
   const setTeamAge = (teamId: string, level: number, year = selectedYear): boolean => {
     if (year === undefined) return false;
     const games = year === selectedYear ? scoutGames : loadScoutGamesForYear(year);
-    const before: ClubAgeState = { teams: scoutTeams, games, ageGroups };
-    const change = setClubAge(before, teamId, level, year, "you");
+    const pageId = createAgeGroupId();
+    // What the change will move, for the toast; the command makes it (`club.age`).
+    const change = setClubAge(
+      { teams: scoutTeams, games, ageGroups },
+      teamId,
+      level,
+      year,
+      "you",
+      undefined,
+      pageId
+    );
     if (!change) return false;
-    const previousNamed = loadNamedAges();
-    let named = previousNamed;
-    change.gcTeamIds.forEach((gcTeamId) => {
-      const link = scoutTeams
-        .find((team) => team.id === teamId)
-        ?.gcTeams?.find((entry) => entry.teamId === gcTeamId);
-      // The level the app had this id at, kept through a second change so going back reaches it.
-      // Each id's own, since a club's ids in a year are not always filed at one level.
-      const was = previousNamed.get(gcTeamId)?.pinned
-        ? previousNamed.get(gcTeamId)?.was
-        : change.levels[gcTeamId];
-      named = nameAge(named, {
-        teamId: gcTeamId,
-        level,
-        ...(link?.name ? { name: link.name } : {}),
-        namedAt: new Date().toISOString(),
-        pinned: true,
-        ...(was === undefined ? {} : { was }),
-      });
+    const run = runCommand({
+      kind: "club.age",
+      year,
+      teamId,
+      level,
+      at: new Date().toISOString(),
+      pageId,
     });
-    setNamedAges(named);
-    saveNamedAges(named);
-    saveClubAge(before, change, year);
+    if (!run.ok) return false;
     const name = scoutTeams.find((team) => team.id === teamId)?.name ?? "The club";
     showToast(
       `${name} is ${level}U now${change.moved > 0 ? `: ${change.moved} of its games moved to ${change.page.name}` : ""}.`,
-      {
-        tone: "undo",
-        actionLabel: "Undo",
-        onAction: () => {
-          setNamedAges(previousNamed);
-          saveNamedAges(previousNamed);
-          saveClubAge(change, before, year);
-        },
-      }
+      { tone: "undo", actionLabel: "Undo", onAction: () => runCommand(run.inverse) }
     );
     return true;
   };
@@ -1397,51 +1365,14 @@ export function TeamRankingsView({
     });
     if (!confirmed) return null;
 
-    const before: ClubAgeState = {
-      teams: scoutTeams,
-      games: wholePoolGames,
-      ageGroups,
-    };
-    let after = before;
-    const previousNamed = loadNamedAges();
-    let named = previousNamed;
-    const changedTeamIds: string[] = [];
-    let moved = 0;
-    let failed = 0;
-
-    clubs.forEach((club) => {
-      const change = setClubAge(after, club.teamId, club.suggested, club.year, "you");
-      if (!change) {
-        failed += 1;
-        return;
-      }
-      const team = after.teams.find((entry) => entry.id === club.teamId);
-      change.gcTeamIds.forEach((gcTeamId) => {
-        const link = team?.gcTeams?.find((entry) => entry.teamId === gcTeamId);
-        const was = previousNamed.get(gcTeamId)?.pinned
-          ? previousNamed.get(gcTeamId)?.was
-          : change.levels[gcTeamId];
-        named = nameAge(named, {
-          teamId: gcTeamId,
-          level: club.suggested,
-          ...(link?.name ? { name: link.name } : {}),
-          namedAt: new Date().toISOString(),
-          pinned: true,
-          ...(was === undefined ? {} : { was }),
-        });
-      });
-      after = change;
-      moved += change.moved;
-      changedTeamIds.push(club.teamId);
-    });
-
-    if (changedTeamIds.length > 0) {
-      setNamedAges(named);
-      saveNamedAges(named);
-      if (after.ageGroups !== before.ageGroups) persistAgeGroups(after.ageGroups);
-      if (after.teams !== before.teams) persistTeams(after.teams);
-      if (after.games !== before.games) persistAllGames(after.games);
-    }
+    const { commands, changedTeamIds, moved, failed } = planClubAges(
+      { teams: scoutTeams, games: wholePoolGames, ageGroups },
+      clubs.map((club) => ({ teamId: club.teamId, level: club.suggested, year: club.year })),
+      new Date().toISOString(),
+      createAgeGroupId()
+    );
+    const run = commands.length > 0 ? runCommand({ kind: "batch", commands }) : null;
+    if (run && !run.ok) return null;
     const result = `${changedTeamIds.length} ${changedTeamIds.length === 1 ? "club" : "clubs"} moved to ${
       changedTeamIds.length === 1 ? "its" : "their"
     } suggested age groups; ${moved} ${moved === 1 ? "game" : "games"} refiled.`;
@@ -1449,17 +1380,11 @@ export function TeamRankingsView({
       ? ` ${failed} ${failed === 1 ? "club could" : "clubs could"} not be changed and remain in the review list.`
       : "";
     showToast(`${result}${failure}`, {
-      ...(changedTeamIds.length > 0
+      ...(run?.ok
         ? {
             tone: "undo" as const,
             actionLabel: "Undo",
-            onAction: () => {
-              setNamedAges(previousNamed);
-              saveNamedAges(previousNamed);
-              if (after.ageGroups !== before.ageGroups) persistAgeGroups(before.ageGroups);
-              if (after.teams !== before.teams) persistTeams(before.teams);
-              if (after.games !== before.games) persistAllGames(before.games);
-            },
+            onAction: () => runCommand(run.inverse),
           }
         : { tone: "error" as const }),
     });
@@ -1478,27 +1403,18 @@ export function TeamRankingsView({
       .filter((link) => gcLinkSquadYear(link, ageGroups) === selectedYear)
       .map((link) => link.teamId);
     const pinned = loadNamedAges();
-    let named = pinned;
-    const back = new Map<number, Set<string>>();
+    const back = new Set<number>();
     ids.forEach((id) => {
       const entry = pinned.get(id);
-      if (!entry?.pinned) return;
-      named = forgetNamedAge(named, id);
-      const to = entry.was ?? entry.level;
-      back.set(to, (back.get(to) ?? new Set()).add(id));
+      if (entry?.pinned) back.add(entry.was ?? entry.level);
     });
-    setNamedAges(named);
-    saveNamedAges(named);
-    const before: ClubAgeState = { teams: scoutTeams, games: scoutGames, ageGroups };
-    // The whole club at once when every id goes back to one level, so the other clubs' rows that
-    // recorded an age for it go back too; otherwise each id with its own schedule's rows.
-    const whole = back.size === 1 && [...back.values()][0]?.size === ids.length;
-    let after = before;
-    back.forEach((gcIds, level) => {
-      after =
-        setClubAge(after, teamId, level, selectedYear, null, whole ? undefined : gcIds) ?? after;
+    const run = runCommand({
+      kind: "club.ageClear",
+      year: selectedYear,
+      teamId,
+      pageId: createAgeGroupId(),
     });
-    saveClubAge(before, after);
+    if (!run.ok) return;
     const unknown = ids.some((id) => pinned.get(id)?.pinned && pinned.get(id)?.was === undefined);
     const levels = [...back.keys()].sort((a, b) => a - b).map((level) => `${level}U`);
     const name = club?.name ?? "The club";
@@ -1540,10 +1456,7 @@ export function TeamRankingsView({
       confirmLabel: "Delete them",
     });
     if (!confirmed) return false;
-    const drop = new Set(ids);
-    saveDeletedGames(forgetGames(loadDeletedGames(), scoringRowsOf(wholePoolGames, ids)));
-    const kept = wholePoolGames.filter((game) => !drop.has(game.id));
-    if (kept.length !== wholePoolGames.length) persistAllGames(kept);
+    if (!runCommand({ kind: "games.drop", gameIds: [...ids] }).ok) return false;
     showToast(
       `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by more than ${IMPLAUSIBLE_MARGIN}`}.`,
       { tone: "success" }
@@ -1559,13 +1472,9 @@ export function TeamRankingsView({
   const confirmScore = async (gameId: string): Promise<boolean> => {
     const game = wholePoolGames.find((entry) => entry.id === gameId);
     if (!game) return false;
-    // The margin as it reads now, and only that: a later score is one nobody has vouched for.
-    const margin = ratedMargin(game);
-    persistAllGames(
-      wholePoolGames.map((entry) =>
-        entry.id === gameId && margin !== undefined ? { ...entry, scoreConfirmed: margin } : entry
-      )
-    );
+    // The game's own year alone: the rest of the pool is as it was.
+    const year = ageGroupYear(ageGroups.find((group) => group.id === game.ageGroupId)) ?? null;
+    if (!runCommand({ kind: "game.confirm", year, gameId }).ok) return false;
     const nameOf = (id: string) => allKnown.teams.find((team) => team.id === id)?.name ?? id;
     showToast(
       `${nameOf(game.teamAId)} ${game.teamAScore}–${game.teamBScore} ${nameOf(game.teamBId)} counts now.`,
@@ -1596,32 +1505,28 @@ export function TeamRankingsView({
     () => (section === "setup" ? loadAgeUnknown() : NO_AGELESS),
     [section]
   );
-  const [namedAges, setNamedAges] = useState<NamedAges>(() => loadNamedAges());
-  const [droppedClubs, setDroppedClubs] = useState<DeletedClubs>(() => loadDroppedClubs());
 
   const nameAgeFor = useCallback(
     (teamId: string, name: string | undefined, level: number) => {
       // What GameChanger was saying when it was named, so a later change to its own page can be
       // told apart from the silence this is filling in — see `namedAgeStands`.
-      const next = nameAge(loadNamedAges(), {
-        teamId,
-        level,
-        ...(name ? { name } : {}),
-        namedAt: new Date().toISOString(),
+      const run = runCommand({
+        kind: "namedAges",
+        put: [{ teamId, level, ...(name ? { name } : {}), namedAt: new Date().toISOString() }],
+        forget: [],
       });
-      setNamedAges(next);
-      saveNamedAges(next);
-      showToast(`${name ?? teamId} is ${level}U. It will be filed on the next refresh.`);
+      if (run.ok)
+        showToast(`${name ?? teamId} is ${level}U. It will be filed on the next refresh.`);
     },
-    [showToast]
+    [runCommand, showToast]
   );
 
   /** Puts a thrown-out club back, which is the whole of what the toast's undo has to do. */
-  const restoreDroppedClub = useCallback((teamId: string) => {
-    const next = restoreClubs(loadDroppedClubs(), [teamId]);
-    setDroppedClubs(next);
-    saveDroppedClubs(next);
-  }, []);
+  const restoreDroppedClub = useCallback(
+    (teamId: string) =>
+      runCommand({ kind: "answers", list: "droppedClubs", add: [], remove: [teamId] }).ok,
+    [runCommand]
+  );
 
   /**
    * Throwing out a team nobody could age. No confirmation; an undo on the toast instead.
@@ -1639,9 +1544,8 @@ export function TeamRankingsView({
    */
   const throwOutAgeless = useCallback(
     (teamId: string, name: string | undefined): boolean => {
-      const next = forgetClubs(loadDroppedClubs(), [teamId]);
-      setDroppedClubs(next);
-      saveDroppedClubs(next);
+      if (!runCommand({ kind: "answers", list: "droppedClubs", add: [teamId], remove: [] }).ok)
+        return false;
       /*
        * And off the waiting list, rather than leaving the row for a later pull to clean up. The
        * row only ever left on a pull that came back with something other than "no age", so a
@@ -1658,7 +1562,7 @@ export function TeamRankingsView({
       });
       return true;
     },
-    [showToast, restoreDroppedClub]
+    [runCommand, showToast, restoreDroppedClub]
   );
 
   /**
@@ -1673,13 +1577,16 @@ export function TeamRankingsView({
    */
   const undoAgelessAnswer = useCallback(
     (teamId: string, name: string | undefined) => {
-      restoreDroppedClub(teamId);
-      const ages = forgetNamedAge(loadNamedAges(), teamId);
-      setNamedAges(ages);
-      saveNamedAges(ages);
-      showToast(`${name ?? teamId} is back on the queue.`);
+      const run = runCommand({
+        kind: "batch",
+        commands: [
+          { kind: "answers", list: "droppedClubs", add: [], remove: [teamId] },
+          { kind: "namedAges", put: [], forget: [teamId] },
+        ],
+      });
+      if (run.ok) showToast(`${name ?? teamId} is back on the queue.`);
     },
-    [showToast, restoreDroppedClub]
+    [runCommand, showToast]
   );
 
   /**
@@ -1699,13 +1606,11 @@ export function TeamRankingsView({
       return;
     }
     const ids = clearedIds(pass);
-    const back = restoreClubs(loadDroppedClubs(), ids);
-    setDroppedClubs(back);
-    saveDroppedClubs(back);
+    if (!runCommand({ kind: "answers", list: "droppedClubs", add: [], remove: ids }).ok) return;
     saveAgeUnknown(restoreCleared(loadAgeUnknown(), pass));
     await clearAgelessCleared();
     showToast(`${describeCleared(pass)} back on the list.`);
-  }, [showToast]);
+  }, [runCommand, showToast]);
 
   /**
    * Clearing the rows a rule has settled, in one pass: GameChanger's own answers, and the rules the
@@ -1754,9 +1659,8 @@ export function TeamRankingsView({
       );
       const kept = await saveAgelessCleared(pass);
 
-      const next = forgetClubs(loadDroppedClubs(), ids);
-      setDroppedClubs(next);
-      saveDroppedClubs(next);
+      if (!runCommand({ kind: "answers", list: "droppedClubs", add: ids, remove: [] }).ok)
+        return false;
       saveAgeUnknown(forgetAgeless(loadAgeUnknown(), ids));
 
       showToast(
@@ -1768,7 +1672,7 @@ export function TeamRankingsView({
       );
       return true;
     },
-    [showToast, requestConfirmation, undoClearedPass]
+    [runCommand, showToast, requestConfirmation, undoClearedPass]
   );
 
   /**
@@ -1778,20 +1682,41 @@ export function TeamRankingsView({
    * would take their chances.
    */
   const dropClub = async (club: UnrealClub): Promise<boolean> => {
-    if (club.gcTeamIds.length > 0) {
-      // Into the view's state as well as storage, so a list pasted in this session skips it too.
-      const next = forgetClubs(loadDroppedClubs(), club.gcTeamIds);
-      setDroppedClubs(next);
-      saveDroppedClubs(next);
-    }
-    saveDeletedGames(forgetGames(loadDeletedGames(), rowsOfGames(wholePoolGames, club.gameIds)));
-    // Another club's row one of its games held as a claim stands back up rather than go with it.
-    const left = withoutClub(club, scoutTeams, wholePoolGames, ageGroups);
-    persistAllGames(left.games);
-    persistTeams(left.teams);
+    // The club, every game it is in, the rows they stood on and its GameChanger ids (`club.drop`);
+    // the ids reach the view's own list too, so a list pasted in this session skips it.
+    if (!runCommand({ kind: "club.drop", teamId: club.teamId }).ok) return false;
     showToast(`Deleted ${club.name}.`, { tone: "success" });
     return true;
   };
+
+  /** The clubs of a pair League Standings made that the roster does not hold, to join it. */
+  const unheldOf = (...ids: string[]): ScoutTeam[] =>
+    ids.flatMap((id) =>
+      scoutTeams.some((team) => team.id === id)
+        ? []
+        : allKnown.teams.filter((team) => team.id === id)
+    );
+
+  /**
+   * What games added put right on the clubs they name that the roster already holds: a name the
+   * lookup cleaned of an age label it was stored with (`resolveOrCreateTeam`), and a state the
+   * schedule import filled in from its file where the club had none (it never replaces one). Only
+   * those two, laid over the club as stored, so nothing else League Standings worked out for it on
+   * the fly is written; and only on the clubs the games name, so a club the add did not touch is
+   * not written for a name the walk cleaned on its own.
+   */
+  const heldHeals = (next: readonly ScoutTeam[], named: ReadonlySet<string>): PoolCommand[] =>
+    next.flatMap((team): PoolCommand[] => {
+      if (!named.has(team.id)) return [];
+      const was = scoutTeams.find((held) => held.id === team.id);
+      if (!was || (was.name === team.name && was.state === team.state)) return [];
+      const state = team.state === undefined ? {} : { state: team.state };
+      return [{ kind: "team.put", team: { ...was, name: team.name, ...state } }];
+    });
+
+  /** Games added, with the heals of the held clubs they name, as one change. */
+  const withHeals = (heals: PoolCommand[], add: PoolCommand): PoolCommand =>
+    heals.length === 0 ? add : { kind: "batch", commands: [...heals, add] };
 
   const mergeInto = async (fromId: string, intoId: string): Promise<boolean> => {
     const from = allKnown.teams.find((team) => team.id === fromId);
@@ -1808,8 +1733,13 @@ export function TeamRankingsView({
       confirmLabel: "Fold in",
     });
     if (!confirmed) return false;
-    persistTeams(preview.teams);
-    persistAllGames(preview.games);
+    const run = runCommand({
+      kind: "teams.merge",
+      fromId,
+      intoId,
+      adopt: unheldOf(fromId, intoId),
+    });
+    if (!run.ok) return false;
     setOpenTeamId(intoId);
     showToast(`Folded into ${into.name}.`, { tone: "success" });
     return true;
@@ -1820,11 +1750,7 @@ export function TeamRankingsView({
    * when the index is built. Stable across renders so the index is rebuilt on a change, not a render.
    */
   const everyKnownGame = useCallback(
-    () =>
-      dedupeLeagueFixtures(
-        [...allKnown.derivedGames, ...loadScoutGames()],
-        leagueStandIns(allKnown.teams, ageGroups)
-      ),
+    () => clubSearchGames(allKnown.derivedGames, loadScoutGames(), allKnown.teams, ageGroups),
     [allKnown.derivedGames, allKnown.teams, ageGroups]
   );
   /**
@@ -1898,27 +1824,11 @@ export function TeamRankingsView({
   };
 
   const openTeam = openTeamId ? (allKnown.teams.find((t) => t.id === openTeamId) ?? null) : null;
-  /**
-   * The open club's level in this year and whether it was set by hand, for the panel's Age line.
-   * Only for a club with a GameChanger link in the year: its level is the link's, where a club
-   * without one has its level read off games other clubs filed.
-   */
-  const openTeamAge = useMemo(() => {
-    if (!openTeam || selectedYear === undefined) return undefined;
-    const links = (openTeam.gcTeams ?? []).filter(
-      (link) => gcLinkSquadYear(link, ageGroups) === selectedYear
-    );
-    if (links.length === 0) return undefined;
-    const levels = gcAgeLevels(openTeam, selectedYear, ageGroups);
-    const level = levels[levels.length - 1];
-    const pin = links.map((link) => namedAges.get(link.teamId)).find((entry) => entry?.pinned);
-    return {
-      ...(level === undefined ? {} : { level }),
-      ...(pin
-        ? { pinned: { level: pin.level, ...(pin.was === undefined ? {} : { was: pin.was }) } }
-        : {}),
-    };
-  }, [openTeam, selectedYear, ageGroups, namedAges]);
+  /** The open club's level in this year and whether it was set by hand (`clubAgeOf`). */
+  const openTeamAge = useMemo(
+    () => (openTeam ? clubAgeOf(openTeam, selectedYear, ageGroups, namedAges) : undefined),
+    [openTeam, selectedYear, ageGroups, namedAges]
+  );
 
   /**
    * Renaming onto a name that already exists merges the two teams, so a placeholder or a
@@ -1943,23 +1853,22 @@ export function TeamRankingsView({
       if (!confirmed) return;
     }
 
-    persistTeams(preview.teams);
-    persistAllGames(preview.games);
-    if (preview.mergedInto) {
-      // The merged-away team no longer exists, so follow the games to the one that does.
-      const survivor = preview.mergedInto;
-      setOpenTeamId(survivor.id);
-      // Every age group that pointed at the removed team follows it. Repairing only the selected
-      // one would leave another group's star, "use my team" shortcut and default import subject
-      // pointing at an id nothing answers to.
-      if (ageGroups.some((group) => group.myTeamId === teamId)) {
-        persistAgeGroups(
-          ageGroups.map((group) =>
-            group.myTeamId === teamId ? { ...group, myTeamId: survivor.id } : group
-          )
-        );
-      }
-    }
+    const survivor = preview.mergedInto;
+    // A merge takes every page whose own team was this one along with it (`teams.merge`), so no
+    // page's star, "use my team" shortcut or import subject is left on an id nothing answers to.
+    const run = runCommand(
+      survivor
+        ? {
+            kind: "teams.merge",
+            fromId: teamId,
+            intoId: survivor.id,
+            adopt: unheldOf(teamId, survivor.id),
+          }
+        : { kind: "team.rename", teamId, name: nextName }
+    );
+    if (!run.ok) return;
+    // The merged-away team no longer exists, so follow the games to the one that does.
+    if (survivor) setOpenTeamId(survivor.id);
     showToast(preview.mergedInto ? `Merged into ${preview.mergedInto.name}.` : "Team renamed.", {
       tone: "success",
     });
@@ -2021,28 +1930,48 @@ export function TeamRankingsView({
       if (!confirmed) return;
     }
 
-    persistTeams(teams);
-    persistGames([...scoutGames, newGame]);
+    // The roster takes only the clubs this game names that it does not hold yet: one typed for
+    // the first time, or one League Standings made. Every other club League Standings made stays
+    // out of it, its id holding only for the walk that minted it.
+    const held = new Set(scoutTeams.map((team) => team.id));
+    const named = new Set([newGame.teamAId, newGame.teamBId]);
+    const adopt = teams.filter((team) => !held.has(team.id) && named.has(team.id));
+    const add: PoolCommand = {
+      kind: "game.add",
+      year: selectedYear ?? null,
+      games: [newGame],
+      adopt,
+    };
+    if (!runCommand(withHeals(heldHeals(teams, named), add)).ok) return;
     noteAdded([newGame.id]);
     setGameDraft(EMPTY_ADD_GAME_DRAFT);
     showToast(scoresBothValid ? "Game added." : "Added to schedule.", { tone: "success" });
   };
 
   /**
-   * Commits a reviewed batch of imported games. The panel has already resolved names
-   * through `resolveOrCreateTeam` (so they arrive age-free and linked to existing teams) and has
-   * dropped anything already logged here, so this just saves and offers an undo for the lot.
+   * Commits a reviewed batch of imported games, by their clubs' names. The panel has dropped
+   * anything already logged here; the names are resolved here as the server resolves the live
+   * page's (`addOfNamed`), so they arrive age-free and linked to the clubs they name, and the lot is
+   * saved with an undo.
    */
-  const importGames = (nextTeams: ScoutTeam[], newGames: ScoutGame[]) => {
-    const before = scoutGames;
-    persistTeams(nextTeams);
-    persistGames([...scoutGames, ...newGames]);
-    noteAdded(newGames.map((game) => game.id));
+  const importGames = (named: NamedGame[]) => {
+    const add = addOfNamed({
+      year: selectedYear ?? null,
+      page: selectedAgeGroupId,
+      named,
+      known: allKnown.teams,
+      roster: scoutTeams,
+    });
+    const run = runCommand(add);
+    if (!run.ok) return;
+    const newGames = named.map((game) => game.id);
+    noteAdded(newGames);
     setImportOpen(false);
+    // Undo takes the games back out, and the clubs they brought with them.
     showToast(`Added ${newGames.length} game${newGames.length === 1 ? "" : "s"}.`, {
       tone: "undo",
       actionLabel: "Undo",
-      onAction: () => persistGames(before),
+      onAction: () => runCommand(run.inverse),
     });
   };
 
@@ -2053,14 +1982,14 @@ export function TeamRankingsView({
    */
   const toggleGameExcluded = (game: ScoutGame) => {
     const excluded = game.excluded !== true;
-    persistGames(
-      scoutGames.map((entry) =>
-        entry.id === game.id
-          ? { ...entry, ...(excluded ? { excluded: true } : { excluded: undefined }) }
-          : entry
-      )
-    );
-    showToast(excluded ? "Game no longer counts." : "Game counts again.", { tone: "success" });
+    const run = runCommand({
+      kind: "game.exclude",
+      year: selectedYear ?? null,
+      gameId: game.id,
+      excluded,
+    });
+    if (run.ok)
+      showToast(excluded ? "Game no longer counts." : "Game counts again.", { tone: "success" });
   };
 
   const startEditScore = (gameId: string) => {
@@ -2070,18 +1999,13 @@ export function TeamRankingsView({
   };
 
   const saveGameScore = (gameId: string) => {
-    const a = Number(editScoreA);
-    const b = Number(editScoreB);
-    if (!Number.isFinite(a) || a < 0 || !Number.isFinite(b) || b < 0) {
-      showToast("Enter two non-negative scores.", { tone: "error" });
+    const typed = typedScores(editScoreA, editScoreB);
+    if (!typed) {
+      showToast("Enter two scores, in whole runs.", { tone: "error" });
       return;
     }
-    persistGames(
-      scoutGames.map((game) =>
-        // A score typed here is the answer for both clubs, so the other schedule's goes with it.
-        game.id === gameId ? withScoreTyped(game, a, b) : game
-      )
-    );
+    if (!runCommand({ kind: "game.score", year: selectedYear ?? null, gameId, ...typed }).ok)
+      return;
     setEditingGameId(null);
     setEditScoreA("");
     setEditScoreB("");
@@ -2163,26 +2087,10 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
    * The stored games, because those are the ones a delete can take — the league's fixtures are
    * derived and go from the archive's point of view by the page going, not by being deleted.
    */
-  const archivableSummaries = useMemo(() => {
-    const pages = new Map<number, number>();
-    ageGroups.forEach((group) => {
-      const year = ageGroupYear(group);
-      if (year !== undefined) pages.set(year, (pages.get(year) ?? 0) + 1);
-    });
-    // Games and the sides they name, per year, as the store counts them — no year is decoded to
-    // say what it holds.
-    const stored = new Map(
-      storedYears.flatMap((entry) => (entry.year === undefined ? [] : [[entry.year, entry]]))
-    );
-    // Every year with anything to delete, which includes a year that is only archived tables now.
-    return deletableYears(ageGroups, archives).map((year) => ({
-      year,
-      pages: pages.get(year) ?? 0,
-      games: stored.get(year)?.games ?? 0,
-      teams: stored.get(year)?.teams ?? 0,
-      archives: archives.filter((entry) => entry.year === year).length,
-    }));
-  }, [ageGroups, storedYears, archives]);
+  const archivableSummaries = useMemo(
+    () => summariseYears(ageGroups, storedYears, archives),
+    [ageGroups, storedYears, archives]
+  );
 
   /**
    * Freezes a baseball year's tables and deletes the games behind them.
@@ -2217,34 +2125,13 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
     const wasTidy = loadTidyStamp() === poolSignature(stored);
     const done = archiveSquadYear(year, shown, stored, new Date().toISOString());
 
-    if (done.seasons.length === 0 && done.unranked.length === 0) {
-      showToast(`Nothing is filed under ${year}.`, { tone: "error" });
+    const preview = archivePreviewOf(done);
+    if (!archivesAnything(preview)) {
+      showToast(nothingUnder(year), { tone: "error" });
       return;
     }
 
-    const lines = [
-      `${done.seasons.length} final table${done.seasons.length === 1 ? "" : "s"} kept: ${done.seasons
-        .map((season) => `${season.name} (${season.rows.length.toLocaleString()} teams)`)
-        .join(", ")}.`,
-      `${done.droppedGames.toLocaleString()} stored game${done.droppedGames === 1 ? "" : "s"} and ${done.droppedTeams.toLocaleString()} team${done.droppedTeams === 1 ? "" : "s"} deleted.`,
-    ];
-    if (done.archivedLeagueGames > 0) {
-      lines.push(
-        `${done.archivedLeagueGames.toLocaleString()} league game${done.archivedLeagueGames === 1 ? "" : "s"} are in these tables and will no longer be counted in any live ranking. League Standings keeps its own seasons — this does not touch them.`
-      );
-    }
-    if (done.unranked.length > 0) {
-      lines.push(
-        `No table for ${done.unranked.map((page) => `${page.name} (${page.games.toLocaleString()} games)`).join(", ")} — those ages are not ranked, so their games informed the tables above and keep no rows of their own.`
-      );
-    }
-    lines.push("The tables become read-only. This cannot be undone.");
-
-    const confirmed = await requestConfirmation({
-      title: `Archive ${year} and delete its games?`,
-      message: lines.join("\n\n"),
-      confirmLabel: `Archive ${year}`,
-    });
+    const confirmed = await requestConfirmation(archiveConfirmation(year, preview));
     if (!confirmed) return;
 
     setArchiving(true);
@@ -2256,31 +2143,24 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
         });
         return;
       }
-      // Only now: the tables are on disk, so the games they replace can go.
-      persistTeams(done.state.teams);
-      /*
-       * The games before the age groups, which is the order this always wanted.
-       *
-       * A game is filed under its age group's year, so saving the groups first means the games
-       * are filed by groups that no longer describe them: the archived year's pages are gone, so
-       * every game still stored under them is re-filed with the yearless — and the save that
-       * follows, which is about the archived year, has nothing to say about where they went.
-       * Saving the games while the pages that name them are still stored puts them where they
-       * belong and leaves the year empty, and the age-group save then has nothing to move.
-       *
-       * This is also the one save that means to leave a year with nothing in it, which is why it
-       * names the year rather than being taken at its word.
-       */
-      persistAllGames(done.state.games, [year]);
-      persistAgeGroups(done.state.ageGroups);
+      // Only now: the tables are on disk, so the games they replace can go. The year empties
+      // before its pages go, as storage needs (`writePool`).
+      const deleted = runCommand(changeBetween(poolParts(stored), poolParts(done.state)), {
+        explains: true,
+      });
+      if (!deleted.ok) {
+        showToast("The tables are kept under Archive, but the year's games could not be deleted.", {
+          tone: "error",
+        });
+        setArchives(loadArchiveIndex());
+        return;
+      }
       if (wasTidy) saveTidyStamp(poolSignature(done.state));
       setArchives(loadArchiveIndex());
       pickPage("");
       setOpenTeamId(null);
       setReportTeamId("");
-      showToast(
-        `${year} archived. ${kept.length} final table${kept.length === 1 ? "" : "s"} kept under Archive; ${done.droppedGames.toLocaleString()} games deleted.`
-      );
+      showToast(archivedSaid(year, { ...preview, tables: kept.map(archiveTableOf) }));
       onDataChange?.();
     } finally {
       setArchiving(false);
@@ -2303,48 +2183,19 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
     const wasTidy = loadTidyStamp() === poolSignature(stored);
     const done = deleteSquadYear(year, stored, archives);
 
-    if (done.pages.length === 0 && done.archiveIds.length === 0) {
-      showToast(`Nothing is filed under ${year}.`, { tone: "error" });
+    const preview = deletePreviewOf(done);
+    if (!deletesAnything(preview)) {
+      showToast(nothingUnder(year), { tone: "error" });
       return;
     }
 
-    const lines: string[] = [];
-    if (done.pages.length > 0) {
-      lines.push(
-        `${done.pages.length} page${done.pages.length === 1 ? "" : "s"}: ${done.pages.join(", ")}.`,
-        `${done.droppedGames.toLocaleString()} stored game${done.droppedGames === 1 ? "" : "s"} and ${done.droppedTeams.toLocaleString()} team${done.droppedTeams === 1 ? "" : "s"} with nothing in any other year.`
-      );
-    }
-    if (done.unlinkedTeams > 0) {
-      lines.push(
-        `${done.unlinkedTeams.toLocaleString()} club${done.unlinkedTeams === 1 ? " plays" : "s play"} in another year too, so ${done.unlinkedTeams === 1 ? "it stays" : "they stay"} — without the GameChanger ids ${done.unlinkedTeams === 1 ? "it was" : "they were"} pulled as in ${year}.`
-      );
-    }
-    if (done.archiveIds.length > 0) {
-      lines.push(
-        `${done.archiveIds.length} archived table${done.archiveIds.length === 1 ? "" : "s"} from ${year}.`
-      );
-    }
-    if (done.leagueSeasonIds.length > 0) {
-      lines.push(
-        "The League Standings seasons linked to these pages stop feeding a ranking. League Standings keeps them — this does not touch them."
-      );
-    }
-    lines.push("Nothing is kept, and this cannot be undone.");
-
-    const confirmed = await requestConfirmation({
-      title: `Delete ${year} and everything in it?`,
-      message: lines.join("\n\n"),
-      confirmLabel: `Delete ${year}`,
-    });
+    const confirmed = await requestConfirmation(deleteConfirmation(year, preview));
     if (!confirmed) return;
 
     setArchiving(true);
     try {
-      persistTeams(done.state.teams);
-      // Names the year, because it is the one save that means to leave a year with nothing in it.
-      persistAllGames(done.state.games, [year]);
-      persistAgeGroups(done.state.ageGroups);
+      // The year empties before its pages go, as storage needs (`writePool`).
+      if (!runCommand(changeBetween(poolParts(stored), poolParts(done.state))).ok) return;
       if (wasTidy) saveTidyStamp(poolSignature(done.state));
       let tablesLeft = 0;
       for (const id of done.archiveIds) {
@@ -2401,6 +2252,14 @@ This cannot be undone. Cancel and download the backups first if there is any cha
     [selectedAgeGroupId, ageGroups, allKnown.teams, chainGames]
   );
   const teamNameOptions = useMemo(() => suggestedTeams.map((team) => team.name), [suggestedTeams]);
+  // A pasted schedule's rows checked here, against this device's roster and the page's games.
+  const importChecker = useMemo<NamedChecker>(
+    () => ({
+      kind: "here",
+      check: (named) => checkNamedGames(named, allKnown.teams, ageGroupGames, selectedAgeGroupId),
+    }),
+    [allKnown.teams, ageGroupGames, selectedAgeGroupId]
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -2458,6 +2317,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               }
               rankings={rankings}
               rankingsStale={rankingsStale}
+              {...(rankingsStale && standIn === "live"
+                ? { standInNote: "The cloud's board · refitting here…" }
+                : {})}
               nationalTop={nationalTop}
               stateTopRows={stateTopRows}
               visibleRankings={visibleRankings}
@@ -2496,9 +2358,8 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               importOpen={importOpen}
               onOpenImport={() => setImportOpen(true)}
               onCloseImport={() => setImportOpen(false)}
-              allTeams={allKnown.teams}
               suggestedTeams={suggestedTeams}
-              existingGames={ageGroupGames}
+              checker={importChecker}
               onImportGames={importGames}
               showToast={showToast}
               loggedGames={ageGroupManualGames}
@@ -2529,9 +2390,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               droppedClubs={droppedClubs}
               onInvented={(ids) => {
                 // Thrown out exactly as a club deleted by hand is: see `inventedFromOutcomes`.
-                const next = forgetClubs(loadDroppedClubs(), ids);
-                setDroppedClubs(next);
-                saveDroppedClubs(next);
+                runCommand({ kind: "answers", list: "droppedClubs", add: [...ids], remove: [] });
               }}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {
@@ -2641,10 +2500,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 pool: { ageGroups, teams: scoutTeams, games: wholePoolGames },
                 tidyStamp: loadTidyStamp() ?? "",
                 onTidied: ({ state: tidied }) => {
-                  saveTidyStamp(poolSignature(tidied));
-                  if (tidied.ageGroups !== ageGroups) persistAgeGroups(tidied.ageGroups);
-                  if (tidied.teams !== scoutTeams) persistTeams(tidied.teams);
-                  if (tidied.games !== wholePoolGames) persistAllGames(tidied.games);
+                  layDownTidy({ ageGroups, teams: scoutTeams, games: wholePoolGames }, tidied);
                 },
                 onMergeTeams: mergeInto,
                 onDropGames: dropGames,
@@ -2653,6 +2509,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onOpenTeam: openListedTeam,
                 onSetAge: setTeamAge,
                 onSetAges: setTeamAges,
+                runCommand: (command) => runCommand(command),
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so
@@ -2696,11 +2553,15 @@ This cannot be undone. Cancel and download the backups first if there is any cha
           ageGroupName={selectedGroupName}
           teamNameById={teamNameById}
           leagueLink={
-            leagueGameTeamIds.has(openTeam.id)
-              ? allKnown.pickedOnly.has(openTeam.id)
-                ? "pick"
-                : "name"
-              : undefined
+            // A club the roster does not hold is one League Standings made, named there and
+            // nowhere else: a rename would have no club to write to.
+            !scoutTeams.some((team) => team.id === openTeam.id)
+              ? "name"
+              : leagueGameTeamIds.has(openTeam.id)
+                ? allKnown.pickedOnly.has(openTeam.id)
+                  ? "pick"
+                  : "name"
+                : undefined
           }
           onRename={(nextName) => void renameTeam(openTeam.id, nextName)}
           onUnlinkGc={(gcTeamId) => unlinkGc(openTeam.id, gcTeamId)}

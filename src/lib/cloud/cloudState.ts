@@ -1,3 +1,4 @@
+import { leagueMetAs } from "../preferences";
 import { areaOf, type Area } from "./cloudPlan";
 
 /**
@@ -105,6 +106,15 @@ export const loadCloudState = (): DeviceCloudState => {
 };
 
 /**
+ * Whether this device has met the cloud's League Standings documents (`leagueMetAs`, 1.6e): until
+ * it has, the copy still brings League in here. Met on this device as any account: the documents,
+ * and the copy, are one cloud's for every account on its list, so another member signing in here
+ * meets nothing new, and taking the copy's League in again would lay its older seasons over the
+ * live ones (1.6e review).
+ */
+export const leagueMetHere = (): boolean => leagueMetAs() !== null;
+
+/**
  * Saves the standing, and says whether it landed, read back: a tab that went on as though a take
  * were recorded when it was not would take it again at every start, and tell every other tab to
  * reload each time.
@@ -181,13 +191,18 @@ export const clearOwed = (): void => {
   }
 };
 
-export type LeagueBase = { hash: string; value: unknown };
+/**
+ * The League Standings this device and the copy last agreed on, and whether they are this device's
+ * own, sent from here (`mine`): the copy's taken in holds only what some device sent it, while a
+ * device's own may hold a change no other device has yet.
+ */
+export type LeagueBase = { hash: string; value: unknown; mine?: true };
 
 /** The League Standings this device and the copy last agreed on, or null if it has none. */
 export const loadLeagueBase = (): LeagueBase | null => {
   const raw = readJson(BASE_KEY);
   return isRecord(raw) && typeof raw.hash === "string" && "value" in raw
-    ? { hash: raw.hash, value: raw.value }
+    ? { hash: raw.hash, value: raw.value, ...(raw.mine === true ? { mine: true as const } : {}) }
     : null;
 };
 
@@ -198,6 +213,31 @@ export const saveLeagueBase = (base: LeagueBase | null): void => {
     else localStorage.removeItem(BASE_KEY);
   } catch {
     /* without a base, the next merge of both sides' changes keeps everything either holds */
+  }
+};
+
+const DISPLACED_KEY = "league_forecast_cloud_displaced_league_v1";
+
+/**
+ * This device's League Standings as they were when the copy's took their place at a first meeting
+ * (1.6f): no device writes the copy, so they are kept here, for the Cloud panel to offer as a file
+ * until the person saves or lets them go. A full storage costs the offer, not the seasons taken in.
+ */
+export const saveDisplacedLeague = (value: unknown): void => {
+  try {
+    localStorage.setItem(DISPLACED_KEY, JSON.stringify(value));
+  } catch {
+    /* nothing more to do */
+  }
+};
+
+export const loadDisplacedLeague = (): unknown => readJson(DISPLACED_KEY);
+
+export const forgetDisplacedLeague = (): void => {
+  try {
+    localStorage.removeItem(DISPLACED_KEY);
+  } catch {
+    /* nothing more to do */
   }
 };
 

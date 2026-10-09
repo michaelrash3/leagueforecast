@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { markTaken, resetCloudGuard } from "../../lib/cloud/cloudGuard";
 import {
   ageGroup,
   game,
@@ -82,6 +83,8 @@ const openSetup = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(await screen.findByRole("button", { name: /check the pool/i }));
 };
 
+afterEach(() => resetCloudGuard());
+
 describe("a club in the pool twice over", () => {
   it("is named, with what says the two are one", async () => {
     const user = userEvent.setup();
@@ -149,6 +152,17 @@ describe("a club in the pool twice over", () => {
     // The health check has answered once its "Clubs" figure is up.
     await screen.findByText("Clubs");
     expect(screen.queryByText(/one club, listed twice/i)).toBeNull();
+  });
+
+  it("keeps offering a pair whose answer the store would not keep", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool);
+    await openSetup(user);
+    // Another tab took a newer copy of the pool in: this one may not write the answer.
+    markTaken("pool", false);
+    await user.click(await screen.findByRole("button", { name: /^not the same$/i }));
+    expect(screen.getByRole("button", { name: /^not the same$/i })).toBeInTheDocument();
+    expect(loadKeptApart().size).toBe(0);
   });
 
   it("says nothing of two squads that each have a schedule of their own", async () => {

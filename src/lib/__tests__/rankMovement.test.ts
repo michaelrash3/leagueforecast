@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { daysBefore, movementOf, ranksAsOf } from "../rankMovement";
+import {
+  daysBefore,
+  movementOf,
+  rankLineStep,
+  RANK_HISTORY_WEEKS,
+  ranksAsOf,
+} from "../rankMovement";
 import { buildTeamRankings, type AgeGroup, type ScoutGame, type ScoutTeam } from "../teamRankings";
 
 const groups: AgeGroup[] = [
@@ -78,5 +84,53 @@ describe("how far a club has moved", () => {
   it("says nothing without a board a week ago to compare with", () => {
     expect(movementOf("C", 3, null)).toBeUndefined();
     expect(movementOf("C", 3, {})).toBeUndefined();
+  });
+});
+
+describe("a step of the rank line", () => {
+  const step = (more: Partial<Parameters<typeof rankLineStep>[0]> = {}) =>
+    rankLineStep({
+      points: [{ asOf: "2027-04-01", rank: 4 }],
+      lastWeekRank: 3,
+      weeksBack: 3,
+      asOf: "2027-03-25",
+      rank: 6,
+      empty: false,
+      ...more,
+    });
+
+  it("puts the week before the line, and goes on", () => {
+    expect(step()).toEqual({
+      points: [
+        { asOf: "2027-03-25", rank: 6 },
+        { asOf: "2027-04-01", rank: 4 },
+      ],
+      done: false,
+    });
+  });
+
+  it("stops at a board nobody was on, leaving the week out", () => {
+    expect(step({ empty: true, rank: null })).toEqual({
+      points: [{ asOf: "2027-04-01", rank: 4 }],
+      done: true,
+    });
+  });
+
+  it("stops at two weeks running without the club, keeping the second", () => {
+    const absent = step({ points: [{ asOf: "2027-04-01", rank: null }], rank: null });
+    expect(absent.done).toBe(true);
+    expect(absent.points).toEqual([
+      { asOf: "2027-03-25", rank: null },
+      { asOf: "2027-04-01", rank: null },
+    ]);
+    // Last week counts as the newer week when the line has none yet.
+    expect(step({ points: [], weeksBack: 2, lastWeekRank: null, rank: null }).done).toBe(true);
+    expect(step({ points: [], weeksBack: 2, lastWeekRank: 5, rank: null }).done).toBe(false);
+    expect(step({ points: [{ asOf: "2027-04-01", rank: null }] }).done).toBe(false);
+  });
+
+  it("stops at the line's length", () => {
+    expect(step({ weeksBack: RANK_HISTORY_WEEKS - 1 }).done).toBe(false);
+    expect(step({ weeksBack: RANK_HISTORY_WEEKS }).done).toBe(true);
   });
 });

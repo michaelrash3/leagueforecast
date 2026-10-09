@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createTidyHandler, packPool, poolLists, type WorkerResponse } from "./tidyProtocol";
+import { createTidyHandler, packPool, type WorkerResponse } from "./tidyProtocol";
+import { poolLists } from "../lib/poolLists";
 import { proposeSeasonPairings, proposeTwinSquads } from "../lib/gameChangerImport";
 import { countedTwice } from "../lib/countedTwice";
 import { unpulledClubs } from "../lib/unpulledClubs";

@@ -10,6 +10,7 @@ import {
   type ManifestPart,
 } from "./cloudManifest";
 import { DamagedValueError, hashJson, packHashed, unpackChunks } from "./cloudPack";
+import { areaOf } from "./cloudPlan";
 
 /**
  * Moving values to the cloud copy and back, with the store handed in, so every rule here is tested
@@ -49,7 +50,8 @@ export class CloudTimeoutError extends Error {
   }
 }
 
-const timed = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>
+/** `work`, refused with a `CloudTimeoutError` naming `what` if it has not settled within `ms`. */
+export const timed = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new CloudTimeoutError(what)), ms);
     work.then(
@@ -64,13 +66,16 @@ const timed = <T>(work: Promise<T>, ms: number, what: string): Promise<T> =>
     );
   });
 
+/** How long a call on the copy may take: the manifest is one small document, a piece 900 KB. */
+export const STORE_LIMITS = { manifest: 20_000, chunk: 90_000 } as const;
+
 /**
  * `store` with a limit on every call. Firestore's lite SDK sets none: a request the network drops
  * without closing waits for ever, and with it everything waiting on this device's lock.
  */
 export const timedStore = (
   store: CloudStore,
-  limits: { manifest: number; chunk: number } = { manifest: 20_000, chunk: 90_000 }
+  limits: { manifest: number; chunk: number } = STORE_LIMITS
 ): CloudStore => ({
   readManifest: () => timed(store.readManifest(), limits.manifest, "reading the copy"),
   commitManifest: (expected, next) =>
@@ -118,6 +123,22 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean => {
 };
 
 /**
+ * A commit of the manifest that threw, and is not in the copy as read after it: one still on its
+ * way may land later, so the save may or may not be made. Every other failure of `commitChanges` is
+ * a save that did not land. The message is the commit's own, which says what went wrong.
+ */
+export class CommitUnanswered extends Error {
+  /** What the commit threw. */
+  readonly lost: unknown;
+
+  constructor(lost: unknown) {
+    super(lost instanceof Error ? lost.message : String(lost));
+    this.name = "CommitUnanswered";
+    this.lost = lost;
+  }
+}
+
+/**
  * One commit to the cloud copy, onto `base`, the manifest this device read (null: a first copy,
  * where there must be none). In one step, it can:
  * - `changes`: put values in the copy, or take keys out of it;
@@ -126,12 +147,19 @@ const sameSet = (a: readonly string[], b: readonly string[]): boolean => {
  * - `keepLost`: keep these values of this device's that the copy's will replace here (another
  *   device's later change winning, or this device's data from before it joined the copy);
  * - `restore`: make a kept settlement current again, keeping what it replaces in turn.
+ * - `keepWhole`: keep every `keepReplaced` value in this settlement, one already kept elsewhere
+ *   too, marked as its area whole (`KeptPart.whole`), so that bringing this settlement back makes
+ *   the area what it was: Team Rankings started again or restored from a backup on the server
+ *   (`copyOps.ts`, `editRun.ts`), whose `keepReplaced` is every key of the area. A settlement kept
+ *   whole that moves nothing keeps nothing, since the same values kept again would push out a
+ *   version that differs. Otherwise a value already kept is not kept a second time.
  *
  * A value whose fingerprint the copy already holds is named from the pieces it has, never uploaded
  * again. Every upload gets pieces of its own name, recorded through `onUploads` before the first is
  * sent, so pieces a save left behind can be found and cleared. The manifest goes last, and only
  * onto the version and copy read; if that moved on, this save's own pieces that no copy names are
- * cleared and the answer is `moved`. A commit whose reply was lost is recognised by its save id.
+ * cleared and the answer is `moved`. A commit whose reply was lost, refused or thrown, is recognised
+ * by its save id; one that threw and is not in the copy throws `CommitUnanswered`, its pieces kept.
  * The pieces the old manifest named and the new one does not are deleted afterwards, as best it
  * can. A value the copy already keeps is not kept a second time.
  */
@@ -143,6 +171,7 @@ export const commitChanges = async ({
   keepReplaced = [],
   keepLost = [],
   restore,
+  keepWhole = false,
   device,
   now,
   onUploads,
@@ -156,6 +185,7 @@ export const commitChanges = async ({
   keepReplaced?: readonly string[];
   keepLost?: readonly Change[];
   restore?: string;
+  keepWhole?: boolean;
   device: string;
   now: string;
   onUploads?: (chunkIds: string[]) => void;
@@ -203,12 +233,9 @@ export const commitChanges = async ({
   // otherwise fill the kept versions with copies of one value and push out the ones that differ.
   const alreadyKept = (part: ManifestPart): boolean =>
     (base?.kept ?? []).some((one) => one.key === part.key && one.hash === part.hash);
-  for (const key of keepReplaced) {
-    const current = parts.get(key);
-    if (current && !alreadyKept(current)) {
-      newKept.push({ ...current, group, keptAt: now, why: "replaced" });
-    }
-  }
+  // The values replaced as the copy holds them before any change here; kept once the changes are
+  // known, ahead of everything else this settlement keeps.
+  const before = new Map(parts);
   for (const lost of keepLost) {
     if (lost.value !== null && lost.value !== undefined) {
       const part = await partFor(lost);
@@ -230,13 +257,36 @@ export const commitChanges = async ({
     onProgress?.(done, total);
   }
 
+  const moved =
+    [...parts].some(([key, part]) => before.get(key)?.hash !== part.hash) ||
+    [...before.keys()].some((key) => !parts.has(key));
+  const replaced = keepReplaced.flatMap((key): KeptPart[] => {
+    const current = before.get(key);
+    if (!current || (keepWhole ? !moved : alreadyKept(current))) return [];
+    return [
+      { ...current, group, keptAt: now, why: "replaced", ...(keepWhole ? { whole: true } : {}) },
+    ];
+  });
+  newKept.unshift(...replaced);
+
   let kept = base?.kept ?? [];
   if (restore) {
     const bringing = kept.filter((part) => part.group === restore);
     kept = kept.filter((part) => part.group !== restore);
-    for (const { group: _group, keptAt: _keptAt, why: _why, ...part } of bringing) {
+    // A version kept whole is its area as it stood: what the area holds now that it did not then
+    // goes, kept with the rest of what this replaces, which is that area whole in its turn.
+    const wholeAreas = new Set(bringing.filter((part) => part.whole).map(({ key }) => areaOf(key)));
+    const whole = wholeAreas.size > 0 ? { whole: true as const } : {};
+    const brought = new Set(bringing.map(({ key }) => key));
+    for (const [key, current] of [...parts]) {
+      if (!wholeAreas.has(areaOf(key)) || brought.has(key)) continue;
+      newKept.push({ ...current, group, keptAt: now, why: "replaced", ...whole });
+      parts.delete(key);
+      sent[key] = null;
+    }
+    for (const { group: _group, keptAt: _keptAt, why: _why, whole: _whole, ...part } of bringing) {
       const current = parts.get(part.key);
-      if (current) newKept.push({ ...current, group, keptAt: now, why: "replaced" });
+      if (current) newKept.push({ ...current, group, keptAt: now, why: "replaced", ...whole });
       parts.set(part.key, { ...part, at: Date.parse(now), by: device });
       sent[part.key] = part.hash;
     }
@@ -264,12 +314,20 @@ export const commitChanges = async ({
     parts: nextParts,
     kept,
   };
-  let committed = await store.commitManifest(
-    base ? { version: base.version, copy: base.copy } : null,
-    next
-  );
+  let committed = false;
+  let thrown: { error: unknown } | null = null;
+  try {
+    committed = await store.commitManifest(
+      base ? { version: base.version, copy: base.copy } : null,
+      next
+    );
+  } catch (error) {
+    thrown = { error };
+  }
   if (!committed) {
-    // A commit that landed, whose reply was lost and retried, reads as refused: found by its id.
+    // A commit that landed but whose reply was lost reads as refused where the store tried it
+    // again, and throws where the reply never came (a dropped connection, or an error after the
+    // write was made): either way it is found by its id.
     let current: CloudManifest | null | undefined;
     try {
       current = await store.readManifest();
@@ -278,6 +336,11 @@ export const commitChanges = async ({
     }
     if (current?.save === next.save) {
       committed = true;
+    } else if (thrown) {
+      // Not in the copy yet, and never refused: a commit still on its way may land after this
+      // read, so its pieces all stay, recorded for `sweepUploads`, and nobody can say whether the
+      // save was made.
+      throw new CommitUnanswered(thrown.error);
     } else {
       // These pieces are this save's alone, by name. A copy that is not this save's names them
       // only when this save did land, its reply lost, and another device saved onto it before this
@@ -333,7 +396,8 @@ export const fetchValues = async ({
   parts,
   onProgress,
 }: {
-  store: CloudStore;
+  /** Only read from: a reader of the copy that may write nothing will do. */
+  store: Pick<CloudStore, "getChunk">;
   parts: readonly ManifestPart[];
   onProgress?: Progress;
 }): Promise<FetchResult> => {

@@ -136,6 +136,18 @@ export const deriveAllKnown = ({
 };
 
 /**
+ * The clubs on a page whose games there came from a League Standings season rather than being
+ * logged by hand: derived games only (`AllKnown.derivedGames`), so a game added by hand never reads
+ * as a league one. The page badges them, and a server publishing its boards flags their rows.
+ */
+export const leagueTeamIdsOn = (derivedGames: readonly ScoutGame[], pageId: string): Set<string> =>
+  new Set(
+    derivedGames
+      .filter((game) => game.ageGroupId === pageId)
+      .flatMap((game) => [game.teamAId, game.teamBId])
+  );
+
+/**
  * The games a year's boards are fitted over: those filed on the pages that share its pool
  * (`rankingPoolGroupIds`), in order. `games` itself when every game is on them, so a page that
  * switches from 9U to 10U hands the rankings worker the array it already holds; the worker is sent

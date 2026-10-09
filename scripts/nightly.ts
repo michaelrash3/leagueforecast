@@ -32,6 +32,7 @@ import { dryLiveStore, publishCopyViews, type CopyPublish } from "../src/lib/liv
 import { describeRebuilds } from "../src/lib/live/rebuildReport.ts";
 import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
+import { sweepStaleUploads } from "../src/lib/cloud/uploads.ts";
 import { handlerFetch } from "./handlerFetch.ts";
 
 declare const process: {
@@ -113,8 +114,11 @@ const tellRebuilds = async (): Promise<void> => {
 
 const REFUSED: Record<Extract<CopyPublish, { ok: false }>["reason"], string> = {
   locale: "the collation is not English, so tied rows would sit in another order than the page's",
-  "league-unreadable": "the copy's League Standings could not be read",
+  "league-unreadable": "the League Standings seasons could not be read",
+  "newer-league": "a League Standings season was saved by a newer build",
   "copy-moved": "a device saved the copy during the run, so the next run publishes its views",
+  "league-moved":
+    "a League Standings season changed during the run, and the rebuild it asked for publishes it",
   "copy-replaced": "the copy was deleted and started again during the run, so these are not its",
   unreadable: "the published meta is not one this build reads",
   "newer-schema": "the published views were made by a newer build",
@@ -132,7 +136,7 @@ const tellViews = (views: CopyPublish, dry: boolean): void => {
   }
   const { publish, sweep } = views;
   console.log(
-    `Views: ${views.boards} boards built in ${Math.round(views.buildMs / 1000)} s; ${publish.uploaded} ${dry ? "would have been " : ""}uploaded (${publish.pieces} pieces, ${mb(publish.bytes)} gzipped), ${publish.unchanged} unchanged, ${publish.refused} refused as older, ${publish.removed} taken out, ${publish.retired} retired; the meta (${(publish.metaBytes / 1000).toFixed(1)} KB) ${publish.wrote ? (dry ? "would have been written" : "written") : "already said all of it"}.`
+    `Views: ${views.boards} boards, ${views.clubs} buckets of club cards, ${views.searches} Find a team lists and ${views.games} Games lists built in ${Math.round(views.buildMs / 1000)} s; ${publish.uploaded} ${dry ? "would have been " : ""}uploaded (${publish.pieces} pieces, ${mb(publish.bytes)} gzipped), ${publish.unchanged} unchanged, ${publish.refused} refused as older, ${publish.removed} taken out, ${publish.retired} retired; the meta (${(publish.metaBytes / 1000).toFixed(1)} KB) ${publish.wrote ? (dry ? "would have been written" : "written") : "already said all of it"}.`
   );
   console.log(
     sweep.ok
@@ -209,16 +213,34 @@ const main = async (): Promise<void> => {
         manifest: result.manifest,
         today: todayIsoDay(),
         now: () => new Date().toISOString(),
+        leagueDocs: opened.leagueDocs,
       });
       tellViews(views, dry !== null);
-      // A copy saved during the run is no fault of the run's; anything else that stops is.
-      if (views.ok ? !views.sweep.ok : views.reason !== "copy-moved") process.exitCode = 1;
+      // A copy or a season saved during the run is no fault of the run's; anything else that
+      // stops is.
+      const moved = !views.ok && (views.reason === "copy-moved" || views.reason === "league-moved");
+      if (views.ok ? !views.sweep.ok : !moved) process.exitCode = 1;
     } catch (error) {
       console.log(
         `Publishing the views stopped: ${error instanceof Error ? error.message : String(error)}`
       );
       process.exitCode = 1;
     }
+  }
+  // Backups the owner staged for the server that nothing used within a day (`uploads.ts`).
+  try {
+    const swept = await sweepStaleUploads(opened.uploads, new Date().toISOString(), live);
+    if (swept.stale > 0) {
+      console.log(
+        live
+          ? `  ${swept.deleted} of ${swept.stale} staged backups a day old deleted.`
+          : `  ${swept.stale} staged backups a day old would have been deleted.`
+      );
+    }
+  } catch (error) {
+    console.log(
+      `  The staged backups were not swept: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
   console.log(
     `  Memory at the end: ${mb(process.memoryUsage().rss)} (at most ${mb(process.resourceUsage().maxRSS * 1024)}).`

@@ -5,23 +5,36 @@ import { commitChanges } from "../../cloud/cloudEngine";
 import { chunkId, type CloudManifest } from "../../cloud/cloudManifest";
 import { unpackChunks } from "../../cloud/cloudPack";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
+import { latestImportedAt } from "../../gameChangerImport";
 import { memoryIo } from "../../cloud/cloudRunner";
 import {
   initTeamRankingsStore,
   loadAgeGroups,
+  loadAgeUnknown,
+  loadDroppedClubs,
+  loadScoutGames,
   loadScoutGamesForYear,
+  loadNamedAges,
   loadScoutTeams,
+  loadTooYoungClubs,
   resetTeamRankingsStore,
   saveAgeGroups,
   saveScoutGames,
   saveScoutTeams,
 } from "../../teamRankingsStorage";
+import type { SeasonSnapshot } from "../../storage";
+import { DEFAULT_SETTINGS } from "../../types";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import type { SeasonReader } from "../allKnown";
 import { BOARD_FAMILY, builtFrom } from "../boardInputs";
+import { readCloudLeague, type LeagueDocsList } from "../cloudLeague";
+import { LEAGUE_DOC_SCHEMA, seasonDocId, seasonToDoc } from "../leagueDocs";
 import { dryLiveStore, publishCopyViews, seasonReaderOf } from "../publishCopy";
 import { RETIRE_GRACE_MS, STRAY_AGE_MS, publishViews, sweepViews } from "../viewStore";
-import { boardViews, buildAllBoards } from "../views/board";
+import { boardViews, buildBoardsAndFacts, livePagesOf } from "../views/board";
+import { clubViews } from "../views/clubs";
+import { gamesViews } from "../views/games";
+import { searchViews } from "../views/search";
 import { memoryLive, type MemoryLive } from "./memoryLive";
 
 /*
@@ -53,6 +66,26 @@ const LEAGUE = {
   })),
 };
 
+/** Each season as its document, as Firestore's REST interface lists it, from the stored seasons. */
+const DOCS = Object.keys(fixture.seasons).map((id, index) => {
+  const season: SeasonSnapshot = {
+    id,
+    name: `Season ${index + 1}`,
+    createdAt: "2026-08-01T12:00:00.000Z",
+    ...storedSeason(id),
+    bracketLogs: {},
+    settings: DEFAULT_SETTINGS,
+  };
+  return {
+    id: seasonDocId(id),
+    fields: JSON.parse(JSON.stringify(seasonToDoc(season))) as Record<string, unknown>,
+  };
+});
+const docsList =
+  (docs: typeof DOCS): LeagueDocsList =>
+  async () =>
+    docs;
+
 /** A copy holding `league` (none at all when undefined), as a phone saved it. */
 const copyWith = async (
   league: unknown
@@ -72,17 +105,23 @@ const copyWith = async (
   return { cloud, manifest: saved.manifest };
 };
 
-const boardsWith = (readSeason: SeasonReader) =>
-  boardViews(
-    loadAgeGroups(),
-    buildAllBoards({
-      ageGroups: loadAgeGroups(),
-      teams: loadScoutTeams(),
-      gamesOfYear: loadScoutGamesForYear,
-      readSeason,
-      today: FIXTURE_TODAY,
-    })
-  );
+/**
+ * The boards and their facts as a browser holding the stored pool would build them; without last
+ * week's places and the rank lines (`past: false`) where only the rows are compared, since those
+ * cost a fit of the year for each week.
+ */
+const builtWith = (readSeason: SeasonReader, past = true) =>
+  buildBoardsAndFacts({
+    ageGroups: loadAgeGroups(),
+    teams: loadScoutTeams(),
+    gamesOfYear: loadScoutGamesForYear,
+    readSeason,
+    today: FIXTURE_TODAY,
+    past,
+  });
+
+const boardsWith = (readSeason: SeasonReader, past = true) =>
+  boardViews(loadAgeGroups(), builtWith(readSeason, past));
 
 const decode = async (live: MemoryLive, key: string): Promise<unknown> => {
   const entry = live.meta()?.views[key];
@@ -116,40 +155,136 @@ afterAll(() => {
   resetTeamRankingsStore();
 });
 
-describe("publishing the copy's boards", () => {
+/*
+ * Each test here publishes every board of the fixture, with last week's places and the rank lines,
+ * which are a fit of a year for each week: 1 to 3.5 s apiece under coverage on their own
+ * (measured), and the gate runs them beside three hundred other files.
+ */
+describe("publishing the copy's boards", { timeout: 20_000 }, () => {
   it("publishes the boards a browser holding the copy draws, under the copy and version saved", async () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();
     const result = await publish(cloud, live, manifest);
+    const built = builtWith(storedSeason);
+    const browser = boardViews(loadAgeGroups(), built);
+    // And every club's card beside them, from the same build (`clubParity.test.ts` holds them to
+    // what the page's panel reads).
+    const clubs = clubViews({ ageGroups: loadAgeGroups(), built, namedAges: loadNamedAges() });
+    expect(clubs.length).toBeGreaterThan(0);
+    // And each year's Find a team list (`searchParity.test.ts` holds them to the page's search).
+    const searches = searchViews({
+      ageGroups: loadAgeGroups(),
+      built,
+      storedGames: loadScoutGames(),
+      held: {
+        dropped: loadDroppedClubs(),
+        ageless: loadAgeUnknown(),
+        tooYoung: loadTooYoungClubs(),
+      },
+    });
+    expect(searches.length).toBeGreaterThan(0);
+    // And each page's Games list (`gamesParity.test.ts` holds them to the page's Games tab).
+    const games = gamesViews({
+      ageGroups: loadAgeGroups(),
+      built,
+      gamesOfYear: loadScoutGamesForYear,
+    });
+    expect(games.length).toBe(loadAgeGroups().length);
+    const others = clubs.length + searches.length + games.length;
     expect(result).toMatchObject({
       ok: true,
       boards: 33,
-      publish: { wrote: true, uploaded: 29 },
+      clubs: clubs.length,
+      searches: searches.length,
+      games: games.length,
+      // Some boards are the same as others (a half with no games): 29 uploads for 33, and one for
+      // each bucket of cards and each list, every one of which differs from every other.
+      publish: { wrote: true, uploaded: 29 + others },
       sweep: { deleted: 0, strays: 0 },
     });
     expect(live.meta()?.copy).toEqual({ id: manifest.copy, version: manifest.version });
     expect(live.meta()?.today).toBe(FIXTURE_TODAY);
 
-    const browser = boardsWith(storedSeason);
-    expect(Object.keys(live.meta()?.views ?? {})).toEqual(browser.map(({ key }) => key).sort());
-    for (const { key, value } of browser) {
+    expect(Object.keys(live.meta()?.views ?? {})).toEqual(
+      [...browser, ...clubs, ...searches, ...games].map(({ key }) => key).sort()
+    );
+    for (const { key, value } of [...browser, ...clubs, ...searches, ...games]) {
       expect(await decode(live, key)).toEqual(JSON.parse(JSON.stringify(value)));
     }
-    // And the seasons are what made them so: without them, some board would read otherwise.
-    const without = boardsWith(() => EMPTY);
+    // And the seasons are what made them so: without them, some board's rows would read otherwise.
+    const without = boardsWith(() => EMPTY, false);
     const differs = await Promise.all(
       without.map(async ({ key, value }) => {
-        const published = await decode(live, key);
-        return JSON.stringify(published) !== JSON.stringify(value);
+        const published = (await decode(live, key)) as { rows: unknown };
+        return JSON.stringify(published.rows) !== JSON.stringify(value.rows);
       })
     );
     expect(differs.some(Boolean)).toBe(true);
 
+    // What a device lays the page out by went up in the same commit: each page's counted games by
+    // half, as the boards' own facts count them, the roster's last pull, and the age groups
+    // themselves, as the copy's store holds them, for a device with no copy.
+    expect(live.meta()?.inline).toEqual({
+      pages: livePagesOf(built, latestImportedAt(loadScoutTeams()), loadAgeGroups()),
+    });
+    expect(live.meta()?.inline.pages).toMatchObject({ groups: loadAgeGroups() });
+    expect(live.costs.writes).toBe(29 + others + 1);
+
     // The same copy published again writes nothing.
     const writes = live.costs.writes;
     const again = await publish(cloud, live, manifest);
-    expect(again).toMatchObject({ ok: true, publish: { wrote: false, unchanged: 33 } });
+    expect(again).toMatchObject({
+      ok: true,
+      publish: { wrote: false, unchanged: 33 + others },
+    });
     expect(live.costs.writes).toBe(writes);
+  });
+
+  it("takes out the cards and lists of a year it no longer builds, as it does a board", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const live = memoryLive();
+    // An earlier publish's views for a year the pool has since let go.
+    const gone = [
+      "board:2019:ag_10u_2019:year",
+      "club:2019:3",
+      "search:2019",
+      "games:2019:ag_10u_2019",
+    ];
+    await publishViews({
+      store: live.store,
+      views: gone.map((key) => ({ key, value: { from: key } })),
+      owns: [],
+      copy: { id: manifest.copy, version: manifest.version - 1 },
+      today: FIXTURE_TODAY,
+      now: T,
+    });
+    expect(Object.keys(live.meta()?.views ?? {})).toEqual(expect.arrayContaining(gone));
+    expect(await publish(cloud, live, manifest)).toMatchObject({ ok: true });
+    const kept = Object.keys(live.meta()?.views ?? {});
+    for (const key of gone) expect(kept, key).not.toContain(key);
+  });
+
+  it("says when the roster was last pulled, beside the pages' counts", async () => {
+    const pulled = "2027-04-15T07:20:00.000Z";
+    const [first, ...rest] = fixture.teams;
+    if (!first) throw new Error("the fixture has no teams");
+    saveScoutTeams([
+      {
+        ...first,
+        gcTeams: [
+          { teamId: "gc1", name: first.name, ageGroupId: "ag_9u_2027", importedAt: pulled },
+        ],
+      },
+      ...rest,
+    ]);
+    try {
+      const { cloud, manifest } = await copyWith(LEAGUE);
+      const live = memoryLive();
+      await publish(cloud, live, manifest);
+      expect(live.meta()?.inline).toMatchObject({ pages: { pulledAt: pulled } });
+    } finally {
+      saveScoutTeams(fixture.teams);
+    }
   });
 
   it("records what the boards were built from, so a rebuild of the same copy finds them current", async () => {
@@ -398,10 +533,89 @@ describe("publishing the copy's boards", () => {
     });
     expect(result).toMatchObject({
       ok: true,
-      publish: { wrote: true, uploaded: 29 },
+      publish: { wrote: true },
       sweep: { ok: false, why: "Firestore answered HTTP 503 listing the views' pieces" },
     });
     expect(live.meta()?.copy).toEqual({ id: manifest.copy, version: manifest.version });
+  });
+
+  it("builds from the seasons' documents once there are any, reading none of the copy's League part", async () => {
+    // The copy's part is one no browser would take in: it is not read at all.
+    const { cloud, manifest } = await copyWith({ seasons: [{ name: "no id" }] });
+    const reads = cloud.costs.reads;
+    const live = memoryLive();
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: live.store,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      leagueDocs: docsList(DOCS),
+    });
+    expect(result).toMatchObject({ ok: true, boards: 33 });
+    // The manifest, read again before the commit; no piece.
+    expect(cloud.costs.reads - reads).toBe(1);
+    for (const { key, value } of boardsWith(storedSeason)) {
+      expect(await decode(live, key)).toEqual(JSON.parse(JSON.stringify(value)));
+    }
+    // What they were built from names the seasons, so a score saved since makes them stale.
+    const league = await readCloudLeague(docsList(DOCS));
+    if (!league.ok || league.from !== "docs") throw new Error("not read from the documents");
+    expect(live.meta()?.built).toEqual({
+      [BOARD_FAMILY]: await builtFrom(manifest, FIXTURE_TODAY, league.print),
+    });
+  });
+
+  it("publishes nothing when a season's document changed before the commit", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const live = memoryLive();
+    let started = false;
+    const [first, ...rest] = DOCS;
+    if (!first) throw new Error("no documents");
+    // A score saved once the first piece is up: the season's document changes.
+    const later = [{ ...first, fields: { ...first.fields, rev: 2, logs: {} } }, ...rest];
+    const uploading = {
+      ...live.store,
+      putChunk: async (id: string, data: Uint8Array<ArrayBuffer>) => {
+        started = true;
+        await live.store.putChunk(id, data);
+      },
+    };
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: uploading,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      leagueDocs: async () => (started ? later : DOCS),
+    });
+    expect(result).toEqual({ ok: false, reason: "league-moved" });
+    // Nothing named, nothing left behind: its uploads are taken back.
+    expect(live.meta()).toBeNull();
+    expect(live.chunks.size).toBe(0);
+  });
+
+  it("publishes nothing, reading no piece, when a season's document is of a later layout", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const [first, ...rest] = DOCS;
+    if (!first) throw new Error("no documents");
+    const newer = { ...first, fields: { ...first.fields, schema: LEAGUE_DOC_SCHEMA + 1 } };
+    const reads = cloud.costs.reads;
+    const live = memoryLive();
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: live.store,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      leagueDocs: docsList([newer, ...rest]),
+    });
+    expect(result).toEqual({ ok: false, reason: "newer-league" });
+    expect(cloud.costs.reads).toBe(reads);
+    expect(live.costs.writes).toBe(0);
   });
 
   it("passes on a publish the meta refuses, and sweeps nothing after it", async () => {

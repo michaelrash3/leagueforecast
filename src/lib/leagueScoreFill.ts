@@ -122,11 +122,14 @@ const pairKey = (a: string, b: string) => [a, b].sort().join("|");
 const matchKey = (teamKeyA: string, teamKeyB: string, date: string) =>
   `${pairKey(teamKeyA, teamKeyB)}@${date}`;
 
-const runsText = (log: GameLog | undefined, side: "away" | "home") =>
+/** What the fill reads of a league game's log: the runs its two boxes hold, and whether it is final. */
+export type RecordedRuns = Pick<GameLog, "awayRuns" | "homeRuns" | "isFinal">;
+
+const runsText = (log: RecordedRuns | undefined, side: "away" | "home") =>
   (side === "away" ? log?.awayRuns : log?.homeRuns) ?? "";
 
 /** A league game already carries a result when both run boxes hold a number. */
-const hasRecordedRuns = (log: GameLog | undefined) =>
+const hasRecordedRuns = (log: RecordedRuns | undefined) =>
   runsText(log, "away").trim() !== "" && runsText(log, "home").trim() !== "";
 
 /**
@@ -160,7 +163,8 @@ export type LeagueScoreFillInput = {
   seasonId: string;
   teams: TeamBase[];
   matchups: Matchup[];
-  logs: Record<string, GameLog>;
+  /** Each game's runs as recorded, and whether it is final: all the plan reads of a log. */
+  logs: Record<string, RecordedRuns>;
   ageGroups: AgeGroup[];
   scoutTeams: ScoutTeam[];
   scoutGames: ScoutGame[];
@@ -701,9 +705,24 @@ export const defaultFillSelection = (plan: LeagueFillPlan): string[] =>
   plan.rows.filter((row) => row.action === "fill").map((row) => row.matchupId);
 
 /**
+ * Whether a game's log still holds what a plan was made from: the runs in its two boxes, as typed,
+ * and whether it is final, which is all the plan reads of it.
+ */
+const asSeen = (now: RecordedRuns | undefined, seen: RecordedRuns | undefined): boolean =>
+  runsText(now, "away") === runsText(seen, "away") &&
+  runsText(now, "home") === runsText(seen, "home") &&
+  Boolean(now?.isFinal) === Boolean(seen?.isFinal);
+
+/**
  * Writes the chosen rows into the league's logs and returns a new map. Runs and the final flag are
  * all it sets: everything else a log can hold is left exactly as it was, so a game that already
  * had hits or strikeouts typed against it keeps them.
+ *
+ * A game whose runs or final mark have changed since the plan was made (`seen`) is left as it is
+ * and counted as `changed`. The plan is made from the scores as they stood when it was asked for,
+ * and on a member's device the server's answer can take many seconds to come, while the panel on
+ * any device stays open as scores are typed: a "fill" row was a game with nothing recorded, and a
+ * score typed in since is the person's word, not a gap for the pool to fill over.
  */
 export const applyLeagueScoreFill = (
   plan: LeagueFillPlan,
@@ -711,18 +730,25 @@ export const applyLeagueScoreFill = (
   logs: Record<string, GameLog>,
   defaultInnings: number,
   /** Rows to fill with the other club's version (`LeagueFillRow.alternative`) rather than the first. */
-  otherVersion: Iterable<string> = []
-): { logs: Record<string, GameLog>; filled: number } => {
+  otherVersion: Iterable<string> = [],
+  /** The logs the plan was made from; the logs as they are, where it was made from them. */
+  seen: Record<string, RecordedRuns> = logs
+): { logs: Record<string, GameLog>; filled: number; changed: number } => {
   const wanted = new Set(selected);
   const theOther = new Set(otherVersion);
   const byMatchup = new Map(plan.rows.map((row) => [row.matchupId, row]));
   const next = { ...logs };
   let filled = 0;
+  let changed = 0;
 
   wanted.forEach((matchupId) => {
     const row = byMatchup.get(matchupId);
     // Ambiguous rows carry no result, so there is nothing to write even if one is asked for.
     if (!row || row.action === "ambiguous") return;
+    if (!asSeen(logs[matchupId], seen[matchupId])) {
+      changed += 1;
+      return;
+    }
     const current = next[matchupId] ?? blankLog(String(defaultInnings));
     const runs = theOther.has(matchupId) && row.alternative ? row.alternative : row;
     next[matchupId] = {
@@ -734,19 +760,25 @@ export const applyLeagueScoreFill = (
     filled += 1;
   });
 
-  return { logs: next, filled };
+  return { logs: next, filled, changed };
 };
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
 /** One line for the toast, saying what was written and what was deliberately left alone. */
-export const summarizeLeagueFill = (plan: LeagueFillPlan, filled: number): string => {
+export const summarizeLeagueFill = (
+  plan: LeagueFillPlan,
+  filled: number,
+  /** Games picked to fill whose score changed here after the plan was made (`applyLeagueScoreFill`). */
+  changed = 0
+): string => {
   const left = plan.rows.filter((row) => row.action === "overwrite").length;
   const offered = plan.rows.filter(
     (row) => row.action === "suggested" || row.action === "slot" || row.action === "disputed"
   ).length;
   const unclear = plan.rows.filter((row) => row.action === "ambiguous").length;
   const parts = [`Filled ${plural(filled, "game")}`];
+  if (changed > 0) parts.push(`${changed} changed here since, left as they are`);
   if (offered > 0) parts.push(`${offered} still to confirm`);
   if (left > 0) parts.push(`${left} left as entered`);
   if (unclear > 0) parts.push(`${unclear} could not be told apart`);

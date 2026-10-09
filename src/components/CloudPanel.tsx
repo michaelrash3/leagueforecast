@@ -9,7 +9,6 @@ import {
   dismissCloudNotice,
   loadNewer,
   removeCloudMember,
-  restartCloud,
   retryCloud,
   saveNow,
   signInToCloud,
@@ -17,6 +16,8 @@ import {
   type CloudStatus,
   type KeptVersion,
 } from "../lib/cloud/cloudSession";
+import { forgetDisplacedLeague, loadDisplacedLeague } from "../lib/cloud/cloudState";
+import { downloadJson, fileDay } from "../lib/download";
 import { button } from "../styles/tokens";
 import { CloudMembers, type MembersApi } from "./CloudMembers";
 
@@ -26,7 +27,6 @@ export type CloudActions = {
   signOut: () => void;
   loadNewer: () => void;
   retry: () => void;
-  restart: () => void;
   bringBack: (group: string) => void;
   dismissNotice: () => void;
   reloadApp: () => void;
@@ -39,7 +39,6 @@ const SESSION_ACTIONS: CloudActions = {
   signOut: () => void signOutOfCloud(),
   loadNewer: () => void loadNewer(),
   retry: () => void retryCloud(),
-  restart: () => void restartCloud(),
   bringBack: (group) => void bringBack(group),
   dismissNotice: () => dismissCloudNotice(),
   reloadApp: () => window.location.reload(),
@@ -78,6 +77,42 @@ const Note = ({ children }: { children: ReactNode }) => (
 const Line = ({ children }: { children: ReactNode }) => (
   <p className="text-sm font-semibold leading-6 text-slate-700 dark:text-slate-200">{children}</p>
 );
+
+/**
+ * This device's League Standings as they were when the copy's took their place at its first
+ * meeting (1.6f), kept here since no device writes the copy: offered as a file until saved or let go.
+ */
+const DisplacedLeague = () => {
+  const [held, setHeld] = useState(() => loadDisplacedLeague());
+  if (held === null) return null;
+  const letGo = () => {
+    forgetDisplacedLeague();
+    setHeld(null);
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <Note>
+        The cloud&apos;s League Standings took the place of this device&apos;s own when they first
+        met. This device&apos;s are kept here until you save them or let them go.
+      </Note>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            downloadJson(`league-standings-this-device-${fileDay()}.json`, held);
+            letGo();
+          }}
+          className={button.ghost}
+        >
+          Save this device&apos;s League Standings
+        </button>
+        <button type="button" onClick={letGo} className={button.ghost}>
+          Let them go
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const Box = ({ tone, children }: { tone: "info" | "alert"; children: ReactNode }) => (
   <div
@@ -278,20 +313,20 @@ function Body({
             <button
               type="button"
               onClick={actions.save}
-              disabled={!status.owed || status.waiting === "pull"}
+              disabled={status.waiting === "pull"}
               className={button.dark}
             >
-              Save now
+              Look now
             </button>
             <button type="button" onClick={actions.signOut} className={button.ghost}>
               Sign out
             </button>
           </div>
           <Note>
-            Signing out leaves everything in this browser as it is. It only stops saving to the
-            cloud{status.owed ? "; the changes still waiting are saved when you sign in again" : ""}
-            .
+            Signing out leaves everything in this browser as it is. Team Rankings and League
+            Standings are read and edited in the cloud while signed in.
           </Note>
+          <DisplacedLeague />
           <CloudMembers api={members} />
           {kept.length > 0 && (
             <div className="flex flex-col gap-2">
@@ -300,8 +335,10 @@ function Body({
               </h3>
               <Note>
                 When two devices change the same thing, the later change is kept and so is the
-                other, here. A device joining the copy keeps its own Team Rankings here too, and the
-                nightly refresh keeps the Team Rankings it replaced, so a bad night can be undone.
+                other, here. A device joining the copy keeps its own Team Rankings here too, the
+                nightly refresh keeps the Team Rankings it replaced, so a bad night can be undone,
+                and starting Team Rankings again keeps all it took. Only the cloud copy&apos;s owner
+                can bring one back.
               </Note>
               <ul className="flex flex-col gap-2">
                 {kept.map((version) => (
@@ -323,17 +360,10 @@ function Body({
         <>
           <Account email={status.account.email} />
           <Line>
-            The cloud copy is gone: deleted in the Firebase console, most likely. Nothing in this
-            browser has been changed.
-          </Line>
-          <Line>
-            Starting it again from here makes this browser&apos;s data the cloud copy. Every other
-            device then adds its seasons to it, and keeps its own Team Rankings aside.
+            There is no cloud copy to read. Nothing in this browser has been changed. Only the
+            cloud&apos;s own servers make one, never a browser: ask the app&apos;s owner.
           </Line>
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={actions.restart} className={button.dark}>
-              Start it again from this browser
-            </button>
             <button type="button" onClick={actions.signOut} className={button.ghost}>
               Sign out
             </button>

@@ -4,7 +4,8 @@ import { isScoutGamePlayed } from "../../lib/teamRankings";
 import { formatIsoDayShort } from "../../lib/date";
 import { windowGames, type GamesWindow } from "../../lib/teamRankings/gamesWindow";
 import type { ToastTone } from "../../hooks/useToast";
-import { ScheduleImportPanel } from "../ScheduleImportPanel";
+import { ScheduleImportPanel, type NamedChecker } from "../ScheduleImportPanel";
+import type { NamedGame } from "../../lib/teamRankings/namedGames";
 import { TeamNameCombobox } from "../TeamNameCombobox";
 import { button, card, pill } from "../../styles/tokens";
 
@@ -45,10 +46,13 @@ type GamesSectionProps = {
   importOpen: boolean;
   onOpenImport: () => void;
   onCloseImport: () => void;
-  allTeams: ScoutTeam[];
   suggestedTeams: ScoutTeam[];
-  existingGames: ScoutGame[];
-  onImportGames: (teams: ScoutTeam[], games: ScoutGame[]) => void;
+  /** How a pasted schedule's rows are checked: here, or by the server (`ScheduleImportPanel`). */
+  checker: NamedChecker;
+  /** A pasted schedule's rows to add, by their clubs' names; a promise where the server adds them. */
+  onImportGames: (games: NamedGame[]) => void | Promise<boolean>;
+  /** The most rows a pasted schedule may have, where whoever adds them takes no more at once. */
+  importRowsMax?: number;
   showToast: (message: string, options?: { tone?: ToastTone }) => void;
   /**
    * The page's stored games, pulled, pasted or typed in, newest first. League Standings fixtures
@@ -98,9 +102,9 @@ export function GamesSection({
   importOpen,
   onOpenImport,
   onCloseImport,
-  allTeams,
   suggestedTeams,
-  existingGames,
+  checker,
+  importRowsMax,
   onImportGames,
   showToast,
   loggedGames,
@@ -257,13 +261,12 @@ export function GamesSection({
 
       {importOpen && ageGroupId && (
         <ScheduleImportPanel
-          ageGroupId={ageGroupId}
           ageGroupName={groupName}
-          teams={allTeams}
           suggestedTeams={suggestedTeams}
-          existingGames={existingGames}
+          checker={checker}
           defaultSubjectTeam={myTeamName}
           onImport={onImportGames}
+          {...(importRowsMax === undefined ? {} : { rowsMax: importRowsMax })}
           onClose={onCloseImport}
           showToast={showToast}
         />

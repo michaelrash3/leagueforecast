@@ -85,9 +85,9 @@ describe("pressing the filled-in button in September 2027", () => {
     innings: "6",
     isFinal: true,
   });
-  const autumn2027 = () =>
+  const autumn2027 = (ageGroups = [ageGroup(10, 2027), ageGroup(10, 2028)]) =>
     renderTeamRankings({
-      ageGroups: [ageGroup(10, 2027), ageGroup(10, 2028)],
+      ageGroups,
       teams: [team("S-A", "Last Year Aces"), team("S-B", "Last Year Bats")],
       games: [
         game("old1", "ag_10u_2027", "S-A", "S-B", 5, 1, { date: "2026-09-12" }),
@@ -112,10 +112,23 @@ describe("pressing the filled-in button in September 2027", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2027-09-20T12:00:00"));
     const user = userEvent.setup();
-    autumn2027();
+    const harness = autumn2027();
     await user.click(screen.getByRole("button", { name: /^Put on 10U/ }));
     const onPage = loadAgeGroups().find((group) => group.seasonIds.includes("default"));
     expect(onPage?.name).toBe("10U 2028");
+    expect(harness.toasts()).toContain("League season added to 10U 2028.");
+  });
+
+  it("makes the page when there is none for its age yet, and says so", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2027-09-20T12:00:00"));
+    const user = userEvent.setup();
+    const harness = autumn2027([ageGroup(10, 2027)]);
+    await user.click(screen.getByRole("button", { name: /^Put on 10U 2028/ }));
+    expect(loadAgeGroups().find((group) => group.seasonIds.includes("default"))?.name).toBe(
+      "10U 2028"
+    );
+    expect(harness.toasts()).toContain("10U 2028 created, with your league season on it.");
   });
 
   it("and leaves the finished Fall 2026 board without this autumn's league teams", async () => {

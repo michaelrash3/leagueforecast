@@ -1,3 +1,4 @@
+import type { RankingsHandover } from "../lib/live/liveBoard";
 import { render, type RenderResult } from "@testing-library/react";
 import { vi } from "vitest";
 import { TeamRankingsView } from "../components/TeamRankingsView";
@@ -45,6 +46,8 @@ export type Pool = {
   untidied?: boolean;
   /** Teams nobody could age, for the review card on Setup. */
   ageless?: AgeUnknownList;
+  /** Where the live board left off, for a page taking over from it. */
+  handover?: RankingsHandover;
   /**
    * A League Standings season, written as the one a fresh browser opens on — "default" — so a page
    * claims it with `seasonIds: ["default"]`. The view reads it on its first render.
@@ -168,6 +171,7 @@ export const renderTeamRankings = (pool: Pool): Harness => {
       showToast={showToast}
       requestConfirmation={requestConfirmation}
       onDataChange={onDataChange}
+      {...(pool.handover ? { handover: pool.handover } : {})}
     />
   );
 

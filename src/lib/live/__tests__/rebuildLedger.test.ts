@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  chargeEdit,
   coerceLedger,
   DEFAULT_CAPS,
   HARD_CAPS,
@@ -25,6 +26,9 @@ const LATER = "2027-04-15T14:06:00.000Z";
 /** Seconds after `NOW`. */
 const after = (seconds: number) => new Date(Date.parse(NOW) + seconds * 1000).toISOString();
 
+/** When the settled runs below ended. */
+const ENDED = after(70);
+
 /** A ledger switched on, with nothing spent this day or month, as `coerceLedger` reads one. */
 const ledger = (more: Partial<Ledger> = {}): Ledger => ({
   on: true,
@@ -44,6 +48,7 @@ const ledger = (more: Partial<Ledger> = {}): Ledger => ({
   failures: 0,
   pausedDay: null,
   open: null,
+  lastEndedAt: null,
   ...more,
 });
 
@@ -73,6 +78,7 @@ describe("the ledger as the document holds it", () => {
       failures: 0,
       pausedDay: null,
       open: null,
+      lastEndedAt: null,
     });
     expect(coerceLedger({ on: false, mode: "live", warm: false })).toMatchObject({
       on: false,
@@ -92,8 +98,12 @@ describe("the ledger as the document holds it", () => {
       failures: 2,
       pausedDay: "2027-04-14",
       open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "T1", by: "h1" },
+      lastEndedAt: ENDED,
     });
     expect(coerceLedger(JSON.parse(JSON.stringify(full)))).toEqual(full);
+    // An end that is not a time is not one a ledger holds.
+    expect(coerceLedger({ on: true, lastEndedAt: "soon" })).toBeNull();
+    expect(coerceLedger({ on: true, lastEndedAt: 5 })).toBeNull();
     // A reservation that does not say its task or its handling reads as saying neither.
     expect(
       coerceLedger({ on: true, open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING } } })?.open
@@ -503,14 +513,17 @@ describe("settling a run", () => {
 
   it("puts what the run cost in place of its ceiling, and clears the failures", () => {
     expect(used).toEqual({ gibs: 490, vcpuS: 123 });
-    expect(settleRun(open, { at: NOW, used, failed: false, today: TODAY })).toEqual(
-      ledger({ dayGiBs: 5_490, monthGiBs: 20_490, monthVcpuS: 3_123 })
+    expect(settleRun(open, { at: NOW, used, failed: false, today: TODAY, endedAt: ENDED })).toEqual(
+      ledger({ dayGiBs: 5_490, monthGiBs: 20_490, monthVcpuS: 3_123, lastEndedAt: ENDED })
     );
   });
 
   it("counts a failure, and pauses the rest of the day at the cap", () => {
     expect(
-      settleRun({ ...open, failures: 0 }, { at: NOW, used, failed: true, today: TODAY })
+      settleRun(
+        { ...open, failures: 0 },
+        { at: NOW, used, failed: true, today: TODAY, endedAt: ENDED }
+      )
     ).toMatchObject({
       failures: 1,
       pausedDay: null,
@@ -519,7 +532,9 @@ describe("settling a run", () => {
       dayFailed: 1,
       monthFailed: 1,
     });
-    expect(settleRun(open, { at: NOW, used, failed: true, today: TODAY })).toMatchObject({
+    expect(
+      settleRun(open, { at: NOW, used, failed: true, today: TODAY, endedAt: ENDED })
+    ).toMatchObject({
       failures: 3,
       pausedDay: TODAY,
       open: null,
@@ -527,57 +542,92 @@ describe("settling a run", () => {
     // A failure of today's run is not one of the last day that ran before it.
     const lastDay = { day: "2027-04-14", runs: 5, failed: 0, gibs: 3_000 };
     expect(
-      settleRun({ ...open, lastDay }, { at: NOW, used, failed: true, today: TODAY })
+      settleRun({ ...open, lastDay }, { at: NOW, used, failed: true, today: TODAY, endedAt: ENDED })
     ).toMatchObject({ dayFailed: 1, lastDay });
   });
 
   it("charges what a run cost past its ceiling, and nothing below none", () => {
     expect(runCost(-3, { gib: 8, cpu: 2 })).toEqual({ gibs: 0, vcpuS: 0 });
     const long = runCost(400, { gib: 8, cpu: 2 });
-    expect(settleRun(open, { at: NOW, used: long, failed: false, today: TODAY })).toMatchObject({
+    expect(
+      settleRun(open, { at: NOW, used: long, failed: false, today: TODAY, endedAt: ENDED })
+    ).toMatchObject({
       dayGiBs: 5_000 + 3_200,
     });
   });
 
   it("settles nothing for a run that is no longer the open one", () => {
     // A later reserve counted it as never settled and keeps its ceiling charged.
-    expect(settleRun(open, { at: LATER, used, failed: false, today: TODAY })).toBeNull();
+    expect(
+      settleRun(open, { at: LATER, used, failed: false, today: TODAY, endedAt: ENDED })
+    ).toBeNull();
     // Nor for another handling's reservation made at the very same moment.
     const held = { ...open, open: { ...open.open!, by: "h1" } };
-    expect(settleRun(held, { at: NOW, by: "h2", used, failed: false, today: TODAY })).toBeNull();
-    expect(settleRun(held, { at: NOW, used, failed: false, today: TODAY })).toBeNull();
-    expect(settleRun(held, { at: NOW, by: "h1", used, failed: false, today: TODAY })).toMatchObject(
-      { open: null, dayGiBs: 5_490 }
-    );
     expect(
-      settleRun({ ...open, open: null }, { at: NOW, used, failed: false, today: TODAY })
+      settleRun(held, { at: NOW, by: "h2", used, failed: false, today: TODAY, endedAt: ENDED })
     ).toBeNull();
-    expect(settleRun(null, { at: NOW, used, failed: false, today: TODAY })).toBeNull();
+    expect(
+      settleRun(held, { at: NOW, used, failed: false, today: TODAY, endedAt: ENDED })
+    ).toBeNull();
+    expect(
+      settleRun(held, { at: NOW, by: "h1", used, failed: false, today: TODAY, endedAt: ENDED })
+    ).toMatchObject({ open: null, dayGiBs: 5_490 });
+    expect(
+      settleRun(
+        { ...open, open: null },
+        { at: NOW, used, failed: false, today: TODAY, endedAt: ENDED }
+      )
+    ).toBeNull();
+    expect(
+      settleRun(null, { at: NOW, used, failed: false, today: TODAY, endedAt: ENDED })
+    ).toBeNull();
   });
 
   it("swaps only the totals of the day and month the run was charged to", () => {
     // The owner started the day's total afresh by hand while it ran: the month's still holds it.
     const moved = { ...open, day: "2027-04-16", dayGiBs: 0 };
-    expect(settleRun(moved, { at: NOW, used, failed: false, today: TODAY })).toMatchObject({
+    expect(
+      settleRun(moved, { at: NOW, used, failed: false, today: TODAY, endedAt: ENDED })
+    ).toMatchObject({
       dayGiBs: 0,
       monthGiBs: 20_490,
       monthVcpuS: 3_123,
     });
     // And a failure only to the day and month whose runs it is among.
-    expect(settleRun(moved, { at: NOW, used, failed: true, today: TODAY })).toMatchObject({
+    expect(
+      settleRun(moved, { at: NOW, used, failed: true, today: TODAY, endedAt: ENDED })
+    ).toMatchObject({
       dayFailed: 0,
       monthFailed: 1,
     });
     // A run that failed past midnight is a failed run of the day it was reserved on.
-    expect(settleRun(open, { at: NOW, used, failed: true, today: "2027-04-16" })).toMatchObject({
+    expect(
+      settleRun(open, { at: NOW, used, failed: true, today: "2027-04-16", endedAt: ENDED })
+    ).toMatchObject({
       dayFailed: 1,
       monthFailed: 1,
     });
     const nextMonth = { ...open, month: "2027-05", monthGiBs: 0, monthVcpuS: 0 };
-    expect(settleRun(nextMonth, { at: NOW, used, failed: false, today: TODAY })).toMatchObject({
+    expect(
+      settleRun(nextMonth, { at: NOW, used, failed: false, today: TODAY, endedAt: ENDED })
+    ).toMatchObject({
       dayGiBs: 5_490,
       monthGiBs: 0,
       monthVcpuS: 0,
+    });
+  });
+
+  it("puts the cost in place of the ceiling in the day kept for the nightly, the day turned under it", () => {
+    // An edit charged just after New York's midnight moves the ledger on while the run is open.
+    const turned = chargeEdit({ ...open, dayRuns: 1 }, "2027-04-16", { gibs: 8, vcpuS: 2 });
+    expect(turned?.lastDay).toEqual({ day: TODAY, runs: 1, failed: 0, gibs: 7_560 });
+    expect(
+      settleRun(turned, { at: NOW, used, failed: false, today: "2027-04-16", endedAt: ENDED })
+    ).toMatchObject({
+      day: "2027-04-16",
+      dayGiBs: 8,
+      lastDay: { day: TODAY, runs: 1, failed: 0, gibs: 5_490 },
+      monthGiBs: 20_498,
     });
   });
 });
@@ -615,6 +665,50 @@ const reserving = (ledger: Ledger | null) => {
   const reserved = reserveRun(ledger, TODAY, NOW);
   return { next: reserved.next, answer: reserved };
 };
+
+describe("charging an edit", () => {
+  it("adds what it cost to the day and the month, counting no run and opening none", () => {
+    const open = { at: NOW, day: TODAY, cost: RUN_CEILING, task: "t", by: "r" };
+    const held = ledger({ dayGiBs: 100, dayRuns: 2, monthGiBs: 900, monthVcpuS: 30, open });
+    expect(chargeEdit(held, TODAY, { gibs: 40, vcpuS: 10 })).toEqual({
+      ...held,
+      dayGiBs: 140,
+      monthGiBs: 940,
+      monthVcpuS: 40,
+    });
+  });
+
+  it("is charged with the switch off, at the caps, and while paused, since it was spent", () => {
+    const held = ledger({
+      on: false,
+      dayGiBs: DEFAULT_CAPS.dayGiBs,
+      failures: DEFAULT_CAPS.failures,
+      pausedDay: TODAY,
+    });
+    expect(chargeEdit(held, TODAY, { gibs: 8, vcpuS: 2 })).toMatchObject({
+      on: false,
+      dayGiBs: DEFAULT_CAPS.dayGiBs + 8,
+      pausedDay: TODAY,
+    });
+  });
+
+  it("starts a new day's total and a new month's, as a reserve would", () => {
+    const held = ledger({ dayGiBs: 500, dayRuns: 3, monthGiBs: 900, monthVcpuS: 60 });
+    expect(chargeEdit(held, "2027-05-01", { gibs: 8, vcpuS: 2 })).toMatchObject({
+      day: "2027-05-01",
+      dayGiBs: 8,
+      dayRuns: 0,
+      lastDay: { day: TODAY, runs: 3, failed: 0, gibs: 500 },
+      month: "2027-05",
+      monthGiBs: 8,
+      monthVcpuS: 2,
+    });
+  });
+
+  it("charges nothing where there is no ledger", () => {
+    expect(chargeEdit(null, TODAY, { gibs: 8, vcpuS: 2 })).toBeNull();
+  });
+});
 
 describe("writing the ledger", () => {
   it("writes what a step makes of it, and nothing where the step changes nothing", async () => {
@@ -692,6 +786,7 @@ describe("writing the ledger", () => {
         used: { gibs: 80, vcpuS: 20 },
         failed: false,
         today: TODAY,
+        endedAt: ENDED,
       }),
       answer: null,
     }));
@@ -737,6 +832,7 @@ describe("writing the ledger", () => {
         used: { gibs: 80, vcpuS: 20 },
         failed: false,
         today: TODAY,
+        endedAt: ENDED,
       }),
       answer: null,
     });
@@ -904,6 +1000,7 @@ describe("writing the ledger", () => {
         used: { gibs: 490, vcpuS: 123 },
         failed: false,
         today: TODAY,
+        endedAt: ENDED,
       }),
       answer: null,
     }));

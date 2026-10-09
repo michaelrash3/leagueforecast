@@ -6,15 +6,9 @@
  * the point of searching at all.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  teamPages,
-  type AgeGroup,
-  type ScoutGame,
-  type ScoutTeam,
-  type TeamPage,
-} from "../lib/teamRankings";
+import type { AgeGroup, ScoutGame, ScoutTeam, TeamPage } from "../lib/teamRankings";
 import { buildStaffIndex, clubRelations, coachesOf, describeRelation } from "../lib/gcStaff";
-import { statesThatPlayed } from "../lib/playedByStates";
+import { clubSearchOptions, clubSearchPages } from "../lib/clubSearch";
 import type { MergeCandidate } from "../components/TeamDetailPanel";
 import { warmTeamSearch } from "../components/TeamSearchSelect";
 
@@ -103,56 +97,13 @@ export function useClubSearch({
   const { pagesByTeam, playedBy } = useMemo(() => {
     void indexRevision;
     if (!enabled) return { pagesByTeam: NO_PAGES, playedBy: NO_PLAYED_BY };
-    const everyGame = indexGames();
-    return {
-      pagesByTeam: teamPages(indexTeams, everyGame, indexGroups),
-      // Where a stand-in's opponents are from, read off the same games (`statesThatPlayed`).
-      playedBy: statesThatPlayed(indexTeams, everyGame),
-    };
+    return clubSearchPages(indexTeams, indexGames(), indexGroups);
   }, [enabled, indexTeams, indexGames, indexGroups, indexRevision]);
 
-  const searchOptions = useMemo(() => {
-    const byId = new Map(indexTeams.map((team) => [team.id, team]));
-    return [...pagesByTeam.entries()].flatMap(([teamId, page]) => {
-      const team = byId.get(teamId);
-      if (!team) return [];
-      const where = [
-        page.level === undefined ? "" : `${page.level}U`,
-        page.year === undefined ? "" : String(page.year),
-      ]
-        .filter(Boolean)
-        .join(" ");
-      /*
-       * The town off the team itself rather than through `placeOf`, which only knows this page's
-       * rows. Every team worth searching for is on some other page, so reading it that way left
-       * the place blank on exactly the results that needed it — and the place is what tells two
-       * clubs of the same name apart.
-       */
-      // A club GameChanger gives no state is placed by the clubs that played it instead; only
-      // those clubs are in `playedBy`.
-      const playedByStates = playedBy.get(teamId) ?? [];
-      const place = [
-        team.city,
-        team.state,
-        playedByStates.length > 0 ? `played by ${playedByStates.join(", ")} clubs` : "",
-      ]
-        .filter(Boolean)
-        .join(", ");
-      const detail = [where, place].filter(Boolean).join(" · ");
-      // And who coaches it, which is often how a person knows a club whose name forty others share.
-      const coaches = coachesOf(team);
-      return [
-        {
-          id: teamId,
-          label: team.name,
-          ...(detail ? { detail } : {}),
-          ...(coaches.length > 0 ? { coaches } : {}),
-          // Its GameChanger ids, so a pasted id or link finds it (`gcIdsInSearch`).
-          ...(team.gcTeams?.length ? { gcIds: team.gcTeams.map((link) => link.teamId) } : {}),
-        },
-      ];
-    });
-  }, [pagesByTeam, playedBy, indexTeams]);
+  const searchOptions = useMemo(
+    () => clubSearchOptions(indexTeams, pagesByTeam, playedBy),
+    [pagesByTeam, playedBy, indexTeams]
+  );
 
   /*
    * The search box's own work on this list, done once the list is built rather than on the first

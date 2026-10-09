@@ -4,11 +4,13 @@ import type { SeasonSnapshot } from "../../storage";
 import type { FirebaseCloud } from "../firebaseCloud";
 import type { LeagueValue } from "../leagueMerge";
 import { memoryCloud, memoryMembers } from "./memoryCloud";
+import { memoryLeague } from "../../live/__tests__/memoryLeague";
 
 /*
- * Delete everything, pressed while a save is on its way: the save must not send what it reads from
- * the emptied store as the user's data, nor write what it downloads back into it. With the app's
- * own stores, since what a wiped store reads back as is the point. Placeholder names.
+ * Delete everything, pressed while a look at the copy is on its way: it must not write what it
+ * downloads back into the emptied store, and the copy, which no device writes (1.6f), keeps its
+ * own. With the app's own stores, since what a wiped store reads back as is the point. Placeholder
+ * names.
  */
 
 vi.mock("../../pullSession", () => ({
@@ -27,7 +29,7 @@ const { markCloudDirty } = await import("../cloudState");
 const { commitChanges, fetchValues } = await import("../cloudEngine");
 const { readLeagueSnapshot, replaceLeagueSnapshot, saveTeams } = await import("../../storage");
 const { resetApp } = await import("../../resetApp");
-const { resetTeamRankingsStore, saveScoutTeams } = await import("../../teamRankingsStorage");
+const { resetTeamRankingsStore } = await import("../../teamRankingsStorage");
 
 const memoryStorage = (): Storage => {
   const items = new Map<string, string>();
@@ -83,16 +85,10 @@ afterEach(() => {
 });
 
 /**
- * This browser signed in and in step with its copy, owing an edit, when Delete everything is
- * pressed: while its save downloads the other device's change, or while it commits its own.
+ * This browser signed in and in step with the copy the servers made, holding an edit, when Delete
+ * everything is pressed while its save downloads the servers' change.
  */
-const saveCaughtByReset = async ({
-  tookCopy = false,
-  during = "download",
-}: {
-  tookCopy?: boolean;
-  during?: "download" | "commit";
-}) => {
+const saveCaughtByReset = async ({ tookCopy = false }: { tookCopy?: boolean }) => {
   const storage = memoryStorage();
   vi.stubGlobal("localStorage", storage);
   resetCloudGuard();
@@ -106,6 +102,11 @@ const saveCaughtByReset = async ({
     owns: async () => true,
     members: memoryMembers([], () => ME.email),
     store: sky.store,
+    live: { readMeta: async () => null, getChunk: async () => null },
+    league: memoryLeague().store,
+    restore: async () => ({ ok: false, message: "Not asked here." }),
+    stageUpload: async () => undefined,
+    restoreBackup: async () => ({ ok: false, message: "Not asked here." }),
   };
   session.resetCloudSession();
   session.setCloudTestHooks({
@@ -114,71 +115,48 @@ const saveCaughtByReset = async ({
     reload: () => undefined,
     roomFor: async () => true,
   });
+  await commitChanges({
+    store: sky.store,
+    base: null,
+    changes: [{ key: "league", value: { seasons: [fall] }, at: Date.now() }],
+    device: "nightly",
+    now: new Date().toISOString(),
+  });
   replaceLeagueSnapshot({ activeSeasonId: "fall", seasons: [fall] });
   await session.signInToCloud();
   if (tookCopy) markTaken("league", true);
-  if (during === "commit") {
-    // Another device rescores a game, and this browser owes a pool edit: the seasons arrive in
-    // this save, and the reset lands between its commit and the write.
-    await commitChanges({
-      store: sky.store,
-      base: sky.manifest(),
-      changes: [
-        {
-          key: "league",
-          value: { seasons: [{ ...fall, logs: { g1: log(6, 3) } }] },
-          at: Date.now(),
-        },
-      ],
-      device: "laptop",
-      now: new Date().toISOString(),
-    });
-    saveScoutTeams([{ id: "a", name: "Hawks" }]);
-    markCloudDirty("league_forecast_scout_teams_v1");
-    const commit = sky.store.commitManifest;
-    sky.store.commitManifest = async (expected, next) => {
-      sky.store.commitManifest = commit;
-      expect(await resetApp(storage)).toBe("done");
-      return commit(expected, next);
-    };
-    await session.saveNow();
-  } else {
-    // Another device changes the pool, and this browser owes a League Standings edit.
-    await commitChanges({
-      store: sky.store,
-      base: sky.manifest(),
-      changes: [
-        {
-          key: "league_forecast_scout_teams_v1",
-          value: Array.from({ length: 2000 }, (_, i) => `t${i}`),
-          at: Date.now(),
-        },
-      ],
-      device: "laptop",
-      now: new Date().toISOString(),
-    });
-    saveTeams([
-      ...(readLeagueSnapshot().seasons[0]?.teams ?? []),
-      { id: "t3", name: "Team three" },
-    ]);
-    markCloudDirty("league");
-    session.poolOnScreen();
-    const real = sky.store.getChunk;
-    let release: () => void = () => undefined;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    sky.store.getChunk = async (id) => {
-      await held;
-      return real(id);
-    };
-    const saving = session.saveNow();
-    await vi.waitFor(() => expect(session.cloudStatus()).toMatchObject({ kind: "working" }));
-    expect(await resetApp(storage)).toBe("done");
-    release();
-    sky.store.getChunk = real;
-    await saving;
-  }
+  // The servers change the pool, and this browser holds a League Standings edit.
+  await commitChanges({
+    store: sky.store,
+    base: sky.manifest(),
+    changes: [
+      {
+        key: "league_forecast_scout_teams_v1",
+        value: Array.from({ length: 2000 }, (_, i) => `t${i}`),
+        at: Date.now(),
+      },
+    ],
+    device: "nightly",
+    now: new Date().toISOString(),
+  });
+  saveTeams([...(readLeagueSnapshot().seasons[0]?.teams ?? []), { id: "t3", name: "Team three" }]);
+  markCloudDirty("league");
+  session.poolOnScreen();
+  const real = sky.store.getChunk;
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  sky.store.getChunk = async (id) => {
+    await held;
+    return real(id);
+  };
+  const saving = session.saveNow();
+  await vi.waitFor(() => expect(session.cloudStatus()).toMatchObject({ kind: "working" }));
+  expect(await resetApp(storage)).toBe("done");
+  release();
+  sky.store.getChunk = real;
+  await saving;
   const manifest = sky.manifest();
   const fetched = await fetchValues({
     store: sky.store,
@@ -191,7 +169,7 @@ const saveCaughtByReset = async ({
   };
 };
 
-describe("Delete everything while a save is on its way", () => {
+describe("Delete everything while a look at the copy is on its way", () => {
   it("sends nothing of the emptied browser, and writes nothing into it", async () => {
     const after = await saveCaughtByReset({ tookCopy: false });
     expect(after.seasons?.map((season) => [season.id, season.logs])).toEqual([
@@ -204,10 +182,5 @@ describe("Delete everything while a save is on its way", () => {
   it("leaves the copy's seasons whole in a tab that took a copy in, where a write was refused", async () => {
     const after = await saveCaughtByReset({ tookCopy: true });
     expect(after.seasons?.map((season) => season.id)).toEqual(["fall"]);
-  });
-
-  it("writes nothing it downloaded into a store emptied while its commit was on its way", async () => {
-    const after = await saveCaughtByReset({ during: "commit" });
-    expect(after.here.some((season) => season.id === "fall")).toBe(false);
   });
 });

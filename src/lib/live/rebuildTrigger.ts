@@ -1,10 +1,10 @@
 import { saveLineOf } from "./rebuild";
-import { planCopyWrite, type RebuildTask } from "./rebuildPlan";
+import { planCopyWrite, planLeagueWrite, type RebuildTask } from "./rebuildPlan";
 
 /**
- * What the function a write to the copy's manifest triggers (`onCopyWrite`) does with it, kept
- * here, pure, so it is tested: `functions/src/index.ts` only hands it the event, a reader of the
- * switch and the queue.
+ * What the functions a write to the copy's manifest or to a League Standings season triggers
+ * (`onCopyWrite`, `onLeagueWrite`) do with it, kept here, pure, so it is tested:
+ * `functions/src/index.ts` only hands them the event, a reader of the switch and the queue.
  */
 
 /** A document as an event hands it over: whether it is there, and its fields as stored. */
@@ -62,4 +62,58 @@ export const handleCopyWrite = async ({
     };
   }
   return { level: "info", message: "save", line: { ...saved, queued: true } };
+};
+
+/**
+ * One write of a League Standings season's document, `league/{docId}`: planned on the write alone
+ * (`planLeagueWrite`), and the rebuild it asks for queued, as a save of the copy's is. Logged with
+ * the season's document and the task it shares, and a queue that would not take it said in that
+ * line, not thrown: the next write, or the night, publishes it.
+ */
+export const handleLeagueWrite = async ({
+  change,
+  docId,
+  eventTime,
+  readSwitch,
+  enqueue,
+}: {
+  change: { before: SnapshotLike; after: SnapshotLike } | undefined;
+  /** The season's document's id, as the event's path names it. */
+  docId: string;
+  eventTime: string;
+  readSwitch: () => Promise<boolean>;
+  enqueue: (queued: { id: string; scheduleTime: Date; task: RebuildTask }) => Promise<void>;
+}): Promise<CopyWriteLine> => {
+  if (!change) return { level: "warn", message: "season write", line: { event: "no-write" } };
+  const plan = await planLeagueWrite({
+    before: change.before.exists ? change.before.data() : undefined,
+    after: change.after.exists ? change.after.data() : undefined,
+    docId,
+    eventTime,
+    readSwitch,
+  });
+  if ("skip" in plan) {
+    return {
+      level: "info",
+      message: "season write",
+      line: { event: "skip", season: docId, why: plan.skip },
+    };
+  }
+  const saved = {
+    event: "season",
+    season: docId,
+    savedAt: eventTime,
+    kind: plan.ask.kind,
+    task: plan.enqueue.id,
+  };
+  try {
+    await enqueue(plan.enqueue);
+  } catch (error) {
+    return {
+      level: "error",
+      message: "season",
+      line: { ...saved, queued: false, error: messageOf(error) },
+    };
+  }
+  return { level: "info", message: "season", line: { ...saved, queued: true } };
 };

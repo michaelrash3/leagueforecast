@@ -5,6 +5,7 @@ import {
   gamesForTeam,
   gcSeasonLabel,
   isScoutGamePlayed,
+  normalizeState,
   playsItself,
   rankingPoolGroupIds,
   scoreSeenBy,
@@ -22,10 +23,11 @@ import { describeRoster, rosterStanding } from "../lib/gcRoster";
 import { coachesOf } from "../lib/gcStaff";
 import { agoLabel } from "../lib/date";
 import { TeamSearchSelect } from "./TeamSearchSelect";
+import { TEAM_PANEL_ID } from "./teamPanelId";
 import { button, card, pill } from "../styles/tokens";
 
 /** The panel's element id, for a list elsewhere on the page that opens a team to scroll to it. */
-export const TEAM_PANEL_ID = "team-detail-panel";
+export { TEAM_PANEL_ID };
 
 type TeamDetailPanelProps = {
   team: ScoutTeam;
@@ -51,7 +53,8 @@ type TeamDetailPanelProps = {
   leagueLink?: "name" | "pick";
   onRename: (nextName: string) => void;
   /** Two letters, or empty to clear it. */
-  onSetState: (state: string) => void;
+  /** Sets the club's state, or clears it for ""; false when the store would not keep it. */
+  onSetState: (state: string) => boolean;
   /** Takes one GameChanger id off this team, undoing a pairing that turned out to be wrong. */
   onUnlinkGc: (gcTeamId: string) => void;
   /** Folds this team into another — the "same team as" the pull could only propose. */
@@ -68,6 +71,12 @@ type TeamDetailPanelProps = {
   /** Teams this one could be folded into: everyone else on the page, likeliest club first. */
   mergeCandidates: MergeCandidate[];
   onClose: () => void;
+  /**
+   * Nothing on the panel changes the club: the live board's (`LiveClubPanel`), which reads a
+   * published card and has no copy to write to. What the club is, its age, its record and its games
+   * are shown; renaming, unlinking, setting an age or state and folding are not.
+   */
+  readOnly?: boolean;
 };
 
 /** Which rule of the import filed a link at its level, as the link line says it. */
@@ -139,8 +148,20 @@ export function TeamDetailPanel({
   onClearAge,
   mergeCandidates,
   onClose,
+  readOnly = false,
 }: TeamDetailPanelProps) {
   const [draftName, setDraftName] = useState(team.name);
+  // The state box holds what is being typed: one letter is a state on its way, not a state to
+  // save, and saved as it was typed the club's state was cleared at the first letter and the box
+  // emptied under the cursor, so no state could be typed at all. It follows the stored state
+  // whenever that changes, from here or elsewhere.
+  const [draftState, setDraftState] = useState(team.state ?? "");
+  const stateFor = `${team.id}:${team.state ?? ""}`;
+  const [stateSeen, setStateSeen] = useState(stateFor);
+  if (stateSeen !== stateFor) {
+    setStateSeen(stateFor);
+    setDraftState(team.state ?? "");
+  }
   const [mergeTarget, setMergeTarget] = useState("");
   const [draftAge, setDraftAge] = useState(age?.level ?? MIN_AGE_LEVEL);
   // The panel is keyed by club alone, so it stays open across a switch to another year's page, or
@@ -277,61 +298,63 @@ export function TeamDetailPanel({
         </button>
       </div>
 
-      <div className="mt-4">
-        <label
-          className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
-          htmlFor="scout-team-rename"
-        >
-          Team name
-        </label>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          <input
-            id="scout-team-rename"
-            type="text"
-            value={draftName}
-            disabled={leagueLink === "name"}
-            onChange={(event) => setDraftName(event.target.value)}
-            className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900"
-          />
-          <button
-            type="button"
-            disabled={leagueLink === "name" || !renamed}
-            onClick={() => onRename(trimmed)}
-            className={button.ghost}
+      {!readOnly && (
+        <div className="mt-4">
+          <label
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+            htmlFor="scout-team-rename"
           >
-            {wouldMerge ? "Merge" : "Rename"}
-          </button>
+            Team name
+          </label>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <input
+              id="scout-team-rename"
+              type="text"
+              value={draftName}
+              disabled={leagueLink === "name"}
+              onChange={(event) => setDraftName(event.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900"
+            />
+            <button
+              type="button"
+              disabled={leagueLink === "name" || !renamed}
+              onClick={() => onRename(trimmed)}
+              className={button.ghost}
+            >
+              {wouldMerge ? "Merge" : "Rename"}
+            </button>
+          </div>
+          {leagueLink === "name" ? (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              This team comes from a League Standings season, so its name is set there.
+            </p>
+          ) : wouldMerge ? (
+            <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
+              A team is already called that. Saving moves every game from this one over to it and
+              removes this one — which is how a placeholder gets routed to the real team.
+              {leagueLink === "pick" &&
+                " League Standings' pick of this club is left pointing at nothing, so pick the club again in Settings."}
+            </p>
+          ) : leagueLink === "pick" ? (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              A League Standings team is linked to this club by your pick in Settings, which a new
+              name here keeps.
+            </p>
+          ) : team.placeholder ? (
+            <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
+              This is a placeholder, not a team — the schedule said so rather than naming a club.
+              The game is kept and counts for whoever played it, and this slot is not ranked. Type
+              the club&apos;s real name here once you know it and the game moves to them; if that
+              club is already here, saving merges the two.
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Any age level in the name is dropped, so &ldquo;Aces 10U&rdquo; is stored as
+              &ldquo;Aces&rdquo;.
+            </p>
+          )}
         </div>
-        {leagueLink === "name" ? (
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            This team comes from a League Standings season, so its name is set there.
-          </p>
-        ) : wouldMerge ? (
-          <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
-            A team is already called that. Saving moves every game from this one over to it and
-            removes this one — which is how a placeholder gets routed to the real team.
-            {leagueLink === "pick" &&
-              " League Standings' pick of this club is left pointing at nothing, so pick the club again in Settings."}
-          </p>
-        ) : leagueLink === "pick" ? (
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            A League Standings team is linked to this club by your pick in Settings, which a new
-            name here keeps.
-          </p>
-        ) : team.placeholder ? (
-          <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-500">
-            This is a placeholder, not a team — the schedule said so rather than naming a club. The
-            game is kept and counts for whoever played it, and this slot is not ranked. Type the
-            club&apos;s real name here once you know it and the game moves to them; if that club is
-            already here, saving merges the two.
-          </p>
-        ) : (
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Any age level in the name is dropped, so &ldquo;Aces 10U&rdquo; is stored as
-            &ldquo;Aces&rdquo;.
-          </p>
-        )}
-      </div>
+      )}
 
       {(team.gcTeams?.length ?? 0) > 0 && (
         <div className="mt-4">
@@ -376,25 +399,48 @@ export function TeamDetailPanel({
                     {link.playerCount} players
                   </span>
                 )}
-                <button
-                  type="button"
-                  onClick={() => onUnlinkGc(link.teamId)}
-                  className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
-                >
-                  Unlink
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => onUnlinkGc(link.teamId)}
+                    className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                  >
+                    Unlink
+                  </button>
+                )}
               </li>
             ))}
           </ul>
+          {!readOnly && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              GameChanger mints a new id every season, so a club pulled across two seasons is known
+              by two. Unlinking takes one off and leaves its games here — that id can then be pulled
+              onto a team of its own, which is how a wrong pairing is taken apart.
+            </p>
+          )}
+        </div>
+      )}
+
+      {age && readOnly && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Age
+          </p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            GameChanger mints a new id every season, so a club pulled across two seasons is known by
-            two. Unlinking takes one off and leaves its games here — that id can then be pulled onto
-            a team of its own, which is how a wrong pairing is taken apart.
+            {age.pinned
+              ? `Set to ${age.pinned.level}U by hand${
+                  age.pinned.was !== undefined && age.pinned.was !== age.pinned.level
+                    ? `; the app had filed it at ${age.pinned.was}U`
+                    : ""
+                }.`
+              : age.level === undefined
+                ? "The app has no age for this club."
+                : `The app filed this club at ${age.level}U.`}
           </p>
         </div>
       )}
 
-      {age && onSetAge && (
+      {age && onSetAge && !readOnly && (
         <div className="mt-4">
           <label
             className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
@@ -452,7 +498,7 @@ export function TeamDetailPanel({
         </div>
       )}
 
-      {mergeCandidates.length > 0 && (
+      {mergeCandidates.length > 0 && !readOnly && (
         <div className="mt-4">
           <label
             className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
@@ -490,28 +536,38 @@ export function TeamDetailPanel({
         </div>
       )}
 
-      <div className="mt-4">
-        <label
-          className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
-          htmlFor="scout-team-state"
-        >
-          State
-        </label>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          <input
-            id="scout-team-state"
-            type="text"
-            value={team.state ?? ""}
-            maxLength={2}
-            placeholder="KY"
-            onChange={(event) => onSetState(event.target.value)}
-            className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm uppercase dark:border-slate-800 dark:bg-slate-900"
-          />
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Optional. Two letters, and only used to filter the rankings — it never changes a rating.
-          </span>
+      {!readOnly && (
+        <div className="mt-4">
+          <label
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+            htmlFor="scout-team-state"
+          >
+            State
+          </label>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <input
+              id="scout-team-state"
+              type="text"
+              value={draftState}
+              maxLength={2}
+              placeholder="KY"
+              onChange={(event) => {
+                const typed = event.target.value.toUpperCase();
+                setDraftState(typed);
+                // Saved once it is a state, or nothing at all.
+                // A state the store would not keep goes back to the one it holds.
+                if ((typed.trim() === "" || normalizeState(typed)) && !onSetState(typed))
+                  setDraftState(team.state ?? "");
+              }}
+              className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm uppercase dark:border-slate-800 dark:bg-slate-900"
+            />
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Optional. Two letters, and only used to filter the rankings — it never changes a
+              rating.
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Games in {ageGroupName || "this age group"}

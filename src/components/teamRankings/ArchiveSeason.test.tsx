@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ageGroup,
   game,
@@ -117,6 +117,31 @@ describe("archiving a finished season from the app", () => {
     expect(asked).toContain("8 stored games");
   });
 
+  it("asks in these words, and says these once it is done", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool());
+    await archive2026(user);
+    await waitFor(() => expect(harness.toasts().join(" ")).toContain("2026 archived"));
+    expect(harness.requestConfirmation.mock.calls[0]?.[0]).toMatchInlineSnapshot(`
+      {
+        "confirmLabel": "Archive 2026",
+        "message": "2 final tables kept: 9U · Fall 2025 (3 teams), 10U · Fall 2025 (3 teams).
+
+      8 stored games and 6 teams deleted.
+
+      No table for 8U 2026 (2 games) — those ages are not ranked, so their games informed the tables above and keep no rows of their own.
+
+      The tables become read-only. This cannot be undone.",
+        "title": "Archive 2026 and delete its games?",
+      }
+    `);
+    expect(harness.toasts().filter((one) => one.includes("2026"))).toMatchInlineSnapshot(`
+      [
+        "2026 archived. 2 final tables kept under Archive; 8 games deleted.",
+      ]
+    `);
+  });
+
   it("changes nothing when the confirmation is declined", async () => {
     const user = userEvent.setup();
     const harness = renderTeamRankings(pool());
@@ -125,6 +150,34 @@ describe("archiving a finished season from the app", () => {
 
     expect(loadScoutGames()).toHaveLength(9);
     expect(loadArchiveIndex()).toEqual([]);
+  });
+
+  it("says once that the games stay when the store will not take their deletion, and keeps them", async () => {
+    const user = userEvent.setup();
+    const harness = renderTeamRankings(pool());
+    // Storage full for the roster: the tables are written, the year's deletion is refused.
+    const setItem = Storage.prototype.setItem;
+    const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string
+    ) {
+      if (key === "league_forecast_scout_teams_v1") throw new Error("quota");
+      setItem.call(this, key, value);
+    });
+    try {
+      await archive2026(user);
+      await waitFor(() =>
+        expect(harness.toasts()).toContain(
+          "The tables are kept under Archive, but the year's games could not be deleted."
+        )
+      );
+    } finally {
+      full.mockRestore();
+    }
+    expect(harness.toasts()).toHaveLength(1);
+    expect(loadScoutGames()).toHaveLength(9);
+    expect(loadScoutTeams()).toHaveLength(8);
   });
 
   it("shows the frozen table under Archive, read-only", async () => {
@@ -216,6 +269,17 @@ describe("deleting a season outright", () => {
     expect(asked.message).toContain("8 stored games and 6 teams");
     expect(asked.message).toContain("Nothing is kept");
     expect(asked.confirmLabel).toBe("Delete 2026");
+    expect(asked).toMatchInlineSnapshot(`
+      {
+        "confirmLabel": "Delete 2026",
+        "message": "3 pages: 8U 2026, 9U 2026, 10U 2026.
+
+      8 stored games and 6 teams with nothing in any other year.
+
+      Nothing is kept, and this cannot be undone.",
+        "title": "Delete 2026 and everything in it?",
+      }
+    `);
   });
 
   it("changes nothing when the confirmation is declined", async () => {

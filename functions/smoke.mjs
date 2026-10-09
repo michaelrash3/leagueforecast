@@ -12,7 +12,12 @@ import { gunzipSync } from "node:zlib";
 
 process.env.GC_API_BASE = "http://127.0.0.1:9";
 process.env.GCLOUD_PROJECT = "smoke-project";
-const { gcTeam, billingCap, startPull, runPull, onCopyWrite, rebuild } =
+// A call's sign-in is read as the emulator reads it, without asking Google to verify it, so the
+// edit function's own check of who is calling can be tried here (it reads the caller's entry on
+// the list, which the stand-in below answers). Read once, as the SDK loads.
+process.env.FIREBASE_DEBUG_MODE = "true";
+process.env.FIREBASE_DEBUG_FEATURES = JSON.stringify({ skipTokenVerification: true });
+const { gcTeam, billingCap, startPull, runPull, onCopyWrite, onLeagueWrite, rebuild, edit } =
   await import("./lib/index.js");
 
 const call = (url, headers = {}) =>
@@ -58,6 +63,39 @@ const check = (label, ok, detail) => {
     process.exitCode = 1;
   } else console.log(`ok   ${label}`);
 };
+
+// A callable's result is sent through the SDK's own `encode`, which is not JSON: it throws on a
+// number with no end and sends a field left undefined as null. So the edit function writes every
+// reply as JSON first (`asJson`, src/lib/live/editHandle.ts), and the unit tests send replies
+// through a copy of `encode` (src/lib/live/__tests__/callableEncode.ts). This holds the installed
+// SDK to what that copy does, so the copy cannot drift from it. Imported by its path, which the
+// package does not export.
+{
+  const { encode } = await import(
+    new URL("./node_modules/firebase-functions/lib/common/providers/https.js", import.meta.url)
+  );
+  let threw = false;
+  try {
+    encode({ cap: Infinity });
+  } catch {
+    threw = true;
+  }
+  check("a callable's result with a number that has no end is refused", threw, "encoded");
+  const holed = JSON.stringify(encode({ year: undefined, runs: [1, undefined] }));
+  check(
+    "a callable's result sends a field left undefined as null",
+    holed === '{"year":null,"runs":[1,null]}',
+    holed
+  );
+  const reply = JSON.parse(
+    JSON.stringify({ ok: true, version: 3, answer: { cap: Infinity, year: undefined, at: [0.5] } })
+  );
+  check(
+    "a reply written as JSON is sent as it is",
+    JSON.stringify(encode(reply)) === JSON.stringify(reply),
+    JSON.stringify(encode(reply))
+  );
+}
 
 const probe = await call("/?probe=1");
 check(
@@ -260,14 +298,136 @@ if (process.env.CLOUD_PULLS !== "on") {
   globalThis.fetch = realFetch;
 }
 
-// The rebuilds after saves, built only once their setup is done (`build.mjs`), as the pulls are.
+// The rebuilds after saves, built only once their setup is done (`build.mjs`), as the pulls are,
+// and the edit function with them.
 if (process.env.LIVE_REBUILD !== "on") {
   check(
-    "the rebuilds after saves are left out of a build without LIVE_REBUILD",
-    onCopyWrite === undefined && rebuild === undefined,
-    `${typeof onCopyWrite} ${typeof rebuild}`
+    "the rebuilds after saves and the edits are left out of a build without LIVE_REBUILD",
+    onCopyWrite === undefined &&
+      onLeagueWrite === undefined &&
+      rebuild === undefined &&
+      edit === undefined,
+    `${typeof onCopyWrite} ${typeof onLeagueWrite} ${typeof rebuild} ${typeof edit}`
   );
 } else {
+  const called = edit.__endpoint;
+  check(
+    "an edit is a call, as the rebuilds' account, one instance taking several at half the rebuild's size",
+    called.callableTrigger !== undefined &&
+      called.serviceAccountEmail === "live-runner@" &&
+      called.availableMemoryMb === 4096 &&
+      called.cpu === 2 &&
+      called.timeoutSeconds === 540 &&
+      called.maxInstances === 1 &&
+      called.concurrency === 8,
+    JSON.stringify(called)
+  );
+  // Who may call: the list's answer comes from the stand-in, there for the one member alone. Every
+  // call here is turned away before the worker starts or the copy is read.
+  const reads = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (!url.startsWith("https://firestore.googleapis.com/")) return realFetch(input, init);
+    reads.push(url);
+    return new Response("{}", {
+      status: url.endsWith("/documents/members/member%40example.com") ? 200 : 403,
+    });
+  };
+  const command = { kind: "team.state", teamId: "B", state: "KY" };
+  const unsignedEdit = await post(edit, { data: { command } });
+  check(
+    "an edit is not made for a caller who has not signed in",
+    unsignedEdit.status === 401 && /UNAUTHENTICATED/.test(String(unsignedEdit.body)),
+    `${unsignedEdit.status} ${unsignedEdit.body}`
+  );
+  const outsiderEdit = await post(edit, { data: { command } }, signedInAs("outsider@example.com"));
+  check(
+    "nor for an account not on the list, which is told so in the edit's own words",
+    outsiderEdit.status === 403 &&
+      /PERMISSION_DENIED/.test(String(outsiderEdit.body)) &&
+      /cannot edit it/.test(String(outsiderEdit.body)),
+    `${outsiderEdit.status} ${outsiderEdit.body}`
+  );
+  const memberReads = reads.length;
+  const junk = await post(
+    edit,
+    { data: { command: { kind: "game.drop", gameId: "g1" } } },
+    signedInAs("member@example.com")
+  );
+  const badCopy = await post(
+    edit,
+    { data: { command, copy: "../copies/other" } },
+    signedInAs("member@example.com")
+  );
+  check(
+    "and a member's call that is not an edit, or names no copy, is refused as such",
+    junk.status === 400 &&
+      /INVALID_ARGUMENT/.test(String(junk.body)) &&
+      badCopy.status === 400 &&
+      /INVALID_ARGUMENT/.test(String(badCopy.body)),
+    `${junk.status} ${junk.body} / ${badCopy.status} ${badCopy.body}`
+  );
+  const ownersOnly = [
+    { kind: "year.delete", year: 2026 },
+    { kind: "copy.reset" },
+    { kind: "copy.restore", group: "0123456789abcdef0123456789abcdef" },
+    { kind: "backup.restore", upload: "0123456789abcdef0123456789abcdef" },
+  ];
+  const notOwner = [];
+  for (const owned of ownersOnly) {
+    notOwner.push(
+      await post(edit, { data: { command: owned } }, signedInAs("member@example.com"))
+    );
+  }
+  check(
+    "and a member's archive or delete of a year, start again, bring back or restore is the owner's alone, refused before it runs",
+    notOwner.every(
+      (answer) =>
+        answer.status === 403 &&
+        /PERMISSION_DENIED/.test(String(answer.body)) &&
+        /Only the cloud copy's owner/.test(String(answer.body))
+    ),
+    notOwner.map((answer) => `${answer.status} ${answer.body}`).join(" / ")
+  );
+  check(
+    "having read nothing but the caller's own entry on the list, once while it holds",
+    reads.length === memberReads + 1 && reads.every((url) => url.includes("/documents/members/")),
+    JSON.stringify(reads)
+  );
+  const query = { kind: "rename.preview", teamId: "B", name: "Club B" };
+  const outsiderQuery = await post(edit, { data: { query } }, signedInAs("outsider@example.com"));
+  const junkQuery = await post(
+    edit,
+    { data: { query: { ...query, extra: 1 } } },
+    signedInAs("member@example.com")
+  );
+  const both = await post(edit, { data: { command, query } }, signedInAs("member@example.com"));
+  check(
+    "a question is the members' alone too, and one read inexactly, or beside an edit, is refused",
+    outsiderQuery.status === 403 &&
+      junkQuery.status === 400 &&
+      /INVALID_ARGUMENT/.test(String(junkQuery.body)) &&
+      both.status === 400 &&
+      /INVALID_ARGUMENT/.test(String(both.body)),
+    `${outsiderQuery.status} / ${junkQuery.status} ${junkQuery.body} / ${both.status} ${both.body}`
+  );
+  globalThis.fetch = realFetch;
+  // The edit's worker, bundled apart: it loads, and answers a ping without reading anything.
+  const editPong = await new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./lib/editWorker.js", import.meta.url));
+    worker.once("message", (answer) => {
+      resolve(answer);
+      void worker.terminate();
+    });
+    worker.once("error", reject);
+    worker.postMessage({ kind: "ping", id: 1 });
+  });
+  check(
+    "an edit's worker loads and answers",
+    editPong.kind === "pong" && editPong.id === 1,
+    JSON.stringify(editPong)
+  );
+
   const written = onCopyWrite.__endpoint;
   check(
     "a write of the copy's manifest, and of nothing under it, triggers the rebuilds' account",
@@ -277,6 +437,15 @@ if (process.env.LIVE_REBUILD !== "on") {
       written.eventTrigger?.retry === false &&
       written.serviceAccountEmail === "live-runner@",
     JSON.stringify(written)
+  );
+  const seasonWritten = onLeagueWrite.__endpoint;
+  check(
+    "a write of any League Standings season's document triggers the rebuilds' account",
+    seasonWritten.eventTrigger?.eventType === "google.cloud.firestore.document.v1.written" &&
+      seasonWritten.eventTrigger?.eventFilterPathPatterns?.document === "league/{season}" &&
+      seasonWritten.eventTrigger?.retry === false &&
+      seasonWritten.serviceAccountEmail === "live-runner@",
+    JSON.stringify(seasonWritten)
   );
   const queued = rebuild.__endpoint;
   check(
@@ -332,7 +501,7 @@ if (process.env.LIVE_REBUILD !== "on") {
       kept: { arrayValue: {} },
     },
   });
-  const event = (oldValue, value) => ({
+  const event = (oldValue, value, document = "copies/main") => ({
     specversion: "1.0",
     id: "smoke-write",
     source: "//firestore.googleapis.com/projects/smoke-project/databases/(default)",
@@ -342,8 +511,45 @@ if (process.env.LIVE_REBUILD !== "on") {
     project: "smoke-project",
     database: "(default)",
     namespace: "(default)",
-    document: "copies/main",
+    document,
     data: { ...(oldValue ? { oldValue } : {}), ...(value ? { value } : {}) },
+  });
+  // A League Standings season's document, with one game whose away side scored `runs`.
+  const SEASON = "projects/smoke-project/databases/(default)/documents/league/season-2";
+  const mapOf = (fields) => ({ mapValue: { fields } });
+  const season = (runs, name = "Placeholder league") => ({
+    name: SEASON,
+    createTime: "2026-10-03T00:00:00Z",
+    updateTime: "2026-10-03T00:00:00Z",
+    fields: {
+      schema: int(1),
+      rev: int(1),
+      name: str(name),
+      createdAt: str("2026-10-01T00:00:00.000Z"),
+      teams: mapOf({
+        A: mapOf({ id: str("A"), name: str("Aces") }),
+        B: mapOf({ id: str("B"), name: str("Bears") }),
+      }),
+      teamOrder: { arrayValue: { values: [str("A"), str("B")] } },
+      matchups: mapOf({
+        g1: mapOf({ id: str("g1"), date: str("2026-10-02"), away: str("A"), home: str("B") }),
+      }),
+      order: { arrayValue: { values: [str("g1")] } },
+      logs: mapOf({
+        g1: mapOf({
+          awayRuns: str(String(runs)),
+          awayHits: str(""),
+          awayK: str(""),
+          homeRuns: str("2"),
+          homeHits: str(""),
+          homeK: str(""),
+          innings: str("6"),
+          isFinal: { booleanValue: true },
+        }),
+      }),
+      bracketLogs: mapOf({}),
+      settings: mapOf({}),
+    },
   });
   /** The lines a call logs: the functions logger writes one JSON line each. */
   const logged = async (call) => {
@@ -388,6 +594,23 @@ if (process.env.LIVE_REBUILD !== "on") {
     const lines = await logged(() => onCopyWrite(event(before, after)));
     skips.push([label, lines.find((line) => line.event === "skip")?.why]);
   }
+  const seasonSkips = [];
+  for (const [before, after] of [
+    [season(3), season(3, "Another name")],
+    [season(3), { ...season(4), fields: { ...season(4).fields, schema: int(9) } }],
+  ]) {
+    const lines = await logged(() => onLeagueWrite(event(before, after, "league/season-2")));
+    seasonSkips.push(lines.find((line) => line.event === "skip"));
+  }
+  check(
+    "a season's new name and a season a newer build wrote are skipped, by the season's document",
+    JSON.stringify(seasonSkips.map((line) => [line?.season, line?.why])) ===
+      JSON.stringify([
+        ["season-2", "no-board-input"],
+        ["season-2", "newer-league"],
+      ]),
+    JSON.stringify(seasonSkips)
+  );
   check(
     "a delete, an unreadable manifest and a save no board reads are skipped as such",
     JSON.stringify(skips.map(([, why]) => why)) ===
@@ -455,12 +678,16 @@ if (process.env.LIVE_REBUILD !== "on") {
     await onCopyWrite(event(manifest(4, "a"), manifest(5, "b")));
     await onCopyWrite(event(manifest(5, "b"), manifest(6, "c")));
   });
+  const copyTasks = [...tasks];
+  const scores = await logged(async () => {
+    await onLeagueWrite(event(season(3), season(4), "league/season-2"));
+  });
   queue.close();
   const saved = saves.filter((line) => line.event === "save");
   check(
     "a save that moves a board queues its window's rebuild, waited on past the timeout",
-    tasks.length === 2 &&
-      tasks.every(
+    copyTasks.length === 2 &&
+      copyTasks.every(
         (task) =>
           task.url === "/projects/smoke-project/locations/us-central1/queues/rebuild/tasks" &&
           /\/tasks\/[0-9a-f]{40}$/.test(task.name) &&
@@ -475,6 +702,18 @@ if (process.env.LIVE_REBUILD !== "on") {
     saved.length === 2 &&
       saved.every((line) => line.queued === true && line.task === tasks[0]?.name.slice(-40)),
     JSON.stringify(saves)
+  );
+  const scored = scores.find((line) => line.event === "season");
+  check(
+    "a score saved in a League Standings season queues its window's rebuild, of that season",
+    tasks.length === 3 &&
+      scored?.queued === true &&
+      scored.season === "season-2" &&
+      scored.task === tasks[2]?.name.slice(-40) &&
+      tasks[2]?.name !== tasks[0]?.name &&
+      JSON.parse(Buffer.from(tasks[2]?.httpRequest?.body ?? "", "base64").toString()).data
+        ?.season === "season-2",
+    JSON.stringify({ scores, task: tasks[2] })
   );
   globalThis.fetch = realFetch;
 }

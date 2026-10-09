@@ -218,18 +218,7 @@ describe("a game the two clubs' own schedules score differently", () => {
     const plan = planLeagueScoreFill(
       input({
         scoutGames: [disputed({ teamAScore: 9, teamBScore: 8 })],
-        logs: {
-          m2: {
-            awayRuns: "9",
-            homeRuns: "8",
-            awayHits: "",
-            awayK: "",
-            homeHits: "",
-            homeK: "",
-            innings: "6",
-            isFinal: true,
-          },
-        },
+        logs: { m2: { awayRuns: "9", homeRuns: "8", isFinal: true } },
       })
     );
 

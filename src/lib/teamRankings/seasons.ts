@@ -117,7 +117,7 @@ export const rankingPoolGroupIds = (ageGroupId: string, ageGroups: AgeGroup[]): 
  * group already sits in. The union matters in both directions — a season imported from an older
  * install can be before the run, and advancing a season enough times walks past the end of it.
  */
-export const seasonYearOptions = (ageGroups: AgeGroup[] = []): number[] => {
+export const seasonYearOptions = (ageGroups: readonly AgeGroup[] = []): number[] => {
   const years = new Set<number>();
   for (let index = 0; index < SEASON_YEAR_SPAN; index += 1) years.add(MIN_SEASON_YEAR + index);
   ageGroups.forEach((group) => {
@@ -319,12 +319,13 @@ export const createAgeGroupId = (): string =>
  *
  * A season comes off whatever group held it before, because one league season is played at one
  * age: leaving it on both would count its games twice, once on each table. `null` takes it off
- * Team Rankings altogether.
+ * Team Rankings altogether. `pageId` is the id a group that has to be made gets.
  */
 export const seasonAtAge = (
   seasonId: string,
   season: AgeGroupSeason | null,
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  pageId: string = createAgeGroupId()
 ): { ageGroups: AgeGroup[]; group?: AgeGroup; created: boolean } => {
   const without = ageGroups.map((group) =>
     group.seasonIds.includes(seasonId)
@@ -344,7 +345,7 @@ export const seasonAtAge = (
   }
 
   const group: AgeGroup = {
-    id: createAgeGroupId(),
+    id: pageId,
     name: formatAgeGroupName(season.ageLevel, season.year),
     ageLevel: season.ageLevel,
     year: season.year,

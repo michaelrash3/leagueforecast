@@ -120,6 +120,17 @@ describe("readFullBackup", () => {
     expect(backup.preferences).toEqual({ theme: "dark", appMode: "rankings" });
   });
 
+  it("carries the pool it is given in place of this browser's, as the cloud's copy is", () => {
+    seedBrowser();
+    const copy = { ageGroups: [], teams: [{ id: "S-COPY", name: "Placeholder Copy" }], games: [] };
+    const backup = readFullBackup(undefined, copy);
+
+    expect(backup.teamRankings).toBe(copy);
+    // Everything else is this browser's, as ever.
+    expect(backup.seasons.map((season) => season.name)).toEqual(["Spring 2026", "Fall 2026"]);
+    expect(backup.preferences).toEqual({ theme: "dark", appMode: "rankings" });
+  });
+
   it("prefers live state over storage for the active season, since score writes are debounced", () => {
     seedBrowser();
     const live = {

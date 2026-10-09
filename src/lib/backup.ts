@@ -82,8 +82,13 @@ const nowIso = (): string => {
 /**
  * Assemble the whole-browser backup. `live` is the active season's React state: scores are written
  * to storage on a debounce, so reading storage alone can miss an edit made a moment ago.
+ * `teamRankings` is the pool the file carries: this browser's own unless given, as a browser in the
+ * cloud gives the copy's, which its own pool, if it holds one, is not kept in step with (1.6e).
  */
-export const readFullBackup = (live?: LiveSeasonData): FullBackup => {
+export const readFullBackup = (
+  live?: LiveSeasonData,
+  teamRankings?: TeamRankingsBackup
+): FullBackup => {
   const league: LeagueSnapshot = readLeagueSnapshot();
   const theme = readTheme();
   const appMode = readAppMode();
@@ -96,7 +101,7 @@ export const readFullBackup = (live?: LiveSeasonData): FullBackup => {
     seasons: league.seasons.map((season) =>
       live && season.id === league.activeSeasonId ? { ...season, ...live } : season
     ),
-    teamRankings: readTeamRankingsBackup(),
+    teamRankings: teamRankings ?? readTeamRankingsBackup(),
     preferences: {
       ...(theme ? { theme } : {}),
       ...(appMode ? { appMode } : {}),
@@ -204,12 +209,16 @@ export type FullRestoreResult = { ok: boolean; failed: string[] };
  * Write a whole-browser backup back into storage. Each part reports separately so a partial
  * failure (a quota that runs out mid-restore) can be named rather than reported as success.
  */
-export const applyFullBackup = (backup: FullBackup): FullRestoreResult => {
+export const applyFullBackup = (
+  backup: FullBackup,
+  /** False where the pool is the cloud's, restored there by the server instead (1.6). */
+  { teamRankings = true }: { teamRankings?: boolean } = {}
+): FullRestoreResult => {
   const failed: string[] = [];
   if (!replaceLeagueSnapshot({ activeSeasonId: backup.activeSeasonId, seasons: backup.seasons })) {
     failed.push("seasons");
   }
-  if (!writeTeamRankingsBackup(backup.teamRankings)) failed.push("Team Rankings");
+  if (teamRankings && !writeTeamRankingsBackup(backup.teamRankings)) failed.push("Team Rankings");
   if (backup.preferences.theme && !writeTheme(backup.preferences.theme)) failed.push("theme");
   if (backup.preferences.appMode && !writeAppMode(backup.preferences.appMode)) {
     failed.push("app mode");

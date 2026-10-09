@@ -1,15 +1,9 @@
 import { useState } from "react";
+import type { YearSummary } from "../../lib/yearSummary";
 import { button, card } from "../../styles/tokens";
 
 /** What a squad year holds, so the size of the decision is on the card and not behind a button. */
-export type ArchivableYear = {
-  year: number;
-  pages: number;
-  games: number;
-  teams: number;
-  /** Tables already archived from this year, which a delete takes too. */
-  archives: number;
-};
+export type ArchivableYear = YearSummary;
 
 const plural = (count: number, noun: string) =>
   `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;

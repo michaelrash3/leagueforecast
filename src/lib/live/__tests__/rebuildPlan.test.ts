@@ -1,16 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
+import { poolFixture } from "../../../../scripts/poolFixture";
 import { DATA_SCHEMA, type CloudManifest, type ManifestPart } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { LEGACY_GAMES_KEY, TIDY_STAMP_KEY } from "../../teamRankingsStorage";
+import { EDIT_DEVICE } from "../editRun";
+import { LEAGUE_DOC_SCHEMA, seasonDocId, seasonToDoc } from "../leagueDocs";
 import {
+  askLeagueRebuild,
   askRebuild,
   planCopyWrite,
+  planLeagueWrite,
   REBUILD_SETTLE_S,
   REBUILD_WINDOW_S,
+  LIVE_DEVICES,
+  LIVE_SPACING_S,
   rebuildTask,
   SERVER_DEVICES,
   type RebuildAsk,
 } from "../rebuildPlan";
+import { rescored, seasonsOf } from "./leagueDocsFixture";
 
 /*
  * What a save of the copy asks of the views (`rebuildPlan.ts`): whether it could have moved a
@@ -132,7 +140,7 @@ describe("whether a save asks for a rebuild", () => {
       "league_forecast_gc_refresh_v1",
       TIDY_STAMP_KEY,
       "league_forecast_gc_cadence_v1",
-      "league_forecast_gc_dropped_clubs_v1",
+      "league_forecast_gc_real_clubs_v1",
       "league_forecast_scout_archive_v1",
     ];
     for (const key of others) {
@@ -170,15 +178,25 @@ describe("whether a save asks for a rebuild", () => {
   });
 
   it("asks a server's later check when a server saved it, and only delays it for a name that says so", async () => {
-    expect([...SERVER_DEVICES].sort()).toEqual(["live-edit", "nightly"]);
+    expect([...SERVER_DEVICES].sort()).toEqual(["nightly"]);
     for (const device of SERVER_DEVICES) {
       expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device })), device).toEqual({
         ask: { kind: "server", copy: "c0ffee", version: 5, reset: false },
       });
     }
+    // An edit the edit function made publishes nothing of its own: it is rebuilt soon after.
+    expect([...LIVE_DEVICES]).toEqual(["live-edit"]);
+    expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device: "live-edit" }))).toEqual({
+      ask: { kind: "live", copy: "c0ffee", version: 5, reset: false },
+    });
+    // The very name the edit function saves under, so a rename there cannot move its saves to a
+    // device's two minutes.
+    expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device: EDIT_DEVICE }))).toEqual({
+      ask: { kind: "live", copy: "c0ffee", version: 5, reset: false },
+    });
     // A device is whatever the saving client says; only these exact names are servers. A pull run
     // in the cloud publishes nothing of its own, so its saves are rebuilt as a device's are.
-    for (const device of ["Nightly", "nightly ", "phone", "", "cloud-pull"]) {
+    for (const device of ["Nightly", "nightly ", "phone", "", "cloud-pull", "Live-Edit"]) {
       expect(await askRebuild(BEFORE, saved(SHARD, h(50), { device })), device).toEqual({
         ask: { kind: "edit", copy: "c0ffee", version: 5, reset: false },
       });
@@ -218,8 +236,9 @@ describe("the task a save queues", () => {
       (await rebuildTask(ASK, "2027-04-15T10:02:00.000Z")).id,
       (await rebuildTask(ASK, "2027-04-15T09:59:59.999Z")).id,
       (await rebuildTask(SERVER, at)).id,
+      (await rebuildTask({ ...ASK, kind: "live" }, at)).id,
     ]);
-    expect(ids.size).toBe(4);
+    expect(ids.size).toBe(5);
     for (const id of ids) expect(id).toMatch(/^[0-9a-f]{40}$/);
     // A run builds whatever copy stands when it runs: saves under new copy ids in one window,
     // a client starting the copy afresh at every save, are still one task.
@@ -237,9 +256,17 @@ describe("the task a save queues", () => {
     expect(edit.id).not.toBe(server.id);
   });
 
-  it("runs after its window has closed and settled: five seconds for an edit, ten minutes for a server", async () => {
-    expect(REBUILD_WINDOW_S).toEqual({ edit: 120, server: 900 });
-    expect(REBUILD_SETTLE_S).toEqual({ edit: 5, server: 600 });
+  it("runs after its window has closed and settled: five seconds for an edit or a season's, ten minutes for a server, three for an edit made on the server", async () => {
+    expect(REBUILD_WINDOW_S).toEqual({ edit: 120, server: 900, live: 15, league: 120 });
+    expect(REBUILD_SETTLE_S).toEqual({ edit: 5, server: 600, live: 3, league: 5 });
+    expect(LIVE_SPACING_S).toBe(60);
+    const live: RebuildAsk = { ...ASK, kind: "live" };
+    expect((await rebuildTask(live, "2027-04-15T10:00:14.999Z")).scheduleTime.toISOString()).toBe(
+      "2027-04-15T10:00:18.000Z"
+    );
+    expect((await rebuildTask(live, "2027-04-15T10:00:15.000Z")).scheduleTime.toISOString()).toBe(
+      "2027-04-15T10:00:33.000Z"
+    );
     const runs = async (ask: RebuildAsk, at: string) =>
       (await rebuildTask(ask, at)).scheduleTime.toISOString();
     for (const at of [
@@ -323,5 +350,119 @@ describe("what one write of the copy does", () => {
       });
     }
     expect(readSwitch).not.toHaveBeenCalled();
+  });
+});
+
+describe("whether a League Standings season's write asks for a rebuild", () => {
+  const [SEASON] = seasonsOf(poolFixture({ seed: 7, clubsPerPage: 10 }).seasons);
+  if (!SEASON) throw new Error("no season");
+  const ID = seasonDocId(SEASON.id);
+  /** The season's document as stored, at write `rev`. */
+  const docOf = (season = SEASON, rev = 1) =>
+    JSON.parse(JSON.stringify(seasonToDoc(season, rev))) as Record<string, unknown>;
+  const BEFORE_DOC = docOf();
+  const ask = { ask: { kind: "league", season: ID } };
+
+  it("asks when a team, a game or a score moved", async () => {
+    expect(await askLeagueRebuild(BEFORE_DOC, docOf(rescored(SEASON), 2), ID)).toEqual(ask);
+    const [game] = SEASON.matchups;
+    if (!game) throw new Error("no game");
+    const moved = {
+      ...SEASON,
+      matchups: SEASON.matchups.map((one) =>
+        one.id === game.id ? { ...one, date: "2027-06-30" } : one
+      ),
+    };
+    expect(await askLeagueRebuild(BEFORE_DOC, docOf(moved, 2), ID)).toEqual(ask);
+    const renamedTeam = {
+      ...SEASON,
+      teams: SEASON.teams.map((team, index) =>
+        index === 0 ? { ...team, name: `${team.name} 2` } : team
+      ),
+    };
+    expect(await askLeagueRebuild(BEFORE_DOC, docOf(renamedTeam, 2), ID)).toEqual(ask);
+  });
+
+  it("does not when only what no board reads moved: its name, a setting, a bracket's score", async () => {
+    const skip = { skip: "no-board-input" };
+    const renamed = { ...SEASON, name: "Another name", updatedAt: "2027-04-16T00:00:00.000Z" };
+    expect(await askLeagueRebuild(BEFORE_DOC, docOf(renamed, 2), ID)).toEqual(skip);
+    const set = {
+      ...SEASON,
+      settings: { ...SEASON.settings, goldCutoff: SEASON.settings.goldCutoff + 1 },
+    };
+    expect(await askLeagueRebuild(BEFORE_DOC, docOf(set, 2), ID)).toEqual(skip);
+    const [scored] = Object.values(SEASON.logs);
+    if (!scored) throw new Error("no score");
+    const bracket = { ...SEASON, bracketLogs: { "final-1": scored } };
+    expect(await askLeagueRebuild(BEFORE_DOC, docOf(bracket, 2), ID)).toEqual(skip);
+  });
+
+  it("asks when a season is made or deleted, whatever it holds, and when it now reads", async () => {
+    expect(await askLeagueRebuild(undefined, BEFORE_DOC, ID)).toEqual(ask);
+    expect(await askLeagueRebuild(BEFORE_DOC, null, ID)).toEqual(ask);
+    expect(await askLeagueRebuild({ schema: 1 }, BEFORE_DOC, ID)).toEqual(ask);
+    expect(await askLeagueRebuild(undefined, null, ID)).toEqual({ skip: "no-document" });
+  });
+
+  it("does not for a season this build cannot read, or one a newer build wrote", async () => {
+    expect(await askLeagueRebuild(BEFORE_DOC, { schema: 1 }, ID)).toEqual({ skip: "unreadable" });
+    expect(
+      await askLeagueRebuild(BEFORE_DOC, { ...BEFORE_DOC, schema: LEAGUE_DOC_SCHEMA + 1 }, ID)
+    ).toEqual({ skip: "newer-league" });
+  });
+
+  it("queues the window's task while rebuilds are on, and reads no switch for a write that asks nothing", async () => {
+    const at = "2027-04-15T10:01:00.000Z";
+    const after = docOf(rescored(SEASON), 2);
+    const on = vi.fn(async () => true);
+    const planned = await planLeagueWrite({
+      before: BEFORE_DOC,
+      after,
+      docId: ID,
+      eventTime: at,
+      readSwitch: on,
+    });
+    expect(planned).toEqual({
+      enqueue: await rebuildTask({ kind: "league", season: ID }, at),
+      ask: { kind: "league", season: ID },
+    });
+    if (!("enqueue" in planned)) throw new Error("not queued");
+    // Two minutes' writes share one task, run five seconds after they close.
+    expect(planned.enqueue.scheduleTime.toISOString()).toBe("2027-04-15T10:02:05.000Z");
+    expect(REBUILD_WINDOW_S.league).toBe(120);
+    const off = vi.fn(async () => false);
+    expect(
+      await planLeagueWrite({
+        before: BEFORE_DOC,
+        after,
+        docId: ID,
+        eventTime: at,
+        readSwitch: off,
+      })
+    ).toEqual({ skip: "off" });
+    const failing = vi.fn(async (): Promise<boolean> => {
+      throw new Error("unavailable");
+    });
+    expect(
+      await planLeagueWrite({
+        before: BEFORE_DOC,
+        after,
+        docId: ID,
+        eventTime: at,
+        readSwitch: failing,
+      })
+    ).toMatchObject({ ask: { kind: "league" } });
+    const unread = vi.fn(async () => true);
+    expect(
+      await planLeagueWrite({
+        before: BEFORE_DOC,
+        after: docOf(SEASON, 2),
+        docId: ID,
+        eventTime: at,
+        readSwitch: unread,
+      })
+    ).toEqual({ skip: "no-board-input" });
+    expect(unread).not.toHaveBeenCalled();
   });
 });

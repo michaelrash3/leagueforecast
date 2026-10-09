@@ -137,3 +137,33 @@ export const writeDefaultAge = (pick: DefaultAge | null): boolean => {
 /** The level the default age's class plays at in squad year `year`: 9U in 2027 is 10U in 2028. */
 export const defaultLevelIn = (pick: DefaultAge, year: number): number =>
   year - (pick.year - pick.level);
+
+/** Listeners told when this device first meets the cloud's League documents (`noteLeagueMet`). */
+const leagueMetListeners = new Set<() => void>();
+
+const LEAGUE_MET_KEY = "lf_league_met_v1";
+
+/**
+ * The account this device first met the cloud's League Standings documents as (`meetSeasons`), once
+ * it has. Until then the cloud copy still brings League in here, so a device going live for the
+ * first time is in step with the copy before its seasons meet the cloud's, and sends the copy's
+ * seasons up rather than older ones of its own (`cloudSession.ts`). Kept per device, whichever
+ * account is signed in after, since every account on the list shares one cloud, and cleared with
+ * the rest of the app's keys by a reset.
+ */
+export const leagueMetAs = (): string | null => safeGet(LEAGUE_MET_KEY);
+
+/** Notes that this device has met the cloud's League documents as `uid`, and says so. */
+export const noteLeagueMet = (uid: string): boolean => {
+  const written = safeSet(LEAGUE_MET_KEY, uid);
+  leagueMetListeners.forEach((listener) => listener());
+  return written;
+};
+
+/** Calls `listener` whenever this device's first meeting is noted; for `useSyncExternalStore`. */
+export const subscribeLeagueMet = (listener: () => void): (() => void) => {
+  leagueMetListeners.add(listener);
+  return () => {
+    leagueMetListeners.delete(listener);
+  };
+};

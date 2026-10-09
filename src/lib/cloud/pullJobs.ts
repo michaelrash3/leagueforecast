@@ -7,10 +7,11 @@ import type { CloudPullEnd } from "./cloudRunner";
  * GameChanger teams, filed into the cloud copy by a Firebase function while the device that sent
  * it does whatever else it likes, or nothing at all.
  *
- * It lives beside the copy it pulls into, where the rules already let a signed-in device write:
- * - `copies/main/jobs/{jobId}`: the job, a `PullJob`, which the device writes last and the function
- *   keeps up to date as it works, so the device reads how far it has got from the one document;
- * - `copies/main/jobs/{jobId}/pieces/{n}`: the list, gzipped JSON in pieces, `{ data: Bytes }`,
+ * It lives in a collection of its own, outside the copy, which only servers write (1.6f): the rules
+ * let a member make a job and its pieces, read them, and ask a job to stop, and nothing else.
+ * - `pullJobs/{jobId}`: the job, a `PullJob`, which the device writes last and the function keeps
+ *   up to date as it works, so the device reads how far it has got from the one document;
+ * - `pullJobs/{jobId}/pieces/{n}`: the list, gzipped JSON in pieces, `{ data: Bytes }`,
  *   packed as the copy packs a value (`cloudPack.ts`) and checked against its fingerprint on the
  *   way back, so a list is never pulled half from one upload and half from another.
  *
@@ -28,7 +29,7 @@ export const JOB_FORMAT = 1;
  */
 export const LEG_TEAMS = 25_000;
 
-export const jobPath = (jobId: string): string => `copies/main/jobs/${jobId}`;
+export const jobPath = (jobId: string): string => `pullJobs/${jobId}`;
 export const jobPiecePath = (jobId: string, index: number): string =>
   `${jobPath(jobId)}/pieces/${index}`;
 
@@ -65,6 +66,12 @@ export type PullJob = {
   list: { hash: string; teams: number; pieces: number };
   /** The squad years the device's pull files into (`GcImportOptions.seasonYears`); empty for any. */
   seasonYears: number[];
+  /**
+   * Every team on the list pulled again, already in the pool or not: a catch-up the page asks for
+   * (the teams nobody could age, the rosters to check). Without it a list is a paste, and only its
+   * teams the pool lacks are pulled (`cloudRunner.ts`, `listIds`).
+   */
+  refresh?: true;
   /**
    * The device's time zone, which is what "today" is in for the importer and the day log: the
    * function runs in Google's, which is not the user's.
@@ -156,6 +163,7 @@ export const newPullJob = ({
   device,
   now,
   legTeams = LEG_TEAMS,
+  refresh = false,
 }: {
   list: PullJob["list"];
   seasonYears: readonly number[];
@@ -163,10 +171,12 @@ export const newPullJob = ({
   device: string;
   now: string;
   legTeams?: number;
+  refresh?: boolean;
 }): PullJob => ({
   format: JOB_FORMAT,
   list,
   seasonYears: [...seasonYears],
+  ...(refresh ? { refresh: true as const } : {}),
   timeZone,
   device,
   createdAt: now,
@@ -219,6 +229,7 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     !whole(list.pieces) ||
     !Array.isArray(raw.seasonYears) ||
     !raw.seasonYears.every(whole) ||
+    !(raw.refresh === undefined || raw.refresh === true) ||
     !text(raw.timeZone) ||
     !text(raw.device) ||
     !text(raw.createdAt) ||
@@ -247,6 +258,7 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     format: JOB_FORMAT,
     list: { hash: list.hash, teams: list.teams, pieces: list.pieces },
     seasonYears: raw.seasonYears,
+    ...(raw.refresh === true ? { refresh: true as const } : {}),
     timeZone: raw.timeZone,
     device: raw.device,
     createdAt: raw.createdAt,

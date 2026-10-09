@@ -19,6 +19,8 @@ import {
   saveTidyStamp,
 } from "../../teamRankingsStorage";
 import { BOARD_FAMILY, builtFrom } from "../boardInputs";
+import { NO_LEAGUE_DOCS, readCloudLeague } from "../cloudLeague";
+import { LEAGUE_DOC_SCHEMA } from "../leagueDocs";
 import { createPoolCache, type PoolCache, type PoolEnsure } from "../poolCache";
 import { publishCopyViews } from "../publishCopy";
 import {
@@ -32,8 +34,10 @@ import {
   type RebuildResult,
 } from "../rebuild";
 import { coerceLedger, type Ledger, type LedgerStore } from "../rebuildLedger";
+import { LIVE_SPACING_S, spacedTask, type RebuildTask } from "../rebuildPlan";
 import { BOARD_RULES } from "../views/board";
 import { LIVE_SCHEMA, type LiveMeta, type LiveStore } from "../viewStore";
+import { docsOf, listing, rescored, seasonsOf, type ListedDoc } from "./leagueDocsFixture";
 import { memoryLive, type MemoryLive } from "./memoryLive";
 
 /*
@@ -163,7 +167,7 @@ const viewsOf = (meta: LiveMeta | null) =>
 const rebuild = (
   over: Partial<Parameters<typeof runRebuild>[0]> &
     Pick<Parameters<typeof runRebuild>[0], "copyStore" | "liveStore" | "pool">
-) => runRebuild({ today, now, locale: "en-US", ...over });
+) => runRebuild({ today, now, locale: "en-US", leagueDocs: NO_LEAGUE_DOCS, ...over });
 
 /** The boards a nightly publishes from what `cloud` holds now, into `live`. */
 const nightly = async (cloud: MemoryCloud, live: MemoryLive) => {
@@ -181,6 +185,19 @@ const nightly = async (cloud: MemoryCloud, live: MemoryLive) => {
   resetTeamRankingsStore();
   return loaded.manifest;
 };
+
+/** The fixture's seasons as their documents, and with one final score changed. */
+const SEASONS = seasonsOf(fixture.seasons);
+const DOCS = docsOf(SEASONS);
+const RESCORED = docsOf(SEASONS.map((season, index) => (index === 0 ? rescored(season) : season)));
+const printOf = async (docs: readonly ListedDoc[]): Promise<string> => {
+  const league = await readCloudLeague(listing(docs));
+  if (!league.ok || league.from !== "docs") throw new Error("not read from the documents");
+  return league.print;
+};
+const NEWER: ListedDoc[] = DOCS.map((doc, index) =>
+  index === 0 ? { ...doc, fields: { ...doc.fields, schema: LEAGUE_DOC_SCHEMA + 1 } } : doc
+);
 
 let V1 = new Map<string, unknown>();
 let V2 = new Map<string, unknown>();
@@ -549,6 +566,70 @@ describe("a rebuild in the worker", () => {
     await pool.drop();
   });
 
+  it("publishes again when only a League Standings season's document changed, at the copy's own version", async () => {
+    const cloud = memoryCloud();
+    const manifest = await save(cloud, null, V1);
+    const live = memoryLive();
+    const pool = createPoolCache();
+    let held = DOCS;
+    const run = () =>
+      rebuild({
+        copyStore: readOnly(cloud),
+        liveStore: live.store,
+        pool,
+        leagueDocs: async () => held,
+      });
+    expect(await run()).toMatchObject({ end: "published", version: 1, wrote: true });
+    expect(live.meta()?.built[BOARD_FAMILY]).toEqual(
+      await builtFrom(manifest, TODAY, await printOf(DOCS))
+    );
+    const views = viewsOf(live.meta());
+    expect(await run()).toMatchObject({ end: "current" });
+    // A score saved on a phone: the copy has not moved, and nothing of it is fetched.
+    held = RESCORED;
+    expect(await run()).toMatchObject({ end: "published", version: 1, fetched: 0, wrote: true });
+    expect(live.meta()?.built[BOARD_FAMILY]?.league).toBe(await printOf(RESCORED));
+    const moved = Object.entries(viewsOf(live.meta())).filter(([key, h]) => views[key] !== h);
+    expect(moved.length).toBeGreaterThan(0);
+    // The boards built from the copy's part, with no documents, are another build's: stale.
+    held = [];
+    expect(await run()).toMatchObject({ end: "published", version: 1 });
+    expect(live.meta()?.built[BOARD_FAMILY]).toEqual(await builtFrom(manifest, TODAY));
+    await pool.drop();
+  });
+
+  it("leaves a season a newer build saved, and goes again when a season changed under its commit", async () => {
+    const cloud = memoryCloud();
+    await save(cloud, null, V1);
+    const live = memoryLive();
+    const pool = createPoolCache();
+    // Boards current for the copy's own part, before any season had a document.
+    expect(
+      await rebuild({ copyStore: readOnly(cloud), liveStore: live.store, pool })
+    ).toMatchObject({ end: "published" });
+    const published = live.meta();
+    const newer = await rebuild({
+      copyStore: readOnly(cloud),
+      liveStore: live.store,
+      pool,
+      leagueDocs: listing(NEWER),
+    });
+    expect(newer).toMatchObject({ end: "newer-league", retryable: false });
+    expect(live.meta()).toEqual(published);
+    live.setMeta(null);
+    // Read once for the run, and again just before the commit, by when a score had been saved.
+    let reads = 0;
+    const moving = await rebuild({
+      copyStore: readOnly(cloud),
+      liveStore: live.store,
+      pool,
+      leagueDocs: async () => (++reads > 1 ? RESCORED : DOCS),
+    });
+    expect(moving).toMatchObject({ end: "kept-moving", retryable: true });
+    expect(live.meta()).toBeNull();
+    await pool.drop();
+  });
+
   it("counts as failures only the ends that are not its job done or a newer one's", () => {
     for (const end of [
       "published",
@@ -563,6 +644,7 @@ describe("a rebuild in the worker", () => {
       "newer-schema",
       "newer-rules",
       "unknown-key",
+      "newer-league",
     ] as const) {
       expect(isRebuildFailure(end), end).toBe(false);
     }
@@ -626,6 +708,7 @@ describe("a rebuild task on the main thread", () => {
     return handleRebuildTask({
       copyStore: readOnly(cloud),
       liveStore: live.store,
+      leagueDocs: NO_LEAGUE_DOCS,
       run: async () => {
         clock += 61_200;
         return { end: "published", retryable: false, tries: 1 };
@@ -666,6 +749,45 @@ describe("a rebuild task on the main thread", () => {
     expect(run).not.toHaveBeenCalled();
     expect(ledger.reads.count + cloud.costs.reads + live.costs.reads - reads).toBe(3);
     expect(ledger.held()).toMatchObject({ dayGiBs: 0, open: null });
+  });
+
+  it("reads the seasons' documents beside the copy: boards built before a season changed are stale", async () => {
+    const { cloud, live } = await setUp({ current: true });
+    const ledger = memoryLedger(SWITCH);
+    const run = vi.fn<() => Promise<RebuildResult>>(async () => ({
+      end: "published",
+      retryable: false,
+      tries: 1,
+    }));
+    // The nightly built them from the copy's part; the seasons now have documents.
+    const done = await handle({
+      ledger: ledger.store,
+      cloud,
+      live,
+      run,
+      leagueDocs: listing(DOCS),
+    });
+    expect(done.line.end).toBe("published");
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a season a newer build saved before reserving anything", async () => {
+    const { cloud, live } = await setUp({ current: false });
+    const ledger = memoryLedger(SWITCH);
+    const run = vi.fn<() => Promise<RebuildResult>>();
+    const done = await handle({
+      ledger: ledger.store,
+      cloud,
+      live,
+      run,
+      leagueDocs: listing(NEWER),
+    });
+    expect(done).toEqual({
+      line: { end: "newer-league", copy: cloud.manifest()!.copy, version: 2 },
+      rethrow: false,
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(ledger.held()?.open).toBeNull();
   });
 
   it("leaves newer rules' boards before reserving anything", async () => {
@@ -754,6 +876,153 @@ describe("a rebuild task on the main thread", () => {
       monthVcpuS: 122,
       failures: 0,
       open: null,
+    });
+  });
+
+  describe("a quick rebuild, after the edit function's save", () => {
+    const LIVE_TASK: RebuildTask = {
+      copy: "c",
+      kind: "live",
+      window: 1,
+      savedAt: "2027-04-15T13:59:50.000Z",
+    };
+    /** When a run ended, `seconds` before this one is handled. */
+    const ended = (seconds: number) => new Date(Date.parse(NOW) - seconds * 1000).toISOString();
+    type Queued = { id: string; scheduleTime: Date; task: RebuildTask };
+
+    it("waits out the spacing in the queue when the last run ended under a minute ago, reserving nothing", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const ledger = memoryLedger({ ...SWITCH, lastEndedAt: ended(20) });
+      const queued: Queued[] = [];
+      const run = vi.fn<() => Promise<RebuildResult>>();
+      const done = await handle({
+        ledger: ledger.store,
+        cloud,
+        live,
+        run,
+        task: LIVE_TASK,
+        enqueue: async (one) => {
+          queued.push(one);
+        },
+      });
+      const due = new Date(Date.parse(ended(20)) + LIVE_SPACING_S * 1000);
+      expect(queued).toEqual([{ id: expect.any(String), scheduleTime: due, task: LIVE_TASK }]);
+      expect(done).toEqual({
+        line: {
+          kind: "live",
+          savedAt: LIVE_TASK.savedAt,
+          copy: cloud.manifest()!.copy,
+          version: 2,
+          end: "spaced",
+          until: due.toISOString(),
+          task: queued[0]?.id,
+        },
+        rethrow: false,
+      });
+      expect(run).not.toHaveBeenCalled();
+      expect(ledger.held()).toMatchObject({ dayGiBs: 0, open: null });
+    });
+
+    it("runs at once a minute or more after the last run ended, or before any has", async () => {
+      for (const lastEndedAt of [ended(LIVE_SPACING_S), ended(600), null]) {
+        const { cloud, live } = await setUp({ current: false });
+        const enqueue = vi.fn(async () => undefined);
+        const done = await handle({
+          ledger: memoryLedger({ ...SWITCH, lastEndedAt }).store,
+          cloud,
+          live,
+          task: LIVE_TASK,
+          enqueue,
+        });
+        expect([lastEndedAt, done.line.end]).toEqual([lastEndedAt, "published"]);
+        expect(enqueue).not.toHaveBeenCalled();
+      }
+    });
+
+    it("spaces no other kind of rebuild", async () => {
+      for (const kind of ["edit", "server"] as const) {
+        const { cloud, live } = await setUp({ current: false });
+        const enqueue = vi.fn(async () => undefined);
+        const done = await handle({
+          ledger: memoryLedger({ ...SWITCH, lastEndedAt: ended(5) }).store,
+          cloud,
+          live,
+          task: { ...LIVE_TASK, kind },
+          enqueue,
+        });
+        expect([kind, done.line.end]).toEqual([kind, "published"]);
+        expect(enqueue).not.toHaveBeenCalled();
+      }
+    });
+
+    it("queues every quick rebuild spaced from one run under one id, so one build follows them", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const ledger = memoryLedger({ ...SWITCH, lastEndedAt: ended(20) });
+      const queued: Queued[] = [];
+      for (const window of [1, 2, 3]) {
+        await handle({
+          ledger: ledger.store,
+          cloud,
+          live,
+          task: { ...LIVE_TASK, window },
+          enqueue: async (one) => {
+            queued.push(one);
+          },
+        });
+      }
+      expect(new Set(queued.map(({ id }) => id)).size).toBe(1);
+    });
+
+    it("runs the task queued for the spacing when it comes, even early by this instance's clock", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const due = Date.parse(ended(20)) + LIVE_SPACING_S * 1000;
+      const enqueue = vi.fn(async () => undefined);
+      const done = await handle({
+        ledger: memoryLedger({ ...SWITCH, lastEndedAt: ended(20) }).store,
+        cloud,
+        live,
+        task: LIVE_TASK,
+        taskId: (await spacedTask(LIVE_TASK, due)).id,
+        enqueue,
+      });
+      expect(done.line.end).toBe("published");
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it("leaves a quick rebuild the queue would not take again to the queue's own retry", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const run = vi.fn<() => Promise<RebuildResult>>();
+      const done = await handle({
+        ledger: memoryLedger({ ...SWITCH, lastEndedAt: ended(20) }).store,
+        cloud,
+        live,
+        run,
+        task: LIVE_TASK,
+        enqueue: async () => {
+          throw new Error("the queue is busy");
+        },
+      });
+      expect(done).toMatchObject({
+        line: { end: "spaced", error: "the queue is busy" },
+        rethrow: true,
+      });
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("is spaced from when the last run settled, which every run records", async () => {
+      const { cloud, live } = await setUp({ current: false });
+      const ledger = memoryLedger(SWITCH);
+      // The clock reads when the handling began, then half a minute on, once the build is done.
+      const settled = new Date(Date.parse(NOW) + 30_000).toISOString();
+      const times = [NOW];
+      const done = await handle({
+        ledger: ledger.store,
+        cloud,
+        live,
+        now: () => times.shift() ?? settled,
+      });
+      expect(done.line.end).toBe("published");
+      expect(ledger.held()?.lastEndedAt).toBe(settled);
     });
   });
 

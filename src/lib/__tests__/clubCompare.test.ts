@@ -63,6 +63,18 @@ describe("two clubs side by side", () => {
     expect(compared.a.lastFive.map((r) => r.gameId)).toEqual(["u4", "u3", "u2", "u1", "h1"]);
   });
 
+  it("keeps two results of one day in the order the games are given, as a club's panel does", () => {
+    // Ids that sort the other way round: the order is the list's, not the ids'.
+    const sameDay = [
+      played("z9", "US", "BEARS", 5, 1, "2026-09-20"),
+      played("a1", "US", "CUBS", 3, 2, "2026-09-20"),
+    ];
+    const both = compareClubs("US", "THEM", sameDay, rows, nameOf, () => true);
+    expect(both.a.lastFive.map((r) => r.gameId)).toEqual(["z9", "a1"]);
+    const reversed = compareClubs("US", "THEM", [...sameDay].reverse(), rows, nameOf, () => true);
+    expect(reversed.a.lastFive.map((r) => r.gameId)).toEqual(["a1", "z9"]);
+  });
+
   it("reads each side's score as its own schedule gave it", () => {
     const disputed = { ...games[0]!, reportedByB: { teamAScore: 4, teamBScore: 7 } } as ScoutGame;
     const both = compareClubs("US", "THEM", [disputed], rows, nameOf, () => true);

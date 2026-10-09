@@ -22,6 +22,11 @@ type ModelCheckCardProps = {
    * the pool changed before it was done. Without it the check is worked out on the page.
    */
   check?: () => Promise<ModelCheckAnswer | null>;
+  /**
+   * What is said when `check` resolves to null, where that is not the pool changing: the live
+   * page's check is a question to the server, and a toast has already said why it went unanswered.
+   */
+  unanswered?: string;
 };
 
 const runs = (value: number | null): string => (value === null ? "—" : `${value.toFixed(2)} runs`);
@@ -58,6 +63,7 @@ export function ModelCheckCard({
   games,
   ageGroups,
   check,
+  unanswered,
 }: ModelCheckCardProps) {
   /** The answer, and the page it was worked out for: one for 9U is not one for 10U. */
   const [answered, setAnswered] = useState<{ ageGroupId: string; answer: ModelCheckAnswer } | null>(
@@ -128,8 +134,8 @@ export function ModelCheckCard({
         </button>
         {interrupted && !working && (
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400" role="status">
-            The pool changed while this ran, so its answer would be about games that are not there
-            any more. Run it again.
+            {unanswered ??
+              "The pool changed while this ran, so its answer would be about games that are not there any more. Run it again."}
           </p>
         )}
       </div>

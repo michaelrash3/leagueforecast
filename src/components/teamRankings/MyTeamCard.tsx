@@ -11,6 +11,16 @@ type MyTeamCardProps = {
   /** Which half of the season the numbers are for, when the page has one. */
   segmentName?: string;
   onOpenTeam: (teamId: string) => void;
+  /**
+   * Whether the schedule is still to come in: the live board has the places but not the games, so
+   * "no game on the schedule" would be a guess.
+   */
+  nextPending?: boolean;
+  /**
+   * Whether the schedule could not be had: the live board's card of the club would not read, so
+   * the card says nothing of a next game rather than that there is none.
+   */
+  nextUnread?: boolean;
 };
 
 /**
@@ -83,7 +93,14 @@ export function RankLine({ history, now }: { history: RankHistoryPoint[]; now: n
   );
 }
 
-export function MyTeamCard({ glance, segmentName, onOpenTeam, history }: MyTeamCardProps) {
+export function MyTeamCard({
+  glance,
+  segmentName,
+  onOpenTeam,
+  history,
+  nextPending = false,
+  nextUnread = false,
+}: MyTeamCardProps) {
   const { next } = glance;
   return (
     <section aria-label="My team" className={`${card} p-4`}>
@@ -128,22 +145,26 @@ export function MyTeamCard({ glance, segmentName, onOpenTeam, history }: MyTeamC
         {glance.record} · {formatRating(glance.rating)}
       </p>
       {history && <RankLine history={history} now={glance.nationalRank} />}
-      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-        {next ? (
-          <>
-            Next: {next.date ? formatIsoDayShort(next.date) : "date to come"} vs{" "}
-            <strong>{next.opponentName}</strong>
-            {next.opponentRank !== undefined && ` (#${next.opponentRank.toLocaleString()})`}
-            {next.winProb === undefined
-              ? " — not rated yet"
-              : next.unconnected
-                ? ` — ${Math.round(next.winProb * 100)}% to win, a guess: no shared opponents yet`
-                : ` — ${Math.round(next.winProb * 100)}% to win`}
-          </>
-        ) : (
-          "No game on the schedule yet."
-        )}
-      </p>
+      {(next || !nextUnread) && (
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          {next ? (
+            <>
+              Next: {next.date ? formatIsoDayShort(next.date) : "date to come"} vs{" "}
+              <strong>{next.opponentName}</strong>
+              {next.opponentRank !== undefined && ` (#${next.opponentRank.toLocaleString()})`}
+              {next.winProb === undefined
+                ? " — not rated yet"
+                : next.unconnected
+                  ? ` — ${Math.round(next.winProb * 100)}% to win, a guess: no shared opponents yet`
+                  : ` — ${Math.round(next.winProb * 100)}% to win`}
+            </>
+          ) : nextPending ? (
+            "Next game: loading…"
+          ) : (
+            "No game on the schedule yet."
+          )}
+        </p>
+      )}
     </section>
   );
 }

@@ -269,6 +269,41 @@ const saveActive = (dataKey: DataKey, value: unknown): boolean => {
   if (ok && changed) touchSeason(id);
   return ok;
 };
+/**
+ * Writes a season's data, all of it at once, to the season named, if this browser still holds it:
+ * League kept live writes a season here before it keeps anything of its document
+ * (`leagueSync.ts`), and a season deleted meanwhile is not written back into storage.
+ */
+export const writeSeasonData = (
+  id: string,
+  data: {
+    teams: TeamBase[];
+    matchups: Matchup[];
+    logs: Record<string, GameLog>;
+    bracketLogs: Record<string, GameLog>;
+    settings: Settings;
+  }
+): boolean => {
+  ensureInitialized();
+  if (!readSeasons().some((season) => season.id === id)) return false;
+  let ok = true;
+  let changed = false;
+  const write = (dataKey: DataKey, value: unknown) => {
+    const key = seasonKey(id, dataKey);
+    const text = JSON.stringify(value);
+    if (safeGet(key) === text) return;
+    changed = true;
+    if (!safeSet(key, text)) ok = false;
+  };
+  write("teams", data.teams);
+  write("matchups", data.matchups);
+  write("logs", data.logs);
+  write("bracketLogs", data.bracketLogs);
+  write("settings", data.settings);
+  if (ok && changed) touchSeason(id);
+  return ok;
+};
+
 export const saveTeams = (teams: TeamBase[]) => saveActive("teams", teams);
 export const saveMatchups = (matchups: Matchup[]) => saveActive("matchups", matchups);
 export const saveLogs = (logs: Record<string, GameLog>) => saveActive("logs", logs);
@@ -325,6 +360,20 @@ export const renameSeason = (id: string, name: string): boolean => {
   if (!seasons.some((season) => season.id === id)) return false;
   writeSeasons(seasons.map((season) => (season.id === id ? { ...season, name: trimmed } : season)));
   return true;
+};
+
+/**
+ * Gives a season the creation time of the season it has become: League kept live, a device whose
+ * season of this id held nothing takes in the cloud's season of it whole (`leagueSync.ts`), and from
+ * then on it is that season, made when that one was. Without it, the next visit would take the two
+ * times for two seasons and keep them apart.
+ */
+export const adoptSeasonCreatedAt = (id: string, createdAt: string): boolean => {
+  ensureInitialized();
+  const seasons = readSeasons();
+  const season = seasons.find((one) => one.id === id);
+  if (!season || season.createdAt === createdAt) return false;
+  return writeSeasons(seasons.map((one) => (one.id === id ? { ...one, createdAt } : one)));
 };
 
 /** Copy every stored key of `id` into a brand-new season and return its metadata. */
@@ -394,15 +443,24 @@ export const readLeagueSnapshot = (): LeagueSnapshot => {
   ensureInitialized();
   return {
     activeSeasonId: activeId(),
-    seasons: readSeasons().map((season) => ({
-      ...season,
-      teams: loadTeamsFor(season.id),
-      matchups: loadMatchupsFor(season.id),
-      logs: loadLogsFor(season.id),
-      bracketLogs: loadBracketLogsForSeason(season.id),
-      settings: loadSettingsFor(season.id),
-    })),
+    seasons: readSeasons().map(snapshotOf),
   };
+};
+
+const snapshotOf = (season: SeasonMeta): SeasonSnapshot => ({
+  ...season,
+  teams: loadTeamsFor(season.id),
+  matchups: loadMatchupsFor(season.id),
+  logs: loadLogsFor(season.id),
+  bracketLogs: loadBracketLogsForSeason(season.id),
+  settings: loadSettingsFor(season.id),
+});
+
+/** One season and all of its data, as a backup carries it, or null for a season not here. */
+export const readSeasonSnapshot = (id: string): SeasonSnapshot | null => {
+  ensureInitialized();
+  const season = readSeasons().find((one) => one.id === id);
+  return season ? snapshotOf(season) : null;
 };
 
 /**
@@ -422,6 +480,43 @@ export const replaceLeagueSnapshot = (
     return replaceSeasons(snapshot);
   } finally {
     if (fromCloud) arriving -= 1;
+  }
+};
+
+/**
+ * Adds seasons this browser does not hold, each under its own id, after those it has: seasons made
+ * on another device and taken in from the cloud (`leagueSeasons.ts`). A season whose id is already
+ * here is left as it is. Written as the cloud's own arriving, which owes the cloud copy nothing.
+ */
+export const addSeasons = (seasons: readonly SeasonSnapshot[]): boolean => {
+  ensureInitialized();
+  const held = readSeasons();
+  const taken = new Set(held.map((season) => season.id));
+  const fresh = seasons.filter((season) => !taken.has(season.id));
+  if (fresh.length === 0) return true;
+  arriving += 1;
+  try {
+    let ok = true;
+    fresh.forEach((season) => {
+      const write = (dataKey: DataKey, value: unknown) => {
+        if (!safeSet(seasonKey(season.id, dataKey), JSON.stringify(value))) ok = false;
+      };
+      write("teams", season.teams);
+      write("matchups", season.matchups);
+      write("logs", season.logs);
+      write("bracketLogs", season.bracketLogs);
+      write("settings", season.settings);
+    });
+    const meta = fresh.map(({ id, name, createdAt, updatedAt }) => ({
+      id,
+      name,
+      createdAt,
+      ...(updatedAt ? { updatedAt } : {}),
+    }));
+    if (!writeSeasons([...held, ...meta])) ok = false;
+    return ok;
+  } finally {
+    arriving -= 1;
   }
 };
 

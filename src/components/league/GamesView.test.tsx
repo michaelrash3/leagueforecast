@@ -275,3 +275,27 @@ describe("what a game card can do to the schedule", () => {
     expect(spies.toggleFinal).toHaveBeenCalledWith("g-open");
   });
 });
+
+describe("filling scores from Team Rankings", () => {
+  it("says the scores are being asked for, and takes no second press meanwhile", async () => {
+    const user = userEvent.setup();
+    const { spies } = renderGamesView({ teams, scoreboardGames: [open], scoreFillAsking: true });
+
+    const button = screen.getByRole("button", { name: "Fill scores from Team Rankings" });
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText(/Asking Team Rankings in the cloud/)).toBeInTheDocument();
+    await user.click(button);
+
+    expect(spies.openScoreFill).not.toHaveBeenCalled();
+  });
+
+  it("asks when pressed, with nothing being asked", async () => {
+    const user = userEvent.setup();
+    const { spies } = renderGamesView({ teams, scoreboardGames: [open] });
+
+    await user.click(screen.getByRole("button", { name: "Fill scores from Team Rankings" }));
+
+    expect(spies.openScoreFill).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Asking Team Rankings in the cloud/)).toBeNull();
+  });
+});

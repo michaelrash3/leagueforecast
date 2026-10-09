@@ -2,8 +2,12 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRankingsWorker } from "./useRankingsWorker";
 import { loadSavedBoard, resetSavedBoard, saveBoard } from "../lib/savedBoard";
+import { forgetLiveBoard, holdLiveBoard } from "../lib/live/liveBoard";
+import { daysBefore } from "../lib/rankMovement";
+import { todayIsoDay } from "../lib/date";
 import type { AgeGroup, ScoutGame, ScoutRankingRow, ScoutTeam } from "../lib/teamRankings";
 import type {
+  MovementRequest,
   RankingsRequest,
   WhatIfRequest,
   WorkerRequest,
@@ -85,6 +89,7 @@ type Props = {
   games?: ScoutGame[];
   segment?: "fall" | "spring";
   myTeamId?: string;
+  liveStandIn?: boolean;
 };
 const render = (initial: Props) =>
   renderHook(
@@ -96,6 +101,7 @@ const render = (initial: Props) =>
         ageGroups: groups,
         ...(props.segment === undefined ? {} : { segment: props.segment }),
         ...(props.myTeamId === undefined ? {} : { myTeamId: props.myTeamId }),
+        ...(props.liveStandIn ? { liveStandIn: true } : {}),
       }),
     { initialProps: initial }
   );
@@ -105,6 +111,7 @@ beforeEach(() => {
   FakeWorker.instances = [];
   vi.stubGlobal("Worker", FakeWorker);
   resetSavedBoard();
+  forgetLiveBoard();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -418,5 +425,141 @@ describe("opening on the board last fitted", () => {
       set: async () => true,
     });
     expect(render({ ageGroupId: "u10" }).result.current.rows).toEqual([]);
+  });
+});
+
+describe("opening on the board the live page drew", () => {
+  const row = (teamId: string, rank: number): ScoutRankingRow => ({
+    teamId,
+    teamName: teamId,
+    isMine: false,
+    rank,
+    rating: 5 - rank,
+    pointRating: 6 - rank,
+    record: "3-1",
+    wins: 3,
+    losses: 1,
+    ties: 0,
+    games: 4,
+    rawMargin: 2,
+    strengthOfSchedule: 0.4,
+    sosRank: rank,
+    crossAgeGames: 0,
+    componentSize: 2,
+    componentId: "S-1",
+    comparable: true,
+    fromGameChanger: true,
+  });
+  /** A published board's rows: no star, and what it says of its clubs. */
+  const published = [row("S-1", 1), row("S-2", 2)].map(({ isMine: _mine, ...bare }) => ({
+    ...bare,
+    state: "OH",
+  }));
+  const savedRows = [row("S-9", 1)];
+
+  it("shows the published board in place of the saved one, stale, until its own fit lands", () => {
+    saveBoard({ ageGroupId: "u10" }, savedRows, { get: async () => null, set: async () => true });
+    holdLiveBoard({ ageGroupId: "u10" }, published);
+    const { result, rerender } = render({ ageGroupId: "u10", liveStandIn: true });
+    expect(result.current.rows).toEqual(published.map((one) => ({ ...one, isMine: false })));
+    expect(result.current.stale).toBe(true);
+    expect(result.current.standIn).toBe("live");
+    // The same rows for the same board and star, render after render.
+    const first = result.current.rows;
+    rerender({ ageGroupId: "u10", liveStandIn: true });
+    expect(result.current.rows).toBe(first);
+
+    settle();
+    const worker = last(FakeWorker.instances);
+    const fresh = [row("S-2", 1), row("S-1", 2)];
+    act(() => {
+      worker.reply({ kind: "rankings", id: last(fits(worker)).id, rows: fresh, elapsedMs: 1 });
+    });
+    expect(result.current.rows).toEqual(fresh);
+    expect(result.current.stale).toBe(false);
+    expect(result.current.standIn).toBeNull();
+  });
+
+  it("stars the page's own club, or where it names none the roster's, as the worker does", () => {
+    holdLiveBoard({ ageGroupId: "u10" }, published);
+    const mine = render({ ageGroupId: "u10", myTeamId: "S-2", liveStandIn: true }).result.current
+      .rows;
+    expect(mine.map((one) => one.isMine)).toEqual([false, true]);
+    const starred = teams.map((team) => (team.id === "S-1" ? { ...team, isMine: true } : team));
+    const { result } = renderHook(() =>
+      useRankingsWorker({
+        ageGroupId: "u10",
+        teams: starred,
+        games,
+        ageGroups: groups,
+        liveStandIn: true,
+      })
+    );
+    expect(result.current.rows.map((one) => one.isMine)).toEqual([true, false]);
+  });
+
+  it("is not shown for another page or half, which fall back to the saved board", () => {
+    saveBoard({ ageGroupId: "u10", segment: "fall" }, savedRows, {
+      get: async () => null,
+      set: async () => true,
+    });
+    holdLiveBoard({ ageGroupId: "u10" }, published);
+    const fall = render({ ageGroupId: "u10", segment: "fall", liveStandIn: true }).result.current;
+    expect(fall.rows).toEqual(savedRows);
+    expect(fall.standIn).toBe("saved");
+    const other = render({ ageGroupId: "u11", liveStandIn: true }).result.current;
+    expect(other.rows).toEqual([]);
+    expect(other.standIn).toBeNull();
+  });
+
+  it("is not shown on a page opened the old way, which the saved board stands in for", () => {
+    saveBoard({ ageGroupId: "u10" }, savedRows, { get: async () => null, set: async () => true });
+    holdLiveBoard({ ageGroupId: "u10" }, published);
+    const opened = render({ ageGroupId: "u10" }).result.current;
+    expect(opened.rows).toEqual(savedRows);
+    expect(opened.standIn).toBe("saved");
+  });
+});
+
+describe("the rank line it walks", () => {
+  const movements = (worker: FakeWorker): MovementRequest[] =>
+    worker.posted.filter((message): message is MovementRequest => message.kind === "movement");
+
+  it("walks on past a week its club was missing from when the club was on last week's board", () => {
+    const { result } = render({ ageGroupId: "u10", myTeamId: "S-3" });
+    settle();
+    const worker = last(FakeWorker.instances);
+    act(() => {
+      worker.reply({ kind: "rankings", id: last(fits(worker)).id, rows: [], elapsedMs: 1 });
+    });
+    settle();
+    const reply = (ranks: Record<string, number>) =>
+      act(() => {
+        const asked = last(movements(worker));
+        worker.reply({
+          kind: "movement",
+          id: asked.id,
+          asOf: asked.asOf,
+          ranks,
+          empty: false,
+          elapsedMs: 1,
+        });
+      });
+    // Last week the club had a place; the week before it had none, on a board others were on.
+    reply({ "S-3": 5, "S-1": 1 });
+    reply({});
+    // One week without it is not two running, last week counting as the first: one more is asked.
+    expect(movements(worker)).toHaveLength(3);
+    expect(last(movements(worker))).toMatchObject({
+      asOf: daysBefore(todayIsoDay(), 21),
+      teamIds: ["S-3"],
+    });
+    reply({});
+    expect(movements(worker)).toHaveLength(3);
+    expect(result.current.history).toEqual([
+      { asOf: daysBefore(todayIsoDay(), 21), rank: null },
+      { asOf: daysBefore(todayIsoDay(), 14), rank: null },
+      { asOf: daysBefore(todayIsoDay(), 7), rank: 5 },
+    ]);
   });
 });

@@ -88,7 +88,13 @@ test.describe("the header on a phone", () => {
    * switch keeps Settings' scroll, so the screen's top is wherever Load Demo was.
    */
   const header = async (page: Page) => {
-    const title = (await page.getByRole("heading", { level: 1 }).boundingBox())!;
+    /*
+     * The app's own title, by name: Team Rankings draws a heading of its own at that level, and an
+     * unnamed one found both whenever the page had drawn before it was measured.
+     */
+    const title = (await page
+      .getByRole("heading", { level: 1, name: "League Forecast" })
+      .boundingBox())!;
     const toggle = (await page
       .getByRole("button", { name: /Switch to (dark|light) mode/ })
       .filter({ visible: true })
@@ -116,6 +122,8 @@ test.describe("the header on a phone", () => {
     expect(league.mainBelowTitle).toBeLessThanOrEqual(400);
 
     await tab(page, "Team Rankings").click();
+    // Measured once the page has drawn, not whenever the click happens to land.
+    await page.getByRole("heading", { level: 1, name: "Team Rankings" }).waitFor();
     const rankings = await header(page);
     expect(rankings.mainBelowTitle).toBeLessThanOrEqual(120);
   });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CloudTimeoutError,
+  CommitUnanswered,
   commitChanges,
   fetchValues,
   sweepUploads,
@@ -272,6 +273,100 @@ describe("a save onto the copy", () => {
     expect(ids.every((id) => sky.chunks.has(id))).toBe(true);
   });
 
+  /*
+   * A commit whose answer never came throws (a dropped connection, or Firestore failing after the
+   * write was made) rather than answering false: found by its id all the same.
+   */
+  it("knows its own commit when the commit threw after it landed", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { league: { a: 1 } });
+    const dropped: CloudStore = {
+      ...sky.store,
+      commitManifest: async (expected, next) => {
+        await sky.store.commitManifest(expected, next);
+        throw new TypeError("fetch failed");
+      },
+    };
+    const result = await commitChanges({
+      store: dropped,
+      base: v1,
+      changes: [change("league", { a: 2 })],
+      device: "phone",
+      now: NOW,
+    });
+    expect(result.ok).toBe(true);
+    expect(await valuesOf(sky.store, sky.manifest() as CloudManifest)).toEqual({
+      league: { a: 2 },
+    });
+  });
+
+  /*
+   * A commit that threw may still be on its way, and land after the copy is read: its pieces stay,
+   * so a late landing is whole, and the save is said to be neither made nor refused.
+   */
+  it("says it cannot tell, its pieces kept, when the commit threw and is not in the copy", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { league: { a: 1 } });
+    const late: { land: (() => Promise<boolean>) | null } = { land: null };
+    const slow: CloudStore = {
+      ...sky.store,
+      commitManifest: async (expected, next) => {
+        late.land = () => sky.store.commitManifest(expected, next);
+        throw new TypeError("fetch failed");
+      },
+    };
+    const recorded: string[][] = [];
+    const teams = noise(2);
+    const saving = commitChanges({
+      store: slow,
+      base: v1,
+      changes: [change("teams", teams)],
+      device: "phone",
+      now: NOW,
+      onUploads: (ids) => recorded.push(ids),
+    });
+    await expect(saving).rejects.toBeInstanceOf(CommitUnanswered);
+    await expect(saving).rejects.toThrow("fetch failed");
+    expect(sky.manifest()).toEqual(v1);
+    const ids = recorded[recorded.length - 1] ?? [];
+    expect(ids.length).toBeGreaterThan(1);
+    expect(ids.every((id) => sky.chunks.has(id))).toBe(true);
+    // It lands after all, and the copy it makes is whole.
+    expect(await late.land?.()).toBe(true);
+    expect((await valuesOf(sky.store, sky.manifest() as CloudManifest)).teams).toEqual(teams);
+  });
+
+  it("says it cannot tell, its pieces kept, when the commit threw and the copy will not read", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { league: { a: 1 } });
+    let down = false;
+    const blind: CloudStore = {
+      ...sky.store,
+      commitManifest: async () => {
+        down = true;
+        throw new TypeError("fetch failed");
+      },
+      readManifest: async () => {
+        if (down) throw new TypeError("fetch failed");
+        return sky.store.readManifest();
+      },
+    };
+    const recorded: string[][] = [];
+    const saving = commitChanges({
+      store: blind,
+      base: v1,
+      changes: [change("teams", ["t1"])],
+      device: "phone",
+      now: NOW,
+      onUploads: (ids) => recorded.push(ids),
+    });
+    await expect(saving).rejects.toBeInstanceOf(CommitUnanswered);
+    await expect(saving).rejects.toThrow("fetch failed");
+    const ids = recorded[recorded.length - 1] ?? [];
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids.every((id) => sky.chunks.has(id))).toBe(true);
+  });
+
   it("writes no manifest when nothing is different", async () => {
     const sky = memoryCloud();
     const v1 = await first(sky.store, { league: { a: 1 } });
@@ -397,6 +492,113 @@ describe("kept versions", () => {
     if (!twice.ok) throw new Error("refused");
     expect(twice.manifest.kept).toHaveLength(1);
     expect(twice.manifest.version).toBe(once.manifest.version);
+  });
+
+  it("keeps the whole of what a settlement replaces when asked, a value kept already included", async () => {
+    /** A copy whose `teams`, as it is now, an earlier settlement keeps already; then emptied. */
+    const emptied = async (keepWhole: boolean) => {
+      const sky = memoryCloud();
+      const v1 = await first(sky.store, { teams: ["old"], games: ["g"] });
+      const earlier = await commitChanges({
+        store: sky.store,
+        base: v1,
+        keepLost: [change("teams", ["old"], 3)],
+        device: "phone",
+        now: NOW,
+      });
+      if (!earlier.ok) throw new Error("refused");
+      const result = await commitChanges({
+        store: sky.store,
+        base: earlier.manifest,
+        changes: [change("teams", null), change("games", null)],
+        keepReplaced: ["teams", "games"],
+        keepWhole,
+        device: "server",
+        now: "2026-09-30T00:00:00.000Z",
+      });
+      if (!result.ok) throw new Error("refused");
+      const group = result.manifest.kept.find((part) => part.key === "games")?.group ?? "";
+      const keys = result.manifest.kept
+        .filter((part) => part.group === group)
+        .map((part) => part.key);
+      return { sky, manifest: result.manifest, group, keys };
+    };
+
+    const whole = await emptied(true);
+    expect(whole.keys).toEqual(["teams", "games"]);
+    // Brought back, it is the whole of what it replaced.
+    const back = await commitChanges({
+      store: whole.sky.store,
+      base: whole.manifest,
+      restore: whole.group,
+      device: "server",
+      now: "2026-09-30T00:00:01.000Z",
+    });
+    if (!back.ok) throw new Error("refused");
+    expect(await valuesOf(whole.sky.store, back.manifest)).toEqual({
+      teams: ["old"],
+      games: ["g"],
+    });
+    // Without it, the value kept already is left out of the settlement.
+    expect((await emptied(false)).keys).toEqual(["games"]);
+  });
+
+  it("brings a version kept whole back as its area stood, a key gained since taken out", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { teams: ["old"], games: ["g"], league: { seasons: [] } });
+    // A settlement that keeps the pool whole: the values it replaces, and a key it adds.
+    const restored = await commitChanges({
+      store: sky.store,
+      base: v1,
+      changes: [change("teams", ["new"]), change("games:2028", ["added"])],
+      keepReplaced: ["teams", "games"],
+      keepWhole: true,
+      device: "server",
+      now: "2026-09-30T00:00:00.000Z",
+    });
+    if (!restored.ok) throw new Error("refused");
+    const kept = restored.manifest.kept;
+    expect(kept.map(({ key, whole }) => [key, whole])).toEqual([
+      ["teams", true],
+      ["games", true],
+    ]);
+    const back = await commitChanges({
+      store: sky.store,
+      base: restored.manifest,
+      restore: kept[0]?.group ?? "",
+      device: "server",
+      now: "2026-09-30T00:00:01.000Z",
+    });
+    if (!back.ok) throw new Error("refused");
+    // The pool as it was, the key it gained gone; League Standings, another area, as it is.
+    expect(await valuesOf(sky.store, back.manifest)).toEqual({
+      teams: ["old"],
+      games: ["g"],
+      league: { seasons: [] },
+    });
+    // What that replaced is kept whole in its turn, the gained key with it, to bring back again.
+    const again = back.manifest.kept.filter((part) => part.keptAt === "2026-09-30T00:00:01.000Z");
+    expect(again.map(({ key, whole }) => [key, whole]).sort()).toEqual([
+      ["games", true],
+      ["games:2028", true],
+      ["teams", true],
+    ]);
+  });
+
+  it("keeps nothing for a settlement kept whole that moves nothing", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { teams: ["old"], games: ["g"] });
+    const same = await commitChanges({
+      store: sky.store,
+      base: v1,
+      changes: [change("teams", ["old"])],
+      keepReplaced: ["teams", "games"],
+      keepWhole: true,
+      device: "server",
+      now: "2026-09-30T00:00:00.000Z",
+    });
+    if (!same.ok) throw new Error("refused");
+    expect(same.manifest).toBe(v1);
   });
 
   it("brings a kept version back whole, keeping what it replaces, and uploads nothing", async () => {

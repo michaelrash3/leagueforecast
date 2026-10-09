@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import indexHtml from "../../../index.html?raw";
 import { FIREBASE_WEB_CONFIG, type FirebaseWebConfig } from "../cloud/cloudConfig";
 import { widenPolicy, widenPolicyInHtml } from "../contentPolicy";
+import { EDIT_URL } from "../live/editClient";
 
 const BASE = /http-equiv="Content-Security-Policy"\s+content="([^"]*)"/.exec(indexHtml)?.[1] ?? "";
 
@@ -59,13 +60,14 @@ describe("the page's content policy", () => {
     expect(directive(policy, "connect-src")).toEqual(["'self'", "https://proxy.example:8443"]);
   });
 
-  it("lets a build that keeps a cloud copy sign in to Google and reach Firestore", () => {
+  it("lets a build that keeps a cloud copy sign in to Google, reach Firestore, and call its functions", () => {
     const policy = widenPolicy(BASE, { firebase: FIREBASE });
     expect(directive(policy, "connect-src")).toEqual([
       "'self'",
       "https://firestore.googleapis.com",
       "https://identitytoolkit.googleapis.com",
       "https://securetoken.googleapis.com",
+      "https://us-central1-demo-project.cloudfunctions.net",
     ]);
     expect(directive(policy, "script-src")).toEqual(["'self'", "https://apis.google.com"]);
     // Not in the base: it starts from what it fell back to, the page's own origin.
@@ -85,9 +87,24 @@ describe("the page's content policy", () => {
     ]);
   });
 
+  it("lets the app's own build reach the edit function its devices call", () => {
+    const policy = widenPolicy(BASE, { firebase: FIREBASE_WEB_CONFIG });
+    expect(directive(policy, "connect-src")).toContain(new URL(EDIT_URL).origin);
+  });
+
   it("adds nothing for an auth domain that is not a plain host", () => {
     for (const authDomain of ["demo project.example", "demo.example; script-src *", ""]) {
       expect(widenPolicy(BASE, { firebase: { ...FIREBASE, authDomain } })).toBe(BASE);
+    }
+  });
+
+  it("names no functions host for a project id that is not a plain name", () => {
+    for (const projectId of ["demo project", "demo; script-src *", ""]) {
+      const connect = directive(
+        widenPolicy(BASE, { firebase: { ...FIREBASE, projectId } }),
+        "connect-src"
+      );
+      expect(connect?.some((source) => source.includes("cloudfunctions"))).toBe(false);
     }
   });
 

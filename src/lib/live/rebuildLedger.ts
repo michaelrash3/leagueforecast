@@ -98,6 +98,11 @@ export type Ledger = {
    * two); "" where either was not said.
    */
   open: { at: string; day: string; cost: RunCost; task: string; by: string } | null;
+  /**
+   * When the last run settled, or null before one has: what a quick rebuild is spaced from
+   * (`LIVE_SPACING_S`), whatever the run published, so a dry run counts as a live one does.
+   */
+  lastEndedAt: string | null;
 };
 
 /** Where the ledger is kept: a path no rule opens, so only a server's key reads or writes it. */
@@ -171,6 +176,13 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
   }
   const pausedDay = given(raw.pausedDay, null);
   if (pausedDay !== null && typeof pausedDay !== "string") return null;
+  const lastEndedAt = given(raw.lastEndedAt, null);
+  if (
+    lastEndedAt !== null &&
+    (typeof lastEndedAt !== "string" || Number.isNaN(Date.parse(lastEndedAt)))
+  ) {
+    return null;
+  }
   const held = given(raw.open, null);
   let open: Ledger["open"] = null;
   if (held !== null) {
@@ -205,6 +217,7 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
     failures,
     pausedDay,
     open,
+    lastEndedAt,
   };
 };
 
@@ -243,6 +256,7 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
     task: ledger.open.task,
     by: ledger.open.by,
   },
+  lastEndedAt: ledger.lastEndedAt,
 });
 
 const monthOf = (day: string): string => day.slice(0, 7);
@@ -281,6 +295,67 @@ const newDay = (ledger: Ledger, today: string): Ledger => ({
       ? { day: ledger.day, runs: ledger.dayRuns, failed: ledger.dayFailed, gibs: ledger.dayGiBs }
       : ledger.lastDay,
 });
+
+/**
+ * The ledger moved on to `today` (New York's day): a new day empties the day's total and lifts a
+ * pause from an earlier day, and a new month empties the month's.
+ */
+const rolledOver = (ledger: Ledger, today: string): Ledger => {
+  let next: Ledger = { ...ledger };
+  if (next.day !== today) next = newDay(next, today);
+  if (next.pausedDay !== null && next.pausedDay !== today) {
+    next = { ...next, pausedDay: null, failures: 0 };
+  }
+  if (next.month !== monthOf(today)) {
+    next = {
+      ...next,
+      month: monthOf(today),
+      monthGiBs: 0,
+      monthVcpuS: 0,
+      monthRuns: 0,
+      monthFailed: 0,
+    };
+  }
+  return next;
+};
+
+/**
+ * The ledger with an edit's compute added to the day's and the month's totals (`editRun.ts`), so
+ * the caps the rebuilds are held to count what the edits spent beside them. An edit is never
+ * refused for the caps: it is a member's change to the copy, and the bill's hard stop is the
+ * backstop. It is not a run either, so it counts no run, opens nothing and clears no failure; and it
+ * is charged whether the switch is on or off, since its compute was spent either way. Null where
+ * there is no ledger to charge.
+ *
+ * A charge carries no id, as a reservation does: one whose write landed though its answer was lost
+ * is told apart by the ledger reading as written (`updateLedger`), so another write landing between
+ * makes it charge twice. That errs over the caps, never under, and is left so.
+ */
+export const chargeEdit = (ledger: Ledger | null, today: string, used: RunCost): Ledger | null => {
+  if (!ledger) return null;
+  const next = rolledOver(ledger, today);
+  return {
+    ...next,
+    dayGiBs: next.dayGiBs + used.gibs,
+    monthGiBs: next.monthGiBs + used.gibs,
+    monthVcpuS: next.monthVcpuS + used.vcpuS,
+  };
+};
+
+/**
+ * Which caps are spent on `today` (New York's day): the day's GiB-seconds, or either of the
+ * month's totals, at or past its cap; or null. A question that refits a year (`editHandle.ts`) is
+ * then refused: it spends what a rebuild's fit does, and unlike an edit it changes nothing a member
+ * is owed, so it is held to the caps the rebuilds are. Whether the switch is on or off, as an edit
+ * is charged either way; no ledger meters nothing.
+ */
+export const capsSpent = (ledger: Ledger | null, today: string): "day" | "month" | null => {
+  if (!ledger) return null;
+  const next = rolledOver(ledger, today);
+  if (next.monthGiBs >= next.caps.monthGiBs || next.monthVcpuS >= next.caps.monthVcpuS)
+    return "month";
+  return next.dayGiBs >= next.caps.dayGiBs ? "day" : null;
+};
 
 export type ReserveRefusal = "off" | "busy" | "failing" | "day-cap" | "month-cap";
 
@@ -324,21 +399,7 @@ export const reserveRun = (
       return { ok: false, why: "busy", next: null };
     }
   }
-  let next: Ledger = { ...ledger };
-  if (next.day !== today) next = newDay(next, today);
-  if (next.pausedDay !== null && next.pausedDay !== today) {
-    next = { ...next, pausedDay: null, failures: 0 };
-  }
-  if (next.month !== monthOf(today)) {
-    next = {
-      ...next,
-      month: monthOf(today),
-      monthGiBs: 0,
-      monthVcpuS: 0,
-      monthRuns: 0,
-      monthFailed: 0,
-    };
-  }
+  let next = rolledOver(ledger, today);
   if (next.open) next = { ...failed(next, today, next.open.day), open: null };
   if (next.pausedDay === today) return { ok: false, why: "failing", next };
   if (next.dayGiBs + ceiling.gibs > next.caps.dayGiBs) return { ok: false, why: "day-cap", next };
@@ -376,15 +437,31 @@ export const runCost = (seconds: number, size: { gib: number; cpu: number }): Ru
  */
 export const settleRun = (
   ledger: Ledger | null,
-  run: { at: string; by?: string; used: RunCost; failed: boolean; today: string }
+  run: {
+    at: string;
+    by?: string;
+    used: RunCost;
+    failed: boolean;
+    today: string;
+    /** When the run ended, which a quick rebuild is spaced from. */
+    endedAt: string;
+  }
 ): Ledger | null => {
   const open = ledger?.open;
   if (!ledger || !open || open.at !== run.at || open.by !== (run.by ?? "")) return null;
   const swap = (total: number, charged: number, used: number) =>
     Math.max(0, total - charged) + used;
-  let next: Ledger = { ...ledger, open: null };
+  let next: Ledger = { ...ledger, open: null, lastEndedAt: run.endedAt };
+  const { lastDay } = next;
   if (next.day === open.day) {
     next = { ...next, dayGiBs: swap(next.dayGiBs, open.cost.gibs, run.used.gibs) };
+  } else if (lastDay?.day === open.day) {
+    // The day turned under the run (an edit charged after midnight moves the ledger on): its
+    // ceiling went into the day kept for the nightly, and its cost takes its place there.
+    next = {
+      ...next,
+      lastDay: { ...lastDay, gibs: swap(lastDay.gibs, open.cost.gibs, run.used.gibs) },
+    };
   }
   if (next.month === monthOf(open.day)) {
     next = {

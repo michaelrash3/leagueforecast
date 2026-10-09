@@ -144,7 +144,7 @@ export const ratedClubsOf = (
  * answer a question about the autumn with a game to be played in March. The fixture decides which
  * half it is in; the copy only decides how much the fit leans on it.
  */
-const refuseOnSight = (
+export const refuseOnSight = (
   fixture: ScoutGame,
   ageGroups: AgeGroup[],
   segment: SeasonSegment | undefined

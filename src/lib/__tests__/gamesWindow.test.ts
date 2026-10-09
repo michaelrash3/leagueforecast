@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { gamesWindowFor, windowGames, type GamesWindow } from "../teamRankings/gamesWindow";
+import {
+  gamesWindowFor,
+  loggedGamesOn,
+  windowGames,
+  type GamesWindow,
+} from "../teamRankings/gamesWindow";
 import type { ScoutGame } from "../teamRankings";
 
 /*
@@ -96,5 +101,27 @@ describe("windowGames", () => {
       "undated",
     ]);
     expect(result).toMatchObject({ hidden: 3, undated: 1, needingScore: 0 });
+  });
+});
+
+describe("loggedGamesOn", () => {
+  it("lists a page's games newest first, a day's in their stored order, and no other page's", () => {
+    const stored = [
+      game("old", "2027-03-01"),
+      game("new", "2027-04-02"),
+      { ...game("elsewhere", "2027-04-09"), ageGroupId: "ag_9u_2027" },
+      game("undated", undefined),
+      game("new-too", "2027-04-02"),
+      game("mid", "2027-03-15"),
+    ];
+    expect(loggedGamesOn(stored, "ag_10u_2027").map((one) => one.id)).toEqual([
+      "new",
+      "new-too",
+      "mid",
+      "old",
+      "undated",
+    ]);
+    // And it leaves the stored list as it was.
+    expect(stored.map((one) => one.id)[0]).toBe("old");
   });
 });

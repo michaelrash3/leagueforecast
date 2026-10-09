@@ -4,11 +4,14 @@
  */
 import React from "react";
 import { button as buttonClasses, card } from "../styles/tokens";
+import { EditLock } from "./league/EditLock";
 
 export type DesignFlowAction = {
   label: string;
   onClick?: () => void;
   tone?: "primary" | "dark" | "ghost";
+  /** It changes the season, so it is off while the season may not be written (`EditLock`). */
+  edits?: boolean;
   file?: {
     accept: string;
     ariaLabel: string;
@@ -93,8 +96,8 @@ export function DesignFlowPanel({
             </div>
             {step.actions && step.actions.length > 0 && (
               <div className="mt-4 flex flex-wrap gap-2">
-                {step.actions.map((action) =>
-                  action.file ? (
+                {step.actions.map((action) => {
+                  const control = action.file ? (
                     <label
                       key={action.label}
                       className={`inline-flex cursor-pointer ${flowButtonClass(action.tone)}`}
@@ -121,8 +124,9 @@ export function DesignFlowPanel({
                     >
                       {action.label}
                     </button>
-                  )
-                )}
+                  );
+                  return action.edits ? <EditLock key={action.label}>{control}</EditLock> : control;
+                })}
               </div>
             )}
           </article>

@@ -30,6 +30,12 @@ export type SeasonsOptions = {
   loadActiveSeason: () => void;
   showToast: (message: string, options?: { tone?: ToastTone }) => void;
   requestConfirmation: (options: ConfirmState) => Promise<boolean>;
+  /**
+   * Asked once a deletion is confirmed and before anything here changes; false stops it. League
+   * kept live deletes the season's document first (`useLiveLeague`), and a season the cloud kept
+   * is not deleted here alone, to come back on the next visit.
+   */
+  beforeDelete?: (id: string) => Promise<boolean>;
 };
 
 export type Seasons = {
@@ -38,6 +44,8 @@ export type Seasons = {
   activeId: string;
   /** Re-reads the index and the active season's data. For a restore, which replaces both. */
   reload: () => void;
+  /** Re-reads the index alone, for seasons added to it from outside: the open season is as it was. */
+  refresh: () => void;
   switchTo: (id: string) => void;
   create: (name: string) => void;
   duplicate: (id: string, name: string) => void;
@@ -58,6 +66,7 @@ export function useSeasons({
   loadActiveSeason,
   showToast,
   requestConfirmation,
+  beforeDelete,
 }: SeasonsOptions): Seasons {
   const [all, setAll] = useState<SeasonMeta[]>(() => listSeasons());
   const [activeId, setActiveId] = useState<string>(() => getActiveSeasonId());
@@ -67,6 +76,8 @@ export function useSeasons({
     setAll(listSeasons());
     setActiveId(getActiveSeasonId());
   }, [loadActiveSeason]);
+
+  const refresh = useCallback(() => setAll(listSeasons()), []);
 
   const switchTo = useCallback(
     (id: string) => {
@@ -109,6 +120,7 @@ export function useSeasons({
         confirmLabel: "Delete season",
       });
       if (!confirmed) return;
+      if (beforeDelete && !(await beforeDelete(id))) return;
       const wasActive = getActiveSeasonId() === id;
       if (!deleteSeason(id)) {
         showToast("Cannot delete the only season.", { tone: "error" });
@@ -120,7 +132,7 @@ export function useSeasons({
       else setAll(listSeasons());
       showToast(`Deleted ${target.name}.`, { tone: "success" });
     },
-    [reload, requestConfirmation, showToast]
+    [reload, requestConfirmation, showToast, beforeDelete]
   );
 
   // Keeps the index's name for the active season in step with its editable label, so the header
@@ -137,5 +149,5 @@ export function useSeasons({
     }
   }, [seasonLabel, activeId, all]);
 
-  return { all, activeId, reload, switchTo, create, duplicate, remove };
+  return { all, activeId, reload, refresh, switchTo, create, duplicate, remove };
 }

@@ -1,8 +1,14 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ScheduleImportPanel } from "./ScheduleImportPanel";
+import { ScheduleImportPanel, type NamedChecker } from "./ScheduleImportPanel";
 import type { ScoutGame, ScoutTeam } from "../lib/teamRankings";
+import {
+  checkNamedGames,
+  gamesOfNamed,
+  type NamedCheck,
+  type NamedGame,
+} from "../lib/teamRankings/namedGames";
 import type { ToastTone } from "../hooks/useToast";
 
 /**
@@ -14,26 +20,54 @@ import type { ToastTone } from "../hooks/useToast";
  * turns up. The panel flags both rather than correcting either, because two real teams can be one
  * character apart — and that judgement is exactly the part worth pinning.
  */
-const setup = (over: Partial<Parameters<typeof ScheduleImportPanel>[0]> = {}) => {
+type Over = {
+  ageGroupId?: string;
+  ageGroupName?: string;
+  /** The roster the device holds, which the rows are checked and resolved against. */
+  teams?: ScoutTeam[];
+  suggestedTeams?: ScoutTeam[];
+  existingGames?: ScoutGame[];
+  defaultSubjectTeam?: string;
+  /** The rows checked by the server instead (`asked`). */
+  checker?: NamedChecker;
+  showToast?: (message: string, options?: { tone?: ToastTone }) => void;
+};
+
+/**
+ * The panel as the device's Games tab holds it: the rows checked against its roster and the page's
+ * games, and resolved to clubs as the tab resolves them on Add (`gamesOfNamed`).
+ */
+const setup = (over: Over = {}) => {
   const onImport = vi.fn<(teams: ScoutTeam[], games: ScoutGame[]) => void>();
+  const onNamed = vi.fn<(games: NamedGame[]) => void>();
   const onClose = vi.fn();
   const showToast = vi.fn<(message: string, options?: { tone?: ToastTone }) => void>();
+  const ageGroupId = over.ageGroupId ?? "ag1";
+  const teams = over.teams ?? [];
+  const existingGames = over.existingGames ?? [];
 
   render(
     <ScheduleImportPanel
-      ageGroupId={over.ageGroupId ?? "ag1"}
       ageGroupName={over.ageGroupName ?? "10U 2027"}
-      teams={over.teams ?? []}
       suggestedTeams={over.suggestedTeams ?? []}
-      existingGames={over.existingGames ?? []}
+      checker={
+        over.checker ?? {
+          kind: "here",
+          check: (named) => checkNamedGames(named, teams, existingGames, ageGroupId),
+        }
+      }
       defaultSubjectTeam={over.defaultSubjectTeam ?? ""}
-      onImport={over.onImport ?? onImport}
-      onClose={over.onClose ?? onClose}
+      onImport={(named) => {
+        onNamed(named);
+        const resolved = gamesOfNamed(named, teams, ageGroupId);
+        onImport(resolved.teams, resolved.games);
+      }}
+      onClose={onClose}
       showToast={over.showToast ?? showToast}
     />
   );
 
-  return { onImport, onClose, showToast };
+  return { onImport, onNamed, onClose, showToast };
 };
 
 /** A schedule: the rows name only the opponent, so every score is from the subject's side. */
@@ -257,5 +291,268 @@ describe("lines that could not be read", () => {
 
     const note = screen.getByText(/could not be read/i);
     expect(within(note).getByText(/nonsense line here/i)).toBeInTheDocument();
+  });
+});
+
+describe("rows checked by the server, where the cloud holds the roster", () => {
+  const nothingFound = (named: readonly NamedGame[]): NamedCheck[] =>
+    named.map(() => ({ notes: [null, null], logged: false }));
+
+  it("adds nothing until the server has answered, then says what it found", async () => {
+    const asked: NamedGame[][] = [];
+    let answer: (checks: NamedCheck[]) => void = () => undefined;
+    const checker: NamedChecker = {
+      kind: "asked",
+      check: (named) => {
+        asked.push([...named]);
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      },
+    };
+    const user = userEvent.setup();
+    const { onImport, showToast } = setup({ defaultSubjectTeam: "Rays", checker });
+
+    await paste(user, SCHEDULE);
+    expect(await screen.findByText(/checking these games/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /add 2 games/i }));
+    expect(onImport).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/still checking/i), {
+      tone: "error",
+    });
+
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]?.map((game) => [game.teamA, game.teamB])).toEqual([
+      ["Rays", "Velocirabbits"],
+      ["Rays", "NV Stars"],
+    ]);
+    act(() =>
+      answer([
+        { notes: [null, { kind: "similar", to: "Velocirabbits Blue" }], logged: false },
+        { notes: [null, null], logged: true },
+      ])
+    );
+    expect(await screen.findByText("Velocirabbits Blue")).toBeInTheDocument();
+    expect(screen.getByLabelText("Add Rays versus NV Stars")).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /add 1 game/i }));
+    const [, games] = onImport.mock.calls[0] ?? [];
+    expect(games?.map((game) => [game.teamAScore, game.teamBScore])).toEqual([[6, 5]]);
+  });
+
+  it("says when the server could not check them, and asks again when told to", async () => {
+    let calls = 0;
+    const checker: NamedChecker = {
+      kind: "asked",
+      check: async (named) => {
+        calls += 1;
+        return calls === 1 ? null : nothingFound(named);
+      },
+    };
+    const user = userEvent.setup();
+    const { onImport } = setup({ defaultSubjectTeam: "Rays", checker });
+
+    await paste(user, SCHEDULE);
+    expect(await screen.findByText(/could not be checked/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(screen.queryByText(/checking these games/i)).toBeNull());
+    await user.click(screen.getByRole("button", { name: /add 2 games/i }));
+    expect(onImport).toHaveBeenCalledTimes(1);
+    expect(calls).toBe(2);
+  });
+
+  it("asks nothing of rows still waiting on whose schedule it is, until it is said", async () => {
+    const asked: string[][] = [];
+    const checker: NamedChecker = {
+      kind: "asked",
+      check: async (named) => {
+        asked.push(named.map((game) => game.teamA));
+        return nothingFound(named);
+      },
+    };
+    const user = userEvent.setup();
+    setup({ checker });
+
+    await paste(user, SCHEDULE);
+    await new Promise((settle) => setTimeout(settle, 600));
+    expect(asked).toEqual([]);
+    await user.click(screen.getByLabelText("Whose schedule is this?"));
+    await user.paste("Rays");
+    await waitFor(() => expect(asked).toEqual([["Rays", "Rays"]]));
+  });
+
+  it("asks nothing about a row left out, until it is ticked again", async () => {
+    const asked: string[][] = [];
+    const checker: NamedChecker = {
+      kind: "asked",
+      check: async (named) => {
+        asked.push(named.map((game) => game.teamB));
+        return nothingFound(named);
+      },
+    };
+    const user = userEvent.setup();
+    setup({ defaultSubjectTeam: "Rays", checker });
+
+    await paste(user, SCHEDULE);
+    // Left out before the rows are asked about: a row not added is not worth the server's time.
+    await user.click(screen.getByLabelText("Add Rays versus NV Stars"));
+    await waitFor(() => expect(asked).toEqual([["Velocirabbits"]]));
+    await user.click(screen.getByLabelText("Add Rays versus NV Stars"));
+    await waitFor(() => expect(asked).toEqual([["Velocirabbits"], ["NV Stars"]]));
+  });
+
+  it("asks again only about a row that changed, and not about a box ticked", async () => {
+    const asked: string[][] = [];
+    const checker: NamedChecker = {
+      kind: "asked",
+      check: async (named) => {
+        asked.push(named.map((game) => game.teamB));
+        return nothingFound(named);
+      },
+    };
+    const user = userEvent.setup();
+    setup({ defaultSubjectTeam: "Rays", checker });
+
+    await paste(user, SCHEDULE);
+    await waitFor(() => expect(asked).toEqual([["Velocirabbits", "NV Stars"]]));
+    await user.click(screen.getByLabelText("Add Rays versus NV Stars"));
+    const opponent = screen.getByDisplayValue("Velocirabbits");
+    // Cleared, a row naming one side is not asked about; pasted, the new name is, at once.
+    await user.clear(opponent);
+    await user.paste("Bandits");
+    await waitFor(() => expect(asked).toEqual([["Velocirabbits", "NV Stars"], ["Bandits"]]));
+  });
+});
+
+/** A row as a check reads it, for answers whose rows the test does not look at. */
+const ONE_ROW: NamedGame = { id: "r", teamA: "Rays", teamB: "Velocirabbits" };
+
+describe("adding the reviewed rows where the server adds them", () => {
+  const nothingFound = (named: readonly NamedGame[]): NamedCheck[] =>
+    named.map(() => ({ notes: [null, null], logged: false }));
+
+  /** The panel on the live page: checked by the server, added by it, answered when told to. */
+  const livePanel = (asked: string[][] = []) => {
+    let settle: (added: boolean) => void = () => undefined;
+    const onImport = vi.fn<(games: NamedGame[]) => Promise<boolean>>(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve;
+        })
+    );
+    const checker: NamedChecker = {
+      kind: "asked",
+      check: async (named) => {
+        asked.push(named.map((game) => game.teamB));
+        return nothingFound(named);
+      },
+    };
+    render(
+      <ScheduleImportPanel
+        ageGroupName="10U 2027"
+        suggestedTeams={[]}
+        checker={checker}
+        defaultSubjectTeam="Rays"
+        onImport={onImport}
+        onClose={vi.fn()}
+        showToast={vi.fn()}
+      />
+    );
+    return { onImport, settle: (added: boolean) => settle(added) };
+  };
+
+  it("adds them once, however often Add is pressed while the server adds them", async () => {
+    const user = userEvent.setup();
+    const { onImport, settle } = livePanel();
+    await paste(user, SCHEDULE);
+    await waitFor(() => expect(screen.queryByText(/checking these games/i)).toBeNull());
+    const add = screen.getByRole("button", { name: /add 2 games/i });
+    await user.click(add);
+    await user.click(add);
+    expect(onImport).toHaveBeenCalledTimes(1);
+    expect(add).toBeDisabled();
+    act(() => settle(true));
+    await waitFor(() => expect(add).not.toBeDisabled());
+  });
+
+  it("asks about every row again when they were not added, so one that landed is found logged", async () => {
+    const user = userEvent.setup();
+    const asked: string[][] = [];
+    const { settle } = livePanel(asked);
+    await paste(user, SCHEDULE);
+    await waitFor(() => expect(asked).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText(/checking these games/i)).toBeNull());
+    await user.click(screen.getByRole("button", { name: /add 2 games/i }));
+    act(() => settle(false));
+    await waitFor(() => expect(asked).toHaveLength(2));
+    expect(asked[1]).toEqual(["Velocirabbits", "NV Stars"]);
+  });
+
+  it("does not ask again about rows already being asked about when a box is ticked meanwhile", async () => {
+    const user = userEvent.setup();
+    const asked: string[][] = [];
+    let answer: (checks: NamedCheck[]) => void = () => undefined;
+    const checker: NamedChecker = {
+      kind: "asked",
+      check: (named) => {
+        asked.push(named.map((game) => game.teamB));
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      },
+    };
+    setup({ defaultSubjectTeam: "Rays", checker });
+    await paste(user, SCHEDULE);
+    await waitFor(() => expect(asked).toHaveLength(1));
+    await user.click(screen.getByLabelText("Add Rays versus NV Stars"));
+    await new Promise((settle) => setTimeout(settle, 600));
+    expect(asked).toHaveLength(1);
+    // The answer that lands after the box changed is kept: the rows read as they did.
+    act(() => answer(nothingFound([ONE_ROW, ONE_ROW])));
+    await waitFor(() => expect(screen.queryByText(/checking these games/i)).toBeNull());
+    expect(asked).toHaveLength(1);
+  });
+
+  it("asks nothing about a row the server could not read, and lets the rest be added once it is unticked", async () => {
+    const user = userEvent.setup();
+    const asked: string[][] = [];
+    const { onImport } = livePanel(asked);
+    await paste(user, SCHEDULE);
+    await waitFor(() => expect(asked).toHaveLength(1));
+    // A name longer than the server reads, set past the box's own limit.
+    fireEvent.change(screen.getByDisplayValue("NV Stars"), {
+      target: { value: "N".repeat(201) },
+    });
+    await new Promise((settle) => setTimeout(settle, 600));
+    expect(asked).toHaveLength(1);
+    await user.click(screen.getByLabelText(/^Add Rays versus N{201}$/));
+    await user.click(screen.getByRole("button", { name: /add 1 game/i }));
+    expect(onImport).toHaveBeenCalledTimes(1);
+    expect(onImport.mock.calls[0]?.[0].map((game) => game.teamB)).toEqual(["Velocirabbits"]);
+  });
+});
+
+describe("rows checked against the roster on this device", () => {
+  it("checks again only the row that changed, not the whole list at each keystroke", async () => {
+    const user = userEvent.setup();
+    const checked: string[][] = [];
+    const roster: ScoutTeam[] = [{ id: "t1", name: "Rays" }];
+    const checker: NamedChecker = {
+      kind: "here",
+      check: (named) => {
+        checked.push(named.map((game) => game.teamB));
+        return checkNamedGames(named, roster, [], "ag1");
+      },
+    };
+    setup({ defaultSubjectTeam: "Rays", checker });
+    await paste(user, SCHEDULE);
+    expect(checked).toEqual([["Velocirabbits", "NV Stars"]]);
+    await user.click(screen.getByLabelText("Add Rays versus NV Stars"));
+    expect(checked).toHaveLength(1);
+    const opponent = screen.getByDisplayValue("NV Stars");
+    await user.clear(opponent);
+    await user.paste("Bandits");
+    expect(checked.slice(1).flat()).not.toContain("Velocirabbits");
+    expect(checked[checked.length - 1]).toEqual(["Bandits"]);
   });
 });

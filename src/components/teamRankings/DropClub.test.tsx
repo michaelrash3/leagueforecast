@@ -53,4 +53,18 @@ describe("deleting a club that may not be real", () => {
     expect(loadScoutTeams().map((one) => one.id)).not.toContain("S-ISLE");
     expect(loadScoutGamesForYear(2027).map((one) => one.id)).toEqual(["g1"]);
   });
+
+  it("says where its GameChanger id went when it is searched for straight after", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool);
+    await user.click(screen.getByRole("tab", { name: "Setup" }));
+    await user.click(await screen.findByRole("button", { name: /check the pool/i }));
+    const section = (await screen.findByText(/clubs that may not be real/i)).closest("div")!;
+    await user.click(within(section).getByRole("button", { name: "Delete club" }));
+    await user.click(screen.getByRole("tab", { name: "Rankings" }));
+    const box = screen.getByRole("combobox", { name: /find a team/i });
+    await user.click(box);
+    await user.type(box, "gcISLE000000");
+    expect(await screen.findByText(/That team was thrown out/)).toBeInTheDocument();
+  });
 });

@@ -143,7 +143,7 @@ const GC_CLEARED_KEY = "league_forecast_gc_ageless_cleared_v1";
  * In the pool's keys because it is small and because everything that walks them should find it: a
  * reset that left the index behind would list archives whose rows it had just deleted.
  */
-const GC_ARCHIVE_KEY = "league_forecast_scout_archive_v1";
+export const GC_ARCHIVE_KEY = "league_forecast_scout_archive_v1";
 /**
  * The pairs of GameChanger ids the user has said are two different clubs.
  *
@@ -210,7 +210,7 @@ const GC_ORG_MEMBERSHIP_KEY = "league_forecast_gc_org_membership_v1";
  * are never broadcast. A cached, cross-tab-synced blob is a blob in every tab.
  */
 const ARCHIVE_ROWS_PREFIX = "league_forecast_scout_archive_rows_v1:";
-const archiveRowsKey = (id: string): string => `${ARCHIVE_ROWS_PREFIX}${id}`;
+export const archiveRowsKey = (id: string): string => `${ARCHIVE_ROWS_PREFIX}${id}`;
 /**
  * A crumb left in localStorage once the pool has moved into IndexedDB. Tiny on purpose: it is the
  * only way a later session can tell "this browser has no IndexedDB" from "this browser's pool is
@@ -511,6 +511,62 @@ const readValue = (key: string): unknown => {
 };
 
 /**
+ * The value each key held before `writePoolTogether` began, kept from the first write to it on,
+ * while one runs; null otherwise. On `localStorage` the raw string, or null for a key not there.
+ */
+let journal: Map<string, unknown> | null = null;
+
+const noteBefore = (key: string): void => {
+  if (!journal || journal.has(key)) return;
+  journal.set(key, usingIdb ? (cache.get(key) ?? null) : safeGet(key));
+};
+
+/**
+ * A key put back to what it held, past the cloud guard: this tab is taking back its own write of a
+ * moment ago, not laying an old value over a newer copy.
+ */
+const putBack = (key: string, before: unknown): void => {
+  if (!usingIdb) {
+    if (typeof before === "string") safeSet(key, before);
+    else safeRemove(key);
+    return;
+  }
+  cache.set(key, before);
+  // Queued in write order, for the reason in `writeValue`; it goes after the write it takes back.
+  pendingWrites.delete(key);
+  pendingWrites.set(key, before);
+  void flushWrites();
+  broadcast.post(key);
+};
+
+/**
+ * Runs `write`, a run of saves that stands or falls as one, and when it answers false puts every
+ * key it wrote back as it was, the last written first.
+ *
+ * A change made of several parts is otherwise left half-done by a store that takes some and
+ * refuses the next: `localStorage` full for one year's key, say, so that a club thrown out is gone
+ * from the roster while its games still name it, or a page is made with none of its games moved
+ * onto it. On IndexedDB a write is refused only when the pool cannot be reached or the cloud guard
+ * holds it, which refuses the first as well as the rest; a write accepted there that later fails
+ * to land is not seen here at all, but reported once it fails (`onPoolWriteError`).
+ *
+ * Nested, the outer one is the one that puts back.
+ */
+export const writePoolTogether = (write: () => boolean): boolean => {
+  if (journal) return write();
+  const written = new Map<string, unknown>();
+  journal = written;
+  let ok = false;
+  try {
+    ok = write();
+  } finally {
+    journal = null;
+    if (!ok) [...written].reverse().forEach(([key, before]) => putBack(key, before));
+  }
+  return ok;
+};
+
+/**
  * Writes a value. On IndexedDB this returns whether the write was *accepted* — the cache has it
  * and it is queued — because the transaction has not finished yet and the caller cannot wait. A
  * write that then fails is reported through `onPoolWriteError`. On `localStorage` it is the old
@@ -525,6 +581,7 @@ const writeValue = (key: string, value: unknown, quiet = false): boolean => {
   // Refused rather than written somewhere nothing will read it back.
   if (poolUnavailable) return false;
   if (isCloudPoolKey(key) && !mayWrite("pool")) return false;
+  noteBefore(key);
   // On localStorage the browser raises `storage` in every other tab by itself, so there is nothing
   // to send: the value is already shared and the notification comes free.
   if (!usingIdb) {
@@ -553,6 +610,7 @@ const writeValue = (key: string, value: unknown, quiet = false): boolean => {
 
 const forgetValue = (key: string, quiet = false): void => {
   if (isCloudPoolKey(key) && !mayWrite("pool")) return;
+  noteBefore(key);
   if (!usingIdb) {
     safeRemove(key);
     if (!quiet) noteCloudWrite(key);
@@ -673,7 +731,13 @@ export const initTeamRankingsStore = async (io?: PoolStoreIo): Promise<void> => 
   } catch {
     // Anything unexpected leaves `usingIdb` false, which is the working localStorage path.
   }
-  startPoolSync();
+  /*
+   * Only the device's own store is shared with other tabs. A store handed in is a realm's own: the
+   * server's runs, the backup worker's copy laid into memory, a test's stand-in. No other tab reads
+   * it, so telling them of each key it lays in would only have every open tab re-read that key
+   * from its own store and reload its pool, and in Node the open channel would keep the process up.
+   */
+  if (!io) startPoolSync();
 };
 
 /**
@@ -1296,9 +1360,14 @@ export const saveScoutGamesForYear = (year: number | undefined, games: ScoutGame
   ensureGamesSharded();
   const label = labelForYear(year);
   const key = shardKeyFor(label);
-  // Pin first, so `writeShards` re-pins this year to the array it writes.
-  if (decodedYear?.key !== key) decodedYear = { key, source: readValue(key), games: [] };
-  return writeRouted(games, new Set([label]));
+  // Pin first, so `writeShards` re-pins this year to the array it writes. A pin made here that the
+  // write did not replace holds no games against the year as it is still stored, and would read
+  // it as empty from then on; it goes.
+  const seed = decodedYear?.key === key ? null : { key, source: readValue(key), games: [] };
+  if (seed) decodedYear = seed;
+  const written = writeRouted(games, new Set([label]));
+  if (decodedYear === seed) decodedYear = null;
+  return written;
 };
 
 /** The shard label of a year, for callers that key their own caches the way storage does. */
@@ -1650,16 +1719,24 @@ export const isCloudPoolKey = (key: string): boolean =>
   (isPoolKey(key) && !CLOUD_LOCAL_ONLY.has(key)) || key.startsWith(ARCHIVE_ROWS_PREFIX);
 
 /**
- * Whether the boards read this key (`buildAllBoards` through `loadAgeGroups`, `loadScoutTeams` and
- * `loadScoutGamesForYear`): the roster, the age groups, each year's games, and the one-key games of
- * an older pool with the index of years they are split against. No other pool key changes a board,
- * so a save that changes none of these leaves the boards as they were.
+ * Whether the boards, or the club cards and Find a team lists published with them, read this key
+ * (`buildAllBoards` through `loadAgeGroups`, `loadScoutTeams` and `loadScoutGamesForYear`;
+ * `clubViews` through `loadNamedAges` as well; `searchViews` through `loadScoutGames` and the lists
+ * of GameChanger ids kept off every page): the roster, the age groups, each year's games, the
+ * one-key games of an older pool with the index of years they are split against, the ages a person
+ * named, which a card's age reads, and the teams waiting on an age, thrown out or too young, which
+ * a list says a pasted id is among. No other pool key changes a view, so a save that changes none
+ * of these leaves them as they were.
  */
 export const isBoardInputKey = (key: string): boolean =>
   key === TEAMS_KEY ||
   key === AGE_GROUPS_KEY ||
   key === GAMES_INDEX_KEY ||
   key === GAMES_KEY ||
+  key === GC_NAMED_AGES_KEY ||
+  key === GC_AGELESS_KEY ||
+  key === GC_DROPPED_CLUBS_KEY ||
+  key === GC_TOO_YOUNG_KEY ||
   isGamesShardKey(key);
 
 /** Every key this browser would put in its cloud copy now: each one it holds a value for. */

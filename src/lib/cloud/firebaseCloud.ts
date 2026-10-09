@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, type FirebaseApp } from "firebase/app";
 import {
   GoogleAuthProvider,
   getAuth,
@@ -17,11 +17,18 @@ import {
   getFirestore,
   runTransaction,
   setDoc,
+  updateDoc,
   type Firestore,
 } from "firebase/firestore/lite";
+import type * as FullSdk from "./firestoreListen";
 import type { FirebaseWebConfig } from "./cloudConfig";
 import type { CloudStore } from "./cloudEngine";
+import { coercePullJob, jobPath, jobPiecePath, type PullJob } from "./pullJobs";
+import { firestoreLeague, type LeagueStore } from "../live/leagueStore";
+import type { LiveReader, MetaWatch } from "../live/viewStore";
 import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
+import { restoreBackupOnServer, restoreOnServer, type RestoreAnswer } from "./serverRestore";
+import { uploadChunksPath, uploadPath, type PackedUpload } from "./uploads";
 import {
   coerceMember,
   memberAddress,
@@ -54,6 +61,8 @@ import {
  */
 const MANIFEST = "copies/main";
 const CHUNKS = "copies/main/chunks";
+const LIVE_META = "live/meta";
+const LIVE_CHUNKS = "live/meta/chunks";
 
 export type CloudAccount = { uid: string; email: string | null };
 
@@ -76,7 +85,51 @@ export type FirebaseCloud = {
   /** The list of who may, as the signed-in account may see and change it. */
   members: CloudMembers;
   store: CloudStore;
+  /** The views a server publishes from the copy, as the signed-in member may read them. */
+  live: LiveReader;
+  /** League Standings seasons, one document each, as the signed-in member may keep them live. */
+  league: LeagueStore;
+  /**
+   * Brings kept version `group` of copy `copy` back, by asking the server (`serverRestore.ts`):
+   * the copy's owner's to do.
+   */
+  restore: (group: string, copy: string) => Promise<RestoreAnswer>;
+  /**
+   * Stages a packed upload for the server (`uploads.ts`): its record first, then its pieces, so an
+   * upload cut short leaves a record the server finds a piece missing from, and the nightly sweeps.
+   * The owner's to do: the rules refuse anyone else.
+   */
+  stageUpload: (packed: PackedUpload) => Promise<void>;
+  /** Restores Team Rankings in copy `copy` from staged upload `upload`, by asking the server. */
+  restoreBackup: (upload: string, copy: string) => Promise<RestoreAnswer>;
+  /** Pulls left for the cloud to run (`pullJobs.ts`); a stand-in cloud may have none. */
+  jobs?: PullJobStore;
 };
+
+/** A pull's documents as a device sees them: written once, then read until it is over. */
+export type PullJobStore = {
+  /** Writes the list's pieces, and the job last, so a job is never there without its list. */
+  put: (jobId: string, job: PullJob, pieces: readonly Uint8Array[]) => Promise<void>;
+  read: (jobId: string) => Promise<PullJob | null>;
+  /** Asks the leg running to stop; it files what it has fetched, saves, and runs no more. */
+  askStop: (jobId: string) => Promise<void>;
+};
+
+export const firestoreJobs = (db: Firestore): PullJobStore => ({
+  put: async (jobId, job, pieces) => {
+    for (const [index, piece] of pieces.entries()) {
+      await setDoc(doc(db, jobPiecePath(jobId, index)), { data: Bytes.fromUint8Array(piece) });
+    }
+    await setDoc(doc(db, jobPath(jobId)), job);
+  },
+  read: async (jobId) => {
+    const snap = await getDoc(doc(db, jobPath(jobId)));
+    return snap.exists() ? coercePullJob(snap.data()) : null;
+  },
+  askStop: async (jobId) => {
+    await updateDoc(doc(db, jobPath(jobId)), { stopAsked: true });
+  },
+});
 
 export type CloudMembers = {
   /** The signed-in account's own place on the list, or null when it is not on it. */
@@ -93,6 +146,27 @@ const accountOf = (user: User | null): CloudAccount | null =>
   user ? { uid: user.uid, email: user.email } : null;
 
 export { UnreadableCopyError };
+
+/** Writes `packed` under `uploads/`: its record, then each piece, a few at a time. */
+export const stageUploadIn = async (db: Firestore, packed: PackedUpload): Promise<void> => {
+  await setDoc(doc(db, uploadPath(packed.id)), packed.record);
+  for (let at = 0; at < packed.pieces.length; at += 4) {
+    await Promise.all(
+      packed.pieces
+        .slice(at, at + 4)
+        .map(({ id, data }) =>
+          setDoc(doc(db, uploadChunksPath(packed.id), id), { data: Bytes.fromUint8Array(data) })
+        )
+    );
+  }
+};
+
+/** A piece's bytes, as `{ data: Bytes }` holds them, or null when it is not there or not bytes. */
+const bytesOf = async (db: Firestore, collectionPath: string, id: string) => {
+  const snap = await getDoc(doc(db, collectionPath, id));
+  const data: unknown = snap.exists() ? snap.get("data") : null;
+  return data instanceof Bytes ? data.toUint8Array() : null;
+};
 
 /** The copy's documents in one Firestore database, as the sync engine reads and writes them. */
 export const firestoreStore = (db: Firestore): CloudStore => ({
@@ -129,15 +203,68 @@ export const firestoreStore = (db: Firestore): CloudStore => ({
   putChunk: async (id, data) => {
     await setDoc(doc(db, CHUNKS, id), { data: Bytes.fromUint8Array(data) });
   },
-  getChunk: async (id) => {
-    const snap = await getDoc(doc(db, CHUNKS, id));
-    const data: unknown = snap.exists() ? snap.get("data") : null;
-    return data instanceof Bytes ? data.toUint8Array() : null;
-  },
+  getChunk: (id) => bytesOf(db, CHUNKS, id),
   deleteChunk: async (id) => {
     await deleteDoc(doc(db, CHUNKS, id));
   },
 });
+
+/**
+ * The views a server publishes (`live/`), read by name as a member's device reads them: the meta's
+ * fields as stored, and each piece's bytes. What they say is for the reader to check
+ * (`liveClient.ts`): nothing here trusts them.
+ */
+export const firestoreLive = (db: Firestore): LiveReader => ({
+  readMeta: async () => {
+    const snap = await getDoc(doc(db, LIVE_META));
+    return snap.exists() ? snap.data() : null;
+  },
+  getChunk: (id) => bytesOf(db, LIVE_CHUNKS, id),
+});
+
+/** The full Firestore SDK, and its client of an app. */
+export type FullFirestore = { sdk: typeof FullSdk; db: FullSdk.Firestore };
+
+/**
+ * The full Firestore SDK's client of `app`, loaded when first asked for. The lite Firestore the copy
+ * uses reads but cannot listen; the two share the app and its sign-in, each with a client of its
+ * own. Asked for only when a page watches, so a browser that only syncs its copy, or opens no live
+ * page, never downloads it.
+ */
+const fullFirestoreOf = (app: FirebaseApp) => (): Promise<FullFirestore> =>
+  import("./firestoreListen").then((sdk) => ({ sdk, db: sdk.getFirestore(app) }));
+
+/**
+ * `live/meta` as it changes, for a page that keeps its board the latest published while it is open,
+ * through the full Firestore `load` gives. Its snapshots say whether they came from the server, and
+ * Firestore delivers one from its cache when the connection drops, which is how a page learns it is
+ * cut off; it errors only to end, a refusal by the rules among the reasons.
+ */
+export const watchLiveMeta =
+  (load: () => Promise<FullFirestore>): MetaWatch =>
+  (heard) => {
+    let stop: (() => void) | null = null;
+    let stopped = false;
+    load().then(
+      ({ sdk, db }) => {
+        if (stopped) return;
+        stop = sdk.onSnapshot(
+          sdk.doc(db, LIVE_META),
+          { includeMetadataChanges: true },
+          (snap) => heard.next(snap.exists() ? snap.data() : null, !snap.metadata.fromCache),
+          (error) => heard.error(error)
+        );
+      },
+      // The SDK would not load: offline before it ever came down, which a later open retries.
+      (error: unknown) => {
+        if (!stopped) heard.error(error);
+      }
+    );
+    return () => {
+      stopped = true;
+      stop?.();
+    };
+  };
 
 /** `FirebaseCloud.owns` for whoever is signed in to `db`: refused a look, it is not theirs to open. */
 export const ownsCopy = async (db: Firestore): Promise<boolean> => {
@@ -198,5 +325,17 @@ export const openFirebaseCloud = (config: FirebaseWebConfig): FirebaseCloud => {
     owns: () => ownsCopy(db),
     members: firestoreMembers(db, () => auth.currentUser?.email ?? null),
     store: firestoreStore(db),
+    jobs: firestoreJobs(db),
+    live: { ...firestoreLive(db), watchMeta: watchLiveMeta(fullFirestoreOf(app)) },
+    league: firestoreLeague(fullFirestoreOf(app)),
+    stageUpload: (packed) => stageUploadIn(db, packed),
+    restoreBackup: (upload, copy) =>
+      restoreBackupOnServer(upload, copy, {
+        token: async () => (auth.currentUser ? auth.currentUser.getIdToken() : null),
+      }),
+    restore: (group, copy) =>
+      restoreOnServer(group, copy, {
+        token: async () => (auth.currentUser ? auth.currentUser.getIdToken() : null),
+      }),
   };
 };

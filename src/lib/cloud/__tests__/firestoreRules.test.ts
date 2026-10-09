@@ -1,11 +1,13 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteApp, initializeApp, type FirebaseApp } from "firebase/app";
 import {
   Bytes,
   collection,
   connectFirestoreEmulator,
   deleteDoc,
+  deleteField,
   doc,
+  FieldPath,
   getDoc,
   getDocs,
   getFirestore,
@@ -16,13 +18,34 @@ import {
 import { CHUNK_BYTES } from "../cloudPack";
 import { commitChanges, fetchValues } from "../cloudEngine";
 import { chunkId, DATA_SCHEMA, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
-import { firestoreMembers, firestoreStore, ownsCopy, UnreadableCopyError } from "../firebaseCloud";
+import {
+  firestoreLive,
+  firestoreMembers,
+  firestoreStore,
+  ownsCopy,
+  UnreadableCopyError,
+  watchLiveMeta,
+  type FullFirestore,
+} from "../firebaseCloud";
 import { coercePullJob, jobPath, jobPiecePath, newPullJob, packJobList } from "../pullJobs";
 import { createMemberCheck } from "../../memberCheck";
 import { coerceLiveMeta, publishViews } from "../../live/viewStore";
-import { firestoreRestDocuments, firestoreRestLive } from "../firestoreRest";
+import { checkLiveMeta, forgetDecodedBoards, readBoard, readLive } from "../../live/liveClient";
+import {
+  firestoreRestDocuments,
+  firestoreRestLive,
+  firestoreRestStore,
+  firestoreRestUploads,
+} from "../firestoreRest";
+import { stageUploadIn } from "../firebaseCloud";
+import { packUpload, readUpload, uploadChunksPath, uploadPath } from "../uploads";
 import { coerceLedger, REBUILD_LEDGER_PATH, restLedgerStore } from "../../live/rebuildLedger";
 import { unpackChunks } from "../cloudPack";
+import { docToSeason, LEAGUE_COLLECTION, seasonDocId, seasonToDoc } from "../../live/leagueDocs";
+import { unsaved, writesFor } from "../../live/leagueLive";
+import { firestoreLeague } from "../../live/leagueStore";
+import type { SeasonSnapshot } from "../../storage";
+import { DEFAULT_SETTINGS, type GameLog } from "../../types";
 
 /*
  * The rules that open the cloud copy to the Google accounts on its list and to nothing else, and
@@ -58,31 +81,57 @@ const STRANGER: Account = {
   provider: "google.com",
 };
 
-/** Firestore as `account` sees it, or as a browser nobody has signed in to. */
-const as = (account: Account | null): Firestore => {
+/** A Firebase app of its own, for one account's client. */
+const newApp = (): FirebaseApp => {
   const app = initializeApp({ projectId: PROJECT, apiKey: "demo-key" }, `app-${apps.length}`);
   apps.push(app);
-  const db = getFirestore(app);
+  return app;
+};
+
+/** Where the emulator is, and the stand-in token it is to take for `account`. */
+const emulatorFor = (account: Account | null) => {
   const [host = "127.0.0.1", port = "8085"] = (HOST ?? "").split(":");
-  connectFirestoreEmulator(
-    db,
-    host,
-    Number(port),
-    account
-      ? {
-          mockUserToken: {
-            sub: account.uid,
-            ...(account.email === undefined
-              ? {}
-              : { email: account.email, email_verified: account.unverified === undefined }),
-            ...(account.provider === undefined
-              ? {}
-              : { firebase: { sign_in_provider: account.provider, identities: {} } }),
-          },
-        }
-      : {}
-  );
+  const token = account
+    ? {
+        mockUserToken: {
+          sub: account.uid,
+          ...(account.email === undefined
+            ? {}
+            : { email: account.email, email_verified: account.unverified === undefined }),
+          ...(account.provider === undefined
+            ? {}
+            : { firebase: { sign_in_provider: account.provider, identities: {} } }),
+        },
+      }
+    : {};
+  return { host, port: Number(port), token };
+};
+
+/** Firestore as `account` sees it, or as a browser nobody has signed in to. */
+const as = (account: Account | null): Firestore => {
+  const db = getFirestore(newApp());
+  const { host, port, token } = emulatorFor(account);
+  connectFirestoreEmulator(db, host, port, token);
   return db;
+};
+
+/** The full Firestore, which listens, as `account` sees it: what the app's watch loads. */
+/**
+ * Both Firestores of one app as `account` sees them, as the app holds them: the lite one the copy
+ * and the reads use, and a loader of the full one that listens, the same app's.
+ */
+const bothAs = (account: Account) => {
+  const app = newApp();
+  const { host, port, token } = emulatorFor(account);
+  const lite = getFirestore(app);
+  connectFirestoreEmulator(lite, host, port, token);
+  const full = async (): Promise<FullFirestore> => {
+    const sdk = await import("../firestoreListen");
+    const db = sdk.getFirestore(app);
+    sdk.connectFirestoreEmulator(db, host, port, token);
+    return { sdk, db };
+  };
+  return { lite, full };
 };
 
 const REFUSED = { code: "permission-denied" };
@@ -99,9 +148,21 @@ const manifestOf = (version: number): CloudManifest => ({
   kept: [],
 });
 
-const firstCopy = async (db: Firestore, values: Record<string, unknown>) => {
+/**
+ * The copy as the servers write it (the nightly, the edit function, a pull in the cloud), past the
+ * rules, as an administrator: no browser writes it (1.6f).
+ */
+const serverCopy = () =>
+  firestoreRestStore({
+    projectId: PROJECT,
+    token: async () => "owner",
+    origin: `http://${HOST}`,
+    writable: true,
+  });
+
+const firstCopy = async (values: Record<string, unknown>) => {
   const result = await commitChanges({
-    store: firestoreStore(db),
+    store: serverCopy(),
     base: null,
     changes: Object.entries(values).map(([key, value]) => ({ key, value, at: 1 })),
     device: "phone",
@@ -190,9 +251,9 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     await expect(getDoc(doc(owner, "elsewhere/doc"))).rejects.toMatchObject(REFUSED);
   });
 
-  it("carry the data from one Google sign-in to another, and to nothing else", async () => {
+  it("carry the data the servers write to every account on the list, and to nothing else", async () => {
     const values = { league: { seasons: [{ name: "Spring" }] }, teams: [["a", "Hawks"]] };
-    const sent = await firstCopy(as(OWNER), values);
+    const sent = await firstCopy(values);
     const laptopStore = firestoreStore(as(LAPTOP));
     const manifest = (await laptopStore.readManifest()) as CloudManifest;
     expect(manifest.parts.map((part) => part.key)).toEqual(["league", "teams"]);
@@ -211,8 +272,30 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     ).rejects.toMatchObject(REFUSED);
   });
 
+  it("are written by no browser, the owner's and a member's included (1.6f)", async () => {
+    const sent = await firstCopy({ teams: [["a", "Hawks"]] });
+    const piece = chunkId(sent.parts[0]?.id ?? "", 0);
+    for (const account of [OWNER, LAPTOP]) {
+      const store = firestoreStore(as(account));
+      // Read, every piece the manifest names.
+      expect((await store.readManifest())?.save).toBe(sent.save);
+      expect(await store.getChunk(piece)).not.toBeNull();
+      // And nothing written: no first copy, no save over it, no piece put or taken away.
+      await expect(
+        store.commitManifest({ version: sent.version, copy: sent.copy }, manifestOf(2))
+      ).rejects.toMatchObject(REFUSED);
+      await expect(store.putChunk("b-0", new Uint8Array([1]))).rejects.toMatchObject(REFUSED);
+      await expect(store.deleteChunk(piece)).rejects.toMatchObject(REFUSED);
+      await expect(
+        setDoc(doc(as(account), "copies/main"), { ...manifestOf(9) })
+      ).rejects.toMatchObject(REFUSED);
+      await expect(deleteDoc(doc(as(account), "copies/main"))).rejects.toMatchObject(REFUSED);
+    }
+    expect((await serverCopy().readManifest())?.save).toBe(sent.save);
+  });
+
   it("refuse a save onto a copy that moved on, or onto another copy, in one step with the read", async () => {
-    const store = firestoreStore(as(OWNER));
+    const store = serverCopy();
     expect(await store.commitManifest(null, manifestOf(1))).toBe(true);
     expect(await store.commitManifest(null, manifestOf(1))).toBe(false);
     expect(await store.commitManifest({ version: 1, copy: "copy-a" }, manifestOf(2))).toBe(true);
@@ -224,11 +307,13 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
   it("never take a manifest this build cannot read for no copy at all", async () => {
     const owner = as(OWNER);
     // A later build's layout, as this one would find it.
-    await setDoc(doc(owner, "copies/main"), { ...manifestOf(4), format: MANIFEST_FORMAT + 1 });
-    const store = firestoreStore(owner);
-    await expect(store.readManifest()).rejects.toBeInstanceOf(UnreadableCopyError);
+    const server = serverCopy();
+    expect(
+      await server.commitManifest(null, { ...manifestOf(4), format: MANIFEST_FORMAT + 1 })
+    ).toBe(true);
+    await expect(firestoreStore(owner).readManifest()).rejects.toBeInstanceOf(UnreadableCopyError);
     // Nor write a first copy over it.
-    expect(await store.commitManifest(null, manifestOf(1))).toBe(false);
+    expect(await server.commitManifest(null, manifestOf(1))).toBe(false);
     expect((await getDoc(doc(owner, "copies/main"))).get("format")).toBe(MANIFEST_FORMAT + 1);
   });
 
@@ -239,13 +324,13 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
       crypto.getRandomValues(bytes.subarray(at, at + 65_536));
     }
     const noise = Array.from(bytes, (byte) => byte.toString(36)).join("");
-    const manifest = await firstCopy(as(OWNER), { teams: noise });
+    const manifest = await firstCopy({ teams: noise });
     expect(manifest.parts[0]?.chunks).toBeGreaterThan(1);
     const fetched = await fetchValues({ store: firestoreStore(as(OWNER)), parts: manifest.parts });
     expect(fetched.ok && fetched.values.get("teams")).toBe(noise);
   }, 60_000);
 
-  it("take a pull a Google sign-in leaves beside the copy, and give it to no one else", async () => {
+  it("take a pull a member leaves for the cloud, and give it to no one else", async () => {
     const job = "0123456789abcdef0123456789abcdef";
     const packed = await packJobList([{ teamId: "gcACES000001" }]);
     const sent = newPullJob({
@@ -266,10 +351,56 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     expect((await getDoc(doc(laptop, jobPiecePath(job, 0)))).get("data").toUint8Array()).toEqual(
       packed.pieces[0]
     );
-    for (const outsider of [as(null), as({ uid: "anon", provider: "anonymous" })]) {
+    for (const outsider of [as(null), as({ uid: "anon", provider: "anonymous" }), as(STRANGER)]) {
       await expect(getDoc(doc(outsider, jobPath(job)))).rejects.toMatchObject(REFUSED);
       await expect(setDoc(doc(outsider, jobPath(job)), sent)).rejects.toMatchObject(REFUSED);
     }
+  });
+
+  it("let a member make a job only as a new one is made, and change nothing of it but a stop", async () => {
+    const job = "fedcba9876543210fedcba9876543210";
+    const packed = await packJobList([{ teamId: "gcACES000002" }]);
+    const sent = newPullJob({
+      list: packed.list,
+      seasonYears: [],
+      timeZone: "America/New_York",
+      device: "laptop",
+      now: "2026-10-09T12:00:00.000Z",
+    });
+    const laptop = as(LAPTOP);
+    // Named as a job is, and new: queued, no leg run, no stop asked.
+    await expect(setDoc(doc(laptop, jobPath("not-an-id")), sent)).rejects.toMatchObject(REFUSED);
+    for (const bad of [
+      { ...sent, status: "done" },
+      { ...sent, legsDone: 1 },
+      { ...sent, stopAsked: true },
+      { ...sent, format: 2 },
+    ]) {
+      await expect(setDoc(doc(laptop, jobPath(job)), bad)).rejects.toMatchObject(REFUSED);
+    }
+    // Its pieces hold bytes alone, no bigger than a piece is made, and never change once written.
+    const piece = doc(laptop, jobPiecePath(job, 0));
+    await expect(setDoc(piece, { data: "text" })).rejects.toMatchObject(REFUSED);
+    await expect(
+      setDoc(piece, { data: Bytes.fromUint8Array(new Uint8Array(1_000_001)) })
+    ).rejects.toMatchObject(REFUSED);
+    await setDoc(piece, { data: Bytes.fromUint8Array(packed.pieces[0]!) });
+    await expect(
+      setDoc(piece, { data: Bytes.fromUint8Array(new Uint8Array(3)) })
+    ).rejects.toMatchObject(REFUSED);
+    await setDoc(doc(laptop, jobPath(job)), sent);
+    // Once made, a member may ask it to stop, and change nothing else of it.
+    await expect(
+      setDoc(doc(laptop, jobPath(job)), { ...sent, status: "done" })
+    ).rejects.toMatchObject(REFUSED);
+    await expect(
+      setDoc(doc(laptop, jobPath(job)), { ...sent, stopAsked: true, legsDone: 1 })
+    ).rejects.toMatchObject(REFUSED);
+    await setDoc(doc(laptop, jobPath(job)), { ...sent, stopAsked: true });
+    expect(coercePullJob((await getDoc(doc(laptop, jobPath(job)))).data())?.stopAsked).toBe(true);
+    // Nobody deletes one, or lists them: the function keeps them, past the rules.
+    await expect(deleteDoc(doc(laptop, jobPath(job)))).rejects.toMatchObject(REFUSED);
+    await expect(getDocs(collection(laptop, "pullJobs"))).rejects.toMatchObject(REFUSED);
   });
 });
 
@@ -384,7 +515,9 @@ describe.skipIf(!HOST)(
       );
 
     it("lets in the accounts on the list, whatever case Google hands their address back in", async () => {
-      expect(await verdictFor(OWNER)).toBe("member");
+      // The owner as the owner, by the role on its own entry, which the edit function reads to
+      // keep the owner's commands to the owner (1.6).
+      expect(await verdictFor(OWNER)).toBe("owner");
       expect(await verdictFor(LAPTOP)).toBe("member");
       expect(await verdictFor({ ...LAPTOP, email: "Laptop@Example.COM" })).toBe("member");
     });
@@ -447,6 +580,140 @@ describe.skipIf(!HOST)("the views a server publishes, on the Firestore emulator"
       expect(await unpackChunks([data.toUint8Array()], entry.h)).toEqual(VIEW);
     }
   });
+
+  it("are read whole through the app's own reader, every piece checked, by the list alone", async () => {
+    const board = {
+      rows: [
+        {
+          teamId: "S-A",
+          teamName: "Placeholder Hawks",
+          rank: 1,
+          rating: 1.5,
+          pointRating: 2.5,
+          record: "3-1",
+          wins: 3,
+          losses: 1,
+          ties: 0,
+          games: 4,
+          rawMargin: 1.25,
+          strengthOfSchedule: 0.5,
+          sosRank: 1,
+          crossAgeGames: 0,
+          componentSize: 2,
+          componentId: "S-A",
+          comparable: true,
+          fromGameChanger: true,
+          city: "Springfield",
+          state: "OH",
+        },
+      ],
+    };
+    const pages = { pulledAt: T, halves: { ag_10u_2027: { fall: 3, spring: 1 } } };
+    const result = await publishViews({
+      store: server(),
+      views: [{ key: KEY, value: board }],
+      owns: ["board:"],
+      copy: { id: "copy-a", version: 1 },
+      today: "2027-04-15",
+      now: T,
+      inline: { pages },
+    });
+    expect(result.ok).toBe(true);
+    for (const account of [OWNER, { ...LAPTOP, email: "Laptop@Example.COM" }]) {
+      forgetDecodedBoards();
+      const reader = firestoreLive(as(account));
+      const read = await readLive(reader);
+      expect(read).toMatchObject({ ok: true, pages });
+      if (!read.ok) continue;
+      const got = await readBoard({ reader, meta: read.meta, key: KEY });
+      expect(got).toMatchObject({ ok: true, from: "network" });
+      expect(got.ok && got.view).toStrictEqual(board);
+    }
+    for (const account of [STRANGER, { ...LAPTOP, unverified: true as const }]) {
+      expect(await readLive(firestoreLive(as(account)))).toEqual({ ok: false, why: "refused" });
+    }
+  });
+
+  // Each wait below allows the emulator 10 s, though the whole runs in half a second (measured).
+  it(
+    "are heard as they change through the app's own watch, by the list alone",
+    { timeout: 30_000 },
+    async () => {
+      await published();
+      const listen = (account: Account) => {
+        const heard: Array<{ raw: unknown; fromServer: boolean }> = [];
+        const errors: unknown[] = [];
+        const both = bothAs(account);
+        let client: FullFirestore | null = null;
+        const load = async () => (client = await both.full());
+        const stop = watchLiveMeta(load)({
+          next: (raw, fromServer) => heard.push({ raw, fromServer }),
+          error: (error) => errors.push(error),
+        });
+        /** The pages' counts in the newest meta the server vouched for, as the page reads them. */
+        const pulledAt = () => {
+          const vouched = heard.filter((one) => one.fromServer);
+          const last = vouched[vouched.length - 1];
+          const read = last ? checkLiveMeta(last.raw) : null;
+          return read?.ok ? read.pages.pulledAt : null;
+        };
+        /** Cuts this client off the network, as a dropped connection does, or puts it back. */
+        const network = async (on: boolean) => {
+          if (!client) throw new Error("the watch has not loaded Firestore");
+          await (on ? client.sdk.enableNetwork(client.db) : client.sdk.disableNetwork(client.db));
+        };
+        const lastVouched = () => heard[heard.length - 1]?.fromServer;
+        return { heard, errors, stop, pulledAt, network, lastVouched, lite: both.lite };
+      };
+      const member = listen(LAPTOP);
+      const stranger = listen(STRANGER);
+      const pages = (pulledAt: string) => ({
+        pulledAt,
+        halves: { ag_10u_2027: { fall: 3, spring: 1 } },
+      });
+      const republish = async (pulledAt: string) => {
+        const result = await publishViews({
+          store: server(),
+          views: [{ key: KEY, value: VIEW }],
+          owns: ["board:"],
+          copy: { id: "copy-a", version: 2 },
+          today: "2027-04-15",
+          now: T,
+          inline: { pages: pages(pulledAt) },
+        });
+        expect(result.ok).toBe(true);
+      };
+      try {
+        await republish("2027-04-15T13:00:00.000Z");
+        await vi.waitFor(() => expect(member.pulledAt()).toBe("2027-04-15T13:00:00.000Z"), {
+          timeout: 10_000,
+        });
+        // A publish while it listens is heard, from the server.
+        await republish("2027-04-15T14:00:00.000Z");
+        await vi.waitFor(() => expect(member.pulledAt()).toBe("2027-04-15T14:00:00.000Z"), {
+          timeout: 10_000,
+        });
+        // Cut off, it hears what it has, not vouched for: the page's "offline"; back, vouched again.
+        await member.network(false);
+        await vi.waitFor(() => expect(member.lastVouched()).toBe(false), { timeout: 10_000 });
+        await member.network(true);
+        await vi.waitFor(() => expect(member.lastVouched()).toBe(true), { timeout: 10_000 });
+        expect(member.errors).toEqual([]);
+        // The same app's lite client reads beside its listener, as the app's do.
+        expect(await readLive(firestoreLive(member.lite))).toMatchObject({
+          ok: true,
+          pages: { pulledAt: "2027-04-15T14:00:00.000Z" },
+        });
+        // Turned away by the rules: its watch ends, refused, having heard nothing from the server.
+        await vi.waitFor(() => expect(stranger.errors).toHaveLength(1), { timeout: 10_000 });
+        expect(stranger.errors[0]).toMatchObject(REFUSED);
+        expect(stranger.heard.filter((one) => one.fromServer)).toEqual([]);
+      } finally {
+        member.stop();
+        stranger.stop();
+      }
+    }
+  );
 
   it("are read by nobody else", async () => {
     const entry = await published();
@@ -573,3 +840,301 @@ describe.skipIf(!HOST)("the rebuilds' switch and ledger, on the Firestore emulat
     expect((await server().read()).raw).toEqual(before);
   });
 });
+
+describe.skipIf(!HOST)("League seasons' rules, on the Firestore emulator", () => {
+  const final = (away: string, home: string): GameLog => ({
+    awayRuns: away,
+    awayHits: "",
+    awayK: "",
+    homeRuns: home,
+    homeHits: "",
+    homeK: "",
+    innings: "6",
+    isFinal: true,
+  });
+  const SEASON: SeasonSnapshot = {
+    id: "Spring 2027",
+    name: "Spring 2027",
+    createdAt: "2027-02-01T00:00:00.000Z",
+    teams: [
+      { id: "A", name: "Club A" },
+      { id: "B.1", name: "Club B" },
+      { id: "C", name: "Club C" },
+    ],
+    matchups: [
+      { id: "g1", date: "4/3", away: "A", home: "B.1" },
+      { id: "Row 2: B.1 @ C", date: "4/3", away: "B.1", home: "C" },
+    ],
+    logs: {},
+    bracketLogs: {},
+    settings: { ...DEFAULT_SETTINGS },
+  };
+  const DOC_ID = seasonDocId(SEASON.id);
+  const NOW = "2027-04-03T18:00:00.000Z";
+  const where = (db: Firestore, id = DOC_ID) => doc(db, LEAGUE_COLLECTION, id);
+  /** The seasons as the app keeps them live: the full SDK, every write a transaction. */
+  const leagueAs = (account: Account) => firestoreLeague(bothAs(account).full);
+
+  /** A change to the season as the app writes it: read, laid over, one write past the last. */
+  const editAs = (account: Account, change: (season: SeasonSnapshot) => SeasonSnapshot) =>
+    leagueAs(account).update(DOC_ID, (remote) => {
+      if (!remote.exists) throw new Error("no season");
+      const read = docToSeason(remote.data, DOC_ID);
+      if (!read.ok) throw new Error(`unread: ${read.reason}`);
+      const theirs = unsaved(read.season);
+      return {
+        write: { changes: writesFor(theirs, read.rev, change(theirs), NOW) },
+        result: read.rev + 1,
+      };
+    });
+  const make = (account: Account) =>
+    leagueAs(account).update(DOC_ID, () => ({
+      write: { create: seasonToDoc(SEASON, 1) },
+      result: null,
+    }));
+  const readAs = async (db: Firestore) => {
+    const read = docToSeason((await getDoc(where(db))).data(), DOC_ID);
+    if (!read.ok) throw new Error(`unread: ${read.reason}`);
+    return read;
+  };
+
+  it("are made, read and written by the list, each write one past the last", async () => {
+    await make(OWNER);
+    expect((await readAs(as(LAPTOP))).season).toMatchObject({ teams: SEASON.teams, logs: {} });
+    expect(await editAs(LAPTOP, (season) => ({ ...season, logs: { g1: final("7", "4") } }))).toBe(
+      2
+    );
+    expect(
+      await editAs(OWNER, (season) => ({
+        ...season,
+        logs: { ...season.logs, "Row 2: B.1 @ C": final("2", "3") },
+      }))
+    ).toBe(3);
+    const read = await readAs(as(OWNER));
+    expect(read.rev).toBe(3);
+    expect(read.season.logs).toEqual({ g1: final("7", "4"), "Row 2: B.1 @ C": final("2", "3") });
+    // A record taken out is taken out, and only it.
+    await editAs(LAPTOP, (season) => ({
+      ...season,
+      logs: { "Row 2: B.1 @ C": final("2", "3") },
+    }));
+    expect(Object.keys((await readAs(as(OWNER))).season.logs)).toEqual(["Row 2: B.1 @ C"]);
+    const listed = await getDocs(collection(as(LAPTOP), LEAGUE_COLLECTION));
+    expect(listed.docs.map((one) => one.id)).toEqual([DOC_ID]);
+  });
+
+  it("are listed only as the server answers, refused offline rather than read from a cache", async () => {
+    await make(OWNER);
+    const both = bothAs(LAPTOP);
+    const loaded: { client: FullFirestore | null } = { client: null };
+    const league = firestoreLeague(async () => (loaded.client ??= await both.full()));
+    expect((await league.list()).map(({ docId }) => docId)).toEqual([DOC_ID]);
+    if (!loaded.client) throw new Error("the list has not loaded Firestore");
+    const { sdk, db } = loaded.client;
+    // Offline, Firestore's own listing answers from its cache, which a page that has listened to
+    // no season holds none of: a first meeting would take that for a cloud with no seasons.
+    await sdk.disableNetwork(db);
+    await expect(league.list()).rejects.toBeTruthy();
+    await sdk.enableNetwork(db);
+  });
+
+  it("refuse a write that is not one past the last, as a write made without reading is", async () => {
+    await make(OWNER);
+    const db = as(LAPTOP);
+    const logs = new FieldPath("logs", "g1");
+    await expect(updateDoc(where(db), logs, final("1", "0"))).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), logs, final("1", "0"), "rev", 1)).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(updateDoc(where(db), logs, final("1", "0"), "rev", 3)).rejects.toMatchObject(
+      REFUSED
+    );
+    await updateDoc(where(db), logs, final("1", "0"), "rev", 2);
+    // A second device that read the season at write 1 is refused the same write.
+    await expect(updateDoc(where(db), logs, final("9", "9"), "rev", 2)).rejects.toMatchObject(
+      REFUSED
+    );
+  });
+
+  it("are closed to everyone else", async () => {
+    await make(OWNER);
+    const unverified: Account = { ...LAPTOP, unverified: true };
+    for (const account of [STRANGER, unverified, null]) {
+      const db = as(account);
+      await expect(getDoc(where(db))).rejects.toMatchObject(REFUSED);
+      await expect(getDocs(collection(db, LEAGUE_COLLECTION))).rejects.toMatchObject(REFUSED);
+      await expect(setDoc(where(db, "season-9"), seasonToDoc(SEASON, 1))).rejects.toMatchObject(
+        REFUSED
+      );
+      await expect(updateDoc(where(db), { name: "Taken", rev: 2 })).rejects.toMatchObject(REFUSED);
+      await expect(deleteDoc(where(db))).rejects.toMatchObject(REFUSED);
+    }
+  });
+
+  it("take a season only whole, at its first write, under the name the app gives it, each field of its kind", async () => {
+    const db = as(LAPTOP);
+    const whole = seasonToDoc(SEASON, 1);
+    const { order: _order, ...noOrder } = whole;
+    const { rev: _rev, ...noRev } = whole;
+    await expect(setDoc(where(db, "season-8"), noOrder)).rejects.toMatchObject(REFUSED);
+    await expect(setDoc(where(db, "season-8"), noRev)).rejects.toMatchObject(REFUSED);
+    await expect(setDoc(where(db, "season-8"), { ...whole, rev: 2 })).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(setDoc(where(db, "season-8"), { ...whole, owner: "x" })).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(setDoc(where(db, "Spring 2027"), whole)).rejects.toMatchObject(REFUSED);
+    await expect(setDoc(where(db, "a.b"), whole)).rejects.toMatchObject(REFUSED);
+    await setDoc(where(db), whole);
+    let rev = 1;
+    const next = () => (rev += 1);
+    await expect(updateDoc(where(db), { extra: 1, rev: rev + 1 })).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { teams: [], rev: rev + 1 })).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { logs: deleteField(), rev: rev + 1 })).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(updateDoc(where(db), { order: "g1", rev: rev + 1 })).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(updateDoc(where(db), { updatedAt: 5, rev: rev + 1 })).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(updateDoc(where(db), { schema: "1", rev: rev + 1 })).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(updateDoc(where(db), { schema: 1.5, rev: rev + 1 })).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(
+      updateDoc(where(db), { schema: deleteField(), rev: rev + 1 })
+    ).rejects.toMatchObject(REFUSED);
+    await expect(updateDoc(where(db), { rev: 2.5 })).rejects.toMatchObject(REFUSED);
+    await updateDoc(where(db), { schema: 2, rev: next() });
+    await expect(updateDoc(where(db), { schema: 1, rev: rev + 1 })).rejects.toMatchObject(REFUSED);
+    await updateDoc(where(db), { updatedAt: "2027-04-10T00:00:00.000Z", rev: next() });
+  });
+
+  it("are deleted by the owner alone, and never before the cloud agrees", async () => {
+    await make(LAPTOP);
+    await expect(leagueAs(LAPTOP).remove(DOC_ID, SEASON.createdAt)).rejects.toMatchObject(REFUSED);
+    expect((await getDoc(where(as(OWNER)))).exists()).toBe(true);
+    expect(await leagueAs(OWNER).remove(DOC_ID, SEASON.createdAt)).toBe("deleted");
+    expect((await getDoc(where(as(OWNER)))).exists()).toBe(false);
+    expect(await leagueAs(OWNER).remove(DOC_ID, SEASON.createdAt)).toBe("absent");
+  });
+
+  it("are not deleted for another season of the same id, made at another moment", async () => {
+    await make(LAPTOP);
+    expect(await leagueAs(OWNER).remove(DOC_ID, "2026-01-01T00:00:00.000Z")).toBe("other");
+    expect((await getDoc(where(as(OWNER)))).exists()).toBe(true);
+    // A member asking for another season's delete is told so, and deletes nothing either.
+    expect(await leagueAs(LAPTOP).remove(DOC_ID, "2026-01-01T00:00:00.000Z")).toBe("other");
+  });
+});
+
+describe.skipIf(!HOST)(
+  "a backup the owner stages for the server, on the Firestore emulator",
+  () => {
+    const AT = "2026-10-04T12:00:00.000Z";
+    /** The uploads as the edit function reads and deletes them, past the rules. */
+    const server = (writable = true) =>
+      firestoreRestUploads({
+        projectId: PROJECT,
+        token: async () => "owner",
+        origin: `http://${HOST}`,
+        writable,
+      });
+    const FILE = { placeholder: "Team Rankings JSON" };
+    const staged = () => packUpload("team-rankings", [JSON.stringify(FILE)], AT);
+
+    it("is staged by the owner, record first, and read back by the server whole", async () => {
+      const packed = await staged();
+      await stageUploadIn(as(OWNER), packed);
+      expect(await readUpload(server(), packed.id, "team-rankings")).toEqual({
+        ok: true,
+        value: FILE,
+      });
+      // Listed with when Firestore made it, by its own clock, which the nightly sweeps by.
+      const [listed] = await server().list();
+      expect(listed?.id).toBe(packed.id);
+      expect(Number.isNaN(Date.parse(listed?.stagedAt ?? ""))).toBe(false);
+      // The owner reads back what it staged, and may take it away.
+      expect((await getDoc(doc(as(OWNER), uploadPath(packed.id)))).exists()).toBe(true);
+    });
+
+    it("is the owner's alone: a member, a stranger and a browser nobody signed in to may not", async () => {
+      const packed = await staged();
+      for (const account of [LAPTOP, STRANGER, null]) {
+        await expect(stageUploadIn(as(account), packed)).rejects.toMatchObject(REFUSED);
+      }
+      await stageUploadIn(as(OWNER), packed);
+      for (const account of [LAPTOP, STRANGER, null]) {
+        const db = as(account);
+        await expect(getDoc(doc(db, uploadPath(packed.id)))).rejects.toMatchObject(REFUSED);
+        await expect(
+          getDoc(doc(db, uploadChunksPath(packed.id), `${packed.id}-0`))
+        ).rejects.toMatchObject(REFUSED);
+        await expect(deleteDoc(doc(db, uploadPath(packed.id)))).rejects.toMatchObject(REFUSED);
+      }
+      // Nobody lists them, the owner included: the server does, past the rules.
+      await expect(getDocs(collection(as(OWNER), "uploads"))).rejects.toMatchObject(REFUSED);
+    });
+
+    it("takes only a record and pieces of the shapes the server reads, and changes neither once written", async () => {
+      const packed = await staged();
+      const db = as(OWNER);
+      const record = doc(db, uploadPath(packed.id));
+      for (const bad of [
+        { ...packed.record, extra: 1 },
+        { ...packed.record, kind: "league" },
+        { ...packed.record, hash: "short" },
+        { ...packed.record, chunks: 0 },
+        { ...packed.record, chunks: 201 },
+        { ...packed.record, bytes: "9" },
+      ]) {
+        await expect(setDoc(record, bad)).rejects.toMatchObject(REFUSED);
+      }
+      await expect(setDoc(doc(db, uploadPath("not-an-id")), packed.record)).rejects.toMatchObject(
+        REFUSED
+      );
+      const pieces = uploadChunksPath(packed.id);
+      const bytes = (size: number) => Bytes.fromUint8Array(new Uint8Array(size));
+      // No piece before its record, which is all the nightly finds an upload by.
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(9) })
+      ).rejects.toMatchObject(REFUSED);
+      await setDoc(record, packed.record);
+      await expect(setDoc(record, { ...packed.record, bytes: 1 })).rejects.toMatchObject(REFUSED);
+      // Named for this upload, holding bytes alone, no bigger than a piece is ever made.
+      await expect(setDoc(doc(db, pieces, "other-0"), { data: bytes(9) })).rejects.toMatchObject(
+        REFUSED
+      );
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(9), extra: 1 })
+      ).rejects.toMatchObject(REFUSED);
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: "text" })
+      ).rejects.toMatchObject(REFUSED);
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(1_000_001) })
+      ).rejects.toMatchObject(REFUSED);
+      await setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(9) });
+      await expect(
+        setDoc(doc(db, pieces, `${packed.id}-0`), { data: bytes(8) })
+      ).rejects.toMatchObject(REFUSED);
+    });
+
+    it("is deleted whole by the server, its pieces and then its record", async () => {
+      const packed = await staged();
+      await stageUploadIn(as(OWNER), packed);
+      // Not through a store opened to read, as the nightly's dry run opens it.
+      await expect(server(false).remove(packed.id)).rejects.toThrow("opened to read");
+      expect(await server().record(packed.id)).not.toBeNull();
+      await server().remove(packed.id);
+      expect(await server().record(packed.id)).toBeNull();
+      expect(await server().getChunk(packed.id, `${packed.id}-0`)).toBeNull();
+      expect(await server().list()).toEqual([]);
+    });
+  }
+);

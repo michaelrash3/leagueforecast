@@ -5,7 +5,8 @@
 # is `on`, which is the last step of their one-time setup (README, "Pulls in the cloud: the
 # one-time setup"): until then the project has no Cloud Tasks, and no account for them to run as.
 # The rebuilds after saves (`onCopyWrite`, `rebuild`) are the same once the LIVE_REBUILD variable is
-# `on` (README, "Rebuilds after saves: the one-time setup").
+# `on` (README, "Rebuilds after saves: the one-time setup"), and the edit function (`edit`) with
+# them, which runs as their account and asks nothing more of the project.
 #
 # The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
 # invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
@@ -97,7 +98,7 @@ jobs:
           if [ "$CLOUD_PULLS" != "on" ]; then
             only="functions:gcTeam,functions:billingCap"
             if [ "$LIVE_REBUILD" = "on" ]; then
-              only="$only,functions:onCopyWrite,functions:rebuild"
+              only="$only,functions:onCopyWrite,functions:onLeagueWrite,functions:rebuild,functions:edit"
             fi
             only="$only,firestore:rules"
             echo "::notice::Pulls in the cloud not deployed: do their one-time setup, then set the CLOUD_PULLS variable to on (README, 'Pulls in the cloud: the one-time setup')."
@@ -111,3 +112,13 @@ jobs:
           # --force sets up the cleanup policy for old build images, which is what keeps their
           # storage from growing a cost of its own.
           npx --yes firebase-tools@15 deploy --only "$only" --project "$PROJECT" --non-interactive --force
+          # A deploy that names its functions takes none down, and a rebuild or an edit function left
+          # standing once the rebuilds are off would go on writing the copy on an old build, as a
+          # League trigger would go on asking for rebuilds: each is taken down, where it is there to
+          # take.
+          if [ "$CLOUD_PULLS" != "on" ] && [ "$LIVE_REBUILD" != "on" ]; then
+            for fn in onCopyWrite onLeagueWrite rebuild edit; do
+              npx --yes firebase-tools@15 functions:delete "$fn" --region us-central1 --project "$PROJECT" --force \
+                || echo "::notice::No $fn function to take down."
+            done
+          fi

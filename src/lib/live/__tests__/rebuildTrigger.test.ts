@@ -3,7 +3,7 @@ import type { CloudManifest, ManifestPart } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { fieldsOf, firestoreFieldsOf } from "../../cloud/firestoreRest";
 import { coerceRebuildTask, rebuildTask, type RebuildTask } from "../rebuildPlan";
-import { handleCopyWrite, type SnapshotLike } from "../rebuildTrigger";
+import { handleCopyWrite, handleLeagueWrite, type SnapshotLike } from "../rebuildTrigger";
 
 /*
  * What the function a write to the copy triggers does with the write (`rebuildTrigger.ts`), and
@@ -185,6 +185,100 @@ describe("a write of the copy's manifest", () => {
   });
 });
 
+describe("a write of a League Standings season's document", () => {
+  const season = (score: string) => ({
+    schema: 1,
+    rev: 1,
+    name: "Placeholder league",
+    createdAt: "2027-03-01T00:00:00.000Z",
+    teams: { A: { id: "A", name: "Aces" }, B: { id: "B", name: "Bears" } },
+    teamOrder: ["A", "B"],
+    matchups: { g1: { id: "g1", date: "2027-04-10", away: "A", home: "B" } },
+    order: ["g1"],
+    logs: {
+      g1: {
+        awayRuns: score,
+        awayHits: "",
+        awayK: "",
+        homeRuns: "2",
+        homeHits: "",
+        homeK: "",
+        innings: "6",
+        isFinal: true,
+      },
+    },
+    bracketLogs: {},
+    settings: {},
+  });
+
+  it("queues the rebuild a score asks for, and logs the season with the task it shares", async () => {
+    const enqueue = vi.fn(async () => undefined);
+    const done = await handleLeagueWrite({
+      change: write(season("3"), season("7")),
+      docId: "season-2",
+      eventTime: AT,
+      readSwitch: async () => true,
+      enqueue,
+    });
+    const queued = await rebuildTask({ kind: "league", season: "season-2" }, AT);
+    expect(enqueue).toHaveBeenCalledWith(queued);
+    expect(done).toEqual({
+      level: "info",
+      message: "season",
+      line: {
+        event: "season",
+        season: "season-2",
+        savedAt: AT,
+        kind: "league",
+        task: queued.id,
+        queued: true,
+      },
+    });
+  });
+
+  it("logs a skip, queueing nothing, for a write no board reads, and says a queue that refused", async () => {
+    const enqueue = vi.fn(async () => undefined);
+    const renamed = { ...season("3"), name: "Another name" };
+    expect(
+      await handleLeagueWrite({
+        change: write(season("3"), renamed),
+        docId: "season-2",
+        eventTime: AT,
+        readSwitch: async () => true,
+        enqueue,
+      })
+    ).toEqual({
+      level: "info",
+      message: "season write",
+      line: { event: "skip", season: "season-2", why: "no-board-input" },
+    });
+    expect(enqueue).not.toHaveBeenCalled();
+    const refusing = vi.fn(async () => {
+      throw new Error("queue unavailable");
+    });
+    const failed = await handleLeagueWrite({
+      change: write(undefined, season("3")),
+      docId: "season-2",
+      eventTime: AT,
+      readSwitch: async () => true,
+      enqueue: refusing,
+    });
+    expect(failed).toMatchObject({
+      level: "error",
+      line: { event: "season", queued: false, error: "queue unavailable" },
+    });
+    expect(
+      await handleLeagueWrite({
+        change: undefined,
+        docId: "season-2",
+        eventTime: AT,
+        readSwitch: async () => true,
+        enqueue,
+      })
+    ).toEqual({ level: "warn", message: "season write", line: { event: "no-write" } });
+  });
+});
+
 describe("a rebuild task as the queue hands it back", () => {
   it("is the task queued, and nothing for anything else", async () => {
     const { task } = await rebuildTask(
@@ -192,6 +286,12 @@ describe("a rebuild task as the queue hands it back", () => {
       AT
     );
     expect(coerceRebuildTask(JSON.parse(JSON.stringify(task)))).toEqual(task);
+    const { task: live } = await rebuildTask(
+      { kind: "live", copy: "c0ffee", version: 5, reset: false },
+      AT
+    );
+    expect(coerceRebuildTask(JSON.parse(JSON.stringify(live)))).toEqual(live);
+    if (!("copy" in task)) throw new Error("not a copy's task");
     const bad: unknown[] = [
       null,
       "task",
@@ -208,5 +308,23 @@ describe("a rebuild task as the queue hands it back", () => {
     for (const raw of bad) expect(coerceRebuildTask(raw), JSON.stringify(raw)).toBeNull();
     const extra: RebuildTask & { more: number } = { ...task, more: 1 };
     expect(coerceRebuildTask(extra)).toEqual(task);
+  });
+
+  it("is a League Standings season's, by the season's document, and none naming no season", async () => {
+    const { task } = await rebuildTask({ kind: "league", season: "season-2" }, AT);
+    expect(task).toMatchObject({ kind: "league", season: "season-2" });
+    expect(task).not.toHaveProperty("copy");
+    expect(coerceRebuildTask(JSON.parse(JSON.stringify(task)))).toEqual(task);
+    for (const raw of [
+      { ...task, season: "" },
+      { ...task, season: 2 },
+      { kind: "league", copy: "c0ffee", window: task.window, savedAt: task.savedAt },
+    ]) {
+      expect(coerceRebuildTask(raw), JSON.stringify(raw)).toBeNull();
+    }
+    // A copy's task names its copy, whatever else it carries.
+    expect(
+      coerceRebuildTask({ kind: "edit", season: "season-2", window: 1, savedAt: AT })
+    ).toBeNull();
   });
 });

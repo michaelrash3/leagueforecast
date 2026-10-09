@@ -25,7 +25,7 @@ describe("useUndoSnapshot", () => {
     vi.restoreAllMocks();
   });
 
-  const setup = (current: () => UndoableSeason) => {
+  const setup = (current: () => UndoableSeason, blocked?: () => string | null) => {
     const applySeason = vi.fn();
     const showToast = vi.fn();
     const onRankingsRestored = vi.fn();
@@ -35,6 +35,7 @@ describe("useUndoSnapshot", () => {
         applySeason,
         onRankingsRestored,
         showToast,
+        ...(blocked ? { blocked } : {}),
       })
     );
     return { ...hook, applySeason, showToast, onRankingsRestored };
@@ -53,6 +54,16 @@ describe("useUndoSnapshot", () => {
     expect(showToast).toHaveBeenCalledWith("Restored: Enter score.", { tone: "success" });
   });
 
+  it("says when the snapshot was taken, which a season shared live puts back by", () => {
+    const { result, applySeason } = setup(() => season("before"));
+    const before = Date.now();
+    act(() => result.current.capture("Delete game"));
+    act(() => result.current.restore());
+    const takenAt = applySeason.mock.calls[0]?.[0].takenAt as number;
+    expect(takenAt).toBeGreaterThanOrEqual(before);
+    expect(takenAt).toBeLessThanOrEqual(Date.now());
+  });
+
   it("carries settings only when asked, so an ordinary undo leaves them as they are now", () => {
     const withSettings = { ...season("before"), settings: { ...DEFAULT_SETTINGS, goldCutoff: 3 } };
     const { result, applySeason } = setup(() => withSettings);
@@ -69,6 +80,25 @@ describe("useUndoSnapshot", () => {
       ...DEFAULT_SETTINGS,
       goldCutoff: 3,
     });
+  });
+
+  it("puts back none of the step while the season may not be written, and keeps it", () => {
+    let why: string | null = "Offline.";
+    const write = vi.spyOn(storage, "saveUndoSnapshot");
+    const { result, applySeason, showToast, onRankingsRestored } = setup(
+      () => season("before"),
+      () => why
+    );
+    act(() => result.current.capture("Import CSV", { withTeamRankings: true }));
+    write.mockClear();
+    act(() => result.current.restore());
+    expect(applySeason).not.toHaveBeenCalled();
+    expect(onRankingsRestored).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenLastCalledWith("Offline.", { tone: "error" });
+    // Kept for when the season may be written again.
+    why = null;
+    act(() => result.current.restore());
+    expect(applySeason).toHaveBeenCalledTimes(1);
   });
 
   it("does nothing when there is no snapshot to put back", () => {

@@ -24,7 +24,7 @@ import { clearProfileCache, gcTeamHandler } from "../api/gc-team.ts";
 import type { ApiRequest, ApiResponse } from "../src/lib/apiShared.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { gcGameListFrom } from "../src/lib/gameChangerApi.ts";
-import { storedRota } from "../src/lib/cloud/cloudRunner.ts";
+import { storedRota } from "../src/lib/storedRota.ts";
 import { loadAgeGroups, loadScoutGames, loadScoutTeams } from "../src/lib/teamRankingsStorage.ts";
 import { loadCloudPool } from "./cloudPool.ts";
 

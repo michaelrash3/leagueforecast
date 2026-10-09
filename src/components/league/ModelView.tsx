@@ -35,6 +35,7 @@ import { ModelHealthPanel } from "../ModelHealthPanel";
 import { SeasonTimelinePanel } from "../SeasonTimelinePanel";
 import { SeedOddsPanel } from "../SeedOddsPanel";
 import { card, focusRing, pill } from "../../styles/tokens";
+import { EditLock } from "./EditLock";
 
 /** Charts belong to this view alone, and most visits never reach it. */
 const GoldOddsTrendChart = lazy(() =>
@@ -265,29 +266,31 @@ export function ModelView(props: {
         </div>
       </section>
 
-      {hasPostseason && (
-        <BracketPredictionPanel
-          title={hasCutLine ? "Gold Bracket Predictor" : "Bracket Predictor"}
-          emptyMessage="Not enough teams for a bracket."
-          championLabel="Projected Champion"
-          projection={bracketProjection}
-          onScoreChange={updateBracketLog}
-          onToggleFinal={toggleBracketFinal}
-          onClearScores={clearBracketScores}
-        />
-      )}
+      <EditLock>
+        {hasPostseason && (
+          <BracketPredictionPanel
+            title={hasCutLine ? "Gold Bracket Predictor" : "Bracket Predictor"}
+            emptyMessage="Not enough teams for a bracket."
+            championLabel="Projected Champion"
+            projection={bracketProjection}
+            onScoreChange={updateBracketLog}
+            onToggleFinal={toggleBracketFinal}
+            onClearScores={clearBracketScores}
+          />
+        )}
 
-      {hasCutLine && (
-        <BracketPredictionPanel
-          title="Silver Bracket Predictor"
-          emptyMessage="Not enough Silver teams."
-          championLabel="Projected Silver Champion"
-          projection={silverBracketProjection}
-          onScoreChange={updateBracketLog}
-          onToggleFinal={toggleBracketFinal}
-          onClearScores={clearBracketScores}
-        />
-      )}
+        {hasCutLine && (
+          <BracketPredictionPanel
+            title="Silver Bracket Predictor"
+            emptyMessage="Not enough Silver teams."
+            championLabel="Projected Silver Champion"
+            projection={silverBracketProjection}
+            onScoreChange={updateBracketLog}
+            onToggleFinal={toggleBracketFinal}
+            onClearScores={clearBracketScores}
+          />
+        )}
+      </EditLock>
 
       {hasCutLine && (
         <SeedOddsPanel

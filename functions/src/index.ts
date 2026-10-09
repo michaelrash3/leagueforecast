@@ -21,10 +21,22 @@ import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pullJobRunner";
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
+import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
+import { coerceCommand, isOwnerCommand } from "../../src/lib/live/commands";
+import { chargeQueue, handleEdit, handleQuery, handleWarm } from "../../src/lib/live/editHandle";
+import {
+  EDIT_CONCURRENCY,
+  EDIT_SIZE,
+  EDIT_TIMEOUT_S,
+  EDIT_WORKER_HEAP_MB,
+  editRunner,
+  type EditPort,
+} from "../../src/lib/live/editWorkerProtocol";
+import { coerceQuery } from "../../src/lib/live/queries";
 import { handleRebuildTask } from "../../src/lib/live/rebuild";
 import { coerceLedger, restLedgerStore } from "../../src/lib/live/rebuildLedger";
 import { coerceRebuildTask } from "../../src/lib/live/rebuildPlan";
-import { handleCopyWrite } from "../../src/lib/live/rebuildTrigger";
+import { handleCopyWrite, handleLeagueWrite } from "../../src/lib/live/rebuildTrigger";
 import {
   REBUILD_SIZE,
   REBUILD_TIMEOUT_S,
@@ -33,7 +45,14 @@ import {
   startupCharge,
   type RebuildPort,
 } from "../../src/lib/live/rebuildWorkerProtocol";
-import { createMemberCheck, MEMBERS_ONLY_MESSAGES } from "../../src/lib/memberCheck";
+import {
+  createMemberCheck,
+  EDIT_MEMBERS_ONLY_MESSAGES,
+  MEMBERS_ONLY_MESSAGES,
+  onTheList,
+  OWNER_ONLY_MESSAGE,
+  WRITE_CHECK_TTL_MS,
+} from "../../src/lib/memberCheck";
 import { enqueueLeg, enqueueRebuild, REGION, restAccess, zoneOf } from "./pullAccess";
 import type { LegAnswer, LegRequest } from "./pullLeg";
 
@@ -146,7 +165,7 @@ export const startPull = !CLOUD_PULLS
             "Could not check this account against the cloud copy's list just now. Try again in a minute."
           );
         }
-        if (verdict !== "member") {
+        if (!onTheList(verdict)) {
           throw new HttpsError(
             verdict === "signed-out" ? "unauthenticated" : "permission-denied",
             MEMBERS_ONLY_MESSAGES[verdict]
@@ -313,6 +332,38 @@ export const onCopyWrite = !LIVE_REBUILD
     );
 
 /**
+ * Each write of a League Standings season's document, `league/{season}` (`rebuildTrigger.ts`): one
+ * that moved a team, a game or a score queues the rebuild of its window, since the boards are built
+ * with the seasons' documents (`cloudLeague.ts`) and a device writes them straight to Firestore,
+ * with no server in between to ask. Not tried again, as the copy's trigger is not.
+ */
+export const onLeagueWrite = !LIVE_REBUILD
+  ? undefined
+  : onDocumentWritten(
+      {
+        document: "league/{season}",
+        region: REGION,
+        serviceAccount: LIVE_RUNNER,
+        memory: "256MiB",
+        timeoutSeconds: 60,
+        maxInstances: 2,
+        retry: false,
+      },
+      async (event) => {
+        const ledger = restLedgerStore(firestoreRestDocuments(restAccess()));
+        const { level, message, line } = await handleLeagueWrite({
+          change: event.data,
+          docId: event.params.season,
+          eventTime: event.time,
+          // As the copy's trigger reads it: absent or not one is off, a read that throws is on.
+          readSwitch: async () => coerceLedger((await ledger.read()).raw)?.on === true,
+          enqueue: enqueueRebuild,
+        });
+        logger[level](message, line);
+      }
+    );
+
+/**
  * This instance's start-up, charged once, to the first run that settles on it: how long its code
  * took to load, read as the module loads, not the idle time before its first task (`startupCharge`).
  */
@@ -380,6 +431,7 @@ export const rebuild = !LIVE_REBUILD
             ledger: restLedgerStore(firestoreRestDocuments(access)),
             copyStore: firestoreRestStore({ ...access, writable: false }),
             liveStore: firestoreRestLive({ ...access, writable: false }),
+            leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...access, writable: false })),
             run: runner.run,
             today: () => todayIsoDay(),
             now: () => new Date().toISOString(),
@@ -388,6 +440,7 @@ export const rebuild = !LIVE_REBUILD
             startupS,
             task,
             taskId: typeof request.id === "string" ? request.id : "",
+            enqueue: enqueueRebuild,
           });
         } catch (error) {
           logger.error("rebuild", {
@@ -404,5 +457,164 @@ export const rebuild = !LIVE_REBUILD
         }
         logger.warn("rebuild", done.line);
         throw new Error(`The rebuild ended ${String(done.line.end)}; the queue tries it again.`);
+      }
+    );
+
+/*
+ * Edits on the server (README, "Team Rankings edits as commands"): a member's device sends a
+ * command, and `edit` runs it on the cloud copy in a worker that keeps every part of the pool warm,
+ * answering once the save has landed; the save's own rebuild publishes the boards soon after. Built
+ * with the rebuilds (LIVE_REBUILD), whose account it runs as and whose ledger meters it; it needs
+ * nothing of the project they do not.
+ */
+
+/**
+ * Whether a caller of `edit` is on the cloud copy's list, kept a minute (`WRITE_CHECK_TTL_MS`):
+ * the function writes the copy as its own account, past the rules.
+ */
+const editCheck = createMemberCheck({
+  projectId: FIREBASE_WEB_CONFIG.projectId,
+  ttlMs: WRITE_CHECK_TTL_MS,
+});
+
+/** A worker for the edits, with a heap cap of its own for the smaller instance (`EDIT_SIZE`). */
+const startEditWorker = (): EditPort => {
+  const worker = new Worker(new URL("./editWorker.js", import.meta.url), {
+    resourceLimits: { maxOldGenerationSizeMb: EDIT_WORKER_HEAP_MB },
+  });
+  return {
+    post: (request) => worker.postMessage(request),
+    listen: ({ answer, error, exit }) => {
+      worker.on("message", answer);
+      worker.on("error", error);
+      worker.on("exit", exit);
+    },
+    terminate: async () => {
+      await worker.terminate();
+    },
+  };
+};
+
+/** The worker the edits run in, kept from request to request (`editRunner`). */
+let edits: ReturnType<typeof editRunner> | null = null;
+
+/** The instance's charges to the ledger, one at a time (`chargeQueue`). */
+const editCharges = chargeQueue();
+
+/** The copy's id as the manifest holds one (`randomId`), or nothing; anything else is refused. */
+const COPY_ID = /^[0-9a-f]{8,64}$/;
+
+/**
+ * POST (callable) `edit` `{ command, copy? }`, `{ query, copy? }` or `{ warm: true }`: runs a command
+ * on the cloud copy (`handleEdit`), answers a question about it (`handleQuery`), or brings the pool
+ * up ahead of either (`handleWarm`). For the accounts on the cloud
+ * copy's list, as the rules make anything that touches the copy (`memberCheck.ts`, with the sign-in
+ * the call carries). One instance, taking several calls at once and running them one at a time in
+ * its worker, since the pool is one. A call is never left to the platform's timeout with its edit
+ * still to come: one whose caller has gone, or whose time is up, before its turn is never sent
+ * (`EDIT_CALL_S`), and is answered as an edit not made (`aborted`); a worker lost with an edit in
+ * its hands answers that the edit may or may not be in the copy (`unsure`).
+ */
+export const edit = !LIVE_REBUILD
+  ? undefined
+  : onCall(
+      {
+        region: REGION,
+        invoker: "public",
+        serviceAccount: LIVE_RUNNER,
+        memory: "4GiB",
+        cpu: EDIT_SIZE.cpu,
+        timeoutSeconds: EDIT_TIMEOUT_S,
+        maxInstances: 1,
+        concurrency: EDIT_CONCURRENCY,
+      },
+      async (request, response) => {
+        const verdict = await editCheck(request.rawRequest.headers.authorization);
+        if (verdict === "unavailable") {
+          throw new HttpsError(
+            "unavailable",
+            "Could not check this account against the cloud copy's list just now. Try again in a minute."
+          );
+        }
+        if (!onTheList(verdict)) {
+          throw new HttpsError(
+            verdict === "signed-out" ? "unauthenticated" : "permission-denied",
+            EDIT_MEMBERS_ONLY_MESSAGES[verdict]
+          );
+        }
+        const data = (request.data ?? null) as {
+          command?: unknown;
+          query?: unknown;
+          copy?: unknown;
+          warm?: unknown;
+        } | null;
+        // One of the three, read exactly: a request naming more than one is none of them.
+        const asks = [data?.command, data?.query, data?.warm].filter((one) => one !== undefined);
+        const warm = asks.length === 1 && data?.warm === true;
+        const command = asks.length === 1 && !warm ? coerceCommand(data?.command) : null;
+        const query = asks.length === 1 && !warm && !command ? coerceQuery(data?.query) : null;
+        const copy = data?.copy;
+        if (!warm && !command && !query) {
+          throw new HttpsError("invalid-argument", "That is not an edit this server knows.");
+        }
+        // A year's archive or delete is the owner's alone: the rules let only the owner delete a
+        // season, and this is the pool's like of it.
+        if (command && isOwnerCommand(command) && verdict !== "owner") {
+          throw new HttpsError("permission-denied", OWNER_ONLY_MESSAGE);
+        }
+        if (copy !== undefined && (typeof copy !== "string" || !COPY_ID.test(copy))) {
+          throw new HttpsError("invalid-argument", "That is not a copy's id.");
+        }
+        // New York's day, as the rebuilds': set before the worker starts, which keeps the zone it
+        // starts in.
+        process.env.TZ = "America/New_York";
+        edits ??= editRunner({ spawn: startEditWorker });
+        const deps = {
+          ledger: restLedgerStore(firestoreRestDocuments(restAccess())),
+          worker: edits,
+          today: () => todayIsoDay(),
+          size: EDIT_SIZE,
+          startupS,
+          charges: editCharges,
+          // The request's own end: a call whose caller has gone is never sent to the worker.
+          ...(response?.signal ? { signal: response.signal } : {}),
+        };
+        if (query) {
+          const handled = await handleQuery({
+            ...deps,
+            ask: { query, ...(typeof copy === "string" ? { copy } : {}) },
+          });
+          logger.info("edit", handled.line);
+          if ("notAnswered" in handled) throw new HttpsError("aborted", handled.notAnswered);
+          return handled.reply;
+        }
+        if (!command) {
+          const { warmed, line } = await handleWarm(deps);
+          logger.info("edit", line);
+          if (!warmed) {
+            throw new HttpsError(
+              "aborted",
+              "The pool could not be brought up just now; the next edit brings it up itself."
+            );
+          }
+          return { warmed };
+        }
+        let handled: Awaited<ReturnType<typeof handleEdit>>;
+        try {
+          handled = await handleEdit({
+            ...deps,
+            ask: { command, ...(typeof copy === "string" ? { copy } : {}) },
+          });
+        } catch (error) {
+          // Nothing it hands back throws, so this is not an answer anyone made: the edit may be in.
+          logger.error("edit", { kind: command.kind, end: "threw", error: messageOf(error) });
+          throw new HttpsError(
+            "internal",
+            "The edit may or may not have been made. Check it before making it again."
+          );
+        }
+        logger.info("edit", handled.line);
+        if ("notMade" in handled) throw new HttpsError("aborted", handled.notMade);
+        return handled.reply;
       }
     );

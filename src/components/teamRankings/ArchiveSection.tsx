@@ -29,7 +29,14 @@ const STATE_TOP = 10;
  * hundred thousand of them and there can be years of archives: loading the list is what the card
  * does at startup, and loading the rows is what the click does.
  */
-export function ArchiveSection({ entries }: { entries: ArchiveEntry[] }) {
+export function ArchiveSection({
+  entries,
+  load = loadArchivedSeason,
+}: {
+  entries: ArchiveEntry[];
+  /** Where a season's rows come from: this device's store, or the cloud's copy on the live page. */
+  load?: (id: string) => Promise<ArchivedSeason | null>;
+}) {
   const [openId, setOpenId] = useState<string | null>(null);
   /** What has come back, and for which season — so "not loaded yet" is not mistaken for "empty". */
   const [loaded, setLoaded] = useState<{ id: string; season: ArchivedSeason | null } | null>(null);
@@ -51,7 +58,7 @@ export function ArchiveSection({ entries }: { entries: ArchiveEntry[] }) {
     setOpenId(next);
     setLoaded(null);
     if (!next) return;
-    void loadArchivedSeason(next).then((season) => {
+    void load(next).then((season) => {
       if (wanted.current !== next) return;
       setLoaded({ id: next, season });
     });

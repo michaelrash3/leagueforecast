@@ -352,8 +352,9 @@ games the two played against each other, every club both have played with each
 one's score against it ("we beat the Bears by 5, they beat them by 1"), and each
 side's best wins and worst losses by the rank of who it was against, and its last
 five. It reads the games the board counts, in the half it is showing, each score as
-that club's own schedule gave it. The projection is one number; this is the
-evidence it is made of. Names and scores only.
+that club's own schedule gave it. Two results of one day stay in the order the
+pool lists them, as a club's panel lists them. The projection is one number; this
+is the evidence it is made of. Names and scores only.
 
 **Tournament field** plays a weekend out before it is played. Build the field by
 name, or from the report team's own next opponents in one press, choose pools and
@@ -539,6 +540,9 @@ winner or a tie it waits as **Check score**.
 Games the league itself put into the pool are excluded on the way back, so a
 season can never confirm its own scores. Anything already typed into a game —
 hits, strikeouts, the innings it was stored with — survives the fill untouched.
+So does a score typed in after the review was made: a game whose runs or final
+mark have changed since, while the review was open or while the server was
+asked for it, is left as it is, and the message says how many were.
 
 **One fixture, one game.** A club that tracks a league here and also pulls the
 GameChanger team playing in it has the same fixture twice over: once derived
@@ -1390,7 +1394,8 @@ and one not yet begun its first, so neither opens on an empty list.
 Nothing is out of reach. A line under the heading says how many games the day
 leaves out, how many of those have no date and how many were due earlier and
 still have no score, and **Show all** lists every one: an old game is still
-scored from here. A game just added stays on the list whatever its date, so it
+scored from here. A score is two whole numbers of runs (`typedScores`); a Save
+pressed with a box left empty says so, where until October 2026 it recorded 0–0. A game just added stays on the list whatever its date, so it
 does not vanish the moment it goes in. On the pool of 29 September 2026 the 12U
 page of 2027 held 45,107 games: 326 of them were that day's, against 11,348
 within a week either side, and 2,465 dated earlier had no score yet. The list
@@ -2910,8 +2915,80 @@ say so, including the case a count would not reveal: a file saved while the pool
 was empty clears it. A file with no rankings data at all — including any backup
 written before this shipped — leaves the live pool exactly as it is.
 
+**In the cloud, the server restores the pool** (1.6). A browser that keeps the
+cloud copy for the account signed in does not write the pool itself: it stages
+the file for the server and asks it to restore that, the copy's owner alone (see
+"Team Rankings restored from a backup" below). A member is told so before
+anything is sent; an account turned away from the copy keeps a pool of its own
+and restores it here, as a browser never signed in does, and so does one taken
+off the list since (`not-owner`), whose sign-in and record here are as they were
+but which the copy now refuses every read and restore. A copy that is gone, or
+one a newer build saved, is still the cloud's for an account on the list: a
+restore then says there is no copy to restore into, or is the server's. The
+seasons, theme and mode are still written here, and on screen before the cloud
+is waited on, so nothing typed meanwhile lands in the wrong season. The Team
+Rankings file restored on its own reloads the page on the restored pool where
+Team Rankings is open, and says it was restored either way; with a season
+backup, a CSV or a whole-browser file, the pool is taken as any newer copy is
+(at once where Team Rankings has not yet read one here, else offered by the
+Cloud button), so the season being written is not reloaded away, and the
+import's own toast says whether the pool was restored. A file holding no Team
+Rankings leaves the cloud's as it is: emptying that is Start again's. Undo after
+such an import covers the season alone: the copy keeps the pool it replaced,
+under Earlier versions in the Cloud panel. So, in the cloud, **Download replaced
+data** after a whole-browser restore holds the seasons, theme and mode replaced
+and no Team Rankings: what the restore replaced is the cloud's pool, which the
+cloud keeps, not this device's, which a member's device holds none of or none
+kept in step, and a file with no pool, restored in its turn, leaves the cloud's
+alone rather than laying this device's over it for every device. The toast says
+the pool it replaced is under Earlier versions.
+
 A CSV with no section markers is treated as all schedule, so every CSV exported
 before sections existed, and every hand-made one, still imports unchanged.
+
+**In the cloud, a backup's Team Rankings is the copy's** (1.6e). A member's device on the cloud's
+board is to hold no pool, or none it keeps in step, so the three things that write Team Rankings
+into a file read it off the cloud's copy when they are asked: Setup's **Download a backup** on the
+live page, Backup JSON, and Export CSV. Backup JSON and Export CSV read it only where Team
+Rankings is the cloud's for this browser (App's `rankingsLive`): a member who turned the board off
+works on this device's own pool, kept in step, which reaches the copy only with a save that waits
+on pulls and tidies, so there they write this device's pool, as before 1.6e; and an account taken
+off the list, whose board is not the cloud's either, writes its own. Backup JSON takes League
+Standings as it stands when it is pressed, and lays the copy's pool into that once it is read:
+taken after the read, half a minute later on a phone, a season switched to meanwhile would have
+carried the pressed one's schedule under its own id. Each button reads the copy once at a time,
+and a press while it reads is told it is still reading, since a second read would hold a second
+whole copy in a phone's memory and download a second file; both say they are reading. A copy a
+newer build saved is refused off its manifest before a piece is fetched, as a take refuses it
+("…saved by a newer version of the app, so reload the page…"), since this build's loaders would
+drop the fields inside known keys it does not know and the file would be written without them. The
+page fetches the pieces of every pool part the copy's manifest names, League Standings' part
+aside, a part at a time, as a take fetches them (`copyBackup.ts`); a copy that moves on while it
+is read, a piece swept since the manifest was read, is read again once, off its manifest as it
+then stands. The pieces go to a worker of their own (`backup.worker.ts`), which unpacks and checks
+them as a take does (`unpackChunks`), lays them into a pool store in memory
+(`applyCloudPoolValues`) and reads them back with the very loaders the device's own backup reads
+with, so the file is the one a device holding that pool would write, to the byte:
+`backupProtocol.test.ts` holds the Team Rankings file, the CSV's sections and the whole-browser
+file's pool, each to the device's own, over a seeded pool with an archived table and a dropped
+club in it. It is a worker because it has to be, not for speed alone: the pool store is a module
+of one per realm, and on the page it is the device's own, which this would empty and fill with the
+copy, so a browser that cannot start the worker makes no backup rather than make it there. That
+store is the worker's own, so it tells no tab of the keys it lays in: a store handed to
+`initTeamRankingsStore` (the worker's, the server's runs') starts no sync with other tabs, which
+would each re-read that key from their own store and reload their pool. An answer the worker
+cannot post, such as a file too large for a phone to clone, is posted as a failure instead, and a
+worker that has not answered in five minutes is ended and said to have failed
+(`BACKUP_WORKER_LIMIT_MS`): its slowest work, the CSV, took 3.5 s in Node on the seeded pool at
+the real pool's 252,171 games, and the real pool stores 2.4 times as much, so a phone at the
+README's measured five times a desktop needs about 40 s. Each button says what it is doing, and
+why when it cannot ("The cloud's copy could not be read just now, so no backup was made."):
+Setup's and Backup JSON make no file without the copy's Team Rankings, while Export CSV saves the
+schedule without the sections and says so, the schedule being what that button is mostly for. A
+sign-in that will not load, a worker that fails and a part that will not unpack are each said that
+way, never thrown. A bare date in a CSV read in while Team Rankings is live is read in the squad
+year the server's bridge gives the season (`league.bridge`, 1.6e), as the device's own reads it
+off its age groups.
 
 ### Your data on every device
 
@@ -2931,7 +3008,8 @@ never changes it, so no click can lock the owner out or hand the list to someone
 else. The owner sees **Who can use the cloud copy** in the panel, adds an
 account there by its address and takes one off with **Remove**; every other
 entry is `role: "member"` with the time it was added. A member reads the copy
-and changes it as the owner does, and reads its own entry and no other. The same
+as the owner does, and reads its own entry and no other; neither writes the copy
+(below). The same
 list says who may pull from GameChanger (**The GameChanger proxy on Firebase**), and
 who may read the views a server publishes from the copy (**Views a server
 publishes**), which no browser writes. Google
@@ -2941,8 +3019,23 @@ and changed it.
 
 The header's cloud button signs in, and after that shows where the copy stands;
 **Settings → Your data on every device** opens the same panel. From then on it
-saves and loads by itself. A browser nobody has signed in on never downloads
-Firebase's code.
+loads by itself. A browser nobody has signed in on never downloads Firebase's
+code. A member's device opens Team Rankings on the cloud's board ("The live board
+on a member's device") and keeps League Standings live ("League Standings in the
+cloud"), with no switch for either since 1.6f.
+
+**Read-only to every browser (1.6f).** No browser writes the copy, the owner's
+included: the rules let the list read `copies/**` by name and nothing more. Only
+the cloud's servers write it, as service accounts the rules do not apply to: the
+nightly refresh, the edit function a member's edits go through, the rebuilds, and
+the pulls in the cloud. A device takes what the servers wrote and sends nothing:
+a change made here stays here, marked, and League's reaches the cloud's own
+League documents at the device's first meeting with them. A pool value changed
+both here and in the copy is the copy's. Before 1.6f every device saved into the
+copy, and the copy merged what they sent (below); that machinery is what the
+servers' edits replaced, and 1.7 removes what is left of it on the device. A
+build from before 1.6f, still open somewhere, has its saves refused until it is
+reloaded.
 
 **What travels.** Every League Standings season, as one value, and the Team
 Rankings pool key by key, as it is stored: the teams, the age groups, each
@@ -2954,7 +3047,8 @@ would collide with scores entered on the laptop. An undo snapshot is scratch
 state for one action. A pull's own place (its progress, what it tracks, what it
 cleared) belongs to the browser running the pull.
 
-**Nothing asks which copy wins.** The first version did, in a dialog, whenever
+**Nothing asks which copy wins** (until 1.6f, when devices still saved). The
+first version did, in a dialog, whenever
 two devices had both changed something, and a second review found every answer
 to it lost somebody's work: scores entered on the phone at one field and the
 laptop at another were one copy or the other, never both. Now changes are
@@ -2975,16 +3069,18 @@ merged, and whatever a merge had to replace is kept.
 - **What lost** is kept in the copy, pieces and all, for 30 days and at most
   six settlements (`KEEP_DAYS`, `KEEP_GROUPS`). The panel lists it, and
   **Bring back…** makes it current again from any device, asking twice and
-  keeping what it replaces in turn.
+  keeping what it replaces in turn. The server makes it current, for the
+  copy's owner alone (1.6), and the device then takes it like any other save.
 
 **Meeting a copy for the first time.** A browser signing in with seasons of its
-own joins them to the copy's, merged where they share records. The pool is
-taken whole: a device's own pool is kept in the copy as lost, to be brought back
-if it was the one that mattered, rather than mixed key by key into a pool it was
-never part of. So sign in first on the device that holds the pool. A browser
-holding nothing anybody made (an untouched first season, a pool with no teams
-and no archived season, whose tables could not be made again) simply takes the
-copy.
+own keeps them here beside the copy's, merged where they share records; the copy
+is sent none of them. Where both changed one record, the copy's wins, and this
+device's League as it was is kept in the browser (`saveDisplacedLeague`): the
+panel offers it once as a file, **Save this device's League Standings**, or
+**Let them go**. The pool is taken whole, and a device's own pool is not kept
+anywhere, since the copy is the pool every device shares. A browser holding
+nothing anybody made (an untouched first season, a pool with no teams and no
+archived season, whose tables could not be made again) simply takes the copy.
 
 **What is never lost.** A value leaves the copy only because a device recorded
 removing it, and leaves a device only because the copy dropped a value that
@@ -3031,14 +3127,12 @@ version, a layout number, a schema number and the id of the copy it belongs to.
   type by the compiler, so a field added anywhere fails the build until the
   schema goes up with it.
 
-**When it saves.** Twenty seconds after the last change, so a burst of edits
-is one save, and only what changed travels. Not the pool during a pull or a
-tidy, in this tab or any other (a job holds a Web Lock the other tabs can see):
-a pull writes the pool every couple of thousand teams, and the pool is saved
-once, when it has finished; League Standings still save meanwhile. A change is
-recorded as owed in storage, not memory, so one made just before a tab closed
-is still sent the next time the app opens. It is also sent when the page is
-left, where the browser allows it.
+**When it saves.** Never, since 1.6f: a device sends the copy nothing. Until
+then it saved twenty seconds after the last change, and when the page was left;
+1.7 removed that timer, the retries after a refused save and the record of
+uploads a save left behind. A change is still recorded in storage (League's, for
+the first meeting with the cloud's League documents), and the panel's button
+looks at the copy now, taking in what it may.
 
 **When it loads.** League Standings before the app draws. A browser that keeps
 a copy waits at most four seconds to reach the cloud (`STARTUP_WAIT_MS`) and six
@@ -3059,12 +3153,12 @@ data before another took a copy in is refused any write of it (each tab
 remembers which copy it read, and storage says which is current), so its old
 data cannot go back over the new; it reloads instead.
 
-**When the copy is gone.** A browser that has synced before and finds no copy
-(deleted in the console) does not start one again by itself, since that would
-hand every other device whatever the first browser to open happened to hold. It
-says so, and **Start it again from this browser** makes a new copy. A new copy
-has a new id, so every other device meets it as it would a copy for the first
-time rather than taking it for a later version of the one it knew.
+**When the copy is gone.** A browser that finds no copy (deleted in the console)
+says so and changes nothing here. Before 1.6f it offered **Start it again from
+this browser**; now no browser makes a copy, so the panel offers only Sign out
+and says to ask the app's owner. Do not delete `copies` in the console: the
+owner's **Start again** (1.6c) empties the copy on the server, keeping what it
+replaces as an earlier version, and is the way to start over.
 
 **Free.** The largest pool measured, 115,588 teams and 245,021 games, is
 61.4 MB stored and 20.3 MB gzipped: about 23 pieces. Firestore's free tier is
@@ -3104,12 +3198,12 @@ save is a few writes.
 4. The rules deploy with the functions on merge (`firebase.yml`), tested there
    against the Firestore emulator first (`npm run test:rules` locally; it needs
    Java 21).
-5. Sign in first on the device that holds the data, so its copy becomes the
-   cloud's; then on the others. Add anyone else from the panel.
+5. Sign in on each device, and add anyone else from the panel. The copy already
+   exists: a device made the first one before 1.6f, and since then only the
+   servers write it.
 
-To start the copy over, delete the `copies` collection in the Firestore
-console, then use **Start it again from this browser** on the device whose data
-should be the copy.
+To start the copy over, use **Start again** in the Cloud panel as the owner; the
+server empties the copy and keeps what it replaces.
 Sign-in opens Google in a pop-up, so a browser that blocks pop-ups has to allow
 them for the site.
 
@@ -3151,20 +3245,42 @@ red.
 
 ### A pasted list, pulled in the cloud
 
-A device signed in to the cloud copy can hand a pasted list to a Firebase
-function and close the tab. The device's side of this, the button and the
-notice when the pull is done, is the next step; this part is the cloud's.
+A member hands a list to a Firebase function from the live page's Import tab and
+may close the tab (1.8): a member's device holds no pool to pull into, so this is
+how a pasted list is pulled at all.
 
-**The job.** The device writes the list beside the copy, where the rules already
-let it write (`src/lib/cloud/pullJobs.ts`):
+**On the page** (`LiveCloudPulls.tsx`, `src/lib/cloud/cloudPulls.ts`). The paste
+box reads a list or a spreadsheet export as the device's own pull panel does,
+leaving out wiffle ball, high school squads and adult or college teams, which cost
+no request. Two more buttons appear when the server's import status names teams
+for them: the teams nobody could age, asked again on a catch-up day, and the
+GameChanger pages playing this season whose roster is short and due a look. Those
+two are catch-ups: their teams are pulled again whether or not the pool has them,
+filed in the season being played alone. Each pull sent is remembered on this
+device until its end has been said once, read again every 15 s while one is on
+its way, and can be asked to stop.
 
-- `copies/main/jobs/{jobId}/pieces/{n}` holds the list's pieces, gzipped and
+**What the cloud pulls of a list** (`cloudRunner.ts`, `listIds`). Never a club
+refused for good or as another season's, nor one too young to rank. Of a paste,
+only the teams the pool lacks, or a handful pasted by hand with none new, which
+is how a schedule that changed today is read before the rota comes round; the
+rest of an export is the nightly's to refresh. A catch-up pulls every team on it.
+
+**The job.** The device writes the list in a collection of its own, outside the
+copy, which only servers write (`src/lib/cloud/pullJobs.ts`):
+
+- `pullJobs/{jobId}/pieces/{n}` holds the list's pieces, gzipped and
   fingerprinted as the copy's values are, so a list is never pulled half from one
   upload and half from another.
-- `copies/main/jobs/{jobId}` holds the job, written last. It carries the squad
-  years to file into, the device's time zone (the day the importer and the day
-  log keep, since Google's servers keep their own), and everything the device
-  shows while it waits: the stage, the teams asked so far, and the tally.
+- `pullJobs/{jobId}` holds the job, written last. It carries the squad years to
+  file into, whether it is a catch-up, the device's time zone (the day the
+  importer and the day log keep, since Google's servers keep their own), and
+  everything the device shows while it waits: the stage, the teams asked so far,
+  and the tally.
+
+The rules let a member make a job as a new one is made (queued, no leg run, no
+stop asked) and its pieces, read them, and change one thing of a job once made:
+ask it to stop. Nobody lists or deletes them from a browser.
 
 The device then calls `startPull` with the job's id. That function is for the
 accounts on the copy's list, as the copy is, checked as the proxy checks them
@@ -3275,8 +3391,9 @@ What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 device. Six are kept, for 30 days at most.
 
 Then it publishes every board for members to read ("Views a server
-publishes"): built from the pool it holds and the copy's own League Standings,
-under the copy and version it saved, then a sweep of what readers can no longer
+publishes"): built from the pool it holds and the League Standings seasons (from
+their own documents once there are any, "League Standings in the cloud"), under
+the copy and version it saved, then a sweep of what readers can no longer
 be fetching (`publishCopyViews`). It publishes only when the pool it holds is a
 copy, the one it saved or, with nothing to save or nothing due, the one it read;
 never after a run that ended without one, whose filing no copy has. The seasons
@@ -3428,8 +3545,8 @@ for members' devices to read rather than build. The nightly refresh publishes
 every board each night, once it has saved the copy (`src/lib/live/publishCopy.ts`
 on `viewStore.ts`; see "The nightly refresh on GitHub"), and once their setup is
 done ("Rebuilds after saves: the one-time setup"), a rebuild publishes them again
-a few minutes after any save that moved what a board reads. No device reads them
-yet.
+a few minutes after any save that moved what a board reads. How a member's
+device reads them is "The live board on a member's device", below.
 
 - **`live/meta`** is one small document naming every view by its key
   (`board:{year}:{page}:{half}`, with `none` for a page with no year): the
@@ -3441,6 +3558,125 @@ yet.
   fingerprint has changed.
 - **`live/meta/chunks/{upload-n}`** holds each view's JSON, gzipped and cut into
   pieces a document can carry, as the copy keeps its values.
+
+A board is the rows the rankings worker would draw for that page and half, less
+the star (`isMine`), which is the owner's: each member's device puts its own on,
+by the worker's rule (`withMine` in `views/boardShape.ts`). Each row also says
+what the page says of its club, read off the roster of the page's year as the
+page reads it: its town and state, which the page shows beside the name and
+ranks the state top ten and the state filter by, and whether its games on that
+page came from a League Standings season, which the page badges. Beside the
+boards, in the same commit, the meta carries `inline.pages`: when the roster was
+last pulled, for each page how many counted games each half holds, which decides
+the half the page opens on and what an empty half says, and the age groups, for a
+device with no copy to lay the page out by (below). The page and
+the server count these with the same code (`countedByHalf`, `leagueTeamIdsOn`),
+and `boardParity.test.ts` holds every published board, read back through JSON
+and starred as a device stars it, to the worker's own rows, with each club's
+town, state and badge as the page writes them; the half counts are pinned to the
+page's own count on the fixture from before the code was shared. That is
+enough for a device to draw a board before it holds the pool. The browser's half
+of it (the shape a published board must have, and the star) is a module of its
+own that imports types alone, so a page that only reads boards loads neither the
+pool's derivation nor its codec.
+
+Each board also says how it stood a week before, as the page's arrows read it: each
+row's place on last week's board (`was`, absent for a club that was not on it), and
+the day of that board and whether anyone was on it (`past`), so a device can tell a
+club new to the board from a half that had not begun. A page that has its own club
+gets that club's rank line too (`history`): its place week by week, walked back from
+last week's board by the same step the page walks it with (`rankLineStep` in
+`rankMovement.ts`), with last week's place on the end. Each past week is another fit
+of the year as it stood that day, kept for the build by page, half, fitted year and
+day, so the boards of a year that share a fit share its weeks. It is not free: on
+the 29 Sep backup, building all 33 boards went from 12.4 s to 37.2 s, the largest
+(8,334 clubs) from 631 to 660 KB gzipped, and all of them together 4.4%.
+`boardParity.test.ts` holds each row's `was` to the arrow the worker's own last-week
+board draws, and each line to the one the page walks, a club that joined the board
+last week included. Each guard was broken in turn and seen to fail a test, 22 of 22,
+three of them only after a test was added for a club new last week.
+
+**Club cards.** The panel a club opens on reads no fit (`TeamDetailPanel`): only the
+club, its own games of the year, its opponents' names, its age and its League
+Standings link. So beside the boards, from the same build, each club with a game in
+a squad year gets a card holding exactly those (`views/clubs.ts`), and a device that
+opens a club reads its card rather than the year's pool. A card's games are trimmed
+to what the panel reads (`panelGame`: who played, where it is filed, the scores and
+side B's own report, whether it is set not to count or its runaway score was
+confirmed, its day, its event and each side's level; not its start, since a game
+counts as played ahead by its day alone), and sent from the club's side: its
+opponents named once, each game pointing at one, and without its stored id, which
+the panel only keys rows by. Cards go out in buckets, a year's clubs split by a hash
+of their id into 64 views (`club:{year}:{bucket}`, `clubBucketOf`): one view per
+club would be a hundred thousand documents to write on a night every club is
+pulled, and one per year the whole pool to read for one club.
+
+On the 29 Sep backup's 112,228 clubs of 2027, the stored games made 284 MB of JSON
+(55 MB gzipped); trimmed and sent from the club's side, 85 MB of JSON and 17.1 MB
+gzipped in all, the biggest bucket 1,838 clubs and 281 KB gzipped, built in 3.15 s. A device reads one bucket to open a club, and nothing more for the
+others in it until the next publish. The cards read what the boards read and the
+ages a person named, so that key is a board input now (`isBoardInputKey`), and the
+boards' record vouches for both.
+
+`clubParity.test.ts` holds every card, read back through JSON and its own check, to
+the page's own panel for every club on every page of its year and each span: the
+record, each game's line, the games elsewhere, the League Standings link and the age,
+the record also over the whole year's games for a year's first clubs, as the page
+asks for it. `clubShape.test.ts` pins the bucket hash and reads a card back, a game
+against the club's own name and an opponent the roster cannot name included, and
+refuses each way a card can be damaged. Each guard was broken in turn and seen to
+fail a test, 29 of 29, five of them only after a test was added or tightened.
+
+**Find a team lists.** Find a team crosses seasons and age levels, so it searches
+every club the pool has a page for, not the board on screen. Beside the boards, each
+squad year with a page gets its list (`views/search.ts`, `search:{year}`): every
+club its pages' box offers, with the line under its name, its coaches and its
+GameChanger ids, the page a pick of it opens, and the GameChanger ids the copy keeps
+off every page (waiting on an age, thrown out, too young), so a pasted one is
+answered as the page answers it (`whereIsGcId`). It is worked out by the page's own
+code, now shared (`clubSearch.ts`): the year's roster with its League Standings
+teams, over that year's League Standings games and every stored game of every
+year. One list per year rather than one in all, since a year's League Standings
+teams are on its own pages' lists and no other's. On the 29 Sep backup, 2027's list
+holds 104,265 clubs: 10 MB of JSON and 3.6 MB gzipped, built in 1.6 s, and read
+back through JSON and its check in 137 ms (Node, unthrottled, median of five). The
+backup holds no held ids, and coaches' names are about a third of it (an earlier
+encoding came to 2.4 MB gzipped without them). It is read only when somebody goes
+to search, and kept by fingerprint like a board. The lists read the copy's lists of
+held ids, so their keys are board inputs now. A save is judged by each key's hash,
+not by what in it a view reads, so a save that changes only a waiting club's
+bookkeeping (when it was last tried, and how often) asks for a rebuild that
+publishes the same views: a run's cost and a rewritten meta, for nothing. A pull
+that files anything saves teams or games too, which rebuild anyway; how often a
+save touches the waiting list alone has not been measured.
+
+`searchParity.test.ts` holds every year's list, read back through JSON and its own
+check, to the page's own search on the seeded fixture, with coaches on a club and an
+id on each held list: every option, the page each opens, and what the box says of
+each held id. `searchShape.test.ts` reads a list back and refuses each way one can
+be damaged. Each guard was broken in turn and seen to fail a test, 35 of 35, three
+only after a test was added or changed; one of those, the publish taking out a year's
+lists once it builds none, now holds the club cards to the same.
+
+**Games lists.** The Games tab lists a page's stored games, newest first, each by
+its clubs' names, its score or that it is still to be played, its event, its day and
+whether it counts. So each page gets a list of exactly those (`views/games.ts`,
+`games:{year}:{page}`), in the tab's own order (`loggedGamesOn`, now shared), named
+by the year's roster as the page names them, its clubs once each and a game's id
+its place in the list. Which games the tab lists first, today's, a device works out
+on its reader's own day, as the page does. On the 29 Sep backup the 11 pages' lists
+came to 3.1 MB gzipped, built in 0.5 s; the biggest, 12U's 45,107 games among 19,941
+clubs, is 534 KB gzipped and is read back through JSON and its check in 44 ms (Node,
+unthrottled, median of five).
+
+`gamesParity.test.ts` holds every page's list, read back through JSON and its own
+check, to the page's own tab on the seeded fixture, with a game set not to count,
+one still to be played and one with no day: every row in order, and the day listed
+first and the counts of the rest on the members' day and on the page's busiest.
+`gamesShape.test.ts` reads a list back and refuses each way one can be damaged.
+`gamesWindow.test.ts` pins the tab's order itself, which both sides share. Each guard
+was broken in turn and seen to fail a test, 31 of 31, three only after a test was
+added: the order, and a club entry too long.
 
 Readers fetch while a server writes, so publishing keeps four rules
 (`publishViews`, `sweepViews`):
@@ -3471,7 +3707,9 @@ Readers fetch while a server writes, so publishing keeps four rules
   build of the replaced copy is held all the same while the meta still knows
   that copy.
 
-The shape of the views has a number (`LIVE_SCHEMA`). A meta written by a newer
+The shape of the views has a number (`LIVE_SCHEMA`): 2 since the rows gained their
+clubs' towns, states and badges, the boards last week's places and their page's
+own club's rank line, and the meta its pages' counts. A meta written by a newer
 build of the app is left alone, by publishes and sweeps alike, since a sweep
 could take a piece the newer build names for a stray. A publish by a newer build
 keeps nothing of an older build's meta that it did not build itself, inline
@@ -3482,13 +3720,14 @@ Two more rules keep a slower or older server from undoing what a newer one
 published. A publish for an earlier members' day than the meta's writes nothing,
 whatever its version: it was built for a day that has passed. And each family of
 views records what it was last built from (`built`): the copy and its version, a
-fingerprint of the stored values the family reads, the day, and the version of
-the rules that make the views. A publish under older rules than that record
+fingerprint of the stored values the family reads, one of the League Standings
+seasons when they came from their own documents (`league`, below), the day, and
+the version of the rules that make the views. A publish under older rules than that record
 writes nothing, so code left running after a failed deploy cannot write over
 newer boards (the version only ever goes up, a change undone included); and a
 server that finds the record matching the copy at this very version, its inputs,
-the day and its own rules knows the boards are current without building them
-(`boardsState`). A later version with the same inputs is built again all the
+the seasons, the day and its own rules knows the boards are current without
+building them (`boardsState`). A later version with the same inputs is built again all the
 same, at no upload's cost, so the copy's mark moves and a slower build of a
 version in between cannot publish over it. Where a publish writes a family's
 views but cannot vouch for them all (a late one, or one that does not say what
@@ -3506,12 +3745,16 @@ piece that will not delete then is left for a full sweep to find as a stray, and
 counted, rather than failing a publish that is already out.
 
 A publish that would write what the meta already says writes nothing at all, not
-even the meta. On the seeded fixture, the first publish of its 33 boards is 29
-uploads (the five empty boards share one), 224 KB gzipped, and 30 writes with a
-6.0 KB meta; publishing the same boards again writes nothing; and a run more for
-the losing side of one 10U spring game changes 12 boards and costs 13 writes,
-retiring 12 uploads for the next sweep. A board takes 173 to 179 bytes of the
-meta, which a publish refuses to let pass 500 KB.
+even the meta; inline values are compared in key order all the way down, since a
+store may hand a map's fields back in an order of its own. A publish replaces the
+inline values it hands over, by name, and a late one none. On the seeded fixture,
+the first publish of its 33 boards is 29 uploads (the five empty boards share
+one), 238 KB gzipped (224 KB before the rows said their clubs' towns, states and
+badges), and 30 writes with a 6.5 KB meta, of which the pages' counts are 0.5 KB;
+publishing the same boards again writes nothing; and a run more for the losing
+side of one 10U spring game changes 12 boards and costs 13 writes, retiring 12
+uploads for the next sweep. A board takes about 180 bytes of the meta, which a
+publish refuses to let pass 500 KB.
 
 The rules let the accounts on the list `get` these documents and nothing else:
 not list them, which would cost a read for every piece, and not write them, the
@@ -3545,8 +3788,10 @@ On the 29 September backup, in memory, a fresh start reads 27 pieces (21 MB
 gzipped) in 1.2 to 1.4 s. One club's edit reads the roster's 7 pieces (5.7 MB) in
 0.6 s. One score reads its year's 18 (15 MB) in 1.3 to 1.5 s, no faster, because
 that year is three quarters of the pool. A League Standings score reads that part
-alone, and a copy with nothing new costs one read. Building every board takes
-7 s either way, and the process peaked at 2.4 GB. `poolCache.test.ts` holds a
+alone, and a copy with nothing new costs one read. Building every board, with
+last week's places, the rank lines, the club cards and the lists published beside
+them, takes 26 to 31 s either way (`npm run live:bench`, 4 October; 7 s before
+those were added), and the process peaked at 2.6 GB. `poolCache.test.ts` holds a
 warm bring-up to what a fresh start on the same version holds, loader by loader
 and board by board, after an edit to each kind of input; each guard was broken
 in turn and seen to fail a test.
@@ -3562,10 +3807,36 @@ whose id is a hash of the kind and the window, so a burst of edits is one
 rebuild, and so is a burst of saves each under a new copy id (a run builds
 whatever copy stands when it runs): two minutes for a device's saves, run five seconds after the window
 closes; a quarter of an hour for a server's that publishes what it saved (the
-nightly, a server's edit), run ten minutes after, by which time that server's own
-publish should be in and the rebuild finds the boards current for three reads. A
-pull run in the cloud publishes nothing of its own, so its saves are rebuilt as a
-device's are. Who saved is
+nightly), run ten minutes after, by which time that server's own
+publish should be in and the rebuild finds the boards current for three reads;
+and a quarter of a minute for the edit function's (`live-edit`), run three seconds
+after, since a member is waiting to see each one, but never sooner than a minute
+after the last run ended (`LIVE_SPACING_S`, from the ledger's `lastEndedAt`, so a
+dry run spaces as a live one does): one asked for sooner is queued again for then,
+under one id for every task spaced from that run, and that task runs when it comes
+even should the instance's clock read it a moment early, since queued again under
+its own id it would be taken for done. A steady run of edits is then a
+build every minute and a half or so, each taking in every edit before it. Built
+back to back instead, as each window's task alone would have them, a steady half
+hour of edits that moved the boards used the day's whole budget in thirteen to
+sixteen minutes, and no board moved again that day (simulated in the 1.4 review on
+the ledger's own rules and the bench's build times); every board of the real pool
+takes about half a minute to build (26 to 31 s on the 29 September 2026 pool,
+`npm run live:bench`). Pool health's answers change nothing the boards read, so
+they ask for no rebuild at all.
+
+A write of a League Standings season's document asks too (`askLeagueRebuild`),
+since the boards are built with those seasons once any has a document ("League
+Standings in the cloud") and a device writes them straight to Firestore, with no
+server in between to ask. It asks when the season's teams, games or scores moved,
+which is all a board reads of it, and when a season is made or deleted, whatever
+it holds; a new name, a setting or a bracket game's score asks for nothing, nor
+does a season this build cannot read or one a newer build wrote. Its writes share
+a two-minute window, run five seconds after it closes, as a device's saves of the
+copy do: the season itself is live on every device as a score is typed, and only
+Team Rankings waits on the rebuild, so a day's scores entered one after another
+are one rebuild every two minutes at most. A pull run in the cloud publishes nothing of its
+own, so its saves are rebuilt as a device's are. Who saved is
 whatever the saving client says it is, so the name only picks the delay; nothing
 is skipped for it. A save is queued only while the switch is on, and a switch
 that cannot be read counts as on, since the rebuild reads it again before it
@@ -3587,8 +3858,10 @@ on its day and in its month and how many of them failed, which no cap reads, for
 the nightly's log (`rebuildReport.ts`), and keeps the counts of the last day
 before its own that had a run (`lastDay`); a failure counts on the day and month of
 the run's reservation while the ledger still counts those, so a day's failed runs
-are always among its runs. A run that never ends leaves its
-ceiling charged, and the next reserve counts it as a failure; the third failure
+are always among its runs. An edit run on the server adds what it spent to the
+day's and month's totals too (`chargeEdit`), without reserving or counting a run,
+so the caps count the edits' compute beside the rebuilds'. A run that never ends
+leaves its ceiling charged, and the next reserve counts it as a failure; the third failure
 in a row pauses the rebuilds for the rest of the day, and a run that does not
 fail clears the count. A run reserved less than a run's span ago (320 s) may
 still be going, so a reserve then waits (`busy`, and the queue tries it again)
@@ -3647,11 +3920,16 @@ worker's half against the copy and `live/` in memory on a seeded pool, its views
 the very ones the nightly publishes from the same copy, and the main thread's
 against a stand-in worker; each guard was broken in turn and seen to fail a test.
 
-Two functions run it (`functions/src/index.ts`), built and deployed only once
+Three functions run it (`functions/src/index.ts`), built and deployed only once
 their setup is done. `onCopyWrite` takes each write of `copies/main`, and of
 nothing under it, plans it (`rebuildTrigger.ts`), queues the task it asks for, and
 logs one line: a skip and why, or the save with the task it shares and whether the
-queue took it. It is not tried again when the queue refuses, since the next save,
+queue took it. `onLeagueWrite` does the same for each write of a season's
+document, `league/{season}`, its line naming the season's document. Both stay
+once the copy is the server's alone to write: every server that saves it (the
+nightly, the edit function, a pull's legs) reaches the boards through the copy's
+trigger, rather than each queueing its own rebuild after its commit, where a
+queue that failed would leave a save unpublished until the night. It is not tried again when the queue refuses, since the next save,
 or the night, publishes that one, and a write that failed every time would
 otherwise be retried for days. `rebuild` takes each task on one instance of 8 GiB
 and two vCPUs, one at a time, with a 300 s timeout. The queue tries a task again
@@ -3686,6 +3964,594 @@ trigger Firestore's own events, which it skips as it should with nothing read, a
 pings the built worker. It also queues a save's rebuild through firebase-admin to
 a stand-in for Cloud Tasks, which shows the task's name and deadline, and a second
 save in the window finding it queued.
+
+### The live board on a member's device
+
+A member's device reads the published boards through the sign-in it already
+holds for the copy (`liveReader` in `cloudSession.ts`): only in a browser that
+keeps a cloud copy, asked before Firebase is loaded, so one that never signed in
+never loads it to find out, and only as the account that browser's record is
+for. The meta is read with a 10 s limit and each piece with 30 s, as the copy's
+reads are. Nothing it reads is trusted (`liveClient.ts`):
+
+- **The meta** must be one this build reads, of this build's schema, with pages'
+  counts it can read. Anything else says why: nothing published yet, an older
+  build's (until the next publish), a newer build's (update the app), or
+  unreadable.
+- **A board's pieces,** joined, must unzip to the very bytes the meta's
+  fingerprint names, and those bytes must be rows a board can draw, every field
+  of every row (`coerceBoardView`). Anything else is damaged, never drawn and
+  never kept.
+- **A piece that is not there** (a publish retired its upload and a sweep took it
+  while the device held the older meta) costs one read of the meta, and the board
+  is fetched again from the upload it names now; never more than one.
+- **A refusal by the rules** clears every view the device kept, since this account
+  may no longer see them; any other failed read is taken for being offline.
+
+A board fetched is kept on the device by its fingerprint (`viewCache.ts`), so the
+next open reads it without a piece read, and every read of a kept board checks it
+again; one the disk damaged is deleted and fetched again. The views carry no
+account, since the same fingerprint is the same board whoever reads it, but the
+last meta read and the last board shown are kept for one account, and another
+account's are cleared rather than read. The views sit in the pool's IndexedDB
+store, under keys the pool never reads and the cloud copy never carries, so a
+reset of the app takes them; at most 100 MB are kept, the least recently read
+going first, and a browser whose pool is in localStorage keeps none.
+
+Whether a board on screen is the copy's (`boardStanding`) is decided against the
+copy as this device last read or saved it (`copySeen`), never against the
+device's own pool, which may not be taken in yet: current when the board was built
+from the very board inputs the copy held (`boardInputsPrintOf`), behind when the
+copy has moved on or no one build vouches for the boards, owed when this device
+has unsaved changes to a board input, and unknown before it has read the copy.
+A change to anything a board does not read counts for nothing, and neither does a
+League change while League Standings is kept live (`copyOwed`): it goes to the
+season's own document, which the boards are built from, and is never sent to the
+copy, so counted owed it held every board as waiting on this device for good.
+
+`liveClient.test.ts` reads boards published to an in-memory store: whole and
+strictly equal to what was published, free from memory or the device's cache, one
+meta read for a piece that is gone, another board's pieces under a board's upload
+and a changed byte both damaged, and a refusal clearing the cache while a failure
+does not. `viewCache.test.ts` holds the cache's checks and limits,
+`cloudSession.test.ts` who gets a reader and what the device last saw of the copy,
+and `firestoreRules.test.ts` the app's own reader on the emulator, reading a board
+whole as the owner and as a member signed in under a mixed-case address and
+refused to a stranger and an unverified address. Each guard was broken in turn and
+seen to fail a test, 27 of 27.
+
+**Team Rankings on the cloud's board.** A member opens Team Rankings on it
+(`LiveTeamRankings`), in a browser that keeps a cloud copy and is signed in as a
+member, or still finding out. From 1.6e to 1.6f a switch, **Open Team Rankings on
+the cloud's board**, could turn it off; with the copy read-only to devices (1.6f)
+a device's own pool would save nowhere, so the switch is gone, and `lf_live_v1` is
+no longer read. Whether it applies is read as the page opens and kept until it
+closes, so the cloud's state moving never swaps one page for the other under the
+reader. An account the copy refuses partway through a visit
+is asked again whether it may read the copy at all (`owns`), and refused that too,
+it is not a member any more, as at a sign-in (`not-owner`), so it opens Team
+Rankings on its own pool from then on; a member refused something the rules keep
+from devices is only told so, and so is an account whose second look fails or has
+not come back within the 20 s the copy's own reads are given (`timedStore`): that
+look reads the copy outside them, and unanswered it left a refused save saying it
+was saving, with every later look waiting on it. Its page draws the published
+board as Team Rankings draws its own: the same header, places, state top ten and
+filter, League badges, full table and the member's own club card, from the same
+code (`boardDisplay.ts`), with the half the page would open on decided from the
+published counts. Its arrows are last week's places the board carries, and the
+club card's rank line is the one published with it, drawn only when it is for the
+club this device marks as its own on that page. What the board says it is replaces
+"Refitting…" (`liveLabel`): offline as of when the server last vouched for it,
+still checking, built before this device's changes or the copy's latest, built by
+another version of the app, or yesterday's.
+It opens on what this account last read and kept, so a board is drawn before any
+network read, and then on the network's.
+
+The board is the page (1.6e). Until 1.5 it was a stand-in, as the saved board is,
+and went to Team Rankings on this device's copy once a second had passed with no
+tap, key or scroll; through 1.5 it stayed while it could, and went for anything it
+could not draw, with the pool brought in step behind it the whole time. A member's
+device is to hold no pool now, so the board brings none in, and what it cannot draw
+it says, and stays:
+
+- a meta the network does not give: nothing published yet, one an older build
+  published (until the next refresh), a newer build's (reload to update), or one
+  that will not read. A board drawn from the meta this device kept stays drawn,
+  with the reason above it;
+- no pages at all in the cloud, once the pages laid out are the meta's: they come
+  with the first pull, or a League Standings season put on a page in Setup;
+- a page's board not published yet, which the watch draws once it is, or one
+  damaged or gone, read again with the next publish;
+- offline, a board this device never kept;
+- a page's Games list, a club's card, Scouting's report or the copy's archive that
+  could not be read: said where it was asked, with **Try again**, and read again by
+  itself once the cloud publishes, so another page or area is read for itself
+  rather than said to have failed with it;
+- a club Scouting is on that the cloud has no card for in the year on screen,
+  which is no read gone wrong: one picked is let go, and the page's own club with
+  none says so in place of its games, the picker kept;
+- Find a team's list not read: said under its button, and searching again reads it
+  again.
+
+There is no wait any more: a network that does not answer leaves the board reading,
+and the reader's own limits (10 s for the meta, 30 s a piece) end in offline. A
+board built before changes it does not have, the copy's or this device's own,
+stays up under its label rather than handing over. It hands over to Team Rankings
+on this device's copy only where that is the right page or the only one: an
+account the rules refuse (its meta, its watch, or any view it reads, the board of
+a half or page moved to after the meta was read among them), or, on the areas that
+read the published views (the board, Scouting and Games), a browser with no member
+signed in to read them as and no board kept to show, both of which the visitor's
+own app is for. A pasted list is pulled in the cloud from the Import tab, with
+no hand-over (1.8, "A pasted list, pulled in the cloud"). Only then is
+the pool brought in step, behind it, and Team Rankings' own code loads under the
+board from the start, so it is there by then. The pages are the meta's whenever
+it carries them (`LivePages.groups`), kept or read, rather than this device's own,
+which a member's device no longer keeps in step; this device's own lay the page
+out only until a meta comes, or under one from a build that published none.
+
+A board is built before changes it does not have only when it was built from a
+version of the copy no later than the one this device read, or from another copy.
+One built from a later version of the same copy is the copy's: an edit sent from
+this page is in the copy and on the next board, and not yet in what this device
+read, so the board it rebuilt was once read as behind and the page handed over a
+minute after its own edit, to a copy without it.
+
+Since 1.8 a member never asks for a hand-over, and the two left draw nothing kept
+(a refusal forgets every board first), so what follows no longer comes about; 1.7
+takes it out. Handed over while the pool is still coming in, the board stays on screen and
+works as before, with the pool's progress above it and a button to stop waiting;
+an area it cannot draw, or a club with no card, says it opens on this device's
+copy as soon as that is in. Team Rankings opens once the pool is in where the
+board then is, so nothing done meanwhile is lost: the club open, the search, the
+clubs Scouting is on (the one reported on, the one set beside it, and opponents
+asked for), and the state boards. Then the board goes, its route, listener and
+effects with it, and Team Rankings alone has the page; a board left mounted under
+Team Rankings used to rewrite the address when Back landed on a page it did not
+know. Team Rankings opens on the same rows, starred by the worker's own rule,
+roster star and all (`liveBoard.ts`), marked as refitting until its own fit lands;
+once it has taken over it stays. Only a page opened by a handover reads those
+rows, and they are let go when the page closes, so a page opened the old way later
+(the switch turned off, or signed out) stands in its own saved board. Nothing can
+be changed on the board itself but which club is the page's own: Mark mine, and
+taking the mark off, go to the edit function (`page.myTeam`) with the club as its
+card has it, so one League Standings made joins the roster under the mark, as the
+page adopts it. The page's own club is the cloud's (the meta's pages, not this
+device's copy, which an edit sent from here does not move), with a mark made here
+drawn over it until a publish carries it (`myTeamShown`). Its card's next game is
+read off its published card, on the pages the board is fitted over, as the page's
+own card reads it off the pool (`buildUpcomingSchedule`); "loading" while the card
+comes, and nothing said of a next game when it will not read, rather than that
+there is none. Removing a club and the schedule still wait for the page. Edits
+are off once the page has handed over, while this device's copy comes in, since
+it opens without an edit sent meanwhile and then writes the copy itself; and with
+no reader of the cloud the lock says the device is not connected, not that it is
+offline. An edit and a question stay the same functions while the lock comes and
+goes, and read it as they are made, so a card that asks in an effect does not ask
+again for a blip of the connection (a what-if refitted the year each time). The
+board is held for the handover as it is put on screen, in a layout effect: held in
+a passive one, a test that found the board and closed the page at once failed 2
+runs in 15, and none in 15 after. Each guard of these was broken in turn and seen to
+fail a test, 26 of 26, one of them only once its test had sent the warm-up first.
+
+The page reads one meta and the pieces of the one board on screen, and none at
+all for a board this device kept. Its code is 5.3 KB gzipped, loaded only with
+the switch on (23.5 KB gzipped beyond the first download with everything it loads
+at once, after 1.5's review: the questions' answers had come in with the server's
+answerer, Pool health's lists, the model check and the import, 69.8 KB, so the
+answers' reader is a module of its own (`queryAnswers.ts`) and the edit function's
+client loads at the first call, which the board alone never makes); the first download grew 2.8 KB gzipped (229.1 to 231.9 KB), as the
+cloud session's code moved into a chunk of its own beside the entry, and
+Firebase stays out of it. `LiveTeamRankings.test.tsx` draws boards published to
+an in-memory store through the real reader, cache and checks: the rows, places,
+star, state boards and badges as the page draws them, last week's arrows and the
+club's own rank line (and no line made for another club), the half from the published
+counts, what it says in place of each thing it cannot draw and each read asked
+for again, the board staying the page however long nobody touches it or the
+network takes, no pool brought in for it, a half moved to read however long its
+board takes, the board kept on screen and in focus through a handover while the
+pool comes in, and what is done there carried into Team Rankings, a kept board
+drawn and labelled offline, and a refusal forgetting every board. `RankingsOpen.test.tsx` holds who gets the board and that
+the choice holds for the open; `TeamRankingsView.handover.test.tsx` the page
+opening where the board left off. Each guard was broken in turn and seen to fail
+a test, 33 of 33, two of them only after their tests were tightened.
+
+**A club's panel.** A club tapped on the board opens its panel from its card
+(`LiveClubPanel`): its bucket read through the same checks as a board, and drawn by
+Team Rankings' own panel. The panel and the pool's codec it checks a card by load
+only when a club is opened. A club whose card cannot be read (no card, a bucket
+damaged or gone, or offline with none kept) says so in the panel's place, with Try
+again and Close (1.6e), kept with the meta it was read by, as a list not read is, so
+the panel is drawn again, reading the card, once the cloud publishes; a refusal
+hands the page over, as every refusal does. The
+club open when the board hands over opens on Team Rankings, and one tapped while
+the pool comes in says so until Team Rankings opens on it.
+
+Its edits go to the edit function (`useLiveEdits`, 1.5): a state, a name, a
+GameChanger link taken off, an age set or taken back, and a fold into another
+club on the board, each sent as a command against the copy the board is of, and
+each answer said in a toast: the edit made (an age with an Undo that sends its
+inverse), or why not, in plain words, a refusal as the server named it and a call
+that came to nothing in the call's own words, which say an edit may or may not have
+been made wherever the server did not prove it was not. A rename onto a name
+another club holds, and a fold, are asked about first, with what the server says
+they move (`rename.preview`, `merge.preview`). An edit made is drawn over the card
+until a publish of its version or later is out (`overlayCard`): the state, name,
+links and level it gave the club (and an age's Undo, whose ages named for the
+club's GameChanger teams put back the pin it had, or none), and a club folded away opens the one it went
+into. An edit that changed nothing the views read (a Pool health answer) asks for
+no rebuild and is not waited on. Opening a panel brings the server's pool up
+(`warm`), at most once in ten minutes of calls. While the device is offline, or
+before the network has answered for the board (what is drawn being only what this
+device kept), the panel changes nothing and nothing is sent.
+
+**Setup.** On the board, Setup draws the teams waiting on an age and Pool health from the
+server's pool. The teams waiting on an age (`LiveAgelessCard`) are drawn by the device's own
+card's drawing (`AgelessReviewView`) from the ten in front of the person and the rules' rows
+(`ageless.queue`), the entries alone, which the device makes rows of as its own card does; the
+ten are held there by being sent back with each question, as the device's card pins them. Its
+search asks once the typing stops (`ageless.search`, 300 ms), and its file is the server's
+(`ageless.file`). Naming an age sends `namedAges`; throwing a team out sends it to the refused
+clubs and off the list as one edit (`ageless.forget`, with an Undo); a pass over the rules ticked
+is planned on the server (`ageless.clearPlan`), asked about with its counts, and sent the same
+way. After each, and after an Undo, the list is asked for again. Pool health
+(`LivePoolHealthCard`, 1.5) is drawn with the device's own card's drawing (`PoolHealthView`): what
+it shows as it opens, asked on the device's day as Setup opens (`health.summary`), and what
+it finds once **Check the pool** is pressed (`health.inspect`). Each button is sent as the
+edit the device's card makes: rows thrown out (`games.drop`), a club deleted
+(`club.drop`), a rout counted (`game.confirm`), a fold (`teams.merge`, asked about first
+with what the server says it moves), an age (`club.age`, with an Undo), every suggested
+age at once (planned on the server's pool, `ages.plan`, and sent as one batch with one
+Undo), and the answers (a club real, a club at the right age, two clubs kept apart). Once
+an edit is made, what the pool shows is asked for again, so the lists are the copy's as it
+now stands; an answer kept is shown at once, and the question already on its way is let
+go, since it was asked before the answer was given. The file of every club worth pulling
+is the server's, asked for when **Download the list** is pressed (`health.toPull`). The
+settle is the nightly refresh's, which tidies the pool after every pull, and the pool's
+research files (its names, its stand-in fixtures) are made only where the whole pool is
+held. The league seasons are put on a page, or taken off, by the device's own card
+(`LeagueSeasonsCard`), each answer sent as the device's edit (`season.assign`, said in the
+device's words). The pages it and the age groups card read are the cloud's, as its last publish
+carries them, rather than this device's copy, which an edit made here does not move; the edits
+not yet published are drawn over them (`overlayGroups`, by the command the server runs), so a
+season put on a page shows there at once and the next one put at that age joins it. This
+browser's diagnostics are its own, as on the device's Setup. The model check of the page open is
+the server's (`model.check`, 1.5), described below, and archiving or deleting a year, and
+starting Team Rankings again, are the owner's on the server (1.6, below). A backup of Team
+Rankings is the cloud copy's, read off it when **Download a backup** is pressed (1.6e, under
+"Backups").
+Every card here asks in its own effect once edits are on; the copy they ask of is held before
+any effect runs (`useLiveEdits`), since the network's first answer brings it and turns edits on
+in one render, and a Setup opened straight from a link had its first questions refused for want
+of it. `LiveAgelessCard.test.tsx`
+holds the waiting card's answers and questions as `LivePoolHealthCard.test.tsx` holds Pool
+health's. `LivePoolHealthCard.test.tsx` holds each button's edit and what the card shows after
+it, against a stand-in for the edit function that keeps the answers it is given. Each guard of
+the questions, their shapes, the summary, the card's drawing and its two wrappers was broken in
+turn and seen to fail a test, 54 of 54, two of them only once tests were written for them; and
+the league seasons' and the copy's, 15 of 15, the intro card's only once a test looked for it.
+A club Pool health names opens in the squad year its row is of (a club filed at the wrong
+age in its year, a club counted twice in the year of the day it played), since a club's
+card is read by year and one of another year was looked for on the board's, found
+missing, and handed over. A search on the waiting card draws its answer only under the
+words it was asked for, and an age named and not kept leaves the box choosing again.
+The model check's line under an unanswered check no longer says to run it again, which
+a page no longer on the copy, or a day's compute spent, would not change. Each guard of
+these, with the Import tab's above, was broken in turn and seen to fail a test, 13 of
+13, the cadence's lock only once its test looked at the fieldset around it.
+
+**Find a team.** The board's search box reads its year's list (`useLiveSearch`)
+only when somebody taps it, says "Bringing in every team…" until the list is in,
+then puts the caret in the box. A pick opens the club's page and its panel from its
+card, as Team Rankings does. A pick on another year's page leaves that page's box to
+be asked again, rather than read a second list unasked. A list that cannot be read
+says so under the button, and searching again reads it again (1.6e); handed over with
+a search asked and not in hand, Team Rankings opens with its box focused.
+
+**The Games tab.** On the board the tab reads its page's list (`LiveGames`) and is
+drawn by Team Rankings' own tab (`GamesSection`), its form and import sending their
+games to the server (1.6, below). The tab and its code load only when it is opened.
+A list that cannot be read says so, with Try again, and is read again by itself
+with the next publish (1.6e).
+
+Each game's own buttons are there (1.5): a score typed, Don't count and Count it, and
+Remove (asked first, with an Undo), each sent to the edit function as the edit the
+device's tab makes (`game.score`, `game.exclude`, `game.remove`) and drawn over the
+list until a publish carries it (`gamesOverlay.ts`, by the command the server runs,
+on the list and the cloud's pages alone, and only for the edits that read nothing
+else). The list carries no game ids, a game's id being its place: the ids are
+random and about 52 characters each, and on the 29 Sep copy they would have made the
+11 pages' lists 11.2 MB gzipped instead of 3.1 MB, and 12U's 1,965 KB instead of 534
+KB, for the rare game somebody edits. So before an edit the device asks the server
+for the game's id (`games.find`), by its place and what the list shows of it, and
+the server answers from its pool as it is now (`findListed`): the game at that place
+while it still shows so, or else the one game on the page that does, the list having
+moved since it was published, or none, which the person is told, and nothing is
+sent. The id is kept with where the list showed the game and how, by page, for
+the page load, and found again in each list by what it shows (`findListed`), so a
+second edit to the same game asks nothing, and the edits drawn over the list still
+find their game in a list published since (of other changes, before the one that
+carries the edit) or on the tab opened again: kept with the list it was asked of,
+it went with that list, and the edit stopped being drawn until its publish was out.
+A score being typed is kept to the list its box was opened on: a game not yet
+named is its place in the list, and a list published meanwhile, or another page's,
+has another game at that place, which the box moved to and the typed score was
+saved to. A new list closes the box instead. Each guard of these, with the age's
+Undo over a club's card and the what-if's key below, was broken in turn and seen to
+fail a test, 8 of 8. On the 29
+Sep copy the question took 37 ms for the last game of 12U's 45,107 at its place,
+and 55 ms found by the scan. Each guard of the overlay, the question, the device's lookup and
+the typed scores was broken in turn and seen to fail a test, 26 of 26, the score
+boxes put away only once a test saved a score the copy already held.
+
+**Adding games by name** (1.6). A game typed into the form and a schedule pasted into the
+import are added on the live page too, through the server. The device holds no roster, and
+the year's is 116,485 clubs, so the names go as they were typed (`NamedGame`,
+`namedGames.ts`), each game with the id the page mints for it, and the server resolves them
+against the year's clubs as the page knows them, League Standings' among them
+(`deriveAllKnown`), with the very functions the device's tab uses (`gamesOfNamed`,
+`resolveOrCreateTeam`), and adds them as one change (`game.import`, made into a `game.add`
+by `addOfNamed`, a club the roster lacks adopted with it and a held club whose state the file
+fills put back first). The device's own tab now resolves a pasted schedule through the same
+`addOfNamed`, so a schedule added either way adds the same clubs and games. What the
+device's import checks against its roster, the server checks for the live page
+(`games.check`, `checkNamedGames`): a name that is a placeholder or a near miss of a club
+there, and a game the page already has, League Standings' included. The form's one game
+is asked about before it is added, and a game already logged is confirmed first, as on the
+device; the import's rows are asked about as they are reviewed, a moment after each stops
+changing, by what the check reads of the row, so a box ticked asks nothing and an edited
+name asks about that row alone. Nothing is added while a row is unanswered, and a
+question that fails says so with a Check again. The schedule comes with an Undo, which
+takes its games back out and the clubs it brought. The names are resolved against the year's
+clubs, League Standings' among them, not the roster alone, so a club League Standings made is
+adopted under the id the page knows it by: minted afresh, a name would take the first id of its
+stem, which may be another League club's, and the board's ids would all shift. Each guard was
+broken in turn, 27, and 26 failed a test; the other, the page's games kept to the page, cannot
+change an answer, since a game is only ever taken for one on its own page (`findDuplicateGame`).
+
+**What the reviews of adding by name found.** A press of Add while a game was on its way added
+it twice, since nothing waited on the server's answer: Add is off now until it comes, for the
+form and the import alike, and the form keeps a game typed in the meantime rather than clearing
+it with the one sent. The server checks again as it adds (`importOfNamed`): a game the page has
+by then (another member added the same schedule, or an earlier press landed though the device
+was never told so) adds none of the schedule (`logged`), and the import's rows are asked about
+again, so the ones the page has now drop out. A game the form was told the page had, and was
+told to add anyway, carries `again`. A club against itself is refused by the key a name is
+found by ("NV Stars 9U" is "NV Stars"), on the form and on the server. The checks were most
+of a second a name: a near miss was looked for by working out every club's key and a full edit
+distance against each of 116,485 (397 ms a name on the 29 September 2026 roster), so a pasted
+season of a few dozen rows ran past the edit function's minute, ended its worker and the warm
+pool every member's edits use, and could be asked again only to end it again. The roster is
+indexed now (`findSimilarTeam`), each key once, by length and in order, and a distance worked
+out only within reach of 0.82: 6.7 ms a name on the same roster, the same club named for each
+of 80 names compared, and the rows are asked about a hundred to a question. Names are resolved
+through an index too (`teamResolver`), where each new club rebuilt the roster's ids and each
+state a pass over it: 500 rows of new names in 134 ms, where 50 took 2.4 s, the clubs and games
+the same as the walk's on generated rosters and on that one. A schedule of more rows than one
+edit takes (500) is turned away as it is read, to be pasted in parts, and one that would tidy
+more clubs than an edit may change (`MAX_COMMAND_STEPS`), each a step that writes the roster,
+adds nothing (`too-many`): 500 rows naming held clubs without a state, each row with one, came
+to 945 steps. Each guard was broken in turn, 39, and 37 failed a test; the other two cannot
+change an answer: a band one cell narrower loses only a distance at the cap, which is a step past
+0.82 by construction, and keeping the page's games to the page is what `findDuplicateGame`
+already does.
+
+**Scouting.** The tab works out its report, its upcoming games and its comparison
+as Team Rankings does, off the board's rows and the club cards rather than the
+year's pool (`LiveScouting`, `scoutingFromCards.ts`). The report reads only the
+rows. Each of the rest reads only the games of the club or two clubs it is about,
+and a card holds a club's games of the year in the pool's own order. So the
+upcoming games are the scouted club's card's games on the page's rating pool, and a
+comparison reads both clubs' cards, each game once. A game of the two is taken
+from the first club's card, where it sits between the second club's own games as
+the pool has it. Two results of one day used to be put in game id order, which a
+card cannot give, since its ids are only its places. They now keep the pool's
+order, as a club's panel always has, on Team Rankings too. A what-if refits the
+year, which the board cannot, so it is asked of the server (`scouting.whatIf`,
+1.5), which refits it as the boards are built: the year it derives with the copy's
+own League Standings seasons in it (`deriveAllKnown`), so the answer agrees with the
+board on screen, and the page's rating pool fitted three times (`whatIfCurve`). A
+card carries no game ids, so the fixture is sent as the scouted club's card holds
+it, its id its place on the card, and the server finds it among the club's games of
+the year as a card lists them (`cardGamesOf`, `cardFixture`): the game at that place
+while it still reads so on a card, or else the one game that does, or none, which
+the panel says could not be worked out. The question and its answer are keyed to
+the fixture as the card holds it, not to the card: a card is decoded afresh with
+each publish, so the same game came back as another object and was refitted for
+again, and a card published since may hold another game at the place asked about,
+whose answer was then drawn under it. The League Standings part is read only for
+a question that refits a year, and once for each version of it (`runQuery`), since
+an edit's pool leaves it out; one that would not read refuses that question alone.
+On the 29 Sep copy a what-if on 12U, the year's 255,579 games one rating pool, took
+7.1 s (6.9 s asked again, the League part read already), its answer 1 KB and the
+process at 1.9 GB at most, during which the edit function's other calls wait, as an edit waits on
+another; the device's own worker takes as long. A card that could not be read
+(offline, damaged, gone) is said in the report's place, with Try again, and read
+again once the cloud publishes (1.6e). A club the cloud has no card for in the year
+on screen (its bucket read and holding none, or no bucket for it in the meta the
+page settled on) is no read gone wrong, and reading it again finds the same: said
+so, it replaced the tab and its picker, so a club picked on 2027 left 2026's
+Scouting with nothing to do but try again. A club picked, there or on another
+year or page, or folded or deleted since, is let go, so the report is on the page's
+own club again and nothing is compared; the page's own club with no card says so
+in place of its games, its report off the rows and the picker kept for another
+(`useClubCard`'s `absent`). A what-if is
+offered only where Team Rankings would offer it, as far as the board can tell
+(`boardWhatIfDeclines`): a game refused on sight is refused alike, and one
+against a club the board does not rank is declined. Every club it ranks has a
+counted game, so it never offers a what-if the page would not; but the page rates
+opponents across its whole pool, and over the whole year when the address names
+no half, so the board declines a few the page would ask. The clubs Scouting is on
+are the board's to keep, so a half or page read again keeps them, and Team
+Rankings opens on them (`compareTeamId`, `pickedOpponentIds`).
+
+`scoutingParity.test.ts` holds the report, every scouted club's upcoming games and
+comparisons with the clubs beside it and the clubs it met to Team Rankings' own, on
+every page and half of the seeded fixture, and each what-if offered to one the page
+offers, with the address naming the half or none. A second page with no year was added,
+since a card holds a club's games of every such page and each is a pool of its own.
+`scoutingFromCards.test.ts` takes the case consistent cards never give. Each guard
+was broken in turn and seen to fail a test, 14 of 14, three only after a test was
+added: the pool's pages, a meeting off the second card, and a bucket without the
+club.
+
+`refitParity.test.ts` holds the server's what-if to the page's own (`whatIfCurve` on
+the page's pool, with the real game), each fixture named as the published card holds
+it, for the top clubs of every page and half of the seeded fixture and for the clubs
+of a League Standings season with a game still to play, added since the fixture's
+own are all played. `editRun.test.ts` holds the League part read for such a question
+alone, once for each version of it, and refused alone when it would not read.
+
+**The model check.** Setup's card asks the server for the check of the page open
+(`model.check`, 1.5), which works it out as the page does (`checkTheModel`) on the year
+derived with the copy's League Standings seasons, as a what-if is. Every run goes in one
+question rather than one a run, as the device's worker takes them: the runs are compared
+game by game, so each run's errors are kept until all are in, and on 12U of the 29 Sep
+copy those came to 2.3 MB a run, against 16 KB for the answer the card draws. There the
+check took 15.1 s, 38,631 games held back, the process at 2.2 GB at most, during which the
+edit function's other calls wait, as they do on a what-if. JSON has no
+`Infinity`, which the uncapped run's cap, each result's last bucket and a better cap that
+is no cap all are, so it sends them as null and the device's reader makes each its own
+again. A check that comes back with no answer says why in a toast, as every question
+does, and the card says so under its button, rather than that the pool changed, which is
+the device's own card's reason. `refitParity.test.ts` holds the answer, read back as a
+device reads it, to the page's own on the seeded fixture's 12U 2027, League Standings'
+games in it; `queries.test.ts` the question and the reader. Each guard was broken in turn
+and seen to fail a test, 14 of 14.
+
+**Archive.** The live page's Archive tab is Team Rankings' own (`ArchiveSection`), its
+finished seasons read straight from the cloud's copy, which a member may read
+(`copyArchive.ts`, `copyReader`), rather than from views the server publishes. An archived
+season is frozen once made, and is already a part of the copy, the index one part and
+each season's rows another, so the tab reads the manifest and the index, and a season's
+rows only when it is opened, as the device's tab reads its own store. Publishing them
+would have the server fetch parts its pool leaves out, to write the same bytes again. Each
+part is read once a page load, by its id and hash; a season whose part was replaced and
+swept after the list was read is read again off the manifest as it now is. A copy that
+cannot be read is said so, with Try again, as a list that cannot be read is (1.6e).
+`copyArchive.test.ts` holds the reads on a copy in memory; `LiveTeamRankings.test.tsx`
+the tab listing, opening, and saying it could not read the copy. Each guard was broken in turn and seen to fail
+a test, 12 of 12, the cache's key only once a test read a season again after its part was
+replaced.
+
+**Import.** The live page's Import tab shows the copy's nightly refresh as the server works
+it out (`import.status`, at the device's time): what a refresh now would be for and how
+many teams are in it, as the nightly reckons it (`storedRota`, moved out of the pull so
+the question does not carry the pull's code), with the device's own words for it
+(`describeDueSummary`, which `describeDue` now reads through), and when each level was last
+refreshed, each day's levels together, the latest first. How much comes round at once is
+chosen there and kept on the copy (`refresh.cadence`), which the nightly reads; an
+Organizations file is read on the device and its organizations kept on the copy
+(`orgs.merge`), which the nightly ages teams by, and a file with nothing new says so
+(`EditSaid.same`, said where the copy already held the edit). Pulling a pasted list is the
+pull in the browser, so its card opens the page on this device's copy until the cloud runs
+one; with every other area drawn, that card is now the tests' way to hand the page over.
+`queries.test.ts` holds the question and its answer; `LiveTeamRankings.test.tsx` the tab
+drawing it, each edit, and the refresh read again after one. Each guard was broken in turn
+and seen to fail a test, 14 of 14, four only after the tests gave the tab a clock of its
+own, put the days in order, and named a waiting team under no organization.
+
+The cadence chosen is shown from the choice until a refresh read after its edit says
+what the copy keeps: cleared once the edit was made, it flipped back to the old one until
+the refresh was read again, and stayed so when that read failed; one not made is put
+back. A file whose organizations have teams but no names is told it needs the names,
+which a team's age is read from, rather than that it names no teams; and with edits off
+and nothing read yet the tab says why, as the waiting card above Pool health now does,
+rather than that it is still reading.
+
+**On a device with no copy.** The page is laid out by the age groups, which a
+device reads from its own copy. One that has never held a copy has none, so the
+meta now carries the copy's age groups too (`LivePages.groups`), as its store holds
+them. A device with no age groups of its own lays the page out by those, read
+through the copy's own check (`coerceAgeGroups`), and since 1.6e every device does,
+whenever the meta carries them. It says the cloud has no pages only once a meta,
+kept or read, has laid the page out. Each guard was broken in turn and seen to fail a
+test, 8 of 8.
+
+The board on screen is held for Team Rankings to open on (`holdLiveBoard`), by an
+effect that runs after the board is drawn, and let go whenever none is on screen. It
+used only to be let go where a refusal forgets every board, and a refusal heard
+between a board's drawing and the effect was forgotten and then held again by the
+late effect. The listener's test caught it about one run in four.
+
+**Kept up to date while it is open.** Once its first read is in, the page listens
+to the meta (`watchMeta`), so a publish while it is open is drawn in place. It
+listens until Team Rankings opens, and stops with the board. The copy's lite Firestore reads
+but cannot listen, so the listener is the full SDK (`watchLiveMeta` in
+`firebaseCloud.ts`), loaded then and never before. Its parts the app uses are a
+module of their own (`firestoreListen.ts`), and so a chunk of their own: 121 KB
+gzipped, which a browser that opens no live board never downloads. The service
+worker does not store it ahead either, since a listener is no use offline; CI
+checks both. Loading it took 71 ms on a 4× throttled CPU and 45 ms unthrottled
+(medians of five), with no task long enough to delay a tap. What the listener
+hears is taken as a read is:
+
+- checked, kept for the account, and put on screen;
+- the board read again only when the meta names another board for its key, so a
+  publish of other pages' boards costs this page nothing;
+- a meta heard again unchanged counts for nothing;
+- of two metas heard together, the later stands, though checking the earlier
+  against the copy takes longer.
+
+When the connection drops, Firestore says so with a snapshot from its cache. The
+board stays, labelled "Offline · the cloud's board as of 7:42 PM": the time the
+server last vouched for it, or the day if not today. For a board opened offline,
+that is when this account read the meta it kept. Once the server is heard again
+the label goes. A board the network's meta names that cannot be fetched for want
+of a connection leaves the older board drawn, labelled as of that board's own read
+rather than the meta's, and is fetched again the next time the server is heard,
+rather than at the next publish. A refusal heard ends the watch and forgets every
+board, as a refused read does; a watch that ends for any other reason leaves the
+board, offline. A listener whose own code cannot be fetched (the page opened
+offline, its chunk never downloaded, which the service worker does not store) is
+not tried again by the page, and a browser may keep the failed fetch for the visit:
+the board can stay labelled offline, hearing no publish, until the app is loaded
+again online. Firestore bills a listener a read for each change it hears,
+and a read again when it reconnects after half an hour away.
+
+What the board reads beside it (a club's card, a page's Games list, the year's
+search list) is read through the meta on screen, and while that is only the one
+this account kept, through what it kept. A view not kept then is not yet a view
+that cannot be had: it is read again through the network's meta once that is in,
+and only a miss after that, or once the network has given no meta at all, is said
+(1.6e: before, it handed the page over). Each such read that the rules refuse
+forgets every board kept and held and hands over, as a refused read of the meta or
+a board does: a board refused after its meta was read, as one for a half moved to
+once the account is off the list, is the meta's refusal too, where missed alone it
+said nothing and read for ever with edits on. A view that failed and is read since,
+as a publish reads it again, has not failed: the page's own club's card, on screen
+throughout, says its club has no game ahead once a publish brings it, where before
+it stayed unread for the visit.
+
+With the listener in, the first download is 230.7 KB gzipped against 232.1 KB
+before, as the build folded the cloud session's code back into the entry, and
+Firebase stays out of it. The page's own chunk is 5.8 KB gzipped.
+`LiveTeamRankings.test.tsx` listens through an in-memory store whose watch
+delivers each version of the meta as Firestore does. It checks:
+
+- a publish drawn in place;
+- a publish that leaves the board alone;
+- an unchanged meta taken as nothing new;
+- the later of two metas winning;
+- the offline label as of the read that kept the board, and gone on reconnecting;
+- a board that could not be fetched offline, dated by its own read, and fetched
+  again once the server is heard;
+- a card and a Games list read once the network's meta is in, not said unread
+  before it, and a list said unread once the network has given none;
+- a refusal heard through a card's read, forgetting every board;
+- a refusal heard, and a watch ended otherwise;
+- a newer build's meta said over the board already drawn;
+- the watch stopped on closing, and never started after a refused read.
+
+`cloudSession.test.ts` holds the session's reader carrying the cloud's watch.
+`firestoreRules.test.ts` runs the app's own watch on the emulator, on one app
+beside the lite client that reads, as the app holds them: a member hears each
+publish from the server, hears a snapshot not vouched for once its client is
+cut off and vouched for again once it is back, and a stranger's watch ends
+refused, having heard nothing from the server. Each guard was broken in turn and
+seen to fail a test or the CI check, 22 of 22. Three of them failed only once
+their tests were added or tightened, one after the in-memory watch was found
+delivering the meta as it stood at delivery, not as it was when it changed.
 
 ### Rebuilds after saves: the one-time setup
 
@@ -3747,7 +4613,8 @@ need, and gave the deploy account `roles/eventarc.admin`.
 4. In GitHub, **Settings → Secrets and variables → Actions → Variables → New
    repository variable**: name `LIVE_REBUILD`, value `on`.
 5. **Actions → Firebase functions → Run workflow** on `main`. When it is green,
-   the Firebase console's **Functions** page lists `onCopyWrite` and `rebuild`.
+   the Firebase console's **Functions** page lists `onCopyWrite`, `onLeagueWrite`
+   and `rebuild`.
 
 Then save anything that moves a board, wait three minutes, and find the rebuild's
 line in **Logs Explorer** (`jsonPayload.end` is in every one). A dry run that
@@ -3758,11 +4625,629 @@ the runs, failures and compute the ledger counted ("The nightly refresh on
 GitHub"), so a dry week can be judged there. Once `mode` is `live`,
 `npm run live:lag` reads how long saves took to reach the boards.
 
-Setting `LIVE_REBUILD` to anything but `on` builds without the two functions. With
+Setting `LIVE_REBUILD` to anything but `on` builds without the three functions. With
 the pulls on, the next deploy then takes them down; without, it leaves them as
 they were. `on: false` in `ops/rebuild` stops them either way, and
-`firebase functions:delete onCopyWrite rebuild --region us-central1` takes them
-down.
+`firebase functions:delete onCopyWrite onLeagueWrite rebuild --region us-central1`
+takes them down.
+
+### League Standings in the cloud
+
+For the accounts on the list, each League Standings season is one Firestore
+document, `league/{season}`, which every device listens to and writes into
+directly, with no server in between (`src/lib/live/leagueDocs.ts`). A season is
+small, 10 to 70 KB, so the whole of it fits one document with room to spare.
+One document per game was weighed and turned down: a listener is billed a read
+for every document it holds again after half an hour away, so a season of 240
+games would have cost 240 reads each time a device opened it.
+
+The document holds the season record by record rather than as one value:
+
+| Field                            | What it holds                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------ |
+| `schema`                         | The layout's version, 1. A device reads and writes no document of a later one. |
+| `rev`                            | The write the document is at: 1 when made, one more with every write.          |
+| `name`, `createdAt`, `updatedAt` | As the season's entry in the switcher has them.                                |
+| `teams`, `teamOrder`             | Each team under its id, and the teams' ids in the season's order.              |
+| `matchups`, `order`              | Each game under its id, and the games' ids in schedule order.                  |
+| `logs`                           | Each game's score, under the game's id.                                        |
+| `bracketLogs`                    | Each bracket game's score, under its slot.                                     |
+| `settings`                       | The season's settings, a field each.                                           |
+
+So a write sends only what changed (`docChanges`): one score is the single field
+`logs.<game>`, one setting `settings.<field>`, a game added is the game and the
+new `order`. Two devices scoring two games at once write two different fields,
+and neither undoes the other. A map keeps no order, and the order matters: the
+forecast plays the games out in schedule order with seeded draws, so two devices
+holding the games in two orders would show two different forecasts of one
+season. The orders travel whole beside the maps, and a record an order leaves
+out (two devices each adding a game and each writing an order without the
+other's) is read after the listed ones, by key, the same on every device.
+
+Records are kept under their ids as they are where Firestore takes them that way:
+the ids this app makes (`ABCD`, `game_<time>_<n>`, `season-2`), up to 64 letters,
+digits, `_` and `-`. Any other id, such as one a schedule file brought in, which
+can be any text, is kept as `~` and its UTF-8 in base64url (`encodeKey`). A
+season's document is named the same way. A record found under a key that is not
+its own id's, or under a key `encodeKey` would never write, is left unread, and
+every record is checked by the same validators storage reads with, so nothing
+reaches a device unchecked.
+
+The rules (`firestore.rules`, tried on the emulator by `npm run test:rules`) let
+the accounts on the list read, list, make and change seasons, and nobody else
+anything. A season is made with every field it has and never carries another;
+each field must be of its kind; its `schema` never goes back to an older layout,
+which a device that predates a newer one would otherwise write over; its `rev`
+is 1 when made and exactly one more with each write, so a write made without
+reading the season first is refused, and every device can tell which versions
+hold which writes; and only the owner deletes a season, since a season deleted
+here is gone from every device at once. A delete runs as a transaction, which
+reads the season first, so it fails at once offline rather than waiting there
+to land later, and the season is gone from the list here only once it is gone
+from the cloud.
+
+**On the server.** The boards are built with the seasons' documents once there are
+any (`cloudLeague.ts`): the nightly's publish, each rebuild, and the edit
+function's questions that refit a year (a what-if, the model check) all list
+`league/` and read each season as a device does (`docToSeason`), so a season
+reads the same to the boards as it did from the copy's part, to the record
+(`cloudLeague.test.ts` holds every season of the seeded fixture to it). Until
+some device has gone live there are no documents, and the copy's part is League
+as before. Once there are, the part is never read beside them: a device with
+League live leaves the part alone, so it keeps a season deleted since, which
+read beside the documents would come back. A document of a later layout than
+the build reads (`newer-league`) or one that is not a season's stops the read,
+as a part that cannot be read does.
+
+What the boards read of a season is its teams, games and scores, so the record
+of what they were built from carries a fingerprint of exactly that, every
+season's by its id, in id order (`league`, beside the copy's `inputs`). A score
+saved on a phone leaves the copy as it was and still makes the boards stale, so
+a rebuild publishes them again at the copy's own version; a season renamed, or a
+setting changed, which no board reads, does not. The documents are read once for
+a run and again just before each commit of the meta: a season changed between
+the two would otherwise let a slow build put older scores over boards a rebuild
+since had published with the new ones, so the publish takes its uploads back and
+says the seasons moved (`league-moved`), which turns no night red, and the
+change's own rebuild publishes it. A listing reads each season, a few reads for
+a handful of seasons of 10 to 70 KB each, beside the three reads a rebuild
+already makes before deciding to run.
+
+**On a device.** It is on for every member's device. From 1.6e to 1.6f a switch,
+**Keep League Standings live**, could keep a device's League in the cloud copy
+instead; with the copy read-only to devices (1.6f) that would save nowhere, so the
+switch is gone, and `lf_live_league_v1` is no longer read.
+
+- **The first meeting** (1.6e). On by default, every device goes live at its own
+  next visit rather than all together. Until a device has met the cloud's League
+  documents (`lf_league_met_v1`, once on the device, whichever account signs in
+  after, since every account on the list shares one cloud), the copy still brings
+  League in there, so the device is in step with the copy before its seasons meet
+  the cloud's (`meetSeasons`); the open season waits, read-only, until they have.
+  But the copy is sent no League at all, met or not, as it is sent nothing
+  (1.6f): a change made before the first meeting waits, owed, and
+  reaches the cloud's documents at it. The copy's League a device has met is the
+  base its first meeting starts from, and a change of its own in that base, which
+  the documents had never held, would read as one they had deleted since, and be
+  dropped (the 1.6e review's two high findings).
+  - **In step.** League goes live for a first meeting only once a settlement here,
+    as the account signed in, took in everything newer of the copy's League and
+    set none of it aside (`leagueInStep`, with `leagueLiveWanted`). A status of
+    saved is not that: the boot says saved when it stops waiting on a copy too slow
+    to read, and a League that arrives while one is being edited here is set aside
+    for the next save. Until then the copy carries League here, editable, its
+    changes held back for the meeting.
+  - **The base.** A season held both here and in the cloud, with no base of its own
+    yet, takes the copy's season as this device last took it in
+    (`leagueAgreedWithCopy`) as its base, at write 0, before any of the document's
+    (kept as `fromCopy` by `leagueBase.ts`, since no document is at write 0); never
+    a version this device sent the copy itself before 1.6f (`mine`), which could
+    hold a change of its own the documents lack. So the open season's first
+    meeting is three-way: a game another device deleted live since stays deleted,
+    and a score entered here since is kept and sent, where with no base everything
+    either side holds would be kept.
+  - **Seasons deleted live.** A season the cloud does not hold is sent up rather
+    than taken for deleted, since one the first device to go live never held would
+    otherwise be lost. Except one the copy agreed on, held here unchanged, while the
+    cloud holds a season of the copy's that another device sent: that device sent
+    every season it held as the copy gave them, and no device kept live writes League
+    to the copy, so the copy is no newer than those, and this season was deleted
+    live since. It is met as deleted elsewhere, with the copy's as its base, and not
+    sent back; the copy's League stays as the last device to carry it left it, and
+    every device met afresh would otherwise send back every season deleted since.
+  - **The list** a first meeting reads is the server's answer, never Firestore's
+    cache (`getDocsFromServer`): offline, the cache of a page that has listened to
+    no season holds none, which would read as a cloud with none. A first meeting
+    whose list does not come leaves the season live without the bases, and is met
+    again at the next visit, its seasons brought down meanwhile shown even if the
+    meeting was cut short.
+- **The open season is kept live** (`leagueSync.ts`). A change is written 0.7 s
+  after the last edit, or as soon as the page lets go of the field, or when the
+  page is hidden, in one transaction: what changed here since this device last
+  took the document in, laid over the document as it then stands, by the same
+  record-by-record merge the cloud copy uses (`leagueLive.ts`), and only the
+  fields that differ written. What is compared is the season as every device
+  reads it back from its document (`readBack`), never as typed: a value the
+  readers rewrite ("07" for "7", a name with a space after it) would otherwise
+  read as an edit here for ever. Another device's change is laid over the season
+  on screen the moment it arrives, unsent edits included, except while a text
+  box is being typed in and the change would alter what is on screen: then it
+  waits until the page lets go, so nothing changes under the cursor. A select is
+  not typed in, and holds nothing back. A version heard while this device's own
+  write is out waits until the write has said what number it landed as, so the
+  write is never taken for another device's change and a change made on screen
+  meanwhile is not undone. A listener that fails is started again after 2 s, the
+  page read-only and saying it is offline meanwhile.
+- **The base** a merge works from is the document as this device last took it
+  in, with the write it was at, and this device's own writes that have landed
+  since, each with the write number it landed as (`leagueBase.ts`). An arrival
+  is placed by its number: a version at or past one of this device's writes
+  holds it, one before it does not, so a value changed and changed back before
+  the first write came back is still sent, and nothing of this device's is taken
+  for another device's change. The base is kept between visits, always after
+  the season itself is in storage, so a base never holds what storage does not:
+  a game deleted on another device while this one was closed stays deleted,
+  rather than coming back from this device's copy. A base is used only for the
+  season it was kept for, one made at the same moment; a season made since under
+  a deleted season's id is a season of its own. With no base, the first meeting
+  keeps everything either side holds, the cloud's record winning where both hold
+  one; a season here that held nothing takes the cloud's in whole and from then on
+  carries its creation time (`adoptSeasonCreatedAt`), so the next visit knows it
+  for the same season.
+- **Undo** puts back only what no other device has changed since the step
+  (`guardedUndo`): undoing a deleted game here does not take back a score
+  entered there since.
+- **Every control that edits the season is off, with a line saying why,**
+  whenever the season may not be written: offline (as the listener reports it),
+  while the cloud's version is first read, for a season a newer version of the
+  app wrote, one deleted on another device, one the rules refuse this account,
+  one with a team or game id too long to be a key in Firestore, and one that was
+  started apart on another device under the same id (every browser's first
+  season is `default`, and a deleted season's id can be made again elsewhere):
+  once this device knows when its season was made, any version made at another
+  moment is another season, and is never merged into this one. The controls that only read it stay
+  usable: a team's stats, the filters, the exports, the season switcher, and
+  making a new season to carry on in (`EditLock`). The lock is on the season
+  itself as well (`seasonStore.ts`): an edit that comes from outside the page's
+  controls, a shared link, the command palette, a toast's Undo, is refused, with
+  the same reason, and before it does anything else: an Undo puts back none of
+  its step rather than the pool alone, and keeps it; a shared link is asked about
+  only once the season may be written, and kept until then.
+- **The season list** is met with the cloud's once a visit (`leagueSeasons.ts`):
+  a season made on another device comes down whole; one only this device holds
+  goes up, which is how the seasons a device kept in the cloud copy become
+  documents the first time it goes live; and one this device met before that the
+  cloud no longer has was deleted elsewhere, and is not sent back. A season
+  brought down comes with its base, so the same holds for it. Deleting a season
+  deletes its document first, which only the owner may, and which needs the
+  cloud to answer: a member, or a device offline, is told so, and nothing is
+  deleted. On a member's device, met here or signed in here before, whose League
+  is not live this moment (offline, signed out, or still to meet the cloud's
+  seasons), nothing is deleted either, and the member is told why
+  (`seasonDeleteRoute`): deleted here alone, the season's document would bring it
+  back at the next meeting. A browser no member has signed in to deletes its own
+  seasons here. The document is deleted only if it is this device's season, made at the
+  same moment; another season under the id, kept apart from this one, is left in
+  the cloud, and this device's is deleted here alone. A
+  season deleted before some other device has first gone live comes back from
+  that device, which has no base to tell a deletion from a season the cloud has
+  not seen; a game deleted within a season does not, its season having the
+  copy's as its base (the first meeting, above).
+- **The cloud copy leaves League alone** (`cloudSession.ts`): it is sent no
+  League, a League change is no change owed to it, and an earlier League version
+  it keeps is neither offered nor brought back; once the first meeting is done it
+  takes no League in either, and a newer League in it is not mentioned. A League
+  change is still marked, so that the copy's League, taken in before the first
+  meeting, merges with it rather than replacing it.
+
+**What Team Rankings has, asked of the server.** Where Team Rankings opens on
+the cloud's board (`liveBoardWanted`: in a browser
+that keeps a cloud copy, signed in as a member or still finding out), League
+Standings no longer reads Team Rankings off the device's own pool, which a
+member's device is to stop holding. It asks the edit function instead, as the
+member, three questions (`leagueAnswers.ts`, answered in `queries.ts` by the very
+functions the device would run, over the cloud's pool):
+
+- `league.bridge`: the season's bridge, which the forecast reads its outside
+  results from and the link panel its rows, and the best of the clubs each league
+  team could be: the first 50 by opponents in common and then games, as many as
+  the panel's picker draws at once, and the club the team is picked as wherever it
+  falls (`leagueCandidates`). Every club with a game on the season's pages went
+  to every team before: on the seeded fixture's page of 8,689 clubs, the size of
+  the real one a ten-team league was linked to, an eight-team season's answer was
+  7,076,653 characters, and is 70,746 now; a club further down shares none of the
+  team's opponents, and the wide picker finds it by name. It carries the season's
+  teams and its fixtures as this device holds them, since a season edited here
+  may not have reached the cloud yet. It is asked 0.8 s after the teams and final
+  scores stop changing, so a run of edits asks once; again on coming back to
+  League Standings from Team Rankings, where the member may just have ticked the
+  season on a page or merged a club; when the member's sign-in comes through,
+  since a question asked at boot before it did goes unanswered; when the device
+  comes back online; and when the page is shown anew on League Standings, since
+  the nightly may have pulled since, at most once every five minutes. A question
+  out is never thrown away for another about the same teams: a change noted
+  meanwhile is asked about once its answer is in, and being shown anew asks
+  nothing while one is out. An answer for teams or scores since changed is
+  dropped. A question unanswered is asked again after 5 s, 30 s, and then every
+  2 minutes until one is answered. The last bridge for a season, the bridge alone
+  and never the clubs, about 2,400 characters, is kept on the device
+  (`lf_league_bridge_v2`, the last four seasons, the open one alone when storage is
+  full; what an earlier build kept under `lf_league_bridge_v1`, every club with it,
+  is let go of) and read back through the same checks as one from the network, so
+  the forecast has its outside results the moment the season opens, and offline.
+  Until there is a bridge to show, the link panel says it is asking, or that it
+  could not ask and will again, rather than that no age group claims the season.
+- `league.clubs`: every club the link panel's wide picker lists, asked for the open
+  season while the box is ticked, so a season switched to with it ticked lists its
+  own; the panel says the list is coming, or that it could not be asked for, with
+  Try again.
+- `league.fill`: the scores Team Rankings could fill in, asked when **Fill scores
+  from Team Rankings** is pressed, with the season's teams, games and scores. The
+  button says the scores are being asked for and takes no second press until the
+  answer comes. An answer for a season switched away from meanwhile opens nothing;
+  no answer says that the cloud could not be asked, and opens nothing either. A
+  game scored here while it was asked is not filled over (the fill above).
+
+A question carries at most 200 teams and 3,000 games, well past any league's, so
+none holds the one edit worker long, and the server refuses one with anything it
+does not read. An answer is read back whole or not at all, and a bridge with a
+result that is not neutral is refused, since a neutral result is all the forecast
+is ever given.
+
+**Our team's places, off the cloud's board.** The Dashboard's "Our team" card
+shows where each team's club stands on Team Rankings (`leagueClubRanks.ts`), as
+the board on the page last stood. The device's own page writes those places
+whenever its board is up; the cloud's page now writes them too. The publisher
+says, beside each page's counts, which League Standings seasons the page claims,
+the club each of their teams is there, and the halves the season's games are in
+(`LivePages.league`), worked out as the page works them out (`deriveAllKnown`,
+which `boardParity.test.ts` holds it to on the seeded fixture). The cloud's page
+writes a season's places only off its own board once drawn, and only off a half
+the season plays its games in, as the device's page does; a season none of whose
+teams is a club there yet has the places the card was showing taken away, and a
+season the meta does not name keeps what it had.
+
+The season on screen is held in a small store outside React
+(`seasonStore.ts`), which the live store reads and changes in one step, so an
+arrival is merged into exactly what is there and nothing lands between the read
+and the write; the page renders from its own copy of it, set from the store's
+notice with the priority of the change, so a score box's keystroke still renders
+as a transition. Locked, the store refuses the page's edits and still takes
+another device's.
+
+### Team Rankings edits as commands
+
+An edit to the Team Rankings pool is written down as a command (`src/lib/live/commands.ts`)
+before it is made: what a person asked for, so that the same change can be made by this browser
+on its own store or, once the edit function is in, by the server on the cloud copy, with the same
+code and the same result. A command reads the pool through `PoolRead` and answers with the parts it
+would write and the command that takes it back. It never reads a clock or makes up an id: what a
+change needs that the pool does not hold travels in the command. Each command comes with its
+inverse, and a property test draws hundreds of edits on pools of every shape and checks that the
+inverse puts every part the command touched back as it was, to the stored byte.
+
+| Command                                                                                                                                                               | What it changes                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `answers`                                                                                                                                                             | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart.                                                                                                    |
+| `team.state`, `team.unlinkGc`                                                                                                                                         | A club's state; one GameChanger id taken off a club.                                                                                                                                                               |
+| `game.score`, `game.exclude`, `game.confirm`                                                                                                                          | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now.                                                                                                  |
+| `game.add`, `game.remove`                                                                                                                                             | Games added at the end of their year, with the new clubs they name (and only those); games taken out of their year.                                                                                                |
+| `page.myTeam`                                                                                                                                                         | A page's own team marked or unmarked.                                                                                                                                                                              |
+| `club.leavePage`                                                                                                                                                      | A club taken off one page: its games there, the page's mark if it was the page's own team, and the club itself only when no game in any year names it and no row is filed against it.                              |
+| `games.drop`, `club.drop`                                                                                                                                             | Games thrown out of whichever years hold them, the rows that scored them remembered so that a pull does not file them again; a club thrown out with every game it is in, its GameChanger ids refused from then on. |
+| `season.assign`                                                                                                                                                       | A League Standings season put on the page of its age, the page made under the id the command names if there is none, or taken off Team Rankings.                                                                   |
+| `club.age`, `club.ageClear`                                                                                                                                           | A pulled club filed at the age somebody says it plays at and held there whatever a later pull says; and that taken back, each of its ids to the level the app had it at.                                           |
+| `teams.merge`, `team.rename`                                                                                                                                          | One club folded into another, every page whose own team it was following it; a club renamed, refused onto a name another club goes by, since that is a merge and only the person asking can say which club stays.  |
+| `team.put`, `team.insert`, `team.remove`, `game.put`, `game.insert`, `group.put`, `group.insert`, `group.remove`, `namedAges`, `games.set`, `teams.set`, `groups.set` | A record put back as it was, in its place, or a part put back whole: what inverses, and work laid down from a copy, are made of.                                                                                   |
+| `ageless.forget`, `ageless.insert`                                                                                                                                    | Teams taken off the list of those nobody could age (1.5), and put back at their places, a team a pull has asked about since left as the pull left it.                                                              |
+| `refresh.cadence`                                                                                                                                                     | How much the nightly refresh pulls at once (1.5): every age group, or one or two levels a day.                                                                                                                     |
+| `orgs.merge`, `orgs.put`                                                                                                                                              | An Organizations file's organizations kept beside those kept (1.5), one named again replacing its own; and the organizations put back as they were.                                                                |
+| `batch`                                                                                                                                                               | Several commands as one, each reading what the last wrote.                                                                                                                                                         |
+
+On this browser a command runs through `runPoolCommand`, which writes only the parts it changed
+(vouching for a score writes that game's year, not every year as it once did) and the roster as it
+is stored, never with the teams League Standings makes on the fly, whose ids hold only for the
+walk that made them. A club League Standings made joins the roster only when it is given something
+to keep, and then alone; its name is set there, so its panel locks the name on every page, not only
+on the page its league games are on. Games added keep what they put right on the clubs they name
+that the roster holds, a name cleaned of an age label it was stored with and a state from the
+import's file where the club had none, and nothing else the walk worked out.
+
+The page shows a change once it is written, and a command is written whole or not at all
+(`writePoolTogether`): when the store refuses a part (full, or held by a newer tab), the parts
+written before it are put back and the change is said to be refused, so a club thrown out is never
+left gone from the roster with its games still naming it, nor a page made with none of its games
+moved onto it. On IndexedDB the store refuses a write only when the pool cannot be reached or a
+newer tab holds it, which refuses the first part as well as the rest; a write it accepted that then
+fails to land is told afterwards (`onPoolWriteError`), since by then the command has returned.
+
+Undo runs the change's own inverse, so it puts back exactly what was taken, where it stood, and
+leaves alone whatever was changed in between: a game removed and a score entered on another before
+the Undo both stand afterwards, where the old Undo wrote back the year as it was at Remove and lost
+the score. An Undo of an import takes its games out and the clubs it brought with them. Removing a
+game or a club can set off a tidy that prunes a stand-in nothing stands on any more, so the Undo
+then puts back, from the roster as it was at Remove, any club its games name that is gone.
+
+The clean-up commands (thrown-out clubs and games, a league season's page, a club's age, merges
+and renames) are the functions the page always used (`withoutClub`, `seasonAtAge`, `setClubAge`,
+`mergeScoutTeams`), with what to write and how to undo it read off a diff of each part, record by
+record by id (`settle` in `commands.ts`): the inverse puts back exactly the records that changed,
+so an edit made in between stands through an undo, and only a part whose kept records moved
+relative to each other is put back whole. Identity is what says a record changed, so a command
+reads each part once: the store decodes a year afresh on every read, and two copies of one year
+would make every game in it look changed, which an undo would then write back over whatever was
+entered since. Storage files a game under its page's year, so the pages are written around the
+games: a page a command makes before the games filed on it, and a page an undo takes away only
+after its games have left it. A command never mints an id: a page it may need comes named in it.
+
+An inverse puts clubs back first, then pages, then games, then takes away the pages and then the
+clubs the change had made, so that what it restores always has the club and the page it names, and
+an undo of an undo comes back in the same shape; a batch's undo is its steps' inverses run flat, in
+reverse. The commands never leave the pool naming nothing: a game filed on a page of another year
+than the command's, or an id two games hold, is refused; a club an undo takes off the roster stays
+while a page marks it as its own or a game names it, something made since it came having made it
+the pool's. Throwing a club out takes every page's mark off it, and takes out a club the roster no
+longer holds whose games are still there. A command that comes
+in from outside (`coerceCommand`, for the server) is taken only when it reads back as exactly what
+was sent, so a field the reader does not know is refused rather than dropped.
+
+Making these edits commands fixed four things on the way. Renaming a club wrote League Standings'
+teams into the roster; folding a page's own team into another club left the page's star on a club
+that no longer existed (renaming onto a taken name already moved it); the Undo of a club's age
+wrote back the whole year as it stood, losing any score entered since; and deleting a club or a
+lopsided game rewrote every year's games, not only the years they were in. And one in storage: a
+year whose save was refused no longer reads as empty until the next change to it, since the save
+pinned the year decoded with no games before writing, and a refusal left the pin standing.
+
+Work done on a copy of the pool (the tidy, in its worker, and a year archived or deleted) is laid
+onto the pool as it is when the work is done, record by record (`changeBetween`): what the work
+changed, as the commands that make that change, rather than its copy saved whole. The worker hands
+back decoded copies, every record a new object, so a record that is not the same object is compared
+by its values before it is called changed. On this page an edit already starts the tidy again on
+the pool as it now is; laying its result down record by record is what the server needs (1.4),
+where an edit from another device can land while a tidy works. A tidy whose result no longer fits
+the pool (a record it changed is gone) writes nothing, says nothing, and leaves its stamp unset so
+it comes round again. The waiting-on-age answers (an age named, a team thrown out, a pass cleared)
+and the clubs a pull finds invented go through the same commands; the waiting list itself is the
+pull's and stays as it was.
+
+On the server a command runs on the cloud copy itself (`runEdit` in `editRun.ts`), in a process that
+keeps every part of the pool a command reads warm (`createEditPool`: all but an archived season's
+rows and League Standings, which no command reads): brought to the copy as it stands, the command
+applied through the same `runPoolCommand` a browser uses, and the parts it wrote committed onto the
+version read as one save, named `live-edit`. Only that pool may be handed to an edit: a rebuild's
+keeps the boards' parts alone, and a command run on it would save the rest over the copy as empty. A save that lands in between moves
+the copy on; the written keys are then let go of one by one (`forget`), so the next read fetches
+those and whatever the other save changed rather than the whole pool, and the command runs again on
+the copy as it now is, up to three times. Its ids and times travel in it, so the second run makes
+the same change or is refused where the newer pool no longer allows it. A device may name the copy
+it edited, and an edit is refused on any other, as it is on a copy started again under the run. A
+commit that lands tells the pool its writes now stand in the copy (`committed`), so the next edit
+fetches none of them back. A command refused writes nothing, and the pool stays warm; a store that
+would not take a write, or a run that throws, leaves the pool to start afresh on its next read, which
+is slower and never wrong. A copy an older build saved with its games under one key is split into
+years as the pool opens, and the split goes with the edit's commit, the one key taken out, as a
+browser's next save carries the split it made; left behind, every opening would split the one key
+over the years again, over a year the edit had saved. A commit whose answer never came is found by
+its save id like one answered no (`commitChanges`): landed, the edit is made; not in the copy, it may
+still be on its way, so its pieces stay for a late landing to be whole and the edit answers
+`unsure`, the device told it may or may not be in the copy, and the pool fetches what it wrote again.
+Only a save that never went (a piece the store would not take) fails as not made. The tests show an
+edit on a warm pool fetches no piece but those another save moved.
+
+The edit function (`edit` in `functions/src/index.ts`) is that run behind a call: a member's
+device sends `{ command, copy }`, signed in, and the function checks the caller against the list
+as the GameChanger proxy does (`memberCheck.ts`), keeping the answer a minute rather than the
+proxy's ten, since it writes the copy past the rules. It reads the command back exactly
+(`coerceCommand`, which refuses a field it does not know at any level, and a command of more than
+500 steps) and refuses anything else before a worker starts. The edits run one at a time in a
+worker that keeps the pool from call to call (`editWorkerProtocol.ts`), one instance taking up to
+eight calls at once and queueing them. The instance has 4 GiB, half a rebuild's, since the edits
+build no boards (measured below); the worker's heap is held to 2.5 GB, and a worker past 2 GB of
+heap or 3 GB in all is started afresh between edits (`EDIT_RECYCLE_AT`). The edit is made whatever
+the rebuilds' switch says, since it is a member's change to the copy, and the call answers as soon
+as the save has landed, with the version saved, the inverse for an Undo, and what changed.
+
+No call is left for the platform's timeout to answer with its edit still to come. Each has 520 s
+from when it came (`EDIT_CALL_S`, inside the 540 s timeout): one whose caller has gone, or whose
+time is up, before its turn is never sent, and a run is cut short at the time its call has left or
+a minute, whichever is less (`EDIT_LIMIT_S`; eight calls each run to the minute fit). A call never
+sent, or one whose worker said it threw short of any save, is answered as an edit not made
+(`aborted`); a worker lost with an edit in its hands (died, cut short, out of memory), or a save
+whose answer never came, as one that may or may not be in the copy (`unsure`), which the copy then
+settles. A call's compute is its own turn in the worker, which is what fills the instance's billed
+time, with the instance's start-up the first time, and it is charged to the ledger's totals
+(`handleEdit`): the charges one at a time, so none is written over another; one the ledger is slow
+to take left to finish behind the answer after five seconds; and one lost to other writers said in
+the log line. It does not build the boards: every board of the real pool
+takes about half a minute, which the member would wait on and which would hold every edit queued
+behind it. The save asks for them itself: the trigger rebuilds after the edit function's saves
+soon after each, on the rebuilds' own instance, under their ledger and switch, and never sooner
+than a minute after the last run ended, so a run of edits shares its builds. `{ warm: true }` brings the pool up ahead of an edit,
+charged the same way. A device calls it through `callEdit` and `callWarm` (`editClient.ts`): the
+callable protocol over `fetch` with the member's sign-in, no Firebase functions SDK in the bundle,
+and nothing of the answer taken on trust, an inverse least of all, since it is what the device
+sends back for an Undo. An edit is said not made only where the server said so (a refusal, a caller
+turned away, or `aborted`). Any other failure (a 500, the platform's own answer to a call it timed
+out, a request lost, an answer cut off) says the edit may or may not have been made, which the copy
+then settles, since any of them can follow a save that landed. The page's content policy lets the app reach the project's functions
+host (`functionsUrl.ts`). It is built and deployed with the rebuilds (LIVE_REBUILD), runs as their
+account, and asks nothing more of the project. The live page's club panel is the first thing in
+the app to call it (1.5); the other sections follow.
+
+The function also answers questions about the copy (`{ query, copy }`, `queries.ts`), which the
+sections ask as they go live (1.5): what a section has to say before an edit, worked out on the copy
+rather than on a pool the device no longer needs to hold. The first two are what folding one club
+into another touches (`merge.preview`) and whether a new name is another club's, which a rename
+folds into instead (`rename.preview`), each answered from the warm pool by the code the page
+answers it with, the pool brought to the copy as for an edit and nothing written. A question is
+read back exactly, as a command is (`coerceQuery`); a request naming more than one of an edit, a
+question and a warm-up is refused; and its turn is charged as an edit's (`handleQuery`). It changes
+nothing, so a question the worker failed with, or never had, is only a question to ask again
+(`callQuery` reads any unclear answer as failed). A worker that answers a request with anything but
+what the request was due is ended as one that died would be. On the 29 September 2026 pool, in
+memory, a merge preview took 67 ms and a rename preview 139 ms.
+
+Pool health asks four more as Setup goes live: what it shows as it opens (`health.summary`, worked
+out by `poolHealthSummary`, which the device's own card uses too), what it shows once asked to look
+harder (`health.inspect`, as the tidy worker answers it, which the tests check it against), the file
+of every club worth pulling (`health.toPull`), and the suggested ages approved together, as the
+commands that file them (`ages.plan`, `planClubAges`). The look sends only the five clubs worth
+pulling the card draws, and how many there are: on the 29 September pool the 51,298 of them were
+7.5 of the 7.9 MB the answer came to, sent on every look for a card that draws five. Cut, it is
+377 KB, and the file comes to 2.8 MB when asked for. A larger answer is read through its shape
+(`shapes.ts`): the type said once as data, every field it names checked as the device reads it, and
+a field it does not name let through for a newer server to say. On that pool, in memory, the
+summary took 0.33 s (130 KB), the look 6.2 s and the file 0.5 s, and each answer read back whole.
+
+The card of teams waiting on an age asks four more: the card at a sitting (`ageless.queue`,
+`agelessSitting`), a search of the whole list (`ageless.search`), the file of every team waiting
+(`ageless.file`) and what a pass over the rules ticked would clear (`ageless.clearPlan`). Each
+team is sent as the entry storage keeps and read back as storage reads one (`oneAgeless`), every
+line of its row worked out on the device from it. The 29 September copy's list held 13,338 teams
+(5.9 MB), 10,509 of them waiting: the sitting took 0.19 s (5 KB), a search 59 ms (12 KB), the file
+0.11 s (2.9 MB, asked for only to download) and a plan 0.12 s.
+
+A reply goes as JSON writes it (`asJson`), an edit's and a question's alike. The callable sends
+its result through firebase-functions' own encoding, which throws on a number with no end and
+sends a field left undefined as null: a model check, whose uncapped run and last bucket have no
+end, was answered with an error every time, and Pool health's summary of a copy with a page that
+has no year was refused whole by the device, for the null its missing year became. Written as JSON
+and read back, a number with no end goes as null, which the readers take for one, and an undefined
+field is left out. The tests send replies through a copy of that encoding (`callableEncode.ts`), and
+the functions' smoke test runs the package's own, so a release that changes it is seen. An edit too
+big to take back as one, its inverse past the 500 steps a command may hold (Pool health's approval
+of a few hundred clubs, a club's age taking two steps or more to take back), is answered as made
+with nothing to take it back (`none`), and the device offers no Undo for it.
+
+A question is held to what a device sends, so none holds the one worker past its time or ends it:
+a time is an instant as a clock writes one, between 2000 and 2199 (the year -271821 passed the old
+check and threw in a refresh's day arithmetic, ending the worker and the pool it kept warm); a name
+or a search is at most 200 characters; and a list is no longer than a page hands one (the ten
+waiting teams pinned, the rules on the card, two clubs adopted, the 500 clubs one edit can file).
+Approving more suggested ages than that sends them as several edits, each planned on the pool the
+last one left, so two clubs bound for one new page still make it once; only an approval sent as one
+edit offers an Undo. A League Standings part that cannot be had refuses the question that needs it
+for the reason it could not: a store that would not answer is `store-refused` rather than an error
+that ended the worker, and a piece missing while the copy still names the part at that hash is
+`damaged`, where it was once read as a copy that kept moving, which it would have been said to be
+for ever.
+
+A question that refits a year (a what-if, a model check) spends what a rebuild's fit does and
+changes nothing a member is owed, so it is refused once the day's or the month's compute is spent
+(`capsSpent`, read from the ledger before the question reaches the pool), and the device says it
+waits until tomorrow, or next month. The rest are reads, mostly asked on the way to an edit, and an
+edit is never refused for the caps. A ledger that cannot be read within five seconds holds nothing
+back, the bill's hard stop being the backstop, and the log line says so. On the 29 September copy a
+model check took the worker's heap to 1.66 GB, the most of any call measured and two thirds of its
+2.5 GB cap, and the process to 2.2 GB of the instance's 4 GiB; a pool half as big again would need
+the cap raised, and a worker that runs out ends that question unanswered and is started afresh, as
+one that fails is. Each of these guards was broken in turn and seen to fail a test, 45 of 45, three
+of them (the League part's missing piece) only once tests were written for them.
+
+Measured with `npm run live:bench` on the 29 September 2026 pool (255,579 games, 116,485 clubs),
+in memory, so Firestore's round trips and uploads come on top. The pool came up cold in 1.4 s. An
+edit took from 2 ms (a Pool health answer) through 1.1 s (a club's state), 2.8 s (games thrown out),
+3.0 s (a game kept out of the maths) and 3.1 s (a score) to 4.1 s (a club's age), 4.3 s (a club
+thrown out) and 4.5 s (a merge), apply and commit together, and its Undo about as long. After an edit
+that changed what the boards read, the rebuild's own pool fetched the parts it changed in 0.6 to
+2.2 s (a year of games is 18 pieces), and building and publishing every board took 30 to 34 s. The
+bench is run on a backup (`npm run live:bench -- <backup.json>`) or the seeded pool (`-- --fixture
+<clubs a page>`); it keeps the copy it makes in a file (`--save <copy.json>`) and runs again from
+that (`-- --copy <copy.json>`), and only such a run reports the most the process held, since one
+that read a backup holds what reading it took. From the copy, the process held at most 1.1 GB
+bringing the pool up and making and undoing the edits, which is what sets the edit function's 4 GiB.
+The first build of every board took it to 2.6 GB, and builds after it to 3.8 GB (2.3 GB with the heap
+held to 2.5 GB, the builds taking as long), so the rebuild keeps its 8 GiB, with room for the pool
+to double over a season.
+
+Two kinds of write are not commands. The browser's own pull engine saves as it goes and is removed
+for members in the cleanup (1.7), pulls having moved to the server; and resetting the app or
+restoring a backup replace League Standings and the settings as well as the pool. Those become
+owner's operations on the server copy at the cutover (1.6), as archiving and deleting a year
+already have.
+
+**A year archived or deleted by the owner** (1.6). Setup's Archive card on the live page lists
+the years as the server counts them (`year.list`, the device card's own `summariseYears` over the
+server's store), and asks the server first what an archive or a delete would keep and take
+(`year.archivePreview`, `year.deletePreview`), in the device card's own words
+(`yearSummary.ts`, which the device's page now asks in too: a test holds both confirmations and
+the message after to the letter). Then it sends `year.archive` or `year.delete`, two commands of
+their own that only the server runs (`yearOps.ts`), since an archive is made from the year as its
+boards show it, League Standings' games in it (`deriveAllKnown` with the seasons the boards are
+built with), and writes the archived tables, which no pool command touches; the pool's own
+`applyCommand` refuses them. They are never in a batch, and never taken back. The server runs the
+device's very functions (`archiveSquadYear`, `deleteSquadYear`) on its warm pool: the tables into
+the archive, then the pool written part by part where it changed (`poolWritesBetween`, by the
+records' identity), then the tidy stamp where the pool was tidy, all committed as one save, so a
+year is never half archived in the copy. The device lays an archive down record by record
+(`changeBetween`), but a year's archive throws out thousands of clubs, and each, as a step of its
+own, would scan every game and keep a roster of its own until the batch ended. Only the copy's
+owner may send either: the member check reads the caller's entry on the list (`memberCheck.ts`),
+and an entry whose `role` says `owner` in so many words is the owner's, anything else a member's;
+a member's year archive or delete is refused before the worker has it, with "Only the cloud copy's
+owner can archive or delete a year". `yearOps.test.ts` holds the server's archive and delete to
+the device's functions on the seeded pool, League Standings' games included, and `editRun.test.ts`
+the one save each makes; the functions' smoke run holds a member's delete refused.
+
+**Team Rankings started again, and an earlier version brought back, by the owner** (1.6). Two more
+of the owner's commands, made on the copy's own manifest rather than on a pool (`copyOps.ts`), and
+committed as the edit run commits any other, again on a newer version when a save lands between.
+`copy.reset` takes every Team Rankings part out of the copy and keeps them all as one earlier
+version, League Standings left as it is: a start of Team Rankings is no reason to lose a season's
+scores. It keeps the lot whole (`commitChanges`' `keepWhole`), a value some earlier settlement
+already keeps included, since otherwise that value would be left out of the version and bringing it
+back would not bring back all the start took; and it marks the version as Team Rankings whole
+(`KeptPart.whole`), so bringing it back takes out anything Team Rankings has gained since, kept
+whole in turn, rather than leaving it beside what comes back. Its inverse is bringing that version
+back, so the live page's Undo is exact while nothing else has moved, and the Cloud panel's Bring back does it
+while it is one of the six versions kept (`KEEP_GROUPS`, 30 days at most): the nightly keeps what
+it replaces too, so a week of refreshes that change anything pushes it out, as the confirmation
+says. `copy.restore` is the
+device's Bring back made by the server: the version made current, what it replaces kept in turn.
+A version holding League Standings is not brought back once its seasons have documents of their
+own (`league-kept-live`), since neither the boards nor any device read the copy's part then. Setup
+on the live page has the start (`LiveStartAgainCard`), which asks the server what the cloud holds
+when pressed (`year.list`) and confirms with those counts; nothing on the device is deleted, as the
+device's own Start from scratch does. The Cloud panel's Bring back asks the server
+(`serverRestore.ts`), then takes the copy as it takes any other save, so a device never writes the
+copy to bring a version back. Both are the owner's alone, refused to a member with "Only the cloud
+copy's owner can …", as the functions' smoke run holds for all four of the owner's commands.
+`editRun.test.ts` holds the start, its Undo, a version a device kept brought back, the boards
+emptied and published again, and a save landing between.
+
+**Team Rankings restored from a backup by the owner** (1.6). A backup of Team Rankings is
+tens of megabytes (70 MB of JSON on the 29 September backup), far past what a call may carry, so
+the owner's browser stages it where only the owner may write (`uploads.ts`): its record at
+`uploads/{id}`, written first, then the file's JSON gzipped into pieces of at most 900 KB at
+`uploads/{id}/chunks/{id}-{n}`, as the copy stores a part; the 29 September backup stages as 25
+pieces, 22.5 MB gzipped, packed in 6 s on a desktop, which the rules' limit of 200 pieces leaves
+far behind. What is staged is the Team Rankings
+JSON the browser would have written for the file (`teamRankingsJsonParts`), whichever backup it
+was handed, so the server reads one format, with the very function a device reads it with; it is
+staged as that text, in the parts it was written in, rather than turned into JSON a second time,
+which would escape every quote in it at a peak a phone may not have. Then `backup.restore` names
+the upload, and the server reads it back piece by piece, checks it against the record's
+fingerprint, reads it (`readTeamRankingsFile`, `parseTeamRankingsJson`'s reading of the parsed
+file) and writes it onto its pool as a device restoring the file writes its own
+(`writeTeamRankingsBackup`, the archived tables with it where the file carries them;
+`backupRestore.ts`). The edit run commits what that wrote as one save and deletes the upload. It
+keeps Team Rankings as it stood, every part of it, marked as the area whole (`KeptPart.whole`), so
+bringing that version back from the Cloud panel undoes the restore exactly: what the restore
+replaced comes back, and a year, an archive or anything else it added goes, kept whole in its turn.
+A file the copy already holds keeps nothing and saves nothing, so sending one again never pushes
+out a version that differs. An upload not whole is `missing`, and one that is not what was
+fingerprinted, not JSON, or not a Team Rankings backup, `refused`; neither saves anything, and the
+upload is left, as is one whose restore never came: the nightly deletes any a day old by
+Firestore's own clock (`sweepStaleUploads`), and says how many in its log. It is never taken back
+by an Undo; the Cloud panel brings back what it replaced, for as long as that version is kept (six
+versions at most, for 30 days at most, and each nightly refresh that changes anything keeps one).
+The rules let the owner create a record and then its pieces, read them and delete them, each of
+the shapes the server reads and never changed once written, and nobody else anything
+(`firestoreRules.test.ts`); the server reads them as a service account the rules do not apply to,
+and lists an upload's pieces by name alone to delete them. `editRun.test.ts` holds the restore to a
+device's own restore of the same file, and the functions' smoke run holds a member's restore
+refused.
 
 ## AI write-ups
 
@@ -3979,6 +5464,33 @@ the deterministic story is shown. To exercise the AI path locally, run
   type, is dropped rather than drawn. On the 114,500-team pool of 29 September
   2026 the rows came up at 3.9 s rather than 7.8 s, and the fresh board landed
   when it always had.
+- A member who turns on the cloud's board ("The live board on a member's
+  device") sees its rows before the pool is read. On the 29 September 2026
+  backup (116,485 teams), 12U 2027, the medians of five runs, each in a fresh
+  browser, were:
+
+  |                                                       | 4× CPU, phone screen | 1× CPU, desktop |
+  | ----------------------------------------------------- | -------------------- | --------------- |
+  | Live off: the saved board                             | 18.8 s               | 3.77 s          |
+  | Live, board read from the network (150 ms round trip) | 7.3 s                | 2.14 s          |
+  | Live, board kept on the device                        | 6.6 s                | 1.91 s          |
+  | Team Rankings' own fit lands, Live off / on           | 28.0 / 28.7 s        | 7.9 / 9.5 s     |
+  - **The run.** The build is served by `vite preview`. The boards were
+    published from the backup by the nightly's own code into files a
+    scratch-only version of the reader served after the round trip, standing
+    in for a signed-in member. Firestore and the sign-in were not in the run;
+    the startup wait for the cloud copy is on both sides and was left out.
+  - **The board.** 12U 2027's board is 3.39 MB of JSON, 646 KB gzipped, one
+    piece. All 33 boards are 3.4 MB gzipped with a 7 KB meta, built in 11.5 s.
+  - **What the board still waits for.** Of the phone's 6.6 s, 5.4 s is the
+    main thread reading the pool from IndexedDB before the app mounts, which
+    the board does not need.
+  - **What comes after.** Team Rankings mounts once the board hands over, and
+    its first render is one long task of up to 10.6 s on the phone (2.2 s on
+    the desktop), against 5.2 s (1.1 s) after the saved board, whose wait
+    comes before its rows instead. Its own fit lands about as late as without
+    Live, once the board has handed over to it.
+
 - Every page of a squad year is fitted over the same games, so the rankings
   worker fits a year once and cuts each page from that fit, keyed on the pool,
   its pages, the half, the day and the age groups (not on which team is yours).

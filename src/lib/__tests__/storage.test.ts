@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  loadSettingsForSeason,
+  readSeasonSnapshot,
+  addSeasons,
+  adoptSeasonCreatedAt,
   createSeason,
   deleteSeason,
   duplicateSeason,
@@ -272,6 +276,36 @@ describe("multi-season storage", () => {
     expect(getActiveSeasonId()).toBe(first.id);
     expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
     expect(loadMatchups()).toEqual([]);
+  });
+
+  it("adds seasons from elsewhere under their own ids, leaving those it holds as they are", () => {
+    backing.set("league_teams_v1", JSON.stringify([{ id: "A", name: "Aces" }]));
+    const first = listSeasons()[0]!;
+    const arrived = {
+      id: "Fall 2026",
+      name: "Fall 2026",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      teams: [{ id: "B", name: "Bears" }],
+      matchups: [],
+      logs: {},
+      bracketLogs: {},
+      settings: loadSettingsForSeason(first.id),
+    };
+    expect(addSeasons([arrived, { ...arrived, id: first.id, teams: [] }])).toBe(true);
+    expect(listSeasons().map((season) => season.id)).toEqual([first.id, "Fall 2026"]);
+    expect(readSeasonSnapshot("Fall 2026")).toMatchObject({ teams: [{ id: "B", name: "Bears" }] });
+    expect(readSeasonSnapshot(first.id)?.teams).toEqual([{ id: "A", name: "Aces" }]);
+    expect(getActiveSeasonId()).toBe(first.id);
+    expect(readSeasonSnapshot("nowhere")).toBeNull();
+  });
+
+  it("gives a season the creation time of the season it has become, and no other", () => {
+    const first = listSeasons()[0]!;
+    expect(adoptSeasonCreatedAt(first.id, "2026-08-01T00:00:00.000Z")).toBe(true);
+    expect(listSeasons()[0]).toMatchObject({ id: first.id, createdAt: "2026-08-01T00:00:00.000Z" });
+    expect(adoptSeasonCreatedAt(first.id, "2026-08-01T00:00:00.000Z")).toBe(false);
+    expect(adoptSeasonCreatedAt("nowhere", "2026-08-01T00:00:00.000Z")).toBe(false);
+    expect(listSeasons()).toHaveLength(1);
   });
 });
 

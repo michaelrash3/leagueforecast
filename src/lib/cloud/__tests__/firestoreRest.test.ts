@@ -305,12 +305,12 @@ describe("a pull's job through Firestore's REST API", () => {
     });
     // As the device leaves it: the list's pieces, then the job.
     packed.pieces.forEach((piece, index) =>
-      firestore.docs.set(`copies/main/jobs/${JOB}/pieces/${index}`, {
+      firestore.docs.set(`pullJobs/${JOB}/pieces/${index}`, {
         fields: firestoreFieldsOf({ data: piece }),
         updateTime: "t0",
       })
     );
-    firestore.docs.set(`copies/main/jobs/${JOB}`, {
+    firestore.docs.set(`pullJobs/${JOB}`, {
       fields: firestoreFieldsOf(job),
       updateTime: "t0",
     });
@@ -326,7 +326,7 @@ describe("a pull's job through Firestore's REST API", () => {
     expect(await jobs.piece(JOB, 0)).toEqual(packed.pieces[0]);
     expect(await jobs.piece(JOB, packed.pieces.length)).toBeNull();
     // A piece that holds anything but bytes is no piece.
-    firestore.docs.set(`copies/main/jobs/${JOB}/pieces/9`, {
+    firestore.docs.set(`pullJobs/${JOB}/pieces/9`, {
       fields: firestoreFieldsOf({ data: "not bytes" }),
       updateTime: "t0",
     });
@@ -389,8 +389,46 @@ describe("a document written only if nobody has since, through Firestore's REST 
     expect(await docs.read("ops/rebuild")).toEqual({ on: false });
   });
 
+  it("lists a collection's documents by id, their fields as plain values, a page at a time", async () => {
+    const firestore = fakeFirestore();
+    const fields = (rev: number) => ({ schema: 1, rev, teams: { A: { id: "A", name: "Aces" } } });
+    for (let at = 0; at < 205; at += 1) {
+      firestore.docs.set(`league/s${String(at).padStart(3, "0")}`, {
+        fields: firestoreFieldsOf(fields(at)),
+        updateTime: "t0",
+      });
+    }
+    // A season whose id is not one Firestore takes as it is (`encodeKey`).
+    firestore.docs.set("league/~U2Vhc29uIDE", {
+      fields: firestoreFieldsOf(fields(9)),
+      updateTime: "t0",
+    });
+    // Another collection's, and a document under one of the seasons, are not the collection's.
+    firestore.docs.set("ops/rebuild", {
+      fields: firestoreFieldsOf({ on: true }),
+      updateTime: "t0",
+    });
+    firestore.docs.set("league/s000/kept/1", { fields: firestoreFieldsOf({}), updateTime: "t0" });
+    const listed = await docsOn(firestore).list("league");
+    expect(listed).toHaveLength(206);
+    expect(listed[0]).toEqual({ id: "s000", fields: fields(0) });
+    expect(listed[204]).toEqual({ id: "s204", fields: fields(204) });
+    expect(listed[205]).toEqual({ id: "~U2Vhc29uIDE", fields: fields(9) });
+    const pages = firestore.fetchImpl.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.pathname.endsWith("/documents/league"));
+    expect(pages.map((url) => url.searchParams.get("pageToken"))).toEqual([null, "100", "200"]);
+    // An empty collection lists as none.
+    expect(await docsOn(fakeFirestore()).list("league")).toEqual([]);
+  });
+
   it("throws a refusal that is not another writer's save", async () => {
     const firestore = fakeFirestore();
+    firestore.fetchImpl.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ error: { status: "PERMISSION_DENIED" } }), { status: 403 })
+    );
+    await expect(docsOn(firestore).list("league")).rejects.toThrow(FirestoreError);
     firestore.fetchImpl.mockImplementationOnce(
       async () =>
         new Response(JSON.stringify({ error: { status: "PERMISSION_DENIED" } }), { status: 403 })
@@ -437,6 +475,7 @@ describe("a document written only if nobody has since, through Firestore's REST 
         "dayRuns",
         "failures",
         "lastDay",
+        "lastEndedAt",
         "mode",
         "month",
         "monthFailed",
@@ -467,6 +506,7 @@ describe("a document written only if nobody has since, through Firestore's REST 
       monthFailed: 2,
       failures: 1,
       pausedDay: "2027-04-14",
+      lastEndedAt: "2027-04-15T13:58:30.000Z",
     };
     const at = await store.read();
     expect(await store.replace(at.token, set)).toBe(true);

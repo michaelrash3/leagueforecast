@@ -9,6 +9,7 @@ import {
 } from "../lib/teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
 import { saveBoard, savedBoardFor } from "../lib/savedBoard";
+import { liveBoardFor } from "../lib/live/liveBoard";
 import { whatIfCurve, type WhatIfCurve } from "../lib/scoutWhatIf";
 import {
   checkTheModel,
@@ -19,7 +20,7 @@ import {
   type ScoutBacktestResult,
 } from "../lib/scoutBacktest";
 import type { PoolShipment, WorkerRequest, WorkerResponse } from "../workers/rankingsProtocol";
-import { daysBefore, RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
+import { daysBefore, rankLineStep, ranksAsOf } from "../lib/rankMovement";
 import { todayIsoDay } from "../lib/date";
 import { createWorker } from "./createWorker";
 
@@ -31,6 +32,12 @@ type RankingsInput = {
   ageGroups: AgeGroup[];
   /** One half of the baseball year, or the whole of it when absent. */
   segment?: SeasonSegment;
+  /**
+   * Whether the cloud's board the live page held (`liveBoard.ts`) may stand in before the first
+   * fit: only on a page the live page handed over to, never on one opened the old way, which a
+   * board held from an earlier visit must not stand in for.
+   */
+  liveStandIn?: boolean;
 };
 
 /**
@@ -124,6 +131,11 @@ export function useRankingsWorker(input: RankingsInput): {
    * a time once last week is known; null until then, and for a page with no club marked.
    */
   history: RankHistoryPoint[] | null;
+  /**
+   * Whose rows are on screen before this page's first fit: the board the live page drew, the board
+   * this device last fitted, or neither.
+   */
+  standIn: "live" | "saved" | null;
 } {
   const [rows, setRows] = useState<ScoutRankingRow[]>(NO_ROWS);
   const [settledSnapshot, setSettledSnapshot] = useState<RankingsInput | null>(null);
@@ -590,15 +602,16 @@ export function useRankingsWorker(input: RankingsInput): {
     const done = historyHere?.points ?? [];
     const weeksBack = done.length + 2;
     const asOf = daysBefore(todayIsoDay(), 7 * weeksBack);
-    const newer = done[0]?.rank ?? lastWeek.ranks[historyTeam] ?? null;
     const answer = (ranks: Record<string, number>, empty: boolean) => {
-      const rank = ranks[historyTeam] ?? null;
-      setHistoryResult({
-        snapshot,
-        teamId: historyTeam,
-        points: empty ? done : [{ asOf, rank }, ...done],
-        done: empty || weeksBack >= RANK_HISTORY_WEEKS || (rank === null && newer === null),
+      const step = rankLineStep({
+        points: done,
+        lastWeekRank: lastWeek.ranks[historyTeam] ?? null,
+        weeksBack,
+        asOf,
+        rank: ranks[historyTeam] ?? null,
+        empty,
       });
+      setHistoryResult({ snapshot, teamId: historyTeam, ...step });
     };
     const runInline = () => {
       const ranks = ranksAsOf(
@@ -768,21 +781,38 @@ export function useRankingsWorker(input: RankingsInput): {
       checkModel,
       lastWeek: null,
       history: null,
+      standIn: null,
     };
   if (inlineRows)
-    return { rows: inlineRows, stale: false, whatIf, askWhatIf, checkModel, lastWeek, history };
+    return {
+      rows: inlineRows,
+      stale: false,
+      whatIf,
+      askWhatIf,
+      checkModel,
+      lastWeek,
+      history,
+      standIn: null,
+    };
+  /*
+   * Before this page's first fit has landed, a board fitted elsewhere, when it is the page on
+   * screen's, marked stale as rows are while any refit runs, rather than an empty page for
+   * seconds: the published board the live page drew (`liveBoard.ts`), the copy's as the server
+   * built it, or else the board this device last fitted (`savedBoard.ts`), last visit's.
+   */
+  const live =
+    settledSnapshot === null && input.liveStandIn
+      ? liveBoardFor({ ...snapshot, roster: snapshot.teams })
+      : null;
+  const saved = settledSnapshot === null && !live ? savedBoardFor(snapshot) : null;
   return {
-    /*
-     * Before this page's first fit has landed, the board kept from the last one fitted
-     * (`savedBoard.ts`), when it was fitted for the page on screen: last visit's rows at once,
-     * marked stale as they are while any refit runs, rather than an empty page for seconds.
-     */
-    rows: (settledSnapshot === null ? savedBoardFor(snapshot) : null) ?? rows,
+    rows: live ?? saved ?? rows,
     stale: settledSnapshot !== snapshot,
     whatIf,
     askWhatIf,
     checkModel,
     lastWeek,
     history,
+    standIn: live ? "live" : saved ? "saved" : null,
   };
 }

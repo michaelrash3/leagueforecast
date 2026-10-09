@@ -73,6 +73,12 @@ export type KeptPart = ManifestPart & {
   keptAt: string;
   /** `replaced`: the cloud's value, overwritten by a later one. `lost`: a device's, not taken. */
   why: "replaced" | "lost";
+  /**
+   * Kept with every other value of its area (`areaOf`), as the area stood before the settlement
+   * (`keepWhole`): brought back, the area is made what it was, and a key it has gained since goes.
+   * Absent on every part kept before there were such versions, which brings back as it always did.
+   */
+  whole?: true;
 };
 
 export type CloudManifest = {
@@ -143,10 +149,16 @@ const coercePart = (raw: unknown): ManifestPart | null => {
 const coerceKept = (raw: unknown): KeptPart | null => {
   const part = coercePart(raw);
   if (!part || !isRecord(raw)) return null;
-  const { group, keptAt, why } = raw;
+  const { group, keptAt, why, whole } = raw;
   if (typeof group !== "string" || !group) return null;
   if (why !== "replaced" && why !== "lost") return null;
-  return { ...part, group, keptAt: typeof keptAt === "string" ? keptAt : "", why };
+  return {
+    ...part,
+    group,
+    keptAt: typeof keptAt === "string" ? keptAt : "",
+    why,
+    ...(whole === true ? { whole } : {}),
+  };
 };
 
 /**

@@ -2,7 +2,7 @@ import { hashJson } from "../cloud/cloudPack";
 import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { isBoardInputKey } from "../teamRankingsStorage";
-import { BOARD_RULES } from "./views/board";
+import { BOARD_RULES } from "./views/boardShape";
 import { LIVE_SCHEMA, type BuiltFrom, type LiveMeta } from "./viewStore";
 
 /**
@@ -23,27 +23,46 @@ export const isBoardInput = (key: string): boolean => key === LEAGUE_PART || isB
  * was. A value saved again in another order of fields changes it, which costs a rebuild that was
  * not needed and never misses one.
  */
-export const boardInputsPrint = async (manifest: CloudManifest): Promise<string> => {
-  const pairs = manifest.parts
-    .filter((part) => isBoardInput(part.key))
-    .map((part) => [part.key, part.hash] as const)
+export const boardInputsPrint = (manifest: CloudManifest): Promise<string> =>
+  boardInputsPrintOf(manifest.parts.map((part) => [part.key, part.hash] as const));
+
+/**
+ * `boardInputsPrint` of a copy's parts given as key and hash pairs, in any order: what a device
+ * that kept only those (`copySeen`) holds a published board's `built.inputs` to.
+ */
+export const boardInputsPrintOf = async (
+  parts: ReadonlyArray<readonly [key: string, hash: string]>
+): Promise<string> => {
+  const pairs = parts
+    .filter(([key]) => isBoardInput(key))
+    .map(([key, hash]) => [key, hash] as const)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return (await hashJson(pairs)).hash;
 };
 
-/** What boards built from `manifest` for the members' day `today`, under these rules, came from. */
-export const builtFrom = async (manifest: CloudManifest, today: string): Promise<BuiltFrom> => ({
+/**
+ * What boards built from `manifest` for the members' day `today`, under these rules, came from:
+ * with `league`, the fingerprint of the League Standings seasons when they were read from their
+ * own documents (`leaguePrintOf`), and none when they were the copy's part, which `inputs` covers.
+ */
+export const builtFrom = async (
+  manifest: CloudManifest,
+  today: string,
+  league = ""
+): Promise<BuiltFrom> => ({
   k: manifest.copy,
   v: manifest.version,
   inputs: await boardInputsPrint(manifest),
+  ...(league === "" ? {} : { league }),
   today,
   rules: BOARD_RULES,
 });
 
 /**
- * Where the published boards stand against the copy `manifest` for the day `today`:
- * - `current`: built from this very version of the copy, for this day, under these rules, in this
- *   build's shape, so building them again would publish nothing new.
+ * Where the published boards stand against the copy `manifest` and the League Standings seasons
+ * `league` names (`builtFrom`) for the day `today`:
+ * - `current`: built from this very version of the copy and these seasons, for this day, under
+ *   these rules, in this build's shape, so building them again would publish nothing new.
  * - `newer-schema`: published by a newer build, whose meta this one must leave alone.
  * - `older-rules`: built by newer rules than this build's, which must leave them alone.
  * - `older-day`: built for a later day than `today`, so this build's day has passed.
@@ -57,7 +76,8 @@ export const builtFrom = async (manifest: CloudManifest, today: string): Promise
 export const boardsState = async (
   meta: LiveMeta | null,
   manifest: CloudManifest,
-  today: string
+  today: string,
+  league = ""
 ): Promise<"current" | "stale" | "newer-schema" | "older-rules" | "older-day"> => {
   if (meta && meta.schema > LIVE_SCHEMA) return "newer-schema";
   const built = meta?.built[BOARD_FAMILY];
@@ -70,6 +90,7 @@ export const boardsState = async (
     built.v === manifest.version &&
     built.today === today &&
     built.rules === BOARD_RULES &&
+    (built.league ?? "") === league &&
     built.inputs === (await boardInputsPrint(manifest));
   return current ? "current" : "stale";
 };

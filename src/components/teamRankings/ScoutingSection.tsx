@@ -66,6 +66,11 @@ type ScoutingSectionProps = {
   onDropOpponent: (teamId: string) => void;
   /** The games still to be played on this team's schedule, soonest first. */
   upcomingRows: UpcomingMatchup[];
+  /**
+   * Said in their place when they cannot be had at all, rather than that there are none: on the
+   * cloud's board, a club the cloud publishes no card for (`LiveScouting`).
+   */
+  upcomingUnread?: string;
   explanation: LeagueSummaryState;
   /** "Prosper, TX" for a pulled club; nothing for a stand-in. */
   placeOf: (teamId: string) => string | undefined;
@@ -135,6 +140,7 @@ export function ScoutingSection({
   onPickOpponent,
   onDropOpponent,
   upcomingRows,
+  upcomingUnread,
   explanation,
   placeOf,
   coachesFor,
@@ -263,7 +269,9 @@ export function ScoutingSection({
       <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Next up — games still to play
       </h3>
-      {upcomingRows.length === 0 ? (
+      {upcomingUnread ? (
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{upcomingUnread}</p>
+      ) : upcomingRows.length === 0 ? (
         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
           No unplayed games on this team&apos;s schedule. A GameChanger pull brings future fixtures
           in with no score, so they appear here as soon as the schedule has them.

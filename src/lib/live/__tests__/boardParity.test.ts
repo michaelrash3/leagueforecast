@@ -8,8 +8,16 @@ import {
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
+  type SeasonSegment,
 } from "../../teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../../teamRankingsCompact";
+import { filterRankingsByState, statesInUse, UNKNOWN_STATE } from "../../teamRankings/names";
+import {
+  clubsOfBoard,
+  defaultStateOf,
+  placesOf,
+  unknownStateCountOf,
+} from "../../teamRankings/boardDisplay";
 import {
   initTeamRankingsStore,
   loadAgeGroups,
@@ -27,13 +35,24 @@ import {
   type WorkerResponse,
 } from "../../../workers/rankingsProtocol";
 import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../allKnown";
+import { daysBefore, movementOf, ranksAsOf } from "../../rankMovement";
 import {
   BOARD_HALVES,
   BOARD_RULES,
+  boardViews,
   buildAllBoards,
+  buildBoardsAndFacts,
+  coerceBoardView,
+  lastWeekOf,
+  livePagesOf,
   ratingPools,
+  withMine,
+  type BoardRow,
+  type BoardsBuilt,
   type PageBoard,
+  type PageFacts,
 } from "../views/board";
+import { coerceLivePages } from "../views/boardShape";
 
 /**
  * The boards a server builds are the boards a browser draws, to the last digit.
@@ -229,7 +248,14 @@ const byYear =
       (game) => ageGroupYear(groups.find((group) => group.id === game.ageGroupId)) === year
     );
 
-describe("the boards a server builds", () => {
+/*
+ * Each test here builds every board of the fixture, most of them with last week's places and the
+ * rank lines, which are a fit of a year for each week: 1 to 4 s apiece under coverage on their
+ * own (measured), and the gate runs them beside three hundred other files.
+ */
+const BUILDS_EVERY_BOARD = { timeout: 20_000 };
+
+describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
   it("are the worker's, every page and half, to the last digit", () => {
     const built = expectParity(stored());
     // The fixture reaches what it is there to reach: real boards on every ranked page, none on
@@ -312,6 +338,363 @@ describe("the boards a server builds", () => {
     expect(JSON.parse(JSON.stringify(built))).toStrictEqual(built);
   });
 
+  it("publish rows a device stars into the worker's own, saying of each club what the page says", () => {
+    /*
+     * A member's device reads a board as published, after the trip through JSON and the store, and
+     * puts its own star on it (`withMine`): that must be the very board its worker would have
+     * drawn. Each row's facts are what the page says of the club: its town and state off the
+     * year's roster as the page looks a row's club up, and its League badge off the page's
+     * derived games, both written out here as the page writes them, not through the helpers.
+     */
+    const source = stored();
+    const expected = workerBoards(source, false);
+    const built = buildBoardsAndFacts({ ...source, today: FIXTURE_TODAY });
+    const views = boardViews(ageGroups, built);
+    expect(views).toHaveLength(expected.size);
+    const told = { city: 0, state: 0, league: 0, unplaced: 0 };
+    for (const { key, value } of views) {
+      const parts = key.split(":");
+      const half = parts.pop()!;
+      const pageId = parts.slice(2).join(":");
+      const page = ageGroups.find((group) => group.id === pageId)!;
+      const year = ageGroupYear(page);
+      expect(key).toBe(`board:${year ?? "none"}:${pageId}:${half}`);
+      const read = coerceBoardView(JSON.parse(JSON.stringify(value)));
+      if (!read) throw new Error(`${key} is not a board as published`);
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: source.teams,
+        yearGames: source.gamesOfYear(year),
+        readSeason,
+      });
+      const byId = new Map(known.teams.map((team) => [team.id, team]));
+      const leagueIds = new Set(
+        known.derivedGames
+          .filter((game) => game.ageGroupId === pageId)
+          .flatMap((game) => [game.teamAId, game.teamBId])
+      );
+      read.rows.forEach((row) => {
+        const team = byId.get(row.teamId);
+        expect(row.city, `${key} ${row.teamId} town`).toBe(team?.city || undefined);
+        expect(row.state, `${key} ${row.teamId} state`).toBe(team?.state || undefined);
+        expect(row.league, `${key} ${row.teamId} league`).toBe(
+          leagueIds.has(row.teamId) ? true : undefined
+        );
+        if (row.city) told.city += 1;
+        if (row.state) told.state += 1;
+        else told.unplaced += 1;
+        if (row.league) told.league += 1;
+      });
+      const bare = read.rows.map(
+        ({ city: _city, state: _state, league: _league, was: _was, ...row }): BoardRow => row
+      );
+      const legacy = new Set(known.teams.filter((team) => team.isMine).map((team) => team.id));
+      expect(withMine(bare, page.myTeamId, legacy), key).toStrictEqual(
+        expected.get(`${pageId}:${half}`)
+      );
+    }
+    // The fixture reaches every fact: towns, states, clubs with none, and League badges.
+    expect(
+      Object.values(told).every((count) => count > 0),
+      JSON.stringify(told)
+    ).toBe(true);
+  });
+
+  /**
+   * The page's arrows read every club's place a week ago from its worker (`movement`), and its
+   * rank line walks a week further back at a time for its own club (`useRankingsWorker`). Here the
+   * worker is asked exactly that, for every page and half of the boards built over `groups`, and
+   * each published board must say the same: each row's `was`, whether last week's board was empty,
+   * and the walk's points. What it saw is counted, so a test can say the fixture reached a case.
+   */
+  const expectPastAndLines = (groups: AgeGroup[]) => {
+    const source = { ...stored(), ageGroups: groups };
+    const built = buildBoardsAndFacts({ ...source, today: FIXTURE_TODAY });
+    const views = new Map(boardViews(groups, built).map(({ key, value }) => [key, value]));
+    const lastWeekDay = daysBefore(FIXTURE_TODAY);
+    const seen = { was: 0, fresh: 0, moved: 0, lines: 0, points: 0, pastAbsence: 0 };
+    for (const page of [...new Set(groups.map((group) => group.id))].map((pageId) =>
+      groups.find((group) => group.id === pageId)!
+    )) {
+      const year = ageGroupYear(page);
+      const known = deriveAllKnown({
+        ageGroups: groups,
+        teams: source.teams,
+        yearGames: source.gamesOfYear(year),
+        readSeason,
+      });
+      for (const { half, segment } of BOARD_HALVES) {
+        const answers: WorkerResponse[] = [];
+        const handle = createRankingsHandler(
+          (response) => answers.push(response),
+          () => 0
+        );
+        const pool: PoolShipment = {
+          revision: 1,
+          teams: encodeScoutTeams(known.teams),
+          games: encodeScoutGames(gamesOnPages(known.games, rankingPoolGroupIds(page.id, groups))),
+        };
+        let id = 0;
+        const ask = (asOf: string, teamIds?: string[]) => {
+          handle({
+            kind: "movement",
+            id: (id += 1),
+            ageGroupId: page.id,
+            ageGroups: groups,
+            ...(segment ? { segment } : {}),
+            asOf,
+            ...(teamIds ? { teamIds } : {}),
+            pool: id === 1 ? pool : { revision: 1 },
+          });
+          const answer = answers[answers.length - 1];
+          if (answer?.kind !== "movement") throw new Error(`no movement for ${page.id} ${half}`);
+          return answer;
+        };
+        const key = `board:${year ?? "none"}:${page.id}:${half}`;
+        const view = views.get(key);
+        if (!view) throw new Error(`no board ${key}`);
+        const lastWeek = ask(lastWeekDay);
+        expect(view.past, key).toEqual({
+          asOf: lastWeekDay,
+          empty: Object.keys(lastWeek.ranks).length === 0,
+        });
+        for (const row of view.rows) {
+          expect(row.was, `${key} ${row.teamId}`).toBe(lastWeek.ranks[row.teamId]);
+          const rank = row.overallRank ?? row.rank;
+          const published = movementOf(row.teamId, rank, lastWeekOf(view));
+          expect(published, `${key} ${row.teamId} arrow`).toBe(
+            movementOf(row.teamId, rank, lastWeek.ranks)
+          );
+          if (row.was !== undefined) seen.was += 1;
+          if (published === "new") seen.fresh += 1;
+          if (typeof published === "number" && published !== 0) seen.moved += 1;
+        }
+        // The rank line, walked as the hook walks it, a week at a time for the page's own club.
+        const teamId = page.myTeamId;
+        if (teamId === undefined) {
+          expect(view.history, key).toBeUndefined();
+          continue;
+        }
+        const lastWeekRank = lastWeek.ranks[teamId] ?? null;
+        let points: Array<{ asOf: string; rank: number | null }> = [];
+        for (let weeksBack = 2; ; weeksBack += 1) {
+          const asOf = daysBefore(FIXTURE_TODAY, 7 * weeksBack);
+          // The newest week walked, or last week before any; a week without the club is null.
+          const newest = points[0];
+          const newer = newest ? newest.rank : lastWeekRank;
+          const answer = ask(asOf, [teamId]);
+          const rank = answer.ranks[teamId] ?? null;
+          if (answer.empty !== true) points = [{ asOf, rank }, ...points];
+          if (answer.empty === true || weeksBack >= 8 || (rank === null && newer === null)) break;
+        }
+        // A line that went on past a week without its club, on the strength of last week's place.
+        if (lastWeekRank !== null && points.length >= 2 && points[points.length - 1]?.rank === null)
+          seen.pastAbsence += 1;
+        points.push({ asOf: lastWeekDay, rank: lastWeekRank });
+        expect(view.history, key).toEqual({ teamId, points });
+        seen.lines += 1;
+        seen.points += points.length;
+      }
+    }
+    return seen;
+  };
+
+  it("publish last week's places and the rank line as the page's worker answers them", () => {
+    const { pastAbsence: _pastAbsence, ...seen } = expectPastAndLines(ageGroups);
+    // The fixture reaches every case: places kept, clubs new since, clubs moved, and a rank line.
+    expect(
+      Object.values(seen).every((count) => count > 0),
+      JSON.stringify(seen)
+    ).toBe(true);
+  });
+
+  it("walk on past a week the club was missing from when it was on last week's board", () => {
+    /*
+     * Each page's own club made one that joined its board in the week before last week's: off the
+     * board two weeks ago, on it a week ago. One week without it is not two running, last week
+     * counting as the first, so both walks ask for the week before as well.
+     */
+    const source = stored();
+    const joined = ageGroups.map((group) => {
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: source.teams,
+        yearGames: source.gamesOfYear(ageGroupYear(group)),
+        readSeason,
+      });
+      const games = gamesOnPages(known.games, rankingPoolGroupIds(group.id, ageGroups));
+      const on = (asOf: string) =>
+        ranksAsOf(group.id, known.teams, games, ageGroups, undefined, asOf);
+      const weekAgo = on(daysBefore(FIXTURE_TODAY));
+      const before = on(daysBefore(FIXTURE_TODAY, 14));
+      const newcomer = Object.keys(weekAgo).find((teamId) => before[teamId] === undefined);
+      return newcomer === undefined ? group : { ...group, myTeamId: newcomer };
+    });
+    const seen = expectPastAndLines(joined);
+    expect(seen.pastAbsence, JSON.stringify(seen)).toBeGreaterThan(0);
+  });
+
+  it("say of each board's clubs, from the published rows alone, what the page says", () => {
+    /*
+     * The live board draws its places, states, state top ten and unplaced count from what each
+     * published row says of its club (`clubsOfBoard`); the page draws them from the clubs behind
+     * its rows (`rankedTeams`). Written out here as the page wrote them before they were shared,
+     * on the page's clubs, and held to the shared code on the published rows.
+     */
+    const source = stored();
+    const built = buildBoardsAndFacts({ ...source, today: FIXTURE_TODAY });
+    let states = 0;
+    for (const { key, value } of boardViews(ageGroups, built)) {
+      const read = coerceBoardView(JSON.parse(JSON.stringify(value)));
+      if (!read) throw new Error(`${key} is not a board as published`);
+      const pageId = key.split(":").slice(2, -1).join(":");
+      const page = ageGroups.find((group) => group.id === pageId)!;
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: source.teams,
+        yearGames: source.gamesOfYear(ageGroupYear(page)),
+        readSeason,
+      });
+      const byId = new Map(known.teams.map((team) => [team.id, team]));
+      const rankedTeams = read.rows
+        .map((row) => byId.get(row.teamId))
+        .filter((team): team is ScoutTeam => team !== undefined);
+      // Every row's club is on the roster, so the page's clubs are the rows' clubs.
+      expect(rankedTeams, key).toHaveLength(read.rows.length);
+      const mine = (myTeamId: string | undefined) => {
+        const own = rankedTeams.find((team) => team.id === myTeamId)?.state;
+        if (own) return own;
+        const counts = new Map<string, number>();
+        rankedTeams.forEach((team) => {
+          if (team.state) counts.set(team.state, (counts.get(team.state) ?? 0) + 1);
+        });
+        let best = "";
+        let most = 0;
+        counts.forEach((count, state) => {
+          if (count > most) {
+            most = count;
+            best = state;
+          }
+        });
+        return best;
+      };
+      const places = new Map<string, string | undefined>();
+      rankedTeams.forEach((team) => {
+        if (!places.has(team.id))
+          places.set(team.id, [team.city, team.state].filter(Boolean).join(", ") || undefined);
+      });
+      const clubs = clubsOfBoard(read.rows);
+      const someone = read.rows.find((row) => row.state)?.teamId;
+      for (const myTeamId of [page.myTeamId, someone, undefined]) {
+        expect(defaultStateOf(clubs, myTeamId), `${key} ${myTeamId}`).toBe(mine(myTeamId));
+      }
+      expect(placesOf(clubs), key).toEqual(places);
+      expect(statesInUse(clubs), key).toEqual(statesInUse(rankedTeams));
+      expect(unknownStateCountOf(clubs), key).toBe(
+        rankedTeams.filter((team) => !team.state).length
+      );
+      const rows = withMine(read.rows, page.myTeamId);
+      for (const state of [...statesInUse(rankedTeams), UNKNOWN_STATE]) {
+        expect(filterRankingsByState(rows, clubs, state), `${key} ${state}`).toEqual(
+          filterRankingsByState(rows, rankedTeams, state)
+        );
+      }
+      states += statesInUse(rankedTeams).length;
+    }
+    expect(states).toBeGreaterThan(0);
+  });
+
+  it("count each page's games by half as the page does, beside its boards", () => {
+    // Pinned from the page's own count (`segmentGames`) on the fixture before it was shared.
+    const pages = livePagesOf(
+      buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }),
+      "2027-04-15T07:20:00.000Z"
+    );
+    const lastYear = { fall: 714, spring: 1808 };
+    const thisYear = { fall: 1771, spring: 2010 };
+    expect(pages).toEqual({
+      league: expect.any(Array),
+      pulledAt: "2027-04-15T07:20:00.000Z",
+      halves: {
+        ag_9u_2026: lastYear,
+        ag_10u_2026: lastYear,
+        ag_11u_2026: lastYear,
+        ag_8u_2027: thisYear,
+        ag_9u_2027: thisYear,
+        ag_10u_2027: thisYear,
+        ag_11u_2027: thisYear,
+        ag_12u_2027: thisYear,
+        ag_13u_2027: thisYear,
+        ag_14u_2027: thisYear,
+        ag_showcase: { fall: 0, spring: 0 },
+      },
+    });
+    // In the order the boards come out in, and with no pull time where the roster was never pulled.
+    expect(Object.keys(pages.halves)).toEqual(ratingPools(ageGroups).flat());
+    expect(livePagesOf(buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }), null)).toEqual({
+      league: pages.league,
+      halves: pages.halves,
+    });
+    // A score dated ahead of the day counts in no half, as it rates nobody: a month earlier, the
+    // spring holds fewer.
+    const earlier = livePagesOf(
+      buildBoardsAndFacts({ ...stored(), today: "2027-03-20" }),
+      null
+    ).halves;
+    expect(earlier.ag_12u_2027).toEqual({ fall: 1771, spring: 1505 });
+  });
+
+  it("name each League Standings team's club on each page claiming its season, as the page does", () => {
+    const { league = [] } = livePagesOf(
+      buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }),
+      null
+    );
+    // The page's own: what it knows of its year (`deriveAllKnown`), as its board writes the
+    // league's clubs' places for League Standings' "Our team" card (`TeamRankingsView`).
+    const expected = ageGroups.flatMap((page) => {
+      const known = deriveAllKnown({
+        ageGroups,
+        teams: loadScoutTeams(),
+        yearGames: loadScoutGamesForYear(ageGroupYear(page)),
+        readSeason,
+      });
+      return [...(known.leagueClubs.get(page.id) ?? new Map<string, Map<string, string>>())].map(
+        ([season, clubs]) => ({
+          page: page.id,
+          season,
+          clubs: [...clubs],
+          halves: [...(known.leagueHalves.get(page.id)?.get(season) ?? [])].sort(),
+        })
+      );
+    });
+    expect(league).toEqual(expect.arrayContaining(expected));
+    expect(league).toHaveLength(expected.length);
+    // The fixture's seasons do claim pages, and their teams are clubs there. A season none of whose
+    // teams is a club there yet is published too, with no clubs: the page writes its places away.
+    expect(league.length).toBeGreaterThan(0);
+    expect(league.some((entry) => entry.clubs.length > 0)).toBe(true);
+    expect(coerceLivePages({ halves: {}, league })).toEqual({ halves: {}, league });
+  });
+
+  it("say a season's halves in one order, whatever its games' order, and nothing of no season", () => {
+    const built = (seasons: PageFacts["seasons"]): BoardsBuilt => ({
+      boards: [],
+      facts: new Map([
+        ["p", { halves: { fall: 0, spring: 0 }, league: new Set(), places: new Map(), seasons }],
+      ]),
+      known: new Map(),
+    });
+    // A spring game listed before a fall one, as a season's schedule may be put in.
+    const halves = new Set<SeasonSegment>(["spring", "fall"]);
+    expect(
+      livePagesOf(built(new Map([["s", { clubs: new Map([["lt", "S-1"]]), halves }]])), null)
+    ).toEqual({
+      halves: { p: { fall: 0, spring: 0 } },
+      league: [{ page: "p", season: "s", clubs: [["lt", "S-1"]], halves: ["fall", "spring"] }],
+    });
+    expect(livePagesOf(built(new Map()), null)).toEqual({ halves: { p: { fall: 0, spring: 0 } } });
+  });
+
   it("hold still: the whole fixture's boards, pinned on every engine, under these board rules", () => {
     /*
      * Which clubs are on which board and every field of every row, numbers to the millionth,
@@ -333,8 +716,14 @@ describe("the boards a server builds", () => {
     "hold still: the whole fixture's boards, to the last digit on the engine running",
     () => {
       // Every number, rank and row order exactly, so a change to the order the fit walks or sums
-      // anything in is caught, as the parity tests cannot: both sides share that code.
-      expect(fingerprint(builtBoards(stored()))).toBe(digitPin);
+      // anything in is caught, as the parity tests cannot: both sides share that code. The rows
+      // alone: last week's places and the rank lines beside them are the parity tests' to hold.
+      const boards = builtBoards(stored()).map(({ pageId, half, rows }) => ({
+        pageId,
+        half,
+        rows,
+      }));
+      expect(fingerprint(boards)).toBe(digitPin);
     }
   );
 

@@ -1,22 +1,39 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { TeamSearchSelect, type TeamSearchOption } from "./TeamSearchSelect";
 import {
   NO_SCOUT_TEAM,
   type LeagueScoutBridge,
   type ScoutLinkCandidate,
   type ScoutLinkRow,
-  type ScoutTeam,
 } from "../lib/teamRankings";
 import { displayName } from "../lib/format";
-import { coachesOf } from "../lib/gcStaff";
+import { levelOf, placeOf, type ClubPickOption } from "../lib/leagueLinkOptions";
 import { card, pill } from "../styles/tokens";
 
 type ScoutLinkPanelProps = {
   bridge: LeagueScoutBridge;
+  /**
+   * Where Team Rankings is asked of the server and nothing it said is here yet (`useScoutBridge`):
+   * being asked, or not answered. Said in place of the bridge, which is empty only for want of an
+   * answer and would otherwise read as a season no age group claims.
+   */
+  unanswered?: "asking" | "failed";
   /** The clubs that could be this team, best evidence first. */
   candidatesFor: (leagueTeamName: string) => ScoutLinkCandidate[];
-  /** Every club that could be picked, built only when the wide search is asked for. */
-  allClubs: () => Array<ScoutTeam & { ageLevel?: number }>;
+  /**
+   * Every club that could be picked, as the picker lists each (`clubPickOption`), built only when
+   * the wide search is asked for.
+   */
+  wideOptions: () => readonly ClubPickOption[];
+  /** Where the wide list is asked of the server and not here: being asked, or unanswered. */
+  wideStatus?: "asking" | "failed";
+  /**
+   * Told whether the wide search is wanted: ticked, unticked, and unticked when the panel goes,
+   * since the box starts unticked when it is drawn again. While it is, clubs this device does not
+   * hold are asked for, a season switched to included; told it again, an unanswered list is asked
+   * for again.
+   */
+  onWide?: (wanted: boolean) => void;
   seasonLabel: string;
   /** Whether the setting below this one is letting any of it count right now. */
   countingOn: boolean;
@@ -26,22 +43,12 @@ type ScoutLinkPanelProps = {
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
-const where = (club: { city?: string; state?: string }) =>
-  [club.city, club.state].filter(Boolean).join(", ");
-
-/**
- * The age on the row. Two clubs of one name in one town are told apart by nothing else a picker
- * shows, and a list reading "Cincy Stix Navy · Harrison, OH" twice over cannot be chosen from.
- */
-const atLevel = (club: { ageLevel?: number }) =>
-  club.ageLevel === undefined ? "" : `${club.ageLevel}U`;
-
 /**
  * What each option says about itself. The town tells two clubs of a name apart; the opponents in
  * common say which one is *this* team, which is the thing a person cannot work out from a name.
  */
 const optionFor = (candidate: ScoutLinkCandidate): TeamSearchOption => {
-  const parts = [where(candidate), atLevel(candidate)].filter(Boolean);
+  const parts = [placeOf(candidate), levelOf(candidate)].filter(Boolean);
   if (candidate.sharedOpponents.length > 0) {
     parts.push(
       `${plural(candidate.sharedOpponents.length, "opponent")} in common: ${candidate.sharedOpponents
@@ -135,8 +142,11 @@ export const ScoutLinkPanel = memo(ScoutLinkPanelInner);
 
 function ScoutLinkPanelInner({
   bridge,
+  unanswered,
   candidatesFor,
-  allClubs,
+  wideOptions,
+  wideStatus,
+  onWide,
   seasonLabel,
   countingOn,
   onPick,
@@ -144,23 +154,15 @@ function ScoutLinkPanelInner({
   const [wide, setWide] = useState(false);
   // Built only when asked for: the pool can hold tens of thousands of clubs, and the picker
   // re-sorts its whole option list on every keystroke.
-  const wideOptions = useMemo(
-    () =>
-      wide
-        ? allClubs().map((club): TeamSearchOption => {
-            const detail = [where(club), atLevel(club)].filter(Boolean).join(" · ");
-            const coaches = coachesOf(club);
-            return {
-              id: club.id,
-              label: club.name,
-              ...(detail ? { detail } : {}),
-              ...(coaches.length > 0 ? { coaches } : {}),
-              ...(club.gcTeams?.length ? { gcIds: club.gcTeams.map((link) => link.teamId) } : {}),
-            };
-          })
-        : [],
-    [wide, allClubs]
+  const allOptions = useMemo(
+    (): TeamSearchOption[] => (wide ? [...wideOptions()] : []),
+    [wide, wideOptions]
   );
+  // The box is told as it stands, and as unticked when the panel goes.
+  useEffect(() => {
+    onWide?.(wide);
+    return () => onWide?.(false);
+  }, [wide, onWide]);
 
   return (
     <div className={`${card} p-5`}>
@@ -168,7 +170,16 @@ function ScoutLinkPanelInner({
         Which Team Rankings club is each team?
       </h2>
 
-      {!bridge.seasonLinked ? (
+      {unanswered === "asking" ? (
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+          Asking Team Rankings in the cloud what it has for <strong>{seasonLabel}</strong>…
+        </p>
+      ) : unanswered === "failed" ? (
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+          Team Rankings in the cloud could not be asked about <strong>{seasonLabel}</strong> just
+          now. It is asked again by itself, and the moment this device is back online.
+        </p>
+      ) : !bridge.seasonLinked ? (
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           No age group claims <strong>{seasonLabel}</strong> yet, so nothing from Team Rankings
           reaches this season and there is nothing to pick from. In Team Rankings, edit the age
@@ -203,11 +214,29 @@ function ScoutLinkPanelInner({
             Search every GameChanger club at this age level in Team Rankings, not just the ones this
             season&apos;s pages hold
           </label>
+          {wide && wideStatus === "asking" && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Asking Team Rankings in the cloud for every club at this age level…
+            </p>
+          )}
+          {wide && wideStatus === "failed" && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Team Rankings in the cloud could not be asked for its clubs just now, so there are
+              none to search.{" "}
+              <button
+                type="button"
+                onClick={() => onWide?.(true)}
+                className="font-bold text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Try again
+              </button>
+            </p>
+          )}
 
           <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
             {bridge.rows.map((row) => {
               const note = noteFor(row);
-              const options = wide ? wideOptions : candidatesFor(row.leagueTeamName).map(optionFor);
+              const options = wide ? allOptions : candidatesFor(row.leagueTeamName).map(optionFor);
               return (
                 <li
                   key={row.leagueTeamId}

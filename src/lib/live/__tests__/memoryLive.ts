@@ -1,4 +1,4 @@
-import type { LiveMeta, LiveStore } from "../viewStore";
+import type { LiveMeta, LiveStore, MetaWatch } from "../viewStore";
 
 /**
  * A stand-in for `live/` in Firestore, in memory: the meta with a token for each version of it, as
@@ -17,6 +17,19 @@ export type MemoryLive = {
   setMeta: (raw: unknown) => void;
   /** Runs once, between the next commit's call and its check: a write that races it. */
   beforeCommit: (hook: () => Promise<void> | void) => void;
+  /**
+   * A listener on the meta, as Firestore's: it hears the meta when it starts and after every
+   * commit or set, vouched for by the server while the store is reachable.
+   */
+  watchMeta: MetaWatch;
+  /** How many watches are listening. */
+  watching: () => number;
+  /** Cuts the device off: every watch hears the meta it has, not vouched for, until `reconnect`. */
+  cutOff: () => void;
+  /** Reaches the server again: every watch hears the meta as it now stands. */
+  reconnect: () => void;
+  /** Ends every watch with `error`, as a refusal by the rules ends a listener. */
+  failWatches: (error: unknown) => void;
 };
 
 export const memoryLive = (): MemoryLive => {
@@ -26,6 +39,18 @@ export const memoryLive = (): MemoryLive => {
   let racing: (() => Promise<void> | void) | null = null;
   const chunks = new Map<string, { data: Uint8Array; createdAt: string }>();
   const costs = { reads: 0, writes: 0, deletes: 0 };
+  type Heard = Parameters<MetaWatch>[0];
+  const watches = new Set<Heard>();
+  let reachable = true;
+  // Each snapshot is the meta as it stood when it changed, delivered on a later turn, as a
+  // listener's are.
+  const tell = (heard: Heard, fromServer = reachable) => {
+    const snapshot: unknown = meta === null ? null : structuredClone(meta);
+    queueMicrotask(() => {
+      if (watches.has(heard)) heard.next(snapshot, fromServer);
+    });
+  };
+  const tellAll = () => watches.forEach((heard) => tell(heard));
   const store: LiveStore = {
     readMeta: async () => {
       costs.reads += 1;
@@ -40,6 +65,7 @@ export const memoryLive = (): MemoryLive => {
       costs.writes += 1;
       meta = structuredClone(next);
       token += 1;
+      tellAll();
       return true;
     },
     putChunk: async (id, data) => {
@@ -70,9 +96,31 @@ export const memoryLive = (): MemoryLive => {
     setMeta: (raw) => {
       meta = raw === null ? null : structuredClone(raw);
       token += 1;
+      tellAll();
     },
     beforeCommit: (hook) => {
       racing = hook;
+    },
+    watchMeta: (heard) => {
+      watches.add(heard);
+      tell(heard);
+      return () => {
+        watches.delete(heard);
+      };
+    },
+    watching: () => watches.size,
+    cutOff: () => {
+      reachable = false;
+      tellAll();
+    },
+    reconnect: () => {
+      reachable = true;
+      tellAll();
+    },
+    failWatches: (error) => {
+      const ended = [...watches];
+      watches.clear();
+      ended.forEach((heard) => queueMicrotask(() => heard.error(error)));
     },
   };
 };

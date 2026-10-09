@@ -359,8 +359,26 @@ export const dueRefresh = (
   };
 };
 
+/**
+ * A day's refresh as the panel says it: what it is for and how much is in it, without the ids. The
+ * live Import tab is told this much of the copy's (`import.status`) rather than every id due.
+ */
+export type DueSummary = Omit<DueRefresh, "teamIds" | "agelessIds"> & {
+  teams: number;
+  agelessDue: number;
+};
+
+export const dueSummary = ({ teamIds, agelessIds, ...rest }: DueRefresh): DueSummary => ({
+  ...rest,
+  teams: teamIds.length,
+  agelessDue: agelessIds.length,
+});
+
 /** A line for the panel: what today is for, and whether it is still to do. */
-export const describeDue = (due: DueRefresh): string => {
+export const describeDue = (due: DueRefresh): string => describeDueSummary(dueSummary(due));
+
+/** `describeDue`, from what it says alone. */
+export const describeDueSummary = (due: DueSummary): string => {
   if (due.cadence === "daily") {
     const ageless =
       due.agelessTotal > 0
@@ -369,10 +387,10 @@ export const describeDue = (due: DueRefresh): string => {
           } still waiting on an age.`
         : "";
     if (due.ageLevels.length === 0) return `Every age group has been refreshed today.${ageless}`;
-    if (due.teamIds.length === 0)
+    if (due.teams === 0)
       return `Every age group is due today, but nothing has been pulled yet.${ageless}`;
-    return `Every age group is due today — ${due.teamIds.length.toLocaleString()} team${
-      due.teamIds.length === 1 ? "" : "s"
+    return `Every age group is due today — ${due.teams.toLocaleString()} team${
+      due.teams === 1 ? "" : "s"
     } to refresh.${ageless}`;
   }
   if (due.catchUp) {
@@ -389,10 +407,8 @@ export const describeDue = (due: DueRefresh): string => {
   if (forToday.length === 0) return `Nothing is scheduled for ${due.label}.`;
   const levels = forToday.map((level) => `${level}U`).join(" and ");
   if (due.ageLevels.length === 0) return `${levels} already refreshed today.`;
-  if (due.teamIds.length === 0) return `${levels} are due today, but nothing has been pulled yet.`;
-  return `${levels} due today — ${due.teamIds.length} team${
-    due.teamIds.length === 1 ? "" : "s"
-  } to refresh.`;
+  if (due.teams === 0) return `${levels} are due today, but nothing has been pulled yet.`;
+  return `${levels} due today — ${due.teams} team${due.teams === 1 ? "" : "s"} to refresh.`;
 };
 
 /** What a cadence covers, in one line, for the control that chooses between them. */

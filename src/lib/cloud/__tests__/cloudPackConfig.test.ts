@@ -11,6 +11,7 @@ import {
   type KeptPart,
 } from "../cloudManifest";
 import { memoryCloud, memoryMembers } from "./memoryCloud";
+import { memoryLeague } from "../../live/__tests__/memoryLeague";
 
 /*
  * The small parts of keeping data in the cloud: a value's fingerprint and packing, the Firebase
@@ -70,6 +71,11 @@ describe("the Firebase project the app keeps its copy in", () => {
         owns: async () => false,
         members: memoryMembers([], () => null),
         store: memoryCloud().store,
+        live: { readMeta: async () => null, getChunk: async () => null },
+        league: memoryLeague().store,
+        restore: async () => ({ ok: false, message: "Not asked here." }),
+        stageUpload: async () => undefined,
+        restoreBackup: async () => ({ ok: false, message: "Not asked here." }),
       };
       session.setCloudTestHooks({
         openCloud: async (config) => {
@@ -104,6 +110,13 @@ describe("a manifest from Firestore", () => {
 
   it("is read as stored", () => {
     expect(coerceManifest(stored)).toEqual(stored);
+  });
+
+  it("keeps a version kept whole as that, and reads nothing else as it", () => {
+    const kept = { ...part, key: "teams", group: "g2", keptAt: stored.updatedAt, why: "replaced" };
+    const whole = { ...stored, kept: [{ ...kept, whole: true }] };
+    expect(coerceManifest(whole)).toEqual(whole);
+    expect(coerceManifest({ ...stored, kept: [{ ...kept, whole: "yes" }] })?.kept).toEqual([kept]);
   });
 
   it("is nothing when it could name the wrong pieces", () => {

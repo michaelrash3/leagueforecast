@@ -22,6 +22,11 @@ export type UndoableSeason = {
    * so a setting changed after a deleted game is not taken back by undoing the delete.
    */
   settings?: Settings;
+  /**
+   * When the snapshot was taken, on a season being put back: League kept live puts back only what
+   * no other device has changed since (`guardedUndo`).
+   */
+  takenAt?: number;
 };
 
 export type UndoSnapshotOptions = {
@@ -32,6 +37,8 @@ export type UndoSnapshotOptions = {
   /** Called when a restored snapshot carried a Team Rankings pool that was written back. */
   onRankingsRestored: () => void;
   showToast: (message: string, options?: { tone?: "success" | "error" }) => void;
+  /** Why the season may not be written this moment (`seasonStore.locked`), or null. */
+  blocked?: () => string | null;
 };
 
 export type UndoSnapshotControls = {
@@ -59,6 +66,7 @@ export function useUndoSnapshot({
   applySeason,
   onRankingsRestored,
   showToast,
+  blocked = () => null,
 }: UndoSnapshotOptions): UndoSnapshotControls {
   const held = useRef<UndoSnapshotWithRankings | null>(null);
 
@@ -92,6 +100,13 @@ export function useUndoSnapshot({
   const restore = useCallback(() => {
     const snapshot = held.current ?? (readUndoSnapshot() as UndoSnapshotWithRankings | null);
     if (!snapshot) return;
+    // All of the step or none of it: with the season locked, the pool is not put back alone, and
+    // the step is kept for when the season may be written.
+    const why = blocked();
+    if (why) {
+      showToast(why, { tone: "error" });
+      return;
+    }
     applySeason({
       teams: snapshot.teams,
       matchups: snapshot.matchups,
@@ -99,13 +114,14 @@ export function useUndoSnapshot({
       bracketLogs: snapshot.bracketLogs ?? {},
       // Off storage as well, so read the way stored settings always are.
       ...(snapshot.settings !== undefined ? { settings: coerceSettings(snapshot.settings) } : {}),
+      ...(typeof snapshot.timestamp === "number" ? { takenAt: snapshot.timestamp } : {}),
     });
     // Snapshots come back off localStorage, so the pool is re-validated rather than trusted.
     const rankings = coerceTeamRankingsBackup(snapshot.teamRankings);
     if (rankings && writeTeamRankingsBackup(rankings)) onRankingsRestored();
     held.current = null;
     showToast(`Restored: ${snapshot.label}.`, { tone: "success" });
-  }, [applySeason, onRankingsRestored, showToast]);
+  }, [applySeason, onRankingsRestored, showToast, blocked]);
 
   const forget = useCallback(() => {
     held.current = null;

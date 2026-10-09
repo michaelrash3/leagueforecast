@@ -3454,7 +3454,8 @@ export const EMPTY_SCOUTING_REPORT: ScoutingReport = Object.freeze({
 export const buildScoutingReport = (
   forTeamId: string,
   rows: ScoutRankingRow[],
-  teams: ScoutTeam[] = [],
+  /** The clubs on the board, of which only where each is from is read. */
+  teams: ReadonlyArray<Pick<ScoutTeam, "id" | "state">> = [],
   options: { pickedIds?: string[]; nationalTop?: number; stateTop?: number } = {}
 ): ScoutingReport => {
   const forRow = rows.find((row) => row.teamId === forTeamId);

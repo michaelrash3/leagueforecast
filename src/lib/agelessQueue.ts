@@ -242,9 +242,10 @@ const stand = (entry: AgeUnknownTeam): { unlikely: number; standing?: AgelessSta
  * One entry as a row.
  *
  * Shared by the queue and the search on purpose: a team a person finds by name has to read the
- * same as the one the queue would have handed them, or the two disagree about the same team.
+ * same as the one the queue would have handed them, or the two disagree about the same team. And
+ * by the live page, which is sent the entries alone and makes each row here (`agelessSitting.ts`).
  */
-const rowFor = (entry: AgeUnknownTeam): AgelessRow => {
+export const agelessRowFor = (entry: AgeUnknownTeam): AgelessRow => {
   const evidence = entry.evidence;
   return {
     entry,
@@ -274,7 +275,7 @@ export const agelessWaiting = (
 ): AgelessRow[] =>
   list
     .filter((entry) => awaitingAnswer(entry, named, dropped, now))
-    .map(rowFor)
+    .map(agelessRowFor)
     .sort(
       (a, b) =>
         GROUP_ORDER[a.standing?.group ?? "rest"] - GROUP_ORDER[b.standing?.group ?? "rest"] ||
@@ -468,10 +469,10 @@ export const agelessSearch = (
   if (needleWords.length === 0) return { hits: [], total: 0 };
 
   /*
-   * Matched and ordered on cheap fields, then cut, and only then turned into rows. `rowFor` runs
-   * `whyNoAge` and `looksInvented` per team, and running it over every match before the cut was
-   * 39ms on the first keystroke of a search over thirty thousand rows — a dropped frame on this
-   * machine and several on a phone. Twenty-five of them is nothing.
+   * Matched and ordered on cheap fields, then cut, and only then turned into rows.
+   * `agelessRowFor` runs `whyNoAge` and `looksInvented` per team, and running it over every match
+   * before the cut was 39ms on the first keystroke of a search over thirty thousand rows — a
+   * dropped frame on this machine and several on a phone. Twenty-five of them is nothing.
    */
   const found: { entry: AgeUnknownTeam; aside?: AgelessAside; well: number }[] = [];
   list.forEach((entry) => {
@@ -490,7 +491,7 @@ export const agelessSearch = (
   );
   return {
     hits: found.slice(0, Math.max(0, limit)).map((hit): AgelessHit => ({
-      row: rowFor(hit.entry),
+      row: agelessRowFor(hit.entry),
       ...(hit.aside ? { aside: hit.aside } : {}),
     })),
     total: found.length,

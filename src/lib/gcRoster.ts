@@ -88,6 +88,30 @@ export const rosterWatchList = (
         a.teamId.localeCompare(b.teamId)
     );
 
+/**
+ * The roster watch over a pool's GameChanger links that play in the season being played, whatever
+ * page they are on: the device's pull panel and the server's import status read it the same way.
+ * `yearOf` is the squad year a link plays in, where its page says (`gcLinkSquadYearIn`).
+ */
+export const rosterWatchOf = <L extends WatchedTeam>(
+  teams: readonly { gcTeams?: readonly L[] }[],
+  yearOf: (link: L) => number | undefined,
+  playing: number,
+  now: number = Date.now()
+): RosterWatchEntry[] =>
+  rosterWatchList(
+    teams.flatMap((team) =>
+      (team.gcTeams ?? [])
+        .filter((link) => (yearOf(link) ?? playing) === playing)
+        .map((link) => ({
+          teamId: link.teamId,
+          ...(link.playerCount === undefined ? {} : { playerCount: link.playerCount }),
+          ...(link.countedAt ? { countedAt: link.countedAt } : {}),
+        }))
+    ),
+    now
+  );
+
 export type RosterChange = {
   teamId: string;
   was: number;

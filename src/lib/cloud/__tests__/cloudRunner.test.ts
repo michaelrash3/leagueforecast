@@ -17,9 +17,11 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveRefreshCadence,
+  saveRefusedClubs,
   saveScoutGames,
   saveScoutTeams,
   saveTidyStamp,
+  saveTooYoungClubs,
 } from "../../teamRankingsStorage";
 import { commitChanges, type Change } from "../cloudEngine";
 import { DATA_SCHEMA } from "../cloudManifest";
@@ -185,6 +187,45 @@ describe("a pull run on the cloud copy", () => {
     ).toEqual(expect.arrayContaining([ACES, BEARS]));
     expect(loadScoutGames()).toHaveLength(1);
     expect(loadTidyStamp()).toMatch(/^r\d+\|/);
+  });
+
+  it("pulls a paste's teams the pool lacks, a catch-up's every one, and none refused or too young", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    await runCloudPull(
+      { kind: "list", entries: [{ teamId: ACES }], seasonYears: [2027] },
+      deps(cloud, "2026-09-29T13:00:00.000Z")
+    );
+    // A paste with one team the pool has and one it lacks asks only for the one it lacks.
+    const paste = await runCloudPull(list, deps(cloud, "2026-09-29T14:00:00.000Z"));
+    expect(paste.asked).toBe(1);
+    // Past a handful, a paste asks only for what the pool lacks, and a catch-up for every one.
+    const many = {
+      ...list,
+      entries: [
+        ...list.entries,
+        ...Array.from({ length: 24 }, (_, at) => ({
+          teamId: `gcNONE${String(at).padStart(6, "0")}`,
+        })),
+      ],
+    };
+    expect((await runCloudPull(many, deps(cloud, "2026-09-29T15:00:00.000Z"))).asked).toBe(24);
+    const catchUp = await runCloudPull(
+      { ...many, refresh: true },
+      deps(cloud, "2026-09-29T16:00:00.000Z")
+    );
+    expect(catchUp.asked).toBe(26);
+    // Refused for good, or too young to rank, costs no request, as on the device.
+    const refused = memoryCloud();
+    await seed(refused, () => {
+      saveRefusedClubs({ forGood: new Set([ACES]), bySeason: new Map() });
+      saveTooYoungClubs(new Set([BEARS]));
+    });
+    const none = await runCloudPull(
+      { ...list, refresh: true },
+      deps(refused, "2026-09-29T13:00:00.000Z")
+    );
+    expect(none).toMatchObject({ asked: 0, end: "nothing-due" });
   });
 
   it("leaves the copy as it was when a pull changes nothing in it", async () => {

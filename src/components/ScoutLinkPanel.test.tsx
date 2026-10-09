@@ -3,6 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ScoutLinkPanel } from "./ScoutLinkPanel";
 import type { LeagueScoutBridge, ScoutLinkCandidate, ScoutTeam } from "../lib/teamRankings";
+import { clubPickOption } from "../lib/leagueLinkOptions";
+import { LEAGUE_CANDIDATES_MAX } from "../lib/live/queries";
+import { TEAM_SEARCH_LIMIT } from "./TeamSearchSelect";
 
 /**
  * Two clubs of one name in one town, which is the ordinary case on a nationwide pool and the one
@@ -44,7 +47,7 @@ const renderPanel = (over: Partial<Parameters<typeof ScoutLinkPanel>[0]> = {}) =
     <ScoutLinkPanel
       bridge={bridge}
       candidatesFor={() => [candidate("S-9", 9), candidate("S-10", 10)]}
-      allClubs={() => [wideClub("S-9", 9), wideClub("S-10", 10)]}
+      wideOptions={() => [wideClub("S-9", 9), wideClub("S-10", 10)].map(clubPickOption)}
       seasonLabel="Spring 2027"
       countingOn
       onPick={vi.fn()}
@@ -78,15 +81,16 @@ describe("picking which club a league team is", () => {
   it("finds a club by its coach in the wide search too", async () => {
     const user = userEvent.setup();
     renderPanel({
-      allClubs: () => [
-        wideClub("S-9", 9),
-        {
-          ...wideClub("S-10", 10),
-          gcTeams: [
-            { teamId: "gc10", name: "Stix Navy", ageGroupId: "ag10", staff: ["Sam Sample"] },
-          ],
-        },
-      ],
+      wideOptions: () =>
+        [
+          wideClub("S-9", 9),
+          {
+            ...wideClub("S-10", 10),
+            gcTeams: [
+              { teamId: "gc10", name: "Stix Navy", ageGroupId: "ag10", staff: ["Sam Sample"] },
+            ],
+          },
+        ].map(clubPickOption),
     });
     await user.click(screen.getByRole("checkbox", { name: /search every gamechanger club/i }));
     await user.click(screen.getByRole("combobox"));
@@ -113,6 +117,12 @@ describe("picking which club a league team is", () => {
     await user.click(screen.getByRole("checkbox", { name: /search every gamechanger club/i }));
     const options = await optionsInPicker(user);
     expect(options.map((option) => option.textContent ?? "").join("|")).toContain("10U");
+  });
+
+  it("is sent by the server as many of a team's clubs as its picker draws at once", () => {
+    // A member's device is sent each team's best clubs alone (`leagueCandidates`), so the list a
+    // picker opens on is the one the device would have drawn from all of them.
+    expect(LEAGUE_CANDIDATES_MAX).toBe(TEAM_SEARCH_LIMIT);
   });
 
   it("says what it is and is not offering, rather than leaving it to be inferred", () => {

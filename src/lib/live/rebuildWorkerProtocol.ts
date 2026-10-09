@@ -45,8 +45,10 @@ export const REBUILD_LIMIT_S = 270;
 
 /**
  * How long into a run a second pass may still start, when the New York day turned under the first
- * (`runRebuild`'s deadline). One pass on the real pool is a load of a few seconds and a build of
- * about seven; this leaves a slow pass time to finish inside `REBUILD_LIMIT_S`.
+ * (`runRebuild`'s deadline). One pass on the real pool is a load of a few seconds and a build and
+ * publish of about half a minute (29 to 35 s for every board of the 29 September 2026 pool, measured
+ * with `npm run live:bench` on 4 October); this leaves a slow pass time to finish inside
+ * `REBUILD_LIMIT_S`.
  */
 export const REBUILD_PASS_S = 150;
 

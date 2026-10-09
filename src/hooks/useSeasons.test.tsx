@@ -22,13 +22,26 @@ beforeEach(() => {
   });
 });
 
-const setup = (over: { confirm?: boolean; seasonLabel?: string } = {}) => {
+const setup = (
+  over: {
+    confirm?: boolean;
+    seasonLabel?: string;
+    beforeDelete?: (id: string) => Promise<boolean>;
+  } = {}
+) => {
   const loadActiveSeason = vi.fn();
   const showToast = vi.fn();
   const requestConfirmation = vi.fn().mockResolvedValue(over.confirm ?? true);
+  const { beforeDelete } = over;
   const hook = renderHook(
     ({ seasonLabel }: { seasonLabel: string }) =>
-      useSeasons({ seasonLabel, loadActiveSeason, showToast, requestConfirmation }),
+      useSeasons({
+        seasonLabel,
+        loadActiveSeason,
+        showToast,
+        requestConfirmation,
+        ...(beforeDelete ? { beforeDelete } : {}),
+      }),
     { initialProps: { seasonLabel: over.seasonLabel ?? "" } }
   );
   return { ...hook, loadActiveSeason, showToast, requestConfirmation };
@@ -68,6 +81,22 @@ describe("deleting a season", () => {
     await act(async () => result.current.remove(other.id));
 
     expect(requestConfirmation).toHaveBeenCalledTimes(1);
+    expect(listSeasons().map((season) => season.id)).toContain(other.id);
+  });
+
+  it("deletes nothing when the step asked first says no, as the cloud refusing it does", async () => {
+    const other = createSeason("Fall 2026");
+    const asked: string[] = [];
+    const { result } = setup({
+      beforeDelete: async (id) => {
+        asked.push(id);
+        return false;
+      },
+    });
+
+    await act(async () => result.current.remove(other.id));
+
+    expect(asked).toEqual([other.id]);
     expect(listSeasons().map((season) => season.id)).toContain(other.id);
   });
 
@@ -117,5 +146,16 @@ describe("the season's name and its label", () => {
     expect(result.current.all.find((season) => season.id === result.current.activeId)?.name).toBe(
       "Spring 2027"
     );
+  });
+});
+
+describe("the season list read again", () => {
+  it("shows seasons added to storage from outside, and leaves the season on screen alone", () => {
+    const { result, loadActiveSeason } = setup();
+    const before = result.current.all.length;
+    createSeason("From the cloud");
+    act(() => result.current.refresh());
+    expect(result.current.all).toHaveLength(before + 1);
+    expect(loadActiveSeason).not.toHaveBeenCalled();
   });
 });

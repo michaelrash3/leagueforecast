@@ -40,10 +40,13 @@ service cloud.firestore {
       return isMember() && get(entry()).data.role == "owner";
     }
 
-    // The copy itself, `copies/main` and its `chunks`, and the pulls a device leaves beside it for
-    // the cloud to run, `copies/main/jobs`. The first version's `cloud/` is open to nobody.
+    // The copy itself, `copies/main` and its `chunks`: read by the list, written by no browser,
+    // the owner's included (1.6f). Only the cloud's servers write it, as service accounts the rules
+    // do not apply to: the nightly, the edit and rebuild functions, and the pulls in the cloud.
+    // Every edit a member makes goes through them, or into League Standings' own documents. Got
+    // by name and never listed. The first version's `cloud/` is open to nobody.
     match /copies/{document=**} {
-      allow read, write: if isMember();
+      allow get: if isMember();
     }
 
     // The views a server publishes from the copy for the list to read: `live/meta`, which names
@@ -53,6 +56,109 @@ service cloud.firestore {
     // not apply to; no browser does, the owner's included.
     match /live/{document=**} {
       allow get: if isMember();
+    }
+
+    // League Standings, one document per season, `league/{season}`, which the list reads and writes
+    // into directly, a record at a time (README, "League Standings in the cloud";
+    // `src/lib/live/leagueDocs.ts`). A season is made whole, with every field a season has, and
+    // keeps them, carrying no other field ever after, so every device reads what every other
+    // writes: every field but `updatedAt` is read by the check below, and a field the rules read
+    // that is not there refuses the write; `rev` is read, and its value set, by the create and
+    // update rules. Only the owner deletes one, since a season deleted here is gone from every
+    // device at once.
+    function leagueFields() {
+      return ["schema", "rev", "name", "createdAt", "updatedAt", "teams", "teamOrder", "matchups", "order", "logs", "bracketLogs", "settings"];
+    }
+
+    function isLeagueSeason(data) {
+      return data.keys().hasOnly(leagueFields())
+        && data.schema is int && data.schema >= 1
+        && data.name is string
+        && data.createdAt is string
+        && (!("updatedAt" in data) || data.updatedAt is string)
+        && data.teams is map && data.teamOrder is list
+        && data.matchups is map && data.order is list
+        && data.logs is map && data.bracketLogs is map
+        && data.settings is map;
+    }
+
+    match /league/{season} {
+      allow get, list: if isMember();
+      // Named by the season's id as `encodeKey` writes it: as it is, or `~` and base64url.
+      allow create: if isMember()
+        && season.matches("^(~[A-Za-z0-9_-]+|[A-Za-z0-9_-]{1,64})$")
+        && isLeagueSeason(request.resource.data)
+        && request.resource.data.rev == 1;
+      // Never back to an older layout than the one it is in, which a device that predates it
+      // would write over a newer device's season; and each write one past the last, so every
+      // device can tell which versions hold which writes, and a write made without reading the
+      // season first is refused.
+      allow update: if isMember()
+        && isLeagueSeason(request.resource.data)
+        && request.resource.data.schema >= resource.data.schema
+        && request.resource.data.rev == resource.data.rev + 1;
+      allow delete: if isOwner();
+    }
+
+    // A file the owner stages for the server (`src/lib/cloud/uploads.ts`): a Team Rankings backup
+    // to restore, too big for a call. Its record, `uploads/{id}`, says what it is and how many
+    // pieces it has, and is written first; the pieces, `uploads/{id}/chunks/{id}-{n}`, are the
+    // gzipped JSON as the copy keeps a part, each at most a document's size. The owner's alone,
+    // since restoring a backup is, and never changed once written: the server reads it as a
+    // service account the rules do not apply to, checks it against the record's fingerprint, and
+    // deletes it once used, as the nightly does any left a day.
+    function isUploadRecord(data) {
+      return data.keys().hasOnly(["kind", "hash", "bytes", "chunks", "createdAt"])
+        && data.kind == "team-rankings"
+        && data.hash is string && data.hash.matches("^[0-9a-f]{64}$")
+        && data.bytes is int && data.bytes >= 0
+        && data.chunks is int && data.chunks >= 1 && data.chunks <= 200
+        && data.createdAt is string;
+    }
+
+    match /uploads/{upload} {
+      allow get, delete: if isOwner();
+      allow create: if isOwner()
+        && upload.matches("^[0-9a-f]{32}$")
+        && isUploadRecord(request.resource.data);
+
+      // A piece only of an upload whose record is there, which is what the nightly sweeps by.
+      match /chunks/{piece} {
+        allow get, delete: if isOwner();
+        allow create: if isOwner()
+          && exists(/databases/$(database)/documents/uploads/$(upload))
+          && piece.matches("^" + upload + "-[0-9]{1,3}$")
+          && request.resource.data.keys().hasOnly(["data"])
+          && request.resource.data.data is bytes
+          && request.resource.data.data.size() <= 1000000;
+      }
+    }
+
+    // A pull a member leaves for the cloud to run (`src/lib/cloud/pullJobs.ts`): the job,
+    // `pullJobs/{job}`, and its list in pieces, `pullJobs/{job}/pieces/{n}`, written pieces first.
+    // Outside the copy, which only servers write. A member makes a job as a new one is made, reads
+    // any, and may change one thing of one once made: ask it to stop. The function that runs it
+    // keeps it up to date as a service account the rules do not apply to.
+    match /pullJobs/{job} {
+      allow get: if isMember();
+      allow create: if isMember()
+        && job.matches("^[0-9a-f]{32}$")
+        && request.resource.data.format == 1
+        && request.resource.data.status == "queued"
+        && request.resource.data.legsDone == 0
+        && request.resource.data.stopAsked == false;
+      allow update: if isMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["stopAsked"])
+        && request.resource.data.stopAsked == true;
+
+      match /pieces/{piece} {
+        allow get: if isMember();
+        allow create: if isMember()
+          && piece.matches("^[0-9]{1,3}$")
+          && request.resource.data.keys().hasOnly(["data"])
+          && request.resource.data.data is bytes
+          && request.resource.data.data.size() <= 1000000;
+      }
     }
 
     // The list. A member may read their own entry, which is how the app learns whether they are

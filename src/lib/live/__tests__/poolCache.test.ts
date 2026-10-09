@@ -15,6 +15,7 @@ import {
   isBoardInputKey,
   LEGACY_GAMES_KEY,
   loadAgeGroups,
+  loadDroppedClubs,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -23,6 +24,7 @@ import {
   resetTeamRankingsStore,
   saveAgeGroups,
   saveDroppedClubs,
+  saveRealClubs,
   saveRefreshLog,
   saveScoutGames,
   saveScoutTeams,
@@ -32,7 +34,7 @@ import {
 import type { SeasonReader } from "../allKnown";
 import { createPoolCache, type PoolEnsure } from "../poolCache";
 import { seasonReaderOf } from "../publishCopy";
-import { boardViews, buildAllBoards } from "../views/board";
+import { boardViews, buildBoardsAndFacts } from "../views/board";
 
 /*
  * The pool a server keeps between rebuilds (`poolCache.ts`): brought up to each new version of the
@@ -49,6 +51,8 @@ const AGE_GROUPS = "league_forecast_scout_age_groups_v1";
 const INDEX = "league_forecast_scout_games_v2_index";
 const YEAR_2027 = "league_forecast_scout_games_v2:2027";
 const NO_YEAR = "league_forecast_scout_games_v2:none";
+/** Thrown-out ids, which only Find a team's lists read of all the views. */
+const DROPPED = "league_forecast_gc_dropped_clubs_v1";
 
 /** The seasons as a browser puts them in the copy's `league` part. */
 const LEAGUE = {
@@ -79,7 +83,9 @@ const copyValues = async (
   saveScoutGames(pool.games);
   saveTidyStamp(STAMP);
   saveRefreshLog({ "9": refreshed });
-  saveDroppedClubs(new Set(["S-nobody"]));
+  saveDroppedClubs(new Set(["gcNOBODY0001"]));
+  // A key no view reads.
+  saveRealClubs(new Set(["S-nobody"]));
   await flushPoolWrites();
   const values = new Map<string, unknown>();
   for (const key of cloudPoolKeys())
@@ -165,6 +171,7 @@ const held = (readSeason: SeasonReader) => ({
   teams: fingerprint(loadScoutTeams()),
   games: fingerprint(loadScoutGames()),
   stamp: loadTidyStamp(),
+  dropped: [...loadDroppedClubs()].sort(),
   seasons: fingerprint(Object.keys(fixture.seasons).map((id) => readSeason(id))),
 });
 
@@ -174,7 +181,7 @@ const boardsOf = (readSeason: SeasonReader): string => {
   return fingerprint(
     boardViews(
       ageGroups,
-      buildAllBoards({
+      buildBoardsAndFacts({
         ageGroups,
         teams: loadScoutTeams(),
         gamesOfYear: loadScoutGamesForYear,
@@ -303,11 +310,11 @@ describe("a warm pool brought up to a new version", () => {
     expect(first).toMatchObject({ cold: true, gone: [], tries: 1 });
     // The boards' inputs, the tidy stamp and League Standings; not the keys no board reads.
     expect(first.fetched.sort()).toEqual(
-      [AGE_GROUPS, TIDY_STAMP_KEY, INDEX, YEAR_2027, NO_YEAR, LEAGUE_PART, TEAMS]
+      [AGE_GROUPS, TIDY_STAMP_KEY, INDEX, YEAR_2027, NO_YEAR, LEAGUE_PART, TEAMS, DROPPED]
         .concat("league_forecast_scout_games_v2:2026")
         .sort()
     );
-    expect(cache.held()).toEqual({ copy: first.manifest.copy, version: 1, keys: 8 });
+    expect(cache.held()).toEqual({ copy: first.manifest.copy, version: 1, keys: 9 });
     const firstBoards = boardsOf(first.readSeason);
     let boards = firstBoards;
 
@@ -375,7 +382,7 @@ describe("a warm pool brought up to a new version", () => {
     expect(ensured.manifest.copy).toBe(made.copy);
     expect(loadTidyStamp()).toBeNull();
     expect(cloudPoolKeys()).not.toContain(NO_YEAR);
-    expect(cache.held()).toEqual({ copy: made.copy, version: 1, keys: 6 });
+    expect(cache.held()).toEqual({ copy: made.copy, version: 1, keys: 7 });
   });
 
   it("starts afresh after a write to the store it did not make, and a build makes none", async () => {
@@ -401,13 +408,13 @@ describe("a warm pool brought up to a new version", () => {
     ok(await cache.ensure(store));
     // A year left with no games, then back; a score, then back. No fresh start between.
     const steps: Array<[Map<string, unknown>, string[], string[], number]> = [
-      [V.noShowcase, [INDEX], [NO_YEAR], 7],
+      [V.noShowcase, [INDEX], [NO_YEAR], 8],
       // League Standings, then only what no board reads: the seasons stay the ones just taken in.
-      [V.leagueEdited, [LEAGUE_PART], [], 7],
-      [V.refreshed, [], [], 7],
-      [V.regrouped, [INDEX, NO_YEAR, LEAGUE_PART], [], 8],
-      [V.renamed, [AGE_GROUPS], [], 8],
-      [V.base, [YEAR_2027, TEAMS], [], 8],
+      [V.leagueEdited, [LEAGUE_PART], [], 8],
+      [V.refreshed, [], [], 8],
+      [V.regrouped, [INDEX, NO_YEAR, LEAGUE_PART], [], 9],
+      [V.renamed, [AGE_GROUPS], [], 9],
+      [V.base, [YEAR_2027, TEAMS], [], 9],
     ];
     let from = V.regrouped;
     for (const [values, fetched, gone, keys] of steps) {
@@ -461,7 +468,7 @@ describe("a warm pool brought up to a new version", () => {
       .then((result) => ({ result, keys: cloudPoolKeys().length }));
     const { result, keys } = await ensured;
     expect(result).toMatchObject({ ok: true, cold: false, fetched: [YEAR_2027] });
-    expect(keys).toBe(7);
+    expect(keys).toBe(8);
     await dropped;
     expect(cache.held()).toEqual({ copy: null, version: null, keys: 0 });
   });
@@ -500,7 +507,7 @@ describe("a copy the pool cannot vouch for", () => {
     expect(read).toEqual([]);
     // And what the store held is held still.
     expect(held(first.readSeason)).toEqual(before);
-    expect(cache.held()).toEqual({ copy: renamed.copy, version: 1, keys: 8 });
+    expect(cache.held()).toEqual({ copy: renamed.copy, version: 1, keys: 9 });
 
     // An archive's rows are a key this build keeps, and no board reads them.
     cloud.setManifest({
