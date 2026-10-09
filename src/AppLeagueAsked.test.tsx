@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import * as cloudSession from "./lib/cloud/cloudSession";
+import * as copyBackupLib from "./lib/live/copyBackup";
 import type { LeagueFillPlan } from "./lib/leagueScoreFill";
 import type { LeagueBridgeAnswer } from "./lib/live/leagueAnswers";
 import type { QueryOf } from "./lib/live/queries";
@@ -183,6 +185,38 @@ describe("League Standings asking the server what Team Rankings has", () => {
     // The answer lands a tick after it is asked.
     await act(async () => {});
     expect((await importing()).closest("[role=dialog]")?.textContent).toMatch(scored);
+  });
+
+  it("reads the copy for Backup JSON on the cloud's board, and this device's pool with it off", async () => {
+    vi.stubGlobal("URL", { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined });
+    const saved = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const read = vi
+      .spyOn(copyBackupLib, "copyBackup")
+      .mockReturnValue(new Promise(() => undefined));
+    const backingUp = async () => {
+      fireEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+      fireEvent.click(screen.getByRole("button", { name: "Backup JSON" }));
+    };
+    try {
+      const { unmount } = render(<App />);
+      await backingUp();
+      // On the cloud's board this device holds no pool of its own: the file waits on the copy's.
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(saved).not.toHaveBeenCalled();
+      unmount();
+
+      // Turned off, Team Rankings is this device's own pool, kept in step, as before 1.6e.
+      writeLiveBoard(false);
+      render(<App />);
+      await backingUp();
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(saved).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("asks for the scores to fill, and opens them", async () => {

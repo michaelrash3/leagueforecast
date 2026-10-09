@@ -1,6 +1,11 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { useSeasonFiles, type SeasonFilesOptions } from "./useSeasonFiles";
+import {
+  READING_THE_COPY_FOR_CSV,
+  STILL_READING_THE_COPY_FOR_CSV,
+  useSeasonFiles,
+  type SeasonFilesOptions,
+} from "./useSeasonFiles";
 import { DEFAULT_SETTINGS } from "../lib/types";
 import type { LiveSeasonData } from "../lib/backup";
 import * as cloudSession from "../lib/cloud/cloudSession";
@@ -34,6 +39,7 @@ const harness = (over: Partial<SeasonFilesOptions> = {}) => {
   const options: SeasonFilesOptions = {
     liveSeason: live,
     activeSeasonId: "s1",
+    rankingsLive: true,
     teams: [],
     matchups: [],
     logs: {},
@@ -223,8 +229,10 @@ describe("a season's CSV in the cloud", () => {
       .spyOn(copyBackupLib, "copyBackup")
       .mockResolvedValue({ ok: true, csv: "PLACEHOLDER-SECTIONS" });
     const local = vi.spyOn(rankingsBackup, "readTeamRankingsBackup");
-    const { result } = harness();
+    const { result, calls } = harness();
     result.current.exportCSV();
+    // Said, as Backup JSON says it: the copy can take a while, and nothing else shows meanwhile.
+    expect(calls.showToast).toHaveBeenCalledWith(READING_THE_COPY_FOR_CSV);
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(read).toHaveBeenCalledWith(expect.objectContaining({ want: "csv" }));
     expect(await read.mock.calls[0]?.[0].copy?.()).toBe(reader);
@@ -259,6 +267,49 @@ describe("a season's CSV in the cloud", () => {
     expect(saved).toHaveLength(1);
     expect(local).toHaveBeenCalled();
     expect(read).not.toHaveBeenCalled();
+    done();
+  });
+
+  it("is this device's own pool's sections with the cloud's board turned off", async () => {
+    catching();
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    const read = vi.spyOn(copyBackupLib, "copyBackup");
+    const local = vi.spyOn(rankingsBackup, "readTeamRankingsBackup");
+    // A member who turned the board off edits and pulls on this device's pool, kept in step.
+    const { result, calls } = harness({ rankingsLive: false });
+    result.current.exportCSV();
+    expect(saved).toHaveLength(1);
+    expect(local).toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    expect(calls.showToast).not.toHaveBeenCalled();
+    done();
+  });
+
+  it("reads the copy once when pressed again while it reads, and says it is still reading", async () => {
+    catching();
+    vi.spyOn(cloudSession, "restoresInCloud").mockReturnValue(true);
+    let arrive: (made: Awaited<ReturnType<typeof copyBackupLib.copyBackup>>) => void = () =>
+      undefined;
+    const read = vi.spyOn(copyBackupLib, "copyBackup").mockReturnValue(
+      new Promise((resolve) => {
+        arrive = resolve;
+      })
+    );
+    const { result, calls } = harness();
+    result.current.exportCSV();
+    result.current.exportCSV();
+    // Each read is the whole copy, unpacked and decoded in a worker of its own.
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(calls.showToast.mock.calls.map(([message]) => message)).toEqual([
+      READING_THE_COPY_FOR_CSV,
+      STILL_READING_THE_COPY_FOR_CSV,
+    ]);
+    arrive({ ok: true, csv: "PLACEHOLDER-SECTIONS" });
+    await waitFor(() => expect(saved).toHaveLength(1));
+    // Done, the button reads the copy again.
+    result.current.exportCSV();
+    expect(read).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(saved).toHaveLength(2));
     done();
   });
 

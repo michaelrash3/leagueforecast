@@ -731,7 +731,13 @@ export const initTeamRankingsStore = async (io?: PoolStoreIo): Promise<void> => 
   } catch {
     // Anything unexpected leaves `usingIdb` false, which is the working localStorage path.
   }
-  startPoolSync();
+  /*
+   * Only the device's own store is shared with other tabs. A store handed in is a realm's own: the
+   * server's runs, the backup worker's copy laid into memory, a test's stand-in. No other tab reads
+   * it, so telling them of each key it lays in would only have every open tab re-read that key
+   * from its own store and reload its pool, and in Node the open channel would keep the process up.
+   */
+  if (!io) startPoolSync();
 };
 
 /**

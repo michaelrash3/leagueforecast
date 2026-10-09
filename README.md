@@ -2920,44 +2920,75 @@ cloud copy for the account signed in does not write the pool itself: it stages
 the file for the server and asks it to restore that, the copy's owner alone (see
 "Team Rankings restored from a backup" below). A member is told so before
 anything is sent; an account turned away from the copy keeps a pool of its own
-and restores it here, as a browser never signed in does. The seasons, theme and
-mode are still written here, and on screen before the cloud is waited on, so
-nothing typed meanwhile lands in the wrong season. The Team Rankings file
-restored on its own reloads the page on the restored pool where Team Rankings
-is open, and says it was restored either way; with a season backup, a CSV or a
-whole-browser file, the pool is taken as any newer copy is (at once where Team
-Rankings has not yet read one here, else offered by the Cloud button), so the
-season being written is not reloaded away, and the import's own toast says
-whether the pool was restored. A file holding no Team Rankings leaves the
-cloud's as it is: emptying that is Start again's. Undo after such an import
-covers the season alone: the copy keeps the pool it replaced, under Earlier
-versions in the Cloud panel.
+and restores it here, as a browser never signed in does, and so does one taken
+off the list since (`not-owner`), whose sign-in and record here are as they were
+but which the copy now refuses every read and restore. A copy that is gone, or
+one a newer build saved, is still the cloud's for an account on the list: a
+restore then says there is no copy to restore into, or is the server's. The
+seasons, theme and mode are still written here, and on screen before the cloud
+is waited on, so nothing typed meanwhile lands in the wrong season. The Team
+Rankings file restored on its own reloads the page on the restored pool where
+Team Rankings is open, and says it was restored either way; with a season
+backup, a CSV or a whole-browser file, the pool is taken as any newer copy is
+(at once where Team Rankings has not yet read one here, else offered by the
+Cloud button), so the season being written is not reloaded away, and the
+import's own toast says whether the pool was restored. A file holding no Team
+Rankings leaves the cloud's as it is: emptying that is Start again's. Undo after
+such an import covers the season alone: the copy keeps the pool it replaced,
+under Earlier versions in the Cloud panel. So, in the cloud, **Download replaced
+data** after a whole-browser restore holds the seasons, theme and mode replaced
+and no Team Rankings: what the restore replaced is the cloud's pool, which the
+cloud keeps, not this device's, which a member's device holds none of or none
+kept in step, and a file with no pool, restored in its turn, leaves the cloud's
+alone rather than laying this device's over it for every device. The toast says
+the pool it replaced is under Earlier versions.
 
 A CSV with no section markers is treated as all schedule, so every CSV exported
 before sections existed, and every hand-made one, still imports unchanged.
 
-**In the cloud, a backup's Team Rankings is the copy's** (1.6e). A member's device is to hold no
-pool, or none it keeps in step, so the three things that write Team Rankings into a file read it
-off the cloud's copy when they are asked: Setup's **Download a backup** on the live page, Backup
-JSON, and Export CSV. The page fetches the pieces of every pool part the copy's manifest names,
-League Standings' part aside, a part at a time, as a take fetches them (`copyBackup.ts`); a copy
-that moves on while it is read, a piece swept since the manifest was read, is read again once,
-off its manifest as it then stands. The pieces go to a worker of their own (`backup.worker.ts`),
-which unpacks and checks them as a take does (`unpackChunks`), lays them into a pool store in
-memory (`applyCloudPoolValues`) and reads them back with the very loaders the device's own
-backup reads with, so the file is the one a device holding that pool would write, to the byte:
+**In the cloud, a backup's Team Rankings is the copy's** (1.6e). A member's device on the cloud's
+board is to hold no pool, or none it keeps in step, so the three things that write Team Rankings
+into a file read it off the cloud's copy when they are asked: Setup's **Download a backup** on the
+live page, Backup JSON, and Export CSV. Backup JSON and Export CSV read it only where Team
+Rankings is the cloud's for this browser (App's `rankingsLive`): a member who turned the board off
+works on this device's own pool, kept in step, which reaches the copy only with a save that waits
+on pulls and tidies, so there they write this device's pool, as before 1.6e; and an account taken
+off the list, whose board is not the cloud's either, writes its own. Backup JSON takes League
+Standings as it stands when it is pressed, and lays the copy's pool into that once it is read:
+taken after the read, half a minute later on a phone, a season switched to meanwhile would have
+carried the pressed one's schedule under its own id. Each button reads the copy once at a time,
+and a press while it reads is told it is still reading, since a second read would hold a second
+whole copy in a phone's memory and download a second file; both say they are reading. A copy a
+newer build saved is refused off its manifest before a piece is fetched, as a take refuses it
+("…saved by a newer version of the app, so reload the page…"), since this build's loaders would
+drop the fields inside known keys it does not know and the file would be written without them. The
+page fetches the pieces of every pool part the copy's manifest names, League Standings' part
+aside, a part at a time, as a take fetches them (`copyBackup.ts`); a copy that moves on while it
+is read, a piece swept since the manifest was read, is read again once, off its manifest as it
+then stands. The pieces go to a worker of their own (`backup.worker.ts`), which unpacks and checks
+them as a take does (`unpackChunks`), lays them into a pool store in memory
+(`applyCloudPoolValues`) and reads them back with the very loaders the device's own backup reads
+with, so the file is the one a device holding that pool would write, to the byte:
 `backupProtocol.test.ts` holds the Team Rankings file, the CSV's sections and the whole-browser
 file's pool, each to the device's own, over a seeded pool with an archived table and a dropped
 club in it. It is a worker because it has to be, not for speed alone: the pool store is a module
-of one per realm, and on the page it is the device's own, which this would empty and fill with
-the copy, so a browser that cannot start the worker makes no backup rather than make it there.
-Each button says what it is doing, and why when it cannot ("The cloud's copy could not be read
-just now, so no backup was made."): Setup's and Backup JSON make no file without the copy's Team
-Rankings, while Export CSV saves the schedule without the sections and says so, the schedule
-being what that button is mostly for. A sign-in that will not load, a worker that fails and a
-part that will not unpack are each said that way, never thrown. A bare date in a CSV read in
-while Team Rankings is live is read in the squad year the server's bridge gives the season
-(`league.bridge`, 1.6e), as the device's own reads it off its age groups.
+of one per realm, and on the page it is the device's own, which this would empty and fill with the
+copy, so a browser that cannot start the worker makes no backup rather than make it there. That
+store is the worker's own, so it tells no tab of the keys it lays in: a store handed to
+`initTeamRankingsStore` (the worker's, the server's runs') starts no sync with other tabs, which
+would each re-read that key from their own store and reload their pool. An answer the worker
+cannot post, such as a file too large for a phone to clone, is posted as a failure instead, and a
+worker that has not answered in five minutes is ended and said to have failed
+(`BACKUP_WORKER_LIMIT_MS`): its slowest work, the CSV, took 3.5 s in Node on the seeded pool at
+the real pool's 252,171 games, and the real pool stores 2.4 times as much, so a phone at the
+README's measured five times a desktop needs about 40 s. Each button says what it is doing, and
+why when it cannot ("The cloud's copy could not be read just now, so no backup was made."):
+Setup's and Backup JSON make no file without the copy's Team Rankings, while Export CSV saves the
+schedule without the sections and says so, the schedule being what that button is mostly for. A
+sign-in that will not load, a worker that fails and a part that will not unpack are each said that
+way, never thrown. A bare date in a CSV read in while Team Rankings is live is read in the squad
+year the server's bridge gives the season (`league.bridge`, 1.6e), as the device's own reads it
+off its age groups.
 
 ### Your data on every device
 

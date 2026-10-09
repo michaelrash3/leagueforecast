@@ -9,9 +9,22 @@ import { backupOfCopy, type BackupAnswer, type BackupRequest } from "./backupPro
  */
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 
+const FAILED: BackupAnswer = { ok: false, why: "failed" };
+
+/**
+ * The answer posted, or a failure where the browser will not post it: the file or the CSV is the
+ * whole pool as strings, which a phone short of memory can refuse to clone (`DataCloneError`). A
+ * throw here would be an unhandled rejection in this realm, which never reaches the page's
+ * `onerror`, so the page would wait on an answer that is never coming.
+ */
+const answer = (made: BackupAnswer): void => {
+  try {
+    scope.postMessage(made);
+  } catch {
+    scope.postMessage(FAILED);
+  }
+};
+
 scope.onmessage = (event: MessageEvent<BackupRequest>) => {
-  void backupOfCopy(event.data).then(
-    (answer) => scope.postMessage(answer),
-    () => scope.postMessage({ ok: false, why: "failed" } satisfies BackupAnswer)
-  );
+  void backupOfCopy(event.data).then(answer, () => answer(FAILED));
 };

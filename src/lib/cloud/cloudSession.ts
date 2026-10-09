@@ -513,9 +513,11 @@ export const liveReader = async (): Promise<LiveReader | null> => {
 /**
  * The cloud's copy as this browser's signed-in member may read it, and only read it: what the live
  * page's Archive tab reads its finished seasons from (`copyArchive.ts`), or null for the same
- * reasons as `liveReader`. Each read is limited as a published board's is.
+ * reasons as `liveReader`, and for an account taken off the copy's list (`not-owner`), which the
+ * copy refuses every read. Each read is limited as a published board's is.
  */
 export const copyReader = async (): Promise<CopyReader | null> => {
+  if (status.kind === "not-owner") return null;
   const state = loadCloudState();
   if (!state.enabled || !state.uid) return null;
   const current = await loadSession();
@@ -1622,13 +1624,22 @@ export const bringBack = async (group: string): Promise<void> => {
 
 /**
  * Whether this browser keeps the cloud copy, so Team Rankings is restored there: signed in, with
- * the copy kept here for this account. An account turned away from the copy keeps its own pool,
- * and restores it here as a browser that never signed in does.
+ * the copy kept here for this account, and that account still on the copy's list. An account
+ * turned away from the copy keeps its own pool, and restores it here as a browser that never signed
+ * in does; so does one taken off the list since (`not-owner`), whose sign-in and record here are
+ * as they were, and which the copy now refuses every read and every restore.
+ *
+ * A copy that is gone, or one a newer build saved (`gone`, `update`), is still the cloud's for an
+ * account on its list, as `memberSignedIn` counts it: a restore says there is no copy to restore
+ * into, or is the server's, which reads the newer copy, and a read says so, rather than either
+ * taking this device's pool, which a member's device holds none of, or none kept in step.
  */
 export const restoresInCloud = (): boolean => {
   const account = signedIn();
   const state = loadCloudState();
-  return account !== null && state.enabled && state.uid === account.uid;
+  return (
+    account !== null && state.enabled && state.uid === account.uid && status.kind !== "not-owner"
+  );
 };
 
 /**
@@ -1696,12 +1707,17 @@ export const restoreTeamRankingsInCloud = async (
     await settleLocked(current, account, ["league", "pool"], reload ? "page" : "none");
   });
   if (told.answer) return told.answer;
-  // The work threw, or never had the copy to itself: said as the Cloud button says it.
+  // The work threw, or never had the copy to itself: said as the Cloud button says it. An account
+  // taken off the list partway is no longer one that restores in the cloud, and signing in again
+  // would not change that.
+  if (status.kind === "not-owner") return { ok: false, message: NOT_ON_THE_LIST_TO_RESTORE };
   if (!restoresInCloud()) return { ok: false, message: NOT_SIGNED_IN_TO_RESTORE };
   return { ok: false, message: status.kind === "error" ? status.message : NOT_REACHED };
 };
 
 const NOT_SIGNED_IN_TO_RESTORE = "Sign in to the cloud to restore Team Rankings there.";
+const NOT_ON_THE_LIST_TO_RESTORE =
+  "This Google account is not on the cloud copy's list any more, so Team Rankings was not restored there.";
 const NOTHING_TO_RESTORE =
   "The file holds no Team Rankings, so the cloud's is left as it is. Start again in Setup empties it.";
 const NOT_REACHED = "The cloud could not be reached. Try again in a moment.";

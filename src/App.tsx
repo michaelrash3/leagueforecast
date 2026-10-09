@@ -1770,6 +1770,7 @@ export default function App() {
     ...(rankingsLive && scoutBridge.squadYear !== undefined
       ? { cloudSquadYear: scoutBridge.squadYear }
       : {}),
+    rankingsLive,
     teams,
     matchups,
     logs,

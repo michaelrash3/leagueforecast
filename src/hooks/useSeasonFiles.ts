@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { coerceBackup, type FullBackup, type LiveSeasonData } from "../lib/backup";
 import { displayName } from "../lib/format";
 import { isFinal } from "../lib/util";
@@ -53,6 +53,12 @@ export type SeasonFilesOptions = {
    * it off. Absent, this device's own pages are read.
    */
   cloudSquadYear?: number;
+  /**
+   * Team Rankings is the cloud's for this browser (App's `rankingsLive`): only then do a CSV's
+   * sections and a full backup's pool come off the copy (`useFullBackup`). With the board turned
+   * off they are this device's own pool's, which it edits and keeps in step.
+   */
+  rankingsLive: boolean;
   teams: TeamBase[];
   matchups: Matchup[];
   logs: Record<string, GameLog>;
@@ -90,6 +96,14 @@ export type SeasonFilesOptions = {
   clearLastImpact: () => void;
 };
 
+/** Said while a CSV's sections are read off the cloud's copy, which can take a while. */
+export const READING_THE_COPY_FOR_CSV =
+  "Reading Team Rankings from the cloud for the CSV. It downloads once that is in.";
+
+/** Said of a press while that read is still running, which starts no second one. */
+export const STILL_READING_THE_COPY_FOR_CSV =
+  "Still reading Team Rankings from the cloud for the CSV. It downloads once that is in.";
+
 export type SeasonFiles = {
   importCSV: (file: File) => void;
   exportCSV: () => void;
@@ -112,6 +126,7 @@ export function useSeasonFiles({
   liveSeason,
   activeSeasonId,
   cloudSquadYear,
+  rankingsLive,
   teams,
   matchups,
   logs,
@@ -315,6 +330,9 @@ This will replace the current season data and save an undo snapshot.`,
     reader.readAsText(file);
   };
 
+  /** Whether a CSV's sections are being read off the copy now: a second press starts no other. */
+  const readingCopy = useRef(false);
+
   const exportCSV = useCallback(() => {
     const write = (rankingsSections: string) => {
       const csv = buildScheduleCsv({
@@ -332,28 +350,39 @@ This will replace the current season data and save an undo snapshot.`,
       anchor.click();
       URL.revokeObjectURL(url);
     };
-    if (!restoresInCloud()) {
+    if (!rankingsLive || !restoresInCloud()) {
       write(teamRankingsCsvSections(readTeamRankingsBackup()));
       return;
     }
+    // One read at a time: each is the whole copy, unpacked and decoded in a worker of its own.
+    if (readingCopy.current) {
+      showToast(STILL_READING_THE_COPY_FOR_CSV);
+      return;
+    }
     /*
-     * In the cloud the pool sections are the copy's, read for the file (1.6e), since this device
-     * holds no pool, or none kept in step. A copy that cannot be read leaves the schedule to go
-     * without them, and says so: the schedule is what the button is mostly for.
+     * In the cloud the pool sections are the copy's, read for the file (1.6e), since this device,
+     * on the cloud's board, holds no pool, or none kept in step. A copy that cannot be read leaves
+     * the schedule to go without them, and says so: the schedule is what the button is mostly for.
      */
+    readingCopy.current = true;
+    showToast(READING_THE_COPY_FOR_CSV);
     void (async () => {
-      const made = await copyBackup({
-        copy: copyReader,
-        want: "csv",
-        savedAt: new Date().toISOString(),
-      });
-      write(made.ok ? (made.csv ?? "") : "");
-      if (!made.ok)
-        showToast(`${COPY_UNREAD[made.why]}, so the schedule was saved without Team Rankings.`, {
-          tone: "error",
+      try {
+        const made = await copyBackup({
+          copy: copyReader,
+          want: "csv",
+          savedAt: new Date().toISOString(),
         });
+        write(made.ok ? (made.csv ?? "") : "");
+        if (!made.ok)
+          showToast(`${COPY_UNREAD[made.why]}, so the schedule was saved without Team Rankings.`, {
+            tone: "error",
+          });
+      } finally {
+        readingCopy.current = false;
+      }
     })();
-  }, [settings, matchups, logs, teamBaseById, showToast]);
+  }, [settings, matchups, logs, teamBaseById, rankingsLive, showToast]);
 
   /**
    * Put React back in step with storage, which is the source of truth once a restore has written
@@ -384,6 +413,7 @@ This will replace the current season data and save an undo snapshot.`,
   const { exportBackup, restoreFullBackup } = useFullBackup({
     liveSeason,
     seasonCount,
+    rankingsLive,
     requestConfirmation,
     showToast,
     onRestored: afterFullRestore,

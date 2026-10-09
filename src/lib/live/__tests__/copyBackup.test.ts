@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BackupAnswer, BackupRequest } from "../../../workers/backupProtocol";
 import { commitChanges } from "../../cloud/cloudEngine";
-import { chunkId } from "../../cloud/cloudManifest";
+import { chunkId, DATA_SCHEMA } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { memoryCloud } from "../../cloud/__tests__/memoryCloud";
 import type { CopyReader } from "../copyArchive";
-import { copyBackup, runBackupWorker } from "../copyBackup";
+import { BACKUP_WORKER_LIMIT_MS, copyBackup, runBackupWorker } from "../copyBackup";
 
 /*
  * What the page fetches of the cloud's copy for a backup: the pieces of every pool part the copy's
@@ -104,6 +104,29 @@ describe("the copy's pool, fetched for a backup", () => {
     expect(worker.asked).toHaveLength(1);
   });
 
+  it("is no backup of a copy a newer build saved, whose values hold fields this build drops", async () => {
+    const cloud = await copyHolding({ [TEAMS]: [{ id: "S-1", name: "Placeholder S-1" }] });
+    const store = cloud.store;
+    let fetched = 0;
+    const newer = {
+      readManifest: async () => {
+        const manifest = await store.readManifest();
+        return manifest && { ...manifest, schema: DATA_SCHEMA + 1 };
+      },
+      getChunk: (id: string) => {
+        fetched += 1;
+        return store.getChunk(id);
+      },
+    };
+    const worker = recording();
+    expect(
+      await copyBackup({ copy: async () => newer, want: "backup", savedAt: T, run: worker.run })
+    ).toEqual({ ok: false, why: "newer" });
+    // Refused off the manifest, as a take refuses it: not a piece of it is downloaded.
+    expect(fetched).toBe(0);
+    expect(worker.asked).toEqual([]);
+  });
+
   it("is no backup with no copy, no reader, or a read that fails, and never throws", async () => {
     const worker = recording();
     const empty = memoryCloud();
@@ -180,6 +203,40 @@ describe("a request run on a backup worker of its own", () => {
     StandIn.act = (worker) => queueMicrotask(() => worker.onmessageerror?.());
     expect(await runBackupWorker(REQUEST)).toEqual({ ok: false, why: "failed" });
     expect(StandIn.made.map(({ ended }) => ended)).toEqual([true, true]);
+  });
+
+  it("fails, and ends the worker, when it never answers within the limit", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("Worker", StandIn);
+      // Killed without a word, or holding an answer it cannot post: nothing ever comes.
+      StandIn.act = () => undefined;
+      let answer: BackupAnswer | null = null;
+      void runBackupWorker(REQUEST).then((made) => {
+        answer = made;
+      });
+      await vi.advanceTimersByTimeAsync(BACKUP_WORKER_LIMIT_MS - 1);
+      expect(answer).toBeNull();
+      expect(StandIn.made.map(({ ended }) => ended)).toEqual([false]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(answer).toEqual({ ok: false, why: "failed" });
+      expect(StandIn.made.map(({ ended }) => ended)).toEqual([true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves no limit running once the worker has answered", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("Worker", StandIn);
+      StandIn.act = (worker, request) =>
+        queueMicrotask(() => worker.onmessage?.({ data: { ok: true, csv: request.want } }));
+      expect(await runBackupWorker(REQUEST)).toEqual({ ok: true, csv: "csv" });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails, never done on the page instead, where no worker will start", async () => {

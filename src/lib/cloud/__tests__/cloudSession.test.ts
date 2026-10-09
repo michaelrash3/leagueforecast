@@ -971,6 +971,70 @@ describe("an account the copy refuses mid-visit", () => {
     await saving;
     expect(session.cloudStatus()).toMatchObject({ kind: "error", account: ME });
   });
+
+  it("makes its backups and restores as a browser turned away does, off this device, once taken off the list", async () => {
+    const { phone } = await inStep();
+    await open(phone);
+    expect(session.restoresInCloud()).toBe(true);
+    listed = false;
+    sky.store.readManifest = refused;
+    await session.lookAgain({ forced: true });
+    expect(session.cloudStatus()).toMatchObject({ kind: "not-owner", account: ME });
+    // Still signed in, with the copy still kept here for this account: only the list has changed.
+    expect(loadCloudState()).toMatchObject({ enabled: true, uid: ME.uid });
+    // Backup JSON, Export CSV and the restores read and write the copy wherever this answers true,
+    // and the copy refuses this account every time: League's seasons could never be backed up.
+    expect(session.restoresInCloud()).toBe(false);
+    expect(await session.copyReader()).toBeNull();
+  });
+
+  it("is turned away from the copy's backups and restores at a sign-in, too, though it was a member", async () => {
+    const { phone } = await inStep();
+    runAs(phone);
+    listed = false;
+    await session.signInToCloud();
+    expect(session.cloudStatus()).toMatchObject({ kind: "not-owner", account: ME });
+    expect(loadCloudState()).toMatchObject({ enabled: true, uid: ME.uid });
+    expect(session.restoresInCloud()).toBe(false);
+    expect(await session.copyReader()).toBeNull();
+  });
+
+  it("says it is off the list, not to sign in, when taken off it partway through a restore", async () => {
+    const { phone } = await inStep();
+    runAs(phone);
+    await open(phone);
+    listed = false;
+    sky.store.readManifest = refused;
+    const file = {
+      ageGroups: [],
+      teams: [{ id: "S-1", name: "Placeholder Restored" }],
+      games: [],
+    };
+    const answer = await session.restoreTeamRankingsInCloud(file, { reload: true });
+    expect(session.cloudStatus()).toMatchObject({ kind: "not-owner", account: ME });
+    expect(answer).toEqual({
+      ok: false,
+      message: expect.stringContaining("not on the cloud copy's list"),
+    });
+    expect(staged.size).toBe(0);
+  });
+
+  it("still restores in the cloud for a member whose copy is gone or newer than this build", async () => {
+    const { phone } = await inStep();
+    runAs(phone);
+    await open(phone);
+    const manifest = sky.manifest() as CloudManifest;
+    sky.setManifest({ ...manifest, schema: manifest.schema + 1, version: manifest.version + 1 });
+    await session.lookAgain({ forced: true });
+    expect(session.cloudStatus()).toMatchObject({ kind: "update", account: ME });
+    expect(session.restoresInCloud()).toBe(true);
+    expect(await session.copyReader()).not.toBeNull();
+    sky.setManifest(null);
+    await session.lookAgain({ forced: true });
+    expect(session.cloudStatus()).toMatchObject({ kind: "gone", account: ME });
+    expect(session.restoresInCloud()).toBe(true);
+    expect(await session.copyReader()).not.toBeNull();
+  });
 });
 
 describe("a device short of storage", () => {

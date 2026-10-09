@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { poolFixture } from "../../scripts/poolFixture";
 import { hashJson, packHashed } from "../lib/cloud/cloudPack";
 import { memoryIo } from "../lib/poolMemoryIo";
+import { POOL_CHANNEL } from "../lib/poolSync";
 import {
   readTeamRankingsBackup,
   teamRankingsCsvSections,
@@ -155,5 +156,23 @@ describe("a backup made off the cloud's copy", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("a backup made off the cloud's copy, heard by the other tabs", () => {
+  it("tells no tab of the keys it lays into a store of its own", async () => {
+    const heard: string[] = [];
+    const tab = new BroadcastChannel(POOL_CHANNEL);
+    tab.onmessage = (event: MessageEvent<{ key: string }>) => heard.push(event.data.key);
+    try {
+      expect(await backupOfCopy({ parts, want: "csv", savedAt: SAVED_AT })).toMatchObject({
+        ok: true,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } finally {
+      tab.close();
+    }
+    // Each would have every open tab re-read that key from its own store and reload its pool.
+    expect(heard).toEqual([]);
   });
 });
