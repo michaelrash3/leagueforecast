@@ -274,4 +274,109 @@ describe("a first meeting, from the seasons the copy gave", () => {
     expect(met.sent).toEqual(["summer"]);
     expect(bases.held.get(seasonDocId("summer"))?.rev).toBe(1);
   });
+
+  describe("long after another device went live (1.6e review)", () => {
+    // Every device went live with fall and winter, and winter was then deleted live. No device
+    // kept live writes League to the copy, so the copy still holds winter as it was.
+    const afterWinterDeleted = () => {
+      const cloud = memoryLeague();
+      cloud.put(seasonDocId("fall"), seasonToDoc(agreedOf("fall"), 6));
+      return cloud;
+    };
+
+    it("does not send back a season deleted live, from a copy no device has written since", async () => {
+      const cloud = afterWinterDeleted();
+      // A device wiped by Delete everything, or new, takes the copy's League in, and meets.
+      const bases = basesOf();
+      const met = await meetSeasons({
+        store: cloud.store,
+        local: localOf([agreedOf("spring"), agreedOf("fall"), agreedOf("winter")]),
+        bases,
+        openId: () => "spring",
+        agreed: [agreedOf("fall"), agreedOf("winter")],
+      });
+      expect(met.sent).toEqual([]);
+      expect(cloud.read(seasonDocId("winter"))).toBeUndefined();
+      // Met as one deleted elsewhere, with the copy's as its base, so never sent from here.
+      expect(met.gone).toEqual(["winter"]);
+      expect(bases.held.get(seasonDocId("winter"))).toEqual({
+        season: agreedOf("winter"),
+        rev: 0,
+        landed: [],
+      });
+    });
+
+    it("sends one changed here since the copy, which is better sent back than lost", async () => {
+      const cloud = afterWinterDeleted();
+      const changed = { ...agreedOf("winter"), name: "Winter, renamed here" };
+      const met = await meetSeasons({
+        store: cloud.store,
+        local: localOf([agreedOf("spring"), agreedOf("fall"), changed]),
+        bases: basesOf(),
+        openId: () => "spring",
+        agreed: [agreedOf("fall"), agreedOf("winter")],
+      });
+      expect(met.sent).toEqual(["winter"]);
+    });
+
+    it("sends one the cloud lacks while it holds only seasons this device sent", async () => {
+      // This device's own first meeting, cut short after sending fall: winter never got there.
+      const cloud = afterWinterDeleted();
+      const bases = basesOf();
+      bases.write(seasonDocId("fall"), { season: agreedOf("fall"), rev: 1, landed: [] });
+      const met = await meetSeasons({
+        store: cloud.store,
+        local: localOf([agreedOf("spring"), agreedOf("fall"), agreedOf("winter")]),
+        bases,
+        openId: () => "spring",
+        agreed: [agreedOf("fall"), agreedOf("winter")],
+      });
+      expect(met.sent).toEqual(["winter"]);
+    });
+
+    it("counts a season of the copy's another device sent that this one no longer holds", async () => {
+      const cloud = afterWinterDeleted();
+      const met = await meetSeasons({
+        store: cloud.store,
+        local: localOf([agreedOf("spring"), agreedOf("winter")]),
+        bases: basesOf(),
+        openId: () => "spring",
+        agreed: [agreedOf("fall"), agreedOf("winter")],
+      });
+      expect(met.added).toEqual(["fall"]);
+      expect(met.sent).toEqual([]);
+      expect(met.gone).toEqual(["winter"]);
+    });
+
+    it("counts one this device brought down at a meeting cut short and no longer holds", async () => {
+      const cloud = afterWinterDeleted();
+      // Fall came down with its base before the meeting was cut short, and was deleted here since:
+      // its base is the document's, not one this device sent.
+      const bases = basesOf();
+      bases.write(seasonDocId("fall"), { season: agreedOf("fall"), rev: 6, landed: [] });
+      const met = await meetSeasons({
+        store: cloud.store,
+        local: localOf([agreedOf("spring"), agreedOf("winter")]),
+        bases,
+        openId: () => "spring",
+        agreed: [agreedOf("fall"), agreedOf("winter")],
+      });
+      expect(met.sent).toEqual([]);
+      expect(met.gone).toEqual(["winter"]);
+    });
+
+    it("leaves the open season to the live store, with the base that says it was deleted", async () => {
+      const cloud = afterWinterDeleted();
+      const bases = basesOf();
+      await meetSeasons({
+        store: cloud.store,
+        local: localOf([agreedOf("fall"), agreedOf("winter")]),
+        bases,
+        openId: () => "winter",
+        agreed: [agreedOf("fall"), agreedOf("winter")],
+      });
+      expect(cloud.read(seasonDocId("winter"))).toBeUndefined();
+      expect(bases.held.get(seasonDocId("winter"))?.rev).toBe(0);
+    });
+  });
 });

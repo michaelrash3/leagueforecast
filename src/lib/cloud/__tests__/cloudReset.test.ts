@@ -95,6 +95,9 @@ const saveCaughtByReset = async ({
   during?: "download" | "commit";
 }) => {
   const storage = memoryStorage();
+  // League kept in the copy, its switch off: with it on, the copy only brings League in
+  // (1.6e review), and what is caught here is League on its way to the copy.
+  storage.setItem("lf_live_league_v1", "off");
   vi.stubGlobal("localStorage", storage);
   resetCloudGuard();
   const sky = memoryCloud();

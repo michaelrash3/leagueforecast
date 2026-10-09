@@ -17,7 +17,7 @@ const live = vi.hoisted(() => ({
   state: { kind: "off" } as LiveLeagueState,
   /** Seasons deleted from the cloud, and what the page asked of whether League is kept live. */
   removed: 0,
-  wanted: [] as { on: boolean; met: boolean }[],
+  wanted: [] as { on: boolean; met: boolean; inStep: boolean }[],
 }));
 
 vi.mock("./hooks/useLiveLeague", () => ({
@@ -36,7 +36,7 @@ vi.mock("./lib/live/leagueWanted", async (actual) => {
   return {
     ...real,
     leagueLiveWanted: (asked: Parameters<typeof real.leagueLiveWanted>[0]) => {
-      live.wanted.push({ on: asked.on, met: asked.met });
+      live.wanted.push({ on: asked.on, met: asked.met, inStep: asked.inStep });
       return real.leagueLiveWanted(asked);
     },
   };
@@ -73,14 +73,51 @@ describe("League Standings kept live, on the page", () => {
     render(<App />);
     await screen.findByRole("tab", { name: "Settings" });
     // On by default, and nothing met here.
-    expect(live.wanted[live.wanted.length - 1]).toEqual({ on: true, met: false });
+    // Not in step with a copy no settlement here has read.
+    expect(live.wanted[live.wanted.length - 1]).toEqual({ on: true, met: false, inStep: false });
     cleanup();
     writeLiveLeague(false);
     saveCloudState({ ...loadCloudState(), uid: "member-uid" });
     noteLeagueMet("member-uid");
     render(<App />);
     await screen.findByRole("tab", { name: "Settings" });
-    expect(live.wanted[live.wanted.length - 1]).toEqual({ on: false, met: true });
+    expect(live.wanted[live.wanted.length - 1]).toEqual({ on: false, met: true, inStep: false });
+  });
+
+  /** Deletes Fall from Settings' season list, and says whether it is still listed. */
+  const deleteFall = async () => {
+    const fall = createSeason("Fall");
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+    const seasonList = await screen.findByRole("region", { name: "Seasons" });
+    const row = within(seasonList).getByText("Fall").closest("li");
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Delete" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete season" })
+    );
+    return () => listSeasons().some((season) => season.id === fall.id);
+  };
+
+  it("refuses a delete on a device met live whose League is not live this moment (1.6e review)", async () => {
+    // Met live here, the cloud's answer not in yet at boot, or signed out since: the live store
+    // is off, and the season's document is still in the cloud.
+    saveCloudState({ ...loadCloudState(), uid: "member-uid" });
+    noteLeagueMet("member-uid");
+    const listed = await deleteFall();
+    expect(
+      await screen.findByText("Connect to the cloud to delete a season every device shares.")
+    ).toBeInTheDocument();
+    expect(listed()).toBe(true);
+    expect(live.removed).toBe(0);
+  });
+
+  it("refuses a delete on a member's device still to meet the cloud's seasons (1.6e review)", async () => {
+    saveCloudState({ ...loadCloudState(), enabled: true, uid: "member-uid" });
+    const listed = await deleteFall();
+    expect(
+      await screen.findByText("Connect to the cloud to delete a season every device shares.")
+    ).toBeInTheDocument();
+    expect(listed()).toBe(true);
   });
 
   it("deletes a season here alone where League is not kept live, asking no cloud", async () => {

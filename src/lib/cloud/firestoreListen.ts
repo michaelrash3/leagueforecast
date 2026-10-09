@@ -14,7 +14,7 @@ export {
   doc,
   enableNetwork,
   FieldPath,
-  getDocs,
+  getDocsFromServer,
   getFirestore,
   onSnapshot,
   runTransaction,

@@ -836,6 +836,21 @@ describe.skipIf(!HOST)("League seasons' rules, on the Firestore emulator", () =>
     expect(listed.docs.map((one) => one.id)).toEqual([DOC_ID]);
   });
 
+  it("are listed only as the server answers, refused offline rather than read from a cache", async () => {
+    await make(OWNER);
+    const both = bothAs(LAPTOP);
+    const loaded: { client: FullFirestore | null } = { client: null };
+    const league = firestoreLeague(async () => (loaded.client ??= await both.full()));
+    expect((await league.list()).map(({ docId }) => docId)).toEqual([DOC_ID]);
+    if (!loaded.client) throw new Error("the list has not loaded Firestore");
+    const { sdk, db } = loaded.client;
+    // Offline, Firestore's own listing answers from its cache, which a page that has listened to
+    // no season holds none of: a first meeting would take that for a cloud with no seasons.
+    await sdk.disableNetwork(db);
+    await expect(league.list()).rejects.toBeTruthy();
+    await sdk.enableNetwork(db);
+  });
+
   it("refuse a write that is not one past the last, as a write made without reading is", async () => {
     await make(OWNER);
     const db = as(LAPTOP);

@@ -50,7 +50,7 @@ export type FirstMeeting = {
   done: () => void;
 };
 
-/** This device's own: met as the account its cloud record is for, and noted against it. */
+/** This device's own: met once on this device, noted with the account it met as. */
 export const deviceFirstMeeting: FirstMeeting = {
   due: () => !leagueMetHere(),
   agreed: leagueAgreedWithCopy,
@@ -163,12 +163,15 @@ export function useLiveLeague({
           ...(first ? { agreed: firstMeeting.agreed() } : {}),
         }).then(
           (met) => {
+            // Seasons brought down are in storage whether or not the page still wants League
+            // live, and the list is read again even then: a meeting run again finds them held and
+            // brings down nothing, so would never say so.
+            if (met.added.length > 0) latest.current.onSeasonsAdded();
             if (cancelled) return;
             if (first) {
               firstMeeting.done();
               start();
             }
-            if (met.added.length > 0) latest.current.onSeasonsAdded();
           },
           // A list that would not come is tried again on the next visit, a first meeting with it;
           // the open season is live regardless.

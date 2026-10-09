@@ -56,14 +56,15 @@ describe("the cloud's League documents met here", () => {
     expect(leagueMetAs()).toBeNull();
   });
 
-  it("is met here only as the account this browser's cloud record is for", () => {
-    // No account, and nothing met: not met, though both are nothing.
+  it("is met on this device, whichever account is signed in after", () => {
     expect(leagueMetHere()).toBe(false);
     saveCloudState({ ...loadCloudState(), enabled: true, uid: "member-uid" });
     expect(leagueMetHere()).toBe(false);
     noteLeagueMet("member-uid");
     expect(leagueMetHere()).toBe(true);
+    // Every account on the list shares one cloud: another signing in here has met it too, and
+    // the copy's older League is not taken in over the live seasons (1.6e review).
     saveCloudState({ ...loadCloudState(), uid: "another-uid" });
-    expect(leagueMetHere()).toBe(false);
+    expect(leagueMetHere()).toBe(true);
   });
 });

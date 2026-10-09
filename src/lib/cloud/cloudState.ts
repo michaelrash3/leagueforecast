@@ -106,13 +106,13 @@ export const loadCloudState = (): DeviceCloudState => {
 };
 
 /**
- * Whether this device has met the cloud's League Standings documents as the account its record is
- * for (`leagueMetAs`, 1.6e): until it has, the copy keeps carrying League here, switch or no.
+ * Whether this device has met the cloud's League Standings documents (`leagueMetAs`, 1.6e): until
+ * it has, the copy still brings League in here. Met on this device as any account: the documents,
+ * and the copy, are one cloud's for every account on its list, so another member signing in here
+ * meets nothing new, and taking the copy's League in again would lay its older seasons over the
+ * live ones (1.6e review).
  */
-export const leagueMetHere = (): boolean => {
-  const uid = loadCloudState().uid;
-  return uid !== null && leagueMetAs() === uid;
-};
+export const leagueMetHere = (): boolean => leagueMetAs() !== null;
 
 /**
  * Saves the standing, and says whether it landed, read back: a tab that went on as though a take
@@ -191,13 +191,18 @@ export const clearOwed = (): void => {
   }
 };
 
-export type LeagueBase = { hash: string; value: unknown };
+/**
+ * The League Standings this device and the copy last agreed on, and whether they are this device's
+ * own, sent from here (`mine`): the copy's taken in holds only what some device sent it, while a
+ * device's own may hold a change no other device has yet.
+ */
+export type LeagueBase = { hash: string; value: unknown; mine?: true };
 
 /** The League Standings this device and the copy last agreed on, or null if it has none. */
 export const loadLeagueBase = (): LeagueBase | null => {
   const raw = readJson(BASE_KEY);
   return isRecord(raw) && typeof raw.hash === "string" && "value" in raw
-    ? { hash: raw.hash, value: raw.value }
+    ? { hash: raw.hash, value: raw.value, ...(raw.mine === true ? { mine: true as const } : {}) }
     : null;
 };
 

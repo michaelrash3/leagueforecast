@@ -24,10 +24,11 @@ describe("the browser's own sources for the live board", () => {
     expect(browserLiveSources().owed()).toEqual([LEAGUE_PART]);
   });
 
-  it("owe the copy League, switch on, until this device has met the cloud's seasons", () => {
+  it("owe the copy no League with the switch on, before the first meeting as after it", () => {
     markCloudDirty(LEAGUE_PART);
-    // On by default, and the copy carries League here until the first meeting.
-    expect(browserLiveSources().owed()).toEqual([LEAGUE_PART]);
+    // On by default: a change made before the first meeting waits for the cloud's documents,
+    // and is sent to no copy (1.6e review), so no board waits on it.
+    expect(browserLiveSources().owed()).toEqual([]);
     noteLeagueMet("member-uid");
     expect(browserLiveSources().owed()).toEqual([]);
   });

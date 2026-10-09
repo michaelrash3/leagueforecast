@@ -1,7 +1,7 @@
 import type { SeasonMeta, SeasonSnapshot } from "../storage";
 import type { BaseKeeper } from "./leagueBase";
 import { createdApart, decodeKey, docToSeason, seasonDocId, seasonToDoc } from "./leagueDocs";
-import type { LeagueStore } from "./leagueStore";
+import { madeAt, type LeagueStore } from "./leagueStore";
 
 /**
  * The seasons this device holds and the seasons in the cloud, made one list when League goes live
@@ -19,10 +19,18 @@ import type { LeagueStore } from "./leagueStore";
  * gave them, and the cloud may have moved on since, live, on devices that met it earlier. A season
  * held both here and there, with no base of its own, takes the copy's as its base (`agreed`, at
  * write 0, before any of the document's), so the open season's first meeting is three-way: a game
- * deleted live since is not brought back by this device, and what changed here since is kept. Only
- * a season the cloud holds: a season here alone is sent up as ever, since one the cloud lacks may
- * be one the copy's first device to go live never held, and sending a deleted season back is
- * better than losing one.
+ * deleted live since is not brought back by this device, and what changed here since is kept. The
+ * copy's League is only ever taken in on a device whose switch is on, never sent from it
+ * (`leagueToCopy`), so what it agreed with the copy holds no change of its own the documents lack.
+ *
+ * A season the copy agreed on, held here as it agreed, that the cloud lacks while it holds seasons
+ * some other device sent (1.6e review): the copy is no newer than the seasons that device sent,
+ * which were every season it held as the copy gave them, so this one was deleted live since, and is
+ * met as one deleted elsewhere, with the copy's as its base, rather than sent back. The copy's
+ * League stays as the last device to carry it left it, so every device met afresh would otherwise
+ * send back every season deleted since. A season the copy agreed on that this device has changed,
+ * or that a cloud holding none of another device's seasons lacks, is sent up as ever: sending a
+ * deleted season back is better than losing one.
  */
 
 export type LocalSeasons = {
@@ -43,6 +51,19 @@ export type SeasonsMet = {
   /** Seasons in the cloud this version of the app cannot read. */
   unread: string[];
 };
+
+/** A season as held here, unchanged from the copy's: the same name, teams, games and settings. */
+const sameAsAgreed = (held: SeasonSnapshot, agreed: SeasonSnapshot): boolean =>
+  JSON.stringify(partsOf(held)) === JSON.stringify(partsOf(agreed));
+
+const partsOf = ({ name, teams, matchups, logs, bracketLogs, settings }: SeasonSnapshot) => [
+  name,
+  teams,
+  matchups,
+  logs,
+  bracketLogs,
+  settings,
+];
 
 export const meetSeasons = async ({
   store,
@@ -73,11 +94,14 @@ export const meetSeasons = async ({
   const here = local.list();
   const heldIds = new Set(here.map((season) => season.id));
   const inCloud = new Set<string>();
+  // When each season in the cloud says it was made.
+  const cloudMade = new Map<string, string | null>();
   const arrivals: { season: SeasonSnapshot; rev: number }[] = [];
   for (const { docId, data } of remote) {
     const id = decodeKey(docId);
     if (id === null) continue;
     inCloud.add(id);
+    cloudMade.set(id, madeAt(data));
     if (heldIds.has(id)) continue;
     const read = docToSeason(data, docId);
     if (!read.ok) {
@@ -88,13 +112,29 @@ export const meetSeasons = async ({
   }
   if (agreed) {
     const asAgreed = new Map(agreed.map((season) => [season.id, season]));
+    // The copy's seasons as another device sent them: one of them in the cloud, made at the same
+    // moment, and not sent from here, so not held here, or held with no base of this device's
+    // own making (one laid from the copy is not).
+    const sentElsewhere = agreed.some((season) => {
+      const made = cloudMade.get(season.id);
+      if (made === undefined || made === null || createdApart(season.createdAt, made)) return false;
+      const known = bases.read(seasonDocId(season.id));
+      return !heldIds.has(season.id) || !known || known.rev === 0;
+    });
     for (const entry of here) {
       const season = asAgreed.get(entry.id);
       const docId = seasonDocId(entry.id);
       // The copy's of this season, made at the same moment: a season since made under its id,
       // after one was deleted, is not the season the copy agreed on.
-      if (!inCloud.has(entry.id) || !season || bases.read(docId)) continue;
+      if (!season || bases.read(docId)) continue;
       if (createdApart(season.createdAt, entry.createdAt)) continue;
+      if (!inCloud.has(entry.id)) {
+        // Deleted live since, as above, so met below as deleted elsewhere: unless changed here.
+        const held = local.read(entry.id);
+        if (!sentElsewhere || !held || !sameAsAgreed(held, season)) continue;
+        bases.write(docId, { season, rev: 0, landed: [] });
+        continue;
+      }
       bases.write(docId, { season, rev: 0, landed: [] });
       met.agreed.push(entry.id);
     }

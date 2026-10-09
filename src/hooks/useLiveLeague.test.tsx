@@ -277,6 +277,63 @@ describe("a device's first meeting with the cloud's seasons", () => {
     expect(result.current.state.kind).toBe("off");
   });
 
+  it("leaves no sync listening once turned off before the first meeting is done (1.6e review)", async () => {
+    // The page's state reads off whenever it is turned off, so the store is what can tell.
+    for (const fails of [false, true]) {
+      const cloud = deletedSince();
+      const { first } = meeting(true);
+      let letList = (): void => undefined;
+      const held = new Promise<void>((resolve) => (letList = resolve));
+      const { rerender, options, unmount } = mount({
+        open: async () => ({
+          ...cloud.store,
+          list: async () => {
+            await held;
+            if (fails) throw new Error("offline");
+            return cloud.store.list();
+          },
+        }),
+        firstMeeting: first,
+      });
+      await act(settled);
+      rerender({ ...options, enabled: false });
+      letList();
+      await act(settled);
+      expect(cloud.listeners(seasonDocId("spring"))).toBe(0);
+      unmount();
+    }
+  });
+
+  it("tells the page of seasons brought down by a first meeting cut short (1.6e review)", async () => {
+    const cloud = deletedSince();
+    cloud.put(
+      seasonDocId("fall"),
+      seasonToDoc({ ...ENTRY, id: "fall", name: "Fall", ...PARTS }, 2)
+    );
+    const { first } = meeting(true);
+    let letList = (): void => undefined;
+    const held = new Promise<void>((resolve) => (letList = resolve));
+    const { rerender, options, added } = mount({
+      open: async () => ({
+        ...cloud.store,
+        list: async () => {
+          await held;
+          return cloud.store.list();
+        },
+      }),
+      firstMeeting: first,
+    });
+    await act(settled);
+    rerender({ ...options, enabled: false });
+    letList();
+    await act(settled);
+    // In storage, though the page no longer wanted League live: its list is read again.
+    expect((options.local as ReturnType<typeof localOf>).held.map(({ id }) => id)).toContain(
+      "fall"
+    );
+    expect(added.length).toBeGreaterThan(0);
+  });
+
   it("is this device's own, as the account its cloud record is for", () => {
     window.localStorage.clear();
     saveCloudState({ ...loadCloudState(), enabled: true, uid: "member-uid" });

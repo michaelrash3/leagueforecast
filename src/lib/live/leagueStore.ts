@@ -49,7 +49,10 @@ export type LeagueStore = {
     docId: string,
     plan: (remote: LeagueRemote) => { write: LeagueWrite | null; result: T }
   ) => Promise<T>;
-  /** Every season in the cloud: a read for each, so asked for once a visit. */
+  /**
+   * Every season in the cloud as the server answers, refused offline rather than answered from a
+   * cache: a read for each, so asked for once a visit.
+   */
   list: () => Promise<{ docId: string; data: unknown }[]>;
   /**
    * Deletes a season's document if it is the season made at `createdAt`; the rules let only the
@@ -117,7 +120,10 @@ export const firestoreLeague = (load: () => Promise<FullFirestore>): LeagueStore
   },
   list: async () => {
     const { sdk, db } = await load();
-    const snaps = await sdk.getDocs(sdk.collection(db, LEAGUE_COLLECTION));
+    // As the server answers, or not at all: offline, the SDK's own `getDocs` answers from its
+    // cache, which on a page that has listened to none of them holds no season, and a meeting
+    // would take that for a cloud holding none (1.6e review).
+    const snaps = await sdk.getDocsFromServer(sdk.collection(db, LEAGUE_COLLECTION));
     return snaps.docs.map((snap) => ({ docId: snap.id, data: snap.data() }));
   },
   remove: async (docId, createdAt) => {

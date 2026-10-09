@@ -4624,28 +4624,48 @@ and anything else, or nothing, is on). A device turned off keeps League in the
 cloud copy, apart from the devices kept live. With it on:
 
 - **The first meeting** (1.6e). On by default, every device goes live at its own
-  next visit rather than all together, so the cloud copy keeps carrying League on
-  a device until it has met the cloud's League documents as the account signed in
-  (`lf_league_met_v1` holds that account): the copy brings the device in step
-  first, at boot as ever, and its seasons then meet the cloud's
-  (`meetSeasons`), the open season waiting, read-only, until they have, after
-  which the copy leaves League alone there. League goes live for a first meeting
-  only once the copy has brought the device in step, no newer League waiting in
-  it (`leagueLiveWanted`): a boot whose take of the copy was too slow, or a device
-  offline, stays carried by the copy, editable as before, rather than sending
-  older seasons of its own up to a cloud that holds none yet. A season held both here and in the
-  cloud, with no base of its own yet, takes the copy's season as this device last
-  agreed it (`leagueAgreedWithCopy`, the base a merge with the copy starts from)
-  as its base, at write 0, before any of the document's (kept as `fromCopy` by
-  `leagueBase.ts`, since no document is at write 0). So the open season's first
-  meeting is three-way: a game another device deleted live since stays deleted,
-  and a score entered here since is kept and sent, where with no base everything
-  either side holds would be kept. A season the cloud does not hold is still sent
-  up rather than taken for deleted: one the first device to go live never held
-  would otherwise be lost, and a season deleted live and sent back is the lesser
-  harm. A first meeting whose list does not come leaves the season live without
-  the bases, and is met again at the next visit.
-
+  next visit rather than all together. Until a device has met the cloud's League
+  documents (`lf_league_met_v1`, once on the device, whichever account signs in
+  after, since every account on the list shares one cloud), the copy still brings
+  League in there, so the device is in step with the copy before its seasons meet
+  the cloud's (`meetSeasons`); the open season waits, read-only, until they have.
+  But with the switch on, the copy is sent no League at all, met or not
+  (`leagueToCopy`): a change made before the first meeting waits, owed, and
+  reaches the cloud's documents at it. The copy's League a device has met is the
+  base its first meeting starts from, and a change of its own in that base, which
+  the documents had never held, would read as one they had deleted since, and be
+  dropped (the 1.6e review's two high findings).
+  - **In step.** League goes live for a first meeting only once a settlement here,
+    as the account signed in, took in everything newer of the copy's League and
+    set none of it aside (`leagueInStep`, with `leagueLiveWanted`). A status of
+    saved is not that: the boot says saved when it stops waiting on a copy too slow
+    to read, and a League that arrives while one is being edited here is set aside
+    for the next save. Until then the copy carries League here, editable, its
+    changes held back for the meeting.
+  - **The base.** A season held both here and in the cloud, with no base of its own
+    yet, takes the copy's season as this device last took it in
+    (`leagueAgreedWithCopy`) as its base, at write 0, before any of the document's
+    (kept as `fromCopy` by `leagueBase.ts`, since no document is at write 0); never
+    a version this device sent the copy itself, with its switch off (`mine`), which
+    could hold a change of its own the documents lack. So the open season's first
+    meeting is three-way: a game another device deleted live since stays deleted,
+    and a score entered here since is kept and sent, where with no base everything
+    either side holds would be kept.
+  - **Seasons deleted live.** A season the cloud does not hold is sent up rather
+    than taken for deleted, since one the first device to go live never held would
+    otherwise be lost. Except one the copy agreed on, held here unchanged, while the
+    cloud holds a season of the copy's that another device sent: that device sent
+    every season it held as the copy gave them, and no device kept live writes League
+    to the copy, so the copy is no newer than those, and this season was deleted
+    live since. It is met as deleted elsewhere, with the copy's as its base, and not
+    sent back; the copy's League stays as the last device to carry it left it, and
+    every device met afresh would otherwise send back every season deleted since.
+  - **The list** a first meeting reads is the server's answer, never Firestore's
+    cache (`getDocsFromServer`): offline, the cache of a page that has listened to
+    no season holds none, which would read as a cloud with none. A first meeting
+    whose list does not come leaves the season live without the bases, and is met
+    again at the next visit, its seasons brought down meanwhile shown even if the
+    meeting was cut short.
 - **The open season is kept live** (`leagueSync.ts`). A change is written 0.7 s
   after the last edit, or as soon as the page lets go of the field, or when the
   page is hidden, in one transaction: what changed here since this device last
@@ -4706,21 +4726,27 @@ cloud copy, apart from the devices kept live. With it on:
   brought down comes with its base, so the same holds for it. Deleting a season
   deletes its document first, which only the owner may, and which needs the
   cloud to answer: a member, or a device offline, is told so, and nothing is
-  deleted. The document is deleted only if it is this device's season, made at the
+  deleted. On a member's device, met here or signed in here before, whose League
+  is not live this moment (offline, signed out, or still to meet the cloud's
+  seasons), nothing is deleted either, and the member is told why
+  (`seasonDeleteRoute`): deleted here alone, the season's document would bring it
+  back at the next meeting. A device with the switch off, or a browser no member
+  has signed in to, deletes its own seasons here. The document is deleted only if it is this device's season, made at the
   same moment; another season under the id, kept apart from this one, is left in
   the cloud, and this device's is deleted here alone. A
   season deleted before some other device has first gone live comes back from
   that device, which has no base to tell a deletion from a season the cloud has
   not seen; a game deleted within a season does not, its season having the
   copy's as its base (the first meeting, above).
-- **The cloud copy leaves League alone** (`cloudSession.ts`), once the first
-  meeting is done: it neither sends
-  League nor takes it in, a League change is no change owed to it, a newer
-  League in it is not mentioned, and an earlier League version it keeps is
-  neither offered nor brought back. A League change is still marked, though, so
-  that turning the switch off sends to the copy what changed while League was
-  live, rather than the copy's older seasons replacing it; and a first copy made
-  while League is live counts as having met no League, so going back merges.
+- **The cloud copy leaves League alone** (`cloudSession.ts`): with the switch on
+  it is sent no League, a League change is no change owed to it, and an earlier
+  League version it keeps is neither offered nor brought back; once the first
+  meeting is done it takes no League in either, and a newer League in it is not
+  mentioned. A League change is still marked, though, so that turning the switch
+  off sends to the copy what changed meanwhile, merged with the copy's from the
+  base this device last took in, rather than the copy's older seasons replacing
+  it; and a first copy made with the switch on counts as having met no League, so
+  going back merges.
 
 **What Team Rankings has, asked of the server.** Where Team Rankings opens on
 the cloud's board (`liveBoardWanted`: unless turned off in the Cloud panel, in a browser

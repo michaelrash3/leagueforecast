@@ -185,12 +185,12 @@ export const writeLiveLeague = (on: boolean): boolean => {
 const LEAGUE_MET_KEY = "lf_league_met_v1";
 
 /**
- * The account this device has met the cloud's League Standings documents as (`meetSeasons`), once
- * it has. Until then the cloud copy keeps carrying League here, as for a device not kept live, so a
- * device going live for the first time is in step with the copy before its seasons meet the
- * cloud's, and sends the copy's seasons up rather than older ones of its own (`cloudSession.ts`).
- * Kept per device, for one account (another signing in meets them afresh), and cleared with the
- * rest of the app's keys by a reset.
+ * The account this device first met the cloud's League Standings documents as (`meetSeasons`), once
+ * it has. Until then the cloud copy still brings League in here, so a device going live for the
+ * first time is in step with the copy before its seasons meet the cloud's, and sends the copy's
+ * seasons up rather than older ones of its own (`cloudSession.ts`). Kept per device, whichever
+ * account is signed in after, since every account on the list shares one cloud, and cleared with
+ * the rest of the app's keys by a reset.
  */
 export const leagueMetAs = (): string | null => safeGet(LEAGUE_MET_KEY);
 
