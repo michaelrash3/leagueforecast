@@ -1,0 +1,54 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`League Standings' numbers on every tab (2.1 pin) > stay where they were pinned 1`] = `
+{
+  "Dashboard": "RankTeamRatingRecordRun Diff/GSOSTrend
+#1Ducks+1.52-1+1.3#1– Stable
+#2Aces+1.52-0-1+2.3#4– Stable
+#3Foxes+1.22-1+2.7#6– Stable
+#4Comets+0.11-1-10.0#2– Stable
+#5Bears-1.91-2-3.0#3– Stable
+#6Eagles-2.40-3-3.3#5↑ Up
+numbers: 6 27% 50% 10 3 3.9 69% 31% 6.5 -2.7 +1.5 -2.4 10 3 3.4 32% 68% 2.9 -6.3 +1.5 -1.9 10 3 1 45% 55% 4.1 -5.1 +1.2 +0.1 20 +2.0 1 1 +1.5 2 -1 +1.3 1 2 +1.5 2 -0 -1 +2.3 4 3 +1.2 2 -1 +2.7 6 4 +0.1 1 -1 -1 0.0 2 5 -1.9 1 -2 -3.0 3 6 -2.4 0 -3 -3.3 5",
+  "Forecast": "123456
+ACE532417
+DUC293722
+FOX15203528
+COM15223920
+BEA2164
+EAG91
+TeamCurrent SeedProjected SeedRangeProjected RecordGold OddsRun Diff
+Aces#1#10#1–#34-0-199%+±1%Stable+12
+Ducks#2#20#2–#24-195%±1%Stable+11
+Foxes#3#30#2–#43-298%±1%Stable+9
+Comets#4#40#3–#52-2-177%±2%Stable0
+Bears#5#50#4–#51-429%±2%Volatile-14
+Eagles#6#60#6–#60-5<1%±1%Stable-18
+numbers: 0.5 4 4 77% 2 3 4 5 5 29% 2 5 3 3 98% 1 3 4 2 3 2 2 95% 1 2 2 2 2 6 6 0% 6 1 1 100% 1 5 0% 25% 50% 75% 100% 7.0 4.3 2.0 5.3 2.3 5.3 2.0 5.3 6.0 3.7 4.7 4.7 7.0 4.3 2.3 5.3 5.7 4.3 4.7 4.7 5.7 4.3 6.0 3.7 4 4 1 1 1 4 4 3 -5 57% 2 2 2 3 3 5 -5 52% 1 1 1 2 2 4 -4 50% 2 2 1 1 1 2 2 5 -6 53% 4000 29% 55% 28% 52% 26% 50% 14% 34% 3% 10% 0% 0% 4 10 3 10 3 10 3 10 10 10 10 10 10 1 1 0 1 3 4 -0 -1 +1299% 1% 2 2 0 2 2 4 -1 +1195% 1% 3 3 0 2 4 3 -2 +998% 1% 4 4 0 3 5 2 -2 -1 077% 2% 5 5 0 4 5 1 -4 -1429% 2% 6 6 0 6 6 0 -5 -18 1% 1% 1 10 10 2 10 3 3 10 3 4 10 10 5 10 10 4 4 4 3 5 77% 2% 3 3 2 4 98% 1% 5 5 4 5 29% 2% 6 6 6 6 1% 1% 2 2 10 3 68% 2 2 10 10 69% 2 2 3 3 10 3 56% 3 4 10 10 49% 2 3 4 4 10 3 44% 3 4 10 10 61% 4 5 5 5 10 3 32% 5 5 10 10 39% 4 5 6 6 10 3 31% 6 6 10 10 31% 6 6 6 10 3 -3.5 69% 10 3 -3.5 68% 10 3 -1.5 56% 10 10 -0.5 51% 10 10 -1.5 61% 10 10 -3.5 69% 6 9 19 4 -3 5 49 19 1 -8 9 19.9 19 5 -2 9 19 2 1 1 29 12 10 -4 9 12 3 1 2 39 12 3 -1 5 49 12 6 -6 9 12 2 1 8 0.24050% 50% 4.4 1 100% 0.240 25% 340 -50% 3 45% 67% 50 -60% 4 51% 50% 60 -70% 1 66% 100%",
+  "League Stats": "ACEDUCFOXCOMBEAEAG
+ACE
+DUC
+FOX
+COM
+BEA
+EAG
+numbers: 9 4.6 9 1 3 7.02 3 6.03 3 5.74 3 4.7 4.65 3 2.36 3 2.0 1 3 3.72 3 4.33 3 4.3 4.64 3 4.75 3 5.36 3 5.3",
+  "Power Ratings": "RankTeamRatingRecordRun Diff/GSOSTrend
+#1Ducks+1.52-1+1.3#1– Stable
+#2Aces+1.52-0-1+2.3#4– Stable
+#3Foxes+1.22-1+2.7#6– Stable
+#4Comets+0.11-1-10.0#2– Stable
+#5Bears-1.91-2-3.0#3– Stable
+#6Eagles-2.40-3-3.3#5↑ Up
+numbers: 20 +2.0 1 1 +1.5 2 -1 +1.3 1 2 +1.5 2 -0 -1 +2.3 4 3 +1.2 2 -1 +2.7 6 4 +0.1 1 -1 -1 0.0 2 5 -1.9 1 -2 -3.0 3 6 -2.4 0 -3 -3.3 5 1",
+  "Standings": "SeedTeamRecordDiffSOSGold %Playoff StatusTrend (Gold %)
+#1 · Comfortably inside the gold bracketACEAces2-0-1+7#599%+±1% sim. errorFirmly InGold odds over recent completed games: 91% to 100%. Higher is better.
+#2 · Comfortably inside the gold bracketDUCDucks2-1+4#195%±1% sim. errorFirmly InGold odds over recent completed games: 83% to 96%. Higher is better.
+#3 · Comfortably inside the gold bracketFOXFoxes2-1+8#698%±1% sim. errorInGold odds over recent completed games: 65% to 97%. Higher is better.
+#4 · Comfortably inside the gold bracketCOMComets1-1-10#377%±2% sim. errorInGold odds over recent completed games: 55% to 77%. Higher is better.
+Gold Cut Line
+#5 · On the bubble for the gold bracketBEABears1-2-9#229%±2% sim. errorAliveGold odds over recent completed games: 35% to 30%. Higher is better.
+#6 · Chasing a gold bracket placeEAGEagles0-3-10#4<1%±1% sim. errorLongshotGold odds over recent completed games: 71% to 0%. Higher is better.
+numbers: 4 9 19 1 2 -0 -1 +7 599% 1% 2 2 -1 +4 195% 1% 3 2 -1 +8 698% 1% 4 1 -1 -1 0 377% 2% 5 1 -2 -9 229% 2% 6 0 -3 -10 4 1% 1%",
+}
+`;
