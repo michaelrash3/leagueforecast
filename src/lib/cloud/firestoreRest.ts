@@ -137,7 +137,28 @@ type RestAccess = {
   fetchImpl?: typeof fetch;
   /** Where Firestore answers: its own address, unless a test points this at the emulator. */
   origin?: string;
+  /** Waits before a request Firestore turned away is asked again; a test's need not wait. */
+  pause?: (ms: number) => Promise<void>;
 };
+
+/**
+ * How long to wait before asking again a request Firestore turned away for load, once per wait,
+ * 31 s in all. The nightly of 5 Oct 2026 stopped on Firestore's HTTP 429 writing the fourth piece
+ * of its first part (pieces go four at a time, `inBatches`), and lost the night's refresh: a
+ * refusal for load, which the three nights after did not meet saving the same number of values.
+ */
+export const BUSY_WAITS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000];
+
+/**
+ * Whether an answer is Firestore turned away for load, and asking again is safe: too many requests
+ * (429) is refused before anything is done, so any request; unavailable (503) may come after a
+ * write was done, so only a request that does the same thing however often it is made, never a
+ * commit, whose second try would read its own first as another writer's save.
+ */
+const askAgain = (status: number, method: string): boolean =>
+  status === 429 || (status === 503 && method !== "POST");
+
+const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 /** Requests to `projectId`'s default database, signed with `token`. */
 const restClient = ({
@@ -145,17 +166,28 @@ const restClient = ({
   token,
   fetchImpl = fetch,
   origin = "https://firestore.googleapis.com",
+  pause = wait,
 }: RestAccess) => {
   const database = `projects/${projectId}/databases/(default)`;
   const documents = `${origin}/v1/${database}/documents`;
-  const call = async (url: string, init: RequestInit = {}): Promise<Response> =>
-    fetchImpl(url, {
-      ...init,
-      headers: {
-        authorization: `Bearer ${await token()}`,
-        ...(init.body ? { "content-type": "application/json" } : {}),
-      },
-    });
+  const call = async (url: string, init: RequestInit = {}): Promise<Response> => {
+    for (let tries = 0; ; tries += 1) {
+      const response = await fetchImpl(url, {
+        ...init,
+        headers: {
+          authorization: `Bearer ${await token()}`,
+          ...(init.body ? { "content-type": "application/json" } : {}),
+        },
+      });
+      const before = BUSY_WAITS_MS[tries];
+      if (before === undefined || !askAgain(response.status, init.method ?? "GET")) {
+        return response;
+      }
+      // Read to its end, so the connection is free for the next try.
+      await response.arrayBuffer().catch(() => undefined);
+      await pause(before);
+    }
+  };
   const read = async (path: string): Promise<FirestoreDocument | null> => {
     const response = await call(`${documents}/${path}`);
     if (response.status === 404) return null;

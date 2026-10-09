@@ -12,6 +12,7 @@ import { commitChanges, type Change } from "../cloudEngine";
 import { UnreadableCopyError } from "../cloudManifest";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
 import {
+  BUSY_WAITS_MS,
   FirestoreError,
   firestoreFieldsOf,
   firestoreRestDocuments,
@@ -287,6 +288,111 @@ describe("the cloud copy through Firestore's REST API", () => {
     expect((await reader.readManifest())?.version).toBe(1);
     await expect(reader.putChunk("x-0", new Uint8Array([1]))).rejects.toThrow(/to read/);
     await expect(reader.deleteChunk("x-0")).rejects.toThrow(/to read/);
+  });
+});
+
+describe("a request Firestore turns away for load", () => {
+  /**
+   * The copy's store over `firestore`, whose requests matching `refuse` are answered `status`
+   * while `times` of them last; the waits it makes before asking again are kept, not waited.
+   */
+  const busyStore = (
+    firestore: ReturnType<typeof fakeFirestore>,
+    refuse: (method: string, url: string) => boolean,
+    status: number,
+    times: number
+  ) => {
+    const answers = firestore.fetchImpl.getMockImplementation()!;
+    let left = times;
+    firestore.fetchImpl.mockImplementation(async (input, init) => {
+      if (left > 0 && refuse(init?.method ?? "GET", String(input))) {
+        left -= 1;
+        return new Response(JSON.stringify({ error: { status: "BUSY" } }), { status });
+      }
+      return answers(input, init);
+    });
+    const waits: number[] = [];
+    const store = firestoreRestStore({
+      projectId: "proj",
+      token: async () => "a-token",
+      writable: true,
+      fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
+      pause: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    return { store, waits };
+  };
+  const pieceWrites = (firestore: ReturnType<typeof fakeFirestore>) =>
+    firestore.fetchImpl.mock.calls.filter(([, init]) => init?.method === "PATCH").length;
+
+  it("asks again a piece turned away for load, waiting longer each time, until it lands", async () => {
+    const firestore = fakeFirestore();
+    const { store, waits } = busyStore(firestore, (method) => method === "PATCH", 429, 2);
+    await store.putChunk("up-0", new Uint8Array([1, 2, 3]));
+    expect(waits).toEqual([1_000, 2_000]);
+    expect(pieceWrites(firestore)).toBe(3);
+    expect(firestore.docs.get("copies/main/chunks/up-0")!.fields.data).toEqual({
+      bytesValue: "AQID",
+    });
+  });
+
+  it("gives up after its last wait, and throws the refusal", async () => {
+    const firestore = fakeFirestore();
+    const { store, waits } = busyStore(firestore, (method) => method === "PATCH", 429, 99);
+    await expect(store.putChunk("up-0", new Uint8Array([1]))).rejects.toThrow(/HTTP 429/);
+    expect(waits).toEqual(BUSY_WAITS_MS);
+    expect(BUSY_WAITS_MS.reduce((sum, ms) => sum + ms, 0)).toBe(31_000);
+    expect(pieceWrites(firestore)).toBe(BUSY_WAITS_MS.length + 1);
+  });
+
+  it("asks a commit again only when it was turned away before anything was done", async () => {
+    const firestore = fakeFirestore();
+    const manifest = await firstCopy(storeOn(firestore));
+    const next = { ...manifest, version: manifest.version + 1 };
+    const at = { version: manifest.version, copy: manifest.copy };
+    const isCommit = (method: string, url: string) => method === "POST" && url.endsWith(":commit");
+
+    // Too many requests is refused before anything is done: asked again, it lands.
+    const throttled = busyStore(firestore, isCommit, 429, 1);
+    expect(await throttled.store.commitManifest(at, next)).toBe(true);
+    expect(throttled.waits).toEqual([1_000]);
+
+    // Unavailable may come after the write was done, when a second try would read the first as
+    // another writer's save: said, not asked again.
+    const commits = () =>
+      firestore.fetchImpl.mock.calls.filter(([input]) => String(input).endsWith(":commit")).length;
+    const before = commits();
+    const down = busyStore(firestore, isCommit, 503, 1);
+    await expect(
+      down.store.commitManifest({ version: next.version, copy: next.copy }, next)
+    ).rejects.toThrow(/HTTP 503/);
+    expect(down.waits).toEqual([]);
+    expect(commits() - before).toBe(1);
+  });
+
+  it("asks a read or a piece's write again while Firestore is unavailable", async () => {
+    const firestore = fakeFirestore();
+    const manifest = await firstCopy(storeOn(firestore));
+    const reads = busyStore(firestore, (method) => method === "GET", 503, 1);
+    expect(await reads.store.readManifest()).toEqual(manifest);
+    expect(reads.waits).toEqual([1_000]);
+
+    // A piece written twice is the same piece.
+    const writes = busyStore(firestore, (method) => method === "PATCH", 503, 1);
+    await writes.store.putChunk("up-0", new Uint8Array([7]));
+    expect(writes.waits).toEqual([1_000]);
+    expect(firestore.docs.get("copies/main/chunks/up-0")!.fields.data).toEqual({
+      bytesValue: "Bw==",
+    });
+  });
+
+  it("never asks again a refusal that is not for load", async () => {
+    const firestore = fakeFirestore();
+    const { store, waits } = busyStore(firestore, (method) => method === "PATCH", 403, 1);
+    await expect(store.putChunk("up-0", new Uint8Array([1]))).rejects.toThrow(/HTTP 403/);
+    expect(waits).toEqual([]);
+    expect(pieceWrites(firestore)).toBe(1);
   });
 });
 
