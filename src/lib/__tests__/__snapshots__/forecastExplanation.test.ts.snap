@@ -1,0 +1,116 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the matchup odds > are pinned, so explaining them moves none of them 1`] = `
+[
+  {
+    "confidence": {
+      "reasons": [
+        "Projected margin is tight, so winner certainty remains limited.",
+      ],
+      "score": 23,
+      "tier": "Low",
+    },
+    "expectedScore": {
+      "teamA": 5.6,
+      "teamB": 4.1,
+    },
+    "gameId": "g8",
+    "keyFactors": [
+      "Aces holds the stronger opponent-adjusted rating (+2.6 vs +1.0 runs).",
+      "Recent form supports the projected winner.",
+    ],
+    "predictedWinnerId": "A",
+    "projectedMargin": 1.6,
+    "riskFactors": [
+      "Similar team ratings create a close-game risk.",
+    ],
+    "winProbability": {
+      "teamA": 0.58,
+      "teamB": 0.42,
+    },
+  },
+  {
+    "confidence": {
+      "reasons": [
+        "Projected margin is tight, so winner certainty remains limited.",
+      ],
+      "score": 22,
+      "tier": "Low",
+    },
+    "expectedScore": {
+      "teamA": 5.5,
+      "teamB": 4.2,
+    },
+    "gameId": "g9",
+    "keyFactors": [
+      "Bears holds the stronger opponent-adjusted rating (+0.3 vs -1.1 runs).",
+      "Bears has also faced the tougher schedule.",
+      "Recent form supports the projected winner.",
+    ],
+    "predictedWinnerId": "B",
+    "projectedMargin": 1.4,
+    "riskFactors": [
+      "Similar team ratings create a close-game risk.",
+    ],
+    "winProbability": {
+      "teamA": 0.57,
+      "teamB": 0.43,
+    },
+  },
+  {
+    "confidence": {
+      "reasons": [
+        "Projected margin is tight, so winner certainty remains limited.",
+      ],
+      "score": 24,
+      "tier": "Low",
+    },
+    "expectedScore": {
+      "teamA": 4.1,
+      "teamB": 5.6,
+    },
+    "gameId": "g10",
+    "keyFactors": [
+      "Bears holds the stronger opponent-adjusted rating (+0.3 vs -1.2 runs).",
+      "Bears has also faced the tougher schedule.",
+      "Recent form supports the projected winner.",
+    ],
+    "predictedWinnerId": "B",
+    "projectedMargin": 1.5,
+    "riskFactors": [
+      "Similar team ratings create a close-game risk.",
+    ],
+    "winProbability": {
+      "teamA": 0.42,
+      "teamB": 0.58,
+    },
+  },
+  {
+    "confidence": {
+      "reasons": [
+        "Projected margin is tight, so winner certainty remains limited.",
+      ],
+      "score": 25,
+      "tier": "Low",
+    },
+    "expectedScore": {
+      "teamA": 5.9,
+      "teamB": 3.8,
+    },
+    "gameId": "g11",
+    "keyFactors": [
+      "Eagles holds the stronger opponent-adjusted rating (+1.0 vs -1.1 runs).",
+      "Recent form supports the projected winner.",
+    ],
+    "predictedWinnerId": "E",
+    "projectedMargin": 2.1,
+    "riskFactors": [
+      "Similar team ratings create a close-game risk.",
+    ],
+    "winProbability": {
+      "teamA": 0.61,
+      "teamB": 0.39,
+    },
+  },
+]
+`;
