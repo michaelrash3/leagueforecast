@@ -2708,7 +2708,8 @@ those games played: records, places and the cut line from the same code as the r
 standings, with the league's own tiebreakers, and Gold % simulated over the games
 still unpicked (`scenarioSeason`). A pick plays out at the model's expected score,
 turned round where the pick goes against the model, because run differential breaks
-ties and a winner alone does not give one; a score can be typed instead. Ratings are
+ties and a winner alone does not give one; a score can be typed instead, up to 99 runs a
+side, which is as many as a saved scenario or a link keeps (`MOST_RUNS`). Ratings are
 not refitted on made-up results, so the rest of the page does not move. Each team's row
 says how the picks move it against the season as it stands: its place (▲2), its Gold %
 (+65), and **Clinches** or **Out** where the picks settle what the season does not yet.

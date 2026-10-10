@@ -173,8 +173,15 @@ export const presetPicks = (
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+/**
+ * The most runs a pick's typed score keeps, stored or carried in a link: more than any game at this
+ * level scores, and two digits in a link. The playoff machine takes no more, so a score is saved as
+ * it was shown rather than dropped on being read back.
+ */
+export const MOST_RUNS = 99;
+
 const runs = (value: unknown) =>
-  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 99
+  typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MOST_RUNS
     ? value
     : undefined;
 

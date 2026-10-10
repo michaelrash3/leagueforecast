@@ -6,6 +6,7 @@ import {
   isStale,
   keepScenario,
   livePicks as applyingPicks,
+  MOST_RUNS,
   newScenarioId,
   presetPicks,
   readScenarios,
@@ -437,7 +438,9 @@ export function PlayoffMachine({
     setWork((before) => {
       const pick = before.picks[game.id];
       if (!pick) return before;
-      const runs = text.trim() === "" ? undefined : Math.max(0, Math.round(Number(text)));
+      // No more than a saved scenario keeps (`MOST_RUNS`), so what is saved is what was shown.
+      const runs =
+        text.trim() === "" ? undefined : Math.min(MOST_RUNS, Math.max(0, Math.round(Number(text))));
       const next: ScenarioPick = { ...pick };
       if (runs === undefined || !Number.isFinite(runs)) delete next[side];
       else next[side] = runs;
@@ -723,6 +726,7 @@ export function PlayoffMachine({
                     <input
                       type="number"
                       min={0}
+                      max={MOST_RUNS}
                       inputMode="numeric"
                       aria-label={`${away} runs`}
                       placeholder={score ? String(score.awayRuns) : ""}
@@ -734,6 +738,7 @@ export function PlayoffMachine({
                     <input
                       type="number"
                       min={0}
+                      max={MOST_RUNS}
                       inputMode="numeric"
                       aria-label={`${home} runs`}
                       placeholder={score ? String(score.homeRuns) : ""}

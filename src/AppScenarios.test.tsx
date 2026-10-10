@@ -402,6 +402,29 @@ describe("saved playoff scenarios", () => {
     expect(within(machine).getByRole("button", { name: "Save changes" })).toBeEnabled();
   });
 
+  it("keeps a typed score within what a saved scenario keeps, so it is saved as shown (2.7 review)", async () => {
+    const user = userEvent.setup();
+    const first = render(<App />);
+    let machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    const ducksRuns = within(machine).getByRole("spinbutton", { name: "Ducks runs" });
+    await user.type(ducksRuns, "120");
+    expect(ducksRuns).toHaveValue(99);
+    await user.type(within(machine).getByRole("spinbutton", { name: "Aces runs" }), "3");
+    const stored = await saveScenario(user, machine);
+    expect(stored.picks.g3).toEqual({ winnerId: "D", awayRuns: 99, homeRuns: 3 });
+    first.unmount();
+
+    // Opened again on another visit, the score is the one that was shown.
+    render(<App />);
+    machine = await openMachine(user);
+    await user.selectOptions(
+      within(machine).getByRole("combobox", { name: "Scenario" }),
+      "Scenario 1"
+    );
+    expect(within(machine).getByRole("spinbutton", { name: "Ducks runs" })).toHaveValue(99);
+  });
+
   it("brings back no scenario another tab let go of, and keeps its picks here (2.7 review)", async () => {
     const user = userEvent.setup();
     render(<App />);
