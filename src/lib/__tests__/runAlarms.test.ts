@@ -74,6 +74,11 @@ describe("which alarms a nightly raises or settles", () => {
     expect(nightlyVerdicts({ ...dry, rebuilds: "none" })).toEqual([
       { kind: "rebuilds", failing: false },
     ]);
+    // Switched off, nothing of theirs runs and their ledger stands still: an issue left open over
+    // failures recorded before would be commented on every night with no end.
+    expect(nightlyVerdicts({ ...dry, rebuilds: "off" })).toEqual([
+      { kind: "rebuilds", failing: false, said: "off" },
+    ]);
     // A ledger not read, or not readable, leaves the rebuilds' alarm as it is.
     expect(nightlyVerdicts({ ...dry, rebuilds: "" })).toEqual([]);
     expect(nightlyVerdicts({ ...dry, rebuilds: "maybe" })).toEqual([]);
@@ -175,7 +180,7 @@ describe("the one issue an alarm keeps", () => {
     expect(alarmStep({ kind: "rebuilds", failing: true, said: "paused" }, [], RUN)).toMatchObject({
       title: ALARM_TITLES.rebuilds,
       body: expect.stringMatching(
-        /^The nightly found the rebuilds after saves paused in their ledger\.\n\nWhen: 2026-10-10 03:52 UTC\nRun: \S+\n\nEach nightly that finds them so again comments here, and the first to find no failures in a row and no pause closes this issue\.$/
+        /^The nightly found the rebuilds after saves paused in their ledger\.\n\nWhen: 2026-10-10 03:52 UTC\nRun: \S+\n\nEach nightly that finds them so again comments here, and the first to find no failures in a row and no pause, or them switched off, closes this issue\.$/
       ),
     });
     expect(
@@ -184,6 +189,19 @@ describe("the one issue an alarm keeps", () => {
       do: "close",
       body: expect.stringMatching(
         /^The nightly found no failures in a row and no pause in the rebuilds' ledger, so this is closed\.\n/
+      ),
+    });
+    expect(
+      alarmStep(
+        { kind: "rebuilds", failing: false, said: "off" },
+        [issue(4, ALARM_TITLES.rebuilds)],
+        RUN
+      )
+    ).toMatchObject({
+      do: "close",
+      issue: 4,
+      body: expect.stringMatching(
+        /^The nightly found the rebuilds after saves switched off, so this is closed\.\n/
       ),
     });
     expect(alarmStep({ kind: "republish", failing: true, said: "failed" }, [], RUN)).toMatchObject({

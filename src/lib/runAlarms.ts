@@ -22,13 +22,14 @@ export const ALARM_TITLES: Record<AlarmKind, string> = {
 };
 
 /**
- * What a run found of one alarm: failing, as `said` in a word or two, or fine, which settles it;
- * `how` the nightly ran, scheduled or by hand, where it is the nightly's own.
+ * What a run found of one alarm: failing, as `said` in a word or two, or fine, which settles it,
+ * and says how where there is more than one way to be (the rebuilds' `off`); `how` the nightly ran,
+ * scheduled or by hand, where it is the nightly's own.
  */
 export type Verdict = {
   kind: AlarmKind;
   how?: string;
-} & ({ failing: true; said: string } | { failing: false });
+} & ({ failing: true; said: string } | { failing: false; said?: string });
 
 /** A step's outcome as GitHub gives it (`steps.<id>.outcome`), where it is a failure. */
 const FAILED_AS: Record<string, string> = {
@@ -46,8 +47,8 @@ const REBUILDS_AS: Record<string, string> = { paused: "paused", failing: "failin
 
 /**
  * The alarms a nightly raises or settles: its own from how its refresh step ended, and the
- * rebuilds' from their ledger as it read it (`rebuilds`: `paused`, `failing` or `none`, and
- * anything else, a ledger not read, leaves it as it is). Its own is settled only by a live run that
+ * rebuilds' from their ledger as it read it (`rebuilds`: `paused` or `failing` raise it, `none` or
+ * `off` settle it, and anything else, a ledger not read, leaves it as it is). Its own is settled only by a live run that
  * succeeded: a dry run saves nothing, so its success says nothing of a night that failed saving,
  * as the night of 10 October did.
  */
@@ -71,6 +72,7 @@ export const nightlyVerdicts = ({
   const trouble = REBUILDS_AS[rebuilds];
   if (trouble !== undefined) verdicts.push({ kind: "rebuilds", failing: true, said: trouble });
   else if (rebuilds === "none") verdicts.push({ kind: "rebuilds", failing: false });
+  else if (rebuilds === "off") verdicts.push({ kind: "rebuilds", failing: false, said: "off" });
   return verdicts;
 };
 
@@ -84,7 +86,11 @@ export const republishVerdicts = ({ outcome }: { outcome: string }): Verdict[] =
 /** What each alarm's issue says, in its own words: failing, failing again, and fine. */
 const WORDS: Record<
   AlarmKind,
-  { failed: (said: string, how: string) => string; fine: (how: string) => string; closes: string }
+  {
+    failed: (said: string, how: string) => string;
+    fine: (how: string, said?: string) => string;
+    closes: string;
+  }
 > = {
   nightly: {
     failed: (said, how) => `the nightly refresh ${said}${how}`,
@@ -98,9 +104,12 @@ const WORDS: Record<
   },
   rebuilds: {
     failed: (said) => `the nightly found the rebuilds after saves ${said} in their ledger`,
-    fine: () => "The nightly found no failures in a row and no pause in the rebuilds' ledger",
+    fine: (_how, said) =>
+      said === "off"
+        ? "The nightly found the rebuilds after saves switched off"
+        : "The nightly found no failures in a row and no pause in the rebuilds' ledger",
     closes:
-      "Each nightly that finds them so again comments here, and the first to find no failures in a row and no pause",
+      "Each nightly that finds them so again comments here, and the first to find no failures in a row and no pause, or them switched off,",
   },
 };
 
@@ -191,7 +200,7 @@ export const alarmStep = (
   return {
     do: "close",
     issue: mine.number,
-    body: `${words.fine(how)}, so this is closed.\n\n${where}`,
+    body: `${words.fine(how, verdict.said)}, so this is closed.\n\n${where}`,
   };
 };
 

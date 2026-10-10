@@ -3787,24 +3787,29 @@ the first run that is fine closes it with a comment.
   the views are then of this build's schema.
 - **The rebuilds after saves are failing**: the nightly, dry or live, read their
   ledger and found failures in a row or a pause (`rebuildsTrouble`). The first
-  nightly to read none closes it, and one with no ledger at all, where they are
-  off. A ledger the nightly could not read, or did not reach, leaves it as it is.
+  nightly to read none closes it, and so does one that finds them switched off,
+  or no ledger at all: while they are off nothing of theirs runs, and no run
+  clears the failures or the pause the ledger kept from before, so an issue left
+  open over those would be commented on every night until the console was
+  edited. A ledger the nightly could not read, or did not reach, leaves it as it
+  is.
 
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
 words are fixed in `runAlarms.ts`, which works out what to raise or settle from
 the run step's outcome and the word the nightly hands over of the rebuilds
-(`rebuilds=paused`, `failing` or `none`), and is tested; the workflows only run
-`npm run alarm -- nightly` or `-- republish` as their last step, whatever came
-before. It runs `gh` with the run's own token, which the workflow lets write
-issues and nothing more (`permissions: issues: write`). An alarm finds its issue
-again by its title among the open issues a workflow opened; one anybody else
-opened under the same title is theirs, and is neither commented on nor closed.
-An alarm that could not be raised (issues turned off on the repository, say)
-marks its own step failed, and the others are still tried, but it leaves the run
-as its work left it (`continue-on-error`, held by `workflowAlarms.test.ts`): a
-night that saved stays green, and GitHub does not email that it failed for want
-of an issue, while a night whose refresh failed is red from that step already.
+(`rebuilds=paused`, `failing`, `none` or `off`), and is tested; the workflows
+only run `npm run alarm -- nightly` or `-- republish` as their last step,
+whatever came before. It runs `gh` with the run's own token, which the workflow
+lets write issues and nothing more (`permissions: issues: write`). An alarm
+finds its issue again by its title among the open issues a workflow opened; one
+anybody else opened under the same title is theirs, and is neither commented on
+nor closed. An alarm that could not be raised (issues turned off on the
+repository, say) marks its own step failed, and the others are still tried, but
+it leaves the run as its work left it (`continue-on-error`, held by
+`workflowAlarms.test.ts`): a night that saved stays green, and GitHub does not
+email that it failed for want of an issue, while a night whose refresh failed is
+red from that step already.
 
 A run whose checkout failed raises nothing: the alarm is a script it checks out.
 Its work's step is then skipped, which the alarm would call "did not start", but
