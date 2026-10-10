@@ -178,7 +178,10 @@ const gameChanges = (id: string, before?: GameSeen, after?: GameSeen): Change[] 
 export const changesBetween = (
   before: SeasonSeen,
   after: SeasonSeen,
-  { followed = null, oddsMove = 10 }: { followed?: string | null; oddsMove?: number } = {}
+  {
+    followed = null,
+    oddsMove = DIGEST_ODDS_MOVE,
+  }: { followed?: string | null; oddsMove?: number } = {}
 ): Change[] => {
   const changes: Change[] = [];
   const gameIds = new Set([...Object.keys(before.games), ...Object.keys(after.games)]);
@@ -324,6 +327,17 @@ export const DEFAULT_NOTIFY: NotifyPrefs = {
   problems: true,
 };
 
+/** The move in the followed team's Gold chance the digest counts while notifications are off. */
+export const DIGEST_ODDS_MOVE = 10;
+
+/**
+ * The move in the followed team's Gold chance, in points, that the digest counts: the one chosen
+ * for notifications while they are on, so what is announced is what the Dashboard lists, and
+ * `DIGEST_ODDS_MOVE` otherwise. Off, the choice cannot be changed and only shows its default.
+ */
+export const digestOddsMove = (prefs: NotifyPrefs): number =>
+  prefs.on && prefs.oddsMove !== null ? prefs.oddsMove : DIGEST_ODDS_MOVE;
+
 const SCHEDULE_KINDS: readonly Change["kind"][] = [
   "scheduled",
   "rescheduled",
@@ -354,14 +368,31 @@ export const worthNotifying = (
       })
     : [];
 
-/** What makes one change this change and no other: the same news has the same key. */
-export const changeKey = (change: Change): string => {
-  if ("gameId" in change)
-    return [change.kind, change.gameId, change.after?.final ?? "", change.after?.date ?? ""].join(
+/**
+ * What makes one change this change and no other: the same news has the same key. `oddsMove` is
+ * the threshold a move in the odds was found worth telling by.
+ */
+export const changeKey = (change: Change, oddsMove: number | null = null): string => {
+  if ("gameId" in change) {
+    const { after } = change;
+    return [change.kind, change.gameId, after?.away, after?.home, after?.final, after?.date]
+      .map((part) => part ?? "")
+      .join(":");
+  }
+  if (change.kind === "odds") {
+    /*
+     * The forecast is seeded again by every final in the league and stops once each team's odds
+     * are known to two points (`ODDS_PRECISION`), so the same move can read a point or two apart
+     * after any result elsewhere, with nothing new to tell. The news is the move from the last
+     * look, which way, in whole steps of the threshold: another step on is news again.
+     */
+    const from = change.from ?? 0;
+    const to = change.to ?? 0;
+    const steps = Math.floor(Math.abs(to - from) / (oddsMove ?? DIGEST_ODDS_MOVE));
+    return [change.kind, change.teamId, Math.round(from), to < from ? "down" : "up", steps].join(
       ":"
     );
-  if (change.kind === "odds")
-    return [change.kind, change.teamId, Math.round(change.to ?? 0)].join(":");
+  }
   return [change.kind, change.teamId, "after" in change ? (change.after ?? "") : ""].join(":");
 };
 

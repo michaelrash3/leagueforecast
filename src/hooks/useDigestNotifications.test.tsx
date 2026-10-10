@@ -131,6 +131,30 @@ describe("useDigestNotifications", () => {
     expect(shown).toEqual([{ title: "Spring 26", body: "This season was deleted." }]);
   });
 
+  it("announces a move in the odds once, however the forecast wobbles after", async () => {
+    const odds = (to: number): Change => ({
+      kind: "odds",
+      teamId: "A",
+      teamIds: ["A"],
+      from: 30,
+      to,
+    });
+    const view = mount();
+    view.rerender({ changes: [odds(50.2)] });
+    act(() => setVisibility("hidden"));
+    // Finals elsewhere in the league seed the forecast again: the same move, a point apart.
+    view.rerender({ changes: [odds(50.7)] });
+    await gather();
+    view.rerender({ changes: [odds(51.6)] });
+    await gather();
+    expect(shown).toEqual([]);
+    view.rerender({ changes: [odds(66)] });
+    await gather();
+    expect(shown).toEqual([
+      { title: "Spring 26", body: "1 move in the odds.\nAces's Gold chance went from 30% to 66%." },
+    ]);
+  });
+
   it("leaves out what is not opted into", async () => {
     const view = mount({ ...on, finals: false });
     act(() => setVisibility("hidden"));

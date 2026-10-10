@@ -2903,8 +2903,8 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
 - **What counts:** a new final, a corrected one, one no longer final, a game added, moved, given
   another opponent or removed, a final's box score changed, a team added, removed or renamed, a
   team clinching a Gold Bracket place or eliminated from one, and the followed team's Gold chance
-  moving by the notification setting's points (10 if notifications are off). Runs typed into a
-  game not yet final are no one's news.
+  moving by the notification setting's points (10 while notifications are off, or set to never
+  tell of it; `digestOddsMove`). Runs typed into a game not yet final are no one's news.
 - **What this device does itself is never news.** The season store says where each change came
   from (`SeasonChange`): this page's own edit is taken as seen as it is made, another device's is
   news, and a season opened brings its own last look. A forecast that follows an edit made here
@@ -2920,10 +2920,13 @@ another device, one the cloud cannot read). **Send a test notification** shows i
 They come only while League Forecast is open, in a tab or installed, and only for news that
 arrived after the page was put away: gathered for 20 seconds into one notification, so a run of
 scores is one, and each change announced once on the device however many tabs are open or times
-it reloads (`readNotified`, one tab at a time through the Web Locks API). Pressing one comes back
-to the app (`public/notification-click.js`, in the service worker). Nothing is sent to a server,
-and **nothing arrives while the app is closed**: that needs a push service holding each device's
-subscription and sending to it, which the app does not have.
+it reloads (`readNotified`, one tab at a time through the Web Locks API). A move in the odds is
+the same news while it stays within the same whole steps of the chosen points, which way it went
+from the last look, so it is not announced again each time a final elsewhere moves the forecast a
+point; a game given a second new opponent is news again. A choice changed in one tab holds in the
+others at once. Pressing one comes back to the app (`public/notification-click.js`, in the service
+worker). Nothing is sent to a server, and **nothing arrives while the app is closed**: that needs a
+push service holding each device's subscription and sending to it, which the app does not have.
 
 ## Settings
 

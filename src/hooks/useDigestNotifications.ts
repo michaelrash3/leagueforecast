@@ -75,8 +75,9 @@ export function useDigestNotifications({
   const worth = useMemo(() => worthNotifying(changes, prefs, followed), [changes, prefs, followed]);
   const problemKey =
     problem && prefs.on && prefs.problems ? `${seasonId}:problem:${problem.kind}` : null;
+  const oddsMove = prefs.oddsMove;
   const keys = [
-    ...worth.map((change) => `${seasonId}:${changeKey(change)}`),
+    ...worth.map((change) => `${seasonId}:${changeKey(change, oddsMove)}`),
     ...(problemKey ? [problemKey] : []),
   ];
   const pending = keys.join("|");
@@ -90,16 +91,34 @@ export function useDigestNotifications({
   }
 
   // Read when the gathering ends, rather than restarting it on everything that changes.
-  const latest = useRef({ seasonId, seasonLabel, worth, problem, problemKey, onScreen, nameOf });
+  const latest = useRef({
+    seasonId,
+    seasonLabel,
+    worth,
+    oddsMove,
+    problem,
+    problemKey,
+    onScreen,
+    nameOf,
+  });
   useEffect(() => {
-    latest.current = { seasonId, seasonLabel, worth, problem, problemKey, onScreen, nameOf };
+    latest.current = {
+      seasonId,
+      seasonLabel,
+      worth,
+      oddsMove,
+      problem,
+      problemKey,
+      onScreen,
+      nameOf,
+    };
   });
 
   useEffect(() => {
     if (!hidden || !prefs.on || pending === "") return;
     const timer = window.setTimeout(() => {
       const now = latest.current;
-      const keyOf = (change: Change) => `${now.seasonId}:${changeKey(change)}`;
+      const keyOf = (change: Change) => `${now.seasonId}:${changeKey(change, now.oddsMove)}`;
       const announce = async () => {
         const notified = readNotified();
         const fresh = now.worth.filter(

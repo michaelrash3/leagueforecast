@@ -91,13 +91,14 @@ import {
   readOurTeam,
   readPutAside,
   readSummaryMode,
+  subscribeNotifyPrefs,
   writeNotifyPrefs,
   writeOurTeam,
   writePutAside,
   writeSummaryMode,
   type SummaryMode,
 } from "./lib/preferences";
-import { raceOf, type NotifyPrefs } from "./lib/seasonDigest";
+import { digestOddsMove, raceOf, type NotifyPrefs } from "./lib/seasonDigest";
 import { useSeasonDigest } from "./hooks/useSeasonDigest";
 import { useDigestNotifications } from "./hooks/useDigestNotifications";
 import { ourTeamSummary } from "./lib/ourTeam";
@@ -2510,6 +2511,9 @@ export default function App() {
     setNotifyPrefsState(prefs);
     writeNotifyPrefs(prefs);
   }, []);
+  // Changed in another tab, the installed app beside this one: followed here, or this tab would
+  // go on announcing what was turned off there.
+  useEffect(() => subscribeNotifyPrefs(() => setNotifyPrefsState(readNotifyPrefs())), []);
   const digestRace = useMemo(
     () => (hasCutLine && !oddsPending && dashboardRows.length ? raceOf(dashboardRows) : null),
     [hasCutLine, oddsPending, dashboardRows]
@@ -2518,7 +2522,7 @@ export default function App() {
     store: seasonStore,
     race: digestRace,
     followed: ourTeamId,
-    oddsMove: notifyPrefs.oddsMove ?? 10,
+    oddsMove: digestOddsMove(notifyPrefs),
   });
   useDigestNotifications({
     seasonId: activeSeasonId,

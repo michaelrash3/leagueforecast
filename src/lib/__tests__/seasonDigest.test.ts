@@ -7,6 +7,7 @@ import {
   changesBetween,
   countLine,
   describeChange,
+  digestOddsMove,
   foldLocal,
   raceOf,
   seenOf,
@@ -326,6 +327,41 @@ describe("notifications", () => {
     const corrected = changesBetween(before, seenOf(season({ g1: log("4", "3") })))[0]!;
     const correctedAgain = changesBetween(before, seenOf(season({ g1: log("4", "5") })))[0]!;
     expect(changeKey(corrected)).not.toBe(changeKey(correctedAgain));
+  });
+
+  it("know a second change of opponent for the same game as news of its own", () => {
+    const roster = [...teams, { id: "D", name: "Dodgers" }];
+    const against = (home: string) =>
+      changesBetween(
+        seenOf(season({}, games, roster)),
+        seenOf(season({}, [{ ...games[0]!, home }, games[1]!, games[2]!], roster))
+      )[0]!;
+    expect(against("C").kind).toBe("opponents");
+    expect(changeKey(against("C"))).not.toBe(changeKey(against("D")));
+  });
+
+  it("know a move in the odds by the steps it crossed, not by the forecast's last point", () => {
+    const move = (to: number): Change => ({
+      kind: "odds",
+      teamId: "B",
+      teamIds: ["B"],
+      from: 30,
+      to,
+    });
+    // Every final in the league seeds the forecast again, so one move reads a point apart.
+    expect(changeKey(move(50.7), 15)).toBe(changeKey(move(50.2), 15));
+    expect(changeKey(move(51.6), 15)).toBe(changeKey(move(50.2), 15));
+    // A move another whole step on, or the other way, is news of its own.
+    expect(changeKey(move(61), 15)).not.toBe(changeKey(move(50.2), 15));
+    expect(changeKey(move(10), 15)).not.toBe(changeKey(move(50.2), 15));
+  });
+
+  it("leave the digest counting odds by 10 points while they are off", () => {
+    expect(digestOddsMove(DEFAULT_NOTIFY)).toBe(10);
+    expect(digestOddsMove({ ...DEFAULT_NOTIFY, oddsMove: 5 })).toBe(10);
+    expect(digestOddsMove({ ...DEFAULT_NOTIFY, on: true })).toBe(DEFAULT_NOTIFY.oddsMove);
+    expect(digestOddsMove({ ...DEFAULT_NOTIFY, on: true, oddsMove: 20 })).toBe(20);
+    expect(digestOddsMove({ ...DEFAULT_NOTIFY, on: true, oddsMove: null })).toBe(10);
   });
 });
 

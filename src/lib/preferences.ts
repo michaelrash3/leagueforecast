@@ -47,6 +47,19 @@ const safeSet = (key: string, value: string): boolean => {
   }
 };
 
+/**
+ * Calls `listener` when another tab of the app writes `key`, or clears storage whole (a null key).
+ * The browser tells every other tab and never the one that wrote, so there is no echo to filter.
+ */
+const onWrittenElsewhere = (key: string, listener: () => void): (() => void) => {
+  if (typeof window === "undefined") return () => undefined;
+  const heard = (event: StorageEvent) => {
+    if (event.key === key || event.key === null) listener();
+  };
+  window.addEventListener("storage", heard);
+  return () => window.removeEventListener("storage", heard);
+};
+
 export const isTheme = (value: unknown): value is Theme => value === "light" || value === "dark";
 export const isAppMode = (value: unknown): value is AppMode =>
   value === "league" || value === "rankings";
@@ -277,6 +290,13 @@ export const readNotifyPrefs = (): NotifyPrefs => {
 
 export const writeNotifyPrefs = (prefs: NotifyPrefs): boolean =>
   safeSet(NOTIFY_KEY, JSON.stringify(prefs));
+
+/**
+ * Calls `listener` when another tab changes the notification choices: the installed app and a
+ * browser tab are two tabs of one device, and a choice turned off in one is off in both.
+ */
+export const subscribeNotifyPrefs = (listener: () => void): (() => void) =>
+  onWrittenElsewhere(NOTIFY_KEY, listener);
 
 const NOTIFIED_KEY = "lf_league_notified_v1";
 /** The newest announcements remembered, far more than a season makes between two looks. */

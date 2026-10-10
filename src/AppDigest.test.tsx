@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
+import { DEFAULT_NOTIFY } from "./lib/seasonDigest";
 import type { SeasonStore } from "./lib/seasonStore";
 import { saveMatchups, saveTeams } from "./lib/storage";
 import type { GameLog } from "./lib/types";
@@ -97,6 +98,22 @@ describe("what another device changed", () => {
       expect(screen.queryByRole("heading", { name: "Since you last looked" })).toBeNull()
     );
     expect(screen.getByRole("tab", { name: "Dashboard" })).not.toHaveAccessibleDescription();
+  });
+
+  it("follows notification choices changed in another tab", async () => {
+    const user = userEvent.setup();
+    const on = { ...DEFAULT_NOTIFY, on: true };
+    window.localStorage.setItem("lf_league_notify_v1", JSON.stringify(on));
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: "Settings" }));
+    const toggle = await screen.findByRole("checkbox", { name: "Notify this device" });
+    expect(toggle).toBeChecked();
+    // Turned off in the installed app beside this tab: the browser tells this one.
+    act(() => {
+      window.localStorage.setItem("lf_league_notify_v1", JSON.stringify({ ...on, on: false }));
+      window.dispatchEvent(new StorageEvent("storage", { key: "lf_league_notify_v1" }));
+    });
+    expect(toggle).not.toBeChecked();
   });
 
   it("opens the game a change is about", async () => {
