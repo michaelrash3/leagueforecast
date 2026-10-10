@@ -129,6 +129,35 @@ const runsOf = (value: string) => {
 
 const sortedIds = (ids: Iterable<string>) => [...new Set(ids)].sort();
 
+/** Every number a game's card takes: the runs, and the box score's hits, strikeouts, errors, walks. */
+const ENTRY_FIELDS = [
+  "awayRuns",
+  "homeRuns",
+  "awayHits",
+  "homeHits",
+  "awayK",
+  "homeK",
+  "awayErrors",
+  "homeErrors",
+  "awayWalksAllowed",
+  "homeWalksAllowed",
+] as const satisfies readonly (keyof GameLog)[];
+
+/**
+ * Whether anything has been entered on a game's card: marked final, or any of its numbers typed
+ * in, a box score without runs included. Not the innings, which every card is given from the
+ * league's setting, so it says nothing of whether anyone has touched the game.
+ */
+const hasEntries = (log: GameLog | undefined) =>
+  isFinal(log) || ENTRY_FIELDS.some((field) => Boolean(log?.[field]?.trim()));
+
+/** A game's pair and day, whichever side is home: what two copies of it share. Null undated. */
+const fixtureOf = (game: Matchup) => {
+  const date = normalizeDateInput(game.date);
+  if (!date || game.away === game.home) return null;
+  return `${[game.away, game.home].sort().join("~")}@${date}`;
+};
+
 export const auditLeague = ({
   teams,
   matchups,
@@ -243,18 +272,13 @@ export const auditLeague = ({
   };
   const byFixture = new Map<string, Matchup[]>();
   matchups.forEach((game) => {
-    const date = normalizeDateInput(game.date);
-    if (!date || game.away === game.home) return;
-    const key = `${[game.away, game.home].sort().join("~")}@${date}`;
-    byFixture.set(key, [...(byFixture.get(key) ?? []), game]);
+    const key = fixtureOf(game);
+    if (key) byFixture.set(key, [...(byFixture.get(key) ?? []), game]);
   });
   byFixture.forEach((copies) => {
     const first = copies[0];
     if (!first || copies.length < 2) return;
-    const scored = copies.filter((game) => {
-      const log = logs[game.id];
-      return isFinal(log) || Boolean(log?.awayRuns.trim() || log?.homeRuns.trim());
-    });
+    const entered = copies.filter((game) => hasEntries(logs[game.id]));
     const finals = copies.filter((game) => isFinal(logs[game.id]));
     const sameScore = (a: Matchup, b: Matchup) =>
       runsFor(a, first.away) === runsFor(b, first.away) &&
@@ -264,13 +288,14 @@ export const auditLeague = ({
     );
     const doubleheader = finals.length === copies.length && repeated.length === 0;
     /*
-     * Offered only where nothing entered would go: with at most one copy scored, that one is kept
-     * and the rest have no score at all. With more, which is the real game is a person's call.
+     * Offered only where nothing entered would go: with at most one copy given anything, a box
+     * score without runs included, that one is kept and the rest have nothing at all on them.
+     * With more, which is the real game is a person's call.
      */
-    const keep = scored[0] ?? copies[0];
+    const keep = entered[0] ?? copies[0];
     const removable = copies.filter((game) => game !== keep);
     const repair =
-      removable.length && scored.length <= 1
+      removable.length && entered.length <= 1
         ? { kind: "removeGames" as const, gameIds: removable.map((game) => game.id) }
         : undefined;
     add(
@@ -626,7 +651,7 @@ export const repairPreview = (
   };
   switch (repair.kind) {
     case "removeGames":
-      return repair.gameIds.map((id) => `Delete ${label(id)} (no score entered).`);
+      return repair.gameIds.map((id) => `Delete ${label(id)} (nothing entered).`);
     case "markFinal":
       return repair.gameIds.map(
         (id) =>
@@ -635,6 +660,33 @@ export const repairPreview = (
     case "gamesPerTeam":
       return [`Change games per team from ${repair.from} to ${repair.to}.`];
   }
+};
+
+/**
+ * The copies "Delete the extra copies" deletes, worked out again from the season as it stands when
+ * the repair is made rather than as the finding saw it, since League kept live takes in another
+ * device's edits while the question is open. A copy goes only if it is still there with nothing
+ * entered on it, and never as the last copy of its game, whichever copy the finding meant to keep:
+ * that one deleted elsewhere meanwhile leaves the game on the schedule once, not off it.
+ */
+export const copiesToDelete = (
+  gameIds: readonly string[],
+  { matchups, logs }: Pick<LeagueAuditInput, "matchups" | "logs">
+): string[] => {
+  const copiesLeft = new Map<string, number>();
+  matchups.forEach((game) => {
+    const fixture = fixtureOf(game);
+    if (fixture) copiesLeft.set(fixture, (copiesLeft.get(fixture) ?? 0) + 1);
+  });
+  const gameById = new Map(matchups.map((game) => [game.id, game]));
+  return gameIds.filter((id) => {
+    const game = gameById.get(id);
+    const fixture = game ? fixtureOf(game) : null;
+    const left = fixture ? (copiesLeft.get(fixture) ?? 0) : 0;
+    if (!fixture || left < 2 || hasEntries(logs[id])) return false;
+    copiesLeft.set(fixture, left - 1);
+    return true;
+  });
 };
 
 /** Whether a repair takes something away, and so asks to be confirmed. */

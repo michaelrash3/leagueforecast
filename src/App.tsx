@@ -155,6 +155,7 @@ import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimel
 import { rememberLast } from "./lib/rememberLast";
 import {
   auditLeague,
+  copiesToDelete,
   isDismissed,
   repairIsDestructive,
   repairPreview,
@@ -2258,8 +2259,8 @@ export default function App() {
   /*
    * A finding's repair, made: asked first when it deletes, taken as one undo step, and reported by
    * what it actually changed, which is worked out again from the season as it is now rather than
-   * as the finding saw it, so a game scored since is never deleted and one marked final since is
-   * not counted.
+   * as the finding saw it, so a game given anything since is never deleted, nor the last copy of
+   * one (`copiesToDelete`), and one marked final since is not counted.
    */
   const repairFinding = async (finding: Finding) => {
     const repair = finding.repair;
@@ -2279,19 +2280,13 @@ export default function App() {
       if (!confirmed) return;
     }
     const now = seasonStore.get().season;
-    const unscored = (id: string) => {
-      const log = now.logs[id];
-      return !isFinal(log) && !log?.awayRuns.trim() && !log?.homeRuns.trim();
-    };
     const scoredOpen = (id: string) => {
       const log = now.logs[id];
       return !isFinal(log) && Boolean(log?.awayRuns.trim()) && Boolean(log?.homeRuns.trim());
     };
     const undo = { tone: "undo" as const, actionLabel: "Undo", onAction: restoreUndo };
     if (repair.kind === "removeGames") {
-      const ids = new Set(
-        repair.gameIds.filter((id) => now.matchups.some((game) => game.id === id) && unscored(id))
-      );
+      const ids = new Set(copiesToDelete(repair.gameIds, now));
       if (!ids.size) {
         showToast("Nothing to delete: those games have changed since.", { tone: "error" });
         return;

@@ -2877,9 +2877,10 @@ February is next month's, a December one seen in January last month's. Each find
 what it is about: a game opens the Schedule with its card focused, a team its panel, a setting
 the field in Settings. Three can be put right from the tab, each after a preview of exactly what
 it will do, as one undo step, and reported by what it actually changed, worked out again from
-the season as it stands: **Delete the extra copies** (only copies with no score, and asked
-first), **Mark them final** (past games with both scores in), and **Use the schedule's count**
-for games per team. A finding that does not need attention can be **put aside** on this device,
+the season as it stands: **Delete the extra copies** (only copies with nothing at all entered on
+them, a box score without runs counting as something, never the last copy of a game, even if
+another device deleted the one kept while the question was open, and asked first), **Mark them
+final** (past games with both scores in), and **Use the schedule's count** for games per team. A finding that does not need attention can be **put aside** on this device,
 per season (`readPutAside`); it comes back when what it is about changes or it grows more
 serious, and a finding that needs attention cannot be put aside.
 

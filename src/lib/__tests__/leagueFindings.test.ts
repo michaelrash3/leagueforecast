@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   auditLeague,
+  copiesToDelete,
   daysFromToday,
   isDismissed,
   repairIsDestructive,
@@ -116,6 +117,23 @@ describe("auditing a League Standings season", () => {
       const finding = only(audit({ matchups: ahead }), "duplicate-game");
       expect(finding.affectsForecast).toBe(true);
       expect(finding.repair).toEqual({ kind: "removeGames", gameIds: ["f1b"] });
+    });
+
+    it("keeps a copy with anything entered on it, a box score without runs included", () => {
+      const ahead = [
+        ...CLEAN,
+        { id: "f1", date: "6/20", away: "C", home: "D" },
+        { id: "f1b", date: "6/20", away: "C", home: "D" },
+      ];
+      // Hits and strikeouts typed into the second copy, its runs still to come.
+      const logs = { ...CLEAN_LOGS, f1b: { ...open(), awayHits: "4", homeK: "6" } };
+      expect(only(audit({ matchups: ahead, logs }), "duplicate-game").repair).toEqual({
+        kind: "removeGames",
+        gameIds: ["f1"],
+      });
+      // Something entered on both: which is the real game is a person's call.
+      const both = { ...logs, f1: { ...open(), homeErrors: "2" } };
+      expect(only(audit({ matchups: ahead, logs: both }), "duplicate-game").repair).toBeUndefined();
     });
 
     it("is worth reviewing when two finals have one score, and can be put aside", () => {
@@ -407,11 +425,41 @@ describe("previewing a repair", () => {
       "Mark Aces at Bears, 4/5 final at 4-2.",
     ]);
     expect(repairPreview({ kind: "removeGames", gameIds: ["g2"] }, season)).toEqual([
-      "Delete Comets at Ducks, 4/5 (no score entered).",
+      "Delete Comets at Ducks, 4/5 (nothing entered).",
     ]);
     expect(repairPreview({ kind: "gamesPerTeam", from: 5, to: 3 }, season)).toEqual([
       "Change games per team from 5 to 3.",
     ]);
+  });
+
+  describe("deleting the extra copies, worked out again from the season as it stands", () => {
+    const copies: Matchup[] = [
+      { id: "a", date: "6/2", away: "A", home: "B" },
+      { id: "b", date: "6/2", away: "B", home: "A" },
+      { id: "c", date: "6/2", away: "A", home: "B" },
+      { id: "g2", date: "6/2", away: "C", home: "D" },
+    ];
+    const without = (...ids: string[]) => copies.filter((game) => !ids.includes(game.id));
+
+    it("deletes the copies still there with nothing at all entered", () => {
+      expect(copiesToDelete(["b", "c"], { matchups: copies, logs: {} })).toEqual(["b", "c"]);
+      // One deleted since, and one given walks since though no runs: both left alone.
+      const logs = { b: { ...open(), awayWalksAllowed: "3" } };
+      expect(copiesToDelete(["b", "c"], { matchups: without("c"), logs })).toEqual([]);
+      // A card opened and left blank carries the league's innings, which is not something entered.
+      expect(copiesToDelete(["c"], { matchups: copies, logs: { c: open() } })).toEqual(["c"]);
+    });
+
+    it("never deletes the last copy of a game, whichever copy it meant to keep", () => {
+      // The copy it was keeping, deleted on another device while the question was open.
+      expect(copiesToDelete(["b"], { matchups: without("a", "c"), logs: {} })).toEqual([]);
+      expect(copiesToDelete(["b", "c"], { matchups: without("a"), logs: {} })).toEqual(["b"]);
+      // One moved to another day since is a copy of nothing now.
+      const moved = copies.map((game) => (game.id === "b" ? { ...game, date: "6/3" } : game));
+      expect(
+        copiesToDelete(["b"], { matchups: moved.filter((g) => g.id !== "c"), logs: {} })
+      ).toEqual([]);
+    });
   });
 
   it("asks before deleting, and only then", () => {

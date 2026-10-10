@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
+import type { SeasonStore } from "./lib/seasonStore";
 import { loadSettings, saveLogs, saveMatchups, saveSettings, saveTeams } from "./lib/storage";
 import type { GameLog } from "./lib/types";
 
@@ -14,6 +15,25 @@ import type { GameLog } from "./lib/types";
  */
 
 beforeAll(() => prefetchAllViews());
+
+/*
+ * League kept live, off as it is without a cloud, but holding the season store, so a test can lay
+ * another device's edit over the season while a question is open, as League kept live does.
+ */
+const live = vi.hoisted(() => ({ store: null as SeasonStore | null }));
+vi.mock("./hooks/useLiveLeague", () => ({
+  useLiveLeague: ({ seasons }: { seasons: SeasonStore }) => {
+    live.store = seasons;
+    return { state: { kind: "off" }, guardUndo: () => null, removeSeason: async () => false };
+  },
+}));
+const arrive = (change: (season: ReturnType<SeasonStore["get"]>["season"]) => object) =>
+  act(() => {
+    const store = live.store;
+    if (!store) throw new Error("No season store");
+    const season = store.get().season;
+    store.apply({ ...season, ...change(season) });
+  });
 
 const scores = (away: string, home: string, isFinal: boolean): GameLog => ({
   awayRuns: away,
@@ -158,7 +178,7 @@ describe("the Data Quality tab", () => {
       within(findingCard(summary)).getByRole("button", { name: "Delete the extra copies…" })
     );
     expect(within(findingCard(summary)).getByRole("region")).toHaveTextContent(
-      "Delete Bears at Aces, 6/2 (no score entered)."
+      "Delete Bears at Aces, 6/2 (nothing entered)."
     );
     await user.click(within(findingCard(summary)).getByRole("button", { name: "Delete" }));
     await user.click(await screen.findByRole("button", { name: "Delete game" }));
@@ -167,6 +187,44 @@ describe("the Data Quality tab", () => {
     await user.click(screen.getByRole("tab", { name: "Schedule" }));
     await waitFor(() => expect(document.getElementById("game-card-g1")).not.toBeNull());
     expect(document.getElementById("game-card-g1b")).toBeNull();
+  });
+
+  describe("while it asks before deleting", () => {
+    const summary = "Aces at Bears, 6/2 is on the schedule 2 times";
+    const askToDelete = async (user: ReturnType<typeof userEvent.setup>) => {
+      await openQuality(user);
+      await user.click(
+        within(findingCard(summary)).getByRole("button", { name: "Delete the extra copies…" })
+      );
+      await user.click(within(findingCard(summary)).getByRole("button", { name: "Delete" }));
+      return screen.findByRole("button", { name: "Delete game" });
+    };
+    const ids = () => live.store?.get().season.matchups.map((game) => game.id);
+
+    it("leaves a copy another device gives a box score, runs or not", async () => {
+      const user = userEvent.setup();
+      const confirm = await askToDelete(user);
+      arrive((season) => ({
+        logs: { ...season.logs, g1b: { ...scores("", "", false), awayHits: "4" } },
+      }));
+      await user.click(confirm);
+      expect(
+        await screen.findByText("Nothing to delete: those games have changed since.")
+      ).toBeInTheDocument();
+      expect(ids()).toContain("g1b");
+    });
+
+    it("never deletes the last copy, when another device deletes the one it kept", async () => {
+      const user = userEvent.setup();
+      const confirm = await askToDelete(user);
+      arrive((season) => ({ matchups: season.matchups.filter((game) => game.id !== "g1") }));
+      await user.click(confirm);
+      expect(
+        await screen.findByText("Nothing to delete: those games have changed since.")
+      ).toBeInTheDocument();
+      // The game is still on the schedule, in the one copy left.
+      expect(ids()).toContain("g1b");
+    });
   });
 
   it("puts a finding aside on this device, and brings it back", async () => {
