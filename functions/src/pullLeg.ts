@@ -27,7 +27,7 @@ try {
     jobs: restJobDocs(docs),
     store: firestoreRestStore({ ...access, writable: true }),
     // A "Refresh now" job's legs past its first, counted against the day's (`refreshGate.ts`).
-    chargeLegs: (legs) => chargeRefreshLegs(docs, legs, new Date()),
+    chargeLegs: (jobId, legs) => chargeRefreshLegs(docs, jobId, legs, new Date()),
     fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
     now: () => new Date(),
     enqueue: enqueueLeg,

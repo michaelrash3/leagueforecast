@@ -71,6 +71,11 @@ export type RefreshGate = {
   /** The New York day `legs` counts, as YYYY-MM-DD, and the legs "Refresh now" started on it. */
   day: string;
   legs: number;
+  /**
+   * The refresh whose legs past its first are charged already (`chargeRefreshLegs`), so its first
+   * leg, tried again, is not charged them twice. Absent before any is.
+   */
+  charged?: string;
 };
 
 const NO_GATE: RefreshGate = { jobId: null, nightlyAt: null, day: "", legs: 0 };
@@ -87,13 +92,14 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
  */
 export const coerceRefreshGate = (raw: unknown): RefreshGate => {
   if (!isRecord(raw)) return { ...NO_GATE };
-  const { jobId, nightlyAt, day, legs } = raw;
+  const { jobId, nightlyAt, day, legs, charged } = raw;
   return {
     jobId: typeof jobId === "string" && JOB_ID.test(jobId) ? jobId : null,
     nightlyAt:
       typeof nightlyAt === "string" && Number.isFinite(Date.parse(nightlyAt)) ? nightlyAt : null,
     day: typeof day === "string" && ISO_DAY.test(day) ? day : "",
     legs: typeof legs === "number" && Number.isSafeInteger(legs) && legs >= 0 ? legs : 0,
+    ...(typeof charged === "string" && JOB_ID.test(charged) ? { charged } : {}),
   };
 };
 
@@ -284,21 +290,25 @@ const notQueued = async (jobId: string, day: string, deps: StartRefreshDeps): Pr
  * past `REFRESH_LEGS_A_DAY` are not charged, and the refresh does not run them, since the press was
  * let through on one leg left and the cap is the day's whole spend, not its first legs'. Written
  * onto the gate as read, and read again where another writer moved it meanwhile; a gate that keeps
- * moving throws, and the leg is tried again, which charges it again rather than not at all.
+ * moving throws, and the leg is tried again. Charged once a refresh: the gate keeps the refresh it
+ * charged (`charged`), and its first leg tried again, after a charge whose job then failed to
+ * save, is let run on that charge. Charged again, a two-leg refresh spent a third of the day for
+ * nothing and a three-leg one found the day spent and failed without pulling.
  */
 export const chargeRefreshLegs = async (
   docs: GateDocs,
+  jobId: string,
   legs: number,
   now: Date
 ): Promise<boolean> => {
   const day = budgetDay(now);
   for (let tries = 0; tries < GATE_TRIES; tries += 1) {
     const { gate, token } = await readGate(docs);
+    if (gate.charged === jobId) return true;
     const spent = gate.day === day ? gate.legs : 0;
     if (spent + legs > REFRESH_LEGS_A_DAY) return false;
-    if (await docs.replace(REFRESH_GATE_PATH, { ...gate, day, legs: spent + legs }, token)) {
-      return true;
-    }
+    const charged = { ...gate, day, legs: spent + legs, charged: jobId };
+    if (await docs.replace(REFRESH_GATE_PATH, charged, token)) return true;
   }
   throw new Error("The refresh's legs could not be counted against the day's: try again.");
 };

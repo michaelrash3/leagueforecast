@@ -558,7 +558,8 @@ describe("a Refresh now job, a leg at a time", () => {
     const { deps, queued } = legDeps(cloud, jobs, {
       fetchTeams: answering(fetched),
       now: () => FRIDAY,
-      chargeLegs: async (legs) => {
+      chargeLegs: async (jobId, legs) => {
+        expect(jobId).toBe(REFRESH);
         charged.push(legs);
         return true;
       },
@@ -600,6 +601,31 @@ describe("a Refresh now job, a leg at a time", () => {
     for (const level of AGE_LEVELS) expect(log[String(level)]).toBe(localDayKey(FRIDAY));
   });
 
+  it("keeps the day it worked its teams out on, though the clock passes midnight meanwhile", async () => {
+    // Worked out at 23:59 New York time on Friday, kept a minute later, on Saturday: the levels
+    // are Friday's, and logged as Saturday's they would leave Saturday's nightly nothing due.
+    const { cloud, jobs } = await filed();
+    jobs.putRefresh(REFRESH, { legTeams: 2 });
+    const friday = new Date("2026-10-03T03:59:00.000Z");
+    const saturday = new Date("2026-10-03T04:01:00.000Z");
+    // The clock reads Friday until the copy is first read to work the teams out from.
+    let touched = false;
+    const store = new Proxy(cloud.store, {
+      get: (target, key, receiver) => {
+        touched = true;
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    });
+    const { deps } = legDeps(cloud, jobs, {
+      store,
+      fetchTeams: answering([]),
+      now: () => (touched ? saturday : friday),
+      chargeLegs: async () => true,
+    });
+    await runPullLeg({ jobId: REFRESH, leg: 0 }, deps);
+    expect(jobs.job(REFRESH).rota?.at).toBe(friday.toISOString());
+  });
+
   it("fails before asking anybody anything when the day has too few legs left for it", async () => {
     const { cloud, jobs } = await filed();
     jobs.putRefresh(REFRESH, { legTeams: 2 });
@@ -608,7 +634,8 @@ describe("a Refresh now job, a leg at a time", () => {
     const { deps, queued } = legDeps(cloud, jobs, {
       fetchTeams: answering(fetched),
       now: () => FRIDAY,
-      chargeLegs: async (legs) => {
+      chargeLegs: async (jobId, legs) => {
+        expect(jobId).toBe(REFRESH);
         charged.push(legs);
         return false;
       },

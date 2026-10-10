@@ -30,6 +30,7 @@ import {
 const NOW = new Date("2026-10-10T19:00:00.000Z");
 const ASK = { device: "device-abc-123" };
 const OTHER = "a".repeat(32);
+const THIRD = "c".repeat(32);
 
 /** The gate document in memory, written only at the token it was read at, as Firestore's is. */
 const memoryGate = (start: Record<string, unknown> | null = null) => {
@@ -349,38 +350,68 @@ describe("the gate as read", () => {
 describe("the legs a refresh runs past its first", () => {
   it("are charged to the day it runs, onto the gate as it is", async () => {
     const store = memoryGate({ jobId: OTHER, nightlyAt: null, day: "2026-10-10", legs: 0 });
-    expect(await chargeRefreshLegs(store.docs, 1, NOW)).toBe(true);
-    expect(store.gate()).toEqual({ jobId: OTHER, nightlyAt: null, day: "2026-10-10", legs: 1 });
-    // Another writer between the read and the write: read again, and charged once.
-    store.racedBy(async () => {
-      store.set({ jobId: OTHER, nightlyAt: NOW.toISOString(), day: "2026-10-10", legs: 1 });
-    });
-    expect(await chargeRefreshLegs(store.docs, 1, NOW)).toBe(true);
+    expect(await chargeRefreshLegs(store.docs, OTHER, 1, NOW)).toBe(true);
     expect(store.gate()).toEqual({
       jobId: OTHER,
+      nightlyAt: null,
+      day: "2026-10-10",
+      legs: 1,
+      charged: OTHER,
+    });
+    // Another writer between the read and the write: read again, and charged once.
+    store.racedBy(async () => {
+      store.set({ jobId: THIRD, nightlyAt: NOW.toISOString(), day: "2026-10-10", legs: 1 });
+    });
+    expect(await chargeRefreshLegs(store.docs, THIRD, 1, NOW)).toBe(true);
+    expect(store.gate()).toEqual({
+      jobId: THIRD,
       nightlyAt: NOW.toISOString(),
       day: "2026-10-10",
       legs: 2,
+      charged: THIRD,
     });
     // On a day after the gate's, they are that day's first.
-    expect(await chargeRefreshLegs(store.docs, 2, new Date("2026-10-11T19:00:00.000Z"))).toBe(true);
+    expect(
+      await chargeRefreshLegs(store.docs, "d".repeat(32), 2, new Date("2026-10-11T19:00:00.000Z"))
+    ).toBe(true);
     expect(store.gate()).toMatchObject({ day: "2026-10-11", legs: 2 });
+  });
+
+  it("are charged once a refresh, however often its first leg is tried", async () => {
+    // A first leg that charged its legs and then failed to save its job is tried again, and works
+    // its teams out again: charged twice, a two-leg refresh spent a third of the day for nothing,
+    // and a three-leg one found the day spent and failed without pulling.
+    const store = memoryGate({ jobId: OTHER, nightlyAt: null, day: "2026-10-10", legs: 1 });
+    expect(await chargeRefreshLegs(store.docs, OTHER, 1, NOW)).toBe(true);
+    expect(await chargeRefreshLegs(store.docs, OTHER, 1, NOW)).toBe(true);
+    expect(store.gate()).toMatchObject({ legs: 2, charged: OTHER });
+    // Still let run at the cap, its legs having been counted the first time.
+    const full = memoryGate({ jobId: OTHER, nightlyAt: null, day: "2026-10-10", legs: 1 });
+    expect(await chargeRefreshLegs(full.docs, OTHER, 2, NOW)).toBe(true);
+    expect(await chargeRefreshLegs(full.docs, OTHER, 2, NOW)).toBe(true);
+    expect(full.gate()?.legs).toBe(REFRESH_LEGS_A_DAY);
+    // Another refresh's legs are its own.
+    expect(await chargeRefreshLegs(store.docs, THIRD, 1, NOW)).toBe(true);
+    expect(store.gate()).toMatchObject({ legs: 3, charged: THIRD });
+    // The mark reads back as written, and a hand-edited one is not believed.
+    expect(coerceRefreshGate(store.gate())).toMatchObject({ charged: THIRD });
+    expect(coerceRefreshGate({ ...store.gate(), charged: "../x" })).not.toHaveProperty("charged");
   });
 
   it("are not charged, nor run, past the day's cap, which a press let through on one leg left", async () => {
     // The day's third press, let through on the last leg: its refresh takes two.
     const store = memoryGate({ jobId: OTHER, nightlyAt: null, day: "2026-10-10", legs: 3 });
-    expect(await chargeRefreshLegs(store.docs, 1, NOW)).toBe(false);
+    expect(await chargeRefreshLegs(store.docs, OTHER, 1, NOW)).toBe(false);
     expect(store.gate()?.legs).toBe(REFRESH_LEGS_A_DAY);
     // Up to the cap and no further, the gate read again where another moved it meanwhile.
     const left = memoryGate({ jobId: OTHER, nightlyAt: null, day: "2026-10-10", legs: 1 });
-    expect(await chargeRefreshLegs(left.docs, 2, NOW)).toBe(true);
+    expect(await chargeRefreshLegs(left.docs, OTHER, 2, NOW)).toBe(true);
     expect(left.gate()?.legs).toBe(3);
     const raced = memoryGate({ jobId: OTHER, nightlyAt: null, day: "2026-10-10", legs: 1 });
     raced.racedBy(async () => {
       raced.set({ jobId: OTHER, nightlyAt: null, day: "2026-10-10", legs: 2 });
     });
-    expect(await chargeRefreshLegs(raced.docs, 2, NOW)).toBe(false);
+    expect(await chargeRefreshLegs(raced.docs, OTHER, 2, NOW)).toBe(false);
     expect(raced.gate()?.legs).toBe(2);
   });
 });

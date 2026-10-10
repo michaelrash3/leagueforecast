@@ -79,7 +79,7 @@ export type LegDeps = {
    * was started. Whether the day had them left: a refresh it had not is not run. None for a list,
    * which the budget does not cover.
    */
-  chargeLegs?: (legs: number) => Promise<boolean>;
+  chargeLegs?: (jobId: string, legs: number) => Promise<boolean>;
   /** How often to look for the device asking to stop, and to say how far the leg has got. */
   lookEveryMs?: number;
 };
@@ -159,17 +159,21 @@ const workOutRota = async (jobId: string, job: PullJob, deps: LegDeps): Promise<
   const { jobs, now } = deps;
   const stamp = () => now().toISOString();
   await jobs.update(jobId, { status: "running", stage: "loading", updatedAt: stamp() });
-  const worked = await workOutRefresh(deps.store, now());
+  // One moment for the day the teams are worked out on and the day the job keeps (`rota.at`),
+  // which the last leg logs the levels under: read twice, a leg that loaded the copy across New
+  // York's midnight logged Friday's levels as Saturday's, leaving Saturday's nightly none due.
+  const workedAt = now();
+  const worked = await workOutRefresh(deps.store, workedAt);
   if (!worked.ok) return { kind: "failed", error: NOT_RUNNABLE[worked.end] ?? worked.end };
   const entries: GcTeamListEntry[] = worked.teamIds.map((teamId) => ({ teamId }));
   const packed = await packJobList(entries);
   for (const [index, piece] of packed.pieces.entries()) await jobs.putPiece(jobId, index, piece);
   const legs = legsFor(entries.length, job.legTeams);
-  if (legs > 1 && deps.chargeLegs && !(await deps.chargeLegs(legs - 1))) {
+  if (legs > 1 && deps.chargeLegs && !(await deps.chargeLegs(jobId, legs - 1))) {
     return { kind: "failed", error: tooManyLegs(legs) };
   }
   const rota: PullJobRota = {
-    at: stamp(),
+    at: workedAt.toISOString(),
     ageLevels: worked.ageLevels,
     again: worked.again,
     heldBack: worked.heldBack,
