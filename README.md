@@ -1041,16 +1041,22 @@ The answer is remembered, as the pairs kept apart are: in the pool's own key
 schedule's GameChanger id, the name as the import reads it (`teamNameKey`) and each of the club's
 GameChanger ids. Not against the game: a re-pull finds a row taken off a club by its id and keeps
 the stand-in it has, so what brings the mistake back is the refile putting the stand-in on the club
-the next time the club has a game that day, the claim step reading the club's copy as the game, and
-the namer's next row of that name, a league opponent being named over and over. The schedule and
-the name stay in the key, so another schedule naming the club, or this one naming it another way,
-is matched as before, and the pool keeps no row's name, so the club's name is the name: a name files
-a row onto a pulled club only where the two read the same. Every road a name takes onto a club
-asks it (`refusesName`): the import's match, by the name and by the game (`planOpponent`), the slot
-settle, the crossed halves, the reclaim, the refile, the claim step and a namesake taking a row off
-a club far from its age. The step that takes a name's rows off a club (`resettleOffLevel`) takes the
-namer's other rows of the refused name off it too, at the next tidy. Only the picture still names
-the club, being GameChanger's identity rather than a reading of a name. The import panel and the
+the next time the club has a game that day, and the namer's next row of that name, a league
+opponent being named over and over. The schedule and the name stay in the key, so another schedule
+naming the club, or this one naming it another way, is matched as before, and the pool keeps no
+row's name, so the club's name is the name: a name files a row onto a pulled club only where the two
+read the same. Every road a name takes onto a club asks it (`refusesName`): the import's match by
+the name (`planOpponent`: the one club of it, the one something corroborates), the refile, a
+namesake taking a row off a club far from its age, and the slot settle where the row it would
+settle into is the name again. The step that takes a name's rows off a club (`resettleOffLevel`)
+takes the namer's other rows of the refused name off it too, at the next tidy. What a refusal never
+stands against is the club's own schedule (`listedByOwn`): where that lists the game against the
+namer, the fixture match, the holder test, the slot settle, the crossed halves, the reclaim and the
+claim step put it on the club as they would with no refusal, since the club saying it played the
+game is not a reading of a name. Kept from those too, the two clubs' next real meeting stood twice
+on the namer's record, once against the club from the club's schedule and once against a stand-in
+from the namer's. The picture still names the club as well, being GameChanger's identity. The
+import panel and the
 tidy on this page, in its worker or not, read the list, and so does every pull run on the cloud
 copy (`runCloudPull`: the nightly refresh and a list pulled in the cloud), its import and its tidy
 alike; the command adds to it: the club's ids it does not hold already, which its Undo takes off

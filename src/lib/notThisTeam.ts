@@ -37,11 +37,24 @@ import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings/types";
 export const filedByNameOn = (game: ScoutGame, club: ScoutTeam): boolean => {
   if (game.source?.kind !== "gamechanger" || game.teamAId === game.teamBId) return false;
   if (game.teamAId !== club.id && game.teamBId !== club.id) return false;
-  const own = new Set((club.gcTeams ?? []).map((link) => link.teamId));
-  if (own.size === 0 || own.has(game.source.teamId)) return false;
+  if (!club.gcTeams?.length) return false;
   if (game.namedByAvatar === club.id) return false;
-  if ((game.alsoRows ?? []).some((record) => own.has(record.teamId))) return false;
-  return !(game.alsoFrom ?? []).some((schedule) => own.has(schedule));
+  return !listedByOwn(game, club);
+};
+
+/**
+ * Whether one of `club`'s own GameChanger schedules gave `game` a row: the row it stands on, one
+ * folded or claimed into it (`alsoRows`), or one on record (`alsoFrom`). What a refusal never
+ * stands against: the owner's "Not this team" is about a name another schedule wrote, and a club's
+ * own schedule listing the game is the club saying it played it, which no reading of a name
+ * outweighs. A stand-in or a slot has no schedule, so nothing is its own.
+ */
+export const listedByOwn = (game: ScoutGame, club: ScoutTeam | undefined): boolean => {
+  const own = new Set((club?.gcTeams ?? []).map((link) => link.teamId));
+  if (own.size === 0) return false;
+  if (game.source !== undefined && own.has(game.source.teamId)) return true;
+  if ((game.alsoRows ?? []).some((record) => own.has(record.teamId))) return true;
+  return (game.alsoFrom ?? []).some((schedule) => own.has(schedule));
 };
 
 /**

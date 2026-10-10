@@ -22,13 +22,16 @@ import {
   type NotThisTeam,
 } from "../notThisTeam";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
+import { countedTwice } from "../countedTwice";
 
 /*
  * "Not this team" remembered: the owner's word that a name written on one club's schedule is not a
  * pulled club, kept by the schedule's GameChanger id, the name and the club's ids, and honoured by
  * every road a name takes onto a club: a pull of either club, the refile, the step that takes a
- * name's rows off a club, the slot settle, the crossed halves, the reclaim and the claim step.
- * Placeholder names throughout.
+ * name's rows off a club, and the slot settle where the row it would settle into is the name again.
+ * Never against the club's own schedule: where that lists the game, the fixture, the holder test,
+ * the slot settle, the crossed halves, the reclaim and the claim step file it onto the club as they
+ * would with no refusal. Placeholder names throughout.
  */
 
 const HAWKS = "gcHAWKS00001";
@@ -154,14 +157,18 @@ describe("the import, with the owner's refusals", () => {
   /**
    * The Eagles' own schedule holds the Hawks' new row at its very start, the result mirrored, under
    * `called`: a name nobody pulled, which the holder test reads among the clubs of the name, or the
-   * Hawks' own, which the fixture match reads off the Hawks' day.
+   * Hawks' own, which the fixture match reads off the Hawks' day. `listed` is the Eagles' row as
+   * their schedule gives it, where a test needs it without a start or a result.
    */
-  const heldByTheClub = (called: string) => {
+  const heldByTheClub = (
+    called: string,
+    listed: GcGame = row("e4", "2026-08-29", called, [9, 1])
+  ) => {
     const { state, refused } = refusedPool();
     // A game of the Hawks' own the next day, so a name can file the Eagles' row onto them.
     const busy = row("h4", "2026-08-30", "Comets", [2, 2], 10);
     const busier = importGcSchedule(hawksOwn([busy]), state, { notThisTeam: refused }).state;
-    const held = importGcSchedule(eaglesOwn([row("e4", "2026-08-29", called, [9, 1])]), busier);
+    const held = importGcSchedule(eaglesOwn([listed]), busier);
     const again = hawksOwn([busy, row("h3", "2026-08-29", "Eagles", [1, 9])]);
     return {
       eagles: teamNamed(held.state, "Eagles").id,
@@ -178,16 +185,85 @@ describe("the import, with the owner's refusals", () => {
     return game.teamAId === teamNamed(state, "Prairie Hawks").id ? game.teamBId : game.teamAId;
   };
 
-  it("files nothing onto the club by the club holding the game under another name", () => {
+  it("files nothing onto the club by the club holding a game that day against some other name", () => {
+    // "Hawks" is a name too, filed against a stand-in: the Eagles' schedule does not say it played
+    // this club, and the holder test asks a refused club for no less (the crossed halves may yet
+    // join the two, on the game: below).
     const { eagles, honoured, unrefused } = heldByTheClub("Hawks");
     expect(sideB(unrefused)).toBe(eagles);
     expect(sideB(honoured)).not.toBe(eagles);
   });
 
-  it("files nothing onto the club by the game on the namer's own day either", () => {
+  it("files the row onto the club whose own schedule lists the game against the namer", () => {
+    // The fixture: the Eagles' own row against the Hawks, at the very start, the result mirrored.
     const { eagles, honoured, unrefused } = heldByTheClub("Prairie Hawks");
     expect(sideB(unrefused)).toBe(eagles);
-    expect(sideB(honoured)).not.toBe(eagles);
+    expect(sideB(honoured)).toBe(eagles);
+  });
+
+  it("and where the two coaches scored it a run apart at that start, by the fixture alone", () => {
+    // The Eagles' own 9-1 against the Hawks; the Hawks' coach wrote 1-8. The same start is one
+    // game, scored apart, which the fixture reads and the holder test, wanting the result mirrored,
+    // does not.
+    const { state, refused } = refusedPool();
+    const busy = row("h4", "2026-08-30", "Comets", [2, 2], 10);
+    const busier = importGcSchedule(hawksOwn([busy]), state, { notThisTeam: refused }).state;
+    const held = importGcSchedule(
+      eaglesOwn([row("e4", "2026-08-29", "Prairie Hawks", [9, 1])]),
+      busier
+    ).state;
+    const again = hawksOwn([busy, row("h3", "2026-08-29", "Eagles", [1, 8])]);
+    const eagles = teamNamed(held, "Eagles").id;
+    expect(sideB(importGcSchedule(again, held).state)).toBe(eagles);
+    expect(sideB(importGcSchedule(again, held, { notThisTeam: refused }).state)).toBe(eagles);
+  });
+
+  it("and where neither a start nor a result settles it, by the club's own row against the namer", () => {
+    // The holder test: the Eagles' own row names the Hawks that day, with nothing to compare, which
+    // the fixture cannot read and the holder test can.
+    const { eagles, honoured, unrefused } = heldByTheClub("Prairie Hawks", {
+      id: "e4",
+      date: "2026-08-29",
+      opponentName: "Prairie Hawks",
+      status: "scheduled",
+    });
+    expect(sideB(unrefused)).toBe(eagles);
+    expect(sideB(honoured)).toBe(eagles);
+  });
+
+  it("files nothing onto the club by a row of the namer's other listing that the name filed there", () => {
+    // The Hawks are on GameChanger twice; their second listing's 2-4 against "Eagles" was filed on
+    // the Eagles by the name, and the first listing's copy of it is what is being pulled. The day's
+    // other row is the Hawks' own word again, not the Eagles'.
+    const second = "gcHAWKS00002";
+    const hawksTwice: ScoutTeam = {
+      ...hawks,
+      gcTeams: [
+        ...hawks.gcTeams!,
+        { teamId: second, name: "Prairie Hawks 9U", ageGroupId: page.id, ageLevel: 9 },
+      ],
+    };
+    const theirOwn = rowOf(eagles, "e1", eaglesStandIn.id, [6, 2], "2026-08-29");
+    const misfiled: ScoutGame = {
+      ...rowOf(hawks, "x1", eagles.id, [2, 4], "2026-08-29"),
+      id: `gc_${second}_x1`,
+      source: { kind: "gamechanger", teamId: second, gameId: "x1" },
+    };
+    const state = pool([hawksTwice, eagles, eaglesStandIn], [theirOwn, misfiled]);
+    const pulled = hawksOwn([row("h3", "2026-08-29", "Eagles", [2, 4])]);
+    // Wherever the row went: a game of its own, or folded into the day's other row.
+    const side = (result: GcImportState) => {
+      const game = result.games.find((each) =>
+        [each.source, ...(each.alsoRows ?? [])].some(
+          (one) => one?.teamId === HAWKS && one.gameId === "h3"
+        )
+      )!;
+      return game.teamAId === hawks.id ? game.teamBId : game.teamAId;
+    };
+    expect(side(importGcSchedule(pulled, state).state)).toBe(eagles.id);
+    expect(side(importGcSchedule(pulled, state, { notThisTeam: REFUSED }).state)).not.toBe(
+      eagles.id
+    );
   });
 
   it("leaves the row off the club when the club itself is pulled again", () => {
@@ -197,6 +273,56 @@ describe("the import, with the owner's refusals", () => {
       standIn
     );
   });
+});
+
+/*
+ * A refusal is the owner's word about a name, and the name is all it stands against: where the
+ * club's own schedule lists the game, the club played it, refusal or not. A later meeting of the two
+ * clubs, listed by both schedules at one start with the result mirrored, is one game, as it is with
+ * no refusal; kept apart by the refusal it stood twice on the namer's record.
+ */
+describe("a refusal, and a later game the two clubs' own schedules both list", () => {
+  /** The Hawks' games of a day: who each is against, and every schedule that gave it a row. */
+  const hawksDay = (state: GcImportState, date: string) => {
+    const hawks = teamNamed(state, "Prairie Hawks").id;
+    return state.games
+      .filter((game) => game.date === date && (game.teamAId === hawks || game.teamBId === hawks))
+      .map((game) => ({
+        against: game.teamAId === hawks ? game.teamBId : game.teamAId,
+        schedules: [
+          game.source?.teamId,
+          ...(game.alsoRows ?? []).map((record) => record.teamId),
+          ...(game.alsoFrom ?? []),
+        ]
+          .filter((id): id is string => id !== undefined)
+          .filter((id, at, all) => all.indexOf(id) === at)
+          .sort(),
+      }));
+  };
+  const theirs = eaglesOwn([row("e9", "2026-09-05", "Prairie Hawks", [9, 1])]);
+  const ours = hawksOwn([row("h9", "2026-09-05", "Eagles", [1, 9])]);
+
+  for (const clubFirst of [true, false]) {
+    it(`is one game, as it is with no refusal, with the ${clubFirst ? "club" : "namer"} pulled first`, () => {
+      const { state, refused } = refusedPool();
+      const pull = (options: { notThisTeam?: NotThisTeam }) => {
+        const [first, second] = clubFirst ? [theirs, ours] : [ours, theirs];
+        return importGcSchedule(second, importGcSchedule(first, state, options).state, options)
+          .state;
+      };
+      const kept = tidyPool(pull({ notThisTeam: refused }), undefined, undefined, refused).state;
+      const plain = tidyPool(pull({})).state;
+      const eagles = teamNamed(kept, "Eagles").id;
+      const both = [EAGLES, HAWKS].sort();
+      expect(hawksDay(plain, "2026-09-05")).toEqual([{ against: eagles, schedules: both }]);
+      expect(hawksDay(kept, "2026-09-05")).toEqual([{ against: eagles, schedules: both }]);
+      expect(
+        countedTwice(kept.teams, kept.games, "2026-10-10").filter(
+          (group) => group.date === "2026-09-05"
+        )
+      ).toEqual([]);
+    });
+  }
 });
 
 describe("the tidy, with the owner's refusals", () => {
@@ -227,8 +353,9 @@ describe("the tidy, with the owner's refusals", () => {
 
 /*
  * The game-evidence roads, each on a pool built for it: the Eagles' own schedule lists the very
- * game the Hawks named "Eagles", which joins the two rows unless the owner has said the name is not
- * the Eagles.
+ * game the Hawks named "Eagles", which joins the two rows whatever the owner has said of the name,
+ * since the club's own schedule is not a name. A refusal still stands where the row the road would
+ * join is the name again.
  */
 const page: AgeGroup = { id: "ag9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] };
 const club = (id: string, name: string, gcId: string, state = "IL"): ScoutTeam => ({
@@ -280,27 +407,47 @@ const sideOfHawksRow = (state: GcImportState): string[] =>
     .map((game) => (game.teamAId === hawks.id ? game.teamBId : game.teamAId));
 
 describe("the roads a game takes onto a club, with the owner's refusals", () => {
-  it("the slot settle folds no row of the refused name into the club's own copy", () => {
+  it("the slot settle folds a row of the refused name into the club's own copy", () => {
     const state = pool(
       [hawks, eagles, eaglesStandIn],
       [hawksRow, rowOf(eagles, "e1", hawks.id, [5, 3])]
     );
     expect(resolveSlotGames(state).resolved).toBe(1);
+    expect(resolveSlotGames(state, REFUSED).resolved).toBe(1);
+  });
+
+  it("but into no row of the day the name filed onto the club, off the namer's other listing", () => {
+    // The Hawks' second listing's copy of the game, filed on the Eagles by the very name refused.
+    const second = "gcHAWKS00002";
+    const hawksTwice: ScoutTeam = {
+      ...hawks,
+      gcTeams: [
+        ...hawks.gcTeams!,
+        { teamId: second, name: "Prairie Hawks 9U", ageGroupId: page.id, ageLevel: 9 },
+      ],
+    };
+    const misfiled: ScoutGame = {
+      ...rowOf(hawks, "x1", eagles.id, [3, 5]),
+      id: `gc_${second}_x1`,
+      source: { kind: "gamechanger", teamId: second, gameId: "x1" },
+    };
+    const state = pool([hawksTwice, eagles, eaglesStandIn], [hawksRow, misfiled]);
+    expect(resolveSlotGames(state).resolved).toBe(1);
     expect(resolveSlotGames(state, REFUSED).resolved).toBe(0);
   });
 
-  it("the crossed halves join no row of the refused name to the club's", () => {
+  it("the crossed halves join a row of the refused name to the club's own", () => {
     const state = pool(
       [hawks, eagles, eaglesStandIn, hawksStandIn],
       [hawksRow, rowOf(eagles, "e1", hawksStandIn.id, [5, 3])]
     );
     expect(joinCrossedHalves(state).joined).toBe(1);
-    expect(joinCrossedHalves(state, REFUSED).joined).toBe(0);
     const tidied = tidyPool(state, undefined, undefined, REFUSED).state;
-    expect(sideOfHawksRow(tidied)).not.toContain(eagles.id);
+    expect(sideOfHawksRow(tidied)).toEqual([eagles.id]);
+    expect(tidied.games).toHaveLength(1);
   });
 
-  it("the reclaim moves no row of the refused name onto the club from a namesake", () => {
+  it("the reclaim moves a row of the refused name onto the club whose own schedule holds it", () => {
     // The Hawks' "Eagles" sat on the Eagles of Indiana, who had a game of their own that morning;
     // the Eagles of Illinois' own schedule holds the game, at its very start, the result mirrored,
     // against a stand-in for the Hawks.
@@ -319,12 +466,21 @@ describe("the roads a game takes onto a club, with the owner's refusals", () => 
       ]
     );
     expect(reclaimMisfiled(state).reclaimed).toBe(1);
-    expect(reclaimMisfiled(state, REFUSED).reclaimed).toBe(0);
-    // A whole tidy leaves it where it was, on the Indiana club no refusal names, and settles: moved
-    // onto the Eagles by the reclaim and off them by the refusal, it went round to the pass limit.
+    // A whole tidy with the refusal ends where one without it does: one game, against the Eagles of
+    // Illinois, whose schedule holds it, and settled, nothing left for a second tidy to do.
+    const plain = tidyPool(state);
     const tidy = tidyPool(state, undefined, undefined, REFUSED);
-    expect(sideOfHawksRow(tidy.state)).toEqual([hoosiers.id]);
-    expect(tidy.passes).toBeLessThan(3);
+    expect(sideOfHawksRow(plain.state)).toEqual([eagles.id]);
+    expect(sideOfHawksRow(tidy.state)).toEqual([eagles.id]);
+    // The one game holds both clubs' rows, whichever it stands on.
+    const between = tidy.state.games.filter(
+      (game) => [game.teamAId, game.teamBId].sort().join() === [eagles.id, hawks.id].sort().join()
+    );
+    expect(between).toHaveLength(1);
+    expect(
+      [between[0]!.source?.teamId, ...(between[0]!.alsoRows ?? []).map((one) => one.teamId)].sort()
+    ).toEqual([EAGLES, HAWKS].sort());
+    expect(tidy.passes).toBe(plain.passes);
     expect(tidyChangedAnything(tidyPool(tidy.state, undefined, undefined, REFUSED))).toBe(false);
   });
 
@@ -352,27 +508,48 @@ describe("the roads a game takes onto a club, with the owner's refusals", () => 
     });
   });
 
-  it("the claim step claims no row of the refused name into the club's copy", () => {
+  it("the claim step claims a row of the refused name into the club's own copy", () => {
     const state = pool(
       [hawks, eagles, eaglesStandIn],
       [hawksRow, rowOf(eagles, "e1", hawks.id, [5, 3])]
     );
     expect(claimFiledRows(state).claimed).toBe(1);
-    expect(claimFiledRows(state, REFUSED).claimed).toBe(0);
   });
 
-  it("a whole tidy leaves the row on its stand-in, beside the club's own copy", () => {
+  it("a whole tidy makes one game of the row and the club's own copy, refusal or not", () => {
     const state = pool(
       [hawks, eagles, eaglesStandIn],
       [hawksRow, rowOf(eagles, "e1", hawks.id, [5, 3])]
     );
-    // Without them the Hawks' row goes into the Eagles' copy, one game between the two.
     const joined = tidyPool(state).state;
     expect(sideOfHawksRow(joined)).toEqual([eagles.id]);
     expect(joined.games).toHaveLength(1);
-    // With them it stays against the name, and the Eagles' own copy stands beside it.
+    // Kept apart by the refusal, the one game stood twice on the Hawks' record.
     const kept = tidyPool(state, undefined, undefined, REFUSED).state;
-    expect(sideOfHawksRow(kept)).toEqual([eaglesStandIn.id]);
-    expect(kept.games).toHaveLength(2);
+    expect(kept.games).toEqual(joined.games);
+  });
+
+  it("the refusal takes no game off the club that holds a row of the club's own schedule", () => {
+    // The Hawks' row on the Eagles, holding the Eagles' own row of the game claimed into it (filed
+    // by the Eagles' coach against a stand-in for the Hawks): the Eagles' schedule lists the game.
+    const holding: ScoutGame = {
+      ...rowOf(hawks, "h1", eagles.id, [3, 5]),
+      alsoRows: [
+        {
+          teamId: EAGLES,
+          gameId: "e1",
+          ownScore: 5,
+          opponentScore: 3,
+          onSideB: true,
+          filedAgainst: hawksStandIn.id,
+        },
+      ],
+      alsoFrom: [EAGLES],
+    };
+    const state = pool([hawks, eagles, hawksStandIn], [holding]);
+    expect(resettleOffLevel(state, REFUSED).resettled).toBe(0);
+    // A row of the name alone on the club is what it takes off.
+    const { alsoRows: _rows, alsoFrom: _from, ...alone } = holding;
+    expect(resettleOffLevel(pool([hawks, eagles], [alone]), REFUSED).resettled).toBe(1);
   });
 });

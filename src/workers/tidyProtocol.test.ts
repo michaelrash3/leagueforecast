@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyTidied, createTidyHandler, type WorkerResponse } from "./tidyProtocol";
 import { packPool } from "./tidyProtocol";
 import { TIDY_STEPS, type GcImportState } from "../lib/gameChangerImport";
+import type { ScoutGame } from "../lib/teamRankings";
 import { refusalOf } from "../lib/notThisTeam";
 
 /**
@@ -86,12 +87,30 @@ describe("the tidy worker's side of the protocol", () => {
 
   it("honours the names the owner has said are not a club, which it is told of", () => {
     // The Home Club pulled, and the owner's word that the Away Club's "TBD- 3:00 PM" is not it.
+    // The day's named row is the Away Club's second listing's, filed on the Home Club by a name: a
+    // row of the Home Club's own would be its word that it played, which no refusal outweighs.
     const pool = withStandIn();
     const home = {
       ...pool.teams[0]!,
       gcTeams: [{ teamId: "gcHOME", name: "Home Club 10U", ageGroupId: "ag_10u_2027" }],
     };
-    const state = packPool({ ...pool, teams: [home, ...pool.teams.slice(1)] });
+    const away = {
+      ...pool.teams[1]!,
+      gcTeams: [
+        { teamId: "gcAWAY", name: "Away Club 10U", ageGroupId: "ag_10u_2027" },
+        { teamId: "gcAWAY2", name: "Away Club 10U", ageGroupId: "ag_10u_2027" },
+      ],
+    };
+    const [named, slot] = pool.games as [ScoutGame, ScoutGame];
+    const byName: ScoutGame = {
+      ...named,
+      teamAId: "S-AWAY",
+      teamBId: "S-HOME",
+      teamAScore: 2,
+      teamBScore: 6,
+      source: { kind: "gamechanger", teamId: "gcAWAY2", gameId: "n1" },
+    };
+    const state = packPool({ ...pool, teams: [home, away, pool.teams[2]!], games: [byName, slot] });
     const { handle, answersOf } = harness();
     handle({ kind: "tidy", id: 1, state });
     handle({
