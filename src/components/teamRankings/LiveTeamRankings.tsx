@@ -817,6 +817,7 @@ function LiveBoard({
               onOpenTeam={openTeamIn}
               copy={sources ? sources.copy : copyReader}
               showToast={showToast}
+              pagesKnown={live.meta !== null}
             />
           </Suspense>
         ) : section === "archive" ? (

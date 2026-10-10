@@ -37,7 +37,7 @@ import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
 import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesShape";
 import { forgetDecodedGames, GAME_MOVED } from "./LiveGames";
 import { SCOUTING_NO_CARD } from "./LiveScouting";
-import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY } from "./LiveSetup";
+import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY, SETUP_PAGES_UNREAD } from "./LiveSetup";
 import type { BackupAnswer, BackupRequest } from "../../workers/backupProtocol";
 import { SEARCH_UNREAD } from "./RankingsSection";
 import { forgetDecodedArchive } from "./LiveArchive";
@@ -3364,6 +3364,22 @@ describe("Setup on the cloud's board", () => {
     expect(screen.getByRole("heading", { name: "What Team Rankings is" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "What has gone wrong here" })).toBeTruthy();
     expect(handedOver()).toBeNull();
+  });
+
+  it("offers no season to put on a page while the cloud's pages cannot be read", async () => {
+    // Over boards an older version published, the meta's pages are not drawn, and the pages to
+    // hand are this device's own, which it no longer keeps in step: a season put on one of them
+    // would be put on a page the cloud may not have. The rest of Setup stays on.
+    onSetup();
+    pool.wants = false;
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA - 1 });
+    const server = editFunction(setupAnswers);
+    open(sourcesOf(live, { call: server.call }), { seasons: LEAGUE });
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    expect(screen.getByText(SETUP_PAGES_UNREAD)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Put on / })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Age groups" })).toBeNull();
+    expect(edited(server.sent)).toEqual([]);
   });
 
   it("says what a season joins by the pages drawn, the edits not yet published among them", async () => {

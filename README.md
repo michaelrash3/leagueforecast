@@ -4563,7 +4563,11 @@ and say so, and a reload looks again: with the lock lifted, every edit and
 question was turned away one toast at a time. Once the server has answered, a
 meta this device kept from an earlier visit names no copy for them; its word
 replaces the kept one. Until 3.0 they waited on a meta that could be drawn, and
-on 10 October 2026 an older one locked them for the day. An edit and a question
+on 10 October 2026 an older one locked them for the day. One edit still waits on
+a meta it can draw: putting a league season on a page in Setup. Without such a meta
+the pages to hand are this device's own, which it no longer keeps in step, so the
+league seasons and age groups cards give way to a line saying the cloud's age
+groups cannot be read yet. An edit and a question
 stay the same functions while the lock comes and goes, and read it as they are
 made, so a card that asks in an effect does not ask again for a blip of the
 connection (a what-if refitted the year each time). The
