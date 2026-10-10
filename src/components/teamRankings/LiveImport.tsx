@@ -189,8 +189,8 @@ export default function LiveImport({
           The nightly refresh
         </h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          The cloud pulls from GameChanger every night at about 3 AM Eastern, whether or not
-          anything is open, and every device sees what it brings.
+          The cloud pulls from GameChanger every night, set for around midnight Eastern, whether or
+          not anything is open, and every device sees what it brings.
         </p>
         <p className="mt-3 text-sm font-bold text-slate-950 dark:text-white">
           {describeDueSummary(due)}

@@ -3599,8 +3599,10 @@ pages, three halves each) in 5 s, after a 95 s pull. Their first publish would
 have been 30 uploads, 3.2 MB gzipped, and a 13.1 KB meta, and the run, pull and
 boards together, peaked at 4.1 GB of the runner's 16.
 
-It runs every night at 07:17 UTC, which is 3:17 in the morning Eastern in summer
-and 2:17 in winter. A run by hand is **Actions → Nightly refresh → Run
+It runs every night at 04:17 UTC, which is 12:17 in the morning Eastern in summer
+and 11:17 at night in winter. It used to be set for 07:17, and GitHub started it about
+seven hours late (between 14:09 and 14:33 UTC on 6 to 9 October 2026), so it was moved
+three hours earlier; a scheduled run starts when GitHub gets to it. A run by hand is **Actions → Nightly refresh → Run
 workflow**, with `dry-run` (everything but the save, and what the save would
 have been) or `live`, and a limit of teams for a trial. The log carries counts,
 sizes and timings only, since this repository's Actions logs are public. A night

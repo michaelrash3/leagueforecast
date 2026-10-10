@@ -1,6 +1,6 @@
 /**
  * The nightly refresh (README, "The nightly refresh on GitHub"): the Refresh button pressed on the
- * cloud copy by one of GitHub's servers at about three in the morning, Eastern, so every device
+ * cloud copy by one of GitHub's servers, set for around midnight Eastern, so every device
  * opens on teams pulled overnight and nobody's tab has to stay open for it.
  *
  * It opens the cloud copy with the Firebase key GitHub keeps for deploys (`FIREBASE_SERVICE_ACCOUNT`,
