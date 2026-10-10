@@ -9,7 +9,8 @@ import type { ActiveShareView as ActiveView } from "../../lib/types";
  * A view already loaded is drawn at once, with no placeholder in between, so going back to a tab
  * never flickers; one still loading suspends, and the page's boundary shows a placeholder. A load
  * that fails is forgotten (`reset`), so trying again fetches afresh rather than repeating the
- * failure React's own `lazy` keeps for good.
+ * failure React's own `lazy` keeps for good. Each chunk's boundary must call it: the tabs' through
+ * `resetView`, the drawers' and the explanation's through their own.
  */
 export type ViewChunk<P extends object> = {
   View: ComponentType<P>;
@@ -100,6 +101,11 @@ export const teamDrawerView = viewChunk(
   () => import("./TeamDrawer").then((module) => module.TeamDrawer),
   "TeamDrawer"
 );
+/** Two teams side by side, opened only from a team's panel (2.7): fetched then, not with the page. */
+export const compareDrawerView = viewChunk(
+  () => import("../CompareDrawer").then((module) => module.CompareDrawer),
+  "CompareDrawer"
+);
 
 /** What loading a chunk asks of it, whatever its view draws. */
 type Loadable = Pick<ViewChunk<object>, "prefetch" | "reset">;
@@ -139,5 +145,5 @@ export const LIKELY_NEXT: Partial<Record<ActiveView, ActiveView>> = {
 /** Every view's chunks, loaded: for a test that wants the views drawn at once. */
 export const prefetchAllViews = (): Promise<void> =>
   Promise.all(Object.values(CHUNKS_OF).flatMap((chunks) => chunks.map((chunk) => chunk.prefetch())))
-    .then(() => teamDrawerView.prefetch())
+    .then(() => Promise.all([teamDrawerView.prefetch(), compareDrawerView.prefetch()]))
     .then(() => undefined);

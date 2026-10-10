@@ -55,6 +55,7 @@ import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings";
 import { LoadingPanel } from "./components/LoadingPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
+  compareDrawerView,
   dashboardView,
   forecastView,
   LIKELY_NEXT,
@@ -328,6 +329,7 @@ const SettingsView = settingsView.View;
 const SeasonManager = seasonManagerView.View;
 const ScoutLinkPanel = scoutLinkView.View;
 const TeamDrawer = teamDrawerView.View;
+const CompareDrawer = compareDrawerView.View;
 
 // ---------- Main app ----------
 
@@ -347,10 +349,6 @@ const ShortcutsHelp = lazy(() =>
 );
 const OnboardingTour = lazy(() =>
   import("./components/OnboardingTour").then((module) => ({ default: module.OnboardingTour }))
-);
-/** Two teams side by side, opened only from a team's panel: fetched then, not with the page. */
-const CompareDrawer = lazy(() =>
-  import("./components/CompareDrawer").then((module) => ({ default: module.CompareDrawer }))
 );
 
 /**
@@ -3604,78 +3602,94 @@ export default function App() {
           </main>
         )}
 
+        {/* Each drawer is fetched the first time it is opened (2.1, 2.7), so each has a boundary of
+          its own: a download that fails is said over the page, with Close, and is fetched afresh on
+          Try again or the next opening, rather than reaching the root's boundary, whose Try again
+          would open the panel again from the address and fail again. */}
         {selectedTeam && (
-          <Suspense fallback={null}>
-            <TeamDrawer
-              team={selectedTeam}
-              range={
-                selectedTeamDetail?.range ?? {
-                  best: selectedTeam.rank ?? 99,
-                  worst: selectedTeam.rank ?? 99,
-                  baseline: selectedTeam.rank ?? 99,
+          <ErrorBoundary
+            area="The team panel"
+            onReset={teamDrawerView.reset}
+            onClose={closeTeamData}
+          >
+            <Suspense fallback={null}>
+              <TeamDrawer
+                team={selectedTeam}
+                range={
+                  selectedTeamDetail?.range ?? {
+                    best: selectedTeam.rank ?? 99,
+                    worst: selectedTeam.rank ?? 99,
+                    baseline: selectedTeam.rank ?? 99,
+                  }
                 }
-              }
-              bubble={selectedTeamDetail?.bubble ?? ""}
-              detailsPending={!selectedTeamDetail}
-              currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
-              sos={selectedTeamDetail?.sos ?? { label: "", rating: 0, opponents: "" }}
-              swings={selectedTeamDetail?.swings ?? []}
-              clinchScenarios={selectedTeamDetail?.clinchScenarios ?? []}
-              titleRace={selectedTeamDetail?.titleRace ?? ""}
-              goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
-              cutoff={goldCutoff}
-              magicForGold={
-                selectedTeamDetail?.magic ?? {
-                  type: "magic",
-                  ownWinsNeeded: 0,
-                  opponentLossesNeeded: 0,
-                  description: "",
+                bubble={selectedTeamDetail?.bubble ?? ""}
+                detailsPending={!selectedTeamDetail}
+                currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
+                sos={selectedTeamDetail?.sos ?? { label: "", rating: 0, opponents: "" }}
+                swings={selectedTeamDetail?.swings ?? []}
+                clinchScenarios={selectedTeamDetail?.clinchScenarios ?? []}
+                titleRace={selectedTeamDetail?.titleRace ?? ""}
+                goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
+                cutoff={goldCutoff}
+                magicForGold={
+                  selectedTeamDetail?.magic ?? {
+                    type: "magic",
+                    ownWinsNeeded: 0,
+                    opponentLossesNeeded: 0,
+                    description: "",
+                  }
                 }
-              }
-              eliminationNumber={
-                selectedTeamDetail?.elimination ?? {
-                  type: "elimination",
-                  ownWinsNeeded: 0,
-                  opponentLossesNeeded: 0,
-                  description: "",
+                eliminationNumber={
+                  selectedTeamDetail?.elimination ?? {
+                    type: "elimination",
+                    ownWinsNeeded: 0,
+                    opponentLossesNeeded: 0,
+                    description: "",
+                  }
                 }
-              }
-              splitSummary={selectedTeamSplitSummary}
-              trendSummary={selectedTeamTrendSummary}
-              leagueAverageStats={leagueAverageStats}
-              pitchMode={settings.pitchMode}
-              trackErrors={settings.trackErrors}
-              runsOnly={runsOnly}
-              hasCutLine={hasCutLine}
-              projectionExplanations={
-                lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)
-                  ?.items ?? []
-              }
-              onClose={closeTeamData}
-              onRename={
-                leagueEditable ? (name) => renameLeagueTeam(selectedTeam.id, name) : undefined
-              }
-              onCompare={() => {
-                const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
-                setCompareTeamId(candidate ? candidate.id : null);
-              }}
-            />
-          </Suspense>
+                splitSummary={selectedTeamSplitSummary}
+                trendSummary={selectedTeamTrendSummary}
+                leagueAverageStats={leagueAverageStats}
+                pitchMode={settings.pitchMode}
+                trackErrors={settings.trackErrors}
+                runsOnly={runsOnly}
+                hasCutLine={hasCutLine}
+                projectionExplanations={
+                  lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)
+                    ?.items ?? []
+                }
+                onClose={closeTeamData}
+                onRename={
+                  leagueEditable ? (name) => renameLeagueTeam(selectedTeam.id, name) : undefined
+                }
+                onCompare={() => {
+                  const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
+                  setCompareTeamId(candidate ? candidate.id : null);
+                }}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {selectedTeam && compareTeam && (
-          <Suspense fallback={null}>
-            <CompareDrawer
-              left={selectedTeam}
-              right={compareTeam}
-              allTeams={dashboardRows}
-              matchups={matchups}
-              logs={logs}
-              runsOnly={runsOnly}
-              onClose={() => setCompareTeamId(null)}
-              onPickRight={(id) => setCompareTeamId(id)}
-            />
-          </Suspense>
+          <ErrorBoundary
+            area="The comparison"
+            onReset={compareDrawerView.reset}
+            onClose={() => setCompareTeamId(null)}
+          >
+            <Suspense fallback={null}>
+              <CompareDrawer
+                left={selectedTeam}
+                right={compareTeam}
+                allTeams={dashboardRows}
+                matchups={matchups}
+                logs={logs}
+                runsOnly={runsOnly}
+                onClose={() => setCompareTeamId(null)}
+                onPickRight={(id) => setCompareTeamId(id)}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {

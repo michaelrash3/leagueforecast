@@ -5635,12 +5635,16 @@ the deterministic story is shown. To exercise the AI path locally, run
 
 - **League Standings' views load on demand** (2.1, `src/components/league/leagueViews.ts`).
   Dashboard, Power Ratings, Schedule, Standings, League Stats, Forecast (with its
-  playoff machine), Settings and the team drawer are chunks of their own; the first
-  download carries the app's state and calculations, and a view's markup arrives
-  when it is first shown. A view already loaded is drawn at once, with no
-  placeholder, so going back to a tab never flickers; one still loading shows
-  "Loading Forecast…" in its place, and a load that fails is that view's **Try
-  again** (which fetches afresh) or **Reload the page**, never a blank page. A tab
+  playoff machine), Settings, the team drawer and the comparison it opens are chunks
+  of their own; the first download carries the app's state and calculations, and a
+  view's markup arrives when it is first shown. A view already loaded is drawn at
+  once, with no placeholder, so going back to a tab never flickers; one still
+  loading shows "Loading Forecast…" in its place, and a load that fails is that
+  view's **Try again** (which fetches afresh) or **Reload the page**, never a blank
+  page. The team drawer and the comparison have a boundary each, so a failed
+  download there is theirs alone: said over the page where the drawer would have
+  been, with **Close** beside the two (Close takes the team out of the address, so a
+  reload does not open it again), and the next opening fetches afresh. A tab
   starts loading when it is pointed at or focused, and once a tab is drawn and the
   page has been idle 1.5 s, the tab most often opened next does too: the Schedule
   after the Dashboard, the Forecast after the Standings, and nothing else, so a
