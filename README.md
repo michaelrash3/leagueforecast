@@ -2722,7 +2722,10 @@ changed first, thirty at most (a save that pushes the oldest out names it). One 
 "what if we win out" is theirs, not the season's, so a scenario is never written into the
 season, a backup or the cloud. A scenario is opened from the **Scenario** list, its picks
 changed and **Save changes**, **Rename**d, **Duplicate**d with the picks as they are now,
-or **Delete**d with its picks left on screen unsaved. **Clear picks** starts again. Each
+or **Delete**d with its picks left on screen unsaved. **Clear picks** starts again. Choosing
+another entry in the list while the picks on screen are not saved, made with no scenario
+open or changed in the one open, first asks whether to **Let them go** or **Keep them**,
+rather than losing them at a glance at another scenario. Each
 change is made to the scenarios as stored rather than to the list on the page, so one
 kept in another tab meanwhile stays. A change to the open scenario starts from it as
 stored too: **Rename** keeps the picks another tab saved to it meanwhile, **Save changes**

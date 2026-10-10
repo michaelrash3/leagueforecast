@@ -356,6 +356,52 @@ describe("saved playoff scenarios", () => {
     expect(after?.picks).toEqual({ g4: { winnerId: "B" } });
   });
 
+  it("asks before picks not yet saved go for another scenario, and keeps them unless told (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    const picker = within(machine).getByRole("combobox", { name: "Scenario" });
+    await pick(user, machine, "Ducks at Aces", "Aces");
+    await saveScenario(user, machine);
+    // Nothing unsaved: no scenario open again at once, with no picks.
+    await user.selectOptions(picker, "Unsaved picks");
+    expect(within(machine).queryByRole("group", { name: "Picks not saved" })).toBeNull();
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Sim"]);
+
+    // Picks made with no scenario open, and a scenario chosen: asked first, and kept if so.
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await pick(user, machine, "Bears at Comets", "Bears");
+    await user.selectOptions(picker, "Scenario 1");
+    let ask = within(machine).getByRole("group", { name: "Picks not saved" });
+    expect(ask).toHaveTextContent(
+      "The picks on screen are not saved. Open “Scenario 1” in their place?"
+    );
+    await user.click(within(ask).getByRole("button", { name: "Keep them" }));
+    expect(within(machine).queryByRole("group", { name: "Picks not saved" })).toBeNull();
+    expect(picker).toHaveDisplayValue("Unsaved picks");
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Bears"]);
+
+    // Let go of when the person says so.
+    await user.selectOptions(picker, "Scenario 1");
+    await user.click(within(machine).getByRole("button", { name: "Let them go" }));
+    expect(picker).toHaveDisplayValue("Scenario 1");
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Aces"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Sim"]);
+
+    // Changes to the open scenario not yet saved are asked about too, for no scenario as well.
+    await pick(user, machine, "Bears at Comets", "Comets");
+    await user.selectOptions(picker, "Unsaved picks");
+    ask = within(machine).getByRole("group", { name: "Picks not saved" });
+    expect(ask).toHaveTextContent(
+      "The changes to “Scenario 1” are not saved. Start again with no picks?"
+    );
+    await user.click(within(ask).getByRole("button", { name: "Keep them" }));
+    expect(picker).toHaveDisplayValue("Scenario 1");
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Comets"]);
+    expect(within(machine).getByRole("button", { name: "Save changes" })).toBeEnabled();
+  });
+
   it("brings back no scenario another tab let go of, and keeps its picks here (2.7 review)", async () => {
     const user = userEvent.setup();
     render(<App />);

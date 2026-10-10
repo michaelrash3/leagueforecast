@@ -167,6 +167,8 @@ export function PlayoffMachine({
   const [said, setSaid] = useState<string | null>(null);
   const [naming, setNaming] = useState<{ mode: "new" | "rename"; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // The scenario asked about opening in place of picks not saved ("" for none), while asked.
+  const [switching, setSwitching] = useState<string | null>(null);
   const [presetTeam, setPresetTeam] = useState<string>(followedTeamId ?? "");
   const [openedIncoming, setOpenedIncoming] = useState<string | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
@@ -182,6 +184,7 @@ export function PlayoffMachine({
     setSaid(null);
     setNaming(null);
     setDeleting(false);
+    setSwitching(null);
     setPresetTeam(followedTeamId ?? "");
   }
   if (incoming && incoming !== openedIncoming) {
@@ -223,6 +226,7 @@ export function PlayoffMachine({
     setSaid(message);
     setNaming(null);
     setDeleting(false);
+    setSwitching(null);
   };
   /** Stores a change to the season's scenarios, and says so; false when the browser refused. */
   const store = (kept: Kept | null, message: string): kept is Kept => {
@@ -234,12 +238,28 @@ export function PlayoffMachine({
     settle(`${message}${pushedOutLine(kept)}`);
     return true;
   };
+  /** Opens a saved scenario, or none ("") and no picks, in place of the picks shown. */
   const openScenario = (id: string) => {
     const scenario = saved.find((one) => one.id === id) ?? null;
     setOpenId(scenario?.id ?? null);
     setWork(scenario ? { picks: scenario.picks, basis: scenario.basis } : NO_PICKS);
     settle(null);
   };
+  /*
+   * The picker's choice. Picks on screen that are not saved, made with no scenario open or changed
+   * in the one open, go only once the person says so: a glance at another scenario would otherwise
+   * lose them, with nothing said and no way back.
+   */
+  const chooseScenario = (id: string) => {
+    if (picked > 0 && (open === null || unsavedChanges)) {
+      setNaming(null);
+      setDeleting(false);
+      setSwitching(id);
+      return;
+    }
+    openScenario(id);
+  };
+  const switchingTo = switching ? (saved.find((one) => one.id === switching) ?? null) : null;
   /** The picks being played out, as a scenario keeps them: on the games as they stand now. */
   const asKept = () => ({ picks: livePicks, basis: basisFor(livePicks, matchups) });
   const saveNew = (name: string) => {
@@ -454,7 +474,7 @@ export function PlayoffMachine({
             <select
               id={pickerId}
               value={openId ?? ""}
-              onChange={(event) => openScenario(event.target.value)}
+              onChange={(event) => chooseScenario(event.target.value)}
               className={FIELD}
             >
               <option value="">{saved.length ? "Unsaved picks" : "No saved scenarios yet"}</option>
@@ -481,6 +501,7 @@ export function PlayoffMachine({
                 className={SIDE_BUTTON}
                 onClick={() => {
                   setDeleting(false);
+                  setSwitching(null);
                   setNaming({ mode: "rename", name: open.name });
                 }}
               >
@@ -494,6 +515,7 @@ export function PlayoffMachine({
                 className={SIDE_BUTTON}
                 onClick={() => {
                   setNaming(null);
+                  setSwitching(null);
                   setDeleting(true);
                 }}
               >
@@ -566,6 +588,29 @@ export function PlayoffMachine({
             </button>
             <button type="button" className={SIDE_BUTTON} onClick={() => setDeleting(false)}>
               Keep it
+            </button>
+          </div>
+        )}
+
+        {switching !== null && (
+          <div
+            role="group"
+            aria-label="Picks not saved"
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span className={textRole.body}>
+              {open
+                ? `The changes to “${open.name}” are not saved.`
+                : "The picks on screen are not saved."}{" "}
+              {switchingTo
+                ? `Open “${switchingTo.name}” in their place?`
+                : "Start again with no picks?"}
+            </span>
+            <button type="button" className={SIDE_BUTTON} onClick={() => openScenario(switching)}>
+              Let them go
+            </button>
+            <button type="button" className={SIDE_BUTTON} onClick={() => setSwitching(null)}>
+              Keep them
             </button>
           </div>
         )}
