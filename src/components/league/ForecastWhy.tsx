@@ -73,7 +73,8 @@ export function ForecastWhy({
   const order: Side[] = explained.favorite === "teamB" ? ["teamB", "teamA"] : ["teamA", "teamB"];
   const leader = explained.margin >= 0 ? "teamA" : "teamB";
   const parts = explained.factors.filter((factor) => factor.inMargin && factor.runs !== undefined);
-  // Each part from the leading side's view: what it adds to their margin, or takes from it.
+  // Each part from the leading side's view: what it adds to their margin, or takes from it. The
+  // cap leans neither way and only ever takes from the leader, so it reads as a minus too.
   const partLine = parts
     .map((factor) => {
       const value = (factor.runs ?? 0) * (factor.favors === leader ? 1 : -1);

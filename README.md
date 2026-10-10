@@ -2788,7 +2788,9 @@ runs, which add up to it exactly:
 - **Head-to-head**: the nudge for their own meetings, never more than 1.5 runs;
 - **Home field**: not counted, since who bats last is a coin toss at this level (it would
   show only if a fitted home edge appeared from games with a real home side);
-- **Cap**: what the 14-run cap on a projected margin took off.
+- **Cap**: what the 14-run cap on a projected margin took off. It is a limit on the
+  forecast, not evidence for either side, so it leans neither way and is never a side's
+  strongest reason; the margin's parts take it off the leader.
 
 Beside them is what the margin does not count again or at all: recent form (already in the
 results), runs scored and allowed in league games, the Team Rankings results behind each

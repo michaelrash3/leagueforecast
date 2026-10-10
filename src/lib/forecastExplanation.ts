@@ -36,7 +36,10 @@ export type Factor = {
   label: string;
   /** The side it leans toward, or null for neither. */
   favors: Side | null;
-  /** The runs it gives the side it favors, for a part of the margin. */
+  /**
+   * The runs it gives the side it favors, for a part of the margin. The cap is the one part with
+   * runs that favors neither side: they are what it takes off the leader's margin.
+   */
   runs?: number;
   /** What it is, in a sentence. */
   text: string;
@@ -165,15 +168,18 @@ export const explainForecast = (
           "Not counted. Who bats last is a coin toss at this level, so neither side gets an edge for it."
         )
   );
+  // The cap is a limit on the forecast, not evidence for either side: it only ever takes runs off
+  // the leader's margin, and read as leaning the other way it came out as the trailing side's
+  // strongest reason. It leans neither way, so it is never one, and keeps its runs for the margin.
   if (Math.abs(parts.capped) >= EVEN_RUNS)
-    inMargin.push(
-      part(
-        "capped",
-        "Cap",
-        parts.capped,
-        `A projected margin stops at 14 runs, so ${runs(Math.abs(parts.capped))} over it are left out.`
-      )
-    );
+    inMargin.push({
+      key: "capped",
+      label: "Cap",
+      favors: null,
+      runs: Math.abs(parts.capped),
+      text: `A projected margin stops at 14 runs, so ${runs(Math.abs(parts.capped))} over it are left out.`,
+      inMargin: true,
+    });
   inMargin.sort((one, two) => (two.runs ?? 0) - (one.runs ?? 0));
 
   const context: Factor[] = [

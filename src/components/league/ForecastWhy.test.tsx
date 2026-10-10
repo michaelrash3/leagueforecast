@@ -105,6 +105,52 @@ describe("ForecastWhy", () => {
     );
   });
 
+  it("keeps the cap out of the trailing side's reasons, and takes it off the leader's margin", async () => {
+    // The Aces rout three teams the Bears lose to by as much, so their margin runs past the cap.
+    const five: TeamBase[] = [...teams, { id: "D", name: "Ducks" }, { id: "E", name: "Eagles" }];
+    const games: Matchup[] = [
+      { id: "r1", date: "5/2", away: "A", home: "C" },
+      { id: "r2", date: "5/9", away: "A", home: "D" },
+      { id: "r3", date: "5/16", away: "A", home: "E" },
+      { id: "r4", date: "5/2", away: "B", home: "C" },
+      { id: "r5", date: "5/9", away: "B", home: "D" },
+      { id: "r6", date: "5/16", away: "B", home: "E" },
+      { id: "r7", date: "5/23", away: "A", home: "B" },
+    ];
+    const scores = {
+      r1: final(16, 0),
+      r2: final(15, 0),
+      r3: final(16, 1),
+      r4: final(0, 15),
+      r5: final(1, 16),
+      r6: final(0, 15),
+    };
+    const prediction = buildPredictionEngine(
+      calculateTeams(five, games, scores, DEFAULT_SETTINGS),
+      games,
+      scores,
+      DEFAULT_SETTINGS
+    ).predictions.find((one) => one.gameId === "r7");
+    if (!prediction?.explanation) throw new Error("No explanation");
+    const cut = Math.abs(prediction.explanation.parts.capped).toFixed(1);
+    const user = userEvent.setup();
+    render(
+      <ForecastWhy
+        prediction={prediction}
+        nameOf={(id) => five.find((team) => team.id === id)?.name ?? id}
+      />
+    );
+    const reasons = screen.getAllByRole("listitem").slice(0, 2);
+    expect(reasons[1]).toHaveTextContent("For Bears: nothing in this forecast leans their way.");
+    expect(
+      screen.getByText(/^Projected margin: Aces by 14\.0 runs, from results \+\d+\.\d/)
+    ).toHaveTextContent(new RegExp(`, cap −${cut.replace(".", "\\.")}\\.$`));
+    await user.click(screen.getByRole("button", { name: "Every factor" }));
+    const margin = screen.getByRole("heading", { name: "In the margin" }).parentElement;
+    if (!margin) throw new Error("No factor list");
+    expect(within(margin).getByText(`Cap (${cut} runs):`)).toBeInTheDocument();
+  });
+
   it("shows every factor, in the margin and beside it, on request", async () => {
     const user = userEvent.setup();
     render(<ForecastWhy prediction={predictionFor()} nameOf={nameOf} />);

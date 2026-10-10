@@ -287,6 +287,39 @@ describe("explainForecast", () => {
     expect(explained?.strongest.teamB?.key).toBe("schedule");
   });
 
+  it("never gives the cap as a reason for the side it takes nothing from", () => {
+    // The Aces rout three teams the Bears lose to by as much: nothing here leans the Bears' way,
+    // and the cap, which only takes runs off the Aces' margin, is no evidence for them.
+    const games: Matchup[] = [
+      { id: "r1", date: "5/2", away: "A", home: "C" },
+      { id: "r2", date: "5/9", away: "A", home: "D" },
+      { id: "r3", date: "5/16", away: "A", home: "E" },
+      { id: "r4", date: "5/2", away: "B", home: "C" },
+      { id: "r5", date: "5/9", away: "B", home: "D" },
+      { id: "r6", date: "5/16", away: "B", home: "E" },
+      { id: "r7", date: "5/23", away: "A", home: "B" },
+    ];
+    const scores = {
+      r1: final(16, 0),
+      r2: final(15, 0),
+      r3: final(16, 1),
+      r4: final(0, 15),
+      r5: final(1, 16),
+      r6: final(0, 15),
+    };
+    const prediction = explanationOf(engineFor(games, scores, []), "r7");
+    if (!prediction.explanation) throw new Error("No explanation");
+    expect(prediction.explanation.margin).toBe(14);
+    expect(prediction.explanation.parts.capped).toBeLessThan(-1);
+
+    const explained = explainForecast(prediction, { nameOf });
+    const capped = explained?.factors.find((factor) => factor.key === "capped");
+    expect(capped?.favors).toBeNull();
+    expect(capped?.runs).toBeCloseTo(-prediction.explanation.parts.capped, 10);
+    expect(explained?.strongest.teamA?.key).toBe("results");
+    expect(explained?.strongest.teamB).toBeNull();
+  });
+
   it("says a side's results are undated rather than guessing a day for them", () => {
     // The Eagles' league games without a date, and no tournament results.
     const undated: Matchup[] = matchups.map((game) =>
