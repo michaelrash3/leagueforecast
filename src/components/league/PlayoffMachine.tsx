@@ -55,7 +55,7 @@ type PlayoffMachineProps = {
   followedTeamId: string | null;
   /** A scenario of this season just kept from a link, to open at once. */
   incoming?: string | null;
-  /** Told once the incoming scenario is open, so it is opened once and not on every visit. */
+  /** Told once the incoming scenario is open or asked about, so that is done once, not every visit. */
   onIncomingOpened?: () => void;
   /**
    * The machine as this page last left it, given back when it is shown again, so that picks last
@@ -233,23 +233,6 @@ export function PlayoffMachine({
     setSwitching(null);
     setPresetTeam(followedTeamId ?? "");
   }
-  if (incoming && incoming !== openedIncoming) {
-    // Just kept from a link: open it.
-    setOpenedIncoming(incoming);
-    const list = readScenarios(seasonId);
-    const scenario = list.find((one) => one.id === incoming);
-    setSaved(list);
-    if (scenario) {
-      setOpenId(scenario.id);
-      setWork({ picks: scenario.picks, basis: scenario.basis });
-      setSaid(`Opened “${scenario.name}”, kept from a link.`);
-    }
-  }
-  useEffect(() => {
-    if (!incoming) return;
-    sectionRef.current?.scrollIntoView?.({ block: "start" });
-    onIncomingOpened?.();
-  }, [incoming, onIncomingOpened]);
 
   const open = saved.find((one) => one.id === openId) ?? null;
   const trouble = useMemo(
@@ -261,6 +244,41 @@ export function PlayoffMachine({
     [saved, matchups, logs]
   );
   const unsavedChanges = open !== null && !samePicks(open.picks, work.picks);
+  // Picks on screen another scenario opened in their place would lose: some not saved, made with
+  // no scenario open or changed in the one open.
+  const picksAtRisk = picked > 0 && (open === null || unsavedChanges);
+  /*
+   * Just kept from a link: opened as the list opens one, so asked about first when picks on screen
+   * are not saved, since a link is as likely opened in a tab already running as in a new one.
+   * Whatever was up for the scenario open until now, a new name, a delete or another switch asked
+   * about, is put away, as it would act on the link's scenario. Done once the machine is on the
+   * link's season: in the moment of a change of season, the picks it would judge by are the last
+   * season's, about to go.
+   */
+  if (incoming && incoming !== openedIncoming && savedFor === seasonId) {
+    setOpenedIncoming(incoming);
+    const list = readScenarios(seasonId);
+    const scenario = list.find((one) => one.id === incoming);
+    setSaved(scenario && picksAtRisk ? withOpen(list, open) : list);
+    if (scenario) {
+      setNaming(null);
+      setDeleting(false);
+      if (picksAtRisk) {
+        setSaid(null);
+        setSwitching(scenario.id);
+      } else {
+        setSwitching(null);
+        setOpenId(scenario.id);
+        setWork({ picks: scenario.picks, basis: scenario.basis });
+        setSaid(`Opened “${scenario.name}”, kept from a link.`);
+      }
+    }
+  }
+  useEffect(() => {
+    if (!incoming) return;
+    sectionRef.current?.scrollIntoView?.({ block: "start" });
+    onIncomingOpened?.();
+  }, [incoming, onIncomingOpened]);
   // What the machine holds, kept up to date to tell the page as it goes (`left`).
   const leaving = useRef<MachineLeft | null>(null);
   useEffect(() => {
@@ -313,7 +331,7 @@ export function PlayoffMachine({
       setSwitching(null);
       return;
     }
-    if (picked > 0 && (open === null || unsavedChanges)) {
+    if (picksAtRisk) {
       settle(null);
       setSwitching(id);
       return;

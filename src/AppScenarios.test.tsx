@@ -3,9 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
-import { dropScenario, keepScenario, readScenarios } from "./lib/savedScenarios";
+import {
+  basisFor,
+  dropScenario,
+  keepScenario,
+  readScenarios,
+  scenarioLinkHash,
+} from "./lib/savedScenarios";
+import type { ScenarioPick } from "./lib/scenario";
 import type { SeasonStore } from "./lib/seasonStore";
 import {
+  createSeason,
   getActiveSeasonId,
   loadLogs,
   loadMatchups,
@@ -14,6 +22,7 @@ import {
   saveMatchups,
   saveSettings,
   saveTeams,
+  setActiveSeason,
 } from "./lib/storage";
 import type { GameLog } from "./lib/types";
 
@@ -661,6 +670,11 @@ describe("saved playoff scenarios", () => {
       within(opened).getByRole("combobox", { name: "Scenario" }),
       "Unsaved picks"
     );
+    await user.click(screen.getByRole("tab", { name: "Dashboard" }));
+    const again = await openMachine(user);
+    expect(within(again).getByRole("combobox", { name: "Scenario" })).toHaveDisplayValue(
+      "Unsaved picks"
+    );
     expect(Object.keys(loadLogs()).sort()).toEqual(["g1", "g2"]);
     expect(loadMatchups()).toHaveLength(4);
   });
@@ -681,5 +695,158 @@ describe("saved playoff scenarios", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(window.localStorage.getItem(STORED)).toBeNull();
     expect(window.location.hash).toBe("");
+  });
+
+  /**
+   * A scenario link opened in this tab while it runs, as one pasted into its address bar is, and
+   * kept: the page hears the address change and asks.
+   */
+  const keepLinkHere = async (
+    user: ReturnType<typeof userEvent.setup>,
+    name: string,
+    picks: Record<string, ScenarioPick>
+  ) => {
+    const at = "2026-05-01T12:00:00.000Z";
+    const hash = scenarioLinkHash({
+      version: 1,
+      id: "shared",
+      name,
+      seasonId: getActiveSeasonId(),
+      picks,
+      basis: basisFor(picks, loadMatchups()),
+      createdAt: at,
+      modifiedAt: at,
+    });
+    if (!hash) throw new Error("No link");
+    act(() => {
+      window.location.hash = hash;
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Keep this scenario?" });
+    await user.click(within(dialog).getByRole("button", { name: "Keep it" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  };
+
+  it("asks before a link kept in this tab takes the place of picks not saved (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    const picker = within(machine).getByRole("combobox", { name: "Scenario" });
+    await pick(user, machine, "Ducks at Aces", "Aces");
+    await saveScenario(user, machine);
+    await user.selectOptions(picker, "Unsaved picks");
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await pick(user, machine, "Bears at Comets", "Bears");
+    // Asked about another scenario, and a link kept before the answer: the question is the link's.
+    await user.selectOptions(picker, "Scenario 1");
+
+    await keepLinkHere(user, "Comets win", { g4: { winnerId: "C" } });
+    const ask = await within(machine).findByRole("group", { name: "Picks not saved" });
+    await waitFor(() =>
+      expect(ask).toHaveTextContent(
+        "The picks on screen are not saved. Open “Comets win” in their place?"
+      )
+    );
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Bears"]);
+    expect(storedNames()).toEqual(["Comets win", "Scenario 1"]);
+    await user.click(within(ask).getByRole("button", { name: "Keep them" }));
+    expect(picker).toHaveDisplayValue("Unsaved picks");
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Bears"]);
+
+    // Changes to an open scenario are asked about the same way, and let go of when told.
+    await user.selectOptions(picker, "Scenario 1");
+    await user.click(within(machine).getByRole("button", { name: "Let them go" }));
+    await pick(user, machine, "Bears at Comets", "Bears");
+    await keepLinkHere(user, "Bears win", { g4: { winnerId: "B" }, g3: { winnerId: "D" } });
+    const again = await within(machine).findByRole("group", { name: "Picks not saved" });
+    expect(again).toHaveTextContent(
+      "The changes to “Scenario 1” are not saved. Open “Bears win” in their place?"
+    );
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Aces"]);
+    await user.click(within(again).getByRole("button", { name: "Let them go" }));
+    expect(picker).toHaveDisplayValue("Bears win");
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+  });
+
+  it("puts away what was open for the last scenario when a link kept in this tab opens (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    const picker = within(machine).getByRole("combobox", { name: "Scenario" });
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await saveScenario(user, machine);
+
+    // A new name being typed for "Scenario 1": it goes, rather than rename the link's scenario.
+    await user.click(within(machine).getByRole("button", { name: "Rename" }));
+    expect(within(machine).getByRole("textbox", { name: "New name" })).toHaveValue("Scenario 1");
+    await keepLinkHere(user, "Comets win", { g4: { winnerId: "C" } });
+    await waitFor(() => expect(picker).toHaveDisplayValue("Comets win"));
+    expect(within(machine).queryByRole("textbox", { name: "New name" })).toBeNull();
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Comets"]);
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      "Opened “Comets win”, kept from a link."
+    );
+
+    // A delete being asked about: it goes too, rather than ask it of the link's scenario.
+    await user.click(within(machine).getByRole("button", { name: "Delete" }));
+    expect(within(machine).getByRole("group", { name: "Delete the scenario" })).toBeInTheDocument();
+    await keepLinkHere(user, "Bears win", { g4: { winnerId: "B" } });
+    await waitFor(() => expect(picker).toHaveDisplayValue("Bears win"));
+    expect(within(machine).queryByRole("group", { name: "Delete the scenario" })).toBeNull();
+    expect(storedNames()).toEqual(["Bears win", "Comets win", "Scenario 1"]);
+  });
+
+  it("opens a link kept for a season only once back on it, judged by that season's picks (2.7 review)", async () => {
+    // A second season with the same teams and games, picked in while the link was asked about.
+    const spring = getActiveSeasonId();
+    const games = loadMatchups();
+    const fall = createSeason("Fall");
+    setActiveSeason(fall.id);
+    saveTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+      { id: "C", name: "Comets" },
+      { id: "D", name: "Ducks" },
+    ]);
+    saveMatchups(games);
+    setActiveSeason(spring);
+    const user = userEvent.setup();
+    render(<App />);
+    let machine = await openMachine(user);
+    const at = "2026-05-01T12:00:00.000Z";
+    const picks = { g4: { winnerId: "C" } };
+    const hash = scenarioLinkHash({
+      version: 1,
+      id: "shared",
+      name: "Comets win",
+      seasonId: spring,
+      picks,
+      basis: basisFor(picks, loadMatchups()),
+      createdAt: at,
+      modifiedAt: at,
+    });
+    if (!hash) throw new Error("No link");
+    act(() => {
+      window.location.hash = hash;
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Keep this scenario?" });
+    const seasonPicker = screen.getByRole("combobox", { name: /active season/i, hidden: true });
+    await user.selectOptions(seasonPicker, fall.id);
+    machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await user.click(within(dialog).getByRole("button", { name: "Keep it" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // Back on the season it was kept for: the other season's picks are not this one's to ask about.
+    await user.selectOptions(seasonPicker, spring);
+    machine = await screen.findByRole("region", { name: "Playoff machine" });
+    await waitFor(() =>
+      expect(within(machine).getByRole("combobox", { name: "Scenario" })).toHaveDisplayValue(
+        "Comets win"
+      )
+    );
+    expect(within(machine).queryByRole("group", { name: "Picks not saved" })).toBeNull();
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Comets"]);
   });
 });

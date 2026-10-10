@@ -2774,8 +2774,11 @@ picks, the soonest first, and which of them are not on games this season still h
 play between the same teams, and asks **Keep it** or **Not now**
 (`src/lib/scenarioLink.ts`, fetched only when a link is opened). Kept, it joins the
 saved scenarios for the season open here with only the picks that apply, and opens in
-the playoff machine; either way the link leaves the address bar, and the season is never
-changed. A link none of whose picks apply is said so, with a word to open the season it
+the playoff machine as if chosen from its list: in a tab already running, as a link pasted
+into the address bar or tapped into the app open on a phone is, picks on screen not saved
+are asked about first, and a new name, a delete or a switch asked about for the scenario
+open before is put away rather than left to act on the link's; either way the link leaves
+the address bar, and the season is never changed. A link none of whose picks apply is said so, with a word to open the season it
 was made for.
 
 ## Why the forecast says what it does
