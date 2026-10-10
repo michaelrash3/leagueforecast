@@ -10,7 +10,9 @@ import type { ActiveShareView as ActiveView } from "../../lib/types";
  * never flickers; one still loading suspends, and the page's boundary shows a placeholder. A load
  * that fails is forgotten (`reset`), so trying again fetches afresh rather than repeating the
  * failure React's own `lazy` keeps for good. Each chunk's boundary must call it: the tabs' through
- * `resetView`, the drawers' and the explanation's through their own.
+ * `resetView`, the drawers' and the explanation's through their own. A browser may keep the failed
+ * download as well, for the rest of the visit (Chromium 141 answers the same chunk with the same
+ * failure and sends no request), which only a reload clears, so every boundary offers one.
  */
 export type ViewChunk<P extends object> = {
   View: ComponentType<P>;

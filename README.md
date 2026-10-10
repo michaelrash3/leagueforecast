@@ -5640,11 +5640,16 @@ the deterministic story is shown. To exercise the AI path locally, run
   view's markup arrives when it is first shown. A view already loaded is drawn at
   once, with no placeholder, so going back to a tab never flickers; one still
   loading shows "Loading Forecast…" in its place, and a load that fails is that
-  view's **Try again** (which fetches afresh) or **Reload the page**, never a blank
-  page. The team drawer and the comparison have a boundary each, so a failed
-  download there is theirs alone: said over the page where the drawer would have
-  been, with **Close** beside the two (Close takes the team out of the address, so a
-  reload does not open it again), and the next opening fetches afresh. A tab
+  view's **Try again** or **Reload the page**, never a blank page. The team drawer
+  and the comparison have a boundary each, so a failed download there is theirs
+  alone: said over the page where the drawer would have been, with **Close** beside
+  the two (Close takes the team out of the address, so a reload does not open it
+  again), and the next opening asks afresh. Try again asks for the chunk afresh
+  rather than repeating the failure React's `lazy` keeps for good, but a browser may
+  keep a download that failed for the rest of the visit: Chromium 141, checked in
+  the review of 2.1, answers the same chunk with the same failure without sending a
+  request, a prefetch that failed offline included, and there only **Reload the
+  page** fetches it again. A tab
   starts loading when it is pointed at or focused, and once a tab is drawn and the
   page has been idle 1.5 s, the tab most often opened next does too: the Schedule
   after the Dashboard, the Forecast after the Standings, and nothing else, so a
