@@ -19,6 +19,8 @@ import {
 } from "../../lib/types";
 import { button as buttonClasses, card } from "../../styles/tokens";
 import { PageHeader } from "../PageHeader";
+import type { NotifyPrefs } from "../../lib/seasonDigest";
+import { NotificationSettings } from "./NotificationSettings";
 import { EditLock } from "./EditLock";
 
 /** The order the tiebreaker pickers offer, and the "none" they also allow. */
@@ -42,6 +44,9 @@ export function SettingsView({
   loadDemoSeason,
   summaryMode,
   onSummaryMode,
+  notifyPrefs,
+  onNotifyPrefs,
+  followedName,
   onOpenCloud,
 }: {
   /** Opens the cloud copy's panel; absent while the cloud is off. */
@@ -57,6 +62,11 @@ export function SettingsView({
   loadDemoSeason: () => void;
   summaryMode: SummaryMode;
   onSummaryMode: (mode: SummaryMode) => void;
+  /** What this device is told of when the season changes elsewhere (2.6). */
+  notifyPrefs: NotifyPrefs;
+  onNotifyPrefs: (prefs: NotifyPrefs) => void;
+  /** The team this browser follows, or null. */
+  followedName: string | null;
 }) {
   const seasonId = useId();
   /**
@@ -491,6 +501,12 @@ export function SettingsView({
               : "Nothing is sent until you ask for it."}
           </p>
         </div>
+
+        <NotificationSettings
+          prefs={notifyPrefs}
+          onPrefs={onNotifyPrefs}
+          followedName={followedName}
+        />
 
         <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">

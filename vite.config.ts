@@ -77,6 +77,8 @@ export default defineConfig({
         // default stays: nothing from node_modules.
         globIgnores: ["**/node_modules/**/*", "**/firestoreListen-*.js"],
         navigateFallback: "/index.html",
+        // What pressing one of the app's notifications does (2.6, `public/notification-click.js`).
+        importScripts: ["notification-click.js"],
         // Without this, the service worker answers *every* navigation with the
         // cached app shell — including /api/*, so opening an API URL in the
         // browser shows the dashboard instead of the server's response and the

@@ -46,6 +46,15 @@ export const editingOffBecause = (state: LiveLeagueState): string | null =>
   SAID[state.kind]?.text ?? null;
 
 /**
+ * What has stopped League kept live and will not mend itself, for a notification (2.6): a fault a
+ * person has to see to, not a wait for the connection.
+ */
+export const needsAPerson = (state: LiveLeagueState): { kind: string; text: string } | null => {
+  const said = SAID[state.kind];
+  return said?.kind === "error" ? { kind: state.kind, text: said.text } : null;
+};
+
+/**
  * The line over League Standings kept live when it may not be edited, saying why
  * (`LiveLeagueState`). Nothing at all while live, or while League is kept on this device alone.
  */

@@ -14,6 +14,13 @@ export type SeasonState = {
 export type OpenSeason = { id: string; season: SeasonState };
 
 /**
+ * Where a change to the open season came from: this page's own edit, another device's laid over
+ * it, or a season opened (another, or the same one afresh). What changed since this device last
+ * looked (`useSeasonDigest`) takes its own edits as seen and the others' as news.
+ */
+export type SeasonChange = "edit" | "arrival" | "open";
+
+/**
  * The open season, held outside React so that what is on screen can be read and changed in one
  * step from outside the page as well as from it (`useLiveLeague`).
  */
@@ -42,19 +49,22 @@ export type SeasonStore = {
   locked: () => string | null;
   /** Hears each edit refused while locked, with the reason. */
   onRefused: (listener: ((why: string) => void) | null) => void;
-  subscribe: (listener: () => void) => () => void;
+  /** Hears every change, with where it came from and the open season as it was just before. */
+  subscribe: (listener: (change: SeasonChange, previous: OpenSeason) => void) => () => void;
 };
 
 export const createSeasonStore = (initial: OpenSeason): SeasonStore => {
   let current = initial;
   let locked: string | null = null;
   let refused: ((why: string) => void) | null = null;
-  const listeners = new Set<() => void>();
-  const changed = () => listeners.forEach((listener) => listener());
-  const set = (next: SeasonState) => {
+  const listeners = new Set<(change: SeasonChange, previous: OpenSeason) => void>();
+  const changed = (change: SeasonChange, previous: OpenSeason) =>
+    listeners.forEach((listener) => listener(change, previous));
+  const set = (next: SeasonState, change: SeasonChange) => {
     if (Object.is(next, current.season)) return;
+    const previous = current;
     current = { id: current.id, season: next };
-    changed();
+    changed(change, previous);
   };
   return {
     get: () => current,
@@ -63,9 +73,9 @@ export const createSeasonStore = (initial: OpenSeason): SeasonStore => {
         refused?.(locked);
         return;
       }
-      set(typeof action === "function" ? action(current.season) : action);
+      set(typeof action === "function" ? action(current.season) : action, "edit");
     },
-    apply: set,
+    apply: (season) => set(season, "arrival"),
     lock: (why) => {
       locked = why;
     },
@@ -74,8 +84,9 @@ export const createSeasonStore = (initial: OpenSeason): SeasonStore => {
       refused = listener;
     },
     open: (id, season) => {
+      const previous = current;
       current = { id, season };
-      changed();
+      changed("open", previous);
     },
     subscribe: (listener) => {
       listeners.add(listener);

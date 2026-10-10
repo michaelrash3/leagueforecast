@@ -62,21 +62,22 @@ starts in its June. A season inside one calendar year is ordered exactly as befo
 
 ## Features
 
-| Area                 | Highlights                                                                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                       |
-| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                  |
-| **Data Quality**     | Findings on the season's games, teams and settings, grouped by severity, with links to each, previewed repairs and undo.                                |
-| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
-| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
-| **Our team**         | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
-| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
-| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                  |
-| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                                                     |
-| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                       |
-| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                       |
-| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail.   |
-| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                              |
+| Area                      | Highlights                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Standings**             | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                       |
+| **Games**                 | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                  |
+| **Data Quality**          | Findings on the season's games, teams and settings, grouped by severity, with links to each, previewed repairs and undo.                                |
+| **Since you last looked** | What another device changed since this one last looked, on the Dashboard until seen; opt-in notifications while the app is open.                        |
+| **Season Predictor**      | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
+| **Team drawer**           | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
+| **Our team**              | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
+| **Settings**              | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
+| **Power UX**              | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                  |
+| **Installable PWA**       | Installable via `vite-plugin-pwa` (basic precache).                                                                                                     |
+| **A11y**                  | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                       |
+| **Perf**                  | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                       |
+| **Team Rankings**         | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail.   |
+| **GameChanger**           | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                              |
 
 ## Architecture
 
@@ -2767,6 +2768,42 @@ first), **Mark them final** (past games with both scores in), and **Use the sche
 for games per team. A finding that does not need attention can be **put aside** on this device,
 per season (`readPutAside`); it comes back when what it is about changes or it grows more
 serious, and a finding that needs attention cannot be put aside.
+
+## Since you last looked
+
+League Standings kept live takes in other devices' edits as they are made: another coach's
+scores, a game moved, a team renamed. A device that was closed, or on Team Rankings, used to come
+back to a season that was simply different. Now each device keeps the season as it last looked at
+it (`src/lib/seasonDigest.ts`, 2.6, a line per game and team and where each team stood in the
+race, a few kilobytes per season, kept for the last 12 seasons opened), and the Dashboard opens
+with **Since you last looked** while anything differs: counted ("3 new finals, 1 corrected score
+and 1 clinch"), then listed, the followed team's first, each a link to its game or team, until
+**Got it**. The Dashboard's tab carries the count meanwhile, in a phone's bar too.
+
+- **What counts:** a new final, a corrected one, one no longer final, a game added, moved, given
+  another opponent or removed, a final's box score changed, a team added, removed or renamed, a
+  team clinching a Gold Bracket place or eliminated from one, and the followed team's Gold chance
+  moving by the notification setting's points (10 if notifications are off). Runs typed into a
+  game not yet final are no one's news.
+- **What this device does itself is never news.** The season store says where each change came
+  from (`SeasonChange`): this page's own edit is taken as seen as it is made, another device's is
+  news, and a season opened brings its own last look. A forecast that follows an edit made here
+  is taken as seen too, unless news from elsewhere is still unread, which it may follow from. The
+  first time a device ever opens a season, what the cloud first brings it is where its looking
+  starts, not 48 games of news.
+
+**Notifications**, in Settings, are off until turned on, and the browser is asked for permission
+only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its
+schedule changes, clinches, eliminations, the followed team's Gold chance moving by 5 to 25
+points, and League Standings stopping on something a person has to see to (a season deleted on
+another device, one the cloud cannot read). **Send a test notification** shows it works.
+They come only while League Forecast is open, in a tab or installed, and only for news that
+arrived after the page was put away: gathered for 20 seconds into one notification, so a run of
+scores is one, and each change announced once on the device however many tabs are open or times
+it reloads (`readNotified`, one tab at a time through the Web Locks API). Pressing one comes back
+to the app (`public/notification-click.js`, in the service worker). Nothing is sent to a server,
+and **nothing arrives while the app is closed**: that needs a push service holding each device's
+subscription and sending to it, which the app does not have.
 
 ## Settings
 

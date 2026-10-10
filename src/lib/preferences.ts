@@ -5,6 +5,13 @@
  * duplicating the storage keys.
  */
 import type { FindingSeverity } from "./leagueFindings";
+import {
+  DEFAULT_NOTIFY,
+  coerceNotifyPrefs,
+  coerceSeen,
+  type NotifyPrefs,
+  type SeasonSeen,
+} from "./seasonDigest";
 
 export type Theme = "light" | "dark";
 export type AppMode = "league" | "rankings";
@@ -218,3 +225,74 @@ export const subscribeLeagueMet = (listener: () => void): (() => void) => {
     leagueMetListeners.delete(listener);
   };
 };
+
+const SEEN_KEY = "lf_league_seen_v1";
+/** Seasons whose last look is kept; a device follows a handful, and older ones fall away. */
+const SEEN_KEPT = 12;
+
+const readAllSeen = (): Record<string, { at: number; seen: unknown }> => {
+  try {
+    const parsed: unknown = JSON.parse(safeGet(SEEN_KEY) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, { at: number; seen: unknown }] =>
+          !!entry[1] &&
+          typeof entry[1] === "object" &&
+          typeof (entry[1] as { at?: unknown }).at === "number"
+      )
+    );
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * The season as this device last looked at it (2.6, `useSeasonDigest`), or null for a season it
+ * has never kept a look at. Kept per device, like the findings put aside: what one person has seen
+ * is theirs, not the season's.
+ */
+export const readSeen = (seasonId: string): SeasonSeen | null =>
+  coerceSeen(readAllSeen()[seasonId]?.seen);
+
+export const writeSeen = (seasonId: string, seen: SeasonSeen, now = Date.now()): boolean => {
+  // The season written first, whatever the clock says of the others: never the one let go.
+  const others = Object.entries(readAllSeen())
+    .filter(([id]) => id !== seasonId)
+    .sort(([, one], [, two]) => two.at - one.at);
+  const kept = [[seasonId, { at: now, seen }] as const, ...others].slice(0, SEEN_KEPT);
+  return safeSet(SEEN_KEY, JSON.stringify(Object.fromEntries(kept)));
+};
+
+const NOTIFY_KEY = "lf_league_notify_v1";
+
+/** Which League changes this device notifies of (2.6), off until turned on. */
+export const readNotifyPrefs = (): NotifyPrefs => {
+  try {
+    return coerceNotifyPrefs(JSON.parse(safeGet(NOTIFY_KEY) ?? "null"));
+  } catch {
+    return DEFAULT_NOTIFY;
+  }
+};
+
+export const writeNotifyPrefs = (prefs: NotifyPrefs): boolean =>
+  safeSet(NOTIFY_KEY, JSON.stringify(prefs));
+
+const NOTIFIED_KEY = "lf_league_notified_v1";
+/** The newest announcements remembered, far more than a season makes between two looks. */
+const NOTIFIED_KEPT = 400;
+
+/** What this device has already announced, so no change is announced twice (2.6). */
+export const readNotified = (): Set<string> => {
+  try {
+    const parsed: unknown = JSON.parse(safeGet(NOTIFIED_KEY) ?? "[]");
+    return new Set(
+      Array.isArray(parsed) ? parsed.filter((key): key is string => typeof key === "string") : []
+    );
+  } catch {
+    return new Set();
+  }
+};
+
+export const writeNotified = (keys: ReadonlySet<string>): boolean =>
+  safeSet(NOTIFIED_KEY, JSON.stringify([...keys].slice(-NOTIFIED_KEPT)));

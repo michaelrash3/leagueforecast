@@ -2,13 +2,14 @@
  * The league's front page: where the season stands, what the model makes of the next games, and
  * what it is still missing to say more.
  */
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { formatGameDate } from "../../lib/date";
 import { displayName } from "../../lib/format";
 import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
 import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFindings";
+import { DigestPanel } from "./DigestPanel";
 import { EmptyPanel } from "./EmptyPanel";
 import { PowerRatingsView } from "./PowerRatingsView";
 import { button as buttonClasses } from "../../styles/tokens";
@@ -113,6 +114,7 @@ export function DashboardView({
   setActiveView,
   findings,
   ourTeam,
+  digest,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   backtestResult: ReturnType<typeof backtestPredictions>;
@@ -123,6 +125,8 @@ export function DashboardView({
   findings: readonly Finding[];
   /** The team this browser follows, which leads the page (`OurTeamCard`). */
   ourTeam?: ReactNode;
+  /** What changed since this device last looked (2.6), above everything else while there is any. */
+  digest?: ComponentProps<typeof DigestPanel>;
 }) {
   const avgConfidence = engine.predictions.length
     ? Math.round(
@@ -132,6 +136,7 @@ export function DashboardView({
     : 0;
   return (
     <div className="space-y-6">
+      {digest && <DigestPanel {...digest} />}
       {ourTeam}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[

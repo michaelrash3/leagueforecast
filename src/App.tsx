@@ -37,7 +37,11 @@ import type { LocalSeasons } from "./lib/live/leagueSeasons";
 import { subscribeLeagueMet } from "./lib/preferences";
 import { askLeague, LEAGUE_UNANSWERED } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
-import { editingOffBecause, LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
+import {
+  editingOffBecause,
+  LiveLeagueBanner,
+  needsAPerson,
+} from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
@@ -83,14 +87,19 @@ import {
   onPoolWriteError,
 } from "./lib/teamRankingsStorage";
 import {
+  readNotifyPrefs,
   readOurTeam,
   readPutAside,
   readSummaryMode,
+  writeNotifyPrefs,
   writeOurTeam,
   writePutAside,
   writeSummaryMode,
   type SummaryMode,
 } from "./lib/preferences";
+import { raceOf, type NotifyPrefs } from "./lib/seasonDigest";
+import { useSeasonDigest } from "./hooks/useSeasonDigest";
+import { useDigestNotifications } from "./hooks/useDigestNotifications";
 import { ourTeamSummary } from "./lib/ourTeam";
 import { leagueClubRankFor } from "./lib/leagueClubRanks";
 import { OurTeamCard } from "./components/league/OurTeamCard";
@@ -936,7 +945,7 @@ export default function App() {
     }),
     [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
   );
-  const { odds, iterations: oddsIterations } = useSimulationOdds(oddsInput);
+  const { odds, iterations: oddsIterations, pending: oddsPending } = useSimulationOdds(oddsInput);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
@@ -2493,6 +2502,43 @@ export default function App() {
   ]);
   const currentLeader = dashboardRows[0];
 
+  /*
+   * What changed in the season since this device last looked (2.6): another device's scores, games
+   * moved or removed, clinches and eliminations, the followed team's odds moving. The race is read
+   * from the forecast once its odds have settled, and not at all without a cut line. Notifications
+   * of the same, opted into, while the app is open but not looked at.
+   */
+  const [notifyPrefs, setNotifyPrefsState] = useState<NotifyPrefs>(readNotifyPrefs);
+  const setNotifyPrefs = useCallback((prefs: NotifyPrefs) => {
+    setNotifyPrefsState(prefs);
+    writeNotifyPrefs(prefs);
+  }, []);
+  const digestRace = useMemo(
+    () => (hasCutLine && !oddsPending && dashboardRows.length ? raceOf(dashboardRows) : null),
+    [hasCutLine, oddsPending, dashboardRows]
+  );
+  const digest = useSeasonDigest({
+    store: seasonStore,
+    race: digestRace,
+    followed: ourTeamId,
+    oddsMove: notifyPrefs.oddsMove ?? 10,
+  });
+  useDigestNotifications({
+    seasonId: activeSeasonId,
+    seasonLabel: settings.seasonLabel,
+    changes: digest.changes,
+    prefs: notifyPrefs,
+    followed: ourTeamId,
+    problem: needsAPerson(liveLeague.state),
+    nameOf,
+  });
+  const digestBadge: TabNavItem<ActiveView>["badge"] | undefined = digest.changes.length
+    ? {
+        count: digest.changes.length,
+        describe: `${digest.changes.length} ${digest.changes.length === 1 ? "change" : "changes"} since you last looked`,
+      }
+    : undefined;
+
   const selectedTeamDetail = useMemo(() => {
     if (!selectedTeam) return null;
     const swings = nextTwoSwingGames(selectedTeam.id);
@@ -2955,7 +3001,7 @@ export default function App() {
     <TabNav
       label="Main views"
       items={VIEW_ORDER.map((view) => {
-        const badge = viewBadges[view];
+        const badge = view === "dashboard" ? digestBadge : viewBadges[view];
         return {
           key: view,
           label: VIEW_LABELS[view],
@@ -3210,6 +3256,17 @@ export default function App() {
                       matchups={matchups}
                       setActiveView={setActiveView}
                       findings={openFindings}
+                      digest={{
+                        changes: digest.changes,
+                        followed: ourTeamId,
+                        nameOf,
+                        hasGame: (gameId) => matchups.some((game) => game.id === gameId),
+                        onOpenGame: (gameId) =>
+                          openFindingTarget({ kind: "game", id: gameId, label: "" }),
+                        onOpenTeam: (teamId) =>
+                          openFindingTarget({ kind: "team", id: teamId, label: "" }),
+                        onAcknowledge: digest.acknowledge,
+                      }}
                       ourTeam={
                         // Not locked: the team followed is this browser's own pick, never a setting
                         // that travels, and "Enter a score" only goes to the schedule.
@@ -3407,6 +3464,9 @@ export default function App() {
                         loadDemoSeason={loadDemoSeason}
                         summaryMode={summaryMode}
                         onSummaryMode={setSummaryMode}
+                        notifyPrefs={notifyPrefs}
+                        onNotifyPrefs={setNotifyPrefs}
+                        followedName={ourTeamId ? nameOf(ourTeamId) : null}
                       />
                     </div>
                   ) : (
