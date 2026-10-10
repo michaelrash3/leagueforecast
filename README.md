@@ -1020,6 +1020,21 @@ the same question. On the backup of 29 September 2026 the tidy filed 3,660 stand
 clubs, 1,047 of them scored, which emptied 1,985 stand-ins; four games two clubs had each filed
 against a stand-in for the other were then one game, not two. A second tidy moved nothing.
 
+**Not this team.** The matcher will still be wrong sometimes, and the club's panel is where that
+shows. Beside each game a club has only because a name on another club's schedule was matched to
+it, the panel offers **Not this team** (`filedByNameOn`): a row off GameChanger, from a schedule
+that is not one of the club's own, on a pulled club, with nothing of the club's own saying the game
+is its — no row of its schedules folded in, claimed in or on record, and no picture naming it, which
+is GameChanger's identity or, after Same team as, the owner's word. A game the club's own schedule
+lists, one typed in and a League Standings game are never offered it; Unlink, which the panel
+offered before, could not help, since the row did not come from a link. Pressing it takes the game
+off the club onto what the row would have been had the name matched nothing (`takeOffClub`): the
+stand-in a pull of that schedule would reuse for the name, at the level the row gave it, in its
+squad year and named from the namer's state, or a new one where there is none, or a slot for a name
+that can only be one. The club's record, rating and board move with it, and Undo puts the game back
+as it was. It is a command (`game.notThisTeam`), so a page kept in the browser runs it on its own
+store and the live page sends it to the edit function.
+
 **A row filed by name beside a game the club never listed.** Where another club's own schedule
 lists a game against a club that none of the club's own schedules gives a row, that game is on the
 club's schedule somewhere — under whatever its coach typed for the other club. The import files a
@@ -5526,6 +5541,7 @@ inverse puts every part the command touched back as it was, to the stored byte.
 | `team.state`, `team.unlinkGc`                                                                                                                                         | A club's state; one GameChanger id taken off a club.                                                                                                                                                               |
 | `game.score`, `game.exclude`, `game.confirm`                                                                                                                          | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now.                                                                                                  |
 | `game.add`, `game.remove`                                                                                                                                             | Games added at the end of their year, with the new clubs they name (and only those); games taken out of their year.                                                                                                |
+| `game.notThisTeam`                                                                                                                                                    | A game taken off a club that has it only because a name on another club's schedule was matched to it, onto the stand-in the name would have had, made under the id the command names where there is none to reuse. |
 | `page.myTeam`                                                                                                                                                         | A page's own team marked or unmarked.                                                                                                                                                                              |
 | `club.leavePage`                                                                                                                                                      | A club taken off one page: its games there, the page's mark if it was the page's own team, and the club itself only when no game in any year names it and no row is filed against it.                              |
 | `games.drop`, `club.drop`                                                                                                                                             | Games thrown out of whichever years hold them, the rows that scored them remembered so that a pull does not file them again; a club thrown out with every game it is in, its GameChanger ids refused from then on. |

@@ -17,6 +17,7 @@ import {
   type NamedAges,
 } from "../namedAges";
 import { withoutClub } from "../unrealClubs";
+import { takeOffClub } from "../notThisTeam";
 import { coerceAgeUnknown, type AgeUnknownList, type AgeUnknownTeam } from "../ageUnknown";
 import {
   DEFAULT_REFRESH_CADENCE,
@@ -126,6 +127,19 @@ export type PoolCommand =
   | { kind: "game.exclude"; year: number | null; gameId: string; excluded: boolean }
   /** A lopsided score the user vouches for, at the margin it reads now. */
   | { kind: "game.confirm"; year: number | null; gameId: string }
+  /**
+   * "Not this team": a game of squad year `year` taken off club `teamId`, which has it only because
+   * a name on another club's schedule was matched to it, and filed against the stand-in the name
+   * would have had had it matched nothing (`takeOffClub`): one already here that a pull would
+   * reuse, or a new one under `standInId`, minted by whoever asked.
+   */
+  | {
+      kind: "game.notThisTeam";
+      year: number | null;
+      gameId: string;
+      teamId: string;
+      standInId: string;
+    }
   /** Games' records put back as they were, each in its place. */
   | { kind: "game.put"; year: number | null; games: ScoutGame[] }
   /**
@@ -1107,6 +1121,32 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
           ? game
           : { ...game, scoreConfirmed: margin };
       });
+    case "game.notThisTeam": {
+      const games = read.games(command.year);
+      const at = games.findIndex((game) => game.id === command.gameId);
+      const was = games[at];
+      const teams = read.teams();
+      const club = teams.find((team) => team.id === command.teamId);
+      if (!was || !club || (was.teamAId !== club.id && was.teamBId !== club.id))
+        return { ok: false, why: "missing" };
+      // The undo puts the game back by its id, which would put this copy over the other one too.
+      if (heldTwice(games, new Set([command.gameId]))) return { ok: false, why: "refused" };
+      const taken = takeOffClub(
+        { teams, ageGroups: read.groups(), games },
+        was,
+        club,
+        command.standInId
+      );
+      if (!taken) return { ok: false, why: "refused" };
+      const written = games.slice();
+      written[at] = taken.game;
+      const writes: PoolWrite[] = [{ part: "games", year: command.year, games: written }];
+      if (taken.standIn) writes.push({ part: "teams", teams: [...teams, taken.standIn] });
+      const back: PoolCommand[] = [{ kind: "game.put", year: command.year, games: [was] }];
+      // After the game is back on the club, so the stand-in made for it names nothing as it goes.
+      if (taken.standIn) back.push({ kind: "team.remove", teamId: taken.standIn.id });
+      return { ok: true, writes, inverse: undoing(back) };
+    }
     case "game.put": {
       const games = read.games(command.year);
       const next = new Map(command.games.map((game) => [game.id, game]));
@@ -1704,6 +1744,21 @@ const readCommand = (raw: unknown, depth: number): PoolCommand | null => {
       const year = yearOf(raw.year);
       return year !== undefined && isString(raw.gameId)
         ? { kind: "game.confirm", year, gameId: raw.gameId }
+        : null;
+    }
+    case "game.notThisTeam": {
+      const year = yearOf(raw.year);
+      return year !== undefined &&
+        isString(raw.gameId) &&
+        isString(raw.teamId) &&
+        isString(raw.standInId)
+        ? {
+            kind: "game.notThisTeam",
+            year,
+            gameId: raw.gameId,
+            teamId: raw.teamId,
+            standInId: raw.standInId,
+          }
         : null;
     }
     case "game.put": {

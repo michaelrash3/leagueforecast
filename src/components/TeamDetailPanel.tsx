@@ -68,6 +68,12 @@ type TeamDetailPanelProps = {
   onSetAge?: (level: number) => void;
   /** Takes back a level set here, putting the club back where it had been filed. */
   onClearAge?: () => void;
+  /**
+   * "Not this team", beside each game the club has only because a name on another club's schedule
+   * was matched to it: `offered` says which games those are (`filedByNameOn`, or what the live
+   * card says of a game it no longer carries the rows of), and `onRefuse` takes one off the club.
+   */
+  notThisTeam?: { offered: (game: ScoutGame) => boolean; onRefuse: (game: ScoutGame) => void };
   /** Teams this one could be folded into: everyone else on the page, likeliest club first. */
   mergeCandidates: MergeCandidate[];
   onClose: () => void;
@@ -146,6 +152,7 @@ export function TeamDetailPanel({
   age,
   onSetAge,
   onClearAge,
+  notThisTeam,
   mergeCandidates,
   onClose,
   readOnly = false,
@@ -616,10 +623,22 @@ export function TeamDetailPanel({
                   )}
                   <span className="font-bold text-slate-950 dark:text-white">{line.opponent}</span>
                 </span>
-                <span className="text-slate-500 dark:text-slate-400">
-                  {line.detail}
-                  {game.date ? ` · ${game.date}` : ""}
-                  {game.event ? ` · ${game.event}` : ""}
+                <span className="flex flex-wrap items-center gap-2 text-slate-500 dark:text-slate-400">
+                  <span>
+                    {line.detail}
+                    {game.date ? ` · ${game.date}` : ""}
+                    {game.event ? ` · ${game.event}` : ""}
+                  </span>
+                  {notThisTeam && !readOnly && notThisTeam.offered(game) && (
+                    <button
+                      type="button"
+                      onClick={() => notThisTeam.onRefuse(game)}
+                      title={`${line.opponent}'s schedule named its opponent, and the name was matched to ${team.name}; nothing of ${team.name}'s own lists this game. Take it off ${team.name}.`}
+                      className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                    >
+                      Not this team
+                    </button>
+                  )}
                 </span>
               </li>
             );

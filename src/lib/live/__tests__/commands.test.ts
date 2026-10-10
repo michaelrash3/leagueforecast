@@ -1614,3 +1614,161 @@ describe("games added by their clubs' names, the server's to resolve", () => {
     expect(applyCommand(memory(POOL()).read, IMPORT)).toEqual({ ok: false, why: "refused" });
   });
 });
+
+describe("a game taken off a club its name was matched to (Not this team)", () => {
+  const page = "ag_9u_2027";
+  const pulled = (id: string, name: string, state: string, gcId: string): ScoutTeam => ({
+    id,
+    name,
+    state,
+    gcTeams: [{ teamId: gcId, name: `${name} 9U`, ageGroupId: page, ageLevel: 9 }],
+  });
+  const hawks = pulled("S-HAWK", "Prairie Hawks", "IL", "gcHAWKS00001");
+  const owls = pulled("S-OWLS", "Prairie Owls", "IL", "gcOWLS000001");
+  const eagles = pulled("S-EAGL", "Eagles", "KY", "gcEAGLES0001");
+  const comets: ScoutTeam = { id: "S-COME", name: "Comets", nameOnly: true };
+  /** A row of `club`'s own schedule against `against`. */
+  const rowOf = (
+    club: ScoutTeam,
+    gameId: string,
+    against: string,
+    extra: Partial<ScoutGame> = {}
+  ): ScoutGame => {
+    const gcId = club.gcTeams![0]!.teamId;
+    return {
+      id: `gc_${gcId}_${gameId}`,
+      teamAId: club.id,
+      teamBId: against,
+      ageGroupId: page,
+      date: "2026-08-08",
+      source: { kind: "gamechanger", teamId: gcId, gameId },
+      ...extra,
+    };
+  };
+  // The Hawks' 3-5 loss to "Eagles", filed by the name onto the Eagles of another state.
+  const byName = rowOf(hawks, "808", eagles.id, { teamAScore: 3, teamBScore: 5 });
+  // The Eagles' own game that day, against somebody else: what let the name file onto them.
+  const theirOwn = rowOf(eagles, "e1", comets.id, { teamAScore: 6, teamBScore: 2 });
+  const parts = (games: ScoutGame[] = [byName, theirOwn], teams: ScoutTeam[] = []): Parts => ({
+    ...POOL(),
+    teams: [hawks, owls, eagles, comets, ...teams],
+    groups: [{ id: page, name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] }],
+    games: new Map<number | null, ScoutGame[]>([[2027, games]]),
+  });
+  const NOT: PoolCommand = {
+    kind: "game.notThisTeam",
+    year: 2027,
+    gameId: byName.id,
+    teamId: eagles.id,
+    standInId: "S-EAGL-x1",
+  };
+
+  it("files the game against a new stand-in of the name, and the undo puts back exactly what was", () => {
+    const pool = memory(parts());
+    const before = stored(clone(pool.parts));
+    const result = pool.run(NOT);
+    expect(pool.parts.games.get(2027)?.[0]).toEqual({ ...byName, teamBId: "S-EAGL-x1" });
+    // The club's own game is left as it was, and the stand-in is a name and nothing more.
+    expect(pool.parts.games.get(2027)?.[1]).toEqual(theirOwn);
+    expect(pool.parts.teams[pool.parts.teams.length - 1]).toEqual({
+      id: "S-EAGL-x1",
+      name: "Eagles",
+      nameOnly: true,
+    });
+    const after = stored(clone(pool.parts));
+    const undone = pool.run(result.inverse);
+    expect(stored(pool.parts)).toEqual(before);
+    pool.run(undone.inverse);
+    expect(stored(pool.parts)).toEqual(after);
+  });
+
+  it("files it against the stand-in of the name a pull would reuse for a club of the namer's state", () => {
+    // The Owls of the Hawks' state filed an "Eagles" of their own: that is the one a pull of the
+    // Hawks would reuse. One named only from another state is somebody else's.
+    const ours: ScoutTeam = { id: "S-EAGLIL", name: "Eagles", nameOnly: true };
+    const theirs: ScoutTeam = { id: "S-EAGLTX", name: "Eagles", nameOnly: true };
+    const texan = pulled("S-TEX", "Lone Stars", "TX", "gcTEXAS00001");
+    const fromTexas = rowOf(texan, "t1", theirs.id, { date: "2026-09-12" });
+    const fromOwls = rowOf(owls, "o1", ours.id, { date: "2026-09-19" });
+    const pool = memory(parts([fromTexas, byName, theirOwn, fromOwls], [theirs, ours, texan]));
+    const teamsBefore = pool.parts.teams;
+    const result = pool.run(NOT);
+    expect(pool.parts.games.get(2027)?.[1]?.teamBId).toBe(ours.id);
+    expect(pool.parts.teams).toBe(teamsBefore);
+    expect(result.inverse).toEqual({ kind: "game.put", year: 2027, games: [byName] });
+  });
+
+  it("makes a slot of a name that can only be one, as the import does for every such mention", () => {
+    const tbd = pulled("S-TBD", "Tbd", "KY", "gcTBD0000001");
+    const onTbd = { ...byName, teamBId: tbd.id };
+    const pool = memory(parts([onTbd, rowOf(tbd, "t1", comets.id)], [tbd]));
+    pool.run({ ...NOT, teamId: tbd.id });
+    expect(pool.parts.teams[pool.parts.teams.length - 1]).toEqual({
+      id: "S-EAGL-x1",
+      name: "Tbd",
+      placeholder: true,
+    });
+  });
+
+  it("is not offered for a game the club has by its own word, nor one typed in", () => {
+    const refused = (game: ScoutGame, teamId = eagles.id) =>
+      applyCommand(memory(parts([game, theirOwn])).read, { ...NOT, gameId: game.id, teamId });
+    // Its own schedule's row, its own row folded in or only on record, its picture.
+    expect(refused(byName, hawks.id)).toEqual({ ok: false, why: "refused" });
+    const folded = {
+      ...byName,
+      alsoRows: [{ teamId: "gcEAGLES0001", gameId: "e9", ownScore: 5, opponentScore: 3 }],
+    };
+    expect(refused(folded)).toEqual({ ok: false, why: "refused" });
+    expect(refused({ ...byName, alsoFrom: ["gcEAGLES0001"] })).toEqual({
+      ok: false,
+      why: "refused",
+    });
+    expect(refused({ ...byName, namedByAvatar: eagles.id })).toEqual({
+      ok: false,
+      why: "refused",
+    });
+    const { source: _typed, ...typedIn } = byName;
+    expect(refused(typedIn)).toEqual({ ok: false, why: "refused" });
+    // Nor where a stand-in has to be made under an id somebody has.
+    expect(applyCommand(memory(parts()).read, { ...NOT, standInId: comets.id })).toEqual({
+      ok: false,
+      why: "refused",
+    });
+  });
+
+  it("finds no game or club that is not there, and no game the club is not in", () => {
+    const pool = memory(parts());
+    expect(applyCommand(pool.read, { ...NOT, gameId: "gc_none" })).toEqual({
+      ok: false,
+      why: "missing",
+    });
+    expect(applyCommand(pool.read, { ...NOT, teamId: "S-NONE" })).toEqual({
+      ok: false,
+      why: "missing",
+    });
+    expect(applyCommand(pool.read, { ...NOT, teamId: owls.id })).toEqual({
+      ok: false,
+      why: "missing",
+    });
+  });
+
+  it("refuses a game its year holds twice, which an undo by id could not put back", () => {
+    const pool = memory(parts([byName, theirOwn, byName]));
+    expect(applyCommand(pool.read, NOT)).toEqual({ ok: false, why: "refused" });
+  });
+
+  it("is read back exactly as sent, and refused with a field missing or another added", () => {
+    expect(coerceCommand(JSON.parse(JSON.stringify(NOT)))).toEqual(NOT);
+    expect(coerceCommand({ kind: "batch", commands: [NOT] })).toEqual({
+      kind: "batch",
+      commands: [NOT],
+    });
+    for (const raw of [
+      { ...NOT, standInId: "" },
+      { ...NOT, year: "2027" },
+      { ...NOT, also: true },
+    ])
+      expect([raw, coerceCommand(raw)]).toEqual([raw, null]);
+  });
+});

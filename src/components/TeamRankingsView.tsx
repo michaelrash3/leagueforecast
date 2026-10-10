@@ -6,6 +6,7 @@ import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge } from "../lib/clubAge";
 import { createAgeGroupId } from "../lib/teamRankings/seasons";
+import { filedByNameOn, mintStandInId } from "../lib/notThisTeam";
 import { planClubAges } from "../lib/live/agePlan";
 import { whereIsGcId } from "../lib/gcIdWhereabouts";
 import { leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
@@ -1311,6 +1312,33 @@ export function TeamRankingsView({
   };
 
   /**
+   * "Not this team": a game a club has only because a name on another club's schedule was matched
+   * to it, taken off the club onto the stand-in of the name (`game.notThisTeam`), in the year its
+   * page is in, as storage files it. The stand-in's id, where one has to be made, is minted against
+   * the roster here, as the import mints one.
+   */
+  const notThisTeam = (teamId: string, game: ScoutGame) => {
+    const club = scoutTeams.find((team) => team.id === teamId);
+    if (!club) return;
+    const year = ageGroupYear(ageGroups.find((group) => group.id === game.ageGroupId)) ?? null;
+    const run = runCommand({
+      kind: "game.notThisTeam",
+      year,
+      gameId: game.id,
+      teamId,
+      standInId: mintStandInId(club.name, new Set(scoutTeams.map((team) => team.id))),
+    });
+    if (!run.ok || run.writes.length === 0) return;
+    const opponent = teamNameById.get(game.teamAId === teamId ? game.teamBId : game.teamAId);
+    showToast(
+      `Taken off ${club.name}: the game${opponent ? ` with ${opponent}` : ""}${
+        game.date ? ` on ${game.date}` : ""
+      } stands against the name alone now.`,
+      { tone: "undo", actionLabel: "Undo", onAction: () => runCommand(run.inverse) }
+    );
+  };
+
+  /**
    * Files a pulled club at the age somebody says it plays at, and holds it there.
    *
    * The club's GameChanger ids in this year are pinned in the named ages (`NamedAge.pinned`), so a
@@ -2569,6 +2597,10 @@ This cannot be undone. Cancel and download the backups first if there is any cha
           {...(openTeamAge ? { age: openTeamAge } : {})}
           onSetAge={(level) => setTeamAge(openTeam.id, level)}
           onClearAge={() => clearTeamAge(openTeam.id)}
+          notThisTeam={{
+            offered: (game) => filedByNameOn(game, openTeam),
+            onRefuse: (game) => notThisTeam(openTeam.id, game),
+          }}
           mergeCandidates={mergeCandidatesFor(openTeam.id)}
           onSetState={(state) => setTeamState(openTeam.id, state)}
           onClose={() => setOpenTeamId(null)}
