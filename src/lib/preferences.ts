@@ -328,6 +328,12 @@ export const writeNotified = (keys: ReadonlySet<string>): boolean =>
 export const SCENARIOS_KEY = "lf_league_scenarios_v1";
 
 /**
+ * Where each followed league team's club stood on Team Rankings, one record per season
+ * (`leagueClubRanks.ts`). Here for `forgetSeasons`, as the scenarios' key is.
+ */
+export const CLUB_RANKS_KEY = "lf_league_club_ranks_v1";
+
+/**
  * What this device keeps per season, each stored as one object by season id, and how an entry is
  * carried to the id its season now goes by. A saved scenario names its season inside it as well,
  * and is read only under the season it names (`readScenarios`).
@@ -336,6 +342,7 @@ const PER_SEASON: readonly { key: string; carry?: (entry: unknown, to: string) =
   { key: SEEN_KEY },
   { key: PUT_ASIDE_KEY },
   { key: OUR_TEAM_KEY },
+  { key: CLUB_RANKS_KEY },
   {
     key: SCENARIOS_KEY,
     carry: (entry, to) =>
@@ -351,9 +358,10 @@ const PER_SEASON: readonly { key: string; carry?: (entry: unknown, to: string) =
 
 /**
  * Lets go of everything this device keeps of the seasons named: the last look, the findings put
- * aside, the team followed and the saved scenarios, entries this app cannot read among them, since
- * they were that season's as well. Storage calls it as a season leaves this browser and as an id
- * is given to a season new here, because season ids are handed out again (`storage.ts`).
+ * aside, the team followed, its club's place on Team Rankings, the saved scenarios and the news
+ * already announced, entries this app cannot read among them, since they were that season's as
+ * well. Storage calls it as a season leaves this browser and as an id is given to a season new
+ * here, because season ids are handed out again (`storage.ts`).
  *
  * A season in `moved` is still here under another id: a cloud merge gives this device's season a
  * new one when the other side made another season under its id (`leagueMerge.ts`). What was kept
@@ -382,5 +390,28 @@ export const forgetSeasons = (
     } catch {
       /* unreadable, so it holds nothing of any season to let go */
     }
+  }
+  /*
+   * The news announced is one list for every season, each entry led by its season's id
+   * (`useDigestNotifications`). A clinch or an elimination is told by team alone, and team ids come
+   * from names, so one left under a reused id kept a new season's of a team of the same name from
+   * ever being announced.
+   */
+  try {
+    const parsed: unknown = JSON.parse(safeGet(NOTIFIED_KEY) ?? "null");
+    if (!Array.isArray(parsed)) return;
+    const movedTo = new Map(moves);
+    const kept = parsed.flatMap((entry: unknown): unknown[] => {
+      if (typeof entry !== "string") return [entry];
+      const at = entry.indexOf(":");
+      const id = entry.slice(0, at);
+      if (at < 0 || !cleared.has(id)) return [entry];
+      const to = movedTo.get(id);
+      return to === undefined ? [] : [`${to}${entry.slice(at)}`];
+    });
+    const text = JSON.stringify(kept);
+    if (text !== JSON.stringify(parsed)) safeSet(NOTIFIED_KEY, text);
+  } catch {
+    /* unreadable, so nothing announced is remembered to let go of */
   }
 };

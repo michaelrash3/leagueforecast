@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetCloudGuard } from "../cloud/cloudGuard";
+import { readLeagueClubRanks, writeLeagueClubRanks } from "../leagueClubRanks";
 import {
+  readNotified,
   readOurTeam,
   readPutAside,
   readSeen,
+  writeNotified,
   writeOurTeam,
   writePutAside,
   writeSeen,
@@ -332,7 +335,10 @@ describe("multi-season storage", () => {
 describe("what this device keeps of a season under its id", () => {
   const T = "2026-05-01T00:00:00.000Z";
 
-  /** A last look, a finding put aside, a team followed and a scenario, kept for `id`. */
+  /**
+   * A last look, a finding put aside, a team followed, a scenario, a clinch already announced and
+   * the followed club's place on Team Rankings, kept for `id`.
+   */
   const keepOnDevice = (id: string) => {
     writeSeen(
       id,
@@ -357,20 +363,36 @@ describe("what this device keeps of a season under its id", () => {
       createdAt: T,
       modifiedAt: T,
     });
+    // Told by team alone, so a season of the same names under the id would never be told it.
+    writeNotified(new Set([...readNotified(), `${id}:clinched:A:`]));
+    writeLeagueClubRanks(id, { A: { clubId: "club-a", board: "9U 2027", rank: 3, of: 40, at: T } });
   };
   const keptOnDevice = (id: string) => ({
     seen: readSeen(id) !== null,
     putAside: Object.keys(readPutAside(id)),
     ourTeam: readOurTeam(id),
     scenarios: readScenarios(id).map((scenario) => scenario.name),
+    notified: [...readNotified()]
+      .filter((key) => key.startsWith(`${id}:`))
+      .map((key) => key.slice(id.length + 1)),
+    clubRanks: Object.keys(readLeagueClubRanks()[id] ?? {}),
   });
   const ALL = {
     seen: true,
     putAside: ["missing-date:g1"],
     ourTeam: "A",
     scenarios: ["Aces win out"],
+    notified: ["clinched:A:"],
+    clubRanks: ["A"],
   };
-  const NONE = { seen: false, putAside: [], ourTeam: null, scenarios: [] };
+  const NONE = {
+    seen: false,
+    putAside: [],
+    ourTeam: null,
+    scenarios: [],
+    notified: [],
+    clubRanks: [],
+  };
 
   const arriving = (id: string, createdAt = T): SeasonSnapshot => ({
     id,

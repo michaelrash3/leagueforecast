@@ -2866,8 +2866,8 @@ on its board — "37th of 1,812 nationally (▲3) · 4th of 160 in OH · 9U 2027
 2026, as of 9/27". League Standings cannot rank a club itself, since a board is a fit
 of the whole year's pool, so each time a board is up on the Team Rankings side the
 places of the clubs its page's league seasons are linked to are written to a small
-per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole, and the
-card reads them with the day they were read, in the reader's own time zone. A board that
+per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole and gone with
+the season, and the card reads them with the day they were read, in the reader's own time zone. A board that
 settles with none of the season's clubs on it takes their places away rather than
 leaving the last ones showing. Only a board of a half the season plays its games in
 writes them: a fall league's places are read off the fall board, and looking at the
@@ -2981,7 +2981,9 @@ it reloads (`readNotified`, one tab at a time through the Web Locks API). A move
 the same news while it stays within the same whole steps of the chosen points, which way it went
 from the last look, so it is not announced again each time a final elsewhere moves the forecast a
 point; a game given a second new opponent is news again. A choice changed in one tab holds in the
-others at once, where they share storage as above. Pressing one comes back to the app
+others at once, where they share storage as above. What a season has had announced goes with
+the season, so one made under a deleted season's id, from the same team names, still has its
+clinches and eliminations announced. Pressing one comes back to the app
 (`public/notification-click.js`, in the service worker). Nothing is sent to a server, and
 **nothing arrives while the app is closed**: that needs a push service holding each device's
 subscription and sending to it, which the app does not have.
@@ -3011,18 +3013,20 @@ subscription and sending to it, which the app does not have.
 - `league_undo_snapshot_v1`
 - What a device keeps of a season beside it, never in the season, a backup or the cloud, is kept
   by season id: its last look (`lf_league_seen_v1`), the findings put aside
-  (`lf_league_findings_put_aside_v1`), the team followed (`lf_our_team_v1`) and the saved
-  scenarios (`lf_league_scenarios_v1`). Season ids are given out again: counted from the seasons
-  held, so deleting the last season and making one gives back its id, and every browser's first
-  season is `default`. So all four go when their season leaves the browser, deleted, or left out
-  or replaced by another under its id in a restore, and an id given to a season new here, made,
-  copied or brought down from the cloud, starts with nothing under it (`forgetSeasons`). A season
-  of this device's that a cloud merge gives a new id takes all four with it to that id. Nothing
-  goes until the list of seasons is written without its season: a tab that may no longer write
-  the seasons, because another tab has taken a copy in since (`cloudGuard.ts`), neither deletes a
-  season nor lets go of what was kept of it. The page reads the team followed and the findings put
-  aside again for each season switched to, rather than keeping them from an earlier visit to the
-  id.
+  (`lf_league_findings_put_aside_v1`), the team followed (`lf_our_team_v1`), that team's club's
+  place on Team Rankings (`lf_league_club_ranks_v1`), the saved scenarios
+  (`lf_league_scenarios_v1`) and the news already announced (`lf_league_notified_v1`, one list
+  whose entries each begin with their season's id). Season ids are given out again: counted from
+  the seasons held, so deleting the last season and making one gives back its id, and every
+  browser's first season is `default`. So all of it goes when its season leaves the browser:
+  deleted, or left out of a restore or the cloud copy's seasons, or replaced in either by another
+  season under its id (made at another moment). An id given to a season new here, made, copied or
+  brought down from the cloud, starts with nothing under it (`forgetSeasons`). A season of this
+  device's that a cloud merge gives a new id takes all of it to that id. Nothing goes until the
+  list of seasons is written without its season: a tab that may no longer write the seasons,
+  because another tab has taken a copy in since (`cloudGuard.ts`), neither deletes a season nor
+  lets go of what was kept of it. The page reads the team followed and the findings put aside
+  again for each season switched to, rather than keeping them from an earlier visit to the id.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
