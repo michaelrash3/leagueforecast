@@ -154,6 +154,26 @@ describe("useSeasonDigest", () => {
     expect(readSeen("s12")).not.toBeNull();
   });
 
+  it("counts a season opened again as opened, though nothing in its look changed", () => {
+    const clock = vi.spyOn(Date, "now");
+    for (let at = 0; at < 12; at += 1) {
+      clock.mockReturnValue(1_000 + at);
+      const { view } = mount(`s${at}`, season());
+      act(() => view.result.current.acknowledge());
+      view.unmount();
+    }
+    // The first season opened again, just as it was last looked at; then a thirteenth.
+    clock.mockReturnValue(2_000);
+    mount("s0", season()).view.unmount();
+    clock.mockReturnValue(2_001);
+    const { view } = mount("s12", season());
+    act(() => view.result.current.acknowledge());
+    view.unmount();
+    clock.mockRestore();
+    expect(readSeen("s0")).not.toBeNull();
+    expect(readSeen("s1")).toBeNull();
+  });
+
   it("brings each season's own last look when another is opened", () => {
     const first = mount("s1", season());
     act(() => first.view.result.current.acknowledge());

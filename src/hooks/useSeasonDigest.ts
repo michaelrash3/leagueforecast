@@ -165,17 +165,27 @@ export function useSeasonDigest({
     [store]
   );
 
-  // The look as this tab last held it, which what it writes is measured from (`keptWith`).
-  const synced = useRef<{ seasonId: string; seen: SeasonSeen } | null>(null);
+  /*
+   * The look as this tab last held it, which what it writes is measured from (`keptWith`), and
+   * whether this tab has written it since the season was opened here.
+   */
+  const synced = useRef<{ seasonId: string; seen: SeasonSeen; written: boolean } | null>(null);
   const [lookWritten, setLookWritten] = useState(0);
   useEffect(() => subscribeSeen(() => setLookWritten((count) => count + 1)), []);
   useEffect(() => {
-    const was = synced.current?.seasonId === held.seasonId ? synced.current.seen : held.seen;
-    synced.current = { seasonId: held.seasonId, seen: held.seen };
+    const mine = synced.current?.seasonId === held.seasonId ? synced.current : null;
+    const was = mine ? mine.seen : held.seen;
+    synced.current = { seasonId: held.seasonId, seen: held.seen, written: held.looked };
     if (!held.looked) return;
     const kept = readSeen(held.seasonId);
     const next = kept ? keptWith(kept, was, held.seen) : held.seen;
-    if (!kept || !sameSeen(next, kept)) writeSeen(held.seasonId, next);
+    /*
+     * Written once as the season is opened here, though nothing in it changed: the looks kept are
+     * those of the seasons opened most recently (`writeSeen` keeps them by when each was last
+     * written), and one opened often but long unchanged would otherwise fall away before seasons
+     * opened once since, its news then taken for where looking starts.
+     */
+    if (!kept || !mine?.written || !sameSeen(next, kept)) writeSeen(held.seasonId, next);
     const current = store.get();
     if (!kept || current.id !== held.seasonId) return;
     const seen = adoptKept(held.seen, next, seenOf(current.season, shownRace));
