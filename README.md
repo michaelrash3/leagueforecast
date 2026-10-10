@@ -3772,15 +3772,15 @@ on the phone (`scripts/alarm.ts`, `runAlarms.ts`). Each alarm keeps one issue:
 a run that fails again comments on the one open rather than opening another, and
 the first run that is fine closes it with a comment.
 
-- **The nightly refresh failed**: its refresh step failed, was stopped (by hand,
-  or by its 85-minute limit, which is short of the job's 90 so the alarm still
-  runs), or never started, scheduled or by hand, dry run or live. Only a live run
-  that succeeds closes it: a dry run saves nothing, so its success says nothing
-  of a night that failed saving, as the night of 10 October did.
+- **The nightly refresh failed**: its refresh step failed or was stopped (by
+  hand, or by its 85-minute limit, which is short of the job's 90 so the alarm
+  still runs), scheduled or by hand, dry run or live. Only a live run that
+  succeeds closes it: a dry run saves nothing, so its success says nothing of a
+  night that failed saving, as the night of 10 October did.
 - **Publishing the views after a deploy failed**: the republish after a deploy
-  (above, "Views a server publishes") failed, was stopped or never started. The
-  next republish that does not fail closes it, one that finds nothing to publish
-  included, since the views are then of this build's schema.
+  (above, "Views a server publishes") failed or was stopped. The next republish
+  that does not fail closes it, one that finds nothing to publish included, since
+  the views are then of this build's schema.
 - **The rebuilds after saves are failing**: the nightly, dry or live, read their
   ledger and found failures in a row or a pause (`rebuildsTrouble`). The first
   nightly to read none closes it, and one with no ledger at all, where they are
@@ -3796,8 +3796,16 @@ before. It runs `gh` with the run's own token, which the workflow lets write
 issues and nothing more (`permissions: issues: write`). An alarm finds its issue
 again by its title among the open issues a workflow opened; one anybody else
 opened under the same title is theirs, and is neither commented on nor closed.
-An alarm that could not be raised (the token refused, say) turns its step red,
-and the others are still tried.
+An alarm that could not be raised (issues turned off on the repository, say)
+marks its own step failed, and the others are still tried, but it leaves the run
+as its work left it (`continue-on-error`, held by `workflowAlarms.test.ts`): a
+night that saved stays green, and GitHub does not email that it failed for want
+of an issue, while a night whose refresh failed is red from that step already.
+
+A run whose checkout failed raises nothing: the alarm is a script it checks out.
+Its work's step is then skipped, which the alarm would call "did not start", but
+only where it can run at all, after a failed setup of Node on a runner whose own
+Node runs the script. GitHub's red run, and its email, is the only word of it.
 
 ### Boards a server can build
 

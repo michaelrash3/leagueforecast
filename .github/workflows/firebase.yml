@@ -179,9 +179,11 @@ jobs:
           LANG: en_US.UTF-8
           NODE_OPTIONS: --max-old-space-size=12288
       # A republish that fails opens an issue, or comments on the one open; one that does not closes
-      # it (`scripts/alarm.ts`, README "When a run fails").
+      # it (`scripts/alarm.ts`, README "When a run fails"). Allowed to fail on its own, as the
+      # nightly's is: a deploy and a republish that both succeeded stay green.
       - name: Raise or settle the alarm
         if: always()
+        continue-on-error: true
         run: npm run alarm -- republish
         env:
           GH_TOKEN: ${{ github.token }}

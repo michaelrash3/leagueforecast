@@ -35,7 +35,9 @@ const FAILED_AS: Record<string, string> = {
   failure: "failed",
   // Cut off by its timeout, or stopped by hand: either way the night's work was not done.
   cancelled: "was stopped before it finished",
-  // A step before it failed, the checkout or Node's setup.
+  // A step before it failed. Said only where the alarm can run at all: never after a failed
+  // checkout, whose script it is, and after a failed setup of Node only on a runner whose own Node
+  // runs it.
   skipped: "did not start",
 };
 

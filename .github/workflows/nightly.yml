@@ -76,8 +76,12 @@ jobs:
           LIMIT: ${{ inputs.limit }}
       # However the refresh ended: what is raised or settled, and every word of it, is the script's
       # (`runAlarms.ts`), from the step's outcome and the rebuilds' word the refresh handed over.
+      # Allowed to fail on its own (gh refused, say) without failing the run: a night that saved
+      # stays green, and GitHub does not email that it failed, for want of an issue; a night whose
+      # refresh failed is red from that step already.
       - name: Raise or settle the alarms
         if: always()
+        continue-on-error: true
         run: npm run alarm -- nightly
         env:
           GH_TOKEN: ${{ github.token }}
