@@ -9,6 +9,7 @@ import {
   LIVE_FORMAT,
   LIVE_SCHEMA,
   META_MAX_BYTES,
+  needsRepublish,
   publishViews,
   RETIRE_GRACE_MS,
   STRAY_AGE_MS,
@@ -1005,6 +1006,40 @@ describe("the meta as a reader takes it", () => {
     ["not a record", "meta"],
   ])("is refused with %s", (_case, raw) => {
     expect(coerceLiveMeta(raw)).toBeNull();
+  });
+});
+
+describe("whether a deploy publishes the views again", () => {
+  const stored = (schema: unknown, format: unknown = LIVE_FORMAT) => ({
+    format,
+    schema,
+    today: "2027-04-15",
+    builtAt: T,
+    copy: { id: COPY, version: 2 },
+    marks: { [COPY]: 2 },
+    inline: {},
+    views: {},
+    retired: [],
+    built: {},
+  });
+
+  it("publishes over nothing published, and over a meta of an older schema than this build's", () => {
+    expect(needsRepublish(null)).toBe(true);
+    expect(needsRepublish(undefined)).toBe(true);
+    expect(needsRepublish(stored(LIVE_SCHEMA - 1))).toBe(true);
+    expect(needsRepublish(stored(1))).toBe(true);
+  });
+
+  it.each<[string, unknown]>([
+    ["this build's schema", stored(LIVE_SCHEMA)],
+    ["a newer build's schema", stored(LIVE_SCHEMA + 1)],
+    ["another layout", stored(LIVE_SCHEMA - 1, LIVE_FORMAT + 1)],
+    ["no schema", stored(undefined)],
+    ["a schema that is no count", stored("2")],
+    ["not a record", "meta"],
+    ["a list", [stored(1)]],
+  ])("leaves %s to the rebuilds and the night", (_case, raw) => {
+    expect(needsRepublish(raw)).toBe(false);
   });
 });
 

@@ -94,12 +94,14 @@ export const openCloudStore = (keyJson: string, writable: boolean): CloudStore =
 
 /**
  * The cloud copy's store and the published views' (`live/`), for the key's project, on one
- * sign-in: read only unless `writable`. With them, a read of the rebuilds' ledger
- * (`rebuildLedger.ts`): its fields as written, or null where there is none, and never a write.
+ * sign-in: read only unless `writable`, and with `"live"` only the views written, as the republish
+ * after a deploy writes them, which saves nothing of the copy and may not. With them, a read of the
+ * rebuilds' ledger (`rebuildLedger.ts`): its fields as written, or null where there is none, and
+ * never a write.
  */
 export const openStores = (
   keyJson: string,
-  writable: boolean
+  writable: boolean | "live"
 ): {
   copy: CloudStore;
   live: LiveStore;
@@ -108,11 +110,15 @@ export const openStores = (
   uploads: UploadStore;
 } => {
   const account = accountOf(keyJson);
-  const access = { projectId: account.project_id, token: tokens(account), writable };
+  const access = {
+    projectId: account.project_id,
+    token: tokens(account),
+    writable: writable === true,
+  };
   const docs = firestoreRestDocuments(access);
   return {
     copy: firestoreRestStore(access),
-    live: firestoreRestLive(access),
+    live: firestoreRestLive({ ...access, writable: writable !== false }),
     // Read only, whatever the stores are opened for: nothing here writes a season.
     leagueDocs: restLeagueDocs(docs),
     readLedger: () => docs.read(REBUILD_LEDGER_PATH),

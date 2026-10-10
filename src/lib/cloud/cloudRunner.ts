@@ -224,7 +224,6 @@ export const loadPoolFrom = async (store: CloudStore): Promise<LoadedCopy | null
   };
 };
 
-/** Whether a copy is not this build's to change: saved by a newer build, or tidied by newer rules. */
 /**
  * A list's teams worth a request, as the device's own pull panel picks them from a paste: none
  * refused for good or as another season's, and none too young to rank, which would be refused at
@@ -247,7 +246,12 @@ const listIds = (job: Extract<CloudPullJob, { kind: "list" }>): string[] => {
   return fresh.length > 0 ? fresh : kept.length <= PASTE_HANDFUL ? kept : [];
 };
 
-const tooNew = (manifest: CloudManifest): boolean =>
+/**
+ * Whether the copy the store holds is not this build's to change or build from: saved by a newer
+ * build, or tidied by newer rules. Read off the pool once it is loaded (`loadPoolFrom`), so a server
+ * that publishes the copy's views without pulling (`scripts/republish.ts`) asks it as a pull does.
+ */
+export const copyTooNew = (manifest: CloudManifest): boolean =>
   manifest.schema > DATA_SCHEMA || stampFromNewerRules(loadTidyStamp());
 
 type Filed = { outcomes: GcImportOutcome[] };
@@ -345,7 +349,7 @@ export const runCloudPull = async (
   deps.onStage?.({ stage: "loading" });
   let copy = await loadPoolFrom(deps.store);
   if (!copy) return { ...result, end: "no-copy" };
-  if (tooNew(copy.manifest)) return { ...result, end: "newer-copy" };
+  if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
   /*
    * Which copy the answers are for. A retry files them again onto whatever the copy has become,
    * which is right when another device saved to it and wrong when it was deleted and started
@@ -394,7 +398,7 @@ export const runCloudPull = async (
       copy = await loadPoolFrom(deps.store);
       if (!copy) return { ...result, end: "no-copy" };
       if (copy.manifest.copy !== startedOn) return { ...result, end: "copy-replaced", changed: [] };
-      if (tooNew(copy.manifest)) return { ...result, end: "newer-copy" };
+      if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
       result.replays = attempt;
     }
     deps.onStage?.({ stage: "filing" });

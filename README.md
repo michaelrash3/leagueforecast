@@ -4042,6 +4042,27 @@ keeps nothing of an older build's meta that it did not build itself, inline
 values included, since those have the older shape; the other families come back
 as they are next published.
 
+A build deployed over views of an older schema, or onto a cloud with none
+published, publishes them again at once (`scripts/republish.ts`, `npm run
+republish`). Until then no device of the new build can draw a board, and the next
+publish used to be the nightly, which GitHub starts hours late. The Firebase
+workflow runs it after a push to main that really deployed (the project connected
+and the key set), under the nightly's day, collation and heap. It reads the meta
+first and goes on only when there is none, or it is of this layout and an older
+schema (`needsRepublish`): a meta of this schema is the rebuilds' and the night's
+to keep current, and a newer build's, or one of another layout, is not this
+build's to replace. It then lays the copy's pool into memory exactly as a pull
+does (`loadPoolFrom`), stops at a copy a newer build saved or tidied
+(`copyTooNew`), and publishes from it (`publishCopyViews`), with the copy opened
+read only and only `live/` writable: it pulls nothing and saves nothing of the
+copy, and its log is counts, sizes and timings, as the nightly's is. A copy or a
+season saved during the run is left to the rebuild it asks for, and views a later
+day, newer rules or a newer build published first are what it was for, so neither
+turns the run red; anything else that stops the publish does. It does not wait on
+the nightly: GitHub cancels a run waiting in a concurrency group when the next one
+joins it, which could lose a night, and two publishers at once is what the rules
+here are for.
+
 Two more rules keep a slower or older server from undoing what a newer one
 published. A publish for an earlier members' day than the meta's writes nothing,
 whatever its version: it was built for a day that has passed. And each family of

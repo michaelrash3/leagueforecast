@@ -14,6 +14,11 @@
 # nothing else; see README, "Your data on every device". Until the FIREBASE_PROJECT_ID variable and the
 # FIREBASE_SERVICE_ACCOUNT secret are set the deploy step says so and passes, so this workflow is
 # never red for want of an account.
+#
+# A push to main that deploys then publishes the members' views again from the cloud copy, where
+# what is published is of an older schema than this build writes, or there is none
+# (`scripts/republish.ts`, README "Views a server publishes"): otherwise a deploy that raises the
+# schema leaves every member on the older schema's notice until the nightly.
 name: Firebase functions
 
 on:
@@ -29,6 +34,10 @@ on:
       - "firestore.rules"
       - "firebase.json"
       - ".github/workflows/firebase.yml"
+      # The republish after a deploy, and what it opens the cloud with.
+      - "scripts/republish.ts"
+      - "scripts/viewsReport.ts"
+      - "scripts/cloudPool.ts"
   pull_request:
     branches: [main]
     paths:
@@ -41,16 +50,27 @@ on:
       - "firestore.rules"
       - "firebase.json"
       - ".github/workflows/firebase.yml"
+      - "scripts/republish.ts"
+      - "scripts/viewsReport.ts"
+      - "scripts/cloudPool.ts"
   workflow_dispatch:
 
-# Deploys queue rather than cancel: a deploy cut off halfway can leave a function half-updated.
+# Deploys queue rather than cancel: a deploy cut off halfway can leave a function half-updated. The
+# republish after one is in the same run, so two never publish at once, and a deploy waiting behind
+# it publishes with the newer build.
 concurrency:
   group: firebase-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
 jobs:
   functions:
     runs-on: ubuntu-latest
+    outputs:
+      # Whether this run really deployed: the project connected and the key set.
+      deployed: ${{ steps.deploy.outputs.deployed }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -79,6 +99,7 @@ jobs:
           npm run test:rules
 
       - name: Deploy
+        id: deploy
         if: github.event_name != 'pull_request'
         env:
           PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
@@ -122,3 +143,31 @@ jobs:
                 || echo "::notice::No $fn function to take down."
             done
           fi
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+
+  # The members' views published again from the cloud copy once a push to main has deployed, only
+  # where what is published is older than this build's schema or missing (`needsRepublish`); any
+  # other time it says so and stops. It runs as the nightly does, under its day, collation and heap,
+  # since it builds every board from the whole pool. It does not share the nightly's concurrency
+  # group: a run waiting in a group is cancelled by the next to join it, which could lose a night,
+  # and the two publishing at once is what the views' store is built for (the meta is replaced only
+  # over the version read, and a late publish replaces nothing newer: README, "Views a server
+  # publishes").
+  republish:
+    needs: functions
+    if: github.event_name == 'push' && needs.functions.outputs.deployed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install, as the nightly: the app's own files, run by Node as they are.
+      - name: Publish the views again where they are older
+        run: npm run republish
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          TZ: America/New_York
+          LANG: en_US.UTF-8
+          NODE_OPTIONS: --max-old-space-size=12288
