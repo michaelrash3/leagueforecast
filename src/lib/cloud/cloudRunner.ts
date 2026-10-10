@@ -19,13 +19,13 @@ import {
   tidyPool,
   type GcImportOutcome,
 } from "../gameChangerImport";
-import { markRefreshed, type DueRefresh } from "../gameChangerSchedule";
+import { localDayKey, markRefreshed, type RefreshLog } from "../gameChangerSchedule";
 import { orgAgesByTeam } from "../orgMembership";
 import { isRefusedClub } from "../refusedClubs";
 import { memoryIo } from "../poolMemoryIo";
 import { persistPool } from "../poolPersist";
 import { settleRunLists } from "../pullLists";
-import { storedRota } from "../storedRota";
+import { refreshNow, storedRota, type RefreshNow } from "../storedRota";
 import { pulledGcTeamIds } from "../teamRankings";
 import { isTooYoungClub } from "../tooYoungClubs";
 import {
@@ -74,13 +74,25 @@ import { LEAGUE_PART } from "./cloudPlan";
  * `resetTeamRankingsStore`, which closes the channel the store opens to other tabs.
  */
 
+/**
+ * A leg of a refresh whose teams were worked out once, at its start ("Refresh now",
+ * `pullJobRunner.ts`): these teams, and `ageLevels` logged as refreshed on `markOn`'s day, by the
+ * last leg alone (`markOn` null on every other), and only where it asked about every team.
+ */
+export type RotaWalk = {
+  teamIds: readonly string[];
+  ageLevels: readonly number[];
+  markOn: Date | null;
+};
+
 /** What to pull. */
 export type CloudPullJob =
   /**
    * The teams the Refresh button would pull today, worked out from the copy's own settings. With a
    * `limit`, only the first that many, for a trial run; the day is then not logged as refreshed.
+   * With a `walk`, a leg of a refresh worked out before, whose teams are not worked out again.
    */
-  | { kind: "rota"; force?: boolean; limit?: number }
+  | { kind: "rota"; force?: boolean; limit?: number; walk?: RotaWalk }
   /**
    * A list of teams, filed in these squad years only: a paste, of which only the teams the pool
    * lacks are pulled, or with `refresh` a catch-up, every team on it (`listIds`).
@@ -254,7 +266,51 @@ const listIds = (job: Extract<CloudPullJob, { kind: "list" }>): string[] => {
 export const copyTooNew = (manifest: CloudManifest): boolean =>
   manifest.schema > DATA_SCHEMA || stampFromNewerRules(loadTidyStamp());
 
+export type WorkedOutRefresh =
+  ({ ok: true } & RefreshNow) | { ok: false; end: Extract<CloudPullEnd, "no-copy" | "newer-copy"> };
+
+/**
+ * What "Refresh now" pulls, worked out from the copy at `now` as the card that offers it says
+ * (`refreshNow`), for the first leg of its job to keep as the list every leg walks. It reads the
+ * copy into the store as a pull does, so the leg then reads it once more for the pull itself: on the
+ * nightly's numbers of 29 September 2026, what was left of its 101 s once the 27 s of asking and
+ * the 62 s of filing are taken off, about 12 s, covered reading the copy and saving it both.
+ */
+export const workOutRefresh = async (store: CloudStore, now: Date): Promise<WorkedOutRefresh> => {
+  const copy = await loadPoolFrom(store);
+  if (!copy) return { ok: false, end: "no-copy" };
+  if (copyTooNew(copy.manifest)) return { ok: false, end: "newer-copy" };
+  return { ok: true, ...refreshNow(now) };
+};
+
 type Filed = { outcomes: GcImportOutcome[] };
+
+/** The levels a run logs as refreshed once it has asked about every team, and on which day. */
+type Marking = {
+  ageLevels: readonly number[];
+  /**
+   * The day a refresh worked out at its start was for (`RotaWalk.markOn`), or null for the run's
+   * own day, as the nightly logs it.
+   */
+  on: Date | null;
+};
+
+/**
+ * The log with `mark`'s levels refreshed. The nightly's on its own day, as it always was. A walked
+ * refresh's on the day it was worked out for, since its legs may end after midnight, and logged
+ * with the day they ended on would tell that day's nightly its levels were done when they were
+ * yesterday's; and never moving a level back, so a refresh that ends after the next day's nightly
+ * logged its levels leaves that day's mark where the nightly put it.
+ */
+const withRefreshed = (log: RefreshLog, mark: Marking, now: Date): RefreshLog => {
+  if (!mark.on) return markRefreshed(log, [...mark.ageLevels], now);
+  const day = localDayKey(mark.on);
+  return markRefreshed(
+    log,
+    mark.ageLevels.filter((level) => !((log[String(level)] ?? "") > day)),
+    mark.on
+  );
+};
 
 /**
  * Files `answers` into the pool the store holds, tidies it, and writes it back with what the run
@@ -265,7 +321,7 @@ const fileAnswers = async (
   job: CloudPullJob,
   ids: readonly string[],
   answers: ReadonlyMap<string, GcTeamResponse>,
-  due: DueRefresh | null,
+  mark: Marking | null,
   complete: boolean,
   now: Date
 ): Promise<Filed> => {
@@ -301,7 +357,7 @@ const fileAnswers = async (
   const lists = settleRunLists(outcomes, now.toISOString());
   if (lists.invented.length > 0) saveDroppedClubs(forgetClubs(loadDroppedClubs(), lists.invented));
   // Marked only when every team due was asked about: a run stopped half way has not refreshed them.
-  if (due && complete) saveRefreshLog(markRefreshed(loadRefreshLog(), due.ageLevels, now));
+  if (mark && complete) saveRefreshLog(withRefreshed(loadRefreshLog(), mark, now));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the pull's pool.");
   return { outcomes };
 };
@@ -358,9 +414,20 @@ export const runCloudPull = async (
    */
   const startedOn = copy.manifest.copy;
 
-  const due = job.kind === "rota" ? storedRota(deps.now(), job.force) : null;
+  // A walked refresh's teams were worked out at its start, and are not worked out again here.
+  const walk = job.kind === "rota" ? job.walk : undefined;
+  const due = job.kind === "rota" && !walk ? storedRota(deps.now(), job.force) : null;
+  const mark: Marking | null = walk
+    ? walk.markOn
+      ? { ageLevels: walk.ageLevels, on: walk.markOn }
+      : null
+    : due
+      ? { ageLevels: due.ageLevels, on: null }
+      : null;
   const dropped = loadDroppedClubs();
-  const wanted = (due ? due.teamIds : job.kind === "list" ? listIds(job) : [])
+  const wanted = (
+    walk ? [...walk.teamIds] : due ? due.teamIds : job.kind === "list" ? listIds(job) : []
+  )
     .filter((teamId, at, all) => all.indexOf(teamId) === at)
     .filter((teamId) => !isDeletedClub(dropped, teamId));
   const limit = job.kind === "rota" ? job.limit : undefined;
@@ -406,7 +473,7 @@ export const runCloudPull = async (
     onCloudPoolWrite((key) => touched.add(key));
     let filed: Filed;
     try {
-      filed = await fileAnswers(job, ids, answers, due, complete, deps.now());
+      filed = await fileAnswers(job, ids, answers, mark, complete, deps.now());
     } finally {
       onCloudPoolWrite(null);
     }

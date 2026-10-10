@@ -10,6 +10,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import { handlerFetch } from "../../scripts/handlerFetch";
 import { firestoreRestDocuments, firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
 import { restJobDocs, runPullLeg, type LegTask } from "../../src/lib/cloud/pullJobRunner";
+import { chargeRefreshLegs } from "../../src/lib/cloud/refreshGate";
 import { fetchGcTeams } from "../../src/lib/gameChangerClient";
 import { resetTeamRankingsStore } from "../../src/lib/teamRankingsStorage";
 import { enqueueLeg, restAccess, zoneOf } from "./pullAccess";
@@ -21,9 +22,12 @@ const { task, lastTry } = workerData as LegRequest;
 let answer: LegAnswer;
 try {
   const access = restAccess();
+  const docs = firestoreRestDocuments(access);
   const outcome = await runPullLeg(task, {
-    jobs: restJobDocs(firestoreRestDocuments(access)),
+    jobs: restJobDocs(docs),
     store: firestoreRestStore({ ...access, writable: true }),
+    // A "Refresh now" job's legs past its first, counted against the day's (`refreshGate.ts`).
+    chargeLegs: (legs) => chargeRefreshLegs(docs, legs, new Date()),
     fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
     now: () => new Date(),
     enqueue: enqueueLeg,

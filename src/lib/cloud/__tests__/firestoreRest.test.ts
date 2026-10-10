@@ -24,7 +24,7 @@ import {
 } from "../firestoreRest";
 import { coerceLiveMeta, publishViews, sweepViews } from "../../live/viewStore";
 import { unpackChunks } from "../cloudPack";
-import { newPullJob, packJobList } from "../pullJobs";
+import { newPullJob, newRefreshJob, packJobList, unpackJobList } from "../pullJobs";
 import { restJobDocs } from "../pullJobRunner";
 import {
   coerceLedger,
@@ -468,6 +468,37 @@ describe("a pull's job through Firestore's REST API", () => {
     );
     await expect(jobs.update(JOB, { status: "done" })).rejects.toBeInstanceOf(FirestoreError);
     expect(firestore.docs.size).toBe(0);
+  });
+
+  it("makes a Refresh now job once, and writes its worked-out list over what a try before left", async () => {
+    const firestore = fakeFirestore();
+    const jobs = restJobDocs(
+      firestoreRestDocuments({
+        projectId: "proj",
+        token: async () => "a-token",
+        fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
+      })
+    );
+    const made = newRefreshJob({
+      timeZone: "America/New_York",
+      device: "phone",
+      now: "2026-10-10T19:00:00.000Z",
+    });
+    expect(await jobs.create(JOB, made)).toBe(true);
+    expect(await jobs.read(JOB)).toEqual(made);
+    // Made only where there was none: a job of the same id is never written over.
+    expect(await jobs.create(JOB, { ...made, device: "laptop" })).toBe(false);
+    expect((await jobs.read(JOB))?.device).toBe("phone");
+
+    // A try that worked the list out and stopped, and the try after it, which worked out another.
+    const before = await packJobList([{ teamId: "gcACES000001" }]);
+    await jobs.putPiece(JOB, 0, before.pieces[0]!);
+    const after = await packJobList([{ teamId: "gcBEARS00001" }, { teamId: "gcCUBS000001" }]);
+    for (const [index, piece] of after.pieces.entries()) await jobs.putPiece(JOB, index, piece);
+    expect(await unpackJobList(after.list, (index) => jobs.piece(JOB, index))).toEqual([
+      { teamId: "gcBEARS00001" },
+      { teamId: "gcCUBS000001" },
+    ]);
   });
 });
 

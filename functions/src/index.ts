@@ -17,8 +17,10 @@ import {
   firestoreRestLive,
   firestoreRestStore,
 } from "../../src/lib/cloud/firestoreRest";
+import { randomId } from "../../src/lib/cloud/cloudManifest";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pullJobRunner";
+import { coerceRefreshAsk, startRefresh } from "../../src/lib/cloud/refreshGate";
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
 import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
@@ -145,6 +147,13 @@ const startPullCheck = createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projec
  * written. For the accounts on the cloud copy's list, as the rules make anything that touches the
  * copy (`memberCheck.ts`, with the sign-in the call carries); the job's own document is the rest
  * of the check.
+ *
+ * Or `{ refresh: { timeZone, device } }`: "Refresh now" from the live Import tab (README, "Refresh
+ * now in the cloud"). The server makes the job itself and its first leg works out the teams, as the
+ * nightly works them out, so a device names none; it is started through the gate in `ops/refresh`
+ * (`startRefresh`), which hands back a refresh already under way rather than starting another,
+ * turns a press away while the nightly pulls, and counts the day's legs. Answered with the job's
+ * id, for the device to watch it as it watches a list it sent.
  */
 export const startPull = !CLOUD_PULLS
   ? undefined
@@ -171,7 +180,31 @@ export const startPull = !CLOUD_PULLS
             MEMBERS_ONLY_MESSAGES[verdict]
           );
         }
-        const jobId = (request.data as { jobId?: unknown } | null)?.jobId;
+        const data = (request.data ?? null) as { jobId?: unknown; refresh?: unknown } | null;
+        if (data?.refresh !== undefined) {
+          // One of the two, read exactly: a request naming a job beside a refresh is neither.
+          const ask = data.jobId === undefined ? coerceRefreshAsk(data.refresh) : null;
+          if (!ask)
+            throw new HttpsError("invalid-argument", "That is not a refresh this server knows.");
+          const docs = firestoreRestDocuments(restAccess());
+          const refreshed = await startRefresh(ask, {
+            gate: docs,
+            jobs: restJobDocs(docs),
+            enqueue: enqueueLeg,
+            now: () => new Date(),
+            newId: randomId,
+          });
+          // Counts and words only: the job's id is the device's to watch, not the log's.
+          logger.info("startPull", {
+            kind: "refresh",
+            ...(refreshed.ok
+              ? { status: refreshed.status, already: refreshed.already }
+              : { refused: refreshed.refusal }),
+          });
+          if (!refreshed.ok) throw new HttpsError(refreshed.refusal, refreshed.message);
+          return { status: refreshed.status, jobId: refreshed.jobId, already: refreshed.already };
+        }
+        const jobId = data?.jobId;
         const started = await startPullJob(jobId, {
           jobs: restJobDocs(firestoreRestDocuments(restAccess())),
           enqueue: enqueueLeg,

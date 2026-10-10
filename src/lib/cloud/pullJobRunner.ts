@@ -1,13 +1,23 @@
+import type { GcTeamListEntry } from "../gameChangerApi";
 import type { CloudStore } from "./cloudEngine";
 import type { FirestoreRestDocuments } from "./firestoreRest";
-import { runCloudPull, type CloudPullDeps, type CloudPullResult } from "./cloudRunner";
+import {
+  runCloudPull,
+  workOutRefresh,
+  type CloudPullDeps,
+  type CloudPullJob,
+  type CloudPullResult,
+} from "./cloudRunner";
 import {
   JOB_ID,
   coercePullJob,
   jobPath,
   jobPiecePath,
+  legsFor,
+  packJobList,
   unpackJobList,
   type PullJob,
+  type PullJobRota,
   type PullJobTally,
 } from "./pullJobs";
 
@@ -31,6 +41,10 @@ export type JobDocs = {
   read: (jobId: string) => Promise<PullJob | null>;
   update: (jobId: string, patch: Partial<PullJob>) => Promise<void>;
   piece: (jobId: string, index: number) => Promise<Uint8Array | null>;
+  /** Makes a job the server starts itself ("Refresh now"), only where there is none: whether it did. */
+  create: (jobId: string, job: PullJob) => Promise<boolean>;
+  /** Writes a piece of a list the server worked out, over whatever a try before it left. */
+  putPiece: (jobId: string, index: number, data: Uint8Array) => Promise<void>;
 };
 
 /** A job's documents through Firestore's REST API. */
@@ -41,6 +55,8 @@ export const restJobDocs = (docs: FirestoreRestDocuments): JobDocs => ({
     const data = (await docs.read(jobPiecePath(jobId, index)))?.data;
     return data instanceof Uint8Array ? data : null;
   },
+  create: (jobId, job) => docs.replace(jobPath(jobId), job, null),
+  putPiece: (jobId, index, data) => docs.set(jobPiecePath(jobId, index), { data }),
 });
 
 /** What a task carries: the job, and the leg of it to run. */
@@ -57,6 +73,12 @@ export type LegDeps = {
   inTimeZone: (timeZone: string) => void;
   /** Whether this is the task's last try: a failure now is the job's, not a leg to try again. */
   lastTry: boolean;
+  /**
+   * Charges legs of a "Refresh now" job past its first to the day's budget (`chargeRefreshLegs`),
+   * once its first leg has worked out how many its teams take; the first was charged when the job
+   * was started. None for a list, which the budget does not cover.
+   */
+  chargeLegs?: (legs: number) => Promise<void>;
   /** How often to look for the device asking to stop, and to say how far the leg has got. */
   lookEveryMs?: number;
 };
@@ -107,6 +129,54 @@ const NOT_RUNNABLE: Partial<Record<CloudPullResult["end"], string>> = {
     "The cloud copy was deleted and started again while this pull ran, so nothing it fetched was filed into the new one. Send the list again to pull it there.",
 };
 
+type WorkedOutRota =
+  | { kind: "walk"; job: PullJob; entries: GcTeamListEntry[] }
+  | { kind: "nothing" }
+  | { kind: "failed"; error: string };
+
+/**
+ * A "Refresh now" job's teams, worked out by its first leg from the copy as the card that offered
+ * it counted them (`workOutRefresh`), and kept as the job's list: its pieces first, then the job, so
+ * a job never names a list it does not have. Every leg after this one, and this one tried again,
+ * walks the list kept here and never works it out again. The legs past the first are charged to
+ * the day's budget here; the first was charged when the job was started. With no team to pull, the
+ * job is done at once, and no level is logged, as the nightly logs none when nothing is due.
+ */
+const workOutRota = async (jobId: string, job: PullJob, deps: LegDeps): Promise<WorkedOutRota> => {
+  const { jobs, now } = deps;
+  const stamp = () => now().toISOString();
+  await jobs.update(jobId, { status: "running", stage: "loading", updatedAt: stamp() });
+  const worked = await workOutRefresh(deps.store, now());
+  if (!worked.ok) return { kind: "failed", error: NOT_RUNNABLE[worked.end] ?? worked.end };
+  const entries: GcTeamListEntry[] = worked.teamIds.map((teamId) => ({ teamId }));
+  const packed = await packJobList(entries);
+  for (const [index, piece] of packed.pieces.entries()) await jobs.putPiece(jobId, index, piece);
+  const legs = legsFor(entries.length, job.legTeams);
+  if (legs > 1) await deps.chargeLegs?.(legs - 1);
+  const rota: PullJobRota = {
+    at: stamp(),
+    ageLevels: worked.ageLevels,
+    again: worked.again,
+    heldBack: worked.heldBack,
+  };
+  if (entries.length === 0) {
+    await jobs.update(jobId, {
+      status: "done",
+      stage: "waiting",
+      list: packed.list,
+      legs,
+      legsDone: legs,
+      rota,
+      end: "nothing-due",
+      error: null,
+      updatedAt: stamp(),
+    });
+    return { kind: "nothing" };
+  }
+  await jobs.update(jobId, { list: packed.list, legs, rota, updatedAt: stamp() });
+  return { kind: "walk", job: { ...job, list: packed.list, legs, rota }, entries };
+};
+
 /** Runs `task`'s leg of its job. Throws `TryLegAgain`, or anything else, for a leg to try again. */
 export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutcome> => {
   const { jobs, now } = deps;
@@ -135,15 +205,25 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
   }
 
   try {
-    let entries;
-    try {
-      entries = await unpackJobList(job.list, (index) => jobs.piece(jobId, index));
-    } catch (error) {
-      // A list that does not unpack now never will.
-      return await fail(error instanceof Error ? error.message : String(error));
+    // Before a refresh's teams are worked out, too: its rota reads the day in the job's zone.
+    deps.inTimeZone(job.timeZone);
+    let walking = job;
+    let entries: GcTeamListEntry[];
+    if (job.rota && job.rota.at === null) {
+      const worked = await workOutRota(jobId, job, deps);
+      if (worked.kind === "failed") return await fail(worked.error);
+      if (worked.kind === "nothing") return "done";
+      walking = worked.job;
+      entries = worked.entries;
+    } else {
+      try {
+        entries = await unpackJobList(job.list, (index) => jobs.piece(jobId, index));
+      } catch (error) {
+        // A list that does not unpack now never will.
+        return await fail(error instanceof Error ? error.message : String(error));
+      }
     }
     const share = entries.slice(leg * job.legTeams, (leg + 1) * job.legTeams);
-    deps.inTimeZone(job.timeZone);
     await jobs.update(jobId, {
       status: "running",
       stage: "loading",
@@ -167,32 +247,44 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
         .catch(() => undefined);
     }, deps.lookEveryMs ?? LOOK_EVERY_MS);
 
+    // A refresh walks its share of the teams worked out at its start, and its last leg logs the
+    // levels refreshed on the day they were worked out for; a list is pulled as the device sent it.
+    const rota = walking.rota;
+    const workedAt = rota?.at ?? null;
+    const pull: CloudPullJob =
+      rota && workedAt !== null
+        ? {
+            kind: "rota",
+            walk: {
+              teamIds: share.map((entry) => entry.teamId),
+              ageLevels: rota.ageLevels,
+              markOn: leg + 1 >= walking.legs ? new Date(workedAt) : null,
+            },
+          }
+        : {
+            kind: "list",
+            entries: share,
+            seasonYears: job.seasonYears,
+            ...(job.refresh === true ? { refresh: true } : {}),
+          };
     let result: CloudPullResult;
     try {
-      result = await runCloudPull(
-        {
-          kind: "list",
-          entries: share,
-          seasonYears: job.seasonYears,
-          ...(job.refresh === true ? { refresh: true } : {}),
+      result = await runCloudPull(pull, {
+        store: deps.store,
+        fetchTeams: deps.fetchTeams,
+        now,
+        device: "cloud-pull",
+        signal: stop.signal,
+        onStage: (stage) => {
+          latest =
+            stage.stage === "fetching"
+              ? {
+                  stage: "fetching",
+                  progress: { done: stage.done, total: stage.total, failed: stage.failed },
+                }
+              : { stage: stage.stage };
         },
-        {
-          store: deps.store,
-          fetchTeams: deps.fetchTeams,
-          now,
-          device: "cloud-pull",
-          signal: stop.signal,
-          onStage: (stage) => {
-            latest =
-              stage.stage === "fetching"
-                ? {
-                    stage: "fetching",
-                    progress: { done: stage.done, total: stage.total, failed: stage.failed },
-                  }
-                : { stage: stage.stage };
-          },
-        }
-      );
+      });
     } finally {
       clearInterval(look);
       await told;
@@ -222,7 +314,7 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
       return "cancelled";
     }
     // GameChanger stopped answering: asking for the next leg's teams now would only fail more.
-    const over = result.end === "gave-up" || legsDone >= job.legs;
+    const over = result.end === "gave-up" || legsDone >= walking.legs;
     await jobs.update(jobId, {
       status: over ? "done" : "running",
       stage: "waiting",
@@ -254,7 +346,9 @@ export type StartRefusal =
 /**
  * Queues the first leg of the job `jobId` names, for `startPull`: the device has written the job
  * and its list and asks for it to run. A job already under way is left to run; asking twice is
- * asking once.
+ * asking once. A job that calls itself a refresh is not a device's to start: the rules let a member
+ * write any job, and one dressed as "Refresh now" would otherwise run past the gate and the day's
+ * budget that only the server's own start of one goes through (`startRefresh`).
  */
 export const startPullJob = async (
   jobId: unknown,
@@ -265,6 +359,7 @@ export const startPullJob = async (
   }
   const job = await deps.jobs.read(jobId);
   if (!job) return { ok: false, refusal: "not-found" };
+  if (job.rota) return { ok: false, refusal: "invalid-argument" };
   if (job.status === "queued") await deps.enqueue({ jobId, leg: 0 });
   return { ok: true, status: job.status };
 };

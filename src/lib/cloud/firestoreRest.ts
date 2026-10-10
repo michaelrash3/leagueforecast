@@ -373,6 +373,12 @@ export type FirestoreRestDocuments = {
    * a server reads whole to build the boards with.
    */
   list: (collection: string) => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
+  /**
+   * Writes `fields` as the whole document at `path`, made or replaced, whatever was there: a piece
+   * of the list a "Refresh now" job works out (`pullJobRunner.ts`), which a first leg tried again
+   * writes over whatever the try before it left.
+   */
+  set: (path: string, fields: Record<string, unknown>) => Promise<void>;
 };
 
 export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocuments => {
@@ -424,6 +430,14 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
         { method: "PATCH", body: JSON.stringify({ fields: firestoreFieldsOf(patch) }) }
       );
       if (!response.ok) throw await refusalOf(response, `updating ${path}`);
+    },
+    set: async (path, fields) => {
+      // No mask and no precondition: the whole document, made or replaced, as a piece is written.
+      const response = await call(`${documents}/${path}`, {
+        method: "PATCH",
+        body: JSON.stringify({ fields: firestoreFieldsOf(fields) }),
+      });
+      if (!response.ok) throw await refusalOf(response, `writing ${path}`);
     },
   };
 };

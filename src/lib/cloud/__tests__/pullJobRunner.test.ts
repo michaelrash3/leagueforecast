@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GcGame, GcTeamListEntry, GcTeamResponse, GcTeamSchedule } from "../../gameChangerApi";
 import type { FetchGcTeamsOptions } from "../../gameChangerClient";
+import { localDayKey, markRefreshed } from "../../gameChangerSchedule";
+import { AGE_LEVELS } from "../../teamRankings";
 import {
   cloudPoolKeys,
   flushPoolWrites,
   initTeamRankingsStore,
+  loadDroppedClubs,
+  loadRefreshLog,
   loadScoutTeams,
   readCloudPoolValue,
   resetTeamRankingsStore,
@@ -13,7 +17,7 @@ import {
 import { commitChanges, type Change } from "../cloudEngine";
 import { LEAGUE_PART } from "../cloudPlan";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
-import { newPullJob, packJobList, type PullJob } from "../pullJobs";
+import { newPullJob, newRefreshJob, packJobList, type PullJob } from "../pullJobs";
 import {
   runPullLeg,
   startPullJob,
@@ -152,6 +156,27 @@ const memoryJobs = () => {
       jobs.set(jobId, { ...job, ...structuredClone(patch) });
     },
     piece: async (jobId, index) => pieces.get(`${jobId}/${index}`) ?? null,
+    create: async (jobId, job) => {
+      if (jobs.has(jobId)) return false;
+      jobs.set(jobId, structuredClone(job));
+      return true;
+    },
+    putPiece: async (jobId, index, data) => {
+      pieces.set(`${jobId}/${index}`, data);
+    },
+  };
+  /** A "Refresh now" job as the server makes one. */
+  const putRefresh = (jobId: string, options: { legTeams?: number } = {}) => {
+    const job = {
+      ...newRefreshJob({
+        timeZone: "America/New_York",
+        device: "phone",
+        now: "2026-10-02T15:59:00.000Z",
+      }),
+      ...(options.legTeams ? { legTeams: options.legTeams } : {}),
+    };
+    jobs.set(jobId, job);
+    return job;
   };
   const put = async (
     entries: GcTeamListEntry[],
@@ -172,7 +197,16 @@ const memoryJobs = () => {
     jobs.set(jobId, job);
     return job;
   };
-  return { docs, jobs, pieces, updates, reads, put, job: (jobId = JOB) => jobs.get(jobId)! };
+  return {
+    docs,
+    jobs,
+    pieces,
+    updates,
+    reads,
+    put,
+    putRefresh,
+    job: (jobId = JOB) => jobs.get(jobId)!,
+  };
 };
 
 const legDeps = (
@@ -478,6 +512,179 @@ describe("a pull the cloud runs a leg at a time", () => {
   });
 });
 
+describe("a Refresh now job, a leg at a time", () => {
+  const REFRESH = "e".repeat(32);
+  /** A Friday, three days after the clubs were filed: none of them pulled within the gap. */
+  const FRIDAY = new Date("2026-10-02T16:00:00.000Z");
+  const CADENCE_KEY = "league_forecast_gc_cadence_v1";
+  const REFRESH_LOG_KEY = "league_forecast_gc_refresh_v1";
+
+  /** A copy holding the three clubs, filed by a pasted list on 29 September. */
+  const filed = async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    await runPullLeg({ jobId: JOB, leg: 0 }, legDeps(cloud, jobs).deps);
+    return { cloud, jobs };
+  };
+  /** A device saving one value to the copy, as a phone or the nightly would. */
+  const saves = async (cloud: MemoryCloud, key: string, value: unknown) => {
+    const saved = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [{ key, value, at: 5 }],
+      device: "phone",
+      now: "2026-10-02T16:10:00.000Z",
+    });
+    if (!saved.ok) throw new Error("save");
+  };
+  const logOf = async (cloud: MemoryCloud) => {
+    await loadPoolFrom(cloud.store);
+    const log = loadRefreshLog();
+    resetTeamRankingsStore();
+    return log;
+  };
+
+  it("works its teams out once, at its start, walks them leg by leg, and logs its levels at the end", async () => {
+    const { cloud, jobs } = await filed();
+    jobs.putRefresh(REFRESH, { legTeams: 2 });
+    const fetched: string[][] = [];
+    const charged: number[] = [];
+    const { deps, queued } = legDeps(cloud, jobs, {
+      fetchTeams: answering(fetched),
+      now: () => FRIDAY,
+      chargeLegs: async (legs) => {
+        charged.push(legs);
+      },
+    });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("next-queued");
+    const worked = jobs.job(REFRESH);
+    // Every age group is due on the daily cadence, and all three clubs with it.
+    expect(worked).toMatchObject({
+      status: "running",
+      legs: 2,
+      legsDone: 1,
+      list: { teams: 3 },
+      rota: { at: FRIDAY.toISOString(), ageLevels: AGE_LEVELS, again: false, heldBack: 0 },
+    });
+    // The leg past the first is charged to the day's budget once its count is known.
+    expect(charged).toEqual([1]);
+    expect(fetched.map((ids) => ids.length)).toEqual([2]);
+    expect(queued).toEqual([{ jobId: REFRESH, leg: 1 }]);
+    expect(await logOf(cloud)).toEqual({});
+
+    // Meanwhile a phone chooses the rota, under which a Friday is for no level at all: worked out
+    // again, the next leg would pull nothing and log nothing. It walks the list it was given.
+    await saves(cloud, CADENCE_KEY, "rotation");
+    const next = legDeps(cloud, jobs, {
+      fetchTeams: answering(fetched),
+      now: () => new Date("2026-10-02T16:30:00.000Z"),
+    });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 1 }, next.deps)).toBe("done");
+    expect(fetched.flat().sort()).toEqual([ACES, BEARS, CUBS].sort());
+    expect(jobs.job(REFRESH).list).toEqual(worked.list);
+    expect(jobs.job(REFRESH)).toMatchObject({
+      status: "done",
+      legsDone: 2,
+      end: "finished",
+      tally: { asked: 3, answered: 3, filed: 3 },
+    });
+    // Every level it was for, on the day it was worked out for.
+    const log = await logOf(cloud);
+    for (const level of AGE_LEVELS) expect(log[String(level)]).toBe(localDayKey(FRIDAY));
+  });
+
+  it("is done at once, logging nothing, with no team to pull", async () => {
+    const { cloud, jobs } = await filed();
+    await saves(cloud, CADENCE_KEY, "rotation");
+    jobs.putRefresh(REFRESH);
+    const fetched: string[][] = [];
+    const { deps, queued } = legDeps(cloud, jobs, {
+      fetchTeams: answering(fetched),
+      now: () => FRIDAY,
+    });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("done");
+    expect(jobs.job(REFRESH)).toMatchObject({
+      status: "done",
+      end: "nothing-due",
+      legs: 1,
+      legsDone: 1,
+      list: { teams: 0 },
+      rota: { ageLevels: [], again: true },
+    });
+    expect(fetched).toEqual([]);
+    expect(queued).toEqual([]);
+    expect(await logOf(cloud)).toEqual({});
+  });
+
+  it("runs today's levels again once they are logged, holding back a team pulled within the gap", async () => {
+    const { cloud, jobs } = await filed();
+    // The day the clubs were filed, logged as refreshed: a second run that day is the levels
+    // again, and every club, pulled hours before and playing nothing near, waits.
+    const sameDay = new Date("2026-09-29T17:00:00.000Z");
+    await saves(cloud, REFRESH_LOG_KEY, markRefreshed({}, AGE_LEVELS, sameDay));
+    jobs.putRefresh(REFRESH);
+    const { deps } = legDeps(cloud, jobs, { now: () => sameDay });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("done");
+    expect(jobs.job(REFRESH)).toMatchObject({
+      end: "nothing-due",
+      rota: { ageLevels: AGE_LEVELS, again: true, heldBack: 3 },
+    });
+  });
+
+  it("walks, when its first leg is tried again, the list the try before worked out", async () => {
+    const { cloud, jobs } = await filed();
+    jobs.putRefresh(REFRESH);
+    const broken: LegDeps["fetchTeams"] = async () => {
+      throw new Error("The line to GameChanger went down.");
+    };
+    const first = legDeps(cloud, jobs, { fetchTeams: broken, now: () => FRIDAY });
+    await expect(runPullLeg({ jobId: REFRESH, leg: 0 }, first.deps)).rejects.toThrow(/down/);
+    expect(jobs.job(REFRESH)).toMatchObject({ legsDone: 0, list: { teams: 3 } });
+    // A rota now for nothing at all, which a try that worked the teams out again would follow.
+    await saves(cloud, CADENCE_KEY, "rotation");
+    const fetched: string[][] = [];
+    const again = legDeps(cloud, jobs, { fetchTeams: answering(fetched), now: () => FRIDAY });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, again.deps)).toBe("done");
+    expect(fetched.flat().sort()).toEqual([ACES, BEARS, CUBS].sort());
+  });
+
+  it("files its answers again onto a save another made while it pulled, keeping that save", async () => {
+    const { cloud, jobs } = await filed();
+    jobs.putRefresh(REFRESH);
+    // While GameChanger answers, the nightly, or a phone, saves the copy: the Cubs thrown out.
+    const meanwhile: LegDeps["fetchTeams"] = async (ids, options) => {
+      await saves(cloud, "league_forecast_gc_dropped_clubs_v1", [CUBS]);
+      return answering()(ids, options);
+    };
+    const { deps } = legDeps(cloud, jobs, { fetchTeams: meanwhile, now: () => FRIDAY });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("done");
+    await loadPoolFrom(cloud.store);
+    // The other save stands, filed onto rather than written over, and honoured: the Cubs' answer,
+    // fetched before they were thrown out, is not filed.
+    expect([...loadDroppedClubs()]).toEqual([CUBS]);
+    expect(loadRefreshLog()["9"]).toBe(localDayKey(FRIDAY));
+    resetTeamRankingsStore();
+    expect(jobs.job(REFRESH)).toMatchObject({
+      tally: { asked: 3, answered: 3, filed: 2 },
+      version: cloud.manifest()!.version,
+    });
+  });
+
+  it("fails at its start with no copy to work its teams out from", async () => {
+    const cloud = memoryCloud();
+    const jobs = memoryJobs();
+    jobs.putRefresh(REFRESH);
+    const { deps } = legDeps(cloud, jobs, { now: () => FRIDAY });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("failed");
+    expect(jobs.job(REFRESH)).toMatchObject({
+      status: "failed",
+      error: expect.stringMatching(/no cloud copy/),
+    });
+  });
+});
+
 describe("starting a pull", () => {
   it("queues a queued job's first leg, and nothing for a job under way or not there", async () => {
     const jobs = memoryJobs();
@@ -503,5 +710,19 @@ describe("starting a pull", () => {
     });
     expect(await startPullJob(undefined, deps)).toEqual({ ok: false, refusal: "invalid-argument" });
     expect(queued).toHaveLength(1);
+  });
+
+  it("never starts a job dressed as Refresh now, which only the server's own start may", async () => {
+    const jobs = memoryJobs();
+    jobs.putRefresh(JOB);
+    const queued: LegTask[] = [];
+    const started = await startPullJob(JOB, {
+      jobs: jobs.docs,
+      enqueue: async (task: LegTask) => {
+        queued.push(task);
+      },
+    });
+    expect(started).toEqual({ ok: false, refusal: "invalid-argument" });
+    expect(queued).toEqual([]);
   });
 });
