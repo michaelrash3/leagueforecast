@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GcGame, GcTeamListEntry, GcTeamResponse, GcTeamSchedule } from "../../gameChangerApi";
 import type { FetchGcTeamsOptions } from "../../gameChangerClient";
 import { localDayKey, markRefreshed } from "../../gameChangerSchedule";
+import { refreshNow } from "../../storedRota";
 import { AGE_LEVELS } from "../../teamRankings";
 import {
   cloudPoolKeys,
@@ -25,6 +26,8 @@ import {
   type LegDeps,
   type LegTask,
 } from "../pullJobRunner";
+import { startRefresh } from "../refreshGate";
+import { inTimeZoneAsync } from "../../../test/timeZone";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
 
 /*
@@ -670,6 +673,49 @@ describe("a Refresh now job, a leg at a time", () => {
       tally: { asked: 3, answered: 3, filed: 2 },
       version: cloud.manifest()!.version,
     });
+  });
+
+  it("counts, pulls and logs New York's day, the one its card offered, whoever pressed", async () => {
+    const { cloud, jobs } = await filed();
+    await saves(cloud, CADENCE_KEY, "rotation");
+    // Nine on a Sunday evening in New York is already Monday in UTC, the zone a browser guarding
+    // against fingerprinting reports: Sunday is for 8U and 9U, the three clubs' level, and Monday
+    // for 16U and 17U, which none of them is.
+    const SUNDAY = new Date("2026-10-05T01:00:00.000Z");
+    // What the card offers, as the edit function works it out, in New York's day.
+    const offered = await inTimeZoneAsync("America/New_York", async () => {
+      await loadPoolFrom(cloud.store);
+      const offer = refreshNow(SUNDAY);
+      resetTeamRankingsStore();
+      return offer;
+    });
+    expect(offered).toMatchObject({ ageLevels: [8, 9], again: false });
+    expect(offered.teamIds).toHaveLength(3);
+
+    // The press, made as `startPull` makes it, from a device's name and nothing of its day.
+    const started = await startRefresh(
+      { device: "phone" },
+      {
+        gate: { readAt: async () => null, replace: async () => true },
+        jobs: jobs.docs,
+        enqueue: async () => undefined,
+        now: () => SUNDAY,
+        newId: () => REFRESH,
+      }
+    );
+    expect(started).toMatchObject({ ok: true, jobId: REFRESH, already: false });
+    // Its leg runs in the job's zone, which `runPull` sets before the leg's worker starts.
+    const fetched: string[][] = [];
+    const { deps } = legDeps(cloud, jobs, { fetchTeams: answering(fetched), now: () => SUNDAY });
+    const zone = jobs.job(REFRESH).timeZone;
+    expect(await inTimeZoneAsync(zone, () => runPullLeg({ jobId: REFRESH, leg: 0 }, deps))).toBe(
+      "done"
+    );
+    expect(fetched.flat().sort()).toEqual([...offered.teamIds].sort());
+    expect(jobs.job(REFRESH).rota).toMatchObject({ ageLevels: [8, 9], again: false });
+    // Logged on New York's Sunday, which that night's nightly reads; not on UTC's Monday.
+    const log = await logOf(cloud);
+    expect([log["8"], log["9"], log["16"]]).toEqual(["2026-10-04", "2026-10-04", undefined]);
   });
 
   it("fails at its start with no copy to work its teams out from", async () => {

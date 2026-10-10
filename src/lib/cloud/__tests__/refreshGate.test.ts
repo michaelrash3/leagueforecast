@@ -12,6 +12,7 @@ import {
   REFRESH_GATE_PATH,
   REFRESH_LEGS_A_DAY,
   REFRESH_QUIET_MS,
+  REFRESH_ZONE,
   startRefresh,
   type GateDocs,
   type RefreshGate,
@@ -26,7 +27,7 @@ import {
 
 /** 3 p.m. in New York on 10 October 2026. */
 const NOW = new Date("2026-10-10T19:00:00.000Z");
-const ASK = { timeZone: "America/Chicago", device: "device-abc-123" };
+const ASK = { device: "device-abc-123" };
 const OTHER = "a".repeat(32);
 
 /** The gate document in memory, written only at the token it was read at, as Firestore's is. */
@@ -89,7 +90,7 @@ const memoryJobs = () => {
 };
 
 const refreshAt = (status: PullJob["status"], updatedAt = NOW.toISOString()): PullJob => ({
-  ...newRefreshJob({ ...ASK, now: "2026-10-10T18:00:00.000Z" }),
+  ...newRefreshJob({ timeZone: REFRESH_ZONE, ...ASK, now: "2026-10-10T18:00:00.000Z" }),
   status,
   updatedAt,
 });
@@ -117,17 +118,19 @@ const setUp = (gate: Record<string, unknown> | null = null) => {
 const FIRST = "0".repeat(31) + "1";
 
 describe("a member's asking for Refresh now", () => {
-  it("is read exactly: a real time zone and a device's name, and nothing else", () => {
+  it("is read exactly: a device's name, and nothing else, its time zone included", () => {
     expect(coerceRefreshAsk(ASK)).toEqual(ASK);
     expect(coerceRefreshAsk(JSON.parse(JSON.stringify(ASK)))).toEqual(ASK);
     for (const raw of [
       null,
       "refresh",
       [],
+      {},
       { timeZone: "America/Chicago" },
-      { device: "device-abc-123" },
-      { ...ASK, timeZone: "Mars/Olympus_Mons" },
-      { ...ASK, timeZone: 5 },
+      // The day is New York's for every refresh, so a device's zone is not the device's to send.
+      { ...ASK, timeZone: "America/Chicago" },
+      { ...ASK, timeZone: "America/New_York" },
+      { ...ASK, device: 5 },
       { ...ASK, device: "" },
       { ...ASK, device: "x".repeat(65) },
       { ...ASK, device: "a device/../with slashes" },
@@ -147,7 +150,9 @@ describe("starting Refresh now", () => {
       status: "queued",
       already: false,
     });
-    expect(jobs.jobs.get(FIRST)).toEqual(newRefreshJob({ ...ASK, now: NOW.toISOString() }));
+    expect(jobs.jobs.get(FIRST)).toEqual(
+      newRefreshJob({ timeZone: "America/New_York", ...ASK, now: NOW.toISOString() })
+    );
     expect(store.gate()).toEqual({ jobId: FIRST, nightlyAt: null, day: "2026-10-10", legs: 1 });
     expect(queued).toEqual([{ jobId: FIRST, leg: 0 }]);
     expect(new Set(store.paths)).toEqual(new Set([REFRESH_GATE_PATH]));

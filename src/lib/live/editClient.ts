@@ -322,7 +322,7 @@ const REFRESH_FAILURES: ReadonlyMap<string, CallFailure> = new Map([
  * by it; an answer that does not say which job is no answer, and the refresh may have started.
  */
 export const callStartRefresh = (
-  ask: { timeZone: string; device: string },
+  ask: { device: string },
   deps: CallDeps
 ): Promise<Called<RefreshStart>> =>
   call(

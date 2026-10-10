@@ -3672,11 +3672,19 @@ call, made by the server for the import status, so the number on the page is the
 number pulled, as of that moment.
 
 **The job** (`pullJobs.ts`, `pullJobRunner.ts`). The device sends no list: it calls
-`startPull` with `{ refresh: { timeZone, device } }`, read exactly (a time zone the
-server knows and a device's name, and nothing else), and the server makes the job
-itself (`newRefreshJob`, carrying `rota`). Its first leg loads the copy and works the
-teams out (`workOutRefresh`), then keeps them as the job's list, its pieces first and
-the job last, as a device leaves a paste. Every leg after, and the first tried again,
+`startPull` with `{ refresh: { device } }`, read exactly (a device's name, and
+nothing else), and the server makes the job itself (`newRefreshJob`, carrying
+`rota`). The job keeps New York's day (`REFRESH_ZONE`), whoever pressed, as the
+card's count, the nightly, the day's budget and the refresh log all do; a list's job
+keeps its device's. Kept in the pressing device's zone, a refresh pulled another
+day's levels than the card offered wherever the two days differed: on the rotation,
+a member in Chicago pressing in the hour after New York's midnight got the previous
+day's levels, and a browser reporting UTC that pressed on a New York evening logged
+every level as refreshed tomorrow, so that night's nightly found nothing due
+(`pullJobRunner.test.ts` presses at nine on a Sunday evening in New York, Monday in
+UTC). Its first leg loads the copy and works the teams out (`workOutRefresh`), then
+keeps them as the job's list, its pieces first and the job last, as a device leaves
+a paste. Every leg after, and the first tried again,
 walks that list and never works it out again: worked out leg by leg, a refresh of
 today's levels run again would find the teams the legs before it had just pulled
 held back, and those playing due again, leg after leg. The last leg logs the levels

@@ -97,12 +97,24 @@ export const coerceRefreshGate = (raw: unknown): RefreshGate => {
 };
 
 /**
+ * The zone a "Refresh now" job keeps its day in: New York's, whoever pressed and wherever they
+ * are, because every other part of the refresh keeps it there. The card's count is worked out by
+ * the edit function, which runs in it (`edit` in `functions/src/index.ts`); the nightly runs in it
+ * (`nightly.yml`), and so do the day's budget and the refresh log the nightly reads. A job kept in
+ * the pressing device's zone pulled another day's levels from the card's wherever the two days
+ * differed: a member in Chicago pressing in the hour after New York's midnight was pulled the
+ * previous day's levels, not the ones offered, and a device reporting UTC that pressed on a New
+ * York evening logged every level as refreshed tomorrow, so that night's nightly found nothing due.
+ */
+export const REFRESH_ZONE = "America/New_York";
+
+/**
  * The day the budget counts in: New York's, as the rebuilds' ledger counts its days, whatever zone
  * the server runs in (Google's is UTC, where a New York evening is already tomorrow).
  */
 export const budgetDay = (now: Date): string => {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
+    timeZone: REFRESH_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -122,39 +134,28 @@ export const refreshUnderWay = (job: PullJob | null, now: Date): boolean =>
 const nightlyUnderWay = (gate: RefreshGate, now: Date): boolean =>
   gate.nightlyAt !== null && now.getTime() - Date.parse(gate.nightlyAt) < NIGHTLY_HOLD_MS;
 
-/** What a member's device sends to ask for "Refresh now": where its day is, and which it is. */
-export type RefreshAsk = { timeZone: string; device: string };
+/**
+ * What a member's device sends to ask for "Refresh now": which device it is, and nothing of its
+ * day, which is New York's for every refresh (`REFRESH_ZONE`).
+ */
+export type RefreshAsk = { device: string };
 
 /** A device's name as `cloudState.ts` makes one: letters, digits and a few marks, short. */
 const DEVICE = /^[A-Za-z0-9_.-]{1,64}$/;
 
-const isTimeZone = (zone: string): boolean => {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: zone });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
 /**
  * A member's asking for "Refresh now", read exactly, as a list's job is read before a leg of it
- * runs (`coercePullJob`): a time zone this server knows and a device's name, and nothing else. No
- * list: the server works the teams out itself, so a device cannot name any.
+ * runs (`coercePullJob`): a device's name, and nothing else. No list: the server works the teams
+ * out itself, so a device cannot name any. No time zone either, since every refresh keeps New York's
+ * day (`REFRESH_ZONE`), and a zone sent is refused with anything else extra.
  */
 export const coerceRefreshAsk = (raw: unknown): RefreshAsk | null => {
   if (!isRecord(raw)) return null;
-  const { timeZone, device, ...rest } = raw;
-  if (
-    Object.keys(rest).length > 0 ||
-    typeof timeZone !== "string" ||
-    !isTimeZone(timeZone) ||
-    typeof device !== "string" ||
-    !DEVICE.test(device)
-  ) {
+  const { device, ...rest } = raw;
+  if (Object.keys(rest).length > 0 || typeof device !== "string" || !DEVICE.test(device)) {
     return null;
   }
-  return { timeZone, device };
+  return { device };
 };
 
 /** The gate document through Firestore's REST API: read with its token, written only at it. */
@@ -225,7 +226,8 @@ export const startRefresh = async (
     }
     const jobId = deps.newId();
     const stamp = now.toISOString();
-    if (!(await deps.jobs.create(jobId, newRefreshJob({ ...ask, now: stamp })))) continue;
+    const job = newRefreshJob({ timeZone: REFRESH_ZONE, device: ask.device, now: stamp });
+    if (!(await deps.jobs.create(jobId, job))) continue;
     const taken = await deps.gate.replace(
       REFRESH_GATE_PATH,
       { ...gate, jobId, day, legs: spent + 1 },

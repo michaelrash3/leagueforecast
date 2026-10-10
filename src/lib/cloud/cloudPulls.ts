@@ -58,9 +58,10 @@ export type PullSender = {
   start: (jobId: string) => Promise<Called<{ status: string }>>;
   /**
    * Asks the cloud for "Refresh now" (`callStartRefresh`): the server makes the job, or hands back
-   * the one under way. None on a sender that cannot, which offers no button.
+   * the one under way. None on a sender that cannot, which offers no button. Only the device's name
+   * is sent: every refresh keeps New York's day, whoever presses (`REFRESH_ZONE`).
    */
-  startRefresh?: (ask: { timeZone: string; device: string }) => Promise<Called<RefreshStart>>;
+  startRefresh?: (ask: { device: string }) => Promise<Called<RefreshStart>>;
 };
 
 export type SendOutcome = { ok: true; jobId: string } | { ok: false; message: string };
@@ -123,18 +124,13 @@ export const REFRESH_UNANSWERED =
  * the one it started, if it did.
  */
 export const sendRefresh = async (
-  {
-    teams,
-    device,
-    timeZone,
-    now,
-  }: { teams: number; device: string; timeZone: string; now: string },
+  { teams, device, now }: { teams: number; device: string; now: string },
   sender: PullSender
 ): Promise<RefreshOutcome> => {
   if (!sender.startRefresh) {
     return { ok: false, message: "This version of the app cannot ask the cloud for a refresh." };
   }
-  const started = await sender.startRefresh({ timeZone, device });
+  const started = await sender.startRefresh({ device });
   if (!started.ok) {
     return {
       ok: false,

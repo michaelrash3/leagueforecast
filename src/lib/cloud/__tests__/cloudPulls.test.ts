@@ -106,7 +106,7 @@ describe("a pull sent to the cloud", () => {
 describe("Refresh now asked of the cloud", () => {
   const JOB = "0123456789abcdef0123456789abcdef";
   const asking = (answer: Called<RefreshStart>) => {
-    const asked: Array<{ timeZone: string; device: string }> = [];
+    const asked: Array<{ device: string }> = [];
     const sender: PullSender = {
       ...cloudOf({ ok: true, value: { status: "queued" } }).sender,
       startRefresh: async (ask) => {
@@ -117,7 +117,7 @@ describe("Refresh now asked of the cloud", () => {
     return { sender, asked };
   };
   const press = (sender: PullSender) =>
-    sendRefresh({ teams: 120, device: "phone", timeZone: "America/Chicago", now: NOW }, sender);
+    sendRefresh({ teams: 120, device: "phone", now: NOW }, sender);
 
   it("sends no list, and watches the job the cloud answers with, new or already under way", async () => {
     const { sender, asked } = asking({
@@ -125,7 +125,8 @@ describe("Refresh now asked of the cloud", () => {
       value: { status: "queued", jobId: JOB, already: false },
     });
     expect(await press(sender)).toEqual({ ok: true, jobId: JOB, already: false });
-    expect(asked).toEqual([{ timeZone: "America/Chicago", device: "phone" }]);
+    // The device's name alone: the cloud keeps every refresh in New York's day.
+    expect(asked).toEqual([{ device: "phone" }]);
     expect(loadSentPulls()).toEqual([{ jobId: JOB, sentAt: NOW, teams: 120, told: false }]);
     // Pressed again while it runs: the cloud hands back the same job, watched once.
     const again = asking({ ok: true, value: { status: "running", jobId: JOB, already: true } });
@@ -148,7 +149,7 @@ describe("Refresh now asked of the cloud", () => {
   });
 
   it("is told about in its own words, with the cloud's count once it has worked its teams out", () => {
-    const made = newRefreshJob({ timeZone: "America/Chicago", device: "phone", now: NOW });
+    const made = newRefreshJob({ timeZone: "America/New_York", device: "phone", now: NOW });
     const sent = { jobId: JOB, sentAt: NOW, teams: 120, told: false };
     const worked = {
       ...made,

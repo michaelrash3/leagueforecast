@@ -148,12 +148,13 @@ const startPullCheck = createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projec
  * copy (`memberCheck.ts`, with the sign-in the call carries); the job's own document is the rest
  * of the check.
  *
- * Or `{ refresh: { timeZone, device } }`: "Refresh now" from the live Import tab (README, "Refresh
- * now in the cloud"). The server makes the job itself and its first leg works out the teams, as the
- * nightly works them out, so a device names none; it is started through the gate in `ops/refresh`
- * (`startRefresh`), which hands back a refresh already under way rather than starting another,
- * turns a press away while the nightly pulls, and counts the day's legs. Answered with the job's
- * id, for the device to watch it as it watches a list it sent.
+ * Or `{ refresh: { device } }`: "Refresh now" from the live Import tab (README, "Refresh now in
+ * the cloud"). The server makes the job itself, in New York's day as the nightly's, and its first
+ * leg works out the teams as the nightly works them out, so a device names none, nor its own day;
+ * it is started through the gate in `ops/refresh` (`startRefresh`), which hands back a refresh
+ * already under way rather than starting another, turns a press away while the nightly pulls, and
+ * counts the day's legs. Answered with the job's id, for the device to watch it as it watches a
+ * list it sent.
  */
 export const startPull = !CLOUD_PULLS
   ? undefined
@@ -278,7 +279,8 @@ export const runPull = !CLOUD_PULLS
           logger.info(said("no such pull; nothing done."));
           return;
         }
-        // The day the leg files and logs in is the device's; its worker keeps the zone set here.
+        // The day the leg files and logs in is the job's: the device's for a list it sent, New
+        // York's for "Refresh now" (`REFRESH_ZONE`). Its worker keeps the zone set here.
         process.env.TZ = zoneOf(job.timeZone);
         const started = Date.now();
         let answer: LegAnswer;

@@ -96,8 +96,9 @@ export type PullJob = {
    */
   rota?: PullJobRota;
   /**
-   * The device's time zone, which is what "today" is in for the importer and the day log: the
-   * function runs in Google's, which is not the user's.
+   * The zone "today" is in for the importer and the day log, since the function runs in Google's,
+   * which is not the user's: a list's is the device's that sent it, and "Refresh now"'s is always
+   * New York's (`REFRESH_ZONE`), the zone its card's count and the nightly keep.
    */
   timeZone: string;
   /** The device that sent it (`ManifestPart.by`'s kind of name). */

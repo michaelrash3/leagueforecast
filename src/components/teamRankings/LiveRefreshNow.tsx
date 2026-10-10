@@ -106,15 +106,8 @@ export default function LiveRefreshNow({
     sendingNow.current = true;
     setSending(true);
     setSaid(null);
-    const sent = await sendRefresh(
-      {
-        teams: offer.teams,
-        device,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        now: now(),
-      },
-      sender
-    );
+    // No time zone: the cloud keeps every refresh in New York's day, as the card's count is.
+    const sent = await sendRefresh({ teams: offer.teams, device, now: now() }, sender);
     sendingNow.current = false;
     setSending(false);
     if (sent.ok) {

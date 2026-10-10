@@ -309,7 +309,7 @@ if (process.env.CLOUD_PULLS !== "on") {
       status: url.endsWith("/documents/members/member%40example.com") ? 200 : 403,
     });
   };
-  const ask = { timeZone: "America/New_York", device: "device-smoke-1" };
+  const ask = { device: "device-smoke-1" };
   const unsignedRefresh = await post(startPull, { data: { refresh: ask } });
   const outsiderRefresh = await post(
     startPull,
@@ -326,7 +326,9 @@ if (process.env.CLOUD_PULLS !== "on") {
   );
   const unreadable = [];
   for (const data of [
-    { refresh: { ...ask, timeZone: "Mars/Olympus_Mons" } },
+    // Every refresh keeps New York's day, so a device's zone is not one to send.
+    { refresh: { ...ask, timeZone: "America/New_York" } },
+    { refresh: { ...ask, device: "a device/../with slashes" } },
     { refresh: { ...ask, list: ["gcACES000001"] } },
     { refresh: ask, jobId: "0".repeat(32) },
     { refresh: "now" },

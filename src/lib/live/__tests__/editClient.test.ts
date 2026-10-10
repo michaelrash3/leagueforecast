@@ -310,7 +310,7 @@ describe("a question", () => {
 });
 
 describe("asking for Refresh now", () => {
-  const ASK = { timeZone: "America/Chicago", device: "device-abc-123" };
+  const ASK = { device: "device-abc-123" };
   const JOB = "0123456789abcdef0123456789abcdef";
 
   it("posts the asking to startPull with the member's sign-in, and hands back the job to watch", async () => {

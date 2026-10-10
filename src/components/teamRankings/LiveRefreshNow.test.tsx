@@ -60,7 +60,7 @@ const editsOf = (status: AnswerOf<"import.status"> | null, locked: string | null
 /** The cloud in memory: its jobs, and what a press of Refresh now is answered. */
 const cloudOf = (answer?: (asked: number) => Called<RefreshStart>) => {
   const jobs = new Map<string, PullJob>();
-  const presses: Array<{ timeZone: string; device: string }> = [];
+  const presses: Array<{ device: string }> = [];
   const sender: PullSender = {
     jobs: {
       put: async (jobId, job) => {
@@ -81,7 +81,10 @@ const cloudOf = (answer?: (asked: number) => Called<RefreshStart>) => {
       };
       // The server makes the job it names, as `startRefresh` does.
       if (answered.ok && !jobs.has(answered.value.jobId)) {
-        jobs.set(answered.value.jobId, newRefreshJob({ ...ask, now: NOW }));
+        jobs.set(
+          answered.value.jobId,
+          newRefreshJob({ timeZone: "America/New_York", ...ask, now: NOW })
+        );
       }
       return answered;
     },
@@ -187,9 +190,8 @@ describe("Refresh now on the Import tab", () => {
     await screen.findByTestId("refresh-offer");
     fireEvent.click(refreshButton());
     expect(await screen.findByText("Refreshing in the cloud: waiting to start.")).toBeTruthy();
-    expect(cloud.presses).toEqual([
-      { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, device: "device-test-1" },
-    ]);
+    // The device's name and nothing of its day, which the cloud keeps as New York's.
+    expect(cloud.presses).toEqual([{ device: "device-test-1" }]);
     // While it is on its way the button is off, and says why.
     expect(refreshButton()).toHaveProperty("disabled", true);
     expect(screen.getByText(REFRESH_RUNNING)).toBeTruthy();
