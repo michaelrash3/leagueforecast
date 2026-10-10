@@ -60,6 +60,23 @@ export type PullJobTally = {
   gamesUpdated: number;
 };
 
+/**
+ * What a "Refresh now" job knows of its refresh. Its teams are worked out once, by its first leg,
+ * and kept as the job's list, so every leg after walks the list worked out at the start: worked out
+ * again leg by leg, a refresh of today's levels run again would find the teams the legs before it
+ * had just pulled held back, and those playing today due again, leg after leg.
+ */
+export type PullJobRota = {
+  /** When the first leg worked the teams out, or null until it has: the list is empty till then. */
+  at: string | null;
+  /** The levels the teams are for, which the last leg marks refreshed on the day of `at`. */
+  ageLevels: number[];
+  /** Whether today's levels had been refreshed already, so this is them again. */
+  again: boolean;
+  /** Teams of those levels held back for having been pulled lately with no game near today. */
+  heldBack: number;
+};
+
 export type PullJob = {
   format: number;
   /** The list, as its pieces make it: the SHA-256 of its JSON, its teams, and its pieces. */
@@ -73,8 +90,15 @@ export type PullJob = {
    */
   refresh?: true;
   /**
-   * The device's time zone, which is what "today" is in for the importer and the day log: the
-   * function runs in Google's, which is not the user's.
+   * "Refresh now" (README, "Refresh now in the cloud"): the day's refresh, made by the server
+   * (`refreshGate.ts`) rather than written by a device, whose teams its first leg works out from
+   * the copy (`refreshNow`) and the legs then walk. Absent from a list.
+   */
+  rota?: PullJobRota;
+  /**
+   * The zone "today" is in for the importer and the day log, since the function runs in Google's,
+   * which is not the user's: a list's is the device's that sent it, and "Refresh now"'s is always
+   * New York's (`REFRESH_ZONE`), the zone its card's count and the nightly keep.
    */
   timeZone: string;
   /** The device that sent it (`ManifestPart.by`'s kind of name). */
@@ -194,11 +218,50 @@ export const newPullJob = ({
   updatedAt: now,
 });
 
+/**
+ * A new "Refresh now" job, as the server makes it on a member's asking (`startRefresh`): no list
+ * yet, and one leg until the first works out how many the teams take.
+ */
+export const newRefreshJob = ({
+  timeZone,
+  device,
+  now,
+}: {
+  timeZone: string;
+  device: string;
+  now: string;
+}): PullJob => ({
+  ...newPullJob({
+    list: { hash: "", teams: 0, pieces: 0 },
+    seasonYears: [],
+    timeZone,
+    device,
+    now,
+  }),
+  rota: { at: null, ageLevels: [], again: false, heldBack: 0 },
+});
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const whole = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 const text = (value: unknown): value is string => typeof value === "string";
+
+/** A job's refresh as read, or null for one that is not one; undefined where there is none. */
+const rotaOf = (raw: unknown): PullJobRota | null | undefined => {
+  if (raw === undefined) return undefined;
+  if (
+    !isRecord(raw) ||
+    !(raw.at === null || text(raw.at)) ||
+    !Array.isArray(raw.ageLevels) ||
+    !raw.ageLevels.every(whole) ||
+    typeof raw.again !== "boolean" ||
+    !whole(raw.heldBack)
+  ) {
+    return null;
+  }
+  return { at: raw.at, ageLevels: raw.ageLevels, again: raw.again, heldBack: raw.heldBack };
+};
 
 const STATUSES = new Set<string>(["queued", "running", "done", "failed", "cancelled"]);
 const STAGES = new Set<string>(["waiting", "loading", "fetching", "filing", "saving"]);
@@ -222,7 +285,9 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
   if (!isRecord(raw) || raw.format !== JOB_FORMAT) return null;
   const { list, progress } = raw;
   const tally = tallyOf(raw.tally);
+  const rota = rotaOf(raw.rota);
   if (
+    rota === null ||
     !isRecord(list) ||
     !text(list.hash) ||
     !whole(list.teams) ||
@@ -259,6 +324,7 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     list: { hash: list.hash, teams: list.teams, pieces: list.pieces },
     seasonYears: raw.seasonYears,
     ...(raw.refresh === true ? { refresh: true as const } : {}),
+    ...(rota ? { rota } : {}),
     timeZone: raw.timeZone,
     device: raw.device,
     createdAt: raw.createdAt,

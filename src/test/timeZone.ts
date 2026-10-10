@@ -18,3 +18,21 @@ export const inTimeZone = (zone: string, check: () => void): void => {
     else env.TZ = was;
   }
 };
+
+/**
+ * `inTimeZone` for work that waits: the zone holds until `check` settles, as `runPull` holds the
+ * zone it sets for a leg's whole run. The tests of a file run one after another, so no other test
+ * runs in the zone meanwhile.
+ */
+export const inTimeZoneAsync = async <T>(zone: string, check: () => Promise<T>): Promise<T> => {
+  const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } })
+    .process.env;
+  const was = env.TZ;
+  env.TZ = zone;
+  try {
+    return await check();
+  } finally {
+    if (was === undefined) delete env.TZ;
+    else env.TZ = was;
+  }
+};

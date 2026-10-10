@@ -1,5 +1,6 @@
 import type { GcTeamListEntry } from "../gameChangerApi";
-import type { Called } from "../live/editClient";
+import { MIN_PULL_GAP_HOURS } from "../gameChangerSchedule";
+import type { Called, RefreshStart } from "../live/editClient";
 import { randomId } from "./cloudManifest";
 import type { PullJobStore } from "./firebaseCloud";
 import { newPullJob, packJobList, type PullJob } from "./pullJobs";
@@ -55,6 +56,12 @@ const saveSentPulls = (pulls: readonly SentPull[]): void => {
 export type PullSender = {
   jobs: PullJobStore;
   start: (jobId: string) => Promise<Called<{ status: string }>>;
+  /**
+   * Asks the cloud for "Refresh now" (`callStartRefresh`): the server makes the job, or hands back
+   * the one under way. None on a sender that cannot, which offers no button. Only the device's name
+   * is sent: every refresh keeps New York's day, whoever presses (`REFRESH_ZONE`).
+   */
+  startRefresh?: (ask: { device: string }) => Promise<Called<RefreshStart>>;
 };
 
 export type SendOutcome = { ok: true; jobId: string } | { ok: false; message: string };
@@ -102,6 +109,48 @@ export const sendPull = async (
   return { ok: true, jobId };
 };
 
+export type RefreshOutcome =
+  { ok: true; jobId: string; already: boolean } | { ok: false; message: string };
+
+/** Said where the cloud did not answer a press, which may have started a refresh all the same. */
+export const REFRESH_UNANSWERED =
+  "No answer came from the cloud, so the refresh may or may not have started. Press again in a minute: one that started is shown, not started twice.";
+
+/**
+ * Asks the cloud for "Refresh now" (README, "Refresh now in the cloud") and remembers the job it
+ * answers with, a new one or the one already under way, to be watched as a pasted list's is.
+ * `teams` is the count the card offered, said until the cloud has worked out its own. A press the
+ * cloud did not answer is not remembered, since there is no job to watch: pressing again finds
+ * the one it started, if it did.
+ */
+export const sendRefresh = async (
+  { teams, device, now }: { teams: number; device: string; now: string },
+  sender: PullSender
+): Promise<RefreshOutcome> => {
+  if (!sender.startRefresh) {
+    return { ok: false, message: "This version of the app cannot ask the cloud for a refresh." };
+  }
+  const started = await sender.startRefresh({ device });
+  if (!started.ok) {
+    return {
+      ok: false,
+      message:
+        started.why === "unanswered"
+          ? REFRESH_UNANSWERED
+          : `The cloud would not start the refresh: ${started.message}`,
+    };
+  }
+  const { jobId, already } = started.value;
+  const sent = loadSentPulls();
+  if (!sent.some((pull) => pull.jobId === jobId && !pull.told)) {
+    saveSentPulls([
+      ...sent.filter((pull) => pull.jobId !== jobId),
+      { jobId, sentAt: now, teams, told: false },
+    ]);
+  }
+  return { ok: true, jobId, already };
+};
+
 /** Whether a job has ended, one way or another. */
 export const isOver = (job: PullJob): boolean =>
   job.status === "done" || job.status === "failed" || job.status === "cancelled";
@@ -133,8 +182,72 @@ export const markTold = (jobId: string): void => {
   );
 };
 
+/** Whether a watched pull is "Refresh now" rather than a list this device sent. */
+export const isRefresh = ({ job }: WatchedPull): boolean => job.rota !== undefined;
+
+/**
+ * The teams a refresh pulls: the cloud's own count once its first leg has worked them out, the
+ * card's until then.
+ */
+const refreshTeams = ({ job, sent }: WatchedPull): string =>
+  (job.rota?.at ? job.list.teams : sent.teams).toLocaleString();
+
+/** One line on how "Refresh now" ended. */
+const describeRefreshEnd = (pull: WatchedPull): string => {
+  const { job } = pull;
+  const teams = refreshTeams(pull);
+  const { filed, gamesAdded, gamesUpdated, failed } = job.tally;
+  const games = `${gamesAdded.toLocaleString()} games added and ${gamesUpdated.toLocaleString()} updated`;
+  const unanswered = failed > 0 ? `; ${failed.toLocaleString()} did not answer` : "";
+  if (job.status === "failed") {
+    return `The refresh in the cloud failed${job.error ? `: ${job.error}` : "."}`;
+  }
+  if (job.status === "cancelled") {
+    return `The refresh in the cloud was stopped: ${filed.toLocaleString()} of ${teams} teams filed, ${games}${unanswered}.`;
+  }
+  if (job.end === "nothing-due") {
+    const held = job.rota?.heldBack ?? 0;
+    return `The refresh in the cloud had no team to pull${
+      held > 0
+        ? `: the ${held.toLocaleString()} due were all pulled in the last ${MIN_PULL_GAP_HOURS} hours and play nothing yesterday, today or tomorrow`
+        : ""
+    }.`;
+  }
+  if (job.end === "gave-up") {
+    return `GameChanger stopped answering the refresh in the cloud: ${filed.toLocaleString()} of ${teams} teams filed, ${games}. The nightly asks again for the rest.`;
+  }
+  return `The refresh in the cloud is done: ${filed.toLocaleString()} of ${teams} teams filed, ${games}${unanswered}.`;
+};
+
+/** One line on how far "Refresh now" has got. */
+const describeRefreshProgress = (pull: WatchedPull): string => {
+  const { job } = pull;
+  if (job.status === "queued") return "Refreshing in the cloud: waiting to start.";
+  if (job.stopAsked) return "Refreshing in the cloud: stopping.";
+  if (!job.rota?.at) return "Refreshing in the cloud: working out today's teams.";
+  return `Refreshing ${refreshTeams(pull)} teams in the cloud: ${legAndStage(job)}.`;
+};
+
+/** The part of a running job's line that says which part it is on and what it is doing. */
+const legAndStage = (job: PullJob): string => {
+  const leg = job.legs > 1 ? `part ${job.legsDone + 1} of ${job.legs}, ` : "";
+  const stage =
+    job.stage === "fetching"
+      ? `asking GameChanger, ${job.progress.done.toLocaleString()} of ${job.progress.total.toLocaleString()}`
+      : job.stage === "loading"
+        ? "reading the copy"
+        : job.stage === "filing"
+          ? "filing"
+          : job.stage === "saving"
+            ? "saving"
+            : "between parts";
+  return `${leg}${stage}`;
+};
+
 /** One line on how a pull ended. */
-export const describeEnd = ({ job, sent }: WatchedPull): string => {
+export const describeEnd = (pull: WatchedPull): string => {
+  if (isRefresh(pull)) return describeRefreshEnd(pull);
+  const { job, sent } = pull;
   const teams = sent.teams.toLocaleString();
   const { filed, gamesAdded, gamesUpdated, failed } = job.tally;
   const games = `${gamesAdded.toLocaleString()} games added and ${gamesUpdated.toLocaleString()} updated`;
@@ -152,20 +265,11 @@ export const describeEnd = ({ job, sent }: WatchedPull): string => {
 };
 
 /** One line on how far a running pull has got. */
-export const describeProgress = ({ job, sent }: WatchedPull): string => {
-  const leg = job.legs > 1 ? `part ${job.legsDone + 1} of ${job.legs}, ` : "";
+export const describeProgress = (pull: WatchedPull): string => {
+  if (isRefresh(pull)) return describeRefreshProgress(pull);
+  const { job, sent } = pull;
   const teams = sent.teams.toLocaleString();
   if (job.status === "queued") return `Pulling ${teams} teams in the cloud: waiting to start.`;
   if (job.stopAsked) return `Pulling ${teams} teams in the cloud: stopping.`;
-  const stage =
-    job.stage === "fetching"
-      ? `asking GameChanger, ${job.progress.done.toLocaleString()} of ${job.progress.total.toLocaleString()}`
-      : job.stage === "loading"
-        ? "reading the copy"
-        : job.stage === "filing"
-          ? "filing"
-          : job.stage === "saving"
-            ? "saving"
-            : "between parts";
-  return `Pulling ${teams} teams in the cloud: ${leg}${stage}.`;
+  return `Pulling ${teams} teams in the cloud: ${legAndStage(job)}.`;
 };

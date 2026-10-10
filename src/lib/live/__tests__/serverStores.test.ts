@@ -58,12 +58,16 @@ const WRITES = {
     (s: ReturnType<typeof restServerStores>) => s.live.deleteChunk("piece-0"),
     (s: ReturnType<typeof restServerStores>) => s.live.commitMeta(null, META),
   ],
+  gate: [
+    (s: ReturnType<typeof restServerStores>) =>
+      s.gate.replace("ops/refresh", { nightlyAt: "2026-10-10T04:17:00.000Z" }, null),
+  ],
 };
 
 const writesOf = async (writable: boolean | "live") => {
   const open = opened(writable);
-  const out: Record<keyof typeof WRITES, boolean[]> = { copy: [], uploads: [], live: [] };
-  for (const where of ["copy", "uploads", "live"] as const) {
+  const out: Record<keyof typeof WRITES, boolean[]> = { copy: [], uploads: [], live: [], gate: [] };
+  for (const where of ["copy", "uploads", "live", "gate"] as const) {
     for (const write of WRITES[where]) out[where].push(await goesOut(open, write));
   }
   return out;
@@ -75,6 +79,7 @@ describe("what a job on GitHub may write of the cloud", () => {
       copy: [false, false, false],
       uploads: [false],
       live: [true, true, true],
+      gate: [false],
     });
   });
 
@@ -83,6 +88,7 @@ describe("what a job on GitHub may write of the cloud", () => {
       copy: [true, true, true],
       uploads: [true],
       live: [true, true, true],
+      gate: [true],
     });
   });
 
@@ -91,6 +97,17 @@ describe("what a job on GitHub may write of the cloud", () => {
       copy: [false, false, false],
       uploads: [false],
       live: [false, false, false],
+      gate: [false],
     });
+  });
+
+  it("reads the refresh gate and a job however it was opened", async () => {
+    for (const writable of [true, false, "live"] as const) {
+      const open = opened(writable);
+      // The stand-in answers every read with an empty document, which says nothing either way.
+      await open.stores.gate.readAt("ops/refresh").catch(() => undefined);
+      await open.stores.readJob("0123456789abcdef0123456789abcdef");
+      expect(open.fetchImpl).toHaveBeenCalledTimes(2);
+    }
   });
 });

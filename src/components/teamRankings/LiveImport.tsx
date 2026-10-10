@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PullSender } from "../../lib/cloud/cloudPulls";
 import { todayIsoDay } from "../../lib/date";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
@@ -14,7 +14,8 @@ import type { ImportStatus } from "../../lib/live/queries";
 import type { MemberOrg } from "../../lib/orgMembership";
 import { segmentOn } from "../../lib/teamRankings/seasons";
 import { button, card } from "../../styles/tokens";
-import LiveCloudPulls from "./LiveCloudPulls";
+import LiveCloudPulls, { useWatchedPulls } from "./LiveCloudPulls";
+import LiveRefreshNow from "./LiveRefreshNow";
 
 const NO_IDS: readonly string[] = [];
 
@@ -68,7 +69,9 @@ export default function LiveImport({
   const [status, setStatus] = useState<ImportStatus | null>(null);
   const [unread, setUnread] = useState(false);
   const [asked, setAsked] = useState(0);
-  const askAgain = () => setAsked((times) => times + 1);
+  const askAgain = useCallback(() => setAsked((times) => times + 1), []);
+  // The pulls this device watches, read once for both cards: "Refresh now" waits while any runs.
+  const watching = useWatchedPulls(pulls);
   /*
    * The cadence chosen here, shown from the choice until a status that carries it is read: cleared
    * once the edit was made, it flipped back to the old one until the status came, and stayed so
@@ -146,12 +149,30 @@ export default function LiveImport({
   const pullCard = (
     <LiveCloudPulls
       pulls={pulls}
+      watching={watching}
       locked={locked}
       agelessIds={status?.agelessIds ?? NO_IDS}
       rosterIds={status?.rosterIds ?? NO_IDS}
       playing={segmentOn(todayIsoDay()).year}
       device={device}
       now={now}
+    />
+  );
+
+  /*
+   * "Refresh now", with how a refresh this device watches is getting on. Before the status is read
+   * there is no count to offer, so only the lines are drawn: a refresh under way is still told of
+   * while edits are locked or the status cannot be read.
+   */
+  const refreshNow = (
+    <LiveRefreshNow
+      offer={status?.refreshNow}
+      locked={locked}
+      pulls={pulls}
+      watching={watching}
+      device={device}
+      now={now}
+      onEnded={askAgain}
     />
   );
 
@@ -175,6 +196,7 @@ export default function LiveImport({
               Reading the cloud&apos;s refresh…
             </p>
           )}
+          {refreshNow}
         </div>
         {pullCard}
       </>
@@ -257,6 +279,7 @@ export default function LiveImport({
             </ul>
           </div>
         )}
+        {refreshNow}
       </div>
 
       <div className={`${card} p-5`}>

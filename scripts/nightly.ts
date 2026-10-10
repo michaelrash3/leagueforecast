@@ -27,6 +27,11 @@ import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
+import {
+  nightlyEndsTurn,
+  nightlyTakesTurn,
+  type NightlyTurn,
+} from "../src/lib/cloud/refreshGate.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
 import { dryLiveStore, publishCopyViews, publishFailedRun } from "../src/lib/live/publishCopy.ts";
@@ -162,17 +167,57 @@ const main = async (): Promise<void> => {
     );
   };
 
-  const result = await runCloudPull(
-    { kind: "rota", ...(force ? { force } : {}), ...(limit ? { limit } : {}) },
-    {
-      store: dry?.store ?? opened.copy,
-      fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
-      now: () => new Date(),
-      device: "nightly",
-      keep: true,
-      onStage,
+  // The nightly's turn at the refresh gate (README, "Refresh now in the cloud"): a live run waits
+  // for a "Refresh now" under way to end, so the two never ask GameChanger about the same teams at
+  // once, and names itself there while it pulls, so a press meanwhile is told the nightly is
+  // pulling. A dry run writes nothing, the gate included, and takes no turn.
+  let turn: NightlyTurn | null = null;
+  if (live) {
+    try {
+      turn = await nightlyTakesTurn({
+        gate: opened.gate,
+        readJob: opened.readJob,
+        now: () => new Date(),
+        sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+      });
+      if (turn.waitedMs > 0) {
+        console.log(
+          `  ${since()}: waited ${Math.round(turn.waitedMs / 1000)} s for a refresh started from the app${
+            turn.stillRunning ? ", which is still running; pulling beside it" : " to end"
+          }.`
+        );
+      }
+      if (!turn.at) console.log("  The refresh gate kept moving; pulling without taking it.");
+    } catch (error) {
+      console.log(
+        `  The refresh gate could not be read (${error instanceof Error ? error.message : String(error)}); pulling without it.`
+      );
     }
-  );
+  }
+  const held = turn?.at ?? null;
+  let result: Awaited<ReturnType<typeof runCloudPull>>;
+  try {
+    result = await runCloudPull(
+      { kind: "rota", ...(force ? { force } : {}), ...(limit ? { limit } : {}) },
+      {
+        store: dry?.store ?? opened.copy,
+        fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
+        now: () => new Date(),
+        device: "nightly",
+        keep: true,
+        onStage,
+      }
+    );
+  } finally {
+    // Given back as soon as GameChanger is done with; the boards after ask it nothing.
+    if (held) {
+      await nightlyEndsTurn(opened.gate, held).catch(() =>
+        console.log(
+          "  The refresh gate could not be given back; it opens by itself within 90 minutes."
+        )
+      );
+    }
+  }
 
   console.log(
     `Ended ${result.end} in ${since()}: ${result.asked} teams asked, ${result.answered} answered, ${result.failed} not; ${result.filed} filed, ${result.gamesAdded} games added and ${result.gamesUpdated} updated.`

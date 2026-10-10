@@ -1701,7 +1701,8 @@ Either way a day is counted once — opening the app twice in an evening does no
 pull twice — and a level is marked done only when its run actually finishes, so
 stopping half way leaves it due. When today is already done there is a button to
 run it again anyway, for when something has changed that a day log cannot know
-about.
+about. On the live page that is **Refresh now** on the Import tab, which runs the
+same refresh in the cloud ("Refresh now in the cloud").
 
 Either way, and that button too, only the season being played comes round. A
 finished season's pages cannot change, so walking them every day spent a whole
@@ -3635,6 +3636,121 @@ spends about 1,440 of the first and 360 of the second. So a 250,000-team list, t
 legs, should stay well within it. That is worked out from the published tier, not
 measured on this project; the first real pull's usage will say.
 
+### Refresh now in the cloud
+
+The nightly refresh, run by a member's press rather than by GitHub's clock: the
+live Import tab's **Refresh now** starts, in the cloud, the refresh the nightly
+would run at that moment, and the page can be closed meanwhile. It is a pull job
+like a pasted list's, run by the same legs, and needs nothing of the project the
+pulls in the cloud do not already have.
+
+**On the page** (`LiveRefreshNow.tsx`, in the nightly card). Before the press the card
+says what it will pull, from the import status the card already reads: "Refresh now
+pulls today's refresh in the cloud now rather than tonight: about 120 teams", or, once
+today's levels are done, "Today's refresh has run. Refresh now pulls today's levels
+again in the cloud: about 12 teams", with how many wait for having been pulled in the
+last 16 hours; for tonight's refresh the card says that once, above the button, in the
+line it always had. The button is off, and says why, while edits are locked (the lock's
+own words), with nobody signed in, while a refresh or a list this device sent is on its
+way, and with nothing to pull; the reason is the button's own description
+(`aria-describedby`), so a screen reader on the button hears it. A server from before
+the button sends no count, and the card offers none. A press keeps the button off,
+"Starting…", from the moment it is made until the list of watched pulls has been read
+after the cloud's answer: back on in between, a second press reached the cloud and was
+told this device's own refresh was "already running". A press's job is watched as a pasted list's is: the tab lifts the
+watching out of the pull card (`useWatchedPulls`) so both cards read one list, and the
+refresh is told in the same lines (`PullLines`), "Refreshing 118 teams in the cloud:
+asking GameChanger, 40 of 118", with Stop, and its end once, with OK, after which the
+status is read again. A press the cloud answers with a refresh already under way, this
+device's or another's, watches that one and says so, for as long as one is under way;
+one it refuses says why, until the status is next read; one it does not answer is not
+remembered, since there is no job to watch, and pressing again finds the one it
+started, if it did. What a press did is said in live regions drawn before it was made,
+the lines' and the note's, since a screen reader may not read out a region that
+arrives already holding its words.
+
+**What it pulls** (`refreshNow` in `storedRota.ts`). While today's levels are still
+to do, what the nightly would pull now (`storedRota`). Once they are done, those
+levels again, as the device's own button runs a finished day again (`force`).
+Either way held to the gap that protects GameChanger: a team pulled within the last
+16 hours (`MIN_PULL_GAP_HOURS`) with no game yesterday, today or tomorrow waits, so
+a second press the same evening asks again only about the teams playing. Clubs
+thrown out are left off, as the pull would skip them. The card's count is this same
+call, made by the server for the import status, so the number on the page is the
+number pulled, as of that moment.
+
+**The job** (`pullJobs.ts`, `pullJobRunner.ts`). The device sends no list: it calls
+`startPull` with `{ refresh: { device } }`, read exactly (a device's name, and
+nothing else), and the server makes the job itself (`newRefreshJob`, carrying
+`rota`). The job keeps New York's day (`REFRESH_ZONE`), whoever pressed, as the
+card's count, the nightly, the day's budget and the refresh log all do; a list's job
+keeps its device's. Kept in the pressing device's zone, a refresh pulled another
+day's levels than the card offered wherever the two days differed: on the rotation,
+a member in Chicago pressing in the hour after New York's midnight got the previous
+day's levels, and a browser reporting UTC that pressed on a New York evening logged
+every level as refreshed tomorrow, so that night's nightly found nothing due
+(`pullJobRunner.test.ts` presses at nine on a Sunday evening in New York, Monday in
+UTC). Its first leg loads the copy and works the teams out (`workOutRefresh`), then
+keeps them as the job's list, its pieces first and the job last, as a device leaves
+a paste. Every leg after, and the first tried again,
+walks that list and never works it out again: worked out leg by leg, a refresh of
+today's levels run again would find the teams the legs before it had just pulled
+held back, and those playing due again, leg after leg. A team the copy says was
+pulled after the refresh was worked out is not asked about again, since that pull
+came after the press: so a leg tried again after its save landed, when the job could
+not then be told (its update, or its worker, failing between the two), asks
+GameChanger nothing about the teams that save holds, where it once asked about every
+one of them a second time minutes later. The last leg logs the levels
+refreshed in the copy's refresh log, as the nightly does (`markRefreshed`), only
+where it asked about every team, on the day the refresh was worked out for, and
+never moving a level back to an earlier day than the log already has, so a refresh
+that ends after midnight neither tells the next day's nightly its levels were done
+nor undoes that nightly's mark. With nothing to pull the job is done at once and
+logs nothing, as the nightly logs nothing when nothing is due. Filing, the tidy and
+the save are the pull's own (`runCloudPull`), and the save's own rebuild publishes the
+boards, as a pasted list's does. Each save keeps what it replaces as an earlier
+version, as the nightly's does, so the cloud panel's **Bring back** undoes a bad
+refresh as it undoes a bad night; a pasted list's pull keeps nothing, as before. A
+refresh whose copy is deleted and started again while it pulls fails saying to press
+again, not to send a list it never had. A job a device writes that calls itself a refresh is
+never started (`startPullJob`): only the server's own start goes through the gate.
+
+**The gate** (`refreshGate.ts`, `ops/refresh`, a path no rule opens). It names the
+refresh last started, the nightly while it pulls, and the legs "Refresh now" has
+started in the New York day. A press while a refresh is under way (queued or
+running, and heard from within two hours) is handed that one, which the device then
+watches as its own, rather than starting another; a press while the nightly pulls is
+told so; and a press once the day's three legs are spent is told the nightly
+refreshes again tonight. The job is made before the gate is taken and queued only
+once it is, and the gate is written only as it was read, so two presses at once
+start one refresh and the other's job is ended where it stands, never run. A first
+leg Cloud Tasks will not queue ends its job too, and gives the day its leg back while
+the gate still names it: left queued with no task to run it, the job would have
+passed for one under way for two hours, and a nightly in that time would have waited
+its longest for nothing. The press is told the refresh was not started.
+
+Three legs a day is a cap of this project's own, not one Google sets: a leg runs on
+8 GiB and two processors, about 1,440 GiB-seconds for three minutes, so three a
+day for a month is 129,600, a little over a third of the free tier's 360,000; that is
+reckoned from the published tier and the nightly's run time, not measured on the
+function. The whole refresh was 15,793 teams on 29 September 2026, one leg of
+25,000, so three legs is three presses; a refresh of more teams counts its legs past
+the first once its first leg knows how many there are (`chargeRefreshLegs`), and
+where the day has fewer left than it takes, it fails then, before GameChanger is
+asked anything, saying so. A press is let through on one leg left, so without that
+a refresh of two legs pressed third would have taken the day to four. A pasted list
+is not counted: its legs are the size of the list, sent once.
+
+**Beside the nightly and other pulls.** Legs run one at a time on one instance
+(`runPull`), so a refresh never runs beside a pasted list's leg; it waits its turn in
+the queue. The nightly waits for a refresh under way before it pulls, and names
+itself in the gate while it does ("The nightly refresh on GitHub"). Neither could
+harm the copy beside the other: every save is made only onto the manifest as it was
+read, and a run that finds the copy moved files its answers again onto the save it
+missed (`pullJobRunner.test.ts` runs a refresh whose copy another save moves while
+it fetches). What the gate spares is GameChanger, asked about the same teams twice at
+once, which the gap between pulls cannot stop while neither run has saved.
+
 ### Pulls in the cloud: the one-time setup
 
 The two functions run as an account of their own, `pull-runner`. It may read and
@@ -3698,6 +3814,19 @@ On 29 September 2026 the rota was 15,793 teams. The dry run answered every one
 of them in 27 s, filed and tidied them in 62 s, and was done in 101 s from
 loading the copy, holding 3.5 GB at the end. A live trial of 50 teams then saved
 into the copy, and the next dry run read the whole copy back.
+
+A live run takes its turn at the refresh gate first ("Refresh now in the cloud",
+`nightlyTakesTurn`): a refresh a member started from the Import tab and still under
+way is waited for, looked at every 30 s for at most 45 minutes of the step's 85, and
+then the nightly names itself in `ops/refresh` while it pulls, so a press meanwhile
+is told the nightly is pulling. It gives the turn back once GameChanger is done with,
+before the boards are published, and a turn it never gave back lapses after the
+job's 90 minutes. Where the refresh it waited for logged today's levels, the
+nightly's own rota then finds nothing due. A refresh still running after the longest
+wait is let be and the nightly pulls beside it, which costs GameChanger the same
+teams twice and the copy nothing; a gate that cannot be read or written is pulled
+without, for the same reason. A dry run writes nothing, the gate included, and takes
+no turn.
 
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
@@ -4901,6 +5030,24 @@ back. A file whose organizations have teams but no names is told it needs the na
 which a team's age is read from, rather than that it names no teams; and with edits off
 and nothing read yet the tab says why, as the waiting card above Pool health now does,
 rather than that it is still reading.
+
+The nightly card now carries **Refresh now** ("Refresh now in the cloud"), and the
+status it reads carries the button's count (`refreshNow`, optional in the answer's
+shape, so a server from before it is still read, and offers no button).
+`LiveRefreshNow.test.tsx` holds the card: what it will pull said before the press,
+again or not; off with the lock's reason, with nobody signed in, while a refresh or a
+list is on its way, and with nothing to pull; a press watched to its end, which reads
+the status again; Stop; one already under way shown; a refusal said; and a refresh
+still told of while the status cannot be read. `queries.test.ts`,
+`editClient.test.ts` and `cloudPulls.test.ts` hold the count, the call and the watching.
+Each guard was broken in turn and seen to fail a test, 17 of 17, the watching of one
+handed back twice only once the break let it be listed twice. A review then broke
+five of the card's guards with every test still passing: the two against a double
+press, the signed-out reason (the pull card says the same words), the note that one
+was already running, and the end read once. Each has a test of its own now, and with
+the review's fixes (the button off until the answer's read, the notes that went stale,
+the held-back count said twice, the reasons and lines a screen reader could miss) 14
+guards were broken in turn and seen to fail a test, 14 of 14.
 
 **On a device with no copy.** The page is laid out by the age groups, which a
 device reads from its own copy. One that has never held a copy has none, so the
