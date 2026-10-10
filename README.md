@@ -1701,7 +1701,8 @@ Either way a day is counted once — opening the app twice in an evening does no
 pull twice — and a level is marked done only when its run actually finishes, so
 stopping half way leaves it due. When today is already done there is a button to
 run it again anyway, for when something has changed that a day log cannot know
-about.
+about. On the live page that is **Refresh now** on the Import tab, which runs the
+same refresh in the cloud ("Refresh now in the cloud").
 
 Either way, and that button too, only the season being played comes round. A
 finished season's pages cannot change, so walking them every day spent a whole
@@ -3643,6 +3644,23 @@ would run at that moment, and the page can be closed meanwhile. It is a pull job
 like a pasted list's, run by the same legs, and needs nothing of the project the
 pulls in the cloud do not already have.
 
+**On the page** (`LiveRefreshNow.tsx`, in the nightly card). Before the press the card
+says what it will pull, from the import status the card already reads: "Refresh now
+pulls today's refresh in the cloud now rather than tonight: about 120 teams", or, once
+today's levels are done, "Today's refresh has run. Refresh now pulls today's levels
+again in the cloud: about 12 teams", with how many wait for having been pulled in the
+last 16 hours. The button is off, and says why, while edits are locked (the lock's own
+words), with nobody signed in, while a refresh or a list this device sent is on its
+way, and with nothing to pull; a server from before the button sends no count, and the
+card offers none. A press's job is watched as a pasted list's is: the tab lifts the
+watching out of the pull card (`useWatchedPulls`) so both cards read one list, and the
+refresh is told in the same lines (`PullLines`), "Refreshing 118 teams in the cloud:
+asking GameChanger, 40 of 118", with Stop, and its end once, with OK, after which the
+status is read again. A press the cloud answers with a refresh already under way, this
+device's or another's, watches that one and says so; one it refuses says why; one it
+does not answer is not remembered, since there is no job to watch, and pressing again
+finds the one it started, if it did.
+
 **What it pulls** (`refreshNow` in `storedRota.ts`). While today's levels are still
 to do, what the nightly would pull now (`storedRota`). Once they are done, those
 levels again, as the device's own button runs a finished day again (`force`).
@@ -4980,6 +4998,18 @@ back. A file whose organizations have teams but no names is told it needs the na
 which a team's age is read from, rather than that it names no teams; and with edits off
 and nothing read yet the tab says why, as the waiting card above Pool health now does,
 rather than that it is still reading.
+
+The nightly card now carries **Refresh now** ("Refresh now in the cloud"), and the
+status it reads carries the button's count (`refreshNow`, optional in the answer's
+shape, so a server from before it is still read, and offers no button).
+`LiveRefreshNow.test.tsx` holds the card: what it will pull said before the press,
+again or not; off with the lock's reason, with nobody signed in, while a refresh or a
+list is on its way, and with nothing to pull; a press watched to its end, which reads
+the status again; Stop; one already under way shown; a refusal said; and a refresh
+still told of while the status cannot be read. `queries.test.ts`,
+`editClient.test.ts` and `cloudPulls.test.ts` hold the count, the call and the watching.
+Each guard was broken in turn and seen to fail a test, 17 of 17, the watching of one
+handed back twice only once the break let it be listed twice.
 
 **On a device with no copy.** The page is laid out by the age groups, which a
 device reads from its own copy. One that has never held a copy has none, so the

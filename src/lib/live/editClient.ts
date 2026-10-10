@@ -1,5 +1,6 @@
 import { FIREBASE_WEB_CONFIG } from "../cloud/cloudConfig";
 import { functionUrl } from "../cloud/functionsUrl";
+import { JOB_ID } from "../cloud/pullJobs";
 import { coerceCommand, type PoolCommand } from "./commands";
 import type { EditReply, WarmResult } from "./editHandle";
 import type { EditRefusal, QueryRefusal } from "./editRun";
@@ -89,7 +90,8 @@ const call = async <T>(
   data: unknown,
   read: (result: unknown) => T | null,
   { token, url = EDIT_URL, fetchImpl = fetch, limitMs = CALL_LIMIT_MS }: CallDeps,
-  unclear: CallFailure
+  unclear: CallFailure,
+  failures: ReadonlyMap<string, CallFailure> = FAILURE_OF
 ): Promise<Called<T>> => {
   let signIn: string | null;
   try {
@@ -134,7 +136,7 @@ const call = async <T>(
       typeof error?.message === "string" && error.message
         ? error.message
         : `The server answered HTTP ${response.status}.`;
-    return failed(FAILURE_OF.get(status) ?? unclear, message);
+    return failed(failures.get(status) ?? unclear, message);
   }
   const value = isRecord(body) ? read(body.result) : null;
   return value === null
@@ -299,6 +301,45 @@ export const callQuery = <K extends QueryKind>(
  * Asks the cloud to start pull `jobId`, which this device has just written (`cloudPulls.ts`). An
  * answer that never came may still have started it: the job's own document says, once read.
  */
+/** What `startPull` answers a refresh: its job, its status, and whether it was one under way. */
+export type RefreshStart = { status: string; jobId: string; already: boolean };
+
+/**
+ * The refusals `startPull` makes of a refresh before starting one, each proving none was started:
+ * the nightly pulling (`failed-precondition`), the day's legs spent (`resource-exhausted`), and two
+ * presses at once that could not be settled (`aborted`), with those the edit function makes too.
+ */
+const REFRESH_FAILURES: ReadonlyMap<string, CallFailure> = new Map([
+  ...FAILURE_OF,
+  ["FAILED_PRECONDITION", "failed"],
+  ["RESOURCE_EXHAUSTED", "failed"],
+]);
+
+/**
+ * Asks `startPull` for "Refresh now" (README, "Refresh now in the cloud"): the server works the
+ * teams out and makes the job, and answers with its id, or with the id of the refresh already
+ * under way, for this device to watch. A job's id is read exactly, since the device reads the job
+ * by it; an answer that does not say which job is no answer, and the refresh may have started.
+ */
+export const callStartRefresh = (
+  ask: { timeZone: string; device: string },
+  deps: CallDeps
+): Promise<Called<RefreshStart>> =>
+  call(
+    { refresh: ask },
+    (result) =>
+      isRecord(result) &&
+      typeof result.status === "string" &&
+      typeof result.jobId === "string" &&
+      JOB_ID.test(result.jobId) &&
+      typeof result.already === "boolean"
+        ? { status: result.status, jobId: result.jobId, already: result.already }
+        : null,
+    { url: START_PULL_URL, limitMs: 60_000, ...deps },
+    "unanswered",
+    REFRESH_FAILURES
+  );
+
 export const callStartPull = (jobId: string, deps: CallDeps): Promise<Called<{ status: string }>> =>
   call(
     { jobId },

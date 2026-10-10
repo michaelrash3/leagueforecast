@@ -4,9 +4,11 @@ import {
   CALL_LIMIT_MS,
   callEdit,
   callQuery,
+  callStartRefresh,
   callWarm,
   coerceEditReply,
   EDIT_URL,
+  START_PULL_URL,
 } from "../editClient";
 import type { EditReply } from "../editHandle";
 import { EDIT_TIMEOUT_S } from "../editWorkerProtocol";
@@ -304,5 +306,62 @@ describe("a question", () => {
         { ...signedIn, fetchImpl: lost as unknown as typeof fetch }
       )
     ).toEqual({ ok: false, why: "failed", message: "No answer came from the server." });
+  });
+});
+
+describe("asking for Refresh now", () => {
+  const ASK = { timeZone: "America/Chicago", device: "device-abc-123" };
+  const JOB = "0123456789abcdef0123456789abcdef";
+
+  it("posts the asking to startPull with the member's sign-in, and hands back the job to watch", async () => {
+    expect(START_PULL_URL).toBe(
+      `https://us-central1-${FIREBASE_WEB_CONFIG.projectId}.cloudfunctions.net/startPull`
+    );
+    const server = answering(200, { result: { status: "queued", jobId: JOB, already: false } });
+    expect(await callStartRefresh(ASK, { ...signedIn, fetchImpl: server.fetchImpl })).toEqual({
+      ok: true,
+      value: { status: "queued", jobId: JOB, already: false },
+    });
+    const [{ url, init }] = server.sent as [{ url: string; init: RequestInit }];
+    expect(url).toBe(START_PULL_URL);
+    expect(JSON.parse(String(init.body))).toEqual({ data: { refresh: ASK } });
+  });
+
+  it("says the server's refusals as refusals, each proving no refresh was started", async () => {
+    for (const [status, code] of [
+      [400, "FAILED_PRECONDITION"],
+      [429, "RESOURCE_EXHAUSTED"],
+      [409, "ABORTED"],
+    ] as const) {
+      const server = answering(status, { error: { status: code, message: `said ${code}` } });
+      expect(await callStartRefresh(ASK, { ...signedIn, fetchImpl: server.fetchImpl })).toEqual({
+        ok: false,
+        why: "failed",
+        message: `said ${code}`,
+      });
+    }
+    // An edit's call reads the platform's own RESOURCE_EXHAUSTED as proving nothing still.
+    const busy = answering(429, { error: { status: "RESOURCE_EXHAUSTED", message: "busy" } });
+    expect(
+      await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: busy.fetchImpl })
+    ).toEqual({
+      ok: false,
+      why: "unanswered",
+      message: "busy",
+    });
+  });
+
+  it("takes no answer that does not name the job exactly, which may have started all the same", async () => {
+    for (const result of [
+      { status: "queued", already: false },
+      { status: "queued", jobId: "../copies/main", already: false },
+      { status: "queued", jobId: JOB },
+      { jobId: JOB, already: true },
+    ]) {
+      const server = answering(200, { result });
+      expect(
+        await callStartRefresh(ASK, { ...signedIn, fetchImpl: server.fetchImpl })
+      ).toMatchObject({ ok: false, why: "unanswered" });
+    }
   });
 });
