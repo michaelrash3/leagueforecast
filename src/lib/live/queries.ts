@@ -11,7 +11,7 @@ import { orgAgesByTeam } from "../orgMembership";
 import { poolHealth, settleableNow, type PoolHealth } from "../poolHealth";
 import { poolHealthSummary, type PoolHealthSummary } from "../poolHealthSummary";
 import { poolLists, TO_PULL_DRAWN, type PoolLists } from "../poolLists";
-import { storedRota } from "../storedRota";
+import { refreshNow, storedRota } from "../storedRota";
 import { checkTheModel, type ModelCheckAnswer } from "../scoutBacktest";
 import { whatIfCurve, type WhatIfCurve } from "../scoutWhatIf";
 import {
@@ -259,6 +259,13 @@ export type AgelessClearPlanAnswer = ReturnType<typeof agelessClearPlan>;
 /** The copy's refresh as the Import tab shows it (`import.status`). */
 export type ImportStatus = {
   due: DueSummary;
+  /**
+   * What "Refresh now" would pull at the time asked (`refreshNow`, which its first leg runs too):
+   * how many teams, how many of its levels' teams wait for having been pulled lately, and whether
+   * today's levels are done already, so it is them again. Absent from a server older than the
+   * button, which could not run one.
+   */
+  refreshNow?: { teams: number; heldBack: number; again: boolean };
   /** When each level was last refreshed, by level, lowest first: a day key. */
   refreshed: { level: number; day: string }[];
   /**
@@ -459,9 +466,15 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
       const orgAges = orgAgesByTeam(membership);
       const at = new Date(query.at);
       const rota = storedRota(at);
+      const button = refreshNow(at, rota);
       return {
         kind: "import.status",
         due: dueSummary(rota),
+        refreshNow: {
+          teams: button.teamIds.length,
+          heldBack: button.heldBack,
+          again: button.again,
+        },
         refreshed: Object.entries(loadRefreshLog())
           .flatMap(([level, day]) => (/^\d+$/.test(level) ? [{ level: Number(level), day }] : []))
           .sort((a, b) => a.level - b.level),

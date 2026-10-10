@@ -8,6 +8,7 @@ import {
   coercePullJob,
   legsFor,
   newPullJob,
+  newRefreshJob,
   packJobList,
   unpackJobList,
 } from "../pullJobs";
@@ -126,5 +127,56 @@ describe("a pull's job", () => {
     expect(coercePullJob({ ...good, tally: { ...job().tally, filed: 1.5 } })).toBeNull();
     expect(coercePullJob({ ...good, progress: { done: 0, total: 0 } })).toBeNull();
     expect(coercePullJob({ ...good, list: { hash: 1, teams: 1, pieces: 1 } })).toBeNull();
+  });
+});
+
+describe("a Refresh now job", () => {
+  const made = () =>
+    newRefreshJob({
+      timeZone: "America/Chicago",
+      device: "phone",
+      now: "2026-10-10T19:00:00.000Z",
+    });
+
+  it("is made with no list, its teams for the cloud to work out, in one leg till then", () => {
+    expect(made()).toMatchObject({
+      format: JOB_FORMAT,
+      status: "queued",
+      list: { hash: "", teams: 0, pieces: 0 },
+      seasonYears: [],
+      legTeams: LEG_TEAMS,
+      legs: 1,
+      legsDone: 0,
+      rota: { at: null, ageLevels: [], again: false, heldBack: 0 },
+      timeZone: "America/Chicago",
+      device: "phone",
+    });
+    expect(made().refresh).toBeUndefined();
+  });
+
+  it("reads back from Firestore's typed fields as it was written, worked out or not", () => {
+    expect(coercePullJob(fieldsOf(firestoreFieldsOf(made())))).toEqual(made());
+    const worked = {
+      ...made(),
+      list: { hash: "b".repeat(64), teams: 2, pieces: 1 },
+      rota: { at: "2026-10-10T19:00:05.000Z", ageLevels: [9, 10], again: true, heldBack: 7 },
+    };
+    expect(coercePullJob(fieldsOf(firestoreFieldsOf(worked)))).toEqual(worked);
+  });
+
+  it("is no job at all with its refresh spoiled", () => {
+    const good = made() as unknown as Record<string, unknown>;
+    const rota = made().rota!;
+    for (const spoiled of [
+      "yes",
+      null,
+      { ...rota, at: 5 },
+      { ...rota, ageLevels: ["9"] },
+      { ...rota, again: "no" },
+      { ...rota, heldBack: -1 },
+      { at: null, ageLevels: [], again: false },
+    ]) {
+      expect(coercePullJob({ ...good, rota: spoiled }), JSON.stringify(spoiled)).toBeNull();
+    }
   });
 });

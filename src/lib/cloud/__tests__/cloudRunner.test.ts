@@ -17,6 +17,7 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveRefreshCadence,
+  saveRefreshLog,
   saveRefusedClubs,
   saveScoutGames,
   saveScoutTeams,
@@ -27,7 +28,13 @@ import { commitChanges, type Change } from "../cloudEngine";
 import { DATA_SCHEMA } from "../cloudManifest";
 import { LEAGUE_PART } from "../cloudPlan";
 import type { CloudManifest } from "../cloudManifest";
-import { loadPoolFrom, memoryIo, runCloudPull, type CloudPullDeps } from "../cloudRunner";
+import {
+  loadPoolFrom,
+  memoryIo,
+  runCloudPull,
+  workOutRefresh,
+  type CloudPullDeps,
+} from "../cloudRunner";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
 
 /*
@@ -399,6 +406,114 @@ describe("a pull run on the cloud copy", () => {
     resetTeamRankingsStore();
     await loadPoolFrom(cloud.store);
     expect(loadRefreshLog()["9"]).toBeUndefined();
+  });
+
+  it("walks a refresh's teams as worked out at its start, and logs its levels only from its last leg", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud, () => saveRefreshCadence("daily"));
+    await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    const day = "2026-10-02T07:17:00.000Z";
+    const asked: string[][] = [];
+    const asking = (extra: Partial<CloudPullDeps> = {}) =>
+      deps(cloud, day, {
+        fetchTeams: async (ids, options) => {
+          asked.push([...ids]);
+          return answering()(ids, options);
+        },
+        ...extra,
+      });
+    const logged = async () => {
+      resetTeamRankingsStore();
+      await loadPoolFrom(cloud.store);
+      const log = loadRefreshLog();
+      resetTeamRankingsStore();
+      return log;
+    };
+    // Worked out the day before the legs run.
+    const workedOut = new Date("2026-10-01T15:00:00.000Z");
+    // A leg before the last: its share of the list, worked out afresh by nothing, and no level
+    // logged, whatever the rota would say now.
+    const first = await runCloudPull(
+      {
+        kind: "rota",
+        walk: { teamIds: [BEARS], ageLevels: [9], markOn: null, workedAt: workedOut },
+      },
+      asking()
+    );
+    expect(first).toMatchObject({ end: "finished", asked: 1 });
+    expect(asked).toEqual([[BEARS]]);
+    expect((await logged())["9"]).toBeUndefined();
+
+    // The last leg: its share, and the levels logged on the day the refresh was worked out for,
+    // here the day before the leg runs.
+    await runCloudPull(
+      {
+        kind: "rota",
+        walk: { teamIds: [ACES], ageLevels: [9], markOn: workedOut, workedAt: workedOut },
+      },
+      asking()
+    );
+    expect(asked).toEqual([[BEARS], [ACES]]);
+    expect((await logged())["9"]).toBe(localDayKey(workedOut));
+
+    // A last leg that did not ask about every team logs nothing.
+    const refusing = await runCloudPull(
+      {
+        kind: "rota",
+        walk: { teamIds: [ACES, BEARS], ageLevels: [10], markOn: workedOut, workedAt: workedOut },
+      },
+      asking({
+        fetchTeams: async (ids, options) => {
+          options.onRefused?.(3);
+          return answering()(ids.slice(0, 1), options);
+        },
+      })
+    );
+    expect(refusing.end).toBe("gave-up");
+    expect((await logged())["10"]).toBeUndefined();
+  });
+
+  it("never logs a level back to an earlier day than the log already has it", async () => {
+    const cloud = memoryCloud();
+    const later = new Date("2026-10-03T15:00:00.000Z");
+    await seed(cloud, () => {
+      saveRefreshCadence("daily");
+      saveRefreshLog({ "9": localDayKey(later) });
+    });
+    await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    // A refresh worked out the day before the nightly logged 9U ends after it did.
+    const workedOut = new Date("2026-10-02T15:00:00.000Z");
+    await runCloudPull(
+      {
+        kind: "rota",
+        walk: { teamIds: [ACES], ageLevels: [9, 10], markOn: workedOut, workedAt: workedOut },
+      },
+      deps(cloud, "2026-10-03T16:00:00.000Z")
+    );
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    expect(loadRefreshLog()).toMatchObject({
+      "9": localDayKey(later),
+      "10": localDayKey(workedOut),
+    });
+  });
+
+  it("works out Refresh now's teams from the copy, or says why there are none to work out", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud, () => saveRefreshCadence("daily"));
+    await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    const day = new Date("2026-10-02T07:17:00.000Z");
+    const worked = await workOutRefresh(cloud.store, day);
+    expect(worked).toMatchObject({ ok: true, again: false, heldBack: 0 });
+    expect(worked.ok && [...worked.teamIds].sort()).toEqual([ACES, BEARS].sort());
+
+    expect(await workOutRefresh(memoryCloud().store, day)).toEqual({
+      ok: false,
+      end: "no-copy",
+    });
+    const newer = memoryCloud();
+    await seed(newer, () => saveTidyStamp("r999|0|0|0|"));
+    expect(await workOutRefresh(newer.store, day)).toEqual({ ok: false, end: "newer-copy" });
   });
 
   it("keeps what it replaced as an earlier version any device can bring back, when asked to", async () => {

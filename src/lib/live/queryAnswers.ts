@@ -71,6 +71,10 @@ const IMPORT_STATUS: Shape = {
         agelessDue: "count",
       },
     },
+    // Optional: a server from before "Refresh now" says nothing of it, and the card offers none.
+    refreshNow: {
+      optional: { record: { teams: "count", heldBack: "count", again: "boolean" } },
+    },
     refreshed: { list: { record: { level: "count", day: "string" } } },
     orgs: { record: { orgs: "count", teams: "count", aged: "count", waitingAged: "count" } },
     agelessIds: { list: "string" },

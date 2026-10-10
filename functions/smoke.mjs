@@ -296,6 +296,58 @@ if (process.env.CLOUD_PULLS !== "on") {
   check("a leg's worker loads and answers", answer.outcome === "gone", JSON.stringify(answer));
   check("and neither function asked anybody anything", fetched === 0, `${fetched} requests`);
   globalThis.fetch = realFetch;
+
+  // "Refresh now" comes through the same door: the members' alone, and an asking it cannot read,
+  // or one naming a job beside it, is refused before the gate, a job or the copy is read. Only the
+  // caller's own entry on the list is, from the stand-in that knows one member.
+  const pullReads = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (!url.startsWith("https://firestore.googleapis.com/")) return realFetch(input, init);
+    pullReads.push(url);
+    return new Response("{}", {
+      status: url.endsWith("/documents/members/member%40example.com") ? 200 : 403,
+    });
+  };
+  const ask = { device: "device-smoke-1" };
+  const unsignedRefresh = await post(startPull, { data: { refresh: ask } });
+  const outsiderRefresh = await post(
+    startPull,
+    { data: { refresh: ask } },
+    signedInAs("outsider@example.com")
+  );
+  check(
+    "a refresh is not started for a caller who has not signed in, nor one not on the list",
+    unsignedRefresh.status === 401 &&
+      /UNAUTHENTICATED/.test(String(unsignedRefresh.body)) &&
+      outsiderRefresh.status === 403 &&
+      /PERMISSION_DENIED/.test(String(outsiderRefresh.body)),
+    `${unsignedRefresh.status} ${unsignedRefresh.body} / ${outsiderRefresh.status} ${outsiderRefresh.body}`
+  );
+  const unreadable = [];
+  for (const data of [
+    // Every refresh keeps New York's day, so a device's zone is not one to send.
+    { refresh: { ...ask, timeZone: "America/New_York" } },
+    { refresh: { ...ask, device: "a device/../with slashes" } },
+    { refresh: { ...ask, list: ["gcACES000001"] } },
+    { refresh: ask, jobId: "0".repeat(32) },
+    { refresh: "now" },
+  ]) {
+    unreadable.push(await post(startPull, { data }, signedInAs("member@example.com")));
+  }
+  check(
+    "and a member's refresh it cannot read exactly is refused as such",
+    unreadable.every(
+      (answer) => answer.status === 400 && /INVALID_ARGUMENT/.test(String(answer.body))
+    ),
+    unreadable.map((answer) => `${answer.status} ${answer.body}`).join(" / ")
+  );
+  check(
+    "having read nothing but the caller's own entry on the list",
+    pullReads.length > 0 && pullReads.every((url) => url.includes("/documents/members/")),
+    JSON.stringify(pullReads)
+  );
+  globalThis.fetch = realFetch;
 }
 
 // The rebuilds after saves, built only once their setup is done (`build.mjs`), as the pulls are,
@@ -375,9 +427,7 @@ if (process.env.LIVE_REBUILD !== "on") {
   ];
   const notOwner = [];
   for (const owned of ownersOnly) {
-    notOwner.push(
-      await post(edit, { data: { command: owned } }, signedInAs("member@example.com"))
-    );
+    notOwner.push(await post(edit, { data: { command: owned } }, signedInAs("member@example.com")));
   }
   check(
     "and a member's archive or delete of a year, start again, bring back or restore is the owner's alone, refused before it runs",

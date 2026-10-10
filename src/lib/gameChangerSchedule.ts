@@ -295,7 +295,7 @@ export type DueRefreshOptions = {
 };
 
 /** When each GameChanger id was last pulled, by the latest stamp on any link to it. */
-const lastPulled = (teams: readonly ScoutTeam[]): Map<string, number> => {
+export const lastPulled = (teams: readonly ScoutTeam[]): Map<string, number> => {
   const at = new Map<string, number>();
   teams.forEach((team) =>
     team.gcTeams?.forEach((link) => {

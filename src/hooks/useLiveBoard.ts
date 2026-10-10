@@ -9,7 +9,7 @@ import {
   type CopySeen,
 } from "../lib/cloud/cloudSession";
 import type { CopyReader } from "../lib/live/copyArchive";
-import { callStartPull, type CallDeps } from "../lib/live/editClient";
+import { callStartPull, callStartRefresh, type CallDeps } from "../lib/live/editClient";
 import type { PullSender } from "../lib/cloud/cloudPulls";
 import { loadCloudState } from "../lib/cloud/cloudState";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
@@ -63,7 +63,13 @@ export const browserLiveSources = (): LiveSources =>
     copy: copyReader,
     pulls: () => {
       const jobs = pullJobStore();
-      return jobs ? { jobs, start: (jobId) => callStartPull(jobId, { token: memberToken }) } : null;
+      return jobs
+        ? {
+            jobs,
+            start: (jobId) => callStartPull(jobId, { token: memberToken }),
+            startRefresh: (ask) => callStartRefresh(ask, { token: memberToken }),
+          }
+        : null;
     },
   });
 

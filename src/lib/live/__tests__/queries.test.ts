@@ -9,9 +9,10 @@ import type { AgeUnknownTeam } from "../../ageUnknown";
 import { poolSignature, type GcImportState } from "../../gameChangerImport";
 import { apartKey, keptApartList } from "../../keptApart";
 import { poolHealthSummary } from "../../poolHealthSummary";
-import { dueSummary } from "../../gameChangerSchedule";
+import { dueSummary, markRefreshed } from "../../gameChangerSchedule";
 import { TO_PULL_DRAWN } from "../../poolLists";
-import { storedRota } from "../../storedRota";
+import { refreshNow, storedRota } from "../../storedRota";
+import { AGE_LEVELS } from "../../teamRankings";
 import type { ModelCheckAnswer, ScoutBacktestResult } from "../../scoutBacktest";
 import {
   mergeScoutTeams,
@@ -832,9 +833,11 @@ describe("the copy's refresh as the Import tab asks for it", () => {
       },
     ]);
     const answer = answerQuery(STATUS);
+    const now = refreshNow(new Date(AT));
     expect(answer).toEqual({
       kind: "import.status",
       due: dueSummary(storedRota(new Date(AT))),
+      refreshNow: { teams: now.teamIds.length, heldBack: now.heldBack, again: now.again },
       refreshed: [
         { level: 9, day: "2027-04-15" },
         { level: 10, day: "2027-04-14" },
@@ -843,6 +846,8 @@ describe("the copy's refresh as the Import tab asks for it", () => {
       agelessIds: storedRota(new Date(AT)).agelessIds,
       rosterIds: ["gcA"],
     });
+    // Today's levels are still to do on the daily cadence, so the button is tonight's refresh.
+    expect(answer).toMatchObject({ refreshNow: { teams: 2, again: false } });
     // Club A's two GameChanger pages, both due on a daily cadence.
     expect(answer).toMatchObject({ due: { cadence: "daily", teams: 2 } });
     expect(coerceQueryAnswer(JSON.parse(JSON.stringify(answer)), "import.status")).toEqual(answer);
@@ -860,6 +865,35 @@ describe("the copy's refresh as the Import tab asks for it", () => {
     expect(spoiled((copy) => (copy.due!.teams = -1))).toBeNull();
     expect(spoiled((copy) => (copy.refreshed = [{ level: 9 }] as never))).toBeNull();
     expect(spoiled((copy) => delete copy.orgs!.waitingAged)).toBeNull();
+    expect(spoiled((copy) => (copy.refreshNow!.teams = -3))).toBeNull();
+    expect(spoiled((copy) => (copy.refreshNow!.again = "yes"))).toBeNull();
+    // A server from before the button says nothing of it, and is read without it.
+    const older = spoiled((copy) => delete copy.refreshNow);
+    expect(older).not.toBeNull();
+    expect(older?.refreshNow).toBeUndefined();
+  });
+
+  it("says what Refresh now would pull once today's levels are done: them again", () => {
+    saveScoutTeams([
+      {
+        id: "A",
+        name: "Club A",
+        gcTeams: [
+          {
+            teamId: "gcA",
+            name: "Club A",
+            ageGroupId: "ag_10u_2027",
+            importedAt: "2027-04-10T00:00:00.000Z",
+          },
+        ],
+      },
+      ...TEAMS.slice(1),
+    ]);
+    saveRefreshCadence("daily");
+    saveRefreshLog(markRefreshed({}, AGE_LEVELS, new Date(AT)));
+    const answer = answerQuery(STATUS) as AnswerOf<"import.status">;
+    expect(answer.due).toMatchObject({ ageLevels: [], teams: 0 });
+    expect(answer.refreshNow).toEqual({ teams: 1, heldBack: 0, again: true });
   });
 });
 
