@@ -2716,8 +2716,10 @@ says how the picks move it against the season as it stands: its place (▲2), it
 
 ### Saved scenarios
 
-Picks go when the page does unless they are saved as a scenario (2.7,
-`src/lib/savedScenarios.ts`): a name, the picks with any typed scores, and each picked
+Picks go when the page does unless they are saved as a scenario, and not before: a look at
+another tab and back finds the machine as it was left, the picks and the scenario open, which
+the page holds while the Forecast tab is closed (`MachineLeft`). A scenario (2.7,
+`src/lib/savedScenarios.ts`) is a name, the picks with any typed scores, and each picked
 game's teams and date as they stood, kept on this device per season, the most recently
 changed first, thirty at most (a save that pushes the oldest out names it). One parent's
 "what if we win out" is theirs, not the season's, so a scenario is never written into
@@ -2734,7 +2736,9 @@ another tab meanwhile stays. A change to the open scenario starts from it as sto
 **Rename** keeps the picks another tab saved to it meanwhile, **Save changes** the name
 it was given there, **Duplicate** and **Delete** name it as it is called there, and one
 another tab let go of is not brought back by any of them, nor copied under its old name; the
-page says so, and its picks stay on screen, unsaved. Picks
+page says so, and its picks stay on screen, unsaved. Back on the Forecast tab, the list is
+read as stored, but the open scenario is the one the picks on screen were made against, so
+picks another tab saved to it meanwhile are not taken for changes made here. Picks
 another tab saved to it that **Rename** or **Bring it up to date** takes in are shown in
 place of the older ones here, and said so, unless picks changed here are waiting to be
 saved, which stay: shown older, they would pass for changes, and **Save changes** would

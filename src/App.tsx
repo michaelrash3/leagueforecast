@@ -106,6 +106,7 @@ import { useDigestNotifications } from "./hooks/useDigestNotifications";
 import { ourTeamSummary } from "./lib/ourTeam";
 import { leagueClubRankFor } from "./lib/leagueClubRanks";
 import { OurTeamCard } from "./components/league/OurTeamCard";
+import type { MachineLeft } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
@@ -2894,6 +2895,9 @@ export default function App() {
     id: string;
   } | null>(null);
   const incomingScenarioOpened = useCallback(() => setIncomingScenario(null), []);
+  // The playoff machine as last left, given back when the Forecast tab is shown again: its picks
+  // last as long as the page does, as the machine says, not only until another tab is looked at.
+  const [playoffLeft, setPlayoffLeft] = useState<MachineLeft | null>(null);
   /*
    * Whether the season on screen is still to give way to the cloud's: the sign-in still coming, a
    * member's first meeting with the cloud's seasons, or League kept live waiting for its version.
@@ -3566,6 +3570,8 @@ export default function App() {
                               : null
                           }
                           onIncomingOpened={incomingScenarioOpened}
+                          left={playoffLeft}
+                          onLeave={setPlayoffLeft}
                         />
                       }
                     />

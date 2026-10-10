@@ -57,6 +57,13 @@ type PlayoffMachineProps = {
   incoming?: string | null;
   /** Told once the incoming scenario is open, so it is opened once and not on every visit. */
   onIncomingOpened?: () => void;
+  /**
+   * The machine as this page last left it, given back when it is shown again, so that picks last
+   * as long as the page does rather than until another tab is looked at (`onLeave`).
+   */
+  left?: MachineLeft | null;
+  /** Told what the machine holds as it goes from the screen, to be given back as `left`. */
+  onLeave?: (left: MachineLeft) => void;
 };
 
 /**
@@ -66,6 +73,38 @@ type PlayoffMachineProps = {
 type Working = { picks: Record<string, ScenarioPick>; basis: Record<string, GameBasis> };
 
 const NO_PICKS: Working = { picks: {}, basis: {} };
+
+/**
+ * What the machine holds as it goes from the screen, for the page to give back: the season it was
+ * on, the picks, and the scenario open as this tab had it, which the picks were made against.
+ */
+export type MachineLeft = { seasonId: string; work: Working; open: SavedScenario | null };
+
+/**
+ * The season's scenarios as stored, but the one open as this tab has it. The picks on screen were
+ * made against it: read anew, picks another tab saved to it meanwhile would pass for changes made
+ * here (`showsTheirPicks`). One another tab let go of stays until a change to it finds that out
+ * and says so (`openAsStored`), as it does in a tab that never looked away.
+ */
+const withOpen = (stored: SavedScenario[], open: SavedScenario | null): SavedScenario[] => {
+  if (!open) return stored;
+  return stored.some((one) => one.id === open.id)
+    ? stored.map((one) => (one.id === open.id ? open : one))
+    : [open, ...stored];
+};
+
+/**
+ * The machine as it is shown: as the page last left it when that was on this season, and with no
+ * picks otherwise. The season's scenarios are read as stored, as every showing reads them.
+ */
+const shownFrom = (left: MachineLeft | null, seasonId: string) =>
+  left?.seasonId === seasonId
+    ? {
+        work: left.work,
+        saved: withOpen(readScenarios(seasonId), left.open),
+        openId: left.open?.id ?? null,
+      }
+    : { work: NO_PICKS, saved: readScenarios(seasonId), openId: null };
 
 const SIDE_BUTTON =
   "rounded-md border px-2 py-1 text-xs font-semibold transition-colors aria-pressed:border-slate-950 aria-pressed:bg-slate-950 aria-pressed:text-white dark:aria-pressed:border-white dark:aria-pressed:bg-white dark:aria-pressed:text-slate-950 border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50";
@@ -137,8 +176,11 @@ export function PlayoffMachine({
   followedTeamId,
   incoming = null,
   onIncomingOpened,
+  left = null,
+  onLeave,
 }: PlayoffMachineProps) {
-  const [work, setWork] = useState<Working>(NO_PICKS);
+  const [shown] = useState(() => shownFrom(left, seasonId));
+  const [work, setWork] = useState<Working>(shown.work);
   const nameOf = useMemo(() => {
     const names = new Map(teams.map((team) => [team.id, displayName(team.name)]));
     return (id: string) => names.get(id) ?? id;
@@ -165,9 +207,9 @@ export function PlayoffMachine({
   const picked = Object.keys(livePicks).length;
 
   // Saved scenarios (2.7): kept on this device for the season, one open at a time or none.
-  const [saved, setSaved] = useState<SavedScenario[]>(() => readScenarios(seasonId));
+  const [saved, setSaved] = useState<SavedScenario[]>(shown.saved);
   const [savedFor, setSavedFor] = useState(seasonId);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(shown.openId);
   const [said, setSaid] = useState<string | null>(null);
   const [naming, setNaming] = useState<{ mode: "new" | "rename"; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -219,6 +261,17 @@ export function PlayoffMachine({
     [saved, matchups, logs]
   );
   const unsavedChanges = open !== null && !samePicks(open.picks, work.picks);
+  // What the machine holds, kept up to date to tell the page as it goes (`left`).
+  const leaving = useRef<MachineLeft | null>(null);
+  useEffect(() => {
+    leaving.current = { seasonId, work, open };
+  }, [seasonId, work, open]);
+  useEffect(
+    () => () => {
+      if (leaving.current) onLeave?.(leaving.current);
+    },
+    [onLeave]
+  );
   // The quick picks' team: the one chosen, or the first in the list when it is not in this season.
   const teamForPresets = teams.some((team) => team.id === presetTeam)
     ? presetTeam

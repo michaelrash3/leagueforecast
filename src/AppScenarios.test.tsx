@@ -564,6 +564,65 @@ describe("saved playoff scenarios", () => {
     expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
   });
 
+  it("keeps the picks made while another tab is looked at, for as long as the page is up (2.7 review)", async () => {
+    const user = userEvent.setup();
+    const first = render(<App />);
+    let machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await pick(user, machine, "Bears at Comets", "Bears");
+    await user.click(screen.getByRole("tab", { name: "Standings" }));
+    machine = await openMachine(user);
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Bears"]);
+
+    // A scenario open with a change not yet saved comes back open, the change still to save.
+    await saveScenario(user, machine);
+    await pick(user, machine, "Bears at Comets", "Comets");
+    await user.click(screen.getByRole("tab", { name: "Dashboard" }));
+    machine = await openMachine(user);
+    expect(within(machine).getByRole("combobox", { name: "Scenario" })).toHaveDisplayValue(
+      "Scenario 1"
+    );
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Comets"]);
+    expect(within(machine).getByRole("button", { name: "Save changes" })).toBeEnabled();
+
+    // Saved, then saved to in another tab meanwhile: the picks shown here, unchanged here, are
+    // not passed off as changes to write over that tab's.
+    await user.click(within(machine).getByRole("button", { name: "Save changes" }));
+    const [kept] = readScenarios(getActiveSeasonId());
+    if (!kept) throw new Error("Not kept");
+    await user.click(screen.getByRole("tab", { name: "Dashboard" }));
+    keepScenario({
+      ...kept,
+      picks: { ...kept.picks, g3: { winnerId: "A" } },
+      modifiedAt: later(kept.modifiedAt, 1),
+    });
+    machine = await openMachine(user);
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+    expect(within(machine).getByRole("button", { name: "Save changes" })).toBeDisabled();
+
+    // Let go of there meanwhile: still open here, until a change to it finds that out and says so.
+    await user.click(screen.getByRole("tab", { name: "Dashboard" }));
+    dropScenario(kept.seasonId, kept.id);
+    machine = await openMachine(user);
+    expect(within(machine).getByRole("combobox", { name: "Scenario" })).toHaveDisplayValue(
+      "Scenario 1"
+    );
+    await pick(user, machine, "Bears at Comets", "Bears");
+    await user.click(within(machine).getByRole("button", { name: "Save changes" }));
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      "“Scenario 1” is no longer kept on this device: another tab let it go. Its picks are still here, unsaved."
+    );
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Bears"]);
+    first.unmount();
+
+    // The page gone, they go with it.
+    render(<App />);
+    machine = await openMachine(user);
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Sim"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Sim"]);
+  });
+
   it("shares a link that shows its picks and asks before keeping them, and never touches the season", async () => {
     const user = userEvent.setup();
     const first = render(<App />);
@@ -597,10 +656,9 @@ describe("saved playoff scenarios", () => {
     );
     expect(pressed(opened, "Ducks at Aces")).toEqual(["Ducks"]);
     expect(storedNames()).toEqual(["Shared picks"]);
-    // Opened once: back on the tab later, the machine starts as it always does.
-    await user.click(screen.getByRole("tab", { name: "Dashboard" }));
-    const again = await openMachine(user);
-    expect(within(again).getByRole("combobox", { name: "Scenario" })).toHaveDisplayValue(
+    // Opened once: put away and back on the tab later, it is as it was left, not opened again.
+    await user.selectOptions(
+      within(opened).getByRole("combobox", { name: "Scenario" }),
       "Unsaved picks"
     );
     expect(Object.keys(loadLogs()).sort()).toEqual(["g1", "g2"]);
