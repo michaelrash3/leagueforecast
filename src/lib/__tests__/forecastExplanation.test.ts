@@ -375,6 +375,32 @@ describe("explainForecast", () => {
     );
   });
 
+  it("says a side has played since a game whose date has passed, never a day count below none", () => {
+    // The Aces at the Eagles still has no score, and is moved to earlier dates: the Aces' newest
+    // result is 5/23 and the Eagles' 5/16.
+    const newestOn = (date: string) => {
+      const moved: Matchup[] = matchups.map((game) =>
+        game.id === "g8" ? { ...game, date } : game
+      );
+      const explained = explainForecast(explanationOf(engineFor(moved), "g8"), { nameOf });
+      return {
+        text: explained?.factors.find((factor) => factor.key === "freshness")?.text,
+        sensitivities: explained?.sensitivities ?? [],
+      };
+    };
+    expect(newestOn("5/12").text).toBe(
+      "Aces: 5/23, 11 days after this game's date. Eagles: 5/16, 4 days after this game's date."
+    );
+    expect(newestOn("5/12").sensitivities.join(" ")).not.toMatch(/newest result/);
+    expect(newestOn("5/22").text).toBe(
+      "Aces: 5/23, the day after this game's date. Eagles: 5/16, 6 days before this game."
+    );
+    // A doubleheader: the Aces' newest result is the same day.
+    expect(newestOn("5/23").text).toBe(
+      "Aces: 5/23, the same day as this game. Eagles: 5/16, 7 days before this game."
+    );
+  });
+
   it("says a side's results are undated rather than guessing a day for them", () => {
     // The Eagles' league games without a date, and no tournament results.
     const undated: Matchup[] = matchups.map((game) =>

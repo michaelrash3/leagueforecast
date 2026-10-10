@@ -61,7 +61,11 @@ export type MatchupEvidence = {
   runsAgainst: number | null;
   /** The day of its newest dated result, league or Team Rankings, or null with none. */
   lastPlayed: string | null;
-  /** Days from that result to this game, or null where either is undated. */
+  /**
+   * Days from that result to this game, or null where either is undated. Below zero when the
+   * result came after the game's date: a game whose day has passed with no score is still to
+   * play, and the sides may have played since.
+   */
   daysOff: number | null;
 };
 

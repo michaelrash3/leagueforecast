@@ -2799,8 +2799,9 @@ runs, which add up to it exactly:
 Beside them is what the margin does not count again or at all: recent form (already in the
 results), runs scored and allowed in league games, the Team Rankings results behind each
 rating, how many games each rating rests on, each side's newest result and how long before
-the game it was, and what the per-game model behind the Schedule's odds and the Gold chances
-makes of the same game (`forecastExplanation.ts`).
+the game it was (or after, or on the same day: a game whose date has passed with no score is
+still forecast, and the sides may have played since), and what the per-game model behind the
+Schedule's odds and the Gold chances makes of the same game (`forecastExplanation.ts`).
 
 The panel leads with the strongest reason for each side (a part of the margin where there is
 one), then the margin as its parts ("Aces by 2.3 runs, from results +3.1, opponents faced

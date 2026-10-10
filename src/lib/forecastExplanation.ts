@@ -244,12 +244,22 @@ export const explainForecast = (
         .map((one) => {
           const evidence = side[one];
           if (evidence.lastPlayed === null) return `${name[one]}: none dated.`;
+          // A game whose date has passed with no score is still forecast, and a side may have
+          // played since or on the same day (a doubleheader): those are said as such, not as a
+          // count of days before it below one.
+          const off = evidence.daysOff;
           const days =
-            evidence.daysOff === null
+            off === null
               ? ""
-              : evidence.daysOff === 1
+              : off === 1
                 ? ", the day before this game"
-                : `, ${evidence.daysOff} days before this game`;
+                : off === 0
+                  ? ", the same day as this game"
+                  : off === -1
+                    ? ", the day after this game's date"
+                    : off < 0
+                      ? `, ${-off} days after this game's date`
+                      : `, ${off} days before this game`;
           return `${name[one]}: ${formatGameDate(evidence.lastPlayed)}${days}.`;
         })
         .join(" "),
