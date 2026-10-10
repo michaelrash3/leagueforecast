@@ -44,11 +44,16 @@ vi.mock("./hooks/useLiveLeague", () => ({
 const cloud = vi.hoisted(() => ({
   status: { kind: "off" } as CloudStatus,
   listeners: new Set<(status: CloudStatus) => void>(),
+  /** Times the page asked for another device's newer changes now. */
+  loadedNewer: 0,
 }));
 
 vi.mock("./lib/cloud/cloudSession", async (actual) => ({
   ...(await actual<typeof import("./lib/cloud/cloudSession")>()),
   cloudStatus: () => cloud.status,
+  loadNewer: async () => {
+    cloud.loadedNewer += 1;
+  },
   subscribeCloud: (listener: (status: CloudStatus) => void) => {
     cloud.listeners.add(listener);
     return () => {
@@ -102,6 +107,7 @@ describe("League Standings kept live, on the page", () => {
     live.wanted = [];
     cloud.status = { kind: "off" };
     cloud.listeners.clear();
+    cloud.loadedNewer = 0;
   });
 
   it("asks whether League is kept live by the meeting this device has had", async () => {
@@ -316,6 +322,8 @@ describe("League Standings kept live, on the page", () => {
     const dialog = await screen.findByRole("dialog", { name: "Keep this scenario?" });
     expect(dialog).toHaveTextContent("“Aces win”: 1 pick.");
     expect(window.location.hash).toBe("");
+    // Waits of a moment, which nobody need be told about.
+    expect(screen.queryByText(/shared scenario opens/)).toBeNull();
   });
 
   it("holds a scenario link while a member's device first meets the cloud's seasons (2.7 review)", async () => {
@@ -336,6 +344,55 @@ describe("League Standings kept live, on the page", () => {
     act(() => {
       noteLeagueMet("member-uid");
     });
+    expect(await screen.findByRole("dialog", { name: "Keep this scenario?" })).toHaveTextContent(
+      "“Aces win”: 1 pick."
+    );
+  });
+
+  it("says a scenario link waits for League's newer seasons, and offers them now (2.7 review)", async () => {
+    // Taken in only once the page is left, left alone or asked: minutes, maybe, with nothing to
+    // show for the link but this.
+    saveCloudState({ ...loadCloudState(), enabled: true, uid: "member-uid" });
+    cloud.status = saved(["league"]);
+    openScenarioLink();
+    render(<App />);
+    const told = await screen.findByText(
+      "The shared scenario opens once League Standings has the cloud's newer seasons."
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(
+      within(told.closest("[role=status]") as HTMLElement).getByRole("button", {
+        name: "Load them now",
+      })
+    );
+    expect(cloud.loadedNewer).toBe(1);
+    expect(window.location.hash).toMatch(/^#scenario=/);
+  });
+
+  it("keeps a held scenario link in the address bar through a team's panel, to be asked after the reload (2.7 review)", async () => {
+    // A member's first meeting with League's newer seasons waiting to be taken in: taking them in
+    // reloads the page, so the address bar is all that carries the link across.
+    saveCloudState({ ...loadCloudState(), enabled: true, uid: "member-uid" });
+    cloud.status = saved(["league"]);
+    openScenarioLink();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Standings" }));
+    const aces = (await screen.findAllByRole("link", { name: "View stats for Aces" }))[0];
+    if (aces) fireEvent.click(aces);
+    const drawer = await screen.findByRole("dialog");
+    expect(window.location.search).toContain("team=A");
+    expect(window.location.hash).toMatch(/^#scenario=/);
+    fireEvent.click(within(drawer).getAllByRole("button", { name: /close/i })[0] as HTMLElement);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(window.location.search).not.toContain("team=");
+    expect(window.location.hash).toMatch(/^#scenario=/);
+
+    // The page reloaded onto the seasons taken in: met, live, and the link still there to ask.
+    cleanup();
+    noteLeagueMet("member-uid");
+    cloud.status = saved();
+    live.state = { kind: "live" };
+    render(<App />);
     expect(await screen.findByRole("dialog", { name: "Keep this scenario?" })).toHaveTextContent(
       "“Aces win”: 1 pick."
     );

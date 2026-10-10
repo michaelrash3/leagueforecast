@@ -21,6 +21,7 @@ import { loadTeamRankingsView } from "./components/teamRankingsChunk";
 import {
   cloudStatus,
   leagueInStep,
+  loadNewer,
   startCloudSession,
   subscribeCloud,
 } from "./lib/cloud/cloudSession";
@@ -281,8 +282,13 @@ const replaceTeamDataUrl = (teamId: string | null) => {
   } else {
     url.searchParams.delete(TEAM_QUERY_PARAM);
   }
-  url.hash = "";
-  window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  /*
+   * A scenario link still to be asked about stays (2.7 review): it waits in the address bar for the
+   * cloud's season, and on a member's first meeting that arrives with a reload, which carries only
+   * what the address bar still holds. The hash goes once the link is asked about.
+   */
+  if (!url.hash.includes("scenario=")) url.hash = "";
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 };
 
 const VIEW_LABELS: Record<ActiveView, string> = {
@@ -2873,9 +2879,30 @@ export default function App() {
    * Whether the season on screen is still to give way to the cloud's: the sign-in still coming, a
    * member's first meeting with the cloud's seasons, or League kept live waiting for its version.
    */
-  const seasonArriving =
-    leagueArriving({ status: cloud, met: leagueMet, inStep: leagueSettled }) ||
-    liveLeague.state.kind === "connecting";
+  const leagueComing = leagueArriving({ status: cloud, met: leagueMet, inStep: leagueSettled });
+  const seasonArriving = leagueComing || liveLeague.state.kind === "connecting";
+  const scenarioLinkWaitTold = useRef<{ hash: string } | null>(null);
+  useEffect(() => {
+    // Signed in, with the cloud's newer seasons still to be taken in on a first meeting: they come
+    // when the page is left, left alone a while or asked, which may be minutes. The other waits are
+    // a moment's, and go unsaid.
+    if (
+      !scenarioLink ||
+      scenarioLinkTaken.current === scenarioLink ||
+      scenarioLinkWaitTold.current === scenarioLink ||
+      appMode !== "league" ||
+      cloud.kind !== "saved" ||
+      !leagueComing
+    )
+      return;
+    scenarioLinkWaitTold.current = scenarioLink;
+    showToast("The shared scenario opens once League Standings has the cloud's newer seasons.", {
+      tone: "info",
+      actionLabel: "Load them now",
+      onAction: () => void loadNewer(),
+      durationMs: 12_000,
+    });
+  }, [scenarioLink, appMode, cloud.kind, leagueComing, showToast]);
   useEffect(() => {
     // Asked once the open season is the one this device shows, so the link is matched against the
     // season's own games; until then it stays in the address bar, to be asked about then.

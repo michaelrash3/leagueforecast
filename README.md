@@ -2750,16 +2750,20 @@ made on, until picked again.
 **Share** copies a link, `?view=league#scenario=…`, carrying the scenario's name, its
 picks and each picked game's teams and date, and nothing of the season, up to 6,000
 characters (more picks than fit are refused, with a word to save them instead). Opening
-one waits for the season to be the one the device shows: while the cloud is still finding
-out who is signed in (the app draws without waiting longer than four seconds for it), while
-a member's device first meets the cloud's seasons, and while League kept live waits for the
-cloud's version, the link stays in the address bar (`leagueArriving`), since matched then it
-would be against this device's games from before, missing any added elsewhere. It then
-shows the picks, the soonest first, and which of them are not on games
-this season still has to play between the same teams, and asks **Keep it** or **Not now**
-(`src/lib/scenarioLink.ts`, fetched only when a link is opened). Kept, it joins the saved
-scenarios for the season open here with only the picks that apply, and opens in the
-playoff machine; either way the link leaves the address bar, and the season is never
+one waits for the season to be the one the device shows, since matched sooner it would
+be against this device's games from before, missing any added elsewhere: while the cloud
+is still finding out who is signed in (the app draws without waiting longer than four
+seconds for it) and while a member's device first meets the cloud's seasons (both
+`leagueArriving`), and while League kept live waits for the cloud's version. Until then
+the link stays in the address bar, kept there when a team's panel opens or closes,
+because a first meeting's seasons arrive with a reload and the address bar is all that
+carries the link across. Those seasons come only when the page is left, left alone a
+while or asked, so that wait alone is said, with **Load them now**. It then shows the
+picks, the soonest first, and which of them are not on games this season still has to
+play between the same teams, and asks **Keep it** or **Not now**
+(`src/lib/scenarioLink.ts`, fetched only when a link is opened). Kept, it joins the
+saved scenarios for the season open here with only the picks that apply, and opens in
+the playoff machine; either way the link leaves the address bar, and the season is never
 changed. A link none of whose picks apply is said so, with a word to open the season it
 was made for.
 
