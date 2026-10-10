@@ -2732,8 +2732,9 @@ or **Keep them**, rather than losing them at a glance at another scenario. Each 
 is made to the scenarios as stored rather than to the list on the page, so one kept in
 another tab meanwhile stays. A change to the open scenario starts from it as stored too:
 **Rename** keeps the picks another tab saved to it meanwhile, **Save changes** the name
-it was given there, and one another tab let go of is not brought back by either, or by
-**Bring it up to date**; the page says so, and its picks stay on screen, unsaved. Picks
+it was given there, **Duplicate** and **Delete** name it as it is called there, and one
+another tab let go of is not brought back by any of them, nor copied under its old name; the
+page says so, and its picks stay on screen, unsaved. Picks
 another tab saved to it that **Rename** or **Bring it up to date** takes in are shown in
 place of the older ones here, and said so, unless picks changed here are waiting to be
 saved, which stay: shown older, they would pass for changes, and **Save changes** would

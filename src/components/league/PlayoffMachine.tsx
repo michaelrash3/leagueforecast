@@ -288,8 +288,9 @@ export function PlayoffMachine({
   /**
    * The open scenario as stored now, which another tab may have changed or let go of since this
    * one read it. A change to it starts from there, so what was saved there stays but for what this
-   * change is of, and one let go of there is not brought back: the page says so, and its picks
-   * stay here, unsaved.
+   * change is of, a copy or a delete names it as it is called there, and one let go of there is not
+   * brought back, nor copied under the name it had: the page says so, and its picks stay here,
+   * unsaved.
    */
   const openAsStored = (): SavedScenario | null => {
     if (!open) return null;
@@ -333,12 +334,13 @@ export function PlayoffMachine({
     if (theirs) setWork({ picks: stored.picks, basis: stored.basis });
   };
   const duplicate = () => {
-    if (!open) return;
+    const stored = openAsStored();
+    if (!stored) return;
     const at = new Date().toISOString();
     const copy: SavedScenario = {
-      ...open,
+      ...stored,
       id: newScenarioId(),
-      name: `${open.name} (copy)`.slice(0, 80),
+      name: `${stored.name} (copy)`.slice(0, 80),
       ...asKept(),
       createdAt: at,
       modifiedAt: at,
@@ -348,11 +350,12 @@ export function PlayoffMachine({
     setWork({ picks: copy.picks, basis: copy.basis });
   };
   const remove = () => {
-    if (!open) return;
+    const stored = openAsStored();
+    if (!stored) return;
     if (
       !store(
-        dropScenario(seasonId, open.id),
-        `Deleted “${open.name}”. Its picks are still here, unsaved.`
+        dropScenario(seasonId, stored.id),
+        `Deleted “${stored.name}”. Its picks are still here, unsaved.`
       )
     )
       return;

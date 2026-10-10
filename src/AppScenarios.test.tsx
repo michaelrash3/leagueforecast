@@ -523,6 +523,47 @@ describe("saved playoff scenarios", () => {
     expect(within(machine).getByRole("button", { name: "Save as a scenario" })).toBeEnabled();
   });
 
+  it("names the open scenario as stored when it is copied or deleted (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    const picker = within(machine).getByRole("combobox", { name: "Scenario" });
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    const stored = await saveScenario(user, machine);
+
+    // Renamed in another tab: the copy is named after it as it is called now.
+    keepScenario({ ...stored, name: "Aces win out", modifiedAt: later(stored.modifiedAt, 1) });
+    await user.click(within(machine).getByRole("button", { name: "Duplicate" }));
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      "Made “Aces win out (copy)”, with the picks as they are now."
+    );
+    expect(picker).toHaveDisplayValue("Aces win out (copy)");
+    expect(storedNames()).toEqual(["Aces win out", "Aces win out (copy)"]);
+
+    // And the copy renamed there in turn: what is deleted is said by the name it had there.
+    const copy = readScenarios(stored.seasonId).find((one) => one.name === "Aces win out (copy)");
+    if (!copy) throw new Error("Not copied");
+    keepScenario({ ...copy, name: "Copy renamed there", modifiedAt: later(copy.modifiedAt, 1) });
+    await user.click(within(machine).getByRole("button", { name: "Delete" }));
+    await user.click(within(machine).getByRole("button", { name: "Delete it" }));
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      "Deleted “Copy renamed there”. Its picks are still here, unsaved."
+    );
+    expect(storedNames()).toEqual(["Aces win out"]);
+
+    // One another tab let go of is not copied back into being under its old name: said, as for
+    // the other changes, with its picks left here to save.
+    await user.selectOptions(picker, "Aces win out");
+    await user.click(within(machine).getByRole("button", { name: "Let them go" }));
+    dropScenario(stored.seasonId, stored.id);
+    await user.click(within(machine).getByRole("button", { name: "Duplicate" }));
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      "“Aces win out” is no longer kept on this device: another tab let it go. Its picks are still here, unsaved."
+    );
+    expect(storedNames()).toEqual([]);
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+  });
+
   it("shares a link that shows its picks and asks before keeping them, and never touches the season", async () => {
     const user = userEvent.setup();
     const first = render(<App />);
