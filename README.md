@@ -3375,7 +3375,12 @@ teams pulled overnight. It opens the copy with the Firebase key GitHub already
 keeps for deploys (`FIREBASE_SERVICE_ACCOUNT`), through Firestore's REST API
 (`firestoreRestStore`), which writes the same documents the app's SDK does and
 replaces the manifest only if it is still the document it read: the commit
-carries the read's update time as a precondition. GameChanger is asked through
+carries the read's update time as a precondition. A request Firestore turns away
+for load is asked again after 1, 2, 4, 8 and 16 s: too many requests (HTTP 429)
+for any request, since nothing was done, and unavailable (503) for all but the
+commit, which could have been done and would read its own first try as another
+save. The nightly of 5 October 2026 stopped on one 429 writing a piece of its
+first part, and lost the night. GameChanger is asked through
 the proxy's own handler in the same process (`scripts/handlerFetch.ts`), so the
 run pays for nothing but GitHub's minutes. The day is the user's
 (`TZ=America/New_York`), which is what the rota and the day log are kept in, and
