@@ -249,12 +249,16 @@ export function PlayoffMachine({
   /*
    * The picker's choice. Picks on screen that are not saved, made with no scenario open or changed
    * in the one open, go only once the person says so: a glance at another scenario would otherwise
-   * lose them, with nothing said and no way back.
+   * lose them, with nothing said and no way back. Choosing again what is open withdraws the
+   * question, which is where a step through the list with the arrow keys comes back to.
    */
   const chooseScenario = (id: string) => {
+    if (id === (openId ?? "")) {
+      setSwitching(null);
+      return;
+    }
     if (picked > 0 && (open === null || unsavedChanges)) {
-      setNaming(null);
-      setDeleting(false);
+      settle(null);
       setSwitching(id);
       return;
     }
@@ -474,9 +478,10 @@ export function PlayoffMachine({
         <div className="flex flex-wrap items-end gap-2">
           <label htmlFor={pickerId} className="flex flex-col gap-1">
             <span className={textRole.overline}>Scenario</span>
+            {/* The entry asked about while asked, so the arrow keys step on from it. */}
             <select
               id={pickerId}
-              value={openId ?? ""}
+              value={switching ?? openId ?? ""}
               onChange={(event) => chooseScenario(event.target.value)}
               className={FIELD}
             >
@@ -530,7 +535,10 @@ export function PlayoffMachine({
               type="button"
               className={SIDE_BUTTON}
               disabled={picked === 0}
-              onClick={() => setNaming({ mode: "new", name: `Scenario ${saved.length + 1}` })}
+              onClick={() => {
+                setSwitching(null);
+                setNaming({ mode: "new", name: `Scenario ${saved.length + 1}` });
+              }}
             >
               Save as a scenario
             </button>
@@ -601,7 +609,7 @@ export function PlayoffMachine({
             aria-label="Picks not saved"
             className="flex flex-wrap items-center gap-2"
           >
-            <span className={textRole.body}>
+            <span role="status" className={textRole.body}>
               {open
                 ? `The changes to “${open.name}” are not saved.`
                 : "The picks on screen are not saved."}{" "}

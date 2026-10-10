@@ -2720,18 +2720,18 @@ Picks go when the page does unless they are saved as a scenario (2.7,
 `src/lib/savedScenarios.ts`): a name, the picks with any typed scores, and each picked
 game's teams and date as they stood, kept on this device per season, the most recently
 changed first, thirty at most (a save that pushes the oldest out names it). One parent's
-"what if we win out" is theirs, not the season's, so a scenario is never written into the
-season, a backup or the cloud. A scenario is opened from the **Scenario** list, its picks
-changed and **Save changes**, **Rename**d, **Duplicate**d with the picks as they are now,
-or **Delete**d with its picks left on screen unsaved. **Clear picks** starts again. Choosing
-another entry in the list while the picks on screen are not saved, made with no scenario
-open or changed in the one open, first asks whether to **Let them go** or **Keep them**,
-rather than losing them at a glance at another scenario. Each
-change is made to the scenarios as stored rather than to the list on the page, so one
-kept in another tab meanwhile stays. A change to the open scenario starts from it as
-stored too: **Rename** keeps the picks another tab saved to it meanwhile, **Save changes**
-the name it was given there, and one another tab let go of is not brought back by either,
-or by **Bring it up to date**; the page says so, and its picks stay on screen, unsaved. A
+"what if we win out" is theirs, not the season's, so a scenario is never written into
+the season, a backup or the cloud. A scenario is opened from the **Scenario** list, its
+picks changed and **Save changes**, **Rename**d, **Duplicate**d with the picks as they
+are now, or **Delete**d with its picks left on screen unsaved. **Clear picks** starts
+again. Choosing another entry in the list while the picks on screen are not saved, made
+with no scenario open or changed in the one open, first asks whether to **Let them go**
+or **Keep them**, rather than losing them at a glance at another scenario. Each change
+is made to the scenarios as stored rather than to the list on the page, so one kept in
+another tab meanwhile stays. A change to the open scenario starts from it as stored too:
+**Rename** keeps the picks another tab saved to it meanwhile, **Save changes** the name
+it was given there, and one another tab let go of is not brought back by either, or by
+**Bring it up to date**; the page says so, and its picks stay on screen, unsaved. A
 stored scenario of a later version is left as it was, unread, through every change.
 
 **Quick picks** fill the games in one go: **Favorites win** has the model's pick win every

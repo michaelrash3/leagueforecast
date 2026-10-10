@@ -402,6 +402,38 @@ describe("saved playoff scenarios", () => {
     expect(within(machine).getByRole("button", { name: "Save changes" })).toBeEnabled();
   });
 
+  it("keeps the question about picks not saved in step with the list and the buttons beside it (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    const picker = within(machine).getByRole("combobox", { name: "Scenario" });
+    await pick(user, machine, "Ducks at Aces", "Aces");
+    await saveScenario(user, machine);
+    await user.selectOptions(picker, "Unsaved picks");
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+
+    // While asked, the list shows the entry asked about, so a step through it with the arrow keys
+    // goes on from there rather than back to the start; and the question is announced.
+    await user.selectOptions(picker, "Scenario 1");
+    expect(picker).toHaveDisplayValue("Scenario 1");
+    const ask = within(machine).getByRole("group", { name: "Picks not saved" });
+    expect(within(ask).getByRole("status")).toHaveTextContent("Open “Scenario 1” in their place?");
+
+    // Stepped back to the picks on screen: nothing left to ask.
+    await user.selectOptions(picker, "Unsaved picks");
+    expect(within(machine).queryByRole("group", { name: "Picks not saved" })).toBeNull();
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+
+    // Saving them instead puts the question away, as Rename and Delete do.
+    await user.selectOptions(picker, "Scenario 1");
+    await user.click(within(machine).getByRole("button", { name: "Save as a scenario" }));
+    expect(within(machine).queryByRole("group", { name: "Picks not saved" })).toBeNull();
+    expect(picker).toHaveDisplayValue("Unsaved picks");
+    await user.click(within(machine).getByRole("button", { name: "Cancel" }));
+    expect(within(machine).queryByRole("group", { name: "Picks not saved" })).toBeNull();
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+  });
+
   it("keeps a typed score within what a saved scenario keeps, so it is saved as shown (2.7 review)", async () => {
     const user = userEvent.setup();
     const first = render(<App />);
