@@ -1,5 +1,7 @@
 import { Fragment, useMemo } from "react";
 import {
+  MATCHUP_MARGIN_CAP,
+  previewMatchup,
   RATING_CAP,
   SCOUT_REPORT_NATIONAL_TOP,
   SCOUT_REPORT_STATE_TOP,
@@ -54,6 +56,65 @@ const formatPct = (value: number) => `${Math.round(value * 100)}%`;
 const formatMargin = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 
 const formatDay = formatIsoDayShort;
+
+/** "2.3 runs", "1.0 run", and the cap the projection never states past. */
+const forecastRuns = (margin: number): string => {
+  const runs = Math.abs(margin);
+  if (runs >= MATCHUP_MARGIN_CAP) return `${MATCHUP_MARGIN_CAP} or more runs`;
+  const shown = runs.toFixed(1);
+  return `${shown} ${shown === "1.0" ? "run" : "runs"}`;
+};
+
+/**
+ * The answer to the question the pickers ask — how would this team fare against that one — said
+ * before anything else: who should win, who should lose, by how many runs, and each side's chance.
+ *
+ * It sat nowhere at all at first. Compare with laid out the meetings, the common opponents and each
+ * club's best and worst, and left the reader to work the answer out from them, which is the one
+ * thing the box was opened to be told. The games stay, under it, as the reason for it.
+ *
+ * From `previewMatchup`, so a club set beside the report reads the numbers it would if added to
+ * the report by name. A margin that rounds to nothing names no winner: "Hill Hawks should beat
+ * River Otters by 0.0 runs" would be a winner picked by a rounding error. The two chances are
+ * printed to add up to 100, which two roundings of one probability do not always do.
+ */
+function ClubForecast({ forRow, against }: { forRow: ScoutRankingRow; against: ScoutRankingRow }) {
+  const preview = previewMatchup(forRow, against);
+  const forPct = Math.round(preview.winProb * 100);
+  const even = Math.abs(preview.projectedMargin) < 0.05;
+  const forWins = preview.projectedMargin > 0;
+  const [winner, loser] = forWins ? [forRow, against] : [against, forRow];
+  const winnerPct = forWins ? forPct : 100 - forPct;
+  return (
+    <section
+      aria-label={`Forecast: ${forRow.teamName} against ${against.teamName}`}
+      className="mt-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700"
+    >
+      <h4 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Forecast
+      </h4>
+      <p className="mt-1 text-lg font-black wrap-break-word text-slate-950 dark:text-white">
+        {even
+          ? "Too close to call: dead even"
+          : `${winner.teamName} should beat ${loser.teamName} by ${forecastRuns(preview.projectedMargin)}`}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+        {even
+          ? `Win chance: ${forRow.teamName} ${forPct}%, ${against.teamName} ${100 - forPct}%`
+          : `Win chance: ${winner.teamName} ${winnerPct}%, ${loser.teamName} ${100 - winnerPct}%`}
+      </p>
+      {preview.unconnected && <NoSharedOpponents />}
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+        Why: {forRow.teamName} rates {formatMargin(forRow.rating)} runs against an average club on
+        this board (#{forRow.rank}) and {against.teamName} {formatMargin(against.rating)} (#
+        {against.rank}); the gap between them is the margin.
+        {preview.unconnected
+          ? " Nothing in the games pulled so far links these two, so their ratings were measured against different clubs and this is a guess."
+          : " The games behind those ratings follow."}
+      </p>
+    </section>
+  );
+}
 
 type ScoutingSectionProps = {
   rankings: ScoutRankingRow[];
@@ -177,6 +238,18 @@ export function ScoutingSection({
     () => teamOptions.filter((option) => option.id !== reportForId),
     [teamOptions, reportForId]
   );
+  /**
+   * The club set beside the report, read off the board itself rather than off the comparison: the
+   * forecast needs only the two ratings, so it is there the moment a club is picked, while the
+   * games behind it may still be on their way (`LiveScouting` reads them from two clubs' cards).
+   */
+  const compareRow = useMemo(
+    () =>
+      compareId && compareId !== reportForId
+        ? (rankings.find((row) => row.teamId === compareId) ?? null)
+        : null,
+    [rankings, compareId, reportForId]
+  );
 
   return (
     <div className={`${card} p-5`}>
@@ -211,25 +284,13 @@ export function ScoutingSection({
           fare?
         </span>
       </div>
-      {reportRow && (
-        <div className="mt-3">
-          <AiStoryPanel
-            title="Why this ranking"
-            text={explanation.status === "ready" ? explanation.summary : ""}
-            source={explanation.status === "ready" ? explanation.provider : "local"}
-            model={explanation.model}
-            loading={explanation.status === "loading"}
-            loadingLabel="Writing rank explanation…"
-            unavailableReason={explanation.reason}
-            errorMessage={explanation.message}
-            onRetry={explanation.retry}
-            waiting={explanation.waiting}
-            onAsk={explanation.ask}
-          />
-        </div>
-      )}
+      {/*
+        Under the question it finishes, and its answer under it, before the write-up of this team's
+        own rank: below that, a coach who asked how two clubs would do had to scroll past an
+        explanation of something else to find out, and then found no answer at all.
+      */}
       {reportRow && onCompareChange && (
-        <div className="mt-4">
+        <div className="mt-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <label
               className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
@@ -255,6 +316,7 @@ export function ScoutingSection({
               </button>
             )}
           </div>
+          {compareRow && <ClubForecast forRow={reportRow} against={compareRow} />}
           {comparison && (
             <ClubCompare
               comparison={comparison}
@@ -264,6 +326,23 @@ export function ScoutingSection({
               }
             />
           )}
+        </div>
+      )}
+      {reportRow && (
+        <div className="mt-4">
+          <AiStoryPanel
+            title="Why this ranking"
+            text={explanation.status === "ready" ? explanation.summary : ""}
+            source={explanation.status === "ready" ? explanation.provider : "local"}
+            model={explanation.model}
+            loading={explanation.status === "loading"}
+            loadingLabel="Writing rank explanation…"
+            unavailableReason={explanation.reason}
+            errorMessage={explanation.message}
+            onRetry={explanation.retry}
+            waiting={explanation.waiting}
+            onAsk={explanation.ask}
+          />
         </div>
       )}
       <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">

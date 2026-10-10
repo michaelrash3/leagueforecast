@@ -349,14 +349,23 @@ opponent nobody has pulled has no rating, and the row says "not rated here yet"
 rather than inventing one. Below it, the same projection against every ranked
 team on the page, which is the question to ask before entering a tournament.
 
-**Compare with** sets a second club beside the report's (`compareClubs`): the
-games the two played against each other, every club both have played with each
-one's score against it ("we beat the Bears by 5, they beat them by 1"), and each
-side's best wins and worst losses by the rank of who it was against, and its last
-five. It reads the games the board counts, in the half it is showing, each score as
-that club's own schedule gave it. Two results of one day stay in the order the
-pool lists them, as a club's panel lists them. The projection is one number; this
-is the evidence it is made of. Names and scores only.
+**Compare with** sets a second club beside the report's and answers first, right
+under the two boxes and above the write-up of the team's rank: who should win, who
+should lose, by how many runs, and each side's chance ("Hill Hawks should beat River
+Otters by 2.3 runs. Win chance: Hill Hawks 64%, River Otters 36%"). The numbers are
+`previewMatchup`'s, the same the report gives that club added by name; a margin that
+rounds to nothing is called dead even rather than handed a winner, and two clubs
+nothing in the pool joins are marked as a guess. The answer needs only the two
+ratings, so it shows the moment a club is picked.
+
+Under it, the reason for it (`compareClubs`): the games the two played against each
+other, every club both have played with each one's score against it ("we beat the
+Bears by 5, they beat them by 1"), and each side's best wins and worst losses by the
+rank of who it was against, and its last five. It reads the games the board counts,
+in the half it is showing, each score as that club's own schedule gave it. Two
+results of one day stay in the order the pool lists them, as a club's panel lists
+them. The forecast is one number; this is the evidence it is made of. Names and
+scores only.
 
 **Tournament field** plays a weekend out before it is played. Build the field by
 name, or from the report team's own next opponents in one press, choose pools and
