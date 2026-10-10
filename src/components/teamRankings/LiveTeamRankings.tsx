@@ -669,9 +669,12 @@ function LiveBoard({
     [held]
   );
   // The caret in the box once the list asked for is in, and only then: a publish that changes the
-  // list later leaves the person wherever they are on the page.
+  // list later leaves the person wherever they are on the page. Put there as the box is drawn (a
+  // layout effect), not in a passive effect React runs some time after: on a busy machine the box
+  // was on screen without the caret, and a test that found it drawn saw focus still on the page,
+  // about one run in twenty under load.
   const searchReady = search.view !== null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (searchReady) document.getElementById(SEARCH_BOX_ID)?.focus();
   }, [searchReady]);
   // The box's own work on the list, after the frame that draws it (`warmTeamSearch`).
