@@ -16,6 +16,9 @@ const tab = (page: Page, name: string) => page.getByRole("tab", { name, exact: t
  * one, More and then the view (2.4).
  */
 const openView = async (page: Page, name: string) => {
+  // The row first: asked before the page has drawn it, no tab is visible yet, and a desktop has
+  // no More to fall back on.
+  await page.getByRole("tablist", { name: "Main views" }).waitFor();
   if (await tab(page, name).isVisible()) return tab(page, name).click();
   await page.getByRole("button", { name: /^More/ }).click();
   await page
@@ -201,13 +204,18 @@ test.describe("the League tab bar", () => {
     const confirm = page.getByRole("button", { name: "Load demo" });
     if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
     await tab(page, "Standings").click();
-    await page.mouse.wheel(0, 100_000);
+    // Drawn first: the view loads on demand (2.1), and an empty page scrolls nowhere.
+    await expect(page.getByRole("heading", { name: "Standings", level: 2 })).toBeVisible();
     const bar = (await page.getByRole("tablist", { name: "Main views" }).boundingBox())!;
     // The last thing on the page, scrolled as far down as it goes, clear of the bar.
-    const end = await page
-      .locator("main")
-      .evaluate((main) => main.lastElementChild?.getBoundingClientRect().bottom ?? 0);
-    expect(end).toBeLessThanOrEqual(bar.y);
+    await expect
+      .poll(async () => {
+        await page.mouse.wheel(0, 100_000);
+        return page
+          .locator("main")
+          .evaluate((main) => main.lastElementChild?.getBoundingClientRect().bottom ?? Infinity);
+      })
+      .toBeLessThanOrEqual(bar.y);
   });
 
   test("on a tablet holds every view in a row, with no More", async ({ page }) => {
