@@ -557,6 +557,9 @@ describe("saved playoff scenarios", () => {
     if (!copy) throw new Error("Not copied");
     keepScenario({ ...copy, name: "Copy renamed there", modifiedAt: later(copy.modifiedAt, 1) });
     await user.click(within(machine).getByRole("button", { name: "Delete" }));
+    expect(within(machine).getByRole("group", { name: "Delete the scenario" })).toHaveTextContent(
+      "Delete “Copy renamed there”? Its picks stay here, unsaved."
+    );
     await user.click(within(machine).getByRole("button", { name: "Delete it" }));
     expect(within(machine).getByRole("status")).toHaveTextContent(
       "Deleted “Copy renamed there”. Its picks are still here, unsaved."
@@ -574,6 +577,15 @@ describe("saved playoff scenarios", () => {
     );
     expect(storedNames()).toEqual([]);
     expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+
+    // Nor asked about deleting under the name it had: the page says it has gone.
+    const again = await saveScenario(user, machine);
+    dropScenario(again.seasonId, again.id);
+    await user.click(within(machine).getByRole("button", { name: "Delete" }));
+    expect(within(machine).queryByRole("group", { name: "Delete the scenario" })).toBeNull();
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      `“${again.name}” is no longer kept on this device: another tab let it go. Its picks are still here, unsaved.`
+    );
   });
 
   it("keeps the picks made while another tab is looked at, for as long as the page is up (2.7 review)", async () => {

@@ -222,7 +222,8 @@ export function PlayoffMachine({
   const [openId, setOpenId] = useState<string | null>(shown.openId);
   const [said, setSaid] = useState<string | null>(null);
   const [naming, setNaming] = useState<{ mode: "new" | "rename"; name: string } | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  // The open scenario asked about deleting, by the name it is stored under, while asked.
+  const [deleting, setDeleting] = useState<string | null>(null);
   // The scenario asked about opening in place of picks not saved ("" for none), while asked.
   const [switching, setSwitching] = useState<string | null>(null);
   const [presetTeam, setPresetTeam] = useState<string>(followedTeamId ?? "");
@@ -239,7 +240,7 @@ export function PlayoffMachine({
     setWork(NO_PICKS);
     setSaid(null);
     setNaming(null);
-    setDeleting(false);
+    setDeleting(null);
     setSwitching(null);
     setPresetTeam(followedTeamId ?? "");
   }
@@ -272,7 +273,7 @@ export function PlayoffMachine({
     if (!scenario) setSaved(list);
     else {
       setNaming(null);
-      setDeleting(false);
+      setDeleting(null);
       if (picksAtRisk) {
         /*
          * While it is asked, the scenario open stays as this tab has it, which the picks on screen
@@ -320,7 +321,7 @@ export function PlayoffMachine({
   const settle = (message: string | null) => {
     setSaid(message);
     setNaming(null);
-    setDeleting(false);
+    setDeleting(null);
     setSwitching(null);
   };
   /** Stores a change to the season's scenarios, and says so; false when the browser refused. */
@@ -620,7 +621,7 @@ export function PlayoffMachine({
                 type="button"
                 className={SIDE_BUTTON}
                 onClick={() => {
-                  setDeleting(false);
+                  setDeleting(null);
                   setSwitching(null);
                   setNaming({ mode: "rename", name: open.name });
                 }}
@@ -634,9 +635,12 @@ export function PlayoffMachine({
                 type="button"
                 className={SIDE_BUTTON}
                 onClick={() => {
+                  // Asked by the name it is stored under, which another tab may have changed.
+                  const stored = openAsStored();
+                  if (!stored) return;
                   setNaming(null);
                   setSwitching(null);
-                  setDeleting(true);
+                  setDeleting(stored.name);
                 }}
               >
                 Delete
@@ -697,19 +701,19 @@ export function PlayoffMachine({
           </form>
         )}
 
-        {deleting && open && (
+        {deleting !== null && open && (
           <div
             role="group"
             aria-label="Delete the scenario"
             className="flex flex-wrap items-center gap-2"
           >
             <span className={textRole.body}>
-              Delete “{open.name}”? Its picks stay here, unsaved.
+              Delete “{deleting}”? Its picks stay here, unsaved.
             </span>
             <button type="button" className={SIDE_BUTTON} onClick={remove}>
               Delete it
             </button>
-            <button type="button" className={SIDE_BUTTON} onClick={() => setDeleting(false)}>
+            <button type="button" className={SIDE_BUTTON} onClick={() => setDeleting(null)}>
               Keep it
             </button>
           </div>
