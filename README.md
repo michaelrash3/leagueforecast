@@ -1022,12 +1022,15 @@ against a stand-in for the other were then one game, not two. A second tidy move
 
 **Not this team.** The matcher will still be wrong sometimes, and the club's panel is where that
 shows. Beside each game a club has only because a name on another club's schedule was matched to
-it, the panel offers **Not this team** (`filedByNameOn`): a row off GameChanger, from a schedule
-that is not one of the club's own, on a pulled club, with nothing of the club's own saying the game
-is its — no row of its schedules folded in, claimed in or on record, and no picture naming it, which
-is GameChanger's identity or, after Same team as, the owner's word. A game the club's own schedule
-lists, one typed in and a League Standings game are never offered it; Unlink, which the panel
-offered before, could not help, since the row did not come from a link. Pressing it takes the game
+it, the panel offers **Not this team** (`filedByNameOn`): a row off GameChanger, off a schedule of
+the club on the game's other side, which is the schedule that wrote the name, on a pulled club, with
+nothing of the club's own saying the game is its — no row of its schedules folded in, claimed in or
+on record, and no picture naming it, which is GameChanger's identity or, after Same team as, the
+owner's word. A game the club's own schedule lists, one typed in and a League Standings game are
+never offered it, and nor is a row off a schedule nobody holds: an Unlink leaves the club's own rows
+of the link it took off on the club, and on the backup of 29 September 2026 one such row was the
+one game of 8,200 whose schedule was not the other side's. Unlink, which the panel offered before,
+could not help, since the row did not come from a link. Pressing it takes the game
 off the club onto what the row would have been had the name matched nothing (`takeOffClub`): the
 stand-in a pull of that schedule would reuse for the name, at the level the row gave it, in its
 squad year and named from the namer's state, or a new one where there is none, or a slot for a name
@@ -4155,7 +4158,7 @@ the panel only keys rows by. The one exception is a game the club has only becau
 name on another club's schedule was matched to it (`filedByNameOn`), whose stored id
 the card keeps (`n`, read back as `ClubCard.byName`, by the game's place): that is
 where the panel offers Not this team, and the command it sends names the game by it.
-On the 29 September backup 8,200 games stood so on 5,984 of its 52,967 pulled clubs,
+On the 29 September backup 8,199 games stood so on 5,983 of its 52,967 pulled clubs,
 at most 14 on one club and a median of one, which adds 0.48 MB of JSON to the cards
 of every year together (measured). Cards go out in buckets, a year's clubs split by a hash
 of their id into 64 views (`club:{year}:{bucket}`, `clubBucketOf`): one view per

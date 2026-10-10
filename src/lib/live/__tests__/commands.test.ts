@@ -20,6 +20,7 @@ import {
   type PoolWrite,
 } from "../commands";
 import { refusalOf } from "../../notThisTeam";
+import { unlinkGcTeam } from "../../teamRankings";
 
 /*
  * Team Rankings' edits as commands (`commands.ts`): each makes its change to the part it touches
@@ -1774,6 +1775,31 @@ describe("a game taken off a club its name was matched to (Not this team)", () =
       ok: false,
       why: "refused",
     });
+  });
+
+  it("is not offered for the club's own row of a link taken off it, which no other club wrote", () => {
+    // The Eagles were on GameChanger twice and the owner unlinked the first: its rows stay on the
+    // club as its own side A, off a schedule nobody holds now, and they name nobody by a name.
+    const twice: ScoutTeam = {
+      ...eagles,
+      gcTeams: [
+        { teamId: "gcEAGLESOLD1", name: "Eagles 9U", ageGroupId: page, ageLevel: 9 },
+        ...eagles.gcTeams!,
+      ],
+    };
+    const ownRow = rowOf(twice, "e5", comets.id, { teamAScore: 4, teamBScore: 1 });
+    const start = parts([byName, theirOwn, ownRow]);
+    start.teams = unlinkGcTeam(
+      eagles.id,
+      "gcEAGLESOLD1",
+      start.teams.map((team) => (team.id === eagles.id ? twice : team))
+    );
+    expect(applyCommand(memory(start).read, { ...NOT, gameId: ownRow.id })).toEqual({
+      ok: false,
+      why: "refused",
+    });
+    // The Hawks' row the name filed there is still offered.
+    expect(applyCommand(memory(start).read, NOT).ok).toBe(true);
   });
 
   it("finds no game or club that is not there, and no game the club is not in", () => {

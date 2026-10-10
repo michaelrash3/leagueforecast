@@ -82,7 +82,7 @@ export const clubViews = ({
       if (game.teamBId !== game.teamAId) add(game.teamBId, game);
       for (const side of [stored.teamAId, stored.teamBId]) {
         const club = teams.get(side);
-        if (!club || !filedByNameOn(stored, club)) continue;
+        if (!club || !filedByNameOn(stored, club, (id) => teams.get(id))) continue;
         const held = byNameOf.get(side) ?? {};
         held[stored.id] = stored.id;
         byNameOf.set(side, held);

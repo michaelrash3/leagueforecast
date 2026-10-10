@@ -878,6 +878,11 @@ export function TeamRankingsView({
     () => new Map(allKnown.teams.map((team) => [team.id, team.name])),
     [allKnown.teams]
   );
+  // The roster by id, for what asks a game's other side for more than its name (Not this team).
+  const scoutTeamById = useMemo(
+    () => new Map(scoutTeams.map((team) => [team.id, team])),
+    [scoutTeams]
+  );
 
   const reportForId =
     reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId || "";
@@ -2597,7 +2602,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
           onSetAge={(level) => setTeamAge(openTeam.id, level)}
           onClearAge={() => clearTeamAge(openTeam.id)}
           notThisTeam={{
-            offered: (game) => filedByNameOn(game, openTeam),
+            offered: (game) => filedByNameOn(game, openTeam, (id) => scoutTeamById.get(id)),
             onRefuse: (game) => notThisTeam(openTeam.id, game),
           }}
           mergeCandidates={mergeCandidatesFor(openTeam.id)}

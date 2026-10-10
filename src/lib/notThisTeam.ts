@@ -25,19 +25,31 @@ import type { AgeGroup, ScoutGame, ScoutTeam } from "./teamRankings/types";
  */
 
 /**
- * Whether `club` has `game` only because a name on another club's schedule was matched to it.
+ * Whether `club` has `game` only because a name on another club's schedule was matched to it. The
+ * team on the game's other side, the namer, is looked up in whatever roster the caller holds
+ * (`teamOf`).
  *
- * The row came off GameChanger (`source`), from a schedule that is not one of the club's own; the
+ * The row came off GameChanger (`source`), off a schedule of the namer's own: that is the schedule
+ * that wrote the name, and the club is the side it named. A row off a schedule nobody holds any
+ * more is not one: an Unlink leaves a club's own rows of the link it took off on the club, as side
+ * A, and offered there the button put the schedule's own side on a stand-in of its own name. The
  * club is a pulled one, since a stand-in is the name and nothing more; and nothing of the club's
  * own says the game is its: no row of its schedules folded in or claimed into it, none of them on
  * record (`alsoRows`, `alsoFrom`), and no picture naming it (`namedByAvatar`), which is
  * GameChanger's own identity and, after "Same team as", the owner's word. A game typed in has no
  * source and is the owner's own, and a League Standings game has none either.
  */
-export const filedByNameOn = (game: ScoutGame, club: ScoutTeam): boolean => {
-  if (game.source?.kind !== "gamechanger" || game.teamAId === game.teamBId) return false;
-  if (game.teamAId !== club.id && game.teamBId !== club.id) return false;
-  if (!club.gcTeams?.length) return false;
+export const filedByNameOn = (
+  game: ScoutGame,
+  club: ScoutTeam,
+  teamOf: (teamId: string) => ScoutTeam | undefined
+): boolean => {
+  const source = game.source;
+  if (source?.kind !== "gamechanger" || game.teamAId === game.teamBId) return false;
+  const otherId =
+    game.teamAId === club.id ? game.teamBId : game.teamBId === club.id ? game.teamAId : undefined;
+  if (otherId === undefined || !club.gcTeams?.length) return false;
+  if (!teamOf(otherId)?.gcTeams?.some((link) => link.teamId === source.teamId)) return false;
   if (game.namedByAvatar === club.id) return false;
   return !listedByOwn(game, club);
 };
@@ -225,9 +237,10 @@ export const takeOffClub = (
   club: ScoutTeam,
   standInId: string
 ): { game: ScoutGame; standIn: ScoutTeam | null } | null => {
-  if (!filedByNameOn(game, club)) return null;
+  const teamById = new Map(pool.teams.map((team) => [team.id, team]));
+  if (!filedByNameOn(game, club, (id) => teamById.get(id))) return null;
   const onA = game.teamAId === club.id;
-  const namer = pool.teams.find((team) => team.id === (onA ? game.teamBId : game.teamAId));
+  const namer = teamById.get(onA ? game.teamBId : game.teamAId);
   const name = cleanTeamName(club.name).trim() || club.name;
   const slot = isPlaceholderName(name) || namesNobody(name);
   const level =
