@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { focusRing, tab } from "../styles/tokens";
 import { NAV_ICONS } from "./navIcons";
 
@@ -21,7 +29,10 @@ import { NAV_ICONS } from "./navIcons";
  * The cells are a tablist either way: arrow keys move between its tabs and Home and End go to
  * either end, with the focus on one tab at a time (a roving `tabIndex`). More is a disclosure
  * button beside the tablist, not a tab, and its list is buttons; Escape closes it and gives the
- * focus back, and so does a tap anywhere else.
+ * focus back, and so does a tap anywhere else, a tab in the bar included, or the keyboard moving
+ * on out of it. A view or an action chosen from the list, or from the strip, leaves the focus on
+ * More: the button pressed goes with the list, and the focus would otherwise fall to the top of
+ * the page, or be handed back there by a dialog the action opened.
  *
  * A badge's words describe its tab (`aria-describedby`) rather than sit inside it: inside, they
  * would become part of the tab's name, and "Data Quality" would be called "Data Quality 1 needs
@@ -76,13 +87,23 @@ const count = (value: number, onIcon = false) => (
   </span>
 );
 
-/** A phone's bar cell: an icon over its label, dark when it is the open view. */
+/**
+ * A phone's bar cell: an icon over its label, dark when it is the open view, and then with a bar
+ * across its top edge. The colour alone did not tell the open view apart: its label against a
+ * closed one measured 2.67:1 in light mode and 2.63:1 in dark, under the 3:1 a state shown by
+ * colour alone needs. The bar is the open label's own colour, slate-950 or white, on the bar's
+ * ground, so it reads against the cells around it as the label does against the page.
+ */
 const cell = (active: boolean) =>
   `relative flex min-w-0 flex-1 flex-col items-center gap-0.5 pb-1.5 pt-2 text-[clamp(9px,2.8vw,11px)] font-bold leading-tight ${focusRing} ${
     active
-      ? "text-slate-950 dark:text-white"
+      ? "text-slate-950 before:absolute before:inset-x-3 before:top-0 before:h-[3px] before:rounded-b-full before:bg-slate-950 dark:text-white dark:before:bg-white"
       : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
   }`;
+
+/** Whether a tap or the focus landed in one of `areas`. */
+const within = (target: EventTarget | null, ...areas: (HTMLElement | null)[]) =>
+  target instanceof Node && areas.some((area) => area?.contains(target));
 
 export function TabNav<K extends string>({
   label,
@@ -98,7 +119,7 @@ export function TabNav<K extends string>({
   const id = useId();
   const tabs = useRef<Partial<Record<K, HTMLButtonElement | null>>>({});
   const moreButton = useRef<HTMLButtonElement | null>(null);
-  const moreArea = useRef<HTMLDivElement | null>(null);
+  const moreList = useRef<HTMLDivElement | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   // Only a phone has a More list, so one left open is closed by the screen widening.
   const open = narrow && moreOpen;
@@ -114,11 +135,11 @@ export function TabNav<K extends string>({
   const rovingKey = inRow.some((item) => item.key === current) ? current : inRow[0]?.key;
   const describedBy = (key: string) => `${id}-${key}-badge`;
 
-  // A tap anywhere but the list or its button closes it.
+  // A tap anywhere but the list or its button closes it, the bar's other cells included.
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
-      if (event.target instanceof Node && moreArea.current?.contains(event.target)) return;
+      if (within(event.target, moreButton.current, moreList.current)) return;
       setMoreOpen(false);
     };
     document.addEventListener("pointerdown", away);
@@ -151,7 +172,23 @@ export function TabNav<K extends string>({
     moreButton.current?.focus();
   };
 
+  /*
+   * The keyboard moving on past the list's end, or back past its button, closes it rather than
+   * leave it drawn over the page the focus has gone to. The focus going nowhere is left to the tap
+   * that moved it: Safari's buttons take no focus when pressed, so a tap on one of the list's would
+   * otherwise close the list before its press landed.
+   */
+  const closeOnLeave = (event: FocusEvent<HTMLElement>) => {
+    if (event.relatedTarget && !within(event.relatedTarget, moreButton.current, moreList.current))
+      setMoreOpen(false);
+  };
+
+  /**
+   * A view chosen from the list or the strip, whose button goes once the view is open: the focus
+   * waits on More, which now names the view.
+   */
   const choose = (key: K) => {
+    moreButton.current?.focus();
     setMoreOpen(false);
     onSelect(key);
   };
@@ -244,7 +281,7 @@ export function TabNav<K extends string>({
           {item.label}: {item.badge?.describe}
         </button>
       ))}
-      <div ref={moreArea} className="relative mx-auto flex max-w-lg">
+      <div className="relative mx-auto flex max-w-lg">
         <div role="tablist" aria-label={label} className="flex min-w-0 flex-[4]">
           {inRow.map(tabButton)}
         </div>
@@ -259,6 +296,7 @@ export function TabNav<K extends string>({
             {...(moreCount ? { "aria-describedby": `${id}-more-badge` } : {})}
             onClick={() => setMoreOpen((was) => !was)}
             onKeyDown={closeOnEscape}
+            onBlur={closeOnLeave}
             className={cell(Boolean(currentUnderMore))}
           >
             <span className="relative">
@@ -270,10 +308,15 @@ export function TabNav<K extends string>({
         )}
         {open && (
           <div
+            ref={moreList}
             id={`${id}-more`}
             role="group"
             aria-label={`More ${label.toLowerCase()}`}
-            className="absolute bottom-full right-2 mb-2 w-60 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+            onBlur={closeOnLeave}
+            // As tall as the screen leaves above the bar and no taller, scrolling inside itself past
+            // that: fixed to the screen with the bar, what ran off its top was out of reach of any
+            // page scroll, Power Ratings wholly so at 320 by 256 (1280 by 1024 at 400% zoom).
+            className="absolute bottom-full right-2 mb-2 max-h-[calc(100dvh_-_5rem_-_env(safe-area-inset-bottom))] w-60 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
           >
             {underMore.map((item) => (
               <button
@@ -300,6 +343,8 @@ export function TabNav<K extends string>({
                 key={action.label}
                 type="button"
                 onClick={() => {
+                  // On More before the action runs, so a dialog it opens hands the focus back there.
+                  moreButton.current?.focus();
                   setMoreOpen(false);
                   action.onSelect();
                 }}
@@ -313,6 +358,13 @@ export function TabNav<K extends string>({
         )}
       </div>
       {descriptions}
+      {/* The panel is named by its view's tab (`aria-labelledby`), and a view under More has none
+        in the bar: this stands in for it, or the panel would be read with no name at all. */}
+      {currentUnderMore ? (
+        <span hidden id={currentUnderMore.tabId}>
+          {currentUnderMore.label}
+        </span>
+      ) : null}
     </div>
   );
 }

@@ -1,7 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { ShortcutsHelp } from "./ShortcutsHelp";
 import { TabNav, type TabNavItem } from "./TabNav";
 
 /*
@@ -54,7 +55,10 @@ function Row({
         primary={["dashboard", "games", "standings", "model"]}
         actions={[{ label: "Take the tour", onSelect: onTour }]}
       />
-      <p>Showing {LABELS[current]}</p>
+      {/* The panel as League draws it, named by the tab that opened it. */}
+      <div role="tabpanel" id={`panel-${current}`} aria-labelledby={`tab-${current}`}>
+        <p>Showing {LABELS[current]}</p>
+      </div>
       <button type="button">Elsewhere</button>
     </>
   );
@@ -144,6 +148,8 @@ describe("the tab row on a phone", () => {
     expect(screen.getByText("Showing Data Quality")).toBeInTheDocument();
     // Once it is the open view, the strip has done its work.
     expect(screen.queryByRole("button", { name: "Data Quality: 2 need attention" })).toBeNull();
+    // And the focus it had waits on More, which now names the view, not on the page's body.
+    expect(screen.getByRole("button", { name: "More: Data Quality" })).toHaveFocus();
   });
 
   it("describes a badged tab rather than renaming it", () => {
@@ -167,5 +173,165 @@ describe("the tab row on a phone", () => {
     expect(
       within(screen.getByRole("group")).getByRole("button", { name: "Settings" })
     ).toHaveAccessibleDescription("Add the season's teams");
+  });
+
+  it("closes More when a tab in the bar is tapped instead", async () => {
+    const user = userEvent.setup();
+    render(<Row narrow />);
+    const more = screen.getByRole("button", { name: "More" });
+    // Pressed as Safari presses a button, without giving it the focus, so that the tap is all
+    // there is to close the list by.
+    fireEvent.click(more);
+    expect(more).not.toHaveFocus();
+    await user.click(screen.getByRole("tab", { name: "Schedule" }));
+    expect(screen.getByText("Showing Schedule")).toBeInTheDocument();
+    // Left open, the list would stay drawn over the view just chosen.
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(more).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes More when the keyboard leaves it, past its end or back past its button", async () => {
+    const user = userEvent.setup();
+    render(<Row narrow />);
+    const more = screen.getByRole("button", { name: "More" });
+    more.focus();
+    await user.keyboard("{Enter}");
+    // Through Power Ratings, Data Quality, Settings and the tour, and on out of the list.
+    await user.tab();
+    expect(
+      within(screen.getByRole("group")).getByRole("button", { name: "Power Ratings" })
+    ).toHaveFocus();
+    await user.tab();
+    await user.tab();
+    await user.tab();
+    expect(screen.getByRole("group")).toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Elsewhere" })).toHaveFocus();
+    expect(screen.queryByRole("group")).toBeNull();
+
+    more.focus();
+    await user.keyboard("{Enter}");
+    await user.tab({ shift: true });
+    expect(screen.getByRole("tab", { name: "Dashboard" })).toHaveFocus();
+    expect(screen.queryByRole("group")).toBeNull();
+  });
+
+  it("keeps More open while the focus goes nowhere, as Safari's does on a tap in the list", () => {
+    render(<Row narrow />);
+    const more = screen.getByRole("button", { name: "More" });
+    more.focus();
+    fireEvent.click(more);
+    // Safari moves the focus off More and onto nothing as a button in the list is pressed.
+    fireEvent.blur(more, { relatedTarget: null });
+    fireEvent.click(within(screen.getByRole("group")).getByRole("button", { name: "Settings" }));
+    expect(screen.getByText("Showing Settings")).toBeInTheDocument();
+  });
+
+  it("puts the focus back on More once a view is chosen from its list", async () => {
+    const user = userEvent.setup();
+    render(<Row narrow />);
+    // By keyboard: the list's button goes with the list, and the focus would fall to the body.
+    screen.getByRole("button", { name: "More" }).focus();
+    await user.keyboard("{Enter}");
+    await user.tab();
+    await user.tab();
+    await user.tab();
+    expect(
+      within(screen.getByRole("group")).getByRole("button", { name: "Settings" })
+    ).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByText("Showing Settings")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More: Settings" })).toHaveFocus();
+
+    // And by a tap.
+    await user.click(screen.getByRole("button", { name: "More: Settings" }));
+    await user.click(
+      within(screen.getByRole("group")).getByRole("button", { name: "Power Ratings" })
+    );
+    expect(screen.getByRole("button", { name: "More: Power Ratings" })).toHaveFocus();
+  });
+
+  it("runs an action with the focus on More, for a dialog it opens to give back on closing", async () => {
+    const user = userEvent.setup();
+    // League's keyboard shortcuts: an action under More opening a dialog with a focus trap, which
+    // gives the focus back on closing to wherever it was when the dialog opened.
+    function WithShortcuts() {
+      const [showing, setShowing] = useState(false);
+      return (
+        <>
+          <TabNav
+            label="Main views"
+            items={items()}
+            current="dashboard"
+            onSelect={() => undefined}
+            narrow
+            primary={["dashboard", "games", "standings", "model"]}
+            actions={[{ label: "Keyboard shortcuts", onSelect: () => setShowing(true) }]}
+          />
+          <ShortcutsHelp open={showing} shortcuts={[]} onClose={() => setShowing(false)} />
+        </>
+      );
+    }
+    render(<WithShortcuts />);
+    const more = screen.getByRole("button", { name: "More" });
+    await user.click(more);
+    await user.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(more).toHaveFocus();
+  });
+
+  it("names the open panel when its view is under More, where it has no tab", async () => {
+    const user = userEvent.setup();
+    render(<Row narrow />);
+    expect(screen.getByRole("tabpanel", { name: "Dashboard" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(
+      within(screen.getByRole("group")).getByRole("button", { name: "Data Quality" })
+    );
+    expect(screen.getByRole("tabpanel", { name: "Data Quality" })).toBeInTheDocument();
+    // Still named with the list open over it, and only one element carries the id.
+    await user.click(screen.getByRole("button", { name: "More: Data Quality" }));
+    expect(screen.getByRole("tabpanel", { name: "Data Quality" })).toBeInTheDocument();
+    expect(document.querySelectorAll("#tab-quality")).toHaveLength(1);
+  });
+
+  it("marks the open view in the bar by more than the colour of its label", async () => {
+    const user = userEvent.setup();
+    render(<Row narrow start="standings" />);
+    /*
+     * The classes the open cell has that a closed one does not, leaving out its text colours:
+     * active against inactive measured 2.67:1 in light mode and 2.63:1 in dark, under the 3:1 a
+     * state carried by colour alone needs.
+     */
+    const beyondColour = (open: HTMLElement, closed: HTMLElement) => {
+      const shut = new Set(closed.className.split(/\s+/));
+      return open.className
+        .split(/\s+/)
+        .filter((name) => !shut.has(name) && !/^(?:dark:)?text-/.test(name));
+    };
+    const schedule = screen.getByRole("tab", { name: "Schedule" });
+    expect(beyondColour(screen.getByRole("tab", { name: "Standings" }), schedule)).not.toEqual([]);
+    expect(beyondColour(schedule, screen.getByRole("tab", { name: "Forecast" }))).toEqual([]);
+    // More is marked the same way while the open view is behind it.
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(within(screen.getByRole("group")).getByRole("button", { name: "Settings" }));
+    expect(
+      beyondColour(screen.getByRole("button", { name: "More: Settings" }), schedule)
+    ).not.toEqual([]);
+  });
+
+  it("keeps More's list within the screen's height, scrolling inside itself", async () => {
+    const user = userEvent.setup();
+    render(<Row narrow />);
+    await user.click(screen.getByRole("button", { name: "More" }));
+    /*
+     * The list sits above a bar fixed to the screen, so a page scroll cannot reach what runs off
+     * its top: at 320 by 256 (1280 by 1024 at 400% zoom) Power Ratings measured wholly above the
+     * screen. A height of its own, and a scroll of its own past it.
+     */
+    const list = screen.getByRole("group");
+    expect(list.className).toMatch(/(?:^|\s)max-h-\[[^\]]*dvh[^\]]*\]/);
+    expect(list.className).toMatch(/(?:^|\s)overflow-y-auto(?:\s|$)/);
   });
 });

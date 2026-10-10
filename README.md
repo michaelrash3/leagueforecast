@@ -5839,10 +5839,24 @@ the deterministic story is shown. To exercise the AI path locally, run
     attention") rather than a sixth cell, which would not fit. More carries the
     badges of what is behind it, and names the view open under it to a screen reader
     ("More: Settings"). A badge's words describe its tab rather than join its name.
+  - The open view's cell, or More while the open view is behind it, is dark and has
+    a bar across its top edge. The dark label alone measured 2.67:1 against a
+    closed one (2.63:1 in dark mode), under the 3:1 a state shown by colour alone
+    needs.
   - The cells keep their tab roles, the roving `tabIndex`, the arrow keys and now
-    Home and End; More is a disclosure button, and Escape or a tap elsewhere closes
-    it. Wide screens keep the row of tabs, with the same keys and badges. Pages leave
-    room below for the bar, and toasts sit above it.
+    Home and End; More is a disclosure button. Escape closes its list, and so does a
+    tap anywhere else, a tab in the bar included, or the keyboard moving on past the
+    list's end or back past More. A view or an action chosen from the list, or from
+    the strip, leaves the focus on More, which then names the view. The button
+    pressed goes with the list, and the focus used to fall to the top of the page
+    with it, or be handed back there by a dialog the action opened (the keyboard
+    shortcuts). The list is never taller than the screen leaves above the bar and
+    scrolls inside itself past that; at 320 by 256 (1280 by 1024 at 400% zoom) Power
+    Ratings had sat wholly above the screen, out of reach. The panel is named by its
+    view's tab, and a view under More has none in the bar, so the bar carries a
+    hidden name for it in that tab's place. Wide screens keep the row of tabs, with
+    the same keys and badges.
+  - Pages leave room below for the bar, and toasts sit above it.
   - The app-mode switch fills a phone's row in two halves. At its old size it was
     336px wide in the 288px a 320px screen leaves, which widened the whole page
     there; the new 320px checks found it.

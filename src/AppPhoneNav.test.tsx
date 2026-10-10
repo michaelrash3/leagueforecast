@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
-import { SectionNav } from "./components/teamRankings/SectionNav";
+import { SectionNav, sectionTabId } from "./components/teamRankings/SectionNav";
 import { loadSettings, saveLogs, saveMatchups, saveSettings, saveTeams } from "./lib/storage";
 import type { GameLog } from "./lib/types";
 
@@ -79,6 +79,9 @@ describe("League Standings on a phone", () => {
     await user.click(within(more).getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("button", { name: "More: Settings" })).toBeInTheDocument();
     await waitFor(() => expect(document.getElementById("panel-settings")).not.toBeNull());
+    // The panel is named though its view has no tab in the row, and the focus waits on More.
+    expect(screen.getByRole("tabpanel", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More: Settings" })).toHaveFocus();
   });
 
   it("shows Data Quality across the bar while something needs attention", async () => {
@@ -112,6 +115,17 @@ describe("Team Rankings' sections on a phone", () => {
     await user.click(screen.getByRole("button", { name: "More" }));
     await user.click(screen.getByRole("button", { name: "Setup" }));
     expect(onSelect).toHaveBeenCalledWith("setup");
+  });
+
+  it("name the panel of a section under More, which has no tab in the row", () => {
+    phone(true);
+    render(
+      <>
+        <SectionNav current="archive" onSelect={vi.fn()} />
+        <div role="tabpanel" aria-labelledby={sectionTabId("archive")} />
+      </>
+    );
+    expect(screen.getByRole("tabpanel", { name: "Archive" })).toBeInTheDocument();
   });
 
   it("keep all six in the row on a wider screen", () => {
