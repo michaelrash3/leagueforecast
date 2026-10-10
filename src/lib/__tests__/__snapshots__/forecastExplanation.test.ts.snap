@@ -21,7 +21,7 @@ exports[`explainForecast > leans each factor toward the side it favors, the stro
       "key": "schedule",
       "label": "Opponents faced",
       "runs": 0.12155188940436545,
-      "text": "Average opponent rating: Aces −0.5, Eagles −0.6. The rating gives credit for tougher opponents.",
+      "text": "Average opponent rating: Aces −0.5, Eagles −0.6, counted as −0.3 and −0.5, since a side with fewer games counts for less. Tougher opponents add to a rating, and weaker ones take from it.",
     },
     {
       "favors": null,

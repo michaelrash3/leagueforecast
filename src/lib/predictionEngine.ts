@@ -43,6 +43,13 @@ export type MatchupEvidence = {
   rawMargin: number;
   /** The average rating of the opponents it faced. */
   strengthOfSchedule: number;
+  /**
+   * How much of that the rating counts: the rating less its own results as the fit shrinks them,
+   * so `MarginParts.schedule` is team A's less team B's. With every game neutral it is exactly
+   * `n / (n + DEFAULT_SHRINKAGE)` of `strengthOfSchedule`, so a side with fewer games has less of
+   * its opponents counted, for better or worse.
+   */
+  scheduleShare: number;
   /** Its recent margin, the last five games weighted toward the newest. */
   recentForm: number;
   /** League games final. */
@@ -589,6 +596,7 @@ export const buildPredictionEngine = (
         rating: rating.rating,
         rawMargin: rating.rawMargin,
         strengthOfSchedule: rating.strengthOfSchedule,
+        scheduleShare: rating.rating - resultsOf(team.id),
         recentForm: rating.recentForm,
         leagueGames: team.games,
         fittedGames: adjusted.games.get(team.id) ?? 0,

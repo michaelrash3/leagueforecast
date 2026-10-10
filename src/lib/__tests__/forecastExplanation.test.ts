@@ -129,6 +129,9 @@ describe("the margin's parts", () => {
       share(teamA, teamA.strengthOfSchedule) - share(teamB, teamB.strengthOfSchedule),
       10
     );
+    expect(teamA.scheduleShare).toBeCloseTo(share(teamA, teamA.strengthOfSchedule), 10);
+    expect(teamB.scheduleShare).toBeCloseTo(share(teamB, teamB.strengthOfSchedule), 10);
+    expect(teamA.scheduleShare - teamB.scheduleShare).toBeCloseTo(parts.schedule, 10);
     expect(parts.homeField).toBe(-0);
     expect(parts.capped).toBe(0);
   });
@@ -318,6 +321,58 @@ describe("explainForecast", () => {
     expect(capped?.runs).toBeCloseTo(-prediction.explanation.parts.capped, 10);
     expect(explained?.strongest.teamA?.key).toBe("results");
     expect(explained?.strongest.teamB).toBeNull();
+  });
+
+  it("shows how much of each side's opponents its rating counts, so the lean can be read off it", () => {
+    /*
+     * The Aces' one game was against weaker opponents than the Ducks' five, but a rating counts
+     * n / (n + 1.5) of its opponents' average: 0.4 of the Aces' and 0.77 of the Ducks', so the
+     * weaker schedule costs the Aces less and the part leans their way. The figures shown have
+     * to say so, rather than credit the Aces for tougher opponents beside numbers that say the
+     * opposite.
+     */
+    const six: TeamBase[] = [...teams, { id: "F", name: "Foxes" }];
+    const games: Matchup[] = [
+      { id: "s1", date: "5/2", away: "A", home: "B" },
+      { id: "s2", date: "5/2", away: "D", home: "B" },
+      { id: "s3", date: "5/9", away: "D", home: "C" },
+      { id: "s4", date: "5/16", away: "D", home: "E" },
+      { id: "s5", date: "5/23", away: "D", home: "F" },
+      { id: "s6", date: "5/30", away: "D", home: "C" },
+      { id: "s7", date: "5/9", away: "E", home: "F" },
+      { id: "s8", date: "5/16", away: "C", home: "F" },
+      { id: "s9", date: "6/6", away: "A", home: "D" },
+    ];
+    const scores = {
+      s1: final(6, 2),
+      s2: final(5, 3),
+      s3: final(4, 4),
+      s4: final(7, 2),
+      s5: final(3, 6),
+      s6: final(8, 1),
+      s7: final(2, 5),
+      s8: final(1, 7),
+    };
+    const prediction = buildPredictionEngine(
+      calculateTeams(six, games, scores, DEFAULT_SETTINGS),
+      games,
+      scores,
+      DEFAULT_SETTINGS
+    ).predictions.find((one) => one.gameId === "s9");
+    if (!prediction?.explanation) throw new Error("No explanation");
+    const { teamA, teamB, parts } = prediction.explanation;
+    expect([teamA.fittedGames, teamB.fittedGames]).toEqual([1, 5]);
+    expect(teamA.strengthOfSchedule).toBeLessThan(teamB.strengthOfSchedule);
+    expect(parts.schedule).toBeGreaterThan(0.05);
+
+    const explained = explainForecast(prediction, {
+      nameOf: (id) => six.find((team) => team.id === id)?.name ?? id,
+    });
+    const schedule = explained?.factors.find((factor) => factor.key === "schedule");
+    expect(schedule?.favors).toBe("teamA");
+    expect(schedule?.text).toBe(
+      "Average opponent rating: Aces −1.1, Ducks −0.8, counted as −0.4 and −0.6, since a side with fewer games counts for less. Tougher opponents add to a rating, and weaker ones take from it."
+    );
   });
 
   it("says a side's results are undated rather than guessing a day for them", () => {

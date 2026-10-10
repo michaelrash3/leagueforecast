@@ -2784,7 +2784,11 @@ runs, which add up to it exactly:
 - **Opponents faced**: the rest of the gap between the two ratings, which is the fit's
   allowance for the opponents each side played. With every game neutral and counted once,
   as the engine's are, a rating is exactly `n / (n + 1.5)` of its average margin plus its
-  opponents' average rating, so this is exactly the opponents' share;
+  opponents' average rating, so this is exactly the opponents' share. The panel gives each
+  side's opponents' average and the share of it its rating counts
+  (`MatchupEvidence.scheduleShare`), since the averages alone can point the other way: one
+  game against weak opponents counts 0.4 of them, five against slightly better ones 0.77, so
+  the weaker schedule can cost less and the part lean to the side that played it;
 - **Head-to-head**: the nudge for their own meetings, never more than 1.5 runs;
 - **Home field**: not counted, since who bats last is a coin toss at this level (it would
   show only if a fitted home edge appeared from games with a real home side);
