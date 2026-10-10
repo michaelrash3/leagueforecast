@@ -19,7 +19,8 @@ import type { JobDocs, LegTask } from "./pullJobRunner";
  *   cannot stop when neither run has saved yet.
  * - The day's legs: a refresh starts only while the day has a leg left, and every leg it runs is
  *   counted, the first when it starts and the rest once its first leg knows how many there are
- *   (`chargeRefreshLegs`). A pasted list is not counted: its legs are the list's size, sent once.
+ *   (`chargeRefreshLegs`), which runs them only where the day has them all left. A pasted list is
+ *   not counted: its legs are the list's size, sent once.
  *
  * Every change is written only onto the document as it was read (`replace`'s precondition), so two
  * presses at once, or a press and the nightly, cannot both take it. Nothing here reaches Google but
@@ -171,6 +172,9 @@ export const NIGHTLY_PULLING =
 export const LEGS_SPENT =
   "Refresh now has run as often today as the cloud allows in a day. The nightly refreshes again tonight.";
 export const GATE_BUSY = "Another refresh was starting at the same moment. Try again in a minute.";
+/** Said where the first leg could not be queued, so the refresh was never started. */
+export const NOT_QUEUED =
+  "The cloud could not queue the refresh just now, so it was not started. Try again in a minute.";
 /** Said on a job made for a press that another press, or the nightly, beat to the gate. */
 const BEATEN = "Another refresh, or the nightly, began at the same moment; this one never ran.";
 
@@ -178,7 +182,7 @@ export type RefreshStarted =
   | { ok: true; jobId: string; status: PullJobStatus; already: boolean }
   | {
       ok: false;
-      refusal: "failed-precondition" | "resource-exhausted" | "aborted";
+      refusal: "failed-precondition" | "resource-exhausted" | "aborted" | "unavailable";
       message: string;
     };
 
@@ -198,7 +202,9 @@ export type StartRefreshDeps = {
  *
  * The job is made before the gate is taken, and queued only once it is: the nightly, finding the
  * gate names a job, must find that job there to wait for, and a job whose press lost the gate to
- * another is ended where it stands, never run.
+ * another is ended where it stands, never run. A first leg that cannot be queued ends the job too,
+ * and gives the day its leg back: left queued with no task to run it, the job would pass for one
+ * under way for two hours, keeping a nightly in that time waiting its longest for nothing.
  */
 export const startRefresh = async (
   ask: RefreshAsk,
@@ -241,24 +247,58 @@ export const startRefresh = async (
       });
       continue;
     }
-    await deps.enqueue({ jobId, leg: 0 });
+    try {
+      await deps.enqueue({ jobId, leg: 0 });
+    } catch {
+      await notQueued(jobId, day, deps);
+      return { ok: false, refusal: "unavailable", message: NOT_QUEUED };
+    }
     return { ok: true, jobId, status: "queued", already: false };
   }
   return { ok: false, refusal: "aborted", message: GATE_BUSY };
 };
 
 /**
- * Charges `legs` more legs to the day `now` falls in: a refresh's legs past its first, once its
- * first leg has worked out how many its teams take. Written onto the gate as read, and read again
- * where another writer moved it meanwhile; a gate that keeps moving throws, and the leg is tried
- * again, which charges it again rather than not at all.
+ * A started refresh whose first leg could not be queued, undone as far as it can be: the job ended,
+ * so nothing takes it for one under way, and the leg it was charged given back to `day` while the
+ * gate still names it. Each part once, and best done: a job a failed queueing did queue all the same
+ * finds itself ended and runs nothing, and a gate that moved on keeps what it was moved to.
  */
-export const chargeRefreshLegs = async (docs: GateDocs, legs: number, now: Date): Promise<void> => {
+const notQueued = async (jobId: string, day: string, deps: StartRefreshDeps): Promise<void> => {
+  await deps.jobs
+    .update(jobId, { status: "failed", error: NOT_QUEUED, updatedAt: deps.now().toISOString() })
+    .catch(() => undefined);
+  try {
+    const { gate, token } = await readGate(deps.gate);
+    if (gate.jobId === jobId && gate.day === day && gate.legs > 0) {
+      await deps.gate.replace(REFRESH_GATE_PATH, { ...gate, legs: gate.legs - 1 }, token);
+    }
+  } catch {
+    // The leg stays charged: the cost of a gate that cannot be read is a press, not a run.
+  }
+};
+
+/**
+ * Charges `legs` more legs to the day `now` falls in: a refresh's legs past its first, once its
+ * first leg has worked out how many its teams take. Whether it could: legs that would take the day
+ * past `REFRESH_LEGS_A_DAY` are not charged, and the refresh does not run them, since the press was
+ * let through on one leg left and the cap is the day's whole spend, not its first legs'. Written
+ * onto the gate as read, and read again where another writer moved it meanwhile; a gate that keeps
+ * moving throws, and the leg is tried again, which charges it again rather than not at all.
+ */
+export const chargeRefreshLegs = async (
+  docs: GateDocs,
+  legs: number,
+  now: Date
+): Promise<boolean> => {
   const day = budgetDay(now);
   for (let tries = 0; tries < GATE_TRIES; tries += 1) {
     const { gate, token } = await readGate(docs);
     const spent = gate.day === day ? gate.legs : 0;
-    if (await docs.replace(REFRESH_GATE_PATH, { ...gate, day, legs: spent + legs }, token)) return;
+    if (spent + legs > REFRESH_LEGS_A_DAY) return false;
+    if (await docs.replace(REFRESH_GATE_PATH, { ...gate, day, legs: spent + legs }, token)) {
+      return true;
+    }
   }
   throw new Error("The refresh's legs could not be counted against the day's: try again.");
 };

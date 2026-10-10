@@ -22,6 +22,7 @@ import { newPullJob, newRefreshJob, packJobList, type PullJob } from "../pullJob
 import {
   runPullLeg,
   startPullJob,
+  tooManyLegs,
   type JobDocs,
   type LegDeps,
   type LegTask,
@@ -559,6 +560,7 @@ describe("a Refresh now job, a leg at a time", () => {
       now: () => FRIDAY,
       chargeLegs: async (legs) => {
         charged.push(legs);
+        return true;
       },
     });
     expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("next-queued");
@@ -596,6 +598,29 @@ describe("a Refresh now job, a leg at a time", () => {
     // Every level it was for, on the day it was worked out for.
     const log = await logOf(cloud);
     for (const level of AGE_LEVELS) expect(log[String(level)]).toBe(localDayKey(FRIDAY));
+  });
+
+  it("fails before asking anybody anything when the day has too few legs left for it", async () => {
+    const { cloud, jobs } = await filed();
+    jobs.putRefresh(REFRESH, { legTeams: 2 });
+    const fetched: string[][] = [];
+    const charged: number[] = [];
+    const { deps, queued } = legDeps(cloud, jobs, {
+      fetchTeams: answering(fetched),
+      now: () => FRIDAY,
+      chargeLegs: async (legs) => {
+        charged.push(legs);
+        return false;
+      },
+    });
+    const version = cloud.manifest()!.version;
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("failed");
+    expect(charged).toEqual([1]);
+    expect(jobs.job(REFRESH)).toMatchObject({ status: "failed", error: tooManyLegs(2) });
+    expect(tooManyLegs(2)).toMatch(/takes 2 parts .* nothing was pulled/);
+    expect(fetched).toEqual([]);
+    expect(queued).toEqual([]);
+    expect(cloud.manifest()!.version).toBe(version);
   });
 
   it("is done at once, logging nothing, with no team to pull", async () => {

@@ -76,9 +76,10 @@ export type LegDeps = {
   /**
    * Charges legs of a "Refresh now" job past its first to the day's budget (`chargeRefreshLegs`),
    * once its first leg has worked out how many its teams take; the first was charged when the job
-   * was started. None for a list, which the budget does not cover.
+   * was started. Whether the day had them left: a refresh it had not is not run. None for a list,
+   * which the budget does not cover.
    */
-  chargeLegs?: (legs: number) => Promise<void>;
+  chargeLegs?: (legs: number) => Promise<boolean>;
   /** How often to look for the device asking to stop, and to say how far the leg has got. */
   lookEveryMs?: number;
 };
@@ -129,6 +130,10 @@ const NOT_RUNNABLE: Partial<Record<CloudPullResult["end"], string>> = {
     "The cloud copy was deleted and started again while this pull ran, so nothing it fetched was filed into the new one. Send the list again to pull it there.",
 };
 
+/** Why a refresh of `legs` legs was not run: the day had fewer left than it takes. */
+export const tooManyLegs = (legs: number): string =>
+  `This refresh takes ${legs.toLocaleString()} parts in the cloud, more than Refresh now has left today, so nothing was pulled. The nightly refreshes again tonight.`;
+
 type WorkedOutRota =
   | { kind: "walk"; job: PullJob; entries: GcTeamListEntry[] }
   | { kind: "nothing" }
@@ -139,7 +144,8 @@ type WorkedOutRota =
  * it counted them (`workOutRefresh`), and kept as the job's list: its pieces first, then the job, so
  * a job never names a list it does not have. Every leg after this one, and this one tried again,
  * walks the list kept here and never works it out again. The legs past the first are charged to
- * the day's budget here; the first was charged when the job was started. With no team to pull, the
+ * the day's budget here, the first having been charged when the job was started, and a refresh the
+ * day has too few legs left for fails before it asks GameChanger anything. With no team to pull, the
  * job is done at once, and no level is logged, as the nightly logs none when nothing is due.
  */
 const workOutRota = async (jobId: string, job: PullJob, deps: LegDeps): Promise<WorkedOutRota> => {
@@ -152,7 +158,9 @@ const workOutRota = async (jobId: string, job: PullJob, deps: LegDeps): Promise<
   const packed = await packJobList(entries);
   for (const [index, piece] of packed.pieces.entries()) await jobs.putPiece(jobId, index, piece);
   const legs = legsFor(entries.length, job.legTeams);
-  if (legs > 1) await deps.chargeLegs?.(legs - 1);
+  if (legs > 1 && deps.chargeLegs && !(await deps.chargeLegs(legs - 1))) {
+    return { kind: "failed", error: tooManyLegs(legs) };
+  }
   const rota: PullJobRota = {
     at: stamp(),
     ageLevels: worked.ageLevels,

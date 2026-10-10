@@ -3706,7 +3706,11 @@ watches as its own, rather than starting another; a press while the nightly pull
 told so; and a press once the day's three legs are spent is told the nightly
 refreshes again tonight. The job is made before the gate is taken and queued only
 once it is, and the gate is written only as it was read, so two presses at once
-start one refresh and the other's job is ended where it stands, never run.
+start one refresh and the other's job is ended where it stands, never run. A first
+leg Cloud Tasks will not queue ends its job too, and gives the day its leg back while
+the gate still names it: left queued with no task to run it, the job would have
+passed for one under way for two hours, and a nightly in that time would have waited
+its longest for nothing. The press is told the refresh was not started.
 
 Three legs a day is a cap of this project's own, not one Google sets: a leg runs on
 8 GiB and two processors, about 1,440 GiB-seconds for three minutes, so three a
@@ -3714,8 +3718,11 @@ day for a month is 129,600, a little over a third of the free tier's 360,000; th
 reckoned from the published tier and the nightly's run time, not measured on the
 function. The whole refresh was 15,793 teams on 29 September 2026, one leg of
 25,000, so three legs is three presses; a refresh of more teams counts its legs past
-the first once its first leg knows how many there are (`chargeRefreshLegs`). A
-pasted list is not counted: its legs are the size of the list, sent once.
+the first once its first leg knows how many there are (`chargeRefreshLegs`), and
+where the day has fewer left than it takes, it fails then, before GameChanger is
+asked anything, saying so. A press is let through on one leg left, so without that
+a refresh of two legs pressed third would have taken the day to four. A pasted list
+is not counted: its legs are the size of the list, sent once.
 
 **Beside the nightly and other pulls.** Legs run one at a time on one instance
 (`runPull`), so a refresh never runs beside a pasted list's leg; it waits its turn in
