@@ -2731,8 +2731,12 @@ is made to the scenarios as stored rather than to the list on the page, so one k
 another tab meanwhile stays. A change to the open scenario starts from it as stored too:
 **Rename** keeps the picks another tab saved to it meanwhile, **Save changes** the name
 it was given there, and one another tab let go of is not brought back by either, or by
-**Bring it up to date**; the page says so, and its picks stay on screen, unsaved. A
-stored scenario of a later version is left as it was, unread, through every change.
+**Bring it up to date**; the page says so, and its picks stay on screen, unsaved. Picks
+another tab saved to it that **Rename** or **Bring it up to date** takes in are shown in
+place of the older ones here, and said so, unless picks changed here are waiting to be
+saved, which stay: shown older, they would pass for changes, and **Save changes** would
+write them over picks never seen here. A stored scenario of a later version is left as
+it was, unread, through every change.
 
 **Quick picks** fill the games in one go: **Favorites win** has the model's pick win every
 game left, **Fill the rest with favorites** only the games not yet picked, and **Wins out**

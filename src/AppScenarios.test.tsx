@@ -316,6 +316,13 @@ describe("saved playoff scenarios", () => {
     const [afterRename] = readScenarios(stored.seasonId);
     expect(afterRename?.name).toBe("Aces win out");
     expect(afterRename?.picks).toEqual({ g3: { winnerId: "D" }, g4: { winnerId: "B" } });
+    // Nothing changed here, so the picks shown are the scenario's as now saved, the other tab's
+    // among them, rather than this tab's older ones passing for changes to save over them.
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      "Renamed to “Aces win out”. The picks shown are now those another tab saved to it."
+    );
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Bears"]);
+    expect(within(machine).getByRole("button", { name: "Save changes" })).toBeDisabled();
 
     // Renamed there again; a change saved here keeps that name, with the picks shown here.
     if (!afterRename) throw new Error("Not kept");
@@ -331,7 +338,36 @@ describe("saved playoff scenarios", () => {
     );
     const [afterSave] = readScenarios(stored.seasonId);
     expect(afterSave?.name).toBe("Renamed there");
-    expect(afterSave?.picks).toEqual({ g3: { winnerId: "A" } });
+    expect(afterSave?.picks).toEqual({ g3: { winnerId: "A" }, g4: { winnerId: "B" } });
+  });
+
+  it("keeps picks changed here when Rename takes in the ones another tab saved (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    const stored = await saveScenario(user, machine);
+    keepScenario({
+      ...stored,
+      picks: { ...stored.picks, g4: { winnerId: "B" } },
+      basis: { ...stored.basis, g4: { away: "B", home: "C", date: "5/8" } },
+      modifiedAt: later(stored.modifiedAt, 1),
+    });
+
+    // A change of this tab's own, not yet saved: it stays, to be saved over the other tab's or not.
+    await pick(user, machine, "Bears at Comets", "Comets");
+    await user.click(within(machine).getByRole("button", { name: "Rename" }));
+    const renamed = within(machine).getByRole("textbox", { name: "New name" });
+    await user.clear(renamed);
+    await user.type(renamed, "Comets day");
+    await user.click(within(machine).getByRole("button", { name: "Save name" }));
+    expect(readScenarios(stored.seasonId)[0]?.picks).toEqual({
+      g3: { winnerId: "D" },
+      g4: { winnerId: "B" },
+    });
+    expect(within(machine).getByRole("status")).toHaveTextContent(/^Renamed to “Comets day”\.$/);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Comets"]);
+    expect(within(machine).getByRole("button", { name: "Save changes" })).toBeEnabled();
   });
 
   it("brings the open scenario up to date as stored, keeping another tab's rename (2.7 review)", async () => {
@@ -341,7 +377,12 @@ describe("saved playoff scenarios", () => {
     await pick(user, machine, "Ducks at Aces", "Ducks");
     await pick(user, machine, "Bears at Comets", "Bears");
     const stored = await saveScenario(user, machine);
-    keepScenario({ ...stored, name: "Renamed there", modifiedAt: later(stored.modifiedAt, 1) });
+    keepScenario({
+      ...stored,
+      name: "Renamed there",
+      picks: { ...stored.picks, g4: { winnerId: "C" } },
+      modifiedAt: later(stored.modifiedAt, 1),
+    });
 
     // Ducks at Aces played meanwhile, from another device.
     act(() => {
@@ -353,7 +394,13 @@ describe("saved playoff scenarios", () => {
     await user.click(within(machine).getByRole("button", { name: "Bring it up to date" }));
     const [after] = readScenarios(stored.seasonId);
     expect(after?.name).toBe("Renamed there");
-    expect(after?.picks).toEqual({ g4: { winnerId: "B" } });
+    expect(after?.picks).toEqual({ g4: { winnerId: "C" } });
+    // Nothing changed here: shown as now saved, the other tab's pick and all.
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      "The picks shown are now those another tab saved to it."
+    );
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Comets"]);
+    expect(within(machine).getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 
   it("asks before picks not yet saved go for another scenario, and keeps them unless told (2.7 review)", async () => {

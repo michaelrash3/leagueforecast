@@ -93,6 +93,9 @@ const samePicks = (
   return ids.length === Object.keys(two).length && ids.every((id) => samePick(one[id], two[id]));
 };
 
+/** What a change to the open scenario adds when it shows the picks another tab saved to it. */
+const THEIR_PICKS = " The picks shown are now those another tab saved to it.";
+
 /** What a save says when it pushed the season's oldest scenarios out to make room. */
 const pushedOutLine = (kept: Kept) =>
   kept.pushedOut.length
@@ -301,6 +304,14 @@ export function PlayoffMachine({
     }
     return stored;
   };
+  /**
+   * Whether a change taking in the open scenario as stored is to show the picks another tab saved
+   * to it meanwhile: when there are some, and none of this tab's own wait to be saved, which stay.
+   * Shown older, they would pass for changes made here, and Save changes would write them over
+   * picks this tab never showed.
+   */
+  const showsTheirPicks = (stored: SavedScenario) =>
+    open !== null && !unsavedChanges && !samePicks(open.picks, stored.picks);
   const saveChanges = () => {
     const stored = openAsStored();
     if (!stored) return;
@@ -311,10 +322,15 @@ export function PlayoffMachine({
   const rename = (name: string) => {
     const stored = openAsStored();
     if (!stored) return;
-    store(
-      keepScenario({ ...stored, name, modifiedAt: new Date().toISOString() }),
-      `Renamed to “${name}”.`
-    );
+    const theirs = showsTheirPicks(stored);
+    if (
+      !store(
+        keepScenario({ ...stored, name, modifiedAt: new Date().toISOString() }),
+        `Renamed to “${name}”.${theirs ? THEIR_PICKS : ""}`
+      )
+    )
+      return;
+    if (theirs) setWork({ picks: stored.picks, basis: stored.basis });
   };
   const duplicate = () => {
     if (!open) return;
@@ -345,13 +361,15 @@ export function PlayoffMachine({
   const bringUpToDate = () => {
     const stored = openAsStored();
     if (!stored) return;
+    const theirs = showsTheirPicks(stored);
     const { scenario, dropped } = rebaseScenario(stored, matchups, logs, new Date().toISOString());
     const message = dropped.length
       ? `Brought up to date: ${dropped.length} ${dropped.length === 1 ? "pick" : "picks"} no longer applied and ${dropped.length === 1 ? "was" : "were"} taken out.`
       : "Brought up to date: every pick still applies.";
-    if (!store(keepScenario(scenario), message)) return;
-    // The picks shown stay as they are, any not yet saved among them; only those left out go.
-    setWork(asKept());
+    if (!store(keepScenario(scenario), `${message}${theirs ? THEIR_PICKS : ""}`)) return;
+    // The picks shown stay as they are, any not yet saved among them, and only those left out go;
+    // unless they are to give way to those another tab saved, as now kept.
+    setWork(theirs ? { picks: scenario.picks, basis: scenario.basis } : asKept());
   };
   const share = async () => {
     const at = new Date().toISOString();
