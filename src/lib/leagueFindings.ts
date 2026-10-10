@@ -566,7 +566,7 @@ export const auditLeague = ({
         severity: "review",
         summary: `${plural(gone.length, "team")} linked to a club Team Rankings no longer has`,
         detail:
-          "The club picked for each was merged away or deleted, so none of its tournament results reach the forecast.",
+          "The club picked for each was merged away or deleted, so each falls back to a guess from its name: its tournament results reach the forecast only where a club on this season's pages carries that name, and then only as a guess.",
         suggestion: "Pick the club again under Team Rankings links in Settings.",
         targets: [scoutTarget, ...gone.map((row) => teamTarget(row.leagueTeamId))],
         affectsForecast: settings.useScoutResults,
@@ -581,7 +581,7 @@ export const auditLeague = ({
       severity: settings.useScoutResults ? "attention" : "review",
       summary: `${plural(shared.length, "team")} linked to the same club as another`,
       detail:
-        "One club's tournament results go to every league team linked to it, so they are counted more than once.",
+        "Two league teams cannot be one club, so neither pick is used and neither team is guessed from its name instead: that club's tournament results reach neither team.",
       suggestion: "Give each league team its own club under Team Rankings links in Settings.",
       targets: [scoutTarget, ...shared.map((row) => teamTarget(row.leagueTeamId))],
       affectsForecast: settings.useScoutResults,

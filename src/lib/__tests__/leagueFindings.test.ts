@@ -366,6 +366,25 @@ describe("auditing a League Standings season", () => {
       );
     });
 
+    it("says what the bridge does with a club shared or gone", () => {
+      const findings = audit({
+        links: [
+          row("A", { how: "guessed", scoutTeamId: "s2", staleScoutTeamId: "old" }),
+          row("B", { how: "none", scoutTeamId: "s1", conflictWith: ["C"] }),
+          row("C", { how: "none", scoutTeamId: "s1", conflictWith: ["B"] }),
+        ],
+      });
+      // Neither pick is honoured and neither team is guessed, so nothing is counted twice: the
+      // club's results reach neither team. teamRankings.test.ts pins both of these in the bridge.
+      const shared = only(findings, "link-shared").detail;
+      expect(shared).toMatch(/reach neither/);
+      expect(shared).not.toMatch(/more than once/);
+      // A pick gone falls back to the name, so results can still come, by a guess.
+      const gone = only(findings, "link-gone").detail;
+      expect(gone).toMatch(/guess from its name/);
+      expect(gone).not.toMatch(/none of its tournament results reach/);
+    });
+
     it("leaves a picked club alone however many share its name", () => {
       const links = [row("A", { scoutTeamId: "s1", ambiguousCount: 4 })];
       expect(codes(audit({ links }))).not.toContain("link-ambiguous");
