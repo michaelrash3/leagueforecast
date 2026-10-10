@@ -724,6 +724,14 @@ export default function App() {
     beforeDelete: beforeSeasonDelete,
   });
   const activeSeasonId = seasons.activeId;
+  /*
+   * The open season as storage tells one season from another: its id and the moment it was made
+   * (`replaceLeagueSnapshot`). What the page holds of a season by id alone outlived a restore that
+   * put another season under the open id, and was written back under it at the next change.
+   */
+  const activeSeasonKey = `${activeSeasonId}\n${
+    seasons.all.find((season) => season.id === activeSeasonId)?.createdAt ?? ""
+  }`;
 
   const refreshSeasons = seasons.refresh;
   const adoptSeason = useCallback(
@@ -2158,18 +2166,18 @@ export default function App() {
       }),
     [teams, matchups, deferredLogs, settings, scoutBridge.rows, today]
   );
-  /* The findings put aside on this device, held by season id as the team followed is. */
+  /* The findings put aside on this device, held by season as the team followed is. */
   const [putAsideHeld, setPutAsideHeld] = useState(() => ({
-    seasonId: activeSeasonId,
+    season: activeSeasonKey,
     entries: readPutAside(activeSeasonId),
   }));
-  if (putAsideHeld.seasonId !== activeSeasonId) {
-    // Read afresh for each season switched to, never kept from a visit before, as the team
-    // followed is below: the id may have been given to another season since.
-    setPutAsideHeld({ seasonId: activeSeasonId, entries: readPutAside(activeSeasonId) });
+  if (putAsideHeld.season !== activeSeasonKey) {
+    // Read afresh for each season opened, never kept from a visit before, as the team followed is
+    // below: the id may have been given to another season since, by a deletion or a restore.
+    setPutAsideHeld({ season: activeSeasonKey, entries: readPutAside(activeSeasonId) });
   }
   const putAsideEntries =
-    putAsideHeld.seasonId === activeSeasonId ? putAsideHeld.entries : readPutAside(activeSeasonId);
+    putAsideHeld.season === activeSeasonKey ? putAsideHeld.entries : readPutAside(activeSeasonId);
   const openFindings = useMemo(
     () => findings.filter((finding) => !isDismissed(finding, putAsideEntries)),
     [findings, putAsideEntries]
@@ -2201,9 +2209,9 @@ export default function App() {
   const setPutAside = useCallback(
     (entries: Record<string, FindingSeverity>) => {
       writePutAside(activeSeasonId, entries);
-      setPutAsideHeld({ seasonId: activeSeasonId, entries });
+      setPutAsideHeld({ season: activeSeasonKey, entries });
     },
-    [activeSeasonId]
+    [activeSeasonId, activeSeasonKey]
   );
   const putFindingAside = useCallback(
     (finding: Finding) =>
@@ -2462,26 +2470,26 @@ export default function App() {
 
   /*
    * The team this browser follows, for the Dashboard's card: this browser's own pick, one per season
-   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season id,
-   * so a season switch reads the pick made for that season rather than carrying one across.
+   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season, so
+   * a season switch reads the pick made for that season rather than carrying one across.
    */
   const [ourTeamPick, setOurTeamPick] = useState(() => ({
-    seasonId: activeSeasonId,
+    season: activeSeasonKey,
     teamId: readOurTeam(activeSeasonId),
   }));
-  if (ourTeamPick.seasonId !== activeSeasonId) {
-    // Read afresh for each season switched to, never kept from a visit before: the season held
-    // then may have been deleted since, and its id given to another (`forgetSeasons`).
-    setOurTeamPick({ seasonId: activeSeasonId, teamId: readOurTeam(activeSeasonId) });
+  if (ourTeamPick.season !== activeSeasonKey) {
+    // Read afresh for each season opened, never kept from a visit before: the season held then
+    // may have been deleted or restored over since, and its id given to another (`forgetSeasons`).
+    setOurTeamPick({ season: activeSeasonKey, teamId: readOurTeam(activeSeasonId) });
   }
   const ourTeamId =
-    ourTeamPick.seasonId === activeSeasonId ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
+    ourTeamPick.season === activeSeasonKey ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
   const pickOurTeam = useCallback(
     (teamId: string | null) => {
       writeOurTeam(activeSeasonId, teamId);
-      setOurTeamPick({ seasonId: activeSeasonId, teamId });
+      setOurTeamPick({ season: activeSeasonKey, teamId });
     },
-    [activeSeasonId]
+    [activeSeasonId, activeSeasonKey]
   );
   /*
    * Where the followed team's club stands on Team Rankings, as its board last stood there

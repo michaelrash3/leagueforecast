@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
+import { readFullBackup } from "./lib/backup";
+import { readPutAside } from "./lib/preferences";
 import type { SeasonStore } from "./lib/seasonStore";
 import {
   createSeason,
@@ -307,6 +309,47 @@ describe("the Data Quality tab", () => {
     writeSeasonData(spring.id, { ...data, settings: { ...data.settings, seasonLabel: "Fall" } });
 
     await user.selectOptions(screen.getByRole("combobox", { name: /active season/i }), spring.id);
+    await user.click(screen.getByRole("tab", { name: "Data Quality" }));
+    expect(
+      await within(screen.getByRole("region", { name: "Information" })).findByRole("listitem", {
+        name: summary,
+      })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /put aside$/ })).toBeNull();
+  });
+
+  it("puts nothing aside after a restore puts another season under the open one's id", async () => {
+    seed();
+    // A backup of another season given the same id, made at another moment, with the same games.
+    const backup = readFullBackup();
+    const other = {
+      ...backup,
+      seasons: backup.seasons.map((season) => ({
+        ...season,
+        createdAt: "2020-01-01T00:00:00.000Z",
+      })),
+    };
+    const user = userEvent.setup();
+    await openQuality(user);
+    const summary = "1 game without a date";
+    await user.click(
+      within(await screen.findByRole("listitem", { name: summary })).getByRole("button", {
+        name: "Put aside",
+      })
+    );
+    await waitFor(() => expect(screen.queryByRole("listitem", { name: summary })).toBeNull());
+
+    await user.click(screen.getByRole("tab", { name: "Settings" }));
+    await user.upload(
+      screen.getByLabelText("Import backup JSON"),
+      new File([JSON.stringify(other)], "backup.json", { type: "application/json" })
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Restore everything" })
+    );
+    await waitFor(() => expect(listSeasons()[0]?.createdAt).toBe("2020-01-01T00:00:00.000Z"));
+    expect(readPutAside("default")).toEqual({});
+
     await user.click(screen.getByRole("tab", { name: "Data Quality" }));
     expect(
       await within(screen.getByRole("region", { name: "Information" })).findByRole("listitem", {

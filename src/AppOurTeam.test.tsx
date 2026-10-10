@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { readFullBackup } from "./lib/backup";
 import { readOurTeam } from "./lib/preferences";
 import {
   createSeason,
@@ -146,5 +147,41 @@ describe("our team on the Dashboard", () => {
     expect(within(card).queryByRole("heading", { name: "Aces" })).toBeNull();
     expect(within(card).getByRole("combobox")).toHaveValue("");
     expect(readOurTeam(spring.id)).toBeNull();
+  });
+
+  it("follows nothing after a restore puts another season under the open one's id", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("tab", { name: "Dashboard" }));
+    await user.selectOptions(
+      within(screen.getByRole("region", { name: "Our team" })).getByRole("combobox"),
+      "Aces"
+    );
+    expect(readOurTeam("default")).toBe("A");
+
+    // A backup of another season given the same id, made at another moment, with the same teams.
+    const backup = readFullBackup();
+    const other = {
+      ...backup,
+      seasons: backup.seasons.map((season) => ({
+        ...season,
+        createdAt: "2020-01-01T00:00:00.000Z",
+      })),
+    };
+    await user.click(screen.getByRole("tab", { name: "Settings" }));
+    await user.upload(
+      screen.getByLabelText("Import backup JSON"),
+      new File([JSON.stringify(other)], "backup.json", { type: "application/json" })
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Restore everything" })
+    );
+    await waitFor(() => expect(listSeasons()[0]?.createdAt).toBe("2020-01-01T00:00:00.000Z"));
+    expect(readOurTeam("default")).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: "Dashboard" }));
+    const card = screen.getByRole("region", { name: "Our team" });
+    expect(within(card).queryByRole("heading", { name: "Aces" })).toBeNull();
+    expect(within(card).getByRole("combobox")).toHaveValue("");
   });
 });

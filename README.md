@@ -3026,7 +3026,9 @@ subscription and sending to it, which the app does not have.
   list of seasons is written without its season: a tab that may no longer write the seasons,
   because another tab has taken a copy in since (`cloudGuard.ts`), neither deletes a season nor
   lets go of what was kept of it. The page reads the team followed and the findings put aside
-  again for each season switched to, rather than keeping them from an earlier visit to the id.
+  again for each season it opens, told apart by id and the moment it was made, so neither a
+  switch back to an id nor a restore that puts another season under the open one shows what
+  was kept of the season before.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
