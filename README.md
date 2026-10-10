@@ -3038,9 +3038,9 @@ subscription and sending to it, which the app does not have.
   (`lf_league_findings_put_aside_v1`), the team followed (`lf_our_team_v1`), that team's club's
   place on Team Rankings (`lf_league_club_ranks_v1`), the server's last bridge to Team Rankings
   (`lf_league_bridge_v2`), the saved scenarios (`lf_league_scenarios_v1`) and the news already
-  announced (`lf_league_notified_v1`, one list whose entries each begin with their season's id). Season ids are given out again: counted from
-  the seasons held, so deleting the last season and making one gives back its id, and every
-  browser's first season is `default`. So all of it goes when its season leaves the browser:
+  announced (`lf_league_notified_v1`, one list whose entries each begin with their season's id).
+  Season ids are given out again: counted from the seasons held, so deleting the last season and
+  making one gives back its id, and every browser's first season is `default`. So all of it goes when its season leaves the browser:
   deleted, or left out of a restore or the cloud copy's seasons, or replaced in either by another
   season under its id (made at another moment). An id given to a season new here, made, copied or
   brought down from the cloud, starts with nothing under it (`forgetSeasons`). A season of this
