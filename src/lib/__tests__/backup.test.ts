@@ -8,7 +8,17 @@ import {
   readFullBackup,
   summarizeFullBackup,
 } from "../backup";
-import { readAppMode, readTheme, writeAppMode, writeTheme } from "../preferences";
+import {
+  readAppMode,
+  readOurTeam,
+  readSeen,
+  readTheme,
+  writeAppMode,
+  writeOurTeam,
+  writeSeen,
+  writeTheme,
+} from "../preferences";
+import { seenOf } from "../seasonDigest";
 import {
   createSeason,
   getActiveSeasonId,
@@ -256,6 +266,26 @@ describe("applyFullBackup", () => {
     expect(loadMatchupsForSeason(secondId)).toHaveLength(1);
     expect(readTheme()).toBe("dark");
     expect(readAppMode()).toBe("rankings");
+  });
+
+  it("takes every season it restores as seen where this device had looked, as its own doing", () => {
+    const secondId = seedBrowser();
+    const backup = readFullBackup();
+    // Since the backup, the first season was emptied and looked at like that, and a team followed.
+    saveTeams([]);
+    saveMatchups([]);
+    writeSeen("default", seenOf({ teams: [], matchups: [], logs: {} }));
+    writeOurTeam("default", "ACE");
+    // Not the open season, so it is not the season store that opens it again afterwards.
+    setActiveSeason(secondId);
+
+    applyFullBackup(backup);
+
+    const restored = backup.seasons.find((season) => season.id === "default")!;
+    expect(readSeen("default")).toEqual(seenOf(restored));
+    // One never looked at here is still to be looked at, and the rest kept of a season stays.
+    expect(readSeen(secondId)).toBeNull();
+    expect(readOurTeam("default")).toBe("ACE");
   });
 
   it("clears a season the backup does not carry", () => {

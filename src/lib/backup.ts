@@ -8,12 +8,15 @@ import {
   isAppMode,
   isTheme,
   readAppMode,
+  readSeen,
   readTheme,
   writeAppMode,
+  writeSeen,
   writeTheme,
   type AppMode,
   type Theme,
 } from "./preferences";
+import { seenOf } from "./seasonDigest";
 import {
   coerceTeamRankingsBackup,
   readTeamRankingsBackup,
@@ -218,6 +221,16 @@ export const applyFullBackup = (
   if (!replaceLeagueSnapshot({ activeSeasonId: backup.activeSeasonId, seasons: backup.seasons })) {
     failed.push("seasons");
   }
+  /*
+   * A restore is this device's own doing, and what it changed in a season is nobody's news: each
+   * season this device has looked at is taken as seen as restored, as the open season is when the
+   * page opens it again (`useSeasonDigest`), its race left to the next forecast. Left alone, the
+   * restore's differences from the last look were listed as another device's on opening any season
+   * but that one. A season never looked at here is still to be looked at.
+   */
+  backup.seasons.forEach((season) => {
+    if (readSeen(season.id)) writeSeen(season.id, seenOf(season));
+  });
   if (teamRankings && !writeTeamRankingsBackup(backup.teamRankings)) failed.push("Team Rankings");
   if (backup.preferences.theme && !writeTheme(backup.preferences.theme)) failed.push("theme");
   if (backup.preferences.appMode && !writeAppMode(backup.preferences.appMode)) {

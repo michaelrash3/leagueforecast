@@ -2949,7 +2949,9 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
   live has heard the cloud for it is where its looking starts, not 48 games of news: the cloud's
   version laid over its own, or its own when the cloud held nothing it lacked (League goes live
   either way, and that is the moment). The race starts from the forecast of that season, worked
-  out afresh when the cloud's word brought scores, not from the one on screen before them.
+  out afresh when the cloud's word brought scores, not from the one on screen before them. A full
+  backup restored here is this device's doing as well: each season it restores that the device
+  had looked at is taken as seen as restored (`applyFullBackup`), not only the one that opens.
 - **One device, however many tabs.** The installed app beside a browser tab is two pages each
   kept live, and each hears the other's edits from the cloud as it would another device's. The
   last look is the device's, so each tab writes only what it took as seen, laid over the look as
