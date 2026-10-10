@@ -320,3 +320,35 @@ export const readNotified = (): Set<string> => {
 
 export const writeNotified = (keys: ReadonlySet<string>): boolean =>
   safeSet(NOTIFIED_KEY, JSON.stringify([...keys].slice(-NOTIFIED_KEPT)));
+
+/**
+ * The playoff machine's saved scenarios, one list per season (`savedScenarios.ts`). Only the key is
+ * here, for `forgetSeasons`: what reads and writes the scenarios stays out of the first download.
+ */
+export const SCENARIOS_KEY = "lf_league_scenarios_v1";
+
+/** What this device keeps per season, each stored as one object by season id. */
+const PER_SEASON_KEYS = [SEEN_KEY, PUT_ASIDE_KEY, OUR_TEAM_KEY, SCENARIOS_KEY] as const;
+
+/**
+ * Lets go of everything this device keeps of the seasons named: the last look, the findings put
+ * aside, the team followed and the saved scenarios, entries this app cannot read among them, since
+ * they were that season's as well. Storage calls it as a season leaves this browser and as an id
+ * is given to a season new here, because season ids are handed out again (`storage.ts`).
+ */
+export const forgetSeasons = (seasonIds: readonly string[]): void => {
+  if (seasonIds.length === 0) return;
+  for (const key of PER_SEASON_KEYS) {
+    try {
+      const parsed: unknown = JSON.parse(safeGet(key) ?? "null");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      const kept: Record<string, unknown> = { ...parsed };
+      const held = seasonIds.filter((id) => Object.prototype.hasOwnProperty.call(kept, id));
+      if (held.length === 0) continue;
+      held.forEach((id) => delete kept[id]);
+      safeSet(key, JSON.stringify(kept));
+    } catch {
+      /* unreadable, so it holds nothing of any season to let go */
+    }
+  }
+};

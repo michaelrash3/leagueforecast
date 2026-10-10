@@ -4,7 +4,18 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
 import type { SeasonStore } from "./lib/seasonStore";
-import { loadSettings, saveLogs, saveMatchups, saveSettings, saveTeams } from "./lib/storage";
+import {
+  createSeason,
+  listSeasons,
+  loadSettings,
+  readSeasonSnapshot,
+  saveLogs,
+  saveMatchups,
+  saveSettings,
+  saveTeams,
+  setActiveSeason,
+  writeSeasonData,
+} from "./lib/storage";
 import type { GameLog } from "./lib/types";
 
 /*
@@ -260,5 +271,48 @@ describe("the Data Quality tab", () => {
         name: summary,
       })
     ).toBeInTheDocument();
+  });
+
+  it("puts nothing aside in a season made under the id of a deleted one", async () => {
+    const spring = createSeason("Spring");
+    setActiveSeason(spring.id);
+    seed();
+    const data = readSeasonSnapshot(spring.id)!;
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: "Data Quality" }));
+    const summary = "1 game without a date";
+    await user.click(
+      within(await screen.findByRole("listitem", { name: summary })).getByRole("button", {
+        name: "Put aside",
+      })
+    );
+    await waitFor(() => expect(screen.queryByRole("listitem", { name: summary })).toBeNull());
+
+    // Away to another season, Spring deleted from there, and a season made in its place.
+    await user.selectOptions(screen.getByRole("combobox", { name: /active season/i }), "default");
+    await user.click(screen.getByRole("tab", { name: "Settings" }));
+    const seasons = await screen.findByRole("region", { name: "Seasons" });
+    const row = within(seasons).getByText("Spring").closest("li");
+    await user.click(within(row as HTMLElement).getByRole("button", { name: "Delete" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete season" })
+    );
+    await waitFor(() => expect(within(seasons).queryByText("Spring")).toBeNull());
+    await user.type(within(seasons).getByRole("textbox", { name: "New season name" }), "Fall");
+    await user.click(within(seasons).getByRole("button", { name: "New Season" }));
+    await waitFor(() => expect(within(seasons).getByText("Fall")).toBeInTheDocument());
+    // Given the deleted season's id, and the same games under the same ids.
+    expect(listSeasons().find((season) => season.name === "Fall")?.id).toBe(spring.id);
+    writeSeasonData(spring.id, { ...data, settings: { ...data.settings, seasonLabel: "Fall" } });
+
+    await user.selectOptions(screen.getByRole("combobox", { name: /active season/i }), spring.id);
+    await user.click(screen.getByRole("tab", { name: "Data Quality" }));
+    expect(
+      await within(screen.getByRole("region", { name: "Information" })).findByRole("listitem", {
+        name: summary,
+      })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /put aside$/ })).toBeNull();
   });
 });

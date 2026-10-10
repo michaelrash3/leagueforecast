@@ -1,4 +1,5 @@
 import { formatGameDate } from "./date";
+import { SCENARIOS_KEY } from "./preferences";
 import type { ScenarioPick } from "./scenario";
 import { encodeRaw } from "./share";
 import type { GameLog, Matchup } from "./types";
@@ -278,7 +279,6 @@ export const scenarioLinkHash = (scenario: SavedScenario): string | null => {
   return hash.length <= MAX_SCENARIO_LINK ? hash : null;
 };
 
-const SCENARIOS_KEY = "lf_league_scenarios_v1";
 /** Scenarios kept per season: more than anyone picks between two looks at the standings. */
 const SCENARIOS_KEPT = 30;
 

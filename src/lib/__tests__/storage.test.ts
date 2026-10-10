@@ -1,7 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  readOurTeam,
+  readPutAside,
+  readSeen,
+  writeOurTeam,
+  writePutAside,
+  writeSeen,
+} from "../preferences";
+import { keepScenario, readScenarios } from "../savedScenarios";
+import { seenOf } from "../seasonDigest";
+import {
   loadSettingsForSeason,
   readSeasonSnapshot,
+  replaceLeagueSnapshot,
+  type SeasonSnapshot,
   addSeasons,
   adoptSeasonCreatedAt,
   createSeason,
@@ -306,6 +318,129 @@ describe("multi-season storage", () => {
     expect(adoptSeasonCreatedAt(first.id, "2026-08-01T00:00:00.000Z")).toBe(false);
     expect(adoptSeasonCreatedAt("nowhere", "2026-08-01T00:00:00.000Z")).toBe(false);
     expect(listSeasons()).toHaveLength(1);
+  });
+});
+
+/*
+ * A season id is handed out again: `createSeason` counts from the seasons held, and every
+ * browser's first season is `default`. What this device keeps of a season under its id, its last
+ * look, the findings put aside, the team followed and the playoff scenarios, belongs to that
+ * season alone, and a season given the id after it starts with none of it. Placeholder teams.
+ */
+describe("what this device keeps of a season under its id", () => {
+  const T = "2026-05-01T00:00:00.000Z";
+
+  /** A last look, a finding put aside, a team followed and a scenario, kept for `id`. */
+  const keepOnDevice = (id: string) => {
+    writeSeen(
+      id,
+      seenOf({
+        teams: [
+          { id: "A", name: "Aces" },
+          { id: "B", name: "Bears" },
+        ],
+        matchups: [{ id: "g1", date: "5/1", away: "A", home: "B" }],
+        logs: {},
+      })
+    );
+    writePutAside(id, { "missing-date:g1": "info" });
+    writeOurTeam(id, "A");
+    keepScenario({
+      version: 1,
+      id: "sc-1",
+      name: "Aces win out",
+      seasonId: id,
+      picks: { g1: { winnerId: "A" } },
+      basis: { g1: { away: "A", home: "B", date: "5/1" } },
+      createdAt: T,
+      modifiedAt: T,
+    });
+  };
+  const keptOnDevice = (id: string) => ({
+    seen: readSeen(id) !== null,
+    putAside: Object.keys(readPutAside(id)),
+    ourTeam: readOurTeam(id),
+    scenarios: readScenarios(id).map((scenario) => scenario.name),
+  });
+  const ALL = {
+    seen: true,
+    putAside: ["missing-date:g1"],
+    ourTeam: "A",
+    scenarios: ["Aces win out"],
+  };
+  const NONE = { seen: false, putAside: [], ourTeam: null, scenarios: [] };
+
+  const arriving = (id: string, createdAt = T): SeasonSnapshot => ({
+    id,
+    name: id,
+    createdAt,
+    teams: [{ id: "C", name: "Comets" }],
+    matchups: [],
+    logs: {},
+    bracketLogs: {},
+    settings: loadSettingsForSeason("default"),
+  });
+
+  it("goes with the season deleted, and only with it", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    keepOnDevice(first.id);
+    keepOnDevice(second.id);
+
+    expect(deleteSeason(second.id)).toBe(true);
+
+    expect(keptOnDevice(second.id)).toEqual(NONE);
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    const next = createSeason("Fall");
+    expect(next.id).toBe(second.id);
+    expect(keptOnDevice(next.id)).toEqual(NONE);
+  });
+
+  it("is none of a season made here, whatever a season gone before left under its id", () => {
+    // Left by a season deleted before its keeping went with it.
+    keepOnDevice("season-2");
+    keepOnDevice("season-3");
+
+    expect(createSeason("Spring").id).toBe("season-2");
+    expect(keptOnDevice("season-2")).toEqual(NONE);
+    expect(duplicateSeason("season-2", "Spring copy")?.id).toBe("season-3");
+    expect(keptOnDevice("season-3")).toEqual(NONE);
+  });
+
+  it("is none of a season arriving from elsewhere, and stays with one held here", () => {
+    const first = listSeasons()[0]!;
+    keepOnDevice(first.id);
+    keepOnDevice("season-2");
+
+    expect(addSeasons([arriving("season-2"), arriving(first.id)])).toBe(true);
+
+    expect(keptOnDevice("season-2")).toEqual(NONE);
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+  });
+
+  it("stays through a restore of the same season, and goes with one dropped or replaced", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    const third = createSeason("Summer");
+    [first.id, second.id, third.id, "season-9"].forEach(keepOnDevice);
+
+    expect(
+      replaceLeagueSnapshot({
+        activeSeasonId: first.id,
+        seasons: [
+          readSeasonSnapshot(first.id)!,
+          // Another season under the id, made at another moment: a backup from before the one
+          // held here was deleted and the id given again.
+          { ...readSeasonSnapshot(second.id)!, createdAt: "2025-04-01T00:00:00.000Z" },
+          arriving("season-9"),
+        ],
+      })
+    ).toBe(true);
+
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    expect(keptOnDevice(second.id)).toEqual(NONE);
+    expect(keptOnDevice(third.id)).toEqual(NONE);
+    expect(keptOnDevice("season-9")).toEqual(NONE);
   });
 });
 

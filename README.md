@@ -2721,7 +2721,8 @@ Picks go when the page does unless they are saved as a scenario (2.7,
 game's teams and date as they stood, kept on this device per season, the most recently
 changed first, thirty at most (a save that pushes the oldest out names it). One parent's
 "what if we win out" is theirs, not the season's, so a scenario is never written into
-the season, a backup or the cloud. A scenario is opened from the **Scenario** list, its
+the season, a backup or the cloud; it goes when its season does, not to a season made under
+the deleted one's id ([Data + persistence](#data--persistence)). A scenario is opened from the **Scenario** list, its
 picks changed and **Save changes**, **Rename**d, **Duplicate**d with the picks as they
 are now, or **Delete**d with its picks left on screen unsaved. **Clear picks** starts
 again. Choosing another entry in the list while the picks on screen are not saved, made
@@ -2857,7 +2858,8 @@ loss leaves, the magic number once few enough games remain to work it out exactl
 and **Enter a score**, which opens the Schedule on that team's games. The pick is
 this browser's, one per season (`readOurTeam`), and deliberately not a setting:
 settings travel in a shared link, and a parent's team is not the coach's they send
-the standings to. It is not in a backup either, for the same reason.
+the standings to. It is not in a backup either, for the same reason. It goes with its season,
+so a season made under a deleted one's id follows no team until one is picked there.
 
 When the team is linked to a Team Rankings club, the card also gives the club's place
 on its board — "37th of 1,812 nationally (▲3) · 4th of 160 in OH · 9U 2027 · Fall
@@ -2917,7 +2919,9 @@ them, a box score without runs counting as something, never the last copy of a g
 another device deleted the one kept while the question was open, and asked first), **Mark them
 final** (past games with both scores in), and **Use the schedule's count** for games per team. A finding that does not need attention can be **put aside** on this device,
 per season (`readPutAside`); it comes back when what it is about changes or it grows more
-serious, and a finding that needs attention cannot be put aside.
+serious, and a finding that needs attention cannot be put aside. What is put aside goes with its
+season: a season made under a deleted one's id, from the same team names, has the same
+fingerprints, and would otherwise find its findings already put aside.
 
 ## Since you last looked
 
@@ -2957,6 +2961,10 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
   or iPad an app added to the Home Screen, and on a Mac a web app added to the Dock from Safari,
   keeps storage of its own apart from the browser, so it is a device of its own, with its own
   last look, notification choices and record of what it has announced.
+- **A last look is one season's.** It goes when its season leaves the browser, and a season made
+  under a deleted one's id starts with none of it, as with everything else a device keeps of a
+  season ([Data + persistence](#data--persistence)): otherwise the deleted season's games and
+  teams were listed as removed since the last look.
 
 **Notifications**, in Settings, are off until turned on, and the browser is asked for permission
 only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its
@@ -2998,6 +3006,16 @@ subscription and sending to it, which the app does not have.
   `league_forecast_scout_age_groups_v1`, plus `league_forecast_gc_pull_v1` (an
   interrupted pull's place) and `league_forecast_gc_refresh_v1` (the rota's record)
 - `league_undo_snapshot_v1`
+- What a device keeps of a season beside it, never in the season, a backup or the cloud, is kept
+  by season id: its last look (`lf_league_seen_v1`), the findings put aside
+  (`lf_league_findings_put_aside_v1`), the team followed (`lf_our_team_v1`) and the saved
+  scenarios (`lf_league_scenarios_v1`). Season ids are given out again: counted from the seasons
+  held, so deleting the last season and making one gives back its id, and every browser's first
+  season is `default`. So all four go when their season leaves the browser, deleted, or left out
+  or replaced by another under its id in a restore, and an id given to a season new here, made,
+  copied or brought down from the cloud, starts with nothing under it (`forgetSeasons`). The page
+  reads the team followed and the findings put aside again for each season switched to, rather
+  than keeping them from an earlier visit to the id.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling

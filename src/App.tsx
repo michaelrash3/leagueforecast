@@ -2163,6 +2163,11 @@ export default function App() {
     seasonId: activeSeasonId,
     entries: readPutAside(activeSeasonId),
   }));
+  if (putAsideHeld.seasonId !== activeSeasonId) {
+    // Read afresh for each season switched to, never kept from a visit before, as the team
+    // followed is below: the id may have been given to another season since.
+    setPutAsideHeld({ seasonId: activeSeasonId, entries: readPutAside(activeSeasonId) });
+  }
   const putAsideEntries =
     putAsideHeld.seasonId === activeSeasonId ? putAsideHeld.entries : readPutAside(activeSeasonId);
   const openFindings = useMemo(
@@ -2464,6 +2469,11 @@ export default function App() {
     seasonId: activeSeasonId,
     teamId: readOurTeam(activeSeasonId),
   }));
+  if (ourTeamPick.seasonId !== activeSeasonId) {
+    // Read afresh for each season switched to, never kept from a visit before: the season held
+    // then may have been deleted since, and its id given to another (`forgetSeasons`).
+    setOurTeamPick({ seasonId: activeSeasonId, teamId: readOurTeam(activeSeasonId) });
+  }
   const ourTeamId =
     ourTeamPick.seasonId === activeSeasonId ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
   const pickOurTeam = useCallback(

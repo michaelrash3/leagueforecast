@@ -1,6 +1,7 @@
 import { STORAGE_VERSION, type GameLog, type Matchup, type Settings, type TeamBase } from "./types";
 import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./validate";
 import { mayWrite } from "./cloud/cloudGuard";
+import { forgetSeasons } from "./preferences";
 
 type DataKey = "teams" | "matchups" | "logs" | "bracketLogs" | "settings" | "undo";
 
@@ -315,6 +316,15 @@ export const readUndoSnapshot = () => parseJson(safeGet(seasonKey(activeId(), "u
 
 // ---------- Season management ----------
 
+/*
+ * Ids are handed out again: counted from the seasons held, so deleting the last season and making
+ * one gives its id back, and every browser's first season is `default`. What this device keeps of
+ * a season outside the season itself (`forgetSeasons`: its last look, the findings put aside, the
+ * team followed, the saved scenarios) goes with the season when it leaves this browser, and an id
+ * given to a season new here starts with nothing under it, whatever a season before it left there.
+ * Otherwise the new season took the old one's: its games and teams reported as removed since the
+ * last look, its findings already put aside.
+ */
 const genSeasonId = (existing: SeasonMeta[]): string => {
   const ids = new Set(existing.map((season) => season.id));
   let n = existing.length + 1;
@@ -346,6 +356,7 @@ export const createSeason = (name: string): SeasonMeta => {
   const id = genSeasonId(seasons);
   const resolvedName = name.trim() || `Season ${seasons.length + 1}`;
   const meta: SeasonMeta = { id, name: resolvedName, createdAt: nowIso() };
+  forgetSeasons([id]);
   // Seed the new season's settings so its export label matches its name from the start.
   safeSet(seasonKey(id, "settings"), JSON.stringify({ seasonLabel: resolvedName }));
   writeSeasons([...seasons, meta]);
@@ -382,6 +393,8 @@ export const duplicateSeason = (id: string, name: string): SeasonMeta | null => 
   const seasons = readSeasons();
   if (!seasons.some((season) => season.id === id)) return null;
   const newId = genSeasonId(seasons);
+  // The copy takes the original's data, and none of what this device kept of the original.
+  forgetSeasons([newId]);
   DATA_KEYS.forEach((dataKey) => {
     const value = safeGet(seasonKey(id, dataKey));
     if (value !== null) safeSet(seasonKey(newId, dataKey), value);
@@ -412,6 +425,7 @@ export const deleteSeason = (id: string): boolean => {
   if (seasons.length <= 1) return false;
   if (!seasons.some((season) => season.id === id)) return false;
   DATA_KEYS.forEach((dataKey) => safeRemove(seasonKey(id, dataKey)));
+  forgetSeasons([id]);
   const remaining = seasons.filter((season) => season.id !== id);
   writeSeasons(remaining);
   if (readActive() === id) writeActive(remaining[0]!.id);
@@ -494,6 +508,7 @@ export const addSeasons = (seasons: readonly SeasonSnapshot[]): boolean => {
   const taken = new Set(held.map((season) => season.id));
   const fresh = seasons.filter((season) => !taken.has(season.id));
   if (fresh.length === 0) return true;
+  forgetSeasons(fresh.map((season) => season.id));
   arriving += 1;
   try {
     let ok = true;
@@ -521,9 +536,30 @@ export const addSeasons = (seasons: readonly SeasonSnapshot[]): boolean => {
 };
 
 const replaceSeasons = (snapshot: LeagueSnapshot): boolean => {
-  readSeasons().forEach((season) => {
+  const held = readSeasons();
+  held.forEach((season) => {
     DATA_KEYS.forEach((dataKey) => safeRemove(seasonKey(season.id, dataKey)));
   });
+  /*
+   * A season held here and carried again, made at the same moment, is still that season and keeps
+   * what this device kept of it. One the snapshot leaves out has left this browser; one under an
+   * id held for a season made at another moment, or under an id not held, is a season new here.
+   * A time missing on either side, as on a season from before they were kept, says nothing.
+   */
+  const madeAt = new Map(held.map((season) => [season.id, season.createdAt]));
+  const same = new Set(
+    snapshot.seasons
+      .filter((season) => {
+        const was = madeAt.get(season.id);
+        return (
+          was !== undefined && (was === "" || season.createdAt === "" || was === season.createdAt)
+        );
+      })
+      .map((season) => season.id)
+  );
+  forgetSeasons(
+    [...held, ...snapshot.seasons].map((season) => season.id).filter((id) => !same.has(id))
+  );
 
   let ok = true;
   snapshot.seasons.forEach((season) => {
