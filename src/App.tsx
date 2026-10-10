@@ -3668,9 +3668,10 @@ export default function App() {
         )}
 
         {/* Each drawer is fetched the first time it is opened (2.1, 2.7), so each has a boundary of
-          its own: a download that fails is said over the page, with Close, and is fetched afresh on
-          Try again or the next opening, rather than reaching the root's boundary, whose Try again
-          would open the panel again from the address and fail again. */}
+          its own: a download that fails is said over the page, with Close, and is asked for again
+          on Try again or the next opening (though a browser may answer from the failure it keeps
+          for the visit, which only Reload the page clears), rather than reaching the root's
+          boundary, whose Try again would open the panel again from the address and fail again. */}
         {selectedTeam && (
           <ErrorBoundary
             area="The team panel"

@@ -142,7 +142,7 @@ export const explainForecast = (
       // The averages alone could point the other way from the part: it is the shares the ratings
       // count, and a side with fewer games has less of its opponents counted, for better or worse,
       // so one game against weak opponents can cost less than five against slightly better ones.
-      `Average opponent rating: ${name.teamA} ${signed(teamA.strengthOfSchedule)}, ${name.teamB} ${signed(teamB.strengthOfSchedule)}, counted as ${signed(teamA.scheduleShare)} and ${signed(teamB.scheduleShare)}, since a side with fewer games counts for less. Tougher opponents add to a rating, and weaker ones take from it.`
+      `Average opponent rating: ${name.teamA} ${signed(teamA.strengthOfSchedule)}, ${name.teamB} ${signed(teamB.strengthOfSchedule)}, counted as ${signed(teamA.scheduleShare)} and ${signed(teamB.scheduleShare)}, the shares the ratings take, which are smaller the fewer games a side has played. Tougher opponents add to a rating, and weaker ones take from it.`
     ),
   ];
   if (Math.abs(parts.headToHead) >= EVEN_RUNS) {

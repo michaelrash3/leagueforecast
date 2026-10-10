@@ -371,7 +371,7 @@ describe("explainForecast", () => {
     const schedule = explained?.factors.find((factor) => factor.key === "schedule");
     expect(schedule?.favors).toBe("teamA");
     expect(schedule?.text).toBe(
-      "Average opponent rating: Aces −1.1, Ducks −0.8, counted as −0.4 and −0.6, since a side with fewer games counts for less. Tougher opponents add to a rating, and weaker ones take from it."
+      "Average opponent rating: Aces −1.1, Ducks −0.8, counted as −0.4 and −0.6, the shares the ratings take, which are smaller the fewer games a side has played. Tougher opponents add to a rating, and weaker ones take from it."
     );
   });
 
