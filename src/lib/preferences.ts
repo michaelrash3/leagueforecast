@@ -327,26 +327,58 @@ export const writeNotified = (keys: ReadonlySet<string>): boolean =>
  */
 export const SCENARIOS_KEY = "lf_league_scenarios_v1";
 
-/** What this device keeps per season, each stored as one object by season id. */
-const PER_SEASON_KEYS = [SEEN_KEY, PUT_ASIDE_KEY, OUR_TEAM_KEY, SCENARIOS_KEY] as const;
+/**
+ * What this device keeps per season, each stored as one object by season id, and how an entry is
+ * carried to the id its season now goes by. A saved scenario names its season inside it as well,
+ * and is read only under the season it names (`readScenarios`).
+ */
+const PER_SEASON: readonly { key: string; carry?: (entry: unknown, to: string) => unknown }[] = [
+  { key: SEEN_KEY },
+  { key: PUT_ASIDE_KEY },
+  { key: OUR_TEAM_KEY },
+  {
+    key: SCENARIOS_KEY,
+    carry: (entry, to) =>
+      Array.isArray(entry)
+        ? entry.map((scenario: unknown) =>
+            scenario && typeof scenario === "object" && !Array.isArray(scenario)
+              ? { ...scenario, seasonId: to }
+              : scenario
+          )
+        : entry,
+  },
+];
 
 /**
  * Lets go of everything this device keeps of the seasons named: the last look, the findings put
  * aside, the team followed and the saved scenarios, entries this app cannot read among them, since
  * they were that season's as well. Storage calls it as a season leaves this browser and as an id
  * is given to a season new here, because season ids are handed out again (`storage.ts`).
+ *
+ * A season in `moved` is still here under another id: a cloud merge gives this device's season a
+ * new one when the other side made another season under its id (`leagueMerge.ts`). What was kept
+ * of it goes to that id, over anything a season before left there, and nothing stays under the
+ * old id, which is now the other season's.
  */
-export const forgetSeasons = (seasonIds: readonly string[]): void => {
-  if (seasonIds.length === 0) return;
-  for (const key of PER_SEASON_KEYS) {
+export const forgetSeasons = (
+  seasonIds: readonly string[],
+  { moved = {} }: { moved?: Readonly<Record<string, string>> } = {}
+): void => {
+  const moves = Object.entries(moved).filter(([from, to]) => from !== to);
+  const cleared = new Set([...seasonIds, ...moves.flat()]);
+  if (cleared.size === 0) return;
+  for (const { key, carry } of PER_SEASON) {
     try {
       const parsed: unknown = JSON.parse(safeGet(key) ?? "null");
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
-      const kept: Record<string, unknown> = { ...parsed };
-      const held = seasonIds.filter((id) => Object.prototype.hasOwnProperty.call(kept, id));
-      if (held.length === 0) continue;
-      held.forEach((id) => delete kept[id]);
-      safeSet(key, JSON.stringify(kept));
+      const held: Record<string, unknown> = { ...parsed };
+      const kept = Object.fromEntries(Object.entries(held).filter(([id]) => !cleared.has(id)));
+      moves.forEach(([from, to]) => {
+        if (!Object.prototype.hasOwnProperty.call(held, from)) return;
+        kept[to] = carry ? carry(held[from], to) : held[from];
+      });
+      const text = JSON.stringify(kept);
+      if (text !== JSON.stringify(held)) safeSet(key, text);
     } catch {
       /* unreadable, so it holds nothing of any season to let go */
     }

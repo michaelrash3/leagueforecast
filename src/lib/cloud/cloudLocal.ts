@@ -84,10 +84,11 @@ export const appLocalSource: LocalSource = {
     if ([...pool.keys()].some((key) => !isCloudPoolKey(key))) return false;
     if (parsed?.kind === "full") {
       const open = getActiveSeasonId();
-      // This device stays on the season it had open, under whatever id it now has.
+      // This device stays on the season it had open, under whatever id it now has, and what it
+      // keeps of each season a merge moved goes with it (`forgetSeasons`).
       const replaced = replaceLeagueSnapshot(
         { activeSeasonId: renamed[open] ?? open, seasons: parsed.backup.seasons },
-        { fromCloud: true }
+        { fromCloud: true, renamed }
       );
       if (!replaced) return false;
     }

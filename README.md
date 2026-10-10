@@ -3016,7 +3016,8 @@ subscription and sending to it, which the app does not have.
   held, so deleting the last season and making one gives back its id, and every browser's first
   season is `default`. So all four go when their season leaves the browser, deleted, or left out
   or replaced by another under its id in a restore, and an id given to a season new here, made,
-  copied or brought down from the cloud, starts with nothing under it (`forgetSeasons`). Nothing
+  copied or brought down from the cloud, starts with nothing under it (`forgetSeasons`). A season
+  of this device's that a cloud merge gives a new id takes all four with it to that id. Nothing
   goes until the list of seasons is written without its season: a tab that may no longer write
   the seasons, because another tab has taken a copy in since (`cloudGuard.ts`), neither deletes a
   season nor lets go of what was kept of it. The page reads the team followed and the findings put
@@ -3327,7 +3328,10 @@ merged, and whatever a merge had to replace is kept.
   Where both devices changed one
   record differently, the device that changed League Standings last wins it.
   Two seasons that share only an id (every browser's first season is
-  `default`) are kept apart: this device's takes a new one.
+  `default`) are kept apart: this device's takes a new one, and what the device
+  keeps of it beside the season (its last look, the findings put aside, the team
+  followed, the saved scenarios) goes with it to the new id, leaving nothing
+  under the old one, which is now the other season's.
 - **The Team Rankings pool** settles key by key, the later change winning,
   since a pool is too large and too interlinked to merge row by row.
 - **What lost** is kept in the copy, pieces and all, for 30 days and at most

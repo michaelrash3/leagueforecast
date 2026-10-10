@@ -482,18 +482,22 @@ export const readSeasonSnapshot = (id: string): SeasonSnapshot | null => {
 /**
  * Replace the whole multi-season layout with a restored one: every season currently stored is
  * cleared first, so a season absent from the backup does not survive the restore. Refuses an
- * empty season list rather than leaving the app with no season to open.
+ * empty season list rather than leaving the app with no season to open. `renamed` names this
+ * device's seasons that a cloud merge gave new ids (`leagueMerge.ts`), each now under its new id.
  */
 export const replaceLeagueSnapshot = (
   snapshot: LeagueSnapshot,
-  { fromCloud = false }: { fromCloud?: boolean } = {}
+  {
+    fromCloud = false,
+    renamed = {},
+  }: { fromCloud?: boolean; renamed?: Readonly<Record<string, string>> } = {}
 ): boolean => {
   ensureInitialized();
   if (!snapshot.seasons.length) return false;
   // The cloud copy's own seasons arriving are no change made here, and owe it nothing.
   if (fromCloud) arriving += 1;
   try {
-    return replaceSeasons(snapshot);
+    return replaceSeasons(snapshot, renamed);
   } finally {
     if (fromCloud) arriving -= 1;
   }
@@ -537,7 +541,10 @@ export const addSeasons = (seasons: readonly SeasonSnapshot[]): boolean => {
   }
 };
 
-const replaceSeasons = (snapshot: LeagueSnapshot): boolean => {
+const replaceSeasons = (
+  snapshot: LeagueSnapshot,
+  renamed: Readonly<Record<string, string>>
+): boolean => {
   const held = readSeasons();
   held.forEach((season) => {
     DATA_KEYS.forEach((dataKey) => safeRemove(seasonKey(season.id, dataKey)));
@@ -562,6 +569,15 @@ const replaceSeasons = (snapshot: LeagueSnapshot): boolean => {
   const left = [...held, ...snapshot.seasons]
     .map((season) => season.id)
     .filter((id) => !same.has(id));
+  /*
+   * A season of this device's that a merge gave a new id is still this device's season, under the
+   * new id, and what was kept of it goes there; its old id is now the other side's season. Only a
+   * season held here and carried under the new id is moved.
+   */
+  const carried = new Set(snapshot.seasons.map((season) => season.id));
+  const moved = Object.fromEntries(
+    Object.entries(renamed).filter(([from, to]) => madeAt.has(from) && carried.has(to))
+  );
 
   let ok = true;
   snapshot.seasons.forEach((season) => {
@@ -584,7 +600,7 @@ const replaceSeasons = (snapshot: LeagueSnapshot): boolean => {
     ...(updatedAt ? { updatedAt } : {}),
   }));
   // As in `deleteSeason`, nothing is let go of until the list says the seasons have gone.
-  if (writeSeasons(meta)) forgetSeasons(left);
+  if (writeSeasons(meta)) forgetSeasons(left, { moved });
   else ok = false;
   // A pointer at a season the backup does not carry would leave the app on an empty season.
   const active = meta.some((season) => season.id === snapshot.activeSeasonId)

@@ -445,6 +445,54 @@ describe("what this device keeps of a season under its id", () => {
     expect(keptOnDevice("season-9")).toEqual(NONE);
   });
 
+  // The other side's season under the id made at another moment, or at a moment it never kept.
+  it.each(["2025-04-01T00:00:00.000Z", ""])(
+    "moves with this device's season to the id a cloud merge gave it (other made at %j)",
+    (otherMadeAt) => {
+      const first = listSeasons()[0]!;
+      saveTeams([{ id: "A", name: "Aces" }]);
+      keepOnDevice(first.id);
+      // Left under the new id by a season gone before.
+      writeOurTeam("season-7", "Z");
+      const mine = readSeasonSnapshot(first.id)!;
+
+      expect(
+        replaceLeagueSnapshot(
+          {
+            activeSeasonId: "season-7",
+            // The cloud's season under the id, and this device's beside it under its new one.
+            seasons: [arriving(first.id, otherMadeAt), { ...mine, id: "season-7" }],
+          },
+          { fromCloud: true, renamed: { [first.id]: "season-7" } }
+        )
+      ).toBe(true);
+
+      expect(keptOnDevice("season-7")).toEqual(ALL);
+      expect(keptOnDevice(first.id)).toEqual(NONE);
+    }
+  );
+
+  it("moves only a season held here, and only to an id the seasons carry", () => {
+    const first = listSeasons()[0]!;
+    keepOnDevice(first.id);
+    // Left by a season deleted before its keeping went with it.
+    keepOnDevice("season-5");
+
+    expect(
+      replaceLeagueSnapshot(
+        {
+          activeSeasonId: first.id,
+          seasons: [readSeasonSnapshot(first.id)!, arriving("season-7")],
+        },
+        { fromCloud: true, renamed: { "season-5": "season-7", [first.id]: "season-8" } }
+      )
+    ).toBe(true);
+
+    expect(keptOnDevice("season-7")).toEqual(NONE);
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    expect(keptOnDevice("season-8")).toEqual(NONE);
+  });
+
   it("stays with a season a tab may no longer delete or replace", () => {
     const first = listSeasons()[0]!;
     const second = createSeason("Spring");
