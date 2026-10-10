@@ -6,7 +6,7 @@ import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge } from "../lib/clubAge";
 import { createAgeGroupId } from "../lib/teamRankings/seasons";
-import { filedByNameOn, mintStandInId } from "../lib/notThisTeam";
+import { filedByNameOn, mintStandInId, takenOffSaid } from "../lib/notThisTeam";
 import { planClubAges } from "../lib/live/agePlan";
 import { whereIsGcId } from "../lib/gcIdWhereabouts";
 import { leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
@@ -1330,12 +1330,11 @@ export function TeamRankingsView({
     });
     if (!run.ok || run.writes.length === 0) return;
     const opponent = teamNameById.get(game.teamAId === teamId ? game.teamBId : game.teamAId);
-    showToast(
-      `Taken off ${club.name}: the game${opponent ? ` with ${opponent}` : ""}${
-        game.date ? ` on ${game.date}` : ""
-      } stands against the name alone now.`,
-      { tone: "undo", actionLabel: "Undo", onAction: () => runCommand(run.inverse) }
-    );
+    showToast(takenOffSaid(club.name, opponent, game.date), {
+      tone: "undo",
+      actionLabel: "Undo",
+      onAction: () => runCommand(run.inverse),
+    });
   };
 
   /**

@@ -1276,6 +1276,8 @@ describe("a club's panel on the cloud's board", () => {
     expect(panel).toHaveTextContent("5–3 · 2027-03-20 · Placeholder Classic");
     expect(panel).toHaveTextContent("2–6 · 2027-03-27");
     expect(within(panel).getByText("Sched")).toBeTruthy();
+    // Its card names no game it has by a name alone, so none is offered to take off it.
+    expect(within(panel).queryByRole("button", { name: "Not this team" })).toBeNull();
     expect(handedOver()).toBeNull();
   });
 
@@ -1296,6 +1298,82 @@ describe("a club's panel on the cloud's board", () => {
       },
     ]);
     expect(handedOver()).toBeNull();
+  });
+
+  it("takes a game it has by a name alone off it through the edit function, drawn at once, with an Undo", async () => {
+    // The 27 March loss came off another club's schedule, by a name matched to this club.
+    await withCard({ ...CARD, byName: { g2: "g2" } });
+    const stored = {
+      ...CARD.games[1]!,
+      source: { kind: "gamechanger", teamId: "gc-4", gameId: "r2" },
+    };
+    const server = editFunction((data) => {
+      if (data.warm) return WARMED;
+      const command = data.command as { kind: string; standInId?: string };
+      return command.kind === "game.notThisTeam"
+        ? {
+            ...made(5, ["league_forecast_scout_games_v2:2027", "league_forecast_scout_teams_v1"]),
+            inverse: {
+              kind: "batch",
+              commands: [
+                { kind: "game.put", year: 2027, games: [stored] },
+                { kind: "team.remove", teamId: command.standInId },
+              ],
+            },
+          }
+        : made(6, ["league_forecast_scout_games_v2:2027", "league_forecast_scout_teams_v1"]);
+    });
+    open(sourcesOf(live, { call: server.call }));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    expect(panel).toHaveTextContent("1-1 in 12U 2027, from 2 games.");
+    // Offered beside that game alone.
+    const offered = within(panel).getAllByRole("button", { name: "Not this team" });
+    expect(offered).toHaveLength(1);
+    expect(offered[0]!.closest("li")).toHaveTextContent("2–6 · 2027-03-27");
+    fireEvent.click(offered[0]!);
+    const done =
+      "Taken off Placeholder S-1: the game with Placeholder S-4 on 2027-03-27 stands against the name alone now.";
+    await waitFor(() => expect(said.toasts).toContain(done));
+    const [sent] = edited(server.sent);
+    expect(sent).toEqual({
+      command: {
+        kind: "game.notThisTeam",
+        year: 2027,
+        gameId: "g2",
+        teamId: "S-1",
+        standInId: expect.any(String),
+      },
+      copy: MANIFEST.copy,
+    });
+    // A stand-in's id no roster holds: minted from the name, with something of its own after it.
+    const standInId = (sent?.command as { standInId: string }).standInId;
+    expect(standInId).not.toBe("S-1");
+    expect(standInId.length).toBeGreaterThan(0);
+    // Off the club at once, before a publish carries it: the record moves with it.
+    await waitFor(() => expect(panel).toHaveTextContent("1-0 in 12U 2027, from 1 game."));
+    expect(within(panel).queryByRole("button", { name: "Not this team" })).toBeNull();
+    // The Undo sends the server's own inverse, and the game is drawn on the club again.
+    act(() => said.actions.get(done)?.());
+    await waitFor(() => expect(said.toasts).toContain("Undone."));
+    expect(edited(server.sent).map(({ command }) => (command as { kind: string }).kind)).toEqual([
+      "game.notThisTeam",
+      "batch",
+    ]);
+    await waitFor(() => expect(panel).toHaveTextContent("1-1 in 12U 2027, from 2 games."));
+    expect(handedOver()).toBeNull();
+  });
+
+  it("offers no game to take off a club while edits are off", async () => {
+    await withCard({ ...CARD, byName: { g2: "g2" } });
+    open(sourcesOf(live));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    expect(within(panel).getAllByRole("button", { name: "Not this team" })).toHaveLength(1);
+    act(() => live.cutOff());
+    await waitFor(() =>
+      expect(within(panel).queryByRole("button", { name: "Not this team" })).toBeNull()
+    );
   });
 
   it("draws a new name at once, and the card as published once a publish of the edit's version is out", async () => {

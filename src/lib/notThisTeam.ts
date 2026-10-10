@@ -181,6 +181,16 @@ export const mintStandInId = (name: string, taken?: ReadonlySet<string>): string
     : `${read}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 };
 
+/** What a person is told once a game is taken off a club, on either kind of page. */
+export const takenOffSaid = (
+  club: string,
+  opponent: string | undefined,
+  date: string | undefined
+) =>
+  `Taken off ${club}: the game${opponent ? ` with ${opponent}` : ""}${
+    date ? ` on ${date}` : ""
+  } stands against the name alone now.`;
+
 /** What taking a game off a club reads: the roster, the pages, and the games of its squad year. */
 export type TakeOff = {
   teams: readonly ScoutTeam[];

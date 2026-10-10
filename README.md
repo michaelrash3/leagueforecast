@@ -1033,7 +1033,8 @@ stand-in a pull of that schedule would reuse for the name, at the level the row 
 squad year and named from the namer's state, or a new one where there is none, or a slot for a name
 that can only be one. The club's record, rating and board move with it, and Undo puts the game back
 as it was. It is a command (`game.notThisTeam`), so a page kept in the browser runs it on its own
-store and the live page sends it to the edit function.
+store and the live page sends it to the edit function, the club's card naming the games it is
+offered beside by their stored ids (`ClubCard.byName`), since a card carries no other.
 
 The answer is remembered, as the pairs kept apart are: in the pool's own key
 (`league_forecast_gc_not_this_team_v1`), in every backup and in the cloud copy, against the
@@ -4139,7 +4140,13 @@ side B's own report, whether it is set not to count or its runaway score was
 confirmed, its day, its event and each side's level; not its start, since a game
 counts as played ahead by its day alone), and sent from the club's side: its
 opponents named once, each game pointing at one, and without its stored id, which
-the panel only keys rows by. Cards go out in buckets, a year's clubs split by a hash
+the panel only keys rows by. The one exception is a game the club has only because a
+name on another club's schedule was matched to it (`filedByNameOn`), whose stored id
+the card keeps (`n`, read back as `ClubCard.byName`, by the game's place): that is
+where the panel offers Not this team, and the command it sends names the game by it.
+On the 29 September backup 8,200 games stood so on 5,984 of its 52,967 pulled clubs,
+at most 14 on one club and a median of one, which adds 0.48 MB of JSON to the cards
+of every year together (measured). Cards go out in buckets, a year's clubs split by a hash
 of their id into 64 views (`club:{year}:{bucket}`, `clubBucketOf`): one view per
 club would be a hundred thousand documents to write on a night every club is
 pulled, and one per year the whole pool to read for one club.
@@ -4773,9 +4780,12 @@ club open when the board hands over opens on Team Rankings, and one tapped while
 the pool comes in says so until Team Rankings opens on it.
 
 Its edits go to the edit function (`useLiveEdits`, 1.5): a state, a name, a
-GameChanger link taken off, an age set or taken back, and a fold into another
-club on the board, each sent as a command against the copy the board is of, and
-each answer said in a toast: the edit made (an age with an Undo that sends its
+GameChanger link taken off, an age set or taken back, a fold into another club on
+the board, and a game the club has only by a name another schedule wrote taken off
+it (Not this team, `game.notThisTeam`, by the stored id its card keeps for such a
+game and a stand-in id the device mints, which no roster holds), each sent as a
+command against the copy the board is of, and each answer said in a toast: the edit
+made (an age, or a game taken off, with an Undo that sends its
 inverse), or why not, in plain words, a refusal as the server named it and a call
 that came to nothing in the call's own words, which say an edit may or may not have
 been made wherever the server did not prove it was not. A rename onto a name
@@ -4783,7 +4793,9 @@ another club holds, and a fold, are asked about first, with what the server says
 they move (`rename.preview`, `merge.preview`). An edit made is drawn over the card
 until a publish of its version or later is out (`overlayCard`): the state, name,
 links and level it gave the club (and an age's Undo, whose ages named for the
-club's GameChanger teams put back the pin it had, or none), and a club folded away opens the one it went
+club's GameChanger teams put back the pin it had, or none), a game taken off it as not
+its own no longer drawn, its record moving with it, until its Undo puts the game back
+on the club, and a club folded away opens the one it went
 into. An edit that changed nothing the views read (a Pool health answer) asks for
 no rebuild and is not waited on. Opening a panel brings the server's pool up
 (`warm`), at most once in ten minutes of calls. While the device is offline, or

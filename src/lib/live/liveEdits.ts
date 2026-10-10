@@ -157,7 +157,8 @@ const stepsOf = (command: PoolCommand): PoolCommand[] =>
 
 /**
  * A club's card as the edits made since it was published leave it, for its panel: its state, name,
- * GameChanger links and level, as each edit made them. A card the server's next publish replaces
+ * GameChanger links and level, as each edit made them, and without a game taken off it as not its
+ * own, which takes its record with it. A card the server's next publish replaces
  * says all of this itself; until then this is what the panel draws. A club folded into another is
  * no longer a card to draw, and says where its games went.
  */
@@ -166,9 +167,20 @@ export const overlayCard = (
   edits: readonly PoolCommand[]
 ): ClubCard | { foldedInto: string } => {
   let shown = card;
+  // The stored ids of games taken off the club as not its own (`game.notThisTeam`), until a step
+  // puts the game back on it: that edit's Undo, which puts the game as the copy held it.
+  const takenOff = new Set<string>();
   for (const step of edits.flatMap(stepsOf)) {
     const team = shown.team;
     switch (step.kind) {
+      case "game.notThisTeam":
+        if (step.teamId === team.id) takenOff.add(step.gameId);
+        break;
+      case "game.put":
+        for (const game of step.games) {
+          if (game.teamAId === team.id || game.teamBId === team.id) takenOff.delete(game.id);
+        }
+        break;
       case "team.state": {
         if (step.teamId !== team.id) break;
         const state = step.state === null ? undefined : normalizeState(step.state);
@@ -238,7 +250,21 @@ export const overlayCard = (
         break;
     }
   }
-  return shown;
+  if (takenOff.size === 0 || !shown.byName) return shown;
+  // A card names such a game by its place, and the edit by its stored id (`ClubCard.byName`).
+  const byName = shown.byName;
+  const off = (game: { id: string }) => {
+    const stored = byName[game.id];
+    return stored !== undefined && takenOff.has(stored);
+  };
+  if (!shown.games.some(off)) return shown;
+  const { byName: _was, ...rest } = shown;
+  const left = Object.fromEntries(Object.entries(byName).filter(([, id]) => !takenOff.has(id)));
+  return {
+    ...rest,
+    games: shown.games.filter((game) => !off(game)),
+    ...(Object.keys(left).length > 0 ? { byName: left } : {}),
+  };
 };
 
 /**

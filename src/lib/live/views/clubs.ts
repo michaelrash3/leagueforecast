@@ -1,5 +1,6 @@
 import type { AgeGroup, ScoutGame } from "../../teamRankings";
 import type { NamedAges } from "../../namedAges";
+import { filedByNameOn } from "../../notThisTeam";
 import { clubAgeOf } from "../../teamRankings/clubAge";
 import type { BoardsBuilt } from "./board";
 import {
@@ -72,10 +73,20 @@ export const clubViews = ({
       if (list) list.push(game);
       else gamesOf.set(teamId, [game]);
     };
+    // The games each club has only by a name another schedule wrote (`filedByNameOn`), read off
+    // the stored game, whose source and folded rows a card does not carry.
+    const byNameOf = new Map<string, Record<string, string>>();
     for (const stored of known.games) {
       const game = panelGame(stored);
       add(game.teamAId, game);
       if (game.teamBId !== game.teamAId) add(game.teamBId, game);
+      for (const side of [stored.teamAId, stored.teamBId]) {
+        const club = teams.get(side);
+        if (!club || !filedByNameOn(stored, club)) continue;
+        const held = byNameOf.get(side) ?? {};
+        held[stored.id] = stored.id;
+        byNameOf.set(side, held);
+      }
     }
     // The pages each club's League Standings games are filed on (`leagueTeamIdsOn`, page by page).
     const leaguePages = new Map<string, Set<string>>();
@@ -98,6 +109,7 @@ export const clubViews = ({
       }
       const pages = leaguePages.get(teamId);
       const age = clubAgeOf(team, year, ageGroups, namedAges);
+      const byName = byNameOf.get(teamId);
       // The star is the owner's, as on a board (`withMine`): no member's device reads it here.
       const { isMine: _mine, ...club } = team;
       const card: ClubCard = {
@@ -107,6 +119,7 @@ export const clubViews = ({
         ...(pages ? { leaguePages: [...pages].sort() } : {}),
         ...(known.pickedOnly.has(teamId) ? { picked: true as const } : {}),
         ...(age ? { age } : {}),
+        ...(byName ? { byName } : {}),
       };
       const bucket = clubBucketOf(teamId);
       const clubs = buckets.get(bucket) ?? {};

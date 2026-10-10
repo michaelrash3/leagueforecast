@@ -107,6 +107,20 @@ describe("a club card", () => {
     ).toThrow(/not its own/);
   });
 
+  it("keeps the stored id of a game it has by a name alone, by the game's place, and no other", () => {
+    // As published, a game's id on the card is its stored id; read back, its place.
+    const byName: ClubCard = { ...CARD, byName: { g2: "g2", g5: "g5" } };
+    const wire = encodeClubCard(byName);
+    expect(wire.games.map((one) => one.n)).toEqual([undefined, "g2", undefined, undefined, "g5"]);
+    expect(roundTrip(byName)).toEqual({
+      ...CARD,
+      games: CARD.games.map((one, at) => ({ ...one, id: String(at) })),
+      byName: { "1": "g2", "4": "g5" },
+    });
+    // A card with none says nothing of it.
+    expect(roundTrip(CARD)).not.toHaveProperty("byName");
+  });
+
   it("says the panel's League Standings link on a page: by name, by pick, or none", () => {
     expect(leagueLinkOf(CARD, "ag_10u_2027")).toBe("pick");
     expect(leagueLinkOf({ ...CARD, picked: undefined }, "ag_10u_2027")).toBe("name");
@@ -148,6 +162,8 @@ describe("a published bucket read back", () => {
     expect(refused((card) => (card.picked = false))).toBeNull();
     expect(refused((card) => (card.age = { level: "10" }))).toBeNull();
     expect(refused((card) => (card.age = { pinned: { level: 11, was: -1 } }))).toBeNull();
+    expect(refused((card) => (card.games[1]!.n = ""))).toBeNull();
+    expect(refused((card) => (card.games[1]!.n = 2))).toBeNull();
     // Untouched, it reads.
     expect(coerceClubBucket(wire())).not.toBeNull();
   });

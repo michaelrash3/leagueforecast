@@ -7,6 +7,7 @@ import { useClubCard } from "../../hooks/useClubCard";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { overlayCard } from "../../lib/live/liveEdits";
+import { mintStandInId, takenOffSaid } from "../../lib/notThisTeam";
 import type { AgeGroup, SeasonSegment } from "../../lib/teamRankings";
 import { normalizeState } from "../../lib/teamRankings/names";
 import { createAgeGroupId } from "../../lib/teamRankings/seasons";
@@ -22,8 +23,10 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
  * in its place, with Try again (1.6e).
  *
  * Its edits go to the edit function (`edits`, 1.5): a state, a name, a GameChanger link taken off,
- * an age set or taken back, and a fold into another club on the page, each said in a toast and
- * drawn over the card until the card is published with it (`overlayCard`). A rename onto a name
+ * an age set or taken back, a fold into another club on the page, and a game it has only by a name
+ * another schedule wrote taken off it ("Not this team", by the stored id its card keeps for such a
+ * game, `ClubCard.byName`), each said in a toast and drawn over the card until the card is
+ * published with it (`overlayCard`). A rename onto a name
  * another club holds, and a fold, are asked about first, with what the server says they move
  * (`rename.preview`, `merge.preview`). A club League Standings made rides along with any edit that
  * needs it on the roster (`adopt`), as the page sends it. While edits are off (offline, or before
@@ -169,6 +172,24 @@ export default function LiveClubPanel({
         )
       }
       onMergeInto={(intoId) => void mergeInto(intoId)}
+      notThisTeam={{
+        offered: (game) => shown.byName?.[game.id] !== undefined,
+        onRefuse: (game) => {
+          const gameId = shown.byName?.[game.id];
+          if (gameId === undefined) return;
+          const opponent = names.get(game.teamAId === team.id ? game.teamBId : game.teamAId);
+          void edit(
+            {
+              kind: "game.notThisTeam",
+              year: year ?? null,
+              gameId,
+              teamId: team.id,
+              standInId: mintStandInId(team.name),
+            },
+            { done: takenOffSaid(team.name, opponent, game.date), undo: true }
+          );
+        },
+      }}
       {...(year === undefined
         ? {}
         : {

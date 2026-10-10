@@ -6,8 +6,9 @@ import type { ScoutGame, ScoutTeam } from "../../teamRankings";
  * What a published club card is, as both its publisher (`clubs.ts`) and a member's device read it:
  * its key, its bucket, its shape and the check of that shape. The team panel a club opens reads
  * no fit (`TeamDetailPanel`): only the club, its own games of the year, its opponents' names, its
- * age and its League Standings link. So each club has a card with exactly those, and a device that
- * opens a club reads that club's card rather than the year's pool.
+ * age and its League Standings link. So each club has a card with exactly those, and the stored ids
+ * of the few games its "Not this team" names, and a device that opens a club reads that club's card
+ * rather than the year's pool.
  *
  * Cards are published in buckets, a squad year's clubs split by their id into `CLUB_BUCKETS`
  * views: one view per club would be a hundred thousand documents to write on a night every club
@@ -52,6 +53,10 @@ export const clubKey = (year: number | undefined, bucket: number): string =>
  * - `leaguePages`: the pages its League Standings games are filed on, and `picked`, that League
  *   Standings reaches it only by a person's pick: together the panel's `leagueLink` on any page.
  * - `age`: its level in the year, and the level a person pinned it at (`clubAgeOf`).
+ * - `byName`: the games it has only because a name on another club's schedule was matched to it
+ *   (`filedByNameOn`), by their id on the card, each to its stored id: where the panel offers "Not
+ *   this team", and the game the command it sends names (`game.notThisTeam`). The one place a card
+ *   keeps a stored id, since that command needs one and these are few of a club's games.
  */
 export type ClubCard = {
   team: ScoutTeam;
@@ -60,6 +65,7 @@ export type ClubCard = {
   leaguePages?: string[];
   picked?: true;
   age?: ClubAge;
+  byName?: Record<string, string>;
 };
 
 /**
@@ -67,7 +73,7 @@ export type ClubCard = {
  * B; `o` its opponent's place in the card's `opponents`, or -1 for a game against its own name;
  * `p` the page it is filed on; `a` and `b` the scores; `ra` and `rb` side B's own report of them;
  * `x` set not to count; `c` the margin a person confirmed; `d` and `e` its day and event; `la` and
- * `lb` each side's level.
+ * `lb` each side's level; `n` its stored id, for a game the club has by a name alone (`byName`).
  */
 type GameWire = {
   s: 0 | 1;
@@ -83,6 +89,7 @@ type GameWire = {
   e?: string;
   la?: number;
   lb?: number;
+  n?: string;
 };
 
 /**
@@ -110,7 +117,8 @@ export const leagueLinkOf = (card: ClubCard, pageId: string): "name" | "pick" | 
 
 /**
  * A card as it is published: each game from the club's side, its opponent by its place in the
- * card's list, and without its stored id. Every game must be the club's.
+ * card's list, and without its stored id but where the club has it by a name alone (`byName`).
+ * Every game must be the club's.
  */
 export const encodeClubCard = (card: ClubCard): CardWire => {
   const teamId = card.team.id;
@@ -144,6 +152,7 @@ export const encodeClubCard = (card: ClubCard): CardWire => {
       ...(game.event === undefined ? {} : { e: game.event }),
       ...(game.ageLevelA === undefined ? {} : { la: game.ageLevelA }),
       ...(game.ageLevelB === undefined ? {} : { lb: game.ageLevelB }),
+      ...(card.byName?.[game.id] === undefined ? {} : { n: card.byName[game.id] }),
     };
   });
   return {
@@ -204,6 +213,7 @@ const gameOf = (
     ["e", isText],
     ["la", isLevel],
     ["lb", isLevel],
+    ["n", (value) => isText(value) && value !== ""],
   ];
   if (optional.some(([field, valid]) => raw[field] !== undefined && !valid(raw[field])))
     return null;
@@ -248,10 +258,14 @@ const cardOf = (teamId: string, raw: unknown): ClubCard | null => {
     if (isText(name)) names[id] = name;
   }
   const games: ScoutGame[] = [];
+  const byName: Record<string, string> = {};
   for (const [at, entry] of (raw.games as unknown[]).entries()) {
     const game = gameOf(entry, at, teamId, opponents);
     if (!game) return null;
     games.push(game);
+    // Checked by `gameOf` already, which refuses the card for an `n` that is not an id.
+    const stored = (entry as { n?: string }).n;
+    if (stored !== undefined) byName[game.id] = stored;
   }
   let leaguePages: string[] | undefined;
   if (raw.leaguePages !== undefined) {
@@ -270,6 +284,7 @@ const cardOf = (teamId: string, raw: unknown): ClubCard | null => {
     ...(leaguePages ? { leaguePages } : {}),
     ...(raw.picked === true ? { picked: true as const } : {}),
     ...(age ? { age } : {}),
+    ...(Object.keys(byName).length > 0 ? { byName } : {}),
   };
 };
 

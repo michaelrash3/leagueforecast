@@ -287,4 +287,73 @@ describe("the club cards a server publishes", { timeout: 60_000 }, () => {
       { ...panelled, id: "1" },
     ]);
   });
+
+  it("say which games a club has only by a name another schedule wrote, with their stored ids", () => {
+    // The seeded fixture's games carry no source, so the page's panel offers "Not this team" on
+    // none of them; these do, each as `filedByNameOn` reads it.
+    const HAWKS = "gcHAWKS00001";
+    const EAGLES = "gcEAGLES0001";
+    const game = (more: Partial<ScoutGame> & Pick<ScoutGame, "id">): ScoutGame => ({
+      teamAId: "S-H",
+      teamBId: "S-E",
+      ageGroupId: "ag_10u_2027",
+      date: "2027-03-20",
+      source: { kind: "gamechanger", teamId: HAWKS, gameId: more.id },
+      ...more,
+    });
+    const games = [
+      // The Hawks' schedule named "Eagles", and nothing of the Eagles' own lists it.
+      game({ id: "named" }),
+      // The Eagles' own row, against a stand-in.
+      game({
+        id: "own",
+        teamAId: "S-E",
+        teamBId: "S-C",
+        source: { kind: "gamechanger", teamId: EAGLES, gameId: "e1" },
+      }),
+      // The Hawks' row with the Eagles' own row folded into it.
+      game({ id: "folded", alsoRows: [{ teamId: EAGLES, gameId: "e2" }] }),
+      // Typed in by hand: the owner's word, not a name matched.
+      game({ id: "typed", source: undefined }),
+    ];
+    const known = {
+      teams: [
+        {
+          id: "S-H",
+          name: "Placeholder Hawks",
+          gcTeams: [{ teamId: HAWKS, name: "Placeholder Hawks 10U", ageGroupId: "ag_10u_2027" }],
+        },
+        {
+          id: "S-E",
+          name: "Placeholder Eagles",
+          gcTeams: [{ teamId: EAGLES, name: "Placeholder Eagles 10U", ageGroupId: "ag_10u_2027" }],
+        },
+        { id: "S-C", name: "Placeholder Comets", nameOnly: true as const },
+      ],
+      games,
+      derivedGames: [],
+      pickedOnly: new Set<string>(),
+      leagueClubs: new Map(),
+      leagueHalves: new Map(),
+    };
+    const views = clubViews({
+      ageGroups: [],
+      built: { known: new Map([[2027, known]]) },
+      namedAges: new Map(),
+    });
+    const cardOf = (teamId: string) =>
+      coerceClubBucket(
+        JSON.parse(
+          JSON.stringify(
+            views.find(({ key }) => key === clubKey(2027, clubBucketOf(teamId)))?.value
+          )
+        )
+      )?.clubs[teamId];
+    const eagles = cardOf("S-E");
+    expect(eagles?.games.map((one) => one.id)).toEqual(["0", "1", "2", "3"]);
+    expect(eagles?.byName).toEqual({ "0": "named" });
+    // The namer's own rows are its own, and a stand-in is a name and nothing more.
+    expect(cardOf("S-H")).not.toHaveProperty("byName");
+    expect(cardOf("S-C")).not.toHaveProperty("byName");
+  });
 });

@@ -152,6 +152,56 @@ describe("a club's card with the edits made since it was published", () => {
     });
   });
 
+  it("is without a game taken off it as not its own, until that edit's Undo puts it back", () => {
+    // As a device reads a card: each game's id its place, the name-filed one's stored id beside it.
+    const named = {
+      id: "0",
+      teamAId: "S-4",
+      teamBId: "S-1",
+      ageGroupId: "ag_12u_2027",
+      teamAScore: 6,
+      teamBScore: 2,
+      date: "2027-03-27",
+    };
+    const own = { id: "1", teamAId: "S-1", teamBId: "S-2", ageGroupId: "ag_12u_2027" };
+    const card: ClubCard = { ...CARD, games: [named, own], byName: { "0": "gc-row-7" } };
+    const taken: PoolCommand = {
+      kind: "game.notThisTeam",
+      year: 2027,
+      gameId: "gc-row-7",
+      teamId: "S-1",
+      standInId: "placeholder-s-1-x1",
+    };
+    const { byName: _byName, ...without } = card;
+    expect(overlayCard(card, [taken])).toEqual({ ...without, games: [own] });
+    // Another club's, or another game's, leaves it as it is.
+    expect(overlayCard(card, [{ ...taken, teamId: "S-9" }])).toEqual(card);
+    expect(overlayCard(card, [{ ...taken, gameId: "gc-row-8" }])).toEqual(card);
+    // Its Undo, as the server words it: the game put back on the club as the copy held it, the
+    // stand-in made for it taken away, and the refusal forgotten.
+    const stored = {
+      ...named,
+      id: "gc-row-7",
+      source: { kind: "gamechanger" as const, teamId: "gc-4", gameId: "r7" },
+    };
+    const undo: PoolCommand = {
+      kind: "batch",
+      commands: [
+        { kind: "game.put", year: 2027, games: [stored] },
+        { kind: "team.remove", teamId: "placeholder-s-1-x1" },
+        { kind: "answers", list: "notThisTeam", add: [], remove: ["gc-4\u0000s1\u0000gc-1"] },
+      ],
+    };
+    expect(overlayCard(card, [taken, undo])).toEqual(card);
+    // A game put back somewhere other than this club does not bring it back here.
+    const elsewhere: PoolCommand = {
+      kind: "game.put",
+      year: 2027,
+      games: [{ ...stored, teamBId: "S-8" }],
+    };
+    expect(overlayCard(card, [taken, elsewhere])).toEqual({ ...without, games: [own] });
+  });
+
   it("is the club it was folded into once folded, and itself when another was folded into it", () => {
     expect(
       overlayCard(CARD, [{ kind: "teams.merge", fromId: "S-1", intoId: "S-2", adopt: [] }])
