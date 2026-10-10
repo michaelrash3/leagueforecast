@@ -307,6 +307,34 @@ describe("applyFullBackup", () => {
     expect(readSeen("default")).toEqual(emptied);
   });
 
+  it("takes none as seen when a season could not be written, though one it left out has gone", () => {
+    const secondId = seedBrowser();
+    const backup = readFullBackup();
+    saveTeams([]);
+    saveMatchups([]);
+    const emptied = seenOf({ teams: [], matchups: [], logs: {} });
+    writeSeen("default", emptied);
+    const doomed = createSeason("Delete me");
+    writeSeen(doomed.id, emptied);
+    // One season's games will not fit; the list of seasons is written all the same.
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        if (k.startsWith(`league_season_${secondId}_matchups`)) throw new Error("QuotaExceeded");
+        backing.set(k, v);
+      },
+      removeItem: (k: string) => {
+        backing.delete(k);
+      },
+    });
+
+    expect(applyFullBackup(backup).failed).toContain("seasons");
+
+    expect(listSeasons().map((season) => season.id)).not.toContain(doomed.id);
+    expect(readSeen("default")).toEqual(emptied);
+    expect(readSeen(doomed.id)).toBeNull();
+  });
+
   it("clears a season the backup does not carry", () => {
     seedBrowser();
     const backup = readFullBackup();

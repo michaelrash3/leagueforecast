@@ -2952,8 +2952,11 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
   either way, and that is the moment). The race starts from the forecast of that season, worked
   out afresh when the cloud's word brought scores, not from the one on screen before them. A full
   backup restored here is this device's doing as well: each season it restores that the device
-  had looked at is taken as seen as restored (`applyFullBackup`), not only the one that opens; a
-  restore that could not write the seasons leaves every look as it was.
+  had looked at is taken as seen as restored (`applyFullBackup`), not only the one that opens. A
+  restore that could not write every season takes none of them as seen. Once it has written the
+  list of seasons, those it left out or replaced have still lost their looks, as everything kept of
+  a season goes with it ([Data + persistence](#data--persistence)); only a restore that could not
+  write that list leaves every look as it was.
 - **One device, however many tabs.** The installed app beside a browser tab is two pages each
   kept live, and each hears the other's edits from the cloud as it would another device's. The
   last look is the device's, so each tab writes only what it took as seen, laid over the look as
@@ -3340,10 +3343,10 @@ merged, and whatever a merge had to replace is kept.
   Where both devices changed one
   record differently, the device that changed League Standings last wins it.
   Two seasons that share only an id (every browser's first season is
-  `default`) are kept apart: this device's takes a new one, and what the device
-  keeps of it beside the season (its last look, the findings put aside, the team
-  followed, the saved scenarios) goes with it to the new id, leaving nothing
-  under the old one, which is now the other season's.
+  `default`) are kept apart: this device's takes a new one, and everything the
+  device keeps of it beside the season, as [Data + persistence](#data--persistence)
+  lists it, goes with it to the new id, leaving nothing under the old one, which
+  is now the other season's.
 - **The Team Rankings pool** settles key by key, the later change winning,
   since a pool is too large and too interlinked to merge row by row.
 - **What lost** is kept in the copy, pieces and all, for 30 days and at most
