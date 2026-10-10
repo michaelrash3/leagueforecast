@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import type { CloudStatus } from "./lib/cloud/cloudSession";
 import type { LiveLeagueState } from "./lib/live/leagueSync";
 import { scenarioLinkHash } from "./lib/savedScenarios";
 import { buildShareUrl } from "./lib/share";
@@ -35,6 +36,33 @@ vi.mock("./hooks/useLiveLeague", () => ({
     },
   }),
 }));
+
+/*
+ * Where the cloud's sign-in stands, as the header's button hears it: nothing to sign in to unless a
+ * test says otherwise, as the real session says with no Firebase project opened.
+ */
+const cloud = vi.hoisted(() => ({
+  status: { kind: "off" } as CloudStatus,
+  listeners: new Set<(status: CloudStatus) => void>(),
+}));
+
+vi.mock("./lib/cloud/cloudSession", async (actual) => ({
+  ...(await actual<typeof import("./lib/cloud/cloudSession")>()),
+  cloudStatus: () => cloud.status,
+  subscribeCloud: (listener: (status: CloudStatus) => void) => {
+    cloud.listeners.add(listener);
+    return () => {
+      cloud.listeners.delete(listener);
+    };
+  },
+}));
+
+/** The cloud's sign-in moving on to `status`, told to everything listening. */
+const cloudSays = (status: CloudStatus) =>
+  act(() => {
+    cloud.status = status;
+    cloud.listeners.forEach((listener) => listener(status));
+  });
 
 vi.mock("./lib/live/leagueWanted", async (actual) => {
   const real = await actual<typeof import("./lib/live/leagueWanted")>();
@@ -72,6 +100,8 @@ describe("League Standings kept live, on the page", () => {
     live.state = { kind: "off" };
     live.removed = 0;
     live.wanted = [];
+    cloud.status = { kind: "off" };
+    cloud.listeners.clear();
   });
 
   it("asks whether League is kept live by the meeting this device has had", async () => {
@@ -225,8 +255,8 @@ describe("League Standings kept live, on the page", () => {
     await waitFor(() => expect(loadTeams().map((team) => team.name)).toEqual(["Xylos", "Yetis"]));
   });
 
-  it("asks about a scenario link once the season is the cloud's, keeping it until then", async () => {
-    live.state = { kind: "connecting" };
+  /** A link to a scenario picking the Aces in Aces at Bears, opened on this device. */
+  const openScenarioLink = () => {
     const hash = scenarioLinkHash({
       version: 1,
       id: "theirs",
@@ -238,6 +268,19 @@ describe("League Standings kept live, on the page", () => {
       modifiedAt: "2026-05-01T00:00:00.000Z",
     });
     window.history.replaceState(null, "", `/?view=league#${hash ?? ""}`);
+  };
+
+  const MEMBER = { uid: "member-uid", email: "member@example.com" };
+  const saved = (newer: ("league" | "pool")[] = []): CloudStatus => ({
+    kind: "saved",
+    account: MEMBER,
+    owed: false,
+    newer,
+  });
+
+  it("asks about a scenario link once the season is the cloud's, keeping it until then", async () => {
+    live.state = { kind: "connecting" };
+    openScenarioLink();
     const view = render(<App />);
     await screen.findByRole("tab", { name: /schedule/i });
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -248,6 +291,70 @@ describe("League Standings kept live, on the page", () => {
     expect(dialog).toHaveTextContent("“Aces win”: 1 pick.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Not now" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("holds a scenario link while the cloud is still finding out who is signed in (2.7 review)", async () => {
+    // A member's device that met League before, drawn before the sign-in came through: League is
+    // not kept live yet, and the season on screen is this device's from its last visit.
+    saveCloudState({ ...loadCloudState(), enabled: true, uid: "member-uid" });
+    noteLeagueMet("member-uid");
+    cloud.status = { kind: "connecting" };
+    openScenarioLink();
+    const view = render(<App />);
+    await screen.findByRole("tab", { name: /schedule/i });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(window.location.hash).toMatch(/^#scenario=/);
+
+    // Signed in: League kept live, which waits for the cloud's version of the season, and then
+    // has it.
+    live.state = { kind: "connecting" };
+    cloudSays(saved());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(window.location.hash).toMatch(/^#scenario=/);
+    live.state = { kind: "live" };
+    view.rerender(<App />);
+    const dialog = await screen.findByRole("dialog", { name: "Keep this scenario?" });
+    expect(dialog).toHaveTextContent("“Aces win”: 1 pick.");
+    expect(window.location.hash).toBe("");
+  });
+
+  it("holds a scenario link while a member's device first meets the cloud's seasons (2.7 review)", async () => {
+    // Signed in, never met here, and the copy's League still to be taken in: League is not kept
+    // live until it has been, and the season on screen is not yet the cloud's.
+    saveCloudState({ ...loadCloudState(), enabled: true, uid: "member-uid" });
+    cloud.status = saved(["league"]);
+    openScenarioLink();
+    render(<App />);
+    await screen.findByRole("tab", { name: /schedule/i });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(window.location.hash).toMatch(/^#scenario=/);
+    cloudSays({ kind: "working", account: MEMBER, label: "Taking the cloud's changes…" });
+    expect(window.location.hash).toMatch(/^#scenario=/);
+
+    // Met, and live.
+    live.state = { kind: "live" };
+    act(() => {
+      noteLeagueMet("member-uid");
+    });
+    expect(await screen.findByRole("dialog", { name: "Keep this scenario?" })).toHaveTextContent(
+      "“Aces win”: 1 pick."
+    );
+  });
+
+  it("asks about a scenario link at once where the cloud's seasons are not coming", async () => {
+    // Signed out on a device that keeps a copy, or a member's device first meeting a copy this
+    // version of the app cannot read: the season on screen is the one the device goes on showing.
+    saveCloudState({ ...loadCloudState(), enabled: false, uid: "member-uid" });
+    cloud.status = { kind: "signed-out" };
+    openScenarioLink();
+    render(<App />);
+    expect(await screen.findByRole("dialog", { name: "Keep this scenario?" })).toBeInTheDocument();
+    cleanup();
+    saveCloudState({ ...loadCloudState(), enabled: true, uid: "member-uid" });
+    cloud.status = { kind: "update", account: MEMBER };
+    openScenarioLink();
+    render(<App />);
+    expect(await screen.findByRole("dialog", { name: "Keep this scenario?" })).toBeInTheDocument();
   });
 
   it("lets a team be followed while read-only: the pick is this browser's own", async () => {

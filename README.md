@@ -2743,8 +2743,12 @@ made on, until picked again.
 **Share** copies a link, `?view=league#scenario=…`, carrying the scenario's name, its
 picks and each picked game's teams and date, and nothing of the season, up to 6,000
 characters (more picks than fit are refused, with a word to save them instead). Opening
-one waits for the season to be the one the device shows (League kept live waits for the
-cloud's version), shows the picks, the soonest first, and which of them are not on games
+one waits for the season to be the one the device shows: while the cloud is still finding
+out who is signed in (the app draws without waiting longer than four seconds for it), while
+a member's device first meets the cloud's seasons, and while League kept live waits for the
+cloud's version, the link stays in the address bar (`leagueArriving`), since matched then it
+would be against this device's games from before, missing any added elsewhere. It then
+shows the picks, the soonest first, and which of them are not on games
 this season still has to play between the same teams, and asks **Keep it** or **Not now**
 (`src/lib/scenarioLink.ts`, fetched only when a link is opened). Kept, it joins the saved
 scenarios for the season open here with only the picks that apply, and opens in the

@@ -27,6 +27,7 @@ import {
 import { leagueMetHere, loadCloudState } from "./lib/cloud/cloudState";
 import { editable, reachable } from "./lib/live/leagueSync";
 import {
+  leagueArriving,
   leagueLiveWanted,
   memberSignedIn,
   SEASON_DELETE_OFFLINE,
@@ -2868,14 +2869,21 @@ export default function App() {
     id: string;
   } | null>(null);
   const incomingScenarioOpened = useCallback(() => setIncomingScenario(null), []);
+  /*
+   * Whether the season on screen is still to give way to the cloud's: the sign-in still coming, a
+   * member's first meeting with the cloud's seasons, or League kept live waiting for its version.
+   */
+  const seasonArriving =
+    leagueArriving({ status: cloud, met: leagueMet, inStep: leagueSettled }) ||
+    liveLeague.state.kind === "connecting";
   useEffect(() => {
-    // Asked once the open season is the one this device shows: League kept live waits for the
-    // cloud's version first, so the link is matched against the season's own games.
+    // Asked once the open season is the one this device shows, so the link is matched against the
+    // season's own games; until then it stays in the address bar, to be asked about then.
     if (
       !scenarioLink ||
       scenarioLinkTaken.current === scenarioLink ||
       appMode !== "league" ||
-      liveLeague.state.kind === "connecting"
+      seasonArriving
     )
       return;
     scenarioLinkTaken.current = scenarioLink;
@@ -2908,7 +2916,7 @@ export default function App() {
   }, [
     scenarioLink,
     appMode,
-    liveLeague.state.kind,
+    seasonArriving,
     activeSeasonId,
     seasons.all,
     matchups,
