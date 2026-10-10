@@ -122,6 +122,34 @@ describe("the Data Quality tab", () => {
     expect(await screen.findByRole("listitem", { name: summary })).toBeInTheDocument();
   });
 
+  it("puts games per team back on undoing the schedule's count", async () => {
+    // Each team scheduled for three games, with five set: the schedule is even, so its count is
+    // offered. The only thing the repair changes is the setting, so it is what undo must restore.
+    saveMatchups([
+      { id: "r1", date: "6/20", away: "A", home: "B" },
+      { id: "r2", date: "6/20", away: "C", home: "D" },
+      { id: "r3", date: "6/21", away: "A", home: "C" },
+      { id: "r4", date: "6/21", away: "B", home: "D" },
+      { id: "r5", date: "6/22", away: "A", home: "D" },
+      { id: "r6", date: "6/22", away: "B", home: "C" },
+    ]);
+    saveLogs({});
+    saveSettings({ ...loadSettings(), goldCutoff: 2, regularSeasonGamesPerTeam: 5 });
+    const user = userEvent.setup();
+    await openQuality(user);
+    const summary = "4 teams with fewer games scheduled than the 5 per team set";
+    await user.click(
+      within(findingCard(summary)).getByRole("button", { name: "Use the schedule's count…" })
+    );
+    await user.click(within(findingCard(summary)).getByRole("button", { name: "Make the change" }));
+    expect(await screen.findByText("Games per team is now 3.")).toBeInTheDocument();
+    await waitFor(() => expect(loadSettings().regularSeasonGamesPerTeam).toBe(3));
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByRole("listitem", { name: summary })).toBeInTheDocument();
+    await waitFor(() => expect(loadSettings().regularSeasonGamesPerTeam).toBe(5));
+  });
+
   it("asks before deleting, and deletes only the unscored copy", async () => {
     const user = userEvent.setup();
     await openQuality(user);

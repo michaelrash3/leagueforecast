@@ -2315,7 +2315,8 @@ export default function App() {
         undo
       );
     } else {
-      captureUndo(`Games per team ${repair.from} to ${repair.to}`);
+      // A setting is all this repair changes, so the step must carry the settings to put it back.
+      captureUndo(`Games per team ${repair.from} to ${repair.to}`, { withSettings: true });
       setSettings((prev) => ({ ...prev, regularSeasonGamesPerTeam: repair.to }));
       showToast(`Games per team is now ${repair.to}.`, undo);
     }
