@@ -3649,17 +3649,25 @@ says what it will pull, from the import status the card already reads: "Refresh 
 pulls today's refresh in the cloud now rather than tonight: about 120 teams", or, once
 today's levels are done, "Today's refresh has run. Refresh now pulls today's levels
 again in the cloud: about 12 teams", with how many wait for having been pulled in the
-last 16 hours. The button is off, and says why, while edits are locked (the lock's own
-words), with nobody signed in, while a refresh or a list this device sent is on its
-way, and with nothing to pull; a server from before the button sends no count, and the
-card offers none. A press's job is watched as a pasted list's is: the tab lifts the
+last 16 hours; for tonight's refresh the card says that once, above the button, in the
+line it always had. The button is off, and says why, while edits are locked (the lock's
+own words), with nobody signed in, while a refresh or a list this device sent is on its
+way, and with nothing to pull; the reason is the button's own description
+(`aria-describedby`), so a screen reader on the button hears it. A server from before
+the button sends no count, and the card offers none. A press keeps the button off,
+"Starting…", from the moment it is made until the list of watched pulls has been read
+after the cloud's answer: back on in between, a second press reached the cloud and was
+told this device's own refresh was "already running". A press's job is watched as a pasted list's is: the tab lifts the
 watching out of the pull card (`useWatchedPulls`) so both cards read one list, and the
 refresh is told in the same lines (`PullLines`), "Refreshing 118 teams in the cloud:
 asking GameChanger, 40 of 118", with Stop, and its end once, with OK, after which the
 status is read again. A press the cloud answers with a refresh already under way, this
-device's or another's, watches that one and says so; one it refuses says why; one it
-does not answer is not remembered, since there is no job to watch, and pressing again
-finds the one it started, if it did.
+device's or another's, watches that one and says so, for as long as one is under way;
+one it refuses says why, until the status is next read; one it does not answer is not
+remembered, since there is no job to watch, and pressing again finds the one it
+started, if it did. What a press did is said in live regions drawn before it was made,
+the lines' and the note's, since a screen reader may not read out a region that
+arrives already holding its words.
 
 **What it pulls** (`refreshNow` in `storedRota.ts`). While today's levels are still
 to do, what the nightly would pull now (`storedRota`). Once they are done, those
@@ -5033,7 +5041,13 @@ the status again; Stop; one already under way shown; a refusal said; and a refre
 still told of while the status cannot be read. `queries.test.ts`,
 `editClient.test.ts` and `cloudPulls.test.ts` hold the count, the call and the watching.
 Each guard was broken in turn and seen to fail a test, 17 of 17, the watching of one
-handed back twice only once the break let it be listed twice.
+handed back twice only once the break let it be listed twice. A review then broke
+five of the card's guards with every test still passing: the two against a double
+press, the signed-out reason (the pull card says the same words), the note that one
+was already running, and the end read once. Each has a test of its own now, and with
+the review's fixes (the button off until the answer's read, the notes that went stale,
+the held-back count said twice, the reasons and lines a screen reader could miss) 14
+guards were broken in turn and seen to fail a test, 14 of 14.
 
 **On a device with no copy.** The page is laid out by the age groups, which a
 device reads from its own copy. One that has never held a copy has none, so the

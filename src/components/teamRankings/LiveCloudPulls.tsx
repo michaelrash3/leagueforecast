@@ -88,7 +88,9 @@ export type WatchedPulls = ReturnType<typeof useWatchedPulls>;
 
 /**
  * How each of `pulls` is getting on, one line each: how far one on its way has got, with Stop,
- * and how one ended, with OK, after which no tab says it again.
+ * and how one ended, with OK, after which no tab says it again. The lines sit in a live region
+ * drawn before there is any, since a screen reader may not read out one that arrives already
+ * holding its words: a press's first line would be missed.
  */
 export function PullLines({
   pulls,
@@ -99,36 +101,39 @@ export function PullLines({
   watching: WatchedPulls;
   onStopFailed: (message: string) => void;
 }) {
-  if (pulls.length === 0) return null;
   return (
-    <ul className="mt-4 space-y-2" aria-live="polite">
-      {pulls.map((pull) => (
-        <li key={pull.sent.jobId} className="text-sm text-slate-600 dark:text-slate-300">
-          {isOver(pull.job) ? describeEnd(pull) : describeProgress(pull)}{" "}
-          {isOver(pull.job) ? (
-            <button
-              type="button"
-              onClick={() => watching.told(pull.sent.jobId)}
-              className={button.ghost}
-            >
-              OK
-            </button>
-          ) : pull.job.stopAsked ? null : (
-            <button
-              type="button"
-              onClick={() =>
-                void watching.stop(pull.sent.jobId).then((asked) => {
-                  if (!asked) onStopFailed(STOP_FAILED);
-                })
-              }
-              className={button.ghost}
-            >
-              Stop
-            </button>
-          )}
-        </li>
-      ))}
-    </ul>
+    <div aria-live="polite">
+      {pulls.length === 0 ? null : (
+        <ul className="mt-4 space-y-2">
+          {pulls.map((pull) => (
+            <li key={pull.sent.jobId} className="text-sm text-slate-600 dark:text-slate-300">
+              {isOver(pull.job) ? describeEnd(pull) : describeProgress(pull)}{" "}
+              {isOver(pull.job) ? (
+                <button
+                  type="button"
+                  onClick={() => watching.told(pull.sent.jobId)}
+                  className={button.ghost}
+                >
+                  OK
+                </button>
+              ) : pull.job.stopAsked ? null : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void watching.stop(pull.sent.jobId).then((asked) => {
+                      if (!asked) onStopFailed(STOP_FAILED);
+                    })
+                  }
+                  className={button.ghost}
+                >
+                  Stop
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

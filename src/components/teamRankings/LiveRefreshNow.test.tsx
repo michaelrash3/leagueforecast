@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
@@ -96,6 +96,17 @@ const open = ({ edits, pulls }: { edits: LiveEdits; pulls: () => PullSender | nu
   render(<LiveImport edits={edits} now={() => NOW} pulls={pulls} device="device-test-1" />);
 
 const refreshButton = () => screen.getByRole("button", { name: "Refresh now" });
+/** The button by what it does, whichever of its two labels it carries. */
+const theButton = () => screen.getByRole("button", { name: /^(Refresh now|Starting…)$/ });
+
+/** A promise held until it is let go, for a call the test wants caught half way. */
+const held = () => {
+  let release: () => void = () => undefined;
+  const until = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { until, release };
+};
 
 /** A pull this device is watching, as `sendPull` or `sendRefresh` leaves it remembered. */
 const watching = (jobId: string, teams = 120) =>
@@ -126,9 +137,11 @@ describe("Refresh now on the Import tab", () => {
     const cloud = cloudOf();
     open({ edits, pulls: () => cloud.sender });
     expect((await screen.findByTestId("refresh-offer")).textContent).toBe(
-      "Refresh now pulls today's refresh in the cloud now rather than tonight: about 120 teams. 2 teams pulled in the last 16 hours with no game yesterday, today or tomorrow wait."
+      "Refresh now pulls today's refresh in the cloud now rather than tonight: about 120 teams."
     );
     expect(refreshButton()).toHaveProperty("disabled", false);
+    // The two teams held back are tonight's, which the card says once, above the button.
+    expect(screen.getAllByText(/pulled in the last 16 hours/)).toHaveLength(1);
   });
 
   it("says once today's levels are done that it pulls them again, held to the gap", async () => {
@@ -174,12 +187,13 @@ describe("Refresh now on the Import tab", () => {
       />
     );
     expect(refreshButton()).toHaveProperty("disabled", true);
-    expect(screen.getAllByText(lock).length).toBeGreaterThan(0);
+    // The reason is the button's own description, not only words somewhere on the tab.
+    expect(refreshButton()).toHaveAccessibleDescription(lock);
     cleanup();
     open({ edits: editsOf(STATUS).edits, pulls: () => null });
     await screen.findByTestId("refresh-offer");
     expect(refreshButton()).toHaveProperty("disabled", true);
-    expect(screen.getAllByText(PULLS_SIGNED_OUT).length).toBeGreaterThan(0);
+    expect(refreshButton()).toHaveAccessibleDescription(PULLS_SIGNED_OUT);
     expect(cloud.presses).toEqual([]);
   });
 
@@ -188,13 +202,79 @@ describe("Refresh now on the Import tab", () => {
     const cloud = cloudOf();
     open({ edits, pulls: () => cloud.sender });
     await screen.findByTestId("refresh-offer");
+    // The live regions there before the press, which a screen reader is already listening to.
+    const listening = new Set(document.querySelectorAll("[aria-live], [role='status']"));
     fireEvent.click(refreshButton());
-    expect(await screen.findByText("Refreshing in the cloud: waiting to start.")).toBeTruthy();
+    const line = await screen.findByText("Refreshing in the cloud: waiting to start.");
+    expect(listening.has(line.closest("[aria-live]")!)).toBe(true);
+    // A refresh of its own is not one "already running".
+    expect(screen.queryByText(ALREADY_RUNNING)).toBeNull();
     // The device's name and nothing of its day, which the cloud keeps as New York's.
     expect(cloud.presses).toEqual([{ device: "device-test-1" }]);
     // While it is on its way the button is off, and says why.
     expect(refreshButton()).toHaveProperty("disabled", true);
-    expect(screen.getByText(REFRESH_RUNNING)).toBeTruthy();
+    expect(refreshButton()).toHaveAccessibleDescription(REFRESH_RUNNING);
+  });
+
+  it("sends one press for two clicks before the page has drawn the first", async () => {
+    const { edits } = editsOf(STATUS);
+    const cloud = cloudOf();
+    open({ edits, pulls: () => cloud.sender });
+    await screen.findByTestId("refresh-offer");
+    const button = refreshButton();
+    // Both inside one act, so React has not yet drawn the button off between them.
+    await act(async () => {
+      button.click();
+      button.click();
+    });
+    await screen.findByText("Refreshing in the cloud: waiting to start.");
+    expect(cloud.presses).toHaveLength(1);
+  });
+
+  it("is off, saying it is starting, while the press is on its way to the cloud", async () => {
+    const { edits } = editsOf(STATUS);
+    const cloud = cloudOf();
+    const answer = held();
+    const ask = cloud.sender.startRefresh!;
+    cloud.sender.startRefresh = async (asked) => {
+      await answer.until;
+      return ask(asked);
+    };
+    open({ edits, pulls: () => cloud.sender });
+    await screen.findByTestId("refresh-offer");
+    fireEvent.click(refreshButton());
+    await waitFor(() => expect(theButton().textContent).toBe("Starting…"));
+    expect(theButton()).toHaveProperty("disabled", true);
+    fireEvent.click(theButton());
+    answer.release();
+    await screen.findByText("Refreshing in the cloud: waiting to start.");
+    expect(cloud.presses).toHaveLength(1);
+  });
+
+  it("stays off once answered until the refresh is read, so a second press is not sent", async () => {
+    const { edits } = editsOf(STATUS);
+    const cloud = cloudOf();
+    // The read after the answer is slow to come back.
+    const read = held();
+    const reading = cloud.sender.jobs.read;
+    cloud.sender.jobs.read = async (jobId) => {
+      await read.until;
+      return reading(jobId);
+    };
+    open({ edits, pulls: () => cloud.sender });
+    await screen.findByTestId("refresh-offer");
+    fireEvent.click(refreshButton());
+    await waitFor(() => expect(cloud.presses).toHaveLength(1));
+    // Answered, and the refresh not yet read: still off, and a click asks nothing.
+    await act(async () => undefined);
+    expect(theButton()).toHaveProperty("disabled", true);
+    expect(theButton().textContent).toBe("Starting…");
+    fireEvent.click(theButton());
+    expect(cloud.presses).toHaveLength(1);
+    read.release();
+    await screen.findByText("Refreshing in the cloud: waiting to start.");
+    expect(refreshButton()).toHaveAccessibleDescription(REFRESH_RUNNING);
+    expect(screen.queryByText(ALREADY_RUNNING)).toBeNull();
   });
 
   it("says how a refresh on its way is getting on, and its end once, reading the status again", async () => {
@@ -243,6 +323,85 @@ describe("Refresh now on the Import tab", () => {
     expect(await screen.findByText("Refreshing in the cloud: stopping.")).toBeTruthy();
   });
 
+  it("stays off until the read after the answer, though the list moved while the press was out", async () => {
+    // A list's pull that has ended, its line still to be told.
+    watching(OTHER, 3);
+    const { edits } = editsOf(STATUS);
+    const cloud = cloudOf();
+    cloud.jobs.set(OTHER, {
+      ...newPullJob({
+        list: { hash: "c".repeat(64), teams: 3, pieces: 1 },
+        seasonYears: [],
+        timeZone: "America/New_York",
+        device: "device-test-1",
+        now: NOW,
+      }),
+      status: "done",
+      end: "finished",
+    });
+    const answer = held();
+    const ask = cloud.sender.startRefresh!;
+    cloud.sender.startRefresh = async (asked) => {
+      await answer.until;
+      return ask(asked);
+    };
+    open({ edits, pulls: () => cloud.sender });
+    const listLine = (await screen.findByText(/The pull in the cloud is done/)).closest("li")!;
+    fireEvent.click(refreshButton());
+    // The list's line told while the press is out: the watched list is a new one.
+    fireEvent.click(within(listLine).getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(screen.queryByText(/The pull in the cloud is done/)).toBeNull());
+    // Answered, with the read after it slow to come back.
+    const read = held();
+    const reading = cloud.sender.jobs.read;
+    cloud.sender.jobs.read = async (jobId) => {
+      await read.until;
+      return reading(jobId);
+    };
+    answer.release();
+    await waitFor(() => expect(cloud.presses).toHaveLength(1));
+    await act(async () => undefined);
+    expect(theButton()).toHaveProperty("disabled", true);
+    read.release();
+    await screen.findByText("Refreshing in the cloud: waiting to start.");
+  });
+
+  it("reads the status again once for a refresh's end, however often the list is read after", async () => {
+    // A refresh that has ended, and a list that has too, both still to be told.
+    localStorage.setItem(
+      SENT_PULLS_KEY,
+      JSON.stringify([
+        { jobId: JOB, sentAt: NOW, teams: 120, told: false },
+        { jobId: OTHER, sentAt: NOW, teams: 3, told: false },
+      ])
+    );
+    const { edits, asked } = editsOf(STATUS);
+    const cloud = cloudOf();
+    cloud.jobs.set(JOB, { ...running(), status: "done", stage: "waiting", end: "finished" });
+    cloud.jobs.set(OTHER, {
+      ...newPullJob({
+        list: { hash: "c".repeat(64), teams: 3, pieces: 1 },
+        seasonYears: [],
+        timeZone: "America/New_York",
+        device: "device-test-1",
+        now: NOW,
+      }),
+      status: "done",
+      end: "finished",
+    });
+    open({ edits, pulls: () => cloud.sender });
+    await screen.findByText(/The refresh in the cloud is done/);
+    const statusReads = () => asked.filter((query) => query.kind === "import.status").length;
+    // Read on opening, and once more for the refresh's end.
+    await waitFor(() => expect(statusReads()).toBe(2));
+    // The list's line told: the watched list is new, the refresh's end in it is not.
+    const listLine = screen.getByText(/The pull in the cloud is done/).closest("li")!;
+    fireEvent.click(within(listLine).getByRole("button", { name: "OK" }));
+    await waitFor(() => expect(screen.queryByText(/The pull in the cloud is done/)).toBeNull());
+    await act(async () => undefined);
+    expect(statusReads()).toBe(2);
+  });
+
   it("shows the refresh another press started rather than starting another", async () => {
     const { edits } = editsOf(STATUS);
     const cloud = cloudOf(() => ({
@@ -252,12 +411,46 @@ describe("Refresh now on the Import tab", () => {
     cloud.jobs.set(OTHER, running());
     open({ edits, pulls: () => cloud.sender });
     await screen.findByTestId("refresh-offer");
+    const listening = new Set(document.querySelectorAll("[aria-live], [role='status']"));
     fireEvent.click(refreshButton());
-    expect(await screen.findByText(ALREADY_RUNNING)).toBeTruthy();
+    const note = await screen.findByText(ALREADY_RUNNING);
+    // Said in a region a screen reader was already listening to.
+    expect(listening.has(note.closest("[role='status']")!)).toBe(true);
     expect(
       await screen.findByText(/Refreshing 118 teams in the cloud: asking GameChanger/)
     ).toBeTruthy();
     expect(cloud.jobs.size).toBe(1);
+  });
+
+  it("drops the note that one was already running once none is, and a refusal once read again", async () => {
+    const { edits } = editsOf(STATUS);
+    const cloud = cloudOf(() => ({
+      ok: true,
+      value: { status: "running", jobId: OTHER, already: true },
+    }));
+    // Done by the time this device reads it.
+    cloud.jobs.set(OTHER, { ...running(), status: "done", stage: "waiting", end: "finished" });
+    open({ edits, pulls: () => cloud.sender });
+    await screen.findByTestId("refresh-offer");
+    fireEvent.click(refreshButton());
+    await screen.findByText(/The refresh in the cloud is done/);
+    expect(screen.queryByText(ALREADY_RUNNING)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    expect(screen.queryByText(ALREADY_RUNNING)).toBeNull();
+    cleanup();
+
+    // A refusal stays until the status is read again: here, for a cadence chosen.
+    const refusing = cloudOf(() => ({
+      ok: false,
+      why: "failed",
+      message: "The nightly is pulling.",
+    }));
+    open({ edits: editsOf(STATUS).edits, pulls: () => refusing.sender });
+    await screen.findByTestId("refresh-offer");
+    fireEvent.click(refreshButton());
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("One or two levels a day"));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
   it("says a refusal plainly, and watches nothing", async () => {
