@@ -319,16 +319,20 @@ function LiveBoard({
     live.metaMiss === "no-reader" ||
     live.boardMiss === "offline" ||
     live.link === "cut-off";
-  // A member's edits, sent to the edit function against the copy the views are of: off once handed
-  // over, offline, and until the network has answered for the board.
-  const metaCopy = live.meta?.meta.copy ?? null;
+  /*
+   * A member's edits, sent to the edit function against the copy the meta the server answered with
+   * names (`live.copy`): off once handed over, offline, until the server has answered (`heard`, its
+   * own word, not whether a board can be drawn), and over boards a newer version published. They
+   * need no board, so a meta this build cannot draw leaves them on.
+   */
   const edits = useLiveEdits({
-    copy: metaCopy,
+    copy: live.copy,
     locked: editLock({
       handedOver,
       unlinked: live.metaMiss === "no-reader",
       offline,
-      heard: live.meta?.from === "network",
+      heard: live.heard,
+      newer: live.metaMiss === "newer",
     }),
     showToast,
     ...(sources?.call ? { deps: sources.call } : {}),

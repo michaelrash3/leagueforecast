@@ -43,8 +43,15 @@ import {
  */
 export type LiveMiss = "none" | "older" | "newer" | "unreadable" | "refused" | "offline";
 
+/**
+ * A meta read and checked: one to lay a page out by, or why not. A meta of this layout that cannot
+ * be drawn (an older or newer schema's, or one whose pages will not read) still names the copy its
+ * views are of (`copy`), which an edit is made on: edits go through the edit function and need no
+ * board.
+ */
 export type LiveRead =
-  { ok: true; meta: LiveMeta; pages: LivePages } | { ok: false; why: LiveMiss };
+  | { ok: true; meta: LiveMeta; pages: LivePages }
+  | { ok: false; why: LiveMiss; copy?: LiveMeta["copy"] };
 
 const isRecord = (raw: unknown): raw is Record<string, unknown> =>
   typeof raw === "object" && raw !== null && !Array.isArray(raw);
@@ -64,10 +71,11 @@ export const checkLiveMeta = (raw: unknown): LiveRead => {
     return { ok: false, why: "newer" };
   const meta = coerceLiveMeta(raw);
   if (!meta) return { ok: false, why: "unreadable" };
-  if (meta.schema < LIVE_SCHEMA) return { ok: false, why: "older" };
-  if (meta.schema > LIVE_SCHEMA) return { ok: false, why: "newer" };
+  const { copy } = meta;
+  if (meta.schema < LIVE_SCHEMA) return { ok: false, why: "older", copy };
+  if (meta.schema > LIVE_SCHEMA) return { ok: false, why: "newer", copy };
   const pages = coerceLivePages(meta.inline.pages);
-  return pages ? { ok: true, meta, pages } : { ok: false, why: "unreadable" };
+  return pages ? { ok: true, meta, pages } : { ok: false, why: "unreadable", copy };
 };
 
 const refused = async (cache: ViewCache | undefined): Promise<void> => {

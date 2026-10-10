@@ -12,7 +12,12 @@ import { forgetLiveBoard, liveBoardFor, type RankingsHandover } from "../../lib/
 import { EDIT_LOCKS, EDIT_REFUSED, QUERY_REFUSED } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { openViewCache, type ViewCache, type ViewCacheIo } from "../../lib/live/viewCache";
-import { publishViews, type LiveReader, type PublishedView } from "../../lib/live/viewStore";
+import {
+  LIVE_SCHEMA,
+  publishViews,
+  type LiveReader,
+  type PublishedView,
+} from "../../lib/live/viewStore";
 import type { BoardRow, LivePages } from "../../lib/live/views/boardShape";
 import {
   CLUB_FAMILY,
@@ -3655,6 +3660,106 @@ describe("the Import tab on the cloud's board", () => {
       { query: { kind: "import.status", at: AT }, copy: MANIFEST.copy },
     ]);
     expect(handedOver()).toBeNull();
+  });
+
+  /*
+   * Edits and imports go through the edit function and need no board: they are off only while the
+   * device is offline or has not heard the cloud, and over boards a newer version published. A meta
+   * this build cannot draw, older, missing or unreadable, locked them for a whole day on 10 October
+   * 2026; now they are made on the copy that meta names, or the copy itself names where none does.
+   */
+  const choosesRotation = async (server: ReturnType<typeof editFunction>, copy: string) => {
+    expect(
+      await screen.findByText("Every age group is due today — 120 teams to refresh.")
+    ).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("One or two levels a day"));
+    await waitFor(() => expect(edited(server.sent)).toHaveLength(1));
+    expect(server.sent.length).toBeGreaterThan(1);
+    expect(server.sent.every((data) => data.copy === copy)).toBe(true);
+  };
+
+  it("keeps edits on over boards an older version published, made on the copy they name", async () => {
+    onImport();
+    pool.wants = false;
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA - 1 });
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call }));
+    await choosesRotation(server, MANIFEST.copy);
+    expect(screen.queryByText(EDIT_LOCKS.waiting)).toBeNull();
+  });
+
+  it("keeps edits on over a meta whose pages will not read, made on the copy it names", async () => {
+    onImport();
+    pool.wants = false;
+    live.setMeta({ ...live.meta(), inline: { pages: { halves: [] } } });
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call }));
+    await choosesRotation(server, MANIFEST.copy);
+  });
+
+  it("keeps edits on with nothing published, made on the copy the cloud holds", async () => {
+    onImport();
+    pool.wants = false;
+    const server = editFunction(importAnswers());
+    const held = { ...MANIFEST, copy: "beef01", version: 9 };
+    open(
+      sourcesOf(memoryLive(), {
+        call: server.call,
+        copy: async () => ({ readManifest: async () => held, getChunk: async () => null }),
+      })
+    );
+    await choosesRotation(server, "beef01");
+  });
+
+  it("makes edits on the copy a publish names, not the one read while nothing was published", async () => {
+    onImport();
+    pool.wants = false;
+    const empty = memoryLive();
+    let answer = (): void => undefined;
+    const slow = new Promise<void>((resolve) => (answer = resolve));
+    const held = { ...MANIFEST, copy: "beef01", version: 9 };
+    const server = editFunction(importAnswers());
+    open(
+      sourcesOf(empty, {
+        call: server.call,
+        copy: async () => ({
+          readManifest: async () => {
+            await slow;
+            return held;
+          },
+          getChunk: async () => null,
+        }),
+      })
+    );
+    expect(await screen.findByText(EDIT_LOCKS.waiting)).toBeTruthy();
+    // Published, and heard, while the copy's manifest was still being read.
+    await act(() => publish(empty));
+    answer();
+    await choosesRotation(server, MANIFEST.copy);
+  });
+
+  it("keeps edits off over boards a newer version published, and says to reload", async () => {
+    onImport();
+    pool.wants = false;
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA + 1 });
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call }));
+    expect(await screen.findByText(EDIT_LOCKS.newer)).toBeTruthy();
+    expect(server.sent).toEqual([]);
+  });
+
+  it("keeps edits off until the cloud has answered", async () => {
+    onImport();
+    pool.wants = false;
+    const silent: LiveReader = {
+      readMeta: () => new Promise(() => undefined),
+      getChunk: () => new Promise(() => undefined),
+    };
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call, reader: async () => silent }));
+    expect(await screen.findByText(EDIT_LOCKS.waiting)).toBeTruthy();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(server.sent).toEqual([]);
   });
 
   it("keeps how much comes round at once on the copy, and reads the refresh again", async () => {

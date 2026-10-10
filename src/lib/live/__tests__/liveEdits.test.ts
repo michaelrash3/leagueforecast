@@ -178,6 +178,14 @@ describe("what the person is told", () => {
     expect(editLock({ offline: false, heard: true })).toBeNull();
   });
 
+  it("says edits are off over boards a newer version published, until the page is reloaded", () => {
+    expect(editLock({ offline: false, heard: true, newer: true })).toBe(EDIT_LOCKS.newer);
+    expect(EDIT_LOCKS.newer).toMatch(/reload/i);
+    // Offline is said first: reloading would not bring the connection back.
+    expect(editLock({ offline: true, heard: true, newer: true })).toBe(EDIT_LOCKS.offline);
+    expect(editLock({ offline: false, heard: true, newer: false })).toBeNull();
+  });
+
   it("says edits are off once the page hands over, and with no reader of the cloud, whatever else holds", () => {
     for (const offline of [true, false])
       for (const heard of [true, false]) {

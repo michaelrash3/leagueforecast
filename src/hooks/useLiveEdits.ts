@@ -61,9 +61,9 @@ const NO_COPY = "Editing waits for the cloud's board to come in.";
  * version at least its save's are published, or views of another copy, so the page can draw it over
  * what it reads meanwhile (`pendingOf`, `settledBy`).
  *
- * Nothing is sent while `locked`: offline, or before the network has answered for the board. A
- * warm-up is sent as an edit screen opens, at most once in `WARM_AFTER_MS` of calls, since the
- * server's pool stays warm between them.
+ * Nothing is sent while `locked` (`editLock`): offline, before the cloud has answered, or over boards
+ * a newer version published. A warm-up is sent as an edit screen opens, at most once in
+ * `WARM_AFTER_MS` of calls, since the server's pool stays warm between them.
  */
 export function useLiveEdits({
   copy,
