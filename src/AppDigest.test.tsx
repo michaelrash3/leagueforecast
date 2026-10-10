@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
-import { DEFAULT_NOTIFY } from "./lib/seasonDigest";
+import { useSeasonDigest } from "./hooks/useSeasonDigest";
+import { DEFAULT_NOTIFY, type NotifyPrefs } from "./lib/seasonDigest";
 import type { SeasonStore } from "./lib/seasonStore";
 import { loadSettings, saveMatchups, saveSettings, saveTeams } from "./lib/storage";
 import type { GameLog } from "./lib/types";
@@ -37,6 +38,12 @@ vi.mock("./hooks/useLiveLeague", async () => {
       return { state, guardUndo: () => null, removeSeason: async () => true };
     },
   };
+});
+
+// The digest as App drives it, watched for what it is asked to count.
+vi.mock("./hooks/useSeasonDigest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./hooks/useSeasonDigest")>();
+  return { ...actual, useSeasonDigest: vi.fn(actual.useSeasonDigest) };
 });
 
 /** League kept live says where it stands, as `useLiveLeague` would. */
@@ -148,6 +155,24 @@ describe("what another device changed", () => {
       window.dispatchEvent(new StorageEvent("storage", { key: "lf_league_notify_v1" }));
     });
     expect(toggle).not.toBeChecked();
+  });
+
+  it("counts the odds by 10 points while notifications are off, and by the points chosen while on", async () => {
+    const asked = () => vi.mocked(useSeasonDigest).mock.lastCall?.[0].oddsMove;
+    /** Notification choices changed in the installed app beside this tab, which follows them. */
+    const choose = (prefs: NotifyPrefs) =>
+      act(() => {
+        window.localStorage.setItem("lf_league_notify_v1", JSON.stringify(prefs));
+        window.dispatchEvent(new StorageEvent("storage", { key: "lf_league_notify_v1" }));
+      });
+    render(<App />);
+    await screen.findByRole("tab", { name: "Dashboard" });
+    // Off, the choice of points shows its default of 15, which is not what the digest counts by.
+    expect(asked()).toBe(10);
+    choose({ ...DEFAULT_NOTIFY, on: true, oddsMove: 20 });
+    expect(asked()).toBe(20);
+    choose({ ...DEFAULT_NOTIFY, on: true, oddsMove: null });
+    expect(asked()).toBe(10);
   });
 
   it("takes the race the cloud's first word settles, not the forecast still on screen", async () => {

@@ -31,6 +31,9 @@ const finalOf = (gameId: string, away: string, home: string, score: string): Cha
   after: { date: "2026-05-02", away, home, final: score, detail: "" },
 });
 
+/** The followed team's Gold chance, 30% at the last look, now `to`. */
+const odds = (to: number): Change => ({ kind: "odds", teamId: "A", teamIds: ["A"], from: 30, to });
+
 type Problem = { kind: string; text: string };
 type Props = { changes: Change[]; problem?: Problem | null };
 
@@ -132,13 +135,6 @@ describe("useDigestNotifications", () => {
   });
 
   it("announces a move in the odds once, however the forecast wobbles after", async () => {
-    const odds = (to: number): Change => ({
-      kind: "odds",
-      teamId: "A",
-      teamIds: ["A"],
-      from: 30,
-      to,
-    });
     const view = mount();
     view.rerender({ changes: [odds(50.2)] });
     act(() => setVisibility("hidden"));
@@ -152,6 +148,19 @@ describe("useDigestNotifications", () => {
     await gather();
     expect(shown).toEqual([
       { title: "Spring 26", body: "1 move in the odds.\nAces's Gold chance went from 30% to 66%." },
+    ]);
+  });
+
+  it("measures a move in the odds in steps of the points chosen for it", async () => {
+    const view = mount({ ...on, oddsMove: 15 });
+    act(() => setVisibility("hidden"));
+    view.rerender({ changes: [odds(46)] });
+    await gather();
+    // Past a second step of ten points, but still within the first of the fifteen chosen.
+    view.rerender({ changes: [odds(51.6)] });
+    await gather();
+    expect(shown).toEqual([
+      { title: "Spring 26", body: "1 move in the odds.\nAces's Gold chance went from 30% to 46%." },
     ]);
   });
 
