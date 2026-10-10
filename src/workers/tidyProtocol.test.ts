@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { applyTidied, createTidyHandler, type WorkerResponse } from "./tidyProtocol";
 import { packPool } from "./tidyProtocol";
 import { TIDY_STEPS, type GcImportState } from "../lib/gameChangerImport";
+import type { ScoutGame } from "../lib/teamRankings";
+import { refusalOf } from "../lib/notThisTeam";
 
 /**
  * One club's schedule names the opponent; the other posted the same game against a stand-in with
@@ -81,6 +83,79 @@ describe("the tidy worker's side of the protocol", () => {
     expect(kept.ageGroups).toBe(tidied.ageGroups);
     expect(kept.teams).toBe(tidied.teams);
     expect(kept.games).toBe(tidied.games);
+  });
+
+  it("honours the names the owner has said are not a club, which it is told of", () => {
+    // The Home Club pulled, and the owner's word that the Away Club's "TBD- 3:00 PM" is not it.
+    // The day's named row is the Away Club's second listing's, filed on the Home Club by a name: a
+    // row of the Home Club's own would be its word that it played, which no refusal outweighs.
+    const pool = withStandIn();
+    const home = {
+      ...pool.teams[0]!,
+      gcTeams: [{ teamId: "gcHOME", name: "Home Club 10U", ageGroupId: "ag_10u_2027" }],
+    };
+    const away = {
+      ...pool.teams[1]!,
+      gcTeams: [
+        { teamId: "gcAWAY", name: "Away Club 10U", ageGroupId: "ag_10u_2027" },
+        { teamId: "gcAWAY2", name: "Away Club 10U", ageGroupId: "ag_10u_2027" },
+      ],
+    };
+    const [named, slot] = pool.games as [ScoutGame, ScoutGame];
+    const byName: ScoutGame = {
+      ...named,
+      teamAId: "S-AWAY",
+      teamBId: "S-HOME",
+      teamAScore: 2,
+      teamBScore: 6,
+      source: { kind: "gamechanger", teamId: "gcAWAY2", gameId: "n1" },
+    };
+    const state = packPool({ ...pool, teams: [home, away, pool.teams[2]!], games: [byName, slot] });
+    const { handle, answersOf } = harness();
+    handle({ kind: "tidy", id: 1, state });
+    handle({
+      kind: "tidy",
+      id: 2,
+      state,
+      notThisTeam: [refusalOf("gcAWAY", "TBD- 3:00 PM", "gcHOME")],
+    });
+    const [told, refused] = answersOf("tidy");
+    if (told?.kind !== "tidy" || refused?.kind !== "tidy") throw new Error("expected answers");
+    expect(told.tidy.named).toBe(1);
+    expect(refused.tidy.named).toBe(0);
+  });
+
+  it("counts the settles it inspects with the names the owner has said are not a club", () => {
+    // The pool of the test above it: the day's named row filed on the Home Club by a name.
+    const pool = withStandIn();
+    const home = {
+      ...pool.teams[0]!,
+      gcTeams: [{ teamId: "gcHOME", name: "Home Club 10U", ageGroupId: "ag_10u_2027" }],
+    };
+    const away = {
+      ...pool.teams[1]!,
+      gcTeams: [
+        { teamId: "gcAWAY", name: "Away Club 10U", ageGroupId: "ag_10u_2027" },
+        { teamId: "gcAWAY2", name: "Away Club 10U", ageGroupId: "ag_10u_2027" },
+      ],
+    };
+    const [named, slot] = pool.games as [ScoutGame, ScoutGame];
+    const byName: ScoutGame = {
+      ...named,
+      teamAId: "S-AWAY",
+      teamBId: "S-HOME",
+      teamAScore: 2,
+      teamBScore: 6,
+      source: { kind: "gamechanger", teamId: "gcAWAY2", gameId: "n1" },
+    };
+    const state = packPool({ ...pool, teams: [home, away, pool.teams[2]!], games: [byName, slot] });
+    const { handle, answersOf } = harness();
+    const ask = { kind: "inspect", state, stamp: "", today: "2026-09-18" } as const;
+    handle({ ...ask, id: 1 });
+    handle({ ...ask, id: 2, notThisTeam: [refusalOf("gcAWAY", "TBD- 3:00 PM", "gcHOME")] });
+    const [told, refused] = answersOf("inspect");
+    if (told?.kind !== "inspect" || refused?.kind !== "inspect") throw new Error("no answers");
+    expect([told.settleable, refused.settleable]).toEqual([1, 0]);
   });
 
   it("inspects the pool it was shipped without tidying it", () => {

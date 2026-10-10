@@ -90,6 +90,7 @@ import {
 } from "./teamRankings";
 import { buildStaffIndex, likelySameSquad, sharedStaff } from "./gcStaff";
 import { isKeptApart, type KeptApart } from "./keptApart";
+import { listedByOwn, NO_REFUSALS, refusesName, type NotThisTeam } from "./notThisTeam";
 import {
   isDeletedClub,
   isDeletedGame,
@@ -1371,12 +1372,20 @@ const holdsThisGame = (
   index: ImportIndex,
   ownTeamId: string,
   candidateId: string,
-  game: GcGame
+  game: GcGame,
+  /**
+   * Only the candidate's own row naming this very team: asked of a club the owner has said this
+   * name is not (`notThisTeam.ts`), where only the club's own word that it played this team beats
+   * the refusal, and a row of its own against some stand-in that day is a name and no more.
+   */
+  ownWordOnly = false
 ): boolean => {
   if (!game.date) return false;
   const sameDay = index.gamesByTeamDate.get(`${candidateId}\u0000${game.date}`) ?? [];
+  const candidate = ownWordOnly ? index.teamsById.get(candidateId) : undefined;
   return sameDay.some((existing) => {
     const other = existing.teamAId === candidateId ? existing.teamBId : existing.teamAId;
+    if (ownWordOnly && (other !== ownTeamId || !listedByOwn(existing, candidate))) return false;
     if (game.startTs && existing.startTs && !sameStart(game.startTs, existing.startTs))
       return false;
     const theirs = existing.teamAId === candidateId ? existing.teamAScore : existing.teamBScore;
@@ -1431,9 +1440,13 @@ const clubHoldingThisGame = (
   index: ImportIndex,
   ownTeamId: string,
   candidates: readonly string[],
-  game: GcGame
+  game: GcGame,
+  /** The candidates asked for their own word alone (`holdsThisGame`'s `ownWordOnly`). */
+  ownWordOnly: (teamId: string) => boolean = () => false
 ): string | undefined => {
-  const holders = candidates.filter((id) => holdsThisGame(index, ownTeamId, id, game));
+  const holders = candidates.filter((id) =>
+    holdsThisGame(index, ownTeamId, id, game, ownWordOnly(id))
+  );
   return holders.length === 1 ? holders[0] : undefined;
 };
 
@@ -1508,6 +1521,8 @@ const corroborates = (
  * The row has to come from a *different* GameChanger schedule. A club's own schedule listing two
  * games that day is listing two games, and letting one answer for the other would file them both
  * against the same opponent and lose one.
+ *
+ * Given with the row that answered, so the caller can ask whose schedule gave it (`planOpponent`).
  */
 const opponentFromSameFixture = (
   index: ImportIndex,
@@ -1515,7 +1530,7 @@ const opponentFromSameFixture = (
   ageGroupId: string,
   game: GcGame,
   sourceTeamId: string
-): string | undefined => {
+): { teamId: string; row: ScoutGame } | undefined => {
   if (!game.date) return undefined;
   const pool = index.poolKeyOf(ageGroupId);
   const sameDay = index.gamesByTeamDate.get(`${ownTeamId}\u0000${game.date}`) ?? [];
@@ -1557,7 +1572,7 @@ const opponentFromSameFixture = (
   const found = candidates[0]!;
   const other = found.teamAId === ownTeamId ? found.teamBId : found.teamAId;
   // A slot answers for nobody; naming this game after one would put two games on one placeholder.
-  return index.teamsById.get(other)?.placeholder ? undefined : other;
+  return index.teamsById.get(other)?.placeholder ? undefined : { teamId: other, row: found };
 };
 
 /** The team `planOpponent` found for a name, or the kind of team it would make for one. */
@@ -1578,7 +1593,8 @@ const planOpponent = (
   index: ImportIndex,
   ownTeamId: string,
   sourceTeamId: string,
-  byFixture: boolean
+  byFixture: boolean,
+  refused: NotThisTeam = NO_REFUSALS
 ): OpponentPlan => {
   // The picture is a direct identifier, so it is asked first when the game carries one.
   if (game.opponentAvatarKey) {
@@ -1590,13 +1606,31 @@ const planOpponent = (
   }
 
   /*
+   * A club the owner has said this name, on this schedule, is not ("Not this team",
+   * `notThisTeam.ts`) is no answer to the name: not as the one club of it, nor as the one something
+   * corroborates, nor as the club its own row of the day could be. It is still the answer to the
+   * game where its own schedule lists the game against this very club: a refusal is about a name,
+   * and the club's own word that it played this team is not a reading of one. Kept from the fixture
+   * as well, the two clubs' next meeting stood twice on this club's record, once against the club
+   * from its schedule and once against a stand-in from this one.
+   */
+  const refusedHere = (teamId: string) =>
+    refusesName(refused, sourceTeamId, game.opponentName, index.teamsById.get(teamId));
+  const allowed = (teamId: string) => !refusedHere(teamId);
+
+  /*
    * Then the game itself, which beats the name even when the name is a real one — and is the only
    * thing that can answer a name that identifies nobody, so it comes before the slot below.
    */
-  const fromFixture = byFixture
+  const fixture = byFixture
     ? opponentFromSameFixture(index, ownTeamId, ageGroupId, game, sourceTeamId)
     : undefined;
-  if (fromFixture) return { teamId: fromFixture, basis: "avatar" };
+  if (
+    fixture &&
+    (allowed(fixture.teamId) || listedByOwn(fixture.row, index.teamsById.get(fixture.teamId)))
+  ) {
+    return { teamId: fixture.teamId, basis: "avatar" };
+  }
 
   /**
    * "TBD", "Winner of Game 3", a blank cell on a bracket: a name that stands in for a team nobody
@@ -1634,7 +1668,8 @@ const planOpponent = (
       : (index.teamIdsByGroupName.get(nameSlotKey(pool, key, pageLevel)) ?? []).filter(
           (id) => index.teamsById.get(id)?.gcTeams?.length && !atLevel.includes(id)
         );
-  const sameName = [...atLevel, ...pulledAtPage];
+  const named = [...atLevel, ...pulledAtPage];
+  const sameName = named.filter(allowed);
 
   if (isPlaceholderName(game.opponentName)) {
     /*
@@ -1663,8 +1698,8 @@ const planOpponent = (
    * worth asking and it beats every other test, because it is about this fixture rather than
    * about the name: it tells a club apart from its namesakes however many of them there are.
    */
-  const anyLevel = index.teamIdsByPoolName.get(`${pool}\u0000${key}`) ?? sameName;
-  const holder = clubHoldingThisGame(index, ownTeamId, anyLevel, game);
+  const anyLevel = index.teamIdsByPoolName.get(`${pool}\u0000${key}`) ?? named;
+  const holder = clubHoldingThisGame(index, ownTeamId, anyLevel, game, refusedHere);
   if (holder) return { teamId: holder, basis: "name" };
 
   /*
@@ -2055,6 +2090,13 @@ export type GcImportOptions = {
   tooYoung?: TooYoungClubs;
   /** The levels somebody named by hand, which beat GameChanger's own field. */
   namedAges?: NamedAges;
+  /**
+   * The names the owner has said are not a club, by the schedule that wrote them ("Not this
+   * team", `notThisTeam.ts`): a row of the name off that schedule is filed onto anything but that
+   * club, as though the club did not carry the name, unless the club's own schedule lists the game
+   * against this one.
+   */
+  notThisTeam?: NotThisTeam;
   /**
    * The day "you cannot score a game early" is judged against, as an ISO day.
    *
@@ -2607,7 +2649,15 @@ const importOne = (
      */
     let onRecord: ScoutGame | undefined;
     if (opponentId === undefined) {
-      const plan = planOpponent(game, group.id, index, own.teamId, profile.id, true);
+      const plan = planOpponent(
+        game,
+        group.id,
+        index,
+        own.teamId,
+        profile.id,
+        true,
+        options.notThisTeam
+      );
       const named = "teamId" in plan ? index.teamsById.get(plan.teamId) : undefined;
       if ("create" in plan || named?.placeholder || isStandIn(named)) {
         onRecord = heldOnRecord(index, game, own.teamId, profile.id);
@@ -3276,7 +3326,12 @@ const couldStillBeCopy = (row: ScoutGame, copy: ScoutGame): boolean => {
  * tidy by the clock and the scores alone.
  */
 export const resolveSlotGames = (
-  state: GcImportState
+  state: GcImportState,
+  /**
+   * The names the owner has said are not a club (`notThisTeam.ts`): a slot of such a name settles
+   * into no row of the day against that club but the club's own.
+   */
+  refused: NotThisTeam = NO_REFUSALS
 ): { state: GcImportState; resolved: number } => {
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
   const fits = nameFitter();
@@ -3358,6 +3413,10 @@ export const resolveSlotGames = (
     const standIn = teamById.get(
       knownId === slotGame.teamAId ? slotGame.teamBId : slotGame.teamAId
     );
+    const refusedAgainst = (slot: ScoutGame, named: ScoutGame): boolean => {
+      const club = teamById.get(named.teamAId === knownId ? named.teamBId : named.teamAId);
+      return refusesName(refused, sourceOf(slot), standIn?.name, club) && !listedByOwn(named, club);
+    };
     /**
      * Asked only of a named row whose result contradicts the slot's: whether it is still this
      * game. It is when the other club's schedule has it at this very start time — the known club
@@ -3383,6 +3442,12 @@ export const resolveSlotGames = (
          */
         sourceOf(named) !== undefined &&
         (!holdsSchedule(named, slotGame) || sameTime(named)) &&
+        /*
+         * Not a game against a club the owner has said the stand-in's name is not, unless the
+         * club's own schedule gave it a row: then the club says it played this game, and the
+         * refusal, which is about a name, has nothing to say (`listedByOwn`).
+         */
+        !refusedAgainst(slotGame, named) &&
         /*
          * Two results that contradict are two games, unless they are one game scored apart
          * (`scoredApart`). Folding the slot into the one named row of the day regardless was
@@ -5817,7 +5882,13 @@ const soleNamesakes = (
  * its one club (`soleNamesakes`), and which the refile files onto it.
  */
 export const resettleOffLevel = (
-  state: GcImportState
+  state: GcImportState,
+  /**
+   * The names the owner has said are not a club (`notThisTeam.ts`): a row of such a name, off the
+   * schedule that wrote it, comes off the club as a row the rules refuse it does, and goes onto no
+   * namesake it is refused either.
+   */
+  refused: NotThisTeam = NO_REFUSALS
 ): { state: GcImportState; resettled: number } => {
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
   const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
@@ -6050,7 +6121,18 @@ export const resettleOffLevel = (
         : { ...game, teamBId: slot.id };
     }
     const farOff = !levelFits(levels.get(namedId), level);
-    const offByRule = farOff || twoOff(namedId, typed, game.date) || unvouched(namedId, moverId);
+    /*
+     * The owner's "Not this team" for the name on this schedule. The pool keeps no row's name, and
+     * a name files a row onto a club only where the two read the same, so the club's name is the
+     * name: the namer's other rows of it come off with the one the owner took off, which is what
+     * the refusal says of them, and a row restored from a copy that never heard it comes off too.
+     * Never a game the club's own schedule gave a row, claimed into it or on record: the club says
+     * it played that one, and the refusal is about a name (`listedByOwn`).
+     */
+    const refusedHere =
+      refusesName(refused, game.source.teamId, named.name, named) && !listedByOwn(game, named);
+    const offByRule =
+      refusedHere || farOff || twoOff(namedId, typed, game.date) || unvouched(namedId, moverId);
     // A name no other club carries is the club's though it has no game that day, which is where
     // the refile files it (`soleNamesakes`).
     const meant = () =>
@@ -6093,6 +6175,7 @@ export const resettleOffLevel = (
     const homes = (farOff ? (namesakes.get(key) ?? []) : []).filter((clubId) => {
       if (clubId === namedId || clubId === game.teamAId || clubId === game.teamBId) return false;
       const club = teamById.get(clubId);
+      if (refusesName(refused, game.source?.teamId, named.name, club)) return false;
       const inPool = club?.gcTeams?.some((link) => poolKeyOf(link.ageGroupId) === pool);
       return Boolean(inPool) && levelFits(levels.get(clubId), level);
     });
@@ -6134,7 +6217,11 @@ export const resettleOffLevel = (
  * Two across the borders, or one further away, stays a stand-in. Nothing at arrival time could do
  * this, because the namesake was pulled after the mention 70 times in 100.
  */
-export const refileStandIns = (state: GcImportState): { state: GcImportState; refiled: number } => {
+export const refileStandIns = (
+  state: GcImportState,
+  /** The names the owner has said are not a club (`notThisTeam.ts`), never refiled onto it. */
+  refused: NotThisTeam = NO_REFUSALS
+): { state: GcImportState; refiled: number } => {
   const poolKeyOf = buildPoolKeyOf(state.ageGroups);
   const levelOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
   const teamById = new Map(state.teams.map((team) => [team.id, team]));
@@ -6188,7 +6275,11 @@ export const refileStandIns = (state: GcImportState): { state: GcImportState; re
     const slot = `${pool}\u0000${key}\u0000${level}`;
     // Never the club on the row's other side: a squad naming its own club's other squad ("Texas
     // Takeover" on Texas Takeover 10U's own schedule) would be filed as playing itself.
-    const namesakes = (clubs.get(slot) ?? []).filter((club) => club.id !== puller.id);
+    // Nor a club the owner has said the name, written on this schedule, is not.
+    const namesakes = (clubs.get(slot) ?? []).filter(
+      (club) =>
+        club.id !== puller.id && !refusesName(refused, game.source?.teamId, standIn.name, club)
+    );
     const inState = namesakes.filter((club) => club.state === puller.state);
     // Two in the state: the one in the puller's own town, if exactly one is.
     const pullerTown = townKey(puller.city);
@@ -6924,7 +7015,8 @@ const tidyOnce = (
   state: GcImportState,
   pass: number,
   watch?: TidyWatcher,
-  apart?: KeptApart
+  apart?: KeptApart,
+  refused: NotThisTeam = NO_REFUSALS
 ): Omit<PoolTidy, "passes" | "idle"> => {
   /*
    * Reported from here rather than from the passes themselves: each one is a pure function of a
@@ -6972,7 +7064,7 @@ const tidyOnce = (
   const onePlace = oneRowOnePlace(repeated.state);
   const unique = { state: onePlace.state, dropped: repeated.dropped + onePlace.settled };
   starting("named", unique.state);
-  const named = resolveSlotGames(unique.state);
+  const named = resolveSlotGames(unique.state, refused);
   finished("named", named.resolved, named.state);
   // Straight after the slots, and for the same reason: two stand-ins joined here are a pair of
   // clubs the passes after it can compare.
@@ -6985,10 +7077,10 @@ const tidyOnce = (
   // After the fixture, which is better evidence than a level, and before the refile, which then
   // gets a look at whatever this had to leave as a stand-in.
   starting("resettled", moved.state);
-  const graded = resettleOffLevel(moved.state);
+  const graded = resettleOffLevel(moved.state, refused);
   finished("resettled", graded.resettled, graded.state);
   starting("refiled", graded.state);
-  const placed = refileStandIns(graded.state);
+  const placed = refileStandIns(graded.state, refused);
   finished("refiled", placed.refiled, placed.state);
   // After the refile, which files a stand-in's rows onto a club where it can, so only the stand-ins
   // that stay stand-ins are made one; and before the claims, which read the day against them.
@@ -7066,7 +7158,13 @@ export const tidyPool = (
   state: GcImportState,
   watch?: TidyWatcher,
   /** Pairs the user has already said are two clubs, so the tidy does not join them behind them. */
-  apart?: KeptApart
+  apart?: KeptApart,
+  /**
+   * Names the owner has said are not a club ("Not this team", `notThisTeam.ts`), so no step files a
+   * row of one onto the club by the name, and the step that takes a name's rows off a club takes
+   * them off it; the club's own schedule listing a game still makes it the club's.
+   */
+  refused: NotThisTeam = NO_REFUSALS
 ): PoolTidy => {
   const total: PoolTidy = {
     state,
@@ -7090,7 +7188,7 @@ export const tidyPool = (
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
-    const step = tidyOnce(total.state, pass + 1, watch, apart);
+    const step = tidyOnce(total.state, pass + 1, watch, apart, refused);
     total.passes += 1;
     total.state = step.state;
     total.named += step.named;

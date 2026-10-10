@@ -17,6 +17,7 @@ import {
   loadDeletedGames,
   loadDroppedClubs,
   loadKeptApart,
+  loadNotThisTeam,
   loadNamedAges,
   loadAgeRightClubs,
   loadRealClubs,
@@ -29,6 +30,7 @@ import {
   saveDeletedGames,
   saveDroppedClubs,
   saveKeptApart,
+  saveNotThisTeam,
   saveNamedAges,
   saveAgeRightClubs,
   saveRealClubs,
@@ -38,6 +40,7 @@ import {
 import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
 import { coerceDeletedClubs, coerceDeletedGames } from "./deletedGames";
 import { coerceKeptApart } from "./keptApart";
+import { coerceNotThisTeam, notThisTeamList } from "./notThisTeam";
 import { coerceNamedAges, namedAgesList, type NamedAge } from "./namedAges";
 import { coerceTooYoungClubs } from "./tooYoungClubs";
 import type { UndoSnapshot } from "./types";
@@ -108,6 +111,12 @@ export type BackupAnswers = {
    * up"). Absent from files written before it was kept, with the same meaning as `realClubs`.
    */
   ageRightClubs?: string[];
+  /**
+   * The names a schedule wrote that the owner has said are not a club ("Not this team",
+   * `notThisTeam.ts`). Absent from files written before it was kept, with the same meaning as
+   * `realClubs`.
+   */
+  notThisTeam?: string[];
 };
 
 /** `AgeGroup.seasonIds` is a list inside one cell; a semicolon keeps it out of CSV quoting. */
@@ -225,6 +234,7 @@ export const readTeamRankingsBackup = (): TeamRankingsBackup => ({
     ageUnknown: loadAgeUnknown(),
     realClubs: [...loadRealClubs()].sort(),
     ageRightClubs: [...loadAgeRightClubs()].sort(),
+    notThisTeam: notThisTeamList(loadNotThisTeam()),
   },
 });
 
@@ -259,6 +269,9 @@ export const writeTeamRankingsBackup = (backup: TeamRankingsBackup): boolean => 
         backup.answers.ageRightClubs === undefined
           ? true
           : saveAgeRightClubs(coerceDeletedClubs(backup.answers.ageRightClubs)),
+        backup.answers.notThisTeam === undefined
+          ? true
+          : saveNotThisTeam(coerceNotThisTeam(backup.answers.notThisTeam)),
       ].every(Boolean)
     : true;
   return wroteAgeGroups && wroteTeams && wroteGames && wroteAnswers;
@@ -277,6 +290,9 @@ export const coerceBackupAnswers = (raw: unknown): BackupAnswers | undefined => 
     ...("realClubs" in raw ? { realClubs: [...coerceDeletedClubs(raw.realClubs)].sort() } : {}),
     ...("ageRightClubs" in raw
       ? { ageRightClubs: [...coerceDeletedClubs(raw.ageRightClubs)].sort() }
+      : {}),
+    ...("notThisTeam" in raw
+      ? { notThisTeam: notThisTeamList(coerceNotThisTeam(raw.notThisTeam)) }
       : {}),
   };
 };
@@ -592,6 +608,9 @@ export const teamRankingsJsonParts = (backup: TeamRankingsBackup, savedAt: strin
     if (answers.realClubs) parts.push(`,"realClubs":${JSON.stringify(answers.realClubs)}`);
     if (answers.ageRightClubs) {
       parts.push(`,"ageRightClubs":${JSON.stringify(answers.ageRightClubs)}`);
+    }
+    if (answers.notThisTeam) {
+      parts.push(`,"notThisTeam":${JSON.stringify(answers.notThisTeam)}`);
     }
     parts.push(',"ageUnknown":[');
     answers.ageUnknown.forEach((row, at) => {

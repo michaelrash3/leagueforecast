@@ -6,6 +6,7 @@ import { movementOf } from "../lib/rankMovement";
 import { compareClubs } from "../lib/clubCompare";
 import { setClubAge } from "../lib/clubAge";
 import { createAgeGroupId } from "../lib/teamRankings/seasons";
+import { filedByNameOn, mintStandInId, takenOffSaid } from "../lib/notThisTeam";
 import { planClubAges } from "../lib/live/agePlan";
 import { whereIsGcId } from "../lib/gcIdWhereabouts";
 import { leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
@@ -877,6 +878,11 @@ export function TeamRankingsView({
     () => new Map(allKnown.teams.map((team) => [team.id, team.name])),
     [allKnown.teams]
   );
+  // The roster by id, for what asks a game's other side for more than its name (Not this team).
+  const scoutTeamById = useMemo(
+    () => new Map(scoutTeams.map((team) => [team.id, team])),
+    [scoutTeams]
+  );
 
   const reportForId =
     reportTeamId || rankings.find((row) => row.isMine)?.teamId || rankings[0]?.teamId || "";
@@ -1308,6 +1314,43 @@ export function TeamRankingsView({
     const run = runCommand({ kind: "team.unlinkGc", teamId, gcTeamId });
     if (run.ok && run.writes.length > 0)
       showToast("Unlinked from GameChanger.", { tone: "success" });
+  };
+
+  /**
+   * "Not this team": a game a club has only because a name on another club's schedule was matched
+   * to it, taken off the club onto the stand-in of the name (`game.notThisTeam`), in the year its
+   * page is in, as storage files it, and with it every other game that club's schedules filed onto
+   * it by the name (`takenWith`). The stand-in's id, where one has to be made, is minted against
+   * the roster here, as the import mints one.
+   */
+  const notThisTeam = (teamId: string, game: ScoutGame) => {
+    const club = scoutTeams.find((team) => team.id === teamId);
+    if (!club) return;
+    const year = ageGroupYear(ageGroups.find((group) => group.id === game.ageGroupId)) ?? null;
+    const run = runCommand({
+      kind: "game.notThisTeam",
+      year,
+      gameId: game.id,
+      teamId,
+      standInId: mintStandInId(club.name, new Set(scoutTeams.map((team) => team.id))),
+    });
+    if (!run.ok || run.writes.length === 0) return;
+    const opponent = teamNameById.get(game.teamAId === teamId ? game.teamBId : game.teamAId);
+    // Every game the press took off, in whichever year: its Undo puts each one back as it was.
+    const steps = run.inverse.kind === "batch" ? run.inverse.commands : [run.inverse];
+    const taken = steps.flatMap((step) => (step.kind === "game.put" ? step.games : []));
+    showToast(
+      takenOffSaid(
+        club.name,
+        opponent,
+        taken.map((each) => each.date)
+      ),
+      {
+        tone: "undo",
+        actionLabel: "Undo",
+        onAction: () => runCommand(run.inverse),
+      }
+    );
   };
 
   /**
@@ -2569,6 +2612,10 @@ This cannot be undone. Cancel and download the backups first if there is any cha
           {...(openTeamAge ? { age: openTeamAge } : {})}
           onSetAge={(level) => setTeamAge(openTeam.id, level)}
           onClearAge={() => clearTeamAge(openTeam.id)}
+          notThisTeam={{
+            offered: (game) => filedByNameOn(game, openTeam, (id) => scoutTeamById.get(id)),
+            onRefuse: (game) => notThisTeam(openTeam.id, game),
+          }}
           mergeCandidates={mergeCandidatesFor(openTeam.id)}
           onSetState={(state) => setTeamState(openTeam.id, state)}
           onClose={() => setOpenTeamId(null)}

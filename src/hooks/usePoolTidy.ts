@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
 import { tidyPool } from "../lib/gameChangerImport";
 import { keptApartList } from "../lib/keptApart";
-import { loadKeptApart } from "../lib/teamRankingsStorage";
+import { notThisTeamList } from "../lib/notThisTeam";
+import { loadKeptApart, loadNotThisTeam } from "../lib/teamRankingsStorage";
 import { todayIsoDay } from "../lib/date";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import { poolLists, type PoolLists } from "../lib/poolLists";
@@ -156,6 +157,8 @@ export function usePoolTidy() {
       // Read once, as the tidy does: the worker has no storage, and the inline path must be handed
       // the same answers.
       const apart = loadKeptApart();
+      // And the names the owner has said are not a club, which the settle count reads as the tidy.
+      const refused = loadNotThisTeam();
       const today = todayIsoDay();
       return ask<PoolInspection>(
         "inspect",
@@ -166,6 +169,7 @@ export function usePoolTidy() {
           stamp,
           today,
           apart: keptApartList(apart),
+          notThisTeam: notThisTeamList(refused),
         }),
         (response, id) =>
           response.kind === "inspect" && response.id === id
@@ -175,7 +179,7 @@ export function usePoolTidy() {
           const health = poolHealth(state, stamp, today);
           return {
             health,
-            settleable: health.standInPlayed === 0 ? 0 : settleableNow(state),
+            settleable: health.standInPlayed === 0 ? 0 : settleableNow(state, refused),
             lists: poolLists(state, apart, today),
           };
         }
@@ -203,10 +207,19 @@ export function usePoolTidy() {
        * decide whether the user's "these are two clubs" was honoured.
        */
       const apart = loadKeptApart();
+      // And the names the owner has said are not a club, which the refile would otherwise file
+      // straight back onto it ("Not this team", `notThisTeam.ts`).
+      const refused = loadNotThisTeam();
       try {
         return await ask<TidyOutcome>(
           "tidy",
-          (id) => ({ kind: "tidy", id, state: packPool(state), apart: keptApartList(apart) }),
+          (id) => ({
+            kind: "tidy",
+            id,
+            state: packPool(state),
+            apart: keptApartList(apart),
+            notThisTeam: notThisTeamList(refused),
+          }),
           // What came back is only what changed; the rest is the caller's own arrays, so the
           // identity checks that decide what to save see exactly what the tidy did.
           (response, id) =>
@@ -219,7 +232,7 @@ export function usePoolTidy() {
              * running on the thread that would draw them — so they are collected and handed over
              * once. The reader still learns what the tidy did, just not while it is doing it.
              */
-            const { state: tidied, ...counts } = tidyPool(state, noteTidyStep, apart);
+            const { state: tidied, ...counts } = tidyPool(state, noteTidyStep, apart, refused);
             return { state: tidied, tidy: counts };
           },
           reach,

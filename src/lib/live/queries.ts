@@ -42,6 +42,7 @@ import {
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
+  loadNotThisTeam,
   loadOrgMembership,
   loadRealClubs,
   loadRefreshLog,
@@ -552,8 +553,9 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
       return {
         kind: "health.inspect",
         health,
-        // Only worth asking when something could be settled, as the tidy worker asks it.
-        settleable: health.standInPlayed === 0 ? 0 : settleableNow(state),
+        // Only worth asking when something could be settled, as the tidy worker asks it, and with
+        // the names the owner has said are not a club, as the tidy settles.
+        settleable: health.standInPlayed === 0 ? 0 : settleableNow(state, loadNotThisTeam()),
         lists: { ...lists, toPull: lists.toPull.slice(0, TO_PULL_DRAWN) },
         toPullCount: lists.toPull.length,
       };

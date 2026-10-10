@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { poolHealth, settleableNow } from "../poolHealth";
-import { poolSignature, type GcImportState } from "../gameChangerImport";
+import { poolSignature, resolveSlotGames, type GcImportState } from "../gameChangerImport";
+import { refusalOf } from "../notThisTeam";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
 const group: AgeGroup = { id: "ag_1", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] };
@@ -106,6 +107,39 @@ describe("what a tidy would settle", () => {
 
   it("counts one that the other side already names", () => {
     expect(settleableNow(settleable())).toBe(1);
+  });
+
+  it("counts no settle the owner's refusal keeps from a club, as the tidy settles none", () => {
+    // The Away Club is on GameChanger twice: its second listing filed the day's named row onto the
+    // Home Club by a name, and the owner has said the first listing's slot name is not the Home Club.
+    const state = pool(
+      [
+        team("HOME", { gcTeams: [{ teamId: "gcHOME", name: "Home", ageGroupId: "ag_1" }] }),
+        team("AWAY", {
+          gcTeams: [
+            { teamId: "gcAWAY", name: "Away", ageGroupId: "ag_1" },
+            { teamId: "gcAWAY2", name: "Away", ageGroupId: "ag_1" },
+          ],
+        }),
+        team("TBD", { placeholder: true }),
+      ],
+      [
+        game("named", "AWAY", "HOME", {
+          teamAScore: 2,
+          teamBScore: 6,
+          source: { kind: "gamechanger", teamId: "gcAWAY2", gameId: "n1" },
+        }),
+        game("slot", "AWAY", "TBD", {
+          teamAScore: 2,
+          teamBScore: 6,
+          source: { kind: "gamechanger", teamId: "gcAWAY", gameId: "s1" },
+        }),
+      ]
+    );
+    const refused = new Set([refusalOf("gcAWAY", "Team TBD", "gcHOME")]);
+    expect(settleableNow(state)).toBe(1);
+    expect(settleableNow(state, refused)).toBe(0);
+    expect(settleableNow(state, refused)).toBe(resolveSlotGames(state, refused).resolved);
   });
 
   it("counts none when there is nothing to settle", () => {

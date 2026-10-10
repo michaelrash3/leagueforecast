@@ -6,6 +6,7 @@ import {
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
+  loadNotThisTeam,
   loadOrgMembership,
   loadRealClubs,
   loadRefreshCadence,
@@ -18,6 +19,7 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveNamedAges,
+  saveNotThisTeam,
   saveOrgMembership,
   saveRealClubs,
   saveRefreshCadence,
@@ -46,6 +48,7 @@ const LOADERS: Record<AnswerList, () => ReadonlySet<string>> = {
   keptApart: loadKeptApart,
   droppedClubs: loadDroppedClubs,
   deletedGames: loadDeletedGames,
+  notThisTeam: loadNotThisTeam,
 };
 
 const SAVERS: Record<AnswerList, (ids: ReadonlySet<string>) => boolean> = {
@@ -54,6 +57,7 @@ const SAVERS: Record<AnswerList, (ids: ReadonlySet<string>) => boolean> = {
   keptApart: saveKeptApart,
   droppedClubs: saveDroppedClubs,
   deletedGames: saveDeletedGames,
+  notThisTeam: saveNotThisTeam,
 };
 
 /** The pool as this browser's store holds it. */

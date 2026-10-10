@@ -11,6 +11,7 @@ import { PULL_TRACKER_VERSION, type PullRunLog } from "./pullTracker";
 import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
 import { coerceAgelessCleared, type AgelessClearedPass } from "./agelessCleared";
 import { coerceKeptApart, keptApartList, type KeptApart } from "./keptApart";
+import { coerceNotThisTeam, notThisTeamList, type NotThisTeam } from "./notThisTeam";
 import {
   coerceDeletedClubs,
   coerceDeletedGames,
@@ -182,6 +183,13 @@ const GC_REAL_CLUBS_KEY = "league_forecast_gc_real_clubs_v1";
  * Kept like the real clubs, for the same reason: the ids come back unchanged on the next pull.
  */
 const GC_AGE_RIGHT_KEY = "league_forecast_gc_age_right_v1";
+/**
+ * The names a schedule wrote that the owner has said are not a club ("Not this team",
+ * `notThisTeam.ts`), by the schedule's GameChanger id, the name and the club's ids, so no pull or
+ * tidy files the name onto the club again. Kept beside the pairs kept apart, which it is the
+ * opposite of, and for the same reason: the ids come back unchanged on the next pull.
+ */
+const GC_NOT_THIS_TEAM_KEY = "league_forecast_gc_not_this_team_v1";
 /**
  * The ids GameChanger says are below the youngest level ranked here.
  *
@@ -479,6 +487,7 @@ const POOL_KEYS = [
   GC_DROPPED_CLUBS_KEY,
   GC_REAL_CLUBS_KEY,
   GC_AGE_RIGHT_KEY,
+  GC_NOT_THIS_TEAM_KEY,
   GC_TOO_YOUNG_KEY,
   GC_REFUSED_KEY,
   GC_NAMED_AGES_KEY,
@@ -1533,6 +1542,13 @@ export const loadAgeRightClubs = (): Set<string> => coerceDeletedClubs(readValue
 
 export const saveAgeRightClubs = (clubs: ReadonlySet<string>): boolean =>
   writeValue(GC_AGE_RIGHT_KEY, deletedClubsList(clubs));
+
+/** The names the owner has said are not a club, by schedule, name and club (`notThisTeam.ts`). */
+export const loadNotThisTeam = (): Set<string> =>
+  coerceNotThisTeam(readValue(GC_NOT_THIS_TEAM_KEY));
+
+export const saveNotThisTeam = (refused: NotThisTeam): boolean =>
+  writeValue(GC_NOT_THIS_TEAM_KEY, notThisTeamList(refused));
 
 export const loadTooYoungClubs = (): Set<string> =>
   coerceTooYoungClubs(readValue(GC_TOO_YOUNG_KEY));

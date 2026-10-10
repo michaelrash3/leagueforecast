@@ -37,6 +37,7 @@ import {
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
+  loadNotThisTeam,
   loadOrgMembership,
   loadRefreshLog,
   loadScoutGames,
@@ -335,11 +336,15 @@ const fileAnswers = async (
 ): Promise<Filed> => {
   const pool = { ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() };
   const orgAges = orgAgesByTeam(loadOrgMembership());
+  // The names the owner has said are not a club ("Not this team"), as a pull in the browser reads
+  // them: neither the import nor the tidy after it files such a name onto that club again.
+  const refused = loadNotThisTeam();
   const importer = createGcImporter(pool, {
     deleted: loadDeletedGames(),
     droppedClubs: loadDroppedClubs(),
     tooYoung: loadTooYoungClubs(),
     namedAges: loadNamedAges(),
+    notThisTeam: refused,
     // The run's own day, which is the user's where the process runs in their time zone.
     today: todayIsoDay(now),
     ...(job.kind === "list" && job.seasonYears.length > 0
@@ -358,7 +363,7 @@ const fileAnswers = async (
       importer.add(withListed(answer.schedule, claimed.get(teamId), orgAges.get(teamId)))
     );
   });
-  const tidy = tidyPool(importer.state, undefined, loadKeptApart());
+  const tidy = tidyPool(importer.state, undefined, loadKeptApart(), refused);
   saveTidyStamp(poolSignature(tidy.state));
   const kept = persistPool(tidyChangedAnything(tidy) ? tidy.state : importer.state, undefined);
   if (!kept.saved) throw new Error("The pull's pool could not be written to the store in memory.");

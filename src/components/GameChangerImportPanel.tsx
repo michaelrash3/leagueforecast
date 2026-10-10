@@ -118,6 +118,7 @@ import {
   saveTidyStamp,
   type PoolHolding,
   loadDeletedGames,
+  loadNotThisTeam,
   loadDroppedClubs,
   loadTooYoungClubs,
   loadRefusedClubs,
@@ -972,6 +973,8 @@ export function GameChangerImportPanel({
         // row vanished from the card because the queue hides a team once it is named, and the
         // next pull read an empty map and refused the team for having no age all over again.
         namedAges,
+        // The names the owner has said are not a club ("Not this team"), never filed onto it.
+        notThisTeam: loadNotThisTeam(),
         // The run's own seasons, not the panel's: a resumed run files what it was started for.
         ...(progress.seasonYears ? { seasonYears: new Set(progress.seasonYears) } : {}),
       });

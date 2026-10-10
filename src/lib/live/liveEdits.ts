@@ -5,6 +5,7 @@ import type { PoolCommand } from "./commands";
 import type { EditReply } from "./editHandle";
 import type { EditRefusal, QueryRefusal } from "./editRun";
 import type { ClubCard } from "./views/clubShape";
+import type { ScoutGame } from "../teamRankings";
 
 /**
  * A member's edits from the live page (1.5), on the device: what each answer is said as, which edits
@@ -156,8 +157,28 @@ const stepsOf = (command: PoolCommand): PoolCommand[] =>
   command.kind === "batch" ? command.commands.flatMap(stepsOf) : [command];
 
 /**
+ * The games of a card that Not this team on the one stored as `storedId` takes off the club, as the
+ * card can tell: every game it has by a name alone (`ClubCard.byName`) against the same opponent.
+ * The server takes off every game the opponent's schedules filed onto the club by the name
+ * (`takenWith`), which is what a card marks as by a name against that opponent; none where the card
+ * does not hold the game.
+ */
+export const takenWithOnCard = (card: ClubCard, storedId: string): ScoutGame[] => {
+  const byName = card.byName ?? {};
+  const club = card.team.id;
+  const opponentOf = (game: ScoutGame) => (game.teamAId === club ? game.teamBId : game.teamAId);
+  const pressed = card.games.find((game) => byName[game.id] === storedId);
+  if (!pressed) return [];
+  const opponent = opponentOf(pressed);
+  return card.games.filter(
+    (game) => byName[game.id] !== undefined && opponentOf(game) === opponent
+  );
+};
+
+/**
  * A club's card as the edits made since it was published leave it, for its panel: its state, name,
- * GameChanger links and level, as each edit made them. A card the server's next publish replaces
+ * GameChanger links and level, as each edit made them, and without a game taken off it as not its
+ * own, which takes its record with it. A card the server's next publish replaces
  * says all of this itself; until then this is what the panel draws. A club folded into another is
  * no longer a card to draw, and says where its games went.
  */
@@ -166,9 +187,25 @@ export const overlayCard = (
   edits: readonly PoolCommand[]
 ): ClubCard | { foldedInto: string } => {
   let shown = card;
+  // The stored ids of games taken off the club as not its own (`game.notThisTeam`), until a step
+  // puts the game back on it: that edit's Undo, which puts the game as the copy held it.
+  const takenOff = new Set<string>();
   for (const step of edits.flatMap(stepsOf)) {
     const team = shown.team;
     switch (step.kind) {
+      case "game.notThisTeam": {
+        if (step.teamId !== team.id) break;
+        // The game pressed, and every other the same club filed onto this one by the name.
+        const taken = takenWithOnCard(shown, step.gameId);
+        if (taken.length === 0) takenOff.add(step.gameId);
+        taken.forEach((game) => takenOff.add(shown.byName?.[game.id] ?? step.gameId));
+        break;
+      }
+      case "game.put":
+        for (const game of step.games) {
+          if (game.teamAId === team.id || game.teamBId === team.id) takenOff.delete(game.id);
+        }
+        break;
       case "team.state": {
         if (step.teamId !== team.id) break;
         const state = step.state === null ? undefined : normalizeState(step.state);
@@ -238,7 +275,21 @@ export const overlayCard = (
         break;
     }
   }
-  return shown;
+  if (takenOff.size === 0 || !shown.byName) return shown;
+  // A card names such a game by its place, and the edit by its stored id (`ClubCard.byName`).
+  const byName = shown.byName;
+  const off = (game: { id: string }) => {
+    const stored = byName[game.id];
+    return stored !== undefined && takenOff.has(stored);
+  };
+  if (!shown.games.some(off)) return shown;
+  const { byName: _was, ...rest } = shown;
+  const left = Object.fromEntries(Object.entries(byName).filter(([, id]) => !takenOff.has(id)));
+  return {
+    ...rest,
+    games: shown.games.filter((game) => !off(game)),
+    ...(Object.keys(left).length > 0 ? { byName: left } : {}),
+  };
 };
 
 /**

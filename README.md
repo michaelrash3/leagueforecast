@@ -1020,6 +1020,74 @@ the same question. On the backup of 29 September 2026 the tidy filed 3,660 stand
 clubs, 1,047 of them scored, which emptied 1,985 stand-ins; four games two clubs had each filed
 against a stand-in for the other were then one game, not two. A second tidy moved nothing.
 
+**Not this team.** The matcher will still be wrong sometimes, and the club's panel is where that
+shows. Beside each game a club has only because a name on another club's schedule was matched to
+it, the panel offers **Not this team** (`filedByNameOn`): a row off GameChanger, off a schedule of
+the club on the game's other side, which is the schedule that wrote the name, on a pulled club, with
+nothing of the club's own saying the game is its — no row of its schedules folded in, claimed in or
+on record, and no picture naming it, which is GameChanger's identity or, after Same team as, the
+owner's word. A game the club's own schedule lists, one typed in and a League Standings game are
+never offered it, and nor is a row off a schedule nobody holds: an Unlink leaves the club's own rows
+of the link it took off on the club, and on the backup of 29 September 2026 one such row was the
+one game of 8,200 whose schedule was not the other side's. Unlink, which the panel offered before,
+could not help, since the row did not come from a link. Pressing it takes the game off the club
+onto what the row would have been had the name matched nothing (`takeOffClub`): the stand-in a pull
+of that schedule would reuse for the name, at the level the row gave it, in its squad year and named
+from the namer's state, or a new one where there is none, or a slot for a name that can only be one.
+And it takes with it, in the same change, every other game the same club's schedules filed onto
+this one by the name (`takenWith`), in whichever squad year: the refusal below covers each of them,
+and left to the tidy they came off out of Undo's reach. On a page kept in the browser a stand-in
+made for the game sets the page's tidy off at once, which took the other rows off for the refusal
+while the Undo was still on screen, and Undo then brought back the one game alone, the stand-in
+staying with the others (on the backup of 29 September 2026, 648 of the 7,515 club and namer
+pairs offered hold two or more such games, at most six). The toast says how many games went, and
+the club's record, rating and board move with them; Undo puts every one back as it was, takes away
+the stand-ins made for them, and forgets the refusals the press added. It is a command
+(`game.notThisTeam`), so a page kept in the browser runs it on its own store and the live page sends
+it to the edit function, the club's card naming the games it is offered beside by their stored ids
+(`ClubCard.byName`), since a card carries no other. The button's name, as a screen reader says it,
+names the games it takes and the club it takes them off, since "Not this team" beside an
+opponent's name reads as a remark about the opponent; it is a 24-pixel target, and a press, which
+takes the button's own row away, leaves focus on the panel's list of games rather than on the page.
+
+The answer is remembered, as the pairs kept apart are: in the pool's own key
+(`league_forecast_gc_not_this_team_v1`), in every backup and in the cloud copy, against each
+GameChanger id of the club that wrote the name, the name as the import reads it (`teamNameKey`) and
+each of the club's GameChanger ids. Every listing of the namer's, not only the one the row came off:
+a club on GameChanger twice, or once for the spring and once for the fall, is one club writing the
+name, and keyed by the row's schedule alone the second listing's next row of the name went back onto
+the club (47 of the games offered on that backup were named by a club with two listings, and 2 held
+the other listing's row in the very game). Not against the game: a re-pull finds a row taken off a club by its id and keeps
+the stand-in it has, so what brings the mistake back is the refile putting the stand-in on the club
+the next time the club has a game that day, and the namer's next row of that name, a league
+opponent being named over and over. The schedule and the name stay in the key, so another schedule
+naming the club, or this one naming it another way, is matched as before, and the pool keeps no
+row's name, so the club's name is the name: a name files a row onto a pulled club only where the two
+read the same. Every road a name takes onto a club asks it (`refusesName`): the import's match by
+the name (`planOpponent`: the one club of it, the one something corroborates), the refile, a
+namesake taking a row off a club far from its age, and the slot settle where the row it would
+settle into is the name again. The step that takes a name's rows off a club (`resettleOffLevel`)
+takes any row of the refused name it finds there off it too, at the next tidy: none, after a press,
+which took them all, but a row a copy restored from before the refusal brings back. What a refusal never
+stands against is the club's own schedule (`listedByOwn`): where that lists the game against the
+namer, the fixture match, the holder test, the slot settle, the crossed halves, the reclaim and the
+claim step put it on the club as they would with no refusal, since the club saying it played the
+game is not a reading of a name. Kept from those too, the two clubs' next real meeting stood twice
+on the namer's record, once against the club from the club's schedule and once against a stand-in
+from the namer's. The picture still names the club as well, being GameChanger's identity. The
+import panel and the
+tidy on this page, in its worker or not, read the list, and so does every pull run on the cloud
+copy (`runCloudPull`: the nightly refresh and a list pulled in the cloud), its import and its tidy
+alike, and Pool health's count of what a tidy would settle (`settleableNow`, on the page, in its
+worker and in the server's `health.inspect`), which asked without it offered a Settle the tidy
+refuses and stayed on screen after every tidy; the command adds to it: the refusals it does not hold
+already, which its Undo takes off again and nothing else. Once the toast has gone a refusal is
+listed nowhere and nothing in the app takes it back: Same team as, folding the stand-in into the
+club, puts the games it holds back on the club by the owner's word (`namedByAvatar`), which no
+refusal overrules, but the refusal stays for the name's next rows. A page to list the refusals and
+withdraw one is not built yet: what withdrawing should do with the games already on a stand-in is
+the owner's to decide.
+
 **A row filed by name beside a game the club never listed.** Where another club's own schedule
 lists a game against a club that none of the club's own schedules gives a row, that game is on the
 club's schedule somewhere — under whatever its coach typed for the other club. The import files a
@@ -3526,7 +3594,10 @@ the app's own pool store held in memory, as a device taking in a copy does;
 asks GameChanger for the teams through the same client, at the same pace (8
 requests at once, growing to 24 while nothing pushes back); and files every
 answer through the same importer, with the same things the pasted list knows
-about a team (`withListed`). Then it runs the same whole-pool tidy, stamped so
+about a team (`withListed`) and the same answers the copy holds: the names the
+owner has said are not a club (Not this team) are handed to the importer and to
+the tidy, as the pull panel and the page's tidy hand them, so the nightly refresh
+and a pull in the cloud never file such a name onto that club again. Then it runs the same whole-pool tidy, stamped so
 no device tidies it again, saves the pool the same way (`persistPool`), and
 keeps the same lists a pull ends with (`settleRunLists`): the teams waiting on
 an age, the teams turned away, the too-young, and the invented clubs thrown
@@ -4106,7 +4177,13 @@ side B's own report, whether it is set not to count or its runaway score was
 confirmed, its day, its event and each side's level; not its start, since a game
 counts as played ahead by its day alone), and sent from the club's side: its
 opponents named once, each game pointing at one, and without its stored id, which
-the panel only keys rows by. Cards go out in buckets, a year's clubs split by a hash
+the panel only keys rows by. The one exception is a game the club has only because a
+name on another club's schedule was matched to it (`filedByNameOn`), whose stored id
+the card keeps (`n`, read back as `ClubCard.byName`, by the game's place): that is
+where the panel offers Not this team, and the command it sends names the game by it.
+On the 29 September backup 8,199 games stood so on 5,983 of its 52,967 pulled clubs,
+at most 14 on one club and a median of one, which adds 0.48 MB of JSON to the cards
+of every year together (measured). Cards go out in buckets, a year's clubs split by a hash
 of their id into 64 views (`club:{year}:{bucket}`, `clubBucketOf`): one view per
 club would be a hundred thousand documents to write on a night every club is
 pulled, and one per year the whole pool to read for one club.
@@ -4740,9 +4817,12 @@ club open when the board hands over opens on Team Rankings, and one tapped while
 the pool comes in says so until Team Rankings opens on it.
 
 Its edits go to the edit function (`useLiveEdits`, 1.5): a state, a name, a
-GameChanger link taken off, an age set or taken back, and a fold into another
-club on the board, each sent as a command against the copy the board is of, and
-each answer said in a toast: the edit made (an age with an Undo that sends its
+GameChanger link taken off, an age set or taken back, a fold into another club on
+the board, and a game the club has only by a name another schedule wrote taken off
+it (Not this team, `game.notThisTeam`, by the stored id its card keeps for such a
+game and a stand-in id the device mints, which no roster holds), each sent as a
+command against the copy the board is of, and each answer said in a toast: the edit
+made (an age, or a game taken off, with an Undo that sends its
 inverse), or why not, in plain words, a refusal as the server named it and a call
 that came to nothing in the call's own words, which say an edit may or may not have
 been made wherever the server did not prove it was not. A rename onto a name
@@ -4750,7 +4830,10 @@ another club holds, and a fold, are asked about first, with what the server says
 they move (`rename.preview`, `merge.preview`). An edit made is drawn over the card
 until a publish of its version or later is out (`overlayCard`): the state, name,
 links and level it gave the club (and an age's Undo, whose ages named for the
-club's GameChanger teams put back the pin it had, or none), and a club folded away opens the one it went
+club's GameChanger teams put back the pin it had, or none), a game taken off it as not
+its own no longer drawn, with every other game the card has by a name against the same
+club (`takenWithOnCard`), as the server takes them, their record moving with them, until
+the Undo puts them back on the club, and a club folded away opens the one it went
 into. An edit that changed nothing the views read (a Pool health answer) asks for
 no rebuild and is not waited on. Opening a panel brings the server's pool up
 (`warm`), at most once in ten minutes of calls. While the device is offline, or
@@ -5522,10 +5605,11 @@ inverse puts every part the command touched back as it was, to the stored byte.
 
 | Command                                                                                                                                                               | What it changes                                                                                                                                                                                                    |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `answers`                                                                                                                                                             | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart.                                                                                                    |
+| `answers`                                                                                                                                                             | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart, names said not to be a club.                                                                       |
 | `team.state`, `team.unlinkGc`                                                                                                                                         | A club's state; one GameChanger id taken off a club.                                                                                                                                                               |
 | `game.score`, `game.exclude`, `game.confirm`                                                                                                                          | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now.                                                                                                  |
 | `game.add`, `game.remove`                                                                                                                                             | Games added at the end of their year, with the new clubs they name (and only those); games taken out of their year.                                                                                                |
+| `game.notThisTeam`                                                                                                                                                    | A game a club has only by a name another club's schedule wrote taken off it, with that club's other such games, onto the stand-in the name would have had, made under the command's id where none is reused.       |
 | `page.myTeam`                                                                                                                                                         | A page's own team marked or unmarked.                                                                                                                                                                              |
 | `club.leavePage`                                                                                                                                                      | A club taken off one page: its games there, the page's mark if it was the page's own team, and the club itself only when no game in any year names it and no row is filed against it.                              |
 | `games.drop`, `club.drop`                                                                                                                                             | Games thrown out of whichever years hold them, the rows that scored them remembered so that a pull does not file them again; a club thrown out with every game it is in, its GameChanger ids refused from then on. |
