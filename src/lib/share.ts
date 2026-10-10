@@ -61,12 +61,14 @@ const base64ToBytes = (base64: string) => {
   const binary = atob(base64);
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 };
-const encodeRaw = (value: string) =>
+/** Text as URL-safe base64, for the part of a link after `#`. */
+export const encodeRaw = (value: string) =>
   bytesToBase64(new TextEncoder().encode(value))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
-const decodeRaw = (encoded: string) => {
+/** The text `encodeRaw` made, back. */
+export const decodeRaw = (encoded: string) => {
   const padded = encoded.replace(/-/g, "+").replace(/_/g, "/");
   const padLen = (4 - (padded.length % 4)) % 4;
   const full = padded + "=".repeat(padLen);

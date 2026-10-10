@@ -2709,8 +2709,48 @@ standings, with the league's own tiebreakers, and Gold % simulated over the game
 still unpicked (`scenarioSeason`). A pick plays out at the model's expected score,
 turned round where the pick goes against the model, because run differential breaks
 ties and a winner alone does not give one; a score can be typed instead. Ratings are
-not refitted on made-up results, so the rest of the page does not move, and nothing
-is saved: the picks go when the page does.
+not refitted on made-up results, so the rest of the page does not move. Each team's row
+says how the picks move it against the season as it stands: its place (▲2), its Gold %
+(+65), and **Clinches** or **Out** where the picks settle what the season does not yet.
+
+### Saved scenarios
+
+Picks go when the page does unless they are saved as a scenario (2.7,
+`src/lib/savedScenarios.ts`): a name, the picks with any typed scores, and each picked
+game's teams and date as they stood, kept on this device per season, the most recently
+changed first, thirty at most (a save that pushes the oldest out names it). One parent's
+"what if we win out" is theirs, not the season's, so a scenario is never written into the
+season, a backup or the cloud. A scenario is opened from the **Scenario** list, its picks
+changed and **Save changes**, **Rename**d, **Duplicate**d with the picks as they are now,
+or **Delete**d with its picks left on screen unsaved. **Clear picks** starts again. Each
+change is made to the scenarios as stored rather than to the list on the page, so one
+kept in another tab meanwhile stays. A stored scenario of a later version is left as it
+was, unread, through every change.
+
+**Quick picks** fill the games in one go: **Favorites win** has the model's pick win every
+game left, **Fill the rest with favorites** only the games not yet picked, and **Wins out**
+or **Loses out** settles every game left of the team chosen beside them (the team this
+browser follows, to begin with), leaving its other picks as they were.
+
+A scenario knows when the season has moved on under it (`scenarioTrouble`): a picked game
+played (the real result stands), taken off the schedule, or given other teams marks it
+"(out of date)" in the list, and opening it lists what happened. Those picks are left out
+of what is shown, and **Bring it up to date** saves it without them, saying how many went.
+A game only moved to another day keeps its pick. The same holds for picks being made when
+a game changes under them, from another device say: a pick counts only on the game it was
+made on, until picked again.
+
+**Share** copies a link, `?view=league#scenario=…`, carrying the scenario's name, its
+picks and each picked game's teams and date, and nothing of the season, up to 6,000
+characters (more picks than fit are refused, with a word to save them instead). Opening
+one waits for the season to be the one the device shows (League kept live waits for the
+cloud's version), shows the picks, the soonest first, and which of them are not on games
+this season still has to play between the same teams, and asks **Keep it** or **Not now**
+(`src/lib/scenarioLink.ts`, fetched only when a link is opened). Kept, it joins the saved
+scenarios for the season open here with only the picks that apply, and opens in the
+playoff machine; either way the link leaves the address bar, and the season is never
+changed. A link none of whose picks apply is said so, with a word to open the season it
+was made for.
 
 ## Our team
 

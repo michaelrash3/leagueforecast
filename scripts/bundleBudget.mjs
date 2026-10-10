@@ -26,6 +26,10 @@ const DIST = "dist";
  * League views were split), and at least 1.5 KB above for the small views, where a tenth is a
  * line of markup. Before the split the first download was 261.6 KB with a 120.1 KB entry chunk,
  * and every League view was in it.
+ *
+ * Raised since, each by its commit: Forecast to 18.3 KB on 10 Oct 2026 for saved playoff scenarios
+ * (2.7), which measured 16.6 KB against 12.1 KB before; opening a scenario link is kept out of it,
+ * fetched only when a link is opened.
  */
 const BUDGET = {
   firstDownload: 252_000,
@@ -37,7 +41,7 @@ const BUDGET = {
     Schedule: 8_200,
     Standings: 8_000,
     "League Stats": 3_700,
-    Forecast: 13_200,
+    Forecast: 18_300,
     "Data Quality": 3_500,
     Settings: 12_600,
     "Team Rankings": 153_000,

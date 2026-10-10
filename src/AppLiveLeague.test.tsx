@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { LiveLeagueState } from "./lib/live/leagueSync";
+import { scenarioLinkHash } from "./lib/savedScenarios";
 import { buildShareUrl } from "./lib/share";
 import { loadCloudState, saveCloudState } from "./lib/cloud/cloudState";
 import { noteLeagueMet } from "./lib/preferences";
@@ -222,6 +223,31 @@ describe("League Standings kept live, on the page", () => {
       within(await screen.findByRole("dialog")).getByRole("button", { name: "Load snapshot" })
     );
     await waitFor(() => expect(loadTeams().map((team) => team.name)).toEqual(["Xylos", "Yetis"]));
+  });
+
+  it("asks about a scenario link once the season is the cloud's, keeping it until then", async () => {
+    live.state = { kind: "connecting" };
+    const hash = scenarioLinkHash({
+      version: 1,
+      id: "theirs",
+      name: "Aces win",
+      seasonId: "elsewhere",
+      picks: { g1: { winnerId: "A" } },
+      basis: { g1: { away: "A", home: "B", date: "5/1" } },
+      createdAt: "2026-05-01T00:00:00.000Z",
+      modifiedAt: "2026-05-01T00:00:00.000Z",
+    });
+    window.history.replaceState(null, "", `/?view=league#${hash ?? ""}`);
+    const view = render(<App />);
+    await screen.findByRole("tab", { name: /schedule/i });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(window.location.hash).toMatch(/^#scenario=/);
+    live.state = { kind: "live" };
+    view.rerender(<App />);
+    const dialog = await screen.findByRole("dialog", { name: "Keep this scenario?" });
+    expect(dialog).toHaveTextContent("“Aces win”: 1 pick.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("lets a team be followed while read-only: the pick is this browser's own", async () => {

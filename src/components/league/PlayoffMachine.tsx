@@ -1,5 +1,25 @@
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  basisFor,
+  basisOf,
+  dropScenario,
+  isStale,
+  keepScenario,
+  livePicks as applyingPicks,
+  newScenarioId,
+  presetPicks,
+  readScenarios,
+  rebaseScenario,
+  scenarioLinkHash,
+  scenarioTrouble,
+  troubleLine,
+  type GameBasis,
+  type Kept,
+  type Preset,
+  type SavedScenario,
+} from "../../lib/savedScenarios";
 import { scenarioSeason, type ScenarioPick } from "../../lib/scenario";
+import { getMathGoldStatus, getRemainingCounts, predictGame } from "../../lib/sim";
 import { formatGameDate, parseDateValue, seasonStartMonth } from "../../lib/date";
 import { displayName, recordText } from "../../lib/format";
 import { useSimulationOdds } from "../../hooks/useSimulationWorker";
@@ -11,7 +31,7 @@ import type {
   TeamBase,
   TeamWithProjection,
 } from "../../lib/types";
-import { button as buttonClasses, card } from "../../styles/tokens";
+import { button as buttonClasses, card, fieldFocusRing, textRole } from "../../styles/tokens";
 
 type PlayoffMachineProps = {
   teams: TeamBase[];
@@ -28,15 +48,59 @@ type PlayoffMachineProps = {
   currentRows: TeamWithProjection[];
   oddsSeed: string;
   iterations: number;
+  /** The season the picks are for, whose saved scenarios this device keeps (2.7). */
+  seasonId: string;
+  /** The team this browser follows, the one the quick picks' team starts on. */
+  followedTeamId: string | null;
+  /** A scenario of this season just kept from a link, to open at once. */
+  incoming?: string | null;
+  /** Told once the incoming scenario is open, so it is opened once and not on every visit. */
+  onIncomingOpened?: () => void;
 };
 
+/**
+ * The picks being made: each game's pick, and the game as it stood when picked, which is what
+ * tells a pick on a game that has since changed under it (`scenarioTrouble`).
+ */
+type Working = { picks: Record<string, ScenarioPick>; basis: Record<string, GameBasis> };
+
+const NO_PICKS: Working = { picks: {}, basis: {} };
+
 const SIDE_BUTTON =
-  "rounded-md border px-2 py-1 text-xs font-semibold transition-colors aria-pressed:border-slate-950 aria-pressed:bg-slate-950 aria-pressed:text-white dark:aria-pressed:border-white dark:aria-pressed:bg-white dark:aria-pressed:text-slate-950 border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-200";
+  "rounded-md border px-2 py-1 text-xs font-semibold transition-colors aria-pressed:border-slate-950 aria-pressed:bg-slate-950 aria-pressed:text-white dark:aria-pressed:border-white dark:aria-pressed:bg-white dark:aria-pressed:text-slate-950 border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50";
+
+const FIELD = `rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 ${fieldFocusRing}`;
 
 const runsInput = (value: number | undefined) => (value === undefined ? "" : String(value));
 
 const change = (value: number): string =>
   `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(value !== 0 && Math.abs(value) < 1 ? 1 : 0)}`;
+
+const samePick = (one: ScenarioPick | undefined, two: ScenarioPick | undefined) =>
+  one !== undefined &&
+  two !== undefined &&
+  one.winnerId === two.winnerId &&
+  one.awayRuns === two.awayRuns &&
+  one.homeRuns === two.homeRuns;
+
+/** Whether two sets of picks say the same: the same games, winners and typed scores. */
+const samePicks = (
+  one: Readonly<Record<string, ScenarioPick>>,
+  two: Readonly<Record<string, ScenarioPick>>
+) => {
+  const ids = Object.keys(one);
+  return ids.length === Object.keys(two).length && ids.every((id) => samePick(one[id], two[id]));
+};
+
+/** What a save says when it pushed the season's oldest scenarios out to make room. */
+const pushedOutLine = (kept: Kept) =>
+  kept.pushedOut.length
+    ? ` To make room, this device let go of ${kept.pushedOut
+        .map((one) => `“${one.name}”`)
+        .join(", ")}.`
+    : "";
+
+const NOT_STORED = "This browser would not keep it: its storage is full or turned off.";
 
 /**
  * "If we beat the Bears and the Cougars lose, where are we?"
@@ -45,7 +109,12 @@ const change = (value: number): string =>
  * model's own picks. Here the reader settles any game left by hand — who wins, and the score if
  * they like, since run differential breaks ties — and the table, the cut line and the Gold odds
  * are worked out again with those games played (`scenarioSeason`) and the rest simulated as the
- * forecast does. Nothing is saved: the picks live in this panel and go when the page does.
+ * forecast does, each team's rank, Gold chance, clinch and elimination set against the season as
+ * it stands.
+ *
+ * Picks go when the page does unless saved as a scenario (2.7, `savedScenarios.ts`): kept on this
+ * device for the season, opened again, renamed, copied, deleted or shared as a link. A saved
+ * scenario says when the season has moved on under it, and is brought up to date on request.
  */
 export function PlayoffMachine({
   teams,
@@ -60,8 +129,12 @@ export function PlayoffMachine({
   currentRows,
   oddsSeed,
   iterations,
+  seasonId,
+  followedTeamId,
+  incoming = null,
+  onIncomingOpened,
 }: PlayoffMachineProps) {
-  const [picks, setPicks] = useState<Record<string, ScenarioPick>>({});
+  const [work, setWork] = useState<Working>(NO_PICKS);
   const nameOf = useMemo(() => {
     const names = new Map(teams.map((team) => [team.id, displayName(team.name)]));
     return (id: string) => names.get(id) ?? id;
@@ -73,12 +146,204 @@ export function PlayoffMachine({
       (a, b) => parseDateValue(a.date, start) - parseDateValue(b.date, start)
     );
   }, [remainingGames, matchups]);
-  // A pick on a game that has since been played is the real result's to settle, not the pick's.
+  /*
+   * The picks played out: those on games still to play, between the teams they were picked on. A
+   * game played meanwhile is the real result's to settle; one taken off the schedule or given
+   * other teams no longer means what the pick did, and is left out until picked again.
+   */
+  const workTrouble = useMemo(() => scenarioTrouble(work, matchups, logs), [work, matchups, logs]);
   const livePicks = useMemo(() => {
     const open = new Set(remainingGames.map((game) => game.id));
-    return Object.fromEntries(Object.entries(picks).filter(([gameId]) => open.has(gameId)));
-  }, [picks, remainingGames]);
+    return Object.fromEntries(
+      Object.entries(applyingPicks(work.picks, workTrouble)).filter(([gameId]) => open.has(gameId))
+    );
+  }, [work.picks, workTrouble, remainingGames]);
   const picked = Object.keys(livePicks).length;
+
+  // Saved scenarios (2.7): kept on this device for the season, one open at a time or none.
+  const [saved, setSaved] = useState<SavedScenario[]>(() => readScenarios(seasonId));
+  const [savedFor, setSavedFor] = useState(seasonId);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const [naming, setNaming] = useState<{ mode: "new" | "rename"; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [presetTeam, setPresetTeam] = useState<string>(followedTeamId ?? "");
+  const [openedIncoming, setOpenedIncoming] = useState<string | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const nameId = useId();
+  const pickerId = useId();
+  const presetTeamId = useId();
+  if (savedFor !== seasonId) {
+    // Another season: its own scenarios, and none of the last one's picks.
+    setSavedFor(seasonId);
+    setSaved(readScenarios(seasonId));
+    setOpenId(null);
+    setWork(NO_PICKS);
+    setSaid(null);
+    setNaming(null);
+    setDeleting(false);
+    setPresetTeam(followedTeamId ?? "");
+  }
+  if (incoming && incoming !== openedIncoming) {
+    // Just kept from a link: open it.
+    setOpenedIncoming(incoming);
+    const list = readScenarios(seasonId);
+    const scenario = list.find((one) => one.id === incoming);
+    setSaved(list);
+    if (scenario) {
+      setOpenId(scenario.id);
+      setWork({ picks: scenario.picks, basis: scenario.basis });
+      setSaid(`Opened “${scenario.name}”, kept from a link.`);
+    }
+  }
+  useEffect(() => {
+    if (!incoming) return;
+    sectionRef.current?.scrollIntoView?.({ block: "start" });
+    onIncomingOpened?.();
+  }, [incoming, onIncomingOpened]);
+
+  const open = saved.find((one) => one.id === openId) ?? null;
+  const trouble = useMemo(
+    () => (open ? scenarioTrouble(open, matchups, logs) : []),
+    [open, matchups, logs]
+  );
+  const staleness = useMemo(
+    () => new Map(saved.map((one) => [one.id, isStale(scenarioTrouble(one, matchups, logs))])),
+    [saved, matchups, logs]
+  );
+  const unsavedChanges = open !== null && !samePicks(open.picks, work.picks);
+  // The quick picks' team: the one chosen, or the first in the list when it is not in this season.
+  const teamForPresets = teams.some((team) => team.id === presetTeam)
+    ? presetTeam
+    : (teams[0]?.id ?? "");
+  const liveById = useMemo(() => new Map(liveTeams.map((team) => [team.id, team])), [liveTeams]);
+  const favoriteOf = (game: Matchup) => predictGame(game, liveTeams, settings, liveById).winnerId;
+
+  const settle = (message: string | null) => {
+    setSaid(message);
+    setNaming(null);
+    setDeleting(false);
+  };
+  /** Stores a change to the season's scenarios, and says so; false when the browser refused. */
+  const store = (kept: Kept | null, message: string): kept is Kept => {
+    if (!kept) {
+      settle(NOT_STORED);
+      return false;
+    }
+    setSaved(kept.list);
+    settle(`${message}${pushedOutLine(kept)}`);
+    return true;
+  };
+  const openScenario = (id: string) => {
+    const scenario = saved.find((one) => one.id === id) ?? null;
+    setOpenId(scenario?.id ?? null);
+    setWork(scenario ? { picks: scenario.picks, basis: scenario.basis } : NO_PICKS);
+    settle(null);
+  };
+  /** The picks being played out, as a scenario keeps them: on the games as they stand now. */
+  const asKept = () => ({ picks: livePicks, basis: basisFor(livePicks, matchups) });
+  const saveNew = (name: string) => {
+    const at = new Date().toISOString();
+    const scenario: SavedScenario = {
+      version: 1,
+      id: newScenarioId(),
+      name,
+      seasonId,
+      ...asKept(),
+      createdAt: at,
+      modifiedAt: at,
+    };
+    if (!store(keepScenario(scenario), `Saved “${name}” on this device.`)) return;
+    setOpenId(scenario.id);
+    setWork({ picks: scenario.picks, basis: scenario.basis });
+  };
+  const saveChanges = () => {
+    if (!open) return;
+    const updated: SavedScenario = { ...open, ...asKept(), modifiedAt: new Date().toISOString() };
+    if (!store(keepScenario(updated), `Saved the changes to “${open.name}”.`)) return;
+    setWork({ picks: updated.picks, basis: updated.basis });
+  };
+  const rename = (name: string) => {
+    if (!open) return;
+    store(
+      keepScenario({ ...open, name, modifiedAt: new Date().toISOString() }),
+      `Renamed to “${name}”.`
+    );
+  };
+  const duplicate = () => {
+    if (!open) return;
+    const at = new Date().toISOString();
+    const copy: SavedScenario = {
+      ...open,
+      id: newScenarioId(),
+      name: `${open.name} (copy)`.slice(0, 80),
+      ...asKept(),
+      createdAt: at,
+      modifiedAt: at,
+    };
+    if (!store(keepScenario(copy), `Made “${copy.name}”, with the picks as they are now.`)) return;
+    setOpenId(copy.id);
+    setWork({ picks: copy.picks, basis: copy.basis });
+  };
+  const remove = () => {
+    if (!open) return;
+    if (
+      !store(
+        dropScenario(seasonId, open.id),
+        `Deleted “${open.name}”. Its picks are still here, unsaved.`
+      )
+    )
+      return;
+    setOpenId(null);
+  };
+  const bringUpToDate = () => {
+    if (!open) return;
+    const { scenario, dropped } = rebaseScenario(open, matchups, logs, new Date().toISOString());
+    const message = dropped.length
+      ? `Brought up to date: ${dropped.length} ${dropped.length === 1 ? "pick" : "picks"} no longer applied and ${dropped.length === 1 ? "was" : "were"} taken out.`
+      : "Brought up to date: every pick still applies.";
+    if (!store(keepScenario(scenario), message)) return;
+    // The picks shown stay as they are, any not yet saved among them; only those left out go.
+    setWork(asKept());
+  };
+  const share = async () => {
+    const at = new Date().toISOString();
+    const hash = scenarioLinkHash({
+      version: 1,
+      id: open?.id ?? "shared",
+      name: open?.name ?? "Shared picks",
+      seasonId,
+      ...asKept(),
+      createdAt: at,
+      modifiedAt: at,
+    });
+    if (!hash) {
+      settle("Too many picks to fit in a link. Share fewer, or save them on this device.");
+      return;
+    }
+    // League Standings named, so the link opens there whichever part of the app was open last.
+    const url = `${window.location.origin}${window.location.pathname}?view=league#${hash}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      settle(
+        "Link copied. Opening it shows these picks and asks before keeping them; it never changes the season on the device that opens it."
+      );
+    } catch {
+      settle(`Copy this link: ${url}`);
+    }
+  };
+  const applyPreset = (preset: Preset) => {
+    // Made over the picks shown, every one of them on its game as it stands: one left out, on a
+    // game changed under it, goes with the preset rather than coming back on the changed game.
+    const picks = presetPicks(preset, {
+      remaining: games,
+      current: livePicks,
+      favoriteOf,
+      teamId: teamForPresets,
+    });
+    setWork({ picks, basis: basisFor(picks, matchups) });
+    settle(null);
+  };
 
   const scenario = useMemo(
     () =>
@@ -97,41 +362,254 @@ export function PlayoffMachine({
   });
 
   const nowById = useMemo(() => new Map(currentRows.map((row) => [row.id, row])), [currentRows]);
+  // Where each team would stand in the race with the picks played: what they make certain.
+  const statusWith = useMemo(() => {
+    if (!scenario || !hasCutLine) return new Map<string, string>();
+    const counts = getRemainingCounts(
+      scenario.teams,
+      scenario.remaining,
+      Math.max(0, Math.round(settings.regularSeasonGamesPerTeam || 0))
+    );
+    return new Map(
+      scenario.ranked.map((team) => [
+        team.id,
+        getMathGoldStatus(team, scenario.ranked, counts, cutoff, settings).goldStatus,
+      ])
+    );
+  }, [scenario, hasCutLine, settings, cutoff]);
 
   const choose = (game: Matchup, winnerId: string | null) =>
-    setPicks((before) => {
-      const next = { ...before };
-      if (winnerId === null) delete next[game.id];
-      else next[game.id] = { winnerId };
-      return next;
+    setWork((before) => {
+      const picks = { ...before.picks };
+      const basis = { ...before.basis };
+      if (winnerId === null) {
+        delete picks[game.id];
+        delete basis[game.id];
+      } else {
+        picks[game.id] = { winnerId };
+        basis[game.id] = basisOf(game);
+      }
+      return { picks, basis };
     });
   const typeRuns = (game: Matchup, side: "awayRuns" | "homeRuns", text: string) =>
-    setPicks((before) => {
-      const pick = before[game.id];
+    setWork((before) => {
+      const pick = before.picks[game.id];
       if (!pick) return before;
       const runs = text.trim() === "" ? undefined : Math.max(0, Math.round(Number(text)));
       const next: ScenarioPick = { ...pick };
       if (runs === undefined || !Number.isFinite(runs)) delete next[side];
       else next[side] = runs;
-      return { ...before, [game.id]: next };
+      return { ...before, picks: { ...before.picks, [game.id]: next } };
     });
 
   return (
-    <section aria-label="Playoff machine" className={`${card} p-5`}>
+    <section ref={sectionRef} aria-label="Playoff machine" className={`${card} p-5`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-          Playoff machine
-        </h3>
+        <h3 className={textRole.sectionTitle}>Playoff machine</h3>
         {picked > 0 && (
-          <button type="button" className={buttonClasses.ghost} onClick={() => setPicks({})}>
+          <button
+            type="button"
+            className={buttonClasses.ghost}
+            onClick={() => {
+              setWork(NO_PICKS);
+              settle(null);
+            }}
+          >
             Clear picks
           </button>
         )}
       </div>
-      <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+      <p className={`mt-1 ${textRole.meta}`}>
         Pick the winner of any game left and see where everyone lands. A pick plays out at the
-        model&apos;s expected score unless you type one. Nothing here is saved.
+        model&apos;s expected score unless you type one. Picks are kept only when you save them, on
+        this device.
       </p>
+
+      <div className="mt-3 space-y-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-900">
+        <div className="flex flex-wrap items-end gap-2">
+          <label htmlFor={pickerId} className="flex flex-col gap-1">
+            <span className={textRole.overline}>Scenario</span>
+            <select
+              id={pickerId}
+              value={openId ?? ""}
+              onChange={(event) => openScenario(event.target.value)}
+              className={FIELD}
+            >
+              <option value="">{saved.length ? "Unsaved picks" : "No saved scenarios yet"}</option>
+              {saved.map((one) => (
+                <option key={one.id} value={one.id}>
+                  {one.name}
+                  {staleness.get(one.id) ? " (out of date)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          {open ? (
+            <>
+              <button
+                type="button"
+                className={SIDE_BUTTON}
+                disabled={!unsavedChanges || picked === 0}
+                onClick={saveChanges}
+              >
+                Save changes
+              </button>
+              <button
+                type="button"
+                className={SIDE_BUTTON}
+                onClick={() => {
+                  setDeleting(false);
+                  setNaming({ mode: "rename", name: open.name });
+                }}
+              >
+                Rename
+              </button>
+              <button type="button" className={SIDE_BUTTON} onClick={duplicate}>
+                Duplicate
+              </button>
+              <button
+                type="button"
+                className={SIDE_BUTTON}
+                onClick={() => {
+                  setNaming(null);
+                  setDeleting(true);
+                }}
+              >
+                Delete
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className={SIDE_BUTTON}
+              disabled={picked === 0}
+              onClick={() => setNaming({ mode: "new", name: `Scenario ${saved.length + 1}` })}
+            >
+              Save as a scenario
+            </button>
+          )}
+          <button
+            type="button"
+            className={SIDE_BUTTON}
+            disabled={picked === 0}
+            onClick={() => void share()}
+          >
+            Share
+          </button>
+        </div>
+
+        {naming && (
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const name = naming.name.trim().slice(0, 80);
+              if (!name) return;
+              if (naming.mode === "new") saveNew(name);
+              else rename(name);
+            }}
+          >
+            <label htmlFor={nameId} className="flex flex-col gap-1">
+              <span className={textRole.overline}>
+                {naming.mode === "new" ? "Name the scenario" : "New name"}
+              </span>
+              <input
+                id={nameId}
+                value={naming.name}
+                maxLength={80}
+                onChange={(event) => setNaming({ ...naming, name: event.target.value })}
+                className={FIELD}
+              />
+            </label>
+            <button type="submit" className={SIDE_BUTTON} disabled={!naming.name.trim()}>
+              {naming.mode === "new" ? "Save" : "Save name"}
+            </button>
+            <button type="button" className={SIDE_BUTTON} onClick={() => setNaming(null)}>
+              Cancel
+            </button>
+          </form>
+        )}
+
+        {deleting && open && (
+          <div
+            role="group"
+            aria-label="Delete the scenario"
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span className={textRole.body}>
+              Delete “{open.name}”? Its picks stay here, unsaved.
+            </span>
+            <button type="button" className={SIDE_BUTTON} onClick={remove}>
+              Delete it
+            </button>
+            <button type="button" className={SIDE_BUTTON} onClick={() => setDeleting(false)}>
+              Keep it
+            </button>
+          </div>
+        )}
+
+        {open && isStale(trouble) && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/70 dark:bg-amber-950/40">
+            <p className="text-sm font-black text-amber-900 dark:text-amber-100">
+              The season has moved on since “{open.name}” was saved
+            </p>
+            <ul className="mt-1 list-disc pl-5 text-sm text-amber-900 dark:text-amber-100">
+              {trouble.map((one) => (
+                <li key={one.gameId}>{troubleLine(one, nameOf)}</li>
+              ))}
+            </ul>
+            <p className="mt-1 text-sm text-amber-900 dark:text-amber-100">
+              Picks on games played, taken off the schedule or given other teams are left out of
+              what is shown.
+            </p>
+            <button type="button" className={`mt-2 ${SIDE_BUTTON}`} onClick={bringUpToDate}>
+              Bring it up to date
+            </button>
+          </div>
+        )}
+
+        {games.length > 0 && (
+          <div className="flex flex-wrap items-end gap-2" aria-label="Quick picks" role="group">
+            <button type="button" className={SIDE_BUTTON} onClick={() => applyPreset("favorites")}>
+              Favorites win
+            </button>
+            <button
+              type="button"
+              className={SIDE_BUTTON}
+              onClick={() => applyPreset("fillFavorites")}
+            >
+              Fill the rest with favorites
+            </button>
+            <label htmlFor={presetTeamId} className="flex flex-col gap-1">
+              <span className={textRole.overline}>Team</span>
+              <select
+                id={presetTeamId}
+                value={teamForPresets}
+                onChange={(event) => setPresetTeam(event.target.value)}
+                className={FIELD}
+              >
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {displayName(team.name)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className={SIDE_BUTTON} onClick={() => applyPreset("winOut")}>
+              Wins out
+            </button>
+            <button type="button" className={SIDE_BUTTON} onClick={() => applyPreset("loseOut")}>
+              Loses out
+            </button>
+          </div>
+        )}
+
+        {said && (
+          <p role="status" className={textRole.meta}>
+            {said}
+          </p>
+        )}
+      </div>
 
       {games.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">No games left to pick.</p>
@@ -220,6 +698,14 @@ export function PlayoffMachine({
               const moved = now?.rank !== undefined ? now.rank - team.rank : 0;
               const gold = odds[team.id];
               const goldMove = gold !== undefined && now ? gold - now.goldPct : undefined;
+              // What the picks make certain that the season as it stands does not.
+              const status = statusWith.get(team.id);
+              const settles =
+                status === "Clinched" && now?.goldStatus !== "Clinched"
+                  ? "Clinches"
+                  : status === "Eliminated" && now?.goldStatus !== "Eliminated"
+                    ? "Out"
+                    : null;
               return (
                 <tr
                   key={team.id}
@@ -240,7 +726,16 @@ export function PlayoffMachine({
                       </span>
                     )}
                   </td>
-                  <td className="py-1">{displayName(team.name)}</td>
+                  <td className="py-1">
+                    {displayName(team.name)}
+                    {settles && (
+                      <span
+                        className={`ml-2 rounded px-1.5 py-0.5 text-xs font-bold ${settles === "Clinches" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200"}`}
+                      >
+                        {settles}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-1">{recordText(team)}</td>
                   {hasCutLine && (
                     <td className="py-1 text-right">

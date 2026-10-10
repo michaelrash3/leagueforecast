@@ -52,7 +52,6 @@ import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
 import { useSeasonState, type SeasonState } from "./hooks/useSeasonState";
 import { useScoutBridge } from "./hooks/useScoutBridge";
 import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings";
-import { CompareDrawer } from "./components/CompareDrawer";
 import { LoadingPanel } from "./components/LoadingPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
@@ -348,6 +347,10 @@ const ShortcutsHelp = lazy(() =>
 );
 const OnboardingTour = lazy(() =>
   import("./components/OnboardingTour").then((module) => ({ default: module.OnboardingTour }))
+);
+/** Two teams side by side, opened only from a team's panel: fetched then, not with the page. */
+const CompareDrawer = lazy(() =>
+  import("./components/CompareDrawer").then((module) => ({ default: module.CompareDrawer }))
 );
 
 /**
@@ -2832,6 +2835,82 @@ export default function App() {
     setSettings,
   ]);
 
+  // ---------- Scenario links (2.7) ----------
+
+  /*
+   * A playoff-machine scenario someone shared: shown, and kept on this device for the open season
+   * only once the person says so (`scenarioLink.ts`). It never touches the season. The handling
+   * is fetched only when a link names a scenario, so none of it is in the page's first download.
+   */
+  const [scenarioLink, setScenarioLink] = useState<{ hash: string } | null>(() =>
+    typeof window !== "undefined" && window.location.hash.includes("scenario=")
+      ? { hash: window.location.hash }
+      : null
+  );
+  useEffect(() => {
+    const heard = () => {
+      if (window.location.hash.includes("scenario="))
+        setScenarioLink({ hash: window.location.hash });
+    };
+    window.addEventListener("hashchange", heard);
+    return () => window.removeEventListener("hashchange", heard);
+  }, []);
+  const scenarioLinkTaken = useRef<{ hash: string } | null>(null);
+  const [incomingScenario, setIncomingScenario] = useState<{
+    seasonId: string;
+    id: string;
+  } | null>(null);
+  const incomingScenarioOpened = useCallback(() => setIncomingScenario(null), []);
+  useEffect(() => {
+    // Asked once the open season is the one this device shows: League kept live waits for the
+    // cloud's version first, so the link is matched against the season's own games.
+    if (
+      !scenarioLink ||
+      scenarioLinkTaken.current === scenarioLink ||
+      appMode !== "league" ||
+      liveLeague.state.kind === "connecting"
+    )
+      return;
+    scenarioLinkTaken.current = scenarioLink;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    const seasonId = activeSeasonId;
+    const seasonName = seasons.all.find((season) => season.id === seasonId)?.name ?? "this season";
+    void import("./lib/scenarioLink")
+      .then((links) =>
+        links.openScenarioLink({
+          hash: scenarioLink.hash,
+          seasonId,
+          seasonName,
+          matchups,
+          logs,
+          nameOf,
+          ask: requestConfirmation,
+          say: (text, tone) => showToast(text, { tone }),
+        })
+      )
+      .then((kept) => {
+        if (!kept) return;
+        setIncomingScenario({ seasonId, id: kept.id });
+        setActiveView("model");
+      })
+      .catch(() =>
+        showToast("The scenario link could not be opened. Reload the page and open it again.", {
+          tone: "error",
+        })
+      );
+  }, [
+    scenarioLink,
+    appMode,
+    liveLeague.state.kind,
+    activeSeasonId,
+    seasons.all,
+    matchups,
+    logs,
+    nameOf,
+    requestConfirmation,
+    showToast,
+  ]);
+
   const shareSeason = useCallback(async () => {
     const snapshot = { v: 1 as const, teams, matchups, logs, settings };
     try {
@@ -3412,6 +3491,14 @@ export default function App() {
                           currentRows={dashboardRows}
                           oddsSeed={oddsSeed}
                           iterations={SIM_ITERATIONS}
+                          seasonId={activeSeasonId}
+                          followedTeamId={ourTeamId}
+                          incoming={
+                            incomingScenario?.seasonId === activeSeasonId
+                              ? incomingScenario.id
+                              : null
+                          }
+                          onIncomingOpened={incomingScenarioOpened}
                         />
                       }
                     />
@@ -3574,16 +3661,18 @@ export default function App() {
         )}
 
         {selectedTeam && compareTeam && (
-          <CompareDrawer
-            left={selectedTeam}
-            right={compareTeam}
-            allTeams={dashboardRows}
-            matchups={matchups}
-            logs={logs}
-            runsOnly={runsOnly}
-            onClose={() => setCompareTeamId(null)}
-            onPickRight={(id) => setCompareTeamId(id)}
-          />
+          <Suspense fallback={null}>
+            <CompareDrawer
+              left={selectedTeam}
+              right={compareTeam}
+              allTeams={dashboardRows}
+              matchups={matchups}
+              logs={logs}
+              runsOnly={runsOnly}
+              onClose={() => setCompareTeamId(null)}
+              onPickRight={(id) => setCompareTeamId(id)}
+            />
+          </Suspense>
         )}
 
         {
