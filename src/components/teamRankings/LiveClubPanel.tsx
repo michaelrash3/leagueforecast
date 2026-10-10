@@ -6,7 +6,10 @@ import type { LiveViewSource } from "../../hooks/useLiveBoard";
 import { useClubCard } from "../../hooks/useClubCard";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
+import { gameBreakdown } from "../../lib/gameBreakdown";
+import { gameNotesOf } from "../../lib/live/gameWords";
 import { overlayCard, takenWithOnCard } from "../../lib/live/liveEdits";
+import type { BoardView } from "../../lib/live/views/boardShape";
 import { mintStandInId, takenOffSaid } from "../../lib/notThisTeam";
 import type { AgeGroup, SeasonSegment } from "../../lib/teamRankings";
 import { normalizeState } from "../../lib/teamRankings/names";
@@ -33,7 +36,15 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
  * the network has answered), the panel changes nothing (`readOnly`). Opening it brings the server's
  * pool up for the edits to come (`warm`).
  *
- * Loaded only when a club is opened, with the pool's codec it checks a card by.
+ * Under each counted game it says what the game did to the club's rating on the board on screen
+ * (`board`), worked out from the card as published and that board (`gameBreakdown`, `gameWords`),
+ * never from the card with this device's pending edits drawn over it: the lines explain the board,
+ * which is from before those edits too. A game an edit takes off loses its row, and its line with
+ * it. Where the lines do not add up to the board's row, or no board is given, the panel draws
+ * none and says nothing of it.
+ *
+ * Loaded only when a club is opened, with the pool's codec it checks a card by, and the maths and
+ * words of the lines.
  */
 export default function LiveClubPanel({
   source,
@@ -49,6 +60,7 @@ export default function LiveClubPanel({
   onFolded,
   onClose,
   onCannot,
+  board,
 }: {
   source: LiveViewSource;
   year: number | undefined;
@@ -66,6 +78,12 @@ export default function LiveClubPanel({
   onClose: () => void;
   /** The club whose card could not be read, to open on this device's copy instead. */
   onCannot: (teamId: string) => void;
+  /**
+   * The board on screen, given only while it is the board of this page and half: the board, the
+   * age groups it was built from (the cloud's, which can differ from this device's), the span its
+   * rating is over as the panel names it, and whether the club is the page's own.
+   */
+  board?: { view: BoardView; groups: AgeGroup[]; span: string; own: boolean };
 }) {
   const { card, failed } = useClubCard(source, year, teamId);
   useEffect(() => {
@@ -89,6 +107,22 @@ export default function LiveClubPanel({
     if (foldedInto) onFolded(foldedInto);
   }, [foldedInto, onFolded]);
   const names = useMemo(() => new Map(Object.entries(card?.names ?? {})), [card]);
+  // Worked out again only when the card read or the board handed in is a new one.
+  const gameNotes = useMemo(() => {
+    const fit = board?.view.fit;
+    if (!board || !fit || !card) return undefined;
+    const breakdown = gameBreakdown({
+      teamId,
+      games: card.games,
+      pageId: ageGroupId,
+      ageGroups: board.groups,
+      segment,
+      board: board.view,
+    });
+    return breakdown
+      ? gameNotesOf(breakdown, { span: board.span, own: board.own, cap: fit.cap })
+      : undefined;
+  }, [board, card, teamId, ageGroupId, segment]);
   const others = useMemo(
     () => candidates.filter((candidate) => candidate.id !== teamId),
     [candidates, teamId]
@@ -222,6 +256,7 @@ export default function LiveClubPanel({
           })}
       onClose={onClose}
       {...(locked ? { readOnly: true } : {})}
+      {...(gameNotes ? { gameNotes } : {})}
     />
   );
 }
