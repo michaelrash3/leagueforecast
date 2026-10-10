@@ -283,8 +283,10 @@ export const scenarioLinkHash = (scenario: SavedScenario): string | null => {
 const SCENARIOS_KEPT = 30;
 
 /*
- * Kept here, not with the other preferences, so that only the playoff machine's chunk and an
- * opened scenario link load them: nothing about scenarios is in the page's first download.
+ * Read and written here, not with the other preferences, so that only the playoff machine's chunk
+ * and an opened scenario link load this code: nothing of it is in the page's first download.
+ * Preferences holds only the key, so that letting go of a season's scenarios (`forgetSeasons`)
+ * needs none of it.
  */
 const readAllScenarios = (): Record<string, unknown[]> => {
   try {

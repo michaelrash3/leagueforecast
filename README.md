@@ -2722,9 +2722,10 @@ game's teams and date as they stood, kept on this device per season, the most re
 changed first, thirty at most (a save that pushes the oldest out names it). One parent's
 "what if we win out" is theirs, not the season's, so a scenario is never written into
 the season, a backup or the cloud; it goes when its season does, not to a season made under
-the deleted one's id ([Data + persistence](#data--persistence)). A scenario is opened from the **Scenario** list, its
-picks changed and **Save changes**, **Rename**d, **Duplicate**d with the picks as they
-are now, or **Delete**d with its picks left on screen unsaved. **Clear picks** starts
+the deleted one's id, and moves with its season when a cloud merge gives that a new id
+([Data + persistence](#data--persistence)). A scenario is opened from the **Scenario**
+list, its picks changed and **Save changes**, **Rename**d, **Duplicate**d with the picks as
+they are now, or **Delete**d with its picks left on screen unsaved. **Clear picks** starts
 again. Choosing another entry in the list while the picks on screen are not saved, made
 with no scenario open or changed in the one open, first asks whether to **Let them go**
 or **Keep them**, rather than losing them at a glance at another scenario. Each change
