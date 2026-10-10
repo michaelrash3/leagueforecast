@@ -1051,8 +1051,10 @@ settle, the crossed halves, the reclaim, the refile, the claim step and a namesa
 a club far from its age. The step that takes a name's rows off a club (`resettleOffLevel`) takes the
 namer's other rows of the refused name off it too, at the next tidy. Only the picture still names
 the club, being GameChanger's identity rather than a reading of a name. The import panel and the
-tidy on this page, in its worker or not, read the list, and the command adds to it: the club's ids
-it does not hold already, which its Undo takes off again and nothing else.
+tidy on this page, in its worker or not, read the list, and so does every pull run on the cloud
+copy (`runCloudPull`: the nightly refresh and a list pulled in the cloud), its import and its tidy
+alike; the command adds to it: the club's ids it does not hold already, which its Undo takes off
+again and nothing else.
 
 **A row filed by name beside a game the club never listed.** Where another club's own schedule
 lists a game against a club that none of the club's own schedules gives a row, that game is on the
@@ -3560,7 +3562,10 @@ the app's own pool store held in memory, as a device taking in a copy does;
 asks GameChanger for the teams through the same client, at the same pace (8
 requests at once, growing to 24 while nothing pushes back); and files every
 answer through the same importer, with the same things the pasted list knows
-about a team (`withListed`). Then it runs the same whole-pool tidy, stamped so
+about a team (`withListed`) and the same answers the copy holds: the names the
+owner has said are not a club (Not this team) are handed to the importer and to
+the tidy, as the pull panel and the page's tidy hand them, so the nightly refresh
+and a pull in the cloud never file such a name onto that club again. Then it runs the same whole-pool tidy, stamped so
 no device tidies it again, saves the pool the same way (`persistPool`), and
 keeps the same lists a pull ends with (`settleRunLists`): the teams waiting on
 an age, the teams turned away, the too-young, and the invented clubs thrown
