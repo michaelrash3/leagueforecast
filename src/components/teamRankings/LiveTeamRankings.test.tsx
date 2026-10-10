@@ -3382,6 +3382,25 @@ describe("Setup on the cloud's board", () => {
     expect(edited(server.sent)).toEqual([]);
   });
 
+  it("offers no season to put on a page over a kept meta once the cloud says its boards are older", async () => {
+    // A returning member's device keeps the meta it last read, which stays drawn while the cloud's
+    // own answer says the boards are an older version's: its pages are as stale as no pages.
+    onSetup();
+    pool.wants = false;
+    const earlier = editFunction(setupAnswers);
+    open(sourcesOf(live, { call: earlier.call }), { seasons: LEAGUE });
+    expect(await screen.findByRole("button", { name: /^Put on / })).toBeTruthy();
+    cleanup();
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA - 1 });
+    const server = editFunction(setupAnswers);
+    open(sourcesOf(live, { call: server.call }), { seasons: LEAGUE });
+    // Once the cloud has answered, which the teams waiting on an age, asked of it, show.
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    expect(screen.getByText(SETUP_PAGES_UNREAD)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Put on / })).toBeNull();
+    expect(edited(server.sent)).toEqual([]);
+  });
+
   it("says what a season joins by the pages drawn, the edits not yet published among them", async () => {
     onSetup();
     pool.wants = false;

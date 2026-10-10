@@ -4567,7 +4567,8 @@ on 10 October 2026 an older one locked them for the day. One edit still waits on
 a meta it can draw: putting a league season on a page in Setup. Without such a meta
 the pages to hand are this device's own, which it no longer keeps in step, so the
 league seasons and age groups cards give way to a line saying the cloud's age
-groups cannot be read yet. An edit and a question
+groups cannot be read yet. A meta kept from an earlier visit does not count once the
+cloud's own answer says the boards are missing, another version's or unreadable. An edit and a question
 stay the same functions while the lock comes and goes, and read it as they are
 made, so a card that asks in an effect does not ask again for a blip of the
 connection (a what-if refitted the year each time). The

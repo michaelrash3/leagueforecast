@@ -314,6 +314,16 @@ function LiveBoard({
   const [comparedTeam, setComparedTeam] = useState("");
   const [pickedOpponents, setPickedOpponents] = useState<string[]>(NO_IDS);
 
+  /*
+   * Whether the pages drawn are the cloud's own: a meta is held, and the cloud's latest answer has
+   * not said the published boards are missing, an older or newer version's, or unreadable. A meta
+   * this device kept from an earlier visit stays drawn through such an answer, and its pages are
+   * then as stale as none. Offline, or with no reader, the kept meta is all there is, and edits are
+   * off anyway.
+   */
+  const pagesKnown =
+    live.meta !== null &&
+    (live.metaMiss === null || live.metaMiss === "offline" || live.metaMiss === "no-reader");
   const offline =
     live.metaMiss === "offline" ||
     live.metaMiss === "no-reader" ||
@@ -817,7 +827,7 @@ function LiveBoard({
               onOpenTeam={openTeamIn}
               copy={sources ? sources.copy : copyReader}
               showToast={showToast}
-              pagesKnown={live.meta !== null}
+              pagesKnown={pagesKnown}
             />
           </Suspense>
         ) : section === "archive" ? (
