@@ -3330,6 +3330,9 @@ export default function App() {
                   ) : activeView === "dashboard" ? (
                     <DashboardView
                       engine={predictionEngine}
+                      gameOdds={(game) =>
+                        predictGame(game, liveTeams, settings, liveById).awayWinPct
+                      }
                       backtestResult={backtestResult}
                       teamsById={liveById}
                       matchups={matchups}

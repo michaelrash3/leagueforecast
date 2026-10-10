@@ -1,5 +1,96 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`explainForecast > leans each factor toward the side it favors, the strongest for each side first 1`] = `
+{
+  "chance": {
+    "teamA": 0.58,
+    "teamB": 0.42,
+  },
+  "factors": [
+    {
+      "favors": "teamA",
+      "inMargin": true,
+      "key": "results",
+      "label": "Results",
+      "runs": 1.4545454545454546,
+      "text": "Average margin: Aces +4.0 a game, Eagles +2.0. Each game counts up to 20 runs, and a side with fewer games counts for less.",
+    },
+    {
+      "favors": "teamA",
+      "inMargin": true,
+      "key": "schedule",
+      "label": "Opponents faced",
+      "runs": 0.12155188940436545,
+      "text": "Average opponent rating: Aces −0.5, Eagles −0.6. The rating gives credit for tougher opponents.",
+    },
+    {
+      "favors": null,
+      "inMargin": true,
+      "key": "homeField",
+      "label": "Home field",
+      "text": "Not counted. Who bats last is a coin toss at this level, so neither side gets an edge for it.",
+    },
+    {
+      "favors": "teamA",
+      "inMargin": false,
+      "key": "form",
+      "label": "Recent form",
+      "text": "The last five games, the newest counting most: Aces +3.1 a game, Eagles +1.3. Already part of the results, so not counted again.",
+    },
+    {
+      "favors": "teamA",
+      "inMargin": false,
+      "key": "offense",
+      "label": "Scoring",
+      "text": "In league games Aces score 7.0 a game and Eagles 5.5.",
+    },
+    {
+      "favors": "teamA",
+      "inMargin": false,
+      "key": "defense",
+      "label": "Runs allowed",
+      "text": "In league games Aces allow 3.0 a game and Eagles 4.0.",
+    },
+    {
+      "favors": null,
+      "inMargin": false,
+      "key": "external",
+      "label": "Team Rankings results",
+      "text": "Counted beside the league's games: no games for Aces, 2 games for Eagles.",
+    },
+    {
+      "favors": null,
+      "inMargin": false,
+      "key": "sample",
+      "label": "Games behind each rating",
+      "text": "Aces: 4 games. Eagles: 4 games.",
+    },
+    {
+      "favors": null,
+      "inMargin": false,
+      "key": "freshness",
+      "label": "Newest results",
+      "text": "Aces: 5/23, 7 days before this game. Eagles: 5/16, 14 days before this game.",
+    },
+  ],
+  "favorite": "teamA",
+  "margin": 1.57609734394982,
+  "probabilityCapped": false,
+  "sensitivities": [],
+  "strongest": {
+    "teamA": {
+      "favors": "teamA",
+      "inMargin": true,
+      "key": "results",
+      "label": "Results",
+      "runs": 1.4545454545454546,
+      "text": "Average margin: Aces +4.0 a game, Eagles +2.0. Each game counts up to 20 runs, and a side with fewer games counts for less.",
+    },
+    "teamB": null,
+  },
+}
+`;
+
 exports[`the matchup odds > are pinned, so explaining them moves none of them 1`] = `
 [
   {

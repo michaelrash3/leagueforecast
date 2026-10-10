@@ -2,7 +2,12 @@ import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 import { clamp, isFinal, parseNumber } from "./util";
 import { normalizeDateInput, parseDateValue, seasonStartMonth } from "./date";
 import { dateInSquadYear } from "./teamRankings/seasons";
-import { buildOpponentAdjustedRatings, byRating, bySchedule } from "./powerRating";
+import {
+  DEFAULT_SHRINKAGE,
+  buildOpponentAdjustedRatings,
+  byRating,
+  bySchedule,
+} from "./powerRating";
 
 export type DataQualityTier = "Insufficient" | "Limited" | "Developing" | "Strong" | "Excellent";
 export type ConfidenceTier = "Low" | "Moderate" | "Strong" | "High";
@@ -26,6 +31,52 @@ export type PowerRating = {
   trend: "Up" | "Down" | "Stable" | "New";
 };
 
+/**
+ * What one side brings to a matchup's forecast, for telling why it came out as it did (2.8,
+ * `forecastExplanation.ts`).
+ */
+export type MatchupEvidence = {
+  /** The opponent-adjusted rating, in runs against an average team. */
+  rating: number;
+  /** Its average margin in the games the rating was fitted from, each counted up to the cap. */
+  rawMargin: number;
+  /** The average rating of the opponents it faced. */
+  strengthOfSchedule: number;
+  /** Its recent margin, the last five games weighted toward the newest. */
+  recentForm: number;
+  /** League games final. */
+  leagueGames: number;
+  /** Games the rating was fitted from: the league's and any Team Rankings results. */
+  fittedGames: number;
+  /** League runs scored and allowed a game, or null before a league game is final. */
+  runsFor: number | null;
+  runsAgainst: number | null;
+  /** The day of its newest dated result, league or Team Rankings, or null with none. */
+  lastPlayed: string | null;
+  /** Days from that result to this game, or null where either is undated. */
+  daysOff: number | null;
+};
+
+/**
+ * A matchup's projected margin, from team A's side (the away team), as the sum of its parts in
+ * runs, which add up to it exactly:
+ *
+ * - `results`: the two sides' own margins, each shrunk toward average by the games it has played,
+ *   as the rating's fit does (`n / (n + DEFAULT_SHRINKAGE)` of the average margin);
+ * - `schedule`: the rest of the gap between the two ratings, which is the fit's allowance for the
+ *   opponents each side faced (with unit weights and neutral games, exactly the opponents' share);
+ * - `headToHead`: the small nudge for their own meetings;
+ * - `homeField`: the fitted home edge taken off, nothing while every game is played as neutral;
+ * - `capped`: what the cap on a projected margin took off, nothing below it.
+ */
+export type MarginParts = {
+  results: number;
+  schedule: number;
+  headToHead: number;
+  homeField: number;
+  capped: number;
+};
+
 export type LeaguePrediction = {
   gameId: string;
   teamAId: string;
@@ -38,6 +89,21 @@ export type LeaguePrediction = {
   dataQuality: { tier: DataQualityTier; warnings: string[]; recommendedActions: string[] };
   keyFactors: string[];
   riskFactors: string[];
+  /**
+   * The forecast as data rather than words (2.8): the margin's parts and what each side brings.
+   * Absent while the model has too little to forecast with.
+   */
+  explanation?: {
+    parts: MarginParts;
+    teamA: MatchupEvidence;
+    teamB: MatchupEvidence;
+    /** The projected margin before rounding, from team A's side: the sum of `parts`. */
+    margin: number;
+    /** Whether the win chance was held at its floor or ceiling (8% and 92%). */
+    probabilityCapped: boolean;
+    /** The most one game's margin counts in the ratings (`FORECAST_RUN_CAP`). */
+    gameCap: number;
+  };
 };
 
 export type PredictionEngineResult = {
@@ -247,13 +313,11 @@ export const buildPredictionEngine = (
 ): PredictionEngineResult => {
   // Read over the outside results' days too: an October tournament before a November-to-January
   // league is the start of its year, not the newest thing in it.
-  const byDay = byDayIn(
-    squadYear,
-    seasonStartMonth([
-      ...matchups.map((game) => game.date),
-      ...externalResults.map((result) => result.date),
-    ])
-  );
+  const start = seasonStartMonth([
+    ...matchups.map((game) => game.date),
+    ...externalResults.map((result) => result.date),
+  ]);
+  const byDay = byDayIn(squadYear, start);
   const byId = new Map(teams.map((team) => [team.id, team]));
   const completedGames = completedGamesFrom(matchups, logs);
   const futureGames = matchups.filter((game) => !isFinal(logs[game.id]));
@@ -343,11 +407,22 @@ export const buildPredictionEngine = (
         })),
     ].sort(byDay);
 
+  // Each team's newest dated result, read once here for every forecast's explanation (2.8).
+  const newestById = new Map<string, { date: string; day: number }>();
   const powerRatings = teams
     .map((team): PowerRating => {
       // Form is form: a tournament last weekend is how this team is playing now, and leaving it
       // out was how a team could go 0-4 in June and still read "Stable" here.
       const played = gamesFor(team.id);
+      // Oldest first with the undated before the rest, so the newest dated is the last one dated.
+      for (let at = played.length - 1; at >= 0; at -= 1) {
+        const date = played[at]?.date ?? "";
+        const day = playedOn(date, squadYear, start);
+        if (Number.isFinite(day)) {
+          newestById.set(team.id, { date, day });
+          break;
+        }
+      }
       const recentGames = played.slice(-5);
       /*
        * A weighted mean divides by the weights, not by how many there are.
@@ -437,8 +512,10 @@ export const buildPredictionEngine = (
     // Ratings are opponent-adjusted expected margins (runs), so their difference IS the projected
     // margin; the home team gets the estimated home-field bump, plus a small head-to-head nudge.
     const h2hEdge = headToHead ? clamp((headToHead.wins - headToHead.losses) * 0.4, -1.5, 1.5) : 0;
-    const margin = clamp(ar.rating - br.rating - adjusted.homeAdvantage + h2hEdge, -14, 14);
-    const probA = clamp(1 / (1 + Math.exp(-margin / oddsSpread)), 0.08, 0.92);
+    const unclamped = ar.rating - br.rating - adjusted.homeAdvantage + h2hEdge;
+    const margin = clamp(unclamped, -14, 14);
+    const rawProbA = 1 / (1 + Math.exp(-margin / oddsSpread));
+    const probA = clamp(rawProbA, 0.08, 0.92);
     const projectedWinnerId = margin >= 0 ? a.id : b.id;
     // Games the rating was fitted from, not league games alone. The margin above is a difference
     // of two ratings, so what the confidence in it turns on is how well *those* are pinned down —
@@ -492,6 +569,32 @@ export const buildPredictionEngine = (
     const riskFactors = [...dataQuality.warnings];
     if (knownGames < 3) riskFactors.push("Small sample size can make ratings unstable.");
     if (Math.abs(margin) < 3) riskFactors.push("Similar team ratings create a close-game risk.");
+    // The rating gap told as its parts (`MarginParts`): each side's own results as the fit shrinks
+    // them, and the rest of its rating, the allowance for the opponents it faced.
+    const resultsOf = (id: string) => {
+      const games = adjusted.games.get(id) ?? 0;
+      return games ? (games * (adjusted.rawMargin.get(id) ?? 0)) / (games + DEFAULT_SHRINKAGE) : 0;
+    };
+    const results = resultsOf(a.id) - resultsOf(b.id);
+    const gameDay = playedOn(game.date, squadYear, start);
+    const evidence = (team: Team, rating: PowerRating): MatchupEvidence => {
+      const newest = newestById.get(team.id);
+      return {
+        rating: rating.rating,
+        rawMargin: rating.rawMargin,
+        strengthOfSchedule: rating.strengthOfSchedule,
+        recentForm: rating.recentForm,
+        leagueGames: team.games,
+        fittedGames: adjusted.games.get(team.id) ?? 0,
+        runsFor: team.games ? team.rs / team.games : null,
+        runsAgainst: team.games ? team.ra / team.games : null,
+        lastPlayed: newest?.date ?? null,
+        daysOff:
+          newest && Number.isFinite(gameDay)
+            ? Math.round((gameDay - newest.day) / 86_400_000)
+            : null,
+      };
+    };
     return {
       gameId: game.id,
       teamAId: a.id,
@@ -509,6 +612,20 @@ export const buildPredictionEngine = (
       dataQuality,
       keyFactors,
       riskFactors,
+      explanation: {
+        parts: {
+          results,
+          schedule: ar.rating - br.rating - results,
+          headToHead: h2hEdge,
+          homeField: -adjusted.homeAdvantage,
+          capped: margin - unclamped,
+        },
+        teamA: evidence(a, ar),
+        teamB: evidence(b, br),
+        margin,
+        probabilityCapped: probA !== rawProbA,
+        gameCap: runDiffCap,
+      },
     };
   };
 

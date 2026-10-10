@@ -2752,6 +2752,45 @@ playoff machine; either way the link leaves the address bar, and the season is n
 changed. A link none of whose picks apply is said so, with a word to open the season it
 was made for.
 
+## Why the forecast says what it does
+
+Each of the Dashboard's upcoming predictions has a **Why Aces at 64%?** button (2.8). The
+win chance is read off a projected margin, and the prediction engine now gives that margin
+as data with every forecast (`LeaguePrediction.explanation`), as the sum of its parts in
+runs, which add up to it exactly:
+
+- **Results**: each side's average margin in the games its rating was fitted from (league
+  and Team Rankings, each counted up to `FORECAST_RUN_CAP`), shrunk toward average by the
+  games behind it as the fit does, `n / (n + 1.5)` of it;
+- **Opponents faced**: the rest of the gap between the two ratings, which is the fit's
+  allowance for the opponents each side played. With every game neutral and counted once,
+  as the engine's are, a rating is exactly `n / (n + 1.5)` of its average margin plus its
+  opponents' average rating, so this is exactly the opponents' share;
+- **Head-to-head**: the nudge for their own meetings, never more than 1.5 runs;
+- **Home field**: not counted, since who bats last is a coin toss at this level (it would
+  show only if a fitted home edge appeared from games with a real home side);
+- **Cap**: what the 14-run cap on a projected margin took off.
+
+Beside them is what the margin does not count again or at all: recent form (already in the
+results), runs scored and allowed in league games, the Team Rankings results behind each
+rating, how many games each rating rests on, each side's newest result and how long before
+the game it was, and what the per-game model behind the Schedule's odds and the Gold chances
+makes of the same game (`forecastExplanation.ts`).
+
+The panel leads with the strongest reason for each side (a part of the margin where there is
+one), then the margin as its parts ("Aces by 2.3 runs, from results +3.1, opponents faced
+−1.2, head-to-head +0.4"), with every factor on request. **What could change it** names a
+side with fewer than three games behind its rating, a newest result more than three weeks
+before the game, Team Rankings results from a club linked by a name more than one club
+carries, a rating and raw scoring that point different ways, and the two models disagreeing
+(backing different sides, or 15 points apart). Four numbers the page shows are said apart,
+since they are easily taken for one another: the **win chance** of this game, the model's
+**confidence** (how much it has to go on, not a second chance of winning), **Gold %** (the
+chance of finishing above the cut line over the season), and the **accuracy so far** (the
+season's finished games replayed one at a time, each called from the games before it: a
+record of past games, not a promise about this one). The panel's code is fetched the first
+time one is opened.
+
 ## Our team
 
 The Dashboard leads with one team, picked there, for the questions asked at the

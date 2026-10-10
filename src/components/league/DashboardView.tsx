@@ -2,17 +2,35 @@
  * The league's front page: where the season stands, what the model makes of the next games, and
  * what it is still missing to say more.
  */
-import type { ComponentProps, ReactNode } from "react";
+import { Suspense, useId, useState, type ComponentProps, type ReactNode } from "react";
 import { formatGameDate } from "../../lib/date";
 import { displayName } from "../../lib/format";
 import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
 import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFindings";
+import { ErrorBoundary } from "../ErrorBoundary";
 import { DigestPanel } from "./DigestPanel";
 import { EmptyPanel } from "./EmptyPanel";
+import { viewChunk } from "./leagueViews";
 import { PowerRatingsView } from "./PowerRatingsView";
 import { button as buttonClasses } from "../../styles/tokens";
+
+/** Why a card's odds are what they are (2.8), fetched the first time a card's is opened. */
+const forecastWhy = viewChunk(
+  () => import("./ForecastWhy").then((module) => module.ForecastWhy),
+  "ForecastWhy"
+);
+const ForecastWhy = forecastWhy.View;
+
+/** What a card's explanation reads beside the prediction itself, worked out once it is opened. */
+type WhyContext = {
+  nameOf: (id: string) => string;
+  /** The per-game model's chance that the away side wins a game: the Schedule's odds. */
+  gameOdds?: (game: Matchup) => number;
+  findings: readonly Finding[];
+  record: { winnerAccuracy: number | null; sampleSize: number };
+};
 
 function teamNameFor(map: Map<string, Team>, id: string) {
   return map.get(id)?.name ?? id;
@@ -22,11 +40,15 @@ function PredictionCard({
   prediction,
   teamsById,
   matchups,
+  why: whyContext,
 }: {
   prediction: LeaguePrediction;
   teamsById: Map<string, Team>;
   matchups: Matchup[];
+  why: WhyContext;
 }) {
+  const [whyOpen, setWhyOpen] = useState(false);
+  const whyId = useId();
   const game = matchups.find((item) => item.id === prediction.gameId);
   const a = teamNameFor(teamsById, prediction.teamAId);
   const b = teamNameFor(teamsById, prediction.teamBId);
@@ -35,6 +57,13 @@ function PredictionCard({
     : "Pending data";
   const aPct = Math.round(prediction.winProbability.teamA * 100);
   const bPct = Math.round(prediction.winProbability.teamB * 100);
+  const whyLabel =
+    aPct === bPct
+      ? "Why a toss-up?"
+      : `Why ${displayName(aPct > bPct ? a : b)} at ${Math.max(aPct, bPct)}%?`;
+  // Asked for only while the explanation is open: the per-game model is not free to run.
+  const gameModelChance =
+    whyOpen && game && whyContext.gameOdds ? whyContext.gameOdds(game) : undefined;
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs ring-1 ring-slate-950/5 dark:border-slate-800 dark:bg-slate-950/70">
       <div className="flex items-start justify-between gap-4">
@@ -96,6 +125,38 @@ function PredictionCard({
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-700 dark:text-slate-300">
           {prediction.keyFactors[0] ?? "Add completed scores to unlock a model read."}
         </p>
+        {prediction.explanation && (
+          <button
+            type="button"
+            aria-expanded={whyOpen}
+            aria-controls={whyId}
+            onClick={() => setWhyOpen((was) => !was)}
+            className="mt-2 text-sm font-bold text-slate-950 underline underline-offset-2 dark:text-slate-100"
+          >
+            {whyLabel}
+          </button>
+        )}
+        {whyOpen && (
+          <div id={whyId} className="mt-3">
+            <ErrorBoundary area="this explanation" onReset={forecastWhy.reset}>
+              <Suspense
+                fallback={
+                  <p role="status" className="text-sm text-slate-600 dark:text-slate-300">
+                    Loading the explanation…
+                  </p>
+                }
+              >
+                <ForecastWhy
+                  prediction={prediction}
+                  nameOf={whyContext.nameOf}
+                  findings={whyContext.findings}
+                  record={whyContext.record}
+                  {...(gameModelChance !== undefined ? { gameModelChance } : {})}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
       </div>
       {prediction.riskFactors.length > 0 && (
         <p className="mt-3 text-sm font-bold text-amber-700 dark:text-amber-300">
@@ -115,6 +176,7 @@ export function DashboardView({
   findings,
   ourTeam,
   digest,
+  gameOdds,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   backtestResult: ReturnType<typeof backtestPredictions>;
@@ -127,7 +189,15 @@ export function DashboardView({
   ourTeam?: ReactNode;
   /** What changed since this device last looked (2.6), above everything else while there is any. */
   digest?: ComponentProps<typeof DigestPanel>;
+  /** The per-game model's chance that the away side wins a game, for a card's explanation. */
+  gameOdds?: (game: Matchup) => number;
 }) {
+  const why: WhyContext = {
+    nameOf: (id) => displayName(teamNameFor(teamsById, id)),
+    ...(gameOdds ? { gameOdds } : {}),
+    findings,
+    record: backtestResult,
+  };
   const avgConfidence = engine.predictions.length
     ? Math.round(
         engine.predictions.reduce((sum, p) => sum + p.confidence.score, 0) /
@@ -175,6 +245,7 @@ export function DashboardView({
               prediction={p}
               teamsById={teamsById}
               matchups={matchups}
+              why={why}
             />
           ))}
           {engine.predictions.length === 0 && (
