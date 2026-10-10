@@ -2716,14 +2716,13 @@ says how the picks move it against the season as it stands: its place (▲2), it
 
 ### Saved scenarios
 
-Picks go when the page does unless they are saved as a scenario, and not before: a look at
+Picks not saved as a scenario go when the page does, or at a change of season: a look at
 another tab and back finds the machine as it was left, the picks and the scenario open, which
-the page holds while the Forecast tab is closed (`MachineLeft`). They are one season's, and go
-at a change of season whether the Forecast tab is open or not, told apart by `activeSeasonKey`
-so that a season deleted and its id given out again, or one restored over, leaves none to the
-season now under that id. A scenario (2.7,
-`src/lib/savedScenarios.ts`) is a name, the picks with any typed scores, and each picked
-game's teams and date as they stood, kept on this device per season, the most recently
+the page holds while the Forecast tab is closed (`MachineLeft`). They are one season's, told
+apart by `activeSeasonKey` whether the Forecast tab is open or not, so that a season deleted
+and its id given out again, or one restored over, leaves none to the season now under that id.
+A scenario (2.7, `src/lib/savedScenarios.ts`) is a name, the picks with any typed scores, and
+each picked game's teams and date as they stood, kept on this device per season, the most recently
 changed first, thirty at most (a save that pushes the oldest out names it). One parent's
 "what if we win out" is theirs, not the season's, so a scenario is never written into
 the season, a backup or the cloud; it goes when its season does, not to a season made under
@@ -3040,8 +3039,8 @@ subscription and sending to it, which the app does not have.
   (`lf_league_bridge_v2`), the saved scenarios (`lf_league_scenarios_v1`) and the news already
   announced (`lf_league_notified_v1`, one list whose entries each begin with their season's id).
   Season ids are given out again: counted from the seasons held, so deleting the last season and
-  making one gives back its id, and every browser's first season is `default`. So all of it goes when its season leaves the browser:
-  deleted, or left out of a restore or the cloud copy's seasons, or replaced in either by another
+  making one gives back its id, and every browser's first season is `default`. So all of it goes
+  when its season leaves the browser: deleted, or left out of a restore or the cloud copy's seasons, or replaced in either by another
   season under its id (made at another moment). An id given to a season new here, made, copied or
   brought down from the cloud, starts with nothing under it (`forgetSeasons`). A season of this
   device's that a cloud merge gives a new id takes all of it to that id, and takes it back when a

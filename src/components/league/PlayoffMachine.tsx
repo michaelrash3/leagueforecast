@@ -59,7 +59,10 @@ type PlayoffMachineProps = {
   seasonKey: string;
   /** The team this browser follows, the one the quick picks' team starts on. */
   followedTeamId: string | null;
-  /** A scenario of this season just kept from a link, to open at once. */
+  /**
+   * A scenario of this season just kept from a link, to open: at once, or once asked when it would
+   * take the place of picks not saved.
+   */
   incoming?: string | null;
   /** Told once the incoming scenario is open or asked about, so that is done once, not every visit. */
   onIncomingOpened?: () => void;
@@ -274,7 +277,10 @@ export function PlayoffMachine({
     else {
       setNaming(null);
       setDeleting(null);
-      if (picksAtRisk) {
+      // The open scenario pushed out of the thirty by keeping the link leaves its picks on screen
+      // alone, as unsaved as any: replaced without a word, they would be gone.
+      const pushedOut = open !== null && !list.some((one) => one.id === open.id);
+      if (picksAtRisk || (picked > 0 && pushedOut)) {
         /*
          * While it is asked, the scenario open stays as this tab has it, which the picks on screen
          * were made against, so picks another tab saved to it are not taken for changes made here.
@@ -623,7 +629,10 @@ export function PlayoffMachine({
                 onClick={() => {
                   setDeleting(null);
                   setSwitching(null);
-                  setNaming({ mode: "rename", name: open.name });
+                  // From the name it is stored under, which another tab may have changed: one
+                  // started from this tab's would put the old name back if saved unedited.
+                  const stored = openAsStored();
+                  if (stored) setNaming({ mode: "rename", name: stored.name });
                 }}
               >
                 Rename
