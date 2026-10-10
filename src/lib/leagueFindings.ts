@@ -228,6 +228,19 @@ export const auditLeague = ({
 
   // ---------- The same game twice ----------
 
+  /*
+   * A league date carries no time, so two games of one pair on one day are a copy (a schedule
+   * imported twice, a game added by hand that was already there) or a doubleheader, and nothing on
+   * the schedule says which. So this never needs attention, which could not be put aside: the
+   * commissioner knows which it is. Finals with different scores are two games played, and read as
+   * a doubleheader. Finals with one score are how one game entered twice looks, and count twice if
+   * it is; and a copy not yet final is played by the forecast as a game still to come, a game too
+   * many left for each team. Either way the forecast is affected until someone says which it is.
+   */
+  const runsFor = (game: Matchup, team: string) => {
+    const value = (game.away === team ? logs[game.id]?.awayRuns : logs[game.id]?.homeRuns) ?? "";
+    return runsOf(value) ?? value.trim();
+  };
   const byFixture = new Map<string, Matchup[]>();
   matchups.forEach((game) => {
     const date = normalizeDateInput(game.date);
@@ -236,40 +249,56 @@ export const auditLeague = ({
     byFixture.set(key, [...(byFixture.get(key) ?? []), game]);
   });
   byFixture.forEach((copies) => {
-    if (copies.length < 2) return;
+    const first = copies[0];
+    if (!first || copies.length < 2) return;
     const scored = copies.filter((game) => {
       const log = logs[game.id];
       return isFinal(log) || Boolean(log?.awayRuns.trim() || log?.homeRuns.trim());
     });
     const finals = copies.filter((game) => isFinal(logs[game.id]));
+    const sameScore = (a: Matchup, b: Matchup) =>
+      runsFor(a, first.away) === runsFor(b, first.away) &&
+      runsFor(a, first.home) === runsFor(b, first.home);
+    const repeated = finals.filter((game) =>
+      finals.some((other) => other !== game && sameScore(game, other))
+    );
+    const doubleheader = finals.length === copies.length && repeated.length === 0;
     /*
      * Offered only where nothing entered would go: with at most one copy scored, that one is kept
      * and the rest have no score at all. With more, which is the real game is a person's call.
      */
     const keep = scored[0] ?? copies[0];
     const removable = copies.filter((game) => game !== keep);
-    const first = copies[0];
-    if (!first) return;
+    const repair =
+      removable.length && scored.length <= 1
+        ? { kind: "removeGames" as const, gameIds: removable.map((game) => game.id) }
+        : undefined;
     add(
       {
         code: "duplicate-game",
-        severity: finals.length > 1 ? "attention" : "review",
-        summary: `${gameLabel(first)} is on the schedule ${copies.length} times`,
-        detail:
-          finals.length > 1
-            ? `${plural(finals.length, "copy", "copies")} are marked final, so the one game counts ${finals.length} times in the standings.`
-            : "Two teams rarely play twice on one day; a schedule imported twice leaves copies like this.",
-        suggestion:
-          scored.length > 1
-            ? "Open each copy and delete the ones that are not the real game."
-            : "Delete the extra copies.",
+        severity: doubleheader ? "info" : "review",
+        summary: doubleheader
+          ? `${nameOf(first.away)} and ${nameOf(first.home)} played ${copies.length} games on ${normalizeDateInput(first.date)}`
+          : `${gameLabel(first)} is on the schedule ${copies.length} times`,
+        detail: doubleheader
+          ? "Finals with different scores read as a doubleheader, which needs nothing done. If one is a copy given a wrong score, it counts as a game of its own."
+          : repeated.length
+            ? "Finals with the same score are how one game entered twice looks, and then it counts more than once in the standings. A doubleheader can end the same way twice, and then nothing is wrong."
+            : "A schedule imported twice leaves copies like this, and the forecast plays each copy not yet final as a game still to come. If the two teams play a doubleheader that day, nothing is wrong.",
+        suggestion: doubleheader
+          ? "Nothing, if they played twice that day; otherwise delete the copy that is not the real game."
+          : repair
+            ? "Delete the extra copies, or put this aside if it is a doubleheader."
+            : "Open each copy and delete the ones that are not the real game, or put this aside if it is a doubleheader.",
         targets: copies.map(gameTarget),
-        affectsForecast: finals.length > 1,
-        ...(removable.length && scored.length <= 1
-          ? { repair: { kind: "removeGames" as const, gameIds: removable.map((game) => game.id) } }
-          : {}),
+        affectsForecast: !doubleheader,
+        ...(repair ? { repair } : {}),
       },
-      [finals.length]
+      /*
+       * Put aside as a doubleheader, it stays aside as its games are played, and comes back only
+       * if two finals turn out with one score, which is the copy it was taken not to be.
+       */
+      [repeated.length]
     );
   });
 

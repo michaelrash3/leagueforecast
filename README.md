@@ -2852,16 +2852,25 @@ the forecast is affected; the **Data Quality** tab lists them in three groups:
 
 - **Needs attention**: a season of one team (one with none is still being set up, and
   raises nothing), a game naming a team not on the roster, a team against itself, a final
-  with a score missing (counted as if that side scored nothing), the same game final twice, a
-  past game scored and never marked final (not counted at all), a Gold cut line every team is on
-  one side of, one Team Rankings club linked to two league teams while its results count.
+  with a score missing (counted as if that side scored nothing), a past game scored and never
+  marked final (not counted at all), a Gold cut line every team is on one side of, one Team
+  Rankings club linked to two league teams while its results count.
 - **Worth reviewing**: the same game on the schedule twice, a past game still without a score, a
   date that cannot be read, a final over 40 runs a side or won by more than 30, fewer games
   scheduled than the games-per-team setting (which holds clinching back), teams without a final
   once the league has played about three games each, two teams of one name, a link to a club
   Team Rankings no longer has.
 - **Information**: an undated game, a schedule giving teams two or more games apart, teams
-  without a final early on, a link guessed from a name more than one club carries.
+  without a final early on, a link guessed from a name more than one club carries, two finals of
+  one pair on one day with different scores.
+
+The same game twice is never a finding that needs attention, since that could not be put aside
+and a league date carries no time: two games of one pair on one day are a copy or a doubleheader,
+and only the commissioner knows which. Until it is put aside it affects the forecast, which plays
+each copy not yet final as a game still to come and counts each final, so the finding names both
+possibilities. Two finals with different scores are two games played and read as a doubleheader,
+information only; two with one score are what one game entered twice looks like, and a finding
+put aside as a doubleheader comes back only then.
 
 A date is read in the year nearest today, since League dates carry none: a March game seen in
 February is next month's, a December one seen in January last month's. Each finding links to

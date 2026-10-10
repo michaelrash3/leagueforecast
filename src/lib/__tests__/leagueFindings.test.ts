@@ -105,14 +105,30 @@ describe("auditing a League Standings season", () => {
       expect(finding.repair).toEqual({ kind: "removeGames", gameIds: ["g1b"] });
     });
 
-    it("needs attention once two copies are final, and offers nothing to delete then", () => {
+    it("affects the forecast while a copy is not final, since the forecast plays it", () => {
+      expect(only(audit({ matchups: twice }), "duplicate-game").affectsForecast).toBe(true);
+      // Neither copy played yet: the pair is simulated twice, and each has a game too many left.
+      const ahead = [
+        ...CLEAN,
+        { id: "f1", date: "6/20", away: "C", home: "D" },
+        { id: "f1b", date: "6/20", away: "C", home: "D" },
+      ];
+      const finding = only(audit({ matchups: ahead }), "duplicate-game");
+      expect(finding.affectsForecast).toBe(true);
+      expect(finding.repair).toEqual({ kind: "removeGames", gameIds: ["f1b"] });
+    });
+
+    it("is worth reviewing when two finals have one score, and can be put aside", () => {
+      // Aces 3, Bears 0 on both cards, entered either way round.
       const finding = only(
-        audit({ matchups: twice, logs: { ...CLEAN_LOGS, g1b: final("2", "1") } }),
+        audit({ matchups: twice, logs: { ...CLEAN_LOGS, g1b: final("0", "3") } }),
         "duplicate-game"
       );
-      expect(finding.severity).toBe("attention");
+      expect(finding.severity).toBe("review");
       expect(finding.affectsForecast).toBe(true);
       expect(finding.repair).toBeUndefined();
+      expect(finding.detail).toMatch(/doubleheader/);
+      expect(isDismissed(finding, { [finding.fingerprint]: finding.severity })).toBe(true);
     });
 
     it("is not a rematch on another day, nor two undated games", () => {
@@ -124,6 +140,54 @@ describe("auditing a League Standings season", () => {
         { id: "u2", date: "", away: "A", home: "B" },
       ];
       expect(codes(audit({ matchups: undated }))).not.toContain("duplicate-game");
+    });
+  });
+
+  describe("a doubleheader", () => {
+    // The league writes no time, so two games of one pair on one day look like a copy.
+    const doubleheader = [
+      ...CLEAN,
+      { id: "d1", date: "6/20", away: "A", home: "B" },
+      { id: "d2", date: "6/20", away: "B", home: "A" },
+    ];
+    const played = (second: GameLog) => ({ ...CLEAN_LOGS, d1: final("5", "3"), d2: second });
+
+    it("is named as what it may be before it is played, and can be put aside", () => {
+      const finding = only(audit({ matchups: doubleheader }), "duplicate-game");
+      expect(finding.severity).toBe("review");
+      expect(finding.detail).toMatch(/doubleheader/);
+      expect(finding.suggestion).toMatch(/doubleheader/);
+      expect(isDismissed(finding, { [finding.fingerprint]: finding.severity })).toBe(true);
+    });
+
+    it("is information once both are final with different scores, never a game counted twice", () => {
+      // Aces 5-3 and then 8-2: two games played, not one entered twice.
+      const finding = only(
+        audit({ matchups: doubleheader, logs: played(final("2", "8")) }),
+        "duplicate-game"
+      );
+      expect(finding.severity).toBe("info");
+      expect(finding.affectsForecast).toBe(false);
+      expect(finding.summary).toBe("Aces and Bears played 2 games on 6/20");
+      expect(finding.detail).not.toMatch(/counts? 2 times/);
+      expect(finding.repair).toBeUndefined();
+    });
+
+    it("stays aside once played, unless the two finals come out with one score", () => {
+      const before = only(audit({ matchups: doubleheader }), "duplicate-game");
+      const aside = { [before.fingerprint]: before.severity };
+      const differ = only(
+        audit({ matchups: doubleheader, logs: played(final("2", "8")) }),
+        "duplicate-game"
+      );
+      expect(isDismissed(differ, aside)).toBe(true);
+      // Bears 3, Aces 5 again: what one game entered twice looks like, so it is asked again.
+      const same = only(
+        audit({ matchups: doubleheader, logs: played(final("3", "5")) }),
+        "duplicate-game"
+      );
+      expect(same.severity).toBe("review");
+      expect(isDismissed(same, aside)).toBe(false);
     });
   });
 
