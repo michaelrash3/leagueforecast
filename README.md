@@ -2872,8 +2872,13 @@ possibilities. Two finals with different scores are two games played and read as
 information only; two with one score are what one game entered twice looks like, and a finding
 put aside as a doubleheader comes back only then.
 
-A date is read in the year nearest today, since League dates carry none: a March game seen in
-February is next month's, a December one seen in January last month's. Each finding links to
+League dates carry no year, so what is past is read with the season on one timeline: in its own
+order (`seasonStartMonth`, as the rest of the app reads it), placed in whichever year puts the
+whole season nearest today (`seasonDaysFromToday`). A spring season seen in October is all past,
+its March games with its May ones; next spring's schedule entered in December is all to come, its
+June with its March; and a December game seen in January was last month's. Read a date at a time,
+each in its own nearest year, a season more than about six months from today was split, its far
+end on the wrong side of today. Each finding links to
 what it is about: a game opens the Schedule with its card focused, a team its panel, a setting
 the field in Settings. Three can be put right from the tab, each after a preview of exactly what
 it will do, as one undo step, and reported by what it actually changed, worked out again from

@@ -1,4 +1,4 @@
-import { normalizeDateInput } from "./date";
+import { normalizeDateInput, seasonStartMonth } from "./date";
 import { displayName } from "./format";
 import type { ScoutLinkRow } from "./teamRankings";
 import type { GameLog, Matchup, Settings, TeamBase } from "./types";
@@ -99,23 +99,49 @@ export const IMPLAUSIBLE_MARGIN = 30;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** An "M/D" date's month and day, or null for one that cannot be read. */
+const monthDayOf = (date: string) => {
+  const [month, day] = normalizeDateInput(date).split("/").map(Number);
+  return month && day ? { month, day } : null;
+};
+
 /**
- * Days from today to an "M/D" date, read in whichever year puts it nearest to today: the dates
- * carry no year, and a season is played within a few months of now, so a March game seen in
- * February is next month's and one seen in October is this spring's. Null for no date.
+ * Days from today to a season's "M/D" dates, read on one timeline. The dates carry no year, so the
+ * season is placed whole: in its own order, running on from the month its year turns in
+ * (`seasonStartMonth`, as everything else that puts a season in order reads it), and in whichever
+ * year puts it nearest today, today inside it or the nearer of its ends. So a spring season seen in
+ * October is all past, its March with its May, next spring's schedule entered in December is all
+ * to come, its June with its March, and a December game seen in January was last month's. Read a
+ * date at a time, each in the year nearest today, either season was split across two years, and
+ * its far end read as the wrong side of today. Each call answers for one date, null for none.
  */
-export const daysFromToday = (date: string, today: Date): number | null => {
-  const normalized = normalizeDateInput(date);
-  if (!normalized) return null;
-  const [month, day] = normalized.split("/").map(Number);
-  if (!month || !day) return null;
+export const seasonDaysFromToday = (
+  seasonDates: readonly string[],
+  today: Date
+): ((date: string) => number | null) => {
+  const startMonth = seasonStartMonth(seasonDates);
   const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
-  let nearest: number | null = null;
+  /** Days from today to a month and day of the season whose year turns in `year`. */
+  const daysIn = (year: number, { month, day }: { month: number; day: number }) =>
+    Math.round((Date.UTC(month < startMonth ? year + 1 : year, month - 1, day) - start) / DAY_MS);
+  const placed = seasonDates.flatMap((date) => monthDayOf(date) ?? []);
+  let seasonYear = today.getFullYear();
+  let nearest = Number.POSITIVE_INFINITY;
   for (const year of [today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1]) {
-    const days = Math.round((Date.UTC(year, month - 1, day) - start) / DAY_MS);
-    if (nearest === null || Math.abs(days) < Math.abs(nearest)) nearest = days;
+    const days = placed.map((monthDay) => daysIn(year, monthDay));
+    if (!days.length) break;
+    const first = Math.min(...days);
+    const last = Math.max(...days);
+    const distance = first > 0 ? first : last < 0 ? -last : 0;
+    if (distance < nearest) {
+      nearest = distance;
+      seasonYear = year;
+    }
   }
-  return nearest;
+  return (date) => {
+    const monthDay = monthDayOf(date);
+    return monthDay ? daysIn(seasonYear, monthDay) : null;
+  };
 };
 
 const plural = (count: number, one: string, many = `${one}s`) =>
@@ -362,9 +388,13 @@ export const auditLeague = ({
 
   // ---------- Past games not finished ----------
 
+  const daysFromToday = seasonDaysFromToday(
+    matchups.map((game) => game.date),
+    today
+  );
   const past = matchups.filter((game) => {
     if (isFinal(logs[game.id])) return false;
-    const days = daysFromToday(game.date, today);
+    const days = daysFromToday(game.date);
     return days !== null && days < 0;
   });
   const scoredNotFinal = past.filter((game) => {

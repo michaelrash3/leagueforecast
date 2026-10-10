@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   auditLeague,
   copiesToDelete,
-  daysFromToday,
   isDismissed,
   repairIsDestructive,
   repairPreview,
+  seasonDaysFromToday,
   severityCounts,
   type Finding,
   type FindingCode,
@@ -248,17 +248,56 @@ describe("auditing a League Standings season", () => {
       expect(gameIds(only(findings, "scored-not-final"))).toEqual(["p1"]);
     });
 
-    it("read each date in the year nearest today", () => {
-      expect(daysFromToday("6/9", TODAY)).toBe(-1);
-      expect(daysFromToday("6/10", TODAY)).toBe(0);
+    it("read the season's dates on one timeline, in the year that puts it nearest today", () => {
+      const daysFromToday = (date: string, today: Date, season = [date]) =>
+        seasonDaysFromToday(season, today)(date);
+      const thisSeason = [...CLEAN, ...later].map((game) => game.date);
+      expect(daysFromToday("6/9", TODAY, thisSeason)).toBe(-1);
+      expect(daysFromToday("6/10", TODAY, thisSeason)).toBe(0);
+      expect(daysFromToday("", TODAY, thisSeason)).toBeNull();
       // Seen in February, a March game is next month's, not last year's.
       expect(daysFromToday("3/5", new Date(2027, 1, 10))).toBe(23);
       // Seen in October, a May game is this spring's.
       expect(daysFromToday("5/3", new Date(2026, 9, 1))).toBeLessThan(0);
-      expect(daysFromToday("", TODAY)).toBeNull();
-      // Across New Year: a late-December game seen in January was last week, not next December.
-      expect(daysFromToday("12/28", new Date(2027, 0, 5))).toBe(-8);
-      expect(daysFromToday("1/3", new Date(2026, 11, 30))).toBe(4);
+      // Across New Year: a late-December game seen in January was last week, not next December,
+      // and a January one seen at the end of December is next week, in the same season.
+      const winter = ["11/14", "12/28", "1/3", "1/24"];
+      expect(daysFromToday("12/28", new Date(2027, 0, 5), winter)).toBe(-8);
+      expect(daysFromToday("1/3", new Date(2026, 11, 30), winter)).toBe(4);
+      expect(daysFromToday("11/14", new Date(2026, 11, 30), winter)).toBe(-46);
+      // The far end of a season goes with the rest of it, not to the nearer year on its own.
+      const spring = ["3/1", "4/10", "5/27"];
+      expect(daysFromToday("3/1", new Date(2026, 9, 10), spring)).toBe(-223);
+      const nextSpring = ["3/7", "4/15", "6/20"];
+      expect(daysFromToday("6/20", new Date(2026, 11, 10), nextSpring)).toBe(192);
+    });
+
+    it("read a spring season seen in October as all past, its March with its May", () => {
+      const spring = [
+        { id: "mar", date: "3/20", away: "A", home: "B" },
+        { id: "mar2", date: "3/27", away: "C", home: "D" },
+        { id: "may", date: "5/20", away: "A", home: "C" },
+        { id: "may2", date: "5/27", away: "B", home: "D" },
+      ];
+      const findings = audit({
+        matchups: spring,
+        logs: { mar: open("5", "3"), may: open("4", "2") },
+        today: new Date(2026, 9, 10, 12),
+      });
+      expect(gameIds(only(findings, "scored-not-final"))).toEqual(["mar", "may"]);
+      expect(gameIds(only(findings, "past-unplayed"))).toEqual(["mar2", "may2"]);
+    });
+
+    it("read next spring's schedule entered in December as all to come, its June too", () => {
+      const next = [
+        { id: "n1", date: "3/7", away: "A", home: "B" },
+        { id: "n2", date: "4/15", away: "C", home: "D" },
+        { id: "n3", date: "6/10", away: "A", home: "C" },
+        { id: "n4", date: "6/15", away: "B", home: "D" },
+        { id: "n5", date: "6/20", away: "A", home: "D" },
+      ];
+      const findings = audit({ matchups: next, logs: {}, today: new Date(2026, 11, 10, 12) });
+      expect(codes(findings)).not.toContain("past-unplayed");
     });
   });
 
