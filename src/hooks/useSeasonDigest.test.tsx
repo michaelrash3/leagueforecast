@@ -451,6 +451,72 @@ describe("useSeasonDigest", () => {
       expect(kinds(there.view.result.current.changes)).toEqual(["final"]);
     });
 
+    it("does not take another tab's edit as seen at this tab's first look, before it arrives", () => {
+      // Both opened the season before either had looked; one has looked since, then edited.
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      act(() => here.view.result.current.acknowledge());
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      // The other tab hears the cloud before the edit has reached it: the game is as it was.
+      there.view.rerender({ race: start, heard: true });
+      expect(there.view.result.current.changes).toEqual([]);
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      expect(there.view.result.current.changes).toEqual([]);
+    });
+
+    it("nor at a first word that brings another device's news but not the edit", () => {
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      act(() => here.view.result.current.acknowledge());
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      // Another device's final, which neither tab has seen, is news; the edit is not undone.
+      act(() => there.store.apply(season({ g2: final("1", "3") })));
+      expect(kinds(there.view.result.current.changes)).toEqual(["final"]);
+    });
+
+    it("takes the race another tab keeps at this tab's first word, not its own from before", () => {
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      // One tab's first word brings a final that clinches, and its race starts after it.
+      act(() => here.store.apply(season({ g1: final("4", "2") })));
+      here.view.rerender({ race: null });
+      here.view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 40 }),
+      });
+      // Then another device's final, news in that tab, eliminates the other team.
+      const both = season({ g1: final("4", "2"), g2: final("1", "3") });
+      const decided = race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 });
+      act(() => here.store.apply(both));
+      here.view.rerender({ race: null });
+      here.view.rerender({ race: decided });
+      expect(kinds(here.view.result.current.changes)).toEqual(["final", "eliminated"]);
+      toldOfLook();
+      // The other tab's first word brings both: the same news, and the clinch still not news.
+      act(() => there.store.apply(both));
+      there.view.rerender({ race: null });
+      there.view.rerender({ race: { ...decided } });
+      expect(kinds(there.view.result.current.changes)).toEqual(["final", "eliminated"]);
+    });
+
+    it("keeps an edit made before this tab first looked as its own, though another looked first", () => {
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      const renamed = {
+        ...season(),
+        teams: [
+          { id: "A", name: "Aces" },
+          { id: "B", name: "Bruins" },
+        ],
+      };
+      act(() => there.store.setSeason(renamed));
+      act(() => here.view.result.current.acknowledge());
+      toldOfLook();
+      there.view.rerender({ race: start, heard: true });
+      expect(there.view.result.current.changes).toEqual([]);
+    });
+
     it("does not take another tab's edit as seen before it has arrived", () => {
       const [here, there] = tabs();
       act(() => here.store.setSeason(season({ g1: final("5", "3") })));

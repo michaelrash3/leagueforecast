@@ -39,6 +39,17 @@ const heldFor = (seasonId: string, season: SeasonState): Held => {
 };
 
 /**
+ * The look another tab here keeps, taken by a tab that had none of its own yet: each game and team
+ * that reads there as it does in this tab's season (`shown`), this tab's own for the rest, and the
+ * race as kept. Taken whole, another tab's edit the cloud has not yet brought here would show here
+ * as changed back meanwhile, and an edit this tab made before it looked would show as news.
+ */
+const takenFrom = (kept: SeasonSeen, own: SeasonSeen, shown: SeasonSeen): SeasonSeen => ({
+  ...adoptKept(own, kept, shown),
+  race: kept.race,
+});
+
+/**
  * Whether a change moves what the forecast reads: the teams (a club linked to one as much as a
  * name), the schedule, a setting such as the cut line, or the finals, as the page keys its
  * forecast on them (`finalLogsOf`). Runs typed into a game still being played, or a bracket score,
@@ -119,7 +130,11 @@ export function useSeasonDigest({
     setHeld((was) =>
       was.looked || was.seasonId !== open.id
         ? was
-        : { ...was, seen: kept ?? was.seen, looked: true }
+        : {
+            ...was,
+            seen: kept ? takenFrom(kept, was.seen, seenOf(open.season)) : was.seen,
+            looked: true,
+          }
     );
   }
 
@@ -152,8 +167,15 @@ export function useSeasonDigest({
           }
           const shown = seenOf(now.season);
           if (!was.looked) {
-            // Another tab here has looked already: its look is this one's.
-            if (kept) return { ...was, seen: kept, looked: true, raceOwed: false };
+            // Another tab here has looked already: its look is this one's, where it reads as this
+            // tab's season does (`takenFrom`).
+            if (kept)
+              return {
+                ...was,
+                seen: takenFrom(kept, was.seen, shown),
+                looked: true,
+                raceOwed: false,
+              };
             // The cloud's first word is where looking starts, the race with it: the forecast of
             // the season it brought, as that settles, not the one from before it, against which
             // the finals it brought would come out as clinches with none of the games behind them.
