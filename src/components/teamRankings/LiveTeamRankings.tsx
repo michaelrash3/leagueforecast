@@ -523,7 +523,7 @@ function LiveBoard({
         seasonId,
         leagueClubRanksFrom(
           rows,
-          new Map(season.clubs),
+          new Map(season.clubs.map(({ team, club }) => [team, club])),
           (teamId) => stateById.get(teamId),
           lastWeek,
           label,

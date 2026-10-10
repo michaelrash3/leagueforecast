@@ -381,7 +381,7 @@ export const livePagesOf = (
     [...seasons].map(([season, { clubs, halves }]) => ({
       page,
       season,
-      clubs: [...clubs],
+      clubs: [...clubs].map(([team, club]) => ({ team, club })),
       halves: [...halves].sort(),
     }))
   );

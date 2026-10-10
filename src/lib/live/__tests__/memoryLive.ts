@@ -1,9 +1,16 @@
+import { fieldsOf, firestoreFieldsOf } from "../../cloud/firestoreRest";
 import type { LiveMeta, LiveStore, MetaWatch } from "../viewStore";
 
 /**
  * A stand-in for `live/` in Firestore, in memory: the meta with a token for each version of it, as
  * Firestore's update time is, the pieces with when each was made, and counts of what each call
  * would cost. Shared by the view store's tests; not a test itself.
+ *
+ * A committed meta is kept as Firestore would hand it back: put into its typed fields as the
+ * servers' REST store puts it (`firestoreFieldsOf`) and read out again, so a meta Firestore would
+ * refuse to store throws here as it does there (`UnstorableValueError`). Every test that publishes
+ * through this store checks that much; none did when the league's [team, club] pairs went out
+ * (`LeagueOnPage`).
  */
 export type MemoryLive = {
   store: LiveStore;
@@ -63,7 +70,7 @@ export const memoryLive = (): MemoryLive => {
       costs.reads += 1;
       if (expected === null ? meta !== null : String(token) !== expected) return false;
       costs.writes += 1;
-      meta = structuredClone(next);
+      meta = fieldsOf(firestoreFieldsOf(next));
       token += 1;
       tellAll();
       return true;

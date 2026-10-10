@@ -3886,7 +3886,18 @@ Readers fetch while a server writes, so publishing keeps four rules
 
 The shape of the views has a number (`LIVE_SCHEMA`): 2 since the rows gained their
 clubs' towns, states and badges, the boards last week's places and their page's
-own club's rank line, and the meta its pages' counts. A meta written by a newer
+own club's rank line, and the meta its pages' counts; 3 since each League
+Standings team and its club in `inline.pages` are a record rather than a
+[team, club] pair. Firestore keeps no list directly inside another, and it
+refused every save of a meta carrying those pairs with a bare HTTP 400, first
+seen on the night after they shipped (10 October 2026; the two rebuilds that
+failed the day before save the same meta the same way), so the boards stayed
+hidden behind the older schema's notice. The servers' REST
+store now refuses such a value itself before sending it, naming the field
+(`UnstorableValueError`, a number that is not finite too), the stand-in store
+the tests publish through keeps a meta as Firestore would hand it back, so every
+test that publishes checks the same, and a refusal Firestore does send carries
+its own words into the log. A meta written by a newer
 build of the app is left alone, by publishes and sweeps alike, since a sweep
 could take a piece the newer build names for a stray. A publish by a newer build
 keeps nothing of an older build's meta that it did not build itself, inline

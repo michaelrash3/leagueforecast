@@ -215,13 +215,17 @@ export const withMine = (
   }));
 
 /**
- * A League Standings season page `page` claims: the club each of the season's teams is there, as
- * [league team id, club id] pairs, and the halves its games are in.
+ * A League Standings season page `page` claims: the club each of the season's teams is there, by
+ * league team id (`team`) and club id (`club`), and the halves its games are in. Each team and its
+ * club are a record, not a [team, club] pair: these sit in a list in the meta's own fields, and
+ * Firestore keeps no list directly inside another. Pairs were what 1.6e first published, and
+ * Firestore refused every save of the meta that carried them with an HTTP 400, first seen on the
+ * night of 10 October 2026, after it shipped.
  */
 export type LeagueOnPage = {
   page: string;
   season: string;
-  clubs: [string, string][];
+  clubs: Array<{ team: string; club: string }>;
   halves: SeasonSegment[];
 };
 
@@ -292,11 +296,11 @@ const leagueOnPage = (raw: unknown): LeagueOnPage | null => {
   if (!isRecord(raw) || !isId(raw.page) || !isId(raw.season)) return null;
   const { clubs, halves } = raw;
   if (!Array.isArray(clubs) || !Array.isArray(halves)) return null;
-  const pairs: [string, string][] = [];
-  for (const pair of clubs) {
-    if (!Array.isArray(pair) || pair.length !== 2 || !isId(pair[0]) || !isId(pair[1])) return null;
-    pairs.push([pair[0], pair[1]]);
+  const read: LeagueOnPage["clubs"] = [];
+  for (const entry of clubs) {
+    if (!isRecord(entry) || !isId(entry.team) || !isId(entry.club)) return null;
+    read.push({ team: entry.team, club: entry.club });
   }
   if (!halves.every((half) => half === "fall" || half === "spring")) return null;
-  return { page: raw.page, season: raw.season, clubs: pairs, halves: halves as SeasonSegment[] };
+  return { page: raw.page, season: raw.season, clubs: read, halves: halves as SeasonSegment[] };
 };

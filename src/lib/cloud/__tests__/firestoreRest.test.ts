@@ -17,6 +17,8 @@ import {
   firestoreRestDocuments,
   firestoreRestLive,
   firestoreRestStore,
+  firestoreValueOf,
+  UnstorableValueError,
   type FirestoreValue,
 } from "../firestoreRest";
 import { coerceLiveMeta, publishViews, sweepViews } from "../../live/viewStore";
@@ -514,6 +516,73 @@ describe("a document written only if nobody has since, through Firestore's REST 
   });
 });
 
+describe("values as Firestore's typed JSON", () => {
+  it("refuses what Firestore will not store, naming the field and never what it holds", () => {
+    // The league's [team, club] pairs the meta first carried, refused with an HTTP 400 alone.
+    const meta = {
+      inline: {
+        pages: { league: [{ page: "p", clubs: [["Coach Placeholder", "S-1"]] }] },
+      },
+    };
+    expect(() => firestoreFieldsOf(meta)).toThrow(UnstorableValueError);
+    expect(() => firestoreFieldsOf(meta)).toThrow(
+      "Firestore cannot store inline.pages.league[0].clubs[0]: it is a list directly inside another list."
+    );
+    expect(() => firestoreValueOf([1, [2]])).toThrow("Firestore cannot store the value[1]:");
+    for (const number of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(() => firestoreFieldsOf({ views: { b: { rating: number } } })).toThrow(
+        "Firestore cannot store views.b.rating: it is not a finite number."
+      );
+    }
+    const refused = (() => {
+      try {
+        firestoreFieldsOf(meta);
+      } catch (error) {
+        return (error as Error).message;
+      }
+      return "";
+    })();
+    expect(refused).not.toContain("Coach Placeholder");
+  });
+
+  it("stores lists of records that hold lists, as the league's clubs now are", () => {
+    expect(
+      firestoreFieldsOf({
+        league: [{ clubs: [{ team: "lt", club: "S-1" }], halves: ["fall"] }],
+        none: [],
+        zero: -0,
+      })
+    ).toEqual({
+      league: {
+        arrayValue: {
+          values: [
+            {
+              mapValue: {
+                fields: {
+                  clubs: {
+                    arrayValue: {
+                      values: [
+                        {
+                          mapValue: {
+                            fields: { team: { stringValue: "lt" }, club: { stringValue: "S-1" } },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                  halves: { arrayValue: { values: [{ stringValue: "fall" }] } },
+                },
+              },
+            },
+          ],
+        },
+      },
+      none: { arrayValue: {} },
+      zero: { doubleValue: -0 },
+    });
+  });
+});
+
 describe("the published views through Firestore's REST API", () => {
   const liveOn = (firestore: ReturnType<typeof fakeFirestore>, writable = true) =>
     firestoreRestLive({
@@ -582,6 +651,49 @@ describe("the published views through Firestore's REST API", () => {
         : reads(input, init)
     );
     await expect(publish(store, "A", 1)).rejects.toThrow(FirestoreError);
+  });
+
+  it("says what Firestore said of a refusal, which a night's log would otherwise not", async () => {
+    // Firestore's answer to the meta of 9 and 10 October 2026, as the emulator gives it.
+    const firestore = fakeFirestore();
+    const store = liveOn(firestore);
+    const reads = firestore.fetchImpl.getMockImplementation()!;
+    firestore.fetchImpl.mockImplementation(async (input, init) =>
+      String(input).endsWith(":commit")
+        ? new Response(
+            JSON.stringify({
+              error: {
+                code: 400,
+                status: "INVALID_ARGUMENT",
+                message: "Cannot convert an array value\n in an array value.",
+              },
+            }),
+            { status: 400 }
+          )
+        : reads(input, init)
+    );
+    await expect(publish(store, "A", 1)).rejects.toThrow(
+      "Firestore answered HTTP 400 saving the views' meta. It said: INVALID_ARGUMENT: Cannot convert an array value in an array value."
+    );
+    // An answer with nothing to say adds nothing, and a long one is cut short.
+    firestore.fetchImpl.mockImplementation(async (input, init) =>
+      String(input).endsWith(":commit")
+        ? new Response("not json", { status: 500 })
+        : reads(input, init)
+    );
+    await expect(publish(store, "A", 1)).rejects.toThrow(
+      /^Firestore answered HTTP 500 saving the views' meta\.$/
+    );
+    firestore.fetchImpl.mockImplementation(async (input, init) =>
+      String(input).endsWith(":commit")
+        ? new Response(JSON.stringify({ error: { message: "x".repeat(1000) } }), { status: 400 })
+        : reads(input, init)
+    );
+    const long = await publish(store, "A", 1).catch((error: unknown) => error);
+    expect(long).toBeInstanceOf(FirestoreError);
+    expect((long as Error).message).toBe(
+      `Firestore answered HTTP 400 saving the views' meta. It said: ${"x".repeat(299)}…`
+    );
   });
 
   it("lists every piece by name and age, a page at a time, without their data", async () => {
