@@ -2951,7 +2951,8 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
   either way, and that is the moment). The race starts from the forecast of that season, worked
   out afresh when the cloud's word brought scores, not from the one on screen before them. A full
   backup restored here is this device's doing as well: each season it restores that the device
-  had looked at is taken as seen as restored (`applyFullBackup`), not only the one that opens.
+  had looked at is taken as seen as restored (`applyFullBackup`), not only the one that opens; a
+  restore that could not write the seasons leaves every look as it was.
 - **One device, however many tabs.** The installed app beside a browser tab is two pages each
   kept live, and each hears the other's edits from the cloud as it would another device's. The
   last look is the device's, so each tab writes only what it took as seen, laid over the look as
@@ -3015,9 +3016,12 @@ subscription and sending to it, which the app does not have.
   held, so deleting the last season and making one gives back its id, and every browser's first
   season is `default`. So all four go when their season leaves the browser, deleted, or left out
   or replaced by another under its id in a restore, and an id given to a season new here, made,
-  copied or brought down from the cloud, starts with nothing under it (`forgetSeasons`). The page
-  reads the team followed and the findings put aside again for each season switched to, rather
-  than keeping them from an earlier visit to the id.
+  copied or brought down from the cloud, starts with nothing under it (`forgetSeasons`). Nothing
+  goes until the list of seasons is written without its season: a tab that may no longer write
+  the seasons, because another tab has taken a copy in since (`cloudGuard.ts`), neither deletes a
+  season nor lets go of what was kept of it. The page reads the team followed and the findings put
+  aside again for each season switched to, rather than keeping them from an earlier visit to the
+  id.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling

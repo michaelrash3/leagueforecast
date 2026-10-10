@@ -8,6 +8,7 @@ import {
   readFullBackup,
   summarizeFullBackup,
 } from "../backup";
+import { resetCloudGuard } from "../cloud/cloudGuard";
 import {
   readAppMode,
   readOurTeam,
@@ -42,6 +43,7 @@ const backing = new Map<string, string>();
 
 beforeEach(() => {
   backing.clear();
+  resetCloudGuard();
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => backing.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -286,6 +288,23 @@ describe("applyFullBackup", () => {
     // One never looked at here is still to be looked at, and the rest kept of a season stays.
     expect(readSeen(secondId)).toBeNull();
     expect(readOurTeam("default")).toBe("ACE");
+  });
+
+  it("leaves every last look as it was when the seasons could not be restored", () => {
+    const secondId = seedBrowser();
+    const backup = readFullBackup();
+    saveTeams([]);
+    saveMatchups([]);
+    const emptied = seenOf({ teams: [], matchups: [], logs: {} });
+    writeSeen("default", emptied);
+    setActiveSeason(secondId);
+    // Another tab took a copy in since this one read its seasons, so none of them may be written.
+    backing.set("league_forecast_cloud_taken_league", "another-tab");
+
+    expect(applyFullBackup(backup).failed).toContain("seasons");
+
+    expect(loadTeamsForSeason("default")).toEqual([]);
+    expect(readSeen("default")).toEqual(emptied);
   });
 
   it("clears a season the backup does not carry", () => {

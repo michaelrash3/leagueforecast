@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetCloudGuard } from "../cloud/cloudGuard";
 import {
   readOurTeam,
   readPutAside,
@@ -40,6 +41,7 @@ const backing = new Map<string, string>();
 
 beforeEach(() => {
   backing.clear();
+  resetCloudGuard();
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => backing.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -441,6 +443,24 @@ describe("what this device keeps of a season under its id", () => {
     expect(keptOnDevice(second.id)).toEqual(NONE);
     expect(keptOnDevice(third.id)).toEqual(NONE);
     expect(keptOnDevice("season-9")).toEqual(NONE);
+  });
+
+  it("stays with a season a tab may no longer delete or replace", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    keepOnDevice(second.id);
+    // Another tab took a copy in since this one read its seasons (`cloudGuard.ts`).
+    backing.set("league_forecast_cloud_taken_league", "another-tab");
+
+    deleteSeason(second.id);
+    expect(listSeasons().map((season) => season.id)).toContain(second.id);
+    expect(keptOnDevice(second.id)).toEqual(ALL);
+
+    expect(
+      replaceLeagueSnapshot({ activeSeasonId: first.id, seasons: [readSeasonSnapshot(first.id)!] })
+    ).toBe(false);
+    expect(listSeasons().map((season) => season.id)).toContain(second.id);
+    expect(keptOnDevice(second.id)).toEqual(ALL);
   });
 });
 

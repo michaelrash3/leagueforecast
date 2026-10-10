@@ -356,10 +356,9 @@ export const createSeason = (name: string): SeasonMeta => {
   const id = genSeasonId(seasons);
   const resolvedName = name.trim() || `Season ${seasons.length + 1}`;
   const meta: SeasonMeta = { id, name: resolvedName, createdAt: nowIso() };
-  forgetSeasons([id]);
   // Seed the new season's settings so its export label matches its name from the start.
   safeSet(seasonKey(id, "settings"), JSON.stringify({ seasonLabel: resolvedName }));
-  writeSeasons([...seasons, meta]);
+  if (writeSeasons([...seasons, meta])) forgetSeasons([id]);
   return meta;
 };
 
@@ -393,8 +392,6 @@ export const duplicateSeason = (id: string, name: string): SeasonMeta | null => 
   const seasons = readSeasons();
   if (!seasons.some((season) => season.id === id)) return null;
   const newId = genSeasonId(seasons);
-  // The copy takes the original's data, and none of what this device kept of the original.
-  forgetSeasons([newId]);
   DATA_KEYS.forEach((dataKey) => {
     const value = safeGet(seasonKey(id, dataKey));
     if (value !== null) safeSet(seasonKey(newId, dataKey), value);
@@ -414,7 +411,8 @@ export const duplicateSeason = (id: string, name: string): SeasonMeta | null => 
     seasonKey(newId, "settings"),
     JSON.stringify({ ...(isRecord(settings) ? settings : {}), seasonLabel: meta.name })
   );
-  writeSeasons([...seasons, meta]);
+  // The copy takes the original's data, and none of what this device kept of the original.
+  if (writeSeasons([...seasons, meta])) forgetSeasons([newId]);
   return meta;
 };
 
@@ -425,9 +423,13 @@ export const deleteSeason = (id: string): boolean => {
   if (seasons.length <= 1) return false;
   if (!seasons.some((season) => season.id === id)) return false;
   DATA_KEYS.forEach((dataKey) => safeRemove(seasonKey(id, dataKey)));
-  forgetSeasons([id]);
   const remaining = seasons.filter((season) => season.id !== id);
-  writeSeasons(remaining);
+  /*
+   * Let go of only once the list no longer names the season. A tab another has taken a copy in
+   * under may not write the list (`cloudGuard.ts`), and the season it could not delete is still
+   * here, with everything this device kept of it.
+   */
+  if (writeSeasons(remaining)) forgetSeasons([id]);
   if (readActive() === id) writeActive(remaining[0]!.id);
   return true;
 };
@@ -508,7 +510,6 @@ export const addSeasons = (seasons: readonly SeasonSnapshot[]): boolean => {
   const taken = new Set(held.map((season) => season.id));
   const fresh = seasons.filter((season) => !taken.has(season.id));
   if (fresh.length === 0) return true;
-  forgetSeasons(fresh.map((season) => season.id));
   arriving += 1;
   try {
     let ok = true;
@@ -528,7 +529,8 @@ export const addSeasons = (seasons: readonly SeasonSnapshot[]): boolean => {
       createdAt,
       ...(updatedAt ? { updatedAt } : {}),
     }));
-    if (!writeSeasons([...held, ...meta])) ok = false;
+    if (writeSeasons([...held, ...meta])) forgetSeasons(fresh.map((season) => season.id));
+    else ok = false;
     return ok;
   } finally {
     arriving -= 1;
@@ -557,9 +559,9 @@ const replaceSeasons = (snapshot: LeagueSnapshot): boolean => {
       })
       .map((season) => season.id)
   );
-  forgetSeasons(
-    [...held, ...snapshot.seasons].map((season) => season.id).filter((id) => !same.has(id))
-  );
+  const left = [...held, ...snapshot.seasons]
+    .map((season) => season.id)
+    .filter((id) => !same.has(id));
 
   let ok = true;
   snapshot.seasons.forEach((season) => {
@@ -581,7 +583,9 @@ const replaceSeasons = (snapshot: LeagueSnapshot): boolean => {
     createdAt,
     ...(updatedAt ? { updatedAt } : {}),
   }));
-  if (!writeSeasons(meta)) ok = false;
+  // As in `deleteSeason`, nothing is let go of until the list says the seasons have gone.
+  if (writeSeasons(meta)) forgetSeasons(left);
+  else ok = false;
   // A pointer at a season the backup does not carry would leave the app on an empty season.
   const active = meta.some((season) => season.id === snapshot.activeSeasonId)
     ? snapshot.activeSeasonId
