@@ -719,7 +719,9 @@ function LiveBoard({
   return (
     <div className="flex flex-col gap-6" data-testid="live-board">
       <RankingsHeader
-        pulledAt={live.meta?.pages.pulledAt ?? null}
+        // As a meta read says: when, or null where it names no pull. With no meta read (an older
+        // version's, none, one that will not read, or none yet) it is not known, and not said.
+        pulledAt={live.meta ? (live.meta.pages.pulledAt ?? null) : undefined}
         defaultAge={defaultAge}
         onSetDefaultAge={setDefaultAge}
         ageGroups={ageGroups}

@@ -311,6 +311,58 @@ describe("Team Rankings on the cloud's board", () => {
     ).toEqual([false, true, false]);
   });
 
+  /*
+   * The header's last-pull line says what a meta it read says: when, or that no pull is named. Where
+   * no meta could be read it says nothing of the last pull, never that nothing was pulled, which the
+   * page said under an older version's boards on 10 October 2026.
+   */
+  it("says when schedules were last pulled only as a meta it read says, and nothing without one", async () => {
+    const NEVER = "No GameChanger schedules pulled yet.";
+    const line = () => screen.queryByTestId("rankings-freshness");
+    open(sourcesOf(live));
+    expect(await screen.findByText(/^Schedules last pulled/)).toBeTruthy();
+    cleanup();
+    // A meta read that names no pull.
+    const unpulled = memoryLive();
+    await publish(unpulled, undefined, { halves: { [PAGE]: { fall: 10, spring: 20 } } });
+    open(sourcesOf(unpulled));
+    expect(await screen.findByText(NEVER)).toBeTruthy();
+    cleanup();
+    // No meta read: an older version's, none at all, one whose pages will not read, offline.
+    const older = memoryLive();
+    await publish(older);
+    older.setMeta({ ...older.meta(), schema: LIVE_SCHEMA - 1 });
+    const garbled = memoryLive();
+    await publish(garbled);
+    garbled.setMeta({ ...garbled.meta(), inline: { pages: { halves: [] } } });
+    const offline: LiveReader = {
+      readMeta: () => Promise.reject({ code: "unavailable" }),
+      getChunk: () => Promise.reject({ code: "unavailable" }),
+    };
+    for (const [sources, notice] of [
+      [sourcesOf(older), LIVE_NOTICES.older],
+      [sourcesOf(memoryLive()), LIVE_NOTICES.none],
+      [sourcesOf(garbled), LIVE_NOTICES.unreadable],
+      [sourcesOf(live, { reader: async () => offline }), LIVE_NOTICES.offline],
+    ] as const) {
+      // Nothing kept from the reads before: a meta this device kept is one it read, and says so.
+      kept.clear();
+      open(sources);
+      expect(await screen.findByText(notice)).toBeTruthy();
+      expect(screen.queryByText(NEVER)).toBeNull();
+      expect(line()).toBeNull();
+      cleanup();
+    }
+    // Nor while the first read is on its way.
+    const silent: LiveReader = {
+      readMeta: () => new Promise(() => undefined),
+      getChunk: () => new Promise(() => undefined),
+    };
+    open(sourcesOf(live, { reader: async () => silent }));
+    expect(await screen.findByText("Reading the cloud's board…")).toBeTruthy();
+    expect(line()).toBeNull();
+  });
+
   it("draws the board on a device that has never held the copy, by the pages the meta names", async () => {
     await publish(live, undefined, {
       pulledAt: T,

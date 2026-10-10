@@ -3918,7 +3918,10 @@ page reads it: its town and state, which the page shows beside the name and
 ranks the state top ten and the state filter by, and whether its games on that
 page came from a League Standings season, which the page badges. Beside the
 boards, in the same commit, the meta carries `inline.pages`: when the roster was
-last pulled, for each page how many counted games each half holds, which decides
+last pulled (the header's "Schedules last pulled" line, which says no schedules
+were pulled only when a meta it read names no pull, and nothing of the last pull
+where no meta could be read: until 3.0 it said none were pulled under an older
+version's boards), for each page how many counted games each half holds, which decides
 the half the page opens on and what an empty half says, and the age groups, for a
 device with no copy to lay the page out by (below). The page and
 the server count these with the same code (`countedByHalf`, `leagueTeamIdsOn`),
