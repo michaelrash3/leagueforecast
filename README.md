@@ -2968,7 +2968,10 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
 - **A last look is one season's.** It goes when its season leaves the browser, and a season made
   under a deleted one's id starts with none of it, as with everything else a device keeps of a
   season ([Data + persistence](#data--persistence)): otherwise the deleted season's games and
-  teams were listed as removed since the last look.
+  teams were listed as removed since the last look. Another tab still showing the season does
+  not put its look back when it hears it go, nor when anything is done in it afterwards: a tab
+  whose look another tab let go of, by a deletion, a restore, a cloud merge or Start again,
+  keeps none of that season until it opens one again.
 
 **Notifications**, in Settings, are off until turned on, and the browser is asked for permission
 only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its

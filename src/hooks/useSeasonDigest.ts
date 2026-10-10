@@ -138,12 +138,25 @@ export function useSeasonDigest({
     );
   }
 
+  /*
+   * The season whose look, written by this tab, another tab has let go of since: the season was
+   * deleted there, replaced by a restore, moved to another id by a cloud merge (`forgetSeasons`),
+   * or Start again emptied the browser. Its id may be given to another season, which starts with
+   * no look. This tab, still showing the season that went, writes no look under the id and takes
+   * nothing from one until a season is opened here. Written back, the deleted season's look became
+   * the new one's, and listed every game and team of the deleted season as removed since the last
+   * look.
+   */
+  const letGo = useRef<string | null>(null);
+
   useLayoutEffect(
     () =>
       store.subscribe((change, previous) => {
         const now = store.get();
+        // A season opened here, the same one afresh included, is this tab's to keep a look of.
+        if (change === "open") letGo.current = null;
         // What this device's other tabs keep as seen, read here rather than in the updater.
-        const kept = change === "arrival" ? readSeen(now.id) : null;
+        const kept = change === "arrival" && letGo.current !== now.id ? readSeen(now.id) : null;
         setOpen(now);
         setHeld((was) => {
           if (change === "open" || was.seasonId !== now.id) {
@@ -204,12 +217,21 @@ export function useSeasonDigest({
    */
   const synced = useRef<{ seasonId: string; seen: SeasonSeen; written: boolean } | null>(null);
   const [lookWritten, setLookWritten] = useState(0);
-  useEffect(() => subscribeSeen(() => setLookWritten((count) => count + 1)), []);
+  useEffect(
+    () =>
+      subscribeSeen(() => {
+        // The browser tells no tab of its own writes: a look this tab wrote, gone now, went there.
+        const mine = synced.current;
+        if (mine?.written && readSeen(mine.seasonId) === null) letGo.current = mine.seasonId;
+        setLookWritten((count) => count + 1);
+      }),
+    []
+  );
   useEffect(() => {
     const mine = synced.current?.seasonId === held.seasonId ? synced.current : null;
     const was = mine ? mine.seen : held.seen;
     synced.current = { seasonId: held.seasonId, seen: held.seen, written: held.looked };
-    if (!held.looked) return;
+    if (!held.looked || letGo.current === held.seasonId) return;
     const kept = readSeen(held.seasonId);
     const next = kept ? keptWith(kept, was, held.seen) : held.seen;
     /*

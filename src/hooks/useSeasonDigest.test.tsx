@@ -1,7 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { readSeen } from "../lib/preferences";
+import { forgetSeasons, readSeen } from "../lib/preferences";
+import { forgetAppKeys } from "../lib/resetApp";
 import type { RaceSeen } from "../lib/seasonDigest";
 import { createSeasonStore, type SeasonState } from "../lib/seasonStore";
 import { DEFAULT_SETTINGS, type GameLog } from "../lib/types";
@@ -558,6 +559,104 @@ describe("useSeasonDigest", () => {
       toldOfLook();
       here.view.unmount();
       expect(mount("s1", renamed).view.result.current.changes).toEqual([]);
+    });
+  });
+
+  /*
+   * Another tab lets go of the look of the season this one still shows (`forgetSeasons`): deleted
+   * there, replaced by a restore, moved by a cloud merge, or reset. The browser tells this tab of
+   * that write as of any other.
+   */
+  describe("a season another tab lets go of", () => {
+    const start = race({ status: "Alive", gold: 50 }, { status: "Alive", gold: 50 });
+    /** The season made under the id afterwards: other teams, another game. */
+    const another: SeasonState = {
+      ...season(),
+      teams: [
+        { id: "C", name: "Comets" },
+        { id: "D", name: "Ducks" },
+      ],
+      matchups: [{ id: "n1", date: "2026-06-06", away: "C", home: "D" }],
+    };
+    const looked = () => {
+      const stale = mount("s1", season({ g1: final("4", "2") }), { race: start, followed: "A" });
+      act(() => stale.view.result.current.acknowledge());
+      expect(readSeen("s1")).not.toBeNull();
+      return stale;
+    };
+
+    it("does not put back the look of a season deleted there, nor when its id is given again", () => {
+      looked();
+      forgetSeasons(["s1"]);
+      toldOfLook();
+      expect(readSeen("s1")).toBeNull();
+      // A season made there under the id, which lets go of whatever is under it again.
+      forgetSeasons(["s1"]);
+      toldOfLook();
+      expect(readSeen("s1")).toBeNull();
+      // Never looked at on this device: nothing to report, not the deleted season's games removed.
+      expect(mount("s1", another, { race: start }).view.result.current.changes).toEqual([]);
+    });
+
+    it("does not put back the look moved with its season to the id a cloud merge gave it", () => {
+      looked();
+      forgetSeasons([], { moved: { s1: "s3" } });
+      toldOfLook();
+      expect(readSeen("s1")).toBeNull();
+      expect(readSeen("s3")?.games.g1?.final).toBe("4-2");
+    });
+
+    it("does not put back a look Start again let go of", () => {
+      looked();
+      forgetAppKeys(window.localStorage);
+      toldOfLook();
+      expect(readSeen("s1")).toBeNull();
+    });
+
+    it("keeps no look of it, whatever is done in this tab, until a season is opened here", () => {
+      const stale = looked();
+      forgetSeasons(["s1"]);
+      toldOfLook();
+      // An edit, or Got it, in the tab still showing the deleted season writes no look of it.
+      act(() => stale.store.setSeason(season({ g1: final("5", "2") })));
+      act(() => stale.view.result.current.acknowledge());
+      expect(readSeen("s1")).toBeNull();
+      // Nor does it lay its own over the look of the season made under the id since.
+      const fresh = mount("s1", another, { race: start });
+      act(() => fresh.view.result.current.acknowledge());
+      toldOfLook();
+      const kept = readSeen("s1");
+      act(() => stale.store.setSeason(season({ g1: final("6", "2") })));
+      act(() => stale.view.result.current.acknowledge());
+      expect(readSeen("s1")).toEqual(kept);
+      // A season opened in this tab is this tab's to keep a look of again.
+      act(() => stale.store.open("s2", season()));
+      act(() => stale.store.open("s1", another));
+      act(() => stale.store.setSeason({ ...another, logs: { n1: final("3", "1") } }));
+      expect(readSeen("s1")?.games.n1?.final).toBe("3-1");
+    });
+
+    it("takes nothing as seen from the look of a season made under the id since", () => {
+      const stale = looked();
+      forgetSeasons(["s1"]);
+      toldOfLook();
+      // Made from the same team names in another tab, and looked at there with both finals in.
+      const both = season({ g1: final("4", "2"), g2: final("1", "3") });
+      const fresh = mount("s1", both, { race: start });
+      act(() => fresh.view.result.current.acknowledge());
+      toldOfLook();
+      // Another device's final reaches the tab still showing the deleted season: news there still.
+      act(() => stale.store.apply(both));
+      expect(kinds(stale.view.result.current.changes)).toEqual(["final"]);
+    });
+
+    it("is told only by a look this tab wrote, not by another season's written meanwhile", () => {
+      const waiting = mount("s2", season(), { race: start });
+      looked();
+      toldOfLook();
+      // The cloud's first word for the season it shows: where its looking starts, kept.
+      act(() => waiting.store.apply(season({ g1: final("4", "2") })));
+      expect(readSeen("s2")?.games.g1?.final).toBe("4-2");
     });
   });
 });
