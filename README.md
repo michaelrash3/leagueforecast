@@ -3744,10 +3744,10 @@ three hours earlier; a scheduled run starts when GitHub gets to it. A run by han
 workflow**, with `dry-run` (everything but the save, and what the save would
 have been) or `live`, and a limit of teams for a trial. The log carries counts,
 sizes and timings only, since this repository's Actions logs are public. A night
-that fails is marked red in Actions, and GitHub emails whoever last changed the
-schedule. GitHub turns off a public repository's schedules after 60 days with no
-activity in it; **Enable workflow** on the workflow's page turns this one back
-on.
+that fails is marked red in Actions, GitHub emails whoever last changed the
+schedule, and the run opens an issue ("When a run fails", below). GitHub turns
+off a public repository's schedules after 60 days with no activity in it;
+**Enable workflow** on the workflow's page turns this one back on.
 
 The log ends, dry run or live and however the refresh ended, with how the
 rebuilds after saves have gone, read from their ledger ("Rebuilds after saves",
@@ -3762,6 +3762,42 @@ not yet settled. A ledger that cannot be read says so on its own line and leaves
 the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
 set to `live`.
+
+### When a run fails
+
+The nightly of 10 October 2026 failed at 03:52 UTC, and the owner learned of it
+from a board nobody looks at. A run that fails now opens an issue on this
+repository, which GitHub tells the owner of by email and, with notifications on,
+on the phone (`scripts/alarm.ts`, `runAlarms.ts`). Each alarm keeps one issue:
+a run that fails again comments on the one open rather than opening another, and
+the first run that is fine closes it with a comment.
+
+- **The nightly refresh failed**: its refresh step failed, was stopped (by hand,
+  or by its 85-minute limit, which is short of the job's 90 so the alarm still
+  runs), or never started, scheduled or by hand, dry run or live. Only a live run
+  that succeeds closes it: a dry run saves nothing, so its success says nothing
+  of a night that failed saving, as the night of 10 October did.
+- **Publishing the views after a deploy failed**: the republish after a deploy
+  (above, "Views a server publishes") failed, was stopped or never started. The
+  next republish that does not fail closes it, one that finds nothing to publish
+  included, since the views are then of this build's schema.
+- **The rebuilds after saves are failing**: the nightly, dry or live, read their
+  ledger and found failures in a row or a pause (`rebuildsTrouble`). The first
+  nightly to read none closes it, and one with no ledger at all, where they are
+  off. A ledger the nightly could not read, or did not reach, leaves it as it is.
+
+An issue is public, as the repository is, so it says when (UTC, to the minute),
+what failed in a word or two, and the run's link, and nothing from the log. The
+words are fixed in `runAlarms.ts`, which works out what to raise or settle from
+the run step's outcome and the word the nightly hands over of the rebuilds
+(`rebuilds=paused`, `failing` or `none`), and is tested; the workflows only run
+`npm run alarm -- nightly` or `-- republish` as their last step, whatever came
+before. It runs `gh` with the run's own token, which the workflow lets write
+issues and nothing more (`permissions: issues: write`). An alarm finds its issue
+again by its title among the open issues a workflow opened; one anybody else
+opened under the same title is theirs, and is neither commented on nor closed.
+An alarm that could not be raised (the token refused, say) turns its step red,
+and the others are still tried.
 
 ### Boards a server can build
 

@@ -23,13 +23,14 @@
  * pulls only the first N teams due, and leaves the day unlogged. It prints counts, sizes and
  * timings only: this repository is public, and so are its Actions logs.
  */
+import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
 import { dryLiveStore, publishCopyViews } from "../src/lib/live/publishCopy.ts";
-import { describeRebuilds } from "../src/lib/live/rebuildReport.ts";
+import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
 import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
 import { sweepStaleUploads } from "../src/lib/cloud/uploads.ts";
@@ -97,14 +98,29 @@ const dryRun = (
 let readLedger: (() => Promise<unknown>) | null = null;
 
 /**
+ * Hands the workflow a word for the steps after this one (`steps.refresh.outputs.<name>`), where it
+ * runs on GitHub; anywhere else there is nobody to hand it to.
+ */
+const output = (name: string, value: string): void => {
+  const file = process.env.GITHUB_OUTPUT;
+  if (file) appendFileSync(file, `${name}=${value}\n`);
+};
+
+/**
  * How the rebuilds after saves have gone, said at the end of every run however the refresh ended,
  * since a night that failed is when it is most wanted. Said and never judged: the rebuilds are not
- * this run's work, and a night turned red by them would read as a refresh that failed.
+ * this run's work, and a night turned red by them would read as a refresh that failed. Whether
+ * they are failing goes to the workflow as a word (`rebuildsTrouble`), for the alarm of their own
+ * it raises or settles (`runAlarms.ts`); a ledger not read hands over nothing, which leaves that
+ * alarm as it is.
  */
 const tellRebuilds = async (): Promise<void> => {
   if (!readLedger) return;
   try {
-    for (const line of describeRebuilds(await readLedger())) console.log(line);
+    const ledger = await readLedger();
+    for (const line of describeRebuilds(ledger)) console.log(line);
+    const trouble = rebuildsTrouble(ledger);
+    if (trouble) output("rebuilds", trouble);
   } catch (error) {
     console.log(
       `The rebuilds' ledger could not be read: ${error instanceof Error ? error.message : String(error)}`

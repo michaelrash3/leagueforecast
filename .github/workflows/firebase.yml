@@ -158,6 +158,10 @@ jobs:
     if: github.event_name == 'push' && needs.functions.outputs.deployed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      # Its alarm's issue, opened, commented on and closed with the run's own token.
+      issues: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -165,9 +169,20 @@ jobs:
           node-version-file: .nvmrc
       # No install, as the nightly: the app's own files, run by Node as they are.
       - name: Publish the views again where they are older
+        id: republish
+        # Short of the job's 60, so a republish that hangs ends here and the alarm still runs.
+        timeout-minutes: 55
         run: npm run republish
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           TZ: America/New_York
           LANG: en_US.UTF-8
           NODE_OPTIONS: --max-old-space-size=12288
+      # A republish that fails opens an issue, or comments on the one open; one that does not closes
+      # it (`scripts/alarm.ts`, README "When a run fails").
+      - name: Raise or settle the alarm
+        if: always()
+        run: npm run alarm -- republish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.republish.outcome }}
