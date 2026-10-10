@@ -1081,7 +1081,12 @@ copy (`runCloudPull`: the nightly refresh and a list pulled in the cloud), its i
 alike, and Pool health's count of what a tidy would settle (`settleableNow`, on the page, in its
 worker and in the server's `health.inspect`), which asked without it offered a Settle the tidy
 refuses and stayed on screen after every tidy; the command adds to it: the refusals it does not hold
-already, which its Undo takes off again and nothing else.
+already, which its Undo takes off again and nothing else. Once the toast has gone a refusal is
+listed nowhere and nothing in the app takes it back: Same team as, folding the stand-in into the
+club, puts the games it holds back on the club by the owner's word (`namedByAvatar`), which no
+refusal overrules, but the refusal stays for the name's next rows. A page to list the refusals and
+withdraw one is not built yet: what withdrawing should do with the games already on a stand-in is
+the owner's to decide.
 
 **A row filed by name beside a game the club never listed.** Where another club's own schedule
 lists a game against a club that none of the club's own schedules gives a row, that game is on the
