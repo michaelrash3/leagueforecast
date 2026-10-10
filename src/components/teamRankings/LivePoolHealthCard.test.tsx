@@ -395,7 +395,9 @@ describe("Pool health's buttons, sent as edits", () => {
     if (!club) throw new Error("no club");
     fireEvent.click(within(club).getByRole("button", { name: "It’s real" }));
     expect(await screen.findByText(/1 club you said is real is kept off this list/)).toBeTruthy();
-    expect(kinds(call.asked)).toEqual(["health.summary", "health.summary"]);
+    // Asked again by an effect of the render that shows the answer, which can run just after it:
+    // read at once, under a loaded full run, this saw one question (1 failure in a run of 5,167).
+    await waitFor(() => expect(kinds(call.asked)).toEqual(["health.summary", "health.summary"]));
   });
 
   it("shows nothing as answered that the server did not keep", async () => {
