@@ -172,6 +172,21 @@ const isCount = (value: unknown): value is number =>
 const HASH = /^[0-9a-f]{64}$/;
 const UPLOAD_ID = /^[0-9a-f]{16,64}$/;
 
+/**
+ * Whether what is published (`live/meta` as stored, null where there is none) wants publishing
+ * again by this build as soon as it is deployed: nothing published at all, or a meta of this layout
+ * from an earlier schema, which no device of this build draws. Either way every member is left
+ * looking at a notice in place of the boards until something publishes, and without the
+ * republish after a deploy (`scripts/republish.ts`) the next thing that would is the nightly, which
+ * GitHub starts hours late. A meta of this build's schema is the rebuilds' and the night's to keep
+ * current, one of a newer schema or another layout is not this build's to replace, and one whose
+ * schema cannot be read is left to the publish that can say why.
+ */
+export const needsRepublish = (raw: unknown): boolean =>
+  raw === null ||
+  raw === undefined ||
+  (isRecord(raw) && raw.format === LIVE_FORMAT && isCount(raw.schema) && raw.schema < LIVE_SCHEMA);
+
 const entryOf = (raw: unknown): ViewEntry | null => {
   if (!isRecord(raw)) return null;
   const { h, id, c, b, k, v } = raw;

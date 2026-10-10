@@ -29,7 +29,13 @@ import type { SeasonReader } from "../allKnown";
 import { BOARD_FAMILY, builtFrom } from "../boardInputs";
 import { readCloudLeague, type LeagueDocsList } from "../cloudLeague";
 import { LEAGUE_DOC_SCHEMA, seasonDocId, seasonToDoc } from "../leagueDocs";
-import { dryLiveStore, publishCopyViews, seasonReaderOf } from "../publishCopy";
+import {
+  dryLiveStore,
+  publishCopyViews,
+  publishFailedRun,
+  seasonReaderOf,
+  type CopyPublish,
+} from "../publishCopy";
 import { RETIRE_GRACE_MS, STRAY_AGE_MS, publishViews, sweepViews } from "../viewStore";
 import { boardViews, buildBoardsAndFacts, livePagesOf } from "../views/board";
 import { clubViews } from "../views/clubs";
@@ -618,12 +624,125 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     expect(live.costs.writes).toBe(0);
   });
 
+  it("holds the boards to the version they were built from only when asked, as the republish asks", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    let started = false;
+    // A save during the run: the same copy, a version on, once the first piece is up.
+    const moving = {
+      ...cloud.store,
+      readManifest: async () => {
+        const held = await cloud.store.readManifest();
+        return started && held ? { ...held, version: held.version + 1 } : held;
+      },
+    };
+    const uploading = (live: MemoryLive) => ({
+      ...live.store,
+      putChunk: async (id: string, data: Uint8Array<ArrayBuffer>) => {
+        started = true;
+        await live.store.putChunk(id, data);
+      },
+    });
+    const held = memoryLive();
+    const result = await publishCopyViews({
+      copyStore: moving,
+      liveStore: uploading(held),
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+      atVersion: true,
+    });
+    // The save asks for its own views; over an older schema's meta nothing else would stop these
+    // putting the version before it back (`publishViews`: an upgrade is never late).
+    expect(result).toEqual({ ok: false, reason: "copy-moved" });
+    expect(held.meta()).toBeNull();
+    expect(held.chunks.size).toBe(0);
+    // The nightly's own publish is not held so: a save since is a later version, which the marks
+    // keep from being put back, and the copy is still the one it saved.
+    started = false;
+    const free = memoryLive();
+    expect(
+      await publishCopyViews({
+        copyStore: moving,
+        liveStore: uploading(free),
+        manifest,
+        today: FIXTURE_TODAY,
+        now: () => T,
+        locale: "en-US",
+      })
+    ).toMatchObject({ ok: true, publish: { wrote: true } });
+  });
+
   it("passes on a publish the meta refuses, and sweeps nothing after it", async () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();
     live.setMeta({ format: 0 });
     expect(await publish(cloud, live, manifest)).toEqual({ ok: false, reason: "unreadable" });
     expect(live.costs.deletes).toBe(0);
+  });
+});
+
+describe("whether a server's run failed at publishing the views", () => {
+  const refused = (reason: Extract<CopyPublish, { ok: false }>["reason"]): CopyPublish => ({
+    ok: false,
+    reason,
+  });
+  const published = (sweep: Extract<CopyPublish, { ok: true }>["sweep"]): CopyPublish => ({
+    ok: true,
+    boards: 1,
+    clubs: 0,
+    searches: 0,
+    games: 0,
+    buildMs: 0,
+    publish: {
+      ok: true,
+      wrote: true,
+      uploaded: 1,
+      pieces: 1,
+      bytes: 1,
+      unchanged: 0,
+      refused: 0,
+      removed: 0,
+      retired: 0,
+      deleted: 0,
+      undeleted: 0,
+      metaBytes: 1,
+      tries: 1,
+    },
+    sweep,
+  });
+
+  it("did not when the views went out and were swept", () => {
+    expect(publishFailedRun(published({ ok: true, deleted: 2, strays: 0 }))).toBe(false);
+  });
+
+  it("did when the sweep after them stopped, the night's own housekeeping", () => {
+    expect(publishFailedRun(published({ ok: false, why: "listing refused" }))).toBe(true);
+  });
+
+  it("did not when a save during the run asks for its own rebuild", () => {
+    expect(publishFailedRun(refused("copy-moved"))).toBe(false);
+    expect(publishFailedRun(refused("league-moved"))).toBe(false);
+  });
+
+  it("did not when a newer build, newer rules or a later day published first, as on a deploy during the run", () => {
+    expect(publishFailedRun(refused("newer-schema"))).toBe(false);
+    expect(publishFailedRun(refused("older-rules"))).toBe(false);
+    expect(publishFailedRun(refused("older-day"))).toBe(false);
+  });
+
+  it("did for every other refusal, a season a newer device saved among them", () => {
+    for (const reason of [
+      "locale",
+      "league-unreadable",
+      "newer-league",
+      "copy-replaced",
+      "unreadable",
+      "kept-changing",
+      "too-large",
+    ] as const) {
+      expect(publishFailedRun(refused(reason))).toBe(true);
+    }
   });
 });
 

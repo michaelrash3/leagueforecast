@@ -33,8 +33,12 @@ type RankingsHeaderProps = {
   onOpenYear: (year: number | undefined) => void;
   onOpenPage: (groupId: string) => void;
   onOpenSection: (section: RankingsSection) => void;
-  /** When the newest GameChanger schedule in the pool was fetched; null for a pool never pulled into. */
-  pulledAt: string | null;
+  /**
+   * When the newest GameChanger schedule in the pool was fetched; null for a pool never pulled into;
+   * undefined where that is not known (the live page with no meta it could read), when nothing is
+   * said of it rather than that nothing was pulled.
+   */
+  pulledAt: string | null | undefined;
   /** The age group this device opens on when the URL names none, as it grows up a level a year. */
   defaultAge: DefaultAge | null;
   onSetDefaultAge: (pick: DefaultAge | null) => void;
@@ -73,14 +77,16 @@ export function RankingsHeader({
         Team Rankings
       </h1>
       {/* The one fact about freshness the pool has always stored and never shown. */}
-      <p
-        className="mt-1 text-xs text-slate-500 dark:text-slate-400"
-        data-testid="rankings-freshness"
-      >
-        {pulledAt === null
-          ? "No GameChanger schedules pulled yet."
-          : `Schedules last pulled ${agoLabel(pulledAt)}.`}
-      </p>
+      {pulledAt !== undefined && (
+        <p
+          className="mt-1 text-xs text-slate-500 dark:text-slate-400"
+          data-testid="rankings-freshness"
+        >
+          {pulledAt === null
+            ? "No GameChanger schedules pulled yet."
+            : `Schedules last pulled ${agoLabel(pulledAt)}.`}
+        </p>
+      )}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <label
           className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"

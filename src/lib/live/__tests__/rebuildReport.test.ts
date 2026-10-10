@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeRebuilds } from "../rebuildReport";
+import { describeRebuilds, rebuildsTrouble } from "../rebuildReport";
 
 /*
  * What the nightly says of the rebuilds after saves (`rebuildReport.ts`): the switch, the runs,
@@ -105,5 +105,37 @@ describe("the nightly's lines on the rebuilds", () => {
     );
     expect(lines.join("\n")).not.toContain(OPEN.task);
     expect(lines.join("\n")).not.toContain(OPEN.by);
+  });
+});
+
+describe("the rebuilds' trouble, as the nightly hands it to the alarm", () => {
+  it("is a pause wherever the ledger shows one, whatever the failures since", () => {
+    expect(rebuildsTrouble({ on: true, failures: 3, pausedDay: "2027-04-15" })).toBe("paused");
+    // A pause from an earlier day is cleared only by the next reserve: until then it stands.
+    expect(rebuildsTrouble({ on: true, failures: 0, pausedDay: "2027-04-01" })).toBe("paused");
+  });
+
+  it("is failing with any failure in a row and no pause", () => {
+    expect(rebuildsTrouble({ on: true, failures: 1 })).toBe("failing");
+  });
+
+  it("is none with no failure in a row and no pause", () => {
+    expect(rebuildsTrouble({ on: true, failures: 0, dayFailed: 4, monthFailed: 9 })).toBe("none");
+    expect(rebuildsTrouble({ on: true })).toBe("none");
+  });
+
+  it("is off while they are switched off, whatever the ledger kept from before, or with no ledger", () => {
+    // Off, no run reserves, so the failures and the pause stay as they were: the alarm would
+    // comment on them every night until the console was edited.
+    expect(rebuildsTrouble({ on: false, failures: 2 })).toBe("off");
+    expect(rebuildsTrouble({ on: false, failures: 3, pausedDay: "2027-04-15" })).toBe("off");
+    expect(rebuildsTrouble({ on: false })).toBe("off");
+    expect(rebuildsTrouble(null)).toBe("off");
+    expect(rebuildsTrouble(undefined)).toBe("off");
+  });
+
+  it("is not known for a ledger this build cannot read", () => {
+    expect(rebuildsTrouble({ on: true, mode: "Live" })).toBeNull();
+    expect(rebuildsTrouble("ledger")).toBeNull();
   });
 });

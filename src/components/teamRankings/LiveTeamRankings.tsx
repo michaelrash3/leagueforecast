@@ -314,21 +314,37 @@ function LiveBoard({
   const [comparedTeam, setComparedTeam] = useState("");
   const [pickedOpponents, setPickedOpponents] = useState<string[]>(NO_IDS);
 
+  /*
+   * Whether the pages drawn are the cloud's own: a meta is held, and the cloud's latest answer has
+   * not said the published boards are missing, an older or newer version's, or unreadable. A meta
+   * this device kept from an earlier visit stays drawn through such an answer, and its pages are
+   * then as stale as none. Offline, or with no reader, the kept meta is all there is, and edits are
+   * off anyway.
+   */
+  const pagesKnown =
+    live.meta !== null &&
+    (live.metaMiss === null || live.metaMiss === "offline" || live.metaMiss === "no-reader");
   const offline =
     live.metaMiss === "offline" ||
     live.metaMiss === "no-reader" ||
     live.boardMiss === "offline" ||
     live.link === "cut-off";
-  // A member's edits, sent to the edit function against the copy the views are of: off once handed
-  // over, offline, and until the network has answered for the board.
-  const metaCopy = live.meta?.meta.copy ?? null;
+  /*
+   * A member's edits, sent to the edit function against the copy the meta the server answered with
+   * names (`live.copy`): off once handed over, offline, until the server has answered (`heard`, its
+   * own word, not whether a board can be drawn), over boards a newer version published, and where
+   * the server's answer left no copy known to make them on. They need no board, so a meta this
+   * build cannot draw leaves them on.
+   */
   const edits = useLiveEdits({
-    copy: metaCopy,
+    copy: live.copy,
     locked: editLock({
       handedOver,
       unlinked: live.metaMiss === "no-reader",
       offline,
-      heard: live.meta?.from === "network",
+      heard: live.heard,
+      newer: live.metaMiss === "newer",
+      noCopy: live.copy === null,
     }),
     showToast,
     ...(sources?.call ? { deps: sources.call } : {}),
@@ -715,7 +731,9 @@ function LiveBoard({
   return (
     <div className="flex flex-col gap-6" data-testid="live-board">
       <RankingsHeader
-        pulledAt={live.meta?.pages.pulledAt ?? null}
+        // As a meta read says: when, or null where it names no pull. With no meta read (an older
+        // version's, none, one that will not read, or none yet) it is not known, and not said.
+        pulledAt={live.meta ? (live.meta.pages.pulledAt ?? null) : undefined}
         defaultAge={defaultAge}
         onSetDefaultAge={setDefaultAge}
         ageGroups={ageGroups}
@@ -809,6 +827,7 @@ function LiveBoard({
               onOpenTeam={openTeamIn}
               copy={sources ? sources.copy : copyReader}
               showToast={showToast}
+              pagesKnown={pagesKnown}
             />
           </Suspense>
         ) : section === "archive" ? (

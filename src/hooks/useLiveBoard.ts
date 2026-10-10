@@ -113,6 +113,23 @@ export type LiveBoardState = {
    */
   link: "live" | "cut-off" | null;
   /**
+   * Whether the server has answered for the meta since the page opened: the network's read of it
+   * came back (Firestore Lite reads only from the server), or the watch said a snapshot came from
+   * the server rather than the device's own cache. Whatever the answer was, a meta to draw or one
+   * this build cannot draw, older, newer, missing or unreadable: it is the cloud's word, which is
+   * what edits wait on (`editLock`), not whether a board can be drawn.
+   */
+  heard: boolean;
+  /**
+   * The copy edits are made on: the one the meta the server last answered with names, from its
+   * header though this build cannot draw its boards, or, where nothing published names one, the
+   * copy the cloud holds, read from its manifest (`LiveSources.copy`); before the server has
+   * answered, the kept meta's. Null where none of them is known, and once the server has answered
+   * with neither, whatever a meta kept from an earlier visit names: the server's word replaces it.
+   * A new object only when the copy or its version is.
+   */
+  copy: LiveMeta["copy"] | null;
+  /**
    * Where another view of the meta on screen is read from, for a page that reads more than its
    * board (a club's card): the network's reader once the meta is the network's, else only what this
    * device kept. Null before any meta.
@@ -173,6 +190,8 @@ export function useLiveBoard({
   const [boardMiss, setBoardMiss] = useState<LiveBoardState["boardMiss"]>(null);
   const [heardAt, setHeardAt] = useState<string | null>(null);
   const [link, setLink] = useState<LiveBoardState["link"]>(null);
+  // The server's last answer for the meta, by the copy it named; null before any.
+  const [heard, setHeard] = useState<{ copy: LiveMeta["copy"] | null } | null>(null);
   const readerRef = useRef<LiveReader | null>(null);
   // The same reader, for what a render hands on (`source`), which may not read a ref.
   const [networkReader, setNetworkReader] = useState<LiveReader | null>(null);
@@ -205,21 +224,51 @@ export function useLiveBoard({
     const forgetAll = () => {
       forgetLiveBoard();
       setMeta(null);
+      setHeard(null);
       show(null);
+    };
+    /** The server's answer, by the copy it names: the same object while that copy and version are. */
+    const hear = (copy: LiveMeta["copy"] | null) =>
+      setHeard((was) =>
+        was && was.copy?.id === copy?.id && was.copy?.version === copy?.version ? was : { copy }
+      );
+    /**
+     * The copy the cloud holds, by its manifest, for edits to be made on where nothing published
+     * names one; null where it cannot be read.
+     */
+    const heldCopy = async (): Promise<LiveMeta["copy"] | null> => {
+      const reader = await (sources.copy?.() ?? Promise.resolve(null)).catch(() => null);
+      const manifest = await (reader?.readManifest() ?? Promise.resolve(null)).catch(() => null);
+      return manifest ? { id: manifest.copy, version: manifest.version } : null;
     };
     // The meta on screen as JSON, so one heard again unchanged is not taken again, and a count of
     // takes, so a slower take cannot put an older meta over a later one.
     let shownPrint: string | null = null;
     let takes = 0;
-    /** A read of the meta from the network, or one heard: kept, and put on screen if it is new. */
+    /**
+     * A read of the meta from the network, or one heard from the server: kept, and put on screen if
+     * it is new. Every one that is not a failure is the server's word (`heard`), drawn or not.
+     */
     const take = async (read: LiveRead) => {
       // Reads and snapshots come in order, so the latest take is the meta as it now stands.
       const turn = (takes += 1);
       if (!read.ok) {
         if (read.why === "refused") forgetAll();
         setMetaMiss(read.why);
+        if (read.why === "offline" || read.why === "refused") return;
+        // A meta this build does not draw: edits go on, made on the copy its header names.
+        if (read.copy) {
+          hear(read.copy);
+          return;
+        }
+        // Nothing published names one, so the cloud's own manifest does: read beside the watch,
+        // which this does not hold up, and dropped if the server has said more meanwhile.
+        void heldCopy().then((copy) => {
+          if (alive && turn === takes) hear(copy);
+        });
         return;
       }
+      hear(read.meta.copy);
       const at = sources.now();
       setHeardAt(at);
       const uid = sources.uid();
@@ -304,6 +353,7 @@ export function useLiveBoard({
     boardRef.current = null;
     setBoard(null);
     setMeta(null);
+    setHeard(null);
     setMetaMiss("refused");
   }, []);
 
@@ -369,6 +419,8 @@ export function useLiveBoard({
     keptMissed: meta?.from === "cache" && keptMissKey === key,
     heardAt: shownBoard && shownMiss === "offline" ? (boardAt ?? heardAt) : heardAt,
     link,
+    heard: heard !== null,
+    copy: heard ? heard.copy : (meta?.meta.copy ?? null),
     source,
   };
 }

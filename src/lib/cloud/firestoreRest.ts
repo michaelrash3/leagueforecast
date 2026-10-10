@@ -179,7 +179,7 @@ const saidOf = (answer: unknown): string | undefined => {
 const refusalOf = async (response: Response, what: string): Promise<FirestoreError> =>
   new FirestoreError(response.status, what, saidOf(await response.json().catch(() => null)));
 
-type RestAccess = {
+export type RestAccess = {
   projectId: string;
   /** Asked for each request, so a job longer than a token's hour can hand a new one. */
   token: () => Promise<string>;

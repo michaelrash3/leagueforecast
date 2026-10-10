@@ -177,14 +177,20 @@ describe("reading the meta", () => {
 
   it("says why it cannot: none, another schema or format, or no pages it can read", () => {
     const stored = live.meta();
+    // With the copy a meta of this layout names, which an edit is made on though the boards are
+    // not drawn (`useLiveBoard`); none where the layout is not this build's or will not read.
+    const copy = stored?.copy;
+    expect(copy?.id).toMatch(/\S/);
     expect(checkLiveMeta(null)).toEqual({ ok: false, why: "none" });
     expect(checkLiveMeta({ ...stored, schema: LIVE_SCHEMA - 1 })).toEqual({
       ok: false,
       why: "older",
+      copy,
     });
     expect(checkLiveMeta({ ...stored, schema: LIVE_SCHEMA + 1 })).toEqual({
       ok: false,
       why: "newer",
+      copy,
     });
     expect(checkLiveMeta({ ...stored, format: LIVE_FORMAT + 1 })).toEqual({
       ok: false,
@@ -194,13 +200,17 @@ describe("reading the meta", () => {
       ok: false,
       why: "unreadable",
     });
-    expect(checkLiveMeta({ ...stored, inline: {} })).toEqual({ ok: false, why: "unreadable" });
+    expect(checkLiveMeta({ ...stored, inline: {} })).toEqual({
+      ok: false,
+      why: "unreadable",
+      copy,
+    });
     expect(
       checkLiveMeta({
         ...stored,
         inline: { pages: { halves: { "12U": { fall: -1, spring: 0 } } } },
       })
-    ).toEqual({ ok: false, why: "unreadable" });
+    ).toEqual({ ok: false, why: "unreadable", copy });
     expect(checkLiveMeta("meta")).toEqual({ ok: false, why: "unreadable" });
   });
 

@@ -12,7 +12,12 @@ import { forgetLiveBoard, liveBoardFor, type RankingsHandover } from "../../lib/
 import { EDIT_LOCKS, EDIT_REFUSED, QUERY_REFUSED } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { openViewCache, type ViewCache, type ViewCacheIo } from "../../lib/live/viewCache";
-import { publishViews, type LiveReader, type PublishedView } from "../../lib/live/viewStore";
+import {
+  LIVE_SCHEMA,
+  publishViews,
+  type LiveReader,
+  type PublishedView,
+} from "../../lib/live/viewStore";
 import type { BoardRow, LivePages } from "../../lib/live/views/boardShape";
 import {
   CLUB_FAMILY,
@@ -32,7 +37,7 @@ import { forgetDecodedSearches } from "../../hooks/useLiveSearch";
 import { GAMES_FAMILY, encodeGames, gamesKey } from "../../lib/live/views/gamesShape";
 import { forgetDecodedGames, GAME_MOVED } from "./LiveGames";
 import { SCOUTING_NO_CARD } from "./LiveScouting";
-import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY } from "./LiveSetup";
+import { CHECK_UNANSWERED, PAGE_NOT_ON_COPY, SETUP_PAGES_UNREAD } from "./LiveSetup";
 import type { BackupAnswer, BackupRequest } from "../../workers/backupProtocol";
 import { SEARCH_UNREAD } from "./RankingsSection";
 import { forgetDecodedArchive } from "./LiveArchive";
@@ -304,6 +309,58 @@ describe("Team Rankings on the cloud's board", () => {
         (one) => one.isMine
       )
     ).toEqual([false, true, false]);
+  });
+
+  /*
+   * The header's last-pull line says what a meta it read says: when, or that no pull is named. Where
+   * no meta could be read it says nothing of the last pull, never that nothing was pulled, which the
+   * page said under an older version's boards on 10 October 2026.
+   */
+  it("says when schedules were last pulled only as a meta it read says, and nothing without one", async () => {
+    const NEVER = "No GameChanger schedules pulled yet.";
+    const line = () => screen.queryByTestId("rankings-freshness");
+    open(sourcesOf(live));
+    expect(await screen.findByText(/^Schedules last pulled/)).toBeTruthy();
+    cleanup();
+    // A meta read that names no pull.
+    const unpulled = memoryLive();
+    await publish(unpulled, undefined, { halves: { [PAGE]: { fall: 10, spring: 20 } } });
+    open(sourcesOf(unpulled));
+    expect(await screen.findByText(NEVER)).toBeTruthy();
+    cleanup();
+    // No meta read: an older version's, none at all, one whose pages will not read, offline.
+    const older = memoryLive();
+    await publish(older);
+    older.setMeta({ ...older.meta(), schema: LIVE_SCHEMA - 1 });
+    const garbled = memoryLive();
+    await publish(garbled);
+    garbled.setMeta({ ...garbled.meta(), inline: { pages: { halves: [] } } });
+    const offline: LiveReader = {
+      readMeta: () => Promise.reject({ code: "unavailable" }),
+      getChunk: () => Promise.reject({ code: "unavailable" }),
+    };
+    for (const [sources, notice] of [
+      [sourcesOf(older), LIVE_NOTICES.older],
+      [sourcesOf(memoryLive()), LIVE_NOTICES.none],
+      [sourcesOf(garbled), LIVE_NOTICES.unreadable],
+      [sourcesOf(live, { reader: async () => offline }), LIVE_NOTICES.offline],
+    ] as const) {
+      // Nothing kept from the reads before: a meta this device kept is one it read, and says so.
+      kept.clear();
+      open(sources);
+      expect(await screen.findByText(notice)).toBeTruthy();
+      expect(screen.queryByText(NEVER)).toBeNull();
+      expect(line()).toBeNull();
+      cleanup();
+    }
+    // Nor while the first read is on its way.
+    const silent: LiveReader = {
+      readMeta: () => new Promise(() => undefined),
+      getChunk: () => new Promise(() => undefined),
+    };
+    open(sourcesOf(live, { reader: async () => silent }));
+    expect(await screen.findByText("Reading the cloud's board…")).toBeTruthy();
+    expect(line()).toBeNull();
   });
 
   it("draws the board on a device that has never held the copy, by the pages the meta names", async () => {
@@ -3309,6 +3366,41 @@ describe("Setup on the cloud's board", () => {
     expect(handedOver()).toBeNull();
   });
 
+  it("offers no season to put on a page while the cloud's pages cannot be read", async () => {
+    // Over boards an older version published, the meta's pages are not drawn, and the pages to
+    // hand are this device's own, which it no longer keeps in step: a season put on one of them
+    // would be put on a page the cloud may not have. The rest of Setup stays on.
+    onSetup();
+    pool.wants = false;
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA - 1 });
+    const server = editFunction(setupAnswers);
+    open(sourcesOf(live, { call: server.call }), { seasons: LEAGUE });
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    expect(screen.getByText(SETUP_PAGES_UNREAD)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Put on / })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Age groups" })).toBeNull();
+    expect(edited(server.sent)).toEqual([]);
+  });
+
+  it("offers no season to put on a page over a kept meta once the cloud says its boards are older", async () => {
+    // A returning member's device keeps the meta it last read, which stays drawn while the cloud's
+    // own answer says the boards are an older version's: its pages are as stale as no pages.
+    onSetup();
+    pool.wants = false;
+    const earlier = editFunction(setupAnswers);
+    open(sourcesOf(live, { call: earlier.call }), { seasons: LEAGUE });
+    expect(await screen.findByRole("button", { name: /^Put on / })).toBeTruthy();
+    cleanup();
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA - 1 });
+    const server = editFunction(setupAnswers);
+    open(sourcesOf(live, { call: server.call }), { seasons: LEAGUE });
+    // Once the cloud has answered, which the teams waiting on an age, asked of it, show.
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    expect(screen.getByText(SETUP_PAGES_UNREAD)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Put on / })).toBeNull();
+    expect(edited(server.sent)).toEqual([]);
+  });
+
   it("says what a season joins by the pages drawn, the edits not yet published among them", async () => {
     onSetup();
     pool.wants = false;
@@ -3655,6 +3747,151 @@ describe("the Import tab on the cloud's board", () => {
       { query: { kind: "import.status", at: AT }, copy: MANIFEST.copy },
     ]);
     expect(handedOver()).toBeNull();
+  });
+
+  /*
+   * Edits and imports go through the edit function and need no board: they are off only while the
+   * device is offline or has not heard the cloud, and over boards a newer version published. A meta
+   * this build cannot draw, older, missing or unreadable, locked them for a whole day on 10 October
+   * 2026; now they are made on the copy that meta names, or the copy itself names where none does.
+   */
+  const choosesRotation = async (server: ReturnType<typeof editFunction>, copy: string) => {
+    expect(
+      await screen.findByText("Every age group is due today — 120 teams to refresh.")
+    ).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("One or two levels a day"));
+    await waitFor(() => expect(edited(server.sent)).toHaveLength(1));
+    expect(server.sent.length).toBeGreaterThan(1);
+    expect(server.sent.every((data) => data.copy === copy)).toBe(true);
+  };
+
+  it("keeps edits on over boards an older version published, made on the copy they name", async () => {
+    onImport();
+    pool.wants = false;
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA - 1 });
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call }));
+    await choosesRotation(server, MANIFEST.copy);
+    expect(screen.queryByText(EDIT_LOCKS.waiting)).toBeNull();
+  });
+
+  it("keeps edits on over a meta whose pages will not read, made on the copy it names", async () => {
+    onImport();
+    pool.wants = false;
+    live.setMeta({ ...live.meta(), inline: { pages: { halves: [] } } });
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call }));
+    await choosesRotation(server, MANIFEST.copy);
+  });
+
+  it("keeps edits on with nothing published, made on the copy the cloud holds", async () => {
+    onImport();
+    pool.wants = false;
+    const server = editFunction(importAnswers());
+    const held = { ...MANIFEST, copy: "beef01", version: 9 };
+    open(
+      sourcesOf(memoryLive(), {
+        call: server.call,
+        copy: async () => ({ readManifest: async () => held, getChunk: async () => null }),
+      })
+    );
+    await choosesRotation(server, "beef01");
+  });
+
+  it("makes edits on the copy a publish names, not the one read while nothing was published", async () => {
+    onImport();
+    pool.wants = false;
+    const empty = memoryLive();
+    let answer = (): void => undefined;
+    const slow = new Promise<void>((resolve) => (answer = resolve));
+    const held = { ...MANIFEST, copy: "beef01", version: 9 };
+    const server = editFunction(importAnswers());
+    open(
+      sourcesOf(empty, {
+        call: server.call,
+        copy: async () => ({
+          readManifest: async () => {
+            await slow;
+            return held;
+          },
+          getChunk: async () => null,
+        }),
+      })
+    );
+    expect(await screen.findByText(EDIT_LOCKS.waiting)).toBeTruthy();
+    // Published, and heard, while the copy's manifest was still being read.
+    await act(() => publish(empty));
+    answer();
+    await choosesRotation(server, MANIFEST.copy);
+  });
+
+  /*
+   * With nothing published and no copy of the cloud's own to be read, the cloud has answered but
+   * there is nothing to make an edit on: the page says so, rather than lifting the lock and turning
+   * every edit and question away one toast at a time.
+   */
+  it("keeps edits off, and says why, when nothing published names a copy and the cloud's cannot be read", async () => {
+    onImport();
+    pool.wants = false;
+    const unreadable = [
+      {},
+      { copy: async () => ({ readManifest: async () => null, getChunk: async () => null }) },
+      {
+        copy: async () => ({
+          readManifest: () => Promise.reject(new Error("permission-denied")),
+          getChunk: async () => null,
+        }),
+      },
+    ];
+    for (const more of unreadable) {
+      const server = editFunction(importAnswers());
+      open(sourcesOf(memoryLive(), { call: server.call, ...more }));
+      expect(await screen.findByText(EDIT_LOCKS.noCopy)).toBeTruthy();
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(server.sent).toEqual([]);
+      expect(said.toasts).toEqual([]);
+      cleanup();
+    }
+  });
+
+  it("makes nothing on the copy a meta kept from an earlier visit names, once the cloud says none is published", async () => {
+    onImport();
+    pool.wants = false;
+    const earlier = editFunction(importAnswers());
+    open(sourcesOf(live, { call: earlier.call }));
+    await waitFor(() => expect(queried(earlier.sent)).toHaveLength(1));
+    cleanup();
+    // The kept meta names the copy; the server now says nothing is published, and the copy itself
+    // cannot be read here.
+    const server = editFunction(importAnswers());
+    open(sourcesOf(memoryLive(), { call: server.call }));
+    expect(await screen.findByText(EDIT_LOCKS.noCopy)).toBeTruthy();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(server.sent).toEqual([]);
+  });
+
+  it("keeps edits off over boards a newer version published, and says to reload", async () => {
+    onImport();
+    pool.wants = false;
+    live.setMeta({ ...live.meta(), schema: LIVE_SCHEMA + 1 });
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call }));
+    expect(await screen.findByText(EDIT_LOCKS.newer)).toBeTruthy();
+    expect(server.sent).toEqual([]);
+  });
+
+  it("keeps edits off until the cloud has answered", async () => {
+    onImport();
+    pool.wants = false;
+    const silent: LiveReader = {
+      readMeta: () => new Promise(() => undefined),
+      getChunk: () => new Promise(() => undefined),
+    };
+    const server = editFunction(importAnswers());
+    open(sourcesOf(live, { call: server.call, reader: async () => silent }));
+    expect(await screen.findByText(EDIT_LOCKS.waiting)).toBeTruthy();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(server.sent).toEqual([]);
   });
 
   it("keeps how much comes round at once on the copy, and reads the refresh again", async () => {

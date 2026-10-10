@@ -23,17 +23,19 @@
  * pulls only the first N teams due, and leaves the day unlogged. It prints counts, sizes and
  * timings only: this repository is public, and so are its Actions logs.
  */
+import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
-import { dryLiveStore, publishCopyViews, type CopyPublish } from "../src/lib/live/publishCopy.ts";
-import { describeRebuilds } from "../src/lib/live/rebuildReport.ts";
+import { dryLiveStore, publishCopyViews, publishFailedRun } from "../src/lib/live/publishCopy.ts";
+import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
 import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
 import { sweepStaleUploads } from "../src/lib/cloud/uploads.ts";
 import { handlerFetch } from "./handlerFetch.ts";
+import { mb, tellViews } from "./viewsReport.ts";
 
 declare const process: {
   argv: string[];
@@ -54,7 +56,6 @@ if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
   process.exit(2);
 }
 
-const mb = (bytes: number): string => `${(bytes / 1_000_000).toFixed(1)} MB`;
 const started = Date.now();
 const since = (): string => `${Math.round((Date.now() - started) / 1000)} s`;
 
@@ -97,52 +98,34 @@ const dryRun = (
 let readLedger: (() => Promise<unknown>) | null = null;
 
 /**
+ * Hands the workflow a word for the steps after this one (`steps.refresh.outputs.<name>`), where it
+ * runs on GitHub; anywhere else there is nobody to hand it to.
+ */
+const output = (name: string, value: string): void => {
+  const file = process.env.GITHUB_OUTPUT;
+  if (file) appendFileSync(file, `${name}=${value}\n`);
+};
+
+/**
  * How the rebuilds after saves have gone, said at the end of every run however the refresh ended,
  * since a night that failed is when it is most wanted. Said and never judged: the rebuilds are not
- * this run's work, and a night turned red by them would read as a refresh that failed.
+ * this run's work, and a night turned red by them would read as a refresh that failed. Whether
+ * they are failing goes to the workflow as a word (`rebuildsTrouble`), for the alarm of their own
+ * it raises or settles (`runAlarms.ts`); a ledger not read hands over nothing, which leaves that
+ * alarm as it is.
  */
 const tellRebuilds = async (): Promise<void> => {
   if (!readLedger) return;
   try {
-    for (const line of describeRebuilds(await readLedger())) console.log(line);
+    const ledger = await readLedger();
+    for (const line of describeRebuilds(ledger)) console.log(line);
+    const trouble = rebuildsTrouble(ledger);
+    if (trouble) output("rebuilds", trouble);
   } catch (error) {
     console.log(
       `The rebuilds' ledger could not be read: ${error instanceof Error ? error.message : String(error)}`
     );
   }
-};
-
-const REFUSED: Record<Extract<CopyPublish, { ok: false }>["reason"], string> = {
-  locale: "the collation is not English, so tied rows would sit in another order than the page's",
-  "league-unreadable": "the League Standings seasons could not be read",
-  "newer-league": "a League Standings season was saved by a newer build",
-  "copy-moved": "a device saved the copy during the run, so the next run publishes its views",
-  "league-moved":
-    "a League Standings season changed during the run, and the rebuild it asked for publishes it",
-  "copy-replaced": "the copy was deleted and started again during the run, so these are not its",
-  unreadable: "the published meta is not one this build reads",
-  "newer-schema": "the published views were made by a newer build",
-  "kept-changing": "the published meta kept changing under it",
-  "too-large": "the meta would be too large for every member to download",
-  "older-day": "the published views are already a later day's",
-  "older-rules": "the published boards were built by newer rules than this build's",
-};
-
-/** What the views' publish did, or would have done, in counts and sizes. */
-const tellViews = (views: CopyPublish, dry: boolean): void => {
-  if (!views.ok) {
-    console.log(`The views were not published: ${REFUSED[views.reason]}.`);
-    return;
-  }
-  const { publish, sweep } = views;
-  console.log(
-    `Views: ${views.boards} boards, ${views.clubs} buckets of club cards, ${views.searches} Find a team lists and ${views.games} Games lists built in ${Math.round(views.buildMs / 1000)} s; ${publish.uploaded} ${dry ? "would have been " : ""}uploaded (${publish.pieces} pieces, ${mb(publish.bytes)} gzipped), ${publish.unchanged} unchanged, ${publish.refused} refused as older, ${publish.removed} taken out, ${publish.retired} retired; the meta (${(publish.metaBytes / 1000).toFixed(1)} KB) ${publish.wrote ? (dry ? "would have been written" : "written") : "already said all of it"}.`
-  );
-  console.log(
-    sweep.ok
-      ? `  Sweep: ${sweep.deleted} retired pieces ${dry ? "would have been " : ""}deleted, and ${sweep.strays} strays.`
-      : `  The sweep after it stopped: ${sweep.why}.`
-  );
 };
 
 const main = async (): Promise<void> => {
@@ -216,10 +199,9 @@ const main = async (): Promise<void> => {
         leagueDocs: opened.leagueDocs,
       });
       tellViews(views, dry !== null);
-      // A copy or a season saved during the run is no fault of the run's; anything else that
-      // stops is.
-      const moved = !views.ok && (views.reason === "copy-moved" || views.reason === "league-moved");
-      if (views.ok ? !views.sweep.ok : !moved) process.exitCode = 1;
+      // A save during the run, and views a newer build published first (a deploy that landed
+      // meanwhile), are no fault of the run's; anything else that stops is (`publishFailedRun`).
+      if (publishFailedRun(views)) process.exitCode = 1;
     } catch (error) {
       console.log(
         `Publishing the views stopped: ${error instanceof Error ? error.message : String(error)}`

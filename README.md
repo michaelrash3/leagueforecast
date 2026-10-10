@@ -3703,34 +3703,38 @@ What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
 
-Then it publishes every board for members to read ("Views a server
-publishes"): built from the pool it holds and the League Standings seasons (from
-their own documents once there are any, "League Standings in the cloud"), under
-the copy and version it saved, then a sweep of what readers can no longer
-be fetching (`publishCopyViews`). It publishes only when the pool it holds is a
-copy, the one it saved or, with nothing to save or nothing due, the one it read;
-never after a run that ended without one, whose filing no copy has. The seasons
-are read the way a backup file is, as a browser's storage reads them, and a
-League Standings part that is missing, damaged or not seasons stops the publish.
-A device that saves League Standings during the run deletes the pieces the
-run's copy names; the run then says the copy moved on and publishes nothing,
-without turning the night red, and the next run publishes. The copy's id is read
-again just before each commit of the meta, after the uploads and on every retry
+Then it publishes every board for members to read ("Views a server publishes"):
+built from the pool it holds and the League Standings seasons (from their own
+documents once there are any, "League Standings in the cloud"), under the copy
+and version it saved, then a sweep of what readers can no longer be fetching
+(`publishCopyViews`). It publishes only when the pool it holds is a copy, the
+one it saved or, with nothing to save or nothing due, the one it read; never
+after a run that ended without one, whose filing no copy has. The seasons are
+read the way a backup file is, as a browser's storage reads them, and a League
+Standings part that is missing, damaged or not seasons stops the publish. A
+device that saves League Standings during the run deletes the pieces the run's
+copy names; the run then says the copy moved on and publishes nothing, without
+turning the night red, and the next run publishes. Views a newer build, newer
+rules or a later day published first leave it green too (`publishFailedRun`), as
+they do a rebuild: only servers publish views, so that is a deploy landing while
+the run is on the build it checked out before, whose own functions, or the
+republish after it, publish first. A season a newer build saved is not among
+them, since a device of any build saves seasons. The copy's id is read again
+just before each commit of the meta, after the uploads and on every retry
 (`publishViews`'s `stillCurrent`): a copy deleted and started again during the
 run is not theirs, and two copies have no order to keep the fresh one's boards
-from being replaced, so its uploads are taken back, nothing is published, and the
-night turns red, as the pull's own end does when it finds the copy replaced. The
-check and the commit are two documents, so a reset in the round trip between
-them is the one window left. The publish refuses
-under any collation but English, the order the members' browsers put tied rows
-in; the workflow pins `LANG=en_US.UTF-8` rather than leave it to the runner's
-image (Node sorts in English with `LANG` unset, `C` or `C.UTF-8`, and by the
-root collation with an empty one). A dry run builds the same views, from the
-copy the pull would have saved, writes and deletes nothing, and counts a piece
-the sweep would delete once. A publish that fails says why on its own line and
-turns the night red, after the pull's own lines; a sweep that fails once the
-views are out says so under the counts of what was published, and turns it red
-too.
+from being replaced, so its uploads are taken back, nothing is published, and
+the night turns red, as the pull's own end does when it finds the copy replaced.
+The check and the commit are two documents, so a reset in the round trip between
+them is the one window left. The publish refuses under any collation but
+English, the order the members' browsers put tied rows in; the workflow pins
+`LANG=en_US.UTF-8` rather than leave it to the runner's image (Node sorts in
+English with `LANG` unset, `C` or `C.UTF-8`, and by the root collation with an
+empty one). A dry run builds the same views, from the copy the pull would have
+saved, writes and deletes nothing, and counts a piece the sweep would delete
+once. A publish that fails says why on its own line and turns the night red,
+after the pull's own lines; a sweep that fails once the views are out says so
+under the counts of what was published, and turns it red too.
 
 On 3 October 2026 a dry run of 50 teams on the real copy built its 60 boards (20
 pages, three halves each) in 5 s, after a 95 s pull. Their first publish would
@@ -3744,10 +3748,10 @@ three hours earlier; a scheduled run starts when GitHub gets to it. A run by han
 workflow**, with `dry-run` (everything but the save, and what the save would
 have been) or `live`, and a limit of teams for a trial. The log carries counts,
 sizes and timings only, since this repository's Actions logs are public. A night
-that fails is marked red in Actions, and GitHub emails whoever last changed the
-schedule. GitHub turns off a public repository's schedules after 60 days with no
-activity in it; **Enable workflow** on the workflow's page turns this one back
-on.
+that fails is marked red in Actions, GitHub emails whoever last changed the
+schedule, and the run opens an issue ("When a run fails", below). GitHub turns
+off a public repository's schedules after 60 days with no activity in it;
+**Enable workflow** on the workflow's page turns this one back on.
 
 The log ends, dry run or live and however the refresh ended, with how the
 rebuilds after saves have gone, read from their ledger ("Rebuilds after saves",
@@ -3762,6 +3766,55 @@ not yet settled. A ledger that cannot be read says so on its own line and leaves
 the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
 set to `live`.
+
+### When a run fails
+
+The nightly of 10 October 2026 failed at 03:52 UTC, and the owner learned of it
+from a board nobody looks at. A run that fails now opens an issue on this
+repository, which GitHub tells the owner of by email and, with notifications on,
+on the phone (`scripts/alarm.ts`, `runAlarms.ts`). Each alarm keeps one issue:
+a run that fails again comments on the one open rather than opening another, and
+the first run that is fine closes it with a comment.
+
+- **The nightly refresh failed**: its refresh step failed or was stopped (by
+  hand, or by its 85-minute limit, which is short of the job's 90 so the alarm
+  still runs), scheduled or by hand, dry run or live. Only a live run that
+  succeeds closes it: a dry run saves nothing, so its success says nothing of a
+  night that failed saving, as the night of 10 October did.
+- **Publishing the views after a deploy failed**: the republish after a deploy
+  (above, "Views a server publishes") failed or was stopped. The next republish
+  that does not fail closes it, one that finds nothing to publish included, since
+  the views are then of this build's schema.
+- **The rebuilds after saves are failing**: the nightly, dry or live, read their
+  ledger and found failures in a row or a pause (`rebuildsTrouble`). The first
+  nightly to read none closes it, and so does one that finds them switched off,
+  or no ledger at all: while they are off nothing of theirs runs, and no run
+  clears the failures or the pause the ledger kept from before, so an issue left
+  open over those would be commented on every night until the console was
+  edited. A ledger the nightly could not read, or did not reach, leaves it as it
+  is.
+
+An issue is public, as the repository is, so it says when (UTC, to the minute),
+what failed in a word or two, and the run's link, and nothing from the log. The
+words are fixed in `runAlarms.ts`, which works out what to raise or settle from
+the run step's outcome and the word the nightly hands over of the rebuilds
+(`rebuilds=paused`, `failing`, `none` or `off`), and is tested; the workflows
+only run `npm run alarm -- nightly` or `-- republish` as their last step,
+whatever came before. It runs `gh` with the run's own token, which the workflow
+lets write issues and nothing more (`permissions: issues: write`). An alarm
+finds its issue again by its title among the open issues a workflow opened; one
+anybody else opened under the same title is theirs, and is neither commented on
+nor closed. An alarm that could not be raised (issues turned off on the
+repository, say) marks its own step failed, and the others are still tried, but
+it leaves the run as its work left it (`continue-on-error`, held by
+`workflowAlarms.test.ts`): a night that saved stays green, and GitHub does not
+email that it failed for want of an issue, while a night whose refresh failed is
+red from that step already.
+
+A run whose checkout failed raises nothing: the alarm is a script it checks out.
+Its work's step is then skipped, which the alarm would call "did not start", but
+only where it can run at all, after a failed setup of Node on a runner whose own
+Node runs the script. GitHub's red run, and its email, is the only word of it.
 
 ### Boards a server can build
 
@@ -3882,7 +3935,10 @@ page reads it: its town and state, which the page shows beside the name and
 ranks the state top ten and the state filter by, and whether its games on that
 page came from a League Standings season, which the page badges. Beside the
 boards, in the same commit, the meta carries `inline.pages`: when the roster was
-last pulled, for each page how many counted games each half holds, which decides
+last pulled (the header's "Schedules last pulled" line, which says no schedules
+were pulled only when a meta it read names no pull, and nothing of the last pull
+where no meta could be read: until 3.0 it said none were pulled under an older
+version's boards), for each page how many counted games each half holds, which decides
 the half the page opens on and what an empty half says, and the age groups, for a
 device with no copy to lay the page out by (below). The page and
 the server count these with the same code (`countedByHalf`, `leagueTeamIdsOn`),
@@ -4041,6 +4097,43 @@ could take a piece the newer build names for a stray. A publish by a newer build
 keeps nothing of an older build's meta that it did not build itself, inline
 values included, since those have the older shape; the other families come back
 as they are next published.
+
+A build deployed over views of an older schema, or onto a cloud with none
+published, publishes them again at once (`scripts/republish.ts`, `npm run
+republish`). Until then no device of the new build can draw a board, and the
+next publish used to be the nightly, which GitHub starts hours late. The
+Firebase workflow runs it after a push to main that really deployed (the project
+connected and the key set), under the nightly's day, collation and heap. It
+reads the meta first and goes on only when there is none, or it is of this
+layout and an older schema (`needsRepublish`): a meta of this schema is the
+rebuilds' and the night's to keep current, and a newer build's, or one of
+another layout, is not this build's to replace. It then lays the copy's pool
+into memory exactly as a pull does (`loadPoolFrom`), stops at a copy a newer
+build saved or tidied (`copyTooNew`), and publishes from it
+(`publishCopyViews`), with the copy opened read only and only `live/` writable:
+it pulls nothing and saves nothing of the copy, and its log is counts, sizes and
+timings, as the nightly's is. Its rules are `republishViews`'s, kept out of the
+script so they are tested. It answers for the views at its end, not for its own
+publish: a publish turned away is followed by a read of the meta, and the run is
+done if it no longer wants publishing (another publisher put out this build's
+views, or a newer build's). A copy or a season saved, or the copy started again,
+while it built, and a meta that changed under every commit, are tried again on
+the copy as it then stands, three tries in all: the rebuild such a save asks for
+is not certain to publish (the rebuilds may be off, paused, capped or failing;
+on 9 October 2026 three of their five runs failed), and a run that left members
+on the notice and said it was done would be the outage it is for. Its boards
+stand only while the copy is still at the version they were built from
+(`publishCopyViews`'s `atVersion`): its publish over an older schema's meta is
+never late, so the marks would not keep it from putting a version saved since
+back. Anything else that stops it while the views still want publishing turns
+the run red, a later day's or newer rules' views over an older schema included,
+since members are still on the notice; a sweep that stops after its views are
+out does not, since only pieces nothing names are left, for the night's full
+sweep. The copy is opened read only and `live/` alone writable
+(`restServerStores`, where which store writes for which opening is tested). It
+does not wait on the nightly: GitHub cancels a run waiting in a concurrency
+group when the next one joins it, which could lose a night, and two publishers
+at once is what the rules here are for.
 
 Two more rules keep a slower or older server from undoing what a newer one
 published. A publish for an earlier members' day than the meta's writes nothing,
@@ -4452,9 +4545,33 @@ there is none. Removing a club and the schedule still wait for the page. Edits
 are off once the page has handed over, while this device's copy comes in, since
 it opens without an edit sent meanwhile and then writes the copy itself; and with
 no reader of the cloud the lock says the device is not connected, not that it is
-offline. An edit and a question stay the same functions while the lock comes and
-goes, and read it as they are made, so a card that asks in an effect does not ask
-again for a blip of the connection (a what-if refitted the year each time). The
+offline. Otherwise they are off only while the device is offline, before the
+cloud has answered, over boards a newer version of the app published, which the
+device should reload to read before it changes them, and where the cloud's
+answer left no copy to make them on (`editLock`). The cloud has answered when
+the server has (`useLiveBoard`'s `heard`): the first read of the meta came back,
+from Firestore Lite, which reads only from the server, or the watch said a
+snapshot came from the server and not the device's cache, whatever the meta
+said. A meta this build cannot draw (an older schema's, none at all, or one
+whose pages will not read) leaves edits and imports on, since they go through
+the edit function and need no board: they are made on the copy the meta's header
+names, or, where nothing published names one, the copy the cloud's own manifest
+names, read beside the watch and dropped if the server says more first; with
+nothing published, the cloud has answered once that read has ended. Where it
+names none either (it could not be read, or there is no copy), edits stay off
+and say so, and a reload looks again: with the lock lifted, every edit and
+question was turned away one toast at a time. Once the server has answered, a
+meta this device kept from an earlier visit names no copy for them; its word
+replaces the kept one. Until 3.0 they waited on a meta that could be drawn, and
+on 10 October 2026 an older one locked them for the day. One edit still waits on
+a meta it can draw: putting a league season on a page in Setup. Without such a meta
+the pages to hand are this device's own, which it no longer keeps in step, so the
+league seasons and age groups cards give way to a line saying the cloud's age
+groups cannot be read yet. A meta kept from an earlier visit does not count once the
+cloud's own answer says the boards are missing, another version's or unreadable. An edit and a question
+stay the same functions while the lock comes and goes, and read it as they are
+made, so a card that asks in an effect does not ask again for a blip of the
+connection (a what-if refitted the year each time). The
 board is held for the handover as it is put on screen, in a layout effect: held in
 a passive one, a test that found the board and closed the page at once failed 2
 runs in 15, and none in 15 after. Each guard of these was broken in turn and seen to

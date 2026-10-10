@@ -2,6 +2,10 @@
 # cloud copy by one of GitHub's servers (`scripts/nightly.ts`), so every device opens on teams
 # pulled overnight. It can also be run by hand, as a dry run or live, with a limit for a trial. It
 # prints counts, sizes and timings only: this repository is public, and so are its Actions logs.
+#
+# A night that fails opens an issue on this repository, or comments on the one already open, and
+# the next live night that succeeds closes it; the rebuilds after saves get one of their own while
+# their ledger shows failures in a row or a pause (`scripts/alarm.ts`, README "When a run fails").
 name: Nightly refresh
 
 on:
@@ -26,6 +30,8 @@ on:
 
 permissions:
   contents: read
+  # The alarms' issues, opened, commented on and closed with the run's own token.
+  issues: write
 
 # One at a time: two runs saving the same copy would only make each other file again.
 concurrency:
@@ -36,6 +42,9 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # A run on the clock is live; one by hand is what was chosen.
+      MODE: ${{ github.event_name == 'schedule' && 'live' || inputs.mode }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -44,6 +53,10 @@ jobs:
       # No install: everything it runs is the app's own files, run by Node as they are
       # (`scripts/tsRegister.mjs`).
       - name: Refresh the cloud copy
+        id: refresh
+        # Short of the job's 90, so a run that hangs ends here as a failure and the alarm after it
+        # still has its minutes.
+        timeout-minutes: 85
         run: |
           args=()
           if [ "$MODE" = "live" ]; then args+=(--live); fi
@@ -60,6 +73,17 @@ jobs:
           # The whole pool is held at once; measured at about 4.3 GB on the pool of 29 September
           # 2026, on a runner with 16 GB.
           NODE_OPTIONS: --max-old-space-size=12288
-          # A run on the clock is live; one by hand is what was chosen.
-          MODE: ${{ github.event_name == 'schedule' && 'live' || inputs.mode }}
           LIMIT: ${{ inputs.limit }}
+      # However the refresh ended: what is raised or settled, and every word of it, is the script's
+      # (`runAlarms.ts`), from the step's outcome and the rebuilds' word the refresh handed over.
+      # Allowed to fail on its own (gh refused, say) without failing the run: a night that saved
+      # stays green, and GitHub does not email that it failed, for want of an issue; a night whose
+      # refresh failed is red from that step already.
+      - name: Raise or settle the alarms
+        if: always()
+        continue-on-error: true
+        run: npm run alarm -- nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.refresh.outcome }}
+          REBUILDS: ${{ steps.refresh.outputs.rebuilds }}

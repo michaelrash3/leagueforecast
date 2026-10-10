@@ -46,25 +46,42 @@ export const EDIT_LOCKS = {
   unlinked: "This device isn't connected to the cloud, so editing is off.",
   offline: "You're offline, so editing is off until the connection is back.",
   waiting: "Editing waits for the cloud to answer; the board drawn is this device's last one.",
+  newer:
+    "The cloud's boards were published by a newer version of the app, so editing is off here. Reload the page to update it.",
+  noCopy:
+    "There's no cloud copy this device could read, so editing is off. Reload the page to look again.",
 } as const;
 
 /**
  * Why edits are off: once the page has handed over to this device's copy, which an edit sent from
  * here would not be in when it opens (and which the device then writes itself); with no reader of
  * the cloud (signed out, or the cloud turned off on this device); with no connection to send them;
- * or before the network has answered, when what is drawn is what this device kept and an edit
- * would be made against a board nobody has vouched for since.
+ * before the cloud has answered (`heard`: the server's own word, which a meta this build cannot
+ * draw is as much as one it can), when what is drawn is what this device kept and an edit would be
+ * made against a board nobody has vouched for since; over boards a newer version of the app
+ * published (`newer`), which this device should reload to read before it changes them; or once the
+ * cloud has answered with no copy known to make them on (`noCopy`): nothing published names one,
+ * and the cloud's own manifest could not be read or there is none. Without that lock every edit and
+ * question was turned away one toast at a time, under controls drawn as though they would go.
+ *
+ * Nothing else: edits go through the edit function and need no board, so a meta of an older
+ * schema, or none, or one whose pages will not read, leaves them on. On 10 October 2026 a meta
+ * the build could not draw locked editing and imports for a whole day.
  */
 export const editLock = ({
   handedOver = false,
   unlinked = false,
   offline,
   heard,
+  newer = false,
+  noCopy = false,
 }: {
   handedOver?: boolean;
   unlinked?: boolean;
   offline: boolean;
   heard: boolean;
+  newer?: boolean;
+  noCopy?: boolean;
 }): string | null =>
   handedOver
     ? EDIT_LOCKS.handedOver
@@ -72,9 +89,13 @@ export const editLock = ({
       ? EDIT_LOCKS.unlinked
       : offline
         ? EDIT_LOCKS.offline
-        : heard
-          ? null
-          : EDIT_LOCKS.waiting;
+        : !heard
+          ? EDIT_LOCKS.waiting
+          : newer
+            ? EDIT_LOCKS.newer
+            : noCopy
+              ? EDIT_LOCKS.noCopy
+              : null;
 
 /**
  * What a person is told when the code that sends an edit or a question would not load (offline as

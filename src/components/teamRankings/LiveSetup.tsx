@@ -7,6 +7,7 @@ import { overlayGroups, seasonAssignedSaid } from "../../lib/live/groupsOverlay"
 import type { SeasonMeta } from "../../lib/storage";
 import type { AgeGroup, AgeGroupSeason, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { ageGroupYear, createAgeGroupId, seasonYearOptions } from "../../lib/teamRankings/seasons";
+import { card } from "../../styles/tokens";
 
 const NO_TEAMS: ScoutTeam[] = [];
 const NO_GAMES: ScoutGame[] = [];
@@ -16,6 +17,9 @@ const NO_GROUPS: AgeGroup[] = [];
 export const PAGE_NOT_ON_COPY = "That age group is not on the cloud's copy any more.";
 /** Under the model check's button when the server's answer did not come. */
 export const CHECK_UNANSWERED = "No answer came back, for the reason just shown.";
+/** In place of the league seasons and age groups cards while the cloud's pages cannot be read. */
+export const SETUP_PAGES_UNREAD =
+  "The cloud's age groups can't be read right now, so league seasons can't be put on them here. They come back once the boards are published again, usually within minutes of an update.";
 import { DiagnosticsCard } from "./DiagnosticsCard";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import { LiveAgelessCard } from "./LiveAgelessCard";
@@ -48,6 +52,7 @@ export default function LiveSetup({
   onOpenTeam,
   copy,
   showToast,
+  pagesKnown = true,
 }: {
   edits: LiveEdits;
   confirm: Confirmation["request"];
@@ -64,6 +69,14 @@ export default function LiveSetup({
   /** The cloud's copy as this member may read it, which a backup is made of. */
   copy: LiveSources["copy"];
   showToast: ShowToast;
+  /**
+   * Whether the page holds a meta this build can draw, which is where the cloud's pages come from.
+   * Without one (published by an older version, unreadable, or none) the pages to hand are this
+   * device's, which it no longer keeps in step (1.6e), and a season put on one would be put on a
+   * page the cloud may not have: the two page cards give way to a line saying so. Edits that name
+   * no page stay on (3.0).
+   */
+  pagesKnown?: boolean;
 }) {
   const { pending, edit, ask, say } = edits;
   const shown = useMemo(
@@ -107,13 +120,21 @@ export default function LiveSetup({
   return (
     <>
       <SetupIntroCard />
-      <LeagueSeasonsCard
-        seasons={seasons}
-        ageGroups={shown}
-        yearOptions={yearOptions}
-        onAssign={assign}
-      />
-      <AgeGroupsCard ageGroups={shown} seasons={seasons} />
+      {pagesKnown ? (
+        <>
+          <LeagueSeasonsCard
+            seasons={seasons}
+            ageGroups={shown}
+            yearOptions={yearOptions}
+            onAssign={assign}
+          />
+          <AgeGroupsCard ageGroups={shown} seasons={seasons} />
+        </>
+      ) : (
+        <div className={`${card} p-5`} role="status">
+          <p className="text-sm text-slate-600 dark:text-slate-300">{SETUP_PAGES_UNREAD}</p>
+        </div>
+      )}
       <LiveAgelessCard edits={edits} confirm={confirm} today={today} />
       <LivePoolHealthCard edits={edits} confirm={confirm} today={today} onOpenTeam={onOpenTeam} />
       {/* The pool is the server's, so the card is given none of its own to check on the page. */}

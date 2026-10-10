@@ -47,6 +47,24 @@ export const describeRebuilds = (raw: unknown): string[] => {
   ];
 };
 
+/**
+ * Whether the ledger shows the rebuilds in trouble, for the alarm the nightly raises
+ * (`runAlarms.ts`): `off` while they are switched off, or there is no ledger at all, whatever it
+ * kept from before, since then nothing of theirs runs and no reserve ever clears the failures or the
+ * pause it holds (`reserveRun`), so an alarm raised over those would be commented on every night
+ * until the console was edited; `paused` while it records a pause, which stands until the next
+ * reserve clears it; `failing` with any failure in a row and no pause; and `none` with neither.
+ * Null for a ledger this build cannot read, which says nothing either way, so an alarm already
+ * raised is left as it is.
+ */
+export const rebuildsTrouble = (raw: unknown): "off" | "paused" | "failing" | "none" | null => {
+  if (raw === null || raw === undefined) return "off";
+  const ledger = coerceLedger(raw);
+  if (!ledger) return null;
+  if (!ledger.on) return "off";
+  return ledger.pausedDay !== null ? "paused" : ledger.failures > 0 ? "failing" : "none";
+};
+
 const switchOf = (ledger: Ledger): string => {
   if (!ledger.on) return "off";
   return ledger.mode === "dry" ? "on, dry: each builds every board and publishes none" : "on, live";
