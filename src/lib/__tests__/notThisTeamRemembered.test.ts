@@ -91,20 +91,36 @@ const teamNamed = (state: GcImportState, name: string) =>
 const gameOf = (state: GcImportState, gameId: string) =>
   state.games.find((game) => game.source?.gameId === gameId && game.source.teamId === HAWKS)!;
 
-/** The pool once the owner has said the Hawks' 8 August "Eagles" is not the Eagles. */
-const refusedPool = (): { state: GcImportState; refused: NotThisTeam; standIn: string } => {
+const lookup = (state: GcImportState) => {
+  const byId = new Map(state.teams.map((team) => [team.id, team]));
+  return (teamId: string) => byId.get(teamId);
+};
+
+/**
+ * The pool once the owner has said the Hawks' 8 August "Eagles" is not the Eagles, which takes the
+ * 15 August draw they filed there by the name with it. `only` keeps the change to the one game, as
+ * a refusal stored before the pool held the other row leaves it.
+ */
+const refusedPool = (
+  only = false
+): { state: GcImportState; refused: NotThisTeam; standIn: string } => {
   const state = pulledPool();
   const eagles = teamNamed(state, "Eagles");
   const game = gameOf(state, "h1");
   const taken = takeOffClub(state, game, eagles, "S-EAGL-x1")!;
+  const moved = new Map(
+    taken.moved
+      .filter((move) => !only || move.was.id === game.id)
+      .map((move) => [move.was.id, move.now])
+  );
   return {
     state: {
       ...state,
-      teams: taken.standIn ? [...state.teams, taken.standIn] : state.teams,
-      games: state.games.map((each) => (each.id === game.id ? taken.game : each)),
+      teams: [...state.teams, ...taken.standIns],
+      games: state.games.map((each) => moved.get(each.id) ?? each),
     },
-    refused: new Set(refusalsFor(game, eagles)),
-    standIn: taken.game.teamBId,
+    refused: new Set(refusalsFor(game, eagles, lookup(state))),
+    standIn: moved.get(game.id)!.teamBId,
   };
 };
 
@@ -112,7 +128,9 @@ describe("a refusal, as it is kept", () => {
   it("is the schedule, the name as the import reads it, and each of the club's ids", () => {
     const state = pulledPool();
     const eagles = teamNamed(state, "Eagles");
-    expect(refusalsFor(gameOf(state, "h1"), eagles)).toEqual([refusalOf(HAWKS, "Eagles", EAGLES)]);
+    expect(refusalsFor(gameOf(state, "h1"), eagles, lookup(state))).toEqual([
+      refusalOf(HAWKS, "Eagles", EAGLES),
+    ]);
     const refused = new Set([refusalOf(HAWKS, "Eagles", EAGLES)]);
     expect(refusesName(refused, HAWKS, "EAGLES 9u", eagles)).toBe(true);
     // Another schedule naming the club, or this one under another name, is not refused.
@@ -140,12 +158,40 @@ describe("the import, with the owner's refusals", () => {
     // Refused on another device, say, so this pool holds no stand-in of the name to reuse.
     const state = pulledPool();
     const eagles = teamNamed(state, "Eagles");
-    const refused = new Set(refusalsFor(gameOf(state, "h1"), eagles));
+    const refused = new Set(refusalsFor(gameOf(state, "h1"), eagles, lookup(state)));
     const again = hawksOwn([row("h3", "2026-08-22", "Eagles", [1, 9])]);
     const honoured = importGcSchedule(again, state, { notThisTeam: refused }).state;
     expect(gameOf(honoured, "h3").teamBId).not.toBe(eagles.id);
     // Without the refusal, the same pull files the new row onto the club.
     expect(gameOf(importGcSchedule(again, state).state, "h3").teamBId).toBe(eagles.id);
+  });
+
+  it("files no row of the name off the namer's other listing onto the club either", () => {
+    // The Hawks are on GameChanger twice. The refusal given on their first listing's game covers
+    // the second's next row of the name, which a refusal keyed by the row's schedule alone did not.
+    const second = "gcHAWKS00002";
+    const pulled = pulledPool();
+    const hawksAt = teamNamed(pulled, "Prairie Hawks");
+    const first = hawksAt.gcTeams![0]!;
+    const state: GcImportState = {
+      ...pulled,
+      teams: pulled.teams.map((team) =>
+        team.id === hawksAt.id ? { ...team, gcTeams: [first, { ...first, teamId: second }] } : team
+      ),
+    };
+    const eagles = teamNamed(state, "Eagles");
+    const refused = new Set(refusalsFor(gameOf(state, "h1"), eagles, lookup(state)));
+    const listing = schedule(second, "Prairie Hawks", "IL", [
+      row("x3", "2026-08-22", "Eagles", [1, 9]),
+    ]);
+    const sideOf = (result: GcImportState) => {
+      const game = result.games.find((each) => each.source?.teamId === second)!;
+      return game.teamAId === hawksAt.id ? game.teamBId : game.teamAId;
+    };
+    expect(sideOf(importGcSchedule(listing, state).state)).toBe(eagles.id);
+    expect(sideOf(importGcSchedule(listing, state, { notThisTeam: refused }).state)).not.toBe(
+      eagles.id
+    );
   });
 
   it("keeps the refused row on its stand-in when the namer is pulled again", () => {
@@ -336,7 +382,7 @@ describe("the tidy, with the owner's refusals", () => {
   });
 
   it("takes the namer's other rows of the refused name off the club", () => {
-    const { state, refused } = refusedPool();
+    const { state, refused } = refusedPool(true);
     const eagles = teamNamed(state, "Eagles");
     // The 15 August draw, still on the Eagles by the same name.
     expect(gameOf(state, "h2").teamBId).toBe(eagles.id);

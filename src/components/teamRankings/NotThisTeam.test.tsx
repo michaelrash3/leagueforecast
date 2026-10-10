@@ -134,6 +134,63 @@ describe("Not this team, on a page kept in this browser", () => {
     );
   });
 
+  it("takes every game the namer's schedule filed there by the name at once, and Undo puts each back", async () => {
+    // The Hawks named "Eagles" twice, both filed on the Eagles of another state, which had games of
+    // their own both days. No "Eagles" of the Hawks' state to reuse, so a stand-in is made and the
+    // pool is not the one the tidy last saw: the tidy runs while the Undo is still offered. Taking
+    // the one game, the tidy then took the other for the refusal, and Undo brought back only one.
+    const user = userEvent.setup();
+    const second = rowOf(hawks, "815", eagles, [2, 7], "2026-08-15");
+    const games = [
+      byName,
+      second,
+      rowOf(eagles, "e1", comets, [6, 2], "2026-08-08"),
+      rowOf(eagles, "e2", comets, [6, 2], "2026-08-15"),
+    ];
+    const teams = [hawks, eagles, comets];
+    const harness = renderTeamRankings({ ...pool(), teams, games });
+    const panel = await openClub(user, "Eagles");
+    expect(within(panel).getByText(/^4-0 in 9U 2027, from 4 games\./)).toBeInTheDocument();
+    const line = within(panel)
+      .getAllByRole("listitem")
+      .find((item) => item.textContent?.includes("2026-08-08")) as HTMLElement;
+    await user.click(within(line).getByRole("button", { name: /^Not this team/ }));
+    // Both off at once, onto one stand-in of the name, and said so.
+    await waitFor(() => expect(stored(second.id)?.teamBId).not.toBe(eagles.id));
+    const standIn = stored(byName.id)?.teamBId;
+    expect(standIn).not.toBe(eagles.id);
+    expect(stored(second.id)?.teamBId).toBe(standIn);
+    expect(harness.toasts()).toContain(
+      "Taken off Eagles: 2 games with Prairie Hawks, on 2026-08-08 and 2026-08-15, stand against the name alone now."
+    );
+    // The tidy the new stand-in sets off finds nothing more to take off for the refusal.
+    await waitFor(() =>
+      expect(loadTidyStamp()).toBe(
+        poolSignature({
+          ageGroups: loadAgeGroups(),
+          teams: loadScoutTeams(),
+          games: loadScoutGames(),
+        })
+      )
+    );
+    expect(harness.toasts().some((said) => said.includes("nowhere near"))).toBe(false);
+    expect(screen.getByRole("region", { name: "Eagles" })).toHaveTextContent(
+      /2-0 in 9U 2027, from 2 games\./
+    );
+
+    const call = harness.showToast.mock.calls.find((entry) =>
+      String(entry[0]).startsWith("Taken off Eagles")
+    )!;
+    act(() => (call[1] as { onAction: () => void }).onAction());
+    await waitFor(() => expect(stored(byName.id)).toEqual(byName));
+    expect(stored(second.id)).toEqual(second);
+    expect(loadScoutTeams().map((entry) => entry.id)).toEqual(teams.map((entry) => entry.id));
+    expect([...loadNotThisTeam()]).toEqual([]);
+    expect(screen.getByRole("region", { name: "Eagles" })).toHaveTextContent(
+      /4-0 in 9U 2027, from 4 games\./
+    );
+  });
+
   it("is remembered, so the tidy the change sets off does not file the name back", async () => {
     // No "Eagles" of the Hawks' state to reuse: a stand-in is made, the pool is not the one the
     // tidy last saw, and the tidy runs. Its refile would put the row straight back on the Eagles,

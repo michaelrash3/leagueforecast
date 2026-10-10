@@ -202,6 +202,47 @@ describe("a club's card with the edits made since it was published", () => {
     expect(overlayCard(card, [taken, elsewhere])).toEqual({ ...without, games: [own] });
   });
 
+  it("is without every game the same club filed onto it by the name, and with them all once undone", () => {
+    const named = (id: string, opponent: string, date: string) => ({
+      id,
+      teamAId: opponent,
+      teamBId: "S-1",
+      ageGroupId: "ag_12u_2027",
+      date,
+    });
+    // Two games S-4 filed by the name, one S-5 did, and one of the club's own.
+    const first = named("0", "S-4", "2027-03-27");
+    const second = named("1", "S-4", "2027-04-03");
+    const elsewhere = named("2", "S-5", "2027-04-10");
+    const own = { id: "3", teamAId: "S-1", teamBId: "S-2", ageGroupId: "ag_12u_2027" };
+    const card: ClubCard = {
+      ...CARD,
+      games: [first, second, elsewhere, own],
+      byName: { "0": "gc-row-7", "1": "gc-row-8", "2": "gc-row-9" },
+    };
+    const taken: PoolCommand = {
+      kind: "game.notThisTeam",
+      year: 2027,
+      gameId: "gc-row-7",
+      teamId: "S-1",
+      standInId: "placeholder-s-1-x1",
+    };
+    expect(overlayCard(card, [taken])).toEqual({
+      ...card,
+      games: [elsewhere, own],
+      byName: { "2": "gc-row-9" },
+    });
+    const undo: PoolCommand = {
+      kind: "game.put",
+      year: 2027,
+      games: [
+        { ...first, id: "gc-row-7" },
+        { ...second, id: "gc-row-8" },
+      ],
+    };
+    expect(overlayCard(card, [taken, undo])).toEqual(card);
+  });
+
   it("is the club it was folded into once folded, and itself when another was folded into it", () => {
     expect(
       overlayCard(CARD, [{ kind: "teams.merge", fromId: "S-1", intoId: "S-2", adopt: [] }])

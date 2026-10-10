@@ -78,13 +78,20 @@ export const listedByOwn = (game: ScoutGame, club: ScoutTeam | undefined): boole
  * this is its opposite; but what it refuses is a name a schedule goes on writing, on rows the pool
  * does not hold yet, so it cannot live on a row. And a row taken off its club needs no mark of its
  * own to stay off on a re-pull, which finds it by id and keeps the opponent it has: what puts it
- * back is a tidy refiling the stand-in onto the club, or the claim step reading the club's copy as
- * the game, and what makes the same mistake again is the next pull's next row of that name. So the
- * key is (schedule, name as written, club), not the game: a game alone would stop the one row and
- * leave the next row of that name to be filed onto the club when the club has a game that day, and
- * a club's league opponent is named over and over. Nor wider: the schedule and the name both stay
- * in it, so the same club is still found by another schedule that names it, or by this one under
- * another name, and a club's own schedule listing the game, and its picture, still say who played.
+ * back is a tidy refiling the stand-in onto the club, and what makes the same mistake again is the
+ * next pull's next row of that name. So the key is (schedule, name as written, club), not the game:
+ * a game alone would stop the one row and leave the next row of that name to be filed onto the club
+ * when the club has a game that day, and a club's league opponent is named over and over. Nor
+ * wider: the schedule and the name both stay in it, so the same club is still found by another
+ * schedule that names it, or by this one under another name, and a club's own schedule listing the
+ * game, and its picture, still say who played (`listedByOwn`).
+ *
+ * Every schedule of the club that wrote the name, not only the one the row came off: a club listed
+ * on GameChanger twice, or once for the spring and once for the fall, is one club writing the name,
+ * and one listing's row of a game is often folded into the other's. Keyed by the row's schedule
+ * alone, the second listing's next row of the name was filed onto the club again, and stayed there.
+ * On the backup of 29 September 2026, 47 of the games offered were named by a club with two
+ * listings, and in 2 of them the other listing's row was in the very game.
  *
  * Keyed by GameChanger ids, as the pairs kept apart are and for the same reason: a fold deletes one
  * of this app's team ids and a reset mints new ones for everybody, while GameChanger mints an id
@@ -132,12 +139,48 @@ export const refusesName = (
   return club.gcTeams.some((link) => refused.has(refusalOf(schedule, name, link.teamId)));
 };
 
-/** The refusals taking `game` off `club` remembers: its schedule, the club's name, each of its ids. */
-export const refusalsFor = (game: ScoutGame, club: ScoutTeam): string[] => {
-  const schedule = game.source?.teamId;
-  if (schedule === undefined) return [];
+/**
+ * The refusals taking `game` off `club` remembers: the club's name against each of the club's ids,
+ * from the schedule the row came off and every other schedule of the club that wrote it (the
+ * namer, the game's other side, looked up through `teamOf`).
+ */
+export const refusalsFor = (
+  game: ScoutGame,
+  club: ScoutTeam,
+  teamOf: (teamId: string) => ScoutTeam | undefined
+): string[] => {
+  const source = game.source?.teamId;
+  if (source === undefined) return [];
+  const namer = teamOf(game.teamAId === club.id ? game.teamBId : game.teamAId);
+  const schedules = new Set([source, ...(namer?.gcTeams ?? []).map((link) => link.teamId)]);
   const ids = new Set((club.gcTeams ?? []).map((link) => link.teamId));
-  return [...ids].map((id) => refusalOf(schedule, club.name, id));
+  return [...schedules].flatMap((schedule) =>
+    [...ids].map((id) => refusalOf(schedule, club.name, id))
+  );
+};
+
+/**
+ * Every game one press of Not this team on `game` takes off `club`: `game`, and every other game the
+ * same club's schedules filed onto it by a name alone (`filedByNameOn`), in `games`' order. The
+ * refusal it stores covers each of them (`refusalsFor`), and the tidy's step that takes a refused
+ * name's rows off a club (`resettleOffLevel`) would take them at its next run; taken here, in the
+ * one change, its Undo puts every one of them back. Left to the tidy, which a stand-in made for the
+ * game sets off at once on a page kept in the browser, the others came off out of the Undo's reach,
+ * and it brought back the one game alone.
+ */
+export const takenWith = (
+  game: ScoutGame,
+  club: ScoutTeam,
+  games: readonly ScoutGame[],
+  teamOf: (teamId: string) => ScoutTeam | undefined
+): ScoutGame[] => {
+  if (!filedByNameOn(game, club, teamOf)) return [];
+  const namerId = game.teamAId === club.id ? game.teamBId : game.teamAId;
+  return games.filter(
+    (each) =>
+      (each.teamAId === club.id ? each.teamBId : each.teamBId === club.id ? each.teamAId : "") ===
+        namerId && filedByNameOn(each, club, teamOf)
+  );
 };
 
 /** A squad year's pool, as the import keys one: a page with no year is a pool of its own. */
@@ -206,56 +249,101 @@ export const mintStandInId = (name: string, taken?: ReadonlySet<string>): string
     : `${read}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 };
 
-/** What a person is told once a game is taken off a club, on either kind of page. */
+/** Days as a sentence reads them: "a", "a and b", "a, b and c". */
+const listed = (days: readonly string[]): string =>
+  days.length <= 1
+    ? (days[0] ?? "")
+    : `${days.slice(0, -1).join(", ")} and ${days[days.length - 1]}`;
+
+/**
+ * What a person is told once games are taken off a club, on either kind of page: `dates` holds one
+ * entry for each game taken off, its day where it has one.
+ */
 export const takenOffSaid = (
   club: string,
   opponent: string | undefined,
-  date: string | undefined
-) =>
-  `Taken off ${club}: the game${opponent ? ` with ${opponent}` : ""}${
-    date ? ` on ${date}` : ""
-  } stands against the name alone now.`;
+  dates: readonly (string | undefined)[]
+): string => {
+  const days = dates.filter((date): date is string => date !== undefined).sort();
+  const against = opponent ? ` with ${opponent}` : "";
+  if (dates.length <= 1) {
+    return `Taken off ${club}: the game${against}${days[0] ? ` on ${days[0]}` : ""} stands against the name alone now.`;
+  }
+  return `Taken off ${club}: ${dates.length} games${against}${
+    days.length > 0 ? `, on ${listed(days)},` : ""
+  } stand against the name alone now.`;
+};
 
-/** What taking a game off a club reads: the roster, the pages, and the games of its squad year. */
+/** What taking a game off a club reads: the roster, the pages, and the games of every squad year. */
 export type TakeOff = {
   teams: readonly ScoutTeam[];
   ageGroups: readonly AgeGroup[];
   games: readonly ScoutGame[];
 };
 
+/** What taking games off a club did: each game as it was and as it is, and the stand-ins made. */
+export type TakenOff = {
+  moved: { was: ScoutGame; now: ScoutGame }[];
+  standIns: ScoutTeam[];
+};
+
 /**
- * `game` taken off `club` and filed against the stand-in its name would have had: one already here
- * that a pull would reuse (`reusableStandIn`), or, where there is none, a new one made under
- * `standInId`, which whoever asked mints so the change reads no clock and makes up no id. A name
- * that can only be a slot ("Tbd", "Practice", a round) is a slot of its own, as the import makes
- * one for every such mention. Null where the game is not the club's by a name alone
- * (`filedByNameOn`), or where a stand-in has to be made and `standInId` is already a team's.
+ * `game`, and every other game its namer filed onto `club` by the name (`takenWith`), taken off the
+ * club and filed against the stand-in the name would have had: one already here that a pull would
+ * reuse (`reusableStandIn`), or, where there is none, a new one, the first made under `standInId`,
+ * which whoever asked mints so the change reads no clock, and any more under that id with a count
+ * after it, which the roster decides as surely. One stand-in per squad year and level, as the import
+ * and the tidy keep one, so games at two levels go to two. A name that can only be a slot ("Tbd",
+ * "Practice", a round) is a slot of its own for each game, as the import makes one for every such
+ * mention. Null where the game is not the club's by a name alone (`filedByNameOn`), or where a
+ * stand-in has to be made and `standInId` is already a team's.
  */
 export const takeOffClub = (
   pool: TakeOff,
   game: ScoutGame,
   club: ScoutTeam,
   standInId: string
-): { game: ScoutGame; standIn: ScoutTeam | null } | null => {
+): TakenOff | null => {
   const teamById = new Map(pool.teams.map((team) => [team.id, team]));
-  if (!filedByNameOn(game, club, (id) => teamById.get(id))) return null;
-  const onA = game.teamAId === club.id;
-  const namer = teamById.get(onA ? game.teamBId : game.teamAId);
+  const teamOf = (id: string) => teamById.get(id);
+  if (!filedByNameOn(game, club, teamOf)) return null;
+  const others = takenWith(game, club, pool.games, teamOf).filter((each) => each.id !== game.id);
+  const namer = teamOf(game.teamAId === club.id ? game.teamBId : game.teamAId);
   const name = cleanTeamName(club.name).trim() || club.name;
   const slot = isPlaceholderName(name) || namesNobody(name);
-  const level =
-    (onA ? game.ageLevelA : game.ageLevelB) ??
-    ageGroupLevel(pool.ageGroups.find((group) => group.id === game.ageGroupId));
-  const reused = slot
-    ? undefined
-    : reusableStandIn(pool, { name, ageGroupId: game.ageGroupId, level }, namer?.state);
-  if (reused === undefined && pool.teams.some((team) => team.id === standInId)) return null;
-  const standIn: ScoutTeam | null =
-    reused !== undefined
-      ? null
-      : slot
-        ? { id: standInId, name, placeholder: true }
-        : { id: standInId, name, nameOnly: true };
-  const to = reused ?? standInId;
-  return { game: onA ? { ...game, teamAId: to } : { ...game, teamBId: to }, standIn };
+  const poolOf = poolKeyOf(pool.ageGroups);
+  const levelOf = new Map(pool.ageGroups.map((group) => [group.id, ageGroupLevel(group)]));
+  const used = new Set(teamById.keys());
+  const standIns: ScoutTeam[] = [];
+  /** The id the next stand-in made goes under, or none where the one asked for is taken. */
+  const mint = (): string | undefined => {
+    if (standIns.length === 0) return used.has(standInId) ? undefined : standInId;
+    let count = standIns.length + 1;
+    while (used.has(`${standInId}-${count}`)) count += 1;
+    return `${standInId}-${count}`;
+  };
+  const onto = new Map<string, string>();
+  const moved: TakenOff["moved"] = [];
+  // The game pressed first: where one stand-in has to be made, it is made for that game.
+  for (const was of [game, ...others]) {
+    const onA = was.teamAId === club.id;
+    const level = (onA ? was.ageLevelA : was.ageLevelB) ?? levelOf.get(was.ageGroupId);
+    const key = `${poolOf(was.ageGroupId)}\u0000${level ?? "?"}`;
+    let to = slot ? undefined : onto.get(key);
+    if (to === undefined) {
+      to = slot
+        ? undefined
+        : reusableStandIn(pool, { name, ageGroupId: was.ageGroupId, level }, namer?.state);
+      if (to === undefined) {
+        const id = mint();
+        if (id === undefined) return null;
+        used.add(id);
+        standIns.push(slot ? { id, name, placeholder: true } : { id, name, nameOnly: true });
+        to = id;
+      }
+      if (!slot) onto.set(key, to);
+    }
+    moved.push({ was, now: onA ? { ...was, teamAId: to } : { ...was, teamBId: to } });
+  }
+  return { moved, standIns };
 };

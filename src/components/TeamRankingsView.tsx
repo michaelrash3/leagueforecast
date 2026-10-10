@@ -1319,7 +1319,8 @@ export function TeamRankingsView({
   /**
    * "Not this team": a game a club has only because a name on another club's schedule was matched
    * to it, taken off the club onto the stand-in of the name (`game.notThisTeam`), in the year its
-   * page is in, as storage files it. The stand-in's id, where one has to be made, is minted against
+   * page is in, as storage files it, and with it every other game that club's schedules filed onto
+   * it by the name (`takenWith`). The stand-in's id, where one has to be made, is minted against
    * the roster here, as the import mints one.
    */
   const notThisTeam = (teamId: string, game: ScoutGame) => {
@@ -1335,11 +1336,21 @@ export function TeamRankingsView({
     });
     if (!run.ok || run.writes.length === 0) return;
     const opponent = teamNameById.get(game.teamAId === teamId ? game.teamBId : game.teamAId);
-    showToast(takenOffSaid(club.name, opponent, game.date), {
-      tone: "undo",
-      actionLabel: "Undo",
-      onAction: () => runCommand(run.inverse),
-    });
+    // Every game the press took off, in whichever year: its Undo puts each one back as it was.
+    const steps = run.inverse.kind === "batch" ? run.inverse.commands : [run.inverse];
+    const taken = steps.flatMap((step) => (step.kind === "game.put" ? step.games : []));
+    showToast(
+      takenOffSaid(
+        club.name,
+        opponent,
+        taken.map((each) => each.date)
+      ),
+      {
+        tone: "undo",
+        actionLabel: "Undo",
+        onAction: () => runCommand(run.inverse),
+      }
+    );
   };
 
   /**

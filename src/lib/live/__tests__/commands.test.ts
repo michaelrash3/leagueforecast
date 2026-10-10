@@ -1689,6 +1689,99 @@ describe("a game taken off a club its name was matched to (Not this team)", () =
     expect(stored(pool.parts)).toEqual(after);
   });
 
+  it("takes every game the namer filed there by the name in the one change, and the undo puts each back", () => {
+    // The Hawks named "Eagles" on 15 August too: the refusal covers that row as well, so it comes
+    // off now, inside this change's undo, not at the next tidy, outside it.
+    const again = rowOf(hawks, "815", eagles.id, { date: "2026-08-15", teamAScore: 2 });
+    const owls815 = rowOf(owls, "o5", eagles.id, { date: "2026-08-15" });
+    const pool = memory(parts([byName, theirOwn, again, owls815]));
+    const before = stored(clone(pool.parts));
+    const result = pool.run(NOT);
+    expect(pool.parts.games.get(2027)).toEqual([
+      { ...byName, teamBId: "S-EAGL-x1" },
+      theirOwn,
+      { ...again, teamBId: "S-EAGL-x1" },
+      // Another club naming the Eagles is no part of it.
+      owls815,
+    ]);
+    expect(pool.parts.teams.filter((team) => team.id.startsWith("S-EAGL-x"))).toHaveLength(1);
+    expect(result.inverse).toEqual({
+      kind: "batch",
+      commands: [
+        { kind: "game.put", year: 2027, games: [byName, again] },
+        { kind: "team.remove", teamId: "S-EAGL-x1" },
+        {
+          kind: "answers",
+          list: "notThisTeam",
+          add: [],
+          remove: [refusalOf("gcHAWKS00001", "Eagles", "gcEAGLES0001")],
+        },
+      ],
+    });
+    const after = stored(clone(pool.parts));
+    const undone = pool.run(result.inverse);
+    expect(stored(pool.parts)).toEqual(before);
+    pool.run(undone.inverse);
+    expect(stored(pool.parts)).toEqual(after);
+  });
+
+  it("files games at two levels against two stand-ins, the second under the id with a count", () => {
+    // The 15 August row named "Eagles 11U": a level of its own, so a stand-in of its own, as the
+    // import keeps one per name, level and squad year. The roster already holds the first count.
+    const older = rowOf(hawks, "815", eagles.id, { date: "2026-08-15", ageLevelB: 11 });
+    const taken: ScoutTeam = { id: "S-EAGL-x1-2", name: "Somebody", nameOnly: true };
+    const pool = memory(parts([byName, theirOwn, older], [taken]));
+    const before = stored(clone(pool.parts));
+    const result = pool.run(NOT);
+    const [first, , second] = pool.parts.games.get(2027)!;
+    expect(first?.teamBId).toBe("S-EAGL-x1");
+    expect(second?.teamBId).toBe("S-EAGL-x1-3");
+    expect(pool.parts.teams.slice(-2)).toEqual([
+      { id: "S-EAGL-x1", name: "Eagles", nameOnly: true },
+      { id: "S-EAGL-x1-3", name: "Eagles", nameOnly: true },
+    ]);
+    pool.run(result.inverse);
+    expect(stored(pool.parts)).toEqual(before);
+  });
+
+  it("remembers every listing of the namer's, and takes off the other listing's rows, in any year", () => {
+    // The Hawks are on GameChanger twice, the second listing a page of 2026. Its row of the name on
+    // the Eagles is the same club's word, refused with the first and taken off with it.
+    const page26 = "ag_9u_2026";
+    const hawksTwice: ScoutTeam = {
+      ...hawks,
+      gcTeams: [
+        ...hawks.gcTeams!,
+        { teamId: "gcHAWKS00002", name: "Prairie Hawks 9U", ageGroupId: page26, ageLevel: 9 },
+      ],
+    };
+    const spring: ScoutGame = {
+      ...rowOf(hawks, "s1", eagles.id, { date: "2026-04-11", ageGroupId: page26 }),
+      id: "gc_gcHAWKS00002_s1",
+      source: { kind: "gamechanger", teamId: "gcHAWKS00002", gameId: "s1" },
+    };
+    const start = parts([byName, theirOwn]);
+    start.teams = start.teams.map((team) => (team.id === hawks.id ? hawksTwice : team));
+    start.groups = [
+      ...start.groups,
+      { id: page26, name: "9U 2026", ageLevel: 9, year: 2026, seasonIds: [] },
+    ];
+    start.games.set(2026, [spring]);
+    const pool = memory(start);
+    const before = stored(clone(pool.parts));
+    const result = pool.run(NOT);
+    expect(pool.parts.games.get(2026)?.[0]?.teamBId).not.toBe(eagles.id);
+    expect(pool.parts.games.get(2027)?.[0]?.teamBId).not.toBe(eagles.id);
+    expect([...pool.parts.answers.get("notThisTeam")!].sort()).toEqual(
+      [
+        refusalOf("gcHAWKS00001", "Eagles", "gcEAGLES0001"),
+        refusalOf("gcHAWKS00002", "Eagles", "gcEAGLES0001"),
+      ].sort()
+    );
+    pool.run(result.inverse);
+    expect(stored(pool.parts)).toEqual(before);
+  });
+
   it("keeps a refusal given before when it is undone, and remembers each of the club's ids", () => {
     const twice: ScoutTeam = {
       ...eagles,

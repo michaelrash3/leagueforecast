@@ -132,7 +132,8 @@ export type PoolCommand =
   | { kind: "game.confirm"; year: number | null; gameId: string }
   /**
    * "Not this team": a game of squad year `year` taken off club `teamId`, which has it only because
-   * a name on another club's schedule was matched to it, and filed against the stand-in the name
+   * a name on another club's schedule was matched to it, with every other game that club's
+   * schedules filed onto it by the name (`takenWith`), and filed against the stand-in the name
    * would have had had it matched nothing (`takeOffClub`): one already here that a pull would
    * reuse, or a new one under `standInId`, minted by whoever asked.
    */
@@ -1126,32 +1127,45 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       });
     case "game.notThisTeam": {
       const games = read.games(command.year);
-      const at = games.findIndex((game) => game.id === command.gameId);
-      const was = games[at];
+      const was = games.find((game) => game.id === command.gameId);
       const teams = read.teams();
       const club = teams.find((team) => team.id === command.teamId);
       if (!was || !club || (was.teamAId !== club.id && was.teamBId !== club.id))
         return { ok: false, why: "missing" };
-      // The undo puts the game back by its id, which would put this copy over the other one too.
-      if (heldTwice(games, new Set([command.gameId]))) return { ok: false, why: "refused" };
+      // Every game the namer filed onto the club by the name, in whichever year holds it: the
+      // refusal covers each, and the tidy would take each off out of this command's Undo's reach.
+      const all = everyGame(read);
       const taken = takeOffClub(
-        { teams, ageGroups: read.groups(), games },
+        { teams, ageGroups: read.groups(), games: all },
         was,
         club,
         command.standInId
       );
       if (!taken) return { ok: false, why: "refused" };
-      const written = games.slice();
-      written[at] = taken.game;
-      const writes: PoolWrite[] = [{ part: "games", year: command.year, games: written }];
-      if (taken.standIn) writes.push({ part: "teams", teams: [...teams, taken.standIn] });
-      const back: PoolCommand[] = [{ kind: "game.put", year: command.year, games: [was] }];
-      // After the game is back on the club, so the stand-in made for it names nothing as it goes.
-      if (taken.standIn) back.push({ kind: "team.remove", teamId: taken.standIn.id });
+      const now = new Map(taken.moved.map((move) => [move.was.id, move.now]));
+      // The undo puts each game back by its id, which would put this copy over the other one too.
+      if (heldTwice(all, new Set(now.keys()))) return { ok: false, why: "refused" };
+      const writes: PoolWrite[] = [];
+      const back: PoolCommand[] = [];
+      for (const year of read.years()) {
+        const held = read.games(year);
+        const before = held.filter((game) => now.has(game.id));
+        if (before.length === 0) continue;
+        writes.push({ part: "games", year, games: held.map((game) => now.get(game.id) ?? game) });
+        back.push({ kind: "game.put", year, games: before });
+      }
+      if (taken.standIns.length > 0) {
+        writes.push({ part: "teams", teams: [...teams, ...taken.standIns] });
+        // After the games are back on the club, so a stand-in made for them names nothing as it goes.
+        taken.standIns.forEach((standIn) => back.push({ kind: "team.remove", teamId: standIn.id }));
+      }
       // Remembered, so no pull or tidy files the name onto the club again (`notThisTeam.ts`); the
       // undo forgets only what this one added, not a refusal given before.
       const refused = read.answers("notThisTeam");
-      const added = refusalsFor(was, club).filter((entry) => !refused.has(entry));
+      const teamById = new Map(teams.map((team) => [team.id, team]));
+      const added = refusalsFor(was, club, (id) => teamById.get(id)).filter(
+        (entry) => !refused.has(entry)
+      );
       if (added.length > 0) {
         writes.push({ part: "answers", list: "notThisTeam", ids: new Set([...refused, ...added]) });
         back.push({ kind: "answers", list: "notThisTeam", add: [], remove: added });

@@ -5,6 +5,7 @@ import type { PoolCommand } from "./commands";
 import type { EditReply } from "./editHandle";
 import type { EditRefusal, QueryRefusal } from "./editRun";
 import type { ClubCard } from "./views/clubShape";
+import type { ScoutGame } from "../teamRankings";
 
 /**
  * A member's edits from the live page (1.5), on the device: what each answer is said as, which edits
@@ -156,6 +157,25 @@ const stepsOf = (command: PoolCommand): PoolCommand[] =>
   command.kind === "batch" ? command.commands.flatMap(stepsOf) : [command];
 
 /**
+ * The games of a card that Not this team on the one stored as `storedId` takes off the club, as the
+ * card can tell: every game it has by a name alone (`ClubCard.byName`) against the same opponent.
+ * The server takes off every game the opponent's schedules filed onto the club by the name
+ * (`takenWith`), which is what a card marks as by a name against that opponent; none where the card
+ * does not hold the game.
+ */
+export const takenWithOnCard = (card: ClubCard, storedId: string): ScoutGame[] => {
+  const byName = card.byName ?? {};
+  const club = card.team.id;
+  const opponentOf = (game: ScoutGame) => (game.teamAId === club ? game.teamBId : game.teamAId);
+  const pressed = card.games.find((game) => byName[game.id] === storedId);
+  if (!pressed) return [];
+  const opponent = opponentOf(pressed);
+  return card.games.filter(
+    (game) => byName[game.id] !== undefined && opponentOf(game) === opponent
+  );
+};
+
+/**
  * A club's card as the edits made since it was published leave it, for its panel: its state, name,
  * GameChanger links and level, as each edit made them, and without a game taken off it as not its
  * own, which takes its record with it. A card the server's next publish replaces
@@ -173,9 +193,14 @@ export const overlayCard = (
   for (const step of edits.flatMap(stepsOf)) {
     const team = shown.team;
     switch (step.kind) {
-      case "game.notThisTeam":
-        if (step.teamId === team.id) takenOff.add(step.gameId);
+      case "game.notThisTeam": {
+        if (step.teamId !== team.id) break;
+        // The game pressed, and every other the same club filed onto this one by the name.
+        const taken = takenWithOnCard(shown, step.gameId);
+        if (taken.length === 0) takenOff.add(step.gameId);
+        taken.forEach((game) => takenOff.add(shown.byName?.[game.id] ?? step.gameId));
         break;
+      }
       case "game.put":
         for (const game of step.games) {
           if (game.teamAId === team.id || game.teamBId === team.id) takenOff.delete(game.id);

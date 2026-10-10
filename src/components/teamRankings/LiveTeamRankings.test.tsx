@@ -1364,6 +1364,64 @@ describe("a club's panel on the cloud's board", () => {
     expect(handedOver()).toBeNull();
   });
 
+  it("draws off at once every game the same club filed there by the name, and its Undo brings each back", async () => {
+    // Placeholder S-4 named this club twice; the server takes both off, and so does the panel.
+    const again = {
+      id: "g4",
+      teamAId: "S-4",
+      teamBId: "S-1",
+      ageGroupId: PAGE,
+      teamAScore: 7,
+      teamBScore: 1,
+      date: "2027-04-03",
+    };
+    await withCard({
+      ...CARD,
+      games: [...CARD.games, again],
+      byName: { g2: "g2", g4: "g4" },
+    });
+    const source = (gameId: string) => ({ kind: "gamechanger", teamId: "gc-4", gameId });
+    const server = editFunction((data) => {
+      if (data.warm) return WARMED;
+      const command = data.command as { kind: string; standInId?: string };
+      return command.kind === "game.notThisTeam"
+        ? {
+            ...made(5, ["league_forecast_scout_games_v2:2027", "league_forecast_scout_teams_v1"]),
+            inverse: {
+              kind: "batch",
+              commands: [
+                {
+                  kind: "game.put",
+                  year: 2027,
+                  games: [
+                    { ...CARD.games[1]!, source: source("r2") },
+                    { ...again, source: source("r4") },
+                  ],
+                },
+                { kind: "team.remove", teamId: command.standInId },
+              ],
+            },
+          }
+        : made(6, ["league_forecast_scout_games_v2:2027", "league_forecast_scout_teams_v1"]);
+    });
+    open(sourcesOf(live, { call: server.call }));
+    await tapClub("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    expect(panel).toHaveTextContent("1-2 in 12U 2027, from 3 games.");
+    const line = within(panel)
+      .getAllByRole("listitem")
+      .find((item) => item.textContent?.includes("2027-03-27"))!;
+    fireEvent.click(within(line).getByRole("button", { name: /^Not this team/ }));
+    const done =
+      "Taken off Placeholder S-1: 2 games with Placeholder S-4, on 2027-03-27 and 2027-04-03, stand against the name alone now.";
+    await waitFor(() => expect(said.toasts).toContain(done));
+    await waitFor(() => expect(panel).toHaveTextContent("1-0 in 12U 2027, from 1 game."));
+    expect(within(panel).queryByRole("button", { name: /^Not this team/ })).toBeNull();
+    act(() => said.actions.get(done)?.());
+    await waitFor(() => expect(said.toasts).toContain("Undone."));
+    await waitFor(() => expect(panel).toHaveTextContent("1-2 in 12U 2027, from 3 games."));
+  });
+
   it("offers no game to take off a club while edits are off", async () => {
     await withCard({ ...CARD, byName: { g2: "g2" } });
     open(sourcesOf(live));

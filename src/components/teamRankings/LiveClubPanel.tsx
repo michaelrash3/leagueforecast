@@ -6,7 +6,7 @@ import type { LiveViewSource } from "../../hooks/useLiveBoard";
 import { useClubCard } from "../../hooks/useClubCard";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
-import { overlayCard } from "../../lib/live/liveEdits";
+import { overlayCard, takenWithOnCard } from "../../lib/live/liveEdits";
 import { mintStandInId, takenOffSaid } from "../../lib/notThisTeam";
 import type { AgeGroup, SeasonSegment } from "../../lib/teamRankings";
 import { normalizeState } from "../../lib/teamRankings/names";
@@ -178,6 +178,8 @@ export default function LiveClubPanel({
           const gameId = shown.byName?.[game.id];
           if (gameId === undefined) return;
           const opponent = names.get(game.teamAId === team.id ? game.teamBId : game.teamAId);
+          // Every game of the card the server takes off with it, as the overlay draws them off.
+          const taken = takenWithOnCard(shown, gameId);
           void edit(
             {
               kind: "game.notThisTeam",
@@ -186,7 +188,14 @@ export default function LiveClubPanel({
               teamId: team.id,
               standInId: mintStandInId(team.name),
             },
-            { done: takenOffSaid(team.name, opponent, game.date), undo: true }
+            {
+              done: takenOffSaid(
+                team.name,
+                opponent,
+                (taken.length > 0 ? taken : [game]).map((each) => each.date)
+              ),
+              undo: true,
+            }
           );
         },
       }}
