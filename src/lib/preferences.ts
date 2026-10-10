@@ -334,6 +334,12 @@ export const SCENARIOS_KEY = "lf_league_scenarios_v1";
 export const CLUB_RANKS_KEY = "lf_league_club_ranks_v1";
 
 /**
+ * The server's last bridge for each of the last few seasons, what the forecast reads offline until
+ * it answers again (`useScoutBridge`). Here for `forgetSeasons`, as the scenarios' key is.
+ */
+export const BRIDGE_KEY = "lf_league_bridge_v2";
+
+/**
  * What this device keeps per season, each stored as one object by season id, and how an entry is
  * carried to the id its season now goes by. A saved scenario names its season inside it as well,
  * and is read only under the season it names (`readScenarios`).
@@ -343,6 +349,7 @@ const PER_SEASON: readonly { key: string; carry?: (entry: unknown, to: string) =
   { key: PUT_ASIDE_KEY },
   { key: OUR_TEAM_KEY },
   { key: CLUB_RANKS_KEY },
+  { key: BRIDGE_KEY },
   {
     key: SCENARIOS_KEY,
     carry: (entry, to) =>
@@ -358,10 +365,10 @@ const PER_SEASON: readonly { key: string; carry?: (entry: unknown, to: string) =
 
 /**
  * Lets go of everything this device keeps of the seasons named: the last look, the findings put
- * aside, the team followed, its club's place on Team Rankings, the saved scenarios and the news
- * already announced, entries this app cannot read among them, since they were that season's as
- * well. Storage calls it as a season leaves this browser and as an id is given to a season new
- * here, because season ids are handed out again (`storage.ts`).
+ * aside, the team followed, its club's place on Team Rankings, the server's last bridge, the saved
+ * scenarios and the news already announced, entries this app cannot read among them, since they
+ * were that season's as well. Storage calls it as a season leaves this browser and as an id is
+ * given to a season new here, because season ids are handed out again (`storage.ts`).
  *
  * A season in `moved` is still here under another id: a cloud merge gives this device's season a
  * new one when the other side made another season under its id (`leagueMerge.ts`). What was kept

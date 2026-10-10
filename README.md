@@ -3018,9 +3018,9 @@ subscription and sending to it, which the app does not have.
 - What a device keeps of a season beside it, never in the season, a backup or the cloud, is kept
   by season id: its last look (`lf_league_seen_v1`), the findings put aside
   (`lf_league_findings_put_aside_v1`), the team followed (`lf_our_team_v1`), that team's club's
-  place on Team Rankings (`lf_league_club_ranks_v1`), the saved scenarios
-  (`lf_league_scenarios_v1`) and the news already announced (`lf_league_notified_v1`, one list
-  whose entries each begin with their season's id). Season ids are given out again: counted from
+  place on Team Rankings (`lf_league_club_ranks_v1`), the server's last bridge to Team Rankings
+  (`lf_league_bridge_v2`), the saved scenarios (`lf_league_scenarios_v1`) and the news already
+  announced (`lf_league_notified_v1`, one list whose entries each begin with their season's id). Season ids are given out again: counted from
   the seasons held, so deleting the last season and making one gives back its id, and every
   browser's first season is `default`. So all of it goes when its season leaves the browser:
   deleted, or left out of a restore or the cloud copy's seasons, or replaced in either by another
@@ -5166,6 +5166,10 @@ functions the device would run, over the cloud's pool):
   full; what an earlier build kept under `lf_league_bridge_v1`, every club with it,
   is let go of) and read back through the same checks as one from the network, so
   the forecast has its outside results the moment the season opens, and offline.
+  It goes with its season, as everything a device keeps of one does
+  ([Data + persistence](#data--persistence)), and what was heard this visit is held
+  by season, not by id, so a season made under a deleted one's id, or restored over
+  the open one, reads none of the outside results of the season before it.
   Until there is a bridge to show, the link panel says it is asking, or that it
   could not ask and will again, rather than that no age group claims the season.
 - `league.clubs`: every club the link panel's wide picker lists, asked for the open

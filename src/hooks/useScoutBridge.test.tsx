@@ -297,6 +297,65 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     expect(keptBridge("s1")).toEqual(fresh.bridge);
   });
 
+  /*
+   * Season ids are given out again, so a season made under a deleted one's id, or restored over
+   * the open one, is told apart by the moment it was made (`seasonKey`), as App holds the team
+   * followed. Storage has let go of the bridge kept for the season that went (`forgetSeasons`).
+   */
+  /** A server that answers until the device goes offline. */
+  const goesOffline = () => {
+    const state = { online: true };
+    const asker = (async (query: Asked) =>
+      state.online && query.kind === "league.bridge"
+        ? { kind: "league.bridge", ...ANSWER }
+        : null) as LeagueAsker;
+    return { state, asker };
+  };
+
+  it("shows a season made under the id nothing heard for the season before it", async () => {
+    const { state, asker } = goesOffline();
+    const { result, rerender } = setup(props({ asker, seasonKey: "s1\n2026-03-01" }));
+    await settle();
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    state.online = false;
+    localStorage.removeItem("lf_league_bridge_v2");
+    // Restored over here, with the same teams: another season under the open id, asked about.
+    rerender(props({ asker, seasonKey: "s1\n2025-03-01" }));
+    expect(result.current.bridge.seasonLinked).toBe(false);
+    expect(result.current.externalResults).toEqual([]);
+    await settle();
+    expect(result.current.unanswered).toBe("failed");
+    // Deleted in turn, and a season made under the id: offline, it has still heard nothing.
+    rerender(props({ asker, activeSeasonId: "s2", seasonKey: "s2\n2026-01-01" }));
+    rerender(props({ asker, seasonKey: "s1\n2026-04-01" }));
+    expect(result.current.bridge.seasonLinked).toBe(false);
+  });
+
+  it("reads the bridge kept afresh, and asks afresh, for a season restored over the open one", async () => {
+    keepBridge("s1", ANSWER.bridge);
+    const { asker } = server({ answer: null });
+    const { result, rerender } = setup(props({ asker, seasonKey: "s1\n2026-03-01" }));
+    await settle();
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    localStorage.removeItem("lf_league_bridge_v2");
+    rerender(props({ asker, seasonKey: "s1\n2025-03-01" }));
+    expect(result.current.bridge.seasonLinked).toBe(false);
+    // Not yet asked about, so not yet unanswered: the season before it was.
+    expect(result.current.unanswered).toBe("asking");
+  });
+
+  it("reads what it heard for a season again on coming back to it", async () => {
+    const { state, asker } = goesOffline();
+    const { result, rerender } = setup(props({ asker, seasonKey: "s1\n2026-03-01" }));
+    await settle();
+    state.online = false;
+    localStorage.removeItem("lf_league_bridge_v2");
+    rerender(props({ asker, activeSeasonId: "s2", seasonKey: "s2\n2026-01-01" }));
+    rerender(props({ asker, seasonKey: "s1\n2026-03-01" }));
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    expect(result.current.candidatesFor("Rays")).toEqual(ANSWER.candidates[0]?.clubs);
+  });
+
   it("keeps the last few seasons' bridges, and this season's alone when storage is full", async () => {
     for (const season of ["s1", "s2", "s3", "s4", "s5"]) {
       const { asker } = server();

@@ -329,15 +329,20 @@ describe("multi-season storage", () => {
 /*
  * A season id is handed out again: `createSeason` counts from the seasons held, and every
  * browser's first season is `default`. What this device keeps of a season under its id, its last
- * look, the findings put aside, the team followed and the playoff scenarios, belongs to that
- * season alone, and a season given the id after it starts with none of it. Placeholder teams.
+ * look, the findings put aside, the team followed, the playoff scenarios and the server's last
+ * bridge, belongs to that season alone, and a season given the id after it starts with none of it.
+ * Placeholder teams.
  */
 describe("what this device keeps of a season under its id", () => {
   const T = "2026-05-01T00:00:00.000Z";
 
+  /** The server's last bridge for each season, as `useScoutBridge` keeps it. */
+  const BRIDGE = "lf_league_bridge_v2";
+  const bridges = (): object => JSON.parse(localStorage.getItem(BRIDGE) ?? "{}") as object;
+
   /**
-   * A last look, a finding put aside, a team followed, a scenario, a clinch already announced and
-   * the followed club's place on Team Rankings, kept for `id`.
+   * A last look, a finding put aside, a team followed, a scenario, a clinch already announced, the
+   * followed club's place on Team Rankings and the server's last bridge, kept for `id`.
    */
   const keepOnDevice = (id: string) => {
     writeSeen(
@@ -366,6 +371,8 @@ describe("what this device keeps of a season under its id", () => {
     // Told by team alone, so a season of the same names under the id would never be told it.
     writeNotified(new Set([...readNotified(), `${id}:clinched:A:`]));
     writeLeagueClubRanks(id, { A: { clubId: "club-a", board: "9U 2027", rank: 3, of: 40, at: T } });
+    // What the forecast reads offline until the server answers again (`useScoutBridge`).
+    localStorage.setItem(BRIDGE, JSON.stringify({ ...bridges(), [id]: { results: [] } }));
   };
   const keptOnDevice = (id: string) => ({
     seen: readSeen(id) !== null,
@@ -376,6 +383,7 @@ describe("what this device keeps of a season under its id", () => {
       .filter((key) => key.startsWith(`${id}:`))
       .map((key) => key.slice(id.length + 1)),
     clubRanks: Object.keys(readLeagueClubRanks()[id] ?? {}),
+    bridge: Object.keys(bridges()).includes(id),
   });
   const ALL = {
     seen: true,
@@ -384,6 +392,7 @@ describe("what this device keeps of a season under its id", () => {
     scenarios: ["Aces win out"],
     notified: ["clinched:A:"],
     clubRanks: ["A"],
+    bridge: true,
   };
   const NONE = {
     seen: false,
@@ -392,6 +401,7 @@ describe("what this device keeps of a season under its id", () => {
     scenarios: [],
     notified: [],
     clubRanks: [],
+    bridge: false,
   };
 
   const arriving = (id: string, createdAt = T): SeasonSnapshot => ({

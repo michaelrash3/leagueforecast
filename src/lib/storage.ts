@@ -320,10 +320,11 @@ export const readUndoSnapshot = () => parseJson(safeGet(seasonKey(activeId(), "u
  * Ids are handed out again: counted from the seasons held, so deleting the last season and making
  * one gives its id back, and every browser's first season is `default`. What this device keeps of
  * a season outside the season itself (`forgetSeasons`: its last look, the findings put aside, the
- * team followed and its club's place, the saved scenarios, the news announced) goes with the
- * season when it leaves this browser, and an id given to a season new here starts with nothing
- * under it, whatever a season before it left there. Otherwise the new season took the old one's:
- * its games and teams reported as removed since the last look, its findings already put aside.
+ * team followed and its club's place, the server's last bridge, the saved scenarios, the news
+ * announced) goes with the season when it leaves this browser, and an id given to a season new here
+ * starts with nothing under it, whatever a season before it left there. Otherwise the new season
+ * took the old one's: its games and teams reported as removed since the last look, its findings
+ * already put aside, the old season's outside results read by its forecast.
  */
 const genSeasonId = (existing: SeasonMeta[]): string => {
   const ids = new Set(existing.map((season) => season.id));

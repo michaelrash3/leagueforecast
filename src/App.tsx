@@ -828,6 +828,7 @@ export default function App() {
     noteChange: noteScoutChange,
   } = useScoutBridge({
     activeSeasonId,
+    seasonKey: activeSeasonKey,
     teams,
     seasonFixtures,
     useScoutResults: settings.useScoutResults,

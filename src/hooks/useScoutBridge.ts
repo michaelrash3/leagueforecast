@@ -9,6 +9,7 @@ import {
 import { clubPickOption, pickableClubs, type ClubPickOption } from "../lib/leagueLinkOptions";
 import { leagueBridgeOf, type LeagueBridgeAnswer } from "../lib/live/leagueAnswers";
 import type { LeagueAsker } from "../lib/live/leagueAsk";
+import { BRIDGE_KEY } from "../lib/preferences";
 import { loadAgeGroups, loadScoutGamesForSeason, loadScoutTeams } from "../lib/teamRankingsStorage";
 
 /** A fixture as the bridge reads it: league names, the league's own date string, and final runs. */
@@ -17,6 +18,13 @@ export type SeasonFixture = LeagueFixture;
 export type ScoutBridgeOptions = {
   /** The season being looked at, or empty when there is none. */
   activeSeasonId: string;
+  /**
+   * The season being looked at as storage tells one season from another, its id and the moment it
+   * was made (absent, the id alone). Ids are given out again, so what was heard for a season is
+   * held by this: a season made under a deleted one's id, or restored over the open one, hears
+   * nothing that one did.
+   */
+  seasonKey?: string;
   /**
    * The roster rows, not the computed teams. The bridge reads a team's id, name and stored pick,
    * all of which live on the roster row — and the computed teams cannot be read here, because the
@@ -109,9 +117,10 @@ const SHOWN_GAP_MS = 5 * 60_000;
  * moment the season opens, and offline, until the server answers again. A few seasons' worth,
  * newest last, since a browser's storage is shared with everything else the app keeps. Only the
  * bridge, a few thousand characters: the clubs each team could be are the link panel's, and asked
- * again each visit.
+ * again each visit. Kept by season id (`BRIDGE_KEY`), and let go of with its season as the rest of
+ * what a device keeps of one is (`forgetSeasons`).
  */
-const KEPT_KEY = "lf_league_bridge_v2";
+const KEPT_KEY = BRIDGE_KEY;
 const KEPT_SEASONS = 4;
 /**
  * Where an earlier build kept every club each team could be along with the bridge, 7,076,646
@@ -174,6 +183,7 @@ type WideList = { season: string; options: readonly ClubPickOption[] | null };
  */
 export function useScoutBridge({
   activeSeasonId,
+  seasonKey = activeSeasonId,
   teams,
   seasonFixtures,
   useScoutResults,
@@ -224,17 +234,19 @@ export function useScoutBridge({
   }, []);
 
   /*
-   * The server's answers this visit, by season, with the clubs each team could be, which are held
-   * here alone; the bridge is kept for the next visit too, and read back as a kept one is.
+   * The server's answers this visit, by season (`seasonKey`), with the clubs each team could be,
+   * which are held here alone; the bridge is kept for the next visit too, and read back as a kept
+   * one is.
    */
   const [heard, setHeard] = useState<Record<string, LeagueBridgeAnswer>>({});
   /** The season whose last question went unanswered, and is waiting to be asked again. */
   const [failedFor, setFailedFor] = useState<string | null>(null);
-  const kept = useMemo(
-    () => (asker && activeSeasonId ? keptBridge(activeSeasonId) : null),
-    [asker, activeSeasonId]
-  );
-  const answer = asker && activeSeasonId ? heard[activeSeasonId] : undefined;
+  const kept = useMemo(() => {
+    // Read again for another season under the same id, of which storage keeps nothing yet.
+    void seasonKey;
+    return asker && activeSeasonId ? keptBridge(activeSeasonId) : null;
+  }, [asker, activeSeasonId, seasonKey]);
+  const answer = asker && activeSeasonId ? heard[seasonKey] : undefined;
 
   // Shown anew, or online again: the nightly may have pulled since, so the server is asked again.
   const onScreen = useRef(leagueOnScreen);
@@ -291,10 +303,10 @@ export function useScoutBridge({
           keepBridge(activeSeasonId, reply.bridge);
           setHeard((was) => ({
             ...was,
-            [activeSeasonId]: { bridge: reply.bridge, candidates: reply.candidates },
+            [seasonKey]: { bridge: reply.bridge, candidates: reply.candidates },
           }));
         } else {
-          setFailedFor(activeSeasonId);
+          setFailedFor(seasonKey);
           const wait = RETRY_AFTER_MS[Math.min(failures, RETRY_AFTER_MS.length - 1)];
           timer = setTimeout(() => ask(failures + 1), wait);
         }
@@ -312,12 +324,12 @@ export function useScoutBridge({
       again.current = false;
       clearTimeout(timer);
     };
-  }, [asker, activeSeasonId, teams, seasonFixtures, revision]);
+  }, [asker, activeSeasonId, seasonKey, teams, seasonFixtures, revision]);
 
   const bridge = asker ? (answer?.bridge ?? kept ?? NOTHING) : local;
   const unanswered =
     asker && activeSeasonId && !answer && !kept
-      ? failedFor === activeSeasonId
+      ? failedFor === seasonKey
         ? "failed"
         : "asking"
       : undefined;
