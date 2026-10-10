@@ -504,6 +504,91 @@ describe("what this device keeps of a season under its id", () => {
     }
   );
 
+  it("comes back with this device's season from a backup taken before a merge gave it a new id", () => {
+    const first = listSeasons()[0]!;
+    saveTeams([{ id: "A", name: "Aces" }]);
+    keepOnDevice(first.id);
+    const before = readSeasonSnapshot(first.id)!;
+    replaceLeagueSnapshot(
+      {
+        activeSeasonId: "season-7",
+        seasons: [arriving(first.id, "2025-04-01T00:00:00.000Z"), { ...before, id: "season-7" }],
+      },
+      { fromCloud: true, renamed: { [first.id]: "season-7" } }
+    );
+    expect(keptOnDevice("season-7")).toEqual(ALL);
+
+    // The backup restored: made at the same moment, it is this device's season under its old id.
+    expect(replaceLeagueSnapshot({ activeSeasonId: first.id, seasons: [before] })).toBe(true);
+
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    expect(keptOnDevice("season-7")).toEqual(NONE);
+  });
+
+  it("keeps a season carried again its own, whatever else was made at the same moment", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    // Made in the same millisecond, as two seasons made by one click's work can be.
+    replaceLeagueSnapshot({
+      activeSeasonId: first.id,
+      seasons: [
+        { ...readSeasonSnapshot(first.id)!, createdAt: T },
+        { ...readSeasonSnapshot(second.id)!, createdAt: T },
+      ],
+    });
+    keepOnDevice(first.id);
+    keepOnDevice(second.id);
+    writeOurTeam(second.id, "B");
+
+    expect(
+      replaceLeagueSnapshot({ activeSeasonId: first.id, seasons: [readSeasonSnapshot(first.id)!] })
+    ).toBe(true);
+
+    expect(readOurTeam(first.id)).toBe("A");
+    expect(keptOnDevice(second.id)).toEqual(NONE);
+    // Nor does a season new here, carried beside it and made in the same millisecond, take it.
+    const again = readSeasonSnapshot(first.id)!;
+    expect(
+      replaceLeagueSnapshot({
+        activeSeasonId: first.id,
+        seasons: [again, { ...again, id: "season-5" }],
+      })
+    ).toBe(true);
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    expect(keptOnDevice("season-5")).toEqual(NONE);
+  });
+
+  it("carries nothing to a season under another id made at another moment, or at none", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    // The second held as one from before seasons kept the moment they were made.
+    replaceLeagueSnapshot({
+      activeSeasonId: first.id,
+      seasons: [
+        readSeasonSnapshot(first.id)!,
+        { ...readSeasonSnapshot(second.id)!, createdAt: "" },
+      ],
+    });
+    keepOnDevice(first.id);
+    keepOnDevice(second.id);
+    const mine = readSeasonSnapshot(first.id)!;
+    const undated = readSeasonSnapshot(second.id)!;
+
+    expect(
+      replaceLeagueSnapshot({
+        activeSeasonId: "season-8",
+        seasons: [
+          { ...mine, id: "season-8", createdAt: "2025-04-01T00:00:00.000Z" },
+          { ...undated, id: "season-9" },
+        ],
+      })
+    ).toBe(true);
+
+    [first.id, second.id, "season-8", "season-9"].forEach((id) =>
+      expect(keptOnDevice(id)).toEqual(NONE)
+    );
+  });
+
   it("moves only a season held here, and only to an id the seasons carry", () => {
     const first = listSeasons()[0]!;
     keepOnDevice(first.id);

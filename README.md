@@ -3026,7 +3026,9 @@ subscription and sending to it, which the app does not have.
   deleted, or left out of a restore or the cloud copy's seasons, or replaced in either by another
   season under its id (made at another moment). An id given to a season new here, made, copied or
   brought down from the cloud, starts with nothing under it (`forgetSeasons`). A season of this
-  device's that a cloud merge gives a new id takes all of it to that id. Nothing goes until the
+  device's that a cloud merge gives a new id takes all of it to that id, and takes it back when a
+  backup from before the merge puts it under its old id again (the same season: made at the same
+  moment, under whichever id). Nothing goes until the
   list of seasons is written without its season: a tab that may no longer write the seasons,
   because another tab has taken a copy in since (`cloudGuard.ts`), neither deletes a season nor
   lets go of what was kept of it. The page reads the team followed and the findings put aside

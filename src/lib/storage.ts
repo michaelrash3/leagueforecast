@@ -573,12 +573,25 @@ const replaceSeasons = (
   /*
    * A season of this device's that a merge gave a new id is still this device's season, under the
    * new id, and what was kept of it goes there; its old id is now the other side's season. Only a
-   * season held here and carried under the new id is moved.
+   * season held here and carried under the new id is moved. So is one held under one id and
+   * carried under another, made at the same moment, which is that season too: a backup from before
+   * a merge gave this device's season a new id puts it back under its old one. A season kept as
+   * itself above is neither moved nor moved onto, though another was made in the same millisecond,
+   * and a time missing says nothing here either.
    */
   const carried = new Set(snapshot.seasons.map((season) => season.id));
-  const moved = Object.fromEntries(
-    Object.entries(renamed).filter(([from, to]) => madeAt.has(from) && carried.has(to))
+  const heldMadeAt = new Map(
+    held
+      .filter((season) => !same.has(season.id) && season.createdAt !== "")
+      .map((season) => [season.createdAt, season.id])
   );
+  const moved = Object.fromEntries([
+    ...snapshot.seasons.flatMap((season) => {
+      const from = same.has(season.id) ? undefined : heldMadeAt.get(season.createdAt);
+      return from === undefined ? [] : [[from, season.id] as const];
+    }),
+    ...Object.entries(renamed).filter(([from, to]) => madeAt.has(from) && carried.has(to)),
+  ]);
 
   let ok = true;
   snapshot.seasons.forEach((season) => {
