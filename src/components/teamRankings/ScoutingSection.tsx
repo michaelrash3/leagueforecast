@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from "react";
 import {
+  previewMatchup,
   RATING_CAP,
   SCOUT_REPORT_NATIONAL_TOP,
   SCOUT_REPORT_STATE_TOP,
@@ -10,6 +11,7 @@ import {
   type UpcomingMatchup,
 } from "../../lib/teamRankings";
 import { formatIsoDayShort } from "../../lib/date";
+import { forecastWords, formatRating } from "../../lib/matchupForecast";
 import { holdsFrom, type WhatIfCurve, type WhatIfDeclined } from "../../lib/scoutWhatIf";
 import type { WhatIfState } from "../../hooks/useRankingsWorker";
 import type { LeagueSummaryState } from "../../hooks/useLeagueSummary";
@@ -54,6 +56,45 @@ const formatPct = (value: number) => `${Math.round(value * 100)}%`;
 const formatMargin = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
 
 const formatDay = formatIsoDayShort;
+
+/**
+ * The answer to the question the pickers ask — how would this team fare against that one — said
+ * before anything else: who should win, who should lose, by how many runs, and each side's chance
+ * (`forecastWords`), then the two ratings the margin is the gap between.
+ *
+ * It sat nowhere at all at first. Compare with laid out the meetings, the common opponents and each
+ * club's best and worst, and left the reader to work the answer out from them, which is the one
+ * thing the box was opened to be told. The games stay, under it, as the reason for it.
+ *
+ * From `previewMatchup`, so a club set beside the report reads the numbers it would if added to
+ * the report by name. No caveat rides on it, even for two clubs nothing in the pool joins: every
+ * forecast is an estimate, the owner asked for the answer without a preface, and the tables below
+ * keep their own marks.
+ */
+function ClubForecast({ forRow, against }: { forRow: ScoutRankingRow; against: ScoutRankingRow }) {
+  const words = forecastWords(forRow.teamName, against.teamName, previewMatchup(forRow, against));
+  return (
+    <section
+      aria-label={`Forecast: ${forRow.teamName} against ${against.teamName}`}
+      className="mt-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700"
+    >
+      <h4 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Forecast
+      </h4>
+      <p className="mt-1 text-lg font-black wrap-break-word text-slate-950 dark:text-white">
+        {words.headline}
+      </p>
+      <p className="mt-1 text-sm font-semibold wrap-break-word text-slate-700 dark:text-slate-200">
+        {words.chances}
+      </p>
+      <p className="mt-2 text-xs wrap-break-word text-slate-500 dark:text-slate-400">
+        Why: {forRow.teamName} rates {formatRating(forRow.rating)} runs against an average club (#
+        {forRow.rank}) and {against.teamName} {formatRating(against.rating)} (#{against.rank}); the
+        margin is the gap between them.
+      </p>
+    </section>
+  );
+}
 
 type ScoutingSectionProps = {
   rankings: ScoutRankingRow[];
@@ -177,6 +218,18 @@ export function ScoutingSection({
     () => teamOptions.filter((option) => option.id !== reportForId),
     [teamOptions, reportForId]
   );
+  /**
+   * The club set beside the report, read off the board itself rather than off the comparison: the
+   * forecast needs only the two ratings, so it is there the moment a club is picked, while the
+   * games behind it may still be on their way (`LiveScouting` reads them from two clubs' cards).
+   */
+  const compareRow = useMemo(
+    () =>
+      compareId && compareId !== reportForId
+        ? (rankings.find((row) => row.teamId === compareId) ?? null)
+        : null,
+    [rankings, compareId, reportForId]
+  );
 
   return (
     <div className={`${card} p-5`}>
@@ -211,25 +264,13 @@ export function ScoutingSection({
           fare?
         </span>
       </div>
-      {reportRow && (
-        <div className="mt-3">
-          <AiStoryPanel
-            title="Why this ranking"
-            text={explanation.status === "ready" ? explanation.summary : ""}
-            source={explanation.status === "ready" ? explanation.provider : "local"}
-            model={explanation.model}
-            loading={explanation.status === "loading"}
-            loadingLabel="Writing rank explanation…"
-            unavailableReason={explanation.reason}
-            errorMessage={explanation.message}
-            onRetry={explanation.retry}
-            waiting={explanation.waiting}
-            onAsk={explanation.ask}
-          />
-        </div>
-      )}
+      {/*
+        Under the question it finishes, and its answer under it, before the write-up of this team's
+        own rank: below that, a coach who asked how two clubs would do had to scroll past an
+        explanation of something else to find out, and then found no answer at all.
+      */}
       {reportRow && onCompareChange && (
-        <div className="mt-4">
+        <div className="mt-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <label
               className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
@@ -255,15 +296,43 @@ export function ScoutingSection({
               </button>
             )}
           </div>
-          {comparison && (
+          {compareRow ? (
+            <ClubForecast forRow={reportRow} against={compareRow} />
+          ) : (
+            compareId &&
+            compareId !== reportForId && (
+              // A club picked on another page or half that is not ranked on this one: said, rather
+              // than an empty space where the answer was, or a comparison with "Other club".
+              <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+                The club picked to compare is not ranked on this board, so there is nothing to
+                forecast. Pick another, or Clear.
+              </p>
+            )
+          )}
+          {comparison && compareRow && (
             <ClubCompare
               comparison={comparison}
               aName={reportRow.teamName}
-              bName={
-                rankings.find((row) => row.teamId === comparison.b.teamId)?.teamName ?? "Other club"
-              }
+              bName={compareRow.teamName}
             />
           )}
+        </div>
+      )}
+      {reportRow && (
+        <div className="mt-4">
+          <AiStoryPanel
+            title="Why this ranking"
+            text={explanation.status === "ready" ? explanation.summary : ""}
+            source={explanation.status === "ready" ? explanation.provider : "local"}
+            model={explanation.model}
+            loading={explanation.status === "loading"}
+            loadingLabel="Writing rank explanation…"
+            unavailableReason={explanation.reason}
+            errorMessage={explanation.message}
+            onRetry={explanation.retry}
+            waiting={explanation.waiting}
+            onAsk={explanation.ask}
+          />
         </div>
       )}
       <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">

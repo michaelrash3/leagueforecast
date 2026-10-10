@@ -74,4 +74,17 @@ describe("Team Rankings taking over from the live board", () => {
     await waitFor(() => expect(screen.getByLabelText("Compare with")).toHaveValue("Comets"));
     expect(screen.getAllByRole("button", { name: "Remove Aces from the report" }).length).toBe(1);
   });
+
+  it("says so when the club compared on the board is not ranked here, rather than going blank", async () => {
+    renderTeamRankings({
+      ...pool(),
+      search: "?view=rankings&age=10&year=2027&section=scouting",
+      handover: { reportTeamId: "S-B", compareTeamId: "S-GONE" },
+    });
+    expect(
+      await screen.findByText(/The club picked to compare is not ranked on this board/)
+    ).toBeTruthy();
+    expect(screen.queryByRole("region", { name: /compared/ })).toBeNull();
+    expect(screen.queryByRole("region", { name: /^Forecast/ })).toBeNull();
+  });
 });

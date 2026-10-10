@@ -25,6 +25,7 @@ import {
   findDuplicateGame,
   isScoutGamePlayed,
   predictMatchup,
+  previewMatchup,
   UNKNOWN_STATE,
   countsTowardRating,
   externalResultsForSeason,
@@ -783,6 +784,62 @@ describe("buildScoutingReport", () => {
     const report = buildScoutingReport("A", rows, teams, { pickedIds: ["A", "B"] });
 
     expect(report.picked.map((r) => r.opponentId)).toEqual(["B"]);
+  });
+
+  it("pins every preview's numbers to the digit", () => {
+    // Taken before the per-opponent preview moved out to `previewMatchup`, which the comparison's
+    // forecast shares; the move must not change a digit.
+    const teams = ["Aces", "Bears", "Cubs", "Dogs", "Elks", "Foxes"].map((name) =>
+      team(name.charAt(0), name)
+    );
+    // Elks and Foxes are an island of their own, so one preview is of two clubs never compared.
+    const games = [
+      game("A", "B", 10, 1),
+      game("A", "C", 9, 2),
+      game("B", "C", 5, 4),
+      game("C", "D", 7, 7),
+      game("E", "F", 6, 2),
+    ];
+    const rows = buildTeamRankings("ag1", teams, games);
+    const report = buildScoutingReport("B", rows, teams, { pickedIds: ["D", "E"] });
+    expect(
+      [...report.national, ...report.picked].map((preview) => [
+        preview.opponentId,
+        preview.projectedMargin.toFixed(12),
+        preview.winProb.toFixed(12),
+        preview.tier,
+        preview.unconnected,
+      ])
+    ).toEqual([
+      ["A", "-5.333333333333", "0.216676456744", "Underdog", false],
+      ["E", "-2.556341630501", "0.350694937421", "Underdog", true],
+      ["D", "-0.889343482595", "0.446629186830", "Toss-up", false],
+      ["C", "-0.289999688435", "0.482537244758", "Toss-up", false],
+      ["F", "-0.270627344787", "0.483702922810", "Toss-up", true],
+      ["E", "-2.556341630501", "0.350694937421", "Underdog", true],
+      ["D", "-0.889343482595", "0.446629186830", "Toss-up", false],
+    ]);
+  });
+
+  it("states one club against another as its own lists would, from either side", () => {
+    // Compare with's forecast reads `previewMatchup`: a club set beside the report must read the
+    // numbers it would added by name, and the same game seen from the other bench is its mirror.
+    const names = ["Aces", "Bears", "Cubs", "Elks", "Zebras"];
+    const teams = names.map((name) => team(name.charAt(0), name));
+    const games = [game("A", "B", 10, 1), game("B", "C", 5, 4), game("E", "Z", 3, 1)];
+    const rows = buildTeamRankings("ag1", teams, games);
+    const row = (id: string) => rows.find((entry) => entry.teamId === id)!;
+    const report = buildScoutingReport("B", rows, teams, { pickedIds: ["A", "E"] });
+    const listed = (id: string) => report.picked.find((preview) => preview.opponentId === id)!;
+
+    expect(previewMatchup(row("B"), row("A"))).toEqual(listed("A"));
+    expect(previewMatchup(row("B"), row("E"))).toEqual(listed("E"));
+    const back = previewMatchup(row("A"), row("B"));
+    expect(back.opponentId).toBe("B");
+    expect(back.projectedMargin).toBeCloseTo(-listed("A").projectedMargin, 12);
+    expect(back.winProb).toBeCloseTo(1 - listed("A").winProb, 12);
+    expect(back.tier).toBe("Favored");
+    expect(previewMatchup(row("E"), row("B")).unconnected).toBe(true);
   });
 });
 

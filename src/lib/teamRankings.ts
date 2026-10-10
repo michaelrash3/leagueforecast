@@ -3411,6 +3411,33 @@ export const predictMatchup = (ratingA: number, ratingB: number, ageLevel?: numb
 const tierFor = (winProb: number): MatchupTier =>
   winProb > 0.6 ? "Favored" : winProb < 0.4 ? "Underdog" : "Toss-up";
 
+/**
+ * One club against another, from the first club's bench: the projected margin, its chance to win,
+ * the tier that chance falls in, and whether anything in the pool joins the two at all.
+ *
+ * The scouting report's lists and Compare with's forecast both come from here, so a club set beside
+ * the report reads the same numbers it would if it were added to the report by name.
+ */
+export const previewMatchup = (
+  forRow: ScoutRankingRow,
+  opponent: ScoutRankingRow
+): MatchupPreview => {
+  const { projectedMargin, winProbA } = predictMatchup(
+    forRow.rating,
+    opponent.rating,
+    forRow.ageLevel ?? opponent.ageLevel
+  );
+  return {
+    opponentId: opponent.teamId,
+    opponentName: opponent.teamName,
+    opponentRank: opponent.rank,
+    projectedMargin,
+    winProb: winProbA,
+    tier: tierFor(winProbA),
+    unconnected: notCompared(forRow, opponent),
+  };
+};
+
 /** For the given team, project the result against every other team in the same ranked pool,
  * ordered by opponent rank. */
 /** How many of the national table the scouting report shows without being asked. */
@@ -3465,22 +3492,7 @@ export const buildScoutingReport = (
   const stateTop = options.stateTop ?? SCOUT_REPORT_STATE_TOP;
   const opponents = rows.filter((row) => row.teamId !== forTeamId);
 
-  const preview = (opponent: ScoutRankingRow): MatchupPreview => {
-    const { projectedMargin, winProbA } = predictMatchup(
-      forRow.rating,
-      opponent.rating,
-      forRow.ageLevel ?? opponent.ageLevel
-    );
-    return {
-      opponentId: opponent.teamId,
-      opponentName: opponent.teamName,
-      opponentRank: opponent.rank,
-      projectedMargin,
-      winProb: winProbA,
-      tier: tierFor(winProbA),
-      unconnected: notCompared(forRow, opponent),
-    };
-  };
+  const preview = (opponent: ScoutRankingRow): MatchupPreview => previewMatchup(forRow, opponent);
   const byRank = (a: MatchupPreview, b: MatchupPreview) => a.opponentRank - b.opponentRank;
 
   const state = teams.find((team) => team.id === forTeamId)?.state;

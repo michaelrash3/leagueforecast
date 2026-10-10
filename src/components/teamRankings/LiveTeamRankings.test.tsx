@@ -2561,11 +2561,17 @@ describe("Scouting on the cloud's board", () => {
     await user.click(within(option!).getByRole("button"));
     const compared = { name: "Placeholder S-2 and Placeholder S-3 compared" };
     expect(await screen.findByRole("region", compared)).toBeTruthy();
+    // The answer leads on the cloud's board as it does on the browser's.
+    const forecast = { name: "Forecast: Placeholder S-2 against Placeholder S-3" };
+    expect(screen.getByRole("region", forecast)).toHaveTextContent(
+      /should beat .* by \d+\.\d runs?|Too close to call/
+    );
     toLastYear();
     await waitFor(() => expect(screen.getByLabelText("Compare with")).toHaveValue(""));
     await act(() => new Promise((resolve) => setTimeout(resolve, 200)));
     expect(screen.queryByText(LIVE_UNREAD.scouting)).toBeNull();
     expect(screen.queryByRole("region", compared)).toBeNull();
+    expect(screen.queryByRole("region", forecast)).toBeNull();
     expect(screen.getByRole("combobox", { name: /How would/ })).toHaveValue("Placeholder S-2");
     expect(handedOver()).toBeNull();
   });
