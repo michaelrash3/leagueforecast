@@ -1,6 +1,7 @@
 import { inBatches } from "../cloud/cloudEngine";
 import { chunkId, randomId } from "../cloud/cloudManifest";
 import { hashJson, packHashed, type HashedValue } from "../cloud/cloudPack";
+import { BOARD_FAMILY, BOARD_SHAPE } from "./views/boardShape";
 
 /**
  * The views a server publishes for members to read: `live/meta`, one small document naming every
@@ -36,6 +37,13 @@ export const LIVE_FORMAT = 1;
  * `inline.pages` a record rather than a pair (`LeagueOnPage`), which Firestore refused in a list.
  * A device of schema 2's build would read a record where it wants a pair as a meta it cannot read;
  * told the boards are newer, it says to reload.
+ *
+ * Something a device of an older build can leave unread raises nothing here. Each board's `fit`
+ * (`BoardFit`) is that: an older build rebuilds a board field by field and drops it, and a board
+ * without it draws as before. Raising this for it would have left every device of the new build on
+ * a notice in place of the boards from the app's deploy until a publisher of the new build caught
+ * up, the publishers deploying apart from the app, and told every older device to reload. The
+ * boards' shape (`BOARD_SHAPE`) is what puts it on every board at once instead (`needsRepublish`).
  */
 export const LIVE_SCHEMA = 3;
 /** How long a retired upload stays readable before a sweep may delete it. */
@@ -69,6 +77,11 @@ export type RetiredUpload = { id: string; c: number; at: string };
  * version of the rules that turn those values into views. A rebuild that finds all of them its own
  * has nothing to do.
  *
+ * `shape` is the shape of the views the publish wrote (`BOARD_SHAPE` for the boards), left out by
+ * the builds before it was recorded, which wrote shape 0. Devices never read it; it is what tells
+ * the republish after a deploy that boards of an older shape want publishing again
+ * (`needsRepublish`).
+ *
  * When no one build can vouch for every view of the family (a late publish wrote over some, or a
  * publish wrote them without saying what from), the copy and inputs are empty and the record is
  * only a floor: the newest rules and the latest day any of its views were built under, which no
@@ -81,18 +94,28 @@ export type BuiltFrom = {
   league?: string;
   today: string;
   rules: number;
+  shape?: number;
 };
 
-/** A family's record once no one build vouches for all its views: what it may not go below. */
+/**
+ * A family's record once no one build vouches for all its views: what it may not go below. Its
+ * shape is the older of the two builds' where both said, since some of the views are that one's,
+ * and none where either did not.
+ */
 const floorOf = (kept: BuiltFrom | undefined, from: BuiltFrom | undefined): BuiltFrom | null => {
   if (!kept && !from) return null;
   const days = [kept?.today, from?.today].filter((day): day is string => day !== undefined);
+  const shape =
+    kept?.shape !== undefined && from?.shape !== undefined
+      ? Math.min(kept.shape, from.shape)
+      : undefined;
   return {
     k: "",
     v: 0,
     inputs: "",
     today: days.reduce((a, b) => (a > b ? a : b)),
     rules: Math.max(kept?.rules ?? 0, from?.rules ?? 0),
+    ...(shape === undefined ? {} : { shape }),
   };
 };
 export type LiveMeta = {
@@ -173,19 +196,46 @@ const HASH = /^[0-9a-f]{64}$/;
 const UPLOAD_ID = /^[0-9a-f]{16,64}$/;
 
 /**
- * Whether what is published (`live/meta` as stored, null where there is none) wants publishing
- * again by this build as soon as it is deployed: nothing published at all, or a meta of this layout
- * from an earlier schema, which no device of this build draws. Either way every member is left
- * looking at a notice in place of the boards until something publishes, and without the
- * republish after a deploy (`scripts/republish.ts`) the next thing that would is the nightly, which
- * GitHub starts hours late. A meta of this build's schema is the rebuilds' and the night's to keep
+ * The shape of the boards a meta says were published (`BuiltFrom.shape`): 0 where it says none,
+ * which is every meta written before the shape was recorded, and where its record of the boards
+ * cannot be read or is only a floor that does not say.
+ */
+export const publishedBoardShape = (raw: unknown): number => {
+  const built = isRecord(raw) && isRecord(raw.built) ? builtOf(raw.built[BOARD_FAMILY]) : null;
+  return built?.shape ?? 0;
+};
+
+/**
+ * Why what is published (`live/meta` as stored, null where there is none) wants publishing again
+ * by this build as soon as it is deployed, or null when it does not:
+ * - `nothing`: nothing is published at all.
+ * - `older-schema`: a meta of this layout from an earlier schema, which no device of this build
+ *   draws.
+ * - `older-shape`: a meta of this layout and schema whose boards are of an older shape than this
+ *   build writes (`BOARD_SHAPE`, `publishedBoardShape`), which a device of this build draws, but
+ *   without what this build adds to them.
+ *
+ * In the first two every member is left looking at a notice in place of the boards until something
+ * publishes, and in the third without what the build was deployed for, and without the republish
+ * after a deploy (`scripts/republish.ts`) the next thing that would publish is a save's rebuild or
+ * the nightly, which GitHub starts hours late. Every publish of the boards records the shape it
+ * wrote (`builtFrom`), so once this build has published them they no longer want it. A meta of
+ * this build's schema and shape, or a newer shape, is the rebuilds' and the night's to keep
  * current, one of a newer schema or another layout is not this build's to replace, and one whose
  * schema cannot be read is left to the publish that can say why.
  */
-export const needsRepublish = (raw: unknown): boolean =>
-  raw === null ||
-  raw === undefined ||
-  (isRecord(raw) && raw.format === LIVE_FORMAT && isCount(raw.schema) && raw.schema < LIVE_SCHEMA);
+export const republishWanted = (
+  raw: unknown
+): "nothing" | "older-schema" | "older-shape" | null => {
+  if (raw === null || raw === undefined) return "nothing";
+  if (!isRecord(raw) || raw.format !== LIVE_FORMAT || !isCount(raw.schema)) return null;
+  if (raw.schema < LIVE_SCHEMA) return "older-schema";
+  if (raw.schema === LIVE_SCHEMA && publishedBoardShape(raw) < BOARD_SHAPE) return "older-shape";
+  return null;
+};
+
+/** Whether what is published wants publishing again once this build is out (`republishWanted`). */
+export const needsRepublish = (raw: unknown): boolean => republishWanted(raw) !== null;
 
 const entryOf = (raw: unknown): ViewEntry | null => {
   if (!isRecord(raw)) return null;
@@ -199,15 +249,17 @@ const entryOf = (raw: unknown): ViewEntry | null => {
 
 const builtOf = (raw: unknown): BuiltFrom | null => {
   if (!isRecord(raw)) return null;
-  const { k, v, inputs, league, today, rules } = raw;
+  const { k, v, inputs, league, today, rules, shape } = raw;
   if (typeof k !== "string" || !isCount(v) || !isCount(rules)) return null;
   if (typeof inputs !== "string" || typeof today !== "string") return null;
+  if (shape !== undefined && !isCount(shape)) return null;
   // Vouched for in full, or a floor with neither copy nor inputs; never half of each.
   if ((k === "") !== (inputs === "")) return null;
-  if (league === undefined) return { k, v, inputs, today, rules };
+  const said = shape === undefined ? {} : { shape };
+  if (league === undefined) return { k, v, inputs, today, rules, ...said };
   // A floor vouches for no seasons either.
   if (typeof league !== "string" || league === "" || k === "") return null;
-  return { k, v, inputs, league, today, rules };
+  return { k, v, inputs, league, today, rules, ...said };
 };
 
 const retiredOf = (raw: unknown): RetiredUpload | null => {

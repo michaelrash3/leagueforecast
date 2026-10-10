@@ -3,17 +3,20 @@ import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
 import { chunkId } from "../../cloud/cloudManifest";
 import { hashJson, unpackChunks } from "../../cloud/cloudPack";
 import { ageGroupYear, type AgeGroup, type ScoutGame } from "../../teamRankings";
-import { boardViews, buildBoardsAndFacts } from "../views/board";
+import { BOARD_SHAPE, boardViews, buildBoardsAndFacts } from "../views/board";
 import {
   coerceLiveMeta,
   LIVE_FORMAT,
   LIVE_SCHEMA,
   META_MAX_BYTES,
   needsRepublish,
+  publishedBoardShape,
   publishViews,
+  republishWanted,
   RETIRE_GRACE_MS,
   STRAY_AGE_MS,
   sweepViews,
+  type BuiltFrom,
   type LiveMeta,
   type LiveStore,
   type PublishedView,
@@ -571,7 +574,7 @@ describe("publishing views", () => {
 
 describe("the day, the rules and what a publish was built from", () => {
   const FROM = { k: COPY, v: 1, inputs: "i1", today: "2027-04-15", rules: 1 };
-  const boards = (from: Partial<typeof FROM> = {}) => ({
+  const boards = (from: Partial<BuiltFrom> = {}) => ({
     built: { family: "board:", from: { ...FROM, ...from } },
   });
 
@@ -678,6 +681,38 @@ describe("the day, the rules and what a publish was built from", () => {
     expect(live.meta()?.built["board:"]).toMatchObject({ k: COPY, v: 7, inputs: "seven" });
   });
 
+  it("records the shape a family's views were written in, and keeps in a floor the older shape both builds said", async () => {
+    const live = memoryLive();
+    await publish(live, [view("board:a", "A")], 5, boards({ v: 5, shape: 2 }));
+    expect(live.meta()?.built["board:"]).toEqual({ ...FROM, v: 5, shape: 2 });
+    // Another family moves the copy's mark on, so the boards' builds of version 6 are late.
+    await publish(live, [view("moves:x", "X")], 7, { owns: ["moves:"] });
+    await publish(live, [view("board:a", "A6")], 6, boards({ v: 6, shape: 1 }));
+    // Some of the boards may now be the older shape's, and none newer.
+    expect(live.meta()?.built["board:"]).toEqual({
+      k: "",
+      v: 0,
+      inputs: "",
+      today: "2027-04-15",
+      rules: 1,
+      shape: 1,
+    });
+    // A late build that says no shape (one from before it was recorded) leaves a floor of none.
+    await publish(live, [view("board:a", "A6 again")], 6, boards({ v: 6 }));
+    expect(live.meta()?.built["board:"]).toEqual({
+      k: "",
+      v: 0,
+      inputs: "",
+      today: "2027-04-15",
+      rules: 1,
+    });
+    // As does a publish that is not late but says nothing of what the boards came from.
+    await publish(live, [view("board:a", "B")], 8, boards({ v: 8, shape: 1 }));
+    expect(live.meta()?.built["board:"]).toMatchObject({ k: COPY, v: 8, shape: 1 });
+    await publish(live, [view("board:a", "C")], 9);
+    expect(live.meta()?.built["board:"]).not.toHaveProperty("shape");
+  });
+
   it("keeps only a floor of another family's record that a late publish writes over unvouched", async () => {
     const live = memoryLive();
     await publish(live, [view("moves:x", "X")], 5, {
@@ -735,6 +770,21 @@ describe("the day, the rules and what a publish was built from", () => {
       },
     });
     expect(read?.built).toEqual({ "board:": FROM, "teams:": floor });
+    // A shape is kept where it is a count, a floor's included, and a record with any other is wrong.
+    const shaped = coerceLiveMeta({
+      ...meta,
+      built: {
+        "board:": { ...FROM, shape: 1 },
+        "teams:": { ...floor, shape: 0 },
+        "moves:": { ...FROM, shape: -1 },
+        "games:": { ...FROM, shape: "1" },
+        "search:": { ...FROM, shape: 1.5 },
+      },
+    });
+    expect(shaped?.built).toEqual({
+      "board:": { ...FROM, shape: 1 },
+      "teams:": { ...floor, shape: 0 },
+    });
     // Seasons read from their documents are vouched for by a fingerprint, which a floor never has.
     const seasons = { ...FROM, league: "l1" };
     const vouched = coerceLiveMeta({
@@ -1010,7 +1060,14 @@ describe("the meta as a reader takes it", () => {
 });
 
 describe("whether a deploy publishes the views again", () => {
-  const stored = (schema: unknown, format: unknown = LIVE_FORMAT) => ({
+  /** A meta with this record of the boards (none for null), in this build's shape unless given. */
+  const vouched = { k: COPY, v: 2, inputs: "i2", today: "2027-04-15", rules: 2 };
+  const floor = { k: "", v: 0, inputs: "", today: "2027-04-15", rules: 2 };
+  const stored = (
+    schema: unknown,
+    format: unknown = LIVE_FORMAT,
+    boards: unknown = { ...vouched, shape: BOARD_SHAPE }
+  ) => ({
     format,
     schema,
     today: "2027-04-15",
@@ -1020,25 +1077,53 @@ describe("whether a deploy publishes the views again", () => {
     inline: {},
     views: {},
     retired: [],
-    built: {},
+    built: boards === null ? {} : { "board:": boards },
   });
 
   it("publishes over nothing published, and over a meta of an older schema than this build's", () => {
+    expect(republishWanted(null)).toBe("nothing");
+    expect(republishWanted(undefined)).toBe("nothing");
+    expect(republishWanted(stored(LIVE_SCHEMA - 1))).toBe("older-schema");
+    expect(republishWanted(stored(1, LIVE_FORMAT, null))).toBe("older-schema");
     expect(needsRepublish(null)).toBe(true);
-    expect(needsRepublish(undefined)).toBe(true);
     expect(needsRepublish(stored(LIVE_SCHEMA - 1))).toBe(true);
-    expect(needsRepublish(stored(1))).toBe(true);
   });
 
   it.each<[string, unknown]>([
-    ["this build's schema", stored(LIVE_SCHEMA)],
-    ["a newer build's schema", stored(LIVE_SCHEMA + 1)],
-    ["another layout", stored(LIVE_SCHEMA - 1, LIVE_FORMAT + 1)],
-    ["no schema", stored(undefined)],
-    ["a schema that is no count", stored("2")],
+    ["no shape, as every build before it was recorded wrote", vouched],
+    ["an older shape than this build's", { ...vouched, shape: BOARD_SHAPE - 1 }],
+    ["a floor that says no shape", floor],
+    ["a floor of an older shape", { ...floor, shape: BOARD_SHAPE - 1 }],
+    ["a record this build cannot read", { ...vouched, shape: "1" }],
+    ["no record of the boards at all", null],
+  ])("publishes over this build's schema whose boards say %s", (_case, boards) => {
+    const raw = stored(LIVE_SCHEMA, LIVE_FORMAT, boards);
+    expect(publishedBoardShape(raw)).toBeLessThan(BOARD_SHAPE);
+    expect(republishWanted(raw)).toBe("older-shape");
+    expect(needsRepublish(raw)).toBe(true);
+  });
+
+  it.each<[string, unknown]>([
+    ["this build's schema and shape", stored(LIVE_SCHEMA)],
+    [
+      "this build's schema and a newer shape",
+      stored(LIVE_SCHEMA, LIVE_FORMAT, { ...vouched, shape: BOARD_SHAPE + 1 }),
+    ],
+    [
+      "this build's schema and a floor of its shape",
+      stored(LIVE_SCHEMA, LIVE_FORMAT, { ...floor, shape: BOARD_SHAPE }),
+    ],
+    [
+      "a newer build's schema, whatever its boards say",
+      stored(LIVE_SCHEMA + 1, LIVE_FORMAT, vouched),
+    ],
+    ["another layout", stored(LIVE_SCHEMA, LIVE_FORMAT + 1, vouched)],
+    ["no schema", stored(undefined, LIVE_FORMAT, vouched)],
+    ["a schema that is no count", stored("2", LIVE_FORMAT, vouched)],
     ["not a record", "meta"],
     ["a list", [stored(1)]],
   ])("leaves %s to the rebuilds and the night", (_case, raw) => {
+    expect(republishWanted(raw)).toBeNull();
     expect(needsRepublish(raw)).toBe(false);
   });
 });

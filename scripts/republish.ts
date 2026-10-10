@@ -1,10 +1,12 @@
 /**
  * The members' views published again from the cloud copy as it stands (README, "Views a server
  * publishes"), run by the Firebase workflow once a push to main has deployed. It publishes only when
- * nothing is published, or what is was published under an older schema than this build writes
- * (`needsRepublish`): then no device of this build can draw the boards, and without this every
- * member was left on the older schema's notice until the next nightly, which GitHub starts hours
- * late. Any other time it says so and leaves the views to the rebuilds after saves and the night.
+ * nothing is published, or what is was published under an older schema than this build writes, or
+ * its boards are of an older shape than this build's (`republishWanted`): in the first two no device
+ * of this build can draw the boards, and without this every member was left on the older schema's
+ * notice until the next nightly, which GitHub starts hours late; in the third the boards lack what
+ * this build adds to them until then. Any other time it says so and leaves the views to the
+ * rebuilds after saves and the night.
  *
  * What it does, and when it has done it, is `republishViews`'s, where it is tested: the copy laid
  * into the app's pool store in memory exactly as a pull lays it (`loadPoolFrom`), refused where a
@@ -22,7 +24,8 @@
  */
 import { todayIsoDay } from "../src/lib/date.ts";
 import { republishViews, REPUBLISH_TRIES } from "../src/lib/live/republish.ts";
-import { LIVE_SCHEMA } from "../src/lib/live/viewStore.ts";
+import { BOARD_SHAPE } from "../src/lib/live/views/boardShape.ts";
+import { LIVE_SCHEMA, publishedBoardShape, republishWanted } from "../src/lib/live/viewStore.ts";
 import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
 import { mb, tellViews } from "./viewsReport.ts";
@@ -47,7 +50,16 @@ const schemaOf = (raw: unknown): string => {
 const publishedAs = (raw: unknown): string =>
   raw === null || raw === undefined
     ? "nothing is published"
-    : `the published views are of schema ${schemaOf(raw)}`;
+    : `the published views are of schema ${schemaOf(raw)} with boards of shape ${publishedBoardShape(raw)}`;
+
+/** What this build publishes, in the same words. */
+const WRITES = `this build writes schema ${LIVE_SCHEMA} with boards of shape ${BOARD_SHAPE}`;
+
+/** What members are left with while the views still want publishing, for the log. */
+const leftWith = (raw: unknown): string =>
+  republishWanted(raw) === "older-shape"
+    ? "the boards lack what this build adds to them until a save's rebuild or the night publishes them"
+    : "members of this build are left on the notice";
 
 const main = async (): Promise<void> => {
   const key = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -65,18 +77,18 @@ const main = async (): Promise<void> => {
     now: () => new Date().toISOString(),
     onLoaded: (loaded, published, attempt) =>
       console.log(
-        `${attempt > 1 ? `Try ${attempt} of ${REPUBLISH_TRIES}: ` : ""}${publishedAs(published)}, and this build writes ${LIVE_SCHEMA}: publishing the views of the copy at version ${loaded.manifest.version} (${loaded.keys} parts, ${mb(loaded.bytes)} gzipped, read in ${since()}).`
+        `${attempt > 1 ? `Try ${attempt} of ${REPUBLISH_TRIES}: ` : ""}${publishedAs(published)}, and ${WRITES}: publishing the views of the copy at version ${loaded.manifest.version} (${loaded.keys} parts, ${mb(loaded.bytes)} gzipped, read in ${since()}).`
       ),
     onViews: (views) => tellViews(views, false),
   });
   const said: Record<typeof result.end, string> = {
-    "not-needed": `${publishedAs(result.found)} and this build writes ${LIVE_SCHEMA}: they are left to the rebuilds after saves and the night.`,
+    "not-needed": `${publishedAs(result.found)}, and ${WRITES}: they are left to the rebuilds after saves and the night.`,
     "no-copy": "There is no cloud copy, so there are no views to publish.",
     "newer-copy":
       "The copy was saved or tidied by a newer build than this one, so its views are that build's to publish.",
     published: `Published in ${result.tries} ${result.tries === 1 ? "try" : "tries"}.`,
     "published-since": `Not published by this run, but ${publishedAs(result.now)} now, which this build need not replace.`,
-    refused: `Not published after ${result.tries} ${result.tries === 1 ? "try" : "tries"}, and ${publishedAs(result.now)} still: members of this build are left on the notice.`,
+    refused: `Not published after ${result.tries} ${result.tries === 1 ? "try" : "tries"}, and ${publishedAs(result.now)} still: ${leftWith(result.now)}.`,
   };
   console.log(said[result.end].charAt(0).toUpperCase() + said[result.end].slice(1));
   if (!result.ok) process.exitCode = 1;

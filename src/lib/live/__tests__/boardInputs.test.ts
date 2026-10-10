@@ -42,7 +42,7 @@ import {
   builtFrom,
   isBoardInput,
 } from "../boardInputs";
-import { BOARD_RULES, boardViews, buildBoardsAndFacts } from "../views/board";
+import { BOARD_RULES, BOARD_SHAPE, boardViews, buildBoardsAndFacts } from "../views/board";
 import { clubViews } from "../views/clubs";
 import { searchViews } from "../views/search";
 import { LIVE_FORMAT, LIVE_SCHEMA, type LiveMeta } from "../viewStore";
@@ -301,6 +301,19 @@ describe("where the published boards stand against a copy", () => {
     expect(await boardsState(await metaWith({ k: "", v: 0, inputs: "" }), copy, "2027-04-15")).toBe(
       "stale"
     );
+  });
+
+  it("are built again in this build's shape over boards of an older shape, or of none, and not over a newer one", async () => {
+    // What a publish records, so the next rebuild of the same copy finds them current.
+    expect((await builtFrom(copy, "2027-04-15")).shape).toBe(BOARD_SHAPE);
+    const { shape: _shape, ...unshaped } = await builtFrom(copy, "2027-04-15");
+    const unrecorded = { ...(await metaWith()), built: { [BOARD_FAMILY]: unshaped } };
+    expect(await boardsState(unrecorded, copy, "2027-04-15")).toBe("stale");
+    const older = await metaWith({ shape: BOARD_SHAPE - 1 });
+    expect(await boardsState(older, copy, "2027-04-15")).toBe("stale");
+    // A newer build's boards carry more than this build's would.
+    const newer = await metaWith({ shape: BOARD_SHAPE + 1 });
+    expect(await boardsState(newer, copy, "2027-04-15")).toBe("current");
   });
 
   it("are current only when built from the same League Standings seasons, whether documents or the copy's part", async () => {

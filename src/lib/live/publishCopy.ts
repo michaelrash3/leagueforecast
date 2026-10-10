@@ -22,7 +22,7 @@ import {
   type CloudLeague,
   type LeagueDocsList,
 } from "./cloudLeague";
-import { boardViews, buildBoardsAndFacts, livePagesOf } from "./views/board";
+import { boardViews, buildBoardsAndFacts, livePagesOf, type BoardView } from "./views/board";
 import { clubViews } from "./views/clubs";
 import { CLUB_FAMILY } from "./views/clubShape";
 import { gamesViews } from "./views/games";
@@ -59,6 +59,26 @@ export const seasonReaderOf = (league: unknown): SeasonReader | null => {
   return (seasonId) => seasons.get(seasonId) ?? NOTHING;
 };
 
+/**
+ * The boards that carry a fit, and the bytes of its JSON over them all and on the largest, for the
+ * log (`scripts/viewsReport.ts`): the part of a board that grows with its rows' opponents off the
+ * board rather than with the rows, measured each night rather than once.
+ */
+const fitsOf = (boards: ReadonlyArray<{ value: BoardView }>): CopyPublishFits => {
+  const encoder = new TextEncoder();
+  let count = 0;
+  let bytes = 0;
+  let largest = 0;
+  for (const { value } of boards) {
+    if (!value.fit) continue;
+    const size = encoder.encode(JSON.stringify(value.fit)).length;
+    count += 1;
+    bytes += size;
+    largest = Math.max(largest, size);
+  }
+  return { boards: count, bytes, largest };
+};
+
 /** The collation the boards were built under: rows that tie are put in name order by it. */
 export const boardLocale = (): string => new Intl.Collator().resolvedOptions().locale;
 
@@ -93,6 +113,8 @@ export type CopyPublish =
       searches: number;
       games: number;
       buildMs: number;
+      /** The boards that carry a fit (`BoardFit`), and its JSON's bytes in all and at most. */
+      fits: { boards: number; bytes: number; largest: number };
       publish: Extract<PublishResult, { ok: true }>;
       /** The sweep after it, or why it stopped: the views are published either way. */
       sweep: { ok: true; deleted: number; strays: number } | { ok: false; why: string };
@@ -119,6 +141,8 @@ export type CopyPublish =
         | "league-moved"
         | Exclude<Extract<PublishResult, { ok: false }>["reason"], "not-current">;
     };
+
+type CopyPublishFits = Extract<CopyPublish, { ok: true }>["fits"];
 
 /**
  * Refusals that are not the publishing run's doing. A copy or a season saved during the run asks
@@ -236,6 +260,7 @@ export const publishCopyViews = async ({
     today,
   });
   const boards = boardViews(ageGroups, built);
+  const fits = fitsOf(boards);
   // Each club's card, from what the boards' build derived, published with them and vouched for by
   // the same record: they read the same inputs (`isBoardInput`).
   const clubs = clubViews({ ageGroups, built, namedAges: loadNamedAges() });
@@ -301,6 +326,7 @@ export const publishCopyViews = async ({
       searches: searches.length,
       games: games.length,
       buildMs,
+      fits,
       publish,
       sweep:
         publish.undeleted > 0
@@ -324,6 +350,7 @@ export const publishCopyViews = async ({
     searches: searches.length,
     games: games.length,
     buildMs,
+    fits,
     publish,
     sweep,
   };

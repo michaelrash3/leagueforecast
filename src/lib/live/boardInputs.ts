@@ -2,7 +2,7 @@ import { hashJson } from "../cloud/cloudPack";
 import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { isBoardInputKey } from "../teamRankingsStorage";
-import { BOARD_RULES } from "./views/boardShape";
+import { BOARD_FAMILY, BOARD_RULES, BOARD_SHAPE } from "./views/boardShape";
 import { LIVE_SCHEMA, type BuiltFrom, type LiveMeta } from "./viewStore";
 
 /**
@@ -10,8 +10,7 @@ import { LIVE_SCHEMA, type BuiltFrom, type LiveMeta } from "./viewStore";
  * and whether the boards published are already the ones the copy would give.
  */
 
-/** The family of views the boards are: every key under this prefix. */
-export const BOARD_FAMILY = "board:";
+export { BOARD_FAMILY };
 
 /** Whether a part of the copy is one the boards read: League Standings, or a pool key they read. */
 export const isBoardInput = (key: string): boolean => key === LEAGUE_PART || isBoardInputKey(key);
@@ -41,9 +40,10 @@ export const boardInputsPrintOf = async (
 };
 
 /**
- * What boards built from `manifest` for the members' day `today`, under these rules, came from:
- * with `league`, the fingerprint of the League Standings seasons when they were read from their
- * own documents (`leaguePrintOf`), and none when they were the copy's part, which `inputs` covers.
+ * What boards built from `manifest` for the members' day `today`, under these rules and in this
+ * build's shape (`BOARD_SHAPE`), came from: with `league`, the fingerprint of the League Standings
+ * seasons when they were read from their own documents (`leaguePrintOf`), and none when they were
+ * the copy's part, which `inputs` covers.
  */
 export const builtFrom = async (
   manifest: CloudManifest,
@@ -56,13 +56,17 @@ export const builtFrom = async (
   ...(league === "" ? {} : { league }),
   today,
   rules: BOARD_RULES,
+  shape: BOARD_SHAPE,
 });
 
 /**
  * Where the published boards stand against the copy `manifest` and the League Standings seasons
  * `league` names (`builtFrom`) for the day `today`:
  * - `current`: built from this very version of the copy and these seasons, for this day, under
- *   these rules, in this build's shape, so building them again would publish nothing new.
+ *   these rules, in this build's schema and board shape or a newer shape, so building them again
+ *   would publish nothing new. Boards of an older shape, or of none recorded, are built again
+ *   however current their inputs, since this build's boards carry more than they do; a newer
+ *   shape's are not, since this build's would carry less.
  * - `newer-schema`: published by a newer build, whose meta this one must leave alone.
  * - `older-rules`: built by newer rules than this build's, which must leave them alone.
  * - `older-day`: built for a later day than `today`, so this build's day has passed.
@@ -90,6 +94,7 @@ export const boardsState = async (
     built.v === manifest.version &&
     built.today === today &&
     built.rules === BOARD_RULES &&
+    (built.shape ?? 0) >= BOARD_SHAPE &&
     (built.league ?? "") === league &&
     built.inputs === (await boardInputsPrint(manifest));
   return current ? "current" : "stale";

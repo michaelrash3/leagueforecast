@@ -11,7 +11,9 @@
  *   npm run live:bench -- backup.json --save copy.json  the cloud copy made from either, kept in a file
  *   npm run live:bench -- --copy copy.json              the bench run from a kept copy
  *
- * The questions a section asks before an edit (`runQuery`) are asked once, after the warm-up, each
+ * Every board's fit (`boardFitOf`) is worked out once, after the warm-up, over the fits a full
+ * build makes, timed apart from the fits themselves, with what the fits come to and the heap. The
+ * questions a section asks before an edit (`runQuery`) are asked once, after that, each
  * answer's size printed and read back as a device reads it. The edits are made twice: first on
  * their own, as the edit function makes them, then each followed by a publish of every board, as
  * the rebuild after it builds them, where it changed a part the boards read (the trigger rebuilds
@@ -26,6 +28,7 @@
  * edit changed, which is timed apart, unpacked and checked, from the copy in memory.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { poolFixture, FIXTURE_TODAY } from "./poolFixture.ts";
 import { memoryCloud, type MemoryCloud } from "../src/lib/cloud/__tests__/memoryCloud.ts";
 import { commitChanges, fetchValues } from "../src/lib/cloud/cloudEngine.ts";
@@ -41,13 +44,25 @@ import { coerceQueryAnswer } from "../src/lib/live/queryAnswers.ts";
 import { createEditPool } from "../src/lib/live/poolCache.ts";
 import { runRebuild } from "../src/lib/live/rebuild.ts";
 import { seenAs } from "../src/lib/live/views/gamesShape.ts";
-import { deriveAllKnown } from "../src/lib/live/allKnown.ts";
+import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../src/lib/live/allKnown.ts";
+import {
+  asWorkerSees,
+  BOARD_HALVES,
+  boardFitOf,
+  ratingPools,
+} from "../src/lib/live/views/board.ts";
 import { seasonReaderOf } from "../src/lib/live/publishCopy.ts";
 import { cardGamesOf, panelGame } from "../src/lib/live/views/clubs.ts";
 import { LEAGUE_PART } from "../src/lib/cloud/cloudPlan.ts";
 import { loggedGamesOn } from "../src/lib/teamRankings/gamesWindow.ts";
 import { memoryLive } from "../src/lib/live/__tests__/memoryLive.ts";
-import { ageGroupYear } from "../src/lib/teamRankings.ts";
+import {
+  ageGroupYear,
+  fitScoutYearFor,
+  rankingPoolGroupIds,
+  rowsOfYearFit,
+  scoutFitRanks,
+} from "../src/lib/teamRankings.ts";
 import { parseTeamRankingsJson, writeTeamRankingsBackup } from "../src/lib/teamRankingsBackup.ts";
 import {
   cloudPoolKeys,
@@ -175,6 +190,74 @@ const commandsFor = (at: string): Array<[string, PoolCommand]> => {
     ]);
   if (dropped) commands.push(["club.drop", { kind: "club.drop", teamId: dropped.id }]);
   return commands;
+};
+
+/**
+ * Every board's fit (`boardFitOf`) over the fits a full build makes, as it makes them: each rating
+ * pool fitted once for each span, from the page that ranks, and every page of the pool cut from it.
+ * The fits themselves are not timed, only what is read off them; the first board of each fit
+ * pays for its recency basis, which the rest share. What the boards' fits come to is said as JSON
+ * and gzipped, over them all and on the largest.
+ */
+const boardFits = (today: string, readSeason: SeasonReader): Record<string, number> => {
+  const ageGroups = loadAgeGroups();
+  const teams = loadScoutTeams();
+  let fits = 0;
+  let boards = 0;
+  let carried = 0;
+  let away = 0;
+  let firstMs = 0;
+  let restMs = 0;
+  let json = 0;
+  let gzipped = 0;
+  let largest = 0;
+  for (const pageIds of ratingPools(ageGroups)) {
+    const ranked = pageIds.find((pageId) => scoutFitRanks(pageId, ageGroups));
+    if (!ranked) continue;
+    const yearGames = loadScoutGamesForYear(
+      ageGroupYear(ageGroups.find((group) => group.id === ranked))
+    );
+    const known = deriveAllKnown({ ageGroups, teams, yearGames, readSeason });
+    const pool = asWorkerSees(
+      known.teams,
+      gamesOnPages(known.games, rankingPoolGroupIds(ranked, ageGroups))
+    );
+    for (const { segment } of BOARD_HALVES) {
+      const fit = fitScoutYearFor(ranked, pool.teams, pool.games, ageGroups, segment, today);
+      if (!fit) continue;
+      fits += 1;
+      let first = true;
+      for (const pageId of pageIds) {
+        const rows = rowsOfYearFit(fit, pageId, undefined, ageGroups);
+        const started = performance.now();
+        const made = boardFitOf(fit, rows, today);
+        const took = performance.now() - started;
+        boards += 1;
+        if (!made) continue;
+        if (first) firstMs += took;
+        else restMs += took;
+        first = false;
+        const text = JSON.stringify(made);
+        const zipped = gzipSync(text).length;
+        carried += 1;
+        away += made.away.ids.length;
+        json += text.length;
+        gzipped += zipped;
+        largest = Math.max(largest, zipped);
+      }
+    }
+  }
+  return {
+    fits,
+    boards,
+    carried,
+    away,
+    firstMs: Math.round(firstMs),
+    restMs: Math.round(restMs),
+    jsonKb: Math.round(json / 1024),
+    gzipKb: Math.round(gzipped / 1024),
+    largestGzipKb: Math.round(largest / 1024),
+  };
 };
 
 /** A copy as `--save` keeps it: the manifest, and each piece in base64. */
@@ -390,6 +473,12 @@ const main = async () => {
         game: { ...panelGame(ahead), id: String(at) },
         today,
       });
+  }
+  // Every board's fit, read off the fits a full build makes, before the questions are asked.
+  if (seasons) {
+    started = performance.now();
+    const fits = boardFits(today, seasons);
+    print({ step: "board fits", ...fits, ms: ms(started), heapMb: heapMb(), ...peak() });
   }
   // The last game the biggest page lists, found at its place, and found by the scan a list that
   // has moved since it was published asks for.

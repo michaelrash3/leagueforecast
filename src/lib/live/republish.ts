@@ -6,9 +6,11 @@ import { needsRepublish, type LiveStore } from "./viewStore";
 
 /**
  * The members' views published again from the cloud copy as it stands, once a deploy has left them
- * of an older schema than the build deployed, or there are none (README, "Views a server
- * publishes"). Then no device of the new build draws a board, and without this every member was
- * left on the older schema's notice until the next nightly, which GitHub starts hours late.
+ * of an older schema than the build deployed, or there are none, or their boards are of an older
+ * shape than the build writes (`republishWanted`; README, "Views a server publishes"). In the first
+ * two no device of the new build draws a board, and without this every member was left on the
+ * older schema's notice until the next nightly, which GitHub starts hours late; in the third the
+ * boards lack what the build adds to them until a save's rebuild or the night.
  * `scripts/republish.ts` runs it after a push to main that deployed; it is kept here so its rules
  * are tested.
  *
@@ -42,7 +44,8 @@ const MOVING: ReadonlySet<Extract<CopyPublish, { ok: false }>["reason"]> = new S
 export type Republish = {
   /**
    * `not-needed`: what was published did not want publishing when the run began: of this build's
-   * schema, a newer build's, or another layout's. `no-copy`: there is no cloud copy to publish
+   * schema with boards of this build's shape or a newer one, of a newer build's schema, or of
+   * another layout. `no-copy`: there is no cloud copy to publish
    * from. `newer-copy`: a newer build saved or tidied the copy (`copyTooNew`), so its views are that
    * build's. `published`: this run published them, whatever the sweep after them did, which only
    * collects pieces nothing names and the next night's full sweep collects as well.
