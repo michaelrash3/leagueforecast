@@ -5856,7 +5856,11 @@ the deterministic story is shown. To exercise the AI path locally, run
     view's tab, and a view under More has none in the bar, so the bar carries a
     hidden name for it in that tab's place. Wide screens keep the row of tabs, with
     the same keys and badges.
-  - Pages leave room below for the bar, and toasts sit above it.
+  - Pages leave room below for the bar, and toasts sit above it. The page's scroll
+    padding keeps the bar and its strip clear too, so a control the keyboard moves
+    to is scrolled above the bar rather than to the screen's edge behind it: at 360
+    by 640, tabbing down Settings had left two fields wholly under the bar and two
+    partly, and leaves none now.
   - The app-mode switch fills a phone's row in two halves. At its old size it was
     336px wide in the 288px a 320px screen leaves, which widened the whole page
     there; the new 320px checks found it.

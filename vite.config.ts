@@ -161,8 +161,9 @@ export default defineConfig({
       thresholds: { statements: 80, branches: 67, functions: 76, lines: 81 },
     },
     // Vitest stubs every stylesheet out as empty, which suits the app's. Tailwind's theme is let
-    // through so the contrast test can read the palette the build draws with (`?raw`, as text).
-    css: { include: [/\/tailwindcss\/theme\.css/] },
+    // through so the contrast test can read the palette the build draws with (`?raw`, as text),
+    // and the app's own sheet so the tab bar's test can read the room it keeps for the bar.
+    css: { include: [/\/tailwindcss\/theme\.css/, /\/src\/index\.css/] },
     // Two projects rather than one environment, because they want different ones. The lib tests are
     // pure functions and run fastest with no DOM at all; the component tests need one. Splitting
     // them keeps the 1,000-odd lib tests from paying for a jsdom they never touch.

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import appCss from "../index.css?raw";
 import { ShortcutsHelp } from "./ShortcutsHelp";
 import { TabNav, type TabNavItem } from "./TabNav";
 
@@ -319,6 +320,22 @@ describe("the tab row on a phone", () => {
     expect(
       beyondColour(screen.getByRole("button", { name: "More: Settings" }), schedule)
     ).not.toEqual([]);
+  });
+
+  it("keeps what the focus is scrolled to clear of the bar", () => {
+    /*
+     * A browser scrolls a control the focus moves to only as far as the screen's bottom edge,
+     * which on a phone is behind the bar: at 360 by 640, tabbing down Settings left two fields
+     * wholly under it and two partly. The page's scroll padding below, while the bar is drawn, is
+     * the room kept clear. The scrolling is the browser's, so this reads the rule: under the query
+     * the bar is drawn by (`useNarrowViewport`), at least the bar and the strip above it, which
+     * measured 52px and 29px.
+     */
+    const rule = appCss.match(
+      /@media \(max-width: 639px\) \{\s*html \{\s*scroll-padding-bottom: calc\(([\d.]+)rem \+ env\(safe-area-inset-bottom\)\);/
+    );
+    expect(rule).not.toBeNull();
+    expect(Number(rule?.[1]) * 16).toBeGreaterThanOrEqual(52 + 29);
   });
 
   it("keeps More's list within the screen's height, scrolling inside itself", async () => {
