@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { BracketOddsResult } from "../lib/sim";
+import { likelySeeds } from "../lib/seedRange";
 import { displayName, teamAbbr } from "../lib/format";
 
 type SeedTeam = { id: string; name: string };
@@ -106,11 +107,18 @@ export function SeedOddsPanel({
                     {seed}
                   </th>
                 ))}
+                <th
+                  className="p-1 pl-2 text-left text-slate-500 dark:text-slate-400"
+                  title="The seeds it finishes in, eight simulated seasons in ten"
+                >
+                  Likely
+                </th>
               </tr>
             </thead>
             <tbody>
               {teams.map((team) => {
                 const distribution = bracketOdds.seedDistribution[team.id] ?? [];
+                const likely = likelySeeds(distribution);
                 return (
                   <tr key={team.id}>
                     <th
@@ -146,6 +154,13 @@ export function SeedOddsPanel({
                         </td>
                       );
                     })}
+                    <td className="p-1 pl-2 whitespace-nowrap text-slate-700 dark:text-slate-200">
+                      {likely === null
+                        ? "—"
+                        : likely.best === likely.worst
+                          ? likely.best
+                          : `${likely.best}–${likely.worst}`}
+                    </td>
                   </tr>
                 );
               })}
@@ -154,7 +169,7 @@ export function SeedOddsPanel({
         </div>
         <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
           Cells show the chance of each final seed. The red column marks the Gold cut line (top{" "}
-          {cutoff}).
+          {cutoff}). Likely is the seeds each team finishes in eight simulated seasons in ten.
         </p>
       </div>
     </section>
