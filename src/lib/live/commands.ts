@@ -17,7 +17,7 @@ import {
   type NamedAges,
 } from "../namedAges";
 import { withoutClub } from "../unrealClubs";
-import { takeOffClub } from "../notThisTeam";
+import { refusalsFor, takeOffClub } from "../notThisTeam";
 import { coerceAgeUnknown, type AgeUnknownList, type AgeUnknownTeam } from "../ageUnknown";
 import {
   DEFAULT_REFRESH_CADENCE,
@@ -49,9 +49,11 @@ import {
 /**
  * The lists of answers the user has given, each kept as a set of ids: clubs said to be real, ages
  * said to be right, pairs kept apart, and what a pull is to refuse: the GameChanger ids of clubs
- * thrown out (`droppedClubs`) and the rows of games thrown out (`deletedGames`).
+ * thrown out (`droppedClubs`), the rows of games thrown out (`deletedGames`), and the names a
+ * schedule wrote that are not a club ("Not this team", `notThisTeam`).
  */
-export type AnswerList = "realClubs" | "ageRight" | "keptApart" | "droppedClubs" | "deletedGames";
+export type AnswerList =
+  "realClubs" | "ageRight" | "keptApart" | "droppedClubs" | "deletedGames" | "notThisTeam";
 
 const ANSWER_LISTS: readonly AnswerList[] = [
   "realClubs",
@@ -59,6 +61,7 @@ const ANSWER_LISTS: readonly AnswerList[] = [
   "keptApart",
   "droppedClubs",
   "deletedGames",
+  "notThisTeam",
 ];
 
 export type PoolCommand =
@@ -1145,6 +1148,14 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       const back: PoolCommand[] = [{ kind: "game.put", year: command.year, games: [was] }];
       // After the game is back on the club, so the stand-in made for it names nothing as it goes.
       if (taken.standIn) back.push({ kind: "team.remove", teamId: taken.standIn.id });
+      // Remembered, so no pull or tidy files the name onto the club again (`notThisTeam.ts`); the
+      // undo forgets only what this one added, not a refusal given before.
+      const refused = read.answers("notThisTeam");
+      const added = refusalsFor(was, club).filter((entry) => !refused.has(entry));
+      if (added.length > 0) {
+        writes.push({ part: "answers", list: "notThisTeam", ids: new Set([...refused, ...added]) });
+        back.push({ kind: "answers", list: "notThisTeam", add: [], remove: added });
+      }
       return { ok: true, writes, inverse: undoing(back) };
     }
     case "game.put": {

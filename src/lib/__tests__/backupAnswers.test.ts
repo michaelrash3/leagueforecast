@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   coerceTeamRankingsBackup,
   readTeamRankingsBackup,
+  readTeamRankingsFile,
+  teamRankingsJson,
   writeTeamRankingsBackup,
 } from "../teamRankingsBackup";
 import {
@@ -11,8 +13,11 @@ import {
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
+  loadNotThisTeam,
   loadRealClubs,
   loadTooYoungClubs,
+  isCloudPoolKey,
+  cloudPoolKeys,
   resetTeamRankingsStore,
   saveAgeRightClubs,
   saveAgeUnknown,
@@ -20,11 +25,15 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveNamedAges,
+  saveNotThisTeam,
   saveRealClubs,
   saveTooYoungClubs,
 } from "../teamRankingsStorage";
 import { nameAge } from "../namedAges";
 import { apartKey, keepApart } from "../keptApart";
+import { refusalOf } from "../notThisTeam";
+
+const REFUSED = refusalOf("gcHAWKS00001", "Eagles", "gcEAGLES0001");
 
 const NOW = "2026-09-20T12:00:00.000Z";
 
@@ -38,6 +47,7 @@ const anEveningOfAnswers = () => {
   saveAgeUnknown([{ teamId: "still", firstSeen: NOW, lastTried: NOW, tries: 2 }]);
   saveRealClubs(new Set(["vouched"]));
   saveAgeRightClubs(new Set(["playsUp"]));
+  saveNotThisTeam(new Set([REFUSED]));
 };
 
 /** A store of its own, so this file's answers are not somebody else's. */
@@ -86,6 +96,7 @@ describe("what a backup carries besides the pool", () => {
     expect(loadAgeUnknown().map((one) => one.teamId)).toEqual(["still"]);
     expect([...loadRealClubs()]).toEqual(["vouched"]);
     expect([...loadAgeRightClubs()]).toEqual(["playsUp"]);
+    expect([...loadNotThisTeam()]).toEqual([REFUSED]);
   });
 
   /*
@@ -113,6 +124,37 @@ describe("what a backup carries besides the pool", () => {
     expect([...loadAgeRightClubs()]).toEqual(["playsUp"]);
     writeTeamRankingsBackup({ ...backup, answers: { ...older, ageRightClubs: [] } });
     expect([...loadAgeRightClubs()]).toEqual([]);
+  });
+
+  // The names said not to be a club ("Not this team"), kept after the clubs said to play up.
+  it("leaves the names said not to be a club alone when the file predates them", () => {
+    anEveningOfAnswers();
+    const backup = readTeamRankingsBackup();
+    expect(backup.answers?.notThisTeam).toEqual([REFUSED]);
+    const { notThisTeam: _refused, ...older } = backup.answers!;
+
+    writeTeamRankingsBackup({ ...backup, answers: older });
+    expect([...loadNotThisTeam()]).toEqual([REFUSED]);
+    writeTeamRankingsBackup({ ...backup, answers: { ...older, notThisTeam: [] } });
+    expect([...loadNotThisTeam()]).toEqual([]);
+  });
+
+  it("writes the names said not to be a club into the file, and reads them back off it", () => {
+    anEveningOfAnswers();
+    // A file is written only for a pool with something in it.
+    const backup = { ...readTeamRankingsBackup(), teams: [{ id: "S-A", name: "Placeholder" }] };
+    const file = JSON.parse(teamRankingsJson(backup, NOW)) as unknown;
+    expect(readTeamRankingsFile(file)?.answers?.notThisTeam).toEqual([REFUSED]);
+  });
+
+  /*
+   * The cloud copy carries every pool key but the device-only ones, so a refusal made on the live
+   * page, or on a device, reaches the nightly, which reads the copy.
+   */
+  it("travels with the cloud copy", () => {
+    saveNotThisTeam(new Set([REFUSED]));
+    expect(isCloudPoolKey("league_forecast_gc_not_this_team_v1")).toBe(true);
+    expect(cloudPoolKeys()).toContain("league_forecast_gc_not_this_team_v1");
   });
 
   /*

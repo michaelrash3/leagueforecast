@@ -1035,6 +1035,24 @@ that can only be one. The club's record, rating and board move with it, and Undo
 as it was. It is a command (`game.notThisTeam`), so a page kept in the browser runs it on its own
 store and the live page sends it to the edit function.
 
+The answer is remembered, as the pairs kept apart are: in the pool's own key
+(`league_forecast_gc_not_this_team_v1`), in every backup and in the cloud copy, against the
+schedule's GameChanger id, the name as the import reads it (`teamNameKey`) and each of the club's
+GameChanger ids. Not against the game: a re-pull finds a row taken off a club by its id and keeps
+the stand-in it has, so what brings the mistake back is the refile putting the stand-in on the club
+the next time the club has a game that day, the claim step reading the club's copy as the game, and
+the namer's next row of that name, a league opponent being named over and over. The schedule and
+the name stay in the key, so another schedule naming the club, or this one naming it another way,
+is matched as before, and the pool keeps no row's name, so the club's name is the name: a name files
+a row onto a pulled club only where the two read the same. Every road a name takes onto a club
+asks it (`refusesName`): the import's match, by the name and by the game (`planOpponent`), the slot
+settle, the crossed halves, the reclaim, the refile, the claim step and a namesake taking a row off
+a club far from its age. The step that takes a name's rows off a club (`resettleOffLevel`) takes the
+namer's other rows of the refused name off it too, at the next tidy. Only the picture still names
+the club, being GameChanger's identity rather than a reading of a name. The import panel and the
+tidy on this page, in its worker or not, read the list, and the command adds to it: the club's ids
+it does not hold already, which its Undo takes off again and nothing else.
+
 **A row filed by name beside a game the club never listed.** Where another club's own schedule
 lists a game against a club that none of the club's own schedules gives a row, that game is on the
 club's schedule somewhere — under whatever its coach typed for the other club. The import files a
@@ -5537,7 +5555,7 @@ inverse puts every part the command touched back as it was, to the stored byte.
 
 | Command                                                                                                                                                               | What it changes                                                                                                                                                                                                    |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `answers`                                                                                                                                                             | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart.                                                                                                    |
+| `answers`                                                                                                                                                             | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart, names said not to be a club.                                                                       |
 | `team.state`, `team.unlinkGc`                                                                                                                                         | A club's state; one GameChanger id taken off a club.                                                                                                                                                               |
 | `game.score`, `game.exclude`, `game.confirm`                                                                                                                          | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now.                                                                                                  |
 | `game.add`, `game.remove`                                                                                                                                             | Games added at the end of their year, with the new clubs they name (and only those); games taken out of their year.                                                                                                |

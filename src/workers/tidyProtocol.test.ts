@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyTidied, createTidyHandler, type WorkerResponse } from "./tidyProtocol";
 import { packPool } from "./tidyProtocol";
 import { TIDY_STEPS, type GcImportState } from "../lib/gameChangerImport";
+import { refusalOf } from "../lib/notThisTeam";
 
 /**
  * One club's schedule names the opponent; the other posted the same game against a stand-in with
@@ -81,6 +82,28 @@ describe("the tidy worker's side of the protocol", () => {
     expect(kept.ageGroups).toBe(tidied.ageGroups);
     expect(kept.teams).toBe(tidied.teams);
     expect(kept.games).toBe(tidied.games);
+  });
+
+  it("honours the names the owner has said are not a club, which it is told of", () => {
+    // The Home Club pulled, and the owner's word that the Away Club's "TBD- 3:00 PM" is not it.
+    const pool = withStandIn();
+    const home = {
+      ...pool.teams[0]!,
+      gcTeams: [{ teamId: "gcHOME", name: "Home Club 10U", ageGroupId: "ag_10u_2027" }],
+    };
+    const state = packPool({ ...pool, teams: [home, ...pool.teams.slice(1)] });
+    const { handle, answersOf } = harness();
+    handle({ kind: "tidy", id: 1, state });
+    handle({
+      kind: "tidy",
+      id: 2,
+      state,
+      notThisTeam: [refusalOf("gcAWAY", "TBD- 3:00 PM", "gcHOME")],
+    });
+    const [told, refused] = answersOf("tidy");
+    if (told?.kind !== "tidy" || refused?.kind !== "tidy") throw new Error("expected answers");
+    expect(told.tidy.named).toBe(1);
+    expect(refused.tidy.named).toBe(0);
   });
 
   it("inspects the pool it was shipped without tidying it", () => {

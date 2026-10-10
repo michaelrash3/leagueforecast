@@ -1,7 +1,16 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { loadScoutGamesForYear, loadScoutTeams } from "../../lib/teamRankingsStorage";
+import {
+  loadAgeGroups,
+  loadNotThisTeam,
+  loadScoutGames,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+  loadTidyStamp,
+} from "../../lib/teamRankingsStorage";
+import { poolSignature } from "../../lib/gameChangerImport";
+import { refusalOf } from "../../lib/notThisTeam";
 import type { ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { ageGroup, renderTeamRankings, team, type Pool } from "../../test/teamRankingsHarness";
 
@@ -123,5 +132,35 @@ describe("Not this team, on a page kept in this browser", () => {
     expect(screen.getByRole("region", { name: "Eagles" })).toHaveTextContent(
       /2-0 in 9U 2027, from 2 games\./
     );
+  });
+
+  it("is remembered, so the tidy the change sets off does not file the name back", async () => {
+    // No "Eagles" of the Hawks' state to reuse: a stand-in is made, the pool is not the one the
+    // tidy last saw, and the tidy runs. Its refile would put the row straight back on the Eagles,
+    // the one club of the name next door with a game that day, were the refusal not kept.
+    const user = userEvent.setup();
+    const { teams, games, ...rest } = pool();
+    renderTeamRankings({
+      ...rest,
+      teams: teams.filter((each) => each.id !== ourEagles.id),
+      games: games.filter((each) => each.teamBId !== ourEagles.id),
+    });
+    const panel = await openClub(user, "Eagles");
+    await user.click(
+      within(gameLine(panel, "Prairie Hawks")).getByRole("button", { name: "Not this team" })
+    );
+    expect([...loadNotThisTeam()]).toEqual([
+      refusalOf(`gc${hawks.id}`, "Eagles", `gc${eagles.id}`),
+    ]);
+    await waitFor(() =>
+      expect(loadTidyStamp()).toBe(
+        poolSignature({
+          ageGroups: loadAgeGroups(),
+          teams: loadScoutTeams(),
+          games: loadScoutGames(),
+        })
+      )
+    );
+    expect(stored(byName.id)?.teamBId).not.toBe(eagles.id);
   });
 });

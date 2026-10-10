@@ -5,6 +5,7 @@ import {
   type TidyStep,
 } from "../lib/gameChangerImport";
 import { coerceKeptApart } from "../lib/keptApart";
+import { coerceNotThisTeam } from "../lib/notThisTeam";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import { poolLists, type PoolLists } from "../lib/poolLists";
 import type { AgeGroup } from "../lib/teamRankings";
@@ -44,6 +45,11 @@ export type TidyRequest = {
    * has to be honoured.
    */
   apart?: string[];
+  /**
+   * The names the owner has said are not a club, as stored (`notThisTeam.ts`): told for the same
+   * reason, since the refile would otherwise file a refused name straight back onto the club.
+   */
+  notThisTeam?: string[];
 };
 /** What a tidy would do, without doing it — the numbers behind the pool health card. */
 export type InspectRequest = {
@@ -141,7 +147,8 @@ export const createTidyHandler =
     const { state: tidied, ...counts } = tidyPool(
       state,
       (step) => post({ kind: "tidy-progress", id: request.id, step, ms: performance.now() - from }),
-      coerceKeptApart(request.apart)
+      coerceKeptApart(request.apart),
+      coerceNotThisTeam(request.notThisTeam)
     );
     // Identity against the pool as decoded here: a pass that changes nothing hands back the array
     // it was given, and that is the whole test.

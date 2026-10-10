@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePoolTidy } from "./usePoolTidy";
 import { ageGroup, game, seasonDate, team } from "../test/teamRankingsHarness";
 import type { GcImportState } from "../lib/gameChangerImport";
+import { refusalOf } from "../lib/notThisTeam";
+import { resetTeamRankingsStore, saveNotThisTeam } from "../lib/teamRankingsStorage";
 import {
   beginPull,
   beginTidy,
@@ -130,6 +132,44 @@ describe("a tidy whose panel goes away", () => {
     const pending = result.current.inspect(withStandIn(), "");
     unmount();
     await expect(pending).resolves.toBeNull();
+  });
+});
+
+/** A worker that keeps what it was sent and never answers. */
+class RecordingWorker {
+  static sent: unknown[] = [];
+  addEventListener() {}
+  removeEventListener() {}
+  postMessage(message: unknown) {
+    RecordingWorker.sent.push(message);
+  }
+  terminate() {}
+}
+
+describe("what the tidy worker is told", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetPullSession();
+    resetTeamRankingsStore();
+    window.localStorage.clear();
+  });
+
+  /*
+   * The worker has no storage, so a refusal it is not handed is one it overrules: its refile would
+   * file the name straight back onto the club the owner said it is not ("Not this team").
+   */
+  it("hands it the names the owner has said are not a club, as stored", async () => {
+    const refused = refusalOf("gcAWAY", "Home Club", "gcHOME");
+    saveNotThisTeam(new Set([refused]));
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.tidy(withStandIn());
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({ kind: "tidy", notThisTeam: [refused] }),
+    ]);
+    unmount();
+    await pending;
   });
 });
 

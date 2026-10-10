@@ -19,6 +19,7 @@ import {
   type PoolRead,
   type PoolWrite,
 } from "../commands";
+import { refusalOf } from "../../notThisTeam";
 
 /*
  * Team Rankings' edits as commands (`commands.ts`): each makes its change to the part it touches
@@ -168,6 +169,7 @@ const POOL = (): Parts => ({
     ["keptApart", new Set()],
     ["droppedClubs", new Set()],
     ["deletedGames", new Set()],
+    ["notThisTeam", new Set()],
   ]),
   named: new Map(),
   ageless: [1, 2, 3, 4].map((at) => waitingOn(`gcW${at}`)),
@@ -1675,11 +1677,36 @@ describe("a game taken off a club its name was matched to (Not this team)", () =
       name: "Eagles",
       nameOnly: true,
     });
+    // Remembered: the Hawks' schedule, the name, and the club's id.
+    expect([...pool.parts.answers.get("notThisTeam")!]).toEqual([
+      refusalOf("gcHAWKS00001", "Eagles", "gcEAGLES0001"),
+    ]);
     const after = stored(clone(pool.parts));
     const undone = pool.run(result.inverse);
     expect(stored(pool.parts)).toEqual(before);
     pool.run(undone.inverse);
     expect(stored(pool.parts)).toEqual(after);
+  });
+
+  it("keeps a refusal given before when it is undone, and remembers each of the club's ids", () => {
+    const twice: ScoutTeam = {
+      ...eagles,
+      gcTeams: [
+        ...eagles.gcTeams!,
+        { teamId: "gcEAGLESSP01", name: "Eagles Spring", ageGroupId: page, ageLevel: 9 },
+      ],
+    };
+    const given = refusalOf("gcHAWKS00001", "Eagles", "gcEAGLES0001");
+    const start = parts([byName, theirOwn]);
+    start.teams = start.teams.map((team) => (team.id === eagles.id ? twice : team));
+    start.answers.set("notThisTeam", new Set([given]));
+    const pool = memory(start);
+    const result = pool.run(NOT);
+    expect([...pool.parts.answers.get("notThisTeam")!].sort()).toEqual(
+      [given, refusalOf("gcHAWKS00001", "Eagles", "gcEAGLESSP01")].sort()
+    );
+    pool.run(result.inverse);
+    expect([...pool.parts.answers.get("notThisTeam")!]).toEqual([given]);
   });
 
   it("files it against the stand-in of the name a pull would reuse for a club of the namer's state", () => {
@@ -1695,7 +1722,19 @@ describe("a game taken off a club its name was matched to (Not this team)", () =
     const result = pool.run(NOT);
     expect(pool.parts.games.get(2027)?.[1]?.teamBId).toBe(ours.id);
     expect(pool.parts.teams).toBe(teamsBefore);
-    expect(result.inverse).toEqual({ kind: "game.put", year: 2027, games: [byName] });
+    // Nothing made, so the undo takes no club away.
+    expect(result.inverse).toEqual({
+      kind: "batch",
+      commands: [
+        { kind: "game.put", year: 2027, games: [byName] },
+        {
+          kind: "answers",
+          list: "notThisTeam",
+          add: [],
+          remove: [refusalOf("gcHAWKS00001", "Eagles", "gcEAGLES0001")],
+        },
+      ],
+    });
   });
 
   it("makes a slot of a name that can only be one, as the import does for every such mention", () => {
