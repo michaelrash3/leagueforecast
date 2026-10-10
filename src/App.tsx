@@ -2514,15 +2514,24 @@ export default function App() {
   // Changed in another tab, the installed app beside this one: followed here, or this tab would
   // go on announcing what was turned off there.
   useEffect(() => subscribeNotifyPrefs(() => setNotifyPrefsState(readNotifyPrefs())), []);
+  /*
+   * Only once the deferred finals have caught up with the season as well (`finalLogs`): until
+   * then the forecast is still the one from before the scores that just came, and a race read
+   * from it would be set beside the season it does not describe.
+   */
   const digestRace = useMemo(
-    () => (hasCutLine && !oddsPending && dashboardRows.length ? raceOf(dashboardRows) : null),
-    [hasCutLine, oddsPending, dashboardRows]
+    () =>
+      hasCutLine && !oddsPending && finalLogs === storedFinalLogs && dashboardRows.length
+        ? raceOf(dashboardRows)
+        : null,
+    [hasCutLine, oddsPending, finalLogs, storedFinalLogs, dashboardRows]
   );
   const digest = useSeasonDigest({
     store: seasonStore,
     race: digestRace,
     followed: ourTeamId,
     oddsMove: digestOddsMove(notifyPrefs),
+    heard: liveLeague.state.kind === "live",
   });
   useDigestNotifications({
     seasonId: activeSeasonId,

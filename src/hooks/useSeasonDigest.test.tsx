@@ -39,21 +39,28 @@ const season = (logs: Record<string, GameLog> = {}): SeasonState => ({
 
 const race = (a: RaceSeen, b: RaceSeen) => ({ A: a, B: b });
 
+type Props = { race: Record<string, RaceSeen> | null; heard?: boolean };
+
 const mount = (
   seasonId: string,
   data: SeasonState,
-  options: { race?: Record<string, RaceSeen> | null; followed?: string | null } = {}
+  options: {
+    race?: Record<string, RaceSeen> | null;
+    followed?: string | null;
+    heard?: boolean;
+  } = {}
 ) => {
   const store = createSeasonStore({ id: seasonId, season: data });
   const view = renderHook(
-    (props: { race: Record<string, RaceSeen> | null }) =>
+    (props: Props) =>
       useSeasonDigest({
         store,
         race: props.race,
         followed: options.followed ?? null,
         oddsMove: 10,
+        heard: props.heard ?? false,
       }),
-    { initialProps: { race: options.race ?? null } }
+    { initialProps: { race: options.race ?? null, heard: options.heard ?? false } as Props }
   );
   return { store, view };
 };
@@ -109,6 +116,24 @@ describe("useSeasonDigest", () => {
     expect(again.view.result.current.changes).toEqual([]);
   });
 
+  it("starts looking once the cloud is heard, even when it brought nothing this device lacked", () => {
+    const { store, view } = mount("s1", season());
+    act(() => store.setSeason(season({ g1: final("4", "2") })));
+    expect(readSeen("s1")).toBeNull();
+    view.rerender({ race: null, heard: true });
+    expect(readSeen("s1")?.games.g1?.final).toBe("4-2");
+    // So the first news to arrive is news, not taken for the cloud's first word.
+    act(() => store.apply(season({ g1: final("4", "2"), g2: final("1", "3") })));
+    expect(kinds(view.result.current.changes)).toEqual(["final"]);
+  });
+
+  it("keeps the look begun when the cloud was heard, so what comes while away is news", () => {
+    mount("s1", season(), { heard: true }).view.unmount();
+    const later = mount("s1", season());
+    act(() => later.store.apply(season({ g1: final("4", "2") })));
+    expect(kinds(later.view.result.current.changes)).toEqual(["final"]);
+  });
+
   it("keeps the last looks of the twelve seasons opened most recently", () => {
     const clock = vi.spyOn(Date, "now");
     for (let at = 0; at < 13; at += 1) {
@@ -148,7 +173,7 @@ describe("useSeasonDigest", () => {
     it("does not report the forecast that follows an edit made here", () => {
       const { store, view } = mount("s1", season(), { race: start, followed: "A" });
       act(() => view.result.current.acknowledge());
-      act(() => store.setSeason(season({ g1: final("4", "2") })));
+      act(() => store.setSeason((now) => ({ ...now, logs: { g1: final("4", "2") } })));
       view.rerender({ race: null });
       view.rerender({
         race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
@@ -196,6 +221,113 @@ describe("useSeasonDigest", () => {
       act(() => store.setSeason(season({ g1: final("4", "2"), g2: final("1", "3") })));
       view.rerender({ race: race({ status: "Alive", gold: 75 }, { status: "Alive", gold: 25 }) });
       expect(kinds(view.result.current.changes)).toEqual(["final", "odds"]);
+    });
+
+    it("keeps the forecast that settles as the cloud is heard as where the race starts", () => {
+      const { store, view } = mount("s1", season(), { followed: "A" });
+      view.rerender({ race: start, heard: true });
+      act(() => store.apply(season({ g1: final("4", "2") })));
+      view.rerender({ race: null, heard: true });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+        heard: true,
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["final", "clinched"]);
+    });
+
+    it("owes nothing after the first forecast it takes as where the race starts", () => {
+      const { store, view } = mount("s1", season(), { followed: "A" });
+      act(() => view.result.current.acknowledge());
+      act(() => store.setSeason((now) => ({ ...now, logs: { g1: final("4", "2") } })));
+      view.rerender({ race: start });
+      act(() =>
+        store.apply({ ...store.get().season, settings: { ...DEFAULT_SETTINGS, goldCutoff: 1 } })
+      );
+      view.rerender({ race: null });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 }),
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["clinched", "eliminated"]);
+    });
+
+    it("takes the forecast after a team is linked to its club here as its own", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      act(() => view.result.current.acknowledge());
+      act(() =>
+        store.setSeason((now) => ({
+          ...now,
+          teams: [
+            { id: "A", name: "Aces", scoutTeamId: "placeholder-club" },
+            { id: "B", name: "Bears" },
+          ],
+        }))
+      );
+      view.rerender({ race: null });
+      view.rerender({ race: race({ status: "Alive", gold: 75 }, { status: "Alive", gold: 25 }) });
+      expect(view.result.current.changes).toEqual([]);
+    });
+
+    it("reports a forecast another device's setting moved after an edit here that moved nothing", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      act(() => view.result.current.acknowledge());
+      // Runs typed into a game still being played: the forecast reads none of them.
+      act(() => store.setSeason((now) => ({ ...now, logs: { g1: final("2", "1", false) } })));
+      act(() => store.setSeason((now) => ({ ...now, logs: { g1: final("3", "1", false) } })));
+      // Another device moves the cut line, and the odds follow it.
+      act(() =>
+        store.apply({
+          ...store.get().season,
+          settings: { ...DEFAULT_SETTINGS, goldCutoff: 1 },
+        })
+      );
+      view.rerender({ race: null });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 }),
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["clinched", "eliminated"]);
+    });
+
+    it("keeps the last look's race when news is acknowledged before the forecast settles", () => {
+      const first = mount("s1", season(), { race: start, followed: "A" });
+      act(() => first.view.result.current.acknowledge());
+      first.view.unmount();
+      // Opened again with another device's final already held here, the odds still worked out.
+      const later = mount("s1", season({ g1: final("4", "2") }), { followed: "A" });
+      expect(kinds(later.view.result.current.changes)).toEqual(["final"]);
+      act(() => later.view.result.current.acknowledge());
+      later.view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+      });
+      expect(kinds(later.view.result.current.changes)).toEqual(["clinched"]);
+    });
+
+    it("takes the race from the forecast of the cloud's first word, not the one before it", () => {
+      const decided = race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 });
+      const both = season({ g1: final("4", "2"), g2: final("1", "3") });
+      const { store, view } = mount("s1", season(), {
+        race: race({ status: "Alive", gold: 55 }, { status: "Alive", gold: 45 }),
+        followed: "A",
+      });
+      act(() => store.apply(both));
+      view.rerender({ race: null });
+      view.rerender({ race: decided });
+      expect(view.result.current.changes).toEqual([]);
+      view.unmount();
+      // Nor on the next visit, from the look kept.
+      const later = mount("s1", both, { race: decided, followed: "A" });
+      expect(later.view.result.current.changes).toEqual([]);
+    });
+
+    it("keeps the race when the cloud's first word moved nothing the forecast reads", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      // Runs another device typed into a game still being played: the same forecast.
+      act(() => store.apply({ ...store.get().season, logs: { g1: final("2", "1", false) } }));
+      act(() => store.apply({ ...store.get().season, logs: { g1: final("4", "2") } }));
+      view.rerender({ race: null });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["final", "clinched"]);
     });
   });
 });

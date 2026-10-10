@@ -2908,9 +2908,14 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
 - **What this device does itself is never news.** The season store says where each change came
   from (`SeasonChange`): this page's own edit is taken as seen as it is made, another device's is
   news, and a season opened brings its own last look. A forecast that follows an edit made here
-  is taken as seen too, unless news from elsewhere is still unread, which it may follow from. The
-  first time a device ever opens a season, what the cloud first brings it is where its looking
-  starts, not 48 games of news.
+  is taken as seen too, unless news from elsewhere is still unread, which it may follow from; an
+  edit that moves nothing the forecast reads (runs typed into a game still being played, a bracket
+  score) leaves the next forecast to be news like any other.
+- **Where looking starts.** The first time a device opens a season, what it holds once League kept
+  live has heard the cloud for it is where its looking starts, not 48 games of news: the cloud's
+  version laid over its own, or its own when the cloud held nothing it lacked (League goes live
+  either way, and that is the moment). The race starts from the forecast of that season, worked
+  out afresh when the cloud's word brought scores, not from the one on screen before them.
 
 **Notifications**, in Settings, are off until turned on, and the browser is asked for permission
 only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its

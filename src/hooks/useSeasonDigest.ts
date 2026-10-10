@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { finalLogsOf } from "../lib/finalLogs";
 import { readSeen, writeSeen } from "../lib/preferences";
 import {
   changesBetween,
@@ -17,8 +18,9 @@ type Held = {
   seen: SeasonSeen;
   /**
    * Whether this device has looked at the season before. One it never had has nothing to report:
-   * what the cloud first brings it is where its looking starts, not news. Kept on the device only
-   * once it has looked, so a reload before the cloud's first word does not make that word news.
+   * what it holds once League kept live has heard the cloud's version, laid over its own, is where
+   * its looking starts, not news. Kept on the device only once it has looked, so a reload before
+   * the cloud's first word does not make that word news.
    */
   looked: boolean;
   /** Edited here since the race was last taken as seen: the next settled forecast is its own. */
@@ -33,26 +35,45 @@ const heldFor = (seasonId: string, season: SeasonState): Held => {
 };
 
 /**
+ * Whether a change moves what the forecast reads: the teams (a club linked to one as much as a
+ * name), the schedule, a setting such as the cut line, or the finals, as the page keys its
+ * forecast on them (`finalLogsOf`). Runs typed into a game still being played, or a bracket score,
+ * move none of it.
+ */
+const movesForecast = (before: SeasonState, after: SeasonState): boolean => {
+  const finals = finalLogsOf(before.logs);
+  return (
+    before.teams !== after.teams ||
+    before.matchups !== after.matchups ||
+    before.settings !== after.settings ||
+    finalLogsOf(after.logs, finals) !== finals
+  );
+};
+
+/**
  * What changed in the open season since this device last looked, and the way to say it has now
  * (2.6, `seasonDigest.ts`).
  *
  * The season store says where each change came from: an edit made here is taken as seen as it is
  * made, another device's stays news, and a season opened brings its own last look, kept on this
- * device. `race` is each team's place in the race from a settled forecast, the same object until
- * the forecast changes, or null while there is none (no cut line, or the odds still being worked
- * out). A forecast that follows this device's own edit is taken as seen too, unless news from
- * elsewhere is still unread, which it may follow from.
+ * device. `race` is each team's place in the race from a settled forecast of the season as it
+ * stands, the same object until the forecast changes, or null while there is none (no cut line,
+ * or the odds still being worked out). A forecast that follows this device's own edit is taken as
+ * seen too, unless news from elsewhere is still unread, which it may follow from. `heard` is
+ * whether League kept live has heard the cloud's version of the open season.
  */
 export function useSeasonDigest({
   store,
   race,
   followed,
   oddsMove,
+  heard,
 }: {
   store: SeasonStore;
   race: Race | null;
   followed: string | null;
   oddsMove: number;
+  heard: boolean;
 }): { changes: Change[]; acknowledge: () => void } {
   const [open, setOpen] = useState(() => store.get());
   const [held, setHeld] = useState<Held>(() => heldFor(open.id, open.season));
@@ -66,13 +87,23 @@ export function useSeasonDigest({
     setSettled({ seasonId: open.id, race });
     setHeld((was) => {
       if (was.seasonId !== open.id) return was;
-      if (was.seen.race === null) return { ...was, seen: { ...was.seen, race } };
+      // A look with no race yet takes this one as where the race starts, owing nothing after it.
+      if (was.seen.race === null) return { ...was, seen: { ...was.seen, race }, raceOwed: false };
       if (!was.raceOwed) return was;
       const unread = changesBetween(was.seen, { ...seenOf(open.season), race: null });
       return unread.length === 0 ? { ...was, seen: { ...was.seen, race }, raceOwed: false } : was;
     });
   }
   const shownRace = settled.seasonId === open.id ? settled.race : null;
+
+  /*
+   * League kept live has heard the cloud, and what it said held nothing this device lacked, or it
+   * would have arrived below as the first word, in the same render. What is held is where looking
+   * starts all the same, or the first news to come would be taken for that word.
+   */
+  if (heard && !held.looked && held.seasonId === open.id) {
+    setHeld((was) => (was.looked || was.seasonId !== open.id ? was : { ...was, looked: true }));
+  }
 
   useLayoutEffect(
     () =>
@@ -87,13 +118,26 @@ export function useSeasonDigest({
               : heldFor(now.id, now.season);
           }
           if (change === "edit") {
-            // Any edit here owes the race, a setting such as the cut line as much as a score.
+            /*
+             * An edit here owes the race only when it moves what the forecast reads. Owed for
+             * runs typed into a game still being played, which leave the forecast where it is,
+             * the race would stay owed until some later forecast, one another device's news
+             * moved, which would then be taken as this device's own.
+             */
             const seen = foldLocal(was.seen, previous.season, now.season);
-            return seen === was.seen && was.raceOwed ? was : { ...was, seen, raceOwed: true };
+            const owed = was.raceOwed || movesForecast(previous.season, now.season);
+            return seen === was.seen && owed === was.raceOwed
+              ? was
+              : { ...was, seen, raceOwed: owed };
           }
-          return was.looked
-            ? was
-            : { ...was, seen: { ...seenOf(now.season), race: was.seen.race }, looked: true };
+          if (!was.looked) {
+            // The cloud's first word is where looking starts, the race with it: the forecast of
+            // the season it brought, as that settles, not the one from before it, against which
+            // the finals it brought would come out as clinches with none of the games behind them.
+            const race = movesForecast(previous.season, now.season) ? null : was.seen.race;
+            return { ...was, seen: { ...seenOf(now.season), race }, looked: true, raceOwed: false };
+          }
+          return was;
         });
       }),
     [store]
@@ -110,12 +154,17 @@ export function useSeasonDigest({
   );
   const acknowledge = useCallback(() => {
     const current = store.get();
-    setHeld({
+    setHeld((was) => ({
       seasonId: current.id,
-      seen: seenOf(current.season, shownRace),
+      // With no forecast shown yet, the race stays as last seen: what the forecast makes of what
+      // was just seen is still to be told.
+      seen: seenOf(
+        current.season,
+        shownRace ?? (was.seasonId === current.id ? was.seen.race : null)
+      ),
       looked: true,
       raceOwed: false,
-    });
+    }));
   }, [store, shownRace]);
   return { changes, acknowledge };
 }
