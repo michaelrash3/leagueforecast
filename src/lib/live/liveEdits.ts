@@ -48,6 +48,8 @@ export const EDIT_LOCKS = {
   waiting: "Editing waits for the cloud to answer; the board drawn is this device's last one.",
   newer:
     "The cloud's boards were published by a newer version of the app, so editing is off here. Reload the page to update it.",
+  noCopy:
+    "There's no cloud copy this device could read, so editing is off. Reload the page to look again.",
 } as const;
 
 /**
@@ -56,8 +58,11 @@ export const EDIT_LOCKS = {
  * the cloud (signed out, or the cloud turned off on this device); with no connection to send them;
  * before the cloud has answered (`heard`: the server's own word, which a meta this build cannot
  * draw is as much as one it can), when what is drawn is what this device kept and an edit would be
- * made against a board nobody has vouched for since; or over boards a newer version of the app
- * published (`newer`), which this device should reload to read before it changes them.
+ * made against a board nobody has vouched for since; over boards a newer version of the app
+ * published (`newer`), which this device should reload to read before it changes them; or once the
+ * cloud has answered with no copy known to make them on (`noCopy`): nothing published names one,
+ * and the cloud's own manifest could not be read or there is none. Without that lock every edit and
+ * question was turned away one toast at a time, under controls drawn as though they would go.
  *
  * Nothing else: edits go through the edit function and need no board, so a meta of an older
  * schema, or none, or one whose pages will not read, leaves them on. On 10 October 2026 a meta
@@ -69,12 +74,14 @@ export const editLock = ({
   offline,
   heard,
   newer = false,
+  noCopy = false,
 }: {
   handedOver?: boolean;
   unlinked?: boolean;
   offline: boolean;
   heard: boolean;
   newer?: boolean;
+  noCopy?: boolean;
 }): string | null =>
   handedOver
     ? EDIT_LOCKS.handedOver
@@ -86,7 +93,9 @@ export const editLock = ({
           ? EDIT_LOCKS.waiting
           : newer
             ? EDIT_LOCKS.newer
-            : null;
+            : noCopy
+              ? EDIT_LOCKS.noCopy
+              : null;
 
 /**
  * What a person is told when the code that sends an edit or a question would not load (offline as

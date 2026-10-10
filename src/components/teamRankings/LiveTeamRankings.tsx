@@ -322,8 +322,9 @@ function LiveBoard({
   /*
    * A member's edits, sent to the edit function against the copy the meta the server answered with
    * names (`live.copy`): off once handed over, offline, until the server has answered (`heard`, its
-   * own word, not whether a board can be drawn), and over boards a newer version published. They
-   * need no board, so a meta this build cannot draw leaves them on.
+   * own word, not whether a board can be drawn), over boards a newer version published, and where
+   * the server's answer left no copy known to make them on. They need no board, so a meta this
+   * build cannot draw leaves them on.
    */
   const edits = useLiveEdits({
     copy: live.copy,
@@ -333,6 +334,7 @@ function LiveBoard({
       offline,
       heard: live.heard,
       newer: live.metaMiss === "newer",
+      noCopy: live.copy === null,
     }),
     showToast,
     ...(sources?.call ? { deps: sources.call } : {}),

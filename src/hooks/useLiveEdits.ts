@@ -53,16 +53,17 @@ export type LiveEdits = {
 const NO_COPY = "Editing waits for the cloud's board to come in.";
 
 /**
- * A member's edits from the live page (1.5), sent to the edit function as commands against the copy
- * the views on screen are of (`copy`, the meta's). Each answer is said in a toast: the edit made,
+ * A member's edits from the live page (1.5), sent to the edit function as commands against `copy`:
+ * the one the server's last answer names (`useLiveBoard`'s `copy`), which is the copy the views on
+ * screen are of where they can be drawn. Each answer is said in a toast: the edit made,
  * with an Undo that sends its inverse where `said.undo` asks for one; or why it was not, in plain
  * words (`EDIT_REFUSED`, or the call's own message, which says an edit may or may not have been made
  * wherever the server did not prove it was not). An edit made is kept in `pending` until views of a
  * version at least its save's are published, or views of another copy, so the page can draw it over
  * what it reads meanwhile (`pendingOf`, `settledBy`).
  *
- * Nothing is sent while `locked` (`editLock`): offline, before the cloud has answered, or over boards
- * a newer version published. A warm-up is sent as an edit screen opens, at most once in
+ * Nothing is sent while `locked` (`editLock`): offline, before the cloud has answered, over boards a
+ * newer version published, or with no copy known to make them on. A warm-up is sent as an edit screen opens, at most once in
  * `WARM_AFTER_MS` of calls, since the server's pool stays warm between them.
  */
 export function useLiveEdits({

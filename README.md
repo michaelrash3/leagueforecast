@@ -4546,20 +4546,27 @@ are off once the page has handed over, while this device's copy comes in, since
 it opens without an edit sent meanwhile and then writes the copy itself; and with
 no reader of the cloud the lock says the device is not connected, not that it is
 offline. Otherwise they are off only while the device is offline, before the
-cloud has answered, and over boards a newer version of the app published, which
-the device should reload to read before it changes them (`editLock`). The cloud
-has answered when the server has (`useLiveBoard`'s `heard`): the first read of
-the meta came back, from Firestore Lite, which reads only from the server, or the
-watch said a snapshot came from the server and not the device's cache, whatever
-the meta said. A meta this build cannot draw (an older schema's, none at all, or
-one whose pages will not read) leaves edits and imports on, since they go
-through the edit function and need no board: they are made on the copy the
-meta's header names, or, where nothing published names one, the copy the cloud's
-own manifest names, read beside the watch and dropped if the server says more
-first. Until 3.0 they waited on a meta that could be drawn, and on 10 October 2026
-an older one locked them for the day. An edit and a question stay the same
-functions while the lock comes and goes, and read it as they are made, so a card that asks in an effect does not ask
-again for a blip of the connection (a what-if refitted the year each time). The
+cloud has answered, over boards a newer version of the app published, which the
+device should reload to read before it changes them, and where the cloud's
+answer left no copy to make them on (`editLock`). The cloud has answered when
+the server has (`useLiveBoard`'s `heard`): the first read of the meta came back,
+from Firestore Lite, which reads only from the server, or the watch said a
+snapshot came from the server and not the device's cache, whatever the meta
+said. A meta this build cannot draw (an older schema's, none at all, or one
+whose pages will not read) leaves edits and imports on, since they go through
+the edit function and need no board: they are made on the copy the meta's header
+names, or, where nothing published names one, the copy the cloud's own manifest
+names, read beside the watch and dropped if the server says more first; with
+nothing published, the cloud has answered once that read has ended. Where it
+names none either (it could not be read, or there is no copy), edits stay off
+and say so, and a reload looks again: with the lock lifted, every edit and
+question was turned away one toast at a time. Once the server has answered, a
+meta this device kept from an earlier visit names no copy for them; its word
+replaces the kept one. Until 3.0 they waited on a meta that could be drawn, and
+on 10 October 2026 an older one locked them for the day. An edit and a question
+stay the same functions while the lock comes and goes, and read it as they are
+made, so a card that asks in an effect does not ask again for a blip of the
+connection (a what-if refitted the year each time). The
 board is held for the handover as it is put on screen, in a layout effect: held in
 a passive one, a test that found the board and closed the page at once failed 2
 runs in 15, and none in 15 after. Each guard of these was broken in turn and seen to

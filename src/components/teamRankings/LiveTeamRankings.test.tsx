@@ -3790,6 +3790,51 @@ describe("the Import tab on the cloud's board", () => {
     await choosesRotation(server, MANIFEST.copy);
   });
 
+  /*
+   * With nothing published and no copy of the cloud's own to be read, the cloud has answered but
+   * there is nothing to make an edit on: the page says so, rather than lifting the lock and turning
+   * every edit and question away one toast at a time.
+   */
+  it("keeps edits off, and says why, when nothing published names a copy and the cloud's cannot be read", async () => {
+    onImport();
+    pool.wants = false;
+    const unreadable = [
+      {},
+      { copy: async () => ({ readManifest: async () => null, getChunk: async () => null }) },
+      {
+        copy: async () => ({
+          readManifest: () => Promise.reject(new Error("permission-denied")),
+          getChunk: async () => null,
+        }),
+      },
+    ];
+    for (const more of unreadable) {
+      const server = editFunction(importAnswers());
+      open(sourcesOf(memoryLive(), { call: server.call, ...more }));
+      expect(await screen.findByText(EDIT_LOCKS.noCopy)).toBeTruthy();
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(server.sent).toEqual([]);
+      expect(said.toasts).toEqual([]);
+      cleanup();
+    }
+  });
+
+  it("makes nothing on the copy a meta kept from an earlier visit names, once the cloud says none is published", async () => {
+    onImport();
+    pool.wants = false;
+    const earlier = editFunction(importAnswers());
+    open(sourcesOf(live, { call: earlier.call }));
+    await waitFor(() => expect(queried(earlier.sent)).toHaveLength(1));
+    cleanup();
+    // The kept meta names the copy; the server now says nothing is published, and the copy itself
+    // cannot be read here.
+    const server = editFunction(importAnswers());
+    open(sourcesOf(memoryLive(), { call: server.call }));
+    expect(await screen.findByText(EDIT_LOCKS.noCopy)).toBeTruthy();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(server.sent).toEqual([]);
+  });
+
   it("keeps edits off over boards a newer version published, and says to reload", async () => {
     onImport();
     pool.wants = false;

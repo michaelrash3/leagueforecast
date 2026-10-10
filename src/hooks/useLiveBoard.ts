@@ -124,8 +124,9 @@ export type LiveBoardState = {
    * The copy edits are made on: the one the meta the server last answered with names, from its
    * header though this build cannot draw its boards, or, where nothing published names one, the
    * copy the cloud holds, read from its manifest (`LiveSources.copy`); before the server has
-   * answered, the kept meta's. Null where none of them is known. A new object only when the copy
-   * or its version is.
+   * answered, the kept meta's. Null where none of them is known, and once the server has answered
+   * with neither, whatever a meta kept from an earlier visit names: the server's word replaces it.
+   * A new object only when the copy or its version is.
    */
   copy: LiveMeta["copy"] | null;
   /**
@@ -419,7 +420,7 @@ export function useLiveBoard({
     heardAt: shownBoard && shownMiss === "offline" ? (boardAt ?? heardAt) : heardAt,
     link,
     heard: heard !== null,
-    copy: heard?.copy ?? meta?.meta.copy ?? null,
+    copy: heard ? heard.copy : (meta?.meta.copy ?? null),
     source,
   };
 }
