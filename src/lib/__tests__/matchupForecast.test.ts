@@ -57,6 +57,29 @@ describe("forecastWords", () => {
   });
 });
 
+describe("forecastWords from either bench", () => {
+  it("says the same thing whichever club is picked first, on a half percent too", () => {
+    // 64.5% read from one side and 35.5% from the other used to print 65-35 and 64-36, and 50.5%
+    // named a winner where its mirror, 49.5%, called it dead even.
+    for (const [margin, winProb] of [
+      [2.4, 0.645],
+      [0.06, 0.505],
+      [1.5, 0.625],
+      [0.2, 0.515],
+      [2.34, 0.6373],
+    ] as const) {
+      const fromAces = forecastWords("Aces", "Bears", { projectedMargin: margin, winProb });
+      const fromBears = forecastWords("Bears", "Aces", {
+        projectedMargin: -margin,
+        winProb: 1 - winProb,
+      });
+      expect(fromBears.headline).toBe(fromAces.headline);
+      expect(fromBears.chances).toBe(fromAces.chances);
+      expect(fromAces.even).toBe(false);
+    }
+  });
+});
+
 describe("formatRating", () => {
   it("signs a rating to a tenth and never prints a negative zero", () => {
     expect(formatRating(2.14)).toBe("+2.1");

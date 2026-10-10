@@ -25,7 +25,7 @@ export type ForecastWords = {
  * A margin too small to move either side's chance off 50% names no winner. "Should beat by 0.1
  * runs" printed beside 50% and 50% would be a winner picked by a rounding error, and a margin
  * that rounds to 0.0 always leaves both chances at 50%, so the one test covers both. The two
- * chances are printed to add up to 100: the second is what the first leaves, because two
+ * chances are printed to add up to 100: the loser's is what the winner's leaves, because two
  * roundings of one probability (64.5 and 35.5) can make 101.
  */
 export const forecastWords = (
@@ -33,17 +33,18 @@ export const forecastWords = (
   againstName: string,
   preview: Pick<MatchupPreview, "projectedMargin" | "winProb">
 ): ForecastWords => {
-  const forPct = Math.round(preview.winProb * 100);
-  if (forPct === 50) {
+  // The favourite's chance is rounded, never the first-picked club's: rounding 64.5% from one
+  // side and 35.5% from the other would print 65-35 one way round and 64-36 the other.
+  const forFavoured = preview.winProb > 0.5;
+  const winnerPct = Math.round((forFavoured ? preview.winProb : 1 - preview.winProb) * 100);
+  if (winnerPct === 50) {
     return {
       even: true,
       headline: "Too close to call: dead even",
       chances: `Win chance: ${forName} 50%, ${againstName} 50%`,
     };
   }
-  const forWins = forPct > 50;
-  const [winner, loser] = forWins ? [forName, againstName] : [againstName, forName];
-  const winnerPct = forWins ? forPct : 100 - forPct;
+  const [winner, loser] = forFavoured ? [forName, againstName] : [againstName, forName];
   return {
     even: false,
     headline: `${winner} should beat ${loser} by ${runsOf(preview.projectedMargin)}`,
