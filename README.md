@@ -2920,8 +2920,9 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
   kept live, and each hears the other's edits from the cloud as it would another device's. The
   last look is the device's, so each tab writes only what it took as seen, laid over the look as
   stored, and takes from the stored look what reads as it does in the season it shows: an edit
-  made in one tab is seen in the other when it arrives there, and a Got it in one is a Got it in
-  all of them.
+  made in one tab is seen in the other when it arrives there, the forecast after it once the tab
+  that made it has taken it as seen, and a Got it in one is a Got it in all of them. A clinch the
+  news brings, when Got it came before the forecast settled, is still news in each.
 
 **Notifications**, in Settings, are off until turned on, and the browser is asked for permission
 only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its

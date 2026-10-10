@@ -6,6 +6,7 @@ import {
   changesBetween,
   foldLocal,
   keptWith,
+  sameRace,
   sameSeen,
   seenOf,
   type Change,
@@ -92,10 +93,15 @@ export function useSeasonDigest({
 
   if (race !== null && (race !== settled.race || settled.seasonId !== open.id)) {
     setSettled({ seasonId: open.id, race });
+    // The race as this device keeps it, which another tab may have taken this forecast into.
+    const keptRace = readSeen(open.id)?.race ?? null;
     setHeld((was) => {
       if (was.seasonId !== open.id) return was;
       // A look with no race yet takes this one as where the race starts, owing nothing after it.
       if (was.seen.race === null) return { ...was, seen: { ...was.seen, race }, raceOwed: false };
+      // Another tab took this very forecast as seen, after an edit of its own: seen here too.
+      if (keptRace !== null && sameRace(keptRace, race))
+        return { ...was, seen: { ...was.seen, race }, raceOwed: false };
       if (!was.raceOwed) return was;
       const unread = changesBetween(was.seen, { ...seenOf(open.season), race: null });
       return unread.length === 0 ? { ...was, seen: { ...was.seen, race }, raceOwed: false } : was;
@@ -155,11 +161,16 @@ export function useSeasonDigest({
             return { ...was, seen: { ...shown, race }, looked: true, raceOwed: false };
           }
           if (!kept) return was;
-          // Another tab's edit comes back through the cloud as another device's would. Where the
-          // season now reads as this device keeps it, it is seen, and the forecast that follows
-          // is the device's own, as it is in the tab that made the edit.
+          /*
+           * Another tab's edit comes back through the cloud as another device's would. Where the
+           * season now reads as this device keeps it, it is seen. The forecast that follows is not
+           * owed for it: what reads as kept may just as well be another device's news that tab
+           * acknowledged before its own forecast settled, and the clinches that news brings are
+           * news in both. The forecast after an edit is seen here once the tab that made it has
+           * taken it as seen, above.
+           */
           const seen = adoptKept(was.seen, kept, shown);
-          return seen === was.seen ? was : { ...was, seen, raceOwed: true };
+          return seen === was.seen ? was : { ...was, seen };
         });
       }),
     [store]

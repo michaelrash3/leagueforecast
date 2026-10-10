@@ -117,7 +117,8 @@ const laidOver = (seen: SeasonSeen, was: SeasonSeen, now: SeasonSeen): SeasonSee
 export const foldLocal = (seen: SeasonSeen, before: SeasonParts, after: SeasonParts): SeasonSeen =>
   laidOver(seen, seenOf(before), seenOf(after));
 
-const sameRace = (one: SeasonSeen["race"], two: SeasonSeen["race"]): boolean => {
+/** Whether two races have every team in the same place with the same Gold chance. */
+export const sameRace = (one: SeasonSeen["race"], two: SeasonSeen["race"]): boolean => {
   if (one === two) return true;
   if (!one || !two || Object.keys(one).length !== Object.keys(two).length) return false;
   return Object.entries(one).every(([id, place]) => {

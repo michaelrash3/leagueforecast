@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readSeen } from "../lib/preferences";
 import type { RaceSeen } from "../lib/seasonDigest";
@@ -51,18 +52,25 @@ const mount = (
   } = {}
 ) => {
   const store = createSeasonStore({ id: seasonId, season: data });
+  // The kinds of change each render the page commits shows, however briefly.
+  const shown: string[][] = [];
   const view = renderHook(
-    (props: Props) =>
-      useSeasonDigest({
+    (props: Props) => {
+      const digest = useSeasonDigest({
         store,
         race: props.race,
         followed: options.followed ?? null,
         oddsMove: 10,
         heard: props.heard ?? false,
-      }),
+      });
+      useEffect(() => {
+        shown.push(digest.changes.map((change) => change.kind));
+      });
+      return digest;
+    },
     { initialProps: { race: options.race ?? null, heard: options.heard ?? false } as Props }
   );
-  return { store, view };
+  return { store, view, shown };
 };
 
 /** What the browser tells every other tab when one keeps a look; jsdom tells none. */
@@ -370,17 +378,58 @@ describe("useSeasonDigest", () => {
 
     it("takes one tab's own edit as seen when it comes back to the other through the cloud", () => {
       const [here, there] = tabs();
+      const after = race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 });
       act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      // The forecast settles first in the tab that made the edit, which takes it as its own.
+      here.view.rerender({ race: null });
+      here.view.rerender({ race: after });
       toldOfLook();
       // The other tab's League kept live hears the edit as it would another device's.
       act(() => there.store.apply(season({ g1: final("5", "3") })));
       expect(there.view.result.current.changes).toEqual([]);
-      // And the forecast that follows it is the device's own there too.
+      // And the forecast that follows it is the device's own there too, from the moment it shows.
+      there.shown.length = 0;
       there.view.rerender({ race: null });
-      there.view.rerender({
-        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
-      });
+      there.view.rerender({ race: { ...after } });
       expect(there.view.result.current.changes).toEqual([]);
+      expect(there.shown.flat()).toEqual([]);
+    });
+
+    it("takes the forecast after one tab's edit as seen once that tab has, whichever settles first", () => {
+      const [here, there] = tabs();
+      const after = race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 });
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      there.view.rerender({ race: null });
+      there.view.rerender({ race: { ...after } });
+      // Not yet taken by the tab that made the edit: as another device's would be, for now.
+      expect(kinds(there.view.result.current.changes)).toEqual(["clinched"]);
+      here.view.rerender({ race: null });
+      here.view.rerender({ race: after });
+      toldOfLook();
+      expect(there.view.result.current.changes).toEqual([]);
+    });
+
+    it("keeps a clinch news acknowledged in one tab brings, before either forecast settled", () => {
+      const [here, there] = tabs();
+      const after = race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 });
+      // Another device's final reaches one tab, and Got it is pressed with the odds still out.
+      act(() => here.store.apply(season({ g1: final("4", "2") })));
+      here.view.rerender({ race: null });
+      act(() => here.view.result.current.acknowledge());
+      toldOfLook();
+      // The other tab hears the cloud later: the final is seen, the clinch it brings is not.
+      act(() => there.store.apply(season({ g1: final("4", "2") })));
+      expect(there.view.result.current.changes).toEqual([]);
+      there.view.rerender({ race: null });
+      there.view.rerender({ race: { ...after } });
+      expect(kinds(there.view.result.current.changes)).toEqual(["clinched"]);
+      here.view.rerender({ race: after });
+      toldOfLook();
+      expect(kinds(here.view.result.current.changes)).toEqual(["clinched"]);
+      expect(kinds(there.view.result.current.changes)).toEqual(["clinched"]);
     });
 
     it("takes it as seen when the cloud brings it before the other tab has kept its look", () => {
