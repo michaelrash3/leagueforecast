@@ -24,6 +24,7 @@ import {
 import {
   initTeamRankingsStore,
   loadKeptApart,
+  loadNotThisTeam,
   loadScoutGames,
   loadTidyStamp,
   resetTeamRankingsStore,
@@ -32,6 +33,7 @@ import {
   saveAgeUnknown,
   saveDroppedClubs,
   saveKeptApart,
+  saveNotThisTeam,
   saveNamedAges,
   saveOrgMembership,
   saveRealClubs,
@@ -61,6 +63,7 @@ import { clubPickOption, pickableClubs } from "../../leagueLinkOptions";
 import { planLeagueScoreFill } from "../../leagueScoreFill";
 import { leagueScoutBridge, scoutLinkCandidates } from "../../teamRankings";
 import { loadScoutGamesForSeason, loadScoutTeams } from "../../teamRankingsStorage";
+import { notThisTeamList, refusalOf } from "../../notThisTeam";
 import { coerceQueryAnswer } from "../queryAnswers";
 import type { GameSeen } from "../views/gamesShape";
 import { callableEncode } from "./callableEncode";
@@ -1079,6 +1082,7 @@ describe("what Pool health asks of the server's pool", () => {
       stamp: loadTidyStamp() ?? "",
       today: TODAY,
       apart: keptApartList(loadKeptApart()),
+      notThisTeam: notThisTeamList(loadNotThisTeam()),
     });
     const answer = posted[0];
     if (answer?.kind !== "inspect") throw new Error("no inspection");
@@ -1145,6 +1149,29 @@ describe("what Pool health asks of the server's pool", () => {
     expect(Object.entries(answer.lists).filter(([, list]) => list.length === 0)).toEqual([]);
     // More clubs to pull than the card draws, of which only those are sent.
     expect([answer.lists.toPull.length, answer.toPullCount]).toEqual([TO_PULL_DRAWN, 7]);
+  });
+
+  it("counts no settle the owner's refusals keep from a club, as the tidy settles", () => {
+    // A pool of its own: the Away Club's second listing filed the day's named row onto the Home
+    // Club by a name, and its first listing posted the game against a slot.
+    const home = pulled("HOME", "Placeholder Home");
+    const away: ScoutTeam = {
+      ...pulled("AWAY", "Placeholder Away"),
+      gcTeams: [
+        { teamId: "gcAWAY", name: "Placeholder Away", ageGroupId: "ag9", ageLevel: 9 },
+        { teamId: "gcAWAY2", name: "Placeholder Away", ageGroupId: "ag9", ageLevel: 9 },
+      ],
+    };
+    const slot: ScoutTeam = { id: "S-TBD", name: "TBD", placeholder: true };
+    const named = { ...row("AWAY", "HOME", "2026-09-19", "14:00", [2, 6]) };
+    saveScoutTeams([home, away, slot]);
+    saveScoutGames([
+      { ...named, source: { kind: "gamechanger", teamId: "gcAWAY2", gameId: "n1" } },
+      row("AWAY", "S-TBD", "2026-09-19", "14:00", [2, 6]),
+    ]);
+    expect(asked({ kind: "health.inspect", today: TODAY }).settleable).toBe(1);
+    saveNotThisTeam(new Set([refusalOf("gcAWAY", "TBD", "gcHOME")]));
+    expect(asked({ kind: "health.inspect", today: TODAY }).settleable).toBe(0);
   });
 
   it("sends every club worth pulling as the card's file, when asked for it", () => {

@@ -61,6 +61,8 @@ export type InspectRequest = {
   today: string;
   /** The pairs the user has said are two clubs, which the lists must not offer again. */
   apart?: string[];
+  /** The names the owner has said are not a club, which the settle count reads as the tidy does. */
+  notThisTeam?: string[];
 };
 export type WorkerRequest = TidyRequest | InspectRequest;
 
@@ -138,7 +140,10 @@ export const createTidyHandler =
         id: request.id,
         health,
         // Only worth asking when something could be settled; on a tidy pool it is zero and cheap.
-        settleable: health.standInPlayed === 0 ? 0 : settleableNow(state),
+        settleable:
+          health.standInPlayed === 0
+            ? 0
+            : settleableNow(state, coerceNotThisTeam(request.notThisTeam)),
         lists: poolLists(state, coerceKeptApart(request.apart), request.today),
       });
       return;

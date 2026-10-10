@@ -157,6 +157,8 @@ export function usePoolTidy() {
       // Read once, as the tidy does: the worker has no storage, and the inline path must be handed
       // the same answers.
       const apart = loadKeptApart();
+      // And the names the owner has said are not a club, which the settle count reads as the tidy.
+      const refused = loadNotThisTeam();
       const today = todayIsoDay();
       return ask<PoolInspection>(
         "inspect",
@@ -167,6 +169,7 @@ export function usePoolTidy() {
           stamp,
           today,
           apart: keptApartList(apart),
+          notThisTeam: notThisTeamList(refused),
         }),
         (response, id) =>
           response.kind === "inspect" && response.id === id
@@ -176,7 +179,7 @@ export function usePoolTidy() {
           const health = poolHealth(state, stamp, today);
           return {
             health,
-            settleable: health.standInPlayed === 0 ? 0 : settleableNow(state),
+            settleable: health.standInPlayed === 0 ? 0 : settleableNow(state, refused),
             lists: poolLists(state, apart, today),
           };
         }

@@ -1,4 +1,5 @@
 import { resolveSlotGames, poolSignature, type GcImportState } from "./gameChangerImport";
+import { NO_REFUSALS, type NotThisTeam } from "./notThisTeam";
 import { todayIsoDay } from "./date";
 import { isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./teamRankings";
 
@@ -96,8 +97,13 @@ export const poolHealth = (
  * Runs the pass and throws the result away, which is the point: it answers "is there work waiting"
  * without doing it, and it answers using the same rules that would do it. Costs about half a
  * second on a pool of two hundred thousand games, so it is asked for rather than computed on sight.
+ *
+ * With the names the owner has said are not a club (`notThisTeam.ts`), as the tidy runs the pass:
+ * asked without them it counted settles the tidy refuses, and Pool health's "Settle" offered work
+ * that no tidy would do, and stayed on screen after every one.
  */
-export const settleableNow = (state: GcImportState): number => resolveSlotGames(state).resolved;
+export const settleableNow = (state: GcImportState, refused: NotThisTeam = NO_REFUSALS): number =>
+  resolveSlotGames(state, refused).resolved;
 
 /** What one squad year holds, as storage has it rather than as a decode would say. */
 export type SquadYearHolding = {

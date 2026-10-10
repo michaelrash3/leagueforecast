@@ -171,6 +171,21 @@ describe("what the tidy worker is told", () => {
     unmount();
     await pending;
   });
+
+  // And its inspection, whose count of what a tidy would settle has to be the tidy's.
+  it("hands the inspection the same names, as stored", async () => {
+    const refused = refusalOf("gcAWAY", "Home Club", "gcHOME");
+    saveNotThisTeam(new Set([refused]));
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.inspect(withStandIn(), "");
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({ kind: "inspect", notThisTeam: [refused] }),
+    ]);
+    unmount();
+    await pending;
+  });
 });
 
 describe("taking the pool back", () => {

@@ -1075,8 +1075,10 @@ from the namer's. The picture still names the club as well, being GameChanger's 
 import panel and the
 tidy on this page, in its worker or not, read the list, and so does every pull run on the cloud
 copy (`runCloudPull`: the nightly refresh and a list pulled in the cloud), its import and its tidy
-alike; the command adds to it: the club's ids it does not hold already, which its Undo takes off
-again and nothing else.
+alike, and Pool health's count of what a tidy would settle (`settleableNow`, on the page, in its
+worker and in the server's `health.inspect`), which asked without it offered a Settle the tidy
+refuses and stayed on screen after every tidy; the command adds to it: the refusals it does not hold
+already, which its Undo takes off again and nothing else.
 
 **A row filed by name beside a game the club never listed.** Where another club's own schedule
 lists a game against a club that none of the club's own schedules gives a row, that game is on the
