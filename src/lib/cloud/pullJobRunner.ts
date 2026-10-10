@@ -130,6 +130,13 @@ const NOT_RUNNABLE: Partial<Record<CloudPullResult["end"], string>> = {
     "The cloud copy was deleted and started again while this pull ran, so nothing it fetched was filed into the new one. Send the list again to pull it there.",
 };
 
+/** Why a refresh cannot run, where it differs from a list's: there is no list to send again. */
+const REFRESH_NOT_RUNNABLE: Partial<Record<CloudPullResult["end"], string>> = {
+  ...NOT_RUNNABLE,
+  "copy-replaced":
+    "The cloud copy was deleted and started again while this refresh ran, so nothing it fetched was filed into the new one. Press Refresh now again to refresh the new one.",
+};
+
 /** Why a refresh of `legs` legs was not run: the day had fewer left than it takes. */
 export const tooManyLegs = (legs: number): string =>
   `This refresh takes ${legs.toLocaleString()} parts in the cloud, more than Refresh now has left today, so nothing was pulled. The nightly refreshes again tonight.`;
@@ -267,6 +274,7 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
               teamIds: share.map((entry) => entry.teamId),
               ageLevels: rota.ageLevels,
               markOn: leg + 1 >= walking.legs ? new Date(workedAt) : null,
+              workedAt: new Date(workedAt),
             },
           }
         : {
@@ -282,6 +290,9 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
         fetchTeams: deps.fetchTeams,
         now,
         device: "cloud-pull",
+        // A refresh keeps what it replaces as an earlier version, as the nightly does, so Bring
+        // back undoes a bad one; a pasted list's pull keeps nothing, as it never has.
+        ...(pull.kind === "rota" ? { keep: true } : {}),
         signal: stop.signal,
         onStage: (stage) => {
           latest =
@@ -298,7 +309,7 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
       await told;
     }
 
-    const notRunnable = NOT_RUNNABLE[result.end];
+    const notRunnable = (pull.kind === "rota" ? REFRESH_NOT_RUNNABLE : NOT_RUNNABLE)[result.end];
     if (notRunnable) return await fail(notRunnable);
     if (result.end === "copy-kept-changing") {
       throw new TryLegAgain(

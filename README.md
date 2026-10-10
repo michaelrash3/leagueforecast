@@ -3687,7 +3687,12 @@ keeps them as the job's list, its pieces first and the job last, as a device lea
 a paste. Every leg after, and the first tried again,
 walks that list and never works it out again: worked out leg by leg, a refresh of
 today's levels run again would find the teams the legs before it had just pulled
-held back, and those playing due again, leg after leg. The last leg logs the levels
+held back, and those playing due again, leg after leg. A team the copy says was
+pulled after the refresh was worked out is not asked about again, since that pull
+came after the press: so a leg tried again after its save landed, when the job could
+not then be told (its update, or its worker, failing between the two), asks
+GameChanger nothing about the teams that save holds, where it once asked about every
+one of them a second time minutes later. The last leg logs the levels
 refreshed in the copy's refresh log, as the nightly does (`markRefreshed`), only
 where it asked about every team, on the day the refresh was worked out for, and
 never moving a level back to an earlier day than the log already has, so a refresh
@@ -3695,7 +3700,11 @@ that ends after midnight neither tells the next day's nightly its levels were do
 nor undoes that nightly's mark. With nothing to pull the job is done at once and
 logs nothing, as the nightly logs nothing when nothing is due. Filing, the tidy and
 the save are the pull's own (`runCloudPull`), and the save's own rebuild publishes the
-boards, as a pasted list's does. A job a device writes that calls itself a refresh is
+boards, as a pasted list's does. Each save keeps what it replaces as an earlier
+version, as the nightly's does, so the cloud panel's **Bring back** undoes a bad
+refresh as it undoes a bad night; a pasted list's pull keeps nothing, as before. A
+refresh whose copy is deleted and started again while it pulls fails saying to press
+again, not to send a list it never had. A job a device writes that calls itself a refresh is
 never started (`startPullJob`): only the server's own start goes through the gate.
 
 **The gate** (`refreshGate.ts`, `ops/refresh`, a path no rule opens). It names the

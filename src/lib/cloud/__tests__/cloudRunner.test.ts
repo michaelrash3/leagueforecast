@@ -429,10 +429,15 @@ describe("a pull run on the cloud copy", () => {
       resetTeamRankingsStore();
       return log;
     };
+    // Worked out the day before the legs run.
+    const workedOut = new Date("2026-10-01T15:00:00.000Z");
     // A leg before the last: its share of the list, worked out afresh by nothing, and no level
     // logged, whatever the rota would say now.
     const first = await runCloudPull(
-      { kind: "rota", walk: { teamIds: [BEARS], ageLevels: [9], markOn: null } },
+      {
+        kind: "rota",
+        walk: { teamIds: [BEARS], ageLevels: [9], markOn: null, workedAt: workedOut },
+      },
       asking()
     );
     expect(first).toMatchObject({ end: "finished", asked: 1 });
@@ -441,9 +446,11 @@ describe("a pull run on the cloud copy", () => {
 
     // The last leg: its share, and the levels logged on the day the refresh was worked out for,
     // here the day before the leg runs.
-    const workedOut = new Date("2026-10-01T15:00:00.000Z");
     await runCloudPull(
-      { kind: "rota", walk: { teamIds: [ACES], ageLevels: [9], markOn: workedOut } },
+      {
+        kind: "rota",
+        walk: { teamIds: [ACES], ageLevels: [9], markOn: workedOut, workedAt: workedOut },
+      },
       asking()
     );
     expect(asked).toEqual([[BEARS], [ACES]]);
@@ -451,7 +458,10 @@ describe("a pull run on the cloud copy", () => {
 
     // A last leg that did not ask about every team logs nothing.
     const refusing = await runCloudPull(
-      { kind: "rota", walk: { teamIds: [ACES, BEARS], ageLevels: [10], markOn: workedOut } },
+      {
+        kind: "rota",
+        walk: { teamIds: [ACES, BEARS], ageLevels: [10], markOn: workedOut, workedAt: workedOut },
+      },
       asking({
         fetchTeams: async (ids, options) => {
           options.onRefused?.(3);
@@ -474,7 +484,10 @@ describe("a pull run on the cloud copy", () => {
     // A refresh worked out the day before the nightly logged 9U ends after it did.
     const workedOut = new Date("2026-10-02T15:00:00.000Z");
     await runCloudPull(
-      { kind: "rota", walk: { teamIds: [ACES], ageLevels: [9, 10], markOn: workedOut } },
+      {
+        kind: "rota",
+        walk: { teamIds: [ACES], ageLevels: [9, 10], markOn: workedOut, workedAt: workedOut },
+      },
       deps(cloud, "2026-10-03T16:00:00.000Z")
     );
     resetTeamRankingsStore();

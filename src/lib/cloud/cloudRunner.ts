@@ -19,7 +19,7 @@ import {
   tidyPool,
   type GcImportOutcome,
 } from "../gameChangerImport";
-import { localDayKey, markRefreshed, type RefreshLog } from "../gameChangerSchedule";
+import { lastPulled, localDayKey, markRefreshed, type RefreshLog } from "../gameChangerSchedule";
 import { orgAgesByTeam } from "../orgMembership";
 import { isRefusedClub } from "../refusedClubs";
 import { memoryIo } from "../poolMemoryIo";
@@ -83,6 +83,14 @@ export type RotaWalk = {
   teamIds: readonly string[];
   ageLevels: readonly number[];
   markOn: Date | null;
+  /**
+   * When the teams were worked out. A team the copy says was pulled after it is not asked about
+   * again: that pull came after the press, so it is what the press asked for. It is how a leg tried
+   * again after its save landed, when the job could not then be told (an update or a worker that
+   * failed between the two), skips the teams that save already holds rather than asking
+   * GameChanger about them all a second time minutes later.
+   */
+  workedAt: Date;
 };
 
 /** What to pull. */
@@ -425,15 +433,23 @@ export const runCloudPull = async (
       ? { ageLevels: due.ageLevels, on: null }
       : null;
   const dropped = loadDroppedClubs();
+  const pulledAt = walk ? lastPulled(loadScoutTeams()) : null;
+  const since = walk ? walk.workedAt.getTime() : Infinity;
   const wanted = (
     walk ? [...walk.teamIds] : due ? due.teamIds : job.kind === "list" ? listIds(job) : []
   )
     .filter((teamId, at, all) => all.indexOf(teamId) === at)
-    .filter((teamId) => !isDeletedClub(dropped, teamId));
+    .filter((teamId) => !isDeletedClub(dropped, teamId))
+    .filter((teamId) => !((pulledAt?.get(teamId) ?? -Infinity) > since));
   const limit = job.kind === "rota" ? job.limit : undefined;
   const ids = limit === undefined ? wanted : wanted.slice(0, Math.max(0, limit));
   result.asked = ids.length;
-  if (ids.length === 0) return { ...result, end: "nothing-due", manifest: copy.manifest };
+  if (ids.length === 0) {
+    // A walk's share is never empty as worked out, so one with nothing left to ask was done
+    // already, by a try of this leg whose save landed or by pulls since; it is finished, not a
+    // refresh that found nothing due.
+    return { ...result, end: walk ? "finished" : "nothing-due", manifest: copy.manifest };
+  }
 
   let gaveUp = false;
   let failed = 0;

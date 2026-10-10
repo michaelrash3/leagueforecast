@@ -678,6 +678,123 @@ describe("a Refresh now job, a leg at a time", () => {
     expect(fetched.flat().sort()).toEqual([ACES, BEARS, CUBS].sort());
   });
 
+  it("asks nobody again when tried after its save landed but before its job was told", async () => {
+    const { cloud, jobs } = await filed();
+    jobs.putRefresh(REFRESH);
+    const fetched: string[][] = [];
+    // GameChanger's answers stamped when they are fetched, as the proxy stamps them.
+    const fetching = (at: Date): LegDeps["fetchTeams"] => {
+      const answers = answering(fetched);
+      return async (ids, options) => {
+        const answered = await answers(ids, options);
+        for (const [teamId, one] of answered) {
+          if (one.ok) {
+            answered.set(teamId, {
+              ...one,
+              schedule: { ...one.schedule, fetchedAt: at.toISOString() },
+            });
+          }
+        }
+        return answered;
+      };
+    };
+    // The save lands, and then the job's own update, the one that says the leg is done, fails.
+    let failing = true;
+    const flaky: JobDocs = {
+      ...jobs.docs,
+      update: async (jobId, patch) => {
+        if (failing && patch.legsDone !== undefined) {
+          failing = false;
+          throw new Error("Firestore did not answer.");
+        }
+        await jobs.docs.update(jobId, patch);
+      },
+    };
+    const first = legDeps(cloud, jobs, {
+      jobs: flaky,
+      fetchTeams: fetching(new Date("2026-10-02T16:01:00.000Z")),
+      now: () => FRIDAY,
+    });
+    await expect(runPullLeg({ jobId: REFRESH, leg: 0 }, first.deps)).rejects.toThrow(/answer/);
+    const saved = cloud.manifest()!.version;
+    expect(jobs.job(REFRESH)).toMatchObject({ status: "running", legsDone: 0 });
+    expect(fetched.flat().sort()).toEqual([ACES, BEARS, CUBS].sort());
+
+    // Cloud Tasks sends it again two minutes on: every team was pulled after the refresh was
+    // worked out, so none is asked again, nothing is saved again, and the job is done.
+    const again = legDeps(cloud, jobs, {
+      fetchTeams: fetching(new Date("2026-10-02T16:03:00.000Z")),
+      now: () => new Date("2026-10-02T16:02:00.000Z"),
+    });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, again.deps)).toBe("done");
+    expect(fetched).toHaveLength(1);
+    expect(cloud.manifest()!.version).toBe(saved);
+    expect(jobs.job(REFRESH)).toMatchObject({ status: "done", legsDone: 1, end: "finished" });
+    // The save that landed logged the levels, as the leg's own would have.
+    expect((await logOf(cloud))["9"]).toBe(localDayKey(FRIDAY));
+  });
+
+  it("keeps what it replaces as an earlier version, as the nightly does, where a list keeps none", async () => {
+    const { cloud, jobs } = await filed();
+    expect(cloud.manifest()!.kept).toEqual([]);
+    jobs.putRefresh(REFRESH);
+    // The Aces have played again since the list was pulled, so the refresh moves the pool.
+    const played: LegDeps["fetchTeams"] = async (ids, options) => {
+      const answers = await answering()(ids, options);
+      const aces = answers.get(ACES);
+      if (aces?.ok) {
+        const games = [...aces.schedule.games, game("a2", "Cubs", 1, 2)];
+        answers.set(ACES, { ...aces, schedule: { ...aces.schedule, games } });
+      }
+      return answers;
+    };
+    const { deps } = legDeps(cloud, jobs, { fetchTeams: played, now: () => FRIDAY });
+    // A catch-up list asking the same teams again moves the pool as much, and keeps nothing.
+    const list = "c".repeat(32);
+    await jobs.put(LIST, { jobId: list, refresh: true });
+    const listed = cloud.manifest()!.version;
+    expect(await runPullLeg({ jobId: list, leg: 0 }, deps)).toBe("done");
+    expect(cloud.manifest()!.version).toBe(listed + 1);
+    expect(cloud.manifest()!.kept).toEqual([]);
+    // Played again before the refresh, which then has something of its own to replace.
+    const more: LegDeps["fetchTeams"] = async (ids, options) => {
+      const answers = await played(ids, options);
+      const aces = answers.get(ACES);
+      if (aces?.ok) {
+        const games = [...aces.schedule.games, game("a3", "Bears", 7, 0)];
+        answers.set(ACES, { ...aces, schedule: { ...aces.schedule, games } });
+      }
+      return answers;
+    };
+    const refresh = legDeps(cloud, jobs, { fetchTeams: more, now: () => FRIDAY });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, refresh.deps)).toBe("done");
+    const kept = cloud.manifest()!.kept;
+    expect(kept.length).toBeGreaterThan(0);
+    expect(new Set(kept.map((part) => part.group)).size).toBe(1);
+  });
+
+  it("fails, saying to press again rather than to send a list, when its copy is started again", async () => {
+    const { cloud, jobs } = await filed();
+    jobs.putRefresh(REFRESH);
+    const replacing: LegDeps["fetchTeams"] = async (ids, options) => {
+      cloud.setManifest(null);
+      const saved = await commitChanges({
+        store: cloud.store,
+        base: null,
+        changes: [{ key: LEAGUE_PART, value: { seasons: [] }, at: 3 }],
+        device: "laptop",
+        now: "2026-10-02T16:00:30.000Z",
+      });
+      if (!saved.ok) throw new Error("start again");
+      return answering()(ids, options);
+    };
+    const { deps } = legDeps(cloud, jobs, { fetchTeams: replacing, now: () => FRIDAY });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("failed");
+    const { error } = jobs.job(REFRESH);
+    expect(error).toMatch(/started again while this refresh ran.*Press Refresh now again/);
+    expect(error).not.toMatch(/list/);
+  });
+
   it("files its answers again onto a save another made while it pulled, keeping that save", async () => {
     const { cloud, jobs } = await filed();
     jobs.putRefresh(REFRESH);
