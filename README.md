@@ -2922,7 +2922,11 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
   stored, and takes from the stored look what reads as it does in the season it shows: an edit
   made in one tab is seen in the other when it arrives there, the forecast after it once the tab
   that made it has taken it as seen, and a Got it in one is a Got it in all of them. A clinch the
-  news brings, when Got it came before the forecast settled, is still news in each.
+  news brings, when Got it came before the forecast settled, is still news in each. This holds
+  where the pages share the browser's storage, which is how they hear of each other. On an iPhone
+  or iPad an app added to the Home Screen, and on a Mac a web app added to the Dock from Safari,
+  keeps storage of its own apart from the browser, so it is a device of its own, with its own
+  last look, notification choices and record of what it has announced.
 
 **Notifications**, in Settings, are off until turned on, and the browser is asked for permission
 only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its
@@ -2936,9 +2940,10 @@ it reloads (`readNotified`, one tab at a time through the Web Locks API). A move
 the same news while it stays within the same whole steps of the chosen points, which way it went
 from the last look, so it is not announced again each time a final elsewhere moves the forecast a
 point; a game given a second new opponent is news again. A choice changed in one tab holds in the
-others at once. Pressing one comes back to the app (`public/notification-click.js`, in the service
-worker). Nothing is sent to a server, and **nothing arrives while the app is closed**: that needs a
-push service holding each device's subscription and sending to it, which the app does not have.
+others at once, where they share storage as above. Pressing one comes back to the app
+(`public/notification-click.js`, in the service worker). Nothing is sent to a server, and
+**nothing arrives while the app is closed**: that needs a push service holding each device's
+subscription and sending to it, which the app does not have.
 
 ## Settings
 
