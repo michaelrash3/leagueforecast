@@ -115,7 +115,27 @@ describe("comparing two clubs in Scouting", () => {
     expect(forecast).not.toHaveTextContent("should beat");
   });
 
-  it("says so when nothing joins the two clubs, so the forecast is a guess", async () => {
+  it("names the scouted club when it is the one that should win", async () => {
+    const user = userEvent.setup();
+    const hawks = pool();
+    hawks.ageGroups = [ageGroup(10, 2027, { myTeamId: "S-THEM" })];
+    renderTeamRankings(hawks);
+    await user.click(screen.getByRole("tab", { name: /scouting/i }));
+    await pickCompare(user, "otters");
+
+    const forecast = screen.getByRole("region", {
+      name: "Forecast: Hill Hawks against River Otters",
+    });
+    expect(forecast).toHaveTextContent(/Hill Hawks should beat River Otters by \d+\.\d runs?/);
+    const chance = forecast.textContent?.match(
+      /Win chance: Hill Hawks (\d+)%, River Otters (\d+)%/
+    );
+    expect(Number(chance![1])).toBeGreaterThan(50);
+    expect(Number(chance![1]) + Number(chance![2])).toBe(100);
+  });
+
+  it("gives the answer plainly for two clubs nothing joins, without a caveat", async () => {
+    // Every forecast is an estimate; the owner asked for the answer without a preface.
     const user = userEvent.setup();
     const island = pool();
     island.teams.push(team("S-LOON", "Loons"), team("S-GULL", "Gulls"));
@@ -125,8 +145,8 @@ describe("comparing two clubs in Scouting", () => {
     await pickCompare(user, "loons");
 
     const forecast = screen.getByRole("region", { name: "Forecast: River Otters against Loons" });
-    expect(forecast).toHaveTextContent("no shared opponents yet");
-    expect(forecast).toHaveTextContent(/a guess/);
+    expect(forecast).toHaveTextContent(/should beat|Too close to call/);
+    expect(forecast).not.toHaveTextContent(/guess|no shared opponents/i);
   });
 
   it("puts the comparison away when cleared", async () => {

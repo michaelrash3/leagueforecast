@@ -1,6 +1,5 @@
 import { Fragment, useMemo } from "react";
 import {
-  MATCHUP_MARGIN_CAP,
   previewMatchup,
   RATING_CAP,
   SCOUT_REPORT_NATIONAL_TOP,
@@ -12,6 +11,7 @@ import {
   type UpcomingMatchup,
 } from "../../lib/teamRankings";
 import { formatIsoDayShort } from "../../lib/date";
+import { forecastWords, formatRating } from "../../lib/matchupForecast";
 import { holdsFrom, type WhatIfCurve, type WhatIfDeclined } from "../../lib/scoutWhatIf";
 import type { WhatIfState } from "../../hooks/useRankingsWorker";
 import type { LeagueSummaryState } from "../../hooks/useLeagueSummary";
@@ -57,34 +57,22 @@ const formatMargin = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed
 
 const formatDay = formatIsoDayShort;
 
-/** "2.3 runs", "1.0 run", and the cap the projection never states past. */
-const forecastRuns = (margin: number): string => {
-  const runs = Math.abs(margin);
-  if (runs >= MATCHUP_MARGIN_CAP) return `${MATCHUP_MARGIN_CAP} or more runs`;
-  const shown = runs.toFixed(1);
-  return `${shown} ${shown === "1.0" ? "run" : "runs"}`;
-};
-
 /**
  * The answer to the question the pickers ask — how would this team fare against that one — said
- * before anything else: who should win, who should lose, by how many runs, and each side's chance.
+ * before anything else: who should win, who should lose, by how many runs, and each side's chance
+ * (`forecastWords`), then the two ratings the margin is the gap between.
  *
  * It sat nowhere at all at first. Compare with laid out the meetings, the common opponents and each
  * club's best and worst, and left the reader to work the answer out from them, which is the one
  * thing the box was opened to be told. The games stay, under it, as the reason for it.
  *
  * From `previewMatchup`, so a club set beside the report reads the numbers it would if added to
- * the report by name. A margin that rounds to nothing names no winner: "Hill Hawks should beat
- * River Otters by 0.0 runs" would be a winner picked by a rounding error. The two chances are
- * printed to add up to 100, which two roundings of one probability do not always do.
+ * the report by name. No caveat rides on it, even for two clubs nothing in the pool joins: every
+ * forecast is an estimate, the owner asked for the answer without a preface, and the tables below
+ * keep their own marks.
  */
 function ClubForecast({ forRow, against }: { forRow: ScoutRankingRow; against: ScoutRankingRow }) {
-  const preview = previewMatchup(forRow, against);
-  const forPct = Math.round(preview.winProb * 100);
-  const even = Math.abs(preview.projectedMargin) < 0.05;
-  const forWins = preview.projectedMargin > 0;
-  const [winner, loser] = forWins ? [forRow, against] : [against, forRow];
-  const winnerPct = forWins ? forPct : 100 - forPct;
+  const words = forecastWords(forRow.teamName, against.teamName, previewMatchup(forRow, against));
   return (
     <section
       aria-label={`Forecast: ${forRow.teamName} against ${against.teamName}`}
@@ -94,23 +82,15 @@ function ClubForecast({ forRow, against }: { forRow: ScoutRankingRow; against: S
         Forecast
       </h4>
       <p className="mt-1 text-lg font-black wrap-break-word text-slate-950 dark:text-white">
-        {even
-          ? "Too close to call: dead even"
-          : `${winner.teamName} should beat ${loser.teamName} by ${forecastRuns(preview.projectedMargin)}`}
+        {words.headline}
       </p>
-      <p className="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
-        {even
-          ? `Win chance: ${forRow.teamName} ${forPct}%, ${against.teamName} ${100 - forPct}%`
-          : `Win chance: ${winner.teamName} ${winnerPct}%, ${loser.teamName} ${100 - winnerPct}%`}
+      <p className="mt-1 text-sm font-semibold wrap-break-word text-slate-700 dark:text-slate-200">
+        {words.chances}
       </p>
-      {preview.unconnected && <NoSharedOpponents />}
-      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-        Why: {forRow.teamName} rates {formatMargin(forRow.rating)} runs against an average club on
-        this board (#{forRow.rank}) and {against.teamName} {formatMargin(against.rating)} (#
-        {against.rank}); the gap between them is the margin.
-        {preview.unconnected
-          ? " Nothing in the games pulled so far links these two, so their ratings were measured against different clubs and this is a guess."
-          : " The games behind those ratings follow."}
+      <p className="mt-2 text-xs wrap-break-word text-slate-500 dark:text-slate-400">
+        Why: {forRow.teamName} rates {formatRating(forRow.rating)} runs against an average club (#
+        {forRow.rank}) and {against.teamName} {formatRating(against.rating)} (#{against.rank}); the
+        margin is the gap between them.
       </p>
     </section>
   );
@@ -316,14 +296,24 @@ export function ScoutingSection({
               </button>
             )}
           </div>
-          {compareRow && <ClubForecast forRow={reportRow} against={compareRow} />}
-          {comparison && (
+          {compareRow ? (
+            <ClubForecast forRow={reportRow} against={compareRow} />
+          ) : (
+            compareId &&
+            compareId !== reportForId && (
+              // A club picked on another page or half that is not ranked on this one: said, rather
+              // than an empty space where the answer was, or a comparison with "Other club".
+              <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+                The club picked to compare is not ranked on this board, so there is nothing to
+                forecast. Pick another, or Clear.
+              </p>
+            )
+          )}
+          {comparison && compareRow && (
             <ClubCompare
               comparison={comparison}
               aName={reportRow.teamName}
-              bName={
-                rankings.find((row) => row.teamId === comparison.b.teamId)?.teamName ?? "Other club"
-              }
+              bName={compareRow.teamName}
             />
           )}
         </div>

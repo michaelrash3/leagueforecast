@@ -353,10 +353,12 @@ team on the page, which is the question to ask before entering a tournament.
 under the two boxes and above the write-up of the team's rank: who should win, who
 should lose, by how many runs, and each side's chance ("Hill Hawks should beat River
 Otters by 2.3 runs. Win chance: Hill Hawks 64%, River Otters 36%"). The numbers are
-`previewMatchup`'s, the same the report gives that club added by name; a margin that
-rounds to nothing is called dead even rather than handed a winner, and two clubs
-nothing in the pool joins are marked as a guess. The answer needs only the two
-ratings, so it shows the moment a club is picked.
+`previewMatchup`'s, the same the report gives that club added by name, put into words
+by `forecastWords`; a margin too small to move either chance off 50% is called dead
+even rather than handed a winner. It carries no caveat, even for two clubs nothing in
+the pool joins: every forecast is an estimate, and the answer is what was asked for.
+A club picked on another page that is not ranked on this one says so. The answer
+needs only the two ratings, so it shows the moment a club is picked.
 
 Under it, the reason for it (`compareClubs`): the games the two played against each
 other, every club both have played with each one's score against it ("we beat the
