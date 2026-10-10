@@ -2834,7 +2834,11 @@ where they average eight or more.
 On the Forecast tab, the seed odds grid has a **Likely** column: the seeds a team finishes in
 once the best and worst tenth of simulated seasons are left out, so at least eight simulated
 seasons in ten (`seedRange.ts`). It is not the Projected Standings' **Range**, which is the
-best and worst seed one remaining result can move the projection to.
+best and worst seed one remaining result can move the projection to. That walk is a season's
+projection for each way each remaining game can go, so it waits until 60 or fewer games
+remain (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
+dash and the caption says the range is paused, rather than every team's projection at both
+ends, which would read as a seed nothing left to play can move.
 
 ## Our team
 

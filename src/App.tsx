@@ -3480,6 +3480,9 @@ export default function App() {
                       toggleBracketFinal={toggleBracketFinal}
                       clearBracketScores={clearBracketScores}
                       seedRangeForTeam={seedRangeForTeam}
+                      seedRangesPausedUntil={
+                        exactScenarioAnalysisEnabled ? null : EXACT_SCENARIO_REMAINING_GAME_LIMIT
+                      }
                       gamesThatMatterMost={gamesThatMatterMost}
                       bubbleMovementRows={bubbleMovementRows}
                       scheduleDifficultyForTeam={scheduleDifficultyForTeam}

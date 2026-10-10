@@ -54,6 +54,12 @@ export function ModelView(props: {
   toggleBracketFinal: (gameId: string) => void;
   clearBracketScores: (gameIds: string[], label: string) => void;
   seedRangeForTeam: (id: string) => { best: number; worst: number; baseline: number };
+  /**
+   * How few games must remain before the scenario walk behind each Range runs (`useSeedRanges`),
+   * or null once it does. Until then a range is the projection at both ends, which would read as
+   * a seed nothing left to play can move, so none is shown and the caption says why.
+   */
+  seedRangesPausedUntil: number | null;
   gamesThatMatterMost: {
     game: Matchup;
     rank: number;
@@ -124,6 +130,7 @@ export function ModelView(props: {
     toggleBracketFinal,
     clearBracketScores,
     seedRangeForTeam,
+    seedRangesPausedUntil,
     gamesThatMatterMost,
     bubbleMovementRows,
     scheduleDifficultyForTeam,
@@ -169,6 +176,9 @@ export function ModelView(props: {
       : forecastStoryUnavailableReason
         ? "The written forecast is unavailable. The projected table and game picks below are unaffected."
         : "");
+  /** A team's Range as the table, the phone rows and the Bubble Watch show it. */
+  const rangeText = (range: { best: number; worst: number }) =>
+    seedRangesPausedUntil === null ? `#${range.best}–#${range.worst}` : "—";
 
   return (
     <section className="space-y-6">
@@ -376,9 +386,7 @@ export function ModelView(props: {
                                 : "0"}
                           </span>
                         </td>
-                        <td className="px-4 py-4 text-center font-black">
-                          #{range.best}–#{range.worst}
-                        </td>
+                        <td className="px-4 py-4 text-center font-black">{rangeText(range)}</td>
                         <td className="px-4 py-4 text-center font-black">{team.projectedRecord}</td>
                         {hasCutLine && (
                           <td className="px-4 py-4 text-center font-black">
@@ -413,8 +421,9 @@ export function ModelView(props: {
               </table>
             </div>
             <p className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400">
-              Range is the best and worst seed one remaining result can move a team&apos;s
-              projection to.
+              {seedRangesPausedUntil === null
+                ? "Range is the best and worst seed one remaining result can move a team's projection to."
+                : `Range, the best and worst seed one remaining result can move a team's projection to, is paused until ${seedRangesPausedUntil} or fewer games remain to keep this page responsive.`}
             </p>
 
             {/* Mobile cards */}
@@ -460,7 +469,7 @@ export function ModelView(props: {
                               ? `-${Math.abs(movement)}`
                               : "0"}
                         </span>{" "}
-                        · #{range.best}–#{range.worst} · {team.projectedRecord}
+                        · {rangeText(range)} · {team.projectedRecord}
                       </div>
                       <div className="mt-0.5 text-xs font-bold text-slate-500 dark:text-slate-400">
                         Diff{" "}
@@ -561,8 +570,8 @@ export function ModelView(props: {
                         {displayName(team.name)}
                       </div>
                       <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-                        Now #{team.rank} · Projected #{team.projectedRank} · Range #{range.best}–#
-                        {range.worst}
+                        Now #{team.rank} · Projected #{team.projectedRank} · Range{" "}
+                        {rangeText(range)}
                       </div>
                     </div>
                     <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
