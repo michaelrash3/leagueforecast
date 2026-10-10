@@ -277,6 +277,10 @@ export const writeSeen = (seasonId: string, seen: SeasonSeen, now = Date.now()):
   return safeSet(SEEN_KEY, JSON.stringify(Object.fromEntries(kept)));
 };
 
+/** Calls `listener` when another tab keeps a look (`writeSeen`), which `readSeen` then has. */
+export const subscribeSeen = (listener: () => void): (() => void) =>
+  onWrittenElsewhere(SEEN_KEY, listener);
+
 const NOTIFY_KEY = "lf_league_notify_v1";
 
 /** Which League changes this device notifies of (2.6), off until turned on. */

@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { finalLogsOf } from "../lib/finalLogs";
-import { readSeen, writeSeen } from "../lib/preferences";
+import { readSeen, subscribeSeen, writeSeen } from "../lib/preferences";
 import {
+  adoptKept,
   changesBetween,
   foldLocal,
+  keptWith,
+  sameSeen,
   seenOf,
   type Change,
   type RaceSeen,
@@ -61,6 +64,10 @@ const movesForecast = (before: SeasonState, after: SeasonState): boolean => {
  * or the odds still being worked out). A forecast that follows this device's own edit is taken as
  * seen too, unless news from elsewhere is still unread, which it may follow from. `heard` is
  * whether League kept live has heard the cloud's version of the open season.
+ *
+ * The last look is the device's, not the tab's: another tab's edit, coming back to this one
+ * through the cloud, is seen here as it was there, and a Got it in one tab is one in all of them
+ * (`keptWith`, `adoptKept`).
  */
 export function useSeasonDigest({
   store,
@@ -102,13 +109,20 @@ export function useSeasonDigest({
    * starts all the same, or the first news to come would be taken for that word.
    */
   if (heard && !held.looked && held.seasonId === open.id) {
-    setHeld((was) => (was.looked || was.seasonId !== open.id ? was : { ...was, looked: true }));
+    const kept = readSeen(held.seasonId);
+    setHeld((was) =>
+      was.looked || was.seasonId !== open.id
+        ? was
+        : { ...was, seen: kept ?? was.seen, looked: true }
+    );
   }
 
   useLayoutEffect(
     () =>
       store.subscribe((change, previous) => {
         const now = store.get();
+        // What this device's other tabs keep as seen, read here rather than in the updater.
+        const kept = change === "arrival" ? readSeen(now.id) : null;
         setOpen(now);
         setHeld((was) => {
           if (change === "open" || was.seasonId !== now.id) {
@@ -130,22 +144,43 @@ export function useSeasonDigest({
               ? was
               : { ...was, seen, raceOwed: owed };
           }
+          const shown = seenOf(now.season);
           if (!was.looked) {
+            // Another tab here has looked already: its look is this one's.
+            if (kept) return { ...was, seen: kept, looked: true, raceOwed: false };
             // The cloud's first word is where looking starts, the race with it: the forecast of
             // the season it brought, as that settles, not the one from before it, against which
             // the finals it brought would come out as clinches with none of the games behind them.
             const race = movesForecast(previous.season, now.season) ? null : was.seen.race;
-            return { ...was, seen: { ...seenOf(now.season), race }, looked: true, raceOwed: false };
+            return { ...was, seen: { ...shown, race }, looked: true, raceOwed: false };
           }
-          return was;
+          if (!kept) return was;
+          // Another tab's edit comes back through the cloud as another device's would. Where the
+          // season now reads as this device keeps it, it is seen, and the forecast that follows
+          // is the device's own, as it is in the tab that made the edit.
+          const seen = adoptKept(was.seen, kept, shown);
+          return seen === was.seen ? was : { ...was, seen, raceOwed: true };
         });
       }),
     [store]
   );
 
+  // The look as this tab last held it, which what it writes is measured from (`keptWith`).
+  const synced = useRef<{ seasonId: string; seen: SeasonSeen } | null>(null);
+  const [lookWritten, setLookWritten] = useState(0);
+  useEffect(() => subscribeSeen(() => setLookWritten((count) => count + 1)), []);
   useEffect(() => {
-    if (held.looked) writeSeen(held.seasonId, held.seen);
-  }, [held]);
+    const was = synced.current?.seasonId === held.seasonId ? synced.current.seen : held.seen;
+    synced.current = { seasonId: held.seasonId, seen: held.seen };
+    if (!held.looked) return;
+    const kept = readSeen(held.seasonId);
+    const next = kept ? keptWith(kept, was, held.seen) : held.seen;
+    if (!kept || !sameSeen(next, kept)) writeSeen(held.seasonId, next);
+    const current = store.get();
+    if (!kept || current.id !== held.seasonId) return;
+    const seen = adoptKept(held.seen, next, seenOf(current.season, shownRace));
+    if (seen !== held.seen) setHeld((latest) => (latest === held ? { ...held, seen } : latest));
+  }, [store, held, shownRace, lookWritten]);
 
   const now = useMemo(() => seenOf(open.season, shownRace), [open, shownRace]);
   const changes = useMemo(

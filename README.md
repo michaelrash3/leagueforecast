@@ -2916,6 +2916,12 @@ and 1 clinch"), then listed, the followed team's first, each a link to its game 
   version laid over its own, or its own when the cloud held nothing it lacked (League goes live
   either way, and that is the moment). The race starts from the forecast of that season, worked
   out afresh when the cloud's word brought scores, not from the one on screen before them.
+- **One device, however many tabs.** The installed app beside a browser tab is two pages each
+  kept live, and each hears the other's edits from the cloud as it would another device's. The
+  last look is the device's, so each tab writes only what it took as seen, laid over the look as
+  stored, and takes from the stored look what reads as it does in the season it shows: an edit
+  made in one tab is seen in the other when it arrives there, and a Got it in one is a Got it in
+  all of them.
 
 **Notifications**, in Settings, are off until turned on, and the browser is asked for permission
 only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its

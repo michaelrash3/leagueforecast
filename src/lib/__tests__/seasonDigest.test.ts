@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_NOTIFY,
+  adoptKept,
   changeKey,
   coerceNotifyPrefs,
   coerceSeen,
@@ -9,7 +10,9 @@ import {
   describeChange,
   digestOddsMove,
   foldLocal,
+  keptWith,
   raceOf,
+  sameSeen,
   seenOf,
   worthNotifying,
   type Change,
@@ -362,6 +365,41 @@ describe("notifications", () => {
     expect(digestOddsMove({ ...DEFAULT_NOTIFY, on: true })).toBe(DEFAULT_NOTIFY.oddsMove);
     expect(digestOddsMove({ ...DEFAULT_NOTIFY, on: true, oddsMove: 20 })).toBe(20);
     expect(digestOddsMove({ ...DEFAULT_NOTIFY, on: true, oddsMove: null })).toBe(10);
+  });
+});
+
+describe("another tab's look", () => {
+  const was = { ...seenOf(season()), race: { A: { status: "Alive" as const, gold: 50 } } };
+
+  it("is kept with what this tab changed laid over it, and nothing else of this tab's", () => {
+    // Another tab took game 2's final as seen; this tab took game 3's and a new race.
+    const kept = seenOf(season({ g1: log("4", "2"), g2: log("1", "0") }));
+    const mine = {
+      ...seenOf(season({ g1: log("4", "2"), g3: log("6", "1") })),
+      race: { A: { status: "Clinched" as const, gold: 100 } },
+    };
+    expect(keptWith({ ...kept, race: was.race }, was, mine)).toEqual({
+      ...seenOf(season({ g1: log("4", "2"), g2: log("1", "0"), g3: log("6", "1") })),
+      race: mine.race,
+    });
+    expect(keptWith(kept, was, was)).toBe(kept);
+  });
+
+  it("gives this tab what it has of the season as this tab shows it, and nothing ahead of it", () => {
+    const kept = {
+      ...seenOf(season({ g1: log("4", "2"), g2: log("1", "0") })),
+      race: { A: { status: "In" as const, gold: 70 } },
+    };
+    const shown = { ...seenOf(season({ g1: log("4", "2") })), race: kept.race };
+    expect(adoptKept(was, kept, shown)).toEqual({
+      ...seenOf(season({ g1: log("4", "2") })),
+      race: kept.race,
+    });
+    expect(adoptKept(was, kept, { ...seenOf(season({ g1: log("5", "2") })), race: null })).toBe(
+      was
+    );
+    expect(sameSeen(adoptKept(was, kept, shown), shown)).toBe(true);
+    expect(sameSeen(was, shown)).toBe(false);
   });
 });
 

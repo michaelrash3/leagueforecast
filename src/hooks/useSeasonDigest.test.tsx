@@ -65,6 +65,12 @@ const mount = (
   return { store, view };
 };
 
+/** What the browser tells every other tab when one keeps a look; jsdom tells none. */
+const toldOfLook = () =>
+  act(() => {
+    window.dispatchEvent(new StorageEvent("storage", { key: "lf_league_seen_v1" }));
+  });
+
 const kinds = (changes: { kind: string }[]) => changes.map((change) => change.kind);
 
 describe("useSeasonDigest", () => {
@@ -328,6 +334,95 @@ describe("useSeasonDigest", () => {
         race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
       });
       expect(kinds(view.result.current.changes)).toEqual(["final", "clinched"]);
+    });
+  });
+
+  describe("two tabs on one device", () => {
+    const start = race({ status: "Alive", gold: 50 }, { status: "Alive", gold: 50 });
+    /** The installed app and a browser tab on the same season, both looked at. */
+    const tabs = (data: SeasonState = season()) => {
+      const one = mount("s1", data, { race: start, followed: "A" });
+      const two = mount("s1", data, { race: start, followed: "A" });
+      act(() => one.view.result.current.acknowledge());
+      act(() => two.view.result.current.acknowledge());
+      return [one, two] as const;
+    };
+
+    it("takes one tab's own edit as seen when it comes back to the other through the cloud", () => {
+      const [here, there] = tabs();
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      // The other tab's League kept live hears the edit as it would another device's.
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      expect(there.view.result.current.changes).toEqual([]);
+      // And the forecast that follows it is the device's own there too.
+      there.view.rerender({ race: null });
+      there.view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+      });
+      expect(there.view.result.current.changes).toEqual([]);
+    });
+
+    it("takes it as seen when the cloud brings it before the other tab has kept its look", () => {
+      const [here, there] = tabs();
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      expect(kinds(there.view.result.current.changes)).toEqual(["final"]);
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      expect(there.view.result.current.changes).toEqual([]);
+    });
+
+    it("measures the cloud's first word here from the look another tab kept", () => {
+      // Both opened the season before either had looked; one has looked since.
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      act(() => here.view.result.current.acknowledge());
+      toldOfLook();
+      act(() => there.store.apply(season({ g1: final("4", "2") })));
+      expect(kinds(there.view.result.current.changes)).toEqual(["final"]);
+    });
+
+    it("does not take another tab's edit as seen before it has arrived", () => {
+      const [here, there] = tabs();
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      // The game is still as it was in this tab: nothing to say of it either way.
+      expect(there.view.result.current.changes).toEqual([]);
+      // Another device's final for it, at another score, is news when it comes.
+      act(() => there.store.apply(season({ g1: final("6", "3") })));
+      expect(kinds(there.view.result.current.changes)).toEqual(["final"]);
+    });
+
+    it("keeps what one tab took as seen when the other keeps its own look", () => {
+      const [here, there] = tabs();
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      act(() => there.store.setSeason(season({ g1: final("5", "3"), g2: final("1", "0") })));
+      toldOfLook();
+      here.view.unmount();
+      const again = mount("s1", season({ g1: final("5", "3"), g2: final("1", "0") }));
+      expect(again.view.result.current.changes).toEqual([]);
+    });
+
+    it("shares a Got it between tabs, and keeps it through the other's writes", () => {
+      const [here, there] = tabs();
+      act(() => here.store.apply(season({ g1: final("4", "2") })));
+      act(() => there.store.apply(season({ g1: final("4", "2") })));
+      act(() => here.view.result.current.acknowledge());
+      toldOfLook();
+      expect(there.view.result.current.changes).toEqual([]);
+      const renamed = {
+        ...season({ g1: final("4", "2") }),
+        teams: [
+          { id: "A", name: "Aces" },
+          { id: "B", name: "Bruins" },
+        ],
+      };
+      act(() => there.store.setSeason(renamed));
+      toldOfLook();
+      here.view.unmount();
+      expect(mount("s1", renamed).view.result.current.changes).toEqual([]);
     });
   });
 });

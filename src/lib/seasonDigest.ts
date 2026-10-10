@@ -88,18 +88,8 @@ const sameGame = (one: GameSeen | undefined, two: GameSeen | undefined) =>
     one.final === two.final &&
     one.detail === two.detail);
 
-/**
- * `seen` with what this device itself changed between `before` and `after` taken as seen: each
- * game and team the edit touched now reads as it does after it. Anything else that differs from
- * `seen` (what arrived from elsewhere) stays unseen. The race is left to `withRace`.
- */
-export const foldLocal = (
-  seen: SeasonSeen,
-  before: SeasonParts,
-  after: SeasonParts
-): SeasonSeen => {
-  const was = seenOf(before);
-  const now = seenOf(after);
+/** `seen` with each game and team that differs from `was` to `now` read as it does in `now`. */
+const laidOver = (seen: SeasonSeen, was: SeasonSeen, now: SeasonSeen): SeasonSeen => {
   let games = seen.games;
   for (const id of new Set([...Object.keys(was.games), ...Object.keys(now.games)])) {
     if (sameGame(was.games[id], now.games[id])) continue;
@@ -117,6 +107,78 @@ export const foldLocal = (
     else delete teams[id];
   }
   return games === seen.games && teams === seen.teams ? seen : { ...seen, games, teams };
+};
+
+/**
+ * `seen` with what this device itself changed between `before` and `after` taken as seen: each
+ * game and team the edit touched now reads as it does after it. Anything else that differs from
+ * `seen` (what arrived from elsewhere) stays unseen. The race is left to `withRace`.
+ */
+export const foldLocal = (seen: SeasonSeen, before: SeasonParts, after: SeasonParts): SeasonSeen =>
+  laidOver(seen, seenOf(before), seenOf(after));
+
+const sameRace = (one: SeasonSeen["race"], two: SeasonSeen["race"]): boolean => {
+  if (one === two) return true;
+  if (!one || !two || Object.keys(one).length !== Object.keys(two).length) return false;
+  return Object.entries(one).every(([id, place]) => {
+    const other = two[id];
+    return other !== undefined && other.status === place.status && other.gold === place.gold;
+  });
+};
+
+/** Whether two looks hold the same games, teams and race. */
+export const sameSeen = (one: SeasonSeen, two: SeasonSeen): boolean =>
+  sameRace(one.race, two.race) &&
+  Object.keys(one.games).length === Object.keys(two.games).length &&
+  Object.entries(one.games).every(([id, game]) => sameGame(game, two.games[id])) &&
+  Object.keys(one.teams).length === Object.keys(two.teams).length &&
+  Object.entries(one.teams).every(([id, name]) => two.teams[id] === name);
+
+/*
+ * One device, two tabs: the installed app beside a browser tab, each with League kept live. The
+ * last look is the device's, so each tab keeps its own in step with the one stored (`writeSeen`),
+ * which the other tabs hear of. A tab writes only what it changed of its look, laid over the look
+ * as stored, so it never puts back what another tab took as seen since it last read it; and it
+ * takes from the stored look only what reads as it does in the season this tab shows, so another
+ * tab's edit, written as seen before the cloud has brought it here, is not taken as seen while the
+ * game still reads as it did, which would show it here as changed back.
+ */
+
+/** `kept`, the look as stored, with what this tab changed of its own from `was` to `now`. */
+export const keptWith = (kept: SeasonSeen, was: SeasonSeen, now: SeasonSeen): SeasonSeen => {
+  const laid = laidOver(kept, was, now);
+  return sameRace(was.race, now.race) ? laid : { ...laid, race: now.race };
+};
+
+/**
+ * `seen` with each game and team, and the race, taken from `kept` (the look another tab stored)
+ * where `now`, the season as this tab shows it, reads as `kept` has it: seen there, so seen here.
+ * The race is taken only from a forecast shown here.
+ */
+export const adoptKept = (seen: SeasonSeen, kept: SeasonSeen, now: SeasonSeen): SeasonSeen => {
+  let games = seen.games;
+  for (const id of new Set([...Object.keys(seen.games), ...Object.keys(kept.games)])) {
+    const there = kept.games[id];
+    if (!sameGame(there, now.games[id]) || sameGame(seen.games[id], there)) continue;
+    games = games === seen.games ? { ...games } : games;
+    if (there) games[id] = there;
+    else delete games[id];
+  }
+  let teams = seen.teams;
+  for (const id of new Set([...Object.keys(seen.teams), ...Object.keys(kept.teams)])) {
+    const there = kept.teams[id];
+    if (there !== now.teams[id] || seen.teams[id] === there) continue;
+    teams = teams === seen.teams ? { ...teams } : teams;
+    if (there !== undefined) teams[id] = there;
+    else delete teams[id];
+  }
+  const race =
+    now.race !== null && sameRace(kept.race, now.race) && !sameRace(seen.race, kept.race)
+      ? kept.race
+      : seen.race;
+  return games === seen.games && teams === seen.teams && race === seen.race
+    ? seen
+    : { games, teams, race };
 };
 
 export type GameChangeKind =
