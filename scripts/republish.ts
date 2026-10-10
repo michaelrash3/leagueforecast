@@ -6,22 +6,23 @@
  * member was left on the older schema's notice until the next nightly, which GitHub starts hours
  * late. Any other time it says so and leaves the views to the rebuilds after saves and the night.
  *
- * It opens the copy as the nightly does (`openStores`), on the same Firebase key, with only `live/`
- * writable: it pulls nothing and saves nothing of the copy. The copy's pool is laid into the app's
- * pool store in memory exactly as a pull lays it (`loadPoolFrom`), refused where a newer build saved
- * it or tidied it (`copyTooNew`), and the views are built and published from it under the copy and
- * version read (`publishCopyViews`). It prints counts, sizes and timings only: this repository is
- * public, and so are its Actions logs.
+ * What it does, and when it has done it, is `republishViews`'s, where it is tested: the copy laid
+ * into the app's pool store in memory exactly as a pull lays it (`loadPoolFrom`), refused where a
+ * newer build saved it or tidied it (`copyTooNew`), the views built and published from it under the
+ * copy and version read, tried again on the copy as it then stands when a save moved it meanwhile,
+ * and the run failed only where the views still want publishing at its end. It opens the copy as
+ * the nightly does, on the same Firebase key, with only `live/` writable (`openStores`,
+ * `restServerStores`): it pulls nothing and saves nothing of the copy. It prints counts, sizes and
+ * timings only: this repository is public, and so are its Actions logs.
  *
  *   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run republish
  *
  * Run under the nightly's time zone and collation (`TZ=America/New_York`, `LANG=en_US.UTF-8`), whose
  * day and order of tied rows the views are built in, and with its heap, since it holds the whole pool.
  */
-import { copyTooNew, loadPoolFrom } from "../src/lib/cloud/cloudRunner.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
-import { publishCopyViews, type CopyPublish } from "../src/lib/live/publishCopy.ts";
-import { LIVE_SCHEMA, needsRepublish } from "../src/lib/live/viewStore.ts";
+import { republishViews, REPUBLISH_TRIES } from "../src/lib/live/republish.ts";
+import { LIVE_SCHEMA } from "../src/lib/live/viewStore.ts";
 import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
 import { mb, tellViews } from "./viewsReport.ts";
@@ -36,25 +37,17 @@ declare const process: {
 const started = Date.now();
 const since = (): string => `${Math.round((Date.now() - started) / 1000)} s`;
 
-/**
- * Refusals that leave nothing for this run to answer for. A copy or a season saved during the run
- * asks for its own rebuild, which this build's functions, deployed just before, publish at this
- * build's schema (as the nightly treats them). And a later day's views, newer rules' or a newer
- * build's are what this run was for, published first by someone else.
- */
-const SETTLED = new Set<Extract<CopyPublish, { ok: false }>["reason"]>([
-  "copy-moved",
-  "league-moved",
-  "older-day",
-  "older-rules",
-  "newer-schema",
-]);
-
 /** The schema the published meta says it is of, as a word for the log. */
 const schemaOf = (raw: unknown): string => {
   const schema = (raw as { schema?: unknown } | null)?.schema;
   return typeof schema === "number" ? String(schema) : "unknown";
 };
+
+/** What is published, in a few words for the log. */
+const publishedAs = (raw: unknown): string =>
+  raw === null || raw === undefined
+    ? "nothing is published"
+    : `the published views are of schema ${schemaOf(raw)}`;
 
 const main = async (): Promise<void> => {
   const key = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -64,42 +57,29 @@ const main = async (): Promise<void> => {
     return;
   }
   const opened = openStores(key, "live");
-  const published = (await opened.live.readMeta())?.meta ?? null;
-  if (!needsRepublish(published)) {
-    console.log(
-      `The published views are of schema ${schemaOf(published)} and this build writes ${LIVE_SCHEMA}: they are left to the rebuilds after saves and the night.`
-    );
-    return;
-  }
-  const loaded = await loadPoolFrom(opened.copy);
-  if (!loaded) {
-    console.log("There is no cloud copy, so there are no views to publish.");
-    return;
-  }
-  const { manifest } = loaded;
-  if (copyTooNew(manifest)) {
-    console.log(
-      "The copy was saved or tidied by a newer build than this one, so its views are that build's to publish."
-    );
-    return;
-  }
-  console.log(
-    `${
-      published === null
-        ? "Nothing is published yet"
-        : `The published views are of schema ${schemaOf(published)}, older than this build's ${LIVE_SCHEMA}`
-    }: publishing the views of the copy at version ${manifest.version} (${loaded.keys} parts, ${mb(loaded.bytes)} gzipped, read in ${since()}).`
-  );
-  const views = await publishCopyViews({
+  const result = await republishViews({
     copyStore: opened.copy,
     liveStore: opened.live,
-    manifest,
-    today: todayIsoDay(),
-    now: () => new Date().toISOString(),
     leagueDocs: opened.leagueDocs,
+    today: todayIsoDay,
+    now: () => new Date().toISOString(),
+    onLoaded: (loaded, published, attempt) =>
+      console.log(
+        `${attempt > 1 ? `Try ${attempt} of ${REPUBLISH_TRIES}: ` : ""}${publishedAs(published)}, and this build writes ${LIVE_SCHEMA}: publishing the views of the copy at version ${loaded.manifest.version} (${loaded.keys} parts, ${mb(loaded.bytes)} gzipped, read in ${since()}).`
+      ),
+    onViews: (views) => tellViews(views, false),
   });
-  tellViews(views, false);
-  if (views.ok ? !views.sweep.ok : !SETTLED.has(views.reason)) process.exitCode = 1;
+  const said: Record<typeof result.end, string> = {
+    "not-needed": `${publishedAs(result.found)} and this build writes ${LIVE_SCHEMA}: they are left to the rebuilds after saves and the night.`,
+    "no-copy": "There is no cloud copy, so there are no views to publish.",
+    "newer-copy":
+      "The copy was saved or tidied by a newer build than this one, so its views are that build's to publish.",
+    published: `Published in ${result.tries} ${result.tries === 1 ? "try" : "tries"}.`,
+    "published-since": `Not published by this run, but ${publishedAs(result.now)} now, which this build need not replace.`,
+    refused: `Not published after ${result.tries} ${result.tries === 1 ? "try" : "tries"}, and ${publishedAs(result.now)} still: members of this build are left on the notice.`,
+  };
+  console.log(said[result.end].charAt(0).toUpperCase() + said[result.end].slice(1));
+  if (!result.ok) process.exitCode = 1;
 };
 
 try {

@@ -29,7 +29,7 @@ import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
-import { dryLiveStore, publishCopyViews } from "../src/lib/live/publishCopy.ts";
+import { dryLiveStore, publishCopyViews, publishFailedRun } from "../src/lib/live/publishCopy.ts";
 import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
 import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
@@ -199,10 +199,9 @@ const main = async (): Promise<void> => {
         leagueDocs: opened.leagueDocs,
       });
       tellViews(views, dry !== null);
-      // A copy or a season saved during the run is no fault of the run's; anything else that
-      // stops is.
-      const moved = !views.ok && (views.reason === "copy-moved" || views.reason === "league-moved");
-      if (views.ok ? !views.sweep.ok : !moved) process.exitCode = 1;
+      // A save during the run, and views a newer build published first (a deploy that landed
+      // meanwhile), are no fault of the run's; anything else that stops is (`publishFailedRun`).
+      if (publishFailedRun(views)) process.exitCode = 1;
     } catch (error) {
       console.log(
         `Publishing the views stopped: ${error instanceof Error ? error.message : String(error)}`

@@ -3703,34 +3703,38 @@ What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
 
-Then it publishes every board for members to read ("Views a server
-publishes"): built from the pool it holds and the League Standings seasons (from
-their own documents once there are any, "League Standings in the cloud"), under
-the copy and version it saved, then a sweep of what readers can no longer
-be fetching (`publishCopyViews`). It publishes only when the pool it holds is a
-copy, the one it saved or, with nothing to save or nothing due, the one it read;
-never after a run that ended without one, whose filing no copy has. The seasons
-are read the way a backup file is, as a browser's storage reads them, and a
-League Standings part that is missing, damaged or not seasons stops the publish.
-A device that saves League Standings during the run deletes the pieces the
-run's copy names; the run then says the copy moved on and publishes nothing,
-without turning the night red, and the next run publishes. The copy's id is read
-again just before each commit of the meta, after the uploads and on every retry
+Then it publishes every board for members to read ("Views a server publishes"):
+built from the pool it holds and the League Standings seasons (from their own
+documents once there are any, "League Standings in the cloud"), under the copy
+and version it saved, then a sweep of what readers can no longer be fetching
+(`publishCopyViews`). It publishes only when the pool it holds is a copy, the
+one it saved or, with nothing to save or nothing due, the one it read; never
+after a run that ended without one, whose filing no copy has. The seasons are
+read the way a backup file is, as a browser's storage reads them, and a League
+Standings part that is missing, damaged or not seasons stops the publish. A
+device that saves League Standings during the run deletes the pieces the run's
+copy names; the run then says the copy moved on and publishes nothing, without
+turning the night red, and the next run publishes. Views a newer build, newer
+rules or a later day published first leave it green too (`publishFailedRun`), as
+they do a rebuild: only servers publish views, so that is a deploy landing while
+the run is on the build it checked out before, whose own functions, or the
+republish after it, publish first. A season a newer build saved is not among
+them, since a device of any build saves seasons. The copy's id is read again
+just before each commit of the meta, after the uploads and on every retry
 (`publishViews`'s `stillCurrent`): a copy deleted and started again during the
 run is not theirs, and two copies have no order to keep the fresh one's boards
-from being replaced, so its uploads are taken back, nothing is published, and the
-night turns red, as the pull's own end does when it finds the copy replaced. The
-check and the commit are two documents, so a reset in the round trip between
-them is the one window left. The publish refuses
-under any collation but English, the order the members' browsers put tied rows
-in; the workflow pins `LANG=en_US.UTF-8` rather than leave it to the runner's
-image (Node sorts in English with `LANG` unset, `C` or `C.UTF-8`, and by the
-root collation with an empty one). A dry run builds the same views, from the
-copy the pull would have saved, writes and deletes nothing, and counts a piece
-the sweep would delete once. A publish that fails says why on its own line and
-turns the night red, after the pull's own lines; a sweep that fails once the
-views are out says so under the counts of what was published, and turns it red
-too.
+from being replaced, so its uploads are taken back, nothing is published, and
+the night turns red, as the pull's own end does when it finds the copy replaced.
+The check and the commit are two documents, so a reset in the round trip between
+them is the one window left. The publish refuses under any collation but
+English, the order the members' browsers put tied rows in; the workflow pins
+`LANG=en_US.UTF-8` rather than leave it to the runner's image (Node sorts in
+English with `LANG` unset, `C` or `C.UTF-8`, and by the root collation with an
+empty one). A dry run builds the same views, from the copy the pull would have
+saved, writes and deletes nothing, and counts a piece the sweep would delete
+once. A publish that fails says why on its own line and turns the night red,
+after the pull's own lines; a sweep that fails once the views are out says so
+under the counts of what was published, and turns it red too.
 
 On 3 October 2026 a dry run of 50 teams on the real copy built its 60 boards (20
 pages, three halves each) in 5 s, after a 95 s pull. Their first publish would
@@ -4091,24 +4095,40 @@ as they are next published.
 
 A build deployed over views of an older schema, or onto a cloud with none
 published, publishes them again at once (`scripts/republish.ts`, `npm run
-republish`). Until then no device of the new build can draw a board, and the next
-publish used to be the nightly, which GitHub starts hours late. The Firebase
-workflow runs it after a push to main that really deployed (the project connected
-and the key set), under the nightly's day, collation and heap. It reads the meta
-first and goes on only when there is none, or it is of this layout and an older
-schema (`needsRepublish`): a meta of this schema is the rebuilds' and the night's
-to keep current, and a newer build's, or one of another layout, is not this
-build's to replace. It then lays the copy's pool into memory exactly as a pull
-does (`loadPoolFrom`), stops at a copy a newer build saved or tidied
-(`copyTooNew`), and publishes from it (`publishCopyViews`), with the copy opened
-read only and only `live/` writable: it pulls nothing and saves nothing of the
-copy, and its log is counts, sizes and timings, as the nightly's is. A copy or a
-season saved during the run is left to the rebuild it asks for, and views a later
-day, newer rules or a newer build published first are what it was for, so neither
-turns the run red; anything else that stops the publish does. It does not wait on
-the nightly: GitHub cancels a run waiting in a concurrency group when the next one
-joins it, which could lose a night, and two publishers at once is what the rules
-here are for.
+republish`). Until then no device of the new build can draw a board, and the
+next publish used to be the nightly, which GitHub starts hours late. The
+Firebase workflow runs it after a push to main that really deployed (the project
+connected and the key set), under the nightly's day, collation and heap. It
+reads the meta first and goes on only when there is none, or it is of this
+layout and an older schema (`needsRepublish`): a meta of this schema is the
+rebuilds' and the night's to keep current, and a newer build's, or one of
+another layout, is not this build's to replace. It then lays the copy's pool
+into memory exactly as a pull does (`loadPoolFrom`), stops at a copy a newer
+build saved or tidied (`copyTooNew`), and publishes from it
+(`publishCopyViews`), with the copy opened read only and only `live/` writable:
+it pulls nothing and saves nothing of the copy, and its log is counts, sizes and
+timings, as the nightly's is. Its rules are `republishViews`'s, kept out of the
+script so they are tested. It answers for the views at its end, not for its own
+publish: a publish turned away is followed by a read of the meta, and the run is
+done if it no longer wants publishing (another publisher put out this build's
+views, or a newer build's). A copy or a season saved, or the copy started again,
+while it built, and a meta that changed under every commit, are tried again on
+the copy as it then stands, three tries in all: the rebuild such a save asks for
+is not certain to publish (the rebuilds may be off, paused, capped or failing;
+on 9 October 2026 three of their five runs failed), and a run that left members
+on the notice and said it was done would be the outage it is for. Its boards
+stand only while the copy is still at the version they were built from
+(`publishCopyViews`'s `atVersion`): its publish over an older schema's meta is
+never late, so the marks would not keep it from putting a version saved since
+back. Anything else that stops it while the views still want publishing turns
+the run red, a later day's or newer rules' views over an older schema included,
+since members are still on the notice; a sweep that stops after its views are
+out does not, since only pieces nothing names are left, for the night's full
+sweep. The copy is opened read only and `live/` alone writable
+(`restServerStores`, where which store writes for which opening is tested). It
+does not wait on the nightly: GitHub cancels a run waiting in a concurrency
+group when the next one joins it, which could lose a night, and two publishers
+at once is what the rules here are for.
 
 Two more rules keep a slower or older server from undoing what a newer one
 published. A publish for an earlier members' day than the meta's writes nothing,

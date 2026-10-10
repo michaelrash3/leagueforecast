@@ -12,16 +12,8 @@
  */
 import { createSign } from "node:crypto";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
-import {
-  firestoreRestDocuments,
-  firestoreRestLive,
-  firestoreRestStore,
-  firestoreRestUploads,
-} from "../src/lib/cloud/firestoreRest.ts";
-import type { UploadStore } from "../src/lib/cloud/uploads.ts";
-import { restLeagueDocs, type LeagueDocsList } from "../src/lib/live/cloudLeague.ts";
-import { REBUILD_LEDGER_PATH } from "../src/lib/live/rebuildLedger.ts";
-import type { LiveStore } from "../src/lib/live/viewStore.ts";
+import { firestoreRestStore } from "../src/lib/cloud/firestoreRest.ts";
+import { restServerStores, type ServerStores } from "../src/lib/live/serverStores.ts";
 import { loadPoolFrom, type LoadedCopy } from "../src/lib/cloud/cloudRunner.ts";
 
 type ServiceAccount = { client_email: string; private_key: string; project_id: string };
@@ -94,37 +86,13 @@ export const openCloudStore = (keyJson: string, writable: boolean): CloudStore =
 
 /**
  * The cloud copy's store and the published views' (`live/`), for the key's project, on one
- * sign-in: read only unless `writable`, and with `"live"` only the views written, as the republish
- * after a deploy writes them, which saves nothing of the copy and may not. With them, a read of the
- * rebuilds' ledger (`rebuildLedger.ts`): its fields as written, or null where there is none, and
- * never a write.
+ * sign-in, with the seasons' documents, a read of the rebuilds' ledger and the owner's staged
+ * uploads: read only unless `writable`, and with `"live"` only the views written, as the republish
+ * after a deploy writes them (`restServerStores`, where which store writes for which is tested).
  */
-export const openStores = (
-  keyJson: string,
-  writable: boolean | "live"
-): {
-  copy: CloudStore;
-  live: LiveStore;
-  leagueDocs: LeagueDocsList;
-  readLedger: () => Promise<unknown>;
-  uploads: UploadStore;
-} => {
+export const openStores = (keyJson: string, writable: boolean | "live"): ServerStores => {
   const account = accountOf(keyJson);
-  const access = {
-    projectId: account.project_id,
-    token: tokens(account),
-    writable: writable === true,
-  };
-  const docs = firestoreRestDocuments(access);
-  return {
-    copy: firestoreRestStore(access),
-    live: firestoreRestLive({ ...access, writable: writable !== false }),
-    // Read only, whatever the stores are opened for: nothing here writes a season.
-    leagueDocs: restLeagueDocs(docs),
-    readLedger: () => docs.read(REBUILD_LEDGER_PATH),
-    // What the owner staged for the server, which the nightly sweeps once a day old.
-    uploads: firestoreRestUploads(access),
-  };
+  return restServerStores({ projectId: account.project_id, token: tokens(account) }, writable);
 };
 
 export type CloudPool = LoadedCopy;

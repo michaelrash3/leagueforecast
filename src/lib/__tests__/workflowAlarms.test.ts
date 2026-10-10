@@ -43,7 +43,7 @@ describe("the alarm step in each workflow", () => {
     const steps = jobsOf(flow.text).get(flow.job) ?? [];
     const alarms = steps.filter((step) => /npm run alarm\b/.test(step));
     expect(alarms).toHaveLength(1);
-    expect(steps.at(-1)).toBe(alarms[0]);
+    expect(steps[steps.length - 1]).toBe(alarms[0]);
     expect(keyOf(alarms[0] ?? "", "if")).toBe("always()");
   });
 

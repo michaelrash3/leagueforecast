@@ -121,6 +121,31 @@ export type CopyPublish =
     };
 
 /**
+ * Refusals that are not the publishing run's doing. A copy or a season saved during the run asks
+ * for its own rebuild (`copy-moved`, `league-moved`). And views a newer build, newer rules or a
+ * later day published first are what a rebuild stands aside for too (`isRebuildFailure`), and only
+ * servers publish views: a deploy that lands while the nightly runs, on the build it checked out
+ * before, has its own functions or the republish after it publish first, and the night saved all
+ * the same. A season a newer build saved (`newer-league`) is not among them, since a device of any
+ * build saves seasons, and a nightly that stood aside for one would never say it.
+ */
+const NOT_THE_RUNS: ReadonlySet<Extract<CopyPublish, { ok: false }>["reason"]> = new Set([
+  "copy-moved",
+  "league-moved",
+  "newer-schema",
+  "older-rules",
+  "older-day",
+] as const);
+
+/**
+ * Whether a run that published the copy's views (`scripts/nightly.ts`) failed at it: a refusal
+ * that is not `NOT_THE_RUNS`, or, once the views are out, a sweep that stopped, the night's own
+ * housekeeping.
+ */
+export const publishFailedRun = (views: CopyPublish): boolean =>
+  views.ok ? !views.sweep.ok : !NOT_THE_RUNS.has(views.reason);
+
+/**
  * Builds every board on every page, year and half from the pool in this process's store, which
  * must be the copy `manifest` names (the run that saved it, or found nothing to save, says so), and
  * publishes them under that copy and version for the members' day `today`.
@@ -146,6 +171,7 @@ export const publishCopyViews = async ({
   league: leagueRead,
   sweep: sweeping = "full",
   locale = boardLocale(),
+  atVersion = false,
 }: {
   copyStore: CloudStore;
   liveStore: LiveStore;
@@ -165,6 +191,14 @@ export const publishCopyViews = async ({
    */
   sweep?: "full" | "due";
   locale?: string;
+  /**
+   * Whether the boards stand only while the copy is still at `manifest`'s version, not only the
+   * same copy: refused as `copy-moved` once a save has moved it on. The republish after a deploy
+   * asks it, since its publish over an older schema's meta is never late (`publishViews`), so the
+   * marks would not keep it from putting back a version saved since; the nightly's is the save it
+   * just made, which a later one's marks hold.
+   */
+  atVersion?: boolean;
 }): Promise<CopyPublish> => {
   if (!/^en(-|$)/.test(locale)) return { ok: false, reason: "locale" };
   const league = leagueRead ?? (await readCloudLeague(leagueDocs));
@@ -219,8 +253,12 @@ export const publishCopyViews = async ({
   const pages = livePagesOf(built, latestImportedAt(teams), ageGroups);
   const buildMs = Date.now() - started;
 
-  /** Whether the last look before a commit found the seasons changed since they were read. */
+  /**
+   * Whether the last look before a commit found the seasons changed since they were read, or the
+   * copy saved on from the version built (only where held to it, `atVersion`).
+   */
   let leagueMoved = false;
+  let versionMoved = false;
   const publish = await publishViews({
     store: liveStore,
     views,
@@ -237,7 +275,10 @@ export const publishCopyViews = async ({
     // Read again just before each commit, uploads and retries included: a copy started again
     // while the boards were built or went up is not theirs, and nor are seasons changed since.
     stillCurrent: async () => {
-      if ((await copyStore.readManifest())?.copy !== manifest.copy) return false;
+      const held = await copyStore.readManifest();
+      if (held?.copy !== manifest.copy) return false;
+      versionMoved = atVersion && held.version !== manifest.version;
+      if (versionMoved) return false;
       const now = await readCloudLeague(leagueDocs);
       leagueMoved = !now.ok || leaguePrintOf(now) !== leaguePrint;
       return !leagueMoved;
@@ -245,7 +286,10 @@ export const publishCopyViews = async ({
   });
   if (!publish.ok) {
     if (publish.reason !== "not-current") return { ok: false, reason: publish.reason };
-    return { ok: false, reason: leagueMoved ? "league-moved" : "copy-replaced" };
+    return {
+      ok: false,
+      reason: leagueMoved ? "league-moved" : versionMoved ? "copy-moved" : "copy-replaced",
+    };
   }
   // The views are out once the meta is committed; a sweep that fails after says so on its own.
   let sweep: Extract<CopyPublish, { ok: true }>["sweep"];
