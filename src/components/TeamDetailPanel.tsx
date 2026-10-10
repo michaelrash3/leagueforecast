@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
   countedInWindow,
   countsTowardRating,
@@ -28,6 +28,21 @@ import { button, card, pill } from "../styles/tokens";
 
 /** The panel's element id, for a list elsewhere on the page that opens a team to scroll to it. */
 export { TEAM_PANEL_ID };
+
+/**
+ * What a screen reader hears for Not this team: the words on the button first, then which games it
+ * takes off which club, since the words alone, beside an opponent's name, read as a remark about
+ * the opponent and say nothing of a press taking more than the one game.
+ */
+const notThisTeamLabel = (
+  club: string,
+  opponent: string,
+  date: string | undefined,
+  games: number
+): string =>
+  games > 1
+    ? `Not this team: take the ${games} games ${opponent} filed here by this name off ${club}`
+    : `Not this team: take the game with ${opponent}${date ? ` on ${date}` : ""} off ${club}`;
 
 type TeamDetailPanelProps = {
   team: ScoutTeam;
@@ -247,6 +262,24 @@ export function TeamDetailPanel({
   const notCounted = here.filter(
     (game) => isScoutGamePlayed(game) && !countsTowardRating(game) && !playsItself(game)
   );
+
+  /*
+   * How many games one press of Not this team takes off, by the club on the game's other side:
+   * every game it is offered beside against that club, since the command takes every one that
+   * club's schedules filed here by the name. Said in the button's name, so a press that takes
+   * three games is not heard as taking one.
+   */
+  const offeredAgainst = new Map<string, number>();
+  if (notThisTeam && !readOnly) {
+    everyGame.forEach((game) => {
+      if (!notThisTeam.offered(game)) return;
+      const other = game.teamAId === team.id ? game.teamBId : game.teamAId;
+      offeredAgainst.set(other, (offeredAgainst.get(other) ?? 0) + 1);
+    });
+  }
+  // Where focus goes once a press takes the button's own row away: the list's heading, in the
+  // panel, rather than the page's body.
+  const gamesHeading = useRef<HTMLHeadingElement>(null);
 
   const trimmed = draftName.trim();
   const renamed = trimmed.length > 0 && trimmed !== team.name;
@@ -576,7 +609,11 @@ export function TeamDetailPanel({
         </div>
       )}
 
-      <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <h3
+        ref={gamesHeading}
+        tabIndex={-1}
+        className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400"
+      >
         Games in {ageGroupName || "this age group"}
       </h3>
       {here.length === 0 ? (
@@ -632,9 +669,20 @@ export function TeamDetailPanel({
                   {notThisTeam && !readOnly && notThisTeam.offered(game) && (
                     <button
                       type="button"
-                      onClick={() => notThisTeam.onRefuse(game)}
-                      title={`${line.opponent}'s schedule named its opponent, and the name was matched to ${team.name}; nothing of ${team.name}'s own lists this game. Take it off ${team.name}.`}
-                      className="text-xs font-bold text-red-600 hover:underline dark:text-red-400"
+                      onClick={() => {
+                        notThisTeam.onRefuse(game);
+                        gamesHeading.current?.focus();
+                      }}
+                      aria-label={notThisTeamLabel(
+                        team.name,
+                        line.opponent,
+                        game.date,
+                        offeredAgainst.get(
+                          game.teamAId === team.id ? game.teamBId : game.teamAId
+                        ) ?? 1
+                      )}
+                      title={`${line.opponent}'s schedule named its opponent, and the name was matched to ${team.name}; nothing of ${team.name}'s own lists this game. Take it off ${team.name}, with every other game ${line.opponent} filed here by the name.`}
+                      className="inline-flex min-h-6 items-center rounded px-1.5 text-xs font-bold text-red-600 hover:underline dark:text-red-400"
                     >
                       Not this team
                     </button>

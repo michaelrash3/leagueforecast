@@ -1045,7 +1045,10 @@ the club's record, rating and board move with them; Undo puts every one back as 
 the stand-ins made for them, and forgets the refusals the press added. It is a command
 (`game.notThisTeam`), so a page kept in the browser runs it on its own store and the live page sends
 it to the edit function, the club's card naming the games it is offered beside by their stored ids
-(`ClubCard.byName`), since a card carries no other.
+(`ClubCard.byName`), since a card carries no other. The button's name, as a screen reader says it,
+names the games it takes and the club it takes them off, since "Not this team" beside an
+opponent's name reads as a remark about the opponent; it is a 24-pixel target, and a press, which
+takes the button's own row away, leaves focus on the panel's list of games rather than on the page.
 
 The answer is remembered, as the pairs kept apart are: in the pool's own key
 (`league_forecast_gc_not_this_team_v1`), in every backup and in the cloud copy, against each

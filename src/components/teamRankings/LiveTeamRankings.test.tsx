@@ -1277,7 +1277,7 @@ describe("a club's panel on the cloud's board", () => {
     expect(panel).toHaveTextContent("2–6 · 2027-03-27");
     expect(within(panel).getByText("Sched")).toBeTruthy();
     // Its card names no game it has by a name alone, so none is offered to take off it.
-    expect(within(panel).queryByRole("button", { name: "Not this team" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: /^Not this team/ })).toBeNull();
     expect(handedOver()).toBeNull();
   });
 
@@ -1328,7 +1328,7 @@ describe("a club's panel on the cloud's board", () => {
     const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
     expect(panel).toHaveTextContent("1-1 in 12U 2027, from 2 games.");
     // Offered beside that game alone.
-    const offered = within(panel).getAllByRole("button", { name: "Not this team" });
+    const offered = within(panel).getAllByRole("button", { name: /^Not this team/ });
     expect(offered).toHaveLength(1);
     expect(offered[0]!.closest("li")).toHaveTextContent("2–6 · 2027-03-27");
     fireEvent.click(offered[0]!);
@@ -1352,7 +1352,7 @@ describe("a club's panel on the cloud's board", () => {
     expect(standInId.length).toBeGreaterThan(0);
     // Off the club at once, before a publish carries it: the record moves with it.
     await waitFor(() => expect(panel).toHaveTextContent("1-0 in 12U 2027, from 1 game."));
-    expect(within(panel).queryByRole("button", { name: "Not this team" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: /^Not this team/ })).toBeNull();
     // The Undo sends the server's own inverse, and the game is drawn on the club again.
     act(() => said.actions.get(done)?.());
     await waitFor(() => expect(said.toasts).toContain("Undone."));
@@ -1427,10 +1427,10 @@ describe("a club's panel on the cloud's board", () => {
     open(sourcesOf(live));
     await tapClub("Placeholder S-1");
     const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
-    expect(within(panel).getAllByRole("button", { name: "Not this team" })).toHaveLength(1);
+    expect(within(panel).getAllByRole("button", { name: /^Not this team/ })).toHaveLength(1);
     act(() => live.cutOff());
     await waitFor(() =>
-      expect(within(panel).queryByRole("button", { name: "Not this team" })).toBeNull()
+      expect(within(panel).queryByRole("button", { name: /^Not this team/ })).toBeNull()
     );
   });
 

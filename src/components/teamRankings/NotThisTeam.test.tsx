@@ -92,12 +92,15 @@ describe("Not this team, on a page kept in this browser", () => {
     renderTeamRankings(pool());
     const panel = await openClub(user, "Eagles");
     const offered = within(gameLine(panel, "Prairie Hawks")).getByRole("button", {
-      name: "Not this team",
+      name: /^Not this team/,
     });
-    expect(offered).toBeInTheDocument();
+    // Named for what it does: which game, against whom, off which club.
+    expect(offered).toHaveAccessibleName(
+      "Not this team: take the game with Prairie Hawks on 2026-08-08 off Eagles"
+    );
     // Its own schedule's game is its own.
     expect(
-      within(gameLine(panel, "Comets")).queryByRole("button", { name: "Not this team" })
+      within(gameLine(panel, "Comets")).queryByRole("button", { name: /^Not this team/ })
     ).toBeNull();
     // The club whose schedule wrote the name has the game by its own word.
     await user.click(within(panel).getByRole("button", { name: "Close" }));
@@ -105,7 +108,7 @@ describe("Not this team, on a page kept in this browser", () => {
       within(screen.getByRole("table")).getByRole("button", { name: "Prairie Hawks" })
     );
     const theirs = screen.getByRole("region", { name: "Prairie Hawks" });
-    expect(within(theirs).queryByRole("button", { name: "Not this team" })).toBeNull();
+    expect(within(theirs).queryByRole("button", { name: /^Not this team/ })).toBeNull();
   });
 
   it("takes the game off the club onto the stand-in of the name, its record with it, and Undo puts it back", async () => {
@@ -114,7 +117,7 @@ describe("Not this team, on a page kept in this browser", () => {
     const panel = await openClub(user, "Eagles");
     expect(within(panel).getByText(/^2-0 in 9U 2027, from 2 games\./)).toBeInTheDocument();
     await user.click(
-      within(gameLine(panel, "Prairie Hawks")).getByRole("button", { name: "Not this team" })
+      within(gameLine(panel, "Prairie Hawks")).getByRole("button", { name: /^Not this team/ })
     );
     // Onto the "Eagles" a pull of the Hawks would have filed it against, had the name found nobody.
     await waitFor(() => expect(stored(byName.id)?.teamBId).toBe(ourEagles.id));
@@ -154,7 +157,14 @@ describe("Not this team, on a page kept in this browser", () => {
     const line = within(panel)
       .getAllByRole("listitem")
       .find((item) => item.textContent?.includes("2026-08-08")) as HTMLElement;
-    await user.click(within(line).getByRole("button", { name: /^Not this team/ }));
+    const button = within(line).getByRole("button", { name: /^Not this team/ });
+    // Its name says the press takes both, not the one beside it.
+    expect(button).toHaveAccessibleName(
+      "Not this team: take the 2 games Prairie Hawks filed here by this name off Eagles"
+    );
+    await user.click(button);
+    // The row it sat in is gone; focus stays in the panel, on the list's heading.
+    expect(within(panel).getByRole("heading", { name: /^Games in / })).toHaveFocus();
     // Both off at once, onto one stand-in of the name, and said so.
     await waitFor(() => expect(stored(second.id)?.teamBId).not.toBe(eagles.id));
     const standIn = stored(byName.id)?.teamBId;
@@ -204,7 +214,7 @@ describe("Not this team, on a page kept in this browser", () => {
     });
     const panel = await openClub(user, "Eagles");
     await user.click(
-      within(gameLine(panel, "Prairie Hawks")).getByRole("button", { name: "Not this team" })
+      within(gameLine(panel, "Prairie Hawks")).getByRole("button", { name: /^Not this team/ })
     );
     expect([...loadNotThisTeam()]).toEqual([
       refusalOf(`gc${hawks.id}`, "Eagles", `gc${eagles.id}`),
