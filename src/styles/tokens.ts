@@ -39,14 +39,18 @@ export const card =
   "rounded-lg border border-slate-200 bg-white shadow-xs shadow-slate-200/70 ring-1 ring-white/70 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20 dark:ring-slate-900";
 
 /**
- * A tab. `fill` shares a phone's row equally with its siblings, its type sized with the screen
- * (2.4): the app-mode switch's two tabs at the regular size measured 336px against the 288px a
- * 320px screen leaves, which widened the whole page on the narrowest phones.
+ * A tab. `fill` shares a phone's row with its siblings, its type sized with the screen (2.4): the
+ * app-mode switch's two tabs at the regular size measured 336px against the 288px a 320px screen
+ * leaves, which widened the whole page on the narrowest phones. Each is as wide as its label, and
+ * what room is left is shared between them. In equal halves, "League Standings" (121px of text at
+ * 12px, in Chromium) had a 122px half at 288px, a 360px phone at 125% zoom, and ran out past it;
+ * the type was let down to 11px for it, and so was under 12px on any screen narrower than 333px.
+ * Sized by their labels, both tabs hold 12px with their text inside them from 280px up.
  */
 export const tab = (active: boolean, size: "regular" | "fill" = "regular") =>
   `whitespace-nowrap rounded-lg font-bold transition ${
     size === "fill"
-      ? "min-w-0 flex-1 px-2 py-2 text-[clamp(11px,3.6vw,14px)] sm:flex-none sm:px-5 sm:py-2.5 sm:text-sm"
+      ? "min-w-0 flex-auto px-1 py-2 text-[clamp(12px,3.6vw,14px)] sm:flex-none sm:px-5 sm:py-2.5 sm:text-sm"
       : "px-4 py-2 text-sm sm:px-5 sm:py-2.5"
   } ${focusRing} ${
     active

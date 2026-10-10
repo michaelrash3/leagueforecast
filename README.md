@@ -5861,9 +5861,12 @@ the deterministic story is shown. To exercise the AI path locally, run
     to is scrolled above the bar rather than to the screen's edge behind it: at 360
     by 640, tabbing down Settings had left two fields wholly under the bar and two
     partly, and leaves none now.
-  - The app-mode switch fills a phone's row in two halves. At its old size it was
-    336px wide in the 288px a 320px screen leaves, which widened the whole page
-    there; the new 320px checks found it.
+  - The app-mode switch fills a phone's row, each tab as wide as its label and the
+    room left over shared between them. At its old size it was 336px wide in the
+    288px a 320px screen leaves, which widened the whole page there; the new 320px
+    checks found it. In equal halves "League Standings" ran out past its tab at
+    288px unless its type was let down to 11px; sized by label, both stay at 12px
+    or more with their text inside them from 280px up.
   - `e2e/phone.spec.ts` holds the bar at 320, 360 and 390px and at 125% zoom (every
     cell and More on screen, each label inside its cell, More's list on screen), the
     last of a page clear of the bar, and a tablet keeping all eight tabs in a row.
@@ -5922,8 +5925,10 @@ footnote or a failed panel reads the same on every League view.
     (`tailwindcss/theme.css`, in OKLCH, converted as a browser draws it: slate-500
     comes out #62748e) and measures every text role on every surface, each status
     pill on a card and each state panel's words, in light mode and dark.
-  - `src/components/textSize.test.ts` reads every component, Team Rankings' too, for a
-    size set below 12px.
+  - `src/components/textSize.test.ts` reads every component, Team Rankings' too, and
+    the shared styles in `tokens.ts` for a size set below 12px, a size sized with the
+    screen counted by its floor (the app-mode switch's `clamp(11px,…)` was 11.52px on
+    a 320px phone, under the 360px the browser checks measure at).
   - `e2e/design.spec.ts` measures the built app: League Standings in light mode and
     dark, on a phone (360px), a tablet (768px) and a desktop (1280px), on every view of
     the demo season, on the first launch with no season, and while a view is loading
