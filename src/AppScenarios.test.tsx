@@ -906,6 +906,66 @@ describe("saved playoff scenarios", () => {
     expect(storedNames()).toEqual(["Bears win", "Comets win", "Scenario 1"]);
   });
 
+  it("keeps the open scenario as this tab has it while a link kept here is asked about (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    const picker = within(machine).getByRole("combobox", { name: "Scenario" });
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    const stored = await saveScenario(user, machine);
+    await pick(user, machine, "Bears at Comets", "Bears");
+    // Another tab saves a pick of its own to it meanwhile.
+    keepScenario({
+      ...stored,
+      picks: { ...stored.picks, g4: { winnerId: "C" } },
+      modifiedAt: later(stored.modifiedAt, 1),
+    });
+
+    await keepLinkHere(user, "Aces win", { g3: { winnerId: "A" } });
+    const ask = await within(machine).findByRole("group", { name: "Picks not saved" });
+    await user.click(within(ask).getByRole("button", { name: "Keep them" }));
+    expect(picker).toHaveDisplayValue("Scenario 1");
+    // The change here taken back, nothing is left to save: that tab's pick is not one made here.
+    await pick(user, machine, "Bears at Comets", "Sim");
+    expect(within(machine).getByRole("button", { name: "Save changes" })).toBeDisabled();
+  });
+
+  it("leaves out of the list a scenario a link kept here pushed out, its picks still on screen (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    const picker = within(machine).getByRole("combobox", { name: "Scenario" });
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    const stored = await saveScenario(user, machine);
+    // Twenty-nine more kept elsewhere since, each changed after it: it is the oldest of thirty.
+    for (let n = 1; n <= 29; n += 1)
+      keepScenario({
+        ...stored,
+        id: `other-${n}`,
+        name: `Other ${n}`,
+        modifiedAt: later(stored.modifiedAt, n),
+      });
+    await pick(user, machine, "Bears at Comets", "Bears");
+
+    await keepLinkHere(user, "Comets win", { g4: { winnerId: "C" } });
+    expect(
+      await screen.findByText("To make room for “Comets win”, this device let go of “Scenario 1”.")
+    ).toBeInTheDocument();
+    const ask = await within(machine).findByRole("group", { name: "Picks not saved" });
+    expect(ask).toHaveTextContent(
+      "The picks on screen are not saved. Open “Comets win” in their place?"
+    );
+    await user.click(within(ask).getByRole("button", { name: "Keep them" }));
+    expect(picker).toHaveDisplayValue("Unsaved picks");
+    expect(within(picker).queryByRole("option", { name: "Scenario 1" })).toBeNull();
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Bears"]);
+    expect(within(machine).getByRole("button", { name: "Save as a scenario" })).toBeEnabled();
+    // They are what is open now: chosen again in the list, nothing is asked.
+    await user.selectOptions(picker, "Unsaved picks");
+    expect(within(machine).queryByRole("group", { name: "Picks not saved" })).toBeNull();
+  });
+
   it("opens a link kept for a season only once back on it, judged by that season's picks (2.7 review)", async () => {
     // A second season with the same teams and games, picked in while the link was asked about.
     const spring = getActiveSeasonId();

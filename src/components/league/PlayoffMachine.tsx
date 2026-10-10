@@ -259,24 +259,34 @@ export function PlayoffMachine({
   const picksAtRisk = picked > 0 && (open === null || unsavedChanges);
   /*
    * Just kept from a link: opened as the list opens one, so asked about first when picks on screen
-   * are not saved, since a link is as likely opened in a tab already running as in a new one.
-   * Whatever was up for the scenario open until now, a new name, a delete or another switch asked
-   * about, is put away, as it would act on the link's scenario. Done once the machine is on the
-   * link's season: in the moment of a change of season, the picks it would judge by are the last
-   * season's, about to go.
+   * are not saved, since a link can be opened in a tab already running, pasted into its address
+   * bar (`hashchange`), and not only in a new one. Whatever was up for the scenario open until now,
+   * a new name, a delete or another switch asked about, is put away, as it would act on the link's
+   * scenario. Done once the machine is on the link's season: in the moment of a change of season,
+   * the picks it would judge by are the last season's, about to go.
    */
   if (incoming && incoming !== openedIncoming && savedFor === seasonId) {
     setOpenedIncoming(incoming);
     const list = readScenarios(seasonId);
     const scenario = list.find((one) => one.id === incoming);
-    setSaved(scenario && picksAtRisk ? withOpen(list, open) : list);
-    if (scenario) {
+    if (!scenario) setSaved(list);
+    else {
       setNaming(null);
       setDeleting(false);
       if (picksAtRisk) {
+        /*
+         * While it is asked, the scenario open stays as this tab has it, which the picks on screen
+         * were made against, so picks another tab saved to it are not taken for changes made here.
+         * One no longer stored goes from the list, its picks left on screen unsaved, as the
+         * question then says: keeping the link may have pushed it out of the thirty, and the page
+         * said so as it did.
+         */
+        setSaved(list.map((one) => (open && one.id === open.id ? open : one)));
+        if (!list.some((one) => one.id === openId)) setOpenId(null);
         setSaid(null);
         setSwitching(scenario.id);
       } else {
+        setSaved(list);
         setSwitching(null);
         setOpenId(scenario.id);
         setWork({ picks: scenario.picks, basis: scenario.basis });
