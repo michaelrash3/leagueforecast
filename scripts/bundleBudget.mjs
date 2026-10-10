@@ -31,11 +31,17 @@ const DIST = "dist";
  * (2.7), which measured 16.6 KB against 12.1 KB before; opening a scenario link is kept out of it,
  * fetched only when a link is opened. Dashboard to 6.4 KB the same day for the forecast
  * explanations (2.8), 5.8 KB against 5.3 KB: each prediction card's "Why…?" button and what loads
- * its explanation, which is itself 3.7 KB fetched only when one is opened.
+ * its explanation, which is itself 3.7 KB fetched only when one is opened. The entry chunk to
+ * 97.5 KB the same day for the fixes of Phase 2's final review, 96.4 KB against 94.5 KB before, as
+ * built after each area's commits: the Data Quality findings the Dashboard counts (doubleheaders,
+ * one timeline of dates, what a copy holds) 0.6 KB, Since you last looked across tabs 0.4, the
+ * team panel and comparison failing alone with Close 0.3, the phone bar's More and focus 0.2,
+ * letting go of a deleted season's state 0.2, the held scenario link 0.1 and the Range caption
+ * 0.1. Each corrects what the shell already did, so none is a chunk of its own to split off.
  */
 const BUDGET = {
   firstDownload: 252_000,
-  entryChunk: 95_500,
+  entryChunk: 97_500,
   css: 15_200,
   views: {
     Dashboard: 6_400,
