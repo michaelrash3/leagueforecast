@@ -174,7 +174,7 @@ export function LeagueScoreFillPanel({
                           {displayName(row.homeName)}
                         </span>
                         {(row.poolAwayName || row.poolHomeName) && (
-                          <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                          <span className="block text-xs text-slate-500 dark:text-slate-400">
                             In the pool:{" "}
                             {[row.poolAwayName ?? row.awayName, row.poolHomeName ?? row.homeName]
                               .map(displayName)
@@ -187,7 +187,7 @@ export function LeagueScoreFillPanel({
                           </span>
                         )}
                         {row.detail && (
-                          <span className="block text-[11px] font-semibold text-amber-700 dark:text-amber-500">
+                          <span className="block text-xs font-semibold text-amber-700 dark:text-amber-500">
                             {row.detail}
                           </span>
                         )}
@@ -217,7 +217,7 @@ export function LeagueScoreFillPanel({
                                   onChange={() => chooseVersion(row.matchupId, version.other)}
                                 />{" "}
                                 {version.runs.awayRuns}–{version.runs.homeRuns}{" "}
-                                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                                   {displayName(version.by)}
                                 </span>
                               </label>

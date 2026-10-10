@@ -56,7 +56,7 @@ export function SeedOddsPanel({
 
       {championRows.length > 0 && (
         <div className="mb-6">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Title odds
           </div>
           <ul className="space-y-2">
@@ -76,7 +76,7 @@ export function SeedOddsPanel({
                 <span className="w-12 shrink-0 text-right text-sm font-bold text-slate-900 dark:text-slate-100">
                   {pct(row.champion)}
                 </span>
-                <span className="w-20 shrink-0 text-right text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                <span className="w-20 shrink-0 text-right text-xs font-bold text-slate-500 dark:text-slate-400">
                   {pct(row.finals)} final
                 </span>
               </li>
@@ -86,11 +86,11 @@ export function SeedOddsPanel({
       )}
 
       <div>
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Projected seeding
         </div>
         <div className="overflow-x-auto">
-          <table className="border-separate border-spacing-1 text-[10px] font-semibold">
+          <table className="border-separate border-spacing-1 text-xs font-semibold">
             <thead>
               <tr>
                 <th className="p-1 text-left text-slate-500 dark:text-slate-400" aria-hidden />
@@ -98,7 +98,9 @@ export function SeedOddsPanel({
                   <th
                     key={`seed-${seed}`}
                     className={`w-8 p-1 text-center ${
-                      seed === cutoff ? "text-red-500" : "text-slate-500 dark:text-slate-400"
+                      seed === cutoff
+                        ? "text-red-700 dark:text-red-400"
+                        : "text-slate-500 dark:text-slate-400"
                     }`}
                   >
                     {seed}
@@ -120,7 +122,10 @@ export function SeedOddsPanel({
                     </th>
                     {seedColumns.map((seed) => {
                       const probability = distribution[seed - 1] ?? 0;
-                      const opacity = Math.min(1, probability / 60);
+                      // Never past 80% blue, where a figure still reads at 4.5:1 or better: dark
+                      // on the light card (7.3:1 at the strongest) and white on the dark one (5.0:1).
+                      // Full blue left white figures at 3.7:1, and slate ones paler than that.
+                      const opacity = Math.min(0.8, probability / 60);
                       return (
                         <td
                           key={`${team.id}-${seed}`}
@@ -135,11 +140,7 @@ export function SeedOddsPanel({
                           }}
                           title={`${displayName(team.name)} — seed ${seed}: ${probability.toFixed(1)}%`}
                         >
-                          <span
-                            className={
-                              opacity > 0.55 ? "text-white" : "text-slate-600 dark:text-slate-300"
-                            }
-                          >
+                          <span className="text-slate-950 dark:text-white">
                             {probability >= 12 ? Math.round(probability) : ""}
                           </span>
                         </td>
@@ -151,7 +152,7 @@ export function SeedOddsPanel({
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+        <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
           Cells show the chance of each final seed. The red column marks the Gold cut line (top{" "}
           {cutoff}).
         </p>

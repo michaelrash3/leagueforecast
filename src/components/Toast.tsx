@@ -2,7 +2,7 @@ import type { Toast } from "../hooks/useToast";
 
 const toneClasses: Record<Toast["tone"], string> = {
   info: "bg-slate-950 text-white",
-  success: "bg-emerald-600 text-white",
+  success: "bg-emerald-700 text-white",
   error: "bg-red-600 text-white",
   undo: "bg-slate-950 text-white",
 };
@@ -38,7 +38,7 @@ export function ToastView({ toast, onDismiss }: { toast: Toast | null; onDismiss
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss notification"
-          className="rounded-lg px-2 py-1 text-xs font-semibold uppercase tracking-wide text-white/70 hover:text-white"
+          className="rounded-lg px-2 py-1 text-xs font-semibold uppercase tracking-wide text-white hover:bg-white/15"
         >
           ×
         </button>

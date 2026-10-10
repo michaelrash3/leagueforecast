@@ -18,6 +18,7 @@ import {
   type TiebreakerFactor,
 } from "../../lib/types";
 import { button as buttonClasses, card } from "../../styles/tokens";
+import { PageHeader } from "../PageHeader";
 import { EditLock } from "./EditLock";
 
 /** The order the tiebreaker pickers offer, and the "none" they also allow. */
@@ -97,12 +98,10 @@ export function SettingsView({
 
   return (
     <section className="grid grid-cols-1 gap-6">
+      <PageHeader title="Settings" />
       <div className={`${card} p-6`}>
-        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-          Settings
-        </h2>
         <EditLock>
-          <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <label htmlFor={seasonId} className="block">
               <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Season</span>
               <input

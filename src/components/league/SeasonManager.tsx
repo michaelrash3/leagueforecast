@@ -74,7 +74,7 @@ export function SeasonManager({
             >
               <div className="flex min-w-0 items-center gap-2">
                 {isActive && (
-                  <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                  <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white">
                     Active
                   </span>
                 )}

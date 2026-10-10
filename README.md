@@ -5673,6 +5673,80 @@ the deterministic story is shown. To exercise the AI path locally, run
     Team Rankings' sections keep their links (`?section=`); League's views are, as
     before, carried by a share link rather than the address.
 
+## Design system
+
+The looks the app shares live in `src/styles/tokens.ts` (2.5), so a page title, a
+footnote or a failed panel reads the same on every League view.
+
+- **Text roles** (`textRole`): page title, the line under it, section title, card
+  title, body, meta (dates, counts, sources), numeric (figures in tabular digits, so
+  columns line up) and overline, a label a reader can do without. League's tables
+  (Standings, Power Ratings, the Forecast's projected table, a team's games) set their
+  figures in tabular digits too.
+- **Three surfaces** (`surface`): the page itself, a card for what a page is about,
+  and a quiet inset, without a border or shadow of its own, for what groups within
+  one, so not every piece of content is an equally loud white card.
+- **Page headers** (`PageHeader`): Standings, Power Ratings, League Stats, Forecast,
+  Data Quality and Settings open the same way, with the title the tab named, its help
+  button and a line saying what the view is for. On the Dashboard, Power Ratings is a
+  section of that page and is titled as one.
+- **States** (`StatePanel`, `stateTone`): empty, loading, error, offline and stale,
+  each on a surface of its own. A failure interrupts a screen reader
+  (`role="alert"`), the passing states are announced (`role="status"`), and an empty
+  panel is simply part of the page. A view's placeholder while its code loads, the
+  empty panels, a view that failed to draw (with Try again), and the line over League
+  Standings kept live (stale while it connects, offline, or an error when the season
+  can't be edited) all go through it.
+- **No text under 12px.** The app set 10px and 11px type in 89 places: table headings,
+  the names of figures, the run labels on a game card, a team's record. It is all 12px
+  now, but for the phone's tab bar, whose labels are sized with the screen, and a line
+  chart's labels inside its SVG. Section headings that were small capitals, such as
+  Data Quality's "Worth reviewing", are now section titles.
+- **4.5:1 contrast for text, 3:1 for large text.** What fell short, and what it is now:
+  - Grey on the page: slate-500 measured 4.35:1 on the page's slate-100, under the
+    line on the "Updated through" leads and on inactive tabs. The text roles and tabs
+    are slate-600 at the lightest, 6.90:1.
+  - White on emerald-600 measured 3.67:1 (Save + Final, the Safe seed badge, the
+    success toast), and emerald-600 text on white the same. Both are emerald-700,
+    5.37:1.
+  - White on orange-500, the Chasing seed badge, measured 2.89:1; its figures are dark
+    now, 6.98:1.
+  - Red-600 on a dark game card's slate-800, the Delete button, measured 3.08:1;
+    red-400 is 5.07:1.
+  - The seed odds grid shaded up to full blue-500, under which white figures measured
+    3.68:1 and grey ones less. It stops at 80% blue, with dark figures in light mode
+    (7.26:1 at the strongest) and white in dark (5.01:1). Its cut-line column heading
+    was red-500 on white, 3.81:1, and is red-700, 6.42:1.
+  - The schedule-difficulty cards drew their opponents at 80% opacity (4.46:1 on the
+    amber card); they are full strength now. The toast's dismiss button was 70% white
+    on the toast, 2.53:1, and is white.
+- **How it is checked.**
+  - `src/styles/tokens.test.ts` reads Tailwind's palette from its own theme
+    (`tailwindcss/theme.css`, in OKLCH, converted as a browser draws it: slate-500
+    comes out #62748e) and measures every text role on every surface, each status
+    pill on a card and each state panel's words, in light mode and dark.
+  - `src/components/textSize.test.ts` reads every component, Team Rankings' too, for a
+    size set below 12px.
+  - `e2e/design.spec.ts` measures the built app: League Standings in light mode and
+    dark, on a phone (360px), a tablet (768px) and a desktop (1280px), on every view of
+    the demo season, on the first launch with no season, and while a view is loading
+    and after it fails to. Every visible run of text is measured against what is
+    actually painted behind it (see-through layers blended down to the first solid
+    one), no text may be under 12px, and nothing may be wider than the screen. On the
+    2.4 build it found 10 or 11px text in about 40 places on League's pages and a
+    dozen colour pairs under 4.5:1; it finds none now. Text over a gradient or a
+    picture, in a chart's SVG, or on a control that is switched off is counted but not
+    measured.
+  - **No pixel-by-pixel screenshot comparison in CI.** A screenshot from one Chromium
+    and its fonts differs from another's, so a baseline taken here would fail in CI on
+    how text is drawn rather than on the design. The checks above read the styles the
+    browser computed, which do not depend on fonts. To look the pages over by eye,
+    `SCREENS=1 npx playwright test e2e/design.spec.ts` (after a build) keeps a
+    full-page screenshot of every state in `test-results/`.
+  - The offline and stale states appear only for a member's League kept live, which the
+    browser tests cannot sign in to; the unit tests (`StatePanel.test.tsx`) and the
+    contrast test cover them instead.
+
 ## Platform baseline
 
 This project tracks the newest dependency/runtime baseline that can be installed and verified in the current environment. The npm registry was unavailable through the configured proxy during the latest modernization pass, so the package manifest was advanced to the newest versions already present in the local lockfile/cache and runtime (`node` 24). When registry access is available, the next modernization target is the current stable major line for React, Vite, Tailwind CSS, ESLint, Vitest, and vite-plugin-pwa.

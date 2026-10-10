@@ -206,7 +206,7 @@ export default function LiveImport({
           {describeCadence(cadence)}
         </p>
         <fieldset className="mt-3" disabled={locked !== null || sending}>
-          <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             How much comes round at once
           </legend>
           <div className="mt-1 flex flex-wrap gap-3">
@@ -245,7 +245,7 @@ export default function LiveImport({
         )}
         {refreshed.length > 0 && (
           <div className="mt-3">
-            <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Last refreshed
             </h3>
             <ul className="mt-1 space-y-0.5 text-xs text-slate-600 dark:text-slate-300">

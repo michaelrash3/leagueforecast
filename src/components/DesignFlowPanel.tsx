@@ -58,7 +58,7 @@ export function DesignFlowPanel({
   return (
     <section className={`${card} overflow-hidden`} aria-label={title}>
       <div className="border-b border-slate-200 bg-white px-6 py-5 dark:border-slate-800 dark:bg-slate-950">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
+        <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
           Launch checklist
         </div>
         <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950 dark:text-white">
@@ -80,7 +80,7 @@ export function DesignFlowPanel({
                 {index + 1}
               </div>
               <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.2em] opacity-80">
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] opacity-80">
                   {step.eyebrow}
                 </div>
                 <h3 className="mt-1 text-base font-black tracking-tight text-slate-950 dark:text-white">

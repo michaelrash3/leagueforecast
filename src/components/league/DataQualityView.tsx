@@ -17,7 +17,8 @@ import {
   type FindingTarget,
 } from "../../lib/leagueFindings";
 import type { DataQualityTier } from "../../lib/predictionEngine";
-import { button, card, focusRing, pill, type PillTone } from "../../styles/tokens";
+import { button, card, focusRing, pill, textRole, type PillTone } from "../../styles/tokens";
+import { PageHeader } from "../PageHeader";
 import { EditLock } from "./EditLock";
 
 const TONE: Record<FindingSeverity, PillTone> = { attention: "red", review: "amber", info: "blue" };
@@ -190,13 +191,15 @@ export function DataQualityView({
   return (
     <div className="grid grid-cols-1 gap-6">
       <section>
-        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-          Data Quality
-        </h2>
-        <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-          What in this season&rsquo;s games, teams and settings is wrong or worth a second look, and
-          how to put it right.
-        </p>
+        <PageHeader
+          title="Data Quality"
+          lead={
+            <>
+              What in this season&rsquo;s games, teams and settings is wrong or worth a second look,
+              and how to put it right.
+            </>
+          }
+        />
       </section>
 
       <section className={`${card} p-4`} aria-label="Summary">
@@ -222,7 +225,7 @@ export function DataQualityView({
         if (!group.length) return null;
         return (
           <section key={severity} aria-label={SEVERITY_LABEL[severity]}>
-            <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <h3 className={`mb-3 ${textRole.sectionTitle}`}>
               {SEVERITY_LABEL[severity]} ({group.length})
             </h3>
             <ul className="grid grid-cols-1 gap-3 lg:grid-cols-2">

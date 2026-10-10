@@ -68,7 +68,7 @@ type Props<K extends string> = {
 const count = (value: number, onIcon = false) => (
   <span
     aria-hidden="true"
-    className={`inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-black leading-5 text-white ${
+    className={`inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-black leading-5 text-white ${
       onIcon ? "absolute -right-3 -top-1.5" : "ml-1.5"
     }`}
   >
@@ -81,7 +81,7 @@ const cell = (active: boolean) =>
   `relative flex min-w-0 flex-1 flex-col items-center gap-0.5 pb-1.5 pt-2 text-[clamp(9px,2.8vw,11px)] font-bold leading-tight ${focusRing} ${
     active
       ? "text-slate-950 dark:text-white"
-      : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+      : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
   }`;
 
 export function TabNav<K extends string>({
@@ -228,7 +228,11 @@ export function TabNav<K extends string>({
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/95">
+    <div
+      // Marks the bar for the design checks, which let its labels be smaller than 12px (2.5).
+      data-tab-bar=""
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/95"
+    >
       {urgent.map((item) => (
         <button
           key={item.key}

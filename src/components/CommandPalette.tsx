@@ -142,7 +142,7 @@ export function CommandPalette({
               >
                 <span className="flex items-center gap-3">
                   {cmd.group && (
-                    <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       {cmd.group}
                     </span>
                   )}
@@ -157,7 +157,7 @@ export function CommandPalette({
             );
           })}
         </ul>
-        <div className="border-t border-slate-200 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
+        <div className="border-t border-slate-200 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
           ↑↓ navigate · Enter run · Esc close
         </div>
       </div>

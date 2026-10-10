@@ -151,7 +151,7 @@ const ScoreRow = React.memo(function ScoreRow({
         {fields.map((field, index) => (
           <label
             key={field.key}
-            className="text-center text-[10px] font-semibold uppercase text-slate-500 dark:text-slate-400"
+            className="text-center text-xs font-semibold uppercase text-slate-500 dark:text-slate-400"
           >
             {field.label}
             <input
@@ -643,7 +643,7 @@ export function GamesView({
                           handleToggleFinal(game.id);
                         }}
                         className={`rounded-lg px-3 py-1 text-xs font-black ${
-                          final ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"
+                          final ? "bg-emerald-700 text-white" : "bg-slate-950 text-white"
                         }`}
                         aria-label={final ? "Mark game as scheduled" : "Mark game as final"}
                       >
@@ -660,7 +660,7 @@ export function GamesView({
                       <button
                         type="button"
                         onClick={() => removeGame(game.id)}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-red-600 dark:border-slate-600 dark:bg-slate-800"
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-red-600 dark:border-slate-600 dark:bg-slate-800 dark:text-red-400"
                         aria-label="Delete game"
                       >
                         Delete
@@ -726,7 +726,7 @@ export function GamesView({
                         <button
                           type="button"
                           onClick={() => handleToggleFinal(game.id)}
-                          className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"
+                          className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
                         >
                           {hasEnteredScore ? "Verify Final" : "Save + Final"}
                         </button>
@@ -788,7 +788,7 @@ export function GamesView({
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/50">
                       <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                           {bracketLabel} · {game.roundName} · Game {game.gameIndex + 1}
                         </div>
                         <div className="mt-1 text-sm font-bold text-slate-950 dark:text-slate-100">
@@ -799,7 +799,7 @@ export function GamesView({
                         type="button"
                         onClick={() => toggleBracketFinal(game.id)}
                         className={`rounded-lg px-3 py-1 text-xs font-black ${
-                          final ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"
+                          final ? "bg-emerald-700 text-white" : "bg-slate-950 text-white"
                         }`}
                         aria-label={
                           final
@@ -851,7 +851,7 @@ export function GamesView({
                           <button
                             type="button"
                             onClick={() => toggleBracketFinal(game.id)}
-                            className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"
+                            className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white"
                           >
                             {hasEnteredScore ? "Verify Final" : "Save + Final"}
                           </button>

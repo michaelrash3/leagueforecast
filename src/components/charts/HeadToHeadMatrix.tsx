@@ -18,14 +18,15 @@ export function HeadToHeadMatrix({
   };
   return (
     <div className="overflow-x-auto">
-      <table className="border-separate border-spacing-1 text-[10px] font-semibold uppercase tracking-wide">
+      <table className="border-separate border-spacing-1 text-xs font-semibold uppercase">
         <thead>
           <tr>
             <th className="p-1" aria-hidden />
             {teams.map((team) => (
               <th
                 key={`h-${team.id}`}
-                className="p-1 text-slate-500 dark:text-slate-400"
+                // Narrow, so eight teams' initials fit a phone's card without scrolling sideways.
+                className="px-0.5 py-1 text-slate-600 dark:text-slate-400"
                 title={displayName(team.name)}
               >
                 {teamAbbr(team.name)}
@@ -38,7 +39,7 @@ export function HeadToHeadMatrix({
             <tr key={`r-${row.id}`}>
               <th
                 scope="row"
-                className="p-1 text-right text-slate-500 dark:text-slate-400"
+                className="px-1 py-0.5 text-right text-slate-600 dark:text-slate-400"
                 title={displayName(row.name)}
               >
                 {teamAbbr(row.name)}

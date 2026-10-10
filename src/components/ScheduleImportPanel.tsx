@@ -91,13 +91,13 @@ function NameNote({ note, onUse }: { note: Note | undefined; onUse: (name: strin
   if (!note) return null;
   if (note.kind === "placeholder") {
     return (
-      <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-500">
+      <span className="text-xs font-semibold text-amber-700 dark:text-amber-500">
         Placeholder — set the real team before adding
       </span>
     );
   }
   return (
-    <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-500">
+    <span className="text-xs font-semibold text-amber-700 dark:text-amber-500">
       Close to{" "}
       <button
         type="button"

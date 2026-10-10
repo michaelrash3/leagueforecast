@@ -90,7 +90,7 @@ export function AiStoryPanel({
   if (waiting && onAsk && !loading) {
     return (
       <div className="mb-3 rounded-lg bg-white p-3 shadow-xs ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           {title}
         </div>
         {text && (
@@ -105,7 +105,7 @@ export function AiStoryPanel({
         >
           Write this up with AI
         </button>
-        <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           One request each. Turn them on for everything in Settings.
         </p>
       </div>
@@ -116,7 +116,7 @@ export function AiStoryPanel({
 
   return (
     <div className="mb-3 whitespace-pre-line rounded-lg bg-white p-3 text-sm font-semibold leading-6 text-slate-700 shadow-xs ring-1 ring-blue-100 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
-      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         <span>{title}</span>
         {source !== "local" && (
           <span

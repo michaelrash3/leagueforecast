@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { currentDiagnosticsReport, recordDiagnostic } from "../lib/diagnostics";
-import { button, card } from "../styles/tokens";
+import { button } from "../styles/tokens";
+import { StatePanel } from "./StatePanel";
 
 type ErrorBoundaryProps = {
   children: ReactNode;
@@ -75,19 +76,16 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (!error) return this.props.children;
 
     return (
-      <div className={`${card} p-5`} role="alert">
-        <h2 className="text-sm font-black uppercase tracking-wide text-red-600 dark:text-red-400">
-          {this.props.area} could not be shown
-        </h2>
-        <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+      <StatePanel kind="error" heading={2} title={`${this.props.area} could not be shown`}>
+        <p>
           Something went wrong while drawing this. Nothing has been deleted — your seasons, teams
           and games are still saved in this browser exactly as they were.
         </p>
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-slate-600 dark:text-slate-300">
           Try again first. If it keeps happening, reload the page, and if it still happens the
           details below are what to send on.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           <button type="button" onClick={this.retry} className={button.primary}>
             Try again
           </button>
@@ -98,20 +96,20 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {this.state.copied ? "Copied" : "Copy diagnostics"}
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-slate-600 dark:text-slate-300">
           The copy is this browser&apos;s last few failures and nothing else — no scores, no team
           names beyond whatever is in the message below. It is not sent anywhere; it goes on your
           clipboard for you to paste wherever you like.
         </p>
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <details>
+          <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">
             What went wrong
           </summary>
-          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">
             {error.message || String(error)}
           </pre>
         </details>
-      </div>
+      </StatePanel>
     );
   }
 }

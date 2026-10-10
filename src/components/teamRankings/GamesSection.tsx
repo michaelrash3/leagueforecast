@@ -366,7 +366,7 @@ export function GamesSection({
                       <button
                         type="button"
                         onClick={() => onSaveScore(game.id)}
-                        className="text-xs font-bold text-emerald-600 hover:underline dark:text-emerald-400"
+                        className="text-xs font-bold text-emerald-700 hover:underline dark:text-emerald-400"
                       >
                         Save
                       </button>

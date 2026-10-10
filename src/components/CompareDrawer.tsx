@@ -167,7 +167,7 @@ export function CompareDrawer({
   const tone = (which: "left" | "right" | "tie" | undefined, side: "left" | "right") => {
     if (which === "tie" || which === undefined) return "text-slate-700 dark:text-slate-200";
     return which === side
-      ? "text-emerald-600 font-black dark:text-emerald-400"
+      ? "text-emerald-700 font-black dark:text-emerald-400"
       : "text-slate-500 dark:text-slate-400";
   };
 
@@ -236,7 +236,7 @@ export function CompareDrawer({
 
         <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
           <table className="w-full text-left text-xs sm:text-sm">
-            <thead className="bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               <tr>
                 <th className="px-2 py-2 sm:px-4">Metric</th>
                 <th className="px-2 py-2 text-right sm:px-4">{displayName(left.name)}</th>

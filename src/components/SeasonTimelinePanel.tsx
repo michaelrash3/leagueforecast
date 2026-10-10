@@ -26,7 +26,7 @@ export function SeasonTimelinePanel({ entries }: { entries: SeasonTimelineEntry[
             >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     {entry.date}
                   </div>
                   <div className="mt-1 font-black text-slate-950 dark:text-slate-100">
