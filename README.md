@@ -2718,7 +2718,10 @@ says how the picks move it against the season as it stands: its place (▲2), it
 
 Picks go when the page does unless they are saved as a scenario, and not before: a look at
 another tab and back finds the machine as it was left, the picks and the scenario open, which
-the page holds while the Forecast tab is closed (`MachineLeft`). A scenario (2.7,
+the page holds while the Forecast tab is closed (`MachineLeft`). They are one season's, and go
+at a change of season whether the Forecast tab is open or not, told apart by `activeSeasonKey`
+so that a season deleted and its id given out again, or one restored over, leaves none to the
+season now under that id. A scenario (2.7,
 `src/lib/savedScenarios.ts`) is a name, the picks with any typed scores, and each picked
 game's teams and date as they stood, kept on this device per season, the most recently
 changed first, thirty at most (a save that pushes the oldest out names it). One parent's

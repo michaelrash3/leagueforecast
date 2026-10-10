@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
+import { readFullBackup } from "./lib/backup";
 import {
   basisFor,
   dropScenario,
@@ -15,9 +16,11 @@ import type { SeasonStore } from "./lib/seasonStore";
 import {
   createSeason,
   getActiveSeasonId,
+  listSeasons,
   loadLogs,
   loadMatchups,
   loadSettings,
+  loadTeams,
   saveLogs,
   saveMatchups,
   saveSettings,
@@ -628,6 +631,112 @@ describe("saved playoff scenarios", () => {
     // The page gone, they go with it.
     render(<App />);
     machine = await openMachine(user);
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Sim"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Sim"]);
+  });
+
+  /** A second season with the same teams and games, made before the page opens. */
+  const anotherSeason = (name: string) => {
+    const first = getActiveSeasonId();
+    const teams = loadTeams();
+    const games = loadMatchups();
+    const made = createSeason(name);
+    setActiveSeason(made.id);
+    saveTeams(teams);
+    saveMatchups(games);
+    setActiveSeason(first);
+    return made;
+  };
+
+  it("lets the picks go at a change of season, whether the Forecast tab is open or not (2.7 review)", async () => {
+    const spring = getActiveSeasonId();
+    const fall = anotherSeason("Fall");
+    const user = userEvent.setup();
+    render(<App />);
+    const seasonPicker = screen.getByRole("combobox", { name: /active season/i });
+    let machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await user.selectOptions(seasonPicker, fall.id);
+    await user.selectOptions(seasonPicker, spring);
+    machine = await screen.findByRole("region", { name: "Playoff machine" });
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Sim"]);
+
+    // Away on another tab meanwhile: they go the same, rather than come back on the way back.
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await user.click(screen.getByRole("tab", { name: "Standings" }));
+    await user.selectOptions(seasonPicker, fall.id);
+    await user.selectOptions(seasonPicker, spring);
+    machine = await openMachine(user);
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Sim"]);
+  });
+
+  it("gives a season made under a deleted one's id none of the picks left on another tab (2.7 review)", async () => {
+    const fall = anotherSeason("Fall");
+    setActiveSeason(fall.id);
+    const user = userEvent.setup();
+    render(<App />);
+    let machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await saveScenario(user, machine);
+    await pick(user, machine, "Bears at Comets", "Bears");
+
+    // Fall deleted, and the season left duplicated: the copy is given Fall's id.
+    await user.click(screen.getByRole("tab", { name: "Settings" }));
+    const seasons = await screen.findByRole("region", { name: "Seasons" });
+    const row = (name: string) => within(seasons).getByText(name).closest("li") as HTMLElement;
+    await user.click(within(row("Fall")).getByRole("button", { name: "Delete" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete season" })
+    );
+    await waitFor(() => expect(within(seasons).queryByText("Fall")).toBeNull());
+    expect(storedNames()).toEqual([]);
+    const [left] = listSeasons();
+    if (!left) throw new Error("No season left");
+    await user.click(within(row(left.name)).getByRole("button", { name: "Duplicate" }));
+    await waitFor(() => expect(within(seasons).getByText(`${left.name} copy`)).toBeInTheDocument());
+    expect(listSeasons().find((season) => season.name === `${left.name} copy`)?.id).toBe(fall.id);
+    await user.click(within(row(`${left.name} copy`)).getByRole("button", { name: "Switch" }));
+
+    machine = await openMachine(user);
+    expect(within(machine).getByRole("combobox", { name: "Scenario" })).toHaveDisplayValue(
+      "No saved scenarios yet"
+    );
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Sim"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Sim"]);
+  });
+
+  it("gives a season a restore puts under the open id none of the picks left on another tab (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    let machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await saveScenario(user, machine);
+    await pick(user, machine, "Bears at Comets", "Bears");
+
+    // A backup of another season under the same id, made at another moment, with the same games.
+    const backup = readFullBackup();
+    const other = {
+      ...backup,
+      seasons: backup.seasons.map((season) => ({
+        ...season,
+        createdAt: "2020-01-01T00:00:00.000Z",
+      })),
+    };
+    await user.click(screen.getByRole("tab", { name: "Settings" }));
+    await user.upload(
+      screen.getByLabelText("Import backup JSON"),
+      new File([JSON.stringify(other)], "backup.json", { type: "application/json" })
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Restore everything" })
+    );
+    await waitFor(() => expect(listSeasons()[0]?.createdAt).toBe("2020-01-01T00:00:00.000Z"));
+    expect(storedNames()).toEqual([]);
+
+    machine = await openMachine(user);
+    expect(within(machine).getByRole("combobox", { name: "Scenario" })).toHaveDisplayValue(
+      "No saved scenarios yet"
+    );
     expect(pressed(machine, "Ducks at Aces")).toEqual(["Sim"]);
     expect(pressed(machine, "Bears at Comets")).toEqual(["Sim"]);
   });

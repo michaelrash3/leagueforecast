@@ -2895,9 +2895,15 @@ export default function App() {
     id: string;
   } | null>(null);
   const incomingScenarioOpened = useCallback(() => setIncomingScenario(null), []);
-  // The playoff machine as last left, given back when the Forecast tab is shown again: its picks
-  // last as long as the page does, as the machine says, not only until another tab is looked at.
+  /*
+   * The playoff machine as last left, given back when the Forecast tab is shown again: its picks
+   * last as long as the page does, as the machine says, not only until another tab is looked at.
+   * They are one season's, so a change of season lets them go, as it does on screen, told by
+   * `activeSeasonKey`: by id alone, a season deleted and its id given out again, or restored over,
+   * would hand its picks and its open scenario to the season now under that id.
+   */
   const [playoffLeft, setPlayoffLeft] = useState<MachineLeft | null>(null);
+  if (playoffLeft && playoffLeft.season !== activeSeasonKey) setPlayoffLeft(null);
   /*
    * Whether the season on screen is still to give way to the cloud's: the sign-in still coming, a
    * member's first meeting with the cloud's seasons, or League kept live waiting for its version.
@@ -3563,6 +3569,7 @@ export default function App() {
                           oddsSeed={oddsSeed}
                           iterations={SIM_ITERATIONS}
                           seasonId={activeSeasonId}
+                          seasonKey={activeSeasonKey}
                           followedTeamId={ourTeamId}
                           incoming={
                             incomingScenario?.seasonId === activeSeasonId

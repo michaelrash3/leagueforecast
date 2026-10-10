@@ -51,6 +51,12 @@ type PlayoffMachineProps = {
   iterations: number;
   /** The season the picks are for, whose saved scenarios this device keeps (2.7). */
   seasonId: string;
+  /**
+   * The season as storage tells one from another, its id and when it was made (`activeSeasonKey`),
+   * which what the machine leaves is marked with: the page gives it back on that season alone, not
+   * on another given the same id after a delete or put under it by a restore.
+   */
+  seasonKey: string;
   /** The team this browser follows, the one the quick picks' team starts on. */
   followedTeamId: string | null;
   /** A scenario of this season just kept from a link, to open at once. */
@@ -59,7 +65,8 @@ type PlayoffMachineProps = {
   onIncomingOpened?: () => void;
   /**
    * The machine as this page last left it, given back when it is shown again, so that picks last
-   * as long as the page does rather than until another tab is looked at (`onLeave`).
+   * as long as the page does rather than until another tab is looked at (`onLeave`). Only ever the
+   * season shown: the page lets it go at a change of season, as the machine on screen does.
    */
   left?: MachineLeft | null;
   /** Told what the machine holds as it goes from the screen, to be given back as `left`. */
@@ -76,9 +83,10 @@ const NO_PICKS: Working = { picks: {}, basis: {} };
 
 /**
  * What the machine holds as it goes from the screen, for the page to give back: the season it was
- * on, the picks, and the scenario open as this tab had it, which the picks were made against.
+ * on (`seasonKey`), the picks, and the scenario open as this tab had it, which the picks were made
+ * against.
  */
-export type MachineLeft = { seasonId: string; work: Working; open: SavedScenario | null };
+export type MachineLeft = { season: string; work: Working; open: SavedScenario | null };
 
 /**
  * The season's scenarios as stored, but the one open as this tab has it. The picks on screen were
@@ -94,11 +102,12 @@ const withOpen = (stored: SavedScenario[], open: SavedScenario | null): SavedSce
 };
 
 /**
- * The machine as it is shown: as the page last left it when that was on this season, and with no
- * picks otherwise. The season's scenarios are read as stored, as every showing reads them.
+ * The machine as it is shown: as the page last left it on this season, and with no picks when
+ * there is nothing to give back. The season's scenarios are read as stored, as every showing reads
+ * them.
  */
 const shownFrom = (left: MachineLeft | null, seasonId: string) =>
-  left?.seasonId === seasonId
+  left
     ? {
         work: left.work,
         saved: withOpen(readScenarios(seasonId), left.open),
@@ -173,6 +182,7 @@ export function PlayoffMachine({
   oddsSeed,
   iterations,
   seasonId,
+  seasonKey,
   followedTeamId,
   incoming = null,
   onIncomingOpened,
@@ -282,8 +292,8 @@ export function PlayoffMachine({
   // What the machine holds, kept up to date to tell the page as it goes (`left`).
   const leaving = useRef<MachineLeft | null>(null);
   useEffect(() => {
-    leaving.current = { seasonId, work, open };
-  }, [seasonId, work, open]);
+    leaving.current = { season: seasonKey, work, open };
+  }, [seasonKey, work, open]);
   useEffect(
     () => () => {
       if (leaving.current) onLeave?.(leaving.current);
