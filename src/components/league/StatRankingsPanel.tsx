@@ -14,7 +14,7 @@ export function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
       className="flex items-center gap-3 bg-slate-200/80 px-4 py-2 text-slate-700 dark:bg-slate-700/80 dark:text-slate-200"
     >
       <div className="h-px flex-1 bg-slate-400/70 dark:bg-slate-500/80" />
-      <div className="flex shrink-0 items-center gap-2 rounded-full bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide shadow-xs ring-1 ring-slate-300 dark:bg-slate-900 dark:ring-slate-600">
+      <div className="flex shrink-0 items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide shadow-xs ring-1 ring-slate-300 dark:bg-slate-900 dark:ring-slate-600">
         <span>League Avg</span>
         <span className="tabular-nums">{metric.average?.toFixed(1)}</span>
       </div>
@@ -41,7 +41,7 @@ export function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
     <section className="bg-white p-5 dark:bg-slate-900">
       <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Team Stats
           </div>
           <h2 className="text-xl font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -77,7 +77,7 @@ export function StatRankingsPanel({ rankings }: { rankings: StatRankings }) {
                         <div className="text-sm font-bold wrap-break-word xl:truncate text-slate-950 dark:text-slate-100">
                           {displayName(entry.teamName)}
                         </div>
-                        <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
                           {entry.games} games
                         </div>
                       </div>

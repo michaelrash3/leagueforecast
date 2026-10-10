@@ -1,8 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App, { settleSide } from "./App";
 import { createSeason, saveTeams, setActiveSeason } from "./lib/storage";
+import { prefetchAllViews } from "./components/league/leagueViews";
+
+// League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
+beforeAll(() => prefetchAllViews());
 
 /**
  * The two selects on the Schedule form are App state, seeded from the team list the first time

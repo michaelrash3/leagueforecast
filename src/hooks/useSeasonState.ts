@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { finalLogsOf } from "../lib/finalLogs";
 import {
   createSeasonStore,
   type OpenSeason,
@@ -13,6 +14,11 @@ export type SeasonStateControls = SeasonState & {
   season: SeasonState;
   /** The id of the season the data is, which changes with the data and never apart from it. */
   seasonId: string;
+  /**
+   * The scores of the games marked final alone, the same object while only games still being
+   * played change (`finalLogsOf`): what every calculation from the scores is keyed on.
+   */
+  finalLogs: Record<string, GameLog>;
   store: SeasonStore;
   setSeason: Dispatch<SetStateAction<SeasonState>>;
   openSeason: (id: string, season: SeasonState) => void;
@@ -22,6 +28,12 @@ export type SeasonStateControls = SeasonState & {
   setBracketLogs: Dispatch<SetStateAction<Record<string, GameLog>>>;
   setSettings: Dispatch<SetStateAction<Settings>>;
 };
+
+/** The open season with its final games' scores, kept from `previous` while those are unchanged. */
+const withFinals = (open: OpenSeason, previous?: Record<string, GameLog>) => ({
+  ...open,
+  finalLogs: finalLogsOf(open.season.logs, previous),
+});
 
 /**
  * The open season as one store, with a setter for each part that behaves as its own `useState`
@@ -47,8 +59,15 @@ export function useSeasonState(load: () => OpenSeason): SeasonStateControls {
    * made. Nothing changes the store between the first render and this subscription: the live
    * store starts in an effect, after it.
    */
-  const [open, setOpen] = useState(() => store.get());
-  useLayoutEffect(() => store.subscribe(() => setOpen(store.get())), [store]);
+  const [open, setOpen] = useState(() => withFinals(store.get()));
+  useLayoutEffect(
+    () =>
+      store.subscribe(() => {
+        const next = store.get();
+        setOpen((previous) => withFinals(next, previous.finalLogs));
+      }),
+    [store]
+  );
   const setters = useMemo(() => {
     const part =
       <K extends keyof SeasonState>(key: K): Dispatch<SetStateAction<SeasonState[K]>> =>
@@ -72,6 +91,7 @@ export function useSeasonState(load: () => OpenSeason): SeasonStateControls {
     ...open.season,
     season: open.season,
     seasonId: open.id,
+    finalLogs: open.finalLogs,
     store,
     setSeason: store.setSeason,
     openSeason: store.open,

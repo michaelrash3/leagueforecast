@@ -1,6 +1,7 @@
 import { STORAGE_VERSION, type GameLog, type Matchup, type Settings, type TeamBase } from "./types";
 import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./validate";
 import { mayWrite } from "./cloud/cloudGuard";
+import { forgetSeasons } from "./preferences";
 
 type DataKey = "teams" | "matchups" | "logs" | "bracketLogs" | "settings" | "undo";
 
@@ -315,6 +316,16 @@ export const readUndoSnapshot = () => parseJson(safeGet(seasonKey(activeId(), "u
 
 // ---------- Season management ----------
 
+/*
+ * Ids are handed out again: counted from the seasons held, so deleting the last season and making
+ * one gives its id back, and every browser's first season is `default`. What this device keeps of
+ * a season outside the season itself (`forgetSeasons`: its last look, the findings put aside, the
+ * team followed and its club's place, the server's last bridge, the saved scenarios, the news
+ * announced) goes with the season when it leaves this browser, and an id given to a season new here
+ * starts with nothing under it, whatever a season before it left there. Otherwise the new season
+ * took the old one's: its games and teams reported as removed since the last look, its findings
+ * already put aside, the old season's outside results read by its forecast.
+ */
 const genSeasonId = (existing: SeasonMeta[]): string => {
   const ids = new Set(existing.map((season) => season.id));
   let n = existing.length + 1;
@@ -348,7 +359,7 @@ export const createSeason = (name: string): SeasonMeta => {
   const meta: SeasonMeta = { id, name: resolvedName, createdAt: nowIso() };
   // Seed the new season's settings so its export label matches its name from the start.
   safeSet(seasonKey(id, "settings"), JSON.stringify({ seasonLabel: resolvedName }));
-  writeSeasons([...seasons, meta]);
+  if (writeSeasons([...seasons, meta])) forgetSeasons([id]);
   return meta;
 };
 
@@ -401,7 +412,8 @@ export const duplicateSeason = (id: string, name: string): SeasonMeta | null => 
     seasonKey(newId, "settings"),
     JSON.stringify({ ...(isRecord(settings) ? settings : {}), seasonLabel: meta.name })
   );
-  writeSeasons([...seasons, meta]);
+  // The copy takes the original's data, and none of what this device kept of the original.
+  if (writeSeasons([...seasons, meta])) forgetSeasons([newId]);
   return meta;
 };
 
@@ -413,7 +425,12 @@ export const deleteSeason = (id: string): boolean => {
   if (!seasons.some((season) => season.id === id)) return false;
   DATA_KEYS.forEach((dataKey) => safeRemove(seasonKey(id, dataKey)));
   const remaining = seasons.filter((season) => season.id !== id);
-  writeSeasons(remaining);
+  /*
+   * Let go of only once the list no longer names the season. A tab another has taken a copy in
+   * under may not write the list (`cloudGuard.ts`), and the season it could not delete is still
+   * here, with everything this device kept of it.
+   */
+  if (writeSeasons(remaining)) forgetSeasons([id]);
   if (readActive() === id) writeActive(remaining[0]!.id);
   return true;
 };
@@ -466,18 +483,22 @@ export const readSeasonSnapshot = (id: string): SeasonSnapshot | null => {
 /**
  * Replace the whole multi-season layout with a restored one: every season currently stored is
  * cleared first, so a season absent from the backup does not survive the restore. Refuses an
- * empty season list rather than leaving the app with no season to open.
+ * empty season list rather than leaving the app with no season to open. `renamed` names this
+ * device's seasons that a cloud merge gave new ids (`leagueMerge.ts`), each now under its new id.
  */
 export const replaceLeagueSnapshot = (
   snapshot: LeagueSnapshot,
-  { fromCloud = false }: { fromCloud?: boolean } = {}
+  {
+    fromCloud = false,
+    renamed = {},
+  }: { fromCloud?: boolean; renamed?: Readonly<Record<string, string>> } = {}
 ): boolean => {
   ensureInitialized();
   if (!snapshot.seasons.length) return false;
   // The cloud copy's own seasons arriving are no change made here, and owe it nothing.
   if (fromCloud) arriving += 1;
   try {
-    return replaceSeasons(snapshot);
+    return replaceSeasons(snapshot, renamed);
   } finally {
     if (fromCloud) arriving -= 1;
   }
@@ -513,17 +534,64 @@ export const addSeasons = (seasons: readonly SeasonSnapshot[]): boolean => {
       createdAt,
       ...(updatedAt ? { updatedAt } : {}),
     }));
-    if (!writeSeasons([...held, ...meta])) ok = false;
+    if (writeSeasons([...held, ...meta])) forgetSeasons(fresh.map((season) => season.id));
+    else ok = false;
     return ok;
   } finally {
     arriving -= 1;
   }
 };
 
-const replaceSeasons = (snapshot: LeagueSnapshot): boolean => {
-  readSeasons().forEach((season) => {
+const replaceSeasons = (
+  snapshot: LeagueSnapshot,
+  renamed: Readonly<Record<string, string>>
+): boolean => {
+  const held = readSeasons();
+  held.forEach((season) => {
     DATA_KEYS.forEach((dataKey) => safeRemove(seasonKey(season.id, dataKey)));
   });
+  /*
+   * A season held here and carried again, made at the same moment, is still that season and keeps
+   * what this device kept of it. One the snapshot leaves out has left this browser; one under an
+   * id held for a season made at another moment, or under an id not held, is a season new here.
+   * A time missing on either side, as on a season from before they were kept, says nothing.
+   */
+  const madeAt = new Map(held.map((season) => [season.id, season.createdAt]));
+  const same = new Set(
+    snapshot.seasons
+      .filter((season) => {
+        const was = madeAt.get(season.id);
+        return (
+          was !== undefined && (was === "" || season.createdAt === "" || was === season.createdAt)
+        );
+      })
+      .map((season) => season.id)
+  );
+  const left = [...held, ...snapshot.seasons]
+    .map((season) => season.id)
+    .filter((id) => !same.has(id));
+  /*
+   * A season of this device's that a merge gave a new id is still this device's season, under the
+   * new id, and what was kept of it goes there; its old id is now the other side's season. Only a
+   * season held here and carried under the new id is moved. So is one held under one id and
+   * carried under another, made at the same moment, which is that season too: a backup from before
+   * a merge gave this device's season a new id puts it back under its old one. A season kept as
+   * itself above is neither moved nor moved onto, though another was made in the same millisecond,
+   * and a time missing says nothing here either.
+   */
+  const carried = new Set(snapshot.seasons.map((season) => season.id));
+  const heldMadeAt = new Map(
+    held
+      .filter((season) => !same.has(season.id) && season.createdAt !== "")
+      .map((season) => [season.createdAt, season.id])
+  );
+  const moved = Object.fromEntries([
+    ...snapshot.seasons.flatMap((season) => {
+      const from = same.has(season.id) ? undefined : heldMadeAt.get(season.createdAt);
+      return from === undefined ? [] : [[from, season.id] as const];
+    }),
+    ...Object.entries(renamed).filter(([from, to]) => madeAt.has(from) && carried.has(to)),
+  ]);
 
   let ok = true;
   snapshot.seasons.forEach((season) => {
@@ -545,7 +613,9 @@ const replaceSeasons = (snapshot: LeagueSnapshot): boolean => {
     createdAt,
     ...(updatedAt ? { updatedAt } : {}),
   }));
-  if (!writeSeasons(meta)) ok = false;
+  // As in `deleteSeason`, nothing is let go of until the list says the seasons have gone.
+  if (writeSeasons(meta)) forgetSeasons(left, { moved });
+  else ok = false;
   // A pointer at a season the backup does not carry would leave the app on an empty season.
   const active = meta.some((season) => season.id === snapshot.activeSeasonId)
     ? snapshot.activeSeasonId

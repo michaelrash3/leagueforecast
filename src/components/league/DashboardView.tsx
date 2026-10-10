@@ -2,15 +2,36 @@
  * The league's front page: where the season stands, what the model makes of the next games, and
  * what it is still missing to say more.
  */
-import type { ReactNode } from "react";
+import { Suspense, useId, useState, type ComponentProps, type ReactNode } from "react";
 import { formatGameDate } from "../../lib/date";
 import { displayName } from "../../lib/format";
 import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
+import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFindings";
+import { ErrorBoundary } from "../ErrorBoundary";
+import { DigestPanel } from "./DigestPanel";
 import { EmptyPanel } from "./EmptyPanel";
+import { viewChunk } from "./leagueViews";
 import { PowerRatingsView } from "./PowerRatingsView";
-import { button as buttonClasses } from "../../styles/tokens";
+import { button as buttonClasses, textRole } from "../../styles/tokens";
+import { marginSpanText, runSpanText } from "../../lib/forecastRangeText";
+
+/** Why a card's odds are what they are (2.8), fetched the first time a card's is opened. */
+const forecastWhy = viewChunk(
+  () => import("./ForecastWhy").then((module) => module.ForecastWhy),
+  "ForecastWhy"
+);
+const ForecastWhy = forecastWhy.View;
+
+/** What a card's explanation reads beside the prediction itself, worked out once it is opened. */
+type WhyContext = {
+  nameOf: (id: string) => string;
+  /** The per-game model's chance that the away side wins a game: the Schedule's odds. */
+  gameOdds?: (game: Matchup) => number;
+  findings: readonly Finding[];
+  record: { winnerAccuracy: number | null; sampleSize: number };
+};
 
 function teamNameFor(map: Map<string, Team>, id: string) {
   return map.get(id)?.name ?? id;
@@ -20,19 +41,32 @@ function PredictionCard({
   prediction,
   teamsById,
   matchups,
+  why: whyContext,
 }: {
   prediction: LeaguePrediction;
   teamsById: Map<string, Team>;
   matchups: Matchup[];
+  why: WhyContext;
 }) {
+  const [whyOpen, setWhyOpen] = useState(false);
+  const whyId = useId();
   const game = matchups.find((item) => item.id === prediction.gameId);
   const a = teamNameFor(teamsById, prediction.teamAId);
   const b = teamNameFor(teamsById, prediction.teamBId);
   const winner = prediction.predictedWinnerId
     ? teamNameFor(teamsById, prediction.predictedWinnerId)
     : "Pending data";
+  // How far the game can stray from the forecast (2.10), once the model has finals to go on.
+  const range = prediction.range;
   const aPct = Math.round(prediction.winProbability.teamA * 100);
   const bPct = Math.round(prediction.winProbability.teamB * 100);
+  const whyLabel =
+    aPct === bPct
+      ? "Why a toss-up?"
+      : `Why ${displayName(aPct > bPct ? a : b)} at ${Math.max(aPct, bPct)}%?`;
+  // Asked for only while the explanation is open: the per-game model is not free to run.
+  const gameModelChance =
+    whyOpen && game && whyContext.gameOdds ? whyContext.gameOdds(game) : undefined;
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs ring-1 ring-slate-950/5 dark:border-slate-800 dark:bg-slate-950/70">
       <div className="flex items-start justify-between gap-4">
@@ -60,6 +94,12 @@ function PredictionCard({
             {winner}
             {prediction.projectedMargin !== null ? ` by ${prediction.projectedMargin}` : ""}
           </p>
+          {range && (
+            <p className={`mt-1 ${textRole.meta}`}>
+              Range:{" "}
+              {marginSpanText(range.margin, { teamA: displayName(a), teamB: displayName(b) })}
+            </p>
+          )}
         </div>
         <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -85,6 +125,12 @@ function PredictionCard({
               ? `${prediction.expectedScore.teamA}-${prediction.expectedScore.teamB}`
               : "Needs scores"}
           </p>
+          {range?.score && (
+            <p className={`mt-1 ${textRole.meta}`}>
+              Range: {displayName(a)} {runSpanText(range.score.teamA)}, {displayName(b)}{" "}
+              {runSpanText(range.score.teamB)}
+            </p>
+          )}
         </div>
       </div>
       <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
@@ -94,6 +140,38 @@ function PredictionCard({
         <p className="mt-2 text-sm font-semibold leading-6 text-slate-700 dark:text-slate-300">
           {prediction.keyFactors[0] ?? "Add completed scores to unlock a model read."}
         </p>
+        {prediction.explanation && (
+          <button
+            type="button"
+            aria-expanded={whyOpen}
+            aria-controls={whyId}
+            onClick={() => setWhyOpen((was) => !was)}
+            className="mt-2 text-sm font-bold text-slate-950 underline underline-offset-2 dark:text-slate-100"
+          >
+            {whyLabel}
+          </button>
+        )}
+        {whyOpen && (
+          <div id={whyId} className="mt-3">
+            <ErrorBoundary area="this explanation" onReset={forecastWhy.reset}>
+              <Suspense
+                fallback={
+                  <p role="status" className="text-sm text-slate-600 dark:text-slate-300">
+                    Loading the explanation…
+                  </p>
+                }
+              >
+                <ForecastWhy
+                  prediction={prediction}
+                  nameOf={whyContext.nameOf}
+                  findings={whyContext.findings}
+                  record={whyContext.record}
+                  {...(gameModelChance !== undefined ? { gameModelChance } : {})}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          </div>
+        )}
       </div>
       {prediction.riskFactors.length > 0 && (
         <p className="mt-3 text-sm font-bold text-amber-700 dark:text-amber-300">
@@ -110,16 +188,31 @@ export function DashboardView({
   teamsById,
   matchups,
   setActiveView,
+  findings,
   ourTeam,
+  digest,
+  gameOdds,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   backtestResult: ReturnType<typeof backtestPredictions>;
   teamsById: Map<string, Team>;
   matchups: Matchup[];
   setActiveView: (view: ActiveShareView) => void;
+  /** The season's data-quality findings not put aside, counted here and listed on their own tab. */
+  findings: readonly Finding[];
   /** The team this browser follows, which leads the page (`OurTeamCard`). */
   ourTeam?: ReactNode;
+  /** What changed since this device last looked (2.6), above everything else while there is any. */
+  digest?: ComponentProps<typeof DigestPanel>;
+  /** The per-game model's chance that the away side wins a game, for a card's explanation. */
+  gameOdds?: (game: Matchup) => number;
 }) {
+  const why: WhyContext = {
+    nameOf: (id) => displayName(teamNameFor(teamsById, id)),
+    ...(gameOdds ? { gameOdds } : {}),
+    findings,
+    record: backtestResult,
+  };
   const avgConfidence = engine.predictions.length
     ? Math.round(
         engine.predictions.reduce((sum, p) => sum + p.confidence.score, 0) /
@@ -128,6 +221,7 @@ export function DashboardView({
     : 0;
   return (
     <div className="space-y-6">
+      {digest && <DigestPanel {...digest} />}
       {ourTeam}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
@@ -166,6 +260,7 @@ export function DashboardView({
               prediction={p}
               teamsById={teamsById}
               matchups={matchups}
+              why={why}
             />
           ))}
           {engine.predictions.length === 0 && (
@@ -175,40 +270,64 @@ export function DashboardView({
             />
           )}
         </div>
-        <DataQualityPanel engine={engine} />
+        <DataQualityPanel
+          engine={engine}
+          findings={findings}
+          onOpen={() => setActiveView("quality")}
+        />
       </section>
       <PowerRatingsView engine={engine} compact />
     </div>
   );
 }
 
-function DataQualityNotes({ notes }: { notes: string[] }) {
-  if (notes.length === 0) {
-    return (
-      <p className="mt-3 text-sm font-semibold text-slate-500 dark:text-slate-400">
-        Nothing to flag — the model has what it needs from the games entered so far.
-      </p>
-    );
-  }
-  return (
-    <ul className="mt-4 space-y-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
-      {notes.slice(0, 6).map((item) => (
-        <li key={item}>• {item}</li>
-      ))}
-    </ul>
+/**
+ * The season's data quality, in brief (2.3): the forecast's own grade of how much it has to go
+ * on, how many findings there are of each severity, whether any of them makes the forecast less
+ * to be trusted, and the way to the Data Quality tab, where each is listed with what to do.
+ */
+function DataQualityPanel({
+  engine,
+  findings,
+  onOpen,
+}: {
+  engine: ReturnType<typeof buildPredictionEngine>;
+  findings: readonly Finding[];
+  onOpen: () => void;
+}) {
+  const counts = severityCounts(findings);
+  const forecastAffected = findings.some(
+    (finding) => finding.affectsForecast && finding.severity !== "info"
   );
-}
-
-function DataQualityPanel({ engine }: { engine: ReturnType<typeof buildPredictionEngine> }) {
   return (
     <aside className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         Data Quality
       </p>
       <h3 className="mt-2 text-2xl font-black">{engine.dataQuality.tier}</h3>
-      <DataQualityNotes
-        notes={[...engine.dataQuality.warnings, ...engine.dataQuality.recommendedActions]}
-      />
+      {findings.length === 0 ? (
+        <p className="mt-3 text-sm font-semibold text-slate-500 dark:text-slate-400">
+          Nothing to flag in the season&rsquo;s games, teams or settings.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
+          {(["attention", "review", "info"] as const)
+            .filter((severity) => counts[severity] > 0)
+            .map((severity) => (
+              <li key={severity}>
+                {counts[severity]} {SEVERITY_LABEL[severity].toLowerCase()}
+              </li>
+            ))}
+        </ul>
+      )}
+      {forecastAffected && (
+        <p className="mt-3 text-sm font-bold text-red-700 dark:text-red-300">
+          The forecast is less reliable until these are put right.
+        </p>
+      )}
+      <button type="button" onClick={onOpen} className={`${buttonClasses.ghost} mt-4 w-full`}>
+        {findings.length ? "Review data quality" : "Open Data Quality"}
+      </button>
     </aside>
   );
 }

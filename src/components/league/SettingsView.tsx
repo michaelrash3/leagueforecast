@@ -18,6 +18,9 @@ import {
   type TiebreakerFactor,
 } from "../../lib/types";
 import { button as buttonClasses, card } from "../../styles/tokens";
+import { PageHeader } from "../PageHeader";
+import type { NotifyPrefs } from "../../lib/seasonDigest";
+import { NotificationSettings } from "./NotificationSettings";
 import { EditLock } from "./EditLock";
 
 /** The order the tiebreaker pickers offer, and the "none" they also allow. */
@@ -41,6 +44,9 @@ export function SettingsView({
   loadDemoSeason,
   summaryMode,
   onSummaryMode,
+  notifyPrefs,
+  onNotifyPrefs,
+  followedName,
   onOpenCloud,
 }: {
   /** Opens the cloud copy's panel; absent while the cloud is off. */
@@ -56,6 +62,11 @@ export function SettingsView({
   loadDemoSeason: () => void;
   summaryMode: SummaryMode;
   onSummaryMode: (mode: SummaryMode) => void;
+  /** What this device is told of when the season changes elsewhere (2.6). */
+  notifyPrefs: NotifyPrefs;
+  onNotifyPrefs: (prefs: NotifyPrefs) => void;
+  /** The team this browser follows, or null. */
+  followedName: string | null;
 }) {
   const seasonId = useId();
   /**
@@ -97,12 +108,10 @@ export function SettingsView({
 
   return (
     <section className="grid grid-cols-1 gap-6">
+      <PageHeader title="Settings" />
       <div className={`${card} p-6`}>
-        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-          Settings
-        </h2>
         <EditLock>
-          <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <label htmlFor={seasonId} className="block">
               <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Season</span>
               <input
@@ -149,6 +158,7 @@ export function SettingsView({
                 </span>
                 <input
                   id={cutoffId}
+                  data-setting="goldCutoff"
                   type="number"
                   min={1}
                   max={Math.max(1, teamsCount)}
@@ -201,6 +211,7 @@ export function SettingsView({
               </span>
               <input
                 id={regularSeasonGamesId}
+                data-setting="regularSeasonGamesPerTeam"
                 type="number"
                 min={0}
                 value={settings.regularSeasonGamesPerTeam}
@@ -490,6 +501,12 @@ export function SettingsView({
               : "Nothing is sent until you ask for it."}
           </p>
         </div>
+
+        <NotificationSettings
+          prefs={notifyPrefs}
+          onPrefs={onNotifyPrefs}
+          followedName={followedName}
+        />
 
         <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-5 dark:border-slate-700 dark:bg-slate-900">
           <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">

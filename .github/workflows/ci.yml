@@ -32,6 +32,9 @@ jobs:
       # vite.config.ts are a floor under where the suite already is, so this fails on a real drop.
       - run: npm run test:coverage
       - run: npm run build
+      # What a visit downloads, held to limits: the first download, each League view's own load,
+      # Team Rankings and the stylesheet (`scripts/bundleBudget.mjs`). Fails naming what grew.
+      - run: npm run bundle:check
       # The GameChanger proxy's address is a build setting (`gcProxyEndpoint`), and Vite fills in
       # `import.meta.env.VITE_…` only where the read is written out whole. Read any other way it
       # passes every unit test, which run with an `import.meta.env` of their own, and the setting

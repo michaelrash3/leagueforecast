@@ -407,20 +407,20 @@ describe("Team Rankings on the cloud's board", () => {
       {
         page: "ag_11u_2027",
         season: "season-1",
-        clubs: [["L-1", "S-3"]],
+        clubs: [{ team: "L-1", club: "S-3" }],
         halves: ["spring"],
       },
       {
         page: PAGE,
         season: "season-1",
         clubs: [
-          ["L-1", "S-2"],
-          ["L-2", "S-3"],
+          { team: "L-1", club: "S-2" },
+          { team: "L-2", club: "S-3" },
         ],
         halves: ["spring"],
       },
       // A fall league, which the spring board says nothing of.
-      { page: PAGE, season: "season-2", clubs: [["L-9", "S-1"]], halves: ["fall"] },
+      { page: PAGE, season: "season-2", clubs: [{ team: "L-9", club: "S-1" }], halves: ["fall"] },
       // A season none of whose teams is a club here: what the card showed of it goes.
       { page: PAGE, season: "season-3", clubs: [], halves: [] },
     ]);
@@ -458,7 +458,9 @@ describe("Team Rankings on the cloud's board", () => {
   });
 
   it("writes no places before its board is drawn, nor for a season the meta does not name", async () => {
-    await withSeasons([{ page: PAGE, season: "season-1", clubs: [["L-1", "S-2"]], halves: [] }]);
+    await withSeasons([
+      { page: PAGE, season: "season-1", clubs: [{ team: "L-1", club: "S-2" }], halves: [] },
+    ]);
     const reader = readerOf(live);
     let release = (): void => undefined;
     const released = new Promise<void>((resolve) => (release = resolve));

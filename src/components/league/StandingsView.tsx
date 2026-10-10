@@ -13,6 +13,7 @@ import { buildTeamDataHref } from "../../lib/teamLink";
 import type { LastImpact, TeamWithProjection } from "../../lib/types";
 import { AiStoryPanel } from "../AiStoryPanel";
 import { HelpTip } from "../HelpTip";
+import { PageHeader } from "../PageHeader";
 import { ProjectionExplanation } from "../ProjectionExplanation";
 import { Sparkline } from "../Sparkline";
 import {
@@ -77,22 +78,22 @@ export function StandingsView({
   return (
     <div className="grid grid-cols-1 gap-6">
       <section>
-        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-          Standings
-          <HelpTip title="Reading the table">
-            {hasCutLine && (
-              <>
-                <strong>Gold %</strong> is the simulated chance of finishing in the top {goldCutoff}{" "}
-                (the Gold Bracket), from thousands of season simulations.{" "}
-              </>
-            )}
-            <strong>SOS</strong> is strength of schedule — a lower rank means tougher opponents.{" "}
-            <strong>Diff</strong> is run differential (runs scored minus runs allowed).
-          </HelpTip>
-        </h2>
-        <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-          Updated through {latestCompletedDate}.
-        </p>
+        <PageHeader
+          title="Standings"
+          help={
+            <HelpTip title="Reading the table">
+              {hasCutLine && (
+                <>
+                  <strong>Gold %</strong> is the simulated chance of finishing in the top{" "}
+                  {goldCutoff} (the Gold Bracket), from thousands of season simulations.{" "}
+                </>
+              )}
+              <strong>SOS</strong> is strength of schedule — a lower rank means tougher opponents.{" "}
+              <strong>Diff</strong> is run differential (runs scored minus runs allowed).
+            </HelpTip>
+          }
+          lead={<>Updated through {latestCompletedDate}.</>}
+        />
       </section>
 
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-700 dark:bg-slate-900">
@@ -100,7 +101,7 @@ export function StandingsView({
           <div className="border-b border-slate-200 bg-blue-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-800/50">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-400">
+                <div className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-400">
                   Impact Since Last Update
                 </div>
                 <div className="text-sm font-bold text-slate-950 dark:text-slate-100">
@@ -112,7 +113,7 @@ export function StandingsView({
                   <button
                     type="button"
                     onClick={copyStory}
-                    className="rounded-full bg-blue-600 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-xs hover:bg-blue-500"
+                    className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white shadow-xs hover:bg-blue-500"
                   >
                     Copy Story
                   </button>
@@ -121,7 +122,7 @@ export function StandingsView({
                   <button
                     type="button"
                     onClick={copyRecap}
-                    className="rounded-full bg-slate-950 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-xs hover:bg-slate-800 dark:bg-white dark:text-slate-950"
+                    className="rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white shadow-xs hover:bg-slate-800 dark:bg-white dark:text-slate-950"
                   >
                     Copy Recap
                   </button>
@@ -129,7 +130,7 @@ export function StandingsView({
                 <button
                   type="button"
                   onClick={dismissImpact}
-                  className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 shadow-xs ring-1 ring-blue-100 hover:text-slate-950 dark:bg-slate-900 dark:text-slate-400 dark:ring-slate-700"
+                  className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500 shadow-xs ring-1 ring-blue-100 hover:text-slate-950 dark:bg-slate-900 dark:text-slate-400 dark:ring-slate-700"
                 >
                   Dismiss
                 </button>
@@ -137,7 +138,7 @@ export function StandingsView({
             </div>
             {lastImpact.scores.length > 0 && (
               <div className="mb-3 rounded-lg bg-white p-3 shadow-xs ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Final Scores
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
@@ -191,7 +192,7 @@ export function StandingsView({
             )}
             {lastImpact.projectionExplanations && lastImpact.projectionExplanations.length > 0 && (
               <div className="mt-3 rounded-lg bg-white p-3 shadow-xs ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-slate-700">
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Why projections moved
                 </div>
                 <div className="space-y-2">
@@ -211,7 +212,7 @@ export function StandingsView({
 
         {hasCutLine && (
           <div className="border-b border-slate-200 bg-white/80 px-5 py-3 dark:border-slate-700 dark:bg-slate-900/70">
-            <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-wide">
+            <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide">
               <span className="rounded-full bg-slate-950 px-3 py-1 text-white dark:bg-white dark:text-slate-950">
                 Clinched
               </span>
@@ -242,8 +243,8 @@ export function StandingsView({
           <>
             {/* Desktop table */}
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full text-left">
-                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+              <table className="w-full text-left tabular-nums">
+                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                   <tr>
                     <th className="px-5 py-3">Seed</th>
                     <th className="px-5 py-3">Team</th>
@@ -322,7 +323,7 @@ export function StandingsView({
                           <td
                             className={`px-4 py-4 text-center font-black ${
                               team.runDiff > 0
-                                ? "text-emerald-600 dark:text-emerald-400"
+                                ? "text-emerald-700 dark:text-emerald-400"
                                 : team.runDiff < 0
                                   ? "text-red-600 dark:text-red-400"
                                   : "text-slate-500 dark:text-slate-400"
@@ -353,7 +354,7 @@ export function StandingsView({
                                 >
                                   {formatGoldPct(team)}
                                 </span>
-                                <div className="mt-1 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
                                   {formatGoldMargin(team)} sim. error
                                 </div>
                               </td>
@@ -384,7 +385,7 @@ export function StandingsView({
                 </tbody>
               </table>
             </div>
-            <div className="hidden px-5 pb-4 text-[11px] font-bold text-slate-500 md:block dark:text-slate-400"></div>
+            <div className="hidden px-5 pb-4 text-xs font-bold text-slate-500 md:block dark:text-slate-400"></div>
 
             {/* Mobile cards */}
             <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
@@ -411,7 +412,7 @@ export function StandingsView({
                           <span className="sr-only"> · {raceToneLabels[raceTone]}</span>
                         </span>
                         <span
-                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[10px] font-black shadow-xs ${raceSeedBadgeClasses[raceTone]}`}
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-black shadow-xs ${raceSeedBadgeClasses[raceTone]}`}
                         >
                           {teamAbbr(team.name)}
                         </span>
@@ -419,12 +420,12 @@ export function StandingsView({
                           <span className="block text-sm font-bold wrap-break-word text-blue-700 underline decoration-blue-300 underline-offset-4 dark:text-blue-300 dark:decoration-blue-700">
                             {displayName(team.name)}
                           </span>
-                          <span className="mt-0.5 block text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                          <span className="mt-0.5 block text-xs font-bold text-slate-500 dark:text-slate-400">
                             {recordText(team)} ·{" "}
                             <span
                               className={
                                 team.runDiff > 0
-                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  ? "text-emerald-700 dark:text-emerald-400"
                                   : team.runDiff < 0
                                     ? "text-red-600 dark:text-red-400"
                                     : ""
@@ -450,12 +451,12 @@ export function StandingsView({
                           >
                             {formatGoldPct(team)}
                           </span>
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                          <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
                             {formatGoldMargin(team)}
                           </span>
                           <span
                             aria-label={`Playoff status: ${statusLabel(team)}`}
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-black ${statusClass(team)}`}
+                            className={`rounded-full px-2 py-0.5 text-xs font-black ${statusClass(team)}`}
                           >
                             {statusLabel(team)}
                           </span>
@@ -466,7 +467,7 @@ export function StandingsView({
                       <div
                         role="separator"
                         aria-label={`Gold cut line: top ${goldCutoff} teams qualify`}
-                        className="bg-slate-950 px-4 py-1.5 text-center text-[10px] font-semibold uppercase tracking-[0.22em] text-red-400 dark:bg-black"
+                        className="bg-slate-950 px-4 py-1.5 text-center text-xs font-semibold uppercase tracking-[0.22em] text-red-400 dark:bg-black"
                       >
                         Gold Cut Line
                       </div>

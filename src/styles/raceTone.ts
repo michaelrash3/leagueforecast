@@ -51,9 +51,9 @@ export const raceRowToneClasses: Record<RaceTone, string> = {
 
 export const raceSeedBadgeClasses: Record<RaceTone, string> = {
   clinched: "bg-slate-950 text-white dark:bg-white dark:text-slate-950",
-  safe: "bg-emerald-600 text-white dark:bg-emerald-400 dark:text-emerald-950",
+  safe: "bg-emerald-700 text-white dark:bg-emerald-400 dark:text-emerald-950",
   inside: "bg-blue-600 text-white dark:bg-blue-400 dark:text-blue-950",
   bubble: "bg-amber-500 text-slate-950 dark:bg-amber-300 dark:text-amber-950",
-  chasing: "bg-orange-500 text-white dark:bg-orange-300 dark:text-orange-950",
+  chasing: "bg-orange-500 text-slate-950 dark:bg-orange-300 dark:text-orange-950",
   out: "bg-red-600 text-white dark:bg-red-400 dark:text-red-950",
 };

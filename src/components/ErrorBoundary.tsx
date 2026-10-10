@@ -1,6 +1,8 @@
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, useRef, type ErrorInfo, type ReactNode, type RefObject } from "react";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import { currentDiagnosticsReport, recordDiagnostic } from "../lib/diagnostics";
-import { button, card } from "../styles/tokens";
+import { button } from "../styles/tokens";
+import { StatePanel } from "./StatePanel";
 
 type ErrorBoundaryProps = {
   children: ReactNode;
@@ -15,6 +17,14 @@ type ErrorBoundaryProps = {
    * a boundary that wraps a section can say what to put back before retrying.
    */
   onReset?: () => void;
+  /**
+   * Closes the area, for one that is an overlay somebody opened: a team's panel, a comparison. Its
+   * failure is then drawn over the page where the overlay would have been, rather than below
+   * everything else where nobody would see it, and offers Close beside Try again, so a download
+   * that keeps failing is never the only way out. Closing puts back what `onReset` does as well,
+   * since opening the overlay again is the next try.
+   */
+  onClose?: () => void;
 };
 
 type ErrorBoundaryState = { error: Error | null; copied: boolean };
@@ -61,6 +71,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.setState({ error: null, copied: false });
   };
 
+  private close = () => {
+    this.props.onReset?.();
+    this.props.onClose?.();
+  };
+
   private copyDiagnostics = () => {
     // Best effort: an old browser or a denied permission leaves the text on screen in the details
     // below, which is where it was going to be read from anyway.
@@ -74,23 +89,26 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const { error } = this.state;
     if (!error) return this.props.children;
 
-    return (
-      <div className={`${card} p-5`} role="alert">
-        <h2 className="text-sm font-black uppercase tracking-wide text-red-600 dark:text-red-400">
-          {this.props.area} could not be shown
-        </h2>
-        <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+    const title = `${this.props.area} could not be shown`;
+    const panel = (
+      <StatePanel kind="error" heading={2} title={title}>
+        <p>
           Something went wrong while drawing this. Nothing has been deleted — your seasons, teams
           and games are still saved in this browser exactly as they were.
         </p>
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-slate-600 dark:text-slate-300">
           Try again first. If it keeps happening, reload the page, and if it still happens the
           details below are what to send on.
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           <button type="button" onClick={this.retry} className={button.primary}>
             Try again
           </button>
+          {this.props.onClose && (
+            <button type="button" onClick={this.close} className={button.ghost}>
+              Close
+            </button>
+          )}
           <button type="button" onClick={() => window.location.reload()} className={button.ghost}>
             Reload the page
           </button>
@@ -98,20 +116,70 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {this.state.copied ? "Copied" : "Copy diagnostics"}
           </button>
         </div>
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-xs text-slate-600 dark:text-slate-300">
           The copy is this browser&apos;s last few failures and nothing else — no scores, no team
           names beyond whatever is in the message below. It is not sent anywhere; it goes on your
           clipboard for you to paste wherever you like.
         </p>
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <details>
+          <summary className="cursor-pointer text-xs font-semibold text-slate-600 dark:text-slate-300">
             What went wrong
           </summary>
-          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">
             {error.message || String(error)}
           </pre>
         </details>
-      </div>
+      </StatePanel>
+    );
+    return this.props.onClose ? (
+      <OverlayFrame label={title} onClose={this.close}>
+        {panel}
+      </OverlayFrame>
+    ) : (
+      panel
     );
   }
+}
+
+/**
+ * A failure drawn as the drawer it stands in for: over the page, closed by its backdrop or Escape,
+ * and holding the focus until it is closed.
+ */
+function OverlayFrame({
+  label,
+  onClose,
+  children,
+}: {
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  useFocusTrap(true, ref as RefObject<HTMLElement>);
+  return (
+    <div
+      className="fixed inset-0 z-55 flex justify-end bg-slate-950/40 p-3"
+      role="presentation"
+      onClick={onClose}
+    >
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
+      <aside
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label}
+        tabIndex={-1}
+        className="h-full w-full max-w-md overflow-y-auto rounded-lg bg-white p-3 shadow-2xl outline-hidden dark:bg-slate-900"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          // Kept in the dialog, as the drawers keep theirs, so the page's shortcuts do not act
+          // behind it; the focus is held inside, so Escape is heard here.
+          event.stopPropagation();
+          if (event.key === "Escape") onClose();
+        }}
+      >
+        {children}
+      </aside>
+    </div>
+  );
 }

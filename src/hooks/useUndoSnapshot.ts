@@ -18,8 +18,9 @@ export type UndoableSeason = {
   bracketLogs: Record<string, GameLog>;
   /**
    * The league's settings, carried only by a snapshot taken before something that replaces them —
-   * Load Demo, a shared link, a one-season backup. Any other undo leaves settings as they are now,
-   * so a setting changed after a deleted game is not taken back by undoing the delete.
+   * Load Demo, a shared link, a one-season backup, a Data Quality repair to games per team. Any
+   * other undo leaves settings as they are now, so a setting changed after a deleted game is not
+   * taken back by undoing the delete.
    */
   settings?: Settings;
   /**

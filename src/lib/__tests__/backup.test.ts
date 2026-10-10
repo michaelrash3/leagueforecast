@@ -8,7 +8,18 @@ import {
   readFullBackup,
   summarizeFullBackup,
 } from "../backup";
-import { readAppMode, readTheme, writeAppMode, writeTheme } from "../preferences";
+import { resetCloudGuard } from "../cloud/cloudGuard";
+import {
+  readAppMode,
+  readOurTeam,
+  readSeen,
+  readTheme,
+  writeAppMode,
+  writeOurTeam,
+  writeSeen,
+  writeTheme,
+} from "../preferences";
+import { seenOf } from "../seasonDigest";
 import {
   createSeason,
   getActiveSeasonId,
@@ -32,6 +43,7 @@ const backing = new Map<string, string>();
 
 beforeEach(() => {
   backing.clear();
+  resetCloudGuard();
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => backing.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -256,6 +268,71 @@ describe("applyFullBackup", () => {
     expect(loadMatchupsForSeason(secondId)).toHaveLength(1);
     expect(readTheme()).toBe("dark");
     expect(readAppMode()).toBe("rankings");
+  });
+
+  it("takes every season it restores as seen where this device had looked, as its own doing", () => {
+    const secondId = seedBrowser();
+    const backup = readFullBackup();
+    // Since the backup, the first season was emptied and looked at like that, and a team followed.
+    saveTeams([]);
+    saveMatchups([]);
+    writeSeen("default", seenOf({ teams: [], matchups: [], logs: {} }));
+    writeOurTeam("default", "ACE");
+    // Not the open season, so it is not the season store that opens it again afterwards.
+    setActiveSeason(secondId);
+
+    applyFullBackup(backup);
+
+    const restored = backup.seasons.find((season) => season.id === "default")!;
+    expect(readSeen("default")).toEqual(seenOf(restored));
+    // One never looked at here is still to be looked at, and the rest kept of a season stays.
+    expect(readSeen(secondId)).toBeNull();
+    expect(readOurTeam("default")).toBe("ACE");
+  });
+
+  it("leaves every last look as it was when the seasons could not be restored", () => {
+    const secondId = seedBrowser();
+    const backup = readFullBackup();
+    saveTeams([]);
+    saveMatchups([]);
+    const emptied = seenOf({ teams: [], matchups: [], logs: {} });
+    writeSeen("default", emptied);
+    setActiveSeason(secondId);
+    // Another tab took a copy in since this one read its seasons, so none of them may be written.
+    backing.set("league_forecast_cloud_taken_league", "another-tab");
+
+    expect(applyFullBackup(backup).failed).toContain("seasons");
+
+    expect(loadTeamsForSeason("default")).toEqual([]);
+    expect(readSeen("default")).toEqual(emptied);
+  });
+
+  it("takes none as seen when a season could not be written, though one it left out has gone", () => {
+    const secondId = seedBrowser();
+    const backup = readFullBackup();
+    saveTeams([]);
+    saveMatchups([]);
+    const emptied = seenOf({ teams: [], matchups: [], logs: {} });
+    writeSeen("default", emptied);
+    const doomed = createSeason("Delete me");
+    writeSeen(doomed.id, emptied);
+    // One season's games will not fit; the list of seasons is written all the same.
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        if (k.startsWith(`league_season_${secondId}_matchups`)) throw new Error("QuotaExceeded");
+        backing.set(k, v);
+      },
+      removeItem: (k: string) => {
+        backing.delete(k);
+      },
+    });
+
+    expect(applyFullBackup(backup).failed).toContain("seasons");
+
+    expect(listSeasons().map((season) => season.id)).not.toContain(doomed.id);
+    expect(readSeen("default")).toEqual(emptied);
+    expect(readSeen(doomed.id)).toBeNull();
   });
 
   it("clears a season the backup does not carry", () => {

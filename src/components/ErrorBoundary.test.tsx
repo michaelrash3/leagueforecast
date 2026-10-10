@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
@@ -104,6 +104,54 @@ describe("getting back", () => {
     await user.click(screen.getByRole("button", { name: "Try again" }));
     // Remounting alone is useless while the state that threw is still there to be read again.
     expect(onReset).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an overlay that fails", () => {
+  it("is said over the page as a dialog, and offers no Close for an area that is not one", () => {
+    const { unmount } = render(
+      <ErrorBoundary area="The team panel" onClose={() => undefined}>
+        <Boom throws />
+      </ErrorBoundary>
+    );
+    const dialog = screen.getByRole("dialog", { name: "The team panel could not be shown" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(within(dialog).getByRole("button", { name: "Close" })).toBeInTheDocument();
+    unmount();
+
+    render(
+      <ErrorBoundary area="The rankings">
+        <Boom throws />
+      </ErrorBoundary>
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+
+  it("closes from its button, its backdrop or Escape, putting things back first each time", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    const onReset = vi.fn(() => order.push("reset"));
+    const onClose = vi.fn(() => order.push("close"));
+    render(
+      <ErrorBoundary area="The team panel" onReset={onReset} onClose={onClose}>
+        <Boom throws />
+      </ErrorBoundary>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    // Opening it again is the next try, so what Try again puts back is put back here too.
+    expect(order).toEqual(["reset", "close"]);
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(2);
+    const dialog = screen.getByRole("dialog");
+    if (!dialog.parentElement) throw new Error("The dialog has no backdrop");
+    await user.click(dialog.parentElement);
+    expect(onClose).toHaveBeenCalledTimes(3);
+    // A press inside the panel is not one on the backdrop.
+    await user.click(within(dialog).getByText(/nothing has been deleted/i));
+    expect(onClose).toHaveBeenCalledTimes(3);
+    expect(onReset).toHaveBeenCalledTimes(3);
   });
 });
 

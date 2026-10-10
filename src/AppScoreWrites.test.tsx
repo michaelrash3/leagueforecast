@@ -1,7 +1,11 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { loadLogs, saveMatchups, saveTeams } from "./lib/storage";
+import { prefetchAllViews } from "./components/league/leagueViews";
+
+// League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
+beforeAll(() => prefetchAllViews());
 
 /*
  * A score typed and a game marked Final at once. A score's keystrokes are a transition, so the

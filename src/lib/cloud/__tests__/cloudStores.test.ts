@@ -28,6 +28,7 @@ import {
   saveUndoSnapshot,
   setActiveSeason,
 } from "../../storage";
+import { readOurTeam, writeOurTeam } from "../../preferences";
 import { resetApp } from "../../resetApp";
 import { markTaken, onStaleWrite, resetCloudGuard } from "../cloudGuard";
 import { CLOUD_STATE_KEY, loadCloudState, markCloudDirty, owedChanges } from "../cloudState";
@@ -314,6 +315,7 @@ describe("League Standings in the cloud copy", () => {
   it("keeps this device on its open season when a merge gave that season a new id", async () => {
     saveTeams([{ id: "t1", name: "Hawks" } as never]);
     const open = getActiveSeasonId();
+    writeOurTeam(open, "t1");
     const snapshot = (await appLocalSource.read(LEAGUE_PART)) as ReturnType<
       typeof readLeagueSnapshot
     >;
@@ -328,6 +330,9 @@ describe("League Standings in the cloud copy", () => {
       })
     ).toBe(true);
     expect(getActiveSeasonId()).toBe("season-7");
+    // What this device keeps of the season goes with it to its new id (`forgetSeasons`).
+    expect(readOurTeam("season-7")).toBe("t1");
+    expect(readOurTeam(open)).toBeNull();
   });
 });
 

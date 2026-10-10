@@ -45,6 +45,18 @@
     min-height: 100%;
   }
 
+  /* On a phone the tab bar is fixed along the bottom of the screen (2.4), 52px tall and 81px with
+     the Data Quality strip, and the browser scrolls a control the focus moves to only as far as
+     the screen's bottom edge, which is behind the bar: at 360 by 640, tabbing down Settings left
+     fields wholly under it. Scroll padding is the room a scroll into view keeps clear, here the
+     bar, the strip and a little over, and the query is the one the bar is drawn by
+     (`useNarrowViewport`). */
+  @media (max-width: 639px) {
+    html {
+      scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+    }
+  }
+
   body {
     font-family:
       ui-sans-serif,

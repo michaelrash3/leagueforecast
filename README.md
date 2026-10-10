@@ -62,20 +62,22 @@ starts in its June. A season inside one calendar year is ordered exactly as befo
 
 ## Features
 
-| Area                 | Highlights                                                                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Standings**        | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                       |
-| **Games**            | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                  |
-| **Season Predictor** | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
-| **Team drawer**      | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
-| **Our team**         | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
-| **Settings**         | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
-| **Power UX**         | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                  |
-| **Installable PWA**  | Installable via `vite-plugin-pwa` (basic precache).                                                                                                     |
-| **A11y**             | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                       |
-| **Perf**             | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                       |
-| **Team Rankings**    | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail.   |
-| **GameChanger**      | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                              |
+| Area                      | Highlights                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Standings**             | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                       |
+| **Games**                 | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                  |
+| **Data Quality**          | Findings on the season's games, teams and settings, grouped by severity, with links to each, previewed repairs and undo.                                |
+| **Since you last looked** | What another device changed since this one last looked, on the Dashboard until seen; opt-in notifications while the app is open.                        |
+| **Season Predictor**      | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
+| **Team drawer**           | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
+| **Our team**              | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
+| **Settings**              | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
+| **Power UX**              | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                  |
+| **Installable PWA**       | Installable via `vite-plugin-pwa` (basic precache).                                                                                                     |
+| **A11y**                  | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                       |
+| **Perf**                  | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                       |
+| **Team Rankings**         | A page per age level, national top 25 and state top 10, cross-age ratings, scouting report with next-game projections, CSV/paste import, team detail.   |
+| **GameChanger**           | Pull a team list's schedules, resumable, on a weekly rota; pairings proposed for approval.                                                              |
 
 ## Architecture
 
@@ -2706,9 +2708,160 @@ those games played: records, places and the cut line from the same code as the r
 standings, with the league's own tiebreakers, and Gold % simulated over the games
 still unpicked (`scenarioSeason`). A pick plays out at the model's expected score,
 turned round where the pick goes against the model, because run differential breaks
-ties and a winner alone does not give one; a score can be typed instead. Ratings are
-not refitted on made-up results, so the rest of the page does not move, and nothing
-is saved: the picks go when the page does.
+ties and a winner alone does not give one; a score can be typed instead, up to 99 runs a
+side, which is as many as a saved scenario or a link keeps (`MOST_RUNS`). Ratings are
+not refitted on made-up results, so the rest of the page does not move. Each team's row
+says how the picks move it against the season as it stands: its place (▲2), its Gold %
+(+65), and **Clinches** or **Out** where the picks settle what the season does not yet.
+
+### Saved scenarios
+
+Picks not saved as a scenario go when the page does, or at a change of season: a look at
+another tab and back finds the machine as it was left, the picks and the scenario open, which
+the page holds while the Forecast tab is closed (`MachineLeft`). They are one season's, told
+apart by `activeSeasonKey` whether the Forecast tab is open or not, so that a season deleted
+and its id given out again, or one restored over, leaves none to the season now under that id.
+A scenario (2.7, `src/lib/savedScenarios.ts`) is a name, the picks with any typed scores, and
+each picked game's teams and date as they stood, kept on this device per season, the most recently
+changed first, thirty at most (a save that pushes the oldest out names it). One parent's
+"what if we win out" is theirs, not the season's, so a scenario is never written into
+the season, a backup or the cloud; it goes when its season does, not to a season made under
+the deleted one's id, and moves with its season when a cloud merge gives that a new id
+([Data + persistence](#data--persistence)). A scenario is opened from the **Scenario**
+list, its picks changed and **Save changes**, **Rename**d, **Duplicate**d with the picks as
+they are now, or **Delete**d with its picks left on screen unsaved. **Clear picks** starts
+again. Choosing another entry in the list while the picks on screen are not saved, made
+with no scenario open or changed in the one open, first asks whether to **Let them go**
+or **Keep them**, rather than losing them at a glance at another scenario. Each change
+is made to the scenarios as stored rather than to the list on the page, so one kept in
+another tab meanwhile stays. A change to the open scenario starts from it as stored too:
+**Rename** keeps the picks another tab saved to it meanwhile, **Save changes** the name
+it was given there, **Duplicate** and **Delete** name it as it is called there, and one
+another tab let go of is not brought back by any of them, nor copied under its old name; the
+page says so, and its picks stay on screen, unsaved. Back on the Forecast tab, the list is
+read as stored, but the open scenario is the one the picks on screen were made against, so
+picks another tab saved to it meanwhile are not taken for changes made here. Picks
+another tab saved to it that **Rename** or **Bring it up to date** takes in are shown in
+place of the older ones here, and said so, unless picks changed here are waiting to be
+saved, which stay: shown older, they would pass for changes, and **Save changes** would
+write them over picks never seen here. A stored scenario of a later version is left as
+it was, unread, through every change.
+
+**Quick picks** fill the games in one go: **Favorites win** has the model's pick win every
+game left, **Fill the rest with favorites** only the games not yet picked, and **Wins out**
+or **Loses out** settles every game left of the team chosen beside them (the team this
+browser follows, to begin with), leaving its other picks as they were.
+
+A scenario knows when the season has moved on under it (`scenarioTrouble`): a picked game
+played (the real result stands), taken off the schedule, or given other teams marks it
+"(out of date)" in the list, and opening it lists what happened. Those picks are left out
+of what is shown, and **Bring it up to date** saves it without them, saying how many went.
+A game only moved to another day keeps its pick. The same holds for picks being made when
+a game changes under them, from another device say: a pick counts only on the game it was
+made on, until picked again.
+
+**Share** copies a link, `?view=league#scenario=…`, carrying the scenario's name, its
+picks and each picked game's teams and date, and nothing of the season, up to 6,000
+characters (more picks than fit are refused, with a word to save them instead). Opening
+one waits for the season to be the one the device shows, since matched sooner it would
+be against this device's games from before, missing any added elsewhere: while the cloud
+is still finding out who is signed in (the app draws without waiting longer than four
+seconds for it) and while a member's device first meets the cloud's seasons (both
+`leagueArriving`), and while League kept live waits for the cloud's version. Until then
+the link stays in the address bar, kept there when a team's panel opens or closes,
+because a first meeting's seasons arrive with a reload and the address bar is all that
+carries the link across. Those seasons come only when the page is left, left alone a
+while or asked, so that wait alone is said, with **Load them now**. It then shows the
+picks, the soonest first, and which of them are not on games this season still has to
+play between the same teams, and asks **Keep it** or **Not now**
+(`src/lib/scenarioLink.ts`, fetched only when a link is opened). Kept, it joins the
+saved scenarios for the season open here with only the picks that apply, and opens in the
+playoff machine as if chosen from its list. Pasted into the address bar of the app open on
+League Standings, a link opens in the page already running (one tapped on a phone may too,
+where the installed app opens links in the window it has open, which has not been checked),
+and there picks on screen not saved are asked about first. While that is asked, the
+scenario open stays as this tab has it, unless keeping the link pushed it out of the
+thirty, when it leaves the list and its picks stay on screen, unsaved; and a new name, a
+delete or a switch asked about for the scenario open before is put away rather than left to
+act on the link's. Either way the link leaves the address bar, and the season is never
+changed. A link none of whose picks apply is said so, with a word to open the season it was
+made for.
+
+## Why the forecast says what it does
+
+Each of the Dashboard's upcoming predictions has a **Why Aces at 64%?** button (2.8). The
+win chance is read off a projected margin, and the prediction engine now gives that margin
+as data with every forecast (`LeaguePrediction.explanation`), as the sum of its parts in
+runs, which add up to it exactly:
+
+- **Results**: each side's average margin in the games its rating was fitted from (league
+  and Team Rankings, each counted up to `FORECAST_RUN_CAP`), shrunk toward average by the
+  games behind it as the fit does, `n / (n + 1.5)` of it;
+- **Opponents faced**: the rest of the gap between the two ratings, which is the fit's
+  allowance for the opponents each side played. With every game neutral and counted once,
+  as the engine's are, a rating is exactly `n / (n + 1.5)` of its average margin plus its
+  opponents' average rating, so this is exactly the opponents' share. The panel gives each
+  side's opponents' average and the share of it its rating counts
+  (`MatchupEvidence.scheduleShare`), since the averages alone can point the other way: one
+  game against weak opponents counts 0.4 of them, five against slightly better ones 0.77, so
+  the weaker schedule can cost less and the part lean to the side that played it;
+- **Head-to-head**: the nudge for their own meetings, never more than 1.5 runs;
+- **Home field**: not counted, since who bats last is a coin toss at this level (it would
+  show only if a fitted home edge appeared from games with a real home side);
+- **Cap**: what the 14-run cap on a projected margin took off. It is a limit on the
+  forecast, not evidence for either side, so it leans neither way and is never a side's
+  strongest reason; the margin's parts take it off the leader.
+
+Beside them is what the margin does not count again or at all: recent form (already in the
+results), runs scored and allowed in league games, the Team Rankings results behind each
+rating, how many games each rating rests on, each side's newest result and how long before
+the game it was (or after, or on the same day: a game whose date has passed with no score is
+still forecast, and the sides may have played since), and what the per-game model behind the
+Schedule's odds and the Gold chances makes of the same game (`forecastExplanation.ts`).
+
+The panel leads with the strongest reason for each side (a part of the margin where there is
+one), then the margin as its parts ("Aces by 2.3 runs, from results +3.1, opponents faced
+−1.2, head-to-head +0.4"), with every factor on request. **What could change it** names a
+side with fewer than three games behind its rating, a newest result more than three weeks
+before the game, Team Rankings results from a club linked by a name more than one club
+carries, a rating and raw scoring that point different ways, and the two models disagreeing
+(backing different sides, or 15 points apart). Five numbers the page shows are said apart,
+since they are easily taken for one another: the **win chance** of this game, its **range**
+(below), the model's **confidence** (how much it has to go on, not a second chance of
+winning), **Gold %** (the chance of finishing above the cut line over the season), and the
+**accuracy so far** (the season's finished games replayed one at a time, each called from the
+games before it: a record of past games, not a promise about this one). The panel's code is
+fetched the first time one is opened.
+
+### How far one game can stray
+
+Under each card's projected winner is the **range** of margins eight games in ten like it end
+within, and under the expected score each side's runs (2.10, `forecastRange.ts`): "Range:
+Bears by 6 to Aces by 13" and "Range: Aces 0–13, Bears 0–9" for Aces by 3.5, expected 6.4 to
+2.9. It is 9 runs either side of the projected margin at player pitch and 10 at machine pitch,
+and 6.5 and 8 runs either side of each expected score (never below none), in whole runs worked
+out from the margin and score the card shows. It says how much a single game varies, not how
+sure the model is, so it is the same width however many games are behind the ratings.
+
+The widths are measured, not read off the curve the win chance comes from. On 1,006
+pseudo-leagues from the 29 Sep 2026 pool (each state's pulled clubs on a 2027 page with
+twenty or more, their games with one another up to a mid-September cut the season so far,
+their other results what the bridge would hand over, and every later game between them
+scored), 81.0% of 89,998 player-pitch games ended inside the margin range and 81.9% of 7,492
+machine-pitch games; 79% and 78% where either side had played two games or fewer, 85% and 88%
+where both had played six or more. That curve would have put the band at 10.3 and 8.7 runs,
+holding 85% of player-pitch games but only 73% of machine-pitch ones. Both sides scored inside
+their score ranges in 79.5% and 79.7% of games: 85% where sides average four to six runs, 74%
+where they average eight or more.
+
+On the Forecast tab, the seed odds grid has a **Likely** column: the seeds a team finishes in
+once the best and worst tenth of simulated seasons are left out, so at least eight simulated
+seasons in ten (`seedRange.ts`). It is not the Projected Standings' **Range**, which is the
+best and worst seed one remaining result can move the projection to. That walk is a season's
+projection for each way each remaining game can go, so it waits until 60 or fewer games
+remain (`useSeedRanges`); until then the column, the phone rows and the Bubble Watch show a
+dash and the caption says the range is paused, rather than every team's projection at both
+ends, which would read as a seed nothing left to play can move.
 
 ## Our team
 
@@ -2720,20 +2873,141 @@ loss leaves, the magic number once few enough games remain to work it out exactl
 and **Enter a score**, which opens the Schedule on that team's games. The pick is
 this browser's, one per season (`readOurTeam`), and deliberately not a setting:
 settings travel in a shared link, and a parent's team is not the coach's they send
-the standings to. It is not in a backup either, for the same reason.
+the standings to. It is not in a backup either, for the same reason. It goes with its season,
+so a season made under a deleted one's id follows no team until one is picked there.
 
 When the team is linked to a Team Rankings club, the card also gives the club's place
 on its board — "37th of 1,812 nationally (▲3) · 4th of 160 in OH · 9U 2027 · Fall
 2026, as of 9/27". League Standings cannot rank a club itself, since a board is a fit
 of the whole year's pool, so each time a board is up on the Team Rankings side the
 places of the clubs its page's league seasons are linked to are written to a small
-per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole, and the
-card reads them with the day they were read, in the reader's own time zone. A board that
+per-browser cache (`leagueClubRanks.ts`), a season's places replaced whole and gone with
+the season, and the card reads them with the day they were read, in the reader's own time zone. A board that
 settles with none of the season's clubs on it takes their places away rather than
 leaving the last ones showing. Only a board of a half the season plays its games in
 writes them: a fall league's places are read off the fall board, and looking at the
 spring one, which holds none of the league's games, leaves the card as it was rather
 than blanking it.
+
+## Data Quality
+
+What in a season's games, teams and settings is wrong or worth a second look, each as a
+finding (`src/lib/leagueFindings.ts`, 2.3) with a stable code, a severity, the games, teams or
+setting it is about, why it matters, what to do, whether it makes the forecast less to be
+trusted, and a fingerprint. The Dashboard keeps only the count of each severity and a line when
+the forecast is affected; the **Data Quality** tab lists them in three groups:
+
+- **Needs attention**: a season of one team (one with none is still being set up, and
+  raises nothing), a game naming a team not on the roster, a team against itself, a final
+  with a score missing (counted as if that side scored nothing), a past game scored and never
+  marked final (not counted at all), a Gold cut line every team is on one side of, one Team
+  Rankings club linked to two league teams while its results count.
+- **Worth reviewing**: the same game on the schedule twice, a past game still without a score, a
+  date that cannot be read, a final over 40 runs a side or won by more than 30, fewer games
+  scheduled than the games-per-team setting (which holds clinching back), teams without a final
+  once the league has played about three games each, two teams of one name, a link to a club
+  Team Rankings no longer has.
+- **Information**: an undated game, a schedule giving teams two or more games apart, teams
+  without a final early on, a link guessed from a name more than one club carries, two finals of
+  one pair on one day with different scores.
+
+The same game twice is never a finding that needs attention, since that could not be put aside
+and a league date carries no time: two games of one pair on one day are a copy or a doubleheader,
+and only the commissioner knows which. Until it is put aside it affects the forecast, which plays
+each copy not yet final as a game still to come and counts each final, so the finding names both
+possibilities. Two finals with different scores are two games played and read as a doubleheader,
+information only; two with one score are what one game entered twice looks like, and a finding
+put aside as a doubleheader comes back only then.
+
+League dates carry no year, so what is past is read with the season on one timeline: in its own
+order (`seasonStartMonth`, as the rest of the app reads it), placed in whichever year puts the
+whole season nearest today (`seasonDaysFromToday`). A spring season seen in October is all past,
+its March games with its May ones; next spring's schedule entered in December is all to come, its
+June with its March; and a December game seen in January was last month's. Read a date at a time,
+each in its own nearest year, a season more than about six months from today was split, its far
+end on the wrong side of today. Each finding links to
+what it is about: a game opens the Schedule with its card focused, a team its panel, a setting
+the field in Settings. Three can be put right from the tab, each after a preview of exactly what
+it will do, as one undo step, and reported by what it actually changed, worked out again from
+the season as it stands: **Delete the extra copies** (only copies with nothing at all entered on
+them, a box score without runs counting as something, never the last copy of a game, even if
+another device deleted the one kept while the question was open, and asked first), **Mark them
+final** (past games with both scores in), and **Use the schedule's count** for games per team. A finding that does not need attention can be **put aside** on this device,
+per season (`readPutAside`); it comes back when what it is about changes or it grows more
+serious, and a finding that needs attention cannot be put aside. What is put aside goes with its
+season: a season made under a deleted one's id, from the same team names, has the same
+fingerprints, and would otherwise find its findings already put aside.
+
+## Since you last looked
+
+League Standings kept live takes in other devices' edits as they are made: another coach's
+scores, a game moved, a team renamed. A device that was closed, or on Team Rankings, used to come
+back to a season that was simply different. Now each device keeps the season as it last looked at
+it (`src/lib/seasonDigest.ts`, 2.6, a line per game and team and where each team stood in the
+race, a few kilobytes per season, kept for the last 12 seasons opened), and the Dashboard opens
+with **Since you last looked** while anything differs: counted ("3 new finals, 1 corrected score
+and 1 clinch"), then listed, the followed team's first, each a link to its game or team, until
+**Got it**. The Dashboard's tab carries the count meanwhile, in a phone's bar too.
+
+- **What counts:** a new final, a corrected one, one no longer final, a game added, moved, given
+  another opponent or removed, a final's box score changed, a team added, removed or renamed, a
+  team clinching a Gold Bracket place or eliminated from one, and the followed team's Gold chance
+  moving by the notification setting's points (10 while notifications are off, or set to never
+  tell of it; `digestOddsMove`). Runs typed into a game not yet final are no one's news.
+- **What this device does itself is never news.** The season store says where each change came
+  from (`SeasonChange`): this page's own edit is taken as seen as it is made, another device's is
+  news, and a season opened brings its own last look. A forecast that follows an edit made here
+  is taken as seen too, unless news from elsewhere is still unread, which it may follow from; an
+  edit that moves nothing the forecast reads (runs typed into a game still being played, a bracket
+  score) leaves the next forecast to be news like any other.
+- **Where looking starts.** The first time a device opens a season, what it holds once League kept
+  live has heard the cloud for it is where its looking starts, not 48 games of news: the cloud's
+  version laid over its own, or its own when the cloud held nothing it lacked (League goes live
+  either way, and that is the moment). The race starts from the forecast of that season, worked
+  out afresh when the cloud's word brought scores, not from the one on screen before them. A full
+  backup restored here is this device's doing as well: each season it restores that the device
+  had looked at is taken as seen as restored (`applyFullBackup`), not only the one that opens. A
+  restore that could not write every season takes none of them as seen. Once it has written the
+  list of seasons, those it left out or replaced have still lost their looks, as everything kept of
+  a season goes with it ([Data + persistence](#data--persistence)); only a restore that could not
+  write that list leaves every look as it was.
+- **One device, however many tabs.** The installed app beside a browser tab is two pages each
+  kept live, and each hears the other's edits from the cloud as it would another device's. The
+  last look is the device's, so each tab writes only what it took as seen, laid over the look as
+  stored, and takes from the stored look what reads as it does in the season it shows: an edit
+  made in one tab is seen in the other when it arrives there, the forecast after it once the tab
+  that made it has taken it as seen, and a Got it in one is a Got it in all of them. A clinch the
+  news brings, when Got it came before the forecast settled, is still news in each. This holds
+  where the pages share the browser's storage, which is how they hear of each other. On an iPhone
+  or iPad an app added to the Home Screen, and on a Mac a web app added to the Dock from Safari,
+  keeps storage of its own apart from the browser, so it is a device of its own, with its own
+  last look, notification choices and record of what it has announced.
+- **A last look is one season's.** It goes when its season leaves the browser, and a season made
+  under a deleted one's id starts with none of it, as with everything else a device keeps of a
+  season ([Data + persistence](#data--persistence)): otherwise the deleted season's games and
+  teams were listed as removed since the last look. Another tab still showing the season does
+  not put its look back when it hears it go, nor when anything is done in it afterwards: a tab
+  whose look another tab let go of, by a deletion, a restore, a cloud merge or Start again,
+  keeps none of that season until it opens one again.
+
+**Notifications**, in Settings, are off until turned on, and the browser is asked for permission
+only then. Each kind is a choice of its own: the followed team's finals and corrected scores, its
+schedule changes, clinches, eliminations, the followed team's Gold chance moving by 5 to 25
+points, and League Standings stopping on something a person has to see to (a season deleted on
+another device, one the cloud cannot read). **Send a test notification** shows it works.
+They come only while League Forecast is open, in a tab or installed, and only for news that
+arrived after the page was put away: gathered for 20 seconds into one notification, so a run of
+scores is one, and each change announced once on the device however many tabs are open or times
+it reloads (`readNotified`, one tab at a time through the Web Locks API). A move in the odds is
+the same news while it stays within the same whole steps of the chosen points, which way it went
+from the last look, so it is not announced again each time a final elsewhere moves the forecast a
+point; a game given a second new opponent is news again. A choice changed in one tab holds in the
+others at once, where they share storage as above. What a season has had announced goes with
+the season, so one made under a deleted season's id, from the same team names, still has its
+clinches and eliminations announced. Pressing one comes back to the app
+(`public/notification-click.js`, in the service worker). Nothing is sent to a server, and
+**nothing arrives while the app is closed**: that needs a push service holding each device's
+subscription and sending to it, which the app does not have.
 
 ## Settings
 
@@ -2758,6 +3032,26 @@ than blanking it.
   `league_forecast_scout_age_groups_v1`, plus `league_forecast_gc_pull_v1` (an
   interrupted pull's place) and `league_forecast_gc_refresh_v1` (the rota's record)
 - `league_undo_snapshot_v1`
+- What a device keeps of a season beside it, never in the season, a backup or the cloud, is kept
+  by season id: its last look (`lf_league_seen_v1`), the findings put aside
+  (`lf_league_findings_put_aside_v1`), the team followed (`lf_our_team_v1`), that team's club's
+  place on Team Rankings (`lf_league_club_ranks_v1`), the server's last bridge to Team Rankings
+  (`lf_league_bridge_v2`), the saved scenarios (`lf_league_scenarios_v1`) and the news already
+  announced (`lf_league_notified_v1`, one list whose entries each begin with their season's id).
+  Season ids are given out again: counted from the seasons held, so deleting the last season and
+  making one gives back its id, and every browser's first season is `default`. So all of it goes
+  when its season leaves the browser: deleted, or left out of a restore or the cloud copy's seasons, or replaced in either by another
+  season under its id (made at another moment). An id given to a season new here, made, copied or
+  brought down from the cloud, starts with nothing under it (`forgetSeasons`). A season of this
+  device's that a cloud merge gives a new id takes all of it to that id, and takes it back when a
+  backup from before the merge puts it under its old id again (the same season: made at the same
+  moment, under whichever id). Nothing goes until the
+  list of seasons is written without its season: a tab that may no longer write the seasons,
+  because another tab has taken a copy in since (`cloudGuard.ts`), neither deletes a season nor
+  lets go of what was kept of it. The page reads the team followed and the findings put aside
+  again for each season it opens, told apart by id and the moment it was made, so neither a
+  switch back to an id nor a restore that puts another season under the open one shows what
+  was kept of the season before.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
@@ -3063,7 +3357,10 @@ merged, and whatever a merge had to replace is kept.
   Where both devices changed one
   record differently, the device that changed League Standings last wins it.
   Two seasons that share only an id (every browser's first season is
-  `default`) are kept apart: this device's takes a new one.
+  `default`) are kept apart: this device's takes a new one, and everything the
+  device keeps of it beside the season, as [Data + persistence](#data--persistence)
+  lists it, goes with it to the new id, leaving nothing under the old one, which
+  is now the other season's.
 - **The Team Rankings pool** settles key by key, the later change winning,
   since a pool is too large and too interlinked to merge row by row.
 - **What lost** is kept in the copy, pieces and all, for 30 days and at most
@@ -3429,8 +3726,10 @@ pages, three halves each) in 5 s, after a 95 s pull. Their first publish would
 have been 30 uploads, 3.2 MB gzipped, and a 13.1 KB meta, and the run, pull and
 boards together, peaked at 4.1 GB of the runner's 16.
 
-It runs every night at 07:17 UTC, which is 3:17 in the morning Eastern in summer
-and 2:17 in winter. A run by hand is **Actions → Nightly refresh → Run
+It runs every night at 04:17 UTC, which is 12:17 in the morning Eastern in summer
+and 11:17 at night in winter. It used to be set for 07:17, and GitHub started it about
+seven hours late (between 14:09 and 14:33 UTC on 6 to 9 October 2026), so it was moved
+three hours earlier; a scheduled run starts when GitHub gets to it. A run by hand is **Actions → Nightly refresh → Run
 workflow**, with `dry-run` (everything but the save, and what the save would
 have been) or `live`, and a limit of teams for a trial. The log carries counts,
 sizes and timings only, since this repository's Actions logs are public. A night
@@ -3714,7 +4013,18 @@ Readers fetch while a server writes, so publishing keeps four rules
 
 The shape of the views has a number (`LIVE_SCHEMA`): 2 since the rows gained their
 clubs' towns, states and badges, the boards last week's places and their page's
-own club's rank line, and the meta its pages' counts. A meta written by a newer
+own club's rank line, and the meta its pages' counts; 3 since each League
+Standings team and its club in `inline.pages` are a record rather than a
+[team, club] pair. Firestore keeps no list directly inside another, and it
+refused every save of a meta carrying those pairs with a bare HTTP 400, first
+seen on the night after they shipped (10 October 2026; the two rebuilds that
+failed the day before save the same meta the same way), so the boards stayed
+hidden behind the older schema's notice. The servers' REST
+store now refuses such a value itself before sending it, naming the field
+(`UnstorableValueError`, a number that is not finite too), the stand-in store
+the tests publish through keeps a meta as Firestore would hand it back, so every
+test that publishes checks the same, and a refusal Firestore does send carries
+its own words into the log. A meta written by a newer
 build of the app is left alone, by publishes and sweeps alike, since a sweep
 could take a piece the newer build names for a stray. A publish by a newer build
 keeps nothing of an older build's meta that it did not build itself, inline
@@ -4880,6 +5190,10 @@ functions the device would run, over the cloud's pool):
   full; what an earlier build kept under `lf_league_bridge_v1`, every club with it,
   is let go of) and read back through the same checks as one from the network, so
   the forecast has its outside results the moment the season opens, and offline.
+  It goes with its season, as everything a device keeps of one does
+  ([Data + persistence](#data--persistence)), and what was heard this visit is held
+  by season, not by id, so a season made under a deleted one's id, or restored over
+  the open one, reads none of the outside results of the season before it.
   Until there is a bridge to show, the link panel says it is asking, or that it
   could not ask and will again, rather than that no age group claims the season.
 - `league.clubs`: every club the link panel's wide picker lists, asked for the open
@@ -5450,6 +5764,71 @@ the deterministic story is shown. To exercise the AI path locally, run
 
 ## Performance notes
 
+- **League Standings' views load on demand** (2.1, `src/components/league/leagueViews.ts`).
+  Dashboard, Power Ratings, Schedule, Standings, League Stats, Forecast (with its
+  playoff machine), Settings, the team drawer and the comparison it opens are chunks
+  of their own; the first download carries the app's state and calculations, and a
+  view's markup arrives when it is first shown. A view already loaded is drawn at
+  once, with no placeholder, so going back to a tab never flickers; one still
+  loading shows "Loading Forecast…" in its place, and a load that fails is that
+  view's **Try again** or **Reload the page**, never a blank page. The team drawer
+  and the comparison have a boundary each, so a failed download there is theirs
+  alone: said over the page where the drawer would have been, with **Close** beside
+  the two (Close takes the team out of the address, so a reload does not open it
+  again), and the next opening asks afresh. Try again asks for the chunk afresh
+  rather than repeating the failure React's `lazy` keeps for good, but a browser may
+  keep a download that failed for the rest of the visit: Chromium 141, checked in
+  the review of 2.1, answers the same chunk with the same failure without sending a
+  request, a prefetch that failed offline included, and there only **Reload the
+  page** fetches it again. A tab
+  starts loading when it is pointed at or focused, and once a tab is drawn and the
+  page has been idle 1.5 s, the tab most often opened next does too: the Schedule
+  after the Dashboard, the Forecast after the Standings, and nothing else, so a
+  phone on one bar fetches only what it is likely to show.
+  - **Measured** (gzipped, level 9, `npm run bundle:check`): the first download
+    went from 261.6 KB to 229.7 KB, and its entry chunk from 120.1 KB to 86.9 KB.
+    Opening a view now adds 2.2 KB (League Stats) to 11.7 KB (Forecast);
+    Team Rankings adds 138.9 KB, against 134.5 KB before, since code it shared
+    with League's views is now its own chunk rather than in the first download,
+    so a visit straight to Team Rankings fetches 368.6 KB rather than 396.1 KB.
+  - **The bundle budget.** `scripts/bundleBudget.mjs`, run in CI after the build,
+    holds the first download, the entry chunk, the stylesheet and each view's own
+    load to limits about a tenth above these numbers (at least 1.5 KB for the
+    small views), writes them to `dist/bundle-report.json`, and fails naming what
+    grew. Source maps are built but never downloaded, so they are not counted.
+  - **The numbers did not move.** `src/AppLeagueNumbers.test.tsx` pins what each
+    tab shows on a fixed six-team season, the forecast seeded from the season;
+    it was recorded before the split and matches after it.
+- **League Standings works out only what is on screen** (2.2). Every number it
+  shows is read from the games marked final, so its calculations are keyed on
+  those scores alone (`finalLogsOf`, held by `useSeasonState`), which stay the same
+  object while a score is typed into a game still being played: a keystroke there
+  works nothing out again, and the season is worked out once, when the game is
+  marked final. What one tab alone shows waits for that tab: the model's backtest
+  (Dashboard and Forecast) and the season timeline, the bubble and the games that
+  matter most (Forecast), joining the clinch paths, seed ranges, scenario impacts,
+  game forecasts and bracket odds that already did. The backtest and the timeline,
+  each of which refits the season once per game played, remember their last answer
+  (`rememberLast`), so a tab opened again on an unchanged season costs nothing.
+  Worker results were already safe from going stale: each job carries an id and
+  the key of its input, and an answer for an older one is dropped
+  (`useWorkerJob`).
+  - **Measured** (`npm run score:bench` on the built app, CPU slowed four times at
+    phone width, the old and new builds run back to back): on a twelve-team season
+    with 54 games left, a key in a score box took a median 416 ms to show (p90
+    520 ms) and now takes 24 ms (p90 32 ms); after marking a game final the page
+    was busy for 566 ms and is now busy for 167 ms. On an eight-team season with 12
+    left, keys went from 64 ms to 16 ms and the time busy after a final from 167 ms
+    to none at all over 50 ms. **The cost:** the first Forecast opened after new
+    finals now works out its timeline and backtest then, 2.4 s against 1.7 s on the
+    twelve-team season (unchanged on the eight-team one); opened again, it is 1.0 s
+    as before.
+  - **The numbers did not move.** The pin above holds a half-scored game that is
+    not final; it matched before the change and after it.
+  - **Guarded** by `src/AppOnScreen.test.tsx`, which counts the calculations
+    themselves: none while a score is typed, no backtest, timeline or bubble when a
+    game is marked final on the Schedule, and each once when its tab opens, not
+    again on a second visit.
 - Simulation and trend work run in `src/workers/sim.worker.ts`.
 - The rankings worker keeps one decoded pool and the page names it by revision.
   The pool crosses to it only when the pool itself changes, in the compact form
@@ -5559,6 +5938,132 @@ the deterministic story is shown. To exercise the AI path locally, run
   longest line, so at 360px every card was 421 to 438px in a 286px scroller and all
   18 of the demo's run boxes and Set Final buttons sat past the edge. From `sm` up
   the rounds run left to right as before; `e2e/phone.spec.ts` holds both.
+
+- **On a phone the tabs are a bar along the bottom of the screen** (2.4,
+  `src/components/TabNav.tsx`, below `sm` as `useNarrowViewport` asks it). League
+  Standings' bar holds Dashboard, Schedule, Standings and Forecast, each an icon over
+  its label, and **More** for Power Ratings, League Stats, Data Quality, Settings,
+  the tour and the keyboard shortcuts; Team Rankings' holds Rankings, Games, Import
+  and Scouting, with Archive and Setup under More. Before, all eight League tabs sat
+  in one row that scrolled sideways, with Settings past the edge. A row of the five
+  would not fit either: their labels alone measured 295px in 12px type against the
+  288px a 320px screen leaves, so the bar sizes its labels with the screen, 9px at
+  320px and below to 11px from 390px, which keeps "Dashboard" inside its cell even
+  at 125% browser zoom (a 360px phone is then 288px of page).
+  - A view under More whose badge is urgent, Data Quality while something needs
+    attention, is also a strip across the top of the bar ("Data Quality: 1 needs
+    attention") rather than a sixth cell, which would not fit. More carries the
+    badges of what is behind it, and names the view open under it to a screen reader
+    ("More: Settings"). A badge's words describe its tab rather than join its name.
+  - The open view's cell, or More while the open view is behind it, is dark and has
+    a bar across its top edge. The dark label alone measured 2.67:1 against a
+    closed one (2.63:1 in dark mode), under the 3:1 a state shown by colour alone
+    needs.
+  - The cells keep their tab roles, the roving `tabIndex`, the arrow keys and now
+    Home and End; More is a disclosure button. Escape closes its list, and so does a
+    tap anywhere else, a tab in the bar included, or the keyboard moving on past the
+    list's end or back past More. A view or an action chosen from the list, or from
+    the strip, leaves the focus on More, which then names the view. The button
+    pressed goes with the list, and the focus used to fall to the top of the page
+    with it, or be handed back there by a dialog the action opened (the keyboard
+    shortcuts). The list is never taller than the screen leaves above the bar and
+    scrolls inside itself past that; at 320 by 256 (1280 by 1024 at 400% zoom) Power
+    Ratings had sat wholly above the screen, out of reach. The panel is named by its
+    view's tab, and a view under More has none in the bar, so the bar carries a
+    hidden name for it in that tab's place. Wide screens keep the row of tabs, with
+    the same keys and badges.
+  - Pages leave room below for the bar, and toasts sit above it. The page's scroll
+    padding keeps the bar and its strip clear too, so a control the keyboard moves
+    to is scrolled above the bar rather than to the screen's edge behind it: at 360
+    by 640, tabbing down Settings had left two fields wholly under the bar and two
+    partly, and leaves none now.
+  - The app-mode switch fills a phone's row, each tab as wide as its label and the
+    room left over shared between them. At its old size it was 336px wide in the
+    288px a 320px screen leaves, which widened the whole page there; the new 320px
+    checks found it. In equal halves "League Standings" ran out past its tab at
+    288px unless its type was let down to 11px; sized by label, both stay at 12px
+    or more with their text inside them from 280px up.
+  - `e2e/phone.spec.ts` holds the bar at 320, 360 and 390px and at 125% zoom (every
+    cell and More on screen, each label inside its cell, More's list on screen), the
+    last of a page clear of the bar, and a tablet keeping all eight tabs in a row.
+    Team Rankings' sections keep their links (`?section=`); League's views are, as
+    before, carried by a share link rather than the address.
+
+## Design system
+
+The looks the app shares live in `src/styles/tokens.ts` (2.5), so a page title, a
+footnote or a failed panel reads the same on every League view.
+
+- **Text roles** (`textRole`): page title, the line under it, section title, card
+  title, body, meta (dates, counts, sources), numeric (figures in tabular digits, so
+  columns line up) and overline, a label a reader can do without. League's tables
+  (Standings, Power Ratings, the Forecast's projected table, a team's games) set their
+  figures in tabular digits too.
+- **Three surfaces** (`surface`): the page itself, a card for what a page is about,
+  and a quiet inset, without a border or shadow of its own, for what groups within
+  one, so not every piece of content is an equally loud white card.
+- **Page headers** (`PageHeader`): Standings, Power Ratings, League Stats, Forecast,
+  Data Quality and Settings open the same way, with the title the tab named, its help
+  button and a line saying what the view is for. On the Dashboard, Power Ratings is a
+  section of that page and is titled as one.
+- **States** (`StatePanel`, `stateTone`): empty, loading, error, offline and stale,
+  each on a surface of its own. A failure interrupts a screen reader
+  (`role="alert"`), the passing states are announced (`role="status"`), and an empty
+  panel is simply part of the page. A view's placeholder while its code loads, the
+  empty panels, a view that failed to draw (with Try again), and the line over League
+  Standings kept live (stale while it connects, offline, or an error when the season
+  can't be edited) all go through it.
+- **No text under 12px.** The app set 10px and 11px type in 89 places: table headings,
+  the names of figures, the run labels on a game card, a team's record. It is all 12px
+  now, but for the phone's tab bar, whose labels are sized with the screen, and a line
+  chart's labels inside its SVG. Section headings that were small capitals, such as
+  Data Quality's "Worth reviewing", are now section titles.
+- **4.5:1 contrast for text, 3:1 for large text.** What fell short, and what it is now:
+  - Grey on the page: slate-500 measured 4.35:1 on the page's slate-100, under the
+    line on the "Updated through" leads and on inactive tabs. The text roles and tabs
+    are slate-600 at the lightest, 6.90:1.
+  - White on emerald-600 measured 3.67:1 (Save + Final, the Safe seed badge, the
+    success toast), and emerald-600 text on white the same. Both are emerald-700,
+    5.37:1.
+  - White on orange-500, the Chasing seed badge, measured 2.89:1; its figures are dark
+    now, 6.98:1.
+  - Red-600 on a dark game card's slate-800, the Delete button, measured 3.08:1;
+    red-400 is 5.07:1.
+  - The seed odds grid shaded up to full blue-500, under which white figures measured
+    3.68:1 and grey ones less. It stops at 80% blue, with dark figures in light mode
+    (7.26:1 at the strongest) and white in dark (5.01:1). Its cut-line column heading
+    was red-500 on white, 3.81:1, and is red-700, 6.42:1.
+  - The schedule-difficulty cards drew their opponents at 80% opacity (4.46:1 on the
+    amber card); they are full strength now. The toast's dismiss button was 70% white
+    on the toast, 2.53:1, and is white.
+- **How it is checked.**
+  - `src/styles/tokens.test.ts` reads Tailwind's palette from its own theme
+    (`tailwindcss/theme.css`, in OKLCH, converted as a browser draws it: slate-500
+    comes out #62748e) and measures every text role on every surface, each status
+    pill on a card and each state panel's words, in light mode and dark.
+  - `src/components/textSize.test.ts` reads every component, Team Rankings' too, and
+    the shared styles in `tokens.ts` for a size set below 12px, a size sized with the
+    screen counted by its floor (the app-mode switch's `clamp(11px,…)` was 11.52px on
+    a 320px phone, under the 360px the browser checks measure at).
+  - `e2e/design.spec.ts` measures the built app: League Standings in light mode and
+    dark, on a phone (360px), a tablet (768px) and a desktop (1280px), on every view of
+    the demo season, on the first launch with no season, and while a view is loading
+    and after it fails to. Every visible run of text is measured against what is
+    actually painted behind it (see-through layers blended down to the first solid
+    one), no text may be under 12px, and nothing may be wider than the screen. On the
+    2.4 build it found 10 or 11px text in about 40 places on League's pages and a
+    dozen colour pairs under 4.5:1; it finds none now. Text over a gradient or a
+    picture, in a chart's SVG, or on a control that is switched off is counted but not
+    measured.
+  - **No pixel-by-pixel screenshot comparison in CI.** A screenshot from one Chromium
+    and its fonts differs from another's, so a baseline taken here would fail in CI on
+    how text is drawn rather than on the design. The checks above read the styles the
+    browser computed, which do not depend on fonts. To look the pages over by eye,
+    `SCREENS=1 npx playwright test e2e/design.spec.ts` (after a build) keeps a
+    full-page screenshot of every state in `test-results/`.
+  - The offline and stale states appear only for a member's League kept live, which the
+    browser tests cannot sign in to; the unit tests (`StatePanel.test.tsx`) and the
+    contrast test cover them instead.
 
 ## Platform baseline
 

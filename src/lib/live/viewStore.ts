@@ -32,9 +32,12 @@ export const LIVE_FORMAT = 1;
  * League Standings badge and place a week ago (`BoardFacts`), each board says how last week's
  * stood and carries its page's own club's rank line (`BoardView`), and `inline.pages` says each
  * page's counted games by half and the roster's last pull (`LivePages`), so a device can draw a
- * page, arrows and line included, from them alone.
+ * page, arrows and line included, from them alone. 3: each League Standings team and its club in
+ * `inline.pages` a record rather than a pair (`LeagueOnPage`), which Firestore refused in a list.
+ * A device of schema 2's build would read a record where it wants a pair as a meta it cannot read;
+ * told the boards are newer, it says to reload.
  */
-export const LIVE_SCHEMA = 2;
+export const LIVE_SCHEMA = 3;
 /** How long a retired upload stays readable before a sweep may delete it. */
 export const RETIRE_GRACE_MS = 15 * 60_000;
 /**

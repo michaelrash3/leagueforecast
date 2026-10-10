@@ -77,6 +77,8 @@ export default defineConfig({
         // default stays: nothing from node_modules.
         globIgnores: ["**/node_modules/**/*", "**/firestoreListen-*.js"],
         navigateFallback: "/index.html",
+        // What pressing one of the app's notifications does (2.6, `public/notification-click.js`).
+        importScripts: ["notification-click.js"],
         // Without this, the service worker answers *every* navigation with the
         // cached app shell — including /api/*, so opening an API URL in the
         // browser shows the dashboard instead of the server's response and the
@@ -111,6 +113,9 @@ export default defineConfig({
   },
   build: {
     sourcemap: true,
+    // Which chunk each module landed in and what it imports, for the bundle budget's per-view sizes
+    // (`scripts/bundleBudget.mjs`, 2.1). Written to `dist/.vite/`, beside the build.
+    manifest: true,
     rollupOptions: {
       output: {
         /*
@@ -155,6 +160,10 @@ export default defineConfig({
       reporter: ["text-summary", "lcov"],
       thresholds: { statements: 80, branches: 67, functions: 76, lines: 81 },
     },
+    // Vitest stubs every stylesheet out as empty, which suits the app's. Tailwind's theme is let
+    // through so the contrast test can read the palette the build draws with (`?raw`, as text),
+    // and the app's own sheet so the tab bar's test can read the room it keeps for the bar.
+    css: { include: [/\/tailwindcss\/theme\.css/, /\/src\/index\.css/] },
     // Two projects rather than one environment, because they want different ones. The lib tests are
     // pure functions and run fastest with no DOM at all; the component tests need one. Splitting
     // them keeps the 1,000-odd lib tests from paying for a jsdom they never touch.

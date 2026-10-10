@@ -11,10 +11,26 @@ import { expect, test, type Page } from "@playwright/test";
  */
 const tab = (page: Page, name: string) => page.getByRole("tab", { name, exact: true });
 
+/**
+ * A League view, opened as a person would: its tab, or on a phone, where only the main views have
+ * one, More and then the view (2.4).
+ */
+const openView = async (page: Page, name: string) => {
+  // The row first: asked before the page has drawn it, no tab is visible yet, and a desktop has
+  // no More to fall back on.
+  await page.getByRole("tablist", { name: "Main views" }).waitFor();
+  if (await tab(page, name).isVisible()) return tab(page, name).click();
+  await page.getByRole("button", { name: /^More/ }).click();
+  await page
+    .getByRole("group", { name: "More main views" })
+    .getByRole("button", { name, exact: true })
+    .click();
+};
+
 /** The demo season's Forecast tab, and its brackets. */
 const forecast = async (page: Page) => {
   await page.goto("/");
-  await tab(page, "Settings").click();
+  await openView(page, "Settings");
   await page.getByRole("button", { name: "Load Demo" }).click();
   const confirm = page.getByRole("button", { name: "Load demo" });
   if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
@@ -109,7 +125,7 @@ test.describe("the header on a phone", () => {
 
   test("keeps the theme toggle in the title row and the page high", async ({ page }) => {
     await page.goto("/");
-    await tab(page, "Settings").click();
+    await openView(page, "Settings");
     await page.getByRole("button", { name: "Load Demo" }).click();
     const confirm = page.getByRole("button", { name: "Load demo" });
     if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
@@ -126,5 +142,86 @@ test.describe("the header on a phone", () => {
     await page.getByRole("heading", { level: 1, name: "Team Rankings" }).waitFor();
     const rankings = await header(page);
     expect(rankings.mainBelowTitle).toBeLessThanOrEqual(120);
+  });
+});
+
+/*
+ * League Standings' tab bar on a phone (2.4): the views a season is read and scored in, each cell
+ * and More wholly on screen with its label inside it, at the narrowest phones in use and at 125%
+ * browser zoom (a 360px phone is then 288px of page), and the rest a press of More away. A tablet
+ * keeps every tab in its row.
+ */
+test.describe("the League tab bar", () => {
+  const checkBar = async (page: Page, width: number) => {
+    const cells = [
+      ...(await page.getByRole("tablist", { name: "Main views" }).getByRole("tab").all()),
+      page.getByRole("button", { name: /^More/ }),
+    ];
+    for (const cell of cells) {
+      const { x, width: wide } = (await cell.boundingBox())!;
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x + wide).toBeLessThanOrEqual(width + 0.5);
+      // The label inside its cell, not spilling into the next one.
+      const spill = await cell.evaluate((node) => node.scrollWidth - node.clientWidth);
+      expect(spill).toBeLessThanOrEqual(0);
+    }
+  };
+
+  for (const [name, width] of [
+    ["320px", 320],
+    ["360px", 360],
+    ["390px", 390],
+    ["a 360px phone at 125% zoom", 288],
+  ] as const) {
+    test(`at ${name} keeps the main views on screen and the rest under More`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 780 });
+      await page.goto("/");
+      const bar = page.getByRole("tablist", { name: "Main views" });
+      await expect(bar.getByRole("tab")).toHaveText([
+        "Dashboard",
+        "Schedule",
+        "Standings",
+        "Forecast",
+      ]);
+      await checkBar(page, width);
+
+      await page.getByRole("button", { name: "More" }).click();
+      const more = page.getByRole("group", { name: "More main views" });
+      const box = (await more.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      await more.getByRole("button", { name: "Settings", exact: true }).click();
+      await expect(page.getByRole("button", { name: "More: Settings" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Load Demo" })).toBeVisible();
+    });
+  }
+
+  test("leaves the bottom of a page above the bar", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 780 });
+    await page.goto("/");
+    await openView(page, "Settings");
+    await page.getByRole("button", { name: "Load Demo" }).click();
+    const confirm = page.getByRole("button", { name: "Load demo" });
+    if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
+    await tab(page, "Standings").click();
+    // Drawn first: the view loads on demand (2.1), and an empty page scrolls nowhere.
+    await expect(page.getByRole("heading", { name: "Standings", level: 2 })).toBeVisible();
+    const bar = (await page.getByRole("tablist", { name: "Main views" }).boundingBox())!;
+    // The last thing on the page, scrolled as far down as it goes, clear of the bar.
+    await expect
+      .poll(async () => {
+        await page.mouse.wheel(0, 100_000);
+        return page
+          .locator("main")
+          .evaluate((main) => main.lastElementChild?.getBoundingClientRect().bottom ?? Infinity);
+      })
+      .toBeLessThanOrEqual(bar.y);
+  });
+
+  test("on a tablet holds every view in a row, with no More", async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.goto("/");
+    await expect(page.getByRole("tablist", { name: "Main views" }).getByRole("tab")).toHaveCount(8);
+    await expect(page.getByRole("button", { name: /^More/ })).toHaveCount(0);
   });
 });

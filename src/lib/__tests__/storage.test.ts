@@ -1,7 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetCloudGuard } from "../cloud/cloudGuard";
+import { readLeagueClubRanks, writeLeagueClubRanks } from "../leagueClubRanks";
+import {
+  readNotified,
+  readOurTeam,
+  readPutAside,
+  readSeen,
+  writeNotified,
+  writeOurTeam,
+  writePutAside,
+  writeSeen,
+} from "../preferences";
+import { keepScenario, readScenarios } from "../savedScenarios";
+import { seenOf } from "../seasonDigest";
 import {
   loadSettingsForSeason,
   readSeasonSnapshot,
+  replaceLeagueSnapshot,
+  type SeasonSnapshot,
   addSeasons,
   adoptSeasonCreatedAt,
   createSeason,
@@ -28,6 +44,7 @@ const backing = new Map<string, string>();
 
 beforeEach(() => {
   backing.clear();
+  resetCloudGuard();
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => backing.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -306,6 +323,309 @@ describe("multi-season storage", () => {
     expect(adoptSeasonCreatedAt(first.id, "2026-08-01T00:00:00.000Z")).toBe(false);
     expect(adoptSeasonCreatedAt("nowhere", "2026-08-01T00:00:00.000Z")).toBe(false);
     expect(listSeasons()).toHaveLength(1);
+  });
+});
+
+/*
+ * A season id is handed out again: `createSeason` counts from the seasons held, and every
+ * browser's first season is `default`. What this device keeps of a season under its id, its last
+ * look, the findings put aside, the team followed, the playoff scenarios and the server's last
+ * bridge, belongs to that season alone, and a season given the id after it starts with none of it.
+ * Placeholder teams.
+ */
+describe("what this device keeps of a season under its id", () => {
+  const T = "2026-05-01T00:00:00.000Z";
+
+  /** The server's last bridge for each season, as `useScoutBridge` keeps it. */
+  const BRIDGE = "lf_league_bridge_v2";
+  const bridges = (): object => JSON.parse(localStorage.getItem(BRIDGE) ?? "{}") as object;
+
+  /**
+   * A last look, a finding put aside, a team followed, a scenario, a clinch already announced, the
+   * followed club's place on Team Rankings and the server's last bridge, kept for `id`.
+   */
+  const keepOnDevice = (id: string) => {
+    writeSeen(
+      id,
+      seenOf({
+        teams: [
+          { id: "A", name: "Aces" },
+          { id: "B", name: "Bears" },
+        ],
+        matchups: [{ id: "g1", date: "5/1", away: "A", home: "B" }],
+        logs: {},
+      })
+    );
+    writePutAside(id, { "missing-date:g1": "info" });
+    writeOurTeam(id, "A");
+    keepScenario({
+      version: 1,
+      id: "sc-1",
+      name: "Aces win out",
+      seasonId: id,
+      picks: { g1: { winnerId: "A" } },
+      basis: { g1: { away: "A", home: "B", date: "5/1" } },
+      createdAt: T,
+      modifiedAt: T,
+    });
+    // Told by team alone, so a season of the same names under the id would never be told it.
+    writeNotified(new Set([...readNotified(), `${id}:clinched:A:`]));
+    writeLeagueClubRanks(id, { A: { clubId: "club-a", board: "9U 2027", rank: 3, of: 40, at: T } });
+    // What the forecast reads offline until the server answers again (`useScoutBridge`).
+    localStorage.setItem(BRIDGE, JSON.stringify({ ...bridges(), [id]: { results: [] } }));
+  };
+  const keptOnDevice = (id: string) => ({
+    seen: readSeen(id) !== null,
+    putAside: Object.keys(readPutAside(id)),
+    ourTeam: readOurTeam(id),
+    scenarios: readScenarios(id).map((scenario) => scenario.name),
+    notified: [...readNotified()]
+      .filter((key) => key.startsWith(`${id}:`))
+      .map((key) => key.slice(id.length + 1)),
+    clubRanks: Object.keys(readLeagueClubRanks()[id] ?? {}),
+    bridge: Object.keys(bridges()).includes(id),
+  });
+  const ALL = {
+    seen: true,
+    putAside: ["missing-date:g1"],
+    ourTeam: "A",
+    scenarios: ["Aces win out"],
+    notified: ["clinched:A:"],
+    clubRanks: ["A"],
+    bridge: true,
+  };
+  const NONE = {
+    seen: false,
+    putAside: [],
+    ourTeam: null,
+    scenarios: [],
+    notified: [],
+    clubRanks: [],
+    bridge: false,
+  };
+
+  const arriving = (id: string, createdAt = T): SeasonSnapshot => ({
+    id,
+    name: id,
+    createdAt,
+    teams: [{ id: "C", name: "Comets" }],
+    matchups: [],
+    logs: {},
+    bracketLogs: {},
+    settings: loadSettingsForSeason("default"),
+  });
+
+  it("goes with the season deleted, and only with it", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    keepOnDevice(first.id);
+    keepOnDevice(second.id);
+
+    expect(deleteSeason(second.id)).toBe(true);
+
+    expect(keptOnDevice(second.id)).toEqual(NONE);
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    const next = createSeason("Fall");
+    expect(next.id).toBe(second.id);
+    expect(keptOnDevice(next.id)).toEqual(NONE);
+  });
+
+  it("is none of a season made here, whatever a season gone before left under its id", () => {
+    // Left by a season deleted before its keeping went with it.
+    keepOnDevice("season-2");
+    keepOnDevice("season-3");
+
+    expect(createSeason("Spring").id).toBe("season-2");
+    expect(keptOnDevice("season-2")).toEqual(NONE);
+    expect(duplicateSeason("season-2", "Spring copy")?.id).toBe("season-3");
+    expect(keptOnDevice("season-3")).toEqual(NONE);
+  });
+
+  it("is none of a season arriving from elsewhere, and stays with one held here", () => {
+    const first = listSeasons()[0]!;
+    keepOnDevice(first.id);
+    keepOnDevice("season-2");
+
+    expect(addSeasons([arriving("season-2"), arriving(first.id)])).toBe(true);
+
+    expect(keptOnDevice("season-2")).toEqual(NONE);
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+  });
+
+  it("stays through a restore of the same season, and goes with one dropped or replaced", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    const third = createSeason("Summer");
+    [first.id, second.id, third.id, "season-9"].forEach(keepOnDevice);
+
+    expect(
+      replaceLeagueSnapshot({
+        activeSeasonId: first.id,
+        seasons: [
+          readSeasonSnapshot(first.id)!,
+          // Another season under the id, made at another moment: a backup from before the one
+          // held here was deleted and the id given again.
+          { ...readSeasonSnapshot(second.id)!, createdAt: "2025-04-01T00:00:00.000Z" },
+          arriving("season-9"),
+        ],
+      })
+    ).toBe(true);
+
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    expect(keptOnDevice(second.id)).toEqual(NONE);
+    expect(keptOnDevice(third.id)).toEqual(NONE);
+    expect(keptOnDevice("season-9")).toEqual(NONE);
+  });
+
+  // The other side's season under the id made at another moment, or at a moment it never kept.
+  it.each(["2025-04-01T00:00:00.000Z", ""])(
+    "moves with this device's season to the id a cloud merge gave it (other made at %j)",
+    (otherMadeAt) => {
+      const first = listSeasons()[0]!;
+      saveTeams([{ id: "A", name: "Aces" }]);
+      keepOnDevice(first.id);
+      // Left under the new id by a season gone before.
+      writeOurTeam("season-7", "Z");
+      const mine = readSeasonSnapshot(first.id)!;
+
+      expect(
+        replaceLeagueSnapshot(
+          {
+            activeSeasonId: "season-7",
+            // The cloud's season under the id, and this device's beside it under its new one.
+            seasons: [arriving(first.id, otherMadeAt), { ...mine, id: "season-7" }],
+          },
+          { fromCloud: true, renamed: { [first.id]: "season-7" } }
+        )
+      ).toBe(true);
+
+      expect(keptOnDevice("season-7")).toEqual(ALL);
+      expect(keptOnDevice(first.id)).toEqual(NONE);
+    }
+  );
+
+  it("comes back with this device's season from a backup taken before a merge gave it a new id", () => {
+    const first = listSeasons()[0]!;
+    saveTeams([{ id: "A", name: "Aces" }]);
+    keepOnDevice(first.id);
+    const before = readSeasonSnapshot(first.id)!;
+    replaceLeagueSnapshot(
+      {
+        activeSeasonId: "season-7",
+        seasons: [arriving(first.id, "2025-04-01T00:00:00.000Z"), { ...before, id: "season-7" }],
+      },
+      { fromCloud: true, renamed: { [first.id]: "season-7" } }
+    );
+    expect(keptOnDevice("season-7")).toEqual(ALL);
+
+    // The backup restored: made at the same moment, it is this device's season under its old id.
+    expect(replaceLeagueSnapshot({ activeSeasonId: first.id, seasons: [before] })).toBe(true);
+
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    expect(keptOnDevice("season-7")).toEqual(NONE);
+  });
+
+  it("keeps a season carried again its own, whatever else was made at the same moment", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    // Made in the same millisecond, as two seasons made by one click's work can be.
+    replaceLeagueSnapshot({
+      activeSeasonId: first.id,
+      seasons: [
+        { ...readSeasonSnapshot(first.id)!, createdAt: T },
+        { ...readSeasonSnapshot(second.id)!, createdAt: T },
+      ],
+    });
+    keepOnDevice(first.id);
+    keepOnDevice(second.id);
+    writeOurTeam(second.id, "B");
+
+    expect(
+      replaceLeagueSnapshot({ activeSeasonId: first.id, seasons: [readSeasonSnapshot(first.id)!] })
+    ).toBe(true);
+
+    expect(readOurTeam(first.id)).toBe("A");
+    expect(keptOnDevice(second.id)).toEqual(NONE);
+    // Nor does a season new here, carried beside it and made in the same millisecond, take it.
+    const again = readSeasonSnapshot(first.id)!;
+    expect(
+      replaceLeagueSnapshot({
+        activeSeasonId: first.id,
+        seasons: [again, { ...again, id: "season-5" }],
+      })
+    ).toBe(true);
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    expect(keptOnDevice("season-5")).toEqual(NONE);
+  });
+
+  it("carries nothing to a season under another id made at another moment, or at none", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    // The second held as one from before seasons kept the moment they were made.
+    replaceLeagueSnapshot({
+      activeSeasonId: first.id,
+      seasons: [
+        readSeasonSnapshot(first.id)!,
+        { ...readSeasonSnapshot(second.id)!, createdAt: "" },
+      ],
+    });
+    keepOnDevice(first.id);
+    keepOnDevice(second.id);
+    const mine = readSeasonSnapshot(first.id)!;
+    const undated = readSeasonSnapshot(second.id)!;
+
+    expect(
+      replaceLeagueSnapshot({
+        activeSeasonId: "season-8",
+        seasons: [
+          { ...mine, id: "season-8", createdAt: "2025-04-01T00:00:00.000Z" },
+          { ...undated, id: "season-9" },
+        ],
+      })
+    ).toBe(true);
+
+    [first.id, second.id, "season-8", "season-9"].forEach((id) =>
+      expect(keptOnDevice(id)).toEqual(NONE)
+    );
+  });
+
+  it("moves only a season held here, and only to an id the seasons carry", () => {
+    const first = listSeasons()[0]!;
+    keepOnDevice(first.id);
+    // Left by a season deleted before its keeping went with it.
+    keepOnDevice("season-5");
+
+    expect(
+      replaceLeagueSnapshot(
+        {
+          activeSeasonId: first.id,
+          seasons: [readSeasonSnapshot(first.id)!, arriving("season-7")],
+        },
+        { fromCloud: true, renamed: { "season-5": "season-7", [first.id]: "season-8" } }
+      )
+    ).toBe(true);
+
+    expect(keptOnDevice("season-7")).toEqual(NONE);
+    expect(keptOnDevice(first.id)).toEqual(ALL);
+    expect(keptOnDevice("season-8")).toEqual(NONE);
+  });
+
+  it("stays with a season a tab may no longer delete or replace", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    keepOnDevice(second.id);
+    // Another tab took a copy in since this one read its seasons (`cloudGuard.ts`).
+    backing.set("league_forecast_cloud_taken_league", "another-tab");
+
+    deleteSeason(second.id);
+    expect(listSeasons().map((season) => season.id)).toContain(second.id);
+    expect(keptOnDevice(second.id)).toEqual(ALL);
+
+    expect(
+      replaceLeagueSnapshot({ activeSeasonId: first.id, seasons: [readSeasonSnapshot(first.id)!] })
+    ).toBe(false);
+    expect(listSeasons().map((season) => season.id)).toContain(second.id);
+    expect(keptOnDevice(second.id)).toEqual(ALL);
   });
 });
 

@@ -57,7 +57,7 @@ export function ShortcutsHelp({
         <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
           {Object.entries(grouped).map(([group, entries]) => (
             <section key={group} className="mb-4">
-              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 {group}
               </h3>
               <ul className="space-y-1.5">

@@ -1,4 +1,4 @@
-import { card } from "../styles/tokens";
+import { StatePanel } from "./StatePanel";
 
 /**
  * What stands in while a lazily-loaded area is being fetched.
@@ -8,9 +8,5 @@ import { card } from "../styles/tokens";
  * the wait reads as a wait rather than as the app having lost its place.
  */
 export function LoadingPanel({ area }: { area: string }) {
-  return (
-    <div className={`${card} p-5`} role="status" aria-live="polite">
-      <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Loading {area}…</p>
-    </div>
-  );
+  return <StatePanel kind="loading" title={`Loading ${area}…`} />;
 }

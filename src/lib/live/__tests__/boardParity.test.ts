@@ -662,7 +662,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
         ([season, clubs]) => ({
           page: page.id,
           season,
-          clubs: [...clubs],
+          clubs: [...clubs].map(([team, club]) => ({ team, club })),
           halves: [...(known.leagueHalves.get(page.id)?.get(season) ?? [])].sort(),
         })
       );
@@ -690,7 +690,14 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       livePagesOf(built(new Map([["s", { clubs: new Map([["lt", "S-1"]]), halves }]])), null)
     ).toEqual({
       halves: { p: { fall: 0, spring: 0 } },
-      league: [{ page: "p", season: "s", clubs: [["lt", "S-1"]], halves: ["fall", "spring"] }],
+      league: [
+        {
+          page: "p",
+          season: "s",
+          clubs: [{ team: "lt", club: "S-1" }],
+          halves: ["fall", "spring"],
+        },
+      ],
     });
     expect(livePagesOf(built(new Map()), null)).toEqual({ halves: { p: { fall: 0, spring: 0 } } });
   });

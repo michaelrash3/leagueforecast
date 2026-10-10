@@ -1,7 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { prefetchAllViews } from "./components/league/leagueViews";
+
+// League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
+beforeAll(() => prefetchAllViews());
 
 /**
  * "Share this season" copies a URL that carries the tab you are looking at. The command list is a

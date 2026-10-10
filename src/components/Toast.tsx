@@ -2,7 +2,7 @@ import type { Toast } from "../hooks/useToast";
 
 const toneClasses: Record<Toast["tone"], string> = {
   info: "bg-slate-950 text-white",
-  success: "bg-emerald-600 text-white",
+  success: "bg-emerald-700 text-white",
   error: "bg-red-600 text-white",
   undo: "bg-slate-950 text-white",
 };
@@ -10,10 +10,11 @@ const toneClasses: Record<Toast["tone"], string> = {
 export function ToastView({ toast, onDismiss }: { toast: Toast | null; onDismiss: () => void }) {
   if (!toast) return null;
   return (
+    // On a phone, above the tab bar fixed along the bottom of the screen (2.4).
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-6 z-60 flex justify-center px-4 sm:justify-end sm:px-6"
+      className="pointer-events-none fixed inset-x-0 bottom-28 z-60 flex justify-center px-4 sm:bottom-6 sm:justify-end sm:px-6"
     >
       <div
         className={`pointer-events-auto flex items-center gap-3 rounded-lg px-5 py-3 text-sm font-bold shadow-lg ring-1 ring-black/10 ${
@@ -37,7 +38,7 @@ export function ToastView({ toast, onDismiss }: { toast: Toast | null; onDismiss
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss notification"
-          className="rounded-lg px-2 py-1 text-xs font-semibold uppercase tracking-wide text-white/70 hover:text-white"
+          className="rounded-lg px-2 py-1 text-xs font-semibold uppercase tracking-wide text-white hover:bg-white/15"
         >
           ×
         </button>

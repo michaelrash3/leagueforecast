@@ -1,6 +1,8 @@
-import { useRef, type KeyboardEvent } from "react";
 import type { RankingsSection } from "../../lib/rankingsRoute";
-import { tab } from "../../styles/tokens";
+import { useNarrowViewport } from "../../hooks/useWideViewport";
+import type { ReactNode } from "react";
+import { TabNav } from "../TabNav";
+import { NAV_ICONS } from "../navIcons";
 
 /**
  * Team Rankings used to render every area on one scroll — the tables, the forms, the importer and
@@ -26,6 +28,15 @@ export const SECTION_PANEL_ID = "team-rankings-panel";
 /** The tab that opens a section, so the panel can name the tab it belongs to. */
 export const sectionTabId = (section: RankingsSection) => `team-rankings-tab-${section}`;
 
+/** The sections a phone keeps in its row (2.4); Archive and Setup are under More. */
+const PHONE_SECTIONS: readonly RankingsSection[] = ["rankings", "games", "import", "scouting"];
+const SECTION_ICONS: Partial<Record<RankingsSection, ReactNode>> = {
+  rankings: NAV_ICONS.rankings,
+  games: NAV_ICONS.games,
+  import: NAV_ICONS.import,
+  scouting: NAV_ICONS.scouting,
+};
+
 export function SectionNav({
   current,
   onSelect,
@@ -33,61 +44,26 @@ export function SectionNav({
   current: RankingsSection;
   onSelect: (section: RankingsSection) => void;
 }) {
-  const tabs = useRef<Partial<Record<RankingsSection, HTMLButtonElement | null>>>({});
-
-  /**
-   * Arrow keys move between tabs, as a tablist is expected to. Tab itself skips over the ones that
-   * are not current (the roving `tabIndex` below), so reaching the panel's contents does not mean
-   * pressing Tab five times first.
-   *
-   * The handler sits on each tab rather than on the tablist, because the tablist is not focusable
-   * — the roving `tabIndex` puts the focus on a tab, which is where the keystroke arrives.
+  const narrow = useNarrowViewport();
+  /*
+   * The tabs and their keyboard (arrow keys between them, Home and End to either end, the focus on
+   * one at a time) are `TabNav`'s, shared with League Standings, so the two halves move alike.
    */
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    const index = SECTIONS.findIndex((entry) => entry.section === current);
-    const last = SECTIONS.length - 1;
-    let next: number;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown")
-      next = index === last ? 0 : index + 1;
-    else if (event.key === "ArrowLeft" || event.key === "ArrowUp")
-      next = index <= 0 ? last : index - 1;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = last;
-    else return;
-    event.preventDefault();
-    const section = SECTIONS[next]!.section;
-    onSelect(section);
-    tabs.current[section]?.focus();
-  };
-
   return (
-    <div
-      role="tablist"
-      aria-label="Team Rankings section"
-      className="mt-3 -mx-1 flex gap-1 overflow-x-auto border-t border-slate-100 px-1 pt-3 dark:border-slate-800"
-    >
-      {SECTIONS.map(({ section, label }) => {
-        const active = section === current;
-        return (
-          <button
-            key={section}
-            type="button"
-            role="tab"
-            id={sectionTabId(section)}
-            aria-selected={active}
-            aria-controls={SECTION_PANEL_ID}
-            tabIndex={active ? 0 : -1}
-            ref={(node) => {
-              tabs.current[section] = node;
-            }}
-            onClick={() => onSelect(section)}
-            onKeyDown={onKeyDown}
-            className={tab(active)}
-          >
-            {label}
-          </button>
-        );
-      })}
-    </div>
+    <TabNav
+      label="Team Rankings section"
+      items={SECTIONS.map(({ section, label }) => ({
+        key: section,
+        label,
+        tabId: sectionTabId(section),
+        controls: SECTION_PANEL_ID,
+        ...(SECTION_ICONS[section] ? { icon: SECTION_ICONS[section] } : {}),
+      }))}
+      current={current}
+      onSelect={onSelect}
+      narrow={narrow}
+      primary={PHONE_SECTIONS}
+      className="mt-3 -mx-1 border-t border-slate-100 px-1 pt-3 dark:border-slate-800"
+    />
   );
 }

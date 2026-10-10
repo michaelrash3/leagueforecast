@@ -1,4 +1,4 @@
-import React, {
+import {
   lazy,
   startTransition,
   useCallback,
@@ -10,23 +10,25 @@ import React, {
   useState,
   useSyncExternalStore,
   Suspense,
+  type ReactNode,
 } from "react";
 import { registerSW } from "virtual:pwa-register";
 import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
-import { ScoutLinkPanel } from "./components/ScoutLinkPanel";
 import { CloudButton, useCloudPanel } from "./components/CloudButton";
 import { liveBoardWanted, RankingsOpen } from "./components/RankingsOpen";
 import { loadTeamRankingsView } from "./components/teamRankingsChunk";
 import {
   cloudStatus,
   leagueInStep,
+  loadNewer,
   startCloudSession,
   subscribeCloud,
 } from "./lib/cloud/cloudSession";
 import { leagueMetHere, loadCloudState } from "./lib/cloud/cloudState";
 import { editable, reachable } from "./lib/live/leagueSync";
 import {
+  leagueArriving,
   leagueLiveWanted,
   memberSignedIn,
   SEASON_DELETE_OFFLINE,
@@ -37,7 +39,11 @@ import type { LocalSeasons } from "./lib/live/leagueSeasons";
 import { subscribeLeagueMet } from "./lib/preferences";
 import { askLeague, LEAGUE_UNANSWERED } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
-import { editingOffBecause, LiveLeagueBanner } from "./components/league/LiveLeagueBanner";
+import {
+  editingOffBecause,
+  LiveLeagueBanner,
+  needsAPerson,
+} from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
@@ -48,11 +54,26 @@ import { useSeasonFiles, type ImportedSeason } from "./hooks/useSeasonFiles";
 import { useSeasonState, type SeasonState } from "./hooks/useSeasonState";
 import { useScoutBridge } from "./hooks/useScoutBridge";
 import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings";
-import { CompareDrawer } from "./components/CompareDrawer";
 import { LoadingPanel } from "./components/LoadingPanel";
-import { ModelView } from "./components/league/ModelView";
-import { GamesView } from "./components/league/GamesView";
-import { StandingsView } from "./components/league/StandingsView";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import {
+  compareDrawerView,
+  dashboardView,
+  forecastView,
+  LIKELY_NEXT,
+  playoffMachineView,
+  powerView,
+  prefetchView,
+  qualityView,
+  resetView,
+  scheduleView,
+  scoutLinkView,
+  seasonManagerView,
+  settingsView,
+  standingsView,
+  statsView,
+  teamDrawerView,
+} from "./components/league/leagueViews";
 import {
   applyLeagueScoreFill,
   planLeagueScoreFill,
@@ -68,16 +89,24 @@ import {
   onPoolWriteError,
 } from "./lib/teamRankingsStorage";
 import {
+  readNotifyPrefs,
   readOurTeam,
+  readPutAside,
   readSummaryMode,
+  subscribeNotifyPrefs,
+  writeNotifyPrefs,
   writeOurTeam,
+  writePutAside,
   writeSummaryMode,
   type SummaryMode,
 } from "./lib/preferences";
+import { digestOddsMove, raceOf, type NotifyPrefs } from "./lib/seasonDigest";
+import { useSeasonDigest } from "./hooks/useSeasonDigest";
+import { useDigestNotifications } from "./hooks/useDigestNotifications";
 import { ourTeamSummary } from "./lib/ourTeam";
 import { leagueClubRankFor } from "./lib/leagueClubRanks";
 import { OurTeamCard } from "./components/league/OurTeamCard";
-import { PlayoffMachine } from "./components/league/PlayoffMachine";
+import type { MachineLeft } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
@@ -126,7 +155,23 @@ import {
   PROJECT_STANDINGS_REMAINING_GAME_LIMIT,
   type RecapPool,
 } from "./lib/impactRecap";
-import { buildSeasonTimeline } from "./lib/seasonTimeline";
+import { buildSeasonTimeline, type SeasonTimelineEntry } from "./lib/seasonTimeline";
+import { rememberLast } from "./lib/rememberLast";
+import {
+  auditLeague,
+  copiesToDelete,
+  isDismissed,
+  repairIsDestructive,
+  repairPreview,
+  type Finding,
+  type FindingRepair,
+  type FindingSeverity,
+  type FindingTarget,
+} from "./lib/leagueFindings";
+import { useToday } from "./hooks/useToday";
+import { useNarrowViewport } from "./hooks/useWideViewport";
+import { TabNav, type TabNavItem } from "./components/TabNav";
+import { NAV_ICONS } from "./components/navIcons";
 import {
   applyResult,
   attachAdjustedRatings,
@@ -185,13 +230,7 @@ import { buildTeamTrendSummary } from "./lib/teamTrend";
 import { blankLog, clamp, isFinal, swappedLog } from "./lib/util";
 import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
-import { DashboardView } from "./components/league/DashboardView";
-import { TeamDrawer } from "./components/league/TeamDrawer";
 import { EmptyState } from "./components/league/EmptyState";
-import { PowerRatingsView } from "./components/league/PowerRatingsView";
-import { SeasonManager } from "./components/league/SeasonManager";
-import { TeamStatsView } from "./components/league/TeamStatsView";
-import { SettingsView } from "./components/league/SettingsView";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 import {
   formatGoldPct as formatGoldPctValue,
@@ -225,6 +264,16 @@ const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
 // enough for synchronous projection work.
 const SCOREBOARD_PREDICTION_CHUNK_SIZE = 24;
 
+/*
+ * The two heaviest calculations one tab alone shows, each remembering its last answer, so going
+ * back to its tab on an unchanged season gives it at once (`rememberLast`, 2.2); and what stands in
+ * for each while no tab showing it is open.
+ */
+const rememberedBacktest = rememberLast(backtestPredictions);
+const rememberedTimeline = rememberLast(buildSeasonTimeline);
+const NO_BACKTEST = backtestPredictions([], [], {}, DEFAULT_SETTINGS);
+const NO_TIMELINE: SeasonTimelineEntry[] = [];
+
 const replaceTeamDataUrl = (teamId: string | null) => {
   if (typeof window === "undefined") return;
 
@@ -234,8 +283,13 @@ const replaceTeamDataUrl = (teamId: string | null) => {
   } else {
     url.searchParams.delete(TEAM_QUERY_PARAM);
   }
-  url.hash = "";
-  window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  /*
+   * A scenario link still to be asked about stays (2.7 review): it waits in the address bar for the
+   * cloud's season, and on a member's first meeting that arrives with a reload, which carries only
+   * what the address bar still holds. The hash goes once the link is asked about.
+   */
+  if (!url.hash.includes("scenario=")) url.hash = "";
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 };
 
 const VIEW_LABELS: Record<ActiveView, string> = {
@@ -245,7 +299,20 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   teamStats: "League Stats",
   games: "Schedule",
   model: "Forecast",
+  quality: "Data Quality",
   settings: "Settings",
+};
+
+/**
+ * The tabs a phone keeps in its row (2.4): where a season is read and scored. The rest are under
+ * More, with Data Quality out in the row whenever something needs attention.
+ */
+const PHONE_VIEWS: readonly ActiveView[] = ["dashboard", "games", "standings", "model"];
+const VIEW_ICONS: Partial<Record<ActiveView, ReactNode>> = {
+  dashboard: NAV_ICONS.dashboard,
+  games: NAV_ICONS.games,
+  standings: NAV_ICONS.standings,
+  model: NAV_ICONS.model,
 };
 
 const VIEW_ORDER: ActiveView[] = [
@@ -255,8 +322,24 @@ const VIEW_ORDER: ActiveView[] = [
   "standings",
   "teamStats",
   "model",
+  "quality",
   "settings",
 ];
+
+// Each League view, drawn by its own chunk once loaded (`leagueViews.ts`, 2.1).
+const DashboardView = dashboardView.View;
+const PowerRatingsView = powerView.View;
+const StandingsView = standingsView.View;
+const TeamStatsView = statsView.View;
+const ModelView = forecastView.View;
+const PlayoffMachine = playoffMachineView.View;
+const GamesView = scheduleView.View;
+const DataQualityView = qualityView.View;
+const SettingsView = settingsView.View;
+const SeasonManager = seasonManagerView.View;
+const ScoutLinkPanel = scoutLinkView.View;
+const TeamDrawer = teamDrawerView.View;
+const CompareDrawer = compareDrawerView.View;
 
 // ---------- Main app ----------
 
@@ -320,6 +403,13 @@ const loadOpenSeason = (): SeasonState => ({
 
 export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>("dashboard");
+  // The tab most often opened next, fetched once this one is drawn and the browser is idle (2.1).
+  useEffect(() => {
+    const next = LIKELY_NEXT[activeView];
+    if (!next) return;
+    const timer = window.setTimeout(() => void prefetchView(next), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [activeView]);
   const {
     teams,
     setTeams,
@@ -333,7 +423,16 @@ export default function App() {
     setSettings,
     openSeason,
     store: seasonStore,
+    finalLogs: storedFinalLogs,
   } = useSeasonState(() => ({ id: getActiveSeasonId(), season: loadOpenSeason() }));
+  /*
+   * What every calculation from the scores is keyed on: the final games' scores alone, which stay
+   * the same object while a score is typed into a game still being played (`finalLogsOf`), so a
+   * keystroke there works none of the season out again (2.2). Deferred, so marking a game final
+   * draws its box at once and the season follows. The playoff machine alone reads the whole
+   * score map, since a pick there keeps the innings typed into its game.
+   */
+  const finalLogs = useDeferredValue(storedFinalLogs);
   const deferredLogs = useDeferredValue(logs);
 
   const [newDate, setNewDate] = useState("");
@@ -565,8 +664,8 @@ export default function App() {
   // ---------- Derived state ----------
 
   const baseTeams = useMemo(
-    () => calculateTeams(teams, matchups, deferredLogs, settings),
-    [teams, matchups, deferredLogs, settings]
+    () => calculateTeams(teams, matchups, finalLogs, settings),
+    [teams, matchups, finalLogs, settings]
   );
 
   /**
@@ -580,10 +679,7 @@ export default function App() {
    * result does: the bridge reads the pool from storage whenever this changes, and typing a score
    * into a game still in progress must not make it.
    */
-  const finalScores = useMemo(
-    () => finalScoresKey(matchups, deferredLogs),
-    [matchups, deferredLogs]
-  );
+  const finalScores = useMemo(() => finalScoresKey(matchups, finalLogs), [matchups, finalLogs]);
   const seasonFixtures = useMemo(
     () => leagueFixturesOf(teams, matchups, finalScores),
     [teams, matchups, finalScores]
@@ -629,6 +725,14 @@ export default function App() {
     beforeDelete: beforeSeasonDelete,
   });
   const activeSeasonId = seasons.activeId;
+  /*
+   * The open season as storage tells one season from another: its id and the moment it was made
+   * (`replaceLeagueSnapshot`). What the page holds of a season by id alone outlived a restore that
+   * put another season under the open id, and was written back under it at the next change.
+   */
+  const activeSeasonKey = `${activeSeasonId}\n${
+    seasons.all.find((season) => season.id === activeSeasonId)?.createdAt ?? ""
+  }`;
 
   const refreshSeasons = seasons.refresh;
   const adoptSeason = useCallback(
@@ -725,6 +829,7 @@ export default function App() {
     noteChange: noteScoutChange,
   } = useScoutBridge({
     activeSeasonId,
+    seasonKey: activeSeasonKey,
     teams,
     seasonFixtures,
     useScoutResults: settings.useScoutResults,
@@ -743,12 +848,12 @@ export default function App() {
       buildPredictionEngine(
         baseTeams,
         matchups,
-        deferredLogs,
+        finalLogs,
         settings,
         externalResults,
         scoutBridge.squadYear
       ),
-    [baseTeams, matchups, deferredLogs, settings, externalResults, scoutBridge.squadYear]
+    [baseTeams, matchups, finalLogs, settings, externalResults, scoutBridge.squadYear]
   );
 
   /**
@@ -785,31 +890,31 @@ export default function App() {
     [matchups]
   );
   const remainingGames = useMemo(
-    () => matchups.filter((game) => !isFinal(deferredLogs[game.id])),
-    [matchups, deferredLogs]
+    () => matchups.filter((game) => !isFinal(finalLogs[game.id])),
+    [matchups, finalLogs]
   );
   const completedGames = useMemo(
     () =>
       matchups
-        .filter((game) => isFinal(deferredLogs[game.id]))
+        .filter((game) => isFinal(finalLogs[game.id]))
         .sort((a, b) => parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart)),
-    [matchups, deferredLogs, seasonStart]
+    [matchups, finalLogs, seasonStart]
   );
   const leagueAverageStats = useMemo(
-    () => buildLeagueAverageStats(matchups, deferredLogs),
-    [matchups, deferredLogs]
+    () => buildLeagueAverageStats(matchups, finalLogs),
+    [matchups, finalLogs]
   );
   const statRankings = useMemo(
     () =>
       buildTeamStatRankings(
         teams,
         matchups,
-        deferredLogs,
+        finalLogs,
         settings.pitchMode,
         settings.trackErrors,
         runsOnly
       ),
-    [teams, matchups, deferredLogs, settings.pitchMode, settings.trackErrors, runsOnly]
+    [teams, matchups, finalLogs, settings.pitchMode, settings.trackErrors, runsOnly]
   );
   const remainingCounts = useMemo(
     () =>
@@ -843,10 +948,10 @@ export default function App() {
     () =>
       simulationSeed(
         matchups,
-        deferredLogs,
+        finalLogs,
         `odds-${goldCutoff}-${settings.modelAggression}-${settings.winPoints}-${settings.tiePoints}-${settings.tiebreakerOrder.join(",")}`
       ),
-    [matchups, deferredLogs, goldCutoff, settings]
+    [matchups, finalLogs, goldCutoff, settings]
   );
 
   const oddsInput = useMemo(
@@ -860,7 +965,7 @@ export default function App() {
     }),
     [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
   );
-  const { odds, iterations: oddsIterations } = useSimulationOdds(oddsInput);
+  const { odds, iterations: oddsIterations, pending: oddsPending } = useSimulationOdds(oddsInput);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
@@ -873,7 +978,7 @@ export default function App() {
         settings,
       };
     }
-    const built = buildTrendStates(teams, matchups, deferredLogs, completedGames, {
+    const built = buildTrendStates(teams, matchups, finalLogs, completedGames, {
       states: TREND_STATES,
       goldCutoff,
       settings,
@@ -885,7 +990,7 @@ export default function App() {
   }, [
     teams,
     matchups,
-    deferredLogs,
+    finalLogs,
     completedGames,
     goldCutoff,
     settings,
@@ -908,9 +1013,17 @@ export default function App() {
   );
   const { bracketOdds } = useSimulationBracket(bracketInput);
 
+  /*
+   * How the model has done on the games played, which the Dashboard and the Forecast show and no
+   * other tab does: worked out only while one of them is open, and remembered, so opening one again
+   * on an unchanged season costs nothing (2.2). It refits the season once per game played, the
+   * heaviest single thing League works out: 62 ms on a twelve-team season with 78 games played,
+   * about a quarter of a second on a phone, which every final on the Schedule used to wait behind.
+   */
+  const backtestShown = activeView === "dashboard" || activeView === "model";
   const backtestResult = useMemo(
-    () => backtestPredictions(teams, matchups, deferredLogs, settings),
-    [teams, matchups, deferredLogs, settings]
+    () => (backtestShown ? rememberedBacktest(teams, matchups, finalLogs, settings) : NO_BACKTEST),
+    [backtestShown, teams, matchups, finalLogs, settings]
   );
 
   // ---------- Dashboard / scenario computations ----------
@@ -1088,9 +1201,14 @@ export default function App() {
     [dashboardRows, goldCutoff, settings]
   );
 
+  // The Forecast's timeline, which plays the season through game by game: as heavy as the
+  // backtest, and only the Forecast shows it (2.2).
   const timelineEntries = useMemo(
-    () => buildSeasonTimeline(teams, matchups, deferredLogs, settings, 6),
-    [teams, matchups, deferredLogs, settings]
+    () =>
+      activeView === "model"
+        ? rememberedTimeline(teams, matchups, finalLogs, settings, 6)
+        : NO_TIMELINE,
+    [activeView, teams, matchups, finalLogs, settings]
   );
 
   const controlLevelMap = useMemo(() => {
@@ -1187,8 +1305,8 @@ export default function App() {
 
   const scheduleDifficultyForTeam = useCallback(
     (teamId: string) =>
-      buildScheduleDifficultyForTeam(teamId, remainingGames, dashboardRows, matchups, deferredLogs),
-    [remainingGames, dashboardRows, matchups, deferredLogs]
+      buildScheduleDifficultyForTeam(teamId, remainingGames, dashboardRows, matchups, finalLogs),
+    [remainingGames, dashboardRows, matchups, finalLogs]
   );
 
   const gameImportance = useCallback(
@@ -1309,7 +1427,9 @@ export default function App() {
     return "bg-slate-200 text-slate-600";
   };
 
+  // The Forecast's list alone, and the clinch questions behind each line are not free (2.2).
   const gamesThatMatterMost = useMemo(() => {
+    if (activeView !== "model") return [];
     return [...remainingGames]
       .sort((a, b) => gameImportance(b) - gameImportance(a))
       .slice(0, 5)
@@ -1330,16 +1450,31 @@ export default function App() {
           date: formatGameDate(game.date),
         };
       });
-  }, [remainingGames, dashboardById, getGameScenarioImpactMap, gameStatusForGame, gameImportance]);
+  }, [
+    activeView,
+    remainingGames,
+    dashboardById,
+    getGameScenarioImpactMap,
+    gameStatusForGame,
+    gameImportance,
+  ]);
 
+  // The Forecast's bubble, each team's schedule strength read off every game (2.2).
   const bubbleRows = useMemo(() => {
+    if (activeView !== "model") return [];
     return dashboardRows.map((team) => ({
       team,
       tier: bubbleTierForTeam(team),
       sos: scheduleDifficultyForTeam(team.id),
       control: controlLevelForTeam(team),
     }));
-  }, [dashboardRows, bubbleTierForTeam, scheduleDifficultyForTeam, controlLevelForTeam]);
+  }, [
+    activeView,
+    dashboardRows,
+    bubbleTierForTeam,
+    scheduleDifficultyForTeam,
+    controlLevelForTeam,
+  ]);
 
   const bubbleMovementRows = useMemo(() => {
     const byId = new Map(bubbleRows.map((row) => [row.team.id, row]));
@@ -2013,6 +2148,202 @@ export default function App() {
     });
   };
 
+  // ---------- Data quality (2.3) ----------
+
+  const today = useToday();
+  /*
+   * Every finding on the season. Read from the scores as they stand, since a game scored and not
+   * marked final is one of the things it looks for, and deferred like them; cheap (one pass over
+   * the games), so it is kept whatever tab is open, for the Dashboard's count.
+   */
+  const findings = useMemo(
+    () =>
+      auditLeague({
+        teams,
+        matchups,
+        logs: deferredLogs,
+        settings,
+        links: scoutBridge.rows,
+        today,
+      }),
+    [teams, matchups, deferredLogs, settings, scoutBridge.rows, today]
+  );
+  /* The findings put aside on this device, held by season as the team followed is. */
+  const [putAsideHeld, setPutAsideHeld] = useState(() => ({
+    season: activeSeasonKey,
+    entries: readPutAside(activeSeasonId),
+  }));
+  if (putAsideHeld.season !== activeSeasonKey) {
+    // Read afresh for each season opened, never kept from a visit before, as the team followed is
+    // below: the id may have been given to another season since, by a deletion or a restore.
+    setPutAsideHeld({ season: activeSeasonKey, entries: readPutAside(activeSeasonId) });
+  }
+  const putAsideEntries =
+    putAsideHeld.season === activeSeasonKey ? putAsideHeld.entries : readPutAside(activeSeasonId);
+  const openFindings = useMemo(
+    () => findings.filter((finding) => !isDismissed(finding, putAsideEntries)),
+    [findings, putAsideEntries]
+  );
+  /*
+   * What the tab row marks (2.4): Data Quality with what needs attention, which also brings it out
+   * of More on a phone. A setting at fault (the cut line, games per team, a link) is one of those
+   * findings, so it is counted there rather than marked twice.
+   */
+  const viewBadges = useMemo((): Partial<Record<ActiveView, TabNavItem<ActiveView>["badge"]>> => {
+    const attention = openFindings.filter((finding) => finding.severity === "attention").length;
+    return {
+      ...(attention
+        ? {
+            quality: {
+              count: attention,
+              describe: `${attention} ${attention === 1 ? "needs" : "need"} attention`,
+              urgent: true,
+            },
+          }
+        : {}),
+    };
+  }, [openFindings]);
+  const narrowScreen = useNarrowViewport();
+  const asideFindings = useMemo(
+    () => findings.filter((finding) => isDismissed(finding, putAsideEntries)),
+    [findings, putAsideEntries]
+  );
+  const setPutAside = useCallback(
+    (entries: Record<string, FindingSeverity>) => {
+      writePutAside(activeSeasonId, entries);
+      setPutAsideHeld({ season: activeSeasonKey, entries });
+    },
+    [activeSeasonId, activeSeasonKey]
+  );
+  const putFindingAside = useCallback(
+    (finding: Finding) =>
+      setPutAside({ ...putAsideEntries, [finding.fingerprint]: finding.severity }),
+    [putAsideEntries, setPutAside]
+  );
+  const bringFindingBack = useCallback(
+    (finding: Finding) =>
+      setPutAside(
+        Object.fromEntries(
+          Object.entries(putAsideEntries).filter(([print]) => print !== finding.fingerprint)
+        )
+      ),
+    [putAsideEntries, setPutAside]
+  );
+
+  /*
+   * The element a finding's link goes to, once its tab has drawn it: a game's card, or a setting
+   * marked `data-setting`. Looked for a frame at a time, since the tab may still be loading.
+   */
+  const [focusAfterOpen, setFocusAfterOpen] = useState<
+    { gameId: string } | { setting: string } | null
+  >(null);
+  useEffect(() => {
+    if (!focusAfterOpen) return;
+    let frames = 0;
+    let frame = 0;
+    const look = () => {
+      const found =
+        "gameId" in focusAfterOpen
+          ? document.getElementById(`game-card-${focusAfterOpen.gameId}`)
+          : document.querySelector<HTMLElement>(`[data-setting="${focusAfterOpen.setting}"]`);
+      if (found) {
+        found.scrollIntoView?.({ block: "center" });
+        const control = found.matches("input, select, button")
+          ? found
+          : found.querySelector<HTMLElement>("input, select, button");
+        (control ?? found).focus({ preventScroll: true });
+        setFocusAfterOpen(null);
+        return;
+      }
+      frames += 1;
+      if (frames < 180) frame = requestAnimationFrame(look);
+      else setFocusAfterOpen(null);
+    };
+    frame = requestAnimationFrame(look);
+    return () => cancelAnimationFrame(frame);
+  }, [focusAfterOpen, activeView]);
+
+  const openFindingTarget = useCallback(
+    (target: FindingTarget) => {
+      if (target.kind === "team") {
+        openTeamData(target.id);
+      } else if (target.kind === "game") {
+        setScoreboardTeamFilter("ALL");
+        setActiveView("games");
+        setFocusAfterOpen({ gameId: target.id });
+      } else {
+        setActiveView("settings");
+        setFocusAfterOpen({ setting: target.id });
+      }
+    },
+    [openTeamData]
+  );
+
+  /*
+   * A finding's repair, made: asked first when it deletes, taken as one undo step, and reported by
+   * what it actually changed, which is worked out again from the season as it is now rather than
+   * as the finding saw it, so a game given anything since is never deleted, nor the last copy of
+   * one (`copiesToDelete`), and one marked final since is not counted.
+   */
+  const repairFinding = async (finding: Finding) => {
+    const repair = finding.repair;
+    if (!repair) return;
+    const lockedBecause = seasonStore.locked();
+    if (lockedBecause) {
+      showToast(lockedBecause, { tone: "error" });
+      return;
+    }
+    const lines = repairPreview(repair, { teams, matchups, logs });
+    if (repairIsDestructive(repair)) {
+      const confirmed = await requestConfirmation({
+        title: lines.length === 1 ? "Delete this game?" : `Delete these ${lines.length} games?`,
+        message: `${lines.join(" ")} An undo snapshot will be saved.`,
+        confirmLabel: lines.length === 1 ? "Delete game" : "Delete games",
+      });
+      if (!confirmed) return;
+    }
+    const now = seasonStore.get().season;
+    const scoredOpen = (id: string) => {
+      const log = now.logs[id];
+      return !isFinal(log) && Boolean(log?.awayRuns.trim()) && Boolean(log?.homeRuns.trim());
+    };
+    const undo = { tone: "undo" as const, actionLabel: "Undo", onAction: restoreUndo };
+    if (repair.kind === "removeGames") {
+      const ids = new Set(copiesToDelete(repair.gameIds, now));
+      if (!ids.size) {
+        showToast("Nothing to delete: those games have changed since.", { tone: "error" });
+        return;
+      }
+      captureUndo(`Deleted ${ids.size === 1 ? "a duplicate game" : `${ids.size} duplicate games`}`);
+      setMatchups((prev) => prev.filter((game) => !ids.has(game.id)));
+      setLogs((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => !ids.has(id))));
+      showToast(ids.size === 1 ? "Deleted 1 game." : `Deleted ${ids.size} games.`, undo);
+    } else if (repair.kind === "markFinal") {
+      const ids = repair.gameIds.filter(scoredOpen);
+      if (!ids.length) {
+        showToast("Nothing to mark: those games have changed since.", { tone: "error" });
+        return;
+      }
+      captureUndo(`Marked ${ids.length === 1 ? "a game" : `${ids.length} games`} final`);
+      setLogs((prev) =>
+        ids.reduce((next, id) => withFinal(next, id, true, settings.defaultGameInnings), prev)
+      );
+      showToast(
+        ids.length === 1 ? "Marked 1 game final." : `Marked ${ids.length} games final.`,
+        undo
+      );
+    } else {
+      // A setting is all this repair changes, so the step must carry the settings to put it back.
+      captureUndo(`Games per team ${repair.from} to ${repair.to}`, { withSettings: true });
+      setSettings((prev) => ({ ...prev, regularSeasonGamesPerTeam: repair.to }));
+      showToast(`Games per team is now ${repair.to}.`, undo);
+    }
+  };
+  const previewRepair = useCallback(
+    (repair: FindingRepair) => repairPreview(repair, { teams, matchups, logs }),
+    [teams, matchups, logs]
+  );
+
   const loadDemoSeason = useCallback(async () => {
     // Reached from the command palette as well as the page: refused before it asks, or takes an
     // undo step over the one there, while the season may not be written.
@@ -2118,30 +2449,6 @@ export default function App() {
 
   // ---------- Header / selection ----------
 
-  const tabRefs = useRef<Record<ActiveView, HTMLButtonElement | null>>({
-    dashboard: null,
-    power: null,
-    standings: null,
-    teamStats: null,
-    games: null,
-    model: null,
-    settings: null,
-  });
-
-  const onTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-    event.preventDefault();
-    const idx = VIEW_ORDER.indexOf(activeView);
-    const nextIdx =
-      event.key === "ArrowRight"
-        ? (idx + 1) % VIEW_ORDER.length
-        : (idx - 1 + VIEW_ORDER.length) % VIEW_ORDER.length;
-    const nextView = VIEW_ORDER[nextIdx];
-    if (!nextView) return;
-    setActiveView(nextView);
-    tabRefs.current[nextView]?.focus();
-  };
-
   const selectedTeam = selectedTeamId ? (dashboardById.get(selectedTeamId) ?? null) : null;
   const selectedTeamSplitSummary = useMemo(
     () =>
@@ -2165,21 +2472,26 @@ export default function App() {
 
   /*
    * The team this browser follows, for the Dashboard's card: this browser's own pick, one per season
-   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season id,
-   * so a season switch reads the pick made for that season rather than carrying one across.
+   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season, so
+   * a season switch reads the pick made for that season rather than carrying one across.
    */
   const [ourTeamPick, setOurTeamPick] = useState(() => ({
-    seasonId: activeSeasonId,
+    season: activeSeasonKey,
     teamId: readOurTeam(activeSeasonId),
   }));
+  if (ourTeamPick.season !== activeSeasonKey) {
+    // Read afresh for each season opened, never kept from a visit before: the season held then
+    // may have been deleted or restored over since, and its id given to another (`forgetSeasons`).
+    setOurTeamPick({ season: activeSeasonKey, teamId: readOurTeam(activeSeasonId) });
+  }
   const ourTeamId =
-    ourTeamPick.seasonId === activeSeasonId ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
+    ourTeamPick.season === activeSeasonKey ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
   const pickOurTeam = useCallback(
     (teamId: string | null) => {
       writeOurTeam(activeSeasonId, teamId);
-      setOurTeamPick({ seasonId: activeSeasonId, teamId });
+      setOurTeamPick({ season: activeSeasonKey, teamId });
     },
-    [activeSeasonId]
+    [activeSeasonId, activeSeasonKey]
   );
   /*
    * Where the followed team's club stands on Team Rankings, as its board last stood there
@@ -2214,6 +2526,55 @@ export default function App() {
     nextTwoSwingGames,
   ]);
   const currentLeader = dashboardRows[0];
+
+  /*
+   * What changed in the season since this device last looked (2.6): another device's scores, games
+   * moved or removed, clinches and eliminations, the followed team's odds moving. The race is read
+   * from the forecast once its odds have settled, and not at all without a cut line. Notifications
+   * of the same, opted into, while the app is open but not looked at.
+   */
+  const [notifyPrefs, setNotifyPrefsState] = useState<NotifyPrefs>(readNotifyPrefs);
+  const setNotifyPrefs = useCallback((prefs: NotifyPrefs) => {
+    setNotifyPrefsState(prefs);
+    writeNotifyPrefs(prefs);
+  }, []);
+  // Changed in another tab, the installed app beside this one: followed here, or this tab would
+  // go on announcing what was turned off there.
+  useEffect(() => subscribeNotifyPrefs(() => setNotifyPrefsState(readNotifyPrefs())), []);
+  /*
+   * Only once the deferred finals have caught up with the season as well (`finalLogs`): until
+   * then the forecast is still the one from before the scores that just came, and a race read
+   * from it would be set beside the season it does not describe.
+   */
+  const digestRace = useMemo(
+    () =>
+      hasCutLine && !oddsPending && finalLogs === storedFinalLogs && dashboardRows.length
+        ? raceOf(dashboardRows)
+        : null,
+    [hasCutLine, oddsPending, finalLogs, storedFinalLogs, dashboardRows]
+  );
+  const digest = useSeasonDigest({
+    store: seasonStore,
+    race: digestRace,
+    followed: ourTeamId,
+    oddsMove: digestOddsMove(notifyPrefs),
+    heard: liveLeague.state.kind === "live",
+  });
+  useDigestNotifications({
+    seasonId: activeSeasonId,
+    seasonLabel: settings.seasonLabel,
+    changes: digest.changes,
+    prefs: notifyPrefs,
+    followed: ourTeamId,
+    problem: needsAPerson(liveLeague.state),
+    nameOf,
+  });
+  const digestBadge: TabNavItem<ActiveView>["badge"] | undefined = digest.changes.length
+    ? {
+        count: digest.changes.length,
+        describe: `${digest.changes.length} ${digest.changes.length === 1 ? "change" : "changes"} since you last looked`,
+      }
+    : undefined;
 
   const selectedTeamDetail = useMemo(() => {
     if (!selectedTeam) return null;
@@ -2508,6 +2869,119 @@ export default function App() {
     setSettings,
   ]);
 
+  // ---------- Scenario links (2.7) ----------
+
+  /*
+   * A playoff-machine scenario someone shared: shown, and kept on this device for the open season
+   * only once the person says so (`scenarioLink.ts`). It never touches the season. The handling
+   * is fetched only when a link names a scenario, so none of it is in the page's first download.
+   */
+  const [scenarioLink, setScenarioLink] = useState<{ hash: string } | null>(() =>
+    typeof window !== "undefined" && window.location.hash.includes("scenario=")
+      ? { hash: window.location.hash }
+      : null
+  );
+  useEffect(() => {
+    const heard = () => {
+      if (window.location.hash.includes("scenario="))
+        setScenarioLink({ hash: window.location.hash });
+    };
+    window.addEventListener("hashchange", heard);
+    return () => window.removeEventListener("hashchange", heard);
+  }, []);
+  const scenarioLinkTaken = useRef<{ hash: string } | null>(null);
+  const [incomingScenario, setIncomingScenario] = useState<{
+    seasonId: string;
+    id: string;
+  } | null>(null);
+  const incomingScenarioOpened = useCallback(() => setIncomingScenario(null), []);
+  /*
+   * The playoff machine as last left, given back when the Forecast tab is shown again: its picks
+   * last as long as the page does, as the machine says, not only until another tab is looked at.
+   * They are one season's, so a change of season lets them go, as it does on screen, told by
+   * `activeSeasonKey`: by id alone, a season deleted and its id given out again, or restored over,
+   * would hand its picks and its open scenario to the season now under that id.
+   */
+  const [playoffLeft, setPlayoffLeft] = useState<MachineLeft | null>(null);
+  if (playoffLeft && playoffLeft.season !== activeSeasonKey) setPlayoffLeft(null);
+  /*
+   * Whether the season on screen is still to give way to the cloud's: the sign-in still coming, a
+   * member's first meeting with the cloud's seasons, or League kept live waiting for its version.
+   */
+  const leagueComing = leagueArriving({ status: cloud, met: leagueMet, inStep: leagueSettled });
+  const seasonArriving = leagueComing || liveLeague.state.kind === "connecting";
+  const scenarioLinkWaitTold = useRef<{ hash: string } | null>(null);
+  useEffect(() => {
+    // Signed in, with the cloud's newer seasons still to be taken in on a first meeting: they come
+    // when the page is left, left alone a while or asked, which may be minutes. The other waits are
+    // a moment's, and go unsaid.
+    if (
+      !scenarioLink ||
+      scenarioLinkTaken.current === scenarioLink ||
+      scenarioLinkWaitTold.current === scenarioLink ||
+      appMode !== "league" ||
+      cloud.kind !== "saved" ||
+      !leagueComing
+    )
+      return;
+    scenarioLinkWaitTold.current = scenarioLink;
+    showToast("The shared scenario opens once League Standings has the cloud's newer seasons.", {
+      tone: "info",
+      actionLabel: "Load them now",
+      onAction: () => void loadNewer(),
+      durationMs: 12_000,
+    });
+  }, [scenarioLink, appMode, cloud.kind, leagueComing, showToast]);
+  useEffect(() => {
+    // Asked once the open season is the one this device shows, so the link is matched against the
+    // season's own games; until then it stays in the address bar, to be asked about then.
+    if (
+      !scenarioLink ||
+      scenarioLinkTaken.current === scenarioLink ||
+      appMode !== "league" ||
+      seasonArriving
+    )
+      return;
+    scenarioLinkTaken.current = scenarioLink;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    const seasonId = activeSeasonId;
+    const seasonName = seasons.all.find((season) => season.id === seasonId)?.name ?? "this season";
+    void import("./lib/scenarioLink")
+      .then((links) =>
+        links.openScenarioLink({
+          hash: scenarioLink.hash,
+          seasonId,
+          seasonName,
+          matchups,
+          logs,
+          nameOf,
+          ask: requestConfirmation,
+          say: (text, tone) => showToast(text, { tone }),
+        })
+      )
+      .then((kept) => {
+        if (!kept) return;
+        setIncomingScenario({ seasonId, id: kept.id });
+        setActiveView("model");
+      })
+      .catch(() =>
+        showToast("The scenario link could not be opened. Reload the page and open it again.", {
+          tone: "error",
+        })
+      );
+  }, [
+    scenarioLink,
+    appMode,
+    seasonArriving,
+    activeSeasonId,
+    seasons.all,
+    matchups,
+    logs,
+    nameOf,
+    requestConfirmation,
+    showToast,
+  ]);
+
   const shareSeason = useCallback(async () => {
     const snapshot = { v: 1 as const, teams, matchups, logs, settings };
     try {
@@ -2672,6 +3146,35 @@ export default function App() {
     </button>
   );
 
+  // League's tab row: a sticky row at the top of a wide screen, a bar along the bottom of a phone's.
+  const leagueTabs = (
+    <TabNav
+      label="Main views"
+      items={VIEW_ORDER.map((view) => {
+        const badge = view === "dashboard" ? digestBadge : viewBadges[view];
+        return {
+          key: view,
+          label: VIEW_LABELS[view],
+          tabId: `tab-${view}`,
+          controls: `panel-${view}`,
+          ...(VIEW_ICONS[view] ? { icon: VIEW_ICONS[view] } : {}),
+          ...(badge ? { badge } : {}),
+        };
+      })}
+      current={activeView}
+      onSelect={setActiveView}
+      narrow={narrowScreen}
+      primary={PHONE_VIEWS}
+      actions={[
+        { label: "Take the tour", onSelect: () => setShowTour(true) },
+        { label: "Keyboard shortcuts", onSelect: () => setShowShortcuts(true) },
+      ]}
+      // A tab about to be opened starts loading before the press (2.1).
+      onPreview={(view) => void prefetchView(view)}
+      className="mx-auto max-w-7xl px-4 py-1.5 sm:px-6 lg:px-8"
+    />
+  );
+
   return (
     <>
       {/*
@@ -2727,14 +3230,14 @@ export default function App() {
                 <div
                   role="tablist"
                   aria-label="App mode"
-                  className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900"
+                  className="flex w-full items-center gap-1 rounded-lg bg-slate-100 p-1 sm:inline-flex sm:w-auto dark:bg-slate-900"
                 >
                   <button
                     type="button"
                     role="tab"
                     aria-selected={appMode === "league"}
                     onClick={() => setAppMode("league")}
-                    className={tab(appMode === "league")}
+                    className={tab(appMode === "league", "fill")}
                   >
                     League Standings
                   </button>
@@ -2743,7 +3246,7 @@ export default function App() {
                     role="tab"
                     aria-selected={appMode === "rankings"}
                     onClick={() => setAppMode("rankings")}
-                    className={tab(appMode === "rankings")}
+                    className={tab(appMode === "rankings", "fill")}
                   >
                     Team Rankings
                   </button>
@@ -2828,40 +3331,21 @@ export default function App() {
           </div>
         </header>
 
-        {appMode === "league" && (
-          <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-xs shadow-slate-200/60 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90 dark:shadow-black/20">
-            <div
-              role="tablist"
-              aria-label="Main views"
-              className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-1.5 sm:px-6 lg:px-8"
-            >
-              {VIEW_ORDER.map((view) => (
-                <button
-                  key={view}
-                  ref={(el) => {
-                    tabRefs.current[view] = el;
-                  }}
-                  role="tab"
-                  id={`tab-${view}`}
-                  aria-selected={activeView === view}
-                  aria-controls={`panel-${view}`}
-                  tabIndex={activeView === view ? 0 : -1}
-                  onClick={() => setActiveView(view)}
-                  onKeyDown={onTabKeyDown}
-                  className={tab(activeView === view)}
-                >
-                  {VIEW_LABELS[view]}
-                </button>
-              ))}
+        {appMode === "league" &&
+          (narrowScreen ? (
+            leagueTabs
+          ) : (
+            <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-xs shadow-slate-200/60 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90 dark:shadow-black/20">
+              {leagueTabs}
             </div>
-          </div>
-        )}
+          ))}
 
         {appMode === "rankings" ? (
           <main
             id="main-content"
             tabIndex={-1}
-            className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+            // Room below on a phone for the tab bar fixed along the bottom of the screen (2.4).
+            className="mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 sm:pb-6 lg:px-8"
           >
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
               <RankingsOpen
@@ -2884,7 +3368,8 @@ export default function App() {
           </main>
         ) : (
           <main
-            className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8"
+            // Room below on a phone for the tab bar fixed along the bottom of the screen (2.4).
+            className="mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 sm:pb-6 lg:px-8"
             tabIndex={-1}
             id={`panel-${activeView}`}
             role="tabpanel"
@@ -2894,320 +3379,397 @@ export default function App() {
             {/* Kept live, a season that may not be written is read-only: every control that edits
               it is off (`EditLock`), and what only reads it stays usable. */}
             <SeasonEditable value={leagueEditable}>
-              {teams.length === 0 ? (
-                <EmptyState
-                  importCSV={importCSV}
-                  createSeasonFromTeamList={createSeasonFromTeamList}
-                  downloadRoundRobinCSV={downloadRoundRobinCSV}
-                  seasonBuilderText={seasonBuilderText}
-                  setSeasonBuilderText={setSeasonBuilderText}
-                  teams={teams}
-                  loadDemoSeason={loadDemoSeason}
-                  openTour={() => setShowTour(true)}
-                />
-              ) : activeView === "dashboard" ? (
-                <DashboardView
-                  engine={predictionEngine}
-                  backtestResult={backtestResult}
-                  teamsById={liveById}
-                  matchups={matchups}
-                  setActiveView={setActiveView}
-                  ourTeam={
-                    // Not locked: the team followed is this browser's own pick, never a setting
-                    // that travels, and "Enter a score" only goes to the schedule.
-                    <OurTeamCard
-                      summary={ourTeam}
-                      {...(ourClubRank ? { clubRank: ourClubRank } : {})}
+              {/* Each view loads on demand (2.1): a placeholder while it does, and a failed load is
+                one view's Try again, not a blank page. */}
+              <ErrorBoundary
+                key={activeView}
+                area={VIEW_LABELS[activeView]}
+                onReset={() => resetView(activeView)}
+              >
+                <Suspense fallback={<LoadingPanel area={VIEW_LABELS[activeView]} />}>
+                  {teams.length === 0 ? (
+                    <EmptyState
+                      importCSV={importCSV}
+                      createSeasonFromTeamList={createSeasonFromTeamList}
+                      downloadRoundRobinCSV={downloadRoundRobinCSV}
+                      seasonBuilderText={seasonBuilderText}
+                      setSeasonBuilderText={setSeasonBuilderText}
                       teams={teams}
-                      onPick={pickOurTeam}
-                      onEnterScore={(teamId) => {
-                        setScoreboardTeamFilter(teamId);
-                        setActiveView("games");
-                      }}
+                      loadDemoSeason={loadDemoSeason}
+                      openTour={() => setShowTour(true)}
                     />
-                  }
-                />
-              ) : activeView === "power" ? (
-                <PowerRatingsView engine={predictionEngine} />
-              ) : activeView === "standings" ? (
-                <StandingsView
-                  goldCutoff={goldCutoff}
-                  latestCompletedDate={latestCompletedDate}
-                  lastImpact={lastImpact}
-                  dismissImpact={() => setLastImpact(null)}
-                  copyRecap={async () => {
-                    if (!lastImpact) return;
-                    const md = recapToMarkdown(settings.seasonLabel, lastImpact.recapItems);
-                    try {
-                      await navigator.clipboard.writeText(md);
-                      showToast("Recap copied.", { tone: "success" });
-                    } catch {
-                      showToast("Could not copy recap to clipboard.", { tone: "error" });
-                    }
-                  }}
-                  copyStory={async () => {
-                    if (!lastImpact) return;
-                    const story =
-                      storyText || recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
-                    try {
-                      await navigator.clipboard.writeText(story);
-                      showToast("League story copied.", { tone: "success" });
-                    } catch {
-                      showToast("Could not copy story to clipboard.", { tone: "error" });
-                    }
-                  }}
-                  dashboardRows={dashboardRows}
-                  hasCutLine={hasCutLine}
-                  storyText={storyText}
-                  storySource={aiStory.status === "ready" ? aiStory.provider : "local"}
-                  storyModel={aiStory.model}
-                  storyLoading={aiStory.status === "loading"}
-                  storyUnavailableReason={
-                    aiStory.status === "unavailable" || aiStory.status === "error"
-                      ? (aiStory.reason ?? "upstream-error")
-                      : null
-                  }
-                  storyErrorMessage={aiStory.message}
-                  retryStory={aiStory.retry}
-                  storyWaiting={aiStory.waiting}
-                  askStory={aiStory.ask}
-                  currentSosRanks={currentSosRanks}
-                  statusClass={statusClass}
-                  statusLabel={statusLabel}
-                  formatGoldPct={formatGoldPct}
-                  formatGoldMargin={(team) =>
-                    formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
-                  }
-                  onSelectTeam={openTeamData}
-                />
-              ) : activeView === "teamStats" ? (
-                <TeamStatsView
-                  leagueAverageStats={leagueAverageStats}
-                  statRankings={statRankings}
-                  pitchMode={settings.pitchMode}
-                  trackErrors={settings.trackErrors}
-                  runsOnly={runsOnly}
-                  matrixTeams={headToHeadMatrixTeams}
-                  headToHeadCell={headToHeadCell}
-                />
-              ) : activeView === "model" ? (
-                <ModelView
-                  goldCutoff={goldCutoff}
-                  modelRows={modelRows}
-                  bracketProjection={bracketProjection}
-                  silverBracketProjection={silverBracketProjection}
-                  updateBracketLog={updateBracketLog}
-                  toggleBracketFinal={toggleBracketFinal}
-                  clearBracketScores={clearBracketScores}
-                  seedRangeForTeam={seedRangeForTeam}
-                  gamesThatMatterMost={gamesThatMatterMost}
-                  bubbleMovementRows={bubbleMovementRows}
-                  scheduleDifficultyForTeam={scheduleDifficultyForTeam}
-                  formatGoldPct={formatGoldPct}
-                  formatGoldMargin={(team) =>
-                    formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
-                  }
-                  projectedCutLineTeams={projectedCutLineTeams}
-                  nextTwoSwingGames={nextTwoSwingGames}
-                  gameForecasts={gameForecasts}
-                  byId={liveById}
-                  gameStatusClasses={gameStatusClasses}
-                  teams={teams}
-                  matchups={matchups}
-                  logs={logs}
-                  settings={settings}
-                  cutoff={goldCutoff}
-                  onSelectTeam={openTeamData}
-                  liveTeams={liveTeams}
-                  remainingGames={remainingGames}
-                  backtestResult={backtestResult}
-                  bracketOdds={bracketOdds}
-                  clinchingPaths={clinchingPaths}
-                  cutLineSnapshot={cutLineSnapshot}
-                  timelineEntries={timelineEntries}
-                  hasCutLine={hasCutLine}
-                  hasPostseason={hasPostseason}
-                  forecastStoryText={forecastStory.status === "ready" ? forecastStory.summary : ""}
-                  forecastStoryModel={forecastStory.model}
-                  forecastStoryProvider={forecastStory.provider}
-                  forecastStoryLoading={forecastStory.status === "loading"}
-                  forecastStoryUnavailableReason={
-                    forecastStory.status === "unavailable" || forecastStory.status === "error"
-                      ? (forecastStory.reason ?? "upstream-error")
-                      : null
-                  }
-                  forecastStoryErrorMessage={forecastStory.message}
-                  retryForecastStory={forecastStory.retry}
-                  forecastStoryWaiting={forecastStory.waiting}
-                  askForecastStory={forecastStory.ask}
-                  playoffMachine={
-                    <PlayoffMachine
+                  ) : activeView === "dashboard" ? (
+                    <DashboardView
+                      engine={predictionEngine}
+                      gameOdds={(game) =>
+                        predictGame(game, liveTeams, settings, liveById).awayWinPct
+                      }
+                      backtestResult={backtestResult}
+                      teamsById={liveById}
+                      matchups={matchups}
+                      setActiveView={setActiveView}
+                      findings={openFindings}
+                      digest={{
+                        changes: digest.changes,
+                        followed: ourTeamId,
+                        nameOf,
+                        hasGame: (gameId) => matchups.some((game) => game.id === gameId),
+                        onOpenGame: (gameId) =>
+                          openFindingTarget({ kind: "game", id: gameId, label: "" }),
+                        onOpenTeam: (teamId) =>
+                          openFindingTarget({ kind: "team", id: teamId, label: "" }),
+                        onAcknowledge: digest.acknowledge,
+                      }}
+                      ourTeam={
+                        // Not locked: the team followed is this browser's own pick, never a setting
+                        // that travels, and "Enter a score" only goes to the schedule.
+                        <OurTeamCard
+                          summary={ourTeam}
+                          {...(ourClubRank ? { clubRank: ourClubRank } : {})}
+                          teams={teams}
+                          onPick={pickOurTeam}
+                          onEnterScore={(teamId) => {
+                            setScoreboardTeamFilter(teamId);
+                            setActiveView("games");
+                          }}
+                        />
+                      }
+                    />
+                  ) : activeView === "power" ? (
+                    <PowerRatingsView engine={predictionEngine} />
+                  ) : activeView === "standings" ? (
+                    <StandingsView
+                      goldCutoff={goldCutoff}
+                      latestCompletedDate={latestCompletedDate}
+                      lastImpact={lastImpact}
+                      dismissImpact={() => setLastImpact(null)}
+                      copyRecap={async () => {
+                        if (!lastImpact) return;
+                        const md = recapToMarkdown(settings.seasonLabel, lastImpact.recapItems);
+                        try {
+                          await navigator.clipboard.writeText(md);
+                          showToast("Recap copied.", { tone: "success" });
+                        } catch {
+                          showToast("Could not copy recap to clipboard.", { tone: "error" });
+                        }
+                      }}
+                      copyStory={async () => {
+                        if (!lastImpact) return;
+                        const story =
+                          storyText ||
+                          recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
+                        try {
+                          await navigator.clipboard.writeText(story);
+                          showToast("League story copied.", { tone: "success" });
+                        } catch {
+                          showToast("Could not copy story to clipboard.", { tone: "error" });
+                        }
+                      }}
+                      dashboardRows={dashboardRows}
+                      hasCutLine={hasCutLine}
+                      storyText={storyText}
+                      storySource={aiStory.status === "ready" ? aiStory.provider : "local"}
+                      storyModel={aiStory.model}
+                      storyLoading={aiStory.status === "loading"}
+                      storyUnavailableReason={
+                        aiStory.status === "unavailable" || aiStory.status === "error"
+                          ? (aiStory.reason ?? "upstream-error")
+                          : null
+                      }
+                      storyErrorMessage={aiStory.message}
+                      retryStory={aiStory.retry}
+                      storyWaiting={aiStory.waiting}
+                      askStory={aiStory.ask}
+                      currentSosRanks={currentSosRanks}
+                      statusClass={statusClass}
+                      statusLabel={statusLabel}
+                      formatGoldPct={formatGoldPct}
+                      formatGoldMargin={(team) =>
+                        formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
+                      }
+                      onSelectTeam={openTeamData}
+                    />
+                  ) : activeView === "teamStats" ? (
+                    <TeamStatsView
+                      leagueAverageStats={leagueAverageStats}
+                      statRankings={statRankings}
+                      pitchMode={settings.pitchMode}
+                      trackErrors={settings.trackErrors}
+                      runsOnly={runsOnly}
+                      matrixTeams={headToHeadMatrixTeams}
+                      headToHeadCell={headToHeadCell}
+                    />
+                  ) : activeView === "model" ? (
+                    <ModelView
+                      goldCutoff={goldCutoff}
+                      modelRows={modelRows}
+                      bracketProjection={bracketProjection}
+                      silverBracketProjection={silverBracketProjection}
+                      updateBracketLog={updateBracketLog}
+                      toggleBracketFinal={toggleBracketFinal}
+                      clearBracketScores={clearBracketScores}
+                      seedRangeForTeam={seedRangeForTeam}
+                      seedRangesPausedUntil={
+                        exactScenarioAnalysisEnabled ? null : EXACT_SCENARIO_REMAINING_GAME_LIMIT
+                      }
+                      gamesThatMatterMost={gamesThatMatterMost}
+                      bubbleMovementRows={bubbleMovementRows}
+                      scheduleDifficultyForTeam={scheduleDifficultyForTeam}
+                      formatGoldPct={formatGoldPct}
+                      formatGoldMargin={(team) =>
+                        formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
+                      }
+                      projectedCutLineTeams={projectedCutLineTeams}
+                      nextTwoSwingGames={nextTwoSwingGames}
+                      gameForecasts={gameForecasts}
+                      byId={liveById}
+                      gameStatusClasses={gameStatusClasses}
                       teams={teams}
                       matchups={matchups}
-                      logs={deferredLogs}
+                      logs={logs}
                       settings={settings}
-                      liveTeams={liveTeams}
-                      ratings={predictionEngine.ratings}
-                      remainingGames={remainingGames}
                       cutoff={goldCutoff}
+                      onSelectTeam={openTeamData}
+                      liveTeams={liveTeams}
+                      remainingGames={remainingGames}
+                      backtestResult={backtestResult}
+                      bracketOdds={bracketOdds}
+                      clinchingPaths={clinchingPaths}
+                      cutLineSnapshot={cutLineSnapshot}
+                      timelineEntries={timelineEntries}
                       hasCutLine={hasCutLine}
-                      currentRows={dashboardRows}
-                      oddsSeed={oddsSeed}
-                      iterations={SIM_ITERATIONS}
+                      hasPostseason={hasPostseason}
+                      forecastStoryText={
+                        forecastStory.status === "ready" ? forecastStory.summary : ""
+                      }
+                      forecastStoryModel={forecastStory.model}
+                      forecastStoryProvider={forecastStory.provider}
+                      forecastStoryLoading={forecastStory.status === "loading"}
+                      forecastStoryUnavailableReason={
+                        forecastStory.status === "unavailable" || forecastStory.status === "error"
+                          ? (forecastStory.reason ?? "upstream-error")
+                          : null
+                      }
+                      forecastStoryErrorMessage={forecastStory.message}
+                      retryForecastStory={forecastStory.retry}
+                      forecastStoryWaiting={forecastStory.waiting}
+                      askForecastStory={forecastStory.ask}
+                      playoffMachine={
+                        <PlayoffMachine
+                          teams={teams}
+                          matchups={matchups}
+                          logs={deferredLogs}
+                          settings={settings}
+                          liveTeams={liveTeams}
+                          ratings={predictionEngine.ratings}
+                          remainingGames={remainingGames}
+                          cutoff={goldCutoff}
+                          hasCutLine={hasCutLine}
+                          currentRows={dashboardRows}
+                          oddsSeed={oddsSeed}
+                          iterations={SIM_ITERATIONS}
+                          seasonId={activeSeasonId}
+                          seasonKey={activeSeasonKey}
+                          followedTeamId={ourTeamId}
+                          incoming={
+                            incomingScenario?.seasonId === activeSeasonId
+                              ? incomingScenario.id
+                              : null
+                          }
+                          onIncomingOpened={incomingScenarioOpened}
+                          left={playoffLeft}
+                          onLeave={setPlayoffLeft}
+                        />
+                      }
                     />
-                  }
-                />
-              ) : activeView === "settings" ? (
-                <div className="space-y-6">
-                  <SeasonManager
-                    seasons={seasons.all}
-                    activeSeasonId={activeSeasonId}
-                    onSwitch={seasons.switchTo}
-                    onCreate={seasons.create}
-                    onDuplicate={seasons.duplicate}
-                    onDelete={(id) => void seasons.remove(id)}
-                  />
-                  {/* Above Settings because it answers the question the "Team Rankings results"
+                  ) : activeView === "quality" ? (
+                    <DataQualityView
+                      findings={openFindings}
+                      putAside={asideFindings}
+                      tier={predictionEngine.dataQuality.tier}
+                      preview={previewRepair}
+                      onOpen={openFindingTarget}
+                      onRepair={(finding) => void repairFinding(finding)}
+                      onPutAside={putFindingAside}
+                      onBringBack={bringFindingBack}
+                    />
+                  ) : activeView === "settings" ? (
+                    <div className="space-y-6">
+                      <SeasonManager
+                        seasons={seasons.all}
+                        activeSeasonId={activeSeasonId}
+                        onSwitch={seasons.switchTo}
+                        onCreate={seasons.create}
+                        onDuplicate={seasons.duplicate}
+                        onDelete={(id) => void seasons.remove(id)}
+                      />
+                      {/* Above Settings because it answers the question the "Team Rankings results"
                     setting down there raises: which club is which. */}
-                  <EditLock>
-                    <ScoutLinkPanel
-                      bridge={scoutBridge}
-                      {...(scoutUnanswered ? { unanswered: scoutUnanswered } : {})}
-                      candidatesFor={scoutCandidatesFor}
-                      wideOptions={scoutWideOptions}
-                      {...(scoutWideStatus ? { wideStatus: scoutWideStatus } : {})}
-                      onWide={wantScoutWide}
+                      <EditLock>
+                        <ScoutLinkPanel
+                          bridge={scoutBridge}
+                          {...(scoutUnanswered ? { unanswered: scoutUnanswered } : {})}
+                          candidatesFor={scoutCandidatesFor}
+                          wideOptions={scoutWideOptions}
+                          {...(scoutWideStatus ? { wideStatus: scoutWideStatus } : {})}
+                          onWide={wantScoutWide}
+                          seasonLabel={settings.seasonLabel}
+                          countingOn={settings.useScoutResults}
+                          onPick={setScoutLink}
+                        />
+                      </EditLock>
+                      <SettingsView
+                        onOpenCloud={cloud.kind === "off" ? undefined : cloudPanel.show}
+                        settings={settings}
+                        setSettings={setSettings}
+                        teamsCount={teams.length}
+                        importCSV={importCSV}
+                        importBackup={importBackup}
+                        exportCSV={exportCSV}
+                        exportBackup={exportBackup}
+                        resetSeason={resetSeason}
+                        loadDemoSeason={loadDemoSeason}
+                        summaryMode={summaryMode}
+                        onSummaryMode={setSummaryMode}
+                        notifyPrefs={notifyPrefs}
+                        onNotifyPrefs={setNotifyPrefs}
+                        followedName={ourTeamId ? nameOf(ourTeamId) : null}
+                      />
+                    </div>
+                  ) : (
+                    <GamesView
+                      teams={teams}
+                      matchups={matchups}
+                      logs={logs}
+                      scoreboardGames={scoreboardGames}
+                      scoreboardPredictions={scoreboardPredictions}
+                      scoreboardTeamFilter={scoreboardTeamFilter}
+                      pitchMode={settings.pitchMode}
+                      trackErrors={settings.trackErrors}
+                      runsOnly={runsOnly}
+                      setScoreboardTeamFilter={setScoreboardTeamFilter}
+                      newDate={newDate}
+                      setNewDate={setNewDate}
+                      newAway={newAway}
+                      setNewAway={setNewAway}
+                      newHome={newHome}
+                      setNewHome={setNewHome}
+                      addGameValid={addGameValid}
+                      addGame={addGame}
+                      toggleFinal={toggleFinal}
+                      swapGame={swapGame}
+                      removeGame={removeGame}
+                      updateLog={updateLog}
+                      setMatchups={setMatchups}
+                      gameStatusClasses={gameStatusClasses}
+                      seasonGamesFinalized={matchups.length > 0 && remainingGames.length === 0}
+                      bracketProjection={bracketProjection}
+                      silverBracketProjection={silverBracketProjection}
+                      updateBracketLog={updateBracketLog}
+                      toggleBracketFinal={toggleBracketFinal}
+                      scoreFillPlan={scoreFillPlan}
+                      scoreFillAsking={scoreFillAsking}
+                      openScoreFill={openScoreFill}
+                      closeScoreFill={() => setScoreFillPlan(null)}
+                      applyScoreFill={applyScoreFill}
                       seasonLabel={settings.seasonLabel}
-                      countingOn={settings.useScoutResults}
-                      onPick={setScoutLink}
                     />
-                  </EditLock>
-                  <SettingsView
-                    onOpenCloud={cloud.kind === "off" ? undefined : cloudPanel.show}
-                    settings={settings}
-                    setSettings={setSettings}
-                    teamsCount={teams.length}
-                    importCSV={importCSV}
-                    importBackup={importBackup}
-                    exportCSV={exportCSV}
-                    exportBackup={exportBackup}
-                    resetSeason={resetSeason}
-                    loadDemoSeason={loadDemoSeason}
-                    summaryMode={summaryMode}
-                    onSummaryMode={setSummaryMode}
-                  />
-                </div>
-              ) : (
-                <GamesView
-                  teams={teams}
-                  matchups={matchups}
-                  logs={logs}
-                  scoreboardGames={scoreboardGames}
-                  scoreboardPredictions={scoreboardPredictions}
-                  scoreboardTeamFilter={scoreboardTeamFilter}
-                  pitchMode={settings.pitchMode}
-                  trackErrors={settings.trackErrors}
-                  runsOnly={runsOnly}
-                  setScoreboardTeamFilter={setScoreboardTeamFilter}
-                  newDate={newDate}
-                  setNewDate={setNewDate}
-                  newAway={newAway}
-                  setNewAway={setNewAway}
-                  newHome={newHome}
-                  setNewHome={setNewHome}
-                  addGameValid={addGameValid}
-                  addGame={addGame}
-                  toggleFinal={toggleFinal}
-                  swapGame={swapGame}
-                  removeGame={removeGame}
-                  updateLog={updateLog}
-                  setMatchups={setMatchups}
-                  gameStatusClasses={gameStatusClasses}
-                  seasonGamesFinalized={matchups.length > 0 && remainingGames.length === 0}
-                  bracketProjection={bracketProjection}
-                  silverBracketProjection={silverBracketProjection}
-                  updateBracketLog={updateBracketLog}
-                  toggleBracketFinal={toggleBracketFinal}
-                  scoreFillPlan={scoreFillPlan}
-                  scoreFillAsking={scoreFillAsking}
-                  openScoreFill={openScoreFill}
-                  closeScoreFill={() => setScoreFillPlan(null)}
-                  applyScoreFill={applyScoreFill}
-                  seasonLabel={settings.seasonLabel}
-                />
-              )}
+                  )}
+                </Suspense>
+              </ErrorBoundary>
             </SeasonEditable>
           </main>
         )}
 
+        {/* Each drawer is fetched the first time it is opened (2.1, 2.7), so each has a boundary of
+          its own: a download that fails is said over the page, with Close, and is asked for again
+          on Try again or the next opening (though a browser may answer from the failure it keeps
+          for the visit, which only Reload the page clears), rather than reaching the root's
+          boundary, whose Try again would open the panel again from the address and fail again. */}
         {selectedTeam && (
-          <TeamDrawer
-            team={selectedTeam}
-            range={
-              selectedTeamDetail?.range ?? {
-                best: selectedTeam.rank ?? 99,
-                worst: selectedTeam.rank ?? 99,
-                baseline: selectedTeam.rank ?? 99,
-              }
-            }
-            bubble={selectedTeamDetail?.bubble ?? ""}
-            detailsPending={!selectedTeamDetail}
-            currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
-            sos={selectedTeamDetail?.sos ?? { label: "", rating: 0, opponents: "" }}
-            swings={selectedTeamDetail?.swings ?? []}
-            clinchScenarios={selectedTeamDetail?.clinchScenarios ?? []}
-            titleRace={selectedTeamDetail?.titleRace ?? ""}
-            goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
-            cutoff={goldCutoff}
-            magicForGold={
-              selectedTeamDetail?.magic ?? {
-                type: "magic",
-                ownWinsNeeded: 0,
-                opponentLossesNeeded: 0,
-                description: "",
-              }
-            }
-            eliminationNumber={
-              selectedTeamDetail?.elimination ?? {
-                type: "elimination",
-                ownWinsNeeded: 0,
-                opponentLossesNeeded: 0,
-                description: "",
-              }
-            }
-            splitSummary={selectedTeamSplitSummary}
-            trendSummary={selectedTeamTrendSummary}
-            leagueAverageStats={leagueAverageStats}
-            pitchMode={settings.pitchMode}
-            trackErrors={settings.trackErrors}
-            runsOnly={runsOnly}
-            hasCutLine={hasCutLine}
-            projectionExplanations={
-              lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)
-                ?.items ?? []
-            }
+          <ErrorBoundary
+            area="The team panel"
+            onReset={teamDrawerView.reset}
             onClose={closeTeamData}
-            onRename={
-              leagueEditable ? (name) => renameLeagueTeam(selectedTeam.id, name) : undefined
-            }
-            onCompare={() => {
-              const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
-              setCompareTeamId(candidate ? candidate.id : null);
-            }}
-          />
+          >
+            <Suspense fallback={null}>
+              <TeamDrawer
+                team={selectedTeam}
+                range={
+                  selectedTeamDetail?.range ?? {
+                    best: selectedTeam.rank ?? 99,
+                    worst: selectedTeam.rank ?? 99,
+                    baseline: selectedTeam.rank ?? 99,
+                  }
+                }
+                bubble={selectedTeamDetail?.bubble ?? ""}
+                detailsPending={!selectedTeamDetail}
+                currentSosRank={selectedTeamDetail?.currentSosRank ?? null}
+                sos={selectedTeamDetail?.sos ?? { label: "", rating: 0, opponents: "" }}
+                swings={selectedTeamDetail?.swings ?? []}
+                clinchScenarios={selectedTeamDetail?.clinchScenarios ?? []}
+                titleRace={selectedTeamDetail?.titleRace ?? ""}
+                goldPctLabel={selectedTeamDetail?.goldPctLabel ?? formatGoldPct(selectedTeam)}
+                cutoff={goldCutoff}
+                magicForGold={
+                  selectedTeamDetail?.magic ?? {
+                    type: "magic",
+                    ownWinsNeeded: 0,
+                    opponentLossesNeeded: 0,
+                    description: "",
+                  }
+                }
+                eliminationNumber={
+                  selectedTeamDetail?.elimination ?? {
+                    type: "elimination",
+                    ownWinsNeeded: 0,
+                    opponentLossesNeeded: 0,
+                    description: "",
+                  }
+                }
+                splitSummary={selectedTeamSplitSummary}
+                trendSummary={selectedTeamTrendSummary}
+                leagueAverageStats={leagueAverageStats}
+                pitchMode={settings.pitchMode}
+                trackErrors={settings.trackErrors}
+                runsOnly={runsOnly}
+                hasCutLine={hasCutLine}
+                projectionExplanations={
+                  lastImpact?.projectionExplanations?.find((e) => e.teamId === selectedTeam.id)
+                    ?.items ?? []
+                }
+                onClose={closeTeamData}
+                onRename={
+                  leagueEditable ? (name) => renameLeagueTeam(selectedTeam.id, name) : undefined
+                }
+                onCompare={() => {
+                  const candidate = dashboardRows.find((team) => team.id !== selectedTeam.id);
+                  setCompareTeamId(candidate ? candidate.id : null);
+                }}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {selectedTeam && compareTeam && (
-          <CompareDrawer
-            left={selectedTeam}
-            right={compareTeam}
-            allTeams={dashboardRows}
-            matchups={matchups}
-            logs={logs}
-            runsOnly={runsOnly}
+          <ErrorBoundary
+            area="The comparison"
+            onReset={compareDrawerView.reset}
             onClose={() => setCompareTeamId(null)}
-            onPickRight={(id) => setCompareTeamId(id)}
-          />
+          >
+            <Suspense fallback={null}>
+              <CompareDrawer
+                left={selectedTeam}
+                right={compareTeam}
+                allTeams={dashboardRows}
+                matchups={matchups}
+                logs={logs}
+                runsOnly={runsOnly}
+                onClose={() => setCompareTeamId(null)}
+                onPickRight={(id) => setCompareTeamId(id)}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
 
         {

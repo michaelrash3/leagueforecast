@@ -1754,7 +1754,7 @@ export function GameChangerImportPanel({
               is closed — so this is here whenever you next open it.
             </p>
             <fieldset className="mt-3">
-              <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 How much comes round at once
               </legend>
               <div className="mt-1 flex flex-wrap gap-3">
@@ -2066,7 +2066,7 @@ export function GameChangerImportPanel({
 
           {text.trim() !== "" && (
             <fieldset className="mt-3">
-              <legend className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Seasons to pull
               </legend>
               <div className="mt-1 flex flex-wrap gap-3">

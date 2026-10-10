@@ -31,6 +31,7 @@ import { AiStoryPanel } from "../AiStoryPanel";
 import { BracketPredictionPanel } from "../bracket/BracketPanel";
 import { ClinchingPathsPanel } from "../ClinchingPathsPanel";
 import { LoadingPanel } from "../LoadingPanel";
+import { PageHeader } from "../PageHeader";
 import { ModelHealthPanel } from "../ModelHealthPanel";
 import { SeasonTimelinePanel } from "../SeasonTimelinePanel";
 import { SeedOddsPanel } from "../SeedOddsPanel";
@@ -53,6 +54,12 @@ export function ModelView(props: {
   toggleBracketFinal: (gameId: string) => void;
   clearBracketScores: (gameIds: string[], label: string) => void;
   seedRangeForTeam: (id: string) => { best: number; worst: number; baseline: number };
+  /**
+   * How few games must remain before the scenario walk behind each Range runs (`useSeedRanges`),
+   * or null once it does. Until then a range is the projection at both ends, which would read as
+   * a seed nothing left to play can move, so none is shown and the caption says why.
+   */
+  seedRangesPausedUntil: number | null;
   gamesThatMatterMost: {
     game: Matchup;
     rank: number;
@@ -123,6 +130,7 @@ export function ModelView(props: {
     toggleBracketFinal,
     clearBracketScores,
     seedRangeForTeam,
+    seedRangesPausedUntil,
     gamesThatMatterMost,
     bubbleMovementRows,
     scheduleDifficultyForTeam,
@@ -168,13 +176,14 @@ export function ModelView(props: {
       : forecastStoryUnavailableReason
         ? "The written forecast is unavailable. The projected table and game picks below are unaffected."
         : "");
+  /** A team's Range as the table, the phone rows and the Bubble Watch show it. */
+  const rangeText = (range: { best: number; worst: number }) =>
+    seedRangesPausedUntil === null ? `#${range.best}–#${range.worst}` : "—";
 
   return (
     <section className="space-y-6">
       <div>
-        <h2 className="text-2xl font-black tracking-tight text-slate-950 dark:text-slate-100">
-          Forecast
-        </h2>
+        <PageHeader title="Forecast" />
         <div className="mt-3">
           <AiStoryPanel
             title="Forecast Write-up"
@@ -255,11 +264,11 @@ export function ModelView(props: {
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-black">{displayName(team.name)}</span>
-                  <span className="rounded-full bg-white/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-current dark:bg-black/20">
+                  <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-current dark:bg-black/20">
                     {sos.label}
                   </span>
                 </div>
-                <p className="mt-2 line-clamp-2 text-xs font-bold opacity-80">{sos.opponents}</p>
+                <p className="mt-2 line-clamp-2 text-xs font-semibold">{sos.opponents}</p>
               </button>
             );
           })}
@@ -317,8 +326,8 @@ export function ModelView(props: {
           <>
             {/* Desktop table */}
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full text-left">
-                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+              <table className="w-full text-left tabular-nums">
+                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
                   <tr>
                     <th className="px-5 py-3">Team</th>
                     <th className="px-4 py-3 text-center">Current Seed</th>
@@ -362,7 +371,7 @@ export function ModelView(props: {
                         <td className="px-4 py-4 text-center font-black">
                           #{team.projectedRank}
                           <span
-                            className={`ml-2 rounded-full px-2 py-1 text-[10px] font-black ${
+                            className={`ml-2 rounded-full px-2 py-1 text-xs font-black ${
                               movement > 0
                                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
                                 : movement < 0
@@ -377,18 +386,16 @@ export function ModelView(props: {
                                 : "0"}
                           </span>
                         </td>
-                        <td className="px-4 py-4 text-center font-black">
-                          #{range.best}–#{range.worst}
-                        </td>
+                        <td className="px-4 py-4 text-center font-black">{rangeText(range)}</td>
                         <td className="px-4 py-4 text-center font-black">{team.projectedRecord}</td>
                         {hasCutLine && (
                           <td className="px-4 py-4 text-center font-black">
                             <div>{formatGoldPct(team)}</div>
-                            <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
                               {formatGoldMargin(team)}
                             </div>
                             <span
-                              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-black ${confidenceClass}`}
+                              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-black ${confidenceClass}`}
                               title={confidence.detail}
                             >
                               {confidence.label}
@@ -398,7 +405,7 @@ export function ModelView(props: {
                         <td
                           className={`px-4 py-4 text-center font-black ${
                             team.projectedRunDiff > 0
-                              ? "text-emerald-600 dark:text-emerald-400"
+                              ? "text-emerald-700 dark:text-emerald-400"
                               : team.projectedRunDiff < 0
                                 ? "text-red-600 dark:text-red-400"
                                 : "text-slate-500 dark:text-slate-400"
@@ -413,7 +420,11 @@ export function ModelView(props: {
                 </tbody>
               </table>
             </div>
-            <div className="hidden px-5 pb-4 text-[11px] font-bold text-slate-500 md:block dark:text-slate-400"></div>
+            <p className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400">
+              {seedRangesPausedUntil === null
+                ? "Range is the best and worst seed one remaining result can move a team's projection to."
+                : `Range, the best and worst seed one remaining result can move a team's projection to, is paused until ${seedRangesPausedUntil} or fewer games remain to keep this page responsive.`}
+            </p>
 
             {/* Mobile cards */}
             <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
@@ -441,10 +452,10 @@ export function ModelView(props: {
                       >
                         {displayName(team.name)}
                       </a>
-                      <div className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                      <div className="mt-0.5 text-xs font-bold text-slate-500 dark:text-slate-400">
                         Proj #{team.projectedRank}{" "}
                         <span
-                          className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-black ${
+                          className={`ml-1 rounded-full px-1.5 py-0.5 text-xs font-black ${
                             movement > 0
                               ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
                               : movement < 0
@@ -458,14 +469,14 @@ export function ModelView(props: {
                               ? `-${Math.abs(movement)}`
                               : "0"}
                         </span>{" "}
-                        · #{range.best}–#{range.worst} · {team.projectedRecord}
+                        · {rangeText(range)} · {team.projectedRecord}
                       </div>
-                      <div className="mt-0.5 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                      <div className="mt-0.5 text-xs font-bold text-slate-500 dark:text-slate-400">
                         Diff{" "}
                         <span
                           className={
                             team.projectedRunDiff > 0
-                              ? "text-emerald-600 dark:text-emerald-400"
+                              ? "text-emerald-700 dark:text-emerald-400"
                               : team.projectedRunDiff < 0
                                 ? "text-red-600 dark:text-red-400"
                                 : ""
@@ -478,10 +489,10 @@ export function ModelView(props: {
                     </div>
                     <span className="text-right text-sm font-bold text-slate-950 dark:text-slate-100">
                       {formatGoldPct(team)}
-                      <span className="block text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                      <span className="block text-xs font-bold text-slate-500 dark:text-slate-400">
                         {formatGoldMargin(team)}
                       </span>
-                      <span className="block text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                      <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
                         {confidence.label}
                       </span>
                     </span>
@@ -559,8 +570,8 @@ export function ModelView(props: {
                         {displayName(team.name)}
                       </div>
                       <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-                        Now #{team.rank} · Projected #{team.projectedRank} · Range #{range.best}–#
-                        {range.worst}
+                        Now #{team.rank} · Projected #{team.projectedRank} · Range{" "}
+                        {rangeText(range)}
                       </div>
                     </div>
                     <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
@@ -573,7 +584,7 @@ export function ModelView(props: {
                       <div className="mt-1 text-slate-950 dark:text-slate-100">
                         {formatGoldPct(team)}
                       </div>
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
                         {formatGoldMargin(team)} · {confidence.label}
                       </div>
                     </div>
@@ -678,7 +689,7 @@ export function ModelView(props: {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         {item.game.date
                           ? `${item.sourceLabel} · ${formatGameDate(item.game.date)}`
                           : item.sourceLabel}
@@ -688,7 +699,7 @@ export function ModelView(props: {
                       </div>
                     </div>
                     <div className="rounded-lg bg-white px-3 py-2 text-right shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Pick
                       </div>
                       <div className="text-sm font-bold text-slate-950 dark:text-slate-100">
@@ -699,7 +710,7 @@ export function ModelView(props: {
 
                   <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-semibold">
                     <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Spread
                       </div>
                       <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
@@ -707,7 +718,7 @@ export function ModelView(props: {
                       </div>
                     </div>
                     <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Chance
                       </div>
                       <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
@@ -715,7 +726,7 @@ export function ModelView(props: {
                       </div>
                     </div>
                     <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         Upset Risk
                       </div>
                       <div className="mt-1 text-base text-slate-950 dark:text-slate-100">

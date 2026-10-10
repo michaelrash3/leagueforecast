@@ -44,7 +44,7 @@ function DrawerMetric({
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-700 dark:bg-slate-900">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </div>
       <div className="mt-1 text-lg font-black text-slate-950 dark:text-slate-100">
@@ -84,8 +84,8 @@ function SplitStatsTable({
         </h4>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+        <table className="w-full text-left text-sm tabular-nums">
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <tr>
               <th className="px-4 py-2">Split</th>
               <th className="px-3 py-2 text-center">G</th>
@@ -212,7 +212,7 @@ function TeamTrendPanel({ trend }: { trend: TeamTrendSummary }) {
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.25),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.22),transparent_42%)]" />
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-200">
+            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-200">
               Current Form
             </div>
             <h3 className="text-xl font-black tracking-tight">{trend.headline}</h3>
@@ -238,7 +238,7 @@ function TeamTrendPanel({ trend }: { trend: TeamTrendSummary }) {
                 </div>
               </div>
               <span
-                className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-wide ring-1 ${statusClass(
+                className={`rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-wide ring-1 ${statusClass(
                   metric.status
                 )}`}
               >
@@ -321,7 +321,7 @@ function TeamNameEditor({ name, onRename }: { name: string; onRename: (name: str
       <button
         type="button"
         onClick={commit}
-        className="text-xs font-bold text-emerald-600 hover:underline dark:text-emerald-400"
+        className="text-xs font-bold text-emerald-700 hover:underline dark:text-emerald-400"
       >
         Save
       </button>
@@ -444,7 +444,7 @@ export function TeamDrawer({
             </div>
             {projectionExplanations.length > 0 && (
               <div className="mt-3 rounded-lg border-l-2 border-blue-400 bg-blue-50 py-1 pl-3 pr-2 dark:border-blue-500 dark:bg-blue-950/30">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                <div className="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
                   Since the last update
                 </div>
                 <ProjectionExplanation explanations={projectionExplanations} />
@@ -567,7 +567,7 @@ export function TeamDrawer({
             </h3>
             <ul className="mt-2 space-y-2 text-sm font-bold text-slate-700 dark:text-slate-200">
               <li>
-                <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   M (Gold clinch)
                 </span>
                 <div className="text-sm font-bold leading-snug">
@@ -575,7 +575,7 @@ export function TeamDrawer({
                 </div>
               </li>
               <li>
-                <span className="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   E (Gold elimination)
                 </span>
                 <div className="text-sm font-bold leading-snug">

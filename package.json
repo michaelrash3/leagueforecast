@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "bundle:check": "node scripts/bundleBudget.mjs",
+    "score:bench": "node scripts/scoreEntryBench.mjs",
     "preview": "vite preview --host",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint --max-warnings 0 \"src/**/*.{ts,tsx}\" \"api/**/*.ts\" \"functions/src/**/*.ts\"",

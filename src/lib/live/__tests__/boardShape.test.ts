@@ -189,7 +189,12 @@ describe("the pages' inline counts", () => {
 
   it("carry each page's League Standings seasons, with the club each league team is there", () => {
     const league = [
-      { page: "ag_9u", season: "spring", clubs: [["lt_1", "S-ACES"]], halves: ["fall", "spring"] },
+      {
+        page: "ag_9u",
+        season: "spring",
+        clubs: [{ team: "lt_1", club: "S-ACES" }],
+        halves: ["fall", "spring"],
+      },
       // A season none of whose teams is a club there yet, whose places the page writes away.
       { page: "ag_9u", season: "summer", clubs: [], halves: [] },
     ];
@@ -200,10 +205,13 @@ describe("the pages' inline counts", () => {
       [{ ...entry, page: "" }],
       [{ ...entry, season: 7 }],
       [{ ...entry, clubs: { lt_1: "S-ACES" } }],
-      [{ ...entry, clubs: [["lt_1"]] }],
-      [{ ...entry, clubs: [["lt_1", "S-ACES", "S-BEARS"]] }],
-      [{ ...entry, clubs: [["lt_1", ""]] }],
-      [{ ...entry, clubs: [[5, "S-ACES"]] }],
+      // The [team, club] pairs 1.6e first wrote, which Firestore would not store (`LeagueOnPage`).
+      [{ ...entry, clubs: [["lt_1", "S-ACES"]] }],
+      [{ ...entry, clubs: [{ team: "lt_1" }] }],
+      [{ ...entry, clubs: [{ club: "S-ACES" }] }],
+      [{ ...entry, clubs: [{ team: "lt_1", club: "" }] }],
+      [{ ...entry, clubs: [{ team: 5, club: "S-ACES" }] }],
+      [{ ...entry, clubs: [null] }],
       [{ ...entry, halves: "fall" }],
       [{ ...entry, halves: ["summer"] }],
       [entry, null],

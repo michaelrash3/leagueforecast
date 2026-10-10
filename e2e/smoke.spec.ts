@@ -32,8 +32,10 @@ test("a season loads, a score moves the standings, and the backup carries it", a
   if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
 
   await tab(page, "Standings").click();
+  // A view is drawn a moment after its tab is pressed, once its chunk has loaded (2.1), so the
+  // table is waited for rather than read at once: read at once, it was empty one run in four.
+  await expect.poll(async () => (await records(page)).length).toBeGreaterThan(0);
   const before = await records(page);
-  expect(before.length).toBeGreaterThan(0);
 
   // The first open game on the schedule, scored 5–3 and marked final.
   await tab(page, "Schedule").click();

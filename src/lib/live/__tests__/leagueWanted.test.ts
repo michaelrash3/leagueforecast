@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Area } from "../../cloud/cloudPlan";
 import type { CloudStatus } from "../../cloud/cloudSession";
 import {
+  leagueArriving,
   leagueLiveWanted,
   memberSignedIn,
   SEASON_DELETE_OFFLINE,
@@ -72,6 +73,41 @@ describe("League kept live on a device", () => {
     // Saved is not in step: said by a boot that stopped waiting on a copy too slow to read, or
     // by a settlement that set aside a League arriving while one was edited here.
     expect(leagueLiveWanted({ status: saved(), met: false, inStep: false })).toBe(false);
+  });
+});
+
+describe("the cloud's season on its way to the screen (2.7 review)", () => {
+  it("is while the sign-in is still being found out, whatever this device met before", () => {
+    for (const met of [true, false])
+      expect(leagueArriving({ status: { kind: "connecting" }, met, inStep: false })).toBe(true);
+  });
+
+  it("is while a member's device first meets the cloud's seasons, the copy bringing them in", () => {
+    for (const status of [
+      saved(["league"]),
+      saved(),
+      { kind: "working", account: ME, label: "Taking the cloud's changes…" },
+    ] as CloudStatus[])
+      expect(leagueArriving({ status, met: false, inStep: false })).toBe(true);
+  });
+
+  it("is League kept live's to wait for once it is wanted", () => {
+    expect(leagueArriving({ status: saved(), met: false, inStep: true })).toBe(false);
+    expect(leagueArriving({ status: saved(["league"]), met: true, inStep: false })).toBe(false);
+  });
+
+  it("is not where no cloud's seasons are coming", () => {
+    for (const status of [
+      { kind: "off" },
+      { kind: "none" },
+      { kind: "signed-out" },
+      { kind: "not-owner", account: ME },
+      { kind: "gone", account: ME },
+      { kind: "update", account: ME },
+      { kind: "error", account: ME, message: "Offline." },
+      { kind: "error", account: null, message: "No account." },
+    ] as CloudStatus[])
+      expect(leagueArriving({ status, met: false, inStep: false })).toBe(false);
   });
 });
 

@@ -31,6 +31,23 @@ export const leagueLiveWanted = ({
   (met || (inStep && status.kind === "saved" && !status.newer.includes("league")));
 
 /**
+ * Whether the season on screen is still to give way to the cloud's before League is kept live to
+ * wait for it (2.7 review): while the session is still finding out who is signed in, which the app
+ * stops waiting for after `STARTUP_WAIT_MS`, or while a member's device still to meet the cloud's
+ * seasons has the copy bring them in (working, or saved with League not yet in step). A shared
+ * scenario waits then: matched now, it would be against this device's games from before, missing
+ * any added elsewhere. A member's device whose copy is gone, of a later version or failing has no
+ * cloud's seasons on the way, and goes on showing its own.
+ */
+export const leagueArriving = (asked: {
+  status: CloudStatus;
+  met: boolean;
+  inStep: boolean;
+}): boolean =>
+  asked.status.kind === "connecting" ||
+  ((asked.status.kind === "working" || asked.status.kind === "saved") && !leagueLiveWanted(asked));
+
+/**
  * How deleting a season goes on this device (1.6e review):
  * - `here`: in a browser no member has signed in to, the season is this device's alone, and
  *   deleted here.

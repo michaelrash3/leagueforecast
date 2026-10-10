@@ -1,4 +1,5 @@
 import { myTeamGlance } from "./myTeamGlance";
+import { CLUB_RANKS_KEY } from "./preferences";
 import type { Movement } from "./rankMovement";
 import type { ScoutRankingRow } from "./teamRankings";
 
@@ -31,9 +32,10 @@ export type LeagueClubRanks = Record<string, Record<string, LeagueClubRank>>;
  * a worker's job on the Team Rankings side and seconds of it. So each time a board is up there,
  * the places of the clubs its league seasons' teams are linked to are written here, a handful of
  * numbers a season, and the card reads them with the day they were read. Per browser, as the pick
- * of a team is (`readOurTeam`), and gone with a reset, since it is only ever a copy.
+ * of a team is (`readOurTeam`), gone with its season as that is (`forgetSeasons`), and gone with a
+ * reset, since it is only ever a copy.
  */
-const KEY = "lf_league_club_ranks_v1";
+const KEY = CLUB_RANKS_KEY;
 
 const safeGet = (): string | null => {
   try {

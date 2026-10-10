@@ -69,13 +69,24 @@ export const fieldsOf = (fields: Record<string, FirestoreValue>): Record<string,
   Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, plainOf(value)]));
 
 /**
- * A plain value as Firestore's typed JSON, the way the SDK types it: a safe integer as an integer,
- * any other number as a double, and a field whose value is undefined left out.
+ * What Firestore refuses to store, found before it is sent: a list directly inside another list,
+ * and a number that is not finite, which JSON cannot carry (`JSON.stringify` writes it as null, and
+ * a `doubleValue` of null is refused). Firestore answers either with an HTTP 400 that names
+ * neither; this names the field, by the names of the fields and the places in lists that lead to
+ * it, never by any value.
  */
-export const firestoreValueOf = (value: unknown): FirestoreValue => {
+export class UnstorableValueError extends Error {
+  constructor(at: string, why: string) {
+    super(`Firestore cannot store ${at}: ${why}.`);
+    this.name = "UnstorableValueError";
+  }
+}
+
+const valueAt = (value: unknown, at: string, inList: boolean): FirestoreValue => {
   if (value === null || value === undefined) return { nullValue: null };
   if (typeof value === "boolean") return { booleanValue: value };
   if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new UnstorableValueError(at, "it is not a finite number");
     return Number.isSafeInteger(value) && !Object.is(value, -0)
       ? { integerValue: String(value) }
       : { doubleValue: value };
@@ -83,21 +94,36 @@ export const firestoreValueOf = (value: unknown): FirestoreValue => {
   if (typeof value === "string") return { stringValue: value };
   if (value instanceof Uint8Array) return { bytesValue: base64Of(value) };
   if (Array.isArray(value)) {
+    if (inList) throw new UnstorableValueError(at, "it is a list directly inside another list");
     return value.length > 0
-      ? { arrayValue: { values: value.map(firestoreValueOf) } }
+      ? {
+          arrayValue: {
+            values: value.map((item, index) => valueAt(item, `${at}[${index}]`, true)),
+          },
+        }
       : { arrayValue: {} };
   }
-  return { mapValue: { fields: firestoreFieldsOf(value as Record<string, unknown>) } };
+  return { mapValue: { fields: fieldsAt(value as Record<string, unknown>, at) } };
 };
 
-export const firestoreFieldsOf = (
-  record: Record<string, unknown>
-): Record<string, FirestoreValue> =>
+const fieldsAt = (record: Record<string, unknown>, at: string): Record<string, FirestoreValue> =>
   Object.fromEntries(
     Object.entries(record)
       .filter(([, value]) => value !== undefined)
-      .map(([name, value]) => [name, firestoreValueOf(value)])
+      .map(([name, value]) => [name, valueAt(value, at ? `${at}.${name}` : name, false)])
   );
+
+/**
+ * A plain value as Firestore's typed JSON, the way the SDK types it: a safe integer as an integer,
+ * any other number as a double, and a field whose value is undefined left out. Throws an
+ * `UnstorableValueError` on anything Firestore would refuse to store.
+ */
+export const firestoreValueOf = (value: unknown): FirestoreValue =>
+  valueAt(value, "the value", false);
+
+export const firestoreFieldsOf = (
+  record: Record<string, unknown>
+): Record<string, FirestoreValue> => fieldsAt(record, "");
 
 /** The manifest's fields as the app's SDK sets them (`firestoreStore`). */
 const manifestFields = (next: CloudManifest): Record<string, FirestoreValue> =>
@@ -123,12 +149,35 @@ export class FirestoreError extends Error {
   // A plain field, not a constructor parameter property: Node runs the scripts that use this by
   // stripping types, which cannot turn a parameter property into an assignment.
   readonly status: number;
-  constructor(status: number, what: string) {
-    super(`Firestore answered HTTP ${status} ${what}.`);
+  /**
+   * `said` is Firestore's own account of a refusal (`saidOf`), which names what it refused: the 9
+   * and 10 October 2026 failures to save the views' meta said only "HTTP 400" until it was kept.
+   */
+  constructor(status: number, what: string, said?: string) {
+    super(`Firestore answered HTTP ${status} ${what}.${said ? ` It said: ${said}` : ""}`);
     this.name = "FirestoreError";
     this.status = status;
   }
 }
+
+/**
+ * What Firestore said of a refusal, from its error's status and message, on one line and cut short,
+ * or undefined when it said nothing readable. Its messages name a request's fields and limits, not
+ * what they hold, so they are fit for the nightly's public log.
+ */
+const saidOf = (answer: unknown): string | undefined => {
+  const error = (answer as { error?: { status?: unknown; message?: unknown } } | null)?.error;
+  const parts = [error?.status, error?.message].filter(
+    (part): part is string => typeof part === "string" && part.trim() !== ""
+  );
+  if (parts.length === 0) return undefined;
+  const said = parts.join(": ").replace(/\s+/g, " ").trim();
+  return said.length > 300 ? `${said.slice(0, 299)}…` : said;
+};
+
+/** A refusal Firestore answered `response` with, saying what it said (`saidOf`). */
+const refusalOf = async (response: Response, what: string): Promise<FirestoreError> =>
+  new FirestoreError(response.status, what, saidOf(await response.json().catch(() => null)));
 
 type RestAccess = {
   projectId: string;
@@ -217,12 +266,10 @@ const restClient = ({
       }),
     });
     if (response.ok) return true;
-    const answer = (await response.json().catch(() => null)) as {
-      error?: { status?: string };
-    } | null;
-    const why = answer?.error?.status;
+    const answer: unknown = await response.json().catch(() => null);
+    const why = (answer as { error?: { status?: unknown } } | null)?.error?.status;
     if (why === "FAILED_PRECONDITION" || why === "ALREADY_EXISTS") return false;
-    throw new FirestoreError(response.status, what);
+    throw new FirestoreError(response.status, what, saidOf(answer));
   };
   return { database, documents, call, read, commit };
 };
@@ -277,7 +324,7 @@ const pieceCalls = (
             method: "PATCH",
             body: JSON.stringify({ fields: { data: { bytesValue: base64Of(data) } } }),
           });
-          if (!response.ok) throw new FirestoreError(response.status, `writing piece ${id}`);
+          if (!response.ok) throw await refusalOf(response, `writing piece ${id}`);
         },
     getChunk: async (id: string) => {
       const found = await read(piecePath(id));
@@ -376,7 +423,7 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
         `${documents}/${path}?${[...mask, "currentDocument.exists=true"].join("&")}`,
         { method: "PATCH", body: JSON.stringify({ fields: firestoreFieldsOf(patch) }) }
       );
-      if (!response.ok) throw new FirestoreError(response.status, `updating ${path}`);
+      if (!response.ok) throw await refusalOf(response, `updating ${path}`);
     },
   };
 };

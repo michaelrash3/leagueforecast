@@ -1,9 +1,13 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { saveLogs, saveMatchups, saveTeams } from "./lib/storage";
 import type { GameLog } from "./lib/types";
+import { prefetchAllViews } from "./components/league/leagueViews";
+
+// League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
+beforeAll(() => prefetchAllViews());
 
 /*
  * A League Standings season played over New Year, as a fall league that runs into winter is.
