@@ -2783,13 +2783,39 @@ one), then the margin as its parts ("Aces by 2.3 runs, from results +3.1, oppone
 side with fewer than three games behind its rating, a newest result more than three weeks
 before the game, Team Rankings results from a club linked by a name more than one club
 carries, a rating and raw scoring that point different ways, and the two models disagreeing
-(backing different sides, or 15 points apart). Four numbers the page shows are said apart,
-since they are easily taken for one another: the **win chance** of this game, the model's
-**confidence** (how much it has to go on, not a second chance of winning), **Gold %** (the
-chance of finishing above the cut line over the season), and the **accuracy so far** (the
-season's finished games replayed one at a time, each called from the games before it: a
-record of past games, not a promise about this one). The panel's code is fetched the first
-time one is opened.
+(backing different sides, or 15 points apart). Five numbers the page shows are said apart,
+since they are easily taken for one another: the **win chance** of this game, its **range**
+(below), the model's **confidence** (how much it has to go on, not a second chance of
+winning), **Gold %** (the chance of finishing above the cut line over the season), and the
+**accuracy so far** (the season's finished games replayed one at a time, each called from the
+games before it: a record of past games, not a promise about this one). The panel's code is
+fetched the first time one is opened.
+
+### How far one game can stray
+
+Under each card's projected winner is the **range** of margins eight games in ten like it end
+within, and under the expected score each side's runs (2.10, `forecastRange.ts`): "Range:
+Bears by 6 to Aces by 13" and "Range: Aces 0–13, Bears 0–9" for Aces by 3.5, expected 6.4 to
+2.9. It is 9 runs either side of the projected margin at player pitch and 10 at machine pitch,
+and 6.5 and 8 runs either side of each expected score (never below none), in whole runs worked
+out from the margin and score the card shows. It says how much a single game varies, not how
+sure the model is, so it is the same width however many games are behind the ratings.
+
+The widths are measured, not read off the curve the win chance comes from. On 1,006
+pseudo-leagues from the 29 Sep 2026 pool (each state's pulled clubs on a 2027 page with
+twenty or more, their games with one another up to a mid-September cut the season so far,
+their other results what the bridge would hand over, and every later game between them
+scored), 81.0% of 89,998 player-pitch games ended inside the margin range and 81.9% of 7,492
+machine-pitch games; 79% and 78% where either side had played two games or fewer, 85% and 88%
+where both had played six or more. That curve would have put the band at 10.3 and 8.7 runs,
+holding 85% of player-pitch games but only 73% of machine-pitch ones. Both sides scored inside
+their score ranges in 79.5% and 79.7% of games: 85% where sides average four to six runs, 74%
+where they average eight or more.
+
+On the Forecast tab, the seed odds grid has a **Likely** column: the seeds a team finishes in
+once the best and worst tenth of simulated seasons are left out, so at least eight simulated
+seasons in ten (`seedRange.ts`). It is not the Projected Standings' **Range**, which is the
+best and worst seed one remaining result can move the projection to.
 
 ## Our team
 

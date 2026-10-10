@@ -2,6 +2,7 @@ import type { GameLog, Matchup, Settings, Team, TeamBase } from "./types";
 import { clamp, isFinal, parseNumber } from "./util";
 import { normalizeDateInput, parseDateValue, seasonStartMonth } from "./date";
 import { dateInSquadYear } from "./teamRankings/seasons";
+import { forecastRange, type ForecastRange } from "./forecastRange";
 import {
   DEFAULT_SHRINKAGE,
   buildOpponentAdjustedRatings,
@@ -85,6 +86,11 @@ export type LeaguePrediction = {
   projectedMargin: number | null;
   winProbability: { teamA: number; teamB: number };
   expectedScore?: { teamA: number; teamB: number };
+  /**
+   * The margins and scores eight games in ten like this one end within (2.10, `forecastRange.ts`):
+   * how much a single game varies around the forecast, apart from the win chance and confidence.
+   */
+  range?: ForecastRange;
   confidence: { score: number; tier: ConfidenceTier; reasons: string[] };
   dataQuality: { tier: DataQualityTier; warnings: string[]; recommendedActions: string[] };
   keyFactors: string[];
@@ -595,6 +601,12 @@ export const buildPredictionEngine = (
             : null,
       };
     };
+    const expectedScore = leagueAvgScoring
+      ? {
+          teamA: Math.max(0, Number((leagueAvgScoring + margin / 2).toFixed(1))),
+          teamB: Math.max(0, Number((leagueAvgScoring - margin / 2).toFixed(1))),
+        }
+      : undefined;
     return {
       gameId: game.id,
       teamAId: a.id,
@@ -602,12 +614,12 @@ export const buildPredictionEngine = (
       predictedWinnerId: projectedWinnerId,
       projectedMargin: Math.abs(Number(margin.toFixed(1))),
       winProbability: { teamA: Number(probA.toFixed(2)), teamB: Number((1 - probA).toFixed(2)) },
-      expectedScore: leagueAvgScoring
-        ? {
-            teamA: Math.max(0, Number((leagueAvgScoring + margin / 2).toFixed(1))),
-            teamB: Math.max(0, Number((leagueAvgScoring - margin / 2).toFixed(1))),
-          }
-        : undefined,
+      expectedScore,
+      range: forecastRange({
+        margin: Number(margin.toFixed(1)),
+        ...(expectedScore ? { expectedScore } : {}),
+        machinePitch: oddsSpread === MATCHUP_ODDS_SPREAD_MACHINE_PITCH,
+      }),
       confidence,
       dataQuality,
       keyFactors,

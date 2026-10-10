@@ -14,7 +14,8 @@ import { DigestPanel } from "./DigestPanel";
 import { EmptyPanel } from "./EmptyPanel";
 import { viewChunk } from "./leagueViews";
 import { PowerRatingsView } from "./PowerRatingsView";
-import { button as buttonClasses } from "../../styles/tokens";
+import { button as buttonClasses, textRole } from "../../styles/tokens";
+import { marginSpanText, runSpanText } from "../../lib/forecastRangeText";
 
 /** Why a card's odds are what they are (2.8), fetched the first time a card's is opened. */
 const forecastWhy = viewChunk(
@@ -55,6 +56,8 @@ function PredictionCard({
   const winner = prediction.predictedWinnerId
     ? teamNameFor(teamsById, prediction.predictedWinnerId)
     : "Pending data";
+  // How far the game can stray from the forecast (2.10), once the model has finals to go on.
+  const range = prediction.range;
   const aPct = Math.round(prediction.winProbability.teamA * 100);
   const bPct = Math.round(prediction.winProbability.teamB * 100);
   const whyLabel =
@@ -91,6 +94,12 @@ function PredictionCard({
             {winner}
             {prediction.projectedMargin !== null ? ` by ${prediction.projectedMargin}` : ""}
           </p>
+          {range && (
+            <p className={`mt-1 ${textRole.meta}`}>
+              Range:{" "}
+              {marginSpanText(range.margin, { teamA: displayName(a), teamB: displayName(b) })}
+            </p>
+          )}
         </div>
         <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -116,6 +125,12 @@ function PredictionCard({
               ? `${prediction.expectedScore.teamA}-${prediction.expectedScore.teamB}`
               : "Needs scores"}
           </p>
+          {range?.score && (
+            <p className={`mt-1 ${textRole.meta}`}>
+              Range: {displayName(a)} {runSpanText(range.score.teamA)}, {displayName(b)}{" "}
+              {runSpanText(range.score.teamB)}
+            </p>
+          )}
         </div>
       </div>
       <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-slate-800">

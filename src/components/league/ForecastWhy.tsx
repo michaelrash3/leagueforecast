@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { explainForecast, type Factor, type Side } from "../../lib/forecastExplanation";
+import { marginSpanText, runSpanText } from "../../lib/forecastRangeText";
 import type { Finding } from "../../lib/leagueFindings";
 import type { LeaguePrediction } from "../../lib/predictionEngine";
 import { textRole } from "../../styles/tokens";
@@ -9,8 +10,9 @@ const NO_FINDINGS: readonly Finding[] = [];
 /**
  * Why a matchup's odds came out as they did (2.8, `forecastExplanation.ts`), opened from its card:
  * the strongest reason for each side first, the margin as the sum of its parts, every factor on
- * request, what could change it, and the four numbers the page shows that are easily taken for one
- * another (win chance, confidence, Gold % and the record so far), each said apart.
+ * request, what could change it, and the numbers the page shows that are easily taken for one
+ * another (win chance, the range a game lands in, confidence, Gold % and the record so far), each
+ * said apart.
  */
 export function ForecastWhy({
   prediction,
@@ -83,6 +85,7 @@ export function ForecastWhy({
   const favorite = explained.favorite;
   const percent = (value: number) => `${Math.round(value * 100)}%`;
   const confidence = prediction.confidence;
+  const range = prediction.range;
 
   return (
     <div className="space-y-3 text-sm text-slate-700 dark:text-slate-300">
@@ -159,7 +162,9 @@ export function ForecastWhy({
       </div>
 
       <div>
-        <h4 className={textRole.overline}>Four numbers that are not the same</h4>
+        <h4 className={textRole.overline}>
+          {range ? "Five" : "Four"} numbers that are not the same
+        </h4>
         <dl className="mt-1 space-y-1">
           <div>
             <dt className="inline font-bold text-slate-950 dark:text-slate-100">Win chance: </dt>
@@ -172,6 +177,18 @@ export function ForecastWhy({
                 : ""}
             </dd>
           </div>
+          {range && (
+            <div>
+              <dt className="inline font-bold text-slate-950 dark:text-slate-100">Range: </dt>
+              <dd className="inline">
+                {`${marginSpanText(range.margin, name)}, where eight games in ten like this one end${
+                  range.score
+                    ? `, with ${name.teamA} scoring ${runSpanText(range.score.teamA)} and ${name.teamB} ${runSpanText(range.score.teamB)}`
+                    : ""
+                }. It is how far one game strays from its forecast, measured on about 97,000 youth games: the same width however sure the model is, and not a second chance of winning.`}
+              </dd>
+            </div>
+          )}
           <div>
             <dt className="inline font-bold text-slate-950 dark:text-slate-100">Confidence: </dt>
             <dd className="inline">

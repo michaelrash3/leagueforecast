@@ -412,7 +412,10 @@ export function ModelView(props: {
                 </tbody>
               </table>
             </div>
-            <div className="hidden px-5 pb-4 text-xs font-bold text-slate-500 md:block dark:text-slate-400"></div>
+            <p className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400">
+              Range is the best and worst seed one remaining result can move a team&apos;s
+              projection to.
+            </p>
 
             {/* Mobile cards */}
             <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">

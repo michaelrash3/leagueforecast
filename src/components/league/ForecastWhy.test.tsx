@@ -69,7 +69,7 @@ describe("ForecastWhy", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps win chance, confidence, Gold % and the record so far apart", () => {
+  it("keeps win chance, the range, confidence, Gold % and the record so far apart", () => {
     const prediction = predictionFor();
     render(
       <ForecastWhy
@@ -79,13 +79,21 @@ describe("ForecastWhy", () => {
       />
     );
     const terms = screen.getAllByRole("term").map((term) => term.textContent?.trim());
-    expect(terms).toEqual(["Win chance:", "Confidence:", "Gold %:", "Accuracy so far:"]);
+    expect(terms).toEqual(["Win chance:", "Range:", "Confidence:", "Gold %:", "Accuracy so far:"]);
+    expect(
+      screen.getByRole("heading", { name: "Five numbers that are not the same" })
+    ).toBeVisible();
     const meaning = (term: string) =>
       screen.getByText(term, { selector: "dt" }).nextElementSibling?.textContent ?? "";
     expect(meaning("Win chance:")).toMatch(
       new RegExp(
         `^${Math.round(prediction.winProbability.teamA * 100)}% for Aces, how often the model expects`
       )
+    );
+    // Aces by 3.5, expected 6.4 to 2.9: 9 runs either side of the margin, 6.5 either side of each
+    // score, in whole runs.
+    expect(meaning("Range:")).toBe(
+      "Bears by 6 to Aces by 13, where eight games in ten like this one end, with Aces scoring 0–13 and Bears 0–9. It is how far one game strays from its forecast, measured on about 97,000 youth games: the same width however sure the model is, and not a second chance of winning."
     );
     expect(meaning("Confidence:")).toContain(
       `${prediction.confidence.tier} (${prediction.confidence.score} of 100)`

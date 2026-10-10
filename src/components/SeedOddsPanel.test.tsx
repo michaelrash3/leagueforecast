@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { SeedOddsPanel } from "./SeedOddsPanel";
 
 /*
- * The seed odds grid's Likely column (2.10): the seeds each team finishes in, eight simulated
- * seasons in ten, beside the chance of each. Placeholder teams.
+ * The seed odds grid's Likely column (2.10): the seeds each team finishes in, at least eight
+ * simulated seasons in ten, beside the chance of each. Placeholder teams.
  */
 
 describe("SeedOddsPanel", () => {
