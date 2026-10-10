@@ -2724,8 +2724,11 @@ season, a backup or the cloud. A scenario is opened from the **Scenario** list, 
 changed and **Save changes**, **Rename**d, **Duplicate**d with the picks as they are now,
 or **Delete**d with its picks left on screen unsaved. **Clear picks** starts again. Each
 change is made to the scenarios as stored rather than to the list on the page, so one
-kept in another tab meanwhile stays. A stored scenario of a later version is left as it
-was, unread, through every change.
+kept in another tab meanwhile stays. A change to the open scenario starts from it as
+stored too: **Rename** keeps the picks another tab saved to it meanwhile, **Save changes**
+the name it was given there, and one another tab let go of is not brought back by either,
+or by **Bring it up to date**; the page says so, and its picks stay on screen, unsaved. A
+stored scenario of a later version is left as it was, unread, through every change.
 
 **Quick picks** fill the games in one go: **Favorites win** has the model's pick win every
 game left, **Fill the rest with favorites** only the games not yet picked, and **Wins out**

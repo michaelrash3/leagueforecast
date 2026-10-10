@@ -257,16 +257,37 @@ export function PlayoffMachine({
     setOpenId(scenario.id);
     setWork({ picks: scenario.picks, basis: scenario.basis });
   };
+  /**
+   * The open scenario as stored now, which another tab may have changed or let go of since this
+   * one read it. A change to it starts from there, so what was saved there stays but for what this
+   * change is of, and one let go of there is not brought back: the page says so, and its picks
+   * stay here, unsaved.
+   */
+  const openAsStored = (): SavedScenario | null => {
+    if (!open) return null;
+    const list = readScenarios(seasonId);
+    const stored = list.find((one) => one.id === open.id) ?? null;
+    if (!stored) {
+      setSaved(list);
+      setOpenId(null);
+      settle(
+        `“${open.name}” is no longer kept on this device: another tab let it go. Its picks are still here, unsaved.`
+      );
+    }
+    return stored;
+  };
   const saveChanges = () => {
-    if (!open) return;
-    const updated: SavedScenario = { ...open, ...asKept(), modifiedAt: new Date().toISOString() };
-    if (!store(keepScenario(updated), `Saved the changes to “${open.name}”.`)) return;
+    const stored = openAsStored();
+    if (!stored) return;
+    const updated: SavedScenario = { ...stored, ...asKept(), modifiedAt: new Date().toISOString() };
+    if (!store(keepScenario(updated), `Saved the changes to “${stored.name}”.`)) return;
     setWork({ picks: updated.picks, basis: updated.basis });
   };
   const rename = (name: string) => {
-    if (!open) return;
+    const stored = openAsStored();
+    if (!stored) return;
     store(
-      keepScenario({ ...open, name, modifiedAt: new Date().toISOString() }),
+      keepScenario({ ...stored, name, modifiedAt: new Date().toISOString() }),
       `Renamed to “${name}”.`
     );
   };
@@ -297,8 +318,9 @@ export function PlayoffMachine({
     setOpenId(null);
   };
   const bringUpToDate = () => {
-    if (!open) return;
-    const { scenario, dropped } = rebaseScenario(open, matchups, logs, new Date().toISOString());
+    const stored = openAsStored();
+    if (!stored) return;
+    const { scenario, dropped } = rebaseScenario(stored, matchups, logs, new Date().toISOString());
     const message = dropped.length
       ? `Brought up to date: ${dropped.length} ${dropped.length === 1 ? "pick" : "picks"} no longer applied and ${dropped.length === 1 ? "was" : "were"} taken out.`
       : "Brought up to date: every pick still applies.";

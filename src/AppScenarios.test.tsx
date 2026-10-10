@@ -3,8 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
+import { dropScenario, keepScenario, readScenarios } from "./lib/savedScenarios";
 import type { SeasonStore } from "./lib/seasonStore";
 import {
+  getActiveSeasonId,
   loadLogs,
   loadMatchups,
   loadSettings,
@@ -277,6 +279,100 @@ describe("saved playoff scenarios", () => {
     expect(pressed(machine, "Bears at Ducks")).toEqual(["Bears"]);
     arrive("C");
     expect(pressed(machine, "Bears at Comets")).toEqual(["Sim"]);
+  });
+
+  /** Saves the picks shown as a scenario under its suggested name, and gives it as stored. */
+  const saveScenario = async (user: ReturnType<typeof userEvent.setup>, machine: HTMLElement) => {
+    await user.click(within(machine).getByRole("button", { name: "Save as a scenario" }));
+    await user.click(within(machine).getByRole("button", { name: "Save" }));
+    const [stored] = readScenarios(getActiveSeasonId());
+    if (!stored) throw new Error("Not saved");
+    return stored;
+  };
+
+  /** A moment after `at`, as another tab's change is stamped. */
+  const later = (at: string, seconds: number) =>
+    new Date(Date.parse(at) + seconds * 1000).toISOString();
+
+  it("renames and saves the open scenario as stored, keeping what another tab saved of it (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    const stored = await saveScenario(user, machine);
+
+    // Another tab, the same scenario open there: a pick added and saved.
+    keepScenario({
+      ...stored,
+      picks: { ...stored.picks, g4: { winnerId: "B" } },
+      basis: { ...stored.basis, g4: { away: "B", home: "C", date: "5/8" } },
+      modifiedAt: later(stored.modifiedAt, 1),
+    });
+    await user.click(within(machine).getByRole("button", { name: "Rename" }));
+    const renamed = within(machine).getByRole("textbox", { name: "New name" });
+    await user.clear(renamed);
+    await user.type(renamed, "Aces win out");
+    await user.click(within(machine).getByRole("button", { name: "Save name" }));
+    const [afterRename] = readScenarios(stored.seasonId);
+    expect(afterRename?.name).toBe("Aces win out");
+    expect(afterRename?.picks).toEqual({ g3: { winnerId: "D" }, g4: { winnerId: "B" } });
+
+    // Renamed there again; a change saved here keeps that name, with the picks shown here.
+    if (!afterRename) throw new Error("Not kept");
+    keepScenario({
+      ...afterRename,
+      name: "Renamed there",
+      modifiedAt: later(stored.modifiedAt, 2),
+    });
+    await pick(user, machine, "Ducks at Aces", "Aces");
+    await user.click(within(machine).getByRole("button", { name: "Save changes" }));
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      "Saved the changes to “Renamed there”."
+    );
+    const [afterSave] = readScenarios(stored.seasonId);
+    expect(afterSave?.name).toBe("Renamed there");
+    expect(afterSave?.picks).toEqual({ g3: { winnerId: "A" } });
+  });
+
+  it("brings the open scenario up to date as stored, keeping another tab's rename (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    await pick(user, machine, "Bears at Comets", "Bears");
+    const stored = await saveScenario(user, machine);
+    keepScenario({ ...stored, name: "Renamed there", modifiedAt: later(stored.modifiedAt, 1) });
+
+    // Ducks at Aces played meanwhile, from another device.
+    act(() => {
+      const store = live.store;
+      if (!store) throw new Error("No season store");
+      const season = store.get().season;
+      store.apply({ ...season, logs: { ...season.logs, g3: final("9", "1") } });
+    });
+    await user.click(within(machine).getByRole("button", { name: "Bring it up to date" }));
+    const [after] = readScenarios(stored.seasonId);
+    expect(after?.name).toBe("Renamed there");
+    expect(after?.picks).toEqual({ g4: { winnerId: "B" } });
+  });
+
+  it("brings back no scenario another tab let go of, and keeps its picks here (2.7 review)", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const machine = await openMachine(user);
+    await pick(user, machine, "Ducks at Aces", "Ducks");
+    const stored = await saveScenario(user, machine);
+    dropScenario(stored.seasonId, stored.id);
+
+    await pick(user, machine, "Bears at Comets", "Bears");
+    await user.click(within(machine).getByRole("button", { name: "Save changes" }));
+    expect(readScenarios(stored.seasonId)).toEqual([]);
+    expect(within(machine).getByRole("status")).toHaveTextContent(
+      "“Scenario 1” is no longer kept on this device: another tab let it go. Its picks are still here, unsaved."
+    );
+    expect(pressed(machine, "Ducks at Aces")).toEqual(["Ducks"]);
+    expect(pressed(machine, "Bears at Comets")).toEqual(["Bears"]);
+    expect(within(machine).getByRole("button", { name: "Save as a scenario" })).toBeEnabled();
   });
 
   it("shares a link that shows its picks and asks before keeping them, and never touches the season", async () => {
