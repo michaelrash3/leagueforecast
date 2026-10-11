@@ -3140,8 +3140,9 @@ describe("buildTeamRankings with a season-year pool", () => {
       // Two evenly matched 10Us.
       game("C", "D", 4, 4, "u10"),
       game("D", "C", 3, 3, "u10"),
-      // A 9U loses to one of them by the two runs a year of age is expected to be worth.
-      withLevels(game("A", "C", 3, 5, "u10"), { a: 9 }),
+      // A 9U loses to one of them by the four runs a year of age is expected to be worth between
+      // 9U and 10U (`AGE_STEP_RUNS`).
+      withLevels(game("A", "C", 3, 7, "u10"), { a: 9 }),
     ];
     const nine = buildTeamRankings("u9", teams, games, undefined, pool);
     const ten = rowsById(buildTeamRankings("u10", teams, games, undefined, pool));

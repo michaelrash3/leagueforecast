@@ -40,13 +40,17 @@ describe("a year's fit", () => {
      * same fit, and the same on Node 22, Node 24 and Bun. The three clubs are this year's thinnest,
      * a middling and its thickest record on the page (1, 5 and 26 games), so the discount is seen
      * cutting a rating by 0.45, lifting one by 0.05 and lifting one by 0.45.
+     *
+     * Moved on purpose on 11 October 2026, when a year of age came to be read at what each level's
+     * step is worth (`AGE_STEP_RUNS`): the centre from 0.8515232099323854 and the three ratings
+     * from −0.2623, −1.6584 and −2.1254.
      */
-    expect(fit.middle).toBe(0.8515232099323854);
+    expect(fit.middle).toBe(0.8627496838160694);
     const shown = (teamId: string) =>
       fit.confident(fit.adjusted.ratings.get(teamId) ?? 0, fit.effective.get(teamId) ?? 0);
-    expect(shown("S-10u_2027-0245")).toBe(-0.2623082623511376);
-    expect(shown("S-10u_2027-0182")).toBe(-1.658437397915415);
-    expect(shown("S-10u_2027-0246")).toBe(-2.1253576949313375);
+    expect(shown("S-10u_2027-0245")).toBe(-0.24658990195162217);
+    expect(shown("S-10u_2027-0182")).toBe(-1.6151092779345277);
+    expect(shown("S-10u_2027-0246")).toBe(-2.2126987844870714);
   });
 
   it("keeps the centre its discount is about, over the year's clubs", () => {
@@ -110,7 +114,9 @@ describe("the discount, in two parts", () => {
 describe("the selection, in two parts", () => {
   it("rates the same games on every page and half as before the split", () => {
     // Taken before `ratingFilter` was split out of `scoutRatingGames`: 68,004 rated entries over
-    // 11 pages and 3 spans, 4,845 of them across ages.
+    // 11 pages and 3 spans, 4,845 of them across ages. The same games since; their gaps read through
+    // each level's step (`AGE_STEP_RUNS`) since 11 October 2026, which moved the print from
+    // "6866a45f".
     const selected = ageGroups.flatMap((group: AgeGroup) =>
       SPANS.map((segment) => ({
         page: group.id,
@@ -121,7 +127,7 @@ describe("the selection, in two parts", () => {
       }))
     );
     expect(selected.reduce((sum, { rated }) => sum + rated.length, 0)).toBe(68004);
-    expect(fingerprint(selected)).toBe("6866a45f");
+    expect(fingerprint(selected)).toBe("e0e13164");
   });
 
   it("asks of one game what the selection asks of the pool, less the roster", () => {
@@ -176,9 +182,13 @@ describe("the selection, in two parts", () => {
       teamBScore: 3,
       date: "2026-09-12",
     };
-    expect(rates.ageGap({ ...game, ageLevelA: 9 })).toBe(-1);
-    expect(rates.ageGap({ ...game, ageLevelB: 9 })).toBe(1);
+    // 9U against 10U is one year, read as two of the fit's two-run years: four runs at that age.
+    expect(rates.ageGap({ ...game, ageLevelA: 9 })).toBe(-2);
+    expect(rates.ageGap({ ...game, ageLevelB: 9 })).toBe(2);
+    expect(rates.levelsApart({ ...game, ageLevelA: 9 })).toBe(-1);
+    expect(rates.levelsApart({ ...game, ageLevelB: 9 })).toBe(1);
     expect(rates.ageGap(game)).toBe(0);
     expect(rates.ageGap({ ...game, ageGroupId: "elsewhere", ageLevelA: 9 })).toBe(0);
+    expect(rates.levelsApart({ ...game, ageGroupId: "elsewhere", ageLevelA: 9 })).toBe(0);
   });
 });

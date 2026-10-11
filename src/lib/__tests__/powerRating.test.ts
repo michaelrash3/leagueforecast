@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   AGE_GAP_RUNS_PER_YEAR,
   DEFAULT_AGE_GAP_SHRINKAGE,
+  ageGapYears,
+  ageStepRuns,
+  ageStepsInWords,
   SPARSE_SOLVER_THRESHOLD,
   buildOpponentAdjustedRatings,
   byRating,
@@ -1056,5 +1059,28 @@ describe("the order a table of ratings is read in", () => {
       "Zulu",
       "Alpha",
     ]);
+  });
+});
+
+describe("what a year of age is worth, level by level", () => {
+  it("reads a game's gap as every step between the two levels at its own worth", () => {
+    // 9U to 10U is four runs, two years of two; 10U to 11U three more.
+    expect(ageGapYears(10, 9)).toBe(2);
+    expect(ageGapYears(9, 10)).toBe(-2);
+    expect(ageGapYears(11, 9)).toBe(3.5);
+    expect(ageGapYears(9, 9)).toBe(0);
+    expect(ageGapYears(9, 10) * AGE_GAP_RUNS_PER_YEAR).toBe(-4);
+  });
+
+  it("gives a level off the table the step of the nearest one on it", () => {
+    expect(ageStepRuns(7)).toBe(ageStepRuns(8));
+    expect(ageStepRuns(18)).toBe(ageStepRuns(17));
+    expect(ageGapYears(19, 18)).toBe(0.5);
+  });
+
+  it("words the table as the pages explain it", () => {
+    expect(ageStepsInWords()).toBe(
+      "5 runs from 8U to 9U, 4 from 9U to 10U, 3 a year from 10U to 15U, 2 from 15U to 16U and 1 a year from 16U up"
+    );
   });
 });

@@ -4,7 +4,7 @@ import {
   MIN_RANKED_AGE_LEVEL,
   RATING_CAP,
 } from "../lib/teamRankings";
-import { AGE_GAP_RUNS_PER_YEAR } from "../lib/powerRating";
+import { ageStepRuns, ageStepsInWords } from "../lib/powerRating";
 import { ACTIVE_RECENCY_SCHEME } from "../lib/ratingRecency";
 import { focusRing } from "../styles/tokens";
 
@@ -115,12 +115,12 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
         <li>
           <span className="font-bold text-slate-950 dark:text-white">4. Playing up or down.</span> A
           season&apos;s age groups are rated together, so a game against the level above or below
-          counts. The older side is expected to win by {AGE_GAP_RUNS_PER_YEAR} runs per year of age,
-          held there rather than fitted: nearly every club plays at one level, so the games cannot
-          say what a year is worth, and a fit read it low. An 8U losing to a 9U by{" "}
-          {AGE_GAP_RUNS_PER_YEAR} is treated as an even game, not a loss that drags it down.
-          Strength of schedule follows the same rule: playing up credits you for the year of age you
-          gave away, playing down debits you for the year you took.
+          counts. The older side is expected to win by what a year of age measured nationally at
+          those levels: {ageStepsInWords()}. Each is held there rather than fitted: nearly every
+          club plays at one level, so the games cannot say what a year is worth, and a fit read it
+          low. A 9U losing to a 10U by {ageStepRuns(9)} is treated as an even game, not a loss that
+          drags it down. Strength of schedule follows the same rule: playing up credits you for the
+          year of age you gave away, playing down debits you for the year you took.
         </li>
         <li>
           <span className="font-bold text-slate-950 dark:text-white">

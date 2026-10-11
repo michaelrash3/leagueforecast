@@ -139,8 +139,10 @@ export type OpponentAdjustedOptions = {
 };
 
 /**
- * Runs of advantage per year of age between the two sides. Two runs a year is the rule of thumb a
- * coach uses when a team plays up a level, and it is what a year of age is held at.
+ * Runs of advantage per year of age between the two sides, as the fit reads a game's age gap: the
+ * rule of thumb a coach uses when a team plays up a level. Since 11 October 2026 it is the unit a
+ * gap is counted in rather than what every year is worth: a game's gap is each level's step at its
+ * own worth (`AGE_STEP_RUNS`, `ageGapYears`), so 9U against 10U reads as two such years.
  */
 export const AGE_GAP_RUNS_PER_YEAR = 2;
 /**
@@ -168,6 +170,96 @@ export const AGE_GAP_RUNS_PER_YEAR = 2;
  * the 21,967 held-back games between rated clubs, 1.5 a ten-thousandth behind).
  */
 export const DEFAULT_AGE_GAP_SHRINKAGE = Number.POSITIVE_INFINITY;
+
+/**
+ * Runs a year of age is worth between two neighbouring levels, by the younger of the two (9 is 9U
+ * against 10U), which a game between them is read through (`ageGapYears`). A level not listed takes
+ * the nearest one listed.
+ *
+ * Read directly on the pool of 11 October 2026, the way the two runs below were: each level's clubs
+ * rated on their own level's games alone, then every one-year game between two clubs with eight or
+ * more of those, the older side's margin (capped) less the two ratings' difference. 8U–9U 5.85 ±
+ * 1.01 runs (47 games), 9U–10U 4.16 ± 0.30 (385), 10U–11U 2.57 ± 0.39 (236), 11U–12U 2.91 ± 0.24
+ * (610), 12U–13U 2.99 ± 0.58 (99), 13U–14U 3.28 ± 0.44 (169), 14U–15U 4.18 ± 0.77 (39), 15U–16U 2.12
+ * ± 0.44 (178), and above that −1.48 ± 1.16 (16U–17U, 29) and −0.97 ± 0.66 (17U–18U, 87), where a
+ * year means little and is held at one. Two runs, the single figure for every age, was a pooled
+ * reading across all of them on the season's first weeks, and is right only in the middle teens:
+ * a 9U that played a 10U was charged for a gap half as big as the one it faced.
+ *
+ * Held to predict games, the table is no better than two everywhere: on the same pool, cut in
+ * September and scored on what came after, the error over every held-back game was 5.1849 runs
+ * against 5.1832, and on the 490 held back between 9U and 10U clubs, with that step alone at four,
+ * 4.82 against 4.80, since a club that plays up is rated partly on those very games. It is the
+ * user's call (11 October 2026)
+ * that the board should rank a young club against its own age, and a club that plays up should not
+ * fall below one that never left it for losing to sides a year older by about what a year is
+ * worth: two runs a year took the 9U Otters from first in Kentucky to third on two such losses,
+ * behind clubs of 8-0 and 7-0 against a weak schedule, and the table leaves them second, 0.04
+ * behind the first.
+ */
+export const AGE_STEP_RUNS: Readonly<Record<number, number>> = {
+  8: 5,
+  9: 4,
+  10: 3,
+  11: 3,
+  12: 3,
+  13: 3,
+  14: 3,
+  15: 2,
+  16: 1,
+  17: 1,
+};
+
+const STEP_LEVELS = Object.keys(AGE_STEP_RUNS)
+  .map(Number)
+  .sort((a, b) => a - b);
+
+/** What the year from `younger` to the level above it is worth, in runs (`AGE_STEP_RUNS`). */
+export const ageStepRuns = (younger: number): number => {
+  const nearest = STEP_LEVELS.reduce((best, level) =>
+    Math.abs(level - younger) < Math.abs(best - younger) ? level : best
+  );
+  return AGE_STEP_RUNS[nearest] ?? AGE_GAP_RUNS_PER_YEAR;
+};
+
+/**
+ * The age table in words, for the pages that explain it: "5 runs from 8U to 9U, 4 from 9U to 10U, 3
+ * a year from 10U to 15U, 2 from 15U to 16U and 1 a year from 16U up". Neighbouring levels worth
+ * the same are run together.
+ */
+export const ageStepsInWords = (): string => {
+  const runs: Array<{ from: number; to: number; worth: number }> = [];
+  STEP_LEVELS.forEach((level) => {
+    const worth = ageStepRuns(level);
+    const last = runs[runs.length - 1];
+    if (last && last.worth === worth && last.to === level) last.to = level + 1;
+    else runs.push({ from: level, to: level + 1, worth });
+  });
+  const phrases = runs.map(({ from, to, worth }, index) => {
+    const unit = index === 0 ? (worth === 1 ? " run" : " runs") : "";
+    const span = to - from > 1 ? " a year" : "";
+    const end =
+      index === runs.length - 1 && to - from > 1 ? `from ${from}U up` : `from ${from}U to ${to}U`;
+    return `${worth}${unit}${span} ${end}`;
+  });
+  const last = phrases.pop();
+  return phrases.length === 0 ? (last ?? "") : `${phrases.join(", ")} and ${last}`;
+};
+
+/**
+ * The age gap between a side at level `a` and one at level `b` as the fit reads it
+ * (`RatingGame.ageGap`), in years of `AGE_GAP_RUNS_PER_YEAR` runs each: every step between the two
+ * levels at what it is worth (`ageStepRuns`), so 10U against 9U reads two such years, four runs.
+ * Signed as `a − b` is. A held value other than `AGE_GAP_RUNS_PER_YEAR` (the model check's) scales
+ * the whole table.
+ */
+export const ageGapYears = (a: number, b: number): number => {
+  if (a === b) return 0;
+  const [low, high] = a < b ? [a, b] : [b, a];
+  let runs = 0;
+  for (let level = low; level < high; level += 1) runs += ageStepRuns(level);
+  return ((a > b ? 1 : -1) * runs) / AGE_GAP_RUNS_PER_YEAR;
+};
 /**
  * Team count above which "auto" switches from Gaussian elimination to conjugate gradient. Below
  * it the dense solve is instant and bit-for-bit what the rankings have always shown; above it the

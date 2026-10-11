@@ -223,7 +223,7 @@ export const gameBreakdown = ({
       margin: side * margin,
       counted,
       ageRuns,
-      levelsUp: gap === 0 ? 0 : -side * gap,
+      levelsUp: gap === 0 ? 0 : -side * rates.levelsApart(game),
       weight,
       evidence: 1 - 1 / (shrink + opponent.games),
     });

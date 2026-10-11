@@ -37,9 +37,10 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * 1: the boards as L2 first built them. 2: a league team said not to be in Team Rankings carried
  * onto a club of its own (`offClubIdFor`), not onto a club of its name. 3: nothing moved; raised so
  * that the publishers from before the boards' shape stand aside for boards that carry a fit
- * (`BOARD_SHAPE` 1).
+ * (`BOARD_SHAPE` 1). 4: a year of age worth what it measured at each level (`AGE_STEP_RUNS`),
+ * four runs from 9U to 10U, rather than two runs at every level.
  */
-export const BOARD_RULES = 3;
+export const BOARD_RULES = 4;
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of

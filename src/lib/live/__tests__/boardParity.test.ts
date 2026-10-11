@@ -227,7 +227,7 @@ const steady = (boards: PageBoard[]) =>
  * another collation, skips this pin and keeps the steady one; a new engine's value is added here
  * once its boards are seen to match its own worker's.
  */
-const DIGIT_PINS: Record<string, string> = { "12.4": "540d5e53", "13.6": "dc60cab0" };
+const DIGIT_PINS: Record<string, string> = { "12.4": "b8724dfe", "13.6": "9c84177b" };
 const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions?.v8;
 const english = new Intl.Collator().resolvedOptions().locale.startsWith("en");
 const digitPin = english ? DIGIT_PINS[(engine ?? "").split(".").slice(0, 2).join(".")] : undefined;
@@ -718,8 +718,14 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * 3's is 2's: the rules were raised to 3 as a barrier to the publishers from before the boards'
      * shape, which read only the rules (`BOARD_RULES`), and no board moved. Holding 3 to the same
      * fingerprint is what says so; a version need not have one of its own unless it moved a board.
+     * 4 moved them: a year of age is worth what it measured at each level (`AGE_STEP_RUNS`).
      */
-    const RULES_PINS: Record<number, string> = { 1: "a2c59173", 2: "f9baf500", 3: "f9baf500" };
+    const RULES_PINS: Record<number, string> = {
+      1: "a2c59173",
+      2: "f9baf500",
+      3: "f9baf500",
+      4: "2303b63a",
+    };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
   });
 

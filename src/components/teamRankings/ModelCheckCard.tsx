@@ -8,7 +8,7 @@ import {
 } from "../../lib/scoutBacktest";
 import { RATING_CAP } from "../../lib/teamRankings";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
-import { AGE_GAP_RUNS_PER_YEAR } from "../../lib/powerRating";
+import { AGE_GAP_RUNS_PER_YEAR, ageStepsInWords } from "../../lib/powerRating";
 import { button, card, pill } from "../../styles/tokens";
 
 type ModelCheckCardProps = {
@@ -183,20 +183,20 @@ export function ModelCheckCard({
               </h3>
               {result.crossAgeSamples === 0 ? (
                 <p className="mt-1 text-slate-500 dark:text-slate-400">
-                  Nothing in this pool crosses an age level, so it cannot say. The model holds a
-                  year of age at the rule of thumb, {AGE_GAP_RUNS_PER_YEAR} runs.
+                  Nothing in this pool crosses an age level, so it cannot say. The model holds each
+                  year of age at what it measured nationally: {ageStepsInWords()}.
                 </p>
               ) : (
                 <p className="mt-1 text-slate-700 dark:text-slate-200">
-                  Held at <strong>{result.ageGapPrior} runs a year</strong>, the rule of thumb,
-                  rather than fitted: nearly every club plays at one level, so the games cannot say
-                  what a year is worth, and a fit read it low. The held-back set has{" "}
-                  {result.crossAgeSamples} cross-age game
+                  Held at <strong>what each year of age measured nationally</strong> (
+                  {ageStepsInWords()}) rather than fitted: nearly every club plays at one level, so
+                  the games cannot say what a year is worth, and a fit read it low. The held-back
+                  set has {result.crossAgeSamples} cross-age game
                   {result.crossAgeSamples === 1 ? "" : "s"}.
                   {!bestGap || bestGap.ratedError === null
                     ? " None of the held-back games was between two clubs rated before it, so the values held cannot be compared here."
                     : betterGap
-                      ? ` Held at ${betterGap.value} instead, the ratings predicted the ${betterGap.samples} held-back games between two rated clubs better: ${byHowMuch(betterGap)}.`
+                      ? ` Held at ${Math.round((betterGap.value / AGE_GAP_RUNS_PER_YEAR) * 100)}% of those values instead, the ratings predicted the ${betterGap.samples} held-back games between two rated clubs better: ${byHowMuch(betterGap)}.`
                       : result.ratedSamples < MIN_PAIRED_GAMES
                         ? ` Only ${result.ratedSamples} held-back game${result.ratedSamples === 1 ? " was" : "s were"} between two rated clubs, too few to tell the values held apart.`
                         : ` No other value held predicted the ${result.ratedSamples} held-back games between two rated clubs better by more than chance.`}
