@@ -60,7 +60,7 @@ const COUNTED = ["0", "1", "2"];
 
 const notes = {
   headline:
-    "Fall 2026 rating +1.4: +1.2 from its games, +0.2 because its record is fuller than most.",
+    "Fall 2026 rating +1.4: +1.2 from its games, +0.2 because its record makes its rating surer than the average club's.",
   key: "Played like: the rating that makes the score exactly what was expected. Moved: the rating with the game, less the rating without it.",
   // A line for every game on the card, so that the panel alone decides which rows draw one.
   byGame: new Map(

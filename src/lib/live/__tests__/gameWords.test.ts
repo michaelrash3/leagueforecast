@@ -29,20 +29,22 @@ const its = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: fal
 const your = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: true, cap: CAP });
 
 describe("the line above a club's games", () => {
-  it("splits the rating into its games and its record, fuller or thinner than most", () => {
+  it("splits the rating into its games and its record, surer or less sure than the average club's", () => {
     expect(
       ratingHeadline({ rating: 2.8, pointRating: 2.5 }, { span: "Fall 2026", own: true })
     ).toBe(
-      "Fall 2026 rating +2.8: +2.5 from your games, +0.3 because your record is fuller than most."
+      "Fall 2026 rating +2.8: +2.5 from your games, +0.3 because your record makes your rating surer than the average club's."
     );
     expect(
       ratingHeadline({ rating: 2.1, pointRating: 2.5 }, { span: "Fall 2026", own: false })
     ).toBe(
-      "Fall 2026 rating +2.1: +2.5 from its games, -0.4 because its record is thinner than most."
+      "Fall 2026 rating +2.1: +2.5 from its games, -0.4 because its record makes its rating less sure than the average club's."
     );
     expect(
       ratingHeadline({ rating: -1.3, pointRating: -1.6 }, { span: "Season", own: false })
-    ).toBe("Season rating -1.3: -1.6 from its games, +0.3 because its record is fuller than most.");
+    ).toBe(
+      "Season rating -1.3: -1.6 from its games, +0.3 because its record makes its rating surer than the average club's."
+    );
   });
 
   it("says all of it is from the club's games when the record's part rounds to nothing", () => {
@@ -65,7 +67,7 @@ describe("the line above a club's games", () => {
     expect(
       ratingHeadline({ rating: -0.03, pointRating: 0.3 }, { span: "Fall 2026", own: false })
     ).toBe(
-      "Fall 2026 rating -0.0: +0.3 from its games, -0.3 because its record is thinner than most."
+      "Fall 2026 rating -0.0: +0.3 from its games, -0.3 because its record makes its rating less sure than the average club's."
     );
     // 0.35 is stored a hair under a half, which the row rounds down to +0.3; rounded as a whole
     // number of tenths it was +0.4. The record's part is what the two printed figures differ by.
@@ -73,7 +75,7 @@ describe("the line above a club's games", () => {
     expect(
       ratingHeadline({ rating: 0.35, pointRating: 0.1 }, { span: "Fall 2026", own: false })
     ).toBe(
-      "Fall 2026 rating +0.3: +0.1 from its games, +0.2 because its record is fuller than most."
+      "Fall 2026 rating +0.3: +0.1 from its games, +0.2 because its record makes its rating surer than the average club's."
     );
     // Over a sweep through nought and across every half, both figures are the row's own.
     for (let at = -300; at <= 300; at += 1) {
@@ -93,7 +95,7 @@ describe("the line above a club's games", () => {
     expect(
       ratingHeadline({ rating: 2.849, pointRating: 2.551 }, { span: "Spring 2027", own: false })
     ).toBe(
-      "Spring 2027 rating +2.8: +2.6 from its games, +0.2 because its record is fuller than most."
+      "Spring 2027 rating +2.8: +2.6 from its games, +0.2 because its record makes its rating surer than the average club's."
     );
     // A record part of 0.06 between two ratings that round alike adds nothing on screen.
     expect(
@@ -231,7 +233,7 @@ describe("everything a panel is handed", () => {
     };
     const notes = gameNotesOf(breakdown, { span: "Fall 2026", own: false, cap: CAP });
     expect(notes.headline).toBe(
-      "Fall 2026 rating +1.4: +1.2 from its games, +0.2 because its record is fuller than most."
+      "Fall 2026 rating +1.4: +1.2 from its games, +0.2 because its record makes its rating surer than the average club's."
     );
     expect(notes.key).toBe(GAME_NOTES_KEY);
     expect([...notes.byGame]).toEqual([

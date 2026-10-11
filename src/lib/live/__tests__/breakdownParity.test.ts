@@ -3,6 +3,7 @@ import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
 import { memoryIo } from "../../cloud/cloudRunner";
 import { todayIsoDay } from "../../date";
 import { gameBreakdown, type Breakdown } from "../../gameBreakdown";
+import { ratingHeadline } from "../gameWords";
 import {
   countedInWindow,
   fitScoutYearFor,
@@ -10,6 +11,7 @@ import {
   RATING_CAP,
   ratedMargin,
   ratingFilter,
+  ratingSpread,
   rankingPoolGroupIds,
   scoreSeenBy,
   scoutFitYear,
@@ -265,6 +267,49 @@ describe("what each game did, worked out on a device", { timeout: 60_000 }, () =
     } finally {
       vi.setSystemTime(new Date(`${CLOCK}T12:00:00`));
     }
+  });
+
+  /*
+   * The line above a club's games says its record makes its rating surer, or less sure, than the
+   * average club's. That is the comparison the discount makes: the club's spread against the mean
+   * spread over every club the fit rated, on every page of the pool, worked out here from the fit
+   * itself. Not most of the board's clubs, which it was first said as: the spread falls ever more
+   * slowly as games are added, so the mean sits above the median, and more than half a board can
+   * be on the side that gains.
+   */
+  it("says a record makes a rating surer or less sure than the average club's as the discount compares them", () => {
+    let surer = 0;
+    let lessSure = 0;
+    let moreThanHalf = 0;
+    for (const { year, pageId, segment, view } of boards) {
+      const fit = fitOf(year, pageId, segment);
+      const scale = fit.adjusted.residualScale;
+      const spreadOf = (teamId: string) => ratingSpread(fit.effective.get(teamId) ?? 0, scale);
+      const clubs = fit.nodes.filter((team) => !team.placeholder && !team.nameOnly);
+      const average = clubs.reduce((sum, team) => sum + spreadOf(team.id), 0) / clubs.length;
+      let gaining = 0;
+      for (const row of view.rows) {
+        const said = ratingHeadline(row, { span: "Season", own: false });
+        const at = `${row.teamId} on ${pageId} ${segment ?? "year"}: ${said}`;
+        if (said.endsWith("because its record makes its rating surer than the average club's.")) {
+          surer += 1;
+          expect(spreadOf(row.teamId), at).toBeLessThan(average);
+        } else if (
+          said.endsWith("because its record makes its rating less sure than the average club's.")
+        ) {
+          lessSure += 1;
+          expect(spreadOf(row.teamId), at).toBeGreaterThan(average);
+        } else {
+          expect(said, at).toMatch(/^Season rating [+-]\d+\.\d, all of it from its games\.$/);
+        }
+        if (spreadOf(row.teamId) < average) gaining += 1;
+      }
+      if (gaining * 2 > view.rows.length) moreThanHalf += 1;
+    }
+    expect(surer).toBeGreaterThan(100);
+    expect(lessSure).toBeGreaterThan(100);
+    // On 19 of the fixture's 28 boards more than half the clubs gain, which "most" could not say.
+    expect(moreThanHalf).toBeGreaterThan(0);
   });
 
   it.each<[string, (groups: AgeGroup[]) => AgeGroup[]]>([

@@ -2745,15 +2745,23 @@ On the cloud's board a club's panel says, under each game it counted, what that 
 did to its rating there (`gameBreakdown`, `gameWords`). Above the list the board's
 rating is split in two: what the club's games give it, the fit's own rating
 (`pointRating`), and what its record adds or takes off, the evidence discount
-(Scouting report, **What if?**) read against the middle of the board, so a record
-fuller than most adds and a thinner one takes off: "Fall 2026 rating +2.8: +2.5 from
-your games, +0.3 because your record is fuller than most." The two ratings are printed
-as the board's row prints its Rating and Best guess (`formatBoardRating`), "-0.0" and
-all, and the record's part is what those two printed figures differ by, so the three add
-up on screen and one that rounds to nothing says the rating is all from the club's games.
-Rounded as whole tenths instead, the line differed from its row on 2,158 of the 88,106
-clubs with lines on the 29 September 2026 backup, every one a "0.0" over a row's "+0.0"
-or "-0.0". The page's own club reads "your", any other "its".
+(Scouting report, **What if?**). The discount compares the club's spread, how unsure its
+rating is, with the mean spread over every club the fit rated in the span, on every page
+of the pool, never one board's rows (`discountMiddle`): a record that makes the rating
+surer than the average club's adds, and one that makes it less sure takes off. "Fall 2026
+rating +2.8: +2.5 from your games, +0.3 because your record makes your rating surer than
+the average club's." The line first said "fuller than most", which counts the board's
+clubs, and the mean is not the median: the spread falls ever more slowly as games are
+added, so on the 29 September 2026 backup more than half the clubs gained on 10 of the 20
+boards with lines, 57.8% on one. Nor is it a count of games: of the 45,554 clubs that
+gained, 8,146 had fewer effective games than their board's average.
+
+The two ratings are printed as the board's row prints its Rating and Best guess
+(`formatBoardRating`), "-0.0" and all, and the record's part is what those two printed
+figures differ by, so the three add up on screen and one that rounds to nothing says the
+rating is all from the club's games. Rounded as whole tenths instead, the line differed
+from its row on 2,158 of the 88,106 clubs with lines on that backup, every one a "0.0"
+over a row's "+0.0" or "-0.0". The page's own club reads "your", any other "its".
 
 Under each counted W, L or T row are two figures, keyed once above the list. **Played
 like** is the rating that makes the score exactly what the fit expected: the opponent's

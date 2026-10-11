@@ -42,7 +42,19 @@ const tenthsPrinted = (printed: string): number => Math.round(Number(printed) * 
 
 /**
  * The line above the list: the rating the board shows, how much of it the club's games give, and
- * what its record adds or takes off because it is fuller or thinner than most on the board.
+ * what its record adds or takes off.
+ *
+ * The record's part is the evidence discount (`discountAbout`): the fit's rating plus a standard
+ * error times how far the club's spread (`ratingSpread`, how unsure its rating is) sits below the
+ * mean spread over every club the fit rated in the span (`discountMiddle`), on every page of the
+ * pool. So it adds where the club's record makes its rating surer than the average club's, and
+ * takes off where it makes it less sure, and that is what the line says. It is neither a count of
+ * the board's clubs nor one of games: the spread falls ever more slowly as games are added, so the
+ * mean spread sits above the median club's, and a club short of the average number of games can
+ * still be surer than the average club. On the 29 September 2026 backup more than half the clubs
+ * gained on 10 of the 20 boards with lines, 57.8% on one, so "fuller than most", as the line first
+ * said, was false there; and of the 45,554 clubs that gained, 8,146 had fewer effective games than
+ * their board's average, so "fuller than the average club's" would have been false for them.
  *
  * The two ratings are printed as the row prints its Rating and Best guess (`formatBoardRating`),
  * so the line never reads "0.0" above a row reading "-0.0", nor rounds a rating stored a hair under
@@ -59,9 +71,9 @@ export const ratingHeadline = (
   const record = tenthsPrinted(shown) - tenthsPrinted(fromGames);
   const lead = `${span} rating ${shown}`;
   if (record === 0) return `${lead}, all of it from ${whose} games.`;
-  return `${lead}: ${fromGames} from ${whose} games, ${tenths(record)} because ${whose} record is ${
-    record > 0 ? "fuller" : "thinner"
-  } than most.`;
+  return `${lead}: ${fromGames} from ${whose} games, ${tenths(record)} because ${whose} record makes ${whose} rating ${
+    record > 0 ? "surer" : "less sure"
+  } than the average club's.`;
 };
 
 /**
