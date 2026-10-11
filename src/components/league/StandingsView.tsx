@@ -11,6 +11,7 @@ import { displayName, recordText, teamAbbr, winPct } from "../../lib/format";
 import type { AiProvider, LeagueSummaryErrorReason } from "../../lib/leagueSummary";
 import { buildTeamDataHref } from "../../lib/teamLink";
 import type { LastImpact, TeamWithProjection } from "../../lib/types";
+import { nationalRankText, type LeagueClubRank } from "../../lib/leagueClubRanks";
 import { AiStoryPanel } from "../AiStoryPanel";
 import { HelpTip } from "../HelpTip";
 import { PageHeader } from "../PageHeader";
@@ -23,6 +24,14 @@ import {
   raceToneLabels,
 } from "../../styles/raceTone";
 import { focusRing, pill } from "../../styles/tokens";
+
+/** A team's place nationally, as a line under its name, or nothing where none is known. */
+const nationalLine = (rank: LeagueClubRank | undefined) =>
+  rank ? (
+    <span className="mt-0.5 block text-xs font-semibold text-slate-500 dark:text-slate-400">
+      {nationalRankText(rank)}
+    </span>
+  ) : null;
 
 export function StandingsView({
   goldCutoff,
@@ -48,7 +57,13 @@ export function StandingsView({
   formatGoldPct,
   formatGoldMargin,
   onSelectTeam,
+  nationalRank,
 }: {
+  /**
+   * Where a team's club stood on Team Rankings when that board was last up (`leagueClubRankFor`),
+   * said beside every team as the "Our team" card says it of its own; absent where none is known.
+   */
+  nationalRank?: (teamId: string) => LeagueClubRank | undefined;
   goldCutoff: number;
   latestCompletedDate: string;
   lastImpact: LastImpact | null;
@@ -316,6 +331,7 @@ export function StandingsView({
                                 {displayName(team.name)}
                               </span>
                             </a>
+                            {nationalLine(nationalRank?.(team.id))}
                           </td>
                           <td className="px-4 py-4 text-center font-black text-slate-800 dark:text-slate-100">
                             {recordText(team)}
@@ -420,6 +436,7 @@ export function StandingsView({
                           <span className="block text-sm font-bold wrap-break-word text-blue-700 underline decoration-blue-300 underline-offset-4 dark:text-blue-300 dark:decoration-blue-700">
                             {displayName(team.name)}
                           </span>
+                          {nationalLine(nationalRank?.(team.id))}
                           <span className="mt-0.5 block text-xs font-bold text-slate-500 dark:text-slate-400">
                             {recordText(team)} ·{" "}
                             <span

@@ -92,6 +92,10 @@ export const readLeagueClubRanks = (): LeagueClubRanks => {
 };
 
 /** Where one league team's club stood when its board was last up, if it ever was. */
+/** A club's place nationally as the standings say it under a team's name: "#12 of 3,947 nationally". */
+export const nationalRankText = (rank: LeagueClubRank): string =>
+  `#${rank.rank.toLocaleString("en-US")} of ${rank.of.toLocaleString("en-US")} nationally`;
+
 export const leagueClubRankFor = (
   seasonId: string,
   leagueTeamId: string

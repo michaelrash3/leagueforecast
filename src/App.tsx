@@ -3439,6 +3439,7 @@ export default function App() {
                     <PowerRatingsView engine={predictionEngine} />
                   ) : activeView === "standings" ? (
                     <StandingsView
+                      nationalRank={(teamId) => leagueClubRankFor(activeSeasonId, teamId)}
                       goldCutoff={goldCutoff}
                       latestCompletedDate={latestCompletedDate}
                       lastImpact={lastImpact}
