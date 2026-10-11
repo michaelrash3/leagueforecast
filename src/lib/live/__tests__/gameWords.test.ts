@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { formatRating as rowPrints } from "../../../components/teamRankings/RankingList";
 import type { Breakdown, GameLine } from "../../gameBreakdown";
 import { ratedMargin, scoreSeenBy, type ScoutGame } from "../../teamRankings";
 import { GAME_NOTES_KEY, gameClauses, gameNotesOf, ratingHeadline } from "../gameWords";
@@ -50,7 +51,40 @@ describe("the line above a club's games", () => {
     ).toBe("Fall 2026 rating +2.8, all of it from its games.");
     expect(
       ratingHeadline({ rating: 0.02, pointRating: -0.03 }, { span: "Season", own: true })
-    ).toBe("Season rating 0.0, all of it from your games.");
+    ).toBe("Season rating +0.0, all of it from your games.");
+  });
+
+  it("prints both ratings exactly as the board's row prints its Rating and Best guess", () => {
+    // Within a twentieth of nought the row reads "+0.0" or "-0.0" by the rating's side, and so
+    // does the line above the games, never a bare "0.0" above a row reading "-0.0".
+    expect(rowPrints(-0.03)).toBe("-0.0");
+    expect(rowPrints(0.02)).toBe("+0.0");
+    expect(
+      ratingHeadline({ rating: -0.03, pointRating: 0.02 }, { span: "Season", own: false })
+    ).toBe("Season rating -0.0, all of it from its games.");
+    expect(
+      ratingHeadline({ rating: -0.03, pointRating: 0.3 }, { span: "Fall 2026", own: false })
+    ).toBe(
+      "Fall 2026 rating -0.0: +0.3 from its games, -0.3 because its record is thinner than most."
+    );
+    // 0.35 is stored a hair under a half, which the row rounds down to +0.3; rounded as a whole
+    // number of tenths it was +0.4. The record's part is what the two printed figures differ by.
+    expect(rowPrints(0.35)).toBe("+0.3");
+    expect(
+      ratingHeadline({ rating: 0.35, pointRating: 0.1 }, { span: "Fall 2026", own: false })
+    ).toBe(
+      "Fall 2026 rating +0.3: +0.1 from its games, +0.2 because its record is fuller than most."
+    );
+    // Over a sweep through nought and across every half, both figures are the row's own.
+    for (let at = -300; at <= 300; at += 1) {
+      const rating = at / 200 + 1e-9 * (at % 7);
+      const pointRating = rating + ((at % 11) - 5) / 40;
+      const said = ratingHeadline({ rating, pointRating }, { span: "Season", own: false });
+      expect(said.startsWith(`Season rating ${rowPrints(rating)}`), said).toBe(true);
+      if (said.includes(" from its games, ")) {
+        expect(said, String(pointRating)).toContain(`: ${rowPrints(pointRating)} from its games`);
+      }
+    }
   });
 
   it("rounds the parts so they add up to the rating shown", () => {

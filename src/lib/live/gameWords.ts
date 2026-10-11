@@ -1,12 +1,15 @@
+import { formatBoardRating } from "../boardRating";
 import type { Breakdown, GameLine } from "../gameBreakdown";
 import { formatRating } from "../matchupForecast";
 
 /**
  * What a club's panel says of each counted game (`gameBreakdown`), in plain words: what the club
  * played like, what the game moved the rating the board shows, and, only where it applies, why the
- * margin counted is not the score on the row. Every figure is to a tenth, signed as the board's
- * ratings are (`formatRating`), and none is hedged: the device draws nothing at all unless the
- * lines add up to the board's own row.
+ * margin counted is not the score on the row. Every figure is to a tenth and signed, and none is
+ * hedged: the device draws nothing at all unless the lines add up to the board's own row. The two
+ * ratings above the list are printed exactly as the board's row prints them (`formatBoardRating`),
+ * "-0.0" and all, since a reader holds them against it; the figures under each game, which no row
+ * prints, read "0.0" for anything that rounds to nothing (`formatRating`).
  *
  * The page's own club reads "your", every other club "its".
  */
@@ -34,22 +37,29 @@ const runs = (value: number): string => String(Number(Math.abs(value).toFixed(1)
 const YEARS = ["", "a year", "two years", "three years", "four years"];
 const years = (count: number): string => YEARS[count] ?? `${count} years`;
 
+/** The tenths a rating printed as the board's row prints it shows: "+2.8" is 28, "-0.0" none. */
+const tenthsPrinted = (printed: string): number => Math.round(Number(printed) * 10);
+
 /**
  * The line above the list: the rating the board shows, how much of it the club's games give, and
- * what its record adds or takes off because it is fuller or thinner than most on the board. The
- * two parts are rounded so they add up on screen to the rating shown, as a reader will check.
+ * what its record adds or takes off because it is fuller or thinner than most on the board.
+ *
+ * The two ratings are printed as the row prints its Rating and Best guess (`formatBoardRating`),
+ * so the line never reads "0.0" above a row reading "-0.0", nor rounds a rating stored a hair under
+ * a half the other way from the row. The record's part is what those two printed figures differ
+ * by, so the three add up on screen to the rating shown, as a reader will check.
  */
 export const ratingHeadline = (
   breakdown: Pick<Breakdown, "rating" | "pointRating">,
   { span, own }: { span: string; own: boolean }
 ): string => {
   const whose = own ? "your" : "its";
-  const shown = tenthsOf(breakdown.rating);
-  const fromGames = tenthsOf(breakdown.pointRating);
-  const record = shown - fromGames;
-  const lead = `${span} rating ${tenths(shown)}`;
+  const shown = formatBoardRating(breakdown.rating);
+  const fromGames = formatBoardRating(breakdown.pointRating);
+  const record = tenthsPrinted(shown) - tenthsPrinted(fromGames);
+  const lead = `${span} rating ${shown}`;
   if (record === 0) return `${lead}, all of it from ${whose} games.`;
-  return `${lead}: ${tenths(fromGames)} from ${whose} games, ${tenths(record)} because ${whose} record is ${
+  return `${lead}: ${fromGames} from ${whose} games, ${tenths(record)} because ${whose} record is ${
     record > 0 ? "fuller" : "thinner"
   } than most.`;
 };

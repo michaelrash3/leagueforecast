@@ -2747,9 +2747,13 @@ rating is split in two: what the club's games give it, the fit's own rating
 (`pointRating`), and what its record adds or takes off, the evidence discount
 (Scouting report, **What if?**) read against the middle of the board, so a record
 fuller than most adds and a thinner one takes off: "Fall 2026 rating +2.8: +2.5 from
-your games, +0.3 because your record is fuller than most." The two parts are rounded
-so they add up on screen to the rating shown, and one that rounds to nothing says the
-rating is all from the club's games. The page's own club reads "your", any other "its".
+your games, +0.3 because your record is fuller than most." The two ratings are printed
+as the board's row prints its Rating and Best guess (`formatBoardRating`), "-0.0" and
+all, and the record's part is what those two printed figures differ by, so the three add
+up on screen and one that rounds to nothing says the rating is all from the club's games.
+Rounded as whole tenths instead, the line differed from its row on 2,158 of the 88,106
+clubs with lines on the 29 September 2026 backup, every one a "0.0" over a row's "+0.0"
+or "-0.0". The page's own club reads "your", any other "its".
 
 Under each counted W, L or T row are two figures, keyed once above the list. **Played
 like** is the rating that makes the score exactly what the fit expected: the opponent's
