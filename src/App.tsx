@@ -2132,6 +2132,9 @@ export default function App() {
     const added = additions
       ? missingGamesToAdd(
           plan,
+          // The schedule as the store holds it this moment, which a game from another device may
+          // have reached before this render's `matchups` did.
+          seasonStore.get().season.matchups,
           additions.add,
           additions.swap,
           innings,

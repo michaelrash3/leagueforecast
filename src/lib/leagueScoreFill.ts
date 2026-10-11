@@ -143,6 +143,15 @@ export type LeagueFillPlan = {
 /** The two teams of a game, in an order that is the same whichever end you look from. */
 const pairKey = (a: string, b: string) => [a, b].sort().join("|");
 
+/** Each pair of teams the schedule has meeting, with the day: "A|B@5/1". */
+const scheduledOn = (matchups: readonly Matchup[]): Set<string> =>
+  new Set(
+    matchups.map(
+      (matchup) =>
+        `${pairKey(matchup.away, matchup.home)}@${normalizeDateInput(matchup.date ?? "")}`
+    )
+  );
+
 /**
  * The key a league game and a pool result have to agree on to be the same game: both teams and the
  * day. The league stores a date as month and day with no year, so that is the common ground —
@@ -726,16 +735,20 @@ export const planLeagueScoreFill = ({
    * a scrimmage as a league game and is left to be added by hand. Read off the same usable
    * results, so a game of the league's own making, a day ahead or an unplayed one is never offered.
    */
+  /*
+   * A club two league teams are linked to is a clash, which neither link stands for, so a result
+   * of that club's is offered to neither: taking one would add a game to whichever team was listed
+   * last.
+   */
   const teamOfClub = new Map<string, string>();
+  const clashing = new Set<string>();
   teams.forEach((team) => {
-    if (team.scoutTeamId) teamOfClub.set(team.scoutTeamId, team.id);
+    if (!team.scoutTeamId) return;
+    if (teamOfClub.has(team.scoutTeamId)) clashing.add(team.scoutTeamId);
+    teamOfClub.set(team.scoutTeamId, team.id);
   });
-  const scheduled = new Set(
-    matchups.map(
-      (matchup) =>
-        `${pairKey(matchup.away, matchup.home)}@${normalizeDateInput(matchup.date ?? "")}`
-    )
-  );
+  clashing.forEach((clubId) => teamOfClub.delete(clubId));
+  const scheduled = scheduledOn(matchups);
   const tournamentOf = tournamentReason(scoutGames, new Set(teamOfClub.keys()));
   const missing: LeagueMissingGame[] = usable
     .flatMap((game) => {
@@ -776,9 +789,14 @@ export const planLeagueScoreFill = ({
  * The games of `plan.missing` a person chose (`scoutGameIds`, those of them to swap in `swapped`),
  * as the league's own: each a game on the schedule with its score entered and final. Ids are made
  * by `makeId`, one per game.
+ *
+ * A game whose two teams `schedule` has meeting that day is left out: the schedule as it is when
+ * the review is applied, which may have gained the game since the plan was made, typed in by hand
+ * or arrived from another device, and adding it again would count it twice.
  */
 export const missingGamesToAdd = (
   plan: LeagueFillPlan,
+  schedule: readonly Matchup[],
   scoutGameIds: readonly string[],
   swapped: readonly string[],
   innings: number,
@@ -786,10 +804,12 @@ export const missingGamesToAdd = (
 ): { matchups: Matchup[]; logs: Record<string, GameLog> } => {
   const chosen = new Set(scoutGameIds);
   const turned = new Set(swapped);
+  const scheduled = scheduledOn(schedule);
   const matchups: Matchup[] = [];
   const logs: Record<string, GameLog> = {};
   (plan.missing ?? []).forEach((game) => {
     if (!chosen.has(game.scoutGameId)) return;
+    if (scheduled.has(`${pairKey(game.awayTeamId, game.homeTeamId)}@${game.date}`)) return;
     const swap = turned.has(game.scoutGameId);
     const id = makeId(matchups.length);
     matchups.push({
