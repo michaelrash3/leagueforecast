@@ -26,6 +26,7 @@ import {
   NEVER_STARTED,
   NEVER_STARTED_MS,
   tooManyLegs,
+  unchangedSince,
   type JobDocs,
   type LegDeps,
   type LegTask,
@@ -174,7 +175,7 @@ const memoryJobs = () => {
     },
     updateIfUnchanged: async (jobId, seen, patch) => {
       const job = jobs.get(jobId);
-      if (!job || job.status !== seen.status || job.updatedAt !== seen.updatedAt) return false;
+      if (!job || !unchangedSince(seen, job)) return false;
       updates.push(structuredClone(patch));
       jobs.set(jobId, { ...job, ...structuredClone(patch) });
       return true;
@@ -1112,6 +1113,68 @@ describe("starting a pull", () => {
     expect(jobs.job()).toMatchObject({ status: "running", error: null });
   });
 
+  // Codex on #372, again: a Stop pressed while an ask is deciding writes `stopAsked` alone, so a
+  // stamp-only check let the ask mark "failed" a pull the person had asked to stop.
+  it("never ends as failed a job stopped while the ask was deciding", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const pressStop = (jobId: string) =>
+      jobs.jobs.set(jobId, { ...jobs.job(jobId), stopAsked: true });
+    const now = () => new Date("2026-09-29T18:00:00.000Z");
+    const expired = await startPullJob(
+      JOB,
+      {
+        jobs: jobs.docs,
+        enqueue: async (task: LegTask): Promise<"already"> => {
+          pressStop(task.jobId);
+          return "already";
+        },
+        now,
+      },
+      NEVER_STARTED_MS * 2
+    );
+    expect(expired).toEqual({ ok: true, status: "queued" });
+    expect(jobs.job()).toMatchObject({ status: "queued", stopAsked: true, error: null });
+    // The ask the device sends after its Stop then cancels it.
+    const deps = { jobs: jobs.docs, enqueue: async () => undefined, now };
+    expect(await startPullJob(JOB, deps, NEVER_STARTED_MS * 2)).toEqual({
+      ok: true,
+      status: "cancelled",
+    });
+
+    // And a queueing that fails while Stop is pressed refuses nothing and fails nothing.
+    jobs.jobs.set(JOB, { ...jobs.job(), status: "queued", stopAsked: false });
+    const failing = await startPullJob(JOB, {
+      jobs: jobs.docs,
+      enqueue: async (task: LegTask) => {
+        pressStop(task.jobId);
+        throw new Error("Cloud Tasks did not answer.");
+      },
+      now,
+    });
+    expect(failing).toEqual({ ok: true, status: "queued" });
+    expect(jobs.job()).toMatchObject({ status: "queued", stopAsked: true, error: null });
+  });
+
+  it("has a leg whose job was stopped between its read and its mark cancel it, asking nothing", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const racing: JobDocs = {
+      ...jobs.docs,
+      piece: async (jobId, index) => {
+        jobs.jobs.set(jobId, { ...jobs.job(jobId), stopAsked: true });
+        return jobs.docs.piece(jobId, index);
+      },
+    };
+    const fetched: string[][] = [];
+    const { deps } = legDeps(cloud, jobs, { jobs: racing, fetchTeams: answering(fetched) });
+    expect(await runPullLeg({ jobId: JOB, leg: 0 }, deps)).toBe("cancelled");
+    expect(fetched).toEqual([]);
+    expect(jobs.job()).toMatchObject({ status: "cancelled", stopAsked: true });
+  });
+
   it("has a leg that read a job a start then ended stand aside, not run on", async () => {
     const cloud = memoryCloud();
     await seed(cloud);
@@ -1161,6 +1224,9 @@ describe("starting a pull", () => {
     stored = { fields: { ...seen, status: "running" }, token: "t1" };
     expect(await rest.updateIfUnchanged(JOB, seen, ended)).toBe(false);
     stored = { fields: { ...seen, updatedAt: "2026-09-29T12:30:00.000Z" }, token: "t1" };
+    expect(await rest.updateIfUnchanged(JOB, seen, ended)).toBe(false);
+    // A device's Stop writes `stopAsked` alone, leaving the stamp: still a change.
+    stored = { fields: { ...seen, stopAsked: true }, token: "t1" };
     expect(await rest.updateIfUnchanged(JOB, seen, ended)).toBe(false);
     expect(wrote).toBe(0);
 

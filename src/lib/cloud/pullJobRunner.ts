@@ -46,12 +46,20 @@ export type JobDocs = {
   /** Writes a piece of a list the server worked out, over whatever a try before it left. */
   putPiece: (jobId: string, index: number, data: Uint8Array) => Promise<void>;
   /**
-   * Writes `patch` over a job only while it is still as `seen` was read, in the same status and
-   * untouched since (its `updatedAt` the same): whether it did. False is a leg, or another ask,
-   * that wrote to it first, whose write a start ending the job must not undo.
+   * Writes `patch` over a job only while it is still as `seen` was read: in the same status,
+   * untouched since (its `updatedAt` the same), and not asked to stop since. Whether it did; false
+   * is a leg, another ask, or the person's Stop that got there first, which a start ending the job
+   * must not undo. Stop is read on its own because a device's Stop writes `stopAsked` alone, as the
+   * rules let it (`firestore.rules`), and leaves the stamp as it was.
    */
   updateIfUnchanged: (jobId: string, seen: PullJob, patch: Partial<PullJob>) => Promise<boolean>;
 };
+
+/** Whether a job read again is as `seen` was: same status, same stamp, and no stop asked since. */
+export const unchangedSince = (seen: PullJob, now: PullJob): boolean =>
+  now.status === seen.status &&
+  now.updatedAt === seen.updatedAt &&
+  now.stopAsked === seen.stopAsked;
 
 /** A job's documents through Firestore's REST API. */
 export const restJobDocs = (docs: FirestoreRestDocuments): JobDocs => ({
@@ -68,7 +76,7 @@ export const restJobDocs = (docs: FirestoreRestDocuments): JobDocs => ({
   updateIfUnchanged: async (jobId, seen, patch) => {
     const at = await docs.readAt(jobPath(jobId));
     const now = at ? coercePullJob(at.fields) : null;
-    if (!at || !now || now.status !== seen.status || now.updatedAt !== seen.updatedAt) return false;
+    if (!at || !now || !unchangedSince(seen, now)) return false;
     return docs.replace(jobPath(jobId), { ...at.fields, ...patch }, at.token);
   },
 });
@@ -268,8 +276,25 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
     };
     if (walking === job) {
       // Only while the job is still as this leg read it: a start that ended it meanwhile, stopped
-      // or never started in the hour (`startPullJob`), is not undone by a leg that then runs on.
-      if (!(await jobs.updateIfUnchanged(jobId, job, running))) return "over";
+      // or never started in the hour (`startPullJob`), is not undone by a leg that then runs on,
+      // and a Stop pressed meanwhile is honoured before anything is asked of GameChanger.
+      if (!(await jobs.updateIfUnchanged(jobId, job, running))) {
+        const now = await jobs.read(jobId);
+        if (
+          !now ||
+          now.status === "done" ||
+          now.status === "failed" ||
+          now.status === "cancelled"
+        ) {
+          return "over";
+        }
+        if (now.stopAsked) {
+          await jobs.update(jobId, { status: "cancelled", stage: "waiting", updatedAt: stamp() });
+          return "cancelled";
+        }
+        // Moved for some other reason: tried again by Cloud Tasks, reading it afresh.
+        throw new TryLegAgain("The pull changed while its leg was starting.");
+      }
     } else {
       // Worked out just now, and written as running by this leg itself (`workOutRota`).
       await jobs.update(jobId, running);

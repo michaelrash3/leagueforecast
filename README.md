@@ -3809,8 +3809,9 @@ Now no failed start is silent:
   paused, or every delivery refused. A leg takes minutes, so an hour is far past a
   job waiting its turn.
 - A start ends a job only while it is still as the start read it (written at the
-  update time it was read at), and a leg marks a job running only while it is
-  still as the leg read it. So a leg starting just as a start gives up on its job
+  update time it was read at, with the same status, stamp and stop), and a leg
+  marks a job running only while it is still as the leg read it; a leg that finds
+  a Stop pressed in between cancels the job before asking GameChanger anything. So a leg starting just as a start gives up on its job
   keeps running and is not told to be sent again, and a leg that read a job a start
   then ended stands aside rather than running it after all.
 - Stop on a pull that never started asks at once, which cancels it, since only a
