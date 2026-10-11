@@ -1,5 +1,6 @@
 import type { GameLog, Matchup, TeamBase } from "./types";
 import {
+  ageGapYears,
   buildOpponentAdjustedRatings,
   byRating,
   bySchedule,
@@ -575,6 +576,10 @@ export const gameSideLevels = (game: ScoutGame, ageGroups: AgeGroup[]): SideLeve
  * who was older is treated as a same-level game rather than guessed at.
  */
 const ageGapOf = (levels: SideLevels): number =>
+  levels.a === undefined || levels.b === undefined ? 0 : ageGapYears(levels.a, levels.b);
+
+/** Side A's level less side B's in plain years, as a person counts them; 0 when either is unknown. */
+const levelsApart = (levels: SideLevels): number =>
   levels.a === undefined || levels.b === undefined ? 0 : levels.a - levels.b;
 
 /** GameChanger's seasons in the order a squad year plays them, so the latest pulled season wins. */
@@ -3041,8 +3046,14 @@ export const EVERY_DAY = "9999-12-31";
 export type RatingFilter = {
   /** In the page's pool, played and scored by the day given, and in the half asked for. */
   counts: (game: ScoutGame) => boolean;
-  /** Side A's level less side B's, as the fit reads it; 0 when either side's level is unknown. */
+  /**
+   * The age gap between the sides as the fit reads it (`ageGapYears`): years of
+   * `AGE_GAP_RUNS_PER_YEAR` runs, each level's step at what it is worth; 0 when either side's level
+   * is unknown.
+   */
   ageGap: (game: ScoutGame) => number;
+  /** Side A's level less side B's in plain years, which is what a person is told of a game. */
+  levelsApart: (game: ScoutGame) => number;
 };
 
 /**
@@ -3078,6 +3089,7 @@ export const ratingFilter = (
        */
       inSegment(game.date, index.year(game.ageGroupId), segment),
     ageGap: (game) => ageGapOf(sideLevelsWith(game, index)),
+    levelsApart: (game) => levelsApart(sideLevelsWith(game, index)),
   };
 };
 

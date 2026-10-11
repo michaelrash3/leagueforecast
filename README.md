@@ -2687,8 +2687,10 @@ before weighting existed.
 Fall tournaments routinely pair a team against the level above or below. Every
 age group sharing a **season year** is therefore fitted as one pool, with each
 game carrying the gap between the two sides: the older side is expected to win by
-two runs per year of age. An 8U losing by about that much to a 9U comes out even
-rather than punished. Strength of schedule is read from each team's own seat, so it
+what a year of age is worth at those levels (`AGE_STEP_RUNS` in
+`src/lib/powerRating.ts`): 5 runs from 8U to 9U, 4 from 9U to 10U, 3 a year from
+10U to 15U, 2 from 15U to 16U and 1 a year from 16U up. A 9U losing by about four
+to a 10U comes out even rather than punished. Strength of schedule is read from each team's own seat, so it
 weighs heavier for the team playing up and lighter for the one playing down.
 
 **A year of age is held, not fitted.** Until 27 September 2026 the fit started
@@ -2717,12 +2719,36 @@ the one-year step read directly is smaller (0.34 ± 0.41 runs from 17U to 18U, o
 278 games) and was not shown to be harmed or helped. Setup's model check holds the
 pool at 1, 1.5, 2, 2.5 and 3 and names another value only when it predicted the
 games between two rated clubs clearly better than two, by the same paired rule as
-the caps. On the pool of 27 September 1.5 read 0.0011 runs a game better over
+the caps. Since the table below, those values scale the whole table, 2 being the
+table as it is, and the card words them as a share of it (1.5 is "75% of those
+values"). On the pool of 27 September 1.5 read 0.0011 runs a game better over
 21,986 such games, 1.1 standard errors, and the card had named it best on that
 alone; 2.5 and 3 read clearly worse. All of that was measured with the rating
 capped at eight. Run again with the cap at twelve, on the 9U page of 26
 September, two still read best of the five (4.9810 runs a game on 21,967 games
 between rated clubs, 1.5 a ten-thousandth behind) and the card named nothing.
+
+**What a year is worth depends on the age** (11 October 2026). Two runs was one
+reading pooled over every level. Read the same direct way on the pool of 11
+October, level by level: 8U–9U 5.85 ± 1.01 runs (47 games), 9U–10U 4.16 ± 0.30
+(385), 10U–11U 2.57 ± 0.39 (236), 11U–12U 2.91 ± 0.24 (610), 12U–13U 2.99 ± 0.58
+(99), 13U–14U 3.28 ± 0.44 (169), 14U–15U 4.18 ± 0.77 (39), 15U–16U 2.12 ± 0.44
+(178), and nothing above that (16U–17U −1.48 ± 1.16 on 29 games, 17U–18U −0.97 ±
+0.66 on 87). So a 9U that played a 10U was charged for a gap half as big as the
+one it faced. The table rounds those readings, holding the thin top levels at one.
+For predicting games it is no better than two everywhere: cut in September and
+scored on what came after, the error over every held-back game was 5.1849 runs
+against 5.1832, and on the 490 held back between 9U and 10U clubs 4.82 against
+4.80, since a club that plays up is rated partly on those very games. It is in
+because the board should rank a young club against its own age: on two runs a
+year, the 9U Otters went from first in Kentucky to third on two losses to 10U
+sides, behind clubs of 8-0 and 7-0 against weak schedules; with the table they are
+second, 0.04 behind the first. Losses still count; what changes is how much a year
+of age is expected to explain. The boards' rules went to 4 with it
+(`BOARD_RULES`), so the republish after the deploy rebuilds every board, and
+the boards' fit to version 2 (`BOARD_FIT_VERSION`), so a device still on an
+older build leaves the new fits alone rather than working each game out with
+the old gap.
 
 **Pooling the fit is not pooling the tables.** Each level lists only its own
 teams — a 9U that beats an 11U in a tournament stays on the 9U page, and the 11U

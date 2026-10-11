@@ -30,9 +30,9 @@ import { dayInstant, RECENCY_SCHEMES, type RecencyScheme } from "./ratingRecency
  * the question anybody reading a ranking is really asking.
  *
  * It also answers a question the rankings themselves cannot: what a year of age is worth. The
- * model holds it at a coach's rule of thumb, two runs a year, because a fit reads it low. Holding
- * the same pool at several values and seeing which predicts best is how that rule of thumb stops
- * being an assumption.
+ * model holds each level's year at what it measured nationally (`AGE_STEP_RUNS`), because a fit
+ * reads it low. Holding the same pool at the table scaled up and down and seeing which predicts
+ * best is how that table is checked against the pool in hand rather than assumed.
  */
 
 export type ScoutBacktestResult = {
@@ -634,8 +634,9 @@ export const backtestScoutRatings = (
 };
 
 /**
- * The values a year of age is held at to ask what it is worth in a pool: the rule of thumb and two
- * either side of it, half a run apart.
+ * The values a year of age is held at to ask what it is worth in a pool, in runs of
+ * `AGE_GAP_RUNS_PER_YEAR`: 2 is the age table as it stands (`AGE_STEP_RUNS`), and the others scale
+ * the whole of it, from half to half as much again.
  */
 export const AGE_GAPS_TO_TRY = [1, 1.5, 2, 2.5, 3];
 
@@ -644,7 +645,7 @@ const bestRatedFirst = (a: ScoutBacktestResult, b: ScoutBacktestResult) =>
   (a.ratedError ?? Infinity) - (b.ratedError ?? Infinity);
 
 /**
- * The same backtest with a year of age held at each of several values, so the rule of thumb is
+ * The same backtest with a year of age held at each of several values, so the age table is
  * checked rather than assumed. Best first — the one whose held-out margin error, on games between
  * two sides the fit saw, is lowest.
  *

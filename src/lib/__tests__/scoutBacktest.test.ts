@@ -20,10 +20,11 @@ import {
 import { byGamesSince, noDecay, RECENCY_SCHEMES } from "../ratingRecency";
 import { RATING_CAP } from "../teamRankings";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
+import { ageGapYears } from "../powerRating";
 
 const groups: AgeGroup[] = [
   { id: "ag_9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },
-  { id: "ag_11", name: "11U 2027", ageLevel: 11, year: 2027, seasonIds: [] },
+  { id: "ag_10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
 ];
 
 /** A day inside the 2027 squad year, which runs August 2026 to July 2027. */
@@ -57,14 +58,17 @@ const syntheticPool = ({
     strength.set(id, ((index - (teamCount - 1) / 2) / ((teamCount - 1) / 2)) * 4);
   }
   // The last `olderCount` teams play a level up, which is what makes a game cross-age.
-  const levelOf = (index: number) => (index >= teamCount - olderCount ? 11 : 9);
+  // One level up, which the age table reads as two of the fit's years (`AGE_STEP_RUNS`), as the
+  // two levels up these clubs played before it read the same: the held values mean what they did.
+  const levelOf = (index: number) => (index >= teamCount - olderCount ? 10 : 9);
 
   const games: ScoutGame[] = [];
   let day = 0;
   for (let round = 0; round < gamesPerPair; round += 1) {
     for (let a = 0; a < teamCount; a += 1) {
       for (let b = a + 1; b < teamCount; b += 1) {
-        const gap = levelOf(a) - levelOf(b);
+        // The age table held at `ageGapRuns`, as the fit reads it (`ageGapYears`).
+        const gap = ageGapYears(levelOf(a), levelOf(b));
         const margin = Math.round(
           (strength.get(`S-${a}`) ?? 0) - (strength.get(`S-${b}`) ?? 0) + gap * ageGapRuns
         );
@@ -73,7 +77,7 @@ const syntheticPool = ({
         games.push({
           id: `g-${round}-${a}-${b}`,
           // Filed on the younger side's page, which is where a cross-age game is logged.
-          ageGroupId: levelOf(a) === 11 && levelOf(b) === 11 ? "ag_11" : "ag_9",
+          ageGroupId: levelOf(a) === 10 && levelOf(b) === 10 ? "ag_10" : "ag_9",
           teamAId: `S-${a}`,
           teamBId: `S-${b}`,
           teamAScore: Math.max(0, base + margin),
@@ -188,7 +192,7 @@ describe("what a year of age is actually worth", () => {
 
   it("judges a held year on the games between clubs the fit had seen", () => {
     // Built at two runs a year. Then eight newcomers, seen only after the cut, each play up and
-    // hold every 11U to an even game: predicted by the gap alone, they argue for a year worth less.
+    // hold every 10U to an even game: predicted by the gap alone, they argue for a year worth less.
     const { teams, games } = syntheticPool({
       teamCount: 12,
       gamesPerPair: 2,
@@ -209,7 +213,7 @@ describe("what a year of age is actually worth", () => {
         teamBScore: 5,
         date: dayOf(299),
         ageLevelA: 9,
-        ageLevelB: 11,
+        ageLevelB: 10,
       }))
     );
     const results = compareAgeGaps("ag_9", [...teams, ...newcomers], [...games, ...even], groups);

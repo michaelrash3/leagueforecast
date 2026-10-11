@@ -37,9 +37,10 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * 1: the boards as L2 first built them. 2: a league team said not to be in Team Rankings carried
  * onto a club of its own (`offClubIdFor`), not onto a club of its name. 3: nothing moved; raised so
  * that the publishers from before the boards' shape stand aside for boards that carry a fit
- * (`BOARD_SHAPE` 1).
+ * (`BOARD_SHAPE` 1). 4: a year of age worth what it measured at each level (`AGE_STEP_RUNS`),
+ * four runs from 9U to 10U, rather than two runs at every level.
  */
-export const BOARD_RULES = 3;
+export const BOARD_RULES = 4;
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of
@@ -101,8 +102,12 @@ export type HistoryPoint = { asOf: string; rank: number | null };
  * The version of a board's `fit` (`BoardFit.v`), raised by any change to what its fields hold or
  * mean. A device works out what each game did only from a fit of its own build's version, and
  * leaves one of any other alone, which costs it the lines and never the board.
+ *
+ * 1: the fit as it first went out. 2: a game's age gap read through each level's step
+ * (`ageGapYears`, `AGE_STEP_RUNS`) rather than the plain difference in levels, which a device of an
+ * older build would work its games out with and find matching nothing (found by Codex on #379).
  */
-export const BOARD_FIT_VERSION = 1;
+export const BOARD_FIT_VERSION = 2;
 
 /**
  * What the fit a board's rows were cut from read beyond the rows themselves (`boardFitOf`): the

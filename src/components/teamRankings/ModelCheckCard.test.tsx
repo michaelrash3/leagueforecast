@@ -169,7 +169,7 @@ describe("naming a better setting", () => {
 
     expect(
       screen.getByText(
-        /Held at 2\.5 instead, the ratings predicted the 400 held-back games between two rated clubs better: 0\.012 runs a game lower, give or take 0\.004\./
+        /Held at 125% of those values instead, the ratings predicted the 400 held-back games between two rated clubs better: 0\.012 runs a game lower, give or take 0\.004\./
       )
     ).toBeInTheDocument();
   });

@@ -106,7 +106,7 @@ describe("the model check while it is worked out", () => {
     await user.click(screen.getByRole("button", { name: "Check the model" }));
 
     expect(await screen.findByText(/cannot be compared here/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Held at 1 instead/i)).toBeNull();
+    expect(screen.queryByText(/of those values instead/i)).toBeNull();
   });
 
   it("says to run it again when the pool changed before it was done", async () => {
