@@ -714,8 +714,12 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * the boards raises it and adds the new fingerprint here, which is what keeps boards built by
      * newer rules from being written over by a server left on the older ones. Changing the entry
      * already here instead gets past this test; review is what catches that.
+     *
+     * 3's is 2's: the rules were raised to 3 as a barrier to the publishers from before the boards'
+     * shape, which read only the rules (`BOARD_RULES`), and no board moved. Holding 3 to the same
+     * fingerprint is what says so; a version need not have one of its own unless it moved a board.
      */
-    const RULES_PINS: Record<number, string> = { 1: "a2c59173", 2: "f9baf500" };
+    const RULES_PINS: Record<number, string> = { 1: "a2c59173", 2: "f9baf500", 3: "f9baf500" };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
   });
 

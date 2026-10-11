@@ -1,7 +1,7 @@
 import { inBatches } from "../cloud/cloudEngine";
 import { chunkId, randomId } from "../cloud/cloudManifest";
 import { hashJson, packHashed, type HashedValue } from "../cloud/cloudPack";
-import { BOARD_FAMILY, BOARD_SHAPE } from "./views/boardShape";
+import { BOARD_FAMILY, BOARD_RULES, BOARD_SHAPE } from "./views/boardShape";
 
 /**
  * The views a server publishes for members to read: `live/meta`, one small document naming every
@@ -205,11 +205,17 @@ export const publishedBoardShape = (raw: unknown): number => {
   return built?.shape ?? 0;
 };
 
+/** The rules the published boards were built under, as `publishedBoardShape` reads their shape. */
+export const publishedBoardRules = (raw: unknown): number => {
+  const built = isRecord(raw) && isRecord(raw.built) ? builtOf(raw.built[BOARD_FAMILY]) : null;
+  return built?.rules ?? 0;
+};
+
 /**
  * Every reason `republishWanted` gives, in its order, so that what describes the republish after a
  * deploy outside the code (the Firebase workflow's comments) can be held to naming each of them.
  */
-export const REPUBLISH_REASONS = ["nothing", "older-schema", "older-shape"] as const;
+export const REPUBLISH_REASONS = ["nothing", "older-schema", "older-shape", "older-rules"] as const;
 export type RepublishReason = (typeof REPUBLISH_REASONS)[number];
 
 /**
@@ -221,6 +227,10 @@ export type RepublishReason = (typeof REPUBLISH_REASONS)[number];
  * - `older-shape`: a meta of this layout and schema whose boards are of an older shape than this
  *   build writes (`BOARD_SHAPE`, `publishedBoardShape`), which a device of this build draws, but
  *   without what this build adds to them.
+ * - `older-rules`: a meta of this layout and schema whose boards were built under older rules than
+ *   this build's (`BOARD_RULES`), or under none it can read. Rules raised as a barrier (3, against
+ *   the publishers from before the boards' shape) bar nothing until boards under them are published,
+ *   so the deploy that raises them publishes them at once rather than at the next rebuild.
  *
  * In the first two every member is left looking at a notice in place of the boards until something
  * publishes, and in the third without what the build was deployed for, and without the republish
@@ -236,6 +246,7 @@ export const republishWanted = (raw: unknown): RepublishReason | null => {
   if (!isRecord(raw) || raw.format !== LIVE_FORMAT || !isCount(raw.schema)) return null;
   if (raw.schema < LIVE_SCHEMA) return "older-schema";
   if (raw.schema === LIVE_SCHEMA && publishedBoardShape(raw) < BOARD_SHAPE) return "older-shape";
+  if (raw.schema === LIVE_SCHEMA && publishedBoardRules(raw) < BOARD_RULES) return "older-rules";
   return null;
 };
 
@@ -522,7 +533,15 @@ export const publishViews = async ({
       return { ok: false, reason: "older-day" };
     }
     const storedFrom = built ? stored?.built[built.family] : undefined;
-    if (built && storedFrom && built.from.rules < storedFrom.rules) {
+    // Under the same rules, an older shape than the boards published is refused as older rules
+    // are: such a build would write boards without what the published ones carry (Codex, #371).
+    if (
+      built &&
+      storedFrom &&
+      (built.from.rules < storedFrom.rules ||
+        (built.from.rules === storedFrom.rules &&
+          (built.from.shape ?? 0) < (storedFrom.shape ?? 0)))
+    ) {
       await dropUploads(new Set());
       return { ok: false, reason: "older-rules" };
     }
