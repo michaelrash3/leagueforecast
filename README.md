@@ -5075,13 +5075,17 @@ was before them (its markup pinned first) and lines on counted rows alone, and t
 page's tests build a small pool, publish its boards and cards as a server does and read
 them as a device does: the lines of the half on screen and of the half moved to, "your"
 for the page's own club, none from a board without a fit or with the club's row moved by
-0.01, the panel otherwise the same to the byte, and a pending Not this team taking that
-game's line off alone. Each guard was broken in turn and seen to fail a test, 20 in the
-maths (two only after a test was added for each) and 19 on the panel. Two cannot be made
-to fail and are kept as a statement of what the panel relies on: the board's key, since
-the page never hands over a board but the one of the key on screen (`useLiveBoard`), and
-the cloud's age groups over the page's, which are the meta's whenever the meta carries
-them.
+0.01, the panel otherwise the same to the byte, a pending Not this team taking that
+game's line off alone, pending edits that leave no row with a line taking the line above
+the list off with them, and on a page with no squad year the whole year's board, its
+lines drawn and its rating named the season's. Each guard was broken in turn and seen to
+fail a test, 20 in the maths (two only after a test was added for each) and 19 on the
+panel, and so was each the review of these lines added. Two cannot be made to fail and
+are kept as a statement of what the panel relies on: the board's key check, since the
+page never hands over a board but the one of the key on screen (`useLiveBoard`), though
+the key it is checked against is held (a page with no year asks for its "year" board,
+which a test draws); and the cloud's age groups over the page's, which are the meta's
+whenever the meta carries them.
 
 **Setup.** On the board, Setup draws the teams waiting on an age and Pool health from the
 server's pool. The teams waiting on an age (`LiveAgelessCard`) are drawn by the device's own

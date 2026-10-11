@@ -4432,6 +4432,79 @@ describe("what each game did, on a club's panel on the cloud's board", () => {
     }
   });
 
+  /*
+   * A page with no squad year has no halves: it opens on the board of its whole year, keyed "year",
+   * and its rating is the season's. The same pool, filed on such a page.
+   */
+  it("draws the lines of the whole year's board, named the season's, on a page with no year", async () => {
+    const NONE = "ag_12u";
+    const noYear: AgeGroup[] = [
+      { id: NONE, name: "12U", ageLevel: 12, seasonIds: [], myTeamId: "S-2" },
+    ];
+    const teams = TEAMS.map((team) => ({
+      ...team,
+      gcTeams: team.gcTeams?.map((link) => ({ ...link, ageGroupId: NONE })),
+    }));
+    const games = GAMES.map((game) => ({ ...game, ageGroupId: NONE }));
+    const builtNone = buildBoardsAndFacts({
+      ageGroups: noYear,
+      teams,
+      gamesOfYear: (year) => (year === undefined ? games : []),
+      readSeason: () => ({ teams: [], matchups: [], logs: {} }),
+      today: TODAY,
+      past: false,
+    });
+    const views = [
+      ...boardViews(noYear, builtNone),
+      ...clubViews({ ageGroups: noYear, built: builtNone, namedAges: new Map() }),
+    ];
+    const value = views.find((view) => view.key === `board:none:${NONE}:year`)?.value;
+    const board = coerceBoardView(JSON.parse(JSON.stringify(value)));
+    const bucket = views.find(
+      (view) => view.key === clubKey(undefined, clubBucketOf("S-1"))
+    )?.value;
+    const card = coerceClubBucket(JSON.parse(JSON.stringify(bucket)))?.clubs["S-1"];
+    if (!board?.fit || !card) throw new Error("no year board or card for S-1");
+    const breakdown = gameBreakdown({
+      teamId: "S-1",
+      games: card.games,
+      pageId: NONE,
+      ageGroups: noYear,
+      segment: undefined,
+      board,
+    });
+    if (!breakdown) throw new Error("no lines for S-1 on the year's board");
+    const notes = gameNotesOf(breakdown, { span: "Season", own: false, cap: board.fit.cap });
+    const byDay = new Map(
+      [...notes.byGame].map(([id, clauses]) => [
+        card.games.find((game) => game.id === id)?.date,
+        clauses.join("\u00a0· "),
+      ])
+    );
+    // Both halves' counted games, and none still to come, set not to count or against itself.
+    expect([...byDay.keys()].sort()).toEqual([
+      "2026-09-12",
+      "2026-09-19",
+      "2026-10-24",
+      "2027-03-06",
+      "2027-03-13",
+      "2027-04-03",
+    ]);
+
+    saveAgeGroups(noYear);
+    window.history.replaceState(null, "", "/?view=rankings&age=12");
+    await publish(live, views, livePagesOf(builtNone, T, noYear));
+    open(sourcesOf(live));
+    await tap("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    expect(await within(panel).findByText(/^Season rating /)).toHaveTextContent(
+      `${notes.headline} ${notes.key}`
+    );
+    const lines = linesOf(panel);
+    for (const [day, line] of lines) expect(line, day).toBe(byDay.get(day) ?? null);
+    expect([...lines.values()].filter((line) => line !== null)).toHaveLength(6);
+  });
+
   it("takes the line above the list off too once pending edits leave no row with a line", async () => {
     await publishPool();
     const server = editFunction((data) =>
