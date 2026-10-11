@@ -613,7 +613,7 @@ describe("games between the league's clubs that the schedule does not have", () 
         ],
       })
     );
-    const added = missingGamesToAdd(plan, ["s2", "s3"], ["s3"], 6, (at) => `new-${at}`);
+    const added = missingGamesToAdd(plan, [], ["s2", "s3"], ["s3"], 6, (at) => `new-${at}`);
     expect(added.matchups).toEqual([
       { id: "new-0", date: "5/8", away: "CUBS", home: "ACES" },
       { id: "new-1", date: "5/15", away: "CUBS", home: "BEAR" },
@@ -625,6 +625,35 @@ describe("games between the league's clubs that the schedule does not have", () 
       innings: "6",
       isFinal: true,
     });
-    expect(missingGamesToAdd(plan, [], [], 6, (at) => `new-${at}`).matchups).toEqual([]);
+    expect(missingGamesToAdd(plan, [], [], [], 6, (at) => `new-${at}`).matchups).toEqual([]);
+  });
+
+  it("are not added where the schedule has gained the game since the review was made", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: linked,
+        scoutGames: [
+          scoutGame("s2", "S-CUBS", "S-ACES", 4, 2, "2026-05-08"),
+          scoutGame("s3", "S-BEAR", "S-CUBS", 6, 5, "2026-05-15"),
+        ],
+      })
+    );
+    expect(plan.missing?.map((game) => game.scoutGameId)).toEqual(["s2", "s3"]);
+    // Typed in by hand while the review was open, the other way round.
+    const since = [matchup("hand", "5/8", "ACES", "CUBS")];
+    const added = missingGamesToAdd(plan, since, ["s2", "s3"], [], 6, (at) => `new-${at}`);
+    expect(added.matchups).toEqual([{ id: "new-0", date: "5/15", away: "BEAR", home: "CUBS" }]);
+    expect(Object.keys(added.logs)).toEqual(["new-0"]);
+  });
+
+  it("are offered to neither team where two are linked to the same club", () => {
+    const games = [scoutGame("s4", "S-BEAR", "S-ACES", 6, 5, "2026-05-22")];
+    const offered = planLeagueScoreFill(input({ teams: linked, scoutGames: games }));
+    expect(offered.missing?.map((game) => game.scoutGameId)).toEqual(["s4"]);
+    // The Cubs linked to the Aces' club as well: a clash, which neither link stands for.
+    const clash = linked.map((team) =>
+      team.id === "CUBS" ? { ...team, scoutTeamId: "S-ACES" } : team
+    );
+    expect(planLeagueScoreFill(input({ teams: clash, scoutGames: games })).missing).toEqual([]);
   });
 });

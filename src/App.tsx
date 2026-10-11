@@ -2132,6 +2132,7 @@ export default function App() {
     const added = additions
       ? missingGamesToAdd(
           plan,
+          matchups,
           additions.add,
           additions.swap,
           innings,
