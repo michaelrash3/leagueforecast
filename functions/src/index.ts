@@ -286,9 +286,19 @@ const legInWorker = (request: LegRequest): Promise<LegAnswer> =>
   });
 
 /**
- * One leg of a pull, as Cloud Tasks sends it. One at a time, on one instance with the memory the
- * whole pool takes. A leg has half an hour, the most a task may; one that fails is tried twice
- * more, two minutes apart and then longer, and its job marked failed after the third.
+ * Legs that may run at once, each on an instance of its own with the memory the whole pool takes.
+ * One at a time left a pull sent while another ran "waiting to start" for as long as that one's
+ * leg took: on 11 October 2026 two catch-ups sent beside a 9,270-team pull waited behind it, and a
+ * leg of that pull took 199 to 379 s. Legs of different jobs saving at once cost the later one a
+ * second filing onto the copy as the other left it (`runCloudPull`), never a lost save; a job's own
+ * legs are never at once, since each queues the next only as it ends.
+ */
+const LEGS_AT_ONCE = 3;
+
+/**
+ * One leg of a pull, as Cloud Tasks sends it, beside at most `LEGS_AT_ONCE - 1` others. A leg has
+ * half an hour, the most a task may; one that fails is tried twice more, two minutes apart and then
+ * longer, and its job marked failed after the third.
  */
 export const runPull = !CLOUD_PULLS
   ? undefined
@@ -299,10 +309,10 @@ export const runPull = !CLOUD_PULLS
         memory: "8GiB",
         cpu: 2,
         timeoutSeconds: 1800,
-        maxInstances: 1,
+        maxInstances: LEGS_AT_ONCE,
         concurrency: 1,
         retryConfig: { maxAttempts: LEG_TRIES, minBackoffSeconds: 120 },
-        rateLimits: { maxConcurrentDispatches: 1 },
+        rateLimits: { maxConcurrentDispatches: LEGS_AT_ONCE },
       },
       async (request) => {
         const task = request.data;

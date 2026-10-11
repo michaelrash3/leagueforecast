@@ -3764,8 +3764,13 @@ all at once, would not fit beside the pool in the function's memory. A leg the
 size of the nightly refresh on 29 September 2026 took 101 s and held 3.5 GB at
 its end on one of GitHub's servers, so a leg of 25,000 is a few minutes.
 
-**One leg at a time.** Legs run one at a time on one instance with 8 GiB and two
-processors. Each leg runs in a worker thread capped at 5,120 MB of heap, which
+**Three legs at once.** Up to three legs run at once, each on an instance of its
+own with 8 GiB and two processors, so a pull sent while another runs starts as
+soon as it is queued rather than waiting out the other's leg: on 11 October 2026
+two catch-ups sent beside a 9,270-team pull waited behind it, and a leg took 199
+to 379 s. A job's own legs are never at once, since each queues the next as it
+ends; legs of two jobs that save together cost the later one a second filing onto
+the copy as the other left it, never a lost save. Each leg runs in a worker thread capped at 5,120 MB of heap, which
 leaves the rest of the 8 GiB for the bytes a heap does not count. A leg that runs
 out of memory ends as an error the function can see, rather than taking the
 instance down with it. Before starting the worker, the function sets the job's
@@ -3779,7 +3784,12 @@ it queues that one.
 
 **Stopping and failing.** Every ten seconds a leg writes how far it has got and
 looks for the device asking it to stop. When it is asked, it files what it has
-fetched, saves, and queues nothing more. If GameChanger stops answering, the job
+fetched, saves, and queues nothing more, and the device's line says it is saving
+those teams. A stop that comes while the leg reads the copy ends it at the next of
+the copy's values, and one that comes before any team answered ends it at once,
+with nothing to file or save: on 11 October a pull stopped within a minute or so
+of starting ran 379 s and filed nothing, the stop read only once GameChanger was
+to be asked and the whole pool tidied after it for no answer at all. If GameChanger stops answering, the job
 ends after that leg, with what came saved. A leg that fails is tried twice more,
 two minutes apart and then longer. On the third failure the job is marked failed
 with the reason, whether the leg could say so itself or its worker died first.
@@ -3957,9 +3967,8 @@ asked anything, saying so. A press is let through on one leg left, so without th
 a refresh of two legs pressed third would have taken the day to four. A pasted list
 is not counted: its legs are the size of the list, sent once.
 
-**Beside the nightly and other pulls.** Legs run one at a time on one instance
-(`runPull`), so a refresh never runs beside a pasted list's leg; it waits its turn in
-the queue. The nightly waits for a refresh under way before it pulls, and names
+**Beside the nightly and other pulls.** A refresh's leg may run beside a pasted
+list's (`runPull` runs three at once). The nightly waits for a refresh under way before it pulls, and names
 itself in the gate while it does ("The nightly refresh on GitHub"). Neither could
 harm the copy beside the other: every save is made only onto the manifest as it was
 read, and a run that finds the copy moved files its answers again onto the save it

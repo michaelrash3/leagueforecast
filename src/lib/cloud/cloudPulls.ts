@@ -348,17 +348,33 @@ export const agoFrom = (since: string, nowMs: number): string => {
 };
 
 /**
+ * How long a pull the cloud has queued is "starting" rather than "waiting to start": a leg starts
+ * within seconds of being queued while fewer than `runPull`'s three run, and the 9,270-team pull
+ * asked again on 11 October 2026 began the same second it was queued. One still queued after this
+ * is waiting behind other pulls, or its start failed somewhere the device has yet to hear.
+ */
+export const STARTING_MS = 2 * 60_000;
+
+/**
  * One line on how far a running pull has got. A stop asked is said before anything else, a pull
- * stopped before it started included; one waiting to start says how long since it was sent, and
- * what its last try said, if a leg failed before it could start.
+ * stopped before it started included, and one stopped while it files says it is saving the teams
+ * it pulled first; one just queued is starting, and one waiting longer says how long since it was
+ * sent, and what its last try said, if a leg failed before it could start.
  */
 export const describeProgress = (pull: WatchedPull, nowMs: number = Date.now()): string => {
   if (isRefresh(pull)) return describeRefreshProgress(pull);
   const { job, sent } = pull;
   const teams = sent.teams.toLocaleString();
-  if (job.stopAsked) return `Pulling ${teams} teams in the cloud: stopping.`;
+  if (job.stopAsked) {
+    const kept = job.progress.done - job.progress.failed;
+    return (job.stage === "filing" || job.stage === "saving") && kept > 0
+      ? `Pulling ${teams} teams in the cloud: stopping, saving the ${kept.toLocaleString()} teams it pulled first.`
+      : `Pulling ${teams} teams in the cloud: stopping.`;
+  }
   if (job.status === "queued") {
-    const waiting = `Pulling ${teams} teams in the cloud: waiting to start, sent ${agoFrom(sent.sentAt, nowMs)}.`;
+    const since = nowMs - Date.parse(sent.sentAt);
+    const starting = !job.error && Number.isFinite(since) && since < STARTING_MS;
+    const waiting = `Pulling ${teams} teams in the cloud: ${starting ? "starting" : "waiting to start"}, sent ${agoFrom(sent.sentAt, nowMs)}.`;
     return job.error ? `${waiting} Its last try said: ${job.error}` : waiting;
   }
   return `Pulling ${teams} teams in the cloud: ${legAndStage(job)}.`;

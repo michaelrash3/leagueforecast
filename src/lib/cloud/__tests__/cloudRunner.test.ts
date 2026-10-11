@@ -578,6 +578,120 @@ describe("a pull run on the cloud copy", () => {
     expect(cloud.manifest()?.version).toBe(result.version);
   });
 
+  it("ends at once when stopped while it reads the copy, asking and saving nothing", async () => {
+    const cloud = memoryCloud();
+    // A copy of several values, so a read that went on past the stop would show.
+    const before = await seed(cloud, () => {
+      saveAgeGroups([{ id: "ag9", name: "9U 2027", seasonIds: [], ageLevel: 9, year: 2027 }]);
+      saveScoutTeams([{ id: "S-ONE", name: "One" }]);
+      saveScoutGames([
+        {
+          id: "g1",
+          teamAId: "S-ONE",
+          teamBId: "S-ONE",
+          teamAScore: 1,
+          teamBScore: 0,
+          ageGroupId: "ag9",
+          date: "2026-09-20",
+        },
+      ]);
+    });
+    expect(before.parts.filter((part) => part.key !== LEAGUE_PART).length).toBeGreaterThan(2);
+    const stop = new AbortController();
+    // The stop arrives as the copy's first value is being read.
+    let reads = 0;
+    const store = {
+      ...cloud.store,
+      getChunk: (id: string) => {
+        reads += 1;
+        stop.abort();
+        return cloud.store.getChunk(id);
+      },
+    };
+    const asked = vi.fn(answering());
+    const result = await runCloudPull(
+      list,
+      deps(cloud, "2026-09-29T13:00:00.000Z", { store, fetchTeams: asked, signal: stop.signal })
+    );
+    expect(result).toMatchObject({ end: "stopped", asked: 0, answered: 0, filed: 0, changed: [] });
+    expect(asked).not.toHaveBeenCalled();
+    // Only the value being read when the stop came was read: none after it.
+    const first = before.parts.find((part) => part.key !== LEAGUE_PART)!;
+    expect(reads).toBe(first.chunks);
+    expect(cloud.manifest()).toEqual(before);
+  });
+
+  it("lays nothing into the pool store when stopped as the copy's last value is read", async () => {
+    const cloud = memoryCloud();
+    const before = await seed(cloud, () => saveScoutTeams([{ id: "S-ONE", name: "One" }]));
+    const parts = before.parts.filter((part) => part.key !== LEAGUE_PART);
+    const last = parts[parts.length - 1]!;
+    const stop = new AbortController();
+    const store = {
+      ...cloud.store,
+      getChunk: (id: string) => {
+        if (id.startsWith(last.id)) stop.abort();
+        return cloud.store.getChunk(id);
+      },
+    };
+    resetTeamRankingsStore();
+    await initTeamRankingsStore(memoryIo());
+    expect(await loadPoolFrom(store, stop.signal)).toBeNull();
+    expect(loadScoutTeams()).toEqual([]);
+    // Unstopped, the same copy lays its club in.
+    expect(await loadPoolFrom(cloud.store)).not.toBeNull();
+    expect(loadScoutTeams().map((team) => team.id)).toEqual(["S-ONE"]);
+  });
+
+  it("ends at once when stopped before any answer, without tidying or saving the pool", async () => {
+    const cloud = memoryCloud();
+    // A pool the tidy would change, so a tidy that ran would save.
+    const before = await seed(cloud, () => {
+      saveScoutGames([
+        {
+          id: "gc_gcACES000001_old",
+          teamAId: "S-ONE",
+          teamBId: "S-TWO",
+          teamAScore: 1,
+          teamBScore: 0,
+          ageGroupId: "nowhere",
+          date: "2099-01-01",
+        },
+      ]);
+    });
+    const stop = new AbortController();
+    const result = await runCloudPull(
+      list,
+      deps(cloud, "2026-09-29T13:00:00.000Z", {
+        signal: stop.signal,
+        fetchTeams: async () => {
+          stop.abort();
+          return new Map();
+        },
+      })
+    );
+    expect(result).toMatchObject({ end: "stopped", answered: 0, filed: 0, changed: [] });
+    expect(result.version).toBe(before.version);
+    expect(cloud.manifest()).toEqual(before);
+  });
+
+  it("still files and saves what it fetched before a stop", async () => {
+    const cloud = memoryCloud();
+    const before = await seed(cloud);
+    const stop = new AbortController();
+    const firstOnly: CloudPullDeps["fetchTeams"] = async (ids, options) => {
+      const answers = await answering()(ids.slice(0, 1), options);
+      stop.abort();
+      return answers;
+    };
+    const result = await runCloudPull(
+      list,
+      deps(cloud, "2026-09-29T13:00:00.000Z", { signal: stop.signal, fetchTeams: firstOnly })
+    );
+    expect(result).toMatchObject({ end: "stopped", answered: 1, filed: 1 });
+    expect(result.version).toBe(before.version + 1);
+  });
+
   it("files nothing into a copy deleted and started again while it fetched", async () => {
     const cloud = memoryCloud();
     await seed(cloud);
