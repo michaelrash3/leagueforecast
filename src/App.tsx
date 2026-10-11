@@ -78,15 +78,7 @@ import {
   statsView,
   teamDrawerView,
 } from "./components/league/leagueViews";
-import {
-  applyLeagueScoreFill,
-  missingGamesToAdd,
-  planLeagueScoreFill,
-  summarizeLeagueFill,
-  type FillAdditions,
-  type LeagueFillPlan,
-  type RecordedRuns,
-} from "./lib/leagueScoreFill";
+import type { FillAdditions, LeagueFillPlan, RecordedRuns } from "./lib/leagueScoreFill";
 import {
   loadAgeGroups,
   loadScoutGamesForSeason,
@@ -364,6 +356,14 @@ const CommandPalette = lazy(() =>
 const CloudPanel = lazy(() =>
   import("./components/CloudPanel").then((module) => ({ default: module.CloudPanel }))
 );
+/**
+ * Fill scores' planner, read only when somebody opens it: the page's first download stays within
+ * its budget (`bundleBudget.mjs`), and the panel that shows a plan loads it anyway.
+ */
+const loadScoreFill = () => import("./lib/leagueScoreFill");
+type ScoreFillCode = Awaited<ReturnType<typeof loadScoreFill>>;
+/** Said when Fill scores' code cannot be fetched, as on a device gone offline before it was. */
+const SCORE_FILL_UNLOADED = "Fill scores could not be opened. Try again once connected.";
 const StartFromClubs = lazy(() =>
   import("./components/league/StartFromClubs").then((module) => ({
     default: module.StartFromClubs,
@@ -2036,6 +2036,11 @@ export default function App() {
    * or with the panel open, is not filled over (`applyLeagueScoreFill`).
    */
   const scoreFillSeen = useRef<Record<string, RecordedRuns>>({});
+  /*
+   * Fill scores' code, in before a plan is shown, so applying one is a single step: no wait between
+   * the press and the save for a season to be switched in.
+   */
+  const scoreFillCode = useRef<ScoreFillCode | null>(null);
   // Asked of the server and not answered yet: the button says so and takes no second press.
   const [scoreFillAsking, setScoreFillAsking] = useState(false);
   // The season open now, for a plan the server answers after another one was switched to.
@@ -2046,24 +2051,34 @@ export default function App() {
 
   const openScoreFill = () => {
     if (!rankingsLive) {
-      scoreFillSeen.current = logs;
-      setScoreFillPlan(
-        planLeagueScoreFill({
-          seasonId: activeSeasonId,
-          teams,
-          matchups,
-          logs,
-          ageGroups: loadAgeGroups(),
-          scoutTeams: loadScoutTeams(),
-          scoutGames: loadScoutGamesForSeason(activeSeasonId),
-        })
+      const season = activeSeasonId;
+      const seen = logs;
+      void loadScoreFill().then(
+        (code) => {
+          // Opened for the season it was asked about, not one switched to while its code came in.
+          if (season !== activeSeasonRef.current) return;
+          scoreFillCode.current = code;
+          scoreFillSeen.current = seen;
+          setScoreFillPlan(
+            code.planLeagueScoreFill({
+              seasonId: season,
+              teams,
+              matchups,
+              logs: seen,
+              ageGroups: loadAgeGroups(),
+              scoutTeams: loadScoutTeams(),
+              scoutGames: loadScoutGamesForSeason(season),
+            })
+          );
+        },
+        () => showToast(SCORE_FILL_UNLOADED, { tone: "error" })
       );
       return;
     }
     const season = activeSeasonId;
     const seen = logs;
     setScoreFillAsking(true);
-    void askLeague({
+    const asked = askLeague({
       kind: "league.fill",
       season,
       teams: teams.map(({ id, name, scoutTeamId }) => ({
@@ -2079,17 +2094,25 @@ export default function App() {
         ...(log.isFinal ? { isFinal: true as const } : {}),
       })),
       today: todayIsoDay(),
-    }).then((answer) => {
-      setScoreFillAsking(false);
-      if (!answer) {
-        showToast(LEAGUE_UNANSWERED, { tone: "error" });
-        return;
-      }
-      // Opened for the season it was asked about, not one switched to while it was asked.
-      if (season !== activeSeasonRef.current) return;
-      scoreFillSeen.current = seen;
-      setScoreFillPlan(answer.plan);
     });
+    void Promise.all([asked, loadScoreFill()]).then(
+      ([answer, code]) => {
+        setScoreFillAsking(false);
+        if (!answer) {
+          showToast(LEAGUE_UNANSWERED, { tone: "error" });
+          return;
+        }
+        // Opened for the season it was asked about, not one switched to while it was asked.
+        if (season !== activeSeasonRef.current) return;
+        scoreFillCode.current = code;
+        scoreFillSeen.current = seen;
+        setScoreFillPlan(answer.plan);
+      },
+      () => {
+        setScoreFillAsking(false);
+        showToast(SCORE_FILL_UNLOADED, { tone: "error" });
+      }
+    );
   };
 
   const applyScoreFill = (
@@ -2098,7 +2121,9 @@ export default function App() {
     additions?: FillAdditions
   ) => {
     const plan = scoreFillPlan;
-    if (!plan) return;
+    const code = scoreFillCode.current;
+    if (!plan || !code) return;
+    const { applyLeagueScoreFill, missingGamesToAdd, summarizeLeagueFill } = code;
     const seen = scoreFillSeen.current;
     const innings = settings.defaultGameInnings;
     const result = applyLeagueScoreFill(plan, matchupIds, logs, innings, otherVersion, seen);

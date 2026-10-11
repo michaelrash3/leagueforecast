@@ -14,7 +14,7 @@ import type { GameLog, Matchup, TeamBase } from "./types";
 import { blankLog, isFinal } from "./util";
 import { isDatedAhead } from "./deletedGames";
 import { todayIsoDay } from "./date";
-import { tournamentReason } from "./leagueStart";
+import { tournamentReason } from "./tournamentDays";
 
 /**
  * Filling a League Standings schedule from results already in the Team Rankings pool — in

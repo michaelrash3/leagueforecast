@@ -7,7 +7,9 @@
  * shared module with one caller.
  */
 import React, {
+  lazy,
   startTransition,
+  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -26,10 +28,19 @@ import {
   type TeamBase,
 } from "../../lib/types";
 import { blankLog, isFinal } from "../../lib/util";
-import { LeagueScoreFillPanel } from "../LeagueScoreFillPanel";
 import type { FillAdditions, LeagueFillPlan } from "../../lib/leagueScoreFill";
 import { card, fieldFocusRing, tab } from "../../styles/tokens";
+import { LoadingPanel } from "../LoadingPanel";
 import { EditLock } from "./EditLock";
+
+/**
+ * Fill scores' review, and the rules it reads, are fetched only once a plan is on screen. Opening
+ * the Schedule tab measured 11.4 KB gzipped with them in it, once the games the schedule is missing
+ * came in (3.7), and 5.2 KB without, for a panel most visits never open.
+ */
+const LeagueScoreFillPanel = lazy(() =>
+  import("../LeagueScoreFillPanel").then((module) => ({ default: module.LeagueScoreFillPanel }))
+);
 
 /** A blank log, shared so a row with nothing entered is one object rather than thousands. */
 const EMPTY_GAME_LOG = blankLog();
@@ -516,12 +527,14 @@ export function GamesView({
         </div>
 
         {scoreFillPlan && (
-          <LeagueScoreFillPanel
-            plan={scoreFillPlan}
-            seasonLabel={seasonLabel}
-            onApply={applyScoreFill}
-            onClose={closeScoreFill}
-          />
+          <Suspense fallback={<LoadingPanel area="the scores to fill" />}>
+            <LeagueScoreFillPanel
+              plan={scoreFillPlan}
+              seasonLabel={seasonLabel}
+              onApply={applyScoreFill}
+              onClose={closeScoreFill}
+            />
+          </Suspense>
         )}
       </EditLock>
 
