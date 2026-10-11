@@ -37,7 +37,7 @@ import {
 } from "./lib/live/leagueWanted";
 import type { LocalSeasons } from "./lib/live/leagueSeasons";
 import { subscribeLeagueMet } from "./lib/preferences";
-import { askLeague, LEAGUE_UNANSWERED } from "./lib/live/leagueAsk";
+import { askLeague, LEAGUE_UNANSWERED, placeLeagueSeason } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import {
   editingOffBecause,
@@ -80,8 +80,10 @@ import {
 } from "./components/league/leagueViews";
 import {
   applyLeagueScoreFill,
+  missingGamesToAdd,
   planLeagueScoreFill,
   summarizeLeagueFill,
+  type FillAdditions,
   type LeagueFillPlan,
   type RecordedRuns,
 } from "./lib/leagueScoreFill";
@@ -139,9 +141,12 @@ import {
 import {
   builderTeamNames,
   buildRoundRobin,
+  type BuiltSeason,
   roundRobinCsv,
   roundRobinFileName,
 } from "./lib/roundRobin";
+import type { StartPage } from "./lib/leagueStart";
+import { createAgeGroupId } from "./lib/teamRankings/seasons";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
 import { displayName, recordText } from "./lib/format";
 import { pathSummary, recapToMarkdown, recapToStoryBrief } from "./lib/insights";
@@ -358,6 +363,11 @@ const CommandPalette = lazy(() =>
 );
 const CloudPanel = lazy(() =>
   import("./components/CloudPanel").then((module) => ({ default: module.CloudPanel }))
+);
+const StartFromClubs = lazy(() =>
+  import("./components/league/StartFromClubs").then((module) => ({
+    default: module.StartFromClubs,
+  }))
 );
 const ShortcutsHelp = lazy(() =>
   import("./components/ShortcutsHelp").then((module) => ({ default: module.ShortcutsHelp }))
@@ -2082,14 +2092,29 @@ export default function App() {
     });
   };
 
-  const applyScoreFill = (matchupIds: string[], otherVersion: string[]) => {
+  const applyScoreFill = (
+    matchupIds: string[],
+    otherVersion: string[],
+    additions?: FillAdditions
+  ) => {
     const plan = scoreFillPlan;
     if (!plan) return;
     const seen = scoreFillSeen.current;
     const innings = settings.defaultGameInnings;
     const result = applyLeagueScoreFill(plan, matchupIds, logs, innings, otherVersion, seen);
+    // Games between the league's clubs the schedule did not have (3.7), each a new game, final.
+    const stamp = Date.now();
+    const added = additions
+      ? missingGamesToAdd(
+          plan,
+          additions.add,
+          additions.swap,
+          innings,
+          (index) => `game_${stamp}_${index}`
+        )
+      : { matchups: [], logs: {} };
     setScoreFillPlan(null);
-    if (result.filled === 0) {
+    if (result.filled === 0 && added.matchups.length === 0) {
       showToast(
         result.changed === 0
           ? "Nothing was filled in."
@@ -2102,16 +2127,30 @@ export default function App() {
       );
       return;
     }
-    captureUndo("Filled scores from Team Rankings");
-    // Filled onto the scores as they are by then, not as this handler saw them.
-    setLogs(
-      (prev) => applyLeagueScoreFill(plan, matchupIds, prev, innings, otherVersion, seen).logs
+    captureUndo(
+      added.matchups.length > 0
+        ? "Filled scores and added games from Team Rankings"
+        : "Filled scores from Team Rankings"
     );
-    showToast(summarizeLeagueFill(plan, result.filled, result.changed), {
-      tone: "undo",
-      actionLabel: "Undo",
-      onAction: restoreUndo,
-    });
+    // Filled onto the scores as they are by then, not as this handler saw them.
+    if (result.filled > 0)
+      setLogs(
+        (prev) => applyLeagueScoreFill(plan, matchupIds, prev, innings, otherVersion, seen).logs
+      );
+    if (added.matchups.length > 0) {
+      setMatchups((prev) => [...prev, ...added.matchups]);
+      setLogs((prev) => ({ ...prev, ...added.logs }));
+    }
+    const count = added.matchups.length;
+    showToast(
+      [
+        result.filled > 0 ? summarizeLeagueFill(plan, result.filled, result.changed) : "",
+        count > 0 ? `Added ${count} game${count === 1 ? "" : "s"} between the league's clubs.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      { tone: "undo", actionLabel: "Undo", onAction: restoreUndo }
+    );
   };
 
   const removeGame = async (gameId: string) => {
@@ -2436,6 +2475,57 @@ export default function App() {
       actionLabel: "Undo",
       onAction: restoreUndo,
     });
+  };
+
+  /*
+   * A season started from its clubs on Team Rankings (3.7): the teams, each linked to its club, and
+   * the games kept in the review, as one step to undo like the other ways to start one. Then the
+   * season is put on the page it was started from, as Setup's League seasons card puts one
+   * (`season.assign`): in the cloud for a member, on this device's pool otherwise. Undo takes back
+   * the teams and games; the season stays on its page, where an empty season changes nothing.
+   */
+  const startSeasonFromClubs = async (made: BuiltSeason, page: StartPage) => {
+    const lockedBecause = seasonStore.locked();
+    if (lockedBecause) {
+      showToast(lockedBecause, { tone: "error" });
+      return;
+    }
+    if (teams.length > 0 || matchups.length > 0) {
+      const confirmed = await requestConfirmation({
+        title: "Start this season from Team Rankings?",
+        message: `${made.teams.length} teams · ${made.matchups.length} games.\n\nThis replaces current season data and saves an undo snapshot.`,
+        confirmLabel: "Start season",
+      });
+      if (!confirmed) return;
+    }
+    const seasonId = activeSeasonId;
+    captureUndo("Start season from Team Rankings clubs");
+    setTeams(made.teams);
+    setMatchups(made.matchups);
+    setLogs(made.logs);
+    setBracketLogs({});
+    setLastImpact(null);
+    closeTeamData();
+    setScoreboardTeamFilter("ALL");
+    setActiveView("standings");
+    const command = {
+      kind: "season.assign" as const,
+      seasonId,
+      season: { ageLevel: page.ageLevel, year: page.year },
+      pageId: createAgeGroupId(),
+    };
+    const placed = rankingsLive
+      ? await placeLeagueSeason(command)
+      : await import("./lib/live/runPoolCommand")
+          .then((module) => module.runPoolCommand(command).ok)
+          .catch(() => false);
+    const games = `${made.matchups.length} game${made.matchups.length === 1 ? "" : "s"}`;
+    showToast(
+      placed
+        ? `Started the season: ${made.teams.length} teams and ${games}, on ${page.name} in Team Rankings.`
+        : `Started the season: ${made.teams.length} teams and ${games}. It could not be put on ${page.name} in Team Rankings just now; do that in Team Rankings' Setup.`,
+      { tone: "undo", actionLabel: "Undo", onAction: restoreUndo }
+    );
   };
 
   const downloadRoundRobinCSV = () => {
@@ -3421,6 +3511,20 @@ export default function App() {
                       teams={teams}
                       loadDemoSeason={loadDemoSeason}
                       openTour={() => setShowTour(true)}
+                      startFromClubs={(close) => (
+                        <Suspense fallback={<LoadingPanel area="Team Rankings clubs" />}>
+                          <StartFromClubs
+                            live={rankingsLive}
+                            today={todayIsoDay()}
+                            innings={settings.defaultGameInnings}
+                            onCreate={(made, page) => {
+                              close();
+                              void startSeasonFromClubs(made, page);
+                            }}
+                            onClose={close}
+                          />
+                        </Suspense>
+                      )}
                     />
                   ) : activeView === "dashboard" ? (
                     <DashboardView

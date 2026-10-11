@@ -27,7 +27,7 @@ import {
 } from "../../lib/types";
 import { blankLog, isFinal } from "../../lib/util";
 import { LeagueScoreFillPanel } from "../LeagueScoreFillPanel";
-import type { LeagueFillPlan } from "../../lib/leagueScoreFill";
+import type { FillAdditions, LeagueFillPlan } from "../../lib/leagueScoreFill";
 import { card, fieldFocusRing, tab } from "../../styles/tokens";
 import { EditLock } from "./EditLock";
 
@@ -345,7 +345,7 @@ export function GamesView({
   scoreFillAsking?: boolean;
   openScoreFill: () => void;
   closeScoreFill: () => void;
-  applyScoreFill: (matchupIds: string[], otherVersion: string[]) => void;
+  applyScoreFill: (matchupIds: string[], otherVersion: string[], additions?: FillAdditions) => void;
   seasonLabel: string;
 }) {
   const dateId = useId();

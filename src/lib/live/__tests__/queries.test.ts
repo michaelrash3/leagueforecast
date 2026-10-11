@@ -62,7 +62,13 @@ import {
 import { clubPickOption, pickableClubs } from "../../leagueLinkOptions";
 import { planLeagueScoreFill } from "../../leagueScoreFill";
 import { leagueScoutBridge, scoutLinkCandidates } from "../../teamRankings";
-import { loadScoutGamesForSeason, loadScoutTeams } from "../../teamRankingsStorage";
+import {
+  loadAgeGroups,
+  loadScoutGamesForSeason,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+} from "../../teamRankingsStorage";
+import { answerStart, START_CLUBS_MAX } from "../../leagueStart";
 import { notThisTeamList, refusalOf } from "../../notThisTeam";
 import { coerceQueryAnswer } from "../queryAnswers";
 import type { GameSeen } from "../views/gamesShape";
@@ -564,6 +570,63 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
       { kind: "league.clubs", season: "s", extra: 1 },
     ])
       expect(coerceQuery(raw), JSON.stringify(raw).slice(0, 200)).toBeNull();
+  });
+
+  it("start a season from its clubs a step at a time, as the device does, read both ways exactly", () => {
+    claimed();
+    const read = {
+      ageGroups: loadAgeGroups,
+      teams: loadScoutTeams,
+      gamesForYear: loadScoutGamesForYear,
+    };
+    const today = "2027-05-01";
+    const steps = [
+      { kind: "league.start" as const, today },
+      { kind: "league.start" as const, today, page: "ag_10u_2027" },
+      {
+        kind: "league.start" as const,
+        today,
+        page: "ag_10u_2027",
+        clubs: ["A", "B"],
+        from: "2027-04-01",
+        to: "2027-04-30",
+      },
+    ];
+    for (const step of steps) {
+      const { kind: _kind, ...asked } = step;
+      const answer = answerQuery(step);
+      expect(answer).toEqual({ kind: "league.start", ...answerStart(asked, read) });
+      expect(coerceQueryAnswer(callableEncode(asJson(answer)), "league.start")).toEqual(answer);
+      expect(coerceQuery(JSON.parse(JSON.stringify(step)))).toEqual(step);
+    }
+    // Club C has no GameChanger team behind it; the pull's 6-2 of 3 April is between A and B.
+    expect(answerQuery(steps[1]!)).toMatchObject({ clubs: [{ id: "A" }, { id: "B" }] });
+    expect(answerQuery(steps[2]!)).toMatchObject({
+      draft: { games: [{ gameId: "g6", away: "A", home: "B", awayRuns: 6, homeRuns: 2 }] },
+    });
+    const most = {
+      ...steps[2]!,
+      clubs: Array.from({ length: START_CLUBS_MAX }, (_, at) => `c${at}`),
+    };
+    expect(coerceQuery(most)).toEqual(most);
+    for (const raw of [
+      { ...most, clubs: [...most.clubs, "one more"] },
+      { ...steps[2]!, clubs: ["A", ""] },
+      { ...steps[2]!, page: "" },
+      { ...steps[2]!, from: "April 1" },
+      { ...steps[2]!, to: "2027-02-30" },
+      { ...steps[0]!, today: "May 1" },
+      { ...steps[0]!, extra: 1 },
+    ])
+      expect(coerceQuery(raw), JSON.stringify(raw).slice(0, 120)).toBeNull();
+    const draft = answerQuery(steps[2]!) as AnswerOf<"league.start">;
+    for (const raw of [
+      { ...draft, pages: [{ id: "p", name: "10U", ageLevel: 10 }] },
+      { ...draft, draft: { games: [{ gameId: "g", date: "d", away: "A", home: "" }], outside: 0 } },
+      { ...draft, draft: { games: [], outside: -1 } },
+      { ...draft, clubs: [{ label: "Club A" }] },
+    ])
+      expect(coerceQueryAnswer(raw, "league.start")).toBeNull();
   });
 
   it("are read back only whole, every result neutral", () => {

@@ -102,3 +102,96 @@ describe("the fill review's rows the names could not settle", () => {
     expect(onApply).toHaveBeenCalledWith(["close"], []);
   });
 });
+
+describe("games between the league's clubs not on the schedule", () => {
+  const missing: NonNullable<LeagueFillPlan["missing"]> = [
+    {
+      scoutGameId: "s1",
+      date: "9/27",
+      awayTeamId: "A",
+      homeTeamId: "H",
+      awayName: "Placeholder Aces",
+      homeName: "Placeholder Hive",
+      awayRuns: 6,
+      homeRuns: 2,
+    },
+    {
+      scoutGameId: "s2",
+      date: "10/4",
+      awayTeamId: "H",
+      homeTeamId: "A",
+      awayName: "Placeholder Hive",
+      homeName: "Placeholder Aces",
+      awayRuns: 3,
+      homeRuns: 9,
+      tournament: "Entered under Fall Classic.",
+    },
+  ];
+  const quiet: LeagueFillPlan = {
+    rows: [],
+    missing,
+    unmatched: 0,
+    unusedResults: 2,
+    seasonLinked: true,
+  };
+
+  it("are offered with nothing else to fill, the tournament's unticked, and added as left", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(
+      <LeagueScoreFillPanel plan={quiet} seasonLabel="Fall" onApply={onApply} onClose={() => {}} />
+    );
+    expect(
+      screen.getByRole("checkbox", { name: "Add Placeholder Aces at Placeholder Hive, 9/27" })
+    ).toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "Add Placeholder Hive at Placeholder Aces, 10/4" })
+    ).not.toBeChecked();
+    expect(screen.getByText("Entered under Fall Classic.")).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", {
+        name: "Swap home and away for Placeholder Aces at Placeholder Hive, 9/27",
+      })
+    );
+    expect(screen.getByText("Placeholder Hive 2, Placeholder Aces 6")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Add 1 game" }));
+    expect(onApply).toHaveBeenCalledWith([], [], { add: ["s1"], swap: ["s1"] });
+  });
+
+  it("can be added where no score is ticked to fill", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    const unticked = { ...plan, rows: plan.rows.filter((row) => row.action !== "fill"), missing };
+    render(
+      <LeagueScoreFillPanel
+        plan={unticked}
+        seasonLabel="Fall"
+        onApply={onApply}
+        onClose={() => {}}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: "Add 1 game" }));
+    expect(onApply).toHaveBeenCalledWith([], [], { add: ["s1"], swap: [] });
+  });
+
+  it("are added beside the scores filled, and not asked for when none is ticked", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(
+      <LeagueScoreFillPanel
+        plan={{ ...plan, missing }}
+        seasonLabel="Fall"
+        onApply={onApply}
+        onClose={() => {}}
+      />
+    );
+    const fills = plan.rows.filter((row) => row.action === "fill").length;
+    await user.click(
+      screen.getByRole("button", { name: `Fill ${fills} game${fills === 1 ? "" : "s"} and add 1` })
+    );
+    expect(onApply).toHaveBeenLastCalledWith(expect.any(Array), expect.any(Array), {
+      add: ["s1"],
+      swap: [],
+    });
+  });
+});

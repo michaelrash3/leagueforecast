@@ -5,7 +5,7 @@ import type { ModelCheckAnswer, ScoutBacktestResult } from "../scoutBacktest";
 import { coerceNamedCheck } from "../teamRankings/namedGames";
 import { coerceCommand, everyOne, oneAgeless } from "./commands";
 import type { AgelessSearchAnswer, AnswerOf, FoldCounts, QueryAnswer, QueryKind } from "./queries";
-import { clubOptionsOf, fillPlanOf, leagueBridgeAnswerOf } from "./leagueAnswers";
+import { clubOptionsOf, fillPlanOf, leagueBridgeAnswerOf, startAnswerOf } from "./leagueAnswers";
 import { fits, type Shape } from "./shapes";
 
 /*
@@ -533,6 +533,11 @@ export const coerceQueryAnswer = <K extends QueryKind>(
     case "league.clubs": {
       const clubs = clubOptionsOf(raw.clubs);
       if (clubs) answer = { kind: "league.clubs", clubs };
+      break;
+    }
+    case "league.start": {
+      const read = startAnswerOf({ pages: raw.pages, clubs: raw.clubs, draft: raw.draft });
+      if (read) answer = { kind: "league.start", ...read };
       break;
     }
     case "league.fill": {

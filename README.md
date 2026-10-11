@@ -519,6 +519,32 @@ out of a table nobody can check:
 | A different score is already entered | Shown side by side and left alone unless that row is chosen by name.                                       |
 | A pairing plays twice on one day     | Paired in schedule order when both sides have the same number of games; otherwise reported, never guessed. |
 
+**Games the schedule is missing (3.7).** Where both teams of a game are linked to their clubs,
+Fill scores also lists the pool's played games between two of the league's clubs on a day the
+schedule has those two meet nowhere (`LeagueFillPlan.missing`), to be added with their score,
+final. The second game of a doubleheader the league scheduled once is not offered: it is as
+likely a scrimmage, and is left to be added by hand. A game that looks like a tournament's
+(`tournamentReason`: entered under an event, or either club played somebody else that day) starts
+unticked, and since GameChanger's schedules do not say who was at home, each can be swapped.
+
+**Starting a season from its clubs (3.7).** A new season can start from Team Rankings instead of
+from typed names, a CSV or the demo: **Start from Team Rankings clubs** on the empty season's
+page. Pick a Team Rankings page (the one of the baseball year being played comes first), the
+league's clubs on it (the clubs the hand picker offers, GameChanger's at that level or one
+below), and the days to look in (the half being played, to begin with). The pool's games among
+those clubs come back by day (`draftStart`): played ones with their score and, where the two
+clubs' schedules disagree, the other club's version said beside it; ones still to play blank; a
+likely tournament meeting unticked. Untick what is not the league's and swap what is the other
+way round, and the season is made (`seasonFromStart`): a team per club, named as Team Rankings
+names it and linked to it (`scoutTeamId`), and a game per one kept, the played ones final. Only
+the name and the link are taken from a club, never its coaches. The season is then put on the
+page it was started from, as Setup's League seasons card puts one (`season.assign`), so the
+forecast and Fill scores read the right page from the first game. Every step is the same code
+on this device's pool and on the server's (`answerStart`, the `league.start` question), so a
+member's phone, which holds no pool, sees exactly what a visitor's browser works out. One Undo
+takes back the teams and games; the season stays on its page, where an empty one changes
+nothing.
+
 The league and GameChanger rarely agree on how long a club's name is — "Trash
 Pandas" against "Trash Pandas Baseball Club" — and a league game left unmatched
 looks exactly like one that has not been played, which is what makes silence
