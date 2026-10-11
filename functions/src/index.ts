@@ -235,7 +235,7 @@ export const startPull = !CLOUD_PULLS
             status: started.status,
             again: waited !== undefined,
           });
-        } else if (started.refusal === "unavailable") {
+        } else if (started.refusal === "unavailable" || started.refusal === "unknown") {
           // The cloud's own words for why the pull could not be read or queued: what a missing
           // grant or a paused queue says, and what the device now shows the person who sent it.
           logger.error("startPull", {

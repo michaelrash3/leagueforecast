@@ -394,6 +394,12 @@ describe("asking the cloud to start a list", () => {
       expect(answer).toMatchObject({ ok: false, message: `said ${code}` });
       expect(answer).not.toMatchObject({ why: "unanswered" });
     }
+    // UNKNOWN is the server's own word for a start it cannot vouch for either way (`startPullJob`).
+    const unsure = answering(500, { error: { status: "UNKNOWN", message: "said UNKNOWN" } });
+    expect(await callStartPull(JOB, { ...signedIn, fetchImpl: unsure.fetchImpl })).toMatchObject({
+      ok: false,
+      why: "unanswered",
+    });
     // An answer that never came still may have started it.
     const lost = vi.fn(async () => {
       throw new TypeError("Failed to fetch");

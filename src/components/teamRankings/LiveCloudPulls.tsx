@@ -216,7 +216,11 @@ export default function LiveCloudPulls({
       if (sent.ok) {
         if (!options.refresh) setText("");
         look();
-      } else setSaid(sent.message);
+      } else {
+        setSaid(sent.message);
+        // A first start that went unanswered may have queued it: its line is shown too.
+        if (sent.watching) look();
+      }
     },
     [pulls, device, now, look]
   );

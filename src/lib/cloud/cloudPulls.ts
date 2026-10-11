@@ -78,7 +78,13 @@ export type PullSender = {
   startRefresh?: (ask: { device: string }) => Promise<Called<RefreshStart>>;
 };
 
-export type SendOutcome = { ok: true; jobId: string } | { ok: false; message: string };
+/**
+ * How a send went: started, or refused with why. A refusal after a start that went unanswered says
+ * `watching`, since that first start may have queued the pull all the same: the job is kept and
+ * watched, so it is never lost from sight and sent twice.
+ */
+export type SendOutcome =
+  { ok: true; jobId: string } | { ok: false; message: string; watching?: true };
 
 /**
  * Sends `entries` to be pulled in the cloud: the list's pieces and the job, then a call to
@@ -117,12 +123,18 @@ export const sendPull = async (
   } catch {
     return { ok: false, message: "The pull could not be sent to the cloud. Try again." };
   }
+  const remember = () =>
+    saveSentPulls([...loadSentPulls(), { jobId, sentAt: now, teams: entries.length, told: false }]);
   let started = await sender.start(jobId);
-  if (!started.ok && started.why === "unanswered") started = await sender.start(jobId);
+  const unclear = !started.ok && started.why === "unanswered";
+  if (unclear) started = await sender.start(jobId);
   if (!started.ok && started.why !== "unanswered") {
-    return { ok: false, message: `The cloud would not start the pull: ${started.message}` };
+    const message = `The cloud would not start the pull: ${started.message}`;
+    if (!unclear) return { ok: false, message };
+    remember();
+    return { ok: false, message, watching: true };
   }
-  saveSentPulls([...loadSentPulls(), { jobId, sentAt: now, teams: entries.length, told: false }]);
+  remember();
   return { ok: true, jobId };
 };
 

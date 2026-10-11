@@ -416,7 +416,13 @@ export type StartRefusal =
   /** No such job. */
   | "not-found"
   /** The job could not be read, or its first leg could not be queued: `message` says why. */
-  | "unavailable";
+  | "unavailable"
+  /**
+   * The first leg could not be queued and the job could not be marked so either, so whether the
+   * queueing took after all is unknown: said to the device as an answer that proves nothing
+   * (`callStartPull`), which keeps watching the job and asks about it again.
+   */
+  | "unknown";
 
 /**
  * How long a list job may sit queued, its first leg's task already made and nothing having touched
@@ -517,9 +523,10 @@ export const startPullJob = async (
   } catch (error) {
     const message = `The cloud could not queue this pull: ${causeOf(error)}`;
     // A leg of a task an earlier ask queued started it meanwhile: it runs, and nothing is refused.
-    if ((await end({ status: "failed", error: message })) === false) {
-      return { ok: true, status: job.status };
-    }
+    const ended = await end({ status: "failed", error: message });
+    if (ended === false) return { ok: true, status: job.status };
+    // Unmarked, the job is still queued and may yet run: a refusal would have the device forget it.
+    if (ended === null) return { ok: false, refusal: "unknown", message };
     return { ok: false, refusal: "unavailable", message };
   }
   // Queued afresh, it runs now; only a task already made that no leg has touched in the hour ends.

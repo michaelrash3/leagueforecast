@@ -979,6 +979,31 @@ describe("starting a pull", () => {
     });
   });
 
+  // Codex on #372: a queueing that failed, and a job that could not be marked failed either, is a
+  // start whose outcome is unknown; refused outright, the device would forget a job that may run.
+  it("answers a failed queueing it could not mark as unknown, not as a refusal", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const started = await startPullJob(JOB, {
+      jobs: {
+        ...jobs.docs,
+        updateIfUnchanged: async () => {
+          throw new Error("Firestore did not answer.");
+        },
+      },
+      enqueue: async () => {
+        throw new Error("Cloud Tasks did not answer.");
+      },
+      now: () => new Date("2026-09-29T12:01:00.000Z"),
+    });
+    expect(started).toEqual({
+      ok: false,
+      refusal: "unknown",
+      message: "The cloud could not queue this pull: Cloud Tasks did not answer.",
+    });
+    expect(jobs.job()).toMatchObject({ status: "queued", error: null });
+  });
+
   it("refuses with the cloud's words when the job cannot be read, and touches nothing", async () => {
     const queued: LegTask[] = [];
     const started = await startPullJob(JOB, {

@@ -298,11 +298,23 @@ describe("a pull still waiting to start", () => {
       ...cloud.sender,
       start: async () => answers[asked++] ?? { ok: true, value: { status: "queued" } },
     };
-    expect(await send(sender)).toEqual({
+    // Refused on the second ask, but the first, unanswered, may have queued it: kept and watched.
+    const sent = await send(sender);
+    expect(sent).toEqual({
       ok: false,
       message: "The cloud would not start the pull: The cloud could not queue this pull: no grant.",
+      watching: true,
     });
     expect(asked).toBe(2);
+    expect(loadSentPulls()).toHaveLength(1);
+
+    // Refused outright, with nothing unanswered before it: nothing to watch.
+    backing.clear();
+    const refused = cloudOf({ ok: false, why: "failed", message: "No grant." });
+    expect(await send(refused.sender)).toEqual({
+      ok: false,
+      message: "The cloud would not start the pull: No grant.",
+    });
     expect(loadSentPulls()).toEqual([]);
   });
 });
