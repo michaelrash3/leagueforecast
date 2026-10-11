@@ -508,6 +508,10 @@ describe("Team Rankings on the cloud's board", () => {
           stateOf: 2,
           movement: 0,
           at: expect.any(String),
+          // The page the board is, for League Standings' Scout button to open.
+          ageLevel: 12,
+          year: 2027,
+          segment: "spring",
         },
         "L-2": {
           clubId: "S-3",
@@ -519,6 +523,10 @@ describe("Team Rankings on the cloud's board", () => {
           stateOf: 1,
           movement: "new",
           at: expect.any(String),
+          // The page the board is, for League Standings' Scout button to open.
+          ageLevel: 12,
+          year: 2027,
+          segment: "spring",
         },
       },
       "season-2": { "L-9": STALE },
