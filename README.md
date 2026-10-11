@@ -3818,6 +3818,33 @@ Now no failed start is silent:
   running leg reads the stop. The line says how long a waiting pull has waited,
   and what its last try said if a leg failed before it could start.
 
+**Seeing where each one is.** What a device shows as "waiting to start" or
+"stopping" is the job's document, which only the leg running it and a start
+write. When a line does not move, the "Pulls in the cloud" workflow, run by hand
+from the Actions tab, says what the cloud itself has (`npm run pull:status`, with
+the deploy key, read only):
+
+- each pull job of the last three days, and any not over: its status, stage, stop,
+  when it was made and last written, and its error;
+- each Cloud Tasks queue (whether it runs, how many at once, its tries) and every
+  task waiting in it, with how often it was sent and how its last try was answered;
+- what `startPull`, `runPull` and their queue logged in the last hours, requests
+  by their answer and time taken only.
+
+It runs where the log is public, so it cuts each job's id to six characters and
+takes out any address but a service account's. A part the key may not read says
+so, and the rest still prints. The deploy account reads the queues as the pulls'
+setup made it, but lists the tasks in them only with Cloud Tasks Viewer, which
+one paste in Cloud Shell grants; without it the queues are said, their tasks are
+not:
+
+```sh
+PROJECT=your-project-id
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member "serviceAccount:github-deploy@$PROJECT.iam.gserviceaccount.com" \
+  --role roles/cloudtasks.viewer --condition=None > /dev/null
+```
+
 **Cost.** The project's budget is a dollar a month with a hard stop (below).
 Google's published free tier for functions gives 360,000 GiB-seconds and 180,000
 processor-seconds each month. A three-minute leg on 8 GiB and two processors

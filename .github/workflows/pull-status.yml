@@ -1,0 +1,40 @@
+# Where each pull in the cloud is, from the cloud's side (`scripts/pullStatus.ts`): the pull jobs,
+# the Cloud Tasks queues their legs wait in, and what the pull functions logged. Read only, with the
+# Firebase key GitHub keeps for deploys: run by hand when a device says a pull is waiting or
+# stopping and nothing moves, and on a change to it. It prints states, counts, times and the
+# cloud's own words only, each job's id cut short: this repository is public, and so are its
+# Actions logs.
+name: Pulls in the cloud
+
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Hours of the pull functions' logs to read (1 to 72)"
+        type: string
+        default: "12"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/pull-status.yml"
+      - "scripts/pullStatus.ts"
+      - "src/lib/cloud/pullStatusReport.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install: what it imports are the app's own files, run by Node as they are.
+      - name: Where each pull is
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          HOURS: ${{ inputs.hours || '12' }}
+        run: npm run pull:status -- --hours "$HOURS"
