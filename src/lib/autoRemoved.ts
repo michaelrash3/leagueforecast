@@ -17,14 +17,26 @@ import type { ScoutTeam } from "./teamRankings/types";
 
 /**
  * Why a club was taken off, each the sign of `obviousFakes.ts` it showed:
- * - `wins` (A): two or more wins by more than 30 runs that no loser's own schedule lists;
- * - `rout` (B): one win by 75 or more that the loser's own schedule does not list;
- * - `ahead` (C): half or more of its results dated well ahead, none listed by an opponent;
+ * - `wins` (A): two or more wins by `ROUT_MARGIN` or more that no loser's own schedule lists;
+ * - `rout` (B): one win by `ABSURD_MARGIN` or more that the loser's own schedule does not list;
+ * - `ahead` (C): three scored results or more, half of them dated well ahead, none listed by an
+ *   opponent;
  * - `named` (N): its name, or its GameChanger team's, has void, test or demo as a word in it.
  */
 export type AutoSign = "wins" | "rout" | "ahead" | "named";
 
 export const AUTO_SIGNS: readonly AutoSign[] = ["wins", "rout", "ahead", "named"];
+
+/**
+ * A win by this many runs or more, unvouched and filed by the winner's own schedule alone, is one
+ * of the routs sign A counts, two of them at any age: the user's line of 11 October 2026,
+ * "repeated wins by 40 or more instead of 30". Here, beside the marks, rather than with the sweep,
+ * because Pool health says it in words and storage reads this module on every visit anyway.
+ */
+export const ROUT_MARGIN = 40;
+
+/** A win by this many runs or more, alone, is no game anybody played: sign B. Here for the same. */
+export const ABSURD_MARGIN = 75;
 
 /** A win counted against a club: the game, by how many runs as the rating reads it, and its day. */
 export type CountedWin = { gameId: string; margin: number; date?: string };
@@ -38,14 +50,14 @@ export type AutoRemoval = {
   on: string;
   /** The signs it showed, in `AUTO_SIGNS` order; never empty. */
   signs: AutoSign[];
-  /** Its wins by more than 30 that no loser's own schedule listed (`wins` and `rout`). */
+  /** Its wins by `ROUT_MARGIN` or more that no loser's own schedule listed (`wins` and `rout`). */
   wins?: CountedWin[];
   /**
    * Its results dated well ahead (`ahead`, `FAR_AHEAD_DAYS` or more): the first such day, how
    * many, out of how many scored, and whether the club is next season's squad (its GameChanger
-   * season has not begun), which is the shape every such mark measured on 29 September and 11
-   * October 2026 had. A result only a day or two ahead is not among them, so the day named is a
-   * score the sign counted.
+   * season has not begun). Every club C marked on 29 September and 11 October 2026 was one, until C
+   * asked for three scored games, which none of them had. A result only a day or two ahead is not
+   * among them, so the day named is a score the sign counted.
    */
   ahead?: { first: string; results: number; played: number; nextSeason?: true };
   /** The word its name had (`named`), lower case. */

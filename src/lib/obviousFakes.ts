@@ -1,20 +1,12 @@
 import { isDatedAhead } from "./deletedGames";
-import {
-  IMPLAUSIBLE_MARGIN,
-  isImplausibleScore,
-  ratedMargin,
-  scoreSeenBy,
-} from "./teamRankings/games";
-import {
-  ageGroupLevel,
-  segmentOn,
-  squadYearForGcSeason,
-  SEASON_SEGMENT_ORDER,
-} from "./teamRankings/seasons";
+import { isImplausibleScore, ratedMargin, scoreSeenBy } from "./teamRankings/games";
+import { segmentOn, squadYearForGcSeason, SEASON_SEGMENT_ORDER } from "./teamRankings/seasons";
 import type { AgeGroup, GcTeamLink, ScoutGame, ScoutTeam } from "./teamRankings/types";
 import { clubsByGcId, filedBy } from "./unrealClubs";
 import {
+  ABSURD_MARGIN,
   AUTO_SIGNS,
+  ROUT_MARGIN,
   type AutoRemoval,
   type AutoRemovals,
   type AutoSign,
@@ -29,35 +21,44 @@ import {
  *
  * A pulled club is marked when it shows one of four signs and nothing keeps it.
  *
- * - A: two or more wins by more than `IMPLAUSIBLE_MARGIN` runs that nobody has vouched for, filed
- *   by its own schedule, none of its wins by more than that listed by the losing club's own
- *   schedule. Only above 10U, unless one of those wins is by `SURE_BLOWOUT` or more: a young
- *   travel team routs stand-ins, and three clubs the user called real were each one such win from
- *   it on 11 October, every one 8U to 10U.
+ * - A: two or more wins by `ROUT_MARGIN` runs or more that nobody has vouched for, filed by its
+ *   own schedule, none of its wins by that much listed by the losing club's own schedule, at any
+ *   age. The line is the user's of 11 October 2026, "repeated wins by 40 or more instead of 30".
+ *   At thirty the sign waited for 11U unless one of the wins was by fifty, since a young travel
+ *   team routs stand-ins: three clubs of 8U to 10U the user called real were one such win from it
+ *   on 11 October. At forty that wait changes no mark on the five backups of 25 September to 11
+ *   October 2026, sweeping each from no marks, and with the word "real" set aside the sweep takes
+ *   none of the 131 clubs the user had called real by 11 October, 72 of them 10U and under, so it
+ *   is gone.
  * - B: one such win by `ABSURD_MARGIN` or more that the loser's own schedule does not list. On 11
  *   October 2026 no game both clubs' schedules list, and none of the 77 scores the user vouched
  *   for, reaches fifty (the widest of each is 42.5). It was not always so: on 29 September one
  *   game both list read 54.5, and on 26 September, before the user's own sweep of 28 September,
  *   three reached fifty, the widest 119. A listed game is never a sign, whatever its margin.
- * - C: half or more of its scored games are its own schedule's results dated `FAR_AHEAD_DAYS` or
- *   more ahead, no opponent's schedule lists any of its results dated ahead, and no real
- *   opponent's schedule lists any game of it at all. Nobody scores a game before it is played; the
- *   floor keeps out a game keyed a day or two off. The last clause is what lets the lift below
- *   hold: without it a club whose mark one real game lifted showed the sign again the same night,
- *   short of the guard's three or half, and was marked afresh on that day, which the next real
- *   game, dated before it, could never lift. Measured on the five backups of 25 September to 11
- *   October 2026, it changes no mark.
+ * - C: it has `AHEAD_FEWEST_PLAYED` scored games or more, half or more of them its own schedule's
+ *   results dated `FAR_AHEAD_DAYS` or more ahead, no opponent's schedule lists any of its results
+ *   dated ahead, and no real opponent's schedule lists any game of it at all. Nobody scores a game
+ *   before it is played; the floor keeps out a game keyed a day or two off. The fewest games are
+ *   the user's word of 11 October 2026: it "can't be a situation where they only have 2 games
+ *   listed and one of them is in the future". On the five backups they leave C two clubs on each
+ *   of 25 and 26 September, each with two of its three scores dated weeks ahead, and take from it
+ *   next season's squads with fewer than three scores, the only clubs it marked on 29 September
+ *   (two) and 11 October (one). The last clause is what lets the lift below hold: without it a club
+ *   whose mark one real game lifted showed the sign again the same night, short of the guard's
+ *   three or half, and was marked afresh on that day, which the next real game, dated before it,
+ *   could never lift. Measured on the five backups, it changes no mark.
  * - N: its name, or the name of a GameChanger team filed under it, has void, voided, test,
  *   testing or demo as a word of its own, in any case ("Contest" and "Demons" are not). Marked per
  *   GameChanger id: when only one of its teams has the word and the club's own name does not,
  *   only that one, so the club stands unless every one of its ids is marked.
  *
- * Measured with this code against what the user did by hand. On the pool of 26 September 2026 at
- * 18:40, before the user's own sweep of 28 September, A, B and C take off 26 clubs, and every one
- * of them the user had deleted by 11 October; N takes off 84 more. On 11 October C takes off one
- * club, next season's squad with one score dated months ahead, and N 249, eight of them only
- * through a GameChanger team's name. On neither does the sweep take a club the user said was real
- * by 11 October (131 such clubs pulled then).
+ * Measured with this code against what the user did by hand, sweeping each backup from no marks.
+ * On the pool of 26 September 2026 at 18:40, before the user's own sweep of 28 September, A, B and
+ * C take off 21 clubs (9 by A, 16 by B, 2 by C, some by two), every one of which the user had
+ * deleted by 11 October, and N 84 more. On 29 September and 11 October A, B and C take off none,
+ * and N 86 and 249, eight of the 249 only through a GameChanger team's name. On none of the five
+ * backups of 25 September to 11 October does the sweep take a club the user said was real by 11
+ * October (131 such clubs pulled then), even with that word set aside.
  *
  * What keeps a club with a sign:
  * - any of its GameChanger ids, or its club id, said to be real (`realClubs`);
@@ -67,7 +68,7 @@ import {
  *   scored games, or at least half of them (one at least). A real opponent is a pulled club that
  *   shows no sign of its own (C read without its clause about real opponents, which would make
  *   the question ask itself). A mark does not make a club no witness: a mark stays after its sign
- *   has gone, and two clubs marked for one stray score each, playing each other in the spring,
+ *   has gone, and two clubs marked for their stray scores, playing each other in the spring,
  *   would otherwise keep each other off the boards for good;
  * - a League Standings team linked to it, which only the derivation that reads League Standings
  *   can tell (`deriveAllKnown`), so it is applied there, whatever the marks say.
@@ -75,25 +76,22 @@ import {
  * A mark stays until something lifts it, so a club whose results dated ahead have since been
  * reached is not put back for that. Any guard lifts every mark it would have kept from being
  * made. A and B lift too on the sign's own escape: A once a losing club's own schedule lists one
- * of the wins counted, or any win of the club's by more than thirty (the clause A itself reads);
- * B once a losing club's schedule lists the win counted, or once every win of the club's by
- * `ABSURD_MARGIN` or more is one its loser lists. Not by the counted game's id alone: a game the
+ * of the wins counted, or any win of the club's by `ROUT_MARGIN` or more (the clause A itself
+ * reads); B once a losing club's schedule lists the win counted, or once every win of the club's
+ * by `ABSURD_MARGIN` or more is one its loser lists. Not by the counted game's id alone: a game the
  * loser's schedule comes to list can be filed or collapsed under another id, which happened to 9
  * of the 97 one-sided games between pulled clubs that both schedules came to list between 29
  * September and 11 October 2026. C lifts once a real opponent's schedule lists even one game of
- * the club's dated after the day it was marked: the shape C finds is next season's squad with one
- * stray score, and a spring of real games is the answer to it; such a club no longer shows C, so
- * it stays lifted. N lifts once neither the club's name nor the GameChanger team's has the word.
+ * the club's dated after the day it was marked: the shape C finds is a club whose scores are
+ * mostly of games still to be played, and a season of real games is the answer to it; such a club
+ * no longer shows C, so it stays lifted. N lifts once neither the club's name nor the GameChanger
+ * team's has the word.
  */
 
-/** A win by this many runs or more, alone, is no game anybody played. */
-export const ABSURD_MARGIN = 75;
-/** A win by this many runs or more is a sign at any age, where A otherwise waits for 11U. */
-export const SURE_BLOWOUT = 50;
-/** The youngest level at which two routs are a sign without one of `SURE_BLOWOUT`. */
-export const ROUTS_FROM_LEVEL = 11;
 /** A result dated this many days or more ahead is no game keyed a day or two off. */
 export const FAR_AHEAD_DAYS = 8;
+/** The fewest scored games C reads its share of: two are too few, in the user's word. */
+export const AHEAD_FEWEST_PLAYED = 3;
 /** Games real opponents' schedules list that make a club plainly real, whatever its share. */
 export const PLAINLY_REAL_GAMES = 3;
 
@@ -148,9 +146,12 @@ const listersOf = (game: ScoutGame, clubOfGcId: ReadonlyMap<string, string>): Se
 /** What a club's games say of it, walked once. */
 type Tally = {
   played: number;
-  /** Its unvouched wins by more than 30 filed by its own schedule that the loser's does not list. */
+  /**
+   * Its unvouched wins by `ROUT_MARGIN` or more filed by its own schedule that the loser's does not
+   * list.
+   */
   unlisted: CountedWin[];
-  /** Its wins by more than 30, as its schedule reads them, that the loser's schedule lists. */
+  /** Its wins by `ROUT_MARGIN` or more, as its schedule reads them, that the loser's lists. */
   routsListed: number;
   /** Those of them by `ABSURD_MARGIN` or more. */
   absurdListed: number;
@@ -176,15 +177,6 @@ const emptyTally = (): Tally => ({
   firstFar: undefined,
   vouched: false,
 });
-
-/** The level a club plays at: the highest any of its GameChanger teams is filed at. */
-const levelOf = (team: ScoutTeam, pages: ReadonlyMap<string, AgeGroup>): number =>
-  Math.max(
-    0,
-    ...(team.gcTeams ?? []).map(
-      (link) => link.ageLevel ?? ageGroupLevel(pages.get(link.ageGroupId)) ?? 0
-    )
-  );
 
 /**
  * Whether every GameChanger team of a club is for a season that has not begun on `today`: next
@@ -213,7 +205,7 @@ type Verdict = {
   signs: AutoSign[];
   named: Map<string, Named>;
   wins: CountedWin[];
-  /** Its wins by more than 30, and by `ABSURD_MARGIN` or more, that the loser's schedule lists. */
+  /** Its wins by `ROUT_MARGIN` or more, and by `ABSURD_MARGIN` or more, that the loser's lists. */
   routsListed: number;
   absurdListed: number;
   /** Whether a win by `ABSURD_MARGIN` or more is among those no loser's schedule lists. */
@@ -233,7 +225,6 @@ type Verdict = {
  */
 const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<string, Verdict> => {
   const clubOfGcId = clubsByGcId(pool.teams);
-  const pages = new Map(pool.ageGroups.map((group) => [group.id, group]));
   const pulled = new Map(
     pool.teams.filter((team) => (team.gcTeams ?? []).length > 0).map((team) => [team.id, team])
   );
@@ -253,8 +244,9 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
     listed.set(game, listers);
     const filers = filedBy(game, clubOfGcId);
     const early = isDatedAhead(game, today);
-    const implausible = isImplausibleScore(game);
     const margin = ratedMargin(game) ?? 0;
+    // A win nobody vouched for (`isImplausibleScore`), by A's line or more, as the rating reads it.
+    const rout = Math.abs(margin) >= ROUT_MARGIN && isImplausibleScore(game);
     const winner = margin > 0 ? game.teamAId : margin < 0 ? game.teamBId : undefined;
     [
       [game.teamAId, game.teamBId],
@@ -266,13 +258,13 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
       const ownFiled = filers.includes(self!);
       const otherListed = listers.has(other!);
       const seen = scoreSeenBy(game, self!);
-      if (seen && seen.own - seen.opponent > IMPLAUSIBLE_MARGIN && otherListed) {
+      if (seen && seen.own - seen.opponent >= ROUT_MARGIN && otherListed) {
         tally.routsListed += 1;
         if (seen.own - seen.opponent >= ABSURD_MARGIN) tally.absurdListed += 1;
       }
       // Filed by its own schedule and not listed by the loser's. The two never part in a pool, since
       // a win the club's schedule did not file is one the loser's did, but it is what the sign says.
-      if (implausible && winner === self && ownFiled && !otherListed) {
+      if (rout && winner === self && ownFiled && !otherListed) {
         tally.unlisted.push({
           gameId: game.id,
           margin: Math.abs(margin),
@@ -304,17 +296,11 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
     const links = team.gcTeams ?? [];
     const widest = Math.max(0, ...tally.unlisted.map((win) => win.margin));
     const signs: AutoSign[] = [];
-    if (
-      tally.unlisted.length >= 2 &&
-      tally.routsListed === 0 &&
-      (levelOf(team, pages) >= ROUTS_FROM_LEVEL || widest >= SURE_BLOWOUT)
-    ) {
-      signs.push("wins");
-    }
+    if (tally.unlisted.length >= 2 && tally.routsListed === 0) signs.push("wins");
     if (widest >= ABSURD_MARGIN) signs.push("rout");
     // C's shape; whether a real opponent lists a game of it is asked below, once witnesses are known.
     if (
-      tally.farAhead >= 1 &&
+      tally.played >= AHEAD_FEWEST_PLAYED &&
       tally.farAhead * 2 >= tally.played &&
       tally.aheadListed === 0 &&
       tally.firstFar !== undefined
@@ -450,7 +436,7 @@ export const sweepMarks = (
     const signs = mark.signs.filter((sign) => {
       if (sign === "named") return word !== undefined;
       if (verdict.corroborated) return false;
-      // A's escape as A reads it: any win by more than thirty a loser's schedule lists.
+      // A's escape as A reads it: any win by `ROUT_MARGIN` or more a loser's schedule lists.
       if (sign === "wins") return verdict.routsListed === 0 && !(mark.wins ?? []).some(loserLists);
       if (sign === "rout") {
         // B's: the win counted is listed, or every win by the line is one its loser lists.

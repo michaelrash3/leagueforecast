@@ -197,8 +197,8 @@ describe("the clubs taken off as plainly made up, in Pool health", () => {
       signs: ["wins"],
       word: undefined,
       wins: [
-        { gameId: "rout-34", margin: 34 },
-        { gameId: "x", margin: 33 },
+        { gameId: "x", margin: 44 },
+        { gameId: "y", margin: 43 },
       ],
     }),
   ]);

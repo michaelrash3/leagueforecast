@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
-  ABSURD_MARGIN,
+  AHEAD_FEWEST_PLAYED,
   FAR_AHEAD_DAYS,
   PLAINLY_REAL_GAMES,
-  ROUTS_FROM_LEVEL,
-  SURE_BLOWOUT,
   sweepMarks,
   type SweepAnswers,
   type SweepPool,
 } from "../obviousFakes";
 import {
+  ABSURD_MARGIN,
   autoRemovalsList,
   coerceAutoRemovals,
   NO_REMOVALS,
+  ROUT_MARGIN,
   type AutoRemoval,
   type AutoRemovals,
 } from "../autoRemoved";
@@ -28,10 +28,11 @@ import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
  */
 
 const TODAY = "2026-10-11";
+const page8: AgeGroup = { id: "p8", name: "8U 2027", seasonIds: [], ageLevel: 8, year: 2027 };
 const page9: AgeGroup = { id: "p9", name: "9U 2027", seasonIds: [], ageLevel: 9, year: 2027 };
 const page10: AgeGroup = { id: "p10", name: "10U 2027", seasonIds: [], ageLevel: 10, year: 2027 };
 const page12: AgeGroup = { id: "p12", name: "12U 2027", seasonIds: [], ageLevel: 12, year: 2027 };
-const PAGES = [page9, page10, page12];
+const PAGES = [page8, page9, page10, page12];
 
 /** A day `days` from today. */
 const ahead = (days: number) =>
@@ -102,11 +103,11 @@ const game = (
 it("draws the lines where they were measured", () => {
   expect([
     ABSURD_MARGIN,
-    SURE_BLOWOUT,
-    ROUTS_FROM_LEVEL,
+    ROUT_MARGIN,
     FAR_AHEAD_DAYS,
+    AHEAD_FEWEST_PLAYED,
     PLAINLY_REAL_GAMES,
-  ]).toEqual([75, 50, 11, 8, 3]);
+  ]).toEqual([75, 40, 8, 3, 3]);
 });
 
 const NO_WORD: SweepAnswers = { realClubs: new Set(), keptApart: new Set(), namedAges: new Map() };
@@ -128,48 +129,60 @@ const sweep = (
 const signsOf = (marks: AutoRemovals) =>
   Object.fromEntries([...marks].map(([id, mark]) => [id, mark.signs]));
 
-describe("sign A: two or more wins by more than thirty that no loser's own schedule lists", () => {
-  it("marks a 12U club with two, and not one with one", () => {
+describe("sign A: two or more wins by 40 or more that no loser's own schedule lists", () => {
+  it("marks a club with two, and not one with one", () => {
     const fake = club("F", 12);
     expect(
       signsOf(
         sweep({
           teams: [fake, standIn("X"), standIn("Y")],
-          games: [game("F", "X", 31, 0), game("F", "Y", 40, 2)],
+          games: [game("F", "X", 40, 0), game("F", "Y", 42, 2)],
         })
       )
     ).toEqual({ gcF: ["wins"] });
     expect(
-      sweep({ teams: [fake, standIn("X")], games: [game("F", "X", 31, 0), game("F", "X", 6, 2)] })
+      sweep({ teams: [fake, standIn("X")], games: [game("F", "X", 40, 0), game("F", "X", 6, 2)] })
         .size
     ).toBe(0);
   });
 
-  it("leaves a 10U club with two such wins alone unless one of them is by fifty", () => {
-    const young = club("Y", 10);
-    const two = [game("Y", "X", 40, 0, { page: "p10" }), game("Y", "X", 41, 1, { page: "p10" })];
-    expect(sweep({ teams: [young, standIn("X")], games: two }).size).toBe(0);
-    const fifty = [two[0]!, game("Y", "X", 50, 0, { page: "p10" })];
-    expect(signsOf(sweep({ teams: [young, standIn("X")], games: fifty }))).toEqual({
-      gcY: ["wins"],
-    });
-    const fortyNine = [two[0]!, game("Y", "X", 49, 0, { page: "p10" })];
-    expect(sweep({ teams: [young, standIn("X")], games: fortyNine }).size).toBe(0);
+  it("counts a win by 40 and not one by 39", () => {
+    // The user's line, 11 October 2026: "repeated wins by 40 or more instead of 30".
+    const fake = club("F", 12);
+    const teams = [fake, standIn("X")];
+    expect(
+      signsOf(sweep({ teams, games: [game("F", "X", 45, 5), game("F", "X", 60, 0)] }))
+    ).toEqual({ gcF: ["wins"] });
+    expect(sweep({ teams, games: [game("F", "X", 39, 0), game("F", "X", 60, 0)] }).size).toBe(0);
   });
 
-  it("is not a sign once a loser's own schedule lists one of its wins by more than thirty", () => {
+  it("is a sign at every age, with no win of fifty asked for", () => {
+    const eight = club("E", 8);
+    const at8 = (runs: number) => game("E", "X", runs, 0, { page: "p8" });
+    expect(signsOf(sweep({ teams: [eight, standIn("X")], games: [at8(41), at8(41)] }))).toEqual({
+      gcE: ["wins"],
+    });
+    // A young travel team's routs of stand-ins by 31 and 35 are no sign at any age.
+    expect(sweep({ teams: [eight, standIn("X")], games: [at8(31), at8(35)] }).size).toBe(0);
+    const ten = club("T", 10);
+    const at10 = (runs: number) => game("T", "X", runs, 0, { page: "p10" });
+    expect(signsOf(sweep({ teams: [ten, standIn("X")], games: [at10(40), at10(49)] }))).toEqual({
+      gcT: ["wins"],
+    });
+  });
+
+  it("is not a sign once a loser's own schedule lists one of its wins by 40 or more", () => {
     const fake = club("F", 12);
     const loser = club("L", 12);
+    const teams = [fake, loser, standIn("X")];
+    const routs = [game("F", "X", 45, 0), game("F", "X", 46, 0)];
     expect(
-      sweep({
-        teams: [fake, loser, standIn("X")],
-        games: [
-          game("F", "X", 35, 0),
-          game("F", "X", 36, 0),
-          game("F", "L", 33, 1, { listedBy: ["L"] }),
-        ],
-      }).size
+      sweep({ teams, games: [...routs, game("F", "L", 40, 0, { listedBy: ["L"] })] }).size
     ).toBe(0);
+    // A win by 39 a loser lists is none of them, and the two unlisted stand.
+    expect(
+      signsOf(sweep({ teams, games: [...routs, game("F", "L", 39, 0, { listedBy: ["L"] })] }))
+    ).toEqual({ gcF: ["wins"] });
   });
 
   it("counts only the wins its own schedule filed", () => {
@@ -204,46 +217,52 @@ describe("sign B: one win by seventy-five or more that the loser's own schedule 
   });
 });
 
-describe("sign C: half its results dated well ahead, and no opponent listing any of them", () => {
-  const twoGames = (days: number, listedBy: string[] = []) => [
-    game("F", "X", 5, 3, { date: ahead(days), listedBy }),
-    game("F", "X", 4, 2, { date: "2026-09-01" }),
+describe("sign C: half of three or more results dated well ahead, none listed by an opponent", () => {
+  /** `far` results dated `days` ahead and `past` played already, all against a stand-in. */
+  const results = (far: number, days: number, past = 0) => [
+    ...Array.from({ length: far }, (_, at) => game("F", "X", 5 + at, 3, { date: ahead(days) })),
+    ...Array.from({ length: past }, (_, at) => game("F", "X", 4, at, { date: "2026-09-01" })),
   ];
+  const marked = (games: ScoutGame[]) => sweep({ teams: [club("F", 12), standIn("X")], games });
 
-  it("marks one of two dated 8 days ahead, and not 7", () => {
-    const fake = club("F", 12);
-    const marks = sweep({ teams: [fake, standIn("X")], games: twoGames(8) });
+  it("marks two of three dated 8 days ahead, and not 7", () => {
+    const marks = marked(results(2, 8, 1));
     expect(signsOf(marks)).toEqual({ gcF: ["ahead"] });
-    expect(marks.get("gcF")?.ahead).toEqual({ first: ahead(8), results: 1, played: 2 });
-    expect(sweep({ teams: [fake, standIn("X")], games: twoGames(7) }).size).toBe(0);
+    expect(marks.get("gcF")?.ahead).toEqual({ first: ahead(8), results: 2, played: 3 });
+    expect(marked(results(2, 7, 1)).size).toBe(0);
+  });
+
+  it("never marks a club with fewer than three scored games", () => {
+    // The user's word, 11 October 2026: it "can't be a situation where they only have 2 games
+    // listed and one of them is in the future".
+    expect(marked(results(1, 30, 1)).size).toBe(0);
+    expect(marked(results(2, 30)).size).toBe(0);
+    expect(marked(results(1, 30)).size).toBe(0);
+    expect(signsOf(marked(results(3, 30)))).toEqual({ gcF: ["ahead"] });
+    expect(signsOf(marked(results(2, 30, 2)))).toEqual({ gcF: ["ahead"] });
   });
 
   it("counts only the results its own schedule filed", () => {
-    // O's schedule alone filed a result ahead against F: O's, not F's, and F's own one ahead
-    // stays unlisted, half of F's two.
+    // O's schedule alone filed a result ahead against F: O's, not F's, so it is no result of F's
+    // that an opponent lists, and F's own two ahead stay unlisted, two of its three.
     const fake = club("F", 12);
     const other = club("O", 12);
-    expect(
-      signsOf(
-        sweep({
-          teams: [fake, other, standIn("X")],
-          games: [
-            game("F", "X", 5, 3, { date: ahead(20) }),
-            game("F", "O", 2, 1, { date: ahead(20), filer: "O" }),
-          ],
-        })
-      )
-    ).toEqual({ gcF: ["ahead"], gcO: ["ahead"] });
+    const marks = sweep({
+      teams: [fake, other, standIn("X"), standIn("Y")],
+      games: [
+        game("F", "X", 5, 3, { date: ahead(20) }),
+        game("F", "X", 6, 3, { date: ahead(21) }),
+        game("F", "O", 2, 1, { date: ahead(20), filer: "O" }),
+        game("O", "Y", 7, 1, { date: ahead(22) }),
+        game("O", "Y", 8, 1, { date: ahead(23) }),
+      ],
+    });
+    expect(signsOf(marks)).toEqual({ gcF: ["ahead"], gcO: ["ahead"] });
+    expect(marks.get("gcF")?.ahead).toEqual({ first: ahead(20), results: 2, played: 3 });
   });
 
   it("does not mark one of three", () => {
-    const fake = club("F", 12);
-    expect(
-      sweep({
-        teams: [fake, standIn("X")],
-        games: [...twoGames(30), game("F", "X", 1, 0, { date: "2026-09-02" })],
-      }).size
-    ).toBe(0);
+    expect(marked(results(1, 30, 2)).size).toBe(0);
   });
 
   it("does not mark a club whose result ahead an opponent's own schedule lists", () => {
@@ -254,10 +273,11 @@ describe("sign C: half its results dated well ahead, and no opponent listing any
     expect(
       signsOf(
         sweep({
-          teams: [fake, other],
+          teams: [fake, other, standIn("X")],
           games: [
             game("F", "O", 5, 3, { date: ahead(30), listedBy: ["O"] }),
-            game("F", "O", 4, 2, { date: "2026-09-01" }),
+            game("F", "X", 6, 3, { date: ahead(31) }),
+            game("F", "X", 4, 2, { date: "2026-09-01" }),
           ],
         })
       )
@@ -280,12 +300,14 @@ describe("sign C: half its results dated well ahead, and no opponent listing any
     };
     const marks = sweep({
       teams: [spring, standIn("X")],
-      games: [game("F", "X", 9, 2, { date: "2027-04-01" })],
+      games: ["2027-04-01", "2027-04-02", "2027-04-03"].map((date) =>
+        game("F", "X", 9, 2, { date })
+      ),
     });
     expect(marks.get("gcF")?.ahead).toEqual({
       first: "2027-04-01",
-      results: 1,
-      played: 1,
+      results: 3,
+      played: 3,
       nextSeason: true,
     });
   });
@@ -403,10 +425,13 @@ describe("what keeps a club with a sign", () => {
 
 describe("a mark, once made", () => {
   const fake = club("F", 12);
-  const far = game("F", "X", 5, 3, { date: ahead(30) });
   const pool = {
     teams: [fake, standIn("X")],
-    games: [far, game("F", "X", 4, 2, { date: "2026-09-01" })],
+    games: [
+      game("F", "X", 5, 3, { date: ahead(30) }),
+      game("F", "X", 6, 3, { date: ahead(31) }),
+      game("F", "X", 4, 2, { date: "2026-09-01" }),
+    ],
   };
   const marked = sweep(pool);
 
@@ -416,7 +441,7 @@ describe("a mark, once made", () => {
       name: "Club F",
       on: TODAY,
       signs: ["ahead"],
-      ahead: { first: ahead(30), results: 1, played: 2 },
+      ahead: { first: ahead(30), results: 2, played: 3 },
     } satisfies AutoRemoval);
   });
 
@@ -450,6 +475,18 @@ describe("a mark, once made", () => {
     expect(signsOf(rout)).toEqual({ gcF: ["wins"] });
     const listed = [{ ...routs[0]!, alsoFrom: ["gcL"] }, routs[1]!, ...rest];
     expect(sweep({ teams, games: listed }, {}, rout).size).toBe(0);
+  });
+
+  it("is lifted from a club's routs once a loser lists any win of it by 40, and not by 39", () => {
+    const loser = club("L", 12);
+    const teams = [fake, loser, standIn("X")];
+    const routs = [game("F", "X", 40, 0), game("F", "X", 41, 0)];
+    const rout = sweep({ teams, games: routs });
+    expect(signsOf(rout)).toEqual({ gcF: ["wins"] });
+    const forty = game("F", "L", 40, 0, { listedBy: ["L"] });
+    expect(sweep({ teams, games: [...routs, forty] }, {}, rout).size).toBe(0);
+    const thirtyNine = game("F", "L", 39, 0, { listedBy: ["L"] });
+    expect(sweep({ teams, games: [...routs, thirtyNine] }, {}, rout)).toBe(rout);
   });
 
   it("is lifted from a name once GameChanger's no longer has the word", () => {
@@ -498,7 +535,7 @@ describe("a mark as stored and said", () => {
           signs: ["wins", "rout"],
           wins: [
             { gameId: "g1", margin: 80, date: "2026-09-01" },
-            { gameId: "g2", margin: 35 },
+            { gameId: "g2", margin: 45 },
           ],
         },
       ],
@@ -521,20 +558,20 @@ describe("a mark as stored and said", () => {
         signs: ["wins", "rout"],
         wins: [
           { gameId: "g1", margin: 80 },
-          { gameId: "g2", margin: 35 },
+          { gameId: "g2", margin: 45 },
         ],
       })
     ).toEqual([
-      "won 2 games by more than 30 runs that the losers' own schedules do not list",
+      "won 2 games by 40 or more runs that the losers' own schedules do not list",
       "won a game by 80 runs that the loser's own schedule does not list",
     ]);
     expect(
       reasonsInWords({
         ...base,
         signs: ["ahead"],
-        ahead: { first: "2027-04-01", results: 1, played: 1, nextSeason: true },
+        ahead: { first: "2027-04-01", results: 3, played: 3, nextSeason: true },
       })
-    ).toEqual(["next season's squad, one score dated 2027-04-01"]);
+    ).toEqual(["next season's squad, 3 scores dated from 2027-04-01"]);
     expect(
       reasonsInWords({
         ...base,
@@ -554,14 +591,11 @@ describe("a mark as stored and said", () => {
 
 describe("what the review of the sweep found", () => {
   it("keeps a C mark lifted once a real opponent lists a game of the club played since", () => {
-    // Next season's squad with two stray scores months ahead, both against a stand-in: still
-    // half its games once a real game is played, and one real game short of the guard's half.
+    // A club with three stray scores months ahead, all against a stand-in: still half its games
+    // once a real game is played, and one real game short of the guard's half.
     const fake = club("F", 12);
     const real = club("R", 12);
-    const strays = [
-      game("F", "X", 5, 3, { date: ahead(60) }),
-      game("F", "X", 6, 3, { date: ahead(70) }),
-    ];
+    const strays = [60, 70, 80].map((days) => game("F", "X", 5, 3, { date: ahead(days) }));
     const teams = [fake, real, standIn("X")];
     const marked = sweep({ teams, games: strays });
     expect(signsOf(marked)).toEqual({ gcF: ["ahead"] });
@@ -579,10 +613,10 @@ describe("what the review of the sweep found", () => {
     const f = club("F", 12);
     const g = club("G", 12);
     const teams = [f, g, standIn("X")];
-    const strays = [
-      game("F", "X", 5, 3, { date: "2026-11-20" }),
-      game("G", "X", 6, 3, { date: "2026-11-21" }),
-    ];
+    const strays = [20, 21, 22].flatMap((day) => [
+      game("F", "X", 5, 3, { date: `2026-11-${day}` }),
+      game("G", "X", 6, 3, { date: `2026-11-${day + 1}` }),
+    ]);
     const marked = sweep({ teams, games: strays });
     expect(signsOf(marked)).toEqual({ gcF: ["ahead"], gcG: ["ahead"] });
     // In the spring they play each other, both schedules list it, and November has passed.
@@ -632,9 +666,10 @@ describe("what the review of the sweep found", () => {
       games: [
         game("F", "X", 5, 3, { date: ahead(3) }),
         game("F", "X", 6, 3, { date: "2027-04-01" }),
+        game("F", "X", 7, 3, { date: "2027-04-02" }),
       ],
     });
-    expect(marks.get("gcF")?.ahead).toEqual({ first: "2027-04-01", results: 1, played: 2 });
+    expect(marks.get("gcF")?.ahead).toEqual({ first: "2027-04-01", results: 2, played: 3 });
   });
 
   it("keeps the GameChanger team's name when only it has the word", () => {

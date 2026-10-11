@@ -2325,31 +2325,42 @@ acts at once, without a dialog, as the user asked the same day.
 **Clubs removed for you.** The user asked on 11 October 2026 for the obviously fake teams to be
 spotted and taken off without them, and for teams named void, test or demo to be among them. So
 each night, after its pull and its tidy, and on a night with nothing to pull as well, the nightly
-sweeps the cloud copy for them (`obviousFakes.ts`, run from `cloudRunner.ts`), and a pull in a
-browser that keeps its own pool sweeps that pool when it ends, in the tidy worker after the tidy
-(1.5 s on the pool of 26 September at 18:40 and 2.5 s on 11 October's measured in Node, which
-the page's thread would spend frozen). A pulled club is taken off when it shows one of four signs
-and nothing keeps it:
+sweeps the cloud copy for them (`obviousFakes.ts`, run from `cloudRunner.ts`), as each leg of
+**Refresh now** in the cloud does. A leg of a pasted list pulled in the cloud does not, nor does a
+pasted list with nothing new to pull: the sweep walks every game of the pool, and a whole squad
+year, about three times the pool of 11 October, is to come in through pasted lists, so each of
+their legs is kept as light as it can be and that night's refresh sweeps what they filed. A pull
+in a browser that keeps its own pool sweeps that pool when it ends, in the tidy worker after the
+tidy (1.5 s on the pool of 26 September at 18:40 and 2.5 s on 11 October's measured in Node,
+which the page's thread would spend frozen). A pulled club is taken off when it shows one of four
+signs and nothing keeps it:
 
-- **Routs nobody else lists** (A): two or more wins by more than thirty runs that nobody has
-  vouched for, filed by its own schedule, and none of its wins by more than thirty listed by the
-  losing club's own schedule. Only above 10U, unless one of those wins is by fifty or more: a young
-  travel team routs stand-ins, and three clubs the user had called real were each one such win
-  from it on 11 October, every one of them 8U to 10U.
+- **Routs nobody else lists** (A): two or more wins by 40 runs or more that nobody has vouched
+  for, filed by its own schedule, and none of its wins by 40 or more listed by the losing club's
+  own schedule, at any age: the user's "repeated wins by 40 or more instead of 30" of 11 October.
+  At thirty the sign waited for 11U unless one of the wins was by fifty, since a young travel team
+  routs stand-ins and three clubs of 8U to 10U the user had called real were each one such win
+  from it on 11 October. At forty the wait changes no mark on the five backups of 25 September to
+  11 October, and with the word "real" set aside the sweep takes none of the 131 clubs the user
+  had called real, 72 of them 10U and under, so it is gone.
 - **One impossible rout** (B): a win by 75 or more that the loser's own schedule does not list. On
   11 October 2026 no game both clubs' schedules list, and none of the 77 scores the user has
   vouched for, reaches fifty (the widest of each is 42.5); on 29 September one game both list read
   54.5, and on 26 September, before the user's own sweep of the 28th, three reached fifty, the
   widest 119. A game the loser lists is never a sign, whatever its margin.
-- **Results from the future** (C): half or more of its scored games are its own schedule's results
-  dated eight or more days ahead, no opponent's schedule lists any of its results dated ahead, and
-  no real opponent's schedule lists any game of it at all. The eight days keep out a game keyed a
-  day or two off. Every such club on 29 September and 11 October was next season's squad with one
-  stray score months ahead, and the list says so, with the day of that score. The last clause is
-  what lets C's lift below hold: without it a club whose mark one real game had lifted showed the
-  sign again that night, short of the guard's three or half, and was marked afresh, on a day after
-  that game, so that game could never lift it again. On the five backups of 25 September to 11
-  October it changes no mark.
+- **Results from the future** (C): three or more scored games, half or more of them its own
+  schedule's results dated eight or more days ahead, no opponent's schedule lists any of its
+  results dated ahead, and no real opponent's schedule lists any game of it at all. The eight days
+  keep out a game keyed a day or two off. The three games are the user's word of 11 October: it
+  "can't be a situation where they only have 2 games listed and one of them is in the future". On
+  the five backups that leaves C two clubs on each of 25 and 26 September, each with two of its
+  three scores dated weeks ahead, both deleted by hand since, and takes from it the next season's
+  squads with fewer than three scores that were all it marked on 29 September (two) and 11 October
+  (one). Where a club C takes is next season's squad, the list says so, with the day of its first
+  score ahead. The last clause is what lets C's lift below hold: without it a club whose mark one
+  real game had lifted showed the sign again that night, short of the guard's three or half, and
+  was marked afresh, on a day after that game, so that game could never lift it again. On the five
+  backups of 25 September to 11 October it changes no mark.
 - **A name nobody plays under** (N): its name, or the name of a GameChanger team filed under it,
   has void, voided, test, testing or demo as a word of its own, in any case ("Contest", "Avoid",
   "Demons" and "Testudo" do not). It is marked by GameChanger team, so a club with one such team
@@ -2360,7 +2371,7 @@ being any page's own team; the user's word on it, a pair kept apart, an age name
 vouched for in a game of it; for A, B and C but not N, real opponents' own schedules listing three
 of its scored games, or half of them, a real opponent being a pulled club that shows no sign (C
 read without its clause about real opponents, which would make the question ask itself) whatever
-marks it carries, since a mark outlives its sign and two clubs marked for one stray score each,
+marks it carries, since a mark outlives its sign and two clubs marked for their stray scores,
 playing each other in the spring, would otherwise keep each other off for good; and a League
 Standings team that picks it or is carried onto it by its name. The last only a pass that reads
 League Standings can see, so it is checked where the boards are derived, and a club so linked stays
@@ -2381,22 +2392,22 @@ screen. The Games tab still lists a removed club's stored games, which a mark le
 the club named "(removed for you)" rather than a bare "?". A mark stays until something lifts it,
 so a club whose results dated ahead have merely been reached stays off: any guard lifts it; A and
 B lift on the sign's own escape, A once a losing club's own schedule lists one of the wins counted
-or any win of the club's by more than thirty, B once the win counted is listed or every win of the
+or any win of the club's by 40 or more, B once the win counted is listed or every win of the
 club's by 75 or more is one its loser lists, read off the club's games as they now stand rather
 than the counted game's id alone, since a game the loser comes to list can be filed under another
 id (9 of the 97 one-sided games between pulled clubs that both schedules came to list between 29
 September and 11 October did); C lifts once a real opponent's schedule lists even one game of the
-club's dated after the mark, which is how next season's squad answers in the spring, and such a
-club no longer shows C, so it stays lifted; N lifts once neither the club's name nor its
-GameChanger team's has the word. Saying a club is real forgets its marks there and then, with the
+club's dated after the mark, which is how a squad whose scores ran ahead of its games answers once
+it plays, and such a club no longer shows C, so it stays lifted; N lifts once neither the club's
+name nor its GameChanger team's has the word. Saying a club is real forgets its marks there and then, with the
 answer and in its Undo, rather than at the next sweep, so a club marked after the card was opened
 is back on the boards as it is said; a restored backup that says a club is real does the same.
 
 Pool health lists them under **Removed for you**, newest first, each with when and why in a line
 ("named 'test'", "its GameChanger team is named '…'" where only that name has the word, "next
-season's squad, one score dated 2027-04-01") and a link to each schedule, and on none of its other
-lists: neither what it shows as it opens nor what **Check the pool** finds (the twin pairs, the
-rows counted twice, the wrong ages), where on 11 October 1 of the 100 twin pairs paired a removed
+season's squad, 3 scores dated from 2027-04-01") and a link to each schedule, and on none of its
+other lists: neither what it shows as it opens nor what **Check the pool** finds (the twin pairs,
+the rows counted twice, the wrong ages), where on 11 October 1 of the 100 twin pairs paired a removed
 club with a standing one, a fold that would have put its games back unsaid, and 7 of the 985 rows
 counted twice named one. A club a League Standings team links is listed too, said to be kept on
 its boards, and stays on the other lists. **Put back on the boards** forgets the club's marks and
@@ -2409,16 +2420,19 @@ and where to put it back. The thrown-out list is never written, so a re-paste or
 the club and its mark keeps it off; a fold keeps a club on the boards unless every id it carries is
 marked.
 
-Measured with this code on the backups. On 11 October 2026 the sweep takes off 250 of 69,487
-pulled clubs: one by C, next season's squad with one score dated months ahead and no counted
-game, and 249 by N, eight of them only through a GameChanger team's name; A and B find none, the
-obvious ones having been deleted by hand on 28 September. 48 of them are on a board, the best
-47th, and leaving them off reorders the top 25 of two boards with nobody new in either. On the pool
-of 26 September at 18:40, before that sweep by hand, A, B and C take off 26 clubs (13 by A, 16 by
-B, 4 by C, some by two), every one of which the user had deleted by 11 October, and N 84 more; 56
-of the 110 are on a board, the best 20th, and two clubs come into a top 25. On neither backup, nor
-on 29 September, is a club the user had said was real by 11 October taken off (131 such clubs
-were pulled on 11 October).
+Measured with this code on the backups, each swept from no marks. On 11 October 2026 the sweep
+takes off 249 of 69,487 pulled clubs, all by N, eight of them only through a GameChanger team's
+name; A, B and C find none, the obvious ones having been deleted by hand on 28 September. 48 of
+them are on a board, the best 47th, and leaving them off reorders the top 25 of two boards with
+nobody new in either. On 29 September it takes off 86, all by N; 39 are on a board, the best 98th,
+and the top 25 of four boards reorder with nobody new. On the pool of 26 September at 18:40,
+before that sweep by hand, A, B and C take off 21 clubs (9 by A, 16 by B, 2 by C, some by two),
+every one of which the user had deleted by 11 October, and N 84 more; 54 of the 105 are on a
+board, the best 106th, and the top 25 of four boards reorder with nobody new. Of the 66 clubs the
+user deleted by hand between one backup and the next from 25 September to 11 October, A, B and C
+had taken 21 off the backup before, every one of them among the 46 deleted between 26 September
+at 18:40 and 29 September. On no backup of the five is a club the user had said was real by 11
+October taken off, even with that word set aside (131 such clubs were pulled on 11 October).
 
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
@@ -3919,11 +3933,14 @@ accounts on the copy's list, as the copy is, checked as the proxy checks them
 **Legs.** A list is pulled in legs of 25,000 teams (`pullJobRunner.ts`). Each leg
 is a Cloud Tasks task, and `runPull` runs it: it loads the copy, pulls the leg's
 teams through the same runner as the nightly refresh (`runCloudPull`), saves, adds
-what it did to the job's tally, and queues the next leg. Legs are needed for two
-reasons. A task has at most half an hour. And the answers for a nationwide list,
-all at once, would not fit beside the pool in the function's memory. A leg the
-size of the nightly refresh on 29 September 2026 took 101 s and held 3.5 GB at
-its end on one of GitHub's servers, so a leg of 25,000 is a few minutes.
+what it did to the job's tally, and queues the next leg. A leg of a list files and
+tidies but does not sweep for clubs plainly made up ("Clubs removed for you"):
+that is the night's refresh's to do, so a leg stays as light as it can be. Legs
+are needed for two reasons. A task has at most half an hour. And the answers for a
+nationwide list, all at once, would not fit beside the pool in the function's
+memory. A leg the size of the nightly refresh on 29 September 2026 took 101 s and
+held 3.5 GB at its end on one of GitHub's servers, so a leg of 25,000 is a few
+minutes.
 
 **Three legs at once.** Up to three legs run at once, each on an instance of its
 own with 8 GiB and two processors, so a pull sent while another runs starts as
@@ -4223,7 +4240,9 @@ no turn.
 After its tidy it sweeps the copy for clubs plainly made up ("Clubs removed for
 you"), on the pool as tidied, and the marks go in the same commit as the pull; a
 night with nothing due sweeps alone, through the same tries and commit, and one
-that finds nothing new writes nothing.
+that finds nothing new writes nothing. A leg of Refresh now sweeps as the nightly
+does; a leg of a pasted list never does, and a pasted list with nothing new to
+pull writes nothing at all, so the night's refresh sweeps what the lists filed.
 
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every

@@ -1,5 +1,5 @@
 import type { AgeGroup, ScoutTeam } from "./teamRankings/types";
-import { type AutoRemoval, type AutoRemovals } from "./autoRemoved";
+import { ROUT_MARGIN, type AutoRemoval, type AutoRemovals } from "./autoRemoved";
 import { removedClubIds } from "./removedClubs";
 
 /**
@@ -14,7 +14,7 @@ export const reasonsInWords = (mark: AutoRemoval): string[] =>
   mark.signs.map((sign) => {
     switch (sign) {
       case "wins":
-        return `won ${(mark.wins ?? []).length} games by more than 30 runs that the losers' own schedules do not list`;
+        return `won ${(mark.wins ?? []).length} games by ${ROUT_MARGIN} or more runs that the losers' own schedules do not list`;
       case "rout": {
         const widest = Math.max(0, ...(mark.wins ?? []).map((win) => Math.abs(win.margin)));
         return `won a game by ${Math.round(widest)} runs that the loser's own schedule does not list`;
@@ -22,10 +22,9 @@ export const reasonsInWords = (mark: AutoRemoval): string[] =>
       case "ahead": {
         const ahead = mark.ahead;
         if (!ahead) return "results dated on days that have not happened";
+        // Never one score: C asks three scored games, half of them ahead (`AHEAD_FEWEST_PLAYED`).
         if (ahead.nextSeason) {
-          return ahead.results === 1
-            ? `next season's squad, one score dated ${ahead.first}`
-            : `next season's squad, ${ahead.results} scores dated from ${ahead.first}`;
+          return `next season's squad, ${ahead.results} scores dated from ${ahead.first}`;
         }
         return `${ahead.results} of its ${ahead.played} results dated well ahead, the first ${ahead.first}`;
       }

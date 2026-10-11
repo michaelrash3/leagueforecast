@@ -346,6 +346,12 @@ const withRefreshed = (log: RefreshLog, mark: Marking, now: Date): RefreshLog =>
  * The sweep for clubs plainly made up (`obviousFakes.ts`) over `pool`, the store's pool as the run
  * leaves it, on the run's own day, its marks saved where they changed. Saved into the store like
  * the rest of the run's filing, so they go to the copy in the run's one commit.
+ *
+ * A refresh's runs alone sweep, the nightly's and each leg of Refresh now's (`sweeps`), never a
+ * pasted list's. The sweep walks every game of the pool, 1.5 s on the pool of 26 September 2026
+ * at 18:40 and 2.5 s on 11 October's, measured in Node, and a whole squad year of about three
+ * times the 11 October pool is to come in through pasted lists, leg after leg: each list leg is
+ * kept as light as it can be, and the night's refresh sweeps what they filed.
  */
 const sweep = (pool: SweepPool, now: Date): void => {
   const [before, after] = sweepStored(pool, todayIsoDay(now));
@@ -354,7 +360,10 @@ const sweep = (pool: SweepPool, now: Date): void => {
   }
 };
 
-/** The sweep alone, for a run with nothing to pull: the pool as the copy holds it. */
+/** Whether `job` sweeps: a refresh, not a pasted list. */
+const sweeps = (job: CloudPullJob): boolean => job.kind === "rota";
+
+/** The sweep alone, for a refresh with nothing to pull: the pool as the copy holds it. */
 const sweepOnly = async (now: Date): Promise<Filed> => {
   sweep({ ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() }, now);
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the sweep's marks.");
@@ -364,8 +373,8 @@ const sweepOnly = async (now: Date): Promise<Filed> => {
 /**
  * Files `answers` into the pool the store holds, tidies it, and writes it back with what the run
  * learned, as a pull in the browser ends: the tidy stamped so no device tidies it again, the
- * lists, the invented clubs thrown out, the clubs plainly made up taken off, and the day logged
- * where a rota finished.
+ * lists, the invented clubs thrown out, on a refresh the clubs plainly made up taken off, and the
+ * day logged where a rota finished.
  */
 const fileAnswers = async (
   job: CloudPullJob,
@@ -412,7 +421,7 @@ const fileAnswers = async (
   const lists = settleRunLists(outcomes, now.toISOString());
   if (lists.invented.length > 0) saveDroppedClubs(forgetClubs(loadDroppedClubs(), lists.invented));
   // On the pool as tidied, so a club the tidy folded or settled is judged as it now stands.
-  sweep(filed, now);
+  if (sweeps(job)) sweep(filed, now);
   // Marked only when every team due was asked about: a run stopped half way has not refreshed them.
   if (mark && complete) saveRefreshLog(withRefreshed(loadRefreshLog(), mark, now));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the pull's pool.");
@@ -489,8 +498,10 @@ export const runCloudPull = async (
   const ids = limit === undefined ? wanted : wanted.slice(0, Math.max(0, limit));
   result.asked = ids.length;
   if (ids.length === 0) {
+    // A pasted list with nothing to pull writes nothing, the sweep included (`sweeps`).
+    if (!sweeps(job)) return { ...result, end: "nothing-due", manifest: copy.manifest };
     /*
-     * Nothing to pull, but the sweep for clubs plainly made up still runs, through the same tries
+     * A refresh with nothing to pull still sweeps for clubs plainly made up, through the same tries
      * and commit as a pull's filing, so a club marked by nothing new is still marked, and a mark a
      * guard now lifts is lifted, on a night with nothing due. A walk's share is never empty as
      * worked out, so one with nothing left to ask was done already, by a try of this leg whose save

@@ -519,7 +519,7 @@ describe("the clean-up commands", () => {
       name: "Club A",
       on: "2026-10-12",
       signs: ["ahead"],
-      ahead: { first: "2027-04-01", results: 1, played: 1, nextSeason: true },
+      ahead: { first: "2027-04-01", results: 3, played: 3, nextSeason: true },
     };
     const changed = { ...mark("gcB1")[1], on: "2026-10-12" };
     const result = pool.run({ kind: "autoRemoved", put: [other, changed], forget: ["gcB2"] });
