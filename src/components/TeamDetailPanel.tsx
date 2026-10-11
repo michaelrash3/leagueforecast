@@ -296,8 +296,18 @@ export function TeamDetailPanel({
   // Where focus goes once a press takes the button's own row away: the list's heading, in the
   // panel, rather than the page's body.
   const gamesHeading = useRef<HTMLHeadingElement>(null);
-  // Only when there is a line to draw; none at all leaves the panel exactly as it was.
-  const notes = gameNotes && gameNotes.byGame.size > 0 ? gameNotes : undefined;
+  /*
+   * Only when a row on the list will carry a line; none at all leaves the panel exactly as it was.
+   * Asked of the rows drawn, not of the lines handed in: those are worked out from the card as
+   * published, and the list from the card with this device's pending edits over it, so a pending
+   * Not this team can take every lined row off the list while its lines are still in hand, and a
+   * line's game can sit outside the counted window. The line above the list and its key would then
+   * explain two figures that appear nowhere.
+   */
+  const notes =
+    gameNotes && here.some((game) => inWindow.has(game.id) && gameNotes.byGame.has(game.id))
+      ? gameNotes
+      : undefined;
 
   const trimmed = draftName.trim();
   const renamed = trimmed.length > 0 && trimmed !== team.name;

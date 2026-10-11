@@ -123,6 +123,25 @@ describe("what each game did, on a club's panel", () => {
     expect(markup(none.container)).toBe(before);
   });
 
+  it("draws no line above the list either when no row on it carries a line", () => {
+    const without = panel();
+    const before = markup(without.container);
+    without.unmount();
+    // Lines only for games whose rows carry none (still to come, set not to count, against the
+    // club's own name, outside the half) and for a game a pending edit has taken off the list:
+    // the line above would explain two figures that appear nowhere.
+    const { container } = panel({
+      gameNotes: {
+        ...notes,
+        byGame: new Map(
+          ["3", "4", "5", "6", "7", "taken-off"].map((id) => [id, [`Played like +${id}`]])
+        ),
+      },
+    });
+    expect(within(container).queryByText(notes.headline, { exact: false })).toBeNull();
+    expect(markup(container)).toBe(before);
+  });
+
   it("draws a line under each counted game alone, and the headline and key once", () => {
     const { container } = panel({ gameNotes: notes });
     const section = container.querySelector("section")!;

@@ -4271,7 +4271,8 @@ describe("what each game did, on a club's panel on the cloud's board", () => {
     played("s6", 5, 6, [3, 1], "2027-04-10"),
     played("s7", 3, 5, [2, 9], "2027-04-11"),
     played("s8", 1, 3, null, "2027-05-01"),
-    played("s9", 2, 4, [8, 3], "2027-04-12"),
+    // S-2's three spring games are each listed by its opponent's schedule alone.
+    played("s9", 2, 4, [8, 3], "2027-04-12", { listedBy: 4 }),
   ];
   const built = () =>
     buildBoardsAndFacts({
@@ -4429,6 +4430,34 @@ describe("what each game did, on a club's panel on the cloud's board", () => {
       expect(panel.innerHTML.replace(/_r_[0-9a-z]+_/g, "_id_")).toBe(bare);
       cleanup();
     }
+  });
+
+  it("takes the line above the list off too once pending edits leave no row with a line", async () => {
+    await publishPool();
+    const server = editFunction((data) =>
+      data.warm
+        ? WARMED
+        : made(5, ["league_forecast_scout_games_v2:2027", "league_forecast_scout_teams_v1"])
+    );
+    open(sourcesOf(live, { call: server.call }));
+    await tap("Placeholder S-2");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-2" });
+    await within(panel).findByText(/^Spring 2027 rating /);
+    const lined = [...linesOf(panel)].flatMap(([day, line]) => (day && line !== null ? [day] : []));
+    expect(lined.sort()).toEqual(["2027-03-13", "2027-03-27", "2027-04-12"]);
+    // Each of them is S-2's by another club's schedule alone, so each can be taken off.
+    for (const day of lined) {
+      const offered = within(panel)
+        .getAllByRole("button", { name: /^Not this team/ })
+        .find((button) => button.closest("li")?.textContent?.includes(day));
+      if (!offered) throw new Error(`no Not this team on ${day}`);
+      fireEvent.click(offered);
+      await waitFor(() => expect(linesOf(panel).has(day)).toBe(false));
+    }
+    // The lines are still in hand, worked out from the card as published, but no row carries one,
+    // so neither the line above the list nor its key is drawn.
+    expect(panel.querySelectorAll("li > p")).toHaveLength(0);
+    expect(within(panel).queryByText(/rating .*Played like:/)).toBeNull();
   });
 
   it("takes off only the line of a game a pending Not this team takes off", async () => {

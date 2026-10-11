@@ -2818,8 +2818,11 @@ board's own row (The live board on a member's device, **What each game did**): a
 without a fit, a club with no row on the board on screen, a half or page moved to whose
 board is still on its way, and a card and board from different publishes, until both are
 read again. A row still to come, one outside the half on screen, one set not to count
-and one against the club's own name never carry one. Team Rankings on this device's own
-copy draws none, having no published board to explain.
+and one against the club's own name never carry one. The line above the list and its key
+are drawn only while a row on the list carries a line, so a pending Not this team that
+takes every such row off takes them too, though the lines, worked out from the card as
+published, are still in hand. Team Rankings on this device's own copy draws none, having
+no published board to explain.
 
 ## Postseason format
 
