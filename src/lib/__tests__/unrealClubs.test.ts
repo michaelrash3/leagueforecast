@@ -345,4 +345,19 @@ describe("deleting a club that is not one", () => {
     expect(none.teams).toBe(teams);
     expect(none.games).toBe(pool);
   });
+
+  /*
+   * The Bears' copy holds the Aces' own row, claimed: taking the Aces out, that row goes with them
+   * rather than stand up as a game of the Aces against the Sharks, a club gone and still named.
+   */
+  it("takes the club's own claimed row with it, one club or several", () => {
+    const naming = (games: readonly ScoutGame[]) =>
+      games.filter((one) => one.teamAId === "S-ACES" || one.teamBId === "S-ACES");
+    const one = withoutClub({ teamId: "S-ACES", gameIds: ["gc_gcBEARS_b1"] }, teams, pool, [group]);
+    expect(naming(one.games)).toEqual([]);
+    expect(one.teams.some((club) => club.id === "S-ACES")).toBe(false);
+    const several = withoutClubs(new Set(["S-ACES"]), teams, pool, [group]);
+    expect(naming(several.games)).toEqual([]);
+    expect(several).toEqual(one);
+  });
 });

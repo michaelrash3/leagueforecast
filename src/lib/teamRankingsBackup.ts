@@ -43,7 +43,12 @@ import { coerceAgeUnknown, type AgeUnknownList } from "./ageUnknown";
 import { coerceDeletedClubs, coerceDeletedGames } from "./deletedGames";
 import { coerceKeptApart } from "./keptApart";
 import { coerceNotThisTeam, notThisTeamList } from "./notThisTeam";
-import { autoRemovalsList, coerceAutoRemovals, type AutoRemoval } from "./autoRemoved";
+import {
+  autoRemovalsList,
+  coerceAutoRemovals,
+  marksOfRealClubs,
+  type AutoRemoval,
+} from "./autoRemoved";
 import { coerceNamedAges, namedAgesList, type NamedAge } from "./namedAges";
 import { coerceTooYoungClubs } from "./tooYoungClubs";
 import type { UndoSnapshot } from "./types";
@@ -286,7 +291,17 @@ export const writeTeamRankingsBackup = (backup: TeamRankingsBackup): boolean => 
           : saveAutoRemoved(coerceAutoRemovals(backup.answers.autoRemoved)),
       ].every(Boolean)
     : true;
-  return wroteAgeGroups && wroteTeams && wroteGames && wroteAnswers;
+  /*
+   * A club the restored answers say is real carries no mark of one taken off as plainly made up,
+   * whichever the file brought: an older file leaves the marks stored as they were, and a mark on
+   * a club it says is real would keep that club off every board until the next sweep lifted it.
+   */
+  const marks = loadAutoRemoved();
+  const lifted = marksOfRealClubs(backup.teams, loadRealClubs(), marks);
+  const wroteLift =
+    lifted.length === 0 ||
+    saveAutoRemoved(new Map([...marks].filter(([id]) => !lifted.includes(id))));
+  return wroteAgeGroups && wroteTeams && wroteGames && wroteAnswers && wroteLift;
 };
 
 /** A parsed `answers` block, or undefined when the file has none. */

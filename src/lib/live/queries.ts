@@ -20,7 +20,7 @@ import {
   segmentOn,
   type SeasonSegment,
 } from "../teamRankings/seasons";
-import type { ScoutGame, ScoutTeam } from "../teamRankings/types";
+import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings/types";
 import { cleanTeamName, teamNameKey } from "../teamRankings/names";
 import { unpulledClubs, unpulledClubsCsv } from "../unpulledClubs";
 import { planLeagueScoreFill, type LeagueFillPlan } from "../leagueScoreFill";
@@ -63,7 +63,9 @@ import {
   type NamedGame,
 } from "../teamRankings/namedGames";
 import { planClubAges, type AgeAsked } from "./agePlan";
-import { deriveAllKnown, gamesOnPages, type SeasonReader } from "./allKnown";
+import { deriveAllKnown, gamesOnPages, leagueKeptClubs, type SeasonReader } from "./allKnown";
+import { type AutoRemovals } from "../autoRemoved";
+import { removedClubIds } from "../removedClubs";
 import {
   everyOne,
   isClockTime,
@@ -84,6 +86,25 @@ import {
   yearDeletePreview,
   yearList,
 } from "./yearOps";
+
+/**
+ * The marked clubs a League Standings team links, which the boards keep (`leagueKeptClubs`), or
+ * none where no seasons were read.
+ */
+const leagueKeptOf = (
+  state: { ageGroups: AgeGroup[]; teams: ScoutTeam[] },
+  marks: AutoRemovals,
+  seasons: SeasonReader | undefined
+): Set<string> =>
+  seasons
+    ? leagueKeptClubs({
+        ageGroups: state.ageGroups,
+        teams: state.teams,
+        gamesOfYear: loadScoutGamesForYear,
+        readSeason: seasons,
+        autoRemoved: marks,
+      })
+    : new Set();
 
 /** No seasons: what a question that reads League Standings is answered with when none are read. */
 const NO_SEASONS: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
@@ -409,6 +430,9 @@ const LEAGUE_ASKED: ReadonlySet<QueryKind> = new Set<QueryKind>([
   "model.check",
   "year.archivePreview",
   "games.check",
+  // A club League Standings links stays on its boards whatever its marks, and so on Pool health.
+  "health.summary",
+  "health.inspect",
 ]);
 
 /** Whether `query` is answered with the copy's League Standings seasons (`answerQuery`'s `seasons`). */
@@ -553,14 +577,17 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         kind: "ageless.clearPlan",
         ...agelessClearPlan(agelessClearable(waitingOn(query.today)), new Set(query.rules)),
       };
-    case "health.summary":
+    case "health.summary": {
+      const state = storedState();
+      const marks = loadAutoRemoved();
       return {
         kind: "health.summary",
         summary: poolHealthSummary(
-          storedState(),
+          state,
           query.today,
           storedGamesByYear(),
-          loadAutoRemoved()
+          marks,
+          leagueKeptOf(state, marks, seasons)
         ),
         answers: {
           ageRight: [...loadAgeRightClubs()],
@@ -568,10 +595,19 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
           keptApart: [...loadKeptApart()],
         },
       };
+    }
     case "health.inspect": {
       const state = storedState();
       const health = poolHealth(state, loadTidyStamp() ?? "", query.today);
-      const lists = poolLists(state, loadKeptApart(), query.today);
+      // Of the pool the boards hold: the clubs taken off as made up are on no list but their own.
+      const marks = loadAutoRemoved();
+      const leftOut = removedClubIds(
+        state.teams,
+        state.ageGroups,
+        marks,
+        leagueKeptOf(state, marks, seasons)
+      );
+      const lists = poolLists(state, loadKeptApart(), query.today, leftOut);
       return {
         kind: "health.inspect",
         health,

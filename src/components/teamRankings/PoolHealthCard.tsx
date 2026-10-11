@@ -14,7 +14,11 @@ import { poolHealthSummary } from "../../lib/poolHealthSummary";
 import type { WrongAgeClub } from "../../lib/wrongAge";
 import type { UnrealClub } from "../../lib/unrealClubs";
 import { todayIsoDay } from "../../lib/date";
-import type { AutoRemovals, RemovedClub } from "../../lib/autoRemoved";
+import { type AutoRemovals } from "../../lib/autoRemoved";
+import { removedClubIds } from "../../lib/removedClubs";
+import { leagueKeptClubs, type SeasonReader } from "../../lib/live/allKnown";
+import { ageGroupYear } from "../../lib/teamRankings";
+import type { RemovedClub } from "../../lib/removedForYou";
 import { unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { poolNamesCsvFilename, poolNamesCsvParts } from "../../lib/poolNamesCsv";
 import { standInFixturesCsvFilename, standInFixturesCsvParts } from "../../lib/standInFixturesCsv";
@@ -68,8 +72,15 @@ type PoolHealthCardProps = {
   runCommand: (command: PoolCommand) => CommandRun;
   /** The clubs taken off as plainly made up, as the page holds them (`autoRemoved.ts`). */
   autoRemoved: AutoRemovals;
+  /**
+   * League Standings seasons as this browser stores them: a club a League Standings team links
+   * stays on its boards whatever its marks (`deriveAllKnown`), and so on the card's lists.
+   */
+  readSeason: SeasonReader;
   /** Puts a club taken off back on the boards and says it is real, offering Undo. */
   onPutBack: (club: RemovedClub) => boolean;
+  /** Puts back every club one day's sweep took off, saying nothing of them, offering Undo. */
+  onPutBackDay: (day: string, clubs: readonly RemovedClub[]) => boolean;
   /** Deletes a club taken off for good, as Delete club does, offering Undo. */
   onDeleteRemoved: (club: RemovedClub) => boolean;
 };
@@ -100,10 +111,29 @@ export function PoolHealthCard({
   onSetAges,
   runCommand,
   autoRemoved,
+  readSeason,
   onPutBack,
+  onPutBackDay,
   onDeleteRemoved,
 }: PoolHealthCardProps) {
   const { ageGroups, teams, games } = pool;
+  /*
+   * The marked clubs a League Standings team links, in any year with a season on a page, which the
+   * boards keep (`leagueKeptClubs`): only the League pass, a year at a time, and none with no marks.
+   */
+  const leagueKept = useMemo(() => {
+    const yearOf = new Map(ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+    return leagueKeptClubs({
+      ageGroups,
+      teams,
+      gamesOfYear: (year) => games.filter((game) => yearOf.get(game.ageGroupId) === year),
+      readSeason,
+      autoRemoved,
+    });
+  }, [ageGroups, teams, games, readSeason, autoRemoved]);
+  /** The clubs the boards leave out, which the lists leave out too. */
+  const leftOutOf = (state: GcImportState) =>
+    removedClubIds(state.teams, state.ageGroups, autoRemoved, leagueKept);
   /*
    * What the card shows as it opens, from the pool in hand. What each squad year holds comes from
    * the stored sizes rather than from the pool, so it costs nothing to show. It is the one place a
@@ -117,9 +147,10 @@ export function PoolHealthCard({
         { ageGroups, teams, games },
         todayIsoDay(),
         storedGamesByYear(),
-        autoRemoved
+        autoRemoved,
+        leagueKept
       ),
-    [ageGroups, teams, games, autoRemoved]
+    [ageGroups, teams, games, autoRemoved, leagueKept]
   );
   /*
    * A pull keeps running when its panel is closed, so this card can be looking at a pool that is
@@ -143,7 +174,7 @@ export function PoolHealthCard({
   };
 
   const look = async () => {
-    const found = await inspect(pool, tidyStamp);
+    const found = await inspect(pool, tidyStamp, leftOutOf(pool));
     // Null means the panel went away mid-look, so there is nobody left to show it to.
     if (!found) return;
     setLastTidy(null);
@@ -157,7 +188,7 @@ export function PoolHealthCard({
     if (!outcome) return;
     onTidied(outcome);
     setLastTidy(describeTidy({ ...outcome.tidy, state: outcome.state }));
-    const found = await inspect(outcome.state, "");
+    const found = await inspect(outcome.state, "", leftOutOf(outcome.state));
     if (!found) return;
     show(found);
   };
@@ -182,6 +213,7 @@ export function PoolHealthCard({
       if (done) setAnswers(storedAnswers());
       return done;
     },
+    putBackDay: onPutBackDay,
     deleteRemoved: onDeleteRemoved,
     confirmScore: (game) => onConfirmScore(game.id),
     merge: (from, into) => onMergeTeams(from.id, into.id),

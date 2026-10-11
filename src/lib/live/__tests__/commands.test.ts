@@ -565,6 +565,41 @@ describe("the clean-up commands", () => {
     ).toBeNull();
   });
 
+  /*
+   * Said real from a card opened before the sweep marked it, the button never knew of the mark:
+   * the answer itself forgets it, or the club stays off every board until the next night.
+   */
+  it("forgets the marks of a club said to be real, by any of its ids, and its undo puts both back", () => {
+    const pool = memory(POOL());
+    const before = stored(pool.parts);
+    const said = pool.run({ kind: "answers", list: "realClubs", add: ["gcB2"], remove: [] });
+    expect(said.writes.map((write) => write.part).sort()).toEqual(["answers", "autoRemoved"]);
+    expect(pool.parts.marks.size).toBe(0);
+    const after = stored(pool.parts);
+    const undone = pool.run(said.inverse);
+    expect(stored(pool.parts)).toEqual(before);
+    pool.run(undone.inverse);
+    expect(stored(pool.parts)).toEqual(after);
+    expect(coerceCommand(JSON.parse(JSON.stringify(said.inverse)))).toEqual(said.inverse);
+    // By the club's own id too; and an answer naming no marked club is the answer alone.
+    const byClub = memory(POOL());
+    byClub.run({ kind: "answers", list: "realClubs", add: ["B"], remove: [] });
+    expect(byClub.parts.marks.size).toBe(0);
+    const plain = memory(POOL());
+    const other = plain.run({ kind: "answers", list: "realClubs", add: ["gcZ"], remove: [] });
+    expect(other.inverse).toEqual({
+      kind: "answers",
+      list: "realClubs",
+      add: [],
+      remove: ["gcZ"],
+    });
+    expect(plain.parts.marks.size).toBe(2);
+    // Another list never touches a mark.
+    const apart = memory(POOL());
+    apart.run({ kind: "answers", list: "ageRight", add: ["gcB1"], remove: [] });
+    expect(apart.parts.marks.size).toBe(2);
+  });
+
   it("puts a league season on the page of its age, making the page under the id it is given", () => {
     const pool = memory(POOL());
     const made = { kind: "season.assign", seasonId: "s1", pageId: "ag_new" } as const;

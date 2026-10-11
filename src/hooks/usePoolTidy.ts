@@ -3,7 +3,15 @@ import type { GcImportState, PoolTidy } from "../lib/gameChangerImport";
 import { tidyPool } from "../lib/gameChangerImport";
 import { keptApartList } from "../lib/keptApart";
 import { notThisTeamList } from "../lib/notThisTeam";
-import { loadKeptApart, loadNotThisTeam } from "../lib/teamRankingsStorage";
+import {
+  loadAutoRemoved,
+  loadKeptApart,
+  loadNamedAges,
+  loadNotThisTeam,
+  loadRealClubs,
+} from "../lib/teamRankingsStorage";
+import { autoRemovalsList } from "../lib/autoRemoved";
+import type { MarksChange } from "../lib/removedForYou";
 import { todayIsoDay } from "../lib/date";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import { poolLists, type PoolLists } from "../lib/poolLists";
@@ -18,6 +26,8 @@ import {
 import {
   applyTidied,
   packPool,
+  sweepAsked,
+  type SweepAsked,
   type WorkerRequest,
   type WorkerResponse,
 } from "../workers/tidyProtocol";
@@ -48,7 +58,12 @@ import { createWorker } from "./createWorker";
 export type TidyReach = { workerOnly?: boolean };
 
 export type PoolInspection = { health: PoolHealth; settleable: number; lists: PoolLists };
-export type TidyOutcome = { state: GcImportState; tidy: Omit<PoolTidy, "state"> };
+export type TidyOutcome = {
+  state: GcImportState;
+  tidy: Omit<PoolTidy, "state">;
+  /** What the sweep changed in the marks, where one was asked (null for nothing). */
+  marks?: MarksChange | null;
+};
 
 /** Nothing tidying. One object, so the store's server snapshot is stable. */
 const EMPTY_WATCH = (): TidyWatch => NOTHING_TIDYING;
@@ -153,7 +168,12 @@ export function usePoolTidy() {
   );
 
   const inspect = useCallback(
-    (state: GcImportState, stamp: string): Promise<PoolInspection | null> => {
+    (
+      state: GcImportState,
+      stamp: string,
+      /** The clubs the boards leave out as plainly made up, which the lists leave out too. */
+      leftOut: ReadonlySet<string>
+    ): Promise<PoolInspection | null> => {
       // Read once, as the tidy does: the worker has no storage, and the inline path must be handed
       // the same answers.
       const apart = loadKeptApart();
@@ -170,6 +190,7 @@ export function usePoolTidy() {
           today,
           apart: keptApartList(apart),
           notThisTeam: notThisTeamList(refused),
+          leftOut: [...leftOut],
         }),
         (response, id) =>
           response.kind === "inspect" && response.id === id
@@ -180,7 +201,7 @@ export function usePoolTidy() {
           return {
             health,
             settleable: health.standInPlayed === 0 ? 0 : settleableNow(state, refused),
-            lists: poolLists(state, apart, today),
+            lists: poolLists(state, apart, today, leftOut),
           };
         }
       );
@@ -198,7 +219,15 @@ export function usePoolTidy() {
    * start; off the main thread, everything can.
    */
   const tidy = useCallback(
-    async (state: GcImportState, reach: TidyReach = {}): Promise<TidyOutcome | null> => {
+    async (
+      state: GcImportState,
+      reach: TidyReach = {},
+      /**
+       * Sweep the tidied pool for clubs plainly made up too, on `today`, as the nightly does after
+       * its tidy: the end of a pull asks it, so the walk is the worker's and not the page's.
+       */
+      sweepOn?: string
+    ): Promise<TidyOutcome | null> => {
       const session = beginTidy(new Date().toISOString());
       if (!session) return null;
       /*
@@ -210,6 +239,17 @@ export function usePoolTidy() {
       // And the names the owner has said are not a club, which the refile would otherwise file
       // straight back onto it ("Not this team", `notThisTeam.ts`).
       const refused = loadNotThisTeam();
+      // What the sweep honours, read with the rest, and the marks it starts from.
+      const sweep: SweepAsked | undefined =
+        sweepOn === undefined
+          ? undefined
+          : {
+              today: sweepOn,
+              realClubs: [...loadRealClubs()],
+              keptApart: keptApartList(apart),
+              namedAges: [...loadNamedAges().keys()],
+              marks: autoRemovalsList(loadAutoRemoved()),
+            };
       try {
         return await ask<TidyOutcome>(
           "tidy",
@@ -219,12 +259,17 @@ export function usePoolTidy() {
             state: packPool(state),
             apart: keptApartList(apart),
             notThisTeam: notThisTeamList(refused),
+            ...(sweep ? { sweep } : {}),
           }),
           // What came back is only what changed; the rest is the caller's own arrays, so the
           // identity checks that decide what to save see exactly what the tidy did.
           (response, id) =>
             response.kind === "tidy" && response.id === id
-              ? { state: applyTidied(state, response.changed), tidy: response.tidy }
+              ? {
+                  state: applyTidied(state, response.changed),
+                  tidy: response.tidy,
+                  ...(sweep ? { marks: response.marks ?? null } : {}),
+                }
               : null,
           () => {
             /*
@@ -233,7 +278,11 @@ export function usePoolTidy() {
              * once. The reader still learns what the tidy did, just not while it is doing it.
              */
             const { state: tidied, ...counts } = tidyPool(state, noteTidyStep, apart, refused);
-            return { state: tidied, tidy: counts };
+            return {
+              state: tidied,
+              tidy: counts,
+              ...(sweep ? { marks: sweepAsked(tidied, sweep) } : {}),
+            };
           },
           reach,
           (response, id) => {

@@ -550,7 +550,7 @@ describe("the clubs removed for you", () => {
     expect(within(list).getByText("2026-10-11: named 'demo'")).toBeInTheDocument();
     expect(screen.queryByText(/clubs that may not be real/i)).toBeNull();
 
-    await user.click(within(list).getByRole("button", { name: "Put back" }));
+    await user.click(within(list).getByRole("button", { name: "Put back on the boards" }));
     expect(loadAutoRemoved().size).toBe(0);
     expect([...loadRealClubs()]).toEqual(["gcDEMO"]);
     expect(screen.queryByRole("list", { name: "Removed for you" })).toBeNull();
@@ -561,6 +561,22 @@ describe("the clubs removed for you", () => {
     expect([...loadAutoRemoved().keys()]).toEqual(["gcDEMO"]);
     expect([...loadRealClubs()]).toEqual([]);
     expect(await screen.findByRole("list", { name: "Removed for you" })).toBeInTheDocument();
+  });
+
+  it("puts back every club one night took off, saying nothing of them, with an Undo", async () => {
+    const user = userEvent.setup();
+    const shown = renderTeamRankings(pool());
+    await openSetup(user);
+    await user.click(
+      await screen.findByRole("button", { name: "Put back the 1 taken off on 2026-10-11" })
+    );
+    expect(loadAutoRemoved().size).toBe(0);
+    // Nothing is said of it: the next sweep takes it off again if it still shows its sign.
+    expect([...loadRealClubs()]).toEqual([]);
+    const [said, options] = shown.showToast.mock.calls[shown.showToast.mock.calls.length - 1] ?? [];
+    expect(said).toBe("1 club taken off on 2026-10-11 back on the boards.");
+    act(() => (options as { onAction: () => void }).onAction());
+    expect([...loadAutoRemoved().keys()]).toEqual(["gcDEMO"]);
   });
 
   it("deletes one for good as Delete club does, with an Undo", async () => {

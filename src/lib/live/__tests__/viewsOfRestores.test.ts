@@ -61,7 +61,7 @@ describe("a page id a restore stores twice in one year", () => {
       readSeason,
       today: TODAY,
     });
-    const lists = gamesViews({ ageGroups: groups, built, gamesOfYear });
+    const lists = gamesViews({ ageGroups: groups, built, gamesOfYear, roster: teams });
     expect(lists.map((list) => list.key)).toEqual(["games:2027:d9", "games:2027:d10"]);
     const read = coerceGames(JSON.parse(JSON.stringify(lists[0]?.value)));
     expect(read?.games.map((game) => `${game.teamAId}${game.teamBId}`)).toEqual(["AB", "BC"]);
@@ -97,10 +97,9 @@ describe("a page id a restore stores twice in one year", () => {
       readSeason,
       today: TODAY,
     });
-    expect(gamesViews({ ageGroups: across, built, gamesOfYear }).map((list) => list.key)).toEqual([
-      "games:2027:d9",
-      "games:2028:d10",
-    ]);
+    expect(
+      gamesViews({ ageGroups: across, built, gamesOfYear, roster: teams }).map((list) => list.key)
+    ).toEqual(["games:2027:d9", "games:2028:d10"]);
   });
 });
 

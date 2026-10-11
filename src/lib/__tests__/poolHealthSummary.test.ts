@@ -97,7 +97,7 @@ const POOL: GcImportState = { ageGroups: GROUPS, teams: TEAMS, games: GAMES };
 const STORED = [{ year: 2027, games: 5 }];
 
 describe("what Pool health shows as it opens", () => {
-  const summary = poolHealthSummary(POOL, TODAY, STORED, NO_REMOVALS);
+  const summary = poolHealthSummary(POOL, TODAY, STORED, NO_REMOVALS, new Set());
 
   it("lists the results scored ahead, with the year each is stored under and who filed it", () => {
     expect(summary.datedAhead).toEqual([
@@ -208,7 +208,8 @@ describe("the clubs taken off as plainly made up, in Pool health", () => {
       POOL,
       TODAY,
       STORED,
-      new Map([mark("gcA", "2027-04-10", {})])
+      new Map([mark("gcA", "2027-04-10", {})]),
+      new Set()
     );
     // A's rows go from every list, and A from the suspects; B's stay.
     expect(summary.datedAhead.map((game) => game.id)).toEqual(["ahead-2"]);
@@ -225,14 +226,27 @@ describe("the clubs taken off as plainly made up, in Pool health", () => {
     ]);
   });
 
+  it("keeps a club a League Standings team links on every list, and says it is kept", () => {
+    const summary = poolHealthSummary(
+      POOL,
+      TODAY,
+      STORED,
+      new Map([mark("gcA", "2027-04-10", {})]),
+      new Set(["A"])
+    );
+    expect(summary.datedAhead.map((game) => game.id)).toContain("ahead-1");
+    expect(summary.suspected.map((club) => club.teamId)).toContain("A");
+    expect(summary.removed?.map((club) => [club.teamId, club.keptByLeague])).toEqual([["A", true]]);
+  });
+
   it("lists them newest first, and none with no marks or one of a club's two ids", () => {
     const both = new Map([...marks, mark("gcB2", "2027-04-11", { name: "Club B" })]);
     expect(
-      poolHealthSummary(POOL, TODAY, STORED, both).removed?.map((club) => club.teamId)
+      poolHealthSummary(POOL, TODAY, STORED, both, new Set()).removed?.map((club) => club.teamId)
     ).toEqual(["B", "A"]);
     expect(
-      poolHealthSummary(POOL, TODAY, STORED, marks).removed?.map((club) => club.teamId)
+      poolHealthSummary(POOL, TODAY, STORED, marks, new Set()).removed?.map((club) => club.teamId)
     ).toEqual(["A"]);
-    expect(poolHealthSummary(POOL, TODAY, STORED, NO_REMOVALS).removed).toEqual([]);
+    expect(poolHealthSummary(POOL, TODAY, STORED, NO_REMOVALS, new Set()).removed).toEqual([]);
   });
 });

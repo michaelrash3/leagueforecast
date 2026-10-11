@@ -7,6 +7,7 @@ import {
   ownPageFor,
   ratedMargin,
   type AgeGroup,
+  type FoldedRow,
   type ScoutGame,
   type ScoutTeam,
 } from "./teamRankings";
@@ -153,9 +154,16 @@ export const unrealClubs = (state: GcImportState, today: string): UnrealClub[] =
 };
 
 /**
+ * The side of `holder` whose own schedule a folded row is (`rowOfRecord` stands it up there).
+ */
+const ownSideOf = (holder: ScoutGame, record: FoldedRow): string =>
+  record.onSideB ? holder.teamBId : holder.teamAId;
+
+/**
  * The pool without `club`: every game it is in, and the club itself — but not another club's own
  * row that one of those games held as a claim (`FoldedRow.filedAgainst`), nor the club where such a
- * row elsewhere was filed against it.
+ * row elsewhere was filed against it. The club's own row held as a claim goes with it: stood up, it
+ * would be a game of a club that is gone.
  *
  * A claimed row is a game of the other club's own schedule against somebody else, read as this
  * club's copy of it by the clock: it stands back up against the team it was filed against rather
@@ -176,6 +184,7 @@ export const withoutClub = (
     if (!drop.has(game.id)) return true;
     game.alsoRows?.forEach((record) => {
       if (record.filedAgainst === undefined || record.filedAgainst === club.teamId) return;
+      if (ownSideOf(game, record) === club.teamId) return;
       stood.push({
         ...ownPage(filedRowOf(game, record)),
         ...(game.excluded ? { excluded: true } : {}),
@@ -201,8 +210,10 @@ export const withoutClub = (
  * a claimed row in one of them stands back up against the team it was filed against, and a club a
  * claimed row elsewhere still goes back to stays as a name only. A claimed row filed against
  * another of the clubs goes with them rather than stand up against a club that is going, which
- * taking them out one at a time would do or not by the order they were taken in. The pool itself,
- * the same arrays, when there are none.
+ * taking them out one at a time would do or not by the order they were taken in, and so does a
+ * claimed row that is one of the clubs' own: the usual claim is just that, the club's schedule
+ * filing a game against a stand-in by name and the other club's copy claiming it, and stood up it
+ * would be a game naming a club that is gone. The pool itself, the same arrays, when there are none.
  *
  * It is how the boards leave out the clubs taken off as plainly made up (`deriveAllKnown`), so
  * they leave a club out exactly as Delete club takes it out, in one walk of the games rather than
@@ -221,6 +232,7 @@ export const withoutClubs = (
     if (!clubIds.has(game.teamAId) && !clubIds.has(game.teamBId)) return true;
     game.alsoRows?.forEach((record) => {
       if (record.filedAgainst === undefined || clubIds.has(record.filedAgainst)) return;
+      if (clubIds.has(ownSideOf(game, record))) return;
       stood.push({
         ...ownPage(filedRowOf(game, record)),
         ...(game.excluded ? { excluded: true } : {}),

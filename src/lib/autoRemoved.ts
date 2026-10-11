@@ -1,4 +1,4 @@
-import type { AgeGroup, ScoutTeam } from "./teamRankings/types";
+import type { ScoutTeam } from "./teamRankings/types";
 
 /**
  * The clubs taken off every board for the user as plainly made up, without the user having to
@@ -41,13 +41,20 @@ export type AutoRemoval = {
   /** Its wins by more than 30 that no loser's own schedule listed (`wins` and `rout`). */
   wins?: CountedWin[];
   /**
-   * Its results dated ahead (`ahead`): the first such day, how many, out of how many scored, and
-   * whether the club is next season's squad (its GameChanger season has not begun), which is the
-   * shape every such mark measured on 29 September and 11 October 2026 had.
+   * Its results dated well ahead (`ahead`, `FAR_AHEAD_DAYS` or more): the first such day, how
+   * many, out of how many scored, and whether the club is next season's squad (its GameChanger
+   * season has not begun), which is the shape every such mark measured on 29 September and 11
+   * October 2026 had. A result only a day or two ahead is not among them, so the day named is a
+   * score the sign counted.
    */
   ahead?: { first: string; results: number; played: number; nextSeason?: true };
   /** The word its name had (`named`), lower case. */
   word?: string;
+  /**
+   * The GameChanger team's name that had the word (`named`), where the club's own name has none:
+   * the list shows the club's name, which would not say why.
+   */
+  teamName?: string;
 };
 
 /** The marks, by GameChanger id. */
@@ -99,6 +106,7 @@ const markOf = (raw: unknown): AutoRemoval | null => {
         }
       : {}),
     ...(isText(raw.word) ? { word: raw.word } : {}),
+    ...(isText(raw.teamName) ? { teamName: raw.teamName } : {}),
   };
 };
 
@@ -120,107 +128,27 @@ export const autoRemovalsList = (marks: AutoRemovals): AutoRemoval[] =>
   );
 
 /**
- * The clubs `marks` take off: those with GameChanger ids, every one of them marked, that are no
- * page's own team. A club folded together from a marked id and an unmarked one stands, and the
- * user's own team stands whatever is said of it. A League Standings team linked to a club keeps it
- * too, which only the derivation that reads League Standings can tell (`deriveAllKnown`).
+ * The marks a club said to be real carries (`realClubs`, by its club id or any of its GameChanger
+ * ids, and an id said to be real itself): the marks such a club cannot keep. The sweep never makes
+ * one and lifts any it finds, but it runs a night later; whatever says a club is real (This club
+ * is real, a restored backup) forgets them at once, so the club is back on the boards as it is said.
  */
-export const removedClubIds = (
+export const marksOfRealClubs = (
   teams: readonly ScoutTeam[],
-  ageGroups: readonly AgeGroup[],
+  real: ReadonlySet<string>,
   marks: AutoRemovals
-): Set<string> => {
-  const removed = new Set<string>();
-  if (marks.size === 0) return removed;
-  const mine = new Set(ageGroups.flatMap((group) => (group.myTeamId ? [group.myTeamId] : [])));
+): string[] => {
+  if (marks.size === 0 || real.size === 0) return [];
+  const going = new Set<string>();
+  real.forEach((id) => {
+    if (marks.has(id)) going.add(id);
+  });
   teams.forEach((team) => {
-    const links = team.gcTeams ?? [];
-    if (links.length === 0 || mine.has(team.id)) return;
-    if (links.every((link) => marks.has(link.teamId))) removed.add(team.id);
+    const ids = (team.gcTeams ?? []).map((link) => link.teamId);
+    if (!real.has(team.id) && !ids.some((id) => real.has(id))) return;
+    ids.forEach((id) => {
+      if (marks.has(id)) going.add(id);
+    });
   });
-  return removed;
-};
-
-/** Each marked GameChanger id and the day it was marked, as Find a team says where an id went. */
-export const removedDays = (marks: AutoRemovals): Map<string, string> =>
-  new Map([...marks].map(([id, mark]) => [id, mark.on]));
-
-/** Why a club was taken off, a line a sign, as Pool health says it. */
-export const reasonsInWords = (mark: AutoRemoval): string[] =>
-  mark.signs.map((sign) => {
-    switch (sign) {
-      case "wins":
-        return `won ${(mark.wins ?? []).length} games by more than 30 runs that the losers' own schedules do not list`;
-      case "rout": {
-        const widest = Math.max(0, ...(mark.wins ?? []).map((win) => Math.abs(win.margin)));
-        return `won a game by ${Math.round(widest)} runs that the loser's own schedule does not list`;
-      }
-      case "ahead": {
-        const ahead = mark.ahead;
-        if (!ahead) return "results dated on days that have not happened";
-        if (ahead.nextSeason) {
-          return ahead.results === 1
-            ? `next season's squad, one score dated ${ahead.first}`
-            : `next season's squad, ${ahead.results} scores dated from ${ahead.first}`;
-        }
-        return `${ahead.results} of its ${ahead.played} results dated ahead, the first ${ahead.first}`;
-      }
-      case "named":
-        return `named '${mark.word ?? "test"}'`;
-    }
-  });
-
-/** A club taken off, as Pool health lists it. */
-export type RemovedClub = {
-  teamId: string;
-  name: string;
-  gcTeamIds: string[];
-  /** The newest of its marks' days. */
-  on: string;
-  /** Every reason its marks give, each once. */
-  reasons: string[];
-};
-
-/**
- * The clubs `marks` take off (`removedClubIds`), newest first, each with its reasons in words.
- * Clubs a League Standings team links to are among them: Pool health reads no League Standings.
- */
-export const removedForYou = (
-  teams: readonly ScoutTeam[],
-  ageGroups: readonly AgeGroup[],
-  marks: AutoRemovals
-): RemovedClub[] => {
-  const removed = removedClubIds(teams, ageGroups, marks);
-  if (removed.size === 0) return [];
-  return teams
-    .filter((team) => removed.has(team.id))
-    .map((team): RemovedClub => {
-      const gcTeamIds = (team.gcTeams ?? []).map((link) => link.teamId);
-      const own = gcTeamIds.flatMap((id) => {
-        const mark = marks.get(id);
-        return mark ? [mark] : [];
-      });
-      return {
-        teamId: team.id,
-        name: team.name,
-        gcTeamIds,
-        on: own.reduce((newest, mark) => (mark.on > newest ? mark.on : newest), ""),
-        reasons: [...new Set(own.flatMap(reasonsInWords))],
-      };
-    })
-    .sort((a, b) => (a.on < b.on ? 1 : a.on > b.on ? -1 : a.name.localeCompare(b.name)));
-};
-
-/**
- * What takes `before` to `after` as the marks command says it (`autoRemoved`): the marks made or
- * changed, and the ids no longer marked. Null when the two are the same marks.
- */
-export const marksChange = (
-  before: AutoRemovals,
-  after: AutoRemovals
-): { put: AutoRemoval[]; forget: string[] } | null => {
-  if (before === after) return null;
-  const put = [...after.values()].filter((mark) => before.get(mark.gcTeamId) !== mark);
-  const forget = [...before.keys()].filter((id) => !after.has(id));
-  return put.length + forget.length === 0 ? null : { put, forget };
+  return [...going];
 };

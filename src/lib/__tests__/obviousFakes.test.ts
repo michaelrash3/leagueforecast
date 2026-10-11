@@ -13,11 +13,11 @@ import {
   autoRemovalsList,
   coerceAutoRemovals,
   NO_REMOVALS,
-  reasonsInWords,
-  removedClubIds,
   type AutoRemoval,
   type AutoRemovals,
 } from "../autoRemoved";
+import { removedClubIds } from "../removedClubs";
+import { reasonsInWords } from "../removedForYou";
 import { apartKey } from "../keptApart";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
@@ -541,6 +541,116 @@ describe("a mark as stored and said", () => {
         signs: ["ahead"],
         ahead: { first: "2026-11-01", results: 3, played: 4 },
       })
-    ).toEqual(["3 of its 4 results dated ahead, the first 2026-11-01"]);
+    ).toEqual(["3 of its 4 results dated well ahead, the first 2026-11-01"]);
+  });
+
+  it("says when the word is in the GameChanger team's name rather than the club's", () => {
+    const base = { gcTeamId: "gcA", name: "Club A", on: TODAY, signs: ["named" as const] };
+    expect(reasonsInWords({ ...base, word: "demo", teamName: "Club A Demo" })).toEqual([
+      "its GameChanger team is named 'Club A Demo'",
+    ]);
+  });
+});
+
+describe("what the review of the sweep found", () => {
+  it("keeps a C mark lifted once a real opponent lists a game of the club played since", () => {
+    // Next season's squad with two stray scores months ahead, both against a stand-in: still
+    // half its games once a real game is played, and one real game short of the guard's half.
+    const fake = club("F", 12);
+    const real = club("R", 12);
+    const strays = [
+      game("F", "X", 5, 3, { date: ahead(60) }),
+      game("F", "X", 6, 3, { date: ahead(70) }),
+    ];
+    const teams = [fake, real, standIn("X")];
+    const marked = sweep({ teams, games: strays });
+    expect(signsOf(marked)).toEqual({ gcF: ["ahead"] });
+    const games = [...strays, game("F", "R", 2, 1, { date: ahead(3), listedBy: ["R"] })];
+    const night = sweep({ teams, games }, {}, marked, ahead(5));
+    expect(night.size).toBe(0);
+    // And the nights after, the mark stays lifted rather than made again on a later day.
+    expect(sweep({ teams, games }, {}, night, ahead(6)).size).toBe(0);
+    expect(sweep({ teams, games }, {}, night, ahead(40)).size).toBe(0);
+    // A club a real opponent lists a game of shows no C at all, however few.
+    expect(sweep({ teams, games }).size).toBe(0);
+  });
+
+  it("lets two marked clubs whose signs have gone vouch for each other", () => {
+    const f = club("F", 12);
+    const g = club("G", 12);
+    const teams = [f, g, standIn("X")];
+    const strays = [
+      game("F", "X", 5, 3, { date: "2026-11-20" }),
+      game("G", "X", 6, 3, { date: "2026-11-21" }),
+    ];
+    const marked = sweep({ teams, games: strays });
+    expect(signsOf(marked)).toEqual({ gcF: ["ahead"], gcG: ["ahead"] });
+    // In the spring they play each other, both schedules list it, and November has passed.
+    const spring = [...strays, game("F", "G", 4, 2, { date: "2027-03-14", listedBy: ["G"] })];
+    expect(sweep({ teams, games: spring }, {}, marked, "2027-03-20").size).toBe(0);
+  });
+
+  it("lifts A once the loser lists a counted win, though it now stands under another id", () => {
+    const fake = club("F", 12);
+    const loser = club("L", 12);
+    const teams = [fake, loser, standIn("X")];
+    const first = game("F", "L", 40, 0);
+    const second = game("F", "X", 40, 0);
+    const rest = [1, 2, 3, 4].map((at) => game("F", "X", 3, at));
+    const marked = sweep({ teams, games: [first, second, ...rest] });
+    expect(signsOf(marked)).toEqual({ gcF: ["wins"] });
+    // Re-pulled, the loser's schedule lists the game, held as its own row with F's folded in.
+    const relisted = game("L", "F", 0, 40, { filer: "L", listedBy: ["F"] });
+    const pool = { teams, games: [relisted, second, ...rest] };
+    expect(sweep(pool).size).toBe(0);
+    expect(sweep(pool, {}, marked).size).toBe(0);
+  });
+
+  it("lifts B once the loser lists the win counted, though it now stands under another id", () => {
+    const fake = club("F", 9);
+    const loser = club("L", 9);
+    const teams = [fake, loser, standIn("X")];
+    const rout = game("F", "L", 80, 0, { page: "p9" });
+    const rest = [1, 2, 3].map((at) => game("F", "X", 3, at, { page: "p9" }));
+    const marked = sweep({ teams, games: [rout, ...rest] });
+    expect(signsOf(marked)).toEqual({ gcF: ["rout"] });
+    const relisted = game("L", "F", 0, 80, { filer: "L", listedBy: ["F"], page: "p9" });
+    const pool = { teams, games: [relisted, ...rest] };
+    expect(sweep(pool).size).toBe(0);
+    expect(sweep(pool, {}, marked).size).toBe(0);
+    // While another win by the line stays unlisted, B stands, the mark as it was made rather than
+    // lifted and made again on a later day.
+    const another = game("F", "X", 90, 0, { page: "p9" });
+    const still = { teams, games: [relisted, another, ...rest] };
+    expect(sweep(still, {}, marked, ahead(1))).toBe(marked);
+  });
+
+  it("names the first score far ahead, not one a day or two ahead", () => {
+    const fake = club("F", 12);
+    const marks = sweep({
+      teams: [fake, standIn("X")],
+      games: [
+        game("F", "X", 5, 3, { date: ahead(3) }),
+        game("F", "X", 6, 3, { date: "2027-04-01" }),
+      ],
+    });
+    expect(marks.get("gcF")?.ahead).toEqual({ first: "2027-04-01", results: 1, played: 2 });
+  });
+
+  it("keeps the GameChanger team's name when only it has the word", () => {
+    const linkOnly: ScoutTeam = {
+      id: "F",
+      name: "Hawks F",
+      gcTeams: [{ teamId: "gcF", name: "Hawks F Demo", ageGroupId: "p12", ageLevel: 12 }],
+    };
+    expect(sweep({ teams: [linkOnly] }).get("gcF")).toEqual({
+      gcTeamId: "gcF",
+      name: "Hawks F",
+      on: TODAY,
+      signs: ["named"],
+      word: "demo",
+      teamName: "Hawks F Demo",
+    } satisfies AutoRemoval);
+    expect(sweep({ teams: [club("G", 12, "Demo G")] }).get("gcG")?.teamName).toBeUndefined();
   });
 });

@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { poolFixture } from "../../../../scripts/poolFixture";
-import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings";
+import {
+  buildTeamRankings,
+  type AgeGroup,
+  type ScoutGame,
+  type ScoutTeam,
+} from "../../teamRankings";
+import { archiveSquadYear } from "../../teamRankingsArchive";
 import { NO_REMOVALS, type AutoRemoval, type AutoRemovals } from "../../autoRemoved";
 import {
+  archivedFrom,
   deriveAllKnown,
+  leagueKeptClubs,
   gamesOnPages,
   type LeagueSeasonData,
   type SeasonReader,
@@ -257,6 +265,114 @@ describe("a club taken off as plainly made up", () => {
     // A league that links some other club leaves it off.
     const other = derive(BOTH, { groups, seasons: league({ id: "t", name: "Club R" }) });
     expect(other.games.some((game) => game.id === "fx")).toBe(false);
+    // And says which it left out and which the league kept, for the lists that read the store.
+    expect([...picked.removed, ...picked.leagueKept]).toEqual(["F"]);
+    expect(picked.leagueKept.has("F")).toBe(true);
+    expect([...other.removed]).toEqual(["F"]);
+    expect(other.leagueKept.size).toBe(0);
+    // Pool health asks the same of every year with a season on a page, the League pass alone.
+    const ask = (seasons: Record<string, LeagueSeasonData>, marks: AutoRemovals = BOTH) =>
+      leagueKeptClubs({
+        ageGroups: groups,
+        teams,
+        gamesOfYear: () => yearGames,
+        readSeason: readerOf(seasons),
+        autoRemoved: marks,
+      });
+    expect([...ask(league({ id: "t", name: "Foxes", scoutTeamId: "F" }))]).toEqual(["F"]);
+    expect([...ask(league({ id: "t", name: "Club F" }))]).toEqual(["F"]);
+    expect(ask(league({ id: "t", name: "Club R" })).size).toBe(0);
+    expect(ask(league({ id: "t", name: "Club F" }), NO_REMOVALS).size).toBe(0);
+  });
+
+  it("is left out of a year's archive as the board leaves it out", () => {
+    // F beats R in F's copy, which holds R's own row, filed by name against stand-in X and
+    // claimed; Q's own row, filed by name against F, is claimed into Z's copy of Z v Q, and keeps F
+    // as a name only. The archive is frozen from what the board rates, not every stored game.
+    const roster = [...teams, pulled("Q", "gcQ"), pulled("Z", "gcZ"), pulled("W", "gcW")];
+    const g = (id: string, a: string, b: string, as: number, bs: number, day: number) => ({
+      ...played(id, a, b),
+      teamAScore: as,
+      teamBScore: bs,
+      date: `2026-09-${10 + day}`,
+      source: { kind: "gamechanger" as const, teamId: `gc${a}`, gameId: id },
+    });
+    const stored = [
+      {
+        ...g("fr", "F", "R", 12, 0, 1),
+        alsoRows: [
+          {
+            teamId: "gcR",
+            gameId: "r1",
+            ownScore: 0,
+            opponentScore: 12,
+            onSideB: true,
+            filedAgainst: "X",
+          },
+        ],
+      },
+      g("rq", "R", "Q", 5, 4, 2),
+      g("qw", "Q", "W", 6, 5, 3),
+      g("wz", "W", "Z", 3, 3, 4),
+      {
+        ...g("zq", "Z", "Q", 3, 2, 5),
+        alsoRows: [
+          {
+            teamId: "gcQ",
+            gameId: "q1",
+            ownScore: 2,
+            opponentScore: 3,
+            onSideB: true,
+            filedAgainst: "F",
+          },
+        ],
+      },
+    ];
+    const all = deriveAllKnown({
+      ageGroups: [page],
+      teams: roster,
+      yearGames: stored,
+      readSeason: readerOf({}),
+      autoRemoved: BOTH,
+    });
+    expect(all.teams.find((team) => team.id === "F")?.nameOnly).toBe(true);
+    expect(all.games.some((game) => game.teamAId === "R" && game.teamBId === "X")).toBe(true);
+    const ratingOf = (rows: readonly { teamName: string; rating: number }[]) =>
+      rows.find((row) => row.teamName === "Club R")?.rating;
+    const board = buildTeamRankings("p", all.teams, all.games, undefined, [page], "fall");
+    const pool = { ageGroups: [page], teams: roster, games: stored };
+    const done = archiveSquadYear(2027, archivedFrom(all, pool), pool, "at");
+    const fall = done.seasons.find((season) => season.segment === "fall");
+    expect(ratingOf(fall?.rows ?? [])).toBe(ratingOf(board));
+    // Q's row stood back up is the pool's own, not a game League Standings carried in.
+    expect(done.archivedLeagueGames).toBe(0);
+  });
+
+  it("leaves no game naming it, its own row another club's copy claimed included", () => {
+    // R's copy of R v F holds F's own row, filed by name against stand-in X and claimed.
+    const held: ScoutGame = {
+      ...played("rf", "R", "F"),
+      source: { kind: "gamechanger", teamId: "gcR", gameId: "r1" },
+      alsoRows: [
+        {
+          teamId: "gcF1",
+          gameId: "f1",
+          ownScore: 2,
+          opponentScore: 4,
+          onSideB: true,
+          filedAgainst: "X",
+        },
+      ],
+    };
+    const all = deriveAllKnown({
+      ageGroups: [page],
+      teams,
+      yearGames: [held, played("rx", "R", "X")],
+      readSeason: readerOf({}),
+      autoRemoved: BOTH,
+    });
+    expect(all.teams.some((team) => team.id === "F")).toBe(false);
+    expect(all.games.filter((game) => game.teamAId === "F" || game.teamBId === "F")).toEqual([]);
   });
 });
 

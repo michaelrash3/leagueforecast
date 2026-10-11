@@ -172,6 +172,17 @@ export function LivePoolHealthCard({
         `${club.name} is back on the boards, kept as real.`,
         true
       ),
+    // A night's sweep taken back as a whole: the marks forgotten and nothing said, with Undo.
+    putBackDay: (day, clubs) =>
+      change(
+        {
+          kind: "autoRemoved",
+          put: [],
+          forget: clubs.flatMap((club) => club.gcTeamIds),
+        },
+        `${plural(clubs.length, "club")} taken off on ${day} ${clubs.length === 1 ? "is" : "are"} back on the boards.`,
+        true
+      ),
     // Deleted as Delete club deletes one, its Undo offered: the inverse the edit sends back.
     deleteRemoved: (club) =>
       change({ kind: "club.drop", teamId: club.teamId }, `Deleted ${club.name} for good.`, true),

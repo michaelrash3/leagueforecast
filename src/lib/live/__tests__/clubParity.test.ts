@@ -259,6 +259,8 @@ describe("the club cards a server publishes", { timeout: 60_000 }, () => {
       pickedOnly: new Set<string>(),
       leagueClubs: new Map(),
       leagueHalves: new Map(),
+      removed: new Set<string>(),
+      leagueKept: new Set<string>(),
     };
     const views = clubViews({
       ageGroups: [],
@@ -337,6 +339,8 @@ describe("the club cards a server publishes", { timeout: 60_000 }, () => {
       pickedOnly: new Set<string>(),
       leagueClubs: new Map(),
       leagueHalves: new Map(),
+      removed: new Set<string>(),
+      leagueKept: new Set<string>(),
     };
     const views = clubViews({
       ageGroups: [],

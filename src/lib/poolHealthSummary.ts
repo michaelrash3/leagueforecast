@@ -5,7 +5,9 @@ import { isImplausibleScore, ratedMargin } from "./teamRankings";
 import { ageGroupYear } from "./teamRankings/seasons";
 import type { ScoutGame } from "./teamRankings/types";
 import { clubsByGcId, filedBy, unrealClubs, withoutClubs, type UnrealClub } from "./unrealClubs";
-import { removedClubIds, removedForYou, type AutoRemovals, type RemovedClub } from "./autoRemoved";
+import { type AutoRemovals } from "./autoRemoved";
+import { removedClubIds } from "./removedClubs";
+import { removedForYou, type RemovedClub } from "./removedForYou";
 
 /**
  * What Pool health shows as it opens, before anyone asks it to look harder (`PoolHealthCard`): what
@@ -48,7 +50,9 @@ export type PoolHealthSummary = {
   clubs: Record<string, { name: string; gcId?: string }>;
   /**
    * The clubs taken off as plainly made up (`autoRemoved.ts`), newest first, which the lists above
-   * leave out. Absent from a server's answer from before they were kept, which is the same as none.
+   * leave out; those a League Standings team links are among them, said to be kept on their boards
+   * (`RemovedClub.keptByLeague`) and left on the lists, as the boards keep them. Absent from a
+   * server's answer from before they were kept, which is the same as none.
    */
   removed?: RemovedClub[];
 };
@@ -57,15 +61,17 @@ export type PoolHealthSummary = {
  * What Pool health shows as it opens, from `pool`, on `today`, with the stored games per year. A
  * club `marks` takes off (`removedClubIds`) is on none of its lists but its own, "Removed for you":
  * its games count for nothing and the boards leave it out, so there is nothing left to ask about it
- * but whether to put it back or delete it for good.
+ * but whether to put it back or delete it for good. Unless a League Standings team links it
+ * (`leagueKept`, `leagueKeptClubs`): the boards keep such a club, and so do the lists.
  */
 export const poolHealthSummary = (
   whole: GcImportState,
   today: string,
   storedByYear: { year: number | undefined; games: number }[],
-  marks: AutoRemovals
+  marks: AutoRemovals,
+  leagueKept: ReadonlySet<string>
 ): PoolHealthSummary => {
-  const removed = removedClubIds(whole.teams, whole.ageGroups, marks);
+  const removed = removedClubIds(whole.teams, whole.ageGroups, marks, leagueKept);
   const pool =
     removed.size === 0
       ? whole
@@ -108,7 +114,7 @@ export const poolHealthSummary = (
     implausible,
     suspected: unrealClubs(pool, today),
     clubs,
-    removed: removedForYou(whole.teams, whole.ageGroups, marks),
+    removed: removedForYou(whole.teams, whole.ageGroups, marks, leagueKept),
   };
 };
 

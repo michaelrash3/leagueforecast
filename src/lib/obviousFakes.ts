@@ -34,11 +34,19 @@ import {
  *   schedule. Only above 10U, unless one of those wins is by `SURE_BLOWOUT` or more: a young
  *   travel team routs stand-ins, and three clubs the user called real were each one such win from
  *   it on 11 October, every one 8U to 10U.
- * - B: one such win by `ABSURD_MARGIN` or more that the loser's own schedule does not list. No
- *   game both clubs' schedules list, and no score the user vouched for, reaches fifty.
+ * - B: one such win by `ABSURD_MARGIN` or more that the loser's own schedule does not list. On 11
+ *   October 2026 no game both clubs' schedules list, and none of the 77 scores the user vouched
+ *   for, reaches fifty (the widest of each is 42.5). It was not always so: on 29 September one
+ *   game both list read 54.5, and on 26 September, before the user's own sweep of 28 September,
+ *   three reached fifty, the widest 119. A listed game is never a sign, whatever its margin.
  * - C: half or more of its scored games are its own schedule's results dated `FAR_AHEAD_DAYS` or
- *   more ahead, and no opponent's schedule lists any of its results dated ahead. Nobody scores a
- *   game before it is played; the floor keeps out a game keyed a day or two off.
+ *   more ahead, no opponent's schedule lists any of its results dated ahead, and no real
+ *   opponent's schedule lists any game of it at all. Nobody scores a game before it is played; the
+ *   floor keeps out a game keyed a day or two off. The last clause is what lets the lift below
+ *   hold: without it a club whose mark one real game lifted showed the sign again the same night,
+ *   short of the guard's three or half, and was marked afresh on that day, which the next real
+ *   game, dated before it, could never lift. Measured on the five backups of 25 September to 11
+ *   October 2026, it changes no mark.
  * - N: its name, or the name of a GameChanger team filed under it, has void, voided, test,
  *   testing or demo as a word of its own, in any case ("Contest" and "Demons" are not). Marked per
  *   GameChanger id: when only one of its teams has the word and the club's own name does not,
@@ -57,17 +65,25 @@ import {
  * - the user's word on it: a pair kept apart, an age named, or a score vouched for in a game of it;
  * - for A, B and C, not N: real opponents' own schedules listing `PLAINLY_REAL_GAMES` of its
  *   scored games, or at least half of them (one at least). A real opponent is a pulled club that
- *   shows no sign of its own and carries no mark;
+ *   shows no sign of its own (C read without its clause about real opponents, which would make
+ *   the question ask itself). A mark does not make a club no witness: a mark stays after its sign
+ *   has gone, and two clubs marked for one stray score each, playing each other in the spring,
+ *   would otherwise keep each other off the boards for good;
  * - a League Standings team linked to it, which only the derivation that reads League Standings
  *   can tell (`deriveAllKnown`), so it is applied there, whatever the marks say.
  *
  * A mark stays until something lifts it, so a club whose results dated ahead have since been
  * reached is not put back for that. Any guard lifts every mark it would have kept from being
- * made. A and B lift too once a losing club's own schedule lists one of the wins counted, which is
- * the sign's own escape. C lifts once a real opponent's schedule lists even one game of the club's
- * dated after the day it was marked: the shape C finds is next season's squad with one stray
- * score, and a spring of real games is the answer to it. N lifts once neither the club's name nor
- * the GameChanger team's has the word.
+ * made. A and B lift too on the sign's own escape: A once a losing club's own schedule lists one
+ * of the wins counted, or any win of the club's by more than thirty (the clause A itself reads);
+ * B once a losing club's schedule lists the win counted, or once every win of the club's by
+ * `ABSURD_MARGIN` or more is one its loser lists. Not by the counted game's id alone: a game the
+ * loser's schedule comes to list can be filed or collapsed under another id, which happened to 9
+ * of the 97 one-sided games between pulled clubs that both schedules came to list between 29
+ * September and 11 October 2026. C lifts once a real opponent's schedule lists even one game of
+ * the club's dated after the day it was marked: the shape C finds is next season's squad with one
+ * stray score, and a spring of real games is the answer to it; such a club no longer shows C, so
+ * it stays lifted. N lifts once neither the club's name nor the GameChanger team's has the word.
  */
 
 /** A win by this many runs or more, alone, is no game anybody played. */
@@ -136,11 +152,16 @@ type Tally = {
   unlisted: CountedWin[];
   /** Its wins by more than 30, as its schedule reads them, that the loser's schedule lists. */
   routsListed: number;
-  /** Its own results dated ahead, those an opponent lists, those far ahead, and the first day. */
+  /** Those of them by `ABSURD_MARGIN` or more. */
+  absurdListed: number;
+  /**
+   * Its own results dated ahead, those an opponent lists, those `FAR_AHEAD_DAYS` or more ahead, and
+   * the first day of those far ahead: the score the sign counts, not one keyed a day or two off.
+   */
   ahead: number;
   aheadListed: number;
   farAhead: number;
-  first: string | undefined;
+  firstFar: string | undefined;
   vouched: boolean;
 };
 
@@ -148,10 +169,11 @@ const emptyTally = (): Tally => ({
   played: 0,
   unlisted: [],
   routsListed: 0,
+  absurdListed: 0,
   ahead: 0,
   aheadListed: 0,
   farAhead: 0,
-  first: undefined,
+  firstFar: undefined,
   vouched: false,
 });
 
@@ -183,11 +205,19 @@ const nextSeasonSquad = (links: readonly GcTeamLink[], today: string): boolean =
   });
 };
 
+/** Why N marks a GameChanger id: the word, and the team's name where the club's own has none. */
+type Named = { word: string; teamName?: string };
+
 type Verdict = {
   /** The signs it shows, A, B and C, and which of its GameChanger ids N marks. */
   signs: AutoSign[];
-  named: Map<string, string>;
+  named: Map<string, Named>;
   wins: CountedWin[];
+  /** Its wins by more than 30, and by `ABSURD_MARGIN` or more, that the loser's schedule lists. */
+  routsListed: number;
+  absurdListed: number;
+  /** Whether a win by `ABSURD_MARGIN` or more is among those no loser's schedule lists. */
+  absurdUnlisted: boolean;
   ahead?: AutoRemoval["ahead"];
   /** Kept by the user's word: real, its own team, kept apart, an age named, a score vouched for. */
   kept: boolean;
@@ -201,12 +231,7 @@ type Verdict = {
  * What every pulled club shows, and what keeps it: the signs before any guard, the guards, and the
  * day of the latest of its games a real opponent's own schedule lists.
  */
-const judge = (
-  pool: SweepPool,
-  answers: SweepAnswers,
-  marks: AutoRemovals,
-  today: string
-): Map<string, Verdict> => {
+const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<string, Verdict> => {
   const clubOfGcId = clubsByGcId(pool.teams);
   const pages = new Map(pool.ageGroups.map((group) => [group.id, group]));
   const pulled = new Map(
@@ -243,6 +268,7 @@ const judge = (
       const seen = scoreSeenBy(game, self!);
       if (seen && seen.own - seen.opponent > IMPLAUSIBLE_MARGIN && otherListed) {
         tally.routsListed += 1;
+        if (seen.own - seen.opponent >= ABSURD_MARGIN) tally.absurdListed += 1;
       }
       // Filed by its own schedule and not listed by the loser's. The two never part in a pool, since
       // a win the club's schedule did not file is one the loser's did, but it is what the sign says.
@@ -256,9 +282,14 @@ const judge = (
       if (early && ownFiled) {
         tally.ahead += 1;
         if (otherListed) tally.aheadListed += 1;
-        if (game.date !== undefined && ISO_DAY.test(game.date)) {
-          if (tally.first === undefined || game.date < tally.first) tally.first = game.date;
-          if (daysAfter(game.date, today) >= FAR_AHEAD_DAYS) tally.farAhead += 1;
+        if (
+          game.date !== undefined &&
+          ISO_DAY.test(game.date) &&
+          daysAfter(game.date, today) >= FAR_AHEAD_DAYS
+        ) {
+          tally.farAhead += 1;
+          if (tally.firstFar === undefined || game.date < tally.firstFar)
+            tally.firstFar = game.date;
         }
       }
     });
@@ -281,29 +312,37 @@ const judge = (
       signs.push("wins");
     }
     if (widest >= ABSURD_MARGIN) signs.push("rout");
+    // C's shape; whether a real opponent lists a game of it is asked below, once witnesses are known.
     if (
       tally.farAhead >= 1 &&
       tally.farAhead * 2 >= tally.played &&
       tally.aheadListed === 0 &&
-      tally.first !== undefined
+      tally.firstFar !== undefined
     ) {
       signs.push("ahead");
     }
     const clubWord = madeUpWord(team.name);
-    const named = new Map<string, string>();
+    const named = new Map<string, Named>();
     links.forEach((link) => {
-      const word = clubWord ?? madeUpWord(link.name);
-      if (word !== undefined) named.set(link.teamId, word);
+      if (clubWord !== undefined) {
+        named.set(link.teamId, { word: clubWord });
+        return;
+      }
+      const word = madeUpWord(link.name);
+      if (word !== undefined) named.set(link.teamId, { word, teamName: link.name });
     });
     const ids = links.map((link) => link.teamId);
     verdicts.set(id, {
       signs,
       named,
       wins: signs.includes("wins") || signs.includes("rout") ? tally.unlisted : [],
+      routsListed: tally.routsListed,
+      absurdListed: tally.absurdListed,
+      absurdUnlisted: widest >= ABSURD_MARGIN,
       ...(signs.includes("ahead")
         ? {
             ahead: {
-              first: tally.first!,
+              first: tally.firstFar!,
               results: tally.farAhead,
               played: tally.played,
               ...(nextSeasonSquad(links, today) ? { nextSeason: true as const } : {}),
@@ -321,11 +360,11 @@ const judge = (
     });
   });
 
-  // A real opponent shows no sign and carries no mark: a club that does is no witness.
+  // A real opponent is a pulled club showing no sign, C's shape counted as one. Whatever marks it
+  // carries are no matter: a mark outlives its sign, and a witness is about what a club shows now.
   const witness = (clubId: string): boolean => {
     const verdict = verdicts.get(clubId);
-    if (!verdict || verdict.signs.length > 0 || verdict.named.size > 0) return false;
-    return !(pulled.get(clubId)?.gcTeams ?? []).some((link) => marks.has(link.teamId));
+    return verdict !== undefined && verdict.signs.length === 0 && verdict.named.size === 0;
   };
   const corroborated = new Map<string, number>();
   listed.forEach((listers, game) => {
@@ -345,6 +384,11 @@ const judge = (
     const count = corroborated.get(id) ?? 0;
     verdict.corroborated =
       count >= PLAINLY_REAL_GAMES || (count >= 1 && count * 2 >= tallies.get(id)!.played);
+    // C is no sign of a club a real opponent's schedule lists a game of, however few.
+    if (count > 0 && verdict.signs.includes("ahead")) {
+      verdict.signs = verdict.signs.filter((sign) => sign !== "ahead");
+      delete verdict.ahead;
+    }
   });
   return verdicts;
 };
@@ -353,13 +397,14 @@ const judge = (
 const keeping = (mark: AutoRemoval, signs: readonly AutoSign[]): AutoRemoval | undefined => {
   if (signs.length === mark.signs.length) return mark;
   if (signs.length === 0) return undefined;
-  const { wins, ahead, word, ...rest } = mark;
+  const { wins, ahead, word, teamName, ...rest } = mark;
   return {
     ...rest,
     signs: [...signs],
     ...(wins && (signs.includes("wins") || signs.includes("rout")) ? { wins } : {}),
     ...(ahead && signs.includes("ahead") ? { ahead } : {}),
     ...(word && signs.includes("named") ? { word } : {}),
+    ...(teamName && signs.includes("named") ? { teamName } : {}),
   };
 };
 
@@ -376,7 +421,7 @@ export const sweepMarks = (
   marks: AutoRemovals,
   today: string
 ): AutoRemovals => {
-  const verdicts = judge(pool, answers, marks, today);
+  const verdicts = judge(pool, answers, today);
   const clubOfGcId = clubsByGcId(pool.teams);
   const games = new Map(pool.games.map((game) => [game.id, game]));
   const teams = new Map(pool.teams.map((team) => [team.id, team]));
@@ -405,9 +450,14 @@ export const sweepMarks = (
     const signs = mark.signs.filter((sign) => {
       if (sign === "named") return word !== undefined;
       if (verdict.corroborated) return false;
-      if (sign === "wins") return !(mark.wins ?? []).some(loserLists);
+      // A's escape as A reads it: any win by more than thirty a loser's schedule lists.
+      if (sign === "wins") return verdict.routsListed === 0 && !(mark.wins ?? []).some(loserLists);
       if (sign === "rout") {
-        return !(mark.wins ?? []).some((win) => win.margin >= ABSURD_MARGIN && loserLists(win));
+        // B's: the win counted is listed, or every win by the line is one its loser lists.
+        const listed = (mark.wins ?? []).some(
+          (win) => win.margin >= ABSURD_MARGIN && loserLists(win)
+        );
+        return !listed && !(verdict.absurdListed > 0 && !verdict.absurdUnlisted);
       }
       return !(verdict.lastCorroborated > mark.on);
     });
@@ -426,9 +476,9 @@ export const sweepMarks = (
     const team = teams.get(clubId)!;
     (team.gcTeams ?? []).forEach((link) => {
       if (next.has(link.teamId)) return;
-      const word = verdict.named.get(link.teamId);
+      const named = verdict.named.get(link.teamId);
       const signs = AUTO_SIGNS.filter((sign) =>
-        sign === "named" ? word !== undefined : shown.includes(sign)
+        sign === "named" ? named !== undefined : shown.includes(sign)
       );
       if (signs.length === 0) return;
       next.set(link.teamId, {
@@ -440,7 +490,8 @@ export const sweepMarks = (
           ? { wins: verdict.wins }
           : {}),
         ...(verdict.ahead && signs.includes("ahead") ? { ahead: verdict.ahead } : {}),
-        ...(word !== undefined ? { word } : {}),
+        ...(named ? { word: named.word } : {}),
+        ...(named?.teamName === undefined ? {} : { teamName: named.teamName }),
       });
       changed = true;
     });

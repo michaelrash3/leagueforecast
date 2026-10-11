@@ -20,8 +20,6 @@ import {
   EMPTY_SCOUTING_REPORT,
   buildUpcomingSchedule,
   countedInWindow,
-  dedupeLeagueFixtures,
-  leagueStandIns,
   filedTeamIds,
   findDuplicateGame,
   gcLinkSquadYear,
@@ -56,6 +54,7 @@ import {
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
 import {
+  archivedFrom,
   deriveAllKnown,
   gamesOnPages,
   leagueTeamIdsOn,
@@ -117,8 +116,9 @@ import {
 import { persistPool } from "../lib/poolPersist";
 import type { DeletedClubs } from "../lib/deletedGames";
 import type { NamedAges } from "../lib/namedAges";
-import { marksChange, removedDays, type AutoRemovals, type RemovedClub } from "../lib/autoRemoved";
-import { sweepStored } from "../lib/sweepStored";
+import { type AutoRemovals } from "../lib/autoRemoved";
+import { removedDays } from "../lib/removedClubs";
+import type { RemovedClub } from "../lib/removedForYou";
 import { clubAgeOf } from "../lib/teamRankings/clubAge";
 import { forgetAgeless, type AgeUnknownList } from "../lib/ageUnknown";
 import {
@@ -173,7 +173,7 @@ import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRan
 import type { NamedChecker } from "./ScheduleImportPanel";
 import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
 import { addOfNamed } from "../lib/live/namedAdd";
-import { gamesWindowFor, loggedGamesOn } from "../lib/teamRankings/gamesWindow";
+import { gamesWindowFor, listedTeamNames, loggedGamesOn } from "../lib/teamRankings/gamesWindow";
 import {
   NATIONAL_TOP,
   RankingsSection as RankingsBoards,
@@ -889,9 +889,10 @@ export function TeamRankingsView({
     [rankings, rankedTeams, stateFilter]
   );
 
+  // A club taken off as plainly made up is named too, as such: the Games tab lists its stored games.
   const teamNameById = useMemo(
-    () => new Map(allKnown.teams.map((team) => [team.id, team.name])),
-    [allKnown.teams]
+    () => listedTeamNames(allKnown.teams, allKnown.removed, scoutTeams),
+    [allKnown.teams, allKnown.removed, scoutTeams]
   );
   // The roster by id, for what asks a game's other side for more than its name (Not this team).
   const scoutTeamById = useMemo(
@@ -1771,6 +1772,27 @@ export function TeamRankingsView({
     return true;
   };
 
+  /**
+   * Puts back every club one day's sweep took off (`autoRemoved.ts`): their marks forgotten and
+   * nothing said of them, so the next sweep takes off again any still showing its sign. How a sweep
+   * that went wrong is taken back as a whole. Undo on the toast puts the marks back.
+   */
+  const putBackRemovedOn = (day: string, clubs: readonly RemovedClub[]): boolean => {
+    const run = runCommand({
+      kind: "autoRemoved",
+      put: [],
+      forget: clubs.flatMap((club) => club.gcTeamIds),
+    });
+    if (!run.ok) return false;
+    const many = clubs.length === 1 ? "1 club" : `${clubs.length.toLocaleString()} clubs`;
+    showToast(`${many} taken off on ${day} back on the boards.`, {
+      tone: "undo",
+      actionLabel: "Undo",
+      onAction: () => runCommand(run.inverse),
+    });
+    return true;
+  };
+
   /** Deletes a club the sweep took off for good, as Delete club does, with Undo on the toast. */
   const deleteRemoved = (club: RemovedClub): boolean => {
     const run = runCommand({ kind: "club.drop", teamId: club.teamId });
@@ -2201,14 +2223,9 @@ The file will be around ${formatBytes(estimate)} and will take a moment to put t
   const archiveYear = async (year: number) => {
     // Every year: the one being archived need not be the one on screen.
     const everyGame = loadScoutGames();
-    const shown = {
-      teams: allKnown.teams,
-      games: dedupeLeagueFixtures(
-        [...allKnown.derivedGames, ...everyGame],
-        leagueStandIns(allKnown.teams, ageGroups)
-      ),
-    };
     const stored = { ageGroups, teams: scoutTeams, games: everyGame };
+    // As the boards show it: League Standings' games in, the clubs taken off as made up out.
+    const shown = archivedFrom(allKnown, stored);
     /*
      * Whether the pool was tidy before this, checked before anything changes.
      *
@@ -2487,11 +2504,10 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 // Thrown out exactly as a club deleted by hand is: see `inventedFromOutcomes`.
                 runCommand({ kind: "answers", list: "droppedClubs", add: [...ids], remove: [] });
               }}
-              onRunEnd={(pulled) => {
+              onSwept={(change) => {
                 // The clubs plainly made up, swept as the nightly sweeps the cloud copy after its
-                // pull, for a pool kept on this device (`obviousFakes.ts`).
-                const change = marksChange(...sweepStored(pulled, todayIsoDay()));
-                if (change) runCommand({ kind: "autoRemoved", ...change }, { quiet: true });
+                // pull, for a pool kept on this device (`obviousFakes.ts`), in the tidy worker.
+                runCommand({ kind: "autoRemoved", ...change }, { quiet: true });
               }}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {
@@ -2612,7 +2628,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onSetAges: setTeamAges,
                 runCommand: (command) => runCommand(command),
                 autoRemoved,
+                readSeason: readStoredSeason,
                 onPutBack: putBackRemoved,
+                onPutBackDay: putBackRemovedOn,
                 onDeleteRemoved: deleteRemoved,
               }}
               /*

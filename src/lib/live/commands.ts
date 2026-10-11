@@ -19,6 +19,7 @@ import {
 import { withoutClub } from "../unrealClubs";
 import {
   coerceAutoRemovals,
+  marksOfRealClubs,
   NO_REMOVALS,
   type AutoRemoval,
   type AutoRemovals,
@@ -905,11 +906,26 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       const ids = new Set(was);
       removed.forEach((id) => ids.delete(id));
       added.forEach((id) => ids.add(id));
-      return {
+      const said: Applied = {
         ok: true,
         writes: [{ part: "answers", list: command.list, ids }],
         inverse: { kind: "answers", list: command.list, add: removed, remove: added },
       };
+      /*
+       * A club said to be real carries no mark of one taken off as plainly made up: forgotten here,
+       * with the answer, rather than at the next night's sweep, so the club is back on the boards
+       * as it is said, and its Undo puts both back. Said from a card opened before the sweep that
+       * marked it, the button never knew of the mark.
+       */
+      const lifted =
+        command.list === "realClubs"
+          ? marksOfRealClubs(read.teams(), new Set(added), read.autoRemoved())
+          : [];
+      if (lifted.length === 0) return said;
+      return applySteps(read, [
+        () => said,
+        (pool) => apply(pool, { kind: "autoRemoved", put: [], forget: lifted }),
+      ]);
     }
     case "team.state": {
       const state = command.state === null ? undefined : normalizeState(command.state);

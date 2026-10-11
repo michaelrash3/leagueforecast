@@ -24,7 +24,7 @@ import {
   saveScoutTeams,
   loadAutoRemoved,
 } from "../../teamRankingsStorage";
-import { removedDays } from "../../autoRemoved";
+import { removedDays } from "../../removedClubs";
 import type { SeasonSnapshot } from "../../storage";
 import { DEFAULT_SETTINGS } from "../../types";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
@@ -201,6 +201,7 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
       ageGroups: loadAgeGroups(),
       built,
       gamesOfYear: loadScoutGamesForYear,
+      roster: loadScoutTeams(),
     });
     expect(games.length).toBe(loadAgeGroups().length);
     const others = clubs.length + searches.length + games.length;

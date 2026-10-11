@@ -1,5 +1,5 @@
-import { ageGroupYear, type AgeGroup, type ScoutGame } from "../../teamRankings";
-import { loggedGamesOn } from "../../teamRankings/gamesWindow";
+import { ageGroupYear, type AgeGroup, type ScoutGame, type ScoutTeam } from "../../teamRankings";
+import { listedTeamNames, loggedGamesOn } from "../../teamRankings/gamesWindow";
 import type { BoardsBuilt } from "./board";
 import { encodeGames, gamesKey, type GamesWire } from "./gamesShape";
 
@@ -12,20 +12,24 @@ import { encodeGames, gamesKey, type GamesWire } from "./gamesShape";
  * minted unique, but a hand-edited restore can repeat one, and two lists under one key would stop
  * the whole publish.
  *
- * `gamesOfYear` reads a squad year's stored games (`loadScoutGamesForYear`).
+ * `gamesOfYear` reads a squad year's stored games (`loadScoutGamesForYear`); `roster` is the stored
+ * roster (`loadScoutTeams`), which names a club the derivation left out as plainly made up
+ * (`listedTeamNames`).
  */
 export const gamesViews = ({
   ageGroups,
   built,
   gamesOfYear,
+  roster,
 }: {
   ageGroups: AgeGroup[];
   built: Pick<BoardsBuilt, "known">;
   gamesOfYear: (year: number | undefined) => ScoutGame[];
+  roster: readonly ScoutTeam[];
 }): Array<{ key: string; value: GamesWire }> =>
   [...built.known].flatMap(([year, known]) => {
     const yearGames = gamesOfYear(year);
-    const names = new Map(known.teams.map((team) => [team.id, team.name]));
+    const names = listedTeamNames(known.teams, known.removed, roster);
     return ageGroups
       .filter(
         (group, index) =>

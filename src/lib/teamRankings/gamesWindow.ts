@@ -1,5 +1,5 @@
 import { squadYearWindow } from "./seasons";
-import { isScoutGamePlayed, type ScoutGame } from "./types";
+import { isScoutGamePlayed, type ScoutGame, type ScoutTeam } from "./types";
 
 /**
  * Which of a page's games the Games tab lists before it is asked for the rest: today's.
@@ -25,6 +25,29 @@ export const loggedGamesOn = (yearGames: readonly ScoutGame[], pageId: string): 
   yearGames
     .filter((game) => game.ageGroupId === pageId)
     .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+
+/** What a club taken off as plainly made up is called on a Games list. */
+export const REMOVED_ON_LIST = " (removed for you)";
+
+/**
+ * The names a page's Games list gives its sides: a year's derived roster (`AllKnown.teams`), and
+ * each club it left out as plainly made up (`AllKnown.removed`) by its stored name (`roster`), said
+ * to be removed. The list is of the page's stored games, which a mark leaves filed, so a removed
+ * club's games are still listed (and found again by their place, `findListed`); without its name
+ * the club was a bare "?" or an id, and without the word the user would read its games as counted.
+ */
+export const listedTeamNames = (
+  teams: readonly ScoutTeam[],
+  removed: ReadonlySet<string>,
+  roster: readonly ScoutTeam[]
+): Map<string, string> => {
+  const names = new Map(teams.map((team) => [team.id, team.name]));
+  if (removed.size === 0) return names;
+  roster.forEach((team) => {
+    if (removed.has(team.id)) names.set(team.id, `${team.name}${REMOVED_ON_LIST}`);
+  });
+  return names;
+};
 
 export type GamesWindow = {
   /** The one ISO day the list keeps. */

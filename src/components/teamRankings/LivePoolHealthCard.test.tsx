@@ -392,7 +392,7 @@ describe("Pool health's buttons, sent as edits", () => {
       const call = editFunction({ "health.summary": TAKEN });
       show(call);
       const list = await screen.findByRole("list", { name: "Removed for you" });
-      fireEvent.click(within(list).getByRole("button", { name: "Put back" }));
+      fireEvent.click(within(list).getByRole("button", { name: "Put back on the boards" }));
       await waitFor(() => expect(call.sent).toHaveLength(1));
       expect(call.sent[0]).toEqual({
         command: {
@@ -422,6 +422,38 @@ describe("Pool health's buttons, sent as edits", () => {
           afterUndo: expect.any(Function),
         },
       });
+    });
+
+    it("puts back every club one night took off, saying nothing of them, with an undo", async () => {
+      const call = editFunction({ "health.summary": TAKEN });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Put back the 1 taken off on 2027-04-14" })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      expect(call.sent[0]).toEqual({
+        command: { kind: "autoRemoved", put: [], forget: ["gc-9a", "gc-9b"] },
+        said: {
+          done: "1 club taken off on 2027-04-14 is back on the boards.",
+          undo: true,
+          afterUndo: expect.any(Function),
+        },
+      });
+    });
+
+    it("says a club a League Standings team links is kept on its boards", async () => {
+      const kept = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: TAKEN.summary.removed.map((club) => ({ ...club, keptByLeague: true as const })),
+        },
+      };
+      show(editFunction({ "health.summary": kept }));
+      const list = await screen.findByRole("list", { name: "Removed for you" });
+      expect(
+        within(list).getByText(/kept on its boards, as a League Standings team links it/)
+      ).toBeTruthy();
     });
 
     it("draws nothing of it from a server that says nothing of them", async () => {

@@ -16,7 +16,9 @@ import type { AgeUnknownList } from "../../lib/ageUnknown";
 import type { NamedAges } from "../../lib/namedAges";
 import type { DeletedClubs } from "../../lib/deletedGames";
 import type { UnrealClub } from "../../lib/unrealClubs";
-import type { AutoRemovals, RemovedClub } from "../../lib/autoRemoved";
+import type { AutoRemovals } from "../../lib/autoRemoved";
+import type { SeasonReader } from "../../lib/live/allKnown";
+import type { RemovedClub } from "../../lib/removedForYou";
 import type { GcImportState } from "../../lib/gameChangerImport";
 import type { TidyOutcome } from "../../hooks/usePoolTidy";
 import type { PoolCommand } from "../../lib/live/commands";
@@ -78,7 +80,10 @@ type SetupSectionProps = {
     runCommand: (command: PoolCommand) => CommandRun;
     /** The clubs taken off as plainly made up, and putting one back or deleting it for good. */
     autoRemoved: AutoRemovals;
+    /** League Standings seasons as stored, which keep a club they link on its boards. */
+    readSeason: SeasonReader;
     onPutBack: (club: RemovedClub) => boolean;
+    onPutBackDay: (day: string, clubs: readonly RemovedClub[]) => boolean;
     onDeleteRemoved: (club: RemovedClub) => boolean;
   };
   /** The years that could be frozen or deleted, and the one the app is showing as current. */
@@ -161,7 +166,9 @@ export function SetupSection({
         onSetAges={poolHealth.onSetAges}
         runCommand={poolHealth.runCommand}
         autoRemoved={poolHealth.autoRemoved}
+        readSeason={poolHealth.readSeason}
         onPutBack={poolHealth.onPutBack}
+        onPutBackDay={poolHealth.onPutBackDay}
         onDeleteRemoved={poolHealth.onDeleteRemoved}
       />
 

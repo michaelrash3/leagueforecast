@@ -48,8 +48,10 @@ import {
 import { unpulledClubs, unpulledClubsCsv } from "../../unpulledClubs";
 import { planClubAges } from "../agePlan";
 import { asJson } from "../editHandle";
+import type { SeasonReader } from "../allKnown";
 import {
   answerQuery,
+  asksLeague,
   coerceQuery,
   foldCounts,
   LEAGUE_CANDIDATES_MAX,
@@ -1167,7 +1169,7 @@ describe("what Pool health asks of the server's pool", () => {
     const answer = asked({ kind: "health.summary", today: TODAY });
     expect(answer).toEqual({
       kind: "health.summary",
-      summary: poolHealthSummary(POOL, TODAY, storedGamesByYear(), new Map()),
+      summary: poolHealthSummary(POOL, TODAY, storedGamesByYear(), new Map(), new Set()),
       answers: {
         ageRight: ["gcLARK"],
         realClubs: ["gcHAWK"],
@@ -1210,6 +1212,46 @@ describe("what Pool health asks of the server's pool", () => {
     expect(read?.summary.removed).toEqual(answer.summary.removed);
   });
 
+  /*
+   * A League Standings team carried onto the Bulldogs by their name keeps them on their boards
+   * (`deriveAllKnown`), so Pool health keeps them on its lists too, and says why they are kept.
+   */
+  it("keeps a club a League Standings team links on its lists, said to be kept", () => {
+    saveAutoRemoved(
+      new Map([
+        [
+          "gcBULL",
+          {
+            gcTeamId: "gcBULL",
+            name: "Placeholder Bulldogs",
+            on: TODAY,
+            signs: ["named"],
+            word: "demo",
+          },
+        ],
+      ])
+    );
+    saveAgeGroups(PAGES.map((page) => (page.id === "ag9" ? { ...page, seasonIds: ["s"] } : page)));
+    const seasons: SeasonReader = () => ({
+      teams: [
+        { id: "t", name: "Placeholder Bulldogs" },
+        { id: "o", name: "Placeholder Owls League" },
+      ],
+      matchups: [{ id: "m", date: "9/13", away: "t", home: "o" }],
+      logs: {},
+    });
+    const linked = answerQuery({ kind: "health.summary", today: TODAY }, seasons);
+    if (linked.kind !== "health.summary") throw new Error("no summary");
+    expect(linked.summary.implausible.length).toBe(1);
+    expect(linked.summary.removed?.map((club) => [club.teamId, club.keptByLeague])).toEqual([
+      ["BULL", true],
+    ]);
+    // Asked without the seasons, as before, the club is off the lists.
+    expect(asked({ kind: "health.summary", today: TODAY }).summary.implausible).toEqual([]);
+    expect(asksLeague({ kind: "health.summary", today: TODAY })).toBe(true);
+    expect(asksLeague({ kind: "health.inspect", today: TODAY })).toBe(true);
+  });
+
   it("reads back as the callable sends it, a page with no year and a score in halves among it", () => {
     // A page whose year is in no name, and a game typed by hand at a half-run score, ahead of today.
     const OLD: AgeGroup = { id: "ag_old", name: "Placeholder Old", ageLevel: 9, seasonIds: [] };
@@ -1244,6 +1286,19 @@ describe("what Pool health asks of the server's pool", () => {
     expect(Object.entries(answer.lists).filter(([, list]) => list.length === 0)).toEqual([]);
     // More clubs to pull than the card draws, of which only those are sent.
     expect([answer.lists.toPull.length, answer.toPullCount]).toEqual([TO_PULL_DRAWN, 7]);
+  });
+
+  it("lists nothing of a club the boards leave out as plainly made up", () => {
+    // The Cubs post the Greens' games; taken off, they are no twin to offer for a fold.
+    expect(asked({ kind: "health.inspect", today: TODAY }).lists.twins).toHaveLength(1);
+    saveAutoRemoved(
+      new Map([
+        ["gcCUBS", { gcTeamId: "gcCUBS", name: "Cubs", on: TODAY, signs: ["named"], word: "test" }],
+      ])
+    );
+    const lists = asked({ kind: "health.inspect", today: TODAY }).lists;
+    expect(lists.twins).toEqual([]);
+    expect(JSON.stringify(lists)).not.toContain('"CUBS"');
   });
 
   it("counts no settle the owner's refusals keep from a club, as the tidy settles", () => {

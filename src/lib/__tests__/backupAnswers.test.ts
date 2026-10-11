@@ -170,6 +170,32 @@ describe("what a backup carries besides the pool", () => {
   });
 
   /*
+   * An older file says a club is real that the store holds marked, the mark made after the file
+   * was written: restored, the club is said to be real and so carries no mark, at once rather than
+   * at the next night's sweep.
+   */
+  it("forgets the marks of a club the restored file says is real", () => {
+    anEveningOfAnswers();
+    const backup = readTeamRankingsBackup();
+    const { autoRemoved: _marks, ...older } = backup.answers!;
+    const demo = {
+      id: "S-DEMO",
+      name: "Demo Club",
+      gcTeams: [{ teamId: MARK.gcTeamId, name: "Demo Club", ageGroupId: "ag" }],
+    };
+    writeTeamRankingsBackup({
+      ...backup,
+      teams: [demo],
+      answers: { ...older, realClubs: ["S-DEMO"] },
+    });
+    expect(loadAutoRemoved().size).toBe(0);
+    // A file that says nothing of it leaves the mark as it was.
+    saveAutoRemoved(new Map([[MARK.gcTeamId, MARK]]));
+    writeTeamRankingsBackup({ ...backup, teams: [demo], answers: older });
+    expect([...loadAutoRemoved().values()]).toEqual([MARK]);
+  });
+
+  /*
    * The marks are made on the cloud copy by the nightly and read off it by every device, and a
    * change to them changes what the boards leave out, so the boards are built again.
    */

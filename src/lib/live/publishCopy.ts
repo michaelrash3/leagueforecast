@@ -15,7 +15,7 @@ import {
   loadTooYoungClubs,
 } from "../teamRankingsStorage";
 import type { LeagueSeasonData, SeasonReader } from "./allKnown";
-import { removedDays } from "../autoRemoved";
+import { removedDays } from "../removedClubs";
 import { BOARD_FAMILY, builtFrom } from "./boardInputs";
 import {
   leaguePrintOf,
@@ -280,7 +280,7 @@ export const publishCopyViews = async ({
     },
   });
   // And each page's Games list.
-  const games = gamesViews({ ageGroups, built, gamesOfYear: loadScoutGamesForYear });
+  const games = gamesViews({ ageGroups, built, gamesOfYear: loadScoutGamesForYear, roster: teams });
   const views = [...boards, ...clubs, ...searches, ...games];
   // With the copy's age groups, so a device that has never held the pool can lay the page out.
   const pages = livePagesOf(built, latestImportedAt(teams), ageGroups);
