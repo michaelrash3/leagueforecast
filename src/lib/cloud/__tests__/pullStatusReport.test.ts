@@ -5,7 +5,7 @@ import {
   jobLine,
   logLine,
   masked,
-  minutesBefore,
+  fromNow,
   queueLine,
   taskLine,
 } from "../pullStatusReport";
@@ -51,11 +51,14 @@ describe("clipped", () => {
   });
 });
 
-describe("minutesBefore", () => {
-  it("says minutes, just now, or never", () => {
-    expect(minutesBefore("2026-10-11T04:20:00Z", NOW)).toBe("40 min ago");
-    expect(minutesBefore("2026-10-11T04:59:50Z", NOW)).toBe("just now");
-    expect(minutesBefore(undefined, NOW)).toBe("never");
+describe("fromNow", () => {
+  it("says minutes ago, minutes to come, just now, or never", () => {
+    expect(fromNow("2026-10-11T04:20:00Z", NOW)).toBe("40 min ago");
+    expect(fromNow("2026-10-11T04:59:50Z", NOW)).toBe("just now");
+    expect(fromNow(undefined, NOW)).toBe("never");
+    // A task waiting out its backoff is due later, not now.
+    expect(fromNow("2026-10-11T05:10:00Z", NOW)).toBe("in 10 min");
+    expect(fromNow("2026-10-11T05:00:20Z", NOW)).toBe("just now");
   });
 });
 

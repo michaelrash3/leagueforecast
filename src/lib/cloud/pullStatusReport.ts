@@ -23,11 +23,16 @@ export const clipped = (text: string, max = 400): string => {
   return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
 };
 
-/** How long before `nowMs` the time `iso` was, in minutes, or a word when it is not a time. */
-export const minutesBefore = (iso: string | undefined, nowMs: number): string => {
+/**
+ * When the time `iso` is from `nowMs`, in minutes: "12 min ago", or "in 10 min" for one still to
+ * come (a task waiting out its backoff is due later, and that is not the same as one due now), or
+ * a word when it is not a time.
+ */
+export const fromNow = (iso: string | undefined, nowMs: number): string => {
   const then = iso === undefined ? Number.NaN : Date.parse(iso);
   if (!Number.isFinite(then)) return "never";
   const minutes = Math.round((nowMs - then) / 60_000);
+  if (minutes <= -1) return `in ${-minutes} min`;
   return minutes < 1 ? "just now" : `${minutes} min ago`;
 };
 
@@ -48,10 +53,10 @@ export const jobLine = (jobId: string, job: PullJob, nowMs: number): string => {
     `${masked(jobId)} ${what}: ${where}`,
     `part ${Math.min(job.legsDone + 1, job.legs)} of ${job.legs} (${job.legsDone} done)`,
     ...(job.stopAsked ? ["stop asked"] : []),
-    `made ${job.createdAt} (${minutesBefore(job.createdAt, nowMs)})`,
+    `made ${job.createdAt} (${fromNow(job.createdAt, nowMs)})`,
     job.updatedAt === job.createdAt
       ? "never written since"
-      : `last written ${job.updatedAt} (${minutesBefore(job.updatedAt, nowMs)})`,
+      : `last written ${job.updatedAt} (${fromNow(job.updatedAt, nowMs)})`,
     `${count(job.tally.filed)} filed, ${count(job.tally.gamesAdded)} games added`,
     ...(job.end ? [`last leg ended ${job.end}`] : []),
     ...(job.error ? [`error: ${clipped(job.error)}`] : []),
@@ -87,7 +92,7 @@ export const queueLine = (queue: QueueInfo, nowMs: number): string => {
           `${stats.concurrentDispatchesCount ?? "0"} running now`,
           `${stats.executedLastMinuteCount ?? "0"} run in the last minute`,
           ...(stats.oldestEstimatedArrivalTime
-            ? [`oldest due ${minutesBefore(stats.oldestEstimatedArrivalTime, nowMs)}`]
+            ? [`oldest due ${fromNow(stats.oldestEstimatedArrivalTime, nowMs)}`]
             : []),
         ]
       : []),
@@ -114,21 +119,21 @@ export type TaskInfo = {
 const attemptOf = (attempt: Attempt | undefined, nowMs: number): string => {
   if (!attempt?.dispatchTime) return "none";
   const answer = attempt.responseTime
-    ? `answered ${minutesBefore(attempt.responseTime, nowMs)}${
+    ? `answered ${fromNow(attempt.responseTime, nowMs)}${
         attempt.responseStatus
           ? ` with code ${attempt.responseStatus.code ?? 0}${attempt.responseStatus.message ? ` (${clipped(attempt.responseStatus.message, 200)})` : ""}`
           : ""
       }`
     : "no answer yet";
-  return `sent ${minutesBefore(attempt.dispatchTime, nowMs)}, ${answer}`;
+  return `sent ${fromNow(attempt.dispatchTime, nowMs)}, ${answer}`;
 };
 
 /** A task: whose leg it is, when it was made and is due, how often it was sent, and the last try. */
 export const taskLine = (task: TaskInfo, nowMs: number): string =>
   [
     `Task ${masked(task.name?.split("/").pop() ?? "(unnamed)")}`,
-    `made ${minutesBefore(task.createTime, nowMs)}`,
-    `due ${minutesBefore(task.scheduleTime, nowMs)}`,
+    `made ${fromNow(task.createTime, nowMs)}`,
+    `due ${fromNow(task.scheduleTime, nowMs)}`,
     `sent ${task.dispatchCount ?? 0} times, answered ${task.responseCount ?? 0}`,
     `last try: ${attemptOf(task.lastAttempt, nowMs)}`,
   ].join("; ");

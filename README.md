@@ -3833,7 +3833,17 @@ the deploy key, read only):
 
 It runs where the log is public, so it cuts each job's id to six characters and
 takes out any address but a service account's. A part the key may not read says
-so, and the rest still prints.
+so, and the rest still prints. The deploy account reads the queues as the pulls'
+setup made it, but lists the tasks in them only with Cloud Tasks Viewer, which
+one paste in Cloud Shell grants; without it the queues are said, their tasks are
+not:
+
+```sh
+PROJECT=your-project-id
+gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member "serviceAccount:github-deploy@$PROJECT.iam.gserviceaccount.com" \
+  --role roles/cloudtasks.viewer --condition=None > /dev/null
+```
 
 **Cost.** The project's budget is a dollar a month with a hard stop (below).
 Google's published free tier for functions gives 360,000 GiB-seconds and 180,000

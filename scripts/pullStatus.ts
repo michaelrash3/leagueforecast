@@ -128,13 +128,30 @@ if (!keyJson) {
       `https://cloudtasks.googleapis.com/v2beta3/${location}/queues?readMask=name,state,rateLimits,retryConfig,stats`
     )) as { queues?: QueueInfo[] };
     if (!queues.queues?.length) console.log("  No queues.");
+    // Every queue is said even when its tasks may not be read: the deploy account lists tasks only
+    // with Cloud Tasks Viewer (README, "Seeing where each one is"), and a refusal for one queue is
+    // a refusal for all, so it is said once and not asked again.
+    let refused = false;
     for (const queue of queues.queues ?? []) {
       console.log(`  ${queueLine(queue, nowMs)}`);
-      if (!queue.name) continue;
-      const tasks = (await ask(
-        `https://cloudtasks.googleapis.com/v2beta3/${queue.name}/tasks?responseView=FULL&pageSize=100`
-      )) as { tasks?: TaskInfo[] };
-      for (const task of tasks.tasks ?? []) console.log(`    ${taskLine(task, nowMs)}`);
+      if (!queue.name || refused) continue;
+      try {
+        // Page by page: a queue backed up or paused holds more than one page of tasks, and the one
+        // stuck is the one looked for.
+        let pageToken: string | undefined;
+        do {
+          const page = (await ask(
+            `https://cloudtasks.googleapis.com/v2beta3/${queue.name}/tasks?responseView=FULL&pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""}`
+          )) as { tasks?: TaskInfo[]; nextPageToken?: string };
+          for (const task of page.tasks ?? []) console.log(`    ${taskLine(task, nowMs)}`);
+          pageToken = page.nextPageToken;
+        } while (pageToken);
+      } catch (error) {
+        refused = true;
+        console.log(
+          `    Its tasks could not be read, nor any queue's: ${clipped(error instanceof Error ? error.message : String(error))}`
+        );
+      }
     }
   });
 
