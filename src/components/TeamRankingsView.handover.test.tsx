@@ -2,6 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { TEAM_PANEL_ID } from "./TeamDetailPanel";
 import { ageGroup, game, renderTeamRankings, seasonDate, team } from "../test/teamRankingsHarness";
+import { askToScout, scoutAsked } from "../lib/scoutRequest";
 
 /*
  * Team Rankings taking over from the live board (`LiveTeamRankings`): it opens where the board
@@ -62,6 +63,15 @@ describe("Team Rankings taking over from the live board", () => {
     });
     const box = await screen.findByRole("combobox", { name: /How would/ });
     await waitFor(() => expect(box).toHaveValue("Badgers"));
+  });
+
+  it("reports on the club League Standings' Scout button asked for, once", async () => {
+    askToScout("S-B");
+    renderTeamRankings({ ...pool(), search: "?view=rankings&age=10&year=2027&section=scouting" });
+    const box = await screen.findByRole("combobox", { name: /How would/ });
+    await waitFor(() => expect(box).toHaveValue("Badgers"));
+    // On screen, it is let go: the next page opens as it otherwise would.
+    expect(scoutAsked()).toBeNull();
   });
 
   it("sets beside it the club compared on the board, with the opponents asked for", async () => {

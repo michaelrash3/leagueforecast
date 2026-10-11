@@ -9,7 +9,8 @@ import { createAgeGroupId } from "../lib/teamRankings/seasons";
 import { filedByNameOn, mintStandInId, takenOffSaid } from "../lib/notThisTeam";
 import { planClubAges } from "../lib/live/agePlan";
 import { whereIsGcId } from "../lib/gcIdWhereabouts";
-import { leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
+import { clubRankPage, leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
+import { scoutAsked, scoutTaken } from "../lib/scoutRequest";
 import { TournamentPanel } from "./teamRankings/TournamentPanel";
 import {
   ageGroupChain,
@@ -454,7 +455,11 @@ export function TeamRankingsView({
   const [poolBackupAt, setPoolBackupAt] = useState(() => lastBackupTakenAt("pool"));
   /** The newest GameChanger fetch in the stored pool: what the rankings are "as of". */
   const pulledAt = useMemo(() => latestImportedAt(scoutTeams), [scoutTeams]);
-  const [reportTeamId, setReportTeamId] = useState<string>(handover?.reportTeamId ?? "");
+  // Handed the club the board had open, or the one League Standings' Scout button asked for.
+  const [reportTeamId, setReportTeamId] = useState<string>(
+    () => handover?.reportTeamId ?? scoutAsked() ?? ""
+  );
+  useEffect(() => scoutTaken(), []);
 
   const [gameDraft, setGameDraft] = useState<AddGameDraft>(EMPTY_ADD_GAME_DRAFT);
 
@@ -989,6 +994,7 @@ export function TeamRankingsView({
         ? group.name
         : `${group.name} · ${segmentLabel(selectedYear, selectedSegment)}`;
     const at = new Date().toISOString();
+    const page = clubRankPage(ageGroupLevel(group), ageGroupYear(group), selectedSegment);
     group.seasonIds.forEach((seasonId) => {
       const clubs = allKnown.leagueClubs.get(group.id)?.get(seasonId);
       if (!clubs) return;
@@ -1004,7 +1010,8 @@ export function TeamRankingsView({
           (teamId) => stateById.get(teamId),
           lastWeek?.ranks ?? null,
           board,
-          at
+          at,
+          page
         )
       );
     });

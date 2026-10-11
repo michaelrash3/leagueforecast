@@ -34,7 +34,8 @@ import { editLock, myTeamShown } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { poolGamesOfCard, teamsOfCard } from "../../lib/live/scoutingFromCards";
 import { boardKey, lastWeekOf, withMine } from "../../lib/live/views/boardShape";
-import { leagueClubRanksFrom, writeLeagueClubRanks } from "../../lib/leagueClubRanks";
+import { clubRankPage, leagueClubRanksFrom, writeLeagueClubRanks } from "../../lib/leagueClubRanks";
+import { scoutAsked, scoutTaken } from "../../lib/scoutRequest";
 import { myTeamGlance } from "../../lib/myTeamGlance";
 import { movementOf } from "../../lib/rankMovement";
 import { weekMovers } from "../../lib/thisWeek";
@@ -43,7 +44,7 @@ import {
   rankingPoolGroupIds,
   type ScoutRankingRow,
 } from "../../lib/teamRankings";
-import { ageGroupLevel, segmentLabel } from "../../lib/teamRankings/seasons";
+import { ageGroupLevel, ageGroupYear, segmentLabel } from "../../lib/teamRankings/seasons";
 import {
   clubsOfBoard,
   defaultStateOf,
@@ -311,7 +312,9 @@ function LiveBoard({
     source: LiveViewSource | null;
   } | null>(null);
   // Scouting's clubs: the one reported on, the one set beside it, and opponents asked for.
-  const [scoutedTeam, setScoutedTeam] = useState("");
+  // Opened by League Standings' Scout button, on the club it asked for (`scoutRequest.ts`).
+  const [scoutedTeam, setScoutedTeam] = useState(() => scoutAsked() ?? "");
+  useEffect(() => scoutTaken(), []);
   const [comparedTeam, setComparedTeam] = useState("");
   const [pickedOpponents, setPickedOpponents] = useState<string[]>(NO_IDS);
 
@@ -531,6 +534,7 @@ function LiveBoard({
         ? group.name
         : `${group.name} · ${segmentLabel(selectedYear, segment)}`;
     const at = new Date().toISOString();
+    const page = clubRankPage(ageGroupLevel(group), ageGroupYear(group), segment);
     group.seasonIds.forEach((seasonId) => {
       const season = leagueOnPages?.find(
         (entry) => entry.page === group.id && entry.season === seasonId
@@ -546,7 +550,8 @@ function LiveBoard({
           (teamId) => stateById.get(teamId),
           lastWeek,
           label,
-          at
+          at,
+          page
         )
       );
     });

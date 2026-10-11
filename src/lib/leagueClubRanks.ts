@@ -1,7 +1,30 @@
 import { myTeamGlance } from "./myTeamGlance";
 import { CLUB_RANKS_KEY } from "./preferences";
 import type { Movement } from "./rankMovement";
-import type { ScoutRankingRow } from "./teamRankings";
+import { isRouteAgeLevel, isRouteYear, type RankingsRoute } from "./rankingsRoute";
+import type { ScoutRankingRow, SeasonSegment } from "./teamRankings";
+
+/**
+ * The Team Rankings page a board was read off: its age level and squad year, and the half when the
+ * page has halves. What League Standings' Scout button opens (`scoutRoute`), so the club is
+ * reported on against the very board its place was read from.
+ */
+export type ClubRankPage = {
+  ageLevel?: number;
+  year?: number;
+  segment?: SeasonSegment;
+};
+
+/** A page's level, year and half as a board's writer knows them, leaving out what it does not. */
+export const clubRankPage = (
+  ageLevel: number | undefined,
+  year: number | undefined,
+  segment: SeasonSegment | undefined
+): ClubRankPage => ({
+  ...(ageLevel === undefined ? {} : { ageLevel }),
+  ...(year === undefined ? {} : { year }),
+  ...(segment === undefined ? {} : { segment }),
+});
 
 /**
  * Where a League Standings team's club stands on its Team Rankings board, as that board last
@@ -19,7 +42,7 @@ export type LeagueClubRank = {
   movement?: Movement;
   /** When the board was read, as an ISO time. */
   at: string;
-};
+} & ClubRankPage;
 
 /** Season id to league team id to where its club stands. */
 export type LeagueClubRanks = Record<string, Record<string, LeagueClubRank>>;
@@ -67,6 +90,11 @@ const coerceRank = (raw: unknown): LeagueClubRank | null => {
       : {}),
     ...(movement === undefined ? {} : { movement }),
     at: row.at,
+    // Places written before the page was kept carry none, and Scout then opens whatever page
+    // Team Rankings would have opened anyway.
+    ...(isRouteAgeLevel(row.ageLevel) ? { ageLevel: row.ageLevel } : {}),
+    ...(isRouteYear(row.year) ? { year: row.year } : {}),
+    ...(row.segment === "fall" || row.segment === "spring" ? { segment: row.segment } : {}),
   };
 };
 
@@ -91,11 +119,24 @@ export const readLeagueClubRanks = (): LeagueClubRanks => {
   }
 };
 
-/** Where one league team's club stood when its board was last up, if it ever was. */
 /** A club's place nationally as the standings say it under a team's name: "#12 of 3,947 nationally". */
 export const nationalRankText = (rank: LeagueClubRank): string =>
   `#${rank.rank.toLocaleString("en-US")} of ${rank.of.toLocaleString("en-US")} nationally`;
 
+/**
+ * Where League Standings' Scout button takes a team's club: Team Rankings' Scouting, on the page
+ * its place was read off when that is known. The club itself rides beside the route
+ * (`scoutRequest.ts`), since a link with a club in it would keep opening that club's report.
+ */
+export const scoutRoute = (rank: LeagueClubRank): RankingsRoute => ({
+  mode: "rankings",
+  ...(rank.ageLevel === undefined ? {} : { ageLevel: rank.ageLevel }),
+  ...(rank.year === undefined ? {} : { year: rank.year }),
+  ...(rank.segment === undefined ? {} : { segment: rank.segment }),
+  section: "scouting",
+});
+
+/** Where one league team's club stood when its board was last up, if it ever was. */
 export const leagueClubRankFor = (
   seasonId: string,
   leagueTeamId: string
@@ -131,7 +172,8 @@ export const leagueClubRanksFrom = (
   stateOf: (teamId: string) => string | undefined,
   lastWeek: Readonly<Record<string, number>> | null,
   board: string,
-  at: string
+  at: string,
+  page: ClubRankPage = {}
 ): Record<string, LeagueClubRank> => {
   const out: Record<string, LeagueClubRank> = {};
   clubByLeagueTeam.forEach((clubId, leagueTeamId) => {
@@ -149,6 +191,7 @@ export const leagueClubRanksFrom = (
         : {}),
       ...(glance.movement === undefined ? {} : { movement: glance.movement }),
       at,
+      ...page,
     };
   });
   return out;
