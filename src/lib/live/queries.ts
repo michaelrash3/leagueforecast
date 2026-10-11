@@ -25,6 +25,7 @@ import { cleanTeamName, teamNameKey } from "../teamRankings/names";
 import { unpulledClubs, unpulledClubsCsv } from "../unpulledClubs";
 import { planLeagueScoreFill, type LeagueFillPlan } from "../leagueScoreFill";
 import { clubPickOption, pickableClubs, type ClubPickOption } from "../leagueLinkOptions";
+import { answerStart, START_CLUBS_MAX, type StartAnswer } from "../leagueStart";
 import {
   gcLinkSquadYearIn,
   leagueScoutBridge,
@@ -189,6 +190,18 @@ export type PoolQuery =
   /** Every club a team of season `season` could be picked as by hand (`pickableClubs`). */
   | { kind: "league.clubs"; season: string }
   /**
+   * A League Standings season started from its clubs on Team Rankings (`answerStart`, 3.7): the
+   * pages, a page's clubs, and the games among the clubs picked, a step at a time.
+   */
+  | {
+      kind: "league.start";
+      page?: string;
+      clubs?: string[];
+      from?: string;
+      to?: string;
+      today: string;
+    }
+  /**
    * The scores the pool could fill in for season `season`'s games (`planLeagueScoreFill`), from the
    * season's teams, games and the runs recorded for each, as the device holds them, on `today`.
    */
@@ -305,6 +318,7 @@ export type QueryAnswers = {
   "year.list": { years: YearSummary[] };
   "league.bridge": LeagueBridgeAnswer;
   "league.clubs": { clubs: ClubPickOption[] };
+  "league.start": StartAnswer;
   "league.fill": { plan: LeagueFillPlan };
 };
 
@@ -589,6 +603,15 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         })),
       };
     }
+    case "league.start":
+      return {
+        kind: "league.start",
+        ...answerStart(query, {
+          ageGroups: loadAgeGroups,
+          teams: loadScoutTeams,
+          gamesForYear: loadScoutGamesForYear,
+        }),
+      };
     case "league.clubs":
       return {
         kind: "league.clubs",
@@ -909,6 +932,29 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
     case "league.clubs":
       if (isString(raw.season)) query = { kind: "league.clubs", season: raw.season };
       break;
+    case "league.start": {
+      const clubs = raw.clubs === undefined ? undefined : strings(raw.clubs);
+      const page = raw.page === undefined ? undefined : isString(raw.page) ? raw.page : null;
+      const from = raw.from === undefined ? undefined : isDay(raw.from) ? raw.from : null;
+      const to = raw.to === undefined ? undefined : isDay(raw.to) ? raw.to : null;
+      if (
+        isDay(raw.today) &&
+        clubs !== null &&
+        (clubs === undefined || clubs.length <= START_CLUBS_MAX) &&
+        page !== null &&
+        from !== null &&
+        to !== null
+      )
+        query = {
+          kind: "league.start",
+          today: raw.today,
+          ...(page === undefined ? {} : { page }),
+          ...(clubs === undefined ? {} : { clubs }),
+          ...(from === undefined ? {} : { from }),
+          ...(to === undefined ? {} : { to }),
+        };
+      break;
+    }
     case "league.fill": {
       const teams = everyOne(raw.teams, leagueTeamLink);
       const matchups = everyOne(raw.matchups, leagueMatchup);

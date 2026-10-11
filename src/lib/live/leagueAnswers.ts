@@ -1,5 +1,6 @@
 import type { LeagueFillPlan } from "../leagueScoreFill";
 import type { ClubPickOption } from "../leagueLinkOptions";
+import type { StartAnswer } from "../leagueStart";
 import type { LeagueScoutBridge, ScoutLinkCandidate } from "../teamRankings";
 import { fits, type Shape } from "./shapes";
 
@@ -114,9 +115,24 @@ const FILL_ROW: Shape = {
   },
 };
 
+const FILL_MISSING: Shape = {
+  record: {
+    scoutGameId: "id",
+    date: "string",
+    awayTeamId: "id",
+    homeTeamId: "id",
+    awayName: "string",
+    homeName: "string",
+    awayRuns: "number",
+    homeRuns: "number",
+    tournament: { optional: "string" },
+  },
+};
+
 const FILL_PLAN: Shape = {
   record: {
     rows: { list: FILL_ROW },
+    missing: { optional: { list: FILL_MISSING } },
     unmatched: "count",
     unusedResults: "count",
     seasonLinked: "boolean",
@@ -146,3 +162,40 @@ export const clubOptionsOf = (raw: unknown): ClubPickOption[] | null =>
 /** A plan of the scores the pool could fill in, read back whole, or null. */
 export const fillPlanOf = (raw: unknown): LeagueFillPlan | null =>
   fits(raw, FILL_PLAN) ? (raw as LeagueFillPlan) : null;
+
+const START_RUNS: Shape = { record: { awayRuns: "count", homeRuns: "count" } };
+
+/** A start's answer (`answerStart`): the pages, a page's clubs, and the draft of games. */
+const START_ANSWER: Shape = {
+  record: {
+    pages: {
+      list: { record: { id: "id", name: "string", ageLevel: "count", year: "count" } },
+    },
+    clubs: { nullable: { list: CLUB_OPTION } },
+    draft: {
+      nullable: {
+        record: {
+          games: {
+            list: {
+              record: {
+                gameId: "id",
+                date: "string",
+                away: "id",
+                home: "id",
+                awayRuns: { optional: "count" },
+                homeRuns: { optional: "count" },
+                tournament: { optional: "string" },
+                otherRuns: { optional: START_RUNS },
+              },
+            },
+          },
+          outside: "count",
+        },
+      },
+    },
+  },
+};
+
+/** A start's answer read back whole, or null. */
+export const startAnswerOf = (raw: unknown): StartAnswer | null =>
+  fits(raw, START_ANSWER) ? (raw as StartAnswer) : null;

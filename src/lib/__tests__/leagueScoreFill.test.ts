@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyLeagueScoreFill,
   defaultFillSelection,
+  missingGamesToAdd,
   planLeagueScoreFill,
   summarizeLeagueFill,
   type LeagueScoreFillInput,
@@ -537,5 +538,93 @@ describe("a pool result on a day that has not happened", () => {
     );
 
     expect(plan.rows.filter((row) => row.action === "fill")).toHaveLength(1);
+  });
+});
+
+describe("games between the league's clubs that the schedule does not have", () => {
+  // Every team linked to its club, as a season started from Team Rankings is (3.7).
+  const linked = leagueTeams.map((team) => ({ ...team, scoutTeamId: `S-${team.id}` }));
+
+  it("are offered with their score, unless the schedule has the two meet that day", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: linked,
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-05-01"),
+          scoutGame("s2", "S-CUBS", "S-ACES", 4, 2, "2026-05-08"),
+          // Against a club no league team is, or still to play: not the league's to add.
+          scoutGame("s3", "S-CUBS", "S-OTHER", 9, 0, "2026-05-08"),
+          scoutGame("s4", "S-BEAR", "S-CUBS", undefined, undefined, "2026-05-15"),
+        ],
+      })
+    );
+    expect(plan.rows.map((row) => row.matchupId)).toEqual(["g1"]);
+    expect(plan.missing).toEqual([
+      {
+        scoutGameId: "s2",
+        date: "5/8",
+        awayTeamId: "CUBS",
+        homeTeamId: "ACES",
+        awayName: "Cubs",
+        homeName: "Aces",
+        awayRuns: 4,
+        homeRuns: 2,
+        tournament: "One of the two played somebody else that day, so it was likely a tournament.",
+      },
+    ]);
+  });
+
+  it("leave out a game the schedule already has that day, matched or not, and one unlinked", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: linked,
+        matchups: [matchup("g1", "5/1", "ACES", "BEAR"), matchup("g2", "5/1", "BEAR", "ACES")],
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-05-01"),
+          scoutGame("s2", "S-BEAR", "S-ACES", 1, 0, "2026-05-01"),
+        ],
+      })
+    );
+    expect(plan.missing).toEqual([]);
+    expect(planLeagueScoreFill(input()).missing).toEqual([]);
+    // The second game of a doubleheader the league scheduled once: no game took it, and it is
+    // still not offered, the two meeting on the schedule that day already.
+    const twice = planLeagueScoreFill(
+      input({
+        teams: linked,
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-05-01"),
+          scoutGame("s2", "S-ACES", "S-BEAR", 2, 4, "2026-05-01"),
+        ],
+      })
+    );
+    expect(twice.unusedResults).toBeGreaterThan(0);
+    expect(twice.missing).toEqual([]);
+  });
+
+  it("go on the schedule as the review left them: final, turned round where swapped", () => {
+    const plan = planLeagueScoreFill(
+      input({
+        teams: linked,
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-05-01"),
+          scoutGame("s2", "S-CUBS", "S-ACES", 4, 2, "2026-05-08"),
+          scoutGame("s3", "S-BEAR", "S-CUBS", 6, 5, "2026-05-15"),
+        ],
+      })
+    );
+    const added = missingGamesToAdd(plan, ["s2", "s3"], ["s3"], 6, (at) => `new-${at}`);
+    expect(added.matchups).toEqual([
+      { id: "new-0", date: "5/8", away: "CUBS", home: "ACES" },
+      { id: "new-1", date: "5/15", away: "CUBS", home: "BEAR" },
+    ]);
+    expect(added.logs["new-0"]).toMatchObject({ awayRuns: "4", homeRuns: "2", isFinal: true });
+    expect(added.logs["new-1"]).toMatchObject({
+      awayRuns: "5",
+      homeRuns: "6",
+      innings: "6",
+      isFinal: true,
+    });
+    expect(missingGamesToAdd(plan, [], [], 6, (at) => `new-${at}`).matchups).toEqual([]);
   });
 });

@@ -14,6 +14,7 @@ import type { GameLog, Matchup, TeamBase } from "./types";
 import { blankLog, isFinal } from "./util";
 import { isDatedAhead } from "./deletedGames";
 import { todayIsoDay } from "./date";
+import { tournamentReason } from "./tournamentDays";
 
 /**
  * Filling a League Standings schedule from results already in the Team Rankings pool — in
@@ -97,8 +98,37 @@ export type LeagueFillRow = {
   event?: string;
 };
 
+/**
+ * A game the pool holds between two of the league's own clubs, the teams linked to them, that no
+ * game on the league's schedule is (3.7): played, on a page that claims the season, and not on a
+ * day ahead. Offered to be added with its score; one that looks like a tournament meeting
+ * (`tournamentReason`) is offered unticked.
+ */
+export type LeagueMissingGame = {
+  scoutGameId: string;
+  /** As League Standings writes a date: "9/25". */
+  date: string;
+  /** Side A's club's team first, as for a start (`StartGame`): a person swaps it where it is not. */
+  awayTeamId: string;
+  homeTeamId: string;
+  /** The two teams as the league names them. */
+  awayName: string;
+  homeName: string;
+  awayRuns: number;
+  homeRuns: number;
+  tournament?: string;
+};
+
+/** Games of `LeagueFillPlan.missing` to add to the schedule, and those of them to turn round. */
+export type FillAdditions = { add: string[]; swap: string[] };
+
 export type LeagueFillPlan = {
   rows: LeagueFillRow[];
+  /**
+   * Games between two of the league's clubs the schedule does not have. Absent from a plan an
+   * older server made, which never looked.
+   */
+  missing?: LeagueMissingGame[];
   /** League games with nothing in the pool to fill them — the normal case mid-season. */
   unmatched: number;
   /** Results in the pool that no league game claimed. */
@@ -689,12 +719,93 @@ export const planLeagueScoreFill = ({
   const orderOf = new Map(matchups.map((matchup, index) => [matchup.id, index]));
   rows.sort((a, b) => (orderOf.get(a.matchupId) ?? 0) - (orderOf.get(b.matchupId) ?? 0));
 
+  /*
+   * The results between two of the league's own linked clubs on no day the schedule already has
+   * those two meet: the games the schedule is missing. Every result a league game took is on such a
+   * day, and so is the second game of a doubleheader the league scheduled once, which is as likely
+   * a scrimmage as a league game and is left to be added by hand. Read off the same usable
+   * results, so a game of the league's own making, a day ahead or an unplayed one is never offered.
+   */
+  const teamOfClub = new Map<string, string>();
+  teams.forEach((team) => {
+    if (team.scoutTeamId) teamOfClub.set(team.scoutTeamId, team.id);
+  });
+  const scheduled = new Set(
+    matchups.map(
+      (matchup) =>
+        `${pairKey(matchup.away, matchup.home)}@${normalizeDateInput(matchup.date ?? "")}`
+    )
+  );
+  const tournamentOf = tournamentReason(scoutGames, new Set(teamOfClub.keys()));
+  const missing: LeagueMissingGame[] = usable
+    .flatMap((game) => {
+      const away = teamOfClub.get(game.teamAId);
+      const home = teamOfClub.get(game.teamBId);
+      const date = normalizeDateInput(game.date ?? "");
+      if (!away || !home) return [];
+      if (scheduled.has(`${pairKey(away, home)}@${date}`)) return [];
+      const tournament = tournamentOf(game);
+      return [
+        {
+          scoutGameId: game.id,
+          date,
+          awayTeamId: away,
+          homeTeamId: home,
+          awayName: leagueNameById.get(away) ?? away,
+          homeName: leagueNameById.get(home) ?? home,
+          awayRuns: game.teamAScore ?? 0,
+          homeRuns: game.teamBScore ?? 0,
+          ...(tournament ? { tournament } : {}),
+          order: `${game.date ?? ""} ${game.startTs ?? ""} ${game.id}`,
+        },
+      ];
+    })
+    .sort((a, b) => a.order.localeCompare(b.order))
+    .map(({ order: _order, ...game }) => game);
+
   return {
     rows,
+    missing,
     unmatched: unmatchedLeagueGames.length,
     unusedResults: usable.length - claimed.size,
     seasonLinked,
   };
+};
+
+/**
+ * The games of `plan.missing` a person chose (`scoutGameIds`, those of them to swap in `swapped`),
+ * as the league's own: each a game on the schedule with its score entered and final. Ids are made
+ * by `makeId`, one per game.
+ */
+export const missingGamesToAdd = (
+  plan: LeagueFillPlan,
+  scoutGameIds: readonly string[],
+  swapped: readonly string[],
+  innings: number,
+  makeId: (index: number) => string
+): { matchups: Matchup[]; logs: Record<string, GameLog> } => {
+  const chosen = new Set(scoutGameIds);
+  const turned = new Set(swapped);
+  const matchups: Matchup[] = [];
+  const logs: Record<string, GameLog> = {};
+  (plan.missing ?? []).forEach((game) => {
+    if (!chosen.has(game.scoutGameId)) return;
+    const swap = turned.has(game.scoutGameId);
+    const id = makeId(matchups.length);
+    matchups.push({
+      id,
+      date: game.date,
+      away: swap ? game.homeTeamId : game.awayTeamId,
+      home: swap ? game.awayTeamId : game.homeTeamId,
+    });
+    logs[id] = {
+      ...blankLog(String(innings)),
+      awayRuns: String(swap ? game.homeRuns : game.awayRuns),
+      homeRuns: String(swap ? game.awayRuns : game.homeRuns),
+      isFinal: true,
+    };
+  });
+  return { matchups, logs };
 };
 
 /**

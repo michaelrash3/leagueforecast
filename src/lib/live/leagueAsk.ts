@@ -1,8 +1,9 @@
 import { memberToken } from "../cloud/cloudSession";
+import type { PoolCommand } from "./commands";
 import type { AnswerOf, QueryOf } from "./queries";
 
 /** The questions League Standings asks the server of Team Rankings (`leagueAnswers.ts`). */
-export type LeagueQueryKind = "league.bridge" | "league.clubs" | "league.fill";
+export type LeagueQueryKind = "league.bridge" | "league.clubs" | "league.fill" | "league.start";
 
 /**
  * Asks the server one of League Standings' questions, as the signed-in member, and is told its
@@ -25,4 +26,17 @@ export const askLeague: LeagueAsker = async <K extends LeagueQueryKind>(query: Q
   if (!client) return null;
   const called = await client.callQuery<K>({ query }, { token: memberToken });
   return called.ok && called.value.ok ? called.value.answer : null;
+};
+
+/**
+ * Puts a League Standings season on a Team Rankings page in the cloud (`season.assign`), as the
+ * signed-in member, as Setup's League seasons card does: whether the server did.
+ */
+export const placeLeagueSeason = async (
+  command: Extract<PoolCommand, { kind: "season.assign" }>
+): Promise<boolean> => {
+  const client = await editClient().catch(() => null);
+  if (!client) return false;
+  const called = await client.callEdit({ command }, { token: memberToken });
+  return called.ok && called.value.ok;
 };

@@ -1,7 +1,8 @@
 /**
- * What the league half shows before there is a season: the three ways to get one started, laid out
+ * What the league half shows before there is a season: the ways to get one started, laid out
  * as a flow rather than a wall of buttons.
  */
+import { useState, type ReactNode } from "react";
 import { DesignFlowPanel, type DesignFlowStep } from "../DesignFlowPanel";
 import type { TeamBase } from "../../lib/types";
 import { displayName } from "../../lib/format";
@@ -16,6 +17,7 @@ export function EmptyState({
   teams,
   loadDemoSeason,
   openTour,
+  startFromClubs,
 }: {
   importCSV: (file: File) => void;
   createSeasonFromTeamList: () => void;
@@ -25,7 +27,13 @@ export function EmptyState({
   teams: TeamBase[];
   loadDemoSeason: () => void;
   openTour: () => void;
+  /**
+   * Starting the season from its clubs on Team Rankings (3.7), drawn under the flow once asked
+   * for, with what closes it. Absent where Team Rankings cannot be read.
+   */
+  startFromClubs?: (close: () => void) => ReactNode;
 }) {
+  const [starting, setStarting] = useState(false);
   const kickoffFlow: DesignFlowStep[] = [
     {
       eyebrow: "Load",
@@ -57,13 +65,22 @@ export function EmptyState({
         { label: "Blank CSV", onClick: downloadRoundRobinCSV },
       ],
     },
-    {
-      eyebrow: "Review",
-      title: "Review season data",
-      body: "Use standings, team stats, and the schedule board to confirm the season looks right.",
-      meta: "Validates teams, games, and scores",
-      tone: "emerald",
-    },
+    startFromClubs
+      ? {
+          eyebrow: "Link",
+          title: "Start from Team Rankings clubs",
+          body: "Pick the league's clubs on a Team Rankings page. Their games against each other come in with GameChanger's scores, and each team is linked to its club.",
+          meta: "For leagues whose clubs are on GameChanger",
+          tone: "emerald",
+          actions: [{ label: "Pick clubs", edits: true, onClick: () => setStarting(true) }],
+        }
+      : {
+          eyebrow: "Review",
+          title: "Review season data",
+          body: "Use standings, team stats, and the schedule board to confirm the season looks right.",
+          meta: "Validates teams, games, and scores",
+          tone: "emerald",
+        },
     {
       eyebrow: "Practice",
       title: "Explore with demo data",
@@ -90,6 +107,8 @@ export function EmptyState({
           </button>
         }
       />
+
+      {starting && startFromClubs?.(() => setStarting(false))}
 
       <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-xs dark:border-slate-700 dark:bg-slate-900">
         <div>

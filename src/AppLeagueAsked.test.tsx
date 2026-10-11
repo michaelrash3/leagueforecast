@@ -39,10 +39,16 @@ const server = vi.hoisted(() => ({
   live: true,
   /** The season's bridge, where the server answers one. */
   bridge: null as LeagueBridgeAnswer | null,
+  /** What a season put on a Team Rankings page sent to the server (3.7). */
+  placed: [] as unknown[],
 }));
 
 vi.mock("./lib/live/leagueAsk", () => ({
   LEAGUE_UNANSWERED: "Team Rankings could not be asked.",
+  placeLeagueSeason: async (command: unknown) => {
+    server.placed.push(command);
+    return true;
+  },
   askLeague: async (query: QueryOf<"league.bridge" | "league.clubs" | "league.fill">) => {
     server.asked.push(query);
     if (query.kind === "league.bridge" && server.bridge)
@@ -60,6 +66,35 @@ vi.mock("./lib/live/leagueAsk", () => ({
         },
         candidates: [],
       };
+    if (query.kind === ("league.start" as string)) {
+      const start = query as unknown as { page?: string; clubs?: string[] };
+      return {
+        kind: "league.start",
+        pages: [{ id: "ag_9u_2027", name: "9U 2027", ageLevel: 9, year: 2027 }],
+        clubs:
+          start.page && !start.clubs
+            ? [
+                { id: "S-HIVE", label: "Placeholder Hive" },
+                { id: "S-OWLS", label: "Placeholder Owls" },
+              ]
+            : null,
+        draft: start.clubs
+          ? {
+              games: [
+                {
+                  gameId: "p1",
+                  date: "2026-09-13",
+                  away: "S-HIVE",
+                  home: "S-OWLS",
+                  awayRuns: 5,
+                  homeRuns: 3,
+                },
+              ],
+              outside: 0,
+            }
+          : null,
+      };
+    }
     if (query.kind !== "league.fill") return null;
     await server.hold;
     return server.plan && { kind: "league.fill", plan: server.plan };
@@ -124,6 +159,7 @@ describe("League Standings asking the server what Team Rankings has", () => {
     server.signedIn = true;
     server.live = true;
     server.bridge = null;
+    server.placed = [];
     saveTeams([
       { id: "A", name: "Aces" },
       { id: "B", name: "Bears", scoutTeamId: "S-BEARS" },
@@ -212,6 +248,30 @@ describe("League Standings asking the server what Team Rankings has", () => {
     } finally {
       vi.restoreAllMocks();
     }
+  });
+
+  it("starts a season from its clubs on the cloud's Team Rankings, on the page it was started from", async () => {
+    saveTeams([]);
+    saveMatchups([]);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pick clubs" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add Placeholder Hive" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Placeholder Owls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find their games" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start the season: 2 teams, 1 game" })
+    );
+    await waitFor(() => expect(server.placed).toHaveLength(1));
+    expect(server.placed[0]).toMatchObject({
+      kind: "season.assign",
+      season: { ageLevel: 9, year: 2027 },
+    });
+    expect(
+      await screen.findByText(/Started the season: 2 teams and 1 game, on 9U 2027/)
+    ).toBeTruthy();
+    expect(server.asked.filter((query) => query.kind === ("league.start" as string))).toHaveLength(
+      3
+    );
   });
 
   it("asks for the scores to fill, and opens them", async () => {
