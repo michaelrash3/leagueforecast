@@ -2810,8 +2810,11 @@ the 29 September 2026 backup's 2027 year, it was off by 0.006 in the middle, 0.0
 wrong sign. A short record is the least exact: at the 95th percentile, 0.061 for clubs
 with 3 to 8 games, 0.048 for 9 to 20 and 0.016 for 21 or more. Taking the game alone
 against the club's other games, the obvious shortcut, was off by 0.207 at the 95th
-percentile and gave the same tenth on 238. On 3 of the 414 lines the score's part read
--0.1 or lower while the whole did not.
+percentile and gave the same tenth on 238. Both parts are said, the score's reading -0.1
+or lower and the whole not, on 30,996 of the 532,020 lines the backup's 20 boards with a
+fit gave its 88,106 clubs: on 24,230 the whole rounds to nothing ("moved its rating less
+than 0.1 (score -0.1, one more game +0.1)"), and on 6,766 it reads +0.1 or more. A move
+that rounds to nothing is said on 36,674 lines in all.
 
 No line, and no word of one, is drawn where the lines cannot be shown to add up to the
 board's own row (The live board on a member's device, **What each game did**): a board
