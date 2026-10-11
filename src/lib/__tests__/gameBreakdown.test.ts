@@ -530,6 +530,9 @@ describe("no lines", () => {
       },
     ],
     ["a fit of another version", () => ({ ...board, fit: { ...fit, v: BOARD_FIT_VERSION + 1 } })],
+    // Published by a build from before each level's year had its own worth, which read a game's age
+    // gap as the plain difference in levels.
+    ["a fit from before the age table", () => ({ ...board, fit: { ...fit, v: 1 } })],
     [
       "the row's rating from its games a hundredth off",
       () => withRow({ pointRating: rowA.pointRating + 0.01 }),

@@ -102,8 +102,12 @@ export type HistoryPoint = { asOf: string; rank: number | null };
  * The version of a board's `fit` (`BoardFit.v`), raised by any change to what its fields hold or
  * mean. A device works out what each game did only from a fit of its own build's version, and
  * leaves one of any other alone, which costs it the lines and never the board.
+ *
+ * 1: the fit as it first went out. 2: a game's age gap read through each level's step
+ * (`ageGapYears`, `AGE_STEP_RUNS`) rather than the plain difference in levels, which a device of an
+ * older build would work its games out with and find matching nothing (found by Codex on #379).
  */
-export const BOARD_FIT_VERSION = 1;
+export const BOARD_FIT_VERSION = 2;
 
 /**
  * What the fit a board's rows were cut from read beyond the rows themselves (`boardFitOf`): the

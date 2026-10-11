@@ -2745,7 +2745,10 @@ year, the 9U Otters went from first in Kentucky to third on two losses to 10U
 sides, behind clubs of 8-0 and 7-0 against weak schedules; with the table they are
 second, 0.04 behind the first. Losses still count; what changes is how much a year
 of age is expected to explain. The boards' rules went to 4 with it
-(`BOARD_RULES`), so the republish after the deploy rebuilds every board.
+(`BOARD_RULES`), so the republish after the deploy rebuilds every board, and
+the boards' fit to version 2 (`BOARD_FIT_VERSION`), so a device still on an
+older build leaves the new fits alone rather than working each game out with
+the old gap.
 
 **Pooling the fit is not pooling the tables.** Each level lists only its own
 teams — a 9U that beats an 11U in a tournament stays on the 9U page, and the 11U
