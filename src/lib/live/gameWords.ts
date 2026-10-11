@@ -55,18 +55,27 @@ export const ratingHeadline = (
 };
 
 /**
- * Why the margin the fit counted is not the score the row shows, when it is not: held to the most
- * one game counts (`cap`), or the two clubs' schedules disagreeing and the fit taking their
- * average (`ratedMargin`), or both. The row shows the club's own schedule's score (`shownMargin`).
+ * Why the margin the fit counted is not the score the row shows, when it is not. The row shows the
+ * club's own schedule's score (`shownMargin`); the fit read the two schedules' average where they
+ * disagree (`margin`, `ratedMargin`) and held that to the most one game counts (`cap`). Each clause
+ * names what takes the row's score to the margin counted:
+ * - the cap alone where the average went past it and the club's own score, held to it, is already
+ *   the margin counted, whether the two schedules agree or not;
+ * - the average alone where the average is inside the cap or exactly on it, so the cap did nothing;
+ * - both where the average went past the cap and the club's own score, held to it, is not the
+ *   margin counted: a score inside the cap, or one past it on the other side.
+ *
+ * Read off the margin before the cap, not off the two margins either side of it: a club whose own
+ * schedule has it losing 0-13 and the other's has it winning 37-0 is counted as a 12-run win, the
+ * average exactly, and though its own score is past the cap the cap did nothing to it.
  */
 const marginClause = (line: GameLine, cap: number): string | null => {
-  const { counted, shownMargin } = line;
+  const { counted, margin, shownMargin } = line;
   if (shownMargin === null || counted === shownMargin) return null;
   const result = counted === 0 ? "a tie" : `a ${runs(counted)}-run ${counted > 0 ? "win" : "loss"}`;
-  if (Math.abs(counted) < cap) return `counted as ${result}, the two schedules' scores averaged`;
-  // At the cap with the club's own score past it, the cap is the reason, averaged or not; with its
-  // own score inside it, only the other schedule's score can have taken the margin there.
-  return Math.abs(shownMargin) > cap
+  // Inside the cap or on it, what the fit read is what it counted, and that is not the row's score.
+  if (Math.abs(margin) <= cap) return `counted as ${result}, the two schedules' scores averaged`;
+  return Math.max(-cap, Math.min(cap, shownMargin)) === counted
     ? `counted as ${result}, the most one game counts`
     : `counted as ${result}, the two schedules' scores averaged and held to the most one game counts`;
 };

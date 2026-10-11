@@ -233,13 +233,13 @@ describe("what each game did, on a pool drawn by hand", () => {
     });
 
   it("counts a rout as the cap, from both sides", () => {
-    expect(lineOf(of("A"), "rout")).toMatchObject({ counted: 12, shownMargin: 14 });
-    expect(lineOf(of("B"), "rout")).toMatchObject({ counted: -12, shownMargin: -14 });
+    expect(lineOf(of("A"), "rout")).toMatchObject({ counted: 12, margin: 14, shownMargin: 14 });
+    expect(lineOf(of("B"), "rout")).toMatchObject({ counted: -12, margin: -14, shownMargin: -14 });
   });
 
   it("counts a game the two schedules scored apart at the average, and shows each its own", () => {
-    expect(lineOf(of("C"), "disputed")).toMatchObject({ counted: 4, shownMargin: 5 });
-    expect(lineOf(of("D"), "disputed")).toMatchObject({ counted: -4, shownMargin: -3 });
+    expect(lineOf(of("C"), "disputed")).toMatchObject({ counted: 4, margin: 4, shownMargin: 5 });
+    expect(lineOf(of("D"), "disputed")).toMatchObject({ counted: -4, margin: -4, shownMargin: -3 });
   });
 
   it("adds the runs a year up is worth for the younger club and takes them off the older", () => {

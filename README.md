@@ -2765,13 +2765,21 @@ below nought. When the score's part reads as a fall of a tenth or more and the w
 does not, both are said, rounded so they add up: "moved your rating +0.1 (score -0.1,
 one more game +0.2)". A move that rounds to nothing says "less than 0.1".
 
-A clause follows only where it applies: "counted as a 12-run win, the most one game
-counts" for a margin held to the cap; "counted as a 1.5-run win, the two schedules'
-scores averaged" where the two clubs' schedules disagree, since the row shows the club's
-own schedule's score and the fit reads the average (`ratedMargin`); both together where
-the average took a margin inside the cap up to it; and "2 runs added for playing a year
-up", "2 runs taken off for playing a year down" or 4 runs for two years, for a game
-against another level (above).
+A clause follows only where it applies, and names what takes the row's score to the
+margin counted. The row shows the club's own schedule's score, and the fit reads the two
+schedules' average where they disagree (`ratedMargin`), held to the cap. "Counted as a
+12-run win, the most one game counts" is for an average past the cap where the club's
+own score, held to the cap, is already the margin counted; "counted as a 1.5-run win, the
+two schedules' scores averaged" for an average inside the cap or exactly on it, which
+the cap did nothing to; and both together for an average past the cap that the club's
+own score, held to it, does not reach: one inside the cap, or one past it on the other
+side. So a club whose own schedule has it losing 0-13 and whose opponent's has it winning
+37-0 is counted as a 12-run win, the average exactly, and is told of the average alone.
+On the 29 September 2026 backup the first rule read off the row's score instead, and of
+the 88,032 lines with a margin clause it named the wrong reason on 212: the cap for 106
+averages exactly on it from a score past it, and both for 106 from a score inside it or
+on it. Then "2 runs added for playing a year up", "2 runs taken off for playing a year down" or
+4 runs for two years, for a game against another level (above).
 
 A game against a side seen once, a stand-in or a club known only from this one schedule,
 reads nearer the club's own rating than its score would, and moves it little. With

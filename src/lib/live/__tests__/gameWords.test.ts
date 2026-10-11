@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Breakdown, GameLine } from "../../gameBreakdown";
+import { ratedMargin, scoreSeenBy, type ScoutGame } from "../../teamRankings";
 import { GAME_NOTES_KEY, gameClauses, gameNotesOf, ratingHeadline } from "../gameWords";
 
 /*
@@ -17,6 +18,7 @@ const line = (more: Partial<GameLine> = {}): GameLine => ({
   scorePart: 0.22,
   recordPart: 0.09,
   counted: 6,
+  margin: 6,
   shownMargin: 6,
   ageRuns: 0,
   levelsUp: 0,
@@ -104,28 +106,67 @@ describe("what each game did", () => {
   });
 
   it("says a margin held to the most one game counts", () => {
-    expect(its({ counted: 12, shownMargin: 14 })[2]).toBe(
+    expect(its({ counted: 12, margin: 14, shownMargin: 14 })[2]).toBe(
       "counted as a 12-run win, the most one game counts"
     );
-    expect(your({ counted: -12, shownMargin: -15 })[2]).toBe(
+    expect(your({ counted: -12, margin: -15, shownMargin: -15 })[2]).toBe(
       "counted as a 12-run loss, the most one game counts"
     );
     // A 12-run win is counted as it is, with nothing to explain.
-    expect(its({ counted: 12, shownMargin: 12 })).toHaveLength(2);
+    expect(its({ counted: 12, margin: 12, shownMargin: 12 })).toHaveLength(2);
   });
 
   it("says a margin the two schedules' scores were averaged into", () => {
-    expect(its({ counted: 1.5, shownMargin: 3 })[2]).toBe(
+    expect(its({ counted: 1.5, margin: 1.5, shownMargin: 3 })[2]).toBe(
       "counted as a 1.5-run win, the two schedules' scores averaged"
     );
-    expect(its({ counted: -0.5, shownMargin: 1 })[2]).toBe(
+    expect(its({ counted: -0.5, margin: -0.5, shownMargin: 1 })[2]).toBe(
       "counted as a 0.5-run loss, the two schedules' scores averaged"
     );
-    expect(its({ counted: 0, shownMargin: 2 })[2]).toBe(
+    expect(its({ counted: 0, margin: 0, shownMargin: 2 })[2]).toBe(
       "counted as a tie, the two schedules' scores averaged"
     );
-    // Averaged past the cap from a score inside it: the other schedule's score took it there.
-    expect(its({ counted: 12, shownMargin: 11 })[2]).toBe(
+    // Averaged past the cap from a score inside it: the average, and then the cap.
+    expect(its({ counted: 12, margin: 12.5, shownMargin: 11 })[2]).toBe(
+      "counted as a 12-run win, the two schedules' scores averaged and held to the most one game counts"
+    );
+    // Averaged past the cap from a score past it on the same side: the club's own score, held to
+    // the cap, is the margin counted, so the cap alone is the reason.
+    expect(its({ counted: -12, margin: -14, shownMargin: -15 })[2]).toBe(
+      "counted as a 12-run loss, the most one game counts"
+    );
+    // Averaged exactly onto the cap, from inside it or past it: the cap did nothing.
+    expect(its({ counted: 12, margin: 12, shownMargin: 11 })[2]).toBe(
+      "counted as a 12-run win, the two schedules' scores averaged"
+    );
+    expect(its({ counted: -12, margin: -12, shownMargin: -15 })[2]).toBe(
+      "counted as a 12-run loss, the two schedules' scores averaged"
+    );
+  });
+
+  it("blames the average, not the cap, when the average turned a loss past the cap into a win", () => {
+    // The club is side A: its own schedule has it losing 0-13, and side B's says it won 37-0. The
+    // fit reads the average, a 12-run win exactly; the cap alone would have made it a 12-run loss.
+    const game: ScoutGame = {
+      id: "g",
+      ageGroupId: "ag_10u",
+      teamAId: "A",
+      teamBId: "B",
+      teamAScore: 0,
+      teamBScore: 13,
+      reportedByB: { teamAScore: 37, teamBScore: 0 },
+      date: "2027-04-03",
+    };
+    const margin = ratedMargin(game) ?? Number.NaN;
+    const seen = scoreSeenBy(game, "A");
+    const shown = seen ? seen.own - seen.opponent : null;
+    expect([margin, shown]).toEqual([12, -13]);
+    const counted = Math.max(-CAP, Math.min(CAP, margin));
+    expect(your({ counted, margin, shownMargin: shown })[2]).toBe(
+      "counted as a 12-run win, the two schedules' scores averaged"
+    );
+    // Had side B's said 40-0, the average would have passed the cap and been held to it.
+    expect(your({ counted: 12, margin: 13.5, shownMargin: -13 })[2]).toBe(
       "counted as a 12-run win, the two schedules' scores averaged and held to the most one game counts"
     );
   });
@@ -135,7 +176,7 @@ describe("what each game did", () => {
     expect(its({ ageRuns: 2, levelsUp: -1 })[2]).toBe("2 runs taken off for playing a year down");
     expect(its({ ageRuns: -4, levelsUp: 2 })[2]).toBe("4 runs added for playing two years up");
     // After the margin's clause, where both apply.
-    expect(its({ ageRuns: 2, levelsUp: -1, counted: 12, shownMargin: 13 })).toEqual([
+    expect(its({ ageRuns: 2, levelsUp: -1, counted: 12, margin: 13, shownMargin: 13 })).toEqual([
       "Played like +8.1",
       "moved its rating +0.3",
       "counted as a 12-run win, the most one game counts",
@@ -151,7 +192,7 @@ describe("everything a panel is handed", () => {
       pointRating: 1.21,
       lines: new Map([
         ["0", line()],
-        ["3", line({ counted: 12, shownMargin: 15 })],
+        ["3", line({ counted: 12, margin: 15, shownMargin: 15 })],
       ]),
     };
     const notes = gameNotesOf(breakdown, { span: "Fall 2026", own: false, cap: CAP });
@@ -177,8 +218,8 @@ describe("everything a panel is handed", () => {
       GAME_NOTES_KEY,
       ratingHeadline({ rating: 2.8, pointRating: 2.5 }, { span: "Season", own: true }),
       ...your({ moved: 0.03, scorePart: -0.11 }),
-      ...its({ counted: 12, shownMargin: 11, ageRuns: -2, levelsUp: 1 }),
-      ...its({ counted: 1.5, shownMargin: 3 }),
+      ...its({ counted: 12, margin: 12.5, shownMargin: 11, ageRuns: -2, levelsUp: 1 }),
+      ...its({ counted: 1.5, margin: 1.5, shownMargin: 3 }),
     ].join(" ");
     expect(said).not.toMatch(/\b(about|roughly|estimated?|guess|approximately|around)\b/i);
   });

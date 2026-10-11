@@ -44,6 +44,13 @@ export type GameLine = {
   recordPart: number;
   /** The margin the fit counted, from the club's side: the rated margin held to the cap. */
   counted: number;
+  /**
+   * The margin the fit read, from the club's side, before the cap: the one score where the two
+   * clubs' schedules agree or only one gave it, and their average where they disagree
+   * (`ratedMargin`). Beside `counted` and `shownMargin` it says which of the cap and the average
+   * made the margin counted differ from the row's score.
+   */
+  margin: number;
   /** The club's own schedule's margin (`scoreSeenBy`), as the game's row shows it. */
   shownMargin: number | null;
   /** The runs the age gap took off the margin counted: above nought for a club playing down. */
@@ -112,6 +119,7 @@ type Counted = {
   opponent: Opponent;
   meetings: Meetings;
   playedLike: number;
+  margin: number;
   counted: number;
   ageRuns: number;
   levelsUp: number;
@@ -212,6 +220,7 @@ export const gameBreakdown = ({
       opponent,
       meetings,
       playedLike: opponent.rating + counted - ageRuns,
+      margin: side * margin,
       counted,
       ageRuns,
       levelsUp: gap === 0 ? 0 : -side * gap,
@@ -274,6 +283,7 @@ export const gameBreakdown = ({
       scorePart,
       recordPart,
       counted: line.counted,
+      margin: line.margin,
       shownMargin: seen ? seen.own - seen.opponent : null,
       ageRuns: line.ageRuns,
       levelsUp: line.levelsUp,
