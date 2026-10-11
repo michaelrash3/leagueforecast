@@ -1,6 +1,8 @@
 import { useId, useState } from "react";
 import type { ScoutRankingRow } from "../../lib/teamRankings";
 import { UNKNOWN_STATE } from "../../lib/teamRankings";
+import type { WeekMovers } from "../../lib/thisWeek";
+import { ThisWeekCard } from "./ThisWeekCard";
 import { RankingMethodButton, RankingMethodPanel } from "../RankingMethodPanel";
 import { RankingList, formatRating } from "./RankingList";
 import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
@@ -60,6 +62,8 @@ type RankingsSectionProps = {
   onRemoveTeam: (teamId: string) => void;
   /** The team marked as yours on this page, where it stands and what it plays next. */
   myTeam?: MyTeamGlance | null;
+  /** The board's week (`weekMovers`), drawn under the page's own club. */
+  thisWeek?: WeekMovers | null;
   /** The marked club's place week by week, oldest first, ending a week ago (`useRankingsWorker`). */
   rankHistory?: RankHistoryPoint[];
   /** How far a row has moved on this page since last week (`movementOf`). */
@@ -131,6 +135,7 @@ export function RankingsSection({
   onMarkMine,
   onRemoveTeam,
   myTeam,
+  thisWeek,
   rankHistory,
   movementOf,
   standInNote,
@@ -241,6 +246,7 @@ export function RankingsSection({
               nextUnread={myTeamNextUnread}
             />
           )}
+          {thisWeek && <ThisWeekCard movers={thisWeek} onOpenTeam={onOpenTeam} />}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className={`${card} p-5`}>
               <div className="flex flex-wrap items-baseline justify-between gap-2">

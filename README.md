@@ -4325,6 +4325,14 @@ of the year as it stood that day, kept for the build by page, half, fitted year 
 day, so the boards of a year that share a fit share its weeks. It is not free: on
 the 29 Sep backup, building all 33 boards went from 12.4 s to 37.2 s, the largest
 (8,334 clubs) from 631 to 660 KB gzipped, and all of them together 4.4%.
+
+**This week.** Under the page's own club, a card names the board's week from those
+same two things alone, its rows and last week's places (`weekMovers`, `thisWeek.ts`):
+who came into the top 25 and from where ("new" for a club not on last week's board),
+who fell out of it, and the three biggest climbs that end inside the top 100. Each
+name opens the club's panel. Nothing is fetched or published for it, so it draws with
+the board, and a club that has left the board altogether is not named, since the
+board no longer holds its name.
 `boardParity.test.ts` holds each row's `was` to the arrow the worker's own last-week
 board draws, and each line to the one the page walks, a club that joined the board
 last week included. Each guard was broken in turn and seen to fail a test, 22 of 22,
