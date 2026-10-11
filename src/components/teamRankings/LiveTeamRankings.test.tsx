@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { PullSender } from "../../lib/cloud/cloudPulls";
-import type { PullJob } from "../../lib/cloud/pullJobs";
+import { SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
+import { newPullJob, type PullJob } from "../../lib/cloud/pullJobs";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudManifest, ManifestPart } from "../../lib/cloud/cloudManifest";
@@ -683,9 +683,95 @@ describe("Team Rankings on the cloud's board", () => {
     // A paste: any squad year, and only the teams the pool lacks, which the cloud works out.
     expect(job).toMatchObject({ status: "queued", list: { teams: 2 }, seasonYears: [] });
     expect(job?.refresh).toBeUndefined();
-    expect(await screen.findByText("Pulling 2 teams in the cloud: waiting to start.")).toBeTruthy();
+    expect(
+      await screen.findByText(/^Pulling 2 teams in the cloud: waiting to start, sent /)
+    ).toBeTruthy();
     expect(handedOver()).toBeNull();
     expect(pool.prepared).toBe(0);
+  });
+
+  // The screen that sat for hours: two catch-ups "waiting to start" whose start had failed where
+  // the device could not hear, and that nothing would ever run or end.
+  it("asks the cloud again about a pull still waiting to start, and says what came of it", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
+    pool.wants = false;
+    const cloud = cloudPulls();
+    const jobId = "c".repeat(32);
+    const sentAt = new Date(Date.now() - 3 * 60 * 60_000).toISOString();
+    cloud.jobs.set(
+      jobId,
+      newPullJob({
+        list: { hash: "h", teams: 1710, pieces: 1 },
+        seasonYears: [2027],
+        timeZone: "America/New_York",
+        device: "phone",
+        now: sentAt,
+        refresh: true,
+      })
+    );
+    localStorage.setItem(
+      SENT_PULLS_KEY,
+      JSON.stringify([{ jobId, sentAt, teams: 1710, told: false }])
+    );
+    const asked: Array<number | undefined> = [];
+    const sender: PullSender = {
+      ...cloud.sender,
+      // As the cloud answers a job queued an hour that nothing started (`startPullJob`).
+      start: async (id, waitedMs) => {
+        asked.push(waitedMs);
+        const job = cloud.jobs.get(id);
+        if (job) cloud.jobs.set(id, { ...job, status: "failed", error: "It was never started." });
+        return { ok: true, value: { status: "failed" } };
+      },
+    };
+    open(sourcesOf(live, { pulls: () => sender }));
+    expect(
+      await screen.findByText("The pull of 1,710 teams in the cloud failed: It was never started.")
+    ).toBeTruthy();
+    expect(asked).toHaveLength(1);
+    // Its own wait, by this device's clock: three hours, give or take the test's own run.
+    expect(asked[0]).toBeGreaterThanOrEqual(3 * 60 * 60_000);
+    expect(asked[0]).toBeLessThan(3 * 60 * 60_000 + 60_000);
+  });
+
+  it("cancels a pull stopped before it started, by asking the cloud at once", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
+    pool.wants = false;
+    const cloud = cloudPulls();
+    const jobId = "d".repeat(32);
+    const sentAt = new Date().toISOString();
+    cloud.jobs.set(
+      jobId,
+      newPullJob({
+        list: { hash: "h", teams: 9270, pieces: 1 },
+        seasonYears: [2027],
+        timeZone: "America/New_York",
+        device: "phone",
+        now: sentAt,
+        refresh: true,
+      })
+    );
+    localStorage.setItem(
+      SENT_PULLS_KEY,
+      JSON.stringify([{ jobId, sentAt, teams: 9270, told: false }])
+    );
+    const sender: PullSender = {
+      ...cloud.sender,
+      // As the cloud answers a stopped job no leg ran: it cancels it (`startPullJob`).
+      start: async (id) => {
+        const job = cloud.jobs.get(id);
+        if (job?.stopAsked) cloud.jobs.set(id, { ...job, status: "cancelled" });
+        return { ok: true, value: { status: job?.stopAsked ? "cancelled" : "queued" } };
+      },
+    };
+    open(sourcesOf(live, { pulls: () => sender }));
+    await screen.findByText(
+      /^Pulling 9,270 teams in the cloud: waiting to start, sent just now\.$/
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(
+      await screen.findByText(/^The pull in the cloud was stopped: 0 of 9,270 teams filed/)
+    ).toBeTruthy();
   });
 
   it("sends the catch-ups the server names to be pulled again, in the season being played", async () => {

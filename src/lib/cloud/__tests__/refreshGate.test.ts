@@ -294,12 +294,14 @@ describe("starting Refresh now", () => {
         throw new Error("Cloud Tasks is unavailable.");
       },
     };
+    // With the cloud's own words, which tell a missing grant from a blip.
+    const said = `${NOT_QUEUED} The cloud said: Cloud Tasks is unavailable.`;
     expect(await startRefresh(ASK, refused)).toEqual({
       ok: false,
       refusal: "unavailable",
-      message: NOT_QUEUED,
+      message: said,
     });
-    expect(jobs.jobs.get(FIRST)).toMatchObject({ status: "failed", error: NOT_QUEUED });
+    expect(jobs.jobs.get(FIRST)).toMatchObject({ status: "failed", error: said });
     expect(store.gate()).toMatchObject({ jobId: FIRST, legs: 1 });
     // So a nightly finds nothing under way to wait for, and the next press starts afresh.
     const turn = await nightlyTakesTurn({

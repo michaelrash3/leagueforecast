@@ -4,6 +4,7 @@ import {
   CALL_LIMIT_MS,
   callEdit,
   callQuery,
+  callStartPull,
   callStartRefresh,
   callWarm,
   coerceEditReply,
@@ -363,5 +364,48 @@ describe("asking for Refresh now", () => {
         await callStartRefresh(ASK, { ...signedIn, fetchImpl: server.fetchImpl })
       ).toMatchObject({ ok: false, why: "unanswered" });
     }
+  });
+});
+
+describe("asking the cloud to start a list", () => {
+  const JOB = "0123456789abcdef0123456789abcdef";
+
+  it("sends the job, and on an ask after the first how long this device has waited", async () => {
+    const server = answering(200, { result: { status: "queued" } });
+    expect(await callStartPull(JOB, { ...signedIn, fetchImpl: server.fetchImpl })).toEqual({
+      ok: true,
+      value: { status: "queued" },
+    });
+    await callStartPull(JOB, { ...signedIn, fetchImpl: server.fetchImpl }, 3_600_000.4);
+    const bodies = server.sent.map(({ init }) => JSON.parse(String(init.body)));
+    expect(bodies).toEqual([{ data: { jobId: JOB } }, { data: { jobId: JOB, waited: 3_600_000 } }]);
+  });
+
+  // An error the server did not mean to throw, or a job it cannot find, proves nothing was queued:
+  // taken for answers that may have started it, they left pulls "waiting to start" for good.
+  it("says an unmeant error and a job the cloud cannot find as refusals", async () => {
+    for (const [status, code] of [
+      [500, "INTERNAL"],
+      [404, "NOT_FOUND"],
+      [503, "UNAVAILABLE"],
+    ] as const) {
+      const server = answering(status, { error: { status: code, message: `said ${code}` } });
+      const answer = await callStartPull(JOB, { ...signedIn, fetchImpl: server.fetchImpl });
+      expect(answer).toMatchObject({ ok: false, message: `said ${code}` });
+      expect(answer).not.toMatchObject({ why: "unanswered" });
+    }
+    // UNKNOWN is the server's own word for a start it cannot vouch for either way (`startPullJob`).
+    const unsure = answering(500, { error: { status: "UNKNOWN", message: "said UNKNOWN" } });
+    expect(await callStartPull(JOB, { ...signedIn, fetchImpl: unsure.fetchImpl })).toMatchObject({
+      ok: false,
+      why: "unanswered",
+    });
+    // An answer that never came still may have started it.
+    const lost = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(
+      await callStartPull(JOB, { ...signedIn, fetchImpl: lost as unknown as typeof fetch })
+    ).toMatchObject({ ok: false, why: "unanswered" });
   });
 });

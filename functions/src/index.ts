@@ -118,9 +118,9 @@ export const billingCap = onMessagePublished(
  * the cloud copy (`pullJobs.ts`) and asks `startPull` to run it, and `runPull` pulls it into the
  * copy a leg at a time (`pullJobRunner.ts`), each leg a Cloud Tasks task queueing the next.
  *
- * Both run as a service account of their own, `pull-runner`, which may read and write Firestore,
- * queue a task and send it to `runPull`, and nothing else; the one-time setup that makes it, and
- * turns Cloud Tasks on, is in the README.
+ * Both run as `PULL_RUNNER`: an account that may read and write Firestore, queue a task and send it
+ * to a function, and nothing else; the one-time setups that make the accounts, and turn Cloud Tasks
+ * on, are in the README.
  */
 
 /**
@@ -128,6 +128,17 @@ export const billingCap = onMessagePublished(
  * step of their one-time setup. Without them the project deploys as it did before them.
  */
 declare const CLOUD_PULLS: boolean;
+
+/**
+ * The account the pulls run as. With the rebuilds set up (`LIVE_REBUILD`), theirs, `live-runner`:
+ * its one-time setup grants everything a pull needs (Firestore, queueing a task, sending one to a
+ * function, and acting as itself to sign it), and rebuilds have queued and run tasks on it every
+ * day. The pulls' own account was made out of order on 9 October 2026, after the first deploy that
+ * needed it had failed for want of it, and two pulls sent from the live page on 10 October never
+ * started under it; running them as an account known to work takes that setup out of the way.
+ * Without the rebuilds, the pulls' own account, `pull-runner`, as their setup makes it.
+ */
+const PULL_RUNNER = LIVE_REBUILD ? "live-runner@" : "pull-runner@";
 
 /** Tries a leg gets, the first included, before its job is marked failed. */
 const LEG_TRIES = 3;
@@ -162,7 +173,7 @@ export const startPull = !CLOUD_PULLS
       {
         region: REGION,
         invoker: "public",
-        serviceAccount: "pull-runner@",
+        serviceAccount: PULL_RUNNER,
         memory: "256MiB",
         timeoutSeconds: 30,
         maxInstances: 2,
@@ -206,14 +217,42 @@ export const startPull = !CLOUD_PULLS
           return { status: refreshed.status, jobId: refreshed.jobId, already: refreshed.already };
         }
         const jobId = data?.jobId;
-        const started = await startPullJob(jobId, {
-          jobs: restJobDocs(firestoreRestDocuments(restAccess())),
-          enqueue: enqueueLeg,
-        });
+        // On an ask after the first, how long the sending device has waited, by its own clock.
+        const waited = (data as { waited?: unknown } | null)?.waited;
+        const started = await startPullJob(
+          jobId,
+          {
+            jobs: restJobDocs(firestoreRestDocuments(restAccess())),
+            enqueue: enqueueLeg,
+            now: () => new Date(),
+          },
+          typeof waited === "number" && Number.isFinite(waited) && waited >= 0 ? waited : undefined
+        );
+        // Counts and words only, as the refresh's line: the job's id is the device's to watch.
+        if (started.ok) {
+          logger.info("startPull", {
+            kind: "list",
+            status: started.status,
+            again: waited !== undefined,
+          });
+        } else if (started.refusal === "unavailable" || started.refusal === "unknown") {
+          // The cloud's own words for why the pull could not be read or queued: what a missing
+          // grant or a paused queue says, and what the device now shows the person who sent it.
+          logger.error("startPull", {
+            kind: "list",
+            refused: started.refusal,
+            why: started.message,
+          });
+        } else {
+          logger.info("startPull", { kind: "list", refused: started.refusal });
+        }
         if (!started.ok) {
           throw new HttpsError(
             started.refusal,
-            started.refusal === "not-found" ? "There is no such pull." : "That is not a pull's id."
+            started.message ??
+              (started.refusal === "not-found"
+                ? "There is no such pull."
+                : "That is not a pull's id.")
           );
         }
         return { status: started.status };
@@ -256,7 +295,7 @@ export const runPull = !CLOUD_PULLS
   : onTaskDispatched<LegTask>(
       {
         region: REGION,
-        serviceAccount: "pull-runner@",
+        serviceAccount: PULL_RUNNER,
         memory: "8GiB",
         cpu: 2,
         timeoutSeconds: 1800,
@@ -274,17 +313,19 @@ export const runPull = !CLOUD_PULLS
           return;
         }
         const jobs = restJobDocs(firestoreRestDocuments(restAccess()));
-        const job = await jobs.read(task.jobId);
-        if (!job) {
-          logger.info(said("no such pull; nothing done."));
-          return;
-        }
-        // The day the leg files and logs in is the job's: the device's for a list it sent, New
-        // York's for "Refresh now" (`REFRESH_ZONE`). Its worker keeps the zone set here.
-        process.env.TZ = zoneOf(job.timeZone);
         const started = Date.now();
         let answer: LegAnswer;
         try {
+          // Inside the try, so a read that fails on the last try still ends the job below rather
+          // than leaving it "waiting to start" with no task left to run it.
+          const job = await jobs.read(task.jobId);
+          if (!job) {
+            logger.info(said("no such pull; nothing done."));
+            return;
+          }
+          // The day the leg files and logs in is the job's: the device's for a list it sent, New
+          // York's for "Refresh now" (`REFRESH_ZONE`). Its worker keeps the zone set here.
+          process.env.TZ = zoneOf(job.timeZone);
           answer = await legInWorker({ task, lastTry });
         } catch (error) {
           answer = { error: error instanceof Error ? error.message : String(error) };
@@ -304,7 +345,13 @@ export const runPull = !CLOUD_PULLS
                 error: answer.error,
                 updatedAt: new Date().toISOString(),
               })
-              .catch(() => undefined);
+              .catch((error: unknown) => {
+                logger.error(
+                  said(
+                    `could not be marked failed: ${error instanceof Error ? error.message : String(error)}`
+                  )
+                );
+              });
           }
           return;
         }

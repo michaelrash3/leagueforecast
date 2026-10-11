@@ -3789,6 +3789,35 @@ Some jobs fail at once, with nothing tried again:
 - a copy saved by a newer build or tidied by newer rules;
 - no copy at all.
 
+**A pull that never starts.** On 10 October two catch-ups sat at "waiting to
+start" for hours: their start had failed in a way the device took for an answer
+that may have started them, and nothing was left that would ever run or end them.
+Now no failed start is silent:
+
+- The pulls run as the rebuilds' account where the rebuilds are set up (the
+  one-time setup, below), the account every rebuild's task already runs as.
+- `startPull` ends a job it cannot queue with the cloud's own words for why (a
+  missing grant reads as Google says it, "lacks IAM permission …") and refuses
+  with them, and the device says so at once. An error the function did not mean
+  to throw, or a job it cannot find, is said too, since neither queued anything.
+- An unanswered start is asked again at once. A list still queued that no leg has
+  written to is asked about again every minute while the Import tab is open, with
+  how long the device has waited by its own clock. The ask queues it afresh if its
+  first start never did, and says why if it cannot.
+- A job whose first task was made but that no leg has touched in an hour is ended
+  with a reason, since Cloud Tasks will not take its task's name again: the queue
+  paused, or every delivery refused. A leg takes minutes, so an hour is far past a
+  job waiting its turn.
+- A start ends a job only while it is still as the start read it (written at the
+  update time it was read at, with the same status, stamp and stop), and a leg
+  marks a job running only while it is still as the leg read it; a leg that finds
+  a Stop pressed in between cancels the job before asking GameChanger anything. So a leg starting just as a start gives up on its job
+  keeps running and is not told to be sent again, and a leg that read a job a start
+  then ended stands aside rather than running it after all.
+- Stop on a pull that never started asks at once, which cancels it, since only a
+  running leg reads the stop. The line says how long a waiting pull has waited,
+  and what its last try said if a leg failed before it could start.
+
 **Cost.** The project's budget is a dollar a month with a hard stop (below).
 Google's published free tier for functions gives 360,000 GiB-seconds and 180,000
 processor-seconds each month. A three-minute leg on 8 GiB and two processors
@@ -3913,8 +3942,14 @@ once, which the gap between pulls cannot stop while neither run has saved.
 
 ### Pulls in the cloud: the one-time setup
 
-The two functions run as an account of their own, `pull-runner`. It may read and
-write Firestore, queue a task, and send one to `runPull`, and nothing else. The
+Where the rebuilds after saves are set up (`LIVE_REBUILD`, below), the two functions
+run as the rebuilds' account, `live-runner`, whose setup grants all a pull needs and
+which runs tasks every day: two pulls sent on 10 October 2026 never started under
+the pulls' own account, which had been made out of order on 9 October, after the
+first deploy that needed it failed for want of it. So with the rebuilds on, step 1's
+account is not used, and a pull needs nothing set up beyond them. Without the
+rebuilds, the two functions run as an account of their own, `pull-runner`. It may
+read and write Firestore, queue a task, and send one to `runPull`, and nothing else. The
 project needs Cloud Tasks turned on, which the deploy account is not allowed to do
 itself. Until both are done and the `CLOUD_PULLS` variable says so, the functions
 are built without these two (`functions/build.mjs`), and the Firebase workflow

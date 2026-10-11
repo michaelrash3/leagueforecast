@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  askAgain,
   describeEnd,
   describeProgress,
+  dueForAsking,
   isOver,
   isRefresh,
   markTold,
@@ -38,6 +40,11 @@ export const pastedTeams = (text: string): GcTeamListEntry[] =>
  * at once after a send (`look`). Held by the Import tab, so its nightly card and its pull card
  * read one list: "Refresh now" waits while any is on its way, and both say how each is getting on
  * in the same lines (`PullLines`).
+ *
+ * A list still waiting to start is asked about again (`dueForAsking`, `askAgain`) as it is read,
+ * so one whose start failed where this device could not hear runs, or says why, within a minute or
+ * so instead of waiting for good; and Stop on one that never started asks at once, which is what
+ * cancels it, since only a running leg reads the stop.
  */
 export const useWatchedPulls = (pulls: () => PullSender | null) => {
   const [watched, setWatched] = useState<WatchedPull[]>([]);
@@ -51,7 +58,14 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
     void readSentPulls(sender.jobs).then((read) => {
       if (!alive) return;
       setWatched(read);
-      if (read.some(({ job }) => !isOver(job))) {
+      const now = new Date();
+      const due = read.filter((pull) => dueForAsking(pull, now.getTime()));
+      // Read again once the asks are answered, so what they did is said without waiting a look.
+      if (due.length > 0) {
+        void Promise.all(due.map((pull) => askAgain(pull, sender, now))).then(() => {
+          if (alive) setLooked((times) => times + 1);
+        });
+      } else if (read.some(({ job }) => !isOver(job))) {
         timer = setTimeout(() => setLooked((times) => times + 1), PULL_LOOK_MS);
       }
     });
@@ -73,13 +87,18 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
       if (!sender) return false;
       try {
         await sender.jobs.askStop(jobId);
-        setLooked((times) => times + 1);
-        return true;
       } catch {
         return false;
       }
+      // One that never started is cancelled by the ask; one under way stops at its next look.
+      const pull = watched.find(({ sent }) => sent.jobId === jobId);
+      if (pull && !isRefresh(pull) && pull.job.status === "queued") {
+        await askAgain(pull, sender, new Date()).catch(() => undefined);
+      }
+      setLooked((times) => times + 1);
+      return true;
     },
-    [pulls]
+    [pulls, watched]
   );
   return { watched, look, told, stop };
 };
@@ -197,7 +216,11 @@ export default function LiveCloudPulls({
       if (sent.ok) {
         if (!options.refresh) setText("");
         look();
-      } else setSaid(sent.message);
+      } else {
+        setSaid(sent.message);
+        // A first start that went unanswered may have queued it: its line is shown too.
+        if (sent.watching) look();
+      }
     },
     [pulls, device, now, look]
   );

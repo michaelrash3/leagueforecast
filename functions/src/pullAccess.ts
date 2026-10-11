@@ -49,14 +49,20 @@ const accessToken = (() => {
 /** Firestore's REST API as the function's own account (`firestoreRest.ts`). */
 export const restAccess = () => ({ projectId: projectId(), token: accessToken });
 
-/** Queues a leg, named for its job and leg: a leg queued twice is queued once. */
-export const enqueueLeg = async (task: LegTask): Promise<void> => {
+/**
+ * Queues a leg, named for its job and leg: a leg queued twice is queued once, and the second
+ * queueing answers "already". Cloud Tasks gives that answer, too, for a name a task had until it
+ * ran or was dropped, for some time after: a job whose first task was refused at every delivery
+ * cannot be queued again under its name, which is why a start ends such a job instead
+ * (`startPullJob`).
+ */
+export const enqueueLeg = async (task: LegTask): Promise<void | "already"> => {
   try {
     await getFunctions(adminApp())
       .taskQueue<LegTask>(`locations/${REGION}/functions/runPull`)
       .enqueue(task, { id: `${task.jobId}-${task.leg}`, dispatchDeadlineSeconds: 1800 });
   } catch (error) {
-    if ((error as { code?: unknown }).code === "functions/task-already-exists") return;
+    if ((error as { code?: unknown }).code === "functions/task-already-exists") return "already";
     throw error;
   }
 };

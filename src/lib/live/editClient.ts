@@ -340,11 +340,33 @@ export const callStartRefresh = (
     REFRESH_FAILURES
   );
 
-export const callStartPull = (jobId: string, deps: CallDeps): Promise<Called<{ status: string }>> =>
+/**
+ * What `startPull` answers a list's start with that proves the pull was not started, beyond what
+ * any call does: an error it did not mean to throw (INTERNAL), since nothing it does after queueing
+ * the leg can throw, and a job it cannot find (NOT_FOUND). Both were once taken for answers that
+ * may have started the pull, which left it "waiting to start" with nothing that would run it.
+ */
+const START_PULL_FAILURES: ReadonlyMap<string, CallFailure> = new Map([
+  ...FAILURE_OF,
+  ["INTERNAL", "failed"],
+  ["NOT_FOUND", "failed"],
+]);
+
+/**
+ * Asks `startPull` to queue the first leg of the job `jobId`, which this device wrote. On an ask
+ * after the first, `waitedMs` is how long this device has waited for it by its own clock, which
+ * the server reads to end a job queued an hour that nothing started (`startPullJob`).
+ */
+export const callStartPull = (
+  jobId: string,
+  deps: CallDeps,
+  waitedMs?: number
+): Promise<Called<{ status: string }>> =>
   call(
-    { jobId },
+    waitedMs === undefined ? { jobId } : { jobId, waited: Math.max(0, Math.round(waitedMs)) },
     (result) =>
       isRecord(result) && typeof result.status === "string" ? { status: result.status } : null,
     { url: START_PULL_URL, limitMs: 60_000, ...deps },
-    "unanswered"
+    "unanswered",
+    START_PULL_FAILURES
   );
