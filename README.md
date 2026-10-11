@@ -3806,6 +3806,11 @@ Now no failed start is silent:
   with a reason, since Cloud Tasks will not take its task's name again: the queue
   paused, or every delivery refused. A leg takes minutes, so an hour is far past a
   job waiting its turn.
+- A start ends a job only while it is still as the start read it (written at the
+  update time it was read at), and a leg marks a job running only while it is
+  still as the leg read it. So a leg starting just as a start gives up on its job
+  keeps running and is not told to be sent again, and a leg that read a job a start
+  then ended stands aside rather than running it after all.
 - Stop on a pull that never started asks at once, which cancels it, since only a
   running leg reads the stop. The line says how long a waiting pull has waited,
   and what its last try said if a leg failed before it could start.

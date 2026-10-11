@@ -20,6 +20,7 @@ import { LEAGUE_PART } from "../cloudPlan";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
 import { newPullJob, newRefreshJob, packJobList, type PullJob } from "../pullJobs";
 import {
+  restJobDocs,
   runPullLeg,
   startPullJob,
   NEVER_STARTED,
@@ -29,6 +30,7 @@ import {
   type LegDeps,
   type LegTask,
 } from "../pullJobRunner";
+import type { FirestoreRestDocuments } from "../firestoreRest";
 import { startRefresh } from "../refreshGate";
 import { inTimeZoneAsync } from "../../../test/timeZone";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
@@ -169,6 +171,13 @@ const memoryJobs = () => {
     },
     putPiece: async (jobId, index, data) => {
       pieces.set(`${jobId}/${index}`, data);
+    },
+    updateIfUnchanged: async (jobId, seen, patch) => {
+      const job = jobs.get(jobId);
+      if (!job || job.status !== seen.status || job.updatedAt !== seen.updatedAt) return false;
+      updates.push(structuredClone(patch));
+      jobs.set(jobId, { ...job, ...structuredClone(patch) });
+      return true;
     },
   };
   /** A "Refresh now" job as the server makes one. */
@@ -976,7 +985,7 @@ describe("starting a pull", () => {
         read: async () => {
           throw new Error("Firestore answered HTTP 403 reading pullJobs/x.");
         },
-        update: async () => {
+        updateIfUnchanged: async () => {
           throw new Error("no write expected");
         },
       },
@@ -1058,6 +1067,107 @@ describe("starting a pull", () => {
     expect(started).toEqual({ ok: true, status: "queued" });
     expect(queued).toEqual([{ jobId: JOB, leg: 0 }]);
     expect(jobs.job().status).toBe("queued");
+  });
+
+  // Codex on #372: a leg its task started can write to the job while an ask is deciding to end
+  // it, and the end must not overwrite that, nor tell the person to send again a pull under way.
+  it("does not end a job a leg started while the ask was deciding", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const startedByLeg = (jobId: string) =>
+      jobs.jobs.set(jobId, {
+        ...jobs.job(jobId),
+        status: "running",
+        stage: "loading",
+        updatedAt: "2026-09-29T17:59:59.000Z",
+      });
+    const now = () => new Date("2026-09-29T18:00:00.000Z");
+    // The hour is up and its task was already made, but the leg writes first.
+    const stale = await startPullJob(
+      JOB,
+      {
+        jobs: jobs.docs,
+        enqueue: async (task: LegTask): Promise<"already"> => {
+          startedByLeg(task.jobId);
+          return "already";
+        },
+        now,
+      },
+      NEVER_STARTED_MS * 2
+    );
+    expect(stale).toEqual({ ok: true, status: "queued" });
+    expect(jobs.job()).toMatchObject({ status: "running" });
+
+    // A queueing that fails, while a task an earlier ask queued starts the job: nothing refused.
+    jobs.jobs.set(JOB, { ...jobs.job(), status: "queued", updatedAt: jobs.job().createdAt });
+    const failing = await startPullJob(JOB, {
+      jobs: jobs.docs,
+      enqueue: async (task: LegTask) => {
+        startedByLeg(task.jobId);
+        throw new Error("Cloud Tasks did not answer.");
+      },
+      now,
+    });
+    expect(failing).toEqual({ ok: true, status: "queued" });
+    expect(jobs.job()).toMatchObject({ status: "running", error: null });
+  });
+
+  it("has a leg that read a job a start then ended stand aside, not run on", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const job = jobs.job();
+    // Between the leg's read and its mark, a start ends the job: an hour with no leg.
+    const racing: JobDocs = {
+      ...jobs.docs,
+      piece: async (jobId, index) => {
+        jobs.jobs.set(jobId, {
+          ...job,
+          status: "failed",
+          error: NEVER_STARTED,
+          updatedAt: "2026-09-29T13:30:00.000Z",
+        });
+        return jobs.docs.piece(jobId, index);
+      },
+    };
+    const { deps } = legDeps(cloud, jobs, { jobs: racing });
+    expect(await runPullLeg({ jobId: JOB, leg: 0 }, deps)).toBe("over");
+    expect(jobs.job()).toMatchObject({ status: "failed", error: NEVER_STARTED });
+  });
+
+  it("ends a job through Firestore only at the update time it read it at", async () => {
+    const path = `pullJobs/${JOB}`;
+    let stored: { fields: Record<string, unknown>; token: string } | null = null;
+    let wrote = 0;
+    /** A store whose document a leg can change between the read and the write. */
+    const docs = {
+      readAt: async (at: string) => (at === path && stored ? structuredClone(stored) : null),
+      replace: async (at: string, fields: Record<string, unknown>, token: string | null) => {
+        if (at !== path || !stored || token !== stored.token) return false;
+        wrote += 1;
+        stored = { fields, token: `t${wrote + 1}` };
+        return true;
+      },
+    } as unknown as FirestoreRestDocuments;
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const seen = jobs.job();
+    stored = { fields: { ...seen }, token: "t1" };
+    const rest = restJobDocs(docs);
+    const ended = { status: "failed" as const, error: NEVER_STARTED };
+
+    // Changed since it was read, in status or stamp: left as it is.
+    stored = { fields: { ...seen, status: "running" }, token: "t1" };
+    expect(await rest.updateIfUnchanged(JOB, seen, ended)).toBe(false);
+    stored = { fields: { ...seen, updatedAt: "2026-09-29T12:30:00.000Z" }, token: "t1" };
+    expect(await rest.updateIfUnchanged(JOB, seen, ended)).toBe(false);
+    expect(wrote).toBe(0);
+
+    // As read: written whole at the token it was read at, every other field kept.
+    stored = { fields: { ...seen }, token: "t1" };
+    expect(await rest.updateIfUnchanged(JOB, seen, ended)).toBe(true);
+    expect(stored).toMatchObject({ fields: { ...seen, ...ended } });
   });
 
   it("leaves a job a leg has written to, however long it has waited", async () => {

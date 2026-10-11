@@ -45,6 +45,12 @@ export type JobDocs = {
   create: (jobId: string, job: PullJob) => Promise<boolean>;
   /** Writes a piece of a list the server worked out, over whatever a try before it left. */
   putPiece: (jobId: string, index: number, data: Uint8Array) => Promise<void>;
+  /**
+   * Writes `patch` over a job only while it is still as `seen` was read, in the same status and
+   * untouched since (its `updatedAt` the same): whether it did. False is a leg, or another ask,
+   * that wrote to it first, whose write a start ending the job must not undo.
+   */
+  updateIfUnchanged: (jobId: string, seen: PullJob, patch: Partial<PullJob>) => Promise<boolean>;
 };
 
 /** A job's documents through Firestore's REST API. */
@@ -57,6 +63,14 @@ export const restJobDocs = (docs: FirestoreRestDocuments): JobDocs => ({
   },
   create: (jobId, job) => docs.replace(jobPath(jobId), job, null),
   putPiece: (jobId, index, data) => docs.set(jobPiecePath(jobId, index), { data }),
+  // Read with its update time, and written whole only at that time: a leg's write in between
+  // makes the write refused rather than overwritten.
+  updateIfUnchanged: async (jobId, seen, patch) => {
+    const at = await docs.readAt(jobPath(jobId));
+    const now = at ? coercePullJob(at.fields) : null;
+    if (!at || !now || now.status !== seen.status || now.updatedAt !== seen.updatedAt) return false;
+    return docs.replace(jobPath(jobId), { ...at.fields, ...patch }, at.token);
+  },
 });
 
 /** What a task carries: the job, and the leg of it to run. */
@@ -246,12 +260,20 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
       }
     }
     const share = entries.slice(leg * job.legTeams, (leg + 1) * job.legTeams);
-    await jobs.update(jobId, {
+    const running: Partial<PullJob> = {
       status: "running",
       stage: "loading",
       progress: { done: 0, total: share.length, failed: 0 },
       updatedAt: stamp(),
-    });
+    };
+    if (walking === job) {
+      // Only while the job is still as this leg read it: a start that ended it meanwhile, stopped
+      // or never started in the hour (`startPullJob`), is not undone by a leg that then runs on.
+      if (!(await jobs.updateIfUnchanged(jobId, job, running))) return "over";
+    } else {
+      // Worked out just now, and written as running by this leg itself (`workOutRota`).
+      await jobs.update(jobId, running);
+    }
 
     // Every so often: has the device asked to stop, and how far has the leg got?
     const stop = new AbortController();
@@ -413,7 +435,10 @@ const causeOf = (error: unknown): string => {
  */
 export const startPullJob = async (
   jobId: unknown,
-  deps: Pick<LegDeps, "enqueue"> & { jobs: Pick<JobDocs, "read" | "update">; now: () => Date },
+  deps: Pick<LegDeps, "enqueue"> & {
+    jobs: Pick<JobDocs, "read" | "updateIfUnchanged">;
+    now: () => Date;
+  },
   /**
    * How long the device that sent the job has waited for it, by its own clock from its own sending
    * (`SentPull.sentAt`), on an ask after the first. The device's clock and not this server's,
@@ -441,28 +466,46 @@ export const startPullJob = async (
   if (!job) return { ok: false, refusal: "not-found" };
   if (job.rota) return { ok: false, refusal: "invalid-argument" };
   if (job.status !== "queued") return { ok: true, status: job.status };
-  const stamp = () => deps.now().toISOString();
-  // Best done: the device is told either way, and a job a write could not end is asked about again.
-  const end = (patch: Partial<PullJob>) =>
+  const seen = job;
+  /*
+   * Only while the job is still as read: a leg its task started meanwhile has written to it, and a
+   * start must not undo that and tell the person to send again a pull already under way. True when
+   * it was ended, false when something got there first, null when the write itself failed, which
+   * leaves the job to the next ask.
+   */
+  const end = (patch: Partial<PullJob>): Promise<boolean | null> =>
     deps.jobs
-      .update(jobId, { stage: "waiting", updatedAt: stamp(), ...patch })
-      .catch(() => undefined);
+      .updateIfUnchanged(jobId, seen, {
+        stage: "waiting",
+        updatedAt: deps.now().toISOString(),
+        ...patch,
+      })
+      .catch(() => null);
   if (job.stopAsked) {
-    await end({ status: "cancelled" });
-    return { ok: true, status: "cancelled" };
+    return (await end({ status: "cancelled" })) === true
+      ? { ok: true, status: "cancelled" }
+      : { ok: true, status: job.status };
   }
   let queued: void | "already";
   try {
     queued = await deps.enqueue({ jobId, leg: 0 });
   } catch (error) {
     const message = `The cloud could not queue this pull: ${causeOf(error)}`;
-    await end({ status: "failed", error: message });
+    // A leg of a task an earlier ask queued started it meanwhile: it runs, and nothing is refused.
+    if ((await end({ status: "failed", error: message })) === false) {
+      return { ok: true, status: job.status };
+    }
     return { ok: false, refusal: "unavailable", message };
   }
   // Queued afresh, it runs now; only a task already made that no leg has touched in the hour ends.
   const untouched = job.updatedAt === job.createdAt;
-  if (queued === "already" && untouched && waitedMs !== undefined && waitedMs > NEVER_STARTED_MS) {
-    await end({ status: "failed", error: NEVER_STARTED });
+  if (
+    queued === "already" &&
+    untouched &&
+    waitedMs !== undefined &&
+    waitedMs > NEVER_STARTED_MS &&
+    (await end({ status: "failed", error: NEVER_STARTED })) === true
+  ) {
     return { ok: true, status: "failed" };
   }
   return { ok: true, status: job.status };
