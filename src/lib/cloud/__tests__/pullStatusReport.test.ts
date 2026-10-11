@@ -159,6 +159,25 @@ describe("logLine", () => {
     );
   });
 
+  it("says what an audit entry did and how it ended, and never by whom", () => {
+    expect(
+      logLine({
+        ...at,
+        severity: "NOTICE",
+        protoPayload: {
+          methodName: "google.cloud.run.v2.Services.UpdateService",
+          status: { code: 7, message: "Permission denied for coach@example.com" },
+        },
+      })
+    ).toBe(
+      "2026-10-11T04:21:00Z NOTICE runpull: google.cloud.run.v2.Services.UpdateService, " +
+        "refused with code 7 (Permission denied for (an address))"
+    );
+    expect(logLine({ ...at, severity: "NOTICE", protoPayload: { methodName: "CreateTask" } })).toBe(
+      "2026-10-11T04:21:00Z NOTICE runpull: CreateTask"
+    );
+  });
+
   it("says a text line, masked", () => {
     expect(logLine({ ...at, severity: "ERROR", textPayload: `Leg 0 of pull ${ID}: failed` })).toBe(
       "2026-10-11T04:21:00Z ERROR runpull: Leg 0 of pull 012345…: failed"

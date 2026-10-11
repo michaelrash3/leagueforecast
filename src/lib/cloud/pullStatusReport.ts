@@ -142,11 +142,14 @@ export type LogEntry = {
   textPayload?: string;
   jsonPayload?: Record<string, unknown>;
   httpRequest?: { status?: number; latency?: string; requestMethod?: string };
+  /** An audit entry's: what was done to the function or queue, and how it ended. */
+  protoPayload?: { methodName?: string; status?: { code?: number; message?: string } };
 };
 
 /**
  * One log entry: when, how bad, from which function, and what it said. A request's entry gives
- * only its method, answer and time taken, never who sent it or from where.
+ * only its method, answer and time taken, never who sent it or from where; an audit entry, only
+ * what was done and how it ended, never by whom.
  */
 export const logLine = (entry: LogEntry): string => {
   const from =
@@ -166,6 +169,13 @@ export const logLine = (entry: LogEntry): string => {
     const words = typeof message === "string" ? message : "";
     const more = Object.keys(rest).length > 0 ? ` ${JSON.stringify(rest)}` : "";
     return `${head}: ${clipped(`${words}${more}`)}`;
+  }
+  if (entry.protoPayload?.methodName) {
+    const { methodName, status } = entry.protoPayload;
+    const ended = status?.code
+      ? `, refused with code ${status.code}${status.message ? ` (${clipped(status.message, 300)})` : ""}`
+      : "";
+    return `${head}: ${methodName}${ended}`;
   }
   return head;
 };

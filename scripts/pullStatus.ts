@@ -122,15 +122,17 @@ if (!keyJson) {
 
   await part("Cloud Tasks queues, and the tasks waiting in them", async () => {
     const location = `projects/${projectId}/locations/${FUNCTIONS_REGION}`;
+    // The beta API, since only it says how many tasks a queue holds and how many run now: the
+    // first API refuses a read mask on a list (HTTP 400, "Unknown name read_mask").
     const queues = (await ask(
-      `https://cloudtasks.googleapis.com/v2/${location}/queues?readMask=name,state,rateLimits,retryConfig,stats`
+      `https://cloudtasks.googleapis.com/v2beta3/${location}/queues?readMask=name,state,rateLimits,retryConfig,stats`
     )) as { queues?: QueueInfo[] };
     if (!queues.queues?.length) console.log("  No queues.");
     for (const queue of queues.queues ?? []) {
       console.log(`  ${queueLine(queue, nowMs)}`);
       if (!queue.name) continue;
       const tasks = (await ask(
-        `https://cloudtasks.googleapis.com/v2/${queue.name}/tasks?responseView=FULL&pageSize=100`
+        `https://cloudtasks.googleapis.com/v2beta3/${queue.name}/tasks?responseView=FULL&pageSize=100`
       )) as { tasks?: TaskInfo[] };
       for (const task of tasks.tasks ?? []) console.log(`    ${taskLine(task, nowMs)}`);
     }
