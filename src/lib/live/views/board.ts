@@ -1,5 +1,8 @@
+import { DEFAULT_SHRINKAGE } from "../../powerRating";
+import { recencyBasisFor, type RecencyBasis } from "../../ratingRecency";
 import {
   ageGroupYear,
+  EVIDENCE_STANDARD_ERRORS,
   fitScoutYearFor,
   rankingPoolGroupIds,
   rowsOfYearFit,
@@ -28,9 +31,11 @@ import {
   type SeasonReader,
 } from "../allKnown";
 import {
+  BOARD_FIT_VERSION,
   BOARD_HALVES,
   boardKey,
   type BoardFacts,
+  type BoardFit,
   type BoardHalf,
   type BoardView,
   type HistoryPoint,
@@ -79,6 +84,83 @@ export type PageBoard = {
   rows: ScoutRankingRow[];
   past?: { asOf: string; ranks: Record<string, number> };
   history?: { teamId: string; points: HistoryPoint[] };
+  /** What the rows' games were fitted against (`boardFitOf`), on a board with rows. */
+  fit?: BoardFit;
+};
+
+/**
+ * Each fit's recency basis (`recencyBasisFor`), read off its rated games once however many boards
+ * are cut from it, since every page of a pool shares its fit. On the 29 September 2026 backup the
+ * basis of the 2027 year's 171,571 rated games took 110 ms to read, which each of its 11 pages
+ * would otherwise pay again.
+ */
+const recencyOfFit = new WeakMap<ScoutYearFit, RecencyBasis | null | undefined>();
+
+const recencyOf = (fit: ScoutYearFit): RecencyBasis | null | undefined => {
+  if (recencyOfFit.has(fit)) return recencyOfFit.get(fit);
+  // The very games, in the order, the fit's own weights were read off (`recencyWeightsFor`).
+  const basis = recencyBasisFor(fit.rated.map(({ game }) => game));
+  recencyOfFit.set(fit, basis);
+  return basis;
+};
+
+/**
+ * What the fit `rows` were cut from read beyond the rows themselves (`BoardFit`), for a board
+ * built for the members' day `day`: its constants, the basis of its games' weights, and every side
+ * a row's rated game names that has no row here, with that side's fitted rating and rated games.
+ *
+ * The sides away are found in one pass over the games the fit read (`ScoutYearFit.rated`), never
+ * the pool: a game the fit left out (unplayed by `day`, outside the half, with a side the roster
+ * lacks) names nobody a device needs, and one between two rows needs nothing beyond the rows. They
+ * come in the order of the first game that names each. On the 29 September 2026 backup a pass
+ * took at most 58 ms on a page of the 2027 year's 171,571 rated games, and every board's fit of a
+ * full build 1.0 to 1.2 s together (Node 22), against about 50 s for the build. Indexing each
+ * fit's opponents once, so a board walks only its own rows' games, saved a fifth of that and held
+ * 16 MiB more while the pool was built, so it was left out.
+ *
+ * Each rating is rounded to 4 places, so a game's played-like rating worked out from it is within
+ * 5e-5 of the fit's. At 3 places it was off by up to 5e-4 (measured on the same backup), and the
+ * fourth place costs the largest board 4.2 KiB gzipped: its fit adds 54.0 KiB, against 49.8 KiB
+ * at 3 places.
+ *
+ * Undefined for a board with no rows, which no device works anything out for, and for a fit
+ * weighed by a scheme a game's date alone does not decide (`recencyBasisFor`), whose weights no
+ * device could rebuild: such a board carries no fit rather than one that would mislead.
+ */
+export const boardFitOf = (
+  fit: ScoutYearFit,
+  rows: readonly ScoutRankingRow[],
+  day: string
+): BoardFit | undefined => {
+  if (rows.length === 0) return undefined;
+  const recency = recencyOf(fit);
+  if (recency === undefined) return undefined;
+  const onBoard = new Set(rows.map((row) => row.teamId));
+  const away = new Set<string>();
+  for (const { game } of fit.rated) {
+    const aHere = onBoard.has(game.teamAId);
+    if (aHere === onBoard.has(game.teamBId)) continue;
+    away.add(aHere ? game.teamBId : game.teamAId);
+  }
+  const ids = [...away];
+  const { adjusted } = fit;
+  return {
+    v: BOARD_FIT_VERSION,
+    day,
+    scale: adjusted.residualScale,
+    middle: fit.middle,
+    errors: EVIDENCE_STANDARD_ERRORS,
+    gapRuns: adjusted.ageGapRuns,
+    cap: adjusted.cap,
+    shrink: DEFAULT_SHRINKAGE,
+    recency: recency && { ...recency },
+    away: {
+      ids,
+      // `|| 0` so a rating that rounds to nothing is 0, never -0.
+      ratings: ids.map((id) => Math.round((adjusted.ratings.get(id) ?? 0) * 1e4) / 1e4 || 0),
+      games: ids.map((id) => adjusted.games.get(id) ?? 0),
+    },
+  };
 };
 
 /**
@@ -270,7 +352,9 @@ export const buildBoardsAndFacts = ({
     }
     // A fit shared with an older page still gives this one none if it is too young to rank.
     const rows = fit ? rowsOfYearFit(fit, pageId, page?.myTeamId, ageGroups) : [];
-    if (!past) return { pageId, half, rows };
+    const fitted = fit ? boardFitOf(fit, rows, today) : undefined;
+    const board: PageBoard = { pageId, half, rows, ...(fitted ? { fit: fitted } : {}) };
+    if (!past) return board;
 
     /*
      * Every club of the year's place on the board as it stood on `asOf`, as the worker answers
@@ -295,7 +379,7 @@ export const buildBoardsAndFacts = ({
     const lastWeek = { asOf: daysBefore(today), ranks: ranksOn(daysBefore(today)) };
     // A page that names no club of its own, the empty id a restore can leave included, has no line.
     const teamId = page?.myTeamId;
-    if (!teamId) return { pageId, half, rows, past: lastWeek };
+    if (!teamId) return { ...board, past: lastWeek };
 
     /*
      * The page's own club's rank line, walked with the page's own step (`rankLineStep`): a week
@@ -317,7 +401,7 @@ export const buildBoardsAndFacts = ({
       if (step.done) break;
     }
     points.push({ asOf: lastWeek.asOf, rank: lastWeek.ranks[teamId] ?? null });
-    return { pageId, half, rows, past: lastWeek, history: { teamId, points } };
+    return { ...board, past: lastWeek, history: { teamId, points } };
   };
 
   const boards = ratingPools(ageGroups).flatMap((pageIds) => {
@@ -345,7 +429,7 @@ export const boardViews = (
   { boards, facts }: BoardsBuilt
 ): Array<{ key: string; value: BoardView }> => {
   const byId = groupsById(ageGroups);
-  return boards.map(({ pageId, half, rows, past, history }) => {
+  return boards.map(({ pageId, half, rows, past, history, fit }) => {
     const page = facts.get(pageId);
     if (!page) throw new Error(`No facts were built for the page ${pageId}.`);
     return {
@@ -362,6 +446,7 @@ export const boardViews = (
         }),
         ...(past ? { past: { asOf: past.asOf, empty: Object.keys(past.ranks).length === 0 } } : {}),
         ...(history ? { history } : {}),
+        ...(fit ? { fit } : {}),
       },
     };
   });

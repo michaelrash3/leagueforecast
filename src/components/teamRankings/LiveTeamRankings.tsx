@@ -33,7 +33,7 @@ import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib
 import { editLock, myTeamShown } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { poolGamesOfCard, teamsOfCard } from "../../lib/live/scoutingFromCards";
-import { lastWeekOf, withMine } from "../../lib/live/views/boardShape";
+import { boardKey, lastWeekOf, withMine } from "../../lib/live/views/boardShape";
 import { leagueClubRanksFrom, writeLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { myTeamGlance } from "../../lib/myTeamGlance";
 import { movementOf } from "../../lib/rankMovement";
@@ -626,6 +626,30 @@ function LiveBoard({
     spring: 0,
   };
   const segment = live.segment;
+  /*
+   * The board a club's panel says what each game did against: the one on screen, only while it is
+   * the board of the page and half on screen, so a half or page moved to whose board is still on
+   * its way draws no lines worked out against the last one. With it go the age groups the boards
+   * were built from (the cloud's, never this device's), what its rating is over, and whether the
+   * club open is the page's own.
+   */
+  const panelBoard = useMemo(
+    () =>
+      board &&
+      openClub &&
+      board.key === boardKey(selectedYear, selectedAgeGroupId, segment ?? "year")
+        ? {
+            view: board.view,
+            groups: cloudGroups,
+            span:
+              segment === undefined || selectedYear === undefined
+                ? "Season"
+                : segmentLabel(selectedYear, segment),
+            own: openClub === myTeamId,
+          }
+        : undefined,
+    [board, openClub, selectedYear, selectedAgeGroupId, segment, cloudGroups, myTeamId]
+  );
   const meta = live.meta?.meta;
   const label = meta
     ? liveLabel({
@@ -947,6 +971,7 @@ function LiveBoard({
               segment={segment}
               onClose={closeClub}
               onCannot={cannotReadClub}
+              {...(panelBoard ? { board: panelBoard } : {})}
             />
           </Suspense>
         )

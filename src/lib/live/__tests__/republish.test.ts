@@ -23,13 +23,14 @@ import type { LeagueDocsList } from "../cloudLeague";
 import { seasonDocId, seasonToDoc } from "../leagueDocs";
 import type { CopyPublish } from "../publishCopy";
 import { REPUBLISH_TRIES, republishViews } from "../republish";
-import { LIVE_FORMAT, LIVE_SCHEMA, type LiveStore } from "../viewStore";
+import { BOARD_FAMILY, BOARD_SHAPE } from "../views/boardShape";
+import { LIVE_FORMAT, LIVE_SCHEMA, publishedBoardShape, type LiveStore } from "../viewStore";
 import { memoryLive, type MemoryLive } from "./memoryLive";
 
 /*
  * The republish after a deploy (`republishViews`, run by `scripts/republish.ts`): it publishes the
- * members' views from the cloud copy only while what is published wants it (none, or an older
- * schema's), answers for the views at its end rather than for its own publish, tries again on the
+ * members' views from the cloud copy only while what is published wants it (none, an older
+ * schema's, or boards of an older shape), answers for the views at its end rather than for its own publish, tries again on the
  * copy as it now stands when a save moved it during the run, and never writes the copy.
  */
 
@@ -204,6 +205,41 @@ describe("the republish after a deploy", { timeout: 30_000 }, () => {
     const again = republish(cloud, live.store);
     expect(await again.run).toMatchObject({ end: "not-needed", ok: true, tries: 0 });
     expect(again.views).toHaveLength(0);
+    expect(cloud.costs.reads).toBe(reads);
+    expect(live.costs.writes).toBe(writes);
+  });
+
+  it("publishes them again over boards of an older shape, and stops once they are of this build's", async () => {
+    const { cloud, manifest } = await copied();
+    const live = memoryLive();
+    await republish(cloud, live.store).run;
+    // What it published says it is in this build's shape: otherwise every deploy would publish again.
+    expect(publishedBoardShape(live.meta())).toBe(BOARD_SHAPE);
+    // Of this schema, from the build before the boards' shape was recorded.
+    const meta = live.meta();
+    const boards = meta?.built[BOARD_FAMILY];
+    if (!meta || !boards) throw new Error("no record of the boards");
+    const { shape: _shape, ...unshaped } = boards;
+    live.setMeta({ ...structuredClone(meta), built: { ...meta.built, [BOARD_FAMILY]: unshaped } });
+    const run = republish(cloud, live.store);
+    expect(await run.run).toMatchObject({ end: "published", ok: true, tries: 1 });
+    expect(live.meta()).toMatchObject({
+      schema: LIVE_SCHEMA,
+      copy: { id: manifest.copy, version: manifest.version },
+    });
+    expect(publishedBoardShape(live.meta())).toBe(BOARD_SHAPE);
+    // And an older shape than this build's, as a build before the next raise would leave.
+    live.setMeta({
+      ...structuredClone(meta),
+      built: { ...meta.built, [BOARD_FAMILY]: { ...boards, shape: BOARD_SHAPE - 1 } },
+    });
+    expect(await republish(cloud, live.store).run).toMatchObject({ end: "published", ok: true });
+    expect(publishedBoardShape(live.meta())).toBe(BOARD_SHAPE);
+    // Now they are this build's: nothing is read of the copy, and nothing written.
+    const reads = cloud.costs.reads;
+    const writes = live.costs.writes;
+    const again = republish(cloud, live.store);
+    expect(await again.run).toMatchObject({ end: "not-needed", ok: true, tries: 0 });
     expect(cloud.costs.reads).toBe(reads);
     expect(live.costs.writes).toBe(writes);
   });

@@ -2739,6 +2739,95 @@ GameChanger's for none, counting once matched 9 and leaving out 14, and leaving
 out was the nearer for 21 clubs against 13. The team panel still lists the game,
 and says why it is not in the record.
 
+#### Game by game
+
+On the cloud's board a club's panel says, under each game it counted, what that game
+did to its rating there (`gameBreakdown`, `gameWords`). Above the list the board's
+rating is split in two: what the club's games give it, the fit's own rating
+(`pointRating`), and what its record adds or takes off, the evidence discount
+(Scouting report, **What if?**). The discount compares the club's spread, how unsure its
+rating is, with the mean spread over every club the fit rated in the span, on every page
+of the pool, never one board's rows (`discountMiddle`): a record that makes the rating
+surer than the average club's adds, and one that makes it less sure takes off. "Fall 2026
+rating +2.8: +2.5 from your games, +0.3 because your record makes your rating surer than
+the average club's." The line first said "fuller than most", which counts the board's
+clubs, and the mean is not the median: the spread falls ever more slowly as games are
+added, so on the 29 September 2026 backup more than half the clubs gained on 10 of the 20
+boards with lines, 57.8% on one. Nor is it a count of games: of the 45,554 clubs that
+gained, 8,146 had fewer effective games than their board's average.
+
+The two ratings are printed as the board's row prints its Rating and Best guess
+(`formatBoardRating`), "-0.0" and all, and the record's part is what those two printed
+figures differ by, so the three add up on screen and one that rounds to nothing says the
+rating is all from the club's games. Rounded as whole tenths instead, the line differed
+from its row on 2,158 of the 88,106 clubs with lines on that backup, every one a "0.0"
+over a row's "+0.0" or "-0.0". The page's own club reads "your", any other "its".
+
+Under each counted W, L or T row are two figures, keyed once above the list. **Played
+like** is the rating that makes the score exactly what the fit expected: the opponent's
+rating, plus the margin counted, less the runs the age gap was worth. A club's fitted
+rating is the weighted mean of these over its games, with the ridge's 1.5 games at
+nought; on the 2027 year of 29 September 2026 that held for all 83,693 of its teams to
+5.6e-9, the solver's own tolerance, which is what lets a device rebuild the board's own
+row from them. **Moved** is the rating the board shows with the game, less the rating it
+would show without it, every other game weighed as it was and the fit's residual scale
+and middle held. It has two parts: the score's, what the margin did to the fit's rating,
+and the record's, what one more game on the record did to the discount, which is never
+below nought. When the score's part reads as a fall of a tenth or more and the whole
+does not, both are said, rounded so they add up: "moved your rating +0.1 (score -0.1,
+one more game +0.2)". A move that rounds to nothing says "less than 0.1".
+
+A clause follows only where it applies, and names what takes the row's score to the
+margin counted. The row shows the club's own schedule's score, and the fit reads the two
+schedules' average where they disagree (`ratedMargin`), held to the cap. "Counted as a
+12-run win, the most one game counts" is for an average past the cap where the club's
+own score, held to the cap, is already the margin counted; "counted as a 1.5-run win, the
+two schedules' scores averaged" for an average inside the cap or exactly on it, which
+the cap did nothing to; and both together for an average past the cap that the club's
+own score, held to it, does not reach: one inside the cap, or one past it on the other
+side. So a club whose own schedule has it losing 0-13 and whose opponent's has it winning
+37-0 is counted as a 12-run win, the average exactly, and is told of the average alone.
+On the 29 September 2026 backup the first rule read off the row's score instead, and of
+the 88,032 lines with a margin clause it named the wrong reason on 212: the cap for 106
+averages that landed exactly on it from a score past it, and both for 106 that landed
+on it from a score inside it or on it. Then "2 runs added for playing a year up", "2
+runs taken off for playing a year down" or 4 runs for two years, for a game against
+another level (above).
+
+A game against a side seen once, a stand-in or a club known only from this one schedule,
+reads nearer the club's own rating than its score would, and moves it little. With
+nothing else to go on, the fit lets that side's rating take most of the result: for a
+game of average weight, with the ridge at 1.5, played like comes out two-fifths the
+club's rating and three-fifths the margin counted. The game says more about the stand-in
+than about the club, which is also why the discount counts it as 0.6 of a game.
+
+Played like is exact, but for the 4 places a side with no row on the board carries its
+rating to (within 5e-5), and so is the record's part. The score's part is worked out as
+if the club's opponents met nobody else in common (the star estimate), since the exact
+answer is the year's pool fitted again without the game, which no phone does as a panel
+opens. Against those exact refits, the weights held, on 414 games of 60 clubs drawn from
+the 29 September 2026 backup's 2027 year, it was off by 0.006 in the middle, 0.061 at the
+95th percentile and 0.268 at most, gave the same tenth on 355 of the 414 and never the
+wrong sign. A short record is the least exact: at the 95th percentile, 0.061 for clubs
+with 3 to 8 games, 0.048 for 9 to 20 and 0.016 for 21 or more. Taking the game alone
+against the club's other games, the obvious shortcut, was off by 0.207 at the 95th
+percentile and gave the same tenth on 238. Both parts are said, the score's reading -0.1
+or lower and the whole not, on 30,996 of the 532,020 lines the backup's 20 boards with a
+fit gave its 88,106 clubs: on 24,230 the whole rounds to nothing ("moved its rating less
+than 0.1 (score -0.1, one more game +0.1)"), and on 6,766 it reads +0.1 or more. A move
+that rounds to nothing is said on 36,674 lines in all.
+
+No line, and no word of one, is drawn where the lines cannot be shown to add up to the
+board's own row (The live board on a member's device, **What each game did**): a board
+without a fit, a club with no row on the board on screen, a half or page moved to whose
+board is still on its way, and a card and board from different publishes, until both are
+read again. A row still to come, one outside the half on screen, one set not to count
+and one against the club's own name never carry one. The line above the list and its key
+are drawn only while a row on the list carries a line, so a pending Not this team that
+takes every such row off takes them too, though the lines, worked out from the card as
+published, are still in hand. Team Rankings on this device's own copy draws none, having
+no published board to explain.
+
 ## Postseason format
 
 Not every league has a playoff cut line, so the season's ending is a setting:
@@ -4204,6 +4293,93 @@ against the club's own name and an opponent the roster cannot name included, and
 refuses each way a card can be damaged. Each guard was broken in turn and seen to
 fail a test, 29 of 29, five of them only after a test was added or tightened.
 
+**What each game did.** A club's panel says, under each game it counted, what that
+game did to its rating, worked out on the member's device from the club's card and the
+board it already holds, with no read and no wait beyond those. A board's rows are not
+enough for it: a club's games are also against sides with no row on the board (clubs
+known only from somebody else's schedule, stand-ins, clubs at home on another page of the
+pool), and its shown rating is discounted about a centre that is a mean over the whole
+year. So each board with rows carries what its rows' games were fitted against (`fit`,
+`BoardFit` in `views/boardShape.ts`, built by `boardFitOf` in `views/board.ts`): the
+board's day; the fit's residual scale, the centre of its discount and how many standard
+errors it takes off; the runs a year of age gap was worth, the most one game counts and
+the ridge; the three numbers every game's weight is rebuilt from (`recencyBasisFor`);
+and every side a row's rated game names that has no row there, with its fitted rating
+to 4 places and its count of rated games, in three lists of one length. They are read
+off the games the fit read (`ScoutYearFit.rated`), never the pool. A board with no rows
+carries none, and nor would one fitted under a weighting that a game's date alone does
+not decide, since no device could rebuild its weights.
+
+On the 29 September backup 20 of the 33 boards carry a fit (the year and the autumn of
+the ten ranked 2027 pages; the spring is empty and 8U too young to rank), naming 92,734
+sides away in all. The largest board, 8,334 clubs with 7,206 sides away, goes from 661
+to 715 KB gzipped (its fit alone is 144 KB of JSON and 53 KB gzipped), still one piece
+under the 900,000 bytes a piece holds; all the boards together go from 6,965 to 7,677 KB,
+10.2% more, and a small board relatively more (17U's 1,072 clubs, with 2,344 sides
+away, from 85 to 104 KB). At 3 places the largest would have grown by 49.8 KB rather
+than 54.0, but a game's played-like rating worked out from a 3-place rating was off by
+up to 5e-4, where from a 4-place one it is within 5e-5. A fit costs no write and no
+read: a board is rewritten whenever its pool's fit moves, since its rows carry
+unrounded ratings, and every day, since last week's day moves with it, and a span an
+edit does not touch keeps its fit as it keeps its rows. Working out every board's fit
+took 1.0 to 1.2 s of a full build (Node 22, against 48 to 50 s for the whole build on
+the same machine): one pass over the year's 171,571 rated games for each page, at most
+58 ms, with the weights' basis read once a fit (110 ms) rather than once a page.
+Indexing each fit's opponents once saved a fifth of that and held 16 MB more while a
+pool was built, so it was left out. The boards' fits held 2.1 MB while the boards were
+held. A year's fit now keeps the games it rated, which costs 7.9 MB in the 2027 year
+fit (48.8 MB against 40.9 MB, 48 bytes a game), on a server one pool at a time and in a
+device's rankings worker for as long as it keeps the fit. The nightly's log says what
+the fits come to in JSON each night (`viewsReport.ts`), and `npm run live:bench` times
+them over a full build, with their size gzipped and the heap.
+
+Two other ways were weighed and set aside. The device could ask the server for one
+club's lines as its panel opens: exact, but by that design's own estimate each open
+would wait 1 to 1.5 s for them, 4 to 5 s after a save, holding the one edit worker so
+that edits queue behind it, and would use about 23% of the month's vCPU allowance at 100
+opens a day. Or a family of views bucketed as the club cards are could carry each
+club's lines: a one-game edit then rewrote a median of 4 to 7 and at most 15 of a year's
+64 buckets (24 trials), where it rewrites 2 today, a device would need a baseline to
+read them against, and the lines would come from the same estimate. On the board the cost is
+bytes alone, about a tenth more board traffic for every member, whether or not they
+open a panel; should that ever bind, the fit can move to a view of its own beside each
+board, for a write per changed board and a read per opened panel.
+
+A device draws a club's lines only where they add up to the board it came with: the
+fit's version is its own, the club's counted games are as many as its row says and
+average its row's margin, and its fitted and shown ratings, rebuilt from the lines and
+the fit, come within 1e-3 of the row's. Anything else draws no line, so a fit that
+moves, goes or comes from a newer build leaves a panel as it was rather than drawing lines
+that do not add up to the board (The live board on a member's device, **What each game
+did**; Ratings, **Game by game**).
+
+Neither number moved. A fit moves no number, row or order on a board, so `BOARD_RULES`
+stays at 2, and `boardParity.test.ts`'s fingerprints, which are of the rows alone, are
+the ones from before it. `LIVE_SCHEMA` stays at 3: a device of an older build rebuilds a
+board field by field (`coerceBoardView`) and drops a fit unread, and a board without
+one draws as before. The app and the boards' publishers deploy apart, so a raise would
+have put every device of the new build on the older schema's notice until a publisher
+of the new build caught up, and told every older device to reload. The fit carries its
+own version instead (`BOARD_FIT_VERSION`): a fit this build cannot read is dropped and
+the board read without it, so no later change to the fit can hide a board. What puts a
+fit on every board as soon as a build is out is the boards' shape (`BOARD_SHAPE`, 1
+since the fit): each publish of the boards records the shape it wrote with what it
+built them from (`BuiltFrom.shape`, which devices do not read), the republish after a
+deploy (below) publishes again over boards recorded under an older shape or none, and a
+server's rebuild finds such boards stale however current their inputs (`boardsState`),
+while it leaves boards of a newer shape alone.
+
+`boardFit.test.ts` holds every board's fit on every page and span of the seeded fixture
+to the fit its rows were cut from, fitted again: the sides away exactly those its rows'
+rated games name off the board, walked club by club (name-only clubs, stand-ins and
+clubs of other pages all among them), each rating within 5e-5 and each count the fit's;
+the header the fit's own numbers, from which every row's shown rating comes back to the
+last digit; and the basis, from which every rated game's weight comes back exactly. It
+reads a fit back through JSON and the board's check, and drops each of 23 kinds of
+damaged fit with the board still read. Each guard, those of the board's shape and the
+republish included, was broken in turn and seen to fail a test, 39 of 39, one only after
+a test was added: a rating that rounds to nothing written as -0, which reads back as 0.
+
 **Find a team lists.** Find a team crosses seasons and age levels, so it searches
 every club the pool has a page for, not the board on screen. Beside the boards, each
 squad year with a page gets its list (`views/search.ts`, `search:{year}`): every
@@ -4302,18 +4478,25 @@ build of the app is left alone, by publishes and sweeps alike, since a sweep
 could take a piece the newer build names for a stray. A publish by a newer build
 keeps nothing of an older build's meta that it did not build itself, inline
 values included, since those have the older shape; the other families come back
-as they are next published.
+as they are next published. Something an older build's device can leave unread raises nothing: each board's
+fit is that (above, "What each game did"), and the boards' shape (`BOARD_SHAPE`) has it
+published at once instead.
 
 A build deployed over views of an older schema, or onto a cloud with none
 published, publishes them again at once (`scripts/republish.ts`, `npm run
 republish`). Until then no device of the new build can draw a board, and the
-next publish used to be the nightly, which GitHub starts hours late. The
+next publish used to be the nightly, which GitHub starts hours late. So does a
+build deployed over boards of its own schema recorded under an older shape than
+it writes, or under none (`BOARD_SHAPE`): those draw, but without what the build
+adds to a board until the next save's rebuild or the night. The
 Firebase workflow runs it after a push to main that really deployed (the project
 connected and the key set), under the nightly's day, collation and heap. It
 reads the meta first and goes on only when there is none, or it is of this
-layout and an older schema (`needsRepublish`): a meta of this schema is the
+layout and an older schema, or of this schema with boards of an older shape
+(`republishWanted`): a meta of this schema and shape, or a newer shape, is the
 rebuilds' and the night's to keep current, and a newer build's, or one of
-another layout, is not this build's to replace. It then lays the copy's pool
+another layout, is not this build's to replace. Its own publish records this
+build's shape, so the next deploy of the same build finds nothing to do. It then lays the copy's pool
 into memory exactly as a pull does (`loadPoolFrom`), stops at a copy a newer
 build saved or tidied (`copyTooNew`), and publishes from it
 (`publishCopyViews`), with the copy opened read only and only `live/` writable:
@@ -4333,7 +4516,8 @@ stand only while the copy is still at the version they were built from
 never late, so the marks would not keep it from putting a version saved since
 back. Anything else that stops it while the views still want publishing turns
 the run red, a later day's or newer rules' views over an older schema included,
-since members are still on the notice; a sweep that stops after its views are
+since members are still on the notice (or, over an older shape, without what the
+build added); a sweep that stops after its views are
 out does not, since only pieces nothing names are left, for the night's full
 sweep. The copy is opened read only and `live/` alone writable
 (`restServerStores`, where which store writes for which opening is tested). It
@@ -4346,18 +4530,20 @@ published. A publish for an earlier members' day than the meta's writes nothing,
 whatever its version: it was built for a day that has passed. And each family of
 views records what it was last built from (`built`): the copy and its version, a
 fingerprint of the stored values the family reads, one of the League Standings
-seasons when they came from their own documents (`league`, below), the day, and
-the version of the rules that make the views. A publish under older rules than that record
+seasons when they came from their own documents (`league`, below), the day, the
+version of the rules that make the views, and for the boards the shape they were
+written in (`shape`). A publish under older rules than that record
 writes nothing, so code left running after a failed deploy cannot write over
 newer boards (the version only ever goes up, a change undone included); and a
 server that finds the record matching the copy at this very version, its inputs,
-the seasons, the day and its own rules knows the boards are current without
-building them (`boardsState`). A later version with the same inputs is built again all the
+the seasons, the day and its own rules, in its own shape or a newer one, knows the
+boards are current without building them (`boardsState`). A later version with the same inputs is built again all the
 same, at no upload's cost, so the copy's mark moves and a slower build of a
 version in between cannot publish over it. Where a publish writes a family's
 views but cannot vouch for them all (a late one, or one that does not say what
-it built from), the record keeps only a floor: no copy or inputs, and the newest
-rules and latest day any of those views were built under. It is never current,
+it built from), the record keeps only a floor: no copy or inputs, the newest
+rules and latest day any of those views were built under, and the older shape
+where both builds said one. It is never current,
 and a publish under older rules or for an earlier day still writes nothing;
 dropping it, as the first draft did, let an older build that was not late
 write over boards a late build had made under newer rules (found by Codex on
@@ -4839,6 +5025,71 @@ no rebuild and is not waited on. Opening a panel brings the server's pool up
 (`warm`), at most once in ten minutes of calls. While the device is offline, or
 before the network has answered for the board (what is drawn being only what this
 device kept), the panel changes nothing and nothing is sent.
+
+**What each game did.** Under each game a club's panel counted, it says what the game
+did to the club's rating on the board on screen (Ratings, **Game by game**), worked out
+on the device from the card it read and that board, which carries what its rows' games
+were fitted against (`BoardFit`, Views a server publishes): no read, no write and no
+wait beyond those two. The panel is handed the board only while it is the board of the
+page and half on screen (`LiveTeamRankings`, by its key), with the age groups the boards
+were built from rather than this device's, and the lines are worked out as of the
+board's own day (`BoardFit.day`), never the device's clock, which can be past a game
+scored ahead. They come from the card as published, not as this device's pending edits
+draw it (`overlayCard`): the board is from before those edits too, so the lines explain
+it as it stands, and a game an edit takes off loses its row and its line with it.
+
+Every line is checked against the board before any is drawn, and where a check fails
+the panel draws none and says nothing of it, looking as it did before lines were drawn
+at all: the fit is of this build's version (`BOARD_FIT_VERSION`); the card's counted
+games are as many as the row says the club played; their counted margins average to the
+row's `rawMargin` within 1e-9; the fit's rating and the shown one, rebuilt from the lines
+and the fit, are each within 1e-3 of the row's; no side was met more often than the
+board says it played; and every game's score part is well defined. A card and board from
+different publishes, a game the device counted that the fit did not or one it missed, or
+a constant the device has wrong each fail one. On the 29 September 2026 backup, every
+board and card read back as a device reads them, all 88,106 clubs with a row on the 20
+boards that carry a fit got their lines, 532,020 in all, no check failed, and the
+ratings rebuilt from the lines came within 3.6e-5 of the rows'. A club's lines took
+0.14 ms in the middle and 0.35 ms at the 95th percentile (Node 22); the first club opened
+on a board also indexes the sides the board names, 12.8 ms on the largest. The maths and
+the words load with the panel (`LiveClubPanel`), never with the board.
+
+Each clause is a box of its own on the line (`TeamDetailPanel`), which moves to the next
+line whole where it does not fit and wraps inside only where it is wider than the line,
+with the dot after it in its box behind a non-breaking space, so no line opens on a dot
+or holds one alone. At 320 px the panel's content is 246 px wide; with each clause kept
+on one line instead, the longest ran 423 px past it (Chromium, against the built
+stylesheet), where boxed nothing passes the edge. The text is the panel's meta text,
+12 px and slate-600 (`textSize.test.ts`, `tokens.test.ts`).
+
+`gameBreakdown.test.ts` holds the maths to the fit: on a pool drawn by hand, every club
+with a row on every board gets exactly the games the fit read, each played like the
+fit's; the score part against exact refits without the game, on a star schedule to 1e-9
+and on the seeded fixture to 0.0048 in the middle, 0.038 at the 95th percentile and 0.056
+at most (held under 0.045 and 0.07, which the one-game shortcut breaks); the record part
+to the fit's own discount within 1e-12; twelve kinds of board, card or row that do not
+belong together each drawing nothing; and three clubs' lines pinned to the millionth.
+`breakdownParity.test.ts` reads boards and cards from the real builders through the
+store, JSON and their checks, with the device's clock months past the board's day: all
+1,516 clubs with a row on the 28 boards of the fixture that carry a fit get lines, 8,119
+in all, each a counted row of the club's panel, and groups other than the board's leave
+176 or 197 clubs without lines and every other exactly right. `gameWords.test.ts` holds
+every wording, `TeamDetailPanel.gameNotes.test.tsx` the panel without lines exactly as it
+was before them (its markup pinned first) and lines on counted rows alone, and the live
+page's tests build a small pool, publish its boards and cards as a server does and read
+them as a device does: the lines of the half on screen and of the half moved to, "your"
+for the page's own club, none from a board without a fit or with the club's row moved by
+0.01, the panel otherwise the same to the byte, a pending Not this team taking that
+game's line off alone, pending edits that leave no row with a line taking the line above
+the list off with them, and on a page with no squad year the whole year's board, its
+lines drawn and its rating named the season's. Each guard was broken in turn and seen to
+fail a test, 20 in the maths (two only after a test was added for each) and 19 on the
+panel, and so was each the review of these lines added. Two cannot be made to fail and
+are kept as a statement of what the panel relies on: the board's key check, since the
+page never hands over a board but the one of the key on screen (`useLiveBoard`), though
+the key it is checked against is held (a page with no year asks for its "year" board,
+which a test draws); and the cloud's age groups over the page's, which are the meta's
+whenever the meta carries them.
 
 **Setup.** On the board, Setup draws the teams waiting on an age and Pool health from the
 server's pool. The teams waiting on an age (`LiveAgelessCard`) are drawn by the device's own

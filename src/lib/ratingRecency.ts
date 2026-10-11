@@ -43,9 +43,28 @@ export type RecencyScheme = {
    * stopped two months ago is old rather than fresh.
    */
   weigh: (games: readonly DatedRatingGame[], asOf: number) => number[];
+  /**
+   * The half-life in days, on a scheme that halves a game's weight by its age alone (`byDays`).
+   *
+   * Said out loud rather than left inside `weigh` because such a scheme's weights fold down to
+   * three numbers (`recencyBasisFor`), from which any one game's weight can be rebuilt by a reader
+   * holding only its date (`recencyWeightOf`). A scheme that reads the other games, as counting
+   * games since does, has no such summary and leaves this out.
+   */
+  halfLifeDays?: number;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A game's raw weight under a day-based scheme, before normalising: half for every `halfLifeDays`
+ * it is older than `asOf`, and never more than a game played on `asOf` itself.
+ *
+ * One function for `byDays` and for rebuilding its weights from a basis (`recencyWeightOf`), so the
+ * two cannot drift apart by a rewritten sum.
+ */
+const decayed = (asOf: number, at: number, halfLifeDays: number): number =>
+  0.5 ** (Math.max(0, (asOf - at) / DAY_MS) / halfLifeDays);
 
 /**
  * Rescales so the weights average one, leaving their ratios untouched.
@@ -79,13 +98,9 @@ export const noDecay: RecencyScheme = {
 export const byDays = (halfLifeDays: number): RecencyScheme => ({
   key: `days-${halfLifeDays}`,
   label: `half weight every ${halfLifeDays} days`,
+  halfLifeDays,
   weigh: (games, asOf) =>
-    normalizeWeights(
-      games.map((game) => {
-        const ageDays = Math.max(0, (asOf - game.at) / DAY_MS);
-        return 0.5 ** (ageDays / halfLifeDays);
-      })
-    ),
+    normalizeWeights(games.map((game) => decayed(asOf, game.at, halfLifeDays))),
 });
 
 /**
@@ -265,4 +280,83 @@ export const weightsForGames = (
     out[at] = weighed[i] ?? 1;
   });
   return out;
+};
+
+/**
+ * Everything a day-based scheme's weights over one set of games depend on, in three numbers: the
+ * half-life, the newest dated game's day, and the mean of the raw weights the normalising divides
+ * by. From these and a game's date, `recencyWeightOf` gives back that game's weight to the bit.
+ *
+ * It exists for a reader that holds a game but not the pool around it: a member's device, which has
+ * a club's card and its published board and never the nationwide games the board was fitted over.
+ */
+export type RecencyBasis = {
+  halfLifeDays: number;
+  /** The newest dated game's day, as the pool stores it ("YYYY-MM-DD"). */
+  newest: string;
+  /** The mean raw weight over the dated games: what `normalizeWeights` divides each one by. */
+  mean: number;
+};
+
+/**
+ * The basis `weightsForGames` builds these games' weights from under `scheme`, so any one of them
+ * can be rebuilt later from its date alone (`recencyWeightOf`).
+ *
+ * `null` wherever `weightsForGames` has every weight 1: the scheme has no opinion, no game carries a
+ * date this pool can place, or every raw weight came to nothing, which `normalizeWeights` reads as
+ * no opinion too. `undefined` for a scheme whose weights are not a function of a game's age alone
+ * (`byGamesSince` reads the other games a side played; `byBlock` the gaps in the pool), so there is
+ * no basis to give and a caller must not pretend one.
+ *
+ * The same raw weights in the same order, summed the way `normalizeWeights` sums them, so the mean
+ * is the very number every weight was divided by. Measured on the 29 September 2026 backup's 2027
+ * year, read on that day: over the year and the fall alike, every one of the 171,571 rated games'
+ * weights rebuilt by `recencyWeightOf` was bit-identical to the one `weightsForGames` gave it, and
+ * the basis took 110 ms to read off them.
+ */
+export const recencyBasisFor = (
+  games: readonly { date?: string }[],
+  scheme: RecencyScheme = ACTIVE_RECENCY_SCHEME
+): RecencyBasis | null | undefined => {
+  if (scheme.key === noDecay.key) return null;
+  const { halfLifeDays } = scheme;
+  if (halfLifeDays === undefined) return undefined;
+
+  const instants: number[] = [];
+  let newest = Number.NEGATIVE_INFINITY;
+  let newestDay = "";
+  for (const { date } of games) {
+    const instant = dayInstant(date);
+    if (date === undefined || !Number.isFinite(instant)) continue;
+    instants.push(instant);
+    if (instant > newest) {
+      newest = instant;
+      newestDay = date;
+    }
+  }
+  if (instants.length === 0) return null;
+
+  let total = 0;
+  for (const instant of instants) {
+    const raw = decayed(newest, instant, halfLifeDays);
+    total += raw > 0 ? raw : 0;
+  }
+  if (!(total > 0)) return null;
+  return { halfLifeDays, newest: newestDay, mean: total / instants.length };
+};
+
+/**
+ * One game's weight, rebuilt from its date and the basis its pool's weights were built from
+ * (`recencyBasisFor`): exactly what `weightsForGames` gave it.
+ *
+ * 1 for a game with no date this pool can place, as `weightsForGames` keeps one, and for every game
+ * when there is no basis, which is a pool fitted unweighted. A date after the basis's newest weighs
+ * as the newest does rather than more: a fit never reads a game fresher than its newest, so a weight
+ * above a fresh game's would be one no fit ever used.
+ */
+export const recencyWeightOf = (date: string | undefined, basis: RecencyBasis | null): number => {
+  const at = dayInstant(date);
+  if (!basis || !Number.isFinite(at)) return 1;
+  const raw = decayed(dayInstant(basis.newest), at, basis.halfLifeDays);
+  return raw > 0 ? raw / basis.mean : 0;
 };

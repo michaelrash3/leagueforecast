@@ -186,7 +186,28 @@ export const evidenceDiscount = (
   centreOn?: Iterable<string>,
   shrinkage: number = DEFAULT_SHRINKAGE,
   standardErrors: number = EVIDENCE_STANDARD_ERRORS
-): ((rating: number, games: number) => number) => {
+): ((rating: number, games: number) => number) =>
+  discountAbout(
+    discountMiddle(adjusted, centreOn, shrinkage),
+    adjusted.residualScale,
+    shrinkage,
+    standardErrors
+  );
+
+/**
+ * The centre `evidenceDiscount` measures a club's evidence against: the mean spread
+ * (`ratingSpread`) over the clubs it centres on, or over every fitted team when none are named.
+ *
+ * Its own number, apart from the discount, because a reader with one club's games and none of the
+ * pool's cannot rebuild it. A device working out what each of a club's games did to its shown
+ * rating holds the club's card and its board, never the nationwide pool the centre is a mean over,
+ * so it has to be handed the centre and apply the discount about it (`discountAbout`).
+ */
+export const discountMiddle = (
+  adjusted: Pick<OpponentAdjustedRatings, "games" | "residualScale">,
+  centreOn?: Iterable<string>,
+  shrinkage: number = DEFAULT_SHRINKAGE
+): number => {
   let sum = 0;
   let count = 0;
   const note = (games: number) => {
@@ -195,13 +216,26 @@ export const evidenceDiscount = (
   };
   if (centreOn) for (const id of centreOn) note(adjusted.games.get(id) ?? 0);
   else adjusted.games.forEach(note);
-  const middle = count > 0 ? sum / count : 0;
-  return (rating, games) => {
-    const spread = ratingSpread(games, adjusted.residualScale, shrinkage);
+  return count > 0 ? sum / count : 0;
+};
+
+/**
+ * The discount about a centre already measured (`discountMiddle`): a rating less `standardErrors`
+ * times how far its spread is above the centre, or plus as much where its spread is below it. A
+ * spread or centre that is not a number leaves the rating as the fit gave it.
+ */
+export const discountAbout =
+  (
+    middle: number,
+    residualScale: number,
+    shrinkage: number = DEFAULT_SHRINKAGE,
+    standardErrors: number = EVIDENCE_STANDARD_ERRORS
+  ): ((rating: number, games: number) => number) =>
+  (rating, games) => {
+    const spread = ratingSpread(games, residualScale, shrinkage);
     if (!Number.isFinite(spread) || !Number.isFinite(middle)) return rating;
     return rating - standardErrors * (spread - middle);
   };
-};
 
 /**
  * Each team's games weighed by what each can say about it: `1 - 1 / (shrinkage + the opponent's
@@ -2995,13 +3029,6 @@ export const buildTeamRankings = (
 };
 
 /**
- * The games one page's rating is fitted over, each with the age gap between the two sides.
- *
- * Pulled out of the fit so that anything measuring the model — a hold-out backtest, a comparison
- * of one age-gap prior against another — reads exactly the games the rankings read. A measurement
- * over a different set of games than the thing it is measuring is not a measurement of it.
- */
-/**
  * A day nothing is ahead of, for a caller that is reading history rather than a live table.
  *
  * `scoutRatingGames` leaves out a game dated after today, because you cannot score a game early.
@@ -3010,6 +3037,57 @@ export const buildTeamRankings = (
  */
 export const EVERY_DAY = "9999-12-31";
 
+/** The test `scoutRatingGames` puts each game to, one game at a time (`ratingFilter`). */
+export type RatingFilter = {
+  /** In the page's pool, played and scored by the day given, and in the half asked for. */
+  counts: (game: ScoutGame) => boolean;
+  /** Side A's level less side B's, as the fit reads it; 0 when either side's level is unknown. */
+  ageGap: (game: ScoutGame) => number;
+};
+
+/**
+ * Whether a game counts toward one page's rating, and the age gap the fit reads off it: what
+ * `scoutRatingGames` asks of every game in the pool, less whether the roster holds both sides.
+ *
+ * Its own function for a reader that holds games one club at a time rather than the pool. A device
+ * working out what each of a club's games did holds that club's card and the page's board, and has
+ * to pick out of the card exactly the games the board's fit read. Asking the same question in the
+ * same code means the device and the server cannot disagree about which pages a page's pool
+ * spans, whether a game was played by the board's day, or which half a game fell in. The roster
+ * check stays with `scoutRatingGames`, because a device has no roster: whether both sides were
+ * fitted is something the board itself tells it.
+ */
+export const ratingFilter = (
+  ageGroupId: string,
+  ageGroups: AgeGroup[],
+  /** One half of the year, or the whole of it when left out (`scoutRatingGames`). */
+  segment?: SeasonSegment,
+  /** The day to judge "has this been played yet" against, as an ISO day (`scoutRatingGames`). */
+  today: string = todayIsoDay()
+): RatingFilter => {
+  const index = indexGroups(ageGroups);
+  const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
+  return {
+    counts: (game) =>
+      pool.has(game.ageGroupId) &&
+      countsTowardRating(game, today) &&
+      /*
+       * Last year's squad's games, listed under this year's id, are not this squad's results —
+       * and with a half named, this is also what keeps the other half out. A game with no date
+       * is in the year but in neither half, so it informs the year's table and neither board.
+       */
+      inSegment(game.date, index.year(game.ageGroupId), segment),
+    ageGap: (game) => ageGapOf(sideLevelsWith(game, index)),
+  };
+};
+
+/**
+ * The games one page's rating is fitted over, each with the age gap between the two sides.
+ *
+ * Pulled out of the fit so that anything measuring the model — a hold-out backtest, a comparison
+ * of one age-gap prior against another — reads exactly the games the rankings read. A measurement
+ * over a different set of games than the thing it is measuring is not a measurement of it.
+ */
 export const scoutRatingGames = (
   ageGroupId: string,
   teams: ScoutTeam[],
@@ -3032,25 +3110,14 @@ export const scoutRatingGames = (
    */
   today: string = todayIsoDay()
 ): Array<{ game: ScoutGame; ageGap: number }> => {
-  const index = indexGroups(ageGroups);
-  const pool = new Set(rankingPoolGroupIds(ageGroupId, ageGroups));
+  const rates = ratingFilter(ageGroupId, ageGroups, segment, today);
   // A game whose team is missing from the roster cannot be rated — there is nothing to rate.
   const teamById = new Map(teams.map((team) => [team.id, team]));
   return games
     .filter(
-      (game) =>
-        pool.has(game.ageGroupId) &&
-        countsTowardRating(game, today) &&
-        /*
-         * Last year's squad's games, listed under this year's id, are not this squad's results —
-         * and with a half named, this is also what keeps the other half out. A game with no date
-         * is in the year but in neither half, so it informs the year's table and neither board.
-         */
-        inSegment(game.date, index.year(game.ageGroupId), segment) &&
-        teamById.has(game.teamAId) &&
-        teamById.has(game.teamBId)
+      (game) => rates.counts(game) && teamById.has(game.teamAId) && teamById.has(game.teamBId)
     )
-    .map((game) => ({ game, ageGap: ageGapOf(sideLevelsWith(game, index)) }));
+    .map((game) => ({ game, ageGap: rates.ageGap(game) }));
 };
 
 /** One page's games as the fit reads them: the row, and the age gap between the two sides. */
@@ -3123,6 +3190,18 @@ export type ScoutYearFit = {
   records: Map<string, WinLoss>;
   /** How many of each team's games crossed a level. */
   crossAgeCounts: Map<string, number>;
+  /**
+   * The games the fit read, each with its age gap: the very array it was handed, kept so that
+   * what each game did to a rating can be worked out against the fit that rated it rather than
+   * against a second selection that might differ from it.
+   */
+  rated: readonly RatedScoutGame[];
+  /**
+   * The centre the discount measures each club's evidence against (`discountMiddle`), over the
+   * year's clubs. Kept because no reader of one club's games can rebuild it: it is a mean over the
+   * whole year.
+   */
+  middle: number;
   confident: (rating: number, games: number) => number;
   pieces: ReturnType<typeof scheduleComponents>;
 };
@@ -3190,10 +3269,11 @@ export const fitScoutYear = (
     adjusted,
     rated.map(({ game }) => [game.teamAId, game.teamBId] as const)
   );
-  const confident = evidenceDiscount(
+  const middle = discountMiddle(
     { games: effective, residualScale: adjusted.residualScale },
     nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
   );
+  const confident = discountAbout(middle, adjusted.residualScale);
   /*
    * Over the same games the fit read, so "the piece this club is in" means the piece the ridge
    * pinned to zero on its own. Nodes rather than rows: a club reaches the rest of the table through
@@ -3212,6 +3292,8 @@ export const fitScoutYear = (
     homeLevels,
     records,
     crossAgeCounts,
+    rated,
+    middle,
     confident,
     pieces,
   };

@@ -18,14 +18,24 @@ import {
   type LiveReader,
   type PublishedView,
 } from "../../lib/live/viewStore";
-import type { BoardRow, LivePages } from "../../lib/live/views/boardShape";
+import type { BoardRow, BoardView, LivePages } from "../../lib/live/views/boardShape";
 import {
   CLUB_FAMILY,
   clubBucketOf,
   clubKey,
+  coerceClubBucket,
   encodeClubCard,
   type ClubCard,
 } from "../../lib/live/views/clubShape";
+import { gameBreakdown } from "../../lib/gameBreakdown";
+import { gameNotesOf } from "../../lib/live/gameWords";
+import {
+  boardViews,
+  buildBoardsAndFacts,
+  coerceBoardView,
+  livePagesOf,
+} from "../../lib/live/views/board";
+import { clubViews } from "../../lib/live/views/clubs";
 import {
   SEARCH_FAMILY,
   encodeSearch,
@@ -48,7 +58,7 @@ import type { ArchivedSeason } from "../../lib/teamRankingsArchive";
 import { archiveRowsKey, GC_ARCHIVE_KEY } from "../../lib/teamRankingsStorage";
 import { checkTheModel } from "../../lib/scoutBacktest";
 import { memoryLive, type MemoryLive } from "../../lib/live/__tests__/memoryLive";
-import type { AgeGroup, ScoutGame } from "../../lib/teamRankings";
+import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { NAMED_GAMES_MAX } from "../../lib/teamRankings/namedGames";
 import type { SeasonMeta } from "../../lib/storage";
 import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
@@ -4200,5 +4210,351 @@ describe("the Import tab on the cloud's board", () => {
     expect(
       await screen.findByText("Every age group is due today — 120 teams to refresh.")
     ).toBeTruthy();
+  });
+});
+
+/*
+ * What each game did, on a club's panel on the cloud's board: a small pool built, published and read
+ * back as a server and a member's device do it (`buildBoardsAndFacts`, `boardViews`, `clubViews`),
+ * the lines worked out from the card as published and the board on screen, and drawn only where
+ * they add up to the board's own row. Placeholder names throughout.
+ */
+describe("what each game did, on a club's panel on the cloud's board", () => {
+  const pulled = (n: number): ScoutTeam => ({
+    id: `S-${n}`,
+    name: `Placeholder S-${n}`,
+    state: "OH",
+    gcTeams: [
+      { teamId: `gcS-${n}`, name: `Placeholder S-${n} 12U`, ageGroupId: PAGE, ageLevel: 12 },
+    ],
+  });
+  const TEAMS = [1, 2, 3, 4, 5, 6].map(pulled);
+  /** A game as the schedule of club `listedBy` (side A's unless said) gave it. */
+  const played = (
+    id: string,
+    a: number,
+    b: number,
+    scores: [number, number] | null,
+    date: string,
+    { listedBy = a, ...more }: Partial<ScoutGame> & { listedBy?: number } = {}
+  ): ScoutGame => ({
+    id,
+    ageGroupId: PAGE,
+    teamAId: `S-${a}`,
+    teamBId: `S-${b}`,
+    ...(scores ? { teamAScore: scores[0], teamBScore: scores[1] } : {}),
+    date,
+    source: { kind: "gamechanger", teamId: `gcS-${listedBy}`, gameId: id },
+    ...more,
+  });
+  const GAMES: ScoutGame[] = [
+    // The autumn: S-1 beats S-2 and S-4 and loses to S-3; a rout set not to count, and a game
+    // against its own name.
+    played("f1", 1, 2, [7, 3], "2026-09-12"),
+    played("f2", 3, 1, [5, 4], "2026-09-19", { listedBy: 1 }),
+    played("f3", 2, 3, [6, 2], "2026-09-26"),
+    played("f4", 4, 5, [8, 1], "2026-10-03"),
+    played("f5", 5, 6, [2, 2], "2026-10-10"),
+    played("f6", 6, 4, [9, 3], "2026-10-17"),
+    played("f7", 1, 4, [3, 1], "2026-10-24"),
+    played("f8", 2, 5, [4, 6], "2026-10-31"),
+    played("f9", 1, 6, [15, 0], "2026-11-07", { excluded: true }),
+    played("f10", 1, 1, [3, 2], "2026-11-14"),
+    played("f11", 3, 6, [1, 4], "2026-11-21"),
+    // The spring: a win, a tie, a win S-1 has only by the name S-4's schedule wrote, and a game
+    // still to come.
+    played("s1", 1, 5, [6, 2], "2027-03-06"),
+    played("s2", 2, 1, [5, 5], "2027-03-13", { listedBy: 1 }),
+    played("s3", 3, 4, [4, 3], "2027-03-20"),
+    played("s4", 6, 2, [7, 1], "2027-03-27"),
+    played("s5", 4, 1, [2, 6], "2027-04-03"),
+    played("s6", 5, 6, [3, 1], "2027-04-10"),
+    played("s7", 3, 5, [2, 9], "2027-04-11"),
+    played("s8", 1, 3, null, "2027-05-01"),
+    // S-2's three spring games are each listed by its opponent's schedule alone.
+    played("s9", 2, 4, [8, 3], "2027-04-12", { listedBy: 4 }),
+  ];
+  const built = () =>
+    buildBoardsAndFacts({
+      ageGroups: GROUPS,
+      teams: TEAMS,
+      gamesOfYear: (year) => (year === 2027 ? GAMES : []),
+      readSeason: () => ({ teams: [], matchups: [], logs: {} }),
+      today: TODAY,
+      past: false,
+    });
+  const BUILT = built();
+  const VIEWS: PublishedView[] = [
+    ...boardViews(GROUPS, BUILT),
+    ...clubViews({ ageGroups: GROUPS, built: BUILT, namedAges: new Map() }),
+  ];
+  /** The pool's views published, each board changed by `board` first where it is given. */
+  const publishPool = (board: (view: BoardView) => BoardView = (view) => view) =>
+    publish(
+      live,
+      VIEWS.map((view) =>
+        view.key.startsWith("board:") ? { ...view, value: board(view.value as BoardView) } : view
+      ),
+      livePagesOf(BUILT, T, GROUPS)
+    );
+
+  /** What the panel should say of club `teamId` on the board of `half`, worked out as a device does. */
+  const notesOf = (teamId: string, half: "fall" | "spring", span: string, own: boolean) => {
+    const value = VIEWS.find((view) => view.key === `board:2027:${PAGE}:${half}`)?.value;
+    const view = coerceBoardView(JSON.parse(JSON.stringify(value)));
+    const bucket = VIEWS.find((one) => one.key === clubKey(2027, clubBucketOf(teamId)))?.value;
+    const card = coerceClubBucket(JSON.parse(JSON.stringify(bucket)))?.clubs[teamId];
+    if (!view?.fit || !card) throw new Error(`no board or card for ${teamId}`);
+    const breakdown = gameBreakdown({
+      teamId,
+      games: card.games,
+      pageId: PAGE,
+      ageGroups: GROUPS,
+      segment: half,
+      board: view,
+    });
+    if (!breakdown) throw new Error(`no lines for ${teamId} on ${half}`);
+    const notes = gameNotesOf(breakdown, { span, own, cap: view.fit.cap });
+    // Each line by its game's day, which no two of a club's games here share.
+    const byDay = new Map(
+      [...notes.byGame].map(([id, clauses]) => [
+        card.games.find((game) => game.id === id)?.date,
+        clauses.join("\u00a0· "),
+      ])
+    );
+    return { headline: `${notes.headline} ${notes.key}`, byDay };
+  };
+
+  const tap = async (name: string) =>
+    fireEvent.click((await screen.findAllByRole("button", { name }))[0]!);
+  /** Each row of the panel's games, by its day, with the line under it if it has one. */
+  const linesOf = (panel: HTMLElement) =>
+    new Map(
+      within(panel)
+        .getAllByRole("listitem")
+        .map((item) => [
+          item.textContent?.match(/\d{4}-\d{2}-\d{2}/)?.[0],
+          item.querySelector("p")?.textContent ?? null,
+        ])
+    );
+  /** The panel's markup with its lines taken out and React's generated ids made alike. */
+  const bareMarkup = (panel: HTMLElement) => {
+    const copy = panel.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll("li > p").forEach((line) => line.remove());
+    [...copy.querySelectorAll("p")]
+      .find((one) => /rating .*Played like:/.test(one.textContent ?? ""))
+      ?.remove();
+    return copy.innerHTML.replace(/_r_[0-9a-z]+_/g, "_id_");
+  };
+
+  it("says under each counted game what it did, as its club's or the page's own", async () => {
+    await publishPool();
+    open(sourcesOf(live));
+    await tap("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    const spring = notesOf("S-1", "spring", "Spring 2027", false);
+    expect(await within(panel).findByText(/^Spring 2027 rating /)).toHaveTextContent(
+      spring.headline
+    );
+    expect(spring.headline).toMatch(/^Spring 2027 rating [+-]?\d+\.\d[:,] .*its games/);
+    // The spring's win, tie and the win it has by a name alone; nothing on a game still to come
+    // or on the autumn's games, outside the half on screen.
+    expect([...spring.byDay.keys()].sort()).toEqual(["2027-03-06", "2027-03-13", "2027-04-03"]);
+    const lines = linesOf(panel);
+    expect(lines.get("2027-03-06")).toMatch(
+      /^Played like [+-]?\d+\.\d\u00a0· moved its rating ([+-]\d+\.\d|less than 0\.1)/
+    );
+    for (const [day, line] of lines) expect(line, day).toBe(spring.byDay.get(day) ?? null);
+    expect(lines.get("2027-05-01")).toBeNull();
+    expect(lines.get("2026-09-12")).toBeNull();
+
+    // The page's own club reads "your".
+    fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
+    await tap("Placeholder S-2");
+    const mine = await screen.findByRole("region", { name: "Placeholder S-2" });
+    const own = notesOf("S-2", "spring", "Spring 2027", true);
+    expect(await within(mine).findByText(/^Spring 2027 rating /)).toHaveTextContent(own.headline);
+    expect(own.headline).toMatch(/your games/);
+    const ownLines = [...linesOf(mine).values()].filter((line) => line !== null);
+    expect(ownLines.length).toBeGreaterThan(0);
+    for (const line of ownLines) expect(line).toMatch(/moved your rating/);
+    expect(handedOver()).toBeNull();
+  });
+
+  it("draws the lines of the half moved to, and none on a game set not to count or against itself", async () => {
+    await publishPool();
+    open(sourcesOf(live));
+    await tap("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    expect(await within(panel).findByText(/^Spring 2027 rating /)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Fall 2026/ }));
+    const fall = notesOf("S-1", "fall", "Fall 2026", false);
+    expect(await within(panel).findByText(/^Fall 2026 rating /)).toHaveTextContent(fall.headline);
+    expect([...fall.byDay.keys()].sort()).toEqual(["2026-09-12", "2026-09-19", "2026-10-24"]);
+    const lines = linesOf(panel);
+    for (const [day, line] of lines) expect(line, day).toBe(fall.byDay.get(day) ?? null);
+    // The rout set not to count, the game against its own name and the spring's games: none.
+    for (const day of ["2026-11-07", "2026-11-14", "2027-03-06", "2027-04-03", "2027-05-01"])
+      expect(lines.get(day), day).toBeNull();
+  });
+
+  it("draws no lines, and changes nothing else, from a board with no fit or a row that does not add up", async () => {
+    await publishPool();
+    open(sourcesOf(live));
+    await tap("Placeholder S-1");
+    const drawn = await screen.findByRole("region", { name: "Placeholder S-1" });
+    await within(drawn).findByText(/^Spring 2027 rating /);
+    const bare = bareMarkup(drawn);
+    cleanup();
+
+    const nudged = (view: BoardView): BoardView => ({
+      ...view,
+      rows: view.rows.map((one) =>
+        one.teamId === "S-1" ? { ...one, pointRating: one.pointRating + 0.01 } : one
+      ),
+    });
+    const unfitted = ({ fit: _fit, ...view }: BoardView): BoardView => view;
+    for (const board of [unfitted, nudged]) {
+      kept.clear();
+      forgetDecodedBoards();
+      forgetDecodedClubs();
+      live = memoryLive();
+      await publishPool(board);
+      open(sourcesOf(live));
+      await tap("Placeholder S-1");
+      const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+      // The card is drawn, and with it whatever lines there were to draw.
+      expect(await within(panel).findByText(/from 3 games\./)).toBeTruthy();
+      expect(within(panel).queryByText(/rating .*Played like:/)).toBeNull();
+      expect(panel.querySelectorAll("li > p")).toHaveLength(0);
+      expect(panel.innerHTML.replace(/_r_[0-9a-z]+_/g, "_id_")).toBe(bare);
+      cleanup();
+    }
+  });
+
+  /*
+   * A page with no squad year has no halves: it opens on the board of its whole year, keyed "year",
+   * and its rating is the season's. The same pool, filed on such a page.
+   */
+  it("draws the lines of the whole year's board, named the season's, on a page with no year", async () => {
+    const NONE = "ag_12u";
+    const noYear: AgeGroup[] = [
+      { id: NONE, name: "12U", ageLevel: 12, seasonIds: [], myTeamId: "S-2" },
+    ];
+    const teams = TEAMS.map((team) => ({
+      ...team,
+      gcTeams: team.gcTeams?.map((link) => ({ ...link, ageGroupId: NONE })),
+    }));
+    const games = GAMES.map((game) => ({ ...game, ageGroupId: NONE }));
+    const builtNone = buildBoardsAndFacts({
+      ageGroups: noYear,
+      teams,
+      gamesOfYear: (year) => (year === undefined ? games : []),
+      readSeason: () => ({ teams: [], matchups: [], logs: {} }),
+      today: TODAY,
+      past: false,
+    });
+    const views = [
+      ...boardViews(noYear, builtNone),
+      ...clubViews({ ageGroups: noYear, built: builtNone, namedAges: new Map() }),
+    ];
+    const value = views.find((view) => view.key === `board:none:${NONE}:year`)?.value;
+    const board = coerceBoardView(JSON.parse(JSON.stringify(value)));
+    const bucket = views.find(
+      (view) => view.key === clubKey(undefined, clubBucketOf("S-1"))
+    )?.value;
+    const card = coerceClubBucket(JSON.parse(JSON.stringify(bucket)))?.clubs["S-1"];
+    if (!board?.fit || !card) throw new Error("no year board or card for S-1");
+    const breakdown = gameBreakdown({
+      teamId: "S-1",
+      games: card.games,
+      pageId: NONE,
+      ageGroups: noYear,
+      segment: undefined,
+      board,
+    });
+    if (!breakdown) throw new Error("no lines for S-1 on the year's board");
+    const notes = gameNotesOf(breakdown, { span: "Season", own: false, cap: board.fit.cap });
+    const byDay = new Map(
+      [...notes.byGame].map(([id, clauses]) => [
+        card.games.find((game) => game.id === id)?.date,
+        clauses.join("\u00a0· "),
+      ])
+    );
+    // Both halves' counted games, and none still to come, set not to count or against itself.
+    expect([...byDay.keys()].sort()).toEqual([
+      "2026-09-12",
+      "2026-09-19",
+      "2026-10-24",
+      "2027-03-06",
+      "2027-03-13",
+      "2027-04-03",
+    ]);
+
+    saveAgeGroups(noYear);
+    window.history.replaceState(null, "", "/?view=rankings&age=12");
+    await publish(live, views, livePagesOf(builtNone, T, noYear));
+    open(sourcesOf(live));
+    await tap("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    expect(await within(panel).findByText(/^Season rating /)).toHaveTextContent(
+      `${notes.headline} ${notes.key}`
+    );
+    const lines = linesOf(panel);
+    for (const [day, line] of lines) expect(line, day).toBe(byDay.get(day) ?? null);
+    expect([...lines.values()].filter((line) => line !== null)).toHaveLength(6);
+  });
+
+  it("takes the line above the list off too once pending edits leave no row with a line", async () => {
+    await publishPool();
+    const server = editFunction((data) =>
+      data.warm
+        ? WARMED
+        : made(5, ["league_forecast_scout_games_v2:2027", "league_forecast_scout_teams_v1"])
+    );
+    open(sourcesOf(live, { call: server.call }));
+    await tap("Placeholder S-2");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-2" });
+    await within(panel).findByText(/^Spring 2027 rating /);
+    const lined = [...linesOf(panel)].flatMap(([day, line]) => (day && line !== null ? [day] : []));
+    expect(lined.sort()).toEqual(["2027-03-13", "2027-03-27", "2027-04-12"]);
+    // Each of them is S-2's by another club's schedule alone, so each can be taken off.
+    for (const day of lined) {
+      const offered = within(panel)
+        .getAllByRole("button", { name: /^Not this team/ })
+        .find((button) => button.closest("li")?.textContent?.includes(day));
+      if (!offered) throw new Error(`no Not this team on ${day}`);
+      fireEvent.click(offered);
+      await waitFor(() => expect(linesOf(panel).has(day)).toBe(false));
+    }
+    // The lines are still in hand, worked out from the card as published, but no row carries one,
+    // so neither the line above the list nor its key is drawn.
+    expect(panel.querySelectorAll("li > p")).toHaveLength(0);
+    expect(within(panel).queryByText(/rating .*Played like:/)).toBeNull();
+  });
+
+  it("takes off only the line of a game a pending Not this team takes off", async () => {
+    await publishPool();
+    const server = editFunction((data) =>
+      data.warm
+        ? WARMED
+        : made(5, ["league_forecast_scout_games_v2:2027", "league_forecast_scout_teams_v1"])
+    );
+    open(sourcesOf(live, { call: server.call }));
+    await tap("Placeholder S-1");
+    const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    const headline = await within(panel).findByText(/^Spring 2027 rating /);
+    const before = linesOf(panel);
+    expect(before.get("2027-04-03")).not.toBeNull();
+    const offered = within(panel).getAllByRole("button", { name: /^Not this team/ });
+    expect(offered).toHaveLength(1);
+    expect(offered[0]!.closest("li")).toHaveTextContent("2027-04-03");
+    fireEvent.click(offered[0]!);
+    await waitFor(() => expect(linesOf(panel).has("2027-04-03")).toBe(false));
+    const after = linesOf(panel);
+    // Every other row as it was, its line with it: the lines explain the board, which is from
+    // before the edit too.
+    expect([...after]).toEqual([...before].filter(([day]) => day !== "2027-04-03"));
+    expect(within(panel).getByText(/^Spring 2027 rating /).textContent).toBe(headline.textContent);
   });
 });

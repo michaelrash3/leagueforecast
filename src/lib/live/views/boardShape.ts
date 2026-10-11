@@ -23,6 +23,26 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  */
 export const BOARD_RULES = 2;
 
+/**
+ * The shape of the boards this build publishes, raised when a board gains something a device of
+ * this build reads and a device of an older build can leave unread. The publish of the boards
+ * records it (`BuiltFrom.shape`), and the republish after a deploy publishes the boards again at
+ * once over boards recorded under an older shape, or under none (`needsRepublish`), so what the
+ * new build adds is on every board as soon as the build is out rather than after the next save's
+ * rebuild or the night's. Devices never read it: a board of any shape reads as one
+ * (`coerceBoardView`).
+ *
+ * A change older builds could not read raises `LIVE_SCHEMA` instead, and one that moves a number,
+ * row or order raises `BOARD_RULES`.
+ *
+ * 0, or none recorded: the boards before it. 1: each board carries what its rows' games were
+ * fitted against (`BoardFit`).
+ */
+export const BOARD_SHAPE = 1;
+
+/** The family of views the boards are: every key under this prefix (`boardKey`). */
+export const BOARD_FAMILY = "board:";
+
 /** A board's span: the whole squad year, or one half of it. */
 export type BoardHalf = "year" | SeasonSegment;
 
@@ -60,6 +80,47 @@ export type BoardRow = Omit<ScoutRankingRow, "isMine"> & BoardFacts;
 export type HistoryPoint = { asOf: string; rank: number | null };
 
 /**
+ * The version of a board's `fit` (`BoardFit.v`), raised by any change to what its fields hold or
+ * mean. A device works out what each game did only from a fit of its own build's version, and
+ * leaves one of any other alone, which costs it the lines and never the board.
+ */
+export const BOARD_FIT_VERSION = 1;
+
+/**
+ * What the fit a board's rows were cut from read beyond the rows themselves (`boardFitOf`): the
+ * numbers a device needs to work out, from the board and a club's card alone, what each of the
+ * club's games did to its rating.
+ * - `v`: `BOARD_FIT_VERSION`.
+ * - `day`: the members' day the board was built for, which decided whether a game had been played
+ *   yet (`countsTowardRating`). The board's own, since the meta's day (`LiveMeta.today`) can be a
+ *   later publish's.
+ * - `scale`, `middle`, `errors`: the discount from the fit's rating to the one shown, the residual
+ *   scale (`residualScale`), the centre of the clubs' spreads (`discountMiddle`) and how many
+ *   standard errors (`EVIDENCE_STANDARD_ERRORS`).
+ * - `gapRuns`, `cap`, `shrink`: the runs a year of age gap was worth (`ageGapRuns`), the most one
+ *   game's margin counts (`RATING_CAP`) and the ridge (`DEFAULT_SHRINKAGE`).
+ * - `recency`: what each game's weight was built from (`recencyBasisFor`), or null where the
+ *   games were weighed alike.
+ * - `away`: every side a row's rated game names that has no row on this board (a club known only
+ *   from somebody else's schedule, a stand-in, a club at home on another page of the pool), with
+ *   its fitted rating to 4 places and its rated games, in three lists of one length. With the rows
+ *   it is every opponent of every row's rated games, which is what lets a device tell the games
+ *   the fit read from the rest without the roster.
+ */
+export type BoardFit = {
+  v: number;
+  day: string;
+  scale: number;
+  middle: number;
+  errors: number;
+  gapRuns: number;
+  cap: number;
+  shrink: number;
+  recency: { halfLifeDays: number; newest: string; mean: number } | null;
+  away: { ids: string[]; ratings: number[]; games: number[] };
+};
+
+/**
  * A board as published (`publishViews`).
  * - `past`: the board a week before, as the page's arrows read it: the day it stood on, and
  *   whether anyone was on it in the whole year then, which decides whether a club with no `was`
@@ -67,11 +128,20 @@ export type HistoryPoint = { asOf: string; rank: number | null };
  *   is, and left out by a build not asked for it (`past: false`).
  * - `history`: the page's own club's place week by week, oldest first and ending a week ago, as
  *   the page's rank line walks it (`useRankingsWorker`), for the club the page names as its own.
+ * - `fit`: what its rows' games were fitted against (`BoardFit`), left out of a board with no
+ *   rows. It raised no `LIVE_SCHEMA`: a device of an older build rebuilds a board field by field
+ *   (`coerceBoardView`) and so drops it unread, and a board without it draws exactly as before.
+ *   The app and the boards' publishers deploy apart, and a raise would have shown every device of
+ *   the new build a notice in place of the boards until the publishers caught up, and told every
+ *   older one to reload. It carries its own version (`BOARD_FIT_VERSION`) instead, a fit this build
+ *   cannot read is dropped while the board still reads, and the boards' shape (`BOARD_SHAPE`) has
+ *   the republish after a deploy put it on every board at once.
  */
 export type BoardView = {
   rows: BoardRow[];
   past?: { asOf: string; empty: boolean };
   history?: { teamId: string; points: HistoryPoint[] };
+  fit?: BoardFit;
 };
 
 type FieldKind = "string" | "number" | "boolean" | "number?";
@@ -170,9 +240,50 @@ const historyOf = (raw: unknown): BoardView["history"] | null => {
   return { teamId: raw.teamId, points };
 };
 
+const isNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const isPositive = (value: unknown): value is number => isNumber(value) && value > 0;
+
+const basisOf = (raw: unknown): BoardFit["recency"] | undefined => {
+  if (raw === null) return null;
+  if (!isRecord(raw) || !isPositive(raw.halfLifeDays) || !isPositive(raw.mean)) return undefined;
+  if (typeof raw.newest !== "string" || !ISO_DAY.test(raw.newest)) return undefined;
+  return { halfLifeDays: raw.halfLifeDays, newest: raw.newest, mean: raw.mean };
+};
+
+const awayOf = (raw: unknown): BoardFit["away"] | null => {
+  if (!isRecord(raw)) return null;
+  const { ids, ratings, games } = raw;
+  if (!Array.isArray(ids) || !Array.isArray(ratings) || !Array.isArray(games)) return null;
+  if (ratings.length !== ids.length || games.length !== ids.length) return null;
+  if (!ids.every((id) => typeof id === "string" && id !== "")) return null;
+  if (!ratings.every(isNumber) || !games.every(isPlace)) return null;
+  return { ids: ids as string[], ratings: ratings as number[], games: games as number[] };
+};
+
+/**
+ * A board's `fit` as this build reads it, or null for anything else: another version, a number
+ * that is not one, a day that is not an ISO day, or lists of different lengths, an empty id or a
+ * count of games that is not a whole number above nought among the sides away.
+ */
+export const coerceBoardFit = (raw: unknown): BoardFit | null => {
+  if (!isRecord(raw) || raw.v !== BOARD_FIT_VERSION) return null;
+  const { day, scale, middle, errors, gapRuns, cap, shrink } = raw;
+  if (typeof day !== "string" || !ISO_DAY.test(day)) return null;
+  if (!isNumber(scale) || !isNumber(middle) || !isNumber(errors)) return null;
+  if (!isNumber(gapRuns) || !isNumber(cap) || !isNumber(shrink)) return null;
+  const recency = basisOf(raw.recency);
+  const away = awayOf(raw.away);
+  if (recency === undefined || !away) return null;
+  return { v: BOARD_FIT_VERSION, day, scale, middle, errors, gapRuns, cap, shrink, recency, away };
+};
+
 /**
  * A published board as read back, or null when any row of it is not one (`isBoardRow`), or what
- * it says of last week or the rank line is not what it should be.
+ * it says of last week or the rank line is not what it should be. A `fit` this build cannot read
+ * (`coerceBoardFit`) is left out and the board read without it, since a board draws whole without
+ * one: a later change to its shape must never hide a board from a device of this build.
  */
 export const coerceBoardView = (raw: unknown): BoardView | null => {
   if (!isRecord(raw) || !Array.isArray(raw.rows)) return null;
@@ -181,7 +292,13 @@ export const coerceBoardView = (raw: unknown): BoardView | null => {
   const past = raw.past === undefined ? undefined : pastOf(raw.past);
   const history = raw.history === undefined ? undefined : historyOf(raw.history);
   if (past === null || history === null) return null;
-  return { rows, ...(past ? { past } : {}), ...(history ? { history } : {}) };
+  const fit = raw.fit === undefined ? null : coerceBoardFit(raw.fit);
+  return {
+    rows,
+    ...(past ? { past } : {}),
+    ...(history ? { history } : {}),
+    ...(fit ? { fit } : {}),
+  };
 };
 
 /**

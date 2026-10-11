@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FIXTURE_TODAY, poolFixture } from "../../../scripts/poolFixture";
 import {
   ACTIVE_RECENCY_SCHEME,
   byBlock,
@@ -8,9 +9,13 @@ import {
   noDecay,
   normalizeWeights,
   RECENCY_SCHEMES,
+  recencyBasisFor,
+  recencyWeightOf,
   weightsForGames,
   type DatedRatingGame,
+  type RecencyBasis,
 } from "../ratingRecency";
+import { scoutRatingGames, type ScoutGame, type SeasonSegment } from "../teamRankings";
 
 const DAY = 24 * 60 * 60 * 1000;
 const day = (iso: string) => Date.parse(`${iso}T12:00:00.000Z`);
@@ -240,5 +245,116 @@ describe("weighing a pool's games for the fit", () => {
     expect(RECENCY_SCHEMES.map((scheme) => scheme.key)).toContain(ACTIVE_RECENCY_SCHEME.key);
     // It must be one the sweep can put on trial, or "tune it later" is not actually offered.
     expect(weightsForGames(dated)).not.toBeNull();
+  });
+});
+
+describe("rebuilding one game's weight from its date", () => {
+  /*
+   * A device holds a club's games and the board they were rated on, never the pool, so it is
+   * handed three numbers (`recencyBasisFor`) and rebuilds each game's weight from them. It is only
+   * worth anything if every weight comes back to the bit: the device checks its sums against the
+   * board's own numbers and draws nothing if they disagree.
+   */
+  const crossingWinter = [
+    { date: "2022-03-05", home: "A", away: "E" },
+    { date: "2025-09-06", home: "A", away: "B" },
+    { date: "2025-10-11", home: "A", away: "C" },
+    { home: "A", away: "D" },
+    { date: "4/11", home: "B", away: "C" },
+    { date: "2026-04-11", home: "A", away: "B" },
+    { date: "2026-04-25", home: "C", away: "D" },
+    { date: "2026-04-25", home: "B", away: "D" },
+  ];
+
+  it("gives back every weight the pool's weighing gave, to the bit", () => {
+    // A half-life of a day takes the 2022 game's raw weight below the smallest number there is.
+    [ACTIVE_RECENCY_SCHEME, byDays(30), byDays(180), byDays(1)].forEach((scheme) => {
+      const basis = recencyBasisFor(crossingWinter, scheme);
+      const weights = weightsForGames(crossingWinter, scheme);
+      expect(basis).not.toBeNull();
+      expect(weights).not.toBeNull();
+      crossingWinter.forEach(({ date }, at) =>
+        expect(recencyWeightOf(date, basis ?? null)).toBe(weights?.[at])
+      );
+    });
+    expect(weightsForGames(crossingWinter, byDays(1))?.[0]).toBe(0);
+  });
+
+  it("is the newest game's day, the half-life and the mean it divided by", () => {
+    const basis = recencyBasisFor(crossingWinter);
+    expect(basis?.newest).toBe("2026-04-25");
+    expect(basis?.halfLifeDays).toBe(90);
+    // The two games of the newest day weigh the same and the most, one over the mean.
+    expect(recencyWeightOf("2026-04-25", basis ?? null)).toBe(1 / (basis?.mean ?? 0));
+  });
+
+  it("weighs a day after the newest as the newest, never more than a fresh game", () => {
+    const basis = recencyBasisFor(crossingWinter) ?? null;
+    expect(recencyWeightOf("2026-06-30", basis)).toBe(recencyWeightOf("2026-04-25", basis));
+  });
+
+  it("keeps a game with no date it can place at 1, as the pool's weighing does", () => {
+    const basis = recencyBasisFor(crossingWinter) ?? null;
+    [undefined, "", "4/11", "2026-4-25"].forEach((date) =>
+      expect(recencyWeightOf(date, basis)).toBe(1)
+    );
+  });
+
+  it("has no basis where the weighing has no opinion, and none to give for a scheme of counts", () => {
+    expect(recencyBasisFor(crossingWinter, noDecay)).toBeNull();
+    // Counting games since, or blocks of play, reads the rest of the pool: no date alone gives it.
+    expect(recencyBasisFor(crossingWinter, byGamesSince(10))).toBeUndefined();
+    expect(recencyBasisFor(crossingWinter, byBlock(0.35))).toBeUndefined();
+    // No date it can place, so the weighing hands the fit its games unchanged.
+    const undated = [
+      { home: "A", away: "B" },
+      { date: "4/11", home: "A", away: "C" },
+    ];
+    expect(weightsForGames(undated)).toBeNull();
+    expect(recencyBasisFor(undated)).toBeNull();
+    // A half-life of nothing weighs every game nothing, which normalising reads as no opinion.
+    expect(weightsForGames(crossingWinter, byDays(0))).toEqual(crossingWinter.map(() => 1));
+    expect(recencyBasisFor(crossingWinter, byDays(0))).toBeNull();
+    // And no basis is every weight 1, a pool fitted unweighted.
+    expect(recencyWeightOf("2026-04-25", null)).toBe(1);
+  });
+
+  it("rebuilds the weights of every page and half of the fixture from the rated games", () => {
+    /*
+     * The fixture holds games the fit leaves out that are newer than any it reads: scores on a day
+     * still to come, and the spring when the fall is fitted. So the basis has to be read off the
+     * rated games, and one read off the pool's every game would not give the fit's weights back.
+     */
+    const { teams, games, ageGroups } = poolFixture({ seed: 7, clubsPerPage: 300 });
+    const asFitted = (rated: readonly ScoutGame[]) =>
+      weightsForGames(
+        rated.map((game) => ({ date: game.date, home: game.teamAId, away: game.teamBId }))
+      );
+    const missed = (rated: readonly ScoutGame[], basis: RecencyBasis | null) => {
+      const weights = asFitted(rated);
+      return rated.filter((game, at) => recencyWeightOf(game.date, basis) !== (weights?.[at] ?? 1))
+        .length;
+    };
+    let checked = 0;
+    let missedFromPool = 0;
+    ageGroups.forEach((group) =>
+      ([undefined, "fall", "spring"] as const).forEach((segment: SeasonSegment | undefined) => {
+        const rated = scoutRatingGames(
+          group.id,
+          teams,
+          games,
+          ageGroups,
+          segment,
+          FIXTURE_TODAY
+        ).map(({ game }) => game);
+        const basis = recencyBasisFor(rated);
+        expect(basis).not.toBeUndefined();
+        expect(missed(rated, basis ?? null), `${group.id} ${segment ?? "year"}`).toBe(0);
+        checked += rated.length;
+        missedFromPool += missed(rated, recencyBasisFor(games) ?? null);
+      })
+    );
+    expect(checked).toBe(68004);
+    expect(missedFromPool).toBeGreaterThan(0);
   });
 });

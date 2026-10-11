@@ -210,6 +210,18 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     });
     expect(live.meta()?.copy).toEqual({ id: manifest.copy, version: manifest.version });
     expect(live.meta()?.today).toBe(FIXTURE_TODAY);
+    // What the boards' fits come to, for the log: one on every board with rows.
+    const fitBytes = browser.flatMap(({ value }) =>
+      value.fit ? [new TextEncoder().encode(JSON.stringify(value.fit)).length] : []
+    );
+    expect(fitBytes).toHaveLength(browser.filter(({ value }) => value.rows.length > 0).length);
+    expect(result).toMatchObject({
+      fits: {
+        boards: fitBytes.length,
+        bytes: fitBytes.reduce((sum, bytes) => sum + bytes, 0),
+        largest: Math.max(...fitBytes),
+      },
+    });
 
     expect(Object.keys(live.meta()?.views ?? {})).toEqual(
       [...browser, ...clubs, ...searches, ...games].map(({ key }) => key).sort()
@@ -694,6 +706,7 @@ describe("whether a server's run failed at publishing the views", () => {
     searches: 0,
     games: 0,
     buildMs: 0,
+    fits: { boards: 1, bytes: 1, largest: 1 },
     publish: {
       ok: true,
       wrote: true,

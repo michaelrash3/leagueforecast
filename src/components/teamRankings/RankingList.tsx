@@ -1,12 +1,10 @@
 import type { ScoutRankingRow } from "../../lib/teamRankings";
 import type { Movement } from "../../lib/rankMovement";
+import { formatBoardRating } from "../../lib/boardRating";
 import { pill } from "../../styles/tokens";
 
-/**
- * A rating is a margin either side of an average team, so the sign is always shown — "+3.1" and
- * "-3.1" are opposite claims and a bare "3.1" reads as neither.
- */
-export const formatRating = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+/** A rating as the board's rows print it (`formatBoardRating`), its sign always shown. */
+export const formatRating = formatBoardRating;
 
 /**
  * "▲3", "▼5" or "new": how far a club has moved since last week, as a reader says it. Nothing for a

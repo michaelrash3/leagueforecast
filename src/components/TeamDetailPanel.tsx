@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { Fragment, useId, useMemo, useRef, useState } from "react";
 import {
   countedInWindow,
   countsTowardRating,
@@ -24,7 +24,7 @@ import { coachesOf } from "../lib/gcStaff";
 import { agoLabel } from "../lib/date";
 import { TeamSearchSelect } from "./TeamSearchSelect";
 import { TEAM_PANEL_ID } from "./teamPanelId";
-import { button, card, pill } from "../styles/tokens";
+import { button, card, pill, textRole } from "../styles/tokens";
 
 /** The panel's element id, for a list elsewhere on the page that opens a team to scroll to it. */
 export { TEAM_PANEL_ID };
@@ -98,6 +98,21 @@ type TeamDetailPanelProps = {
    * are shown; renaming, unlinking, setting an age or state and folding are not.
    */
   readOnly?: boolean;
+  /**
+   * What each counted game did to the club's rating on the board on screen, worked out on the live
+   * board from the club's card and that board (`gameBreakdown`, `gameWords`): a line above the
+   * list splitting the rating into its games and its record, the key to the two figures, and each
+   * game's clauses by the game's id. Drawn only under a counted W, L or T row, so a game still to
+   * come, one set not to count, one against the club's own name or one outside the half on screen
+   * never carries one. Left out wherever the lines do not add up to the board's own row, and on
+   * this device's own page, which has no published board to explain; the panel is then exactly as
+   * it was.
+   */
+  gameNotes?: {
+    headline: string;
+    key: string;
+    byGame: ReadonlyMap<string, readonly string[]>;
+  };
 };
 
 /** Which rule of the import filed a link at its level, as the link line says it. */
@@ -171,6 +186,7 @@ export function TeamDetailPanel({
   mergeCandidates,
   onClose,
   readOnly = false,
+  gameNotes,
 }: TeamDetailPanelProps) {
   const [draftName, setDraftName] = useState(team.name);
   // The state box holds what is being typed: one letter is a state on its way, not a state to
@@ -280,6 +296,18 @@ export function TeamDetailPanel({
   // Where focus goes once a press takes the button's own row away: the list's heading, in the
   // panel, rather than the page's body.
   const gamesHeading = useRef<HTMLHeadingElement>(null);
+  /*
+   * Only when a row on the list will carry a line; none at all leaves the panel exactly as it was.
+   * Asked of the rows drawn, not of the lines handed in: those are worked out from the card as
+   * published, and the list from the card with this device's pending edits over it, so a pending
+   * Not this team can take every lined row off the list while its lines are still in hand, and a
+   * line's game can sit outside the counted window. The line above the list and its key would then
+   * explain two figures that appear nowhere.
+   */
+  const notes =
+    gameNotes && here.some((game) => inWindow.has(game.id) && gameNotes.byGame.has(game.id))
+      ? gameNotes
+      : undefined;
 
   const trimmed = draftName.trim();
   const renamed = trimmed.length > 0 && trimmed !== team.name;
@@ -616,12 +644,21 @@ export function TeamDetailPanel({
       >
         Games in {ageGroupName || "this age group"}
       </h3>
+      {notes && (
+        <p className={`mt-1 ${textRole.meta}`}>
+          {notes.headline} {notes.key}
+        </p>
+      )}
       {here.length === 0 ? (
         <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Nothing logged here yet.</p>
       ) : (
         <ul className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
           {here.map((game) => {
             const line = scoreLine(game, team.id, nameOf);
+            // A counted W, L or T row alone, the rows the record above and the board's row are
+            // counted over: the window holds only games that count (`countsTowardRating`, so
+            // played, not set aside and not against the club's own name) in the half on screen.
+            const clauses = notes && inWindow.has(game.id) ? notes.byGame.get(game.id) : undefined;
             return (
               <li
                 key={game.id}
@@ -688,6 +725,24 @@ export function TeamDetailPanel({
                     </button>
                   )}
                 </span>
+                {clauses && (
+                  // Each clause moves to the next line whole where it does not fit beside the one
+                  // before, and wraps inside only where it is wider than the line itself. Kept on
+                  // one line regardless (`whitespace-nowrap`), the longest clauses ran 423 px past
+                  // the panel at 320 px wide, measured in Chromium. The dot after a clause is in
+                  // its box, behind a non-breaking space, so no line opens on a dot or holds one
+                  // alone.
+                  <p className={`basis-full ${textRole.meta} tabular-nums`}>
+                    {clauses.map((clause, at) => (
+                      <Fragment key={at}>
+                        {at > 0 && " "}
+                        <span className="inline-block">
+                          {at < clauses.length - 1 ? `${clause}\u00a0·` : clause}
+                        </span>
+                      </Fragment>
+                    ))}
+                  </p>
+                )}
               </li>
             );
           })}
