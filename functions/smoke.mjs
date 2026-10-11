@@ -251,11 +251,13 @@ if (process.env.CLOUD_PULLS !== "on") {
   // The pulls in the cloud: deployed as the setup made them, as their own account, one leg at a time
   // with the memory a whole pool takes; and neither asks Google anything of a request it turns away.
   const leg = runPull.__endpoint;
+  // The rebuilds' account where they are set up, which runs tasks every day; the pulls' own where not.
+  const pullRunner = process.env.LIVE_REBUILD === "on" ? "live-runner@" : "pull-runner@";
   check(
-    "a pull's legs run one at a time, as their own account, with room for the pool",
+    "a pull's legs run one at a time, as the pulls' account, with room for the pool",
     leg.taskQueueTrigger?.retryConfig?.maxAttempts === 3 &&
       leg.taskQueueTrigger?.rateLimits?.maxConcurrentDispatches === 1 &&
-      leg.serviceAccountEmail === "pull-runner@" &&
+      leg.serviceAccountEmail === pullRunner &&
       leg.availableMemoryMb === 8192 &&
       leg.timeoutSeconds === 1800 &&
       leg.maxInstances === 1 &&
@@ -263,9 +265,9 @@ if (process.env.CLOUD_PULLS !== "on") {
     JSON.stringify(leg)
   );
   check(
-    "a pull is started by a call, as the pull's own account",
+    "a pull is started by a call, as the pulls' account",
     startPull.__endpoint.callableTrigger !== undefined &&
-      startPull.__endpoint.serviceAccountEmail === "pull-runner@",
+      startPull.__endpoint.serviceAccountEmail === pullRunner,
     JSON.stringify(startPull.__endpoint)
   );
 

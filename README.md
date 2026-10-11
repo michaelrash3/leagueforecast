@@ -3794,6 +3794,8 @@ start" for hours: their start had failed in a way the device took for an answer
 that may have started them, and nothing was left that would ever run or end them.
 Now no failed start is silent:
 
+- The pulls run as the rebuilds' account where the rebuilds are set up (the
+  one-time setup, below), the account every rebuild's task already runs as.
 - `startPull` ends a job it cannot queue with the cloud's own words for why (a
   missing grant reads as Google says it, "lacks IAM permission …") and refuses
   with them, and the device says so at once. An error the function did not mean
@@ -3939,8 +3941,14 @@ once, which the gap between pulls cannot stop while neither run has saved.
 
 ### Pulls in the cloud: the one-time setup
 
-The two functions run as an account of their own, `pull-runner`. It may read and
-write Firestore, queue a task, and send one to `runPull`, and nothing else. The
+Where the rebuilds after saves are set up (`LIVE_REBUILD`, below), the two functions
+run as the rebuilds' account, `live-runner`, whose setup grants all a pull needs and
+which runs tasks every day: two pulls sent on 10 October 2026 never started under
+the pulls' own account, which had been made out of order on 9 October, after the
+first deploy that needed it failed for want of it. So with the rebuilds on, step 1's
+account is not used, and a pull needs nothing set up beyond them. Without the
+rebuilds, the two functions run as an account of their own, `pull-runner`. It may
+read and write Firestore, queue a task, and send one to `runPull`, and nothing else. The
 project needs Cloud Tasks turned on, which the deploy account is not allowed to do
 itself. Until both are done and the `CLOUD_PULLS` variable says so, the functions
 are built without these two (`functions/build.mjs`), and the Firebase workflow

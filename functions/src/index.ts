@@ -118,9 +118,9 @@ export const billingCap = onMessagePublished(
  * the cloud copy (`pullJobs.ts`) and asks `startPull` to run it, and `runPull` pulls it into the
  * copy a leg at a time (`pullJobRunner.ts`), each leg a Cloud Tasks task queueing the next.
  *
- * Both run as a service account of their own, `pull-runner`, which may read and write Firestore,
- * queue a task and send it to `runPull`, and nothing else; the one-time setup that makes it, and
- * turns Cloud Tasks on, is in the README.
+ * Both run as `PULL_RUNNER`: an account that may read and write Firestore, queue a task and send it
+ * to a function, and nothing else; the one-time setups that make the accounts, and turn Cloud Tasks
+ * on, are in the README.
  */
 
 /**
@@ -128,6 +128,17 @@ export const billingCap = onMessagePublished(
  * step of their one-time setup. Without them the project deploys as it did before them.
  */
 declare const CLOUD_PULLS: boolean;
+
+/**
+ * The account the pulls run as. With the rebuilds set up (`LIVE_REBUILD`), theirs, `live-runner`:
+ * its one-time setup grants everything a pull needs (Firestore, queueing a task, sending one to a
+ * function, and acting as itself to sign it), and rebuilds have queued and run tasks on it every
+ * day. The pulls' own account was made out of order on 9 October 2026, after the first deploy that
+ * needed it had failed for want of it, and two pulls sent from the live page on 10 October never
+ * started under it; running them as an account known to work takes that setup out of the way.
+ * Without the rebuilds, the pulls' own account, `pull-runner`, as their setup makes it.
+ */
+const PULL_RUNNER = LIVE_REBUILD ? "live-runner@" : "pull-runner@";
 
 /** Tries a leg gets, the first included, before its job is marked failed. */
 const LEG_TRIES = 3;
@@ -162,7 +173,7 @@ export const startPull = !CLOUD_PULLS
       {
         region: REGION,
         invoker: "public",
-        serviceAccount: "pull-runner@",
+        serviceAccount: PULL_RUNNER,
         memory: "256MiB",
         timeoutSeconds: 30,
         maxInstances: 2,
@@ -284,7 +295,7 @@ export const runPull = !CLOUD_PULLS
   : onTaskDispatched<LegTask>(
       {
         region: REGION,
-        serviceAccount: "pull-runner@",
+        serviceAccount: PULL_RUNNER,
         memory: "8GiB",
         cpu: 2,
         timeoutSeconds: 1800,
