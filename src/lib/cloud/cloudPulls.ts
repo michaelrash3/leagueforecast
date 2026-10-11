@@ -18,20 +18,30 @@ import { newPullJob, packJobList, type PullJob } from "./pullJobs";
 
 export const SENT_PULLS_KEY = "league_forecast_cloud_pulls_v1";
 
-/** A pull this device sent. `told` once the user has heard how it ended. */
-export type SentPull = { jobId: string; sentAt: string; teams: number; told: boolean };
+/**
+ * A pull this device sent. `told` once the user has heard how it ended. `askedAt` is when this
+ * device last asked the cloud to start it again (`askAgain`), left out until it first does.
+ */
+export type SentPull = {
+  jobId: string;
+  sentAt: string;
+  teams: number;
+  told: boolean;
+  askedAt?: string;
+};
 
 /** Kept at most: the pulls still being told about, and a few after. */
 const KEEP = 20;
 
 const isSentPull = (raw: unknown): raw is SentPull => {
   if (typeof raw !== "object" || raw === null) return false;
-  const { jobId, sentAt, teams, told } = raw as Record<string, unknown>;
+  const { jobId, sentAt, teams, told, askedAt } = raw as Record<string, unknown>;
   return (
     typeof jobId === "string" &&
     typeof sentAt === "string" &&
     typeof teams === "number" &&
-    typeof told === "boolean"
+    typeof told === "boolean" &&
+    (askedAt === undefined || typeof askedAt === "string")
   );
 };
 
@@ -55,7 +65,11 @@ const saveSentPulls = (pulls: readonly SentPull[]): void => {
 /** What sending a pull needs of the cloud: where the jobs go, and the call that starts one. */
 export type PullSender = {
   jobs: PullJobStore;
-  start: (jobId: string) => Promise<Called<{ status: string }>>;
+  /**
+   * Asks `startPull` to queue the job's first leg (`callStartPull`); `waitedMs`, on an ask after
+   * the first, is how long this device has waited for it by its own clock.
+   */
+  start: (jobId: string, waitedMs?: number) => Promise<Called<{ status: string }>>;
   /**
    * Asks the cloud for "Refresh now" (`callStartRefresh`): the server makes the job, or hands back
    * the one under way. None on a sender that cannot, which offers no button. Only the device's name
@@ -68,8 +82,10 @@ export type SendOutcome = { ok: true; jobId: string } | { ok: false; message: st
 
 /**
  * Sends `entries` to be pulled in the cloud: the list's pieces and the job, then a call to
- * `startPull`, which queues its first leg. A pull whose start went unanswered may have started
- * all the same, so it is remembered and watched like one that did; one refused is not.
+ * `startPull`, which queues its first leg. A start that went unanswered is asked once more at
+ * once, since asking twice is asking once; one still unanswered may have started all the same, so
+ * it is remembered and watched like one that did, and asked about again while it waits
+ * (`dueForAsking`). One refused is not remembered, and the refusal is said.
  */
 export const sendPull = async (
   {
@@ -101,7 +117,8 @@ export const sendPull = async (
   } catch {
     return { ok: false, message: "The pull could not be sent to the cloud. Try again." };
   }
-  const started = await sender.start(jobId);
+  let started = await sender.start(jobId);
+  if (!started.ok && started.why === "unanswered") started = await sender.start(jobId);
   if (!started.ok && started.why !== "unanswered") {
     return { ok: false, message: `The cloud would not start the pull: ${started.message}` };
   }
@@ -179,6 +196,49 @@ export const readSentPulls = async (jobs: Pick<PullJobStore, "read">): Promise<W
 export const markTold = (jobId: string): void => {
   saveSentPulls(
     loadSentPulls().map((entry) => (entry.jobId === jobId ? { ...entry, told: true } : entry))
+  );
+};
+
+/**
+ * How long a pull still waiting to start goes between this device's asks of the cloud. Asking is
+ * cheap and changes nothing for a job already queued, and a minute's wait on a press is what the
+ * person sees before a start that failed somewhere this device could not hear says why.
+ */
+export const ASK_AGAIN_MS = 60_000;
+
+/**
+ * Whether this device should ask the cloud again to start a list it sent: still queued, with no leg
+ * having written to it (one that has is being tried by Cloud Tasks itself), and not asked in the
+ * last `ASK_AGAIN_MS`. A stopped one is asked too, since only a running leg reads the stop and the
+ * ask is what cancels one that never started. "Refresh now" is the server's own to start.
+ */
+export const dueForAsking = ({ job, sent }: WatchedPull, nowMs: number): boolean => {
+  if (isRefresh({ job, sent }) || job.status !== "queued") return false;
+  if (!job.stopAsked && job.updatedAt !== job.createdAt) return false;
+  const last = Date.parse(sent.askedAt ?? sent.sentAt);
+  return !Number.isFinite(last) || nowMs - last >= ASK_AGAIN_MS;
+};
+
+/**
+ * Asks the cloud again to start a list this device sent, saying how long it has waited by this
+ * device's own clock, and keeps when it asked. The cloud queues it afresh if its first start never
+ * did, says why if it cannot, cancels it if it was stopped, and ends it if its task was made and
+ * nothing started it within the hour (`startPullJob`); the job, read again, says which.
+ */
+export const askAgain = async (
+  { sent }: WatchedPull,
+  sender: Pick<PullSender, "start">,
+  now: Date
+): Promise<Called<{ status: string }>> => {
+  saveSentPulls(
+    loadSentPulls().map((entry) =>
+      entry.jobId === sent.jobId ? { ...entry, askedAt: now.toISOString() } : entry
+    )
+  );
+  const sentAt = Date.parse(sent.sentAt);
+  return sender.start(
+    sent.jobId,
+    Number.isFinite(sentAt) ? Math.max(0, now.getTime() - sentAt) : undefined
   );
 };
 
@@ -264,12 +324,30 @@ export const describeEnd = (pull: WatchedPull): string => {
   return `The pull in the cloud is done: ${filed.toLocaleString()} of ${teams} teams filed, ${games}${unanswered}.`;
 };
 
-/** One line on how far a running pull has got. */
-export const describeProgress = (pull: WatchedPull): string => {
+/** How long ago `since` was at `nowMs`, in the words a line uses: "just now", "12 minutes ago". */
+export const agoFrom = (since: string, nowMs: number): string => {
+  const then = Date.parse(since);
+  if (!Number.isFinite(then)) return "a while ago";
+  const minutes = Math.floor(Math.max(0, nowMs - then) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+};
+
+/**
+ * One line on how far a running pull has got. A stop asked is said before anything else, a pull
+ * stopped before it started included; one waiting to start says how long since it was sent, and
+ * what its last try said, if a leg failed before it could start.
+ */
+export const describeProgress = (pull: WatchedPull, nowMs: number = Date.now()): string => {
   if (isRefresh(pull)) return describeRefreshProgress(pull);
   const { job, sent } = pull;
   const teams = sent.teams.toLocaleString();
-  if (job.status === "queued") return `Pulling ${teams} teams in the cloud: waiting to start.`;
   if (job.stopAsked) return `Pulling ${teams} teams in the cloud: stopping.`;
+  if (job.status === "queued") {
+    const waiting = `Pulling ${teams} teams in the cloud: waiting to start, sent ${agoFrom(sent.sentAt, nowMs)}.`;
+    return job.error ? `${waiting} Its last try said: ${job.error}` : waiting;
+  }
   return `Pulling ${teams} teams in the cloud: ${legAndStage(job)}.`;
 };

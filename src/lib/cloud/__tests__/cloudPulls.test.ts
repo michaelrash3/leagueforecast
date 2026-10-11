@@ -1,15 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Called, RefreshStart } from "../../live/editClient";
 import {
+  ASK_AGAIN_MS,
+  askAgain,
   describeEnd,
   describeProgress,
+  dueForAsking,
   loadSentPulls,
   markTold,
   readSentPulls,
   REFRESH_UNANSWERED,
   sendPull,
   sendRefresh,
+  SENT_PULLS_KEY,
   type PullSender,
+  type SentPull,
 } from "../cloudPulls";
 import { newRefreshJob, type PullJob } from "../pullJobs";
 
@@ -200,8 +205,104 @@ describe("Refresh now asked of the cloud", () => {
     // A pasted list keeps its own words.
     const list = { ...made, rota: undefined, status: "queued" as const };
     delete list.rota;
-    expect(describeProgress({ sent, job: list })).toBe(
-      "Pulling 120 teams in the cloud: waiting to start."
+    expect(describeProgress({ sent, job: list }, Date.parse(sent.sentAt) + 12 * 60_000)).toBe(
+      "Pulling 120 teams in the cloud: waiting to start, sent 12 minutes ago."
     );
+  });
+});
+
+/** A list sent at `NOW` and still queued, as the cloud keeps it, read back on this device. */
+const waitingPull = (patch: Partial<PullJob> = {}) => {
+  const job: PullJob = {
+    ...newRefreshJob({ timeZone: "America/New_York", device: "phone", now: NOW }),
+    ...patch,
+  };
+  delete job.rota;
+  const sent: SentPull = { jobId: "a".repeat(32), sentAt: NOW, teams: 1710, told: false };
+  return { sent, job };
+};
+
+describe("a pull still waiting to start", () => {
+  const at = (minutes: number) => Date.parse(NOW) + minutes * 60_000;
+
+  // The screen that sat for hours: a pull never started said "waiting to start" and nothing else,
+  // and Stop's press changed nothing on it.
+  it("says how long it has waited, what its last try said, and a stop before anything", () => {
+    expect(describeProgress(waitingPull(), at(0))).toBe(
+      "Pulling 1,710 teams in the cloud: waiting to start, sent just now."
+    );
+    expect(describeProgress(waitingPull(), at(1))).toBe(
+      "Pulling 1,710 teams in the cloud: waiting to start, sent 1 minute ago."
+    );
+    expect(describeProgress(waitingPull(), at(185))).toBe(
+      "Pulling 1,710 teams in the cloud: waiting to start, sent 3 hours ago."
+    );
+    expect(describeProgress(waitingPull({ error: "The worker stopped." }), at(5))).toBe(
+      "Pulling 1,710 teams in the cloud: waiting to start, sent 5 minutes ago. Its last try said: The worker stopped."
+    );
+    expect(describeProgress(waitingPull({ stopAsked: true }), at(5))).toBe(
+      "Pulling 1,710 teams in the cloud: stopping."
+    );
+  });
+
+  it("is asked about again a minute after it was sent or last asked, while nothing touched it", () => {
+    expect(dueForAsking(waitingPull(), at(0))).toBe(false);
+    expect(dueForAsking(waitingPull(), at(ASK_AGAIN_MS / 60_000))).toBe(true);
+    const asked = waitingPull();
+    asked.sent = { ...asked.sent, askedAt: new Date(at(10)).toISOString() };
+    expect(dueForAsking(asked, at(10.5))).toBe(false);
+    expect(dueForAsking(asked, at(11))).toBe(true);
+    // A leg wrote to it, so Cloud Tasks is trying it; one started or over is not waiting.
+    expect(dueForAsking(waitingPull({ updatedAt: "2026-10-09T12:03:00.000Z" }), at(30))).toBe(
+      false
+    );
+    expect(dueForAsking(waitingPull({ status: "running" }), at(30))).toBe(false);
+    expect(dueForAsking(waitingPull({ status: "failed" }), at(30))).toBe(false);
+    // A stopped one is asked, which is what cancels it, even after a leg wrote to it.
+    expect(
+      dueForAsking(waitingPull({ stopAsked: true, updatedAt: "2026-10-09T12:03:00.000Z" }), at(30))
+    ).toBe(true);
+    // "Refresh now" is the server's own to start.
+    const refresh = waitingPull();
+    expect(
+      dueForAsking({ ...refresh, job: { ...refresh.job, rota: { at: null } } as PullJob }, at(30))
+    ).toBe(false);
+  });
+
+  it("asks with how long this device has waited by its own clock, and keeps when it asked", async () => {
+    const pull = waitingPull();
+    backing.set(SENT_PULLS_KEY, JSON.stringify([pull.sent]));
+    const asks: Array<[string, number | undefined]> = [];
+    await askAgain(
+      pull,
+      {
+        start: async (jobId, waitedMs) => {
+          asks.push([jobId, waitedMs]);
+          return { ok: true, value: { status: "failed" } };
+        },
+      },
+      new Date(at(65))
+    );
+    expect(asks).toEqual([[pull.sent.jobId, 65 * 60_000]]);
+    expect(loadSentPulls()).toEqual([{ ...pull.sent, askedAt: new Date(at(65)).toISOString() }]);
+  });
+
+  it("asks a second time at once when the first start went unanswered", async () => {
+    const answers: Array<Called<{ status: string }>> = [
+      { ok: false, why: "unanswered", message: "No answer." },
+      { ok: false, why: "failed", message: "The cloud could not queue this pull: no grant." },
+    ];
+    const cloud = cloudOf({ ok: true, value: { status: "queued" } });
+    let asked = 0;
+    const sender: PullSender = {
+      ...cloud.sender,
+      start: async () => answers[asked++] ?? { ok: true, value: { status: "queued" } },
+    };
+    expect(await send(sender)).toEqual({
+      ok: false,
+      message: "The cloud would not start the pull: The cloud could not queue this pull: no grant.",
+    });
+    expect(asked).toBe(2);
+    expect(loadSentPulls()).toEqual([]);
   });
 });

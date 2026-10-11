@@ -181,6 +181,11 @@ export const GATE_BUSY = "Another refresh was starting at the same moment. Try a
 /** Said where the first leg could not be queued, so the refresh was never started. */
 export const NOT_QUEUED =
   "The cloud could not queue the refresh just now, so it was not started. Try again in a minute.";
+/** `NOT_QUEUED`, and what the cloud said when it would not queue the leg, cut to a line's length. */
+export const notQueuedBecause = (error: unknown): string => {
+  const said = error instanceof Error ? error.message : String(error);
+  return `${NOT_QUEUED} The cloud said: ${said.length > 400 ? `${said.slice(0, 400)}…` : said}`;
+};
 /** Said on a job made for a press that another press, or the nightly, beat to the gate. */
 const BEATEN = "Another refresh, or the nightly, began at the same moment; this one never ran.";
 
@@ -255,9 +260,11 @@ export const startRefresh = async (
     }
     try {
       await deps.enqueue({ jobId, leg: 0 });
-    } catch {
-      await notQueued(jobId, day, deps);
-      return { ok: false, refusal: "unavailable", message: NOT_QUEUED };
+    } catch (error) {
+      // With the cloud's own words for why, which are what tell a missing grant from a blip.
+      const message = notQueuedBecause(error);
+      await notQueued(jobId, day, message, deps);
+      return { ok: false, refusal: "unavailable", message };
     }
     return { ok: true, jobId, status: "queued", already: false };
   }
@@ -270,9 +277,14 @@ export const startRefresh = async (
  * gate still names it. Each part once, and best done: a job a failed queueing did queue all the same
  * finds itself ended and runs nothing, and a gate that moved on keeps what it was moved to.
  */
-const notQueued = async (jobId: string, day: string, deps: StartRefreshDeps): Promise<void> => {
+const notQueued = async (
+  jobId: string,
+  day: string,
+  message: string,
+  deps: StartRefreshDeps
+): Promise<void> => {
   await deps.jobs
-    .update(jobId, { status: "failed", error: NOT_QUEUED, updatedAt: deps.now().toISOString() })
+    .update(jobId, { status: "failed", error: message, updatedAt: deps.now().toISOString() })
     .catch(() => undefined);
   try {
     const { gate, token } = await readGate(deps.gate);

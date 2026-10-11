@@ -3789,6 +3789,27 @@ Some jobs fail at once, with nothing tried again:
 - a copy saved by a newer build or tidied by newer rules;
 - no copy at all.
 
+**A pull that never starts.** On 10 October two catch-ups sat at "waiting to
+start" for hours: their start had failed in a way the device took for an answer
+that may have started them, and nothing was left that would ever run or end them.
+Now no failed start is silent:
+
+- `startPull` ends a job it cannot queue with the cloud's own words for why (a
+  missing grant reads as Google says it, "lacks IAM permission …") and refuses
+  with them, and the device says so at once. An error the function did not mean
+  to throw, or a job it cannot find, is said too, since neither queued anything.
+- An unanswered start is asked again at once. A list still queued that no leg has
+  written to is asked about again every minute while the Import tab is open, with
+  how long the device has waited by its own clock. The ask queues it afresh if its
+  first start never did, and says why if it cannot.
+- A job whose first task was made but that no leg has touched in an hour is ended
+  with a reason, since Cloud Tasks will not take its task's name again: the queue
+  paused, or every delivery refused. A leg takes minutes, so an hour is far past a
+  job waiting its turn.
+- Stop on a pull that never started asks at once, which cancels it, since only a
+  running leg reads the stop. The line says how long a waiting pull has waited,
+  and what its last try said if a leg failed before it could start.
+
 **Cost.** The project's budget is a dollar a month with a hard stop (below).
 Google's published free tier for functions gives 360,000 GiB-seconds and 180,000
 processor-seconds each month. A three-minute leg on 8 GiB and two processors

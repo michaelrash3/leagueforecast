@@ -22,6 +22,8 @@ import { newPullJob, newRefreshJob, packJobList, type PullJob } from "../pullJob
 import {
   runPullLeg,
   startPullJob,
+  NEVER_STARTED,
+  NEVER_STARTED_MS,
   tooManyLegs,
   type JobDocs,
   type LegDeps,
@@ -910,6 +912,7 @@ describe("starting a pull", () => {
       enqueue: async (task: LegTask) => {
         queued.push(task);
       },
+      now: () => new Date("2026-09-29T12:01:00.000Z"),
     };
     expect(await startPullJob(JOB, deps)).toEqual({ ok: true, status: "queued" });
     expect(queued).toEqual([{ jobId: JOB, leg: 0 }]);
@@ -936,8 +939,151 @@ describe("starting a pull", () => {
       enqueue: async (task: LegTask) => {
         queued.push(task);
       },
+      now: () => new Date("2026-10-02T16:00:00.000Z"),
     });
     expect(started).toEqual({ ok: false, refusal: "invalid-argument" });
     expect(queued).toEqual([]);
+  });
+
+  // The case that left two pulls "waiting to start" for hours: the queueing threw, the device took
+  // the answer for one that may have started, and nothing ever ran or ended the job.
+  it("ends a job it cannot queue with the cloud's own words, and refuses with them", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const lacks =
+      '7 PERMISSION_DENIED: The principal lacks IAM permission "cloudtasks.tasks.create" for the resource.';
+    const started = await startPullJob(JOB, {
+      jobs: jobs.docs,
+      enqueue: async () => {
+        throw new Error(lacks);
+      },
+      now: () => new Date("2026-09-29T12:01:00.000Z"),
+    });
+    const message = `The cloud could not queue this pull: ${lacks}`;
+    expect(started).toEqual({ ok: false, refusal: "unavailable", message });
+    expect(jobs.job()).toMatchObject({
+      status: "failed",
+      stage: "waiting",
+      error: message,
+      updatedAt: "2026-09-29T12:01:00.000Z",
+    });
+  });
+
+  it("refuses with the cloud's words when the job cannot be read, and touches nothing", async () => {
+    const queued: LegTask[] = [];
+    const started = await startPullJob(JOB, {
+      jobs: {
+        read: async () => {
+          throw new Error("Firestore answered HTTP 403 reading pullJobs/x.");
+        },
+        update: async () => {
+          throw new Error("no write expected");
+        },
+      },
+      enqueue: async (task: LegTask) => {
+        queued.push(task);
+      },
+      now: () => new Date("2026-09-29T12:01:00.000Z"),
+    });
+    expect(started).toEqual({
+      ok: false,
+      refusal: "unavailable",
+      message:
+        "The cloud could not read this pull: Firestore answered HTTP 403 reading pullJobs/x.",
+    });
+    expect(queued).toEqual([]);
+  });
+
+  it("cancels a job stopped before any leg ran, rather than queueing it", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    jobs.jobs.set(JOB, { ...jobs.job(), stopAsked: true });
+    const queued: LegTask[] = [];
+    const deps = {
+      jobs: jobs.docs,
+      enqueue: async (task: LegTask) => {
+        queued.push(task);
+      },
+      now: () => new Date("2026-09-29T12:05:00.000Z"),
+    };
+    expect(await startPullJob(JOB, deps, 5 * 60_000)).toEqual({ ok: true, status: "cancelled" });
+    expect(queued).toEqual([]);
+    expect(jobs.job()).toMatchObject({ status: "cancelled", stage: "waiting" });
+  });
+
+  it("ends a job whose task was made but no leg touched in the hour of the device's waiting", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const queued: LegTask[] = [];
+    const deps = {
+      jobs: jobs.docs,
+      // The task is already made: Cloud Tasks refuses its name again (`enqueueLeg`).
+      enqueue: async (task: LegTask): Promise<"already"> => {
+        queued.push(task);
+        return "already";
+      },
+      // Hours past the job's own stamp by this server's clock: the device's wait is what counts.
+      now: () => new Date("2026-09-29T18:00:00.000Z"),
+    };
+    // The first ask, and one by a device that has not waited the hour, leave it queued.
+    expect(await startPullJob(JOB, deps)).toEqual({ ok: true, status: "queued" });
+    expect(await startPullJob(JOB, deps, NEVER_STARTED_MS)).toEqual({
+      ok: true,
+      status: "queued",
+    });
+    expect(jobs.job().status).toBe("queued");
+    expect(await startPullJob(JOB, deps, NEVER_STARTED_MS + 1)).toEqual({
+      ok: true,
+      status: "failed",
+    });
+    expect(jobs.job()).toMatchObject({ status: "failed", stage: "waiting", error: NEVER_STARTED });
+  });
+
+  it("queues afresh, and leaves running, a job whose start never queued anything", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const queued: LegTask[] = [];
+    const started = await startPullJob(
+      JOB,
+      {
+        jobs: jobs.docs,
+        // Made now: the first start's queueing never happened, so the name is free.
+        enqueue: async (task: LegTask) => {
+          queued.push(task);
+        },
+        now: () => new Date("2026-09-29T18:00:00.000Z"),
+      },
+      NEVER_STARTED_MS * 5
+    );
+    expect(started).toEqual({ ok: true, status: "queued" });
+    expect(queued).toEqual([{ jobId: JOB, leg: 0 }]);
+    expect(jobs.job().status).toBe("queued");
+  });
+
+  it("leaves a job a leg has written to, however long it has waited", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    // A leg that failed before it could mark the job running still wrote its error and stamp.
+    jobs.jobs.set(JOB, {
+      ...jobs.job(),
+      error: "The pull's worker stopped (exit 1) without an answer.",
+      updatedAt: "2026-09-29T12:30:00.000Z",
+    });
+    const queued: LegTask[] = [];
+    const started = await startPullJob(
+      JOB,
+      {
+        jobs: jobs.docs,
+        enqueue: async (task: LegTask): Promise<"already"> => {
+          queued.push(task);
+          return "already";
+        },
+        now: () => new Date("2026-09-29T18:00:00.000Z"),
+      },
+      NEVER_STARTED_MS * 3
+    );
+    expect(started).toEqual({ ok: true, status: "queued" });
+    expect(queued).toEqual([{ jobId: JOB, leg: 0 }]);
+    expect(jobs.job().status).toBe("queued");
   });
 });
