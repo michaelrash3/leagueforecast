@@ -26,10 +26,29 @@ import {
 import { focusRing, pill } from "../../styles/tokens";
 
 /** A team's place nationally, as a line under its name, or nothing where none is known. */
-const nationalLine = (rank: LeagueClubRank | undefined) =>
+/**
+ * Where a team's club stands nationally, under its name, with a button to its scouting report in
+ * Team Rankings. Kept out of the team's link (its own element, beside it), since a button cannot
+ * sit inside a link.
+ */
+const nationalLine = (
+  rank: LeagueClubRank | undefined,
+  teamName: string,
+  onScout: ((rank: LeagueClubRank) => void) | undefined
+) =>
   rank ? (
-    <span className="mt-0.5 block text-xs font-semibold text-slate-500 dark:text-slate-400">
-      {nationalRankText(rank)}
+    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+      <span>{nationalRankText(rank)}</span>
+      {onScout && (
+        <button
+          type="button"
+          onClick={() => onScout(rank)}
+          className={`rounded font-bold text-blue-700 underline decoration-blue-300 underline-offset-2 hover:text-blue-500 dark:text-blue-300 dark:decoration-blue-700 dark:hover:text-blue-200 ${focusRing}`}
+          aria-label={`Scout ${teamName} in Team Rankings`}
+        >
+          Scout
+        </button>
+      )}
     </span>
   ) : null;
 
@@ -58,12 +77,15 @@ export function StandingsView({
   formatGoldMargin,
   onSelectTeam,
   nationalRank,
+  onScout,
 }: {
   /**
    * Where a team's club stood on Team Rankings when that board was last up (`leagueClubRankFor`),
    * said beside every team as the "Our team" card says it of its own; absent where none is known.
    */
   nationalRank?: (teamId: string) => LeagueClubRank | undefined;
+  /** Opens Team Rankings' scouting report on a team's club (`scoutRoute`). */
+  onScout?: (rank: LeagueClubRank) => void;
   goldCutoff: number;
   latestCompletedDate: string;
   lastImpact: LastImpact | null;
@@ -331,7 +353,7 @@ export function StandingsView({
                                 {displayName(team.name)}
                               </span>
                             </a>
-                            {nationalLine(nationalRank?.(team.id))}
+                            {nationalLine(nationalRank?.(team.id), displayName(team.name), onScout)}
                           </td>
                           <td className="px-4 py-4 text-center font-black text-slate-800 dark:text-slate-100">
                             {recordText(team)}
@@ -408,6 +430,7 @@ export function StandingsView({
               {dashboardRows.map((team, index) => {
                 const isLastInside = hasCutLine && index + 1 === goldCutoff;
                 const raceTone = raceToneForTeam(team, goldCutoff);
+                const clubRank = nationalRank?.(team.id);
                 return (
                   <li key={team.id} className={`ring-1 ring-inset ${raceRowToneClasses[raceTone]}`}>
                     <div className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
@@ -436,7 +459,6 @@ export function StandingsView({
                           <span className="block text-sm font-bold wrap-break-word text-blue-700 underline decoration-blue-300 underline-offset-4 dark:text-blue-300 dark:decoration-blue-700">
                             {displayName(team.name)}
                           </span>
-                          {nationalLine(nationalRank?.(team.id))}
                           <span className="mt-0.5 block text-xs font-bold text-slate-500 dark:text-slate-400">
                             {recordText(team)} ·{" "}
                             <span
@@ -480,6 +502,11 @@ export function StandingsView({
                         </div>
                       )}
                     </div>
+                    {clubRank && (
+                      <div className="-mt-2 px-4 pb-3">
+                        {nationalLine(clubRank, displayName(team.name), onScout)}
+                      </div>
+                    )}
                     {isLastInside && (
                       <div
                         role="separator"

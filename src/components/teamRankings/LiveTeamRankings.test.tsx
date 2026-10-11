@@ -64,6 +64,7 @@ import type { SeasonMeta } from "../../lib/storage";
 import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
 import type { LiveSources } from "../../hooks/useLiveBoard";
+import { askToScout, scoutAsked } from "../../lib/scoutRequest";
 
 /*
  * Team Rankings opened on the cloud's board (`LiveTeamRankings`), from a board published to an
@@ -507,6 +508,10 @@ describe("Team Rankings on the cloud's board", () => {
           stateOf: 2,
           movement: 0,
           at: expect.any(String),
+          // The page the board is, for League Standings' Scout button to open.
+          ageLevel: 12,
+          year: 2027,
+          segment: "spring",
         },
         "L-2": {
           clubId: "S-3",
@@ -518,6 +523,10 @@ describe("Team Rankings on the cloud's board", () => {
           stateOf: 1,
           movement: "new",
           at: expect.any(String),
+          // The page the board is, for League Standings' Scout button to open.
+          ageLevel: 12,
+          year: 2027,
+          segment: "spring",
         },
       },
       "season-2": { "L-9": STALE },
@@ -2549,6 +2558,18 @@ describe("Scouting on the cloud's board", () => {
     const next = await screen.findAllByRole("table", { name: "Next up" });
     expect(next[0]).toHaveTextContent("Placeholder S-3");
     expect(screen.getByRole("combobox", { name: /How would/ })).toHaveValue("Placeholder S-2");
+    expect(handedOver()).toBeNull();
+  });
+
+  it("reports on the club League Standings' Scout button asked for, and lets it go", async () => {
+    await withCards([MINE, THEIRS]);
+    onScouting();
+    askToScout("S-3");
+    open(sourcesOf(live));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: /How would/ })).toHaveValue("Placeholder S-3")
+    );
+    expect(scoutAsked()).toBeNull();
     expect(handedOver()).toBeNull();
   });
 

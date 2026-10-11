@@ -3058,6 +3058,17 @@ writes them: a fall league's places are read off the fall board, and looking at 
 spring one, which holds none of the league's games, leaves the card as it was rather
 than blanking it.
 
+The Standings tab reads the same cache for every team, not just the followed one: under each
+linked team's name, "#12 of 3,947 nationally", and beside it a **Scout** button (3.6). Scout
+opens Team Rankings' Scouting with that club's report up, on the page its place was read off:
+each place keeps the age level, squad year and half of its board (`clubRankPage`), and the
+button writes them into the route (`scoutRoute`), so the report is on the board the number came
+from. A place kept before pages were opens whatever page Team Rankings would have opened. The
+club itself is not put in the URL: Team Rankings carries every parameter it does not own from
+page to page, so a club named there would reopen its report on every later visit and reload.
+It is held in memory instead (`scoutRequest.ts`) and let go once a page, the cloud's board or
+this device's own, has it on screen.
+
 ## Data Quality
 
 What in a season's games, teams and settings is wrong or worth a second look, each as a

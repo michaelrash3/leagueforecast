@@ -45,7 +45,11 @@ import {
   needsAPerson,
 } from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
-import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
+import {
+  RANKINGS_COMMAND_SECTIONS,
+  rankingsSearch,
+  rankingsSectionCommandId,
+} from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
@@ -104,7 +108,8 @@ import { digestOddsMove, raceOf, type NotifyPrefs } from "./lib/seasonDigest";
 import { useSeasonDigest } from "./hooks/useSeasonDigest";
 import { useDigestNotifications } from "./hooks/useDigestNotifications";
 import { ourTeamSummary } from "./lib/ourTeam";
-import { leagueClubRankFor } from "./lib/leagueClubRanks";
+import { leagueClubRankFor, scoutRoute, type LeagueClubRank } from "./lib/leagueClubRanks";
+import { askToScout } from "./lib/scoutRequest";
 import { OurTeamCard } from "./components/league/OurTeamCard";
 import type { MachineLeft } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
@@ -2503,6 +2508,25 @@ export default function App() {
       ourTeamId && appMode === "league" ? leagueClubRankFor(activeSeasonId, ourTeamId) : undefined,
     [activeSeasonId, ourTeamId, appMode]
   );
+  /*
+   * League Standings' Scout button: Team Rankings' Scouting on the page a team's club was ranked
+   * on, with that club's report open (`scoutRoute`, `askToScout`). The route is written in place,
+   * as switching between the two halves of the app writes it (`useAppMode`), so Back does what it
+   * always has.
+   */
+  const scoutClub = useCallback(
+    (rank: LeagueClubRank) => {
+      askToScout(rank.clubId);
+      const search = rankingsSearch(window.location.search, scoutRoute(rank));
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${search}${window.location.hash}`
+      );
+      setAppMode("rankings");
+    },
+    [setAppMode]
+  );
   const ourTeam = useMemo(() => {
     const team = ourTeamId ? dashboardById.get(ourTeamId) : undefined;
     if (!team) return null;
@@ -3440,6 +3464,7 @@ export default function App() {
                   ) : activeView === "standings" ? (
                     <StandingsView
                       nationalRank={(teamId) => leagueClubRankFor(activeSeasonId, teamId)}
+                      onScout={scoutClub}
                       goldCutoff={goldCutoff}
                       latestCompletedDate={latestCompletedDate}
                       lastImpact={lastImpact}

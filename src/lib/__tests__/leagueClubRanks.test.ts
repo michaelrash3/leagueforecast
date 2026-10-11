@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  clubRankPage,
   nationalRankText,
   leagueClubRankFor,
   leagueClubRanksFrom,
   readLeagueClubRanks,
+  scoutRoute,
   writeLeagueClubRanks,
   type LeagueClubRank,
 } from "../leagueClubRanks";
@@ -57,6 +59,39 @@ describe("where a league's clubs stand on a board", () => {
     // A club with no place on the board has none to carry.
     expect(places["L-GONE"]).toBeUndefined();
   });
+
+  it("carries the page the board is, for the Scout button to open", () => {
+    const places = leagueClubRanksFrom(
+      board,
+      new Map([["L-HIVE", "S-HIVE"]]),
+      (teamId) => states[teamId],
+      null,
+      "9U 2027 · Fall 2026",
+      "2026-09-28T12:00:00.000Z",
+      clubRankPage(9, 2027, "fall")
+    );
+    expect(places["L-HIVE"]).toMatchObject({ ageLevel: 9, year: 2027, segment: "fall" });
+    // What a writer does not know is left out rather than written as nothing.
+    expect(clubRankPage(undefined, 2027, undefined)).toEqual({ year: 2027 });
+  });
+});
+
+describe("scoutRoute", () => {
+  const rank: LeagueClubRank = { clubId: "c", board: "9U 2027", rank: 3, of: 5, at: "2026-10-11" };
+
+  it("opens Scouting on the page the club's place was read off", () => {
+    expect(scoutRoute({ ...rank, ageLevel: 9, year: 2027, segment: "spring" })).toEqual({
+      mode: "rankings",
+      ageLevel: 9,
+      year: 2027,
+      segment: "spring",
+      section: "scouting",
+    });
+  });
+
+  it("opens Scouting on whatever page Team Rankings would, for a place kept before pages were", () => {
+    expect(scoutRoute(rank)).toEqual({ mode: "rankings", section: "scouting" });
+  });
 });
 
 describe("the ranks kept for League Standings", () => {
@@ -100,6 +135,23 @@ describe("the ranks kept for League Standings", () => {
       })
     );
     expect(readLeagueClubRanks()).toEqual({ "season-1": { "L-HIVE": hive } });
+    // The page it was read off is kept when it reads as one, and left out when it does not.
+    writeLeagueClubRanks("season-1", {
+      "L-HIVE": { ...hive, ageLevel: 9, year: 2027, segment: "fall" },
+    });
+    expect(leagueClubRankFor("season-1", "L-HIVE")).toEqual({
+      ...hive,
+      ageLevel: 9,
+      year: 2027,
+      segment: "fall",
+    });
+    store.set(
+      "lf_league_club_ranks_v1",
+      JSON.stringify({
+        "season-1": { "L-HIVE": { ...hive, ageLevel: 99, year: 12, segment: "summer" } },
+      })
+    );
+    expect(leagueClubRankFor("season-1", "L-HIVE")).toEqual(hive);
     store.set("lf_league_club_ranks_v1", "{not json");
     expect(readLeagueClubRanks()).toEqual({});
   });
