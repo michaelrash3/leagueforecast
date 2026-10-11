@@ -206,6 +206,13 @@ export const publishedBoardShape = (raw: unknown): number => {
 };
 
 /**
+ * Every reason `republishWanted` gives, in its order, so that what describes the republish after a
+ * deploy outside the code (the Firebase workflow's comments) can be held to naming each of them.
+ */
+export const REPUBLISH_REASONS = ["nothing", "older-schema", "older-shape"] as const;
+export type RepublishReason = (typeof REPUBLISH_REASONS)[number];
+
+/**
  * Why what is published (`live/meta` as stored, null where there is none) wants publishing again
  * by this build as soon as it is deployed, or null when it does not:
  * - `nothing`: nothing is published at all.
@@ -224,9 +231,7 @@ export const publishedBoardShape = (raw: unknown): number => {
  * current, one of a newer schema or another layout is not this build's to replace, and one whose
  * schema cannot be read is left to the publish that can say why.
  */
-export const republishWanted = (
-  raw: unknown
-): "nothing" | "older-schema" | "older-shape" | null => {
+export const republishWanted = (raw: unknown): RepublishReason | null => {
   if (raw === null || raw === undefined) return "nothing";
   if (!isRecord(raw) || raw.format !== LIVE_FORMAT || !isCount(raw.schema)) return null;
   if (raw.schema < LIVE_SCHEMA) return "older-schema";

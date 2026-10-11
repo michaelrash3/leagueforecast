@@ -15,10 +15,14 @@
 # FIREBASE_SERVICE_ACCOUNT secret are set the deploy step says so and passes, so this workflow is
 # never red for want of an account.
 #
-# A push to main that deploys then publishes the members' views again from the cloud copy, where
-# what is published is of an older schema than this build writes, or there is none
-# (`scripts/republish.ts`, README "Views a server publishes"): otherwise a deploy that raises the
-# schema leaves every member on the older schema's notice until the nightly.
+# A push to main that deploys then publishes the members' views again from the cloud copy wherever
+# this build wants them published (`republishWanted`, `scripts/republish.ts`, README "Views a server
+# publishes"): where none are published (`nothing`); where they are of an older schema than this
+# build writes (`older-schema`); and where they are of this schema but their boards are recorded
+# under an older shape than this build's (`BOARD_SHAPE`), or under none (`older-shape`), so that
+# they draw but lack what this build adds to them. Otherwise a deploy that raises the schema leaves
+# every member on the older schema's notice until the nightly, and one that raises the shape leaves
+# the boards without what it was deployed for until the next rebuild or the nightly.
 name: Firebase functions
 
 on:
@@ -146,13 +150,16 @@ jobs:
           echo "deployed=true" >> "$GITHUB_OUTPUT"
 
   # The members' views published again from the cloud copy once a push to main has deployed, only
-  # where what is published is older than this build's schema or missing (`needsRepublish`); any
-  # other time it says so and stops. It runs as the nightly does, under its day, collation and heap,
-  # since it builds every board from the whole pool. It does not share the nightly's concurrency
-  # group: a run waiting in a group is cancelled by the next to join it, which could lose a night,
-  # and the two publishing at once is what the views' store is built for (the meta is replaced only
-  # over the version read, and a late publish replaces nothing newer: README, "Views a server
-  # publishes").
+  # where this build wants them published (`republishWanted`): none published (`nothing`), an older
+  # schema (`older-schema`), or this schema with its boards recorded under an older shape or none
+  # (`older-shape`). The first deploy of a build that raises `BOARD_SHAPE` meets the last over a
+  # meta of the current schema, so a full publish, which can fail as any publish can, follows it
+  # though the schema has not moved. Any other time it says so and stops. It runs as the nightly
+  # does, under its day, collation and heap, since it builds every board from the whole pool. It
+  # does not share the nightly's concurrency group: a run waiting in a group is cancelled by the
+  # next to join it, which could lose a night, and the two publishing at once is what the views'
+  # store is built for (the meta is replaced only over the version read, and a late publish
+  # replaces nothing newer: README, "Views a server publishes").
   republish:
     needs: functions
     if: github.event_name == 'push' && needs.functions.outputs.deployed == 'true'
