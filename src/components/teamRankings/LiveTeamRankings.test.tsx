@@ -684,7 +684,7 @@ describe("Team Rankings on the cloud's board", () => {
     expect(job).toMatchObject({ status: "queued", list: { teams: 2 }, seasonYears: [] });
     expect(job?.refresh).toBeUndefined();
     expect(
-      await screen.findByText(/^Pulling 2 teams in the cloud: waiting to start, sent /)
+      await screen.findByText(/^Pulling 2 teams in the cloud: starting, sent just now\.$/)
     ).toBeTruthy();
     expect(handedOver()).toBeNull();
     expect(pool.prepared).toBe(0);
@@ -765,9 +765,7 @@ describe("Team Rankings on the cloud's board", () => {
       },
     };
     open(sourcesOf(live, { pulls: () => sender }));
-    await screen.findByText(
-      /^Pulling 9,270 teams in the cloud: waiting to start, sent just now\.$/
-    );
+    await screen.findByText(/^Pulling 9,270 teams in the cloud: starting, sent just now\.$/);
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     expect(
       await screen.findByText(/^The pull in the cloud was stopped: 0 of 9,270 teams filed/)

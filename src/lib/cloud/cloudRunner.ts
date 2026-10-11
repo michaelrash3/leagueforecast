@@ -139,7 +139,10 @@ export type CloudPullStage =
 export type CloudPullEnd =
   /** Every team asked about was answered, one way or another, and the copy saved. */
   | "finished"
-  /** Stopped before every team was asked about; what was fetched is saved. */
+  /**
+   * Stopped before every team was asked about; what was fetched is saved, and when nothing was,
+   * the run ends at once without filing or saving anything.
+   */
   | "stopped"
   /** GameChanger refused often enough that asking more would only fail more; what came is saved. */
   | "gave-up"
@@ -221,22 +224,37 @@ const contentHash = (value: unknown): Promise<string> => hashValue(inOrder(value
 
 /**
  * Reads the cloud copy's pool into the app's pool store, in memory, starting it afresh, so the
- * app's loaders (`loadScoutTeams`, `loadRefreshLog`, …) read the copy. Null when there is no copy.
- * Throws on a piece missing or damaged, and on a pool key this build does not keep.
+ * app's loaders (`loadScoutTeams`, `loadRefreshLog`, …) read the copy. Null when there is no copy,
+ * and when `signal` stopped the read before it ended, which a caller passing one tells apart by
+ * the signal: a pull in the cloud stopped while it reads the copy ends at the next of the copy's
+ * values rather than after all of them. On 11 October 2026 a 9,270-team pull stopped within a
+ * minute or so of starting ran 379 s in all and filed nothing: the stop was read only once
+ * GameChanger was to be asked, and the whole pool was tidied after it for no answer at all. Throws
+ * on a piece missing or damaged, and on a pool key this build does not keep.
  */
-export const loadPoolFrom = async (store: CloudStore): Promise<LoadedCopy | null> => {
+export const loadPoolFrom = async (
+  store: CloudStore,
+  signal?: AbortSignal
+): Promise<LoadedCopy | null> => {
   const manifest = await store.readManifest();
   if (!manifest) return null;
   const parts = manifest.parts.filter((part) => !outOfReach(part.key));
-  const fetched = await fetchValues({ store, parts });
-  if (!fetched.ok) throw new Error("A piece of the cloud copy's pool is missing or damaged.");
+  // A value at a time, as `fetchValues` reads them in any case, so a stop is seen between them.
+  const values = new Map<string, unknown>();
+  for (const part of parts) {
+    if (signal?.aborted) return null;
+    const fetched = await fetchValues({ store, parts: [part] });
+    if (!fetched.ok) throw new Error("A piece of the cloud copy's pool is missing or damaged.");
+    for (const [key, value] of fetched.values) values.set(key, value);
+  }
+  if (signal?.aborted) return null;
   resetTeamRankingsStore();
   await initTeamRankingsStore(memoryIo());
-  if (!(await applyCloudPoolValues(fetched.values))) {
+  if (!(await applyCloudPoolValues(values))) {
     throw new Error("The cloud copy holds a pool key this build does not keep.");
   }
   const said = new Map<string, string>();
-  for (const [key, value] of fetched.values) said.set(key, await contentHash(value));
+  for (const [key, value] of values) said.set(key, await contentHash(value));
   return {
     manifest,
     keys: parts.length,
@@ -416,7 +434,9 @@ export const runCloudPull = async (
     replays: 0,
   };
   deps.onStage?.({ stage: "loading" });
-  let copy = await loadPoolFrom(deps.store);
+  let copy = await loadPoolFrom(deps.store, deps.signal);
+  // Stopped before a team was asked about: nothing to file, so nothing to save.
+  if (deps.signal?.aborted) return { ...result, end: "stopped" };
   if (!copy) return { ...result, end: "no-copy" };
   if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
   /*
@@ -480,6 +500,11 @@ export const runCloudPull = async (
     ids.length === wanted.length &&
     ids.every((teamId) => answers.has(teamId));
   result.end = gaveUp ? "gave-up" : stopped ? "stopped" : "finished";
+  // Stopped with no answer to keep: the filing would tidy the whole pool for nothing, minutes of
+  // it on the function, while the person who pressed Stop watches "stopping".
+  if (stopped && result.answered === 0) {
+    return { ...result, changed: [], version: copy.manifest.version, manifest: copy.manifest };
+  }
 
   for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
     if (attempt > 0) {

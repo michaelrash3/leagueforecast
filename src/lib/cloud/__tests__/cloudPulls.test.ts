@@ -5,6 +5,7 @@ import {
   askAgain,
   describeEnd,
   describeProgress,
+  STARTING_MS,
   dueForAsking,
   loadSentPulls,
   markTold,
@@ -228,11 +229,19 @@ describe("a pull still waiting to start", () => {
   // The screen that sat for hours: a pull never started said "waiting to start" and nothing else,
   // and Stop's press changed nothing on it.
   it("says how long it has waited, what its last try said, and a stop before anything", () => {
+    // Just queued, it is starting: a leg starts within seconds while fewer than three run.
     expect(describeProgress(waitingPull(), at(0))).toBe(
-      "Pulling 1,710 teams in the cloud: waiting to start, sent just now."
+      "Pulling 1,710 teams in the cloud: starting, sent just now."
     );
     expect(describeProgress(waitingPull(), at(1))).toBe(
-      "Pulling 1,710 teams in the cloud: waiting to start, sent 1 minute ago."
+      "Pulling 1,710 teams in the cloud: starting, sent 1 minute ago."
+    );
+    expect(describeProgress(waitingPull(), at(STARTING_MS / 60_000))).toBe(
+      "Pulling 1,710 teams in the cloud: waiting to start, sent 2 minutes ago."
+    );
+    // A try that failed is never "starting".
+    expect(describeProgress(waitingPull({ error: "The worker stopped." }), at(0))).toBe(
+      "Pulling 1,710 teams in the cloud: waiting to start, sent just now. Its last try said: The worker stopped."
     );
     expect(describeProgress(waitingPull(), at(185))).toBe(
       "Pulling 1,710 teams in the cloud: waiting to start, sent 3 hours ago."
@@ -241,6 +250,30 @@ describe("a pull still waiting to start", () => {
       "Pulling 1,710 teams in the cloud: waiting to start, sent 5 minutes ago. Its last try said: The worker stopped."
     );
     expect(describeProgress(waitingPull({ stopAsked: true }), at(5))).toBe(
+      "Pulling 1,710 teams in the cloud: stopping."
+    );
+  });
+
+  // A stop pressed once teams are in: the leg files and saves them before it ends, which takes a
+  // while, and the line says so rather than "stopping" alone.
+  it("says a stopped pull is saving the teams it pulled first, once it files them", () => {
+    const stopped = (stage: PullJob["stage"], done: number, failed: number) =>
+      waitingPull({
+        status: "running",
+        stopAsked: true,
+        stage,
+        progress: { done, total: 1710, failed },
+      });
+    expect(describeProgress(stopped("filing", 1200, 4), at(3))).toBe(
+      "Pulling 1,710 teams in the cloud: stopping, saving the 1,196 teams it pulled first."
+    );
+    expect(describeProgress(stopped("saving", 1200, 4), at(3))).toBe(
+      "Pulling 1,710 teams in the cloud: stopping, saving the 1,196 teams it pulled first."
+    );
+    expect(describeProgress(stopped("fetching", 1200, 4), at(3))).toBe(
+      "Pulling 1,710 teams in the cloud: stopping."
+    );
+    expect(describeProgress(stopped("filing", 3, 3), at(3))).toBe(
       "Pulling 1,710 teams in the cloud: stopping."
     );
   });
