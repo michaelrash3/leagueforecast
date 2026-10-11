@@ -21,15 +21,18 @@ type ServiceAccount = { client_email: string; private_key: string; project_id: s
 const base64Url = (base64: string): string =>
   base64.replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
 
-/** An hour's access to Firestore for `account`, signed with its own key. */
-const accessToken = async (account: ServiceAccount): Promise<string> => {
+/** Firestore alone: what the copy's readers and writers ask for. */
+const FIRESTORE_SCOPE = "https://www.googleapis.com/auth/datastore";
+
+/** An hour's access to `scope` for `account`, signed with its own key. */
+const accessToken = async (account: ServiceAccount, scope: string): Promise<string> => {
   const now = Math.floor(Date.now() / 1000);
   const header = base64Url(btoa(JSON.stringify({ alg: "RS256", typ: "JWT" })));
   const claims = base64Url(
     btoa(
       JSON.stringify({
         iss: account.client_email,
-        scope: "https://www.googleapis.com/auth/datastore",
+        scope,
         aud: "https://oauth2.googleapis.com/token",
         iat: now,
         exp: now + 3600,
@@ -58,11 +61,14 @@ const accessToken = async (account: ServiceAccount): Promise<string> => {
  * A token for `account` that is asked for again ten minutes before its hour is up, so a job longer
  * than an hour keeps its access.
  */
-const tokens = (account: ServiceAccount): (() => Promise<string>) => {
+const tokens = (
+  account: ServiceAccount,
+  scope: string = FIRESTORE_SCOPE
+): (() => Promise<string>) => {
   let held: { token: string; until: number } | null = null;
   return async () => {
     if (!held || Date.now() > held.until) {
-      held = { token: await accessToken(account), until: Date.now() + 50 * 60_000 };
+      held = { token: await accessToken(account, scope), until: Date.now() + 50 * 60_000 };
     }
     return held.token;
   };
@@ -76,6 +82,18 @@ const accountOf = (keyJson: string): ServiceAccount => {
     // is public, and the text is a private key.
     throw new Error("FIREBASE_SERVICE_ACCOUNT is not a service account key's JSON.");
   }
+};
+
+/**
+ * The key's project, and its access to `scope`: what `pullStatus.ts` reads Cloud Tasks and Cloud
+ * Logging with, beside Firestore, under the cloud platform's scope.
+ */
+export const googleAccess = (
+  keyJson: string,
+  scope: string
+): { projectId: string; token: () => Promise<string> } => {
+  const account = accountOf(keyJson);
+  return { projectId: account.project_id, token: tokens(account, scope) };
 };
 
 /** The cloud copy's store for the key's project: read only unless `writable`. */
