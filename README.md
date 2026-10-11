@@ -2789,9 +2789,10 @@ side. So a club whose own schedule has it losing 0-13 and whose opponent's has i
 37-0 is counted as a 12-run win, the average exactly, and is told of the average alone.
 On the 29 September 2026 backup the first rule read off the row's score instead, and of
 the 88,032 lines with a margin clause it named the wrong reason on 212: the cap for 106
-averages exactly on it from a score past it, and both for 106 from a score inside it or
-on it. Then "2 runs added for playing a year up", "2 runs taken off for playing a year down" or
-4 runs for two years, for a game against another level (above).
+averages that landed exactly on it from a score past it, and both for 106 that landed
+on it from a score inside it or on it. Then "2 runs added for playing a year up", "2
+runs taken off for playing a year down" or 4 runs for two years, for a game against
+another level (above).
 
 A game against a side seen once, a stand-in or a club known only from this one schedule,
 reads nearer the club's own rating than its score would, and moves it little. With
