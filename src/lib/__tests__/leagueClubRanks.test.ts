@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  nationalRankText,
   leagueClubRankFor,
   leagueClubRanksFrom,
   readLeagueClubRanks,
@@ -101,5 +102,16 @@ describe("the ranks kept for League Standings", () => {
     expect(readLeagueClubRanks()).toEqual({ "season-1": { "L-HIVE": hive } });
     store.set("lf_league_club_ranks_v1", "{not json");
     expect(readLeagueClubRanks()).toEqual({});
+  });
+});
+
+describe("nationalRankText", () => {
+  it("says a club's place nationally with its board's size, as the standings show it", () => {
+    expect(
+      nationalRankText({ clubId: "c", board: "9U 2027", rank: 12, of: 3947, at: "2026-10-11" })
+    ).toBe("#12 of 3,947 nationally");
+    expect(
+      nationalRankText({ clubId: "c", board: "9U 2027", rank: 1204, of: 3947, at: "2026-10-11" })
+    ).toBe("#1,204 of 3,947 nationally");
   });
 });

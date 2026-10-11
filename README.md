@@ -4250,7 +4250,10 @@ ties the other way. It catches what the first cannot, such as the fit summing
 its games in another order, which moves only the last bits, and moves them on
 both sides of the parity tests at once. Any change meant to move the numbers
 updates the pins, raises the board rules' version (`BOARD_RULES`) with a
-fingerprint of its own beside the old, and says so.
+fingerprint of its own beside the old, and says so. The version was raised once
+without moving anything, to 3, as a barrier to the publishers from before the
+boards' shape ("Views a server publishes", **What each game did**); its
+fingerprint is 2's, which is how the test says no board moved.
 
 The pool these run on is `scripts/poolFixture.ts`: a seeded pool of the 26
 September 2026 pool's shape, with invented names. It has ten pages in two squad
@@ -4322,6 +4325,14 @@ of the year as it stood that day, kept for the build by page, half, fitted year 
 day, so the boards of a year that share a fit share its weeks. It is not free: on
 the 29 Sep backup, building all 33 boards went from 12.4 s to 37.2 s, the largest
 (8,334 clubs) from 631 to 660 KB gzipped, and all of them together 4.4%.
+
+**This week.** Under the page's own club, a card names the board's week from those
+same two things alone, its rows and last week's places (`weekMovers`, `thisWeek.ts`):
+who came into the top 25 and from where ("new" for a club not on last week's board),
+who fell out of it, and the three biggest climbs that end inside the top 100. Each
+name opens the club's panel. Nothing is fetched or published for it, so it draws with
+the board, and a club that has left the board altogether is not named, since the
+board no longer holds its name.
 `boardParity.test.ts` holds each row's `was` to the arrow the worker's own last-week
 board draws, and each line to the one the page walks, a club that joined the board
 last week included. Each guard was broken in turn and seen to fail a test, 22 of 22,
@@ -4424,9 +4435,9 @@ moves, goes or comes from a newer build leaves a panel as it was rather than dra
 that do not add up to the board (The live board on a member's device, **What each game
 did**; Ratings, **Game by game**).
 
-Neither number moved. A fit moves no number, row or order on a board, so `BOARD_RULES`
-stays at 2, and `boardParity.test.ts`'s fingerprints, which are of the rows alone, are
-the ones from before it. `LIVE_SCHEMA` stays at 3: a device of an older build rebuilds a
+Neither number moved. A fit moves no number, row or order on a board, so it raised no
+`BOARD_RULES` of its own, and `boardParity.test.ts`'s fingerprints, which are of the rows
+alone, are the ones from before it. `LIVE_SCHEMA` stays at 3: a device of an older build rebuilds a
 board field by field (`coerceBoardView`) and drops a fit unread, and a board without
 one draws as before. The app and the boards' publishers deploy apart, so a raise would
 have put every device of the new build on the older schema's notice until a publisher
@@ -4439,6 +4450,24 @@ built them from (`BuiltFrom.shape`, which devices do not read), the republish af
 deploy (below) publishes again over boards recorded under an older shape or none, and a
 server's rebuild finds such boards stale however current their inputs (`boardsState`),
 while it leaves boards of a newer shape alone.
+
+Recording the shape was not enough on its own (found by Codex on #371). A publisher
+from before it knows nothing of a shape, so one still running once the boards carried a
+fit (a rebuild or a nightly on the older build, a GitHub re-run of an older run, which
+checks out that run's own commit, or a rollback) found the boards stale or current by
+their rules alone, which were its own, and its publish was let through: it wrote boards
+with no fit over them, and a meta that had dropped the shape it could not read, and
+members went without what each game did until a publisher of the new build ran again.
+A raise of the rules is the one thing such a publisher stands aside for, its rebuild
+before it builds and its publish before it writes, and neither its rebuilds nor its
+nightly count that as a failure. So `BOARD_RULES` went to 3 with nothing moved, its
+fingerprint 2's. A device of a build from before it labels the boards as built by
+another version of the app until it loads a newer one, which is so. A later change of
+shape needs no such raise: under the same rules, a publish of an older shape than the
+boards published is refused as one under older rules is, and a rebuild stands aside
+for such boards before it builds. And the republish after a deploy runs where the
+boards were built under older rules than the build's (`older-rules`), since rules
+raised as a barrier bar nothing until boards under them are out.
 
 `boardFit.test.ts` holds every board's fit on every page and span of the seeded fixture
 to the fit its rows were cut from, fitted again: the sides away exactly those its rows'

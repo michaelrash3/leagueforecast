@@ -86,7 +86,13 @@ export const boardsState = async (
   if (meta && meta.schema > LIVE_SCHEMA) return "newer-schema";
   const built = meta?.built[BOARD_FAMILY];
   if (!meta || !built) return "stale";
-  if (built.rules > BOARD_RULES) return "older-rules";
+  // A newer shape under the same rules is stood aside for as newer rules are (`publishViews`).
+  if (
+    built.rules > BOARD_RULES ||
+    (built.rules === BOARD_RULES && (built.shape ?? 0) > BOARD_SHAPE)
+  ) {
+    return "older-rules";
+  }
   if (today < built.today) return "older-day";
   const current =
     meta.schema === LIVE_SCHEMA &&

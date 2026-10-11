@@ -37,6 +37,7 @@ import { boardKey, lastWeekOf, withMine } from "../../lib/live/views/boardShape"
 import { leagueClubRanksFrom, writeLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { myTeamGlance } from "../../lib/myTeamGlance";
 import { movementOf } from "../../lib/rankMovement";
+import { weekMovers } from "../../lib/thisWeek";
 import {
   buildUpcomingSchedule,
   rankingPoolGroupIds,
@@ -371,6 +372,8 @@ function LiveBoard({
     board?.view.history && board.view.history.teamId === myTeamId
       ? board.view.history.points
       : undefined;
+  // The board's week, from its rows and last week's places alone (`weekMovers`).
+  const thisWeek = useMemo(() => weekMovers(rows, lastWeek), [rows, lastWeek]);
   const boardMovement = useCallback(
     (row: ScoutRankingRow) => movementOf(row.teamId, row.overallRank ?? row.rank, lastWeek),
     [lastWeek]
@@ -914,6 +917,7 @@ function LiveBoard({
             onRemoveTeam={() => undefined}
             readOnly={edits.locked !== null}
             myTeam={myTeam}
+            thisWeek={thisWeek}
             myTeamNextPending={myTeamId !== undefined && !mineCard.card && !mineCard.failed}
             myTeamNextUnread={mineCard.failed}
             {...(rankHistory ? { rankHistory } : {})}

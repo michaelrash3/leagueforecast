@@ -18,10 +18,28 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * its numbers (`BoardFacts`) moves no number, row or order, so it raises nothing here; a change to
  * that shape raises `LIVE_SCHEMA`.
  *
+ * It was raised once without moving anything, to 3, as a barrier to the publishers from before the
+ * boards' shape (`BOARD_SHAPE`). Those know nothing of a shape. One still running once the boards
+ * carried a fit (a rebuild or a nightly on the older build, a GitHub re-run of an older run, which
+ * checks out that run's own commit, or a rollback) found the boards stale or current by their rules
+ * alone, which were its own, so its publish was let through: it wrote boards with no fit over them,
+ * and a meta that had dropped the shape it could not read, and members went without what each game
+ * did until a publisher of the new build ran again (found by Codex on #371). A raise of the rules is
+ * the one thing such a publisher stands aside for, its rebuild before it builds and its publish
+ * before it writes, and neither its rebuilds nor its nightly count that as a failure. So 3 moved no
+ * number, row or order, and `boardParity.test.ts` holds it to 2's fingerprint. A device of a build
+ * from before it labels the boards as built by another version of the app (`liveLabel`) until it
+ * loads a newer build, which is so.
+ *
+ * A later change of shape needs no such raise: every build that records the shape refuses a publish
+ * of an older shape than the boards published, as it refuses one under older rules.
+ *
  * 1: the boards as L2 first built them. 2: a league team said not to be in Team Rankings carried
- * onto a club of its own (`offClubIdFor`), not onto a club of its name.
+ * onto a club of its own (`offClubIdFor`), not onto a club of its name. 3: nothing moved; raised so
+ * that the publishers from before the boards' shape stand aside for boards that carry a fit
+ * (`BOARD_SHAPE` 1).
  */
-export const BOARD_RULES = 2;
+export const BOARD_RULES = 3;
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of

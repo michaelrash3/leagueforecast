@@ -311,9 +311,10 @@ describe("where the published boards stand against a copy", () => {
     expect(await boardsState(unrecorded, copy, "2027-04-15")).toBe("stale");
     const older = await metaWith({ shape: BOARD_SHAPE - 1 });
     expect(await boardsState(older, copy, "2027-04-15")).toBe("stale");
-    // A newer build's boards carry more than this build's would.
+    // A newer build's boards carry more than this build's would, so this build's rebuild stands
+    // aside for them rather than writing boards without it (Codex, #371).
     const newer = await metaWith({ shape: BOARD_SHAPE + 1 });
-    expect(await boardsState(newer, copy, "2027-04-15")).toBe("current");
+    expect(await boardsState(newer, copy, "2027-04-15")).toBe("older-rules");
   });
 
   it("are current only when built from the same League Standings seasons, whether documents or the copy's part", async () => {
