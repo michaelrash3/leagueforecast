@@ -13,6 +13,12 @@ import { coerceAgelessCleared, type AgelessClearedPass } from "./agelessCleared"
 import { coerceKeptApart, keptApartList, type KeptApart } from "./keptApart";
 import { coerceNotThisTeam, notThisTeamList, type NotThisTeam } from "./notThisTeam";
 import {
+  autoRemovalsList,
+  coerceAutoRemovals,
+  type AutoRemoval,
+  type AutoRemovals,
+} from "./autoRemoved";
+import {
   coerceDeletedClubs,
   coerceDeletedGames,
   deletedClubsList,
@@ -190,6 +196,13 @@ const GC_AGE_RIGHT_KEY = "league_forecast_gc_age_right_v1";
  * opposite of, and for the same reason: the ids come back unchanged on the next pull.
  */
 const GC_NOT_THIS_TEAM_KEY = "league_forecast_gc_not_this_team_v1";
+/**
+ * The clubs taken off every board as plainly made up (`autoRemoved.ts`), by GameChanger id, each
+ * with why and when. Kept beside the clubs said to be real, which it is the other side of, and for
+ * the same reason: the ids come back unchanged on the next pull. A pool key, so the nightly that
+ * makes the marks and every device that shows them read the same ones off the cloud copy.
+ */
+const GC_AUTO_REMOVED_KEY = "league_forecast_gc_auto_removed_v1";
 /**
  * The ids GameChanger says are below the youngest level ranked here.
  *
@@ -488,6 +501,7 @@ const POOL_KEYS = [
   GC_REAL_CLUBS_KEY,
   GC_AGE_RIGHT_KEY,
   GC_NOT_THIS_TEAM_KEY,
+  GC_AUTO_REMOVED_KEY,
   GC_TOO_YOUNG_KEY,
   GC_REFUSED_KEY,
   GC_NAMED_AGES_KEY,
@@ -1550,6 +1564,13 @@ export const loadNotThisTeam = (): Set<string> =>
 export const saveNotThisTeam = (refused: NotThisTeam): boolean =>
   writeValue(GC_NOT_THIS_TEAM_KEY, notThisTeamList(refused));
 
+/** The clubs taken off every board as plainly made up, by GameChanger id (`autoRemoved.ts`). */
+export const loadAutoRemoved = (): Map<string, AutoRemoval> =>
+  coerceAutoRemovals(readValue(GC_AUTO_REMOVED_KEY));
+
+export const saveAutoRemoved = (marks: AutoRemovals): boolean =>
+  writeValue(GC_AUTO_REMOVED_KEY, autoRemovalsList(marks));
+
 export const loadTooYoungClubs = (): Set<string> =>
   coerceTooYoungClubs(readValue(GC_TOO_YOUNG_KEY));
 
@@ -1740,9 +1761,10 @@ export const isCloudPoolKey = (key: string): boolean =>
  * `clubViews` through `loadNamedAges` as well; `searchViews` through `loadScoutGames` and the lists
  * of GameChanger ids kept off every page): the roster, the age groups, each year's games, the
  * one-key games of an older pool with the index of years they are split against, the ages a person
- * named, which a card's age reads, and the teams waiting on an age, thrown out or too young, which
- * a list says a pasted id is among. No other pool key changes a view, so a save that changes none
- * of these leaves them as they were.
+ * named, which a card's age reads, the teams waiting on an age, thrown out or too young, which
+ * a list says a pasted id is among, and the clubs taken off as plainly made up, which every view
+ * leaves out (`deriveAllKnown`). No other pool key changes a view, so a save that changes none of
+ * these leaves them as they were.
  */
 export const isBoardInputKey = (key: string): boolean =>
   key === TEAMS_KEY ||
@@ -1753,6 +1775,7 @@ export const isBoardInputKey = (key: string): boolean =>
   key === GC_AGELESS_KEY ||
   key === GC_DROPPED_CLUBS_KEY ||
   key === GC_TOO_YOUNG_KEY ||
+  key === GC_AUTO_REMOVED_KEY ||
   isGamesShardKey(key);
 
 /** Every key this browser would put in its cloud copy now: each one it holds a value for. */

@@ -40,6 +40,7 @@ import {
   loadAgeGroups,
   loadAgeRightClubs,
   loadAgeUnknown,
+  loadAutoRemoved,
   loadDroppedClubs,
   loadKeptApart,
   loadNamedAges,
@@ -430,6 +431,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         teams: loadScoutTeams(),
         yearGames: loadScoutGamesForYear(ageGroupYear(page)),
         readSeason: seasons,
+        autoRemoved: loadAutoRemoved(),
       });
       const games = gamesOnPages(known.games, rankingPoolGroupIds(page.id, ageGroups));
       // Found among the club's games of the year, as its card lists them; fitted on the page's pool.
@@ -460,6 +462,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         teams: loadScoutTeams(),
         yearGames: loadScoutGamesForYear(ageGroupYear(page)),
         readSeason: seasons,
+        autoRemoved: loadAutoRemoved(),
       });
       return {
         kind: "model.check",
@@ -553,7 +556,12 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
     case "health.summary":
       return {
         kind: "health.summary",
-        summary: poolHealthSummary(storedState(), query.today, storedGamesByYear()),
+        summary: poolHealthSummary(
+          storedState(),
+          query.today,
+          storedGamesByYear(),
+          loadAutoRemoved()
+        ),
         answers: {
           ageRight: [...loadAgeRightClubs()],
           realClubs: [...loadRealClubs()],
@@ -641,6 +649,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         teams: loadScoutTeams(),
         yearGames: loadScoutGamesForYear(ageGroupYear(page)),
         readSeason: seasons,
+        autoRemoved: loadAutoRemoved(),
       });
       const onPage = known.games.filter((game) => game.ageGroupId === page.id);
       return {

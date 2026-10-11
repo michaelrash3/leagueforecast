@@ -50,6 +50,11 @@ export type SearchWire = {
   dropped: string[];
   waiting: Array<[gcId: string, name: string] | [gcId: string]>;
   tooYoung: string[];
+  /**
+   * The GameChanger ids of clubs taken off as plainly made up, each with its day. Left out when
+   * there are none, as every list published before they were kept leaves them out.
+   */
+  removed?: Array<[gcId: string, day: string]>;
 };
 
 /**
@@ -86,6 +91,7 @@ export const encodeSearch = (view: SearchView): SearchWire => {
       row.name === undefined ? [row.teamId] : [row.teamId, row.name]
     ),
     tooYoung: [...view.held.tooYoung],
+    ...(view.held.removed && view.held.removed.size > 0 ? { removed: [...view.held.removed] } : {}),
   };
 };
 
@@ -134,9 +140,25 @@ export const coerceSearch = (raw: unknown): SearchView | null => {
     if (!isId(teamId) || (entry.length === 2 && typeof name !== "string")) return null;
     ageless.push(typeof name === "string" ? { teamId, name } : { teamId });
   }
+  let removed: Map<string, string> | undefined;
+  if (raw.removed !== undefined) {
+    if (!Array.isArray(raw.removed)) return null;
+    removed = new Map();
+    for (const entry of raw.removed as unknown[]) {
+      if (!Array.isArray(entry) || entry.length !== 2) return null;
+      const [gcId, day] = entry as unknown[];
+      if (!isId(gcId) || !isId(day)) return null;
+      removed.set(gcId, day);
+    }
+  }
   return {
     options,
     pageOf,
-    held: { dropped: new Set(raw.dropped), ageless, tooYoung: new Set(raw.tooYoung) },
+    held: {
+      dropped: new Set(raw.dropped),
+      ageless,
+      tooYoung: new Set(raw.tooYoung),
+      ...(removed ? { removed } : {}),
+    },
   };
 };

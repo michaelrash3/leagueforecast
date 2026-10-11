@@ -2,6 +2,7 @@ import {
   loadAgeGroups,
   loadAgeUnknown,
   loadAgeRightClubs,
+  loadAutoRemoved,
   loadDeletedGames,
   loadDroppedClubs,
   loadKeptApart,
@@ -15,6 +16,7 @@ import {
   saveAgeGroups,
   saveAgeRightClubs,
   saveAgeUnknown,
+  saveAutoRemoved,
   saveDeletedGames,
   saveDroppedClubs,
   saveKeptApart,
@@ -71,6 +73,7 @@ export const storedPool: PoolRead = {
   ageless: loadAgeUnknown,
   cadence: loadRefreshCadence,
   orgs: loadOrgMembership,
+  autoRemoved: loadAutoRemoved,
 };
 
 const writePart = (write: PoolWrite): boolean => {
@@ -91,6 +94,8 @@ const writePart = (write: PoolWrite): boolean => {
       return saveRefreshCadence(write.cadence);
     case "orgs":
       return saveOrgMembership(write.membership);
+    case "autoRemoved":
+      return saveAutoRemoved(write.marks);
   }
 };
 
@@ -142,6 +147,10 @@ export const writtenTeams = (run: CommandRun) =>
 /** The named ages a run wrote, if it wrote them. */
 export const writtenNamedAges = (run: CommandRun) =>
   run.ok ? run.writes.find((write) => write.part === "namedAges")?.named : undefined;
+
+/** The marks of clubs taken off as plainly made up a run wrote, if it wrote them. */
+export const writtenAutoRemoved = (run: CommandRun) =>
+  run.ok ? run.writes.find((write) => write.part === "autoRemoved")?.marks : undefined;
 
 /** The pages a run wrote, if it wrote them. */
 export const writtenGroups = (run: CommandRun) =>

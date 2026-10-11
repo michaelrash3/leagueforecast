@@ -359,6 +359,78 @@ describe("Pool health's buttons, sent as edits", () => {
     expect(call.sent[0]?.command).toEqual({ kind: "club.drop", teamId: "S-1" });
   });
 
+  describe("Removed for you", () => {
+    const TAKEN = {
+      ...OPENED,
+      summary: {
+        ...OPENED.summary,
+        removed: [
+          {
+            teamId: "S-9",
+            name: "Placeholder Demo",
+            gcTeamIds: ["gc-9a", "gc-9b"],
+            on: "2027-04-14",
+            reasons: ["named 'demo'"],
+          },
+        ],
+      },
+    };
+
+    it("lists a club taken off with why and when, apart from the clubs that may not be real", async () => {
+      show(editFunction({ "health.summary": TAKEN }));
+      const list = await screen.findByRole("list", { name: "Removed for you" });
+      expect(within(list).getByText("Placeholder Demo")).toBeTruthy();
+      expect(within(list).getByText("2027-04-14: named 'demo'")).toBeTruthy();
+      expect(
+        within(list)
+          .getAllByRole("link")
+          .map((link) => link.getAttribute("href"))
+      ).toEqual([expect.stringContaining("gc-9a"), expect.stringContaining("gc-9b")]);
+    });
+
+    it("puts one back as real with an undo, and deletes one for good with an undo", async () => {
+      const call = editFunction({ "health.summary": TAKEN });
+      show(call);
+      const list = await screen.findByRole("list", { name: "Removed for you" });
+      fireEvent.click(within(list).getByRole("button", { name: "Put back" }));
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      expect(call.sent[0]).toEqual({
+        command: {
+          kind: "batch",
+          commands: [
+            { kind: "autoRemoved", put: [], forget: ["gc-9a", "gc-9b"] },
+            { kind: "answers", list: "realClubs", add: ["gc-9a", "gc-9b"], remove: [] },
+          ],
+        },
+        said: {
+          done: "Placeholder Demo is back on the boards, kept as real.",
+          undo: true,
+          afterUndo: expect.any(Function),
+        },
+      });
+      fireEvent.click(
+        within(await screen.findByRole("list", { name: "Removed for you" })).getByRole("button", {
+          name: "Delete for good",
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(2));
+      expect(call.sent[1]).toEqual({
+        command: { kind: "club.drop", teamId: "S-9" },
+        said: {
+          done: "Deleted Placeholder Demo for good.",
+          undo: true,
+          afterUndo: expect.any(Function),
+        },
+      });
+    });
+
+    it("draws nothing of it from a server that says nothing of them", async () => {
+      show(editFunction({ "health.summary": OPENED }));
+      await screen.findByText("Placeholder S-1");
+      expect(screen.queryByRole("list", { name: "Removed for you" })).toBeNull();
+    });
+  });
+
   it("keeps a club off the list as real once the server has kept the answer, and puts it back", async () => {
     const call = editFunction({ "health.summary": OPENED });
     show(call);

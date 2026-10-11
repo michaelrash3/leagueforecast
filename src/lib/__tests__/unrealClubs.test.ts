@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unrealClubs, withoutClub } from "../unrealClubs";
+import { unrealClubs, withoutClub, withoutClubs } from "../unrealClubs";
 import { forgetClubs, isDeletedClub, restoreClubs } from "../deletedGames";
 import { createGcImporter, type GcImportState } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
@@ -324,5 +324,25 @@ describe("deleting a club that is not one", () => {
       [group]
     );
     expect(alone.teams.some((one) => one.id === "S-BEARS")).toBe(false);
+  });
+
+  /*
+   * The boards leave a club taken off as plainly made up out the way Delete club takes it out
+   * (`withoutClubs`, read by `deriveAllKnown`), so the two never drift apart.
+   */
+  it("takes one club out as Delete club does, and several with no row left naming any", () => {
+    const one = withoutClub({ teamId: "S-BEARS", gameIds: ["gc_gcBEARS_b1"] }, teams, pool, [
+      group,
+    ]);
+    expect(withoutClubs(new Set(["S-BEARS"]), teams, pool, [group])).toEqual(one);
+    // The Owls' row claimed into the Hawks' copy was filed against the Bears, who go too: it goes
+    // with them, whichever of the two is taken first, rather than stand up against a club gone.
+    const two = withoutClubs(new Set(["S-BEARS", "S-HAWKS"]), teams, pool, [group]);
+    expect(two.games.map((one) => one.id)).toEqual(["gc_gcACES_a1"]);
+    expect(two.teams.map((one) => one.id)).toEqual(["S-ACES", "S-OWLS", "S-SHARKS"]);
+    // None, and the pool is the pool.
+    const none = withoutClubs(new Set(), teams, pool, [group]);
+    expect(none.teams).toBe(teams);
+    expect(none.games).toBe(pool);
   });
 });

@@ -4,7 +4,8 @@ import { squadYearHoldings, type SquadYearHolding } from "./poolHealth";
 import { isImplausibleScore, ratedMargin } from "./teamRankings";
 import { ageGroupYear } from "./teamRankings/seasons";
 import type { ScoutGame } from "./teamRankings/types";
-import { clubsByGcId, filedBy, unrealClubs, type UnrealClub } from "./unrealClubs";
+import { clubsByGcId, filedBy, unrealClubs, withoutClubs, type UnrealClub } from "./unrealClubs";
+import { removedClubIds, removedForYou, type AutoRemovals, type RemovedClub } from "./autoRemoved";
 
 /**
  * What Pool health shows as it opens, before anyone asks it to look harder (`PoolHealthCard`): what
@@ -45,14 +46,30 @@ export type PoolHealthSummary = {
    * always drew one.
    */
   clubs: Record<string, { name: string; gcId?: string }>;
+  /**
+   * The clubs taken off as plainly made up (`autoRemoved.ts`), newest first, which the lists above
+   * leave out. Absent from a server's answer from before they were kept, which is the same as none.
+   */
+  removed?: RemovedClub[];
 };
 
-/** What Pool health shows as it opens, from `pool`, on `today`, with the stored games per year. */
+/**
+ * What Pool health shows as it opens, from `pool`, on `today`, with the stored games per year. A
+ * club `marks` takes off (`removedClubIds`) is on none of its lists but its own, "Removed for you":
+ * its games count for nothing and the boards leave it out, so there is nothing left to ask about it
+ * but whether to put it back or delete it for good.
+ */
 export const poolHealthSummary = (
-  pool: GcImportState,
+  whole: GcImportState,
   today: string,
-  storedByYear: { year: number | undefined; games: number }[]
+  storedByYear: { year: number | undefined; games: number }[],
+  marks: AutoRemovals
 ): PoolHealthSummary => {
+  const removed = removedClubIds(whole.teams, whole.ageGroups, marks);
+  const pool =
+    removed.size === 0
+      ? whole
+      : { ...whole, ...withoutClubs(removed, whole.teams, whole.games, whole.ageGroups) };
   const clubOfGcId = clubsByGcId(pool.teams);
   const yearOfPage = new Map(pool.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
   const rowOf = (game: ScoutGame): HealthGame => ({
@@ -86,11 +103,12 @@ export const poolHealthSummary = (
     clubs[id] = { name: team.name, ...(gcId === undefined ? {} : { gcId }) };
   }
   return {
-    holdings: squadYearHoldings(pool.ageGroups, pool.teams, storedByYear),
+    holdings: squadYearHoldings(whole.ageGroups, whole.teams, storedByYear),
     datedAhead,
     implausible,
     suspected: unrealClubs(pool, today),
     clubs,
+    removed: removedForYou(whole.teams, whole.ageGroups, marks),
   };
 };
 

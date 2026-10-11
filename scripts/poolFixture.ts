@@ -45,6 +45,7 @@ import {
   type ScoutTeam,
 } from "../src/lib/teamRankings.ts";
 import type { GameLog, Matchup, TeamBase } from "../src/lib/types.ts";
+import type { AutoRemoval } from "../src/lib/autoRemoved.ts";
 
 /** The day the fixture's pool is read on: spring of squad year 2027, a few weeks in. */
 export const FIXTURE_TODAY = "2027-04-15";
@@ -471,6 +472,48 @@ export const poolFixture = ({
   claim(pageId(13, 2027), "fx-shared");
 
   return { today, ageGroups, teams: clubs.map((club) => club.team), games, seasons };
+};
+
+/**
+ * One club of a fixture taken off as plainly made up, marked under every one of its GameChanger
+ * ids as the nightly sweep marks one (`autoRemoved.ts`): the first pulled club filed on this
+ * year's 10U page alone, playing four games or more, that no page calls its own and no League
+ * Standings season names. It plays on the page's board, so leaving it off moves the board.
+ */
+export const madeUpClub = (
+  fixture: PoolFixture
+): { club: ScoutTeam; marks: Map<string, AutoRemoval> } => {
+  const named = new Set(
+    Object.values(fixture.seasons).flatMap((season) =>
+      season.teams.flatMap((team) => [team.name, team.scoutTeamId ?? ""])
+    )
+  );
+  const club = fixture.teams.find(
+    (team) =>
+      (team.gcTeams ?? []).length > 0 &&
+      (team.gcTeams ?? []).every((link) => link.ageGroupId === "ag_10u_2027") &&
+      !fixture.ageGroups.some((group) => group.myTeamId === team.id) &&
+      !named.has(team.name) &&
+      !named.has(team.id) &&
+      fixture.games.filter((game) => game.teamAId === team.id || game.teamBId === team.id).length >=
+        4
+  );
+  if (!club) throw new Error("the fixture has no club to take off");
+  return {
+    club,
+    marks: new Map(
+      (club.gcTeams ?? []).map((link): [string, AutoRemoval] => [
+        link.teamId,
+        {
+          gcTeamId: link.teamId,
+          name: club.name,
+          on: fixture.today,
+          signs: ["named"],
+          word: "demo",
+        },
+      ])
+    ),
+  };
 };
 
 /**

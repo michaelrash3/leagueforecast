@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NO_REMOVALS } from "../../autoRemoved";
 import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
 import { chunkId } from "../../cloud/cloudManifest";
 import { hashJson, unpackChunks } from "../../cloud/cloudPack";
@@ -1196,6 +1197,7 @@ describe("the boards as views", () => {
     return boardViews(
       fixture.ageGroups,
       buildBoardsAndFacts({
+        autoRemoved: NO_REMOVALS,
         ageGroups: fixture.ageGroups,
         teams: fixture.teams,
         gamesOfYear: byYear,

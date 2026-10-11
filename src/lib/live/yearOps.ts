@@ -6,6 +6,7 @@ import {
   forgetArchivedSeason,
   loadAgeGroups,
   loadArchiveIndex,
+  loadAutoRemoved,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -82,6 +83,7 @@ export const planYearArchive = (year: number, seasons: SeasonReader, at: string)
     teams: stored.teams,
     yearGames: loadScoutGamesForYear(year),
     readSeason: seasons,
+    autoRemoved: loadAutoRemoved(),
   });
   const shown = {
     teams: known.teams,

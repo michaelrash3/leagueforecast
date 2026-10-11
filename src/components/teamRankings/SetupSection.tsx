@@ -16,6 +16,7 @@ import type { AgeUnknownList } from "../../lib/ageUnknown";
 import type { NamedAges } from "../../lib/namedAges";
 import type { DeletedClubs } from "../../lib/deletedGames";
 import type { UnrealClub } from "../../lib/unrealClubs";
+import type { AutoRemovals, RemovedClub } from "../../lib/autoRemoved";
 import type { GcImportState } from "../../lib/gameChangerImport";
 import type { TidyOutcome } from "../../hooks/usePoolTidy";
 import type { PoolCommand } from "../../lib/live/commands";
@@ -75,6 +76,10 @@ type SetupSectionProps = {
     ) => Promise<BulkAgeResult | null>;
     /** Runs a command as the page runs every edit, saying so when the store refuses it. */
     runCommand: (command: PoolCommand) => CommandRun;
+    /** The clubs taken off as plainly made up, and putting one back or deleting it for good. */
+    autoRemoved: AutoRemovals;
+    onPutBack: (club: RemovedClub) => boolean;
+    onDeleteRemoved: (club: RemovedClub) => boolean;
   };
   /** The years that could be frozen or deleted, and the one the app is showing as current. */
   archive: {
@@ -155,6 +160,9 @@ export function SetupSection({
         onSetAge={poolHealth.onSetAge}
         onSetAges={poolHealth.onSetAges}
         runCommand={poolHealth.runCommand}
+        autoRemoved={poolHealth.autoRemoved}
+        onPutBack={poolHealth.onPutBack}
+        onDeleteRemoved={poolHealth.onDeleteRemoved}
       />
 
       <ModelCheckCard

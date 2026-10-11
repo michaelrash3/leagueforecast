@@ -14,6 +14,7 @@ import { poolHealthSummary } from "../../lib/poolHealthSummary";
 import type { WrongAgeClub } from "../../lib/wrongAge";
 import type { UnrealClub } from "../../lib/unrealClubs";
 import { todayIsoDay } from "../../lib/date";
+import type { AutoRemovals, RemovedClub } from "../../lib/autoRemoved";
 import { unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { poolNamesCsvFilename, poolNamesCsvParts } from "../../lib/poolNamesCsv";
 import { standInFixturesCsvFilename, standInFixturesCsvParts } from "../../lib/standInFixturesCsv";
@@ -65,6 +66,12 @@ type PoolHealthCardProps = {
   onSetAges?: (clubs: readonly WrongAgeClub[]) => Promise<BulkAgeResult | null>;
   /** Runs a command on the pool as the page runs every edit, saying so when the store refuses it. */
   runCommand: (command: PoolCommand) => CommandRun;
+  /** The clubs taken off as plainly made up, as the page holds them (`autoRemoved.ts`). */
+  autoRemoved: AutoRemovals;
+  /** Puts a club taken off back on the boards and says it is real, offering Undo. */
+  onPutBack: (club: RemovedClub) => boolean;
+  /** Deletes a club taken off for good, as Delete club does, offering Undo. */
+  onDeleteRemoved: (club: RemovedClub) => boolean;
 };
 
 /** The answers as this browser has them stored. */
@@ -92,6 +99,9 @@ export function PoolHealthCard({
   onSetAge,
   onSetAges,
   runCommand,
+  autoRemoved,
+  onPutBack,
+  onDeleteRemoved,
 }: PoolHealthCardProps) {
   const { ageGroups, teams, games } = pool;
   /*
@@ -102,8 +112,14 @@ export function PoolHealthCard({
    * was ever there.
    */
   const summary = useMemo(
-    () => poolHealthSummary({ ageGroups, teams, games }, todayIsoDay(), storedGamesByYear()),
-    [ageGroups, teams, games]
+    () =>
+      poolHealthSummary(
+        { ageGroups, teams, games },
+        todayIsoDay(),
+        storedGamesByYear(),
+        autoRemoved
+      ),
+    [ageGroups, teams, games, autoRemoved]
   );
   /*
    * A pull keeps running when its panel is closed, so this card can be looking at a pool that is
@@ -160,6 +176,13 @@ export function PoolHealthCard({
     },
     dropGames: (ids, why) => onDropGames(ids, why),
     dropClub: onDropClub,
+    // The answers as stored after it, since putting a club back says it is real.
+    putBack: (club) => {
+      const done = onPutBack(club);
+      if (done) setAnswers(storedAnswers());
+      return done;
+    },
+    deleteRemoved: onDeleteRemoved,
     confirmScore: (game) => onConfirmScore(game.id),
     merge: (from, into) => onMergeTeams(from.id, into.id),
     ...(onSetAge

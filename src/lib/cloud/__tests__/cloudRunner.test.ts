@@ -6,6 +6,7 @@ import {
   cloudPoolKeys,
   flushPoolWrites,
   initTeamRankingsStore,
+  loadAutoRemoved,
   loadDroppedClubs,
   loadRefreshLog,
   loadScoutGames,
@@ -17,6 +18,7 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveRefreshCadence,
+  saveRealClubs,
   saveRefreshLog,
   saveRefusedClubs,
   saveScoutGames,
@@ -252,6 +254,78 @@ describe("a pull run on the cloud copy", () => {
     const result = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
     expect(result).toMatchObject({ end: "nothing-due", asked: 0 });
     expect(result.manifest).toEqual(before);
+  });
+
+  /*
+   * The sweep for clubs plainly made up (`obviousFakes.ts`) runs on the copy after every pull's
+   * tidy, and on a night with nothing to pull, its marks saved in the run's one commit.
+   */
+  describe("the sweep for clubs plainly made up", () => {
+    const MARKS = "league_forecast_gc_auto_removed_v1";
+    const ROUTER = "gcROUTER0001";
+    const routs = schedule(ROUTER, "Router", [
+      game("r1", "Owls", 40, 0),
+      { ...game("r2", "Hawks", 41, 0), id: "r2", date: "2026-09-21" },
+    ]);
+    const twelve = { ...routs, profile: { ...routs.profile, name: "Router 12U", ageLevel: 12 } };
+    const demo = (gcId: string) => () =>
+      saveScoutTeams([
+        {
+          id: "S-DEMO",
+          name: "Demo Squad",
+          gcTeams: [{ teamId: gcId, name: "Demo Squad", ageGroupId: "ag_9u_2027", ageLevel: 9 }],
+        },
+      ]);
+
+    it("marks a club its pull filed with two routs no loser's schedule lists, in the same commit", async () => {
+      const cloud = memoryCloud();
+      const before = await seed(cloud);
+      const result = await runCloudPull(
+        { kind: "list", entries: [{ teamId: ROUTER }], seasonYears: [2027] },
+        deps(cloud, "2026-09-29T13:00:00.000Z", {
+          fetchTeams: async (ids) =>
+            new Map(ids.map((id) => [id, { ok: true, schedule: twelve } as GcTeamResponse])),
+        })
+      );
+      expect(result).toMatchObject({ end: "finished", filed: 1 });
+      expect(result.version).toBe(before.version + 1);
+      expect(result.changed).toEqual(
+        expect.arrayContaining([MARKS, "league_forecast_scout_teams_v1"])
+      );
+      resetTeamRankingsStore();
+      await loadPoolFrom(cloud.store);
+      expect(loadAutoRemoved().get(ROUTER)?.signs).toEqual(["wins"]);
+    });
+
+    it("commits only the marks on a night with nothing to pull", async () => {
+      const cloud = memoryCloud();
+      const before = await seed(cloud, () => {
+        saveDroppedClubs(new Set([ACES, BEARS]));
+        demo("gcDEMO000001")();
+      });
+      const result = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+      expect(result).toMatchObject({ end: "nothing-due", asked: 0, changed: [MARKS] });
+      expect(result.version).toBe(before.version + 1);
+      expect(result.manifest).toEqual(cloud.manifest());
+      resetTeamRankingsStore();
+      await loadPoolFrom(cloud.store);
+      expect([...loadAutoRemoved().keys()]).toEqual(["gcDEMO000001"]);
+      // And the next night, with nothing new, writes nothing.
+      const again = await runCloudPull(list, deps(cloud, "2026-09-30T13:00:00.000Z"));
+      expect(again).toMatchObject({ end: "nothing-due", changed: [], version: result.version });
+    });
+
+    it("never marks a club said to be real", async () => {
+      const cloud = memoryCloud();
+      const before = await seed(cloud, () => {
+        saveDroppedClubs(new Set([ACES, BEARS]));
+        demo("gcDEMO000001")();
+        saveRealClubs(new Set(["gcDEMO000001"]));
+      });
+      const result = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+      expect(result).toMatchObject({ end: "nothing-due", changed: [] });
+      expect(result.manifest).toEqual(before);
+    });
   });
 
   it("never asks about a club the copy has thrown out", async () => {

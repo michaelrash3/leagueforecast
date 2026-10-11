@@ -1,0 +1,449 @@
+import { isDatedAhead } from "./deletedGames";
+import {
+  IMPLAUSIBLE_MARGIN,
+  isImplausibleScore,
+  ratedMargin,
+  scoreSeenBy,
+} from "./teamRankings/games";
+import {
+  ageGroupLevel,
+  segmentOn,
+  squadYearForGcSeason,
+  SEASON_SEGMENT_ORDER,
+} from "./teamRankings/seasons";
+import type { AgeGroup, GcTeamLink, ScoutGame, ScoutTeam } from "./teamRankings/types";
+import { clubsByGcId, filedBy } from "./unrealClubs";
+import {
+  AUTO_SIGNS,
+  type AutoRemoval,
+  type AutoRemovals,
+  type AutoSign,
+  type CountedWin,
+} from "./autoRemoved";
+
+/**
+ * The clubs plainly made up, found each night so the user does not have to: the user asked on 11
+ * October 2026 for the obviously fake teams to be spotted and removed without them, and for teams
+ * named void, test or demo to be among them. What is found is marked (`autoRemoved.ts`), never
+ * deleted, and the boards leave a marked club out.
+ *
+ * A pulled club is marked when it shows one of four signs and nothing keeps it.
+ *
+ * - A: two or more wins by more than `IMPLAUSIBLE_MARGIN` runs that nobody has vouched for, filed
+ *   by its own schedule, none of its wins by more than that listed by the losing club's own
+ *   schedule. Only above 10U, unless one of those wins is by `SURE_BLOWOUT` or more: a young
+ *   travel team routs stand-ins, and three clubs the user called real were each one such win from
+ *   it on 11 October, every one 8U to 10U.
+ * - B: one such win by `ABSURD_MARGIN` or more that the loser's own schedule does not list. No
+ *   game both clubs' schedules list, and no score the user vouched for, reaches fifty.
+ * - C: half or more of its scored games are its own schedule's results dated `FAR_AHEAD_DAYS` or
+ *   more ahead, and no opponent's schedule lists any of its results dated ahead. Nobody scores a
+ *   game before it is played; the floor keeps out a game keyed a day or two off.
+ * - N: its name, or the name of a GameChanger team filed under it, has void, voided, test,
+ *   testing or demo as a word of its own, in any case ("Contest" and "Demons" are not). Marked per
+ *   GameChanger id: when only one of its teams has the word and the club's own name does not,
+ *   only that one, so the club stands unless every one of its ids is marked.
+ *
+ * Measured with this code against what the user did by hand. On the pool of 26 September 2026 at
+ * 18:40, before the user's own sweep of 28 September, A, B and C take off 26 clubs, and every one
+ * of them the user had deleted by 11 October; N takes off 84 more. On 11 October C takes off one
+ * club, next season's squad with one score dated months ahead, and N 249, eight of them only
+ * through a GameChanger team's name. On neither does the sweep take a club the user said was real
+ * by 11 October (131 such clubs pulled then).
+ *
+ * What keeps a club with a sign:
+ * - any of its GameChanger ids, or its club id, said to be real (`realClubs`);
+ * - being any page's own team;
+ * - the user's word on it: a pair kept apart, an age named, or a score vouched for in a game of it;
+ * - for A, B and C, not N: real opponents' own schedules listing `PLAINLY_REAL_GAMES` of its
+ *   scored games, or at least half of them (one at least). A real opponent is a pulled club that
+ *   shows no sign of its own and carries no mark;
+ * - a League Standings team linked to it, which only the derivation that reads League Standings
+ *   can tell (`deriveAllKnown`), so it is applied there, whatever the marks say.
+ *
+ * A mark stays until something lifts it, so a club whose results dated ahead have since been
+ * reached is not put back for that. Any guard lifts every mark it would have kept from being
+ * made. A and B lift too once a losing club's own schedule lists one of the wins counted, which is
+ * the sign's own escape. C lifts once a real opponent's schedule lists even one game of the club's
+ * dated after the day it was marked: the shape C finds is next season's squad with one stray
+ * score, and a spring of real games is the answer to it. N lifts once neither the club's name nor
+ * the GameChanger team's has the word.
+ */
+
+/** A win by this many runs or more, alone, is no game anybody played. */
+export const ABSURD_MARGIN = 75;
+/** A win by this many runs or more is a sign at any age, where A otherwise waits for 11U. */
+export const SURE_BLOWOUT = 50;
+/** The youngest level at which two routs are a sign without one of `SURE_BLOWOUT`. */
+export const ROUTS_FROM_LEVEL = 11;
+/** A result dated this many days or more ahead is no game keyed a day or two off. */
+export const FAR_AHEAD_DAYS = 8;
+/** Games real opponents' schedules list that make a club plainly real, whatever its share. */
+export const PLAINLY_REAL_GAMES = 3;
+
+/** The words a team plays under nowhere, each as a word of its own: the user's list. */
+const MADE_UP_WORD = /\b(void|voided|test|testing|demo)\b/i;
+
+/** The word of `MADE_UP_WORD` a name has, lower case, or undefined. */
+export const madeUpWord = (name: string | undefined): string | undefined =>
+  name === undefined ? undefined : MADE_UP_WORD.exec(name)?.[1]?.toLowerCase();
+
+export type SweepPool = {
+  teams: readonly ScoutTeam[];
+  games: readonly ScoutGame[];
+  ageGroups: readonly AgeGroup[];
+};
+
+/** The user's answers the sweep honours, as stored. */
+export type SweepAnswers = {
+  realClubs: ReadonlySet<string>;
+  /** Pairs of GameChanger ids kept apart (`apartKey`). */
+  keptApart: ReadonlySet<string>;
+  /** Ages named, by GameChanger id. */
+  namedAges: ReadonlyMap<string, unknown>;
+};
+
+const DAY_MS = 86_400_000;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const daysAfter = (date: string, today: string) =>
+  Math.round((Date.parse(date) - Date.parse(today)) / DAY_MS);
+
+const isPlayed = (game: ScoutGame) =>
+  game.teamAScore !== undefined && game.teamBScore !== undefined;
+
+/**
+ * The clubs whose own GameChanger schedules list a game: the one it was pulled off, every
+ * schedule's row folded into it, every schedule on record as listing it, and side B where its own
+ * report is kept.
+ */
+const listersOf = (game: ScoutGame, clubOfGcId: ReadonlyMap<string, string>): Set<string> => {
+  const listers = new Set<string>();
+  const add = (gcId: string | undefined) => {
+    const clubId = gcId === undefined ? undefined : clubOfGcId.get(gcId);
+    if (clubId !== undefined) listers.add(clubId);
+  };
+  add(game.source?.teamId);
+  game.alsoRows?.forEach((record) => add(record.teamId));
+  game.alsoFrom?.forEach(add);
+  if (game.reportedByB) listers.add(game.teamBId);
+  return listers;
+};
+
+/** What a club's games say of it, walked once. */
+type Tally = {
+  played: number;
+  /** Its unvouched wins by more than 30 filed by its own schedule that the loser's does not list. */
+  unlisted: CountedWin[];
+  /** Its wins by more than 30, as its schedule reads them, that the loser's schedule lists. */
+  routsListed: number;
+  /** Its own results dated ahead, those an opponent lists, those far ahead, and the first day. */
+  ahead: number;
+  aheadListed: number;
+  farAhead: number;
+  first: string | undefined;
+  vouched: boolean;
+};
+
+const emptyTally = (): Tally => ({
+  played: 0,
+  unlisted: [],
+  routsListed: 0,
+  ahead: 0,
+  aheadListed: 0,
+  farAhead: 0,
+  first: undefined,
+  vouched: false,
+});
+
+/** The level a club plays at: the highest any of its GameChanger teams is filed at. */
+const levelOf = (team: ScoutTeam, pages: ReadonlyMap<string, AgeGroup>): number =>
+  Math.max(
+    0,
+    ...(team.gcTeams ?? []).map(
+      (link) => link.ageLevel ?? ageGroupLevel(pages.get(link.ageGroupId)) ?? 0
+    )
+  );
+
+/**
+ * Whether every GameChanger team of a club is for a season that has not begun on `today`: next
+ * season's squad, whose spring is still to come.
+ */
+const nextSeasonSquad = (links: readonly GcTeamLink[], today: string): boolean => {
+  if (links.length === 0) return false;
+  const now = segmentOn(today);
+  const order = (year: number, half: string) =>
+    year * 2 + SEASON_SEGMENT_ORDER.indexOf(half === "fall" ? "fall" : "spring");
+  return links.every((link) => {
+    if (link.seasonYear === undefined || !link.season) return false;
+    const season = link.season.trim().toLowerCase();
+    const half = season === "fall" || season === "winter" ? "fall" : "spring";
+    return (
+      order(squadYearForGcSeason(link.season, link.seasonYear), half) > order(now.year, now.segment)
+    );
+  });
+};
+
+type Verdict = {
+  /** The signs it shows, A, B and C, and which of its GameChanger ids N marks. */
+  signs: AutoSign[];
+  named: Map<string, string>;
+  wins: CountedWin[];
+  ahead?: AutoRemoval["ahead"];
+  /** Kept by the user's word: real, its own team, kept apart, an age named, a score vouched for. */
+  kept: boolean;
+  /** Kept by real opponents' schedules listing its games. */
+  corroborated: boolean;
+  /** The day of the latest game of it a real opponent's schedule lists. */
+  lastCorroborated: string;
+};
+
+/**
+ * What every pulled club shows, and what keeps it: the signs before any guard, the guards, and the
+ * day of the latest of its games a real opponent's own schedule lists.
+ */
+const judge = (
+  pool: SweepPool,
+  answers: SweepAnswers,
+  marks: AutoRemovals,
+  today: string
+): Map<string, Verdict> => {
+  const clubOfGcId = clubsByGcId(pool.teams);
+  const pages = new Map(pool.ageGroups.map((group) => [group.id, group]));
+  const pulled = new Map(
+    pool.teams.filter((team) => (team.gcTeams ?? []).length > 0).map((team) => [team.id, team])
+  );
+  const tallies = new Map([...pulled.keys()].map((id) => [id, emptyTally()]));
+  const listed = new Map<ScoutGame, Set<string>>();
+
+  pool.games.forEach((game) => {
+    if (game.scoreConfirmed !== undefined) {
+      const a = tallies.get(game.teamAId);
+      if (a) a.vouched = true;
+      const b = tallies.get(game.teamBId);
+      if (b) b.vouched = true;
+    }
+    if (!isPlayed(game)) return;
+    if (!tallies.has(game.teamAId) && !tallies.has(game.teamBId)) return;
+    const listers = listersOf(game, clubOfGcId);
+    listed.set(game, listers);
+    const filers = filedBy(game, clubOfGcId);
+    const early = isDatedAhead(game, today);
+    const implausible = isImplausibleScore(game);
+    const margin = ratedMargin(game) ?? 0;
+    const winner = margin > 0 ? game.teamAId : margin < 0 ? game.teamBId : undefined;
+    [
+      [game.teamAId, game.teamBId],
+      [game.teamBId, game.teamAId],
+    ].forEach(([self, other]) => {
+      const tally = tallies.get(self!);
+      if (!tally) return;
+      tally.played += 1;
+      const ownFiled = filers.includes(self!);
+      const otherListed = listers.has(other!);
+      const seen = scoreSeenBy(game, self!);
+      if (seen && seen.own - seen.opponent > IMPLAUSIBLE_MARGIN && otherListed) {
+        tally.routsListed += 1;
+      }
+      // Filed by its own schedule and not listed by the loser's. The two never part in a pool, since
+      // a win the club's schedule did not file is one the loser's did, but it is what the sign says.
+      if (implausible && winner === self && ownFiled && !otherListed) {
+        tally.unlisted.push({
+          gameId: game.id,
+          margin: Math.abs(margin),
+          ...(game.date ? { date: game.date } : {}),
+        });
+      }
+      if (early && ownFiled) {
+        tally.ahead += 1;
+        if (otherListed) tally.aheadListed += 1;
+        if (game.date !== undefined && ISO_DAY.test(game.date)) {
+          if (tally.first === undefined || game.date < tally.first) tally.first = game.date;
+          if (daysAfter(game.date, today) >= FAR_AHEAD_DAYS) tally.farAhead += 1;
+        }
+      }
+    });
+  });
+
+  const real = answers.realClubs;
+  const mine = new Set(pool.ageGroups.flatMap((group) => (group.myTeamId ? [group.myTeamId] : [])));
+  const apart = new Set([...answers.keptApart].flatMap((key) => key.split("\u0000")));
+  const verdicts = new Map<string, Verdict>();
+  pulled.forEach((team, id) => {
+    const tally = tallies.get(id)!;
+    const links = team.gcTeams ?? [];
+    const widest = Math.max(0, ...tally.unlisted.map((win) => win.margin));
+    const signs: AutoSign[] = [];
+    if (
+      tally.unlisted.length >= 2 &&
+      tally.routsListed === 0 &&
+      (levelOf(team, pages) >= ROUTS_FROM_LEVEL || widest >= SURE_BLOWOUT)
+    ) {
+      signs.push("wins");
+    }
+    if (widest >= ABSURD_MARGIN) signs.push("rout");
+    if (
+      tally.farAhead >= 1 &&
+      tally.farAhead * 2 >= tally.played &&
+      tally.aheadListed === 0 &&
+      tally.first !== undefined
+    ) {
+      signs.push("ahead");
+    }
+    const clubWord = madeUpWord(team.name);
+    const named = new Map<string, string>();
+    links.forEach((link) => {
+      const word = clubWord ?? madeUpWord(link.name);
+      if (word !== undefined) named.set(link.teamId, word);
+    });
+    const ids = links.map((link) => link.teamId);
+    verdicts.set(id, {
+      signs,
+      named,
+      wins: signs.includes("wins") || signs.includes("rout") ? tally.unlisted : [],
+      ...(signs.includes("ahead")
+        ? {
+            ahead: {
+              first: tally.first!,
+              results: tally.farAhead,
+              played: tally.played,
+              ...(nextSeasonSquad(links, today) ? { nextSeason: true as const } : {}),
+            },
+          }
+        : {}),
+      kept:
+        real.has(id) ||
+        ids.some((gcId) => real.has(gcId)) ||
+        mine.has(id) ||
+        ids.some((gcId) => apart.has(gcId) || answers.namedAges.has(gcId)) ||
+        tally.vouched,
+      corroborated: false,
+      lastCorroborated: "",
+    });
+  });
+
+  // A real opponent shows no sign and carries no mark: a club that does is no witness.
+  const witness = (clubId: string): boolean => {
+    const verdict = verdicts.get(clubId);
+    if (!verdict || verdict.signs.length > 0 || verdict.named.size > 0) return false;
+    return !(pulled.get(clubId)?.gcTeams ?? []).some((link) => marks.has(link.teamId));
+  };
+  const corroborated = new Map<string, number>();
+  listed.forEach((listers, game) => {
+    [
+      [game.teamAId, game.teamBId],
+      [game.teamBId, game.teamAId],
+    ].forEach(([self, other]) => {
+      const verdict = verdicts.get(self!);
+      if (!verdict || !listers.has(self!) || !listers.has(other!) || !witness(other!)) return;
+      corroborated.set(self!, (corroborated.get(self!) ?? 0) + 1);
+      if (game.date !== undefined && game.date > verdict.lastCorroborated) {
+        verdict.lastCorroborated = game.date;
+      }
+    });
+  });
+  verdicts.forEach((verdict, id) => {
+    const count = corroborated.get(id) ?? 0;
+    verdict.corroborated =
+      count >= PLAINLY_REAL_GAMES || (count >= 1 && count * 2 >= tallies.get(id)!.played);
+  });
+  return verdicts;
+};
+
+/** A mark with `signs` alone, or none where nothing is left of it. */
+const keeping = (mark: AutoRemoval, signs: readonly AutoSign[]): AutoRemoval | undefined => {
+  if (signs.length === mark.signs.length) return mark;
+  if (signs.length === 0) return undefined;
+  const { wins, ahead, word, ...rest } = mark;
+  return {
+    ...rest,
+    signs: [...signs],
+    ...(wins && (signs.includes("wins") || signs.includes("rout")) ? { wins } : {}),
+    ...(ahead && signs.includes("ahead") ? { ahead } : {}),
+    ...(word && signs.includes("named") ? { word } : {}),
+  };
+};
+
+/**
+ * The marks after tonight's sweep of `pool`: those a guard or a sign's own escape now lifts taken
+ * off, and a mark made for each GameChanger id of a club newly showing a sign that nothing keeps.
+ * `marks` itself when nothing changes, so a caller can tell by identity whether to save.
+ *
+ * `today` is the user's day, as an ISO day.
+ */
+export const sweepMarks = (
+  pool: SweepPool,
+  answers: SweepAnswers,
+  marks: AutoRemovals,
+  today: string
+): AutoRemovals => {
+  const verdicts = judge(pool, answers, marks, today);
+  const clubOfGcId = clubsByGcId(pool.teams);
+  const games = new Map(pool.games.map((game) => [game.id, game]));
+  const teams = new Map(pool.teams.map((team) => [team.id, team]));
+  const next = new Map(marks);
+  let changed = false;
+
+  // Lifted: by a guard, or by a sign's own escape.
+  marks.forEach((mark, gcId) => {
+    const clubId = clubOfGcId.get(gcId);
+    const verdict = clubId === undefined ? undefined : verdicts.get(clubId);
+    // An id no club carries now says nothing either way, so its mark stands.
+    if (clubId === undefined || !verdict) return;
+    if (verdict.kept) {
+      next.delete(gcId);
+      changed = true;
+      return;
+    }
+    const loserLists = (win: CountedWin) => {
+      const game = games.get(win.gameId);
+      if (!game) return false;
+      const loser = game.teamAId === clubId ? game.teamBId : game.teamAId;
+      return listersOf(game, clubOfGcId).has(loser);
+    };
+    const link = teams.get(clubId)?.gcTeams?.find((entry) => entry.teamId === gcId);
+    const word = madeUpWord(teams.get(clubId)?.name) ?? madeUpWord(link?.name);
+    const signs = mark.signs.filter((sign) => {
+      if (sign === "named") return word !== undefined;
+      if (verdict.corroborated) return false;
+      if (sign === "wins") return !(mark.wins ?? []).some(loserLists);
+      if (sign === "rout") {
+        return !(mark.wins ?? []).some((win) => win.margin >= ABSURD_MARGIN && loserLists(win));
+      }
+      return !(verdict.lastCorroborated > mark.on);
+    });
+    const kept = keeping(mark, signs);
+    if (kept === mark) return;
+    changed = true;
+    if (kept) next.set(gcId, kept);
+    else next.delete(gcId);
+  });
+
+  // Made: a club with a sign and nothing keeping it, each of its ids not marked already.
+  verdicts.forEach((verdict, clubId) => {
+    if (verdict.kept) return;
+    const shown = verdict.corroborated ? [] : verdict.signs;
+    if (shown.length === 0 && verdict.named.size === 0) return;
+    const team = teams.get(clubId)!;
+    (team.gcTeams ?? []).forEach((link) => {
+      if (next.has(link.teamId)) return;
+      const word = verdict.named.get(link.teamId);
+      const signs = AUTO_SIGNS.filter((sign) =>
+        sign === "named" ? word !== undefined : shown.includes(sign)
+      );
+      if (signs.length === 0) return;
+      next.set(link.teamId, {
+        gcTeamId: link.teamId,
+        name: team.name,
+        on: today,
+        signs,
+        ...(verdict.wins.length > 0 && (signs.includes("wins") || signs.includes("rout"))
+          ? { wins: verdict.wins }
+          : {}),
+        ...(verdict.ahead && signs.includes("ahead") ? { ahead: verdict.ahead } : {}),
+        ...(word !== undefined ? { word } : {}),
+      });
+      changed = true;
+    });
+  });
+  return changed ? next : marks;
+};

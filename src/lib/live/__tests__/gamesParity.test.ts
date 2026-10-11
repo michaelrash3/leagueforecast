@@ -12,6 +12,7 @@ import {
   saveAgeGroups,
   saveScoutGames,
   saveScoutTeams,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { deriveAllKnown, type SeasonReader } from "../allKnown";
@@ -73,6 +74,7 @@ describe("the Games lists a server publishes", { timeout: 30_000 }, () => {
   it("say what the page's own Games tab says, on every page", () => {
     const teams = loadScoutTeams();
     const built = buildBoardsAndFacts({
+      autoRemoved: loadAutoRemoved(),
       ageGroups,
       teams,
       gamesOfYear: loadScoutGamesForYear,
@@ -97,7 +99,13 @@ describe("the Games lists a server publishes", { timeout: 30_000 }, () => {
       const year = ageGroupYear(group);
       // The page on this page: its year's stored games, named by its own derivation.
       const yearGames = loadScoutGamesForYear(year);
-      const allKnown = deriveAllKnown({ ageGroups, teams, yearGames, readSeason });
+      const allKnown = deriveAllKnown({
+        ageGroups,
+        teams,
+        yearGames,
+        readSeason,
+        autoRemoved: loadAutoRemoved(),
+      });
       const names = new Map(allKnown.teams.map((team) => [team.id, team.name]));
       const logged = loggedGamesOn(yearGames, group.id);
       const list = lists.get(gamesKey(year, group.id));

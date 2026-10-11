@@ -28,6 +28,7 @@ import {
   saveNamedAges,
   saveScoutGames,
   saveScoutTeams,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { leagueTeamIdsOn, type SeasonReader } from "../allKnown";
@@ -125,6 +126,7 @@ const lineOf = (game: ScoutGame, teamId: string, nameOf: (id: string) => string)
 describe("the club cards a server publishes", { timeout: 60_000 }, () => {
   it("say what the page's own panel says, for every club on every page of its year", () => {
     const built = buildBoardsAndFacts({
+      autoRemoved: loadAutoRemoved(),
       ageGroups,
       teams: loadScoutTeams(),
       gamesOfYear: loadScoutGamesForYear,

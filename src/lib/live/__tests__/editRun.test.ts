@@ -25,6 +25,7 @@ import {
   saveRealClubs,
   saveScoutGames,
   saveScoutTeams,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
 import { NO_LEAGUE_DOCS } from "../cloudLeague";
 import { packUpload, type PackedUpload, type UploadStore } from "../../cloud/uploads";
@@ -1000,6 +1001,7 @@ describe("games added by their clubs' names, resolved on the server", () => {
       const read = seasonReaderOf(league);
       if (!read) throw new Error("no seasons");
       const known = deriveAllKnown({
+        autoRemoved: loadAutoRemoved(),
         ageGroups: loadAgeGroups(),
         teams: loadScoutTeams(),
         yearGames: loadScoutGamesForYear(2027),

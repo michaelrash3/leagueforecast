@@ -69,6 +69,7 @@ import {
   flushPoolWrites,
   initTeamRankingsStore,
   loadAgeGroups,
+  loadAutoRemoved,
   loadScoutGamesForYear,
   loadScoutTeams,
   readCloudPoolValue,
@@ -217,7 +218,13 @@ const boardFits = (today: string, readSeason: SeasonReader): Record<string, numb
     const yearGames = loadScoutGamesForYear(
       ageGroupYear(ageGroups.find((group) => group.id === ranked))
     );
-    const known = deriveAllKnown({ ageGroups, teams, yearGames, readSeason });
+    const known = deriveAllKnown({
+      ageGroups,
+      teams,
+      yearGames,
+      readSeason,
+      autoRemoved: loadAutoRemoved(),
+    });
     const pool = asWorkerSees(
       known.teams,
       gamesOnPages(known.games, rankingPoolGroupIds(ranked, ageGroups))
@@ -446,6 +453,7 @@ const main = async () => {
       teams: loadScoutTeams(),
       yearGames: loadScoutGamesForYear(ageGroupYear(biggest)),
       readSeason: seasons,
+      autoRemoved: loadAutoRemoved(),
     });
     const played = new Map<string, number>();
     for (const game of known.games)

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
+import { FIXTURE_TODAY, madeUpClub, poolFixture } from "../../../../scripts/poolFixture";
 import { memoryCloud, type MemoryCloud } from "../../cloud/__tests__/memoryCloud";
 import { commitChanges } from "../../cloud/cloudEngine";
 import { chunkId, type CloudManifest } from "../../cloud/cloudManifest";
@@ -19,9 +19,12 @@ import {
   loadTooYoungClubs,
   resetTeamRankingsStore,
   saveAgeGroups,
+  saveAutoRemoved,
   saveScoutGames,
   saveScoutTeams,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
+import { removedDays } from "../../autoRemoved";
 import type { SeasonSnapshot } from "../../storage";
 import { DEFAULT_SETTINGS } from "../../types";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
@@ -118,6 +121,7 @@ const copyWith = async (
  */
 const builtWith = (readSeason: SeasonReader, past = true) =>
   buildBoardsAndFacts({
+    autoRemoved: loadAutoRemoved(),
     ageGroups: loadAgeGroups(),
     teams: loadScoutTeams(),
     gamesOfYear: loadScoutGamesForYear,
@@ -156,6 +160,8 @@ beforeAll(async () => {
   saveAgeGroups(fixture.ageGroups);
   saveScoutTeams(fixture.teams);
   saveScoutGames(fixture.games);
+  // A club the nightly took off as plainly made up, which the boards and lists published leave out.
+  saveAutoRemoved(madeUpClub(fixture).marks);
 });
 afterAll(() => {
   resetTeamRankingsStore();
@@ -186,6 +192,7 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
         dropped: loadDroppedClubs(),
         ageless: loadAgeUnknown(),
         tooYoung: loadTooYoungClubs(),
+        removed: removedDays(loadAutoRemoved()),
       },
     });
     expect(searches.length).toBeGreaterThan(0);

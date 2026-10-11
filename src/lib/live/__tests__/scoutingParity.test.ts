@@ -23,6 +23,7 @@ import {
   saveAgeGroups,
   saveScoutGames,
   saveScoutTeams,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { gamesOnPages, type SeasonReader } from "../allKnown";
@@ -107,6 +108,7 @@ const HALVES: Array<[string, SeasonSegment | undefined]> = [
 describe("Scouting on the cloud's board", { timeout: 60_000 }, () => {
   it("says what the page's own Scouting says, off the board and the club cards", () => {
     const built = buildBoardsAndFacts({
+      autoRemoved: loadAutoRemoved(),
       ageGroups,
       teams: loadScoutTeams(),
       gamesOfYear: loadScoutGamesForYear,

@@ -10,11 +10,14 @@ import {
 } from "../../test/teamRankingsHarness";
 import type { ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import {
+  loadAutoRemoved,
   loadDeletedGames,
+  loadDroppedClubs,
   loadRealClubs,
   loadScoutGames,
   saveRealClubs,
 } from "../../lib/teamRankingsStorage";
+import type { AutoRemoval } from "../../lib/autoRemoved";
 import { beginPull, endPull } from "../../lib/pullSession";
 
 const openSetup = async (user: ReturnType<typeof userEvent.setup>) => {
@@ -506,5 +509,75 @@ describe("games won by more than thirty runs", () => {
     expect(rows()).toHaveLength(1);
     expect(loadScoutGames().some((one) => one.id === "typo")).toBe(false);
     expect([...loadDeletedGames()].some((id) => id.endsWith("typo"))).toBe(true);
+  });
+});
+
+describe("the clubs removed for you", () => {
+  /*
+   * A club the nightly took off as plainly made up, beside a real one: on no other list, and
+   * listed with why and when, to be put back or deleted for good, each with an Undo on its toast.
+   */
+  const demo = (gcTeamId: string): [string, AutoRemoval] => [
+    gcTeamId,
+    { gcTeamId, name: "Demo Club", on: "2026-10-11", signs: ["named"], word: "demo" },
+  ];
+  const pool = () => ({
+    ageGroups: [ageGroup(10, 2027)],
+    teams: [
+      team("S-REAL", "Real Club", {
+        gcTeams: [{ teamId: "gcREAL", name: "Real Club", ageGroupId: "ag_10u_2027", ageLevel: 10 }],
+      }),
+      team("S-DEMO", "Demo Club", {
+        gcTeams: [{ teamId: "gcDEMO", name: "Demo Club", ageGroupId: "ag_10u_2027", ageLevel: 10 }],
+      }),
+    ],
+    games: [
+      // Scored on a day still to come, so the club would be on the list of those that may not be.
+      game("ahead", "ag_10u_2027", "S-DEMO", "S-REAL", 9, 0, {
+        date: "2099-05-01",
+        source: { kind: "gamechanger", teamId: "gcDEMO", gameId: "d1" },
+      }),
+    ],
+    autoRemoved: new Map([demo("gcDEMO")]),
+  });
+
+  it("lists a club taken off apart, and puts it back as real with an Undo", async () => {
+    const user = userEvent.setup();
+    const shown = renderTeamRankings(pool());
+    await openSetup(user);
+    const list = await screen.findByRole("list", { name: "Removed for you" });
+    expect(within(list).getByText("Demo Club")).toBeInTheDocument();
+    expect(within(list).getByText("2026-10-11: named 'demo'")).toBeInTheDocument();
+    expect(screen.queryByText(/clubs that may not be real/i)).toBeNull();
+
+    await user.click(within(list).getByRole("button", { name: "Put back" }));
+    expect(loadAutoRemoved().size).toBe(0);
+    expect([...loadRealClubs()]).toEqual(["gcDEMO"]);
+    expect(screen.queryByRole("list", { name: "Removed for you" })).toBeNull();
+    const [said, options] = shown.showToast.mock.calls[shown.showToast.mock.calls.length - 1] ?? [];
+    expect(said).toBe("Demo Club is back on the boards, kept as real.");
+    expect(options).toMatchObject({ tone: "undo", actionLabel: "Undo" });
+    act(() => (options as { onAction: () => void }).onAction());
+    expect([...loadAutoRemoved().keys()]).toEqual(["gcDEMO"]);
+    expect([...loadRealClubs()]).toEqual([]);
+    expect(await screen.findByRole("list", { name: "Removed for you" })).toBeInTheDocument();
+  });
+
+  it("deletes one for good as Delete club does, with an Undo", async () => {
+    const user = userEvent.setup();
+    const shown = renderTeamRankings(pool());
+    await openSetup(user);
+    const list = await screen.findByRole("list", { name: "Removed for you" });
+    await user.click(within(list).getByRole("button", { name: "Delete for good" }));
+    expect([...loadDroppedClubs()]).toEqual(["gcDEMO"]);
+    expect(loadAutoRemoved().size).toBe(0);
+    expect(loadScoutGames()).toEqual([]);
+    const [said, options] = shown.showToast.mock.calls[shown.showToast.mock.calls.length - 1] ?? [];
+    expect(said).toBe("Deleted Demo Club for good.");
+    expect(options).toMatchObject({ tone: "undo", actionLabel: "Undo" });
+    act(() => (options as { onAction: () => void }).onAction());
+    expect([...loadAutoRemoved().keys()]).toEqual(["gcDEMO"]);
+    expect([...loadDroppedClubs()]).toEqual([]);
+    expect(loadScoutGames().map((one) => one.id)).toEqual(["ahead"]);
   });
 });

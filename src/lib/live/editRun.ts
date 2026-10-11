@@ -10,6 +10,7 @@ import type { CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import {
   loadAgeGroups,
+  loadAutoRemoved,
   loadScoutGamesForYear,
   loadScoutTeams,
   readCloudPoolValue,
@@ -335,6 +336,7 @@ const runServerCommand = async (
       teams: roster,
       yearGames: loadScoutGamesForYear(ageGroupYear(page)),
       readSeason: read,
+      autoRemoved: loadAutoRemoved(),
     });
     const made = importOfNamed({
       year: command.year,

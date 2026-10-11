@@ -31,6 +31,7 @@ import {
   saveAgeGroups,
   saveAgeRightClubs,
   saveAgeUnknown,
+  saveAutoRemoved,
   saveDroppedClubs,
   saveKeptApart,
   saveNotThisTeam,
@@ -1166,7 +1167,7 @@ describe("what Pool health asks of the server's pool", () => {
     const answer = asked({ kind: "health.summary", today: TODAY });
     expect(answer).toEqual({
       kind: "health.summary",
-      summary: poolHealthSummary(POOL, TODAY, storedGamesByYear()),
+      summary: poolHealthSummary(POOL, TODAY, storedGamesByYear(), new Map()),
       answers: {
         ageRight: ["gcLARK"],
         realClubs: ["gcHAWK"],
@@ -1176,6 +1177,37 @@ describe("what Pool health asks of the server's pool", () => {
     // The fixture is worth something: a row ahead, a rout, and the clubs they belong to.
     expect([answer.summary.datedAhead.length, answer.summary.implausible.length]).toEqual([1, 1]);
     expect(answer.summary.suspected.length).toBeGreaterThan(0);
+  });
+
+  it("leaves a club taken off as plainly made up off its lists, and lists it apart", () => {
+    // The Bulldogs' forty-run win is the rout on the list; taken off, it goes with them.
+    saveAutoRemoved(
+      new Map([
+        [
+          "gcBULL",
+          {
+            gcTeamId: "gcBULL",
+            name: "Placeholder Bulldogs",
+            on: TODAY,
+            signs: ["named"],
+            word: "demo",
+          },
+        ],
+      ])
+    );
+    const answer = asked({ kind: "health.summary", today: TODAY });
+    expect(answer.summary.implausible).toEqual([]);
+    expect(answer.summary.removed).toEqual([
+      {
+        teamId: "BULL",
+        name: "Placeholder Bulldogs",
+        gcTeamIds: ["gcBULL"],
+        on: TODAY,
+        reasons: ["named 'demo'"],
+      },
+    ]);
+    const read = coerceQueryAnswer(JSON.parse(JSON.stringify(answer)), "health.summary");
+    expect(read?.summary.removed).toEqual(answer.summary.removed);
   });
 
   it("reads back as the callable sends it, a page with no year and a score in halves among it", () => {

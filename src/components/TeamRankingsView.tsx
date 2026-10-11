@@ -74,6 +74,7 @@ import { changeBetween, poolParts } from "../lib/live/commands";
 import {
   runPoolCommand,
   writtenAnswers,
+  writtenAutoRemoved,
   writtenGroups,
   writtenNamedAges,
   writtenTeams,
@@ -107,6 +108,7 @@ import {
   loadTooYoungClubs,
   loadDroppedClubs,
   loadNamedAges,
+  loadAutoRemoved,
   saveAgeUnknown,
   loadAgelessCleared,
   saveAgelessCleared,
@@ -115,6 +117,8 @@ import {
 import { persistPool } from "../lib/poolPersist";
 import type { DeletedClubs } from "../lib/deletedGames";
 import type { NamedAges } from "../lib/namedAges";
+import { marksChange, removedDays, type AutoRemovals, type RemovedClub } from "../lib/autoRemoved";
+import { sweepStored } from "../lib/sweepStored";
 import { clubAgeOf } from "../lib/teamRankings/clubAge";
 import { forgetAgeless, type AgeUnknownList } from "../lib/ageUnknown";
 import {
@@ -490,6 +494,8 @@ export function TeamRankingsView({
   // once, and a list pasted in this session skips a club thrown out in it.
   const [namedAges, setNamedAges] = useState<NamedAges>(() => loadNamedAges());
   const [droppedClubs, setDroppedClubs] = useState<DeletedClubs>(() => loadDroppedClubs());
+  // The clubs taken off as plainly made up, which the boards leave out (`deriveAllKnown`).
+  const [autoRemoved, setAutoRemoved] = useState<AutoRemovals>(() => loadAutoRemoved());
   const runCommand = useCallback(
     (
       command: PoolCommand,
@@ -523,6 +529,8 @@ export function TeamRankingsView({
       if (named) setNamedAges(named);
       const dropped = writtenAnswers(run, "droppedClubs");
       if (dropped) setDroppedClubs(dropped);
+      const marks = writtenAutoRemoved(run);
+      if (marks) setAutoRemoved(marks);
       if (run.writes.some((write) => write.part === "games")) bumpPool();
       onDataChange?.();
       return run;
@@ -547,6 +555,7 @@ export function TeamRankingsView({
       onPoolChangedElsewhere(() => {
         setAgeGroups(loadAgeGroups());
         setScoutTeams(loadScoutTeams());
+        setAutoRemoved(loadAutoRemoved());
         bumpPool();
         setPullProgress(loadPullProgress());
         setRefreshLog(loadRefreshLog());
@@ -711,8 +720,9 @@ export function TeamRankingsView({
         teams: scoutTeams,
         yearGames: scoutGames,
         readSeason: readStoredSeason,
+        autoRemoved,
       }),
-    [ageGroups, scoutGames, scoutTeams]
+    [ageGroups, scoutGames, scoutTeams, autoRemoved]
   );
 
   const allKnownGames = allKnown.games;
@@ -1739,6 +1749,40 @@ export function TeamRankingsView({
     return true;
   };
 
+  /**
+   * Puts a club the sweep took off as plainly made up back on the boards (`autoRemoved.ts`): its
+   * marks forgotten and its ids said to be real, so no later sweep takes it again. Undo on the
+   * toast puts both back as they were.
+   */
+  const putBackRemoved = (club: RemovedClub): boolean => {
+    const run = runCommand({
+      kind: "batch",
+      commands: [
+        { kind: "autoRemoved", put: [], forget: club.gcTeamIds },
+        { kind: "answers", list: "realClubs", add: club.gcTeamIds, remove: [] },
+      ],
+    });
+    if (!run.ok) return false;
+    showToast(`${club.name} is back on the boards, kept as real.`, {
+      tone: "undo",
+      actionLabel: "Undo",
+      onAction: () => runCommand(run.inverse),
+    });
+    return true;
+  };
+
+  /** Deletes a club the sweep took off for good, as Delete club does, with Undo on the toast. */
+  const deleteRemoved = (club: RemovedClub): boolean => {
+    const run = runCommand({ kind: "club.drop", teamId: club.teamId });
+    if (!run.ok) return false;
+    showToast(`Deleted ${club.name} for good.`, {
+      tone: "undo",
+      actionLabel: "Undo",
+      onAction: () => runCommand(run.inverse),
+    });
+    return true;
+  };
+
   /** The clubs of a pair League Standings made that the roster does not hold, to join it. */
   const unheldOf = (...ids: string[]): ScoutTeam[] =>
     ids.flatMap((id) =>
@@ -1815,8 +1859,9 @@ export function TeamRankingsView({
         ageless: loadAgeUnknown(),
         dropped: droppedClubs,
         tooYoung: loadTooYoungClubs(),
+        removed: removedDays(autoRemoved),
       }),
-    [pullLive, scoutTeams, droppedClubs]
+    [pullLive, scoutTeams, droppedClubs, autoRemoved]
   );
   const { searchOptions, pageOf, mergeCandidatesFor } = useClubSearch({
     teams: allKnown.teams,
@@ -2442,6 +2487,12 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 // Thrown out exactly as a club deleted by hand is: see `inventedFromOutcomes`.
                 runCommand({ kind: "answers", list: "droppedClubs", add: [...ids], remove: [] });
               }}
+              onRunEnd={(pulled) => {
+                // The clubs plainly made up, swept as the nightly sweeps the cloud copy after its
+                // pull, for a pool kept on this device (`obviousFakes.ts`).
+                const change = marksChange(...sweepStored(pulled, todayIsoDay()));
+                if (change) runCommand({ kind: "autoRemoved", ...change }, { quiet: true });
+              }}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {
                 /*
@@ -2560,6 +2611,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onSetAge: setTeamAge,
                 onSetAges: setTeamAges,
                 runCommand: (command) => runCommand(command),
+                autoRemoved,
+                onPutBack: putBackRemoved,
+                onDeleteRemoved: deleteRemoved,
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so

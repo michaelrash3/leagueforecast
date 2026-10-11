@@ -30,6 +30,7 @@ import {
   saveAgeGroups,
   saveScoutGames,
   saveScoutTeams,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { gamesOnPages, type SeasonReader } from "../allKnown";
@@ -88,6 +89,7 @@ beforeAll(async () => {
   saveScoutGames(fixture.games);
   ageGroups = loadAgeGroups();
   built = buildBoardsAndFacts({
+    autoRemoved: loadAutoRemoved(),
     ageGroups,
     teams: loadScoutTeams(),
     gamesOfYear: loadScoutGamesForYear,

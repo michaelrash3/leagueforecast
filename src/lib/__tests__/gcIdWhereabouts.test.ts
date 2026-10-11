@@ -42,6 +42,19 @@ describe("where a GameChanger id is", () => {
     );
   });
 
+  it("says a club taken off as plainly made up can be put back from Pool health", () => {
+    const removed = stores({ removed: new Map([["gcFAKE000001", "2026-10-11"]]) });
+    expect(whereIsGcId("gcFAKE000001", removed)).toBe(
+      "That team was removed automatically on 2026-10-11 as plainly made up. Put back, under Removed for you in Pool health, brings it back."
+    );
+    // Thrown out is asked first: a club deleted for good is not one to put back.
+    const both = stores({
+      dropped: new Set(["gcFAKE000001"]),
+      removed: new Map([["gcFAKE000001", "2026-10-11"]]),
+    });
+    expect(whereIsGcId("gcFAKE000001", both)).toMatch(/^That team was thrown out/);
+  });
+
   it("knows nothing of an id it has no record of", () => {
     expect(whereIsGcId("gcNONE000001", stores())).toBeUndefined();
   });

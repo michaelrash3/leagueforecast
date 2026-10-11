@@ -38,9 +38,10 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * onto a club of its own (`offClubIdFor`), not onto a club of its name. 3: nothing moved; raised so
  * that the publishers from before the boards' shape stand aside for boards that carry a fit
  * (`BOARD_SHAPE` 1). 4: a year of age worth what it measured at each level (`AGE_STEP_RUNS`),
- * four runs from 9U to 10U, rather than two runs at every level.
+ * four runs from 9U to 10U, rather than two runs at every level. 5: a club removed automatically as
+ * plainly made up, and every game naming it, are left off every board (`autoRemoved.ts`).
  */
-export const BOARD_RULES = 4;
+export const BOARD_RULES = 5;
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of

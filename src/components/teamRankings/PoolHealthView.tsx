@@ -13,6 +13,7 @@ import { IMPLAUSIBLE_MARGIN, segmentOn } from "../../lib/teamRankings";
 import { apartKey, isKeptApart, type KeptApart } from "../../lib/keptApart";
 import type { WrongAgeClub } from "../../lib/wrongAge";
 import type { UnrealClub } from "../../lib/unrealClubs";
+import type { RemovedClub } from "../../lib/autoRemoved";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { countedTwiceCsv, countedTwiceCsvFilename } from "../../lib/countedTwice";
@@ -74,6 +75,13 @@ export type PoolHealthActions = {
    * its schedule rather than rebuilding it. See `deletedGames.ts`.
    */
   dropClub: (club: UnrealClub) => Promise<boolean>;
+  /**
+   * Puts a club taken off as plainly made up back on the boards: its marks forgotten and the club
+   * said to be real, so the sweep never takes it again (`autoRemoved` and `realClubs`), with Undo.
+   */
+  putBack: (club: RemovedClub) => Promise<boolean> | boolean;
+  /** Deletes a club taken off for good, as Delete club does (`club.drop`), with Undo. */
+  deleteRemoved: (club: RemovedClub) => Promise<boolean> | boolean;
   /**
    * Says a game won by more than `IMPLAUSIBLE_MARGIN` runs really was played that way, so it counts
    * and leaves the list (`ScoutGame.scoreConfirmed`).
@@ -272,6 +280,13 @@ export function PoolHealthView({
   const [showKeptReal, setShowKeptReal] = useState(false);
 
   /**
+   * The clubs taken off as plainly made up, newest first (`autoRemoved.ts`): on no list above and
+   * no board, each kept filed with its games so that putting it back is forgetting a mark.
+   */
+  const removed = summary.removed ?? [];
+  const [allRemoved, setAllRemoved] = useState(false);
+
+  /**
    * Games won by more than `IMPLAUSIBLE_MARGIN` runs, the widest first: none of them counts, and
    * each is here to be deleted or vouched for (`isImplausibleScore`).
    */
@@ -374,6 +389,16 @@ export function PoolHealthView({
   /** Takes the user's word that a club is real back: it goes on the list again. */
   const unconfirmClub = (club: UnrealClub) =>
     void actions.answer("realClubs", [], [club.teamId, ...club.gcTeamIds]);
+
+  /** Puts a club taken off back, or deletes it for good: one at a time, as the other buttons. */
+  const decideRemoved = async (club: RemovedClub, decide: (club: RemovedClub) => unknown) => {
+    setDropping(club.teamId);
+    try {
+      await decide(club);
+    } finally {
+      setDropping(null);
+    }
+  };
 
   /** Throws out a club outright: the team, its rows, and its GameChanger ids. */
   const dropClub = async (club: UnrealClub) => {
@@ -809,6 +834,73 @@ export function PoolHealthView({
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+
+      {removed.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Removed for you
+          </h3>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Clubs the nightly refresh took off every board as plainly made up, newest first: wins by
+            more than {IMPLAUSIBLE_MARGIN} runs that the losers&apos; own schedules do not list,
+            results dated well ahead that no opponent lists, or void, test or demo in the name.
+            Nothing is deleted: each stays filed with its games and is pulled as before, and its
+            games count for nothing. <strong>Put back</strong> puts it on the boards again and keeps
+            it there as real; <strong>Delete for good</strong> deletes it as Delete club does.
+          </p>
+          <ul className="mt-2 space-y-1" aria-label="Removed for you">
+            {(allRemoved ? removed : removed.slice(0, 12)).map((club) => (
+              <li key={club.teamId} className="text-xs">
+                <span className="font-bold text-slate-700 dark:text-slate-200">{club.name}</span>{" "}
+                {club.gcTeamIds.map((gcId, at) => (
+                  <a
+                    key={gcId}
+                    href={gcTeamPageUrl(gcId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mr-1 text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+                  >
+                    {club.gcTeamIds.length > 1 ? `schedule ${at + 1}` : "schedule"}
+                  </a>
+                ))}
+                <span className="text-slate-500 dark:text-slate-400">
+                  {club.on}: {club.reasons.join("; ")}
+                </span>{" "}
+                <button
+                  type="button"
+                  onClick={() => void decideRemoved(club, actions.putBack)}
+                  disabled={dropping !== null || held}
+                  className={`${button.ghost} text-xs`}
+                >
+                  {dropping === club.teamId ? "Working…" : "Put back"}
+                </button>{" "}
+                <button
+                  type="button"
+                  onClick={() => void decideRemoved(club, actions.deleteRemoved)}
+                  disabled={dropping !== null || held}
+                  className={`${button.ghost} text-xs`}
+                >
+                  Delete for good
+                </button>
+              </li>
+            ))}
+          </ul>
+          {removed.length > 12 && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {allRemoved
+                ? `All ${count(removed.length)}, newest first. `
+                : `Drawing 12 of ${count(removed.length)}, newest first. `}
+              <button
+                type="button"
+                onClick={() => setAllRemoved((shown) => !shown)}
+                className="underline hover:text-slate-950 dark:hover:text-white"
+              >
+                {allRemoved ? "Show the newest 12" : `Show all ${count(removed.length)}`}
+              </button>
+            </p>
           )}
         </div>
       )}

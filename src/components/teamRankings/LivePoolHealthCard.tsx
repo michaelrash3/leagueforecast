@@ -159,6 +159,22 @@ export function LivePoolHealthCard({
     },
     // At once, without asking, as the device's card deletes one.
     dropClub: (club) => change({ kind: "club.drop", teamId: club.teamId }, `Deleted ${club.name}.`),
+    // Its marks forgotten and the club said to be real, so no sweep takes it again; with Undo.
+    putBack: (club) =>
+      change(
+        {
+          kind: "batch",
+          commands: [
+            { kind: "autoRemoved", put: [], forget: club.gcTeamIds },
+            { kind: "answers", list: "realClubs", add: club.gcTeamIds, remove: [] },
+          ],
+        },
+        `${club.name} is back on the boards, kept as real.`,
+        true
+      ),
+    // Deleted as Delete club deletes one, its Undo offered: the inverse the edit sends back.
+    deleteRemoved: (club) =>
+      change({ kind: "club.drop", teamId: club.teamId }, `Deleted ${club.name} for good.`, true),
     confirmScore: (game) =>
       change(
         { kind: "game.confirm", year: game.year, gameId: game.id },

@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { NO_REMOVALS } from "../../lib/autoRemoved";
 import { SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
 import { newPullJob, type PullJob } from "../../lib/cloud/pullJobs";
 import userEvent from "@testing-library/user-event";
@@ -4381,6 +4382,7 @@ describe("what each game did, on a club's panel on the cloud's board", () => {
   ];
   const built = () =>
     buildBoardsAndFacts({
+      autoRemoved: NO_REMOVALS,
       ageGroups: GROUPS,
       teams: TEAMS,
       gamesOfYear: (year) => (year === 2027 ? GAMES : []),
@@ -4552,6 +4554,7 @@ describe("what each game did, on a club's panel on the cloud's board", () => {
     }));
     const games = GAMES.map((game) => ({ ...game, ageGroupId: NONE }));
     const builtNone = buildBoardsAndFacts({
+      autoRemoved: NO_REMOVALS,
       ageGroups: noYear,
       teams,
       gamesOfYear: (year) => (year === undefined ? games : []),

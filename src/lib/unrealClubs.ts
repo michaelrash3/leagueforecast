@@ -195,3 +195,48 @@ export const withoutClub = (
     games: left,
   };
 };
+
+/**
+ * The pool without every club in `clubIds`, as `withoutClub` leaves it without one: their games go,
+ * a claimed row in one of them stands back up against the team it was filed against, and a club a
+ * claimed row elsewhere still goes back to stays as a name only. A claimed row filed against
+ * another of the clubs goes with them rather than stand up against a club that is going, which
+ * taking them out one at a time would do or not by the order they were taken in. The pool itself,
+ * the same arrays, when there are none.
+ *
+ * It is how the boards leave out the clubs taken off as plainly made up (`deriveAllKnown`), so
+ * they leave a club out exactly as Delete club takes it out, in one walk of the games rather than
+ * one a club.
+ */
+export const withoutClubs = (
+  clubIds: ReadonlySet<string>,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[]
+): { teams: ScoutTeam[]; games: ScoutGame[] } => {
+  if (clubIds.size === 0) return { teams, games };
+  const ownPage = ownPageFor(ageGroups);
+  const stood: ScoutGame[] = [];
+  const kept = games.filter((game) => {
+    if (!clubIds.has(game.teamAId) && !clubIds.has(game.teamBId)) return true;
+    game.alsoRows?.forEach((record) => {
+      if (record.filedAgainst === undefined || clubIds.has(record.filedAgainst)) return;
+      stood.push({
+        ...ownPage(filedRowOf(game, record)),
+        ...(game.excluded ? { excluded: true } : {}),
+      });
+    });
+    return false;
+  });
+  const left = [...kept, ...stood];
+  const named = filedTeamIds(left);
+  return {
+    teams: teams.flatMap((team) => {
+      if (!clubIds.has(team.id)) return [team];
+      if (!named.has(team.id)) return [];
+      const { gcTeams: _ids, ...rest } = team;
+      return [{ ...rest, nameOnly: true }];
+    }),
+    games: left,
+  };
+};

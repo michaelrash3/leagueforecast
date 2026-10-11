@@ -3,6 +3,7 @@ import type { GcImportState } from "../gameChangerImport";
 import { aheadWorstFirst, clubOf, poolHealthSummary } from "../poolHealthSummary";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 import { unrealClubs, type UnrealClub } from "../unrealClubs";
+import { NO_REMOVALS, type AutoRemoval } from "../autoRemoved";
 
 /*
  * What Pool health shows as it opens (`poolHealthSummary.ts`), from a device's pool or the
@@ -96,7 +97,7 @@ const POOL: GcImportState = { ageGroups: GROUPS, teams: TEAMS, games: GAMES };
 const STORED = [{ year: 2027, games: 5 }];
 
 describe("what Pool health shows as it opens", () => {
-  const summary = poolHealthSummary(POOL, TODAY, STORED);
+  const summary = poolHealthSummary(POOL, TODAY, STORED, NO_REMOVALS);
 
   it("lists the results scored ahead, with the year each is stored under and who filed it", () => {
     expect(summary.datedAhead).toEqual([
@@ -177,5 +178,61 @@ describe("what Pool health shows as it opens", () => {
     ]);
     // A club nobody suspects puts its rows last.
     expect(aheadWorstFirst(summary, [])[0]?.at).toBe(Infinity);
+  });
+});
+
+describe("the clubs taken off as plainly made up, in Pool health", () => {
+  const mark = (
+    gcTeamId: string,
+    on: string,
+    more: Partial<AutoRemoval>
+  ): [string, AutoRemoval] => [
+    gcTeamId,
+    { gcTeamId, name: "Club A", on, signs: ["named"], word: "test", ...more },
+  ];
+  const marks = new Map([
+    mark("gcA", "2027-04-10", {}),
+    mark("gcB", "2027-04-12", {
+      name: "Club B",
+      signs: ["wins"],
+      word: undefined,
+      wins: [
+        { gameId: "rout-34", margin: 34 },
+        { gameId: "x", margin: 33 },
+      ],
+    }),
+  ]);
+
+  it("leaves a club off every list once every one of its ids is marked, and lists it apart", () => {
+    const summary = poolHealthSummary(
+      POOL,
+      TODAY,
+      STORED,
+      new Map([mark("gcA", "2027-04-10", {})])
+    );
+    // A's rows go from every list, and A from the suspects; B's stay.
+    expect(summary.datedAhead.map((game) => game.id)).toEqual(["ahead-2"]);
+    expect(summary.implausible.map(({ game }) => game.id)).toEqual(["rout-34"]);
+    expect(summary.suspected.map((club) => club.teamId)).toEqual(["B"]);
+    expect(summary.removed).toEqual([
+      {
+        teamId: "A",
+        name: "Club A",
+        gcTeamIds: ["gcA"],
+        on: "2027-04-10",
+        reasons: ["named 'test'"],
+      },
+    ]);
+  });
+
+  it("lists them newest first, and none with no marks or one of a club's two ids", () => {
+    const both = new Map([...marks, mark("gcB2", "2027-04-11", { name: "Club B" })]);
+    expect(
+      poolHealthSummary(POOL, TODAY, STORED, both).removed?.map((club) => club.teamId)
+    ).toEqual(["B", "A"]);
+    expect(
+      poolHealthSummary(POOL, TODAY, STORED, marks).removed?.map((club) => club.teamId)
+    ).toEqual(["A"]);
+    expect(poolHealthSummary(POOL, TODAY, STORED, NO_REMOVALS).removed).toEqual([]);
   });
 });

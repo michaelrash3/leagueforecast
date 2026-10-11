@@ -2322,6 +2322,70 @@ with a red pill saying how many; the clubs with results dated ahead follow in th
 The list is its own section now, so it shows when nothing is dated ahead at all. **Delete club**
 acts at once, without a dialog, as the user asked the same day.
 
+**Clubs removed for you.** The user asked on 11 October 2026 for the obviously fake teams to be
+spotted and taken off without them, and for teams named void, test or demo to be among them. So
+each night, after its pull and its tidy, and on a night with nothing to pull as well, the nightly
+sweeps the cloud copy for them (`obviousFakes.ts`, run from `cloudRunner.ts`), and a pull in a
+browser that keeps its own pool sweeps that pool when it ends. A pulled club is taken off when it
+shows one of four signs and nothing keeps it:
+
+- **Routs nobody else lists** (A): two or more wins by more than thirty runs that nobody has
+  vouched for, filed by its own schedule, and none of its wins by more than thirty listed by the
+  losing club's own schedule. Only above 10U, unless one of those wins is by fifty or more: a young
+  travel team routs stand-ins, and three clubs the user had called real were each one such win
+  from it on 11 October, every one of them 8U to 10U.
+- **One impossible rout** (B): a win by 75 or more that the loser's own schedule does not list. No
+  game both clubs' schedules list, and no score the user has vouched for, reaches fifty.
+- **Results from the future** (C): half or more of its scored games are its own schedule's results
+  dated eight or more days ahead, and no opponent's schedule lists any of its results dated ahead.
+  The eight days keep out a game keyed a day or two off. Every such club on 29 September and 11
+  October was next season's squad with one stray score months ahead, and the list says so.
+- **A name nobody plays under** (N): its name, or the name of a GameChanger team filed under it,
+  has void, voided, test, testing or demo as a word of its own, in any case ("Contest", "Avoid",
+  "Demons" and "Testudo" do not). It is marked by GameChanger team, so a club with one such team
+  among others stands.
+
+What keeps a club: any of its GameChanger ids, or its club id, said to be real (**It's real**);
+being any page's own team; the user's word on it, a pair kept apart, an age named or a score
+vouched for in a game of it; for A, B and C but not N, real opponents' own schedules listing three
+of its scored games, or half of them, a real opponent being a pulled club that shows no sign and
+carries no mark; and a League Standings team that picks it or is carried onto it by its name. The
+last only the derivation of the boards can see, since only it reads League Standings, so it is
+checked there and a club so linked stays on every board whatever its marks say.
+
+A mark is kept by GameChanger id, as the clubs thrown out and said to be real are, with the day it
+was made and why, in a pool key of its own (`league_forecast_gc_auto_removed_v1`) that the cloud
+copy, every backup and every device carry. Nothing is deleted. The club, its games and its links
+stay filed and are pulled as before; only the derivation of what the boards know (`deriveAllKnown`)
+leaves out a club every one of whose ids is marked, with every game naming it, the way Delete club
+would take it out (`withoutClubs`), so the boards, the club cards, Find a team and the ratings all
+go without it. A mark stays until something lifts it, so a club whose results dated ahead have
+merely been reached stays off: any guard lifts it; A and B lift once a losing club's own schedule
+lists one of the wins counted, which is the sign's own escape; C lifts once a real opponent's
+schedule lists even one game of the club's dated after the mark, which is how next season's squad
+answers in the spring; N lifts once neither the club's name nor its GameChanger team's has the
+word.
+
+Pool health lists them under **Removed for you**, newest first, each with when and why in a line
+("named 'test'", "next season's squad, one score dated 2027-04-01") and a link to each schedule, and
+on none of its other lists. **Put back** forgets the club's marks and says it is real, so no later
+sweep takes it again; **Delete for good** deletes it as Delete club does, which forgets its marks
+too; each offers Undo. Find a team says of a pasted id taken off that it was removed, when, and
+where to put it back. The thrown-out list is never written, so a re-paste or a re-pull refiles the
+club and its mark keeps it off; a fold keeps a club on the boards unless every id it carries is
+marked.
+
+Measured with this code on the backups. On 11 October 2026 the sweep takes off 250 of 69,487
+pulled clubs: one by C, next season's squad with one score dated months ahead and no counted
+game, and 249 by N, eight of them only through a GameChanger team's name; A and B find none, the
+obvious ones having been deleted by hand on 28 September. 48 of them are on a board, the best
+47th, and leaving them off reorders the top 25 of two boards with nobody new in one. On the pool
+of 26 September at 18:40, before that sweep by hand, A, B and C take off 26 clubs (13 by A, 16 by
+B, 4 by C, some by two), every one of which the user had deleted by 11 October, and N 84 more; 56
+of the 110 are on a board, the best 20th, and two clubs come into a top 25. On neither backup, nor
+on 29 September, is a club the user had said was real by 11 October taken off (131 such clubs
+were pulled on 11 October).
+
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
 what lets somebody correct a team filed at the wrong age rather than only one filed at
@@ -4122,6 +4186,11 @@ teams twice and the copy nothing; a gate that cannot be read or written is pulle
 without, for the same reason. A dry run writes nothing, the gate included, and takes
 no turn.
 
+After its tidy it sweeps the copy for clubs plainly made up ("Clubs removed for
+you"), on the pool as tidied, and the marks go in the same commit as the pull; a
+night with nothing due sweeps alone, through the same tries and commit, and one
+that finds nothing new writes nothing.
+
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
@@ -4316,7 +4385,11 @@ updates the pins, raises the board rules' version (`BOARD_RULES`) with a
 fingerprint of its own beside the old, and says so. The version was raised once
 without moving anything, to 3, as a barrier to the publishers from before the
 boards' shape ("Views a server publishes", **What each game did**); its
-fingerprint is 2's, which is how the test says no board moved.
+fingerprint is 2's, which is how the test says no board moved. It went to 5 when a
+club removed automatically as plainly made up, and every game naming it, were left
+off every board ("Clubs removed for you"): the fixture holds one such club, 5's
+fingerprint is the boards without it, and the same fixture with its marks taken
+off still gives 4's.
 
 The pool these run on is `scripts/poolFixture.ts`: a seeded pool of the 26
 September 2026 pool's shape, with invented names. It has ten pages in two squad

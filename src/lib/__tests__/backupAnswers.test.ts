@@ -9,6 +9,7 @@ import {
 import {
   loadAgeRightClubs,
   loadAgeUnknown,
+  loadAutoRemoved,
   loadDeletedGames,
   loadDroppedClubs,
   loadKeptApart,
@@ -18,9 +19,11 @@ import {
   loadTooYoungClubs,
   isCloudPoolKey,
   cloudPoolKeys,
+  isBoardInputKey,
   resetTeamRankingsStore,
   saveAgeRightClubs,
   saveAgeUnknown,
+  saveAutoRemoved,
   saveDeletedGames,
   saveDroppedClubs,
   saveKeptApart,
@@ -32,8 +35,16 @@ import {
 import { nameAge } from "../namedAges";
 import { apartKey, keepApart } from "../keptApart";
 import { refusalOf } from "../notThisTeam";
+import type { AutoRemoval } from "../autoRemoved";
 
 const REFUSED = refusalOf("gcHAWKS00001", "Eagles", "gcEAGLES0001");
+const MARK: AutoRemoval = {
+  gcTeamId: "gcDEMO000001",
+  name: "Demo Club",
+  on: "2026-09-20",
+  signs: ["named"],
+  word: "demo",
+};
 
 const NOW = "2026-09-20T12:00:00.000Z";
 
@@ -48,6 +59,7 @@ const anEveningOfAnswers = () => {
   saveRealClubs(new Set(["vouched"]));
   saveAgeRightClubs(new Set(["playsUp"]));
   saveNotThisTeam(new Set([REFUSED]));
+  saveAutoRemoved(new Map([[MARK.gcTeamId, MARK]]));
 };
 
 /** A store of its own, so this file's answers are not somebody else's. */
@@ -97,6 +109,7 @@ describe("what a backup carries besides the pool", () => {
     expect([...loadRealClubs()]).toEqual(["vouched"]);
     expect([...loadAgeRightClubs()]).toEqual(["playsUp"]);
     expect([...loadNotThisTeam()]).toEqual([REFUSED]);
+    expect([...loadAutoRemoved().values()]).toEqual([MARK]);
   });
 
   /*
@@ -137,6 +150,34 @@ describe("what a backup carries besides the pool", () => {
     expect([...loadNotThisTeam()]).toEqual([REFUSED]);
     writeTeamRankingsBackup({ ...backup, answers: { ...older, notThisTeam: [] } });
     expect([...loadNotThisTeam()]).toEqual([]);
+  });
+
+  // The clubs taken off as plainly made up, kept after the names said not to be a club.
+  it("leaves the clubs taken off alone when the file predates them, and writes them into it", () => {
+    anEveningOfAnswers();
+    const backup = readTeamRankingsBackup();
+    expect(backup.answers?.autoRemoved).toEqual([MARK]);
+    const { autoRemoved: _marks, ...older } = backup.answers!;
+
+    writeTeamRankingsBackup({ ...backup, answers: older });
+    expect([...loadAutoRemoved().values()]).toEqual([MARK]);
+    writeTeamRankingsBackup({ ...backup, answers: { ...older, autoRemoved: [] } });
+    expect(loadAutoRemoved().size).toBe(0);
+
+    const withTeams = { ...backup, teams: [{ id: "S-A", name: "Placeholder" }] };
+    const file = JSON.parse(teamRankingsJson(withTeams, NOW)) as unknown;
+    expect(readTeamRankingsFile(file)?.answers?.autoRemoved).toEqual([MARK]);
+  });
+
+  /*
+   * The marks are made on the cloud copy by the nightly and read off it by every device, and a
+   * change to them changes what the boards leave out, so the boards are built again.
+   */
+  it("travels the clubs taken off with the cloud copy, as a board input", () => {
+    saveAutoRemoved(new Map([[MARK.gcTeamId, MARK]]));
+    expect(isCloudPoolKey("league_forecast_gc_auto_removed_v1")).toBe(true);
+    expect(cloudPoolKeys()).toContain("league_forecast_gc_auto_removed_v1");
+    expect(isBoardInputKey("league_forecast_gc_auto_removed_v1")).toBe(true);
   });
 
   it("writes the names said not to be a club into the file, and reads them back off it", () => {

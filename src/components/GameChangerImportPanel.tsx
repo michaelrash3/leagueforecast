@@ -192,6 +192,12 @@ type GameChangerImportPanelProps = {
    * a save made here would leave the view offering the same ids to the rota until the next reload.
    */
   onInvented: (gcTeamIds: string[]) => void;
+  /**
+   * The whole pool as a finished run left it, tidied, for the clubs plainly made up to be swept
+   * from it (`obviousFakes.ts`), as the nightly sweeps the cloud copy after its pull. Up, for the
+   * same reason as the clubs thrown out: the marks are the view's state.
+   */
+  onRunEnd?: (pool: GcImportState) => void;
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -336,6 +342,7 @@ export function GameChangerImportPanel({
   namedAges,
   droppedClubs,
   onInvented,
+  onRunEnd,
   onSaveProgress,
   onClearProgress,
   onClose,
@@ -1249,6 +1256,7 @@ export function GameChangerImportPanel({
       if (lists.tooYoung) setTooYoung(lists.tooYoung);
       // Thrown out like a club somebody deleted by hand, which is the page's to do.
       if (lists.invented.length > 0) onInvented(lists.invented);
+      onRunEnd?.(heldRef.current.state);
 
       track(() => {
         // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { NO_REMOVALS } from "../../autoRemoved";
 import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
 import { DEFAULT_SHRINKAGE } from "../../powerRating";
 import { weightsForGames, recencyBasisFor, recencyWeightOf } from "../../ratingRecency";
@@ -59,6 +60,7 @@ const gamesOfYear = (year: number | undefined): ScoutGame[] =>
       ageGroupYear(ageGroups.find((group: AgeGroup) => group.id === game.ageGroupId)) === year
   );
 const built = buildBoardsAndFacts({
+  autoRemoved: NO_REMOVALS,
   ageGroups,
   teams,
   gamesOfYear,
@@ -70,7 +72,13 @@ const built = buildBoardsAndFacts({
 const fitOf = (board: PageBoard): ScoutYearFit | null => {
   const page = ageGroups.find((group) => group.id === board.pageId);
   const year = ageGroupYear(page);
-  const known = deriveAllKnown({ ageGroups, teams, yearGames: gamesOfYear(year), readSeason });
+  const known = deriveAllKnown({
+    ageGroups,
+    teams,
+    yearGames: gamesOfYear(year),
+    readSeason,
+    autoRemoved: NO_REMOVALS,
+  });
   const pool = asWorkerSees(
     known.teams,
     gamesOnPages(known.games, rankingPoolGroupIds(board.pageId, ageGroups))
@@ -223,6 +231,7 @@ describe("what each board carries of its fit", () => {
 
   it("is the same on boards built with last week's places and rank lines and without", () => {
     const bare = buildBoardsAndFacts({
+      autoRemoved: NO_REMOVALS,
       ageGroups,
       teams,
       gamesOfYear,

@@ -27,6 +27,8 @@ import { persistPool } from "../poolPersist";
 import { settleRunLists } from "../pullLists";
 import { refreshNow, storedRota, type RefreshNow } from "../storedRota";
 import { pulledGcTeamIds } from "../teamRankings";
+import type { SweepPool } from "../obviousFakes";
+import { sweepStored } from "../sweepStored";
 import { isTooYoungClub } from "../tooYoungClubs";
 import {
   applyCloudPoolValues,
@@ -48,6 +50,7 @@ import {
   onCloudPoolWrite,
   readCloudPoolValue,
   resetTeamRankingsStore,
+  saveAutoRemoved,
   saveDroppedClubs,
   saveRefreshLog,
   saveTidyStamp,
@@ -340,9 +343,29 @@ const withRefreshed = (log: RefreshLog, mark: Marking, now: Date): RefreshLog =>
 };
 
 /**
+ * The sweep for clubs plainly made up (`obviousFakes.ts`) over `pool`, the store's pool as the run
+ * leaves it, on the run's own day, its marks saved where they changed. Saved into the store like
+ * the rest of the run's filing, so they go to the copy in the run's one commit.
+ */
+const sweep = (pool: SweepPool, now: Date): void => {
+  const [before, after] = sweepStored(pool, todayIsoDay(now));
+  if (after !== before && !saveAutoRemoved(after)) {
+    throw new Error("The store in memory refused the clubs taken off as plainly made up.");
+  }
+};
+
+/** The sweep alone, for a run with nothing to pull: the pool as the copy holds it. */
+const sweepOnly = async (now: Date): Promise<Filed> => {
+  sweep({ ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() }, now);
+  if (!(await flushPoolWrites())) throw new Error("The store in memory refused the sweep's marks.");
+  return { outcomes: [] };
+};
+
+/**
  * Files `answers` into the pool the store holds, tidies it, and writes it back with what the run
  * learned, as a pull in the browser ends: the tidy stamped so no device tidies it again, the
- * lists, the invented clubs thrown out, and the day logged where a rota finished.
+ * lists, the invented clubs thrown out, the clubs plainly made up taken off, and the day logged
+ * where a rota finished.
  */
 const fileAnswers = async (
   job: CloudPullJob,
@@ -383,10 +406,13 @@ const fileAnswers = async (
   });
   const tidy = tidyPool(importer.state, undefined, loadKeptApart(), refused);
   saveTidyStamp(poolSignature(tidy.state));
-  const kept = persistPool(tidyChangedAnything(tidy) ? tidy.state : importer.state, undefined);
+  const filed = tidyChangedAnything(tidy) ? tidy.state : importer.state;
+  const kept = persistPool(filed, undefined);
   if (!kept.saved) throw new Error("The pull's pool could not be written to the store in memory.");
   const lists = settleRunLists(outcomes, now.toISOString());
   if (lists.invented.length > 0) saveDroppedClubs(forgetClubs(loadDroppedClubs(), lists.invented));
+  // On the pool as tidied, so a club the tidy folded or settled is judged as it now stands.
+  sweep(filed, now);
   // Marked only when every team due was asked about: a run stopped half way has not refreshed them.
   if (mark && complete) saveRefreshLog(withRefreshed(loadRefreshLog(), mark, now));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the pull's pool.");
@@ -434,18 +460,11 @@ export const runCloudPull = async (
     replays: 0,
   };
   deps.onStage?.({ stage: "loading" });
-  let copy = await loadPoolFrom(deps.store, deps.signal);
+  const copy = await loadPoolFrom(deps.store, deps.signal);
   // Stopped before a team was asked about: nothing to file, so nothing to save.
   if (deps.signal?.aborted) return { ...result, end: "stopped" };
   if (!copy) return { ...result, end: "no-copy" };
   if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
-  /*
-   * Which copy the answers are for. A retry files them again onto whatever the copy has become,
-   * which is right when another device saved to it and wrong when it was deleted and started
-   * again: that is a different copy, made by someone who chose to begin afresh, and filing last
-   * night's answers into it would undo the choice.
-   */
-  const startedOn = copy.manifest.copy;
 
   // A walked refresh's teams were worked out at its start, and are not worked out again here.
   const walk = job.kind === "rota" ? job.walk : undefined;
@@ -470,10 +489,19 @@ export const runCloudPull = async (
   const ids = limit === undefined ? wanted : wanted.slice(0, Math.max(0, limit));
   result.asked = ids.length;
   if (ids.length === 0) {
-    // A walk's share is never empty as worked out, so one with nothing left to ask was done
-    // already, by a try of this leg whose save landed or by pulls since; it is finished, not a
-    // refresh that found nothing due.
-    return { ...result, end: walk ? "finished" : "nothing-due", manifest: copy.manifest };
+    /*
+     * Nothing to pull, but the sweep for clubs plainly made up still runs, through the same tries
+     * and commit as a pull's filing, so a club marked by nothing new is still marked, and a mark a
+     * guard now lifts is lifted, on a night with nothing due. A walk's share is never empty as
+     * worked out, so one with nothing left to ask was done already, by a try of this leg whose save
+     * landed or by pulls since; it is finished, not a refresh that found nothing due.
+     */
+    return fileAndSave(
+      { ...result, end: walk ? "finished" : "nothing-due" },
+      copy,
+      deps,
+      sweepOnly
+    );
   }
 
   let gaveUp = false;
@@ -505,11 +533,34 @@ export const runCloudPull = async (
   if (stopped && result.answered === 0) {
     return { ...result, changed: [], version: copy.manifest.version, manifest: copy.manifest };
   }
+  return fileAndSave(result, copy, deps, (now) =>
+    fileAnswers(job, ids, answers, mark, complete, now)
+  );
+};
 
+/**
+ * Files what the run has (`file`) into the copy the store holds and commits the values it changed,
+ * trying again on the copy as it then is where another device saved meanwhile.
+ */
+const fileAndSave = async (
+  result: CloudPullResult,
+  read: LoadedCopy,
+  deps: CloudPullDeps,
+  file: (now: Date) => Promise<Filed>
+): Promise<CloudPullResult> => {
+  let copy = read;
+  /*
+   * Which copy the answers are for. A retry files them again onto whatever the copy has become,
+   * which is right when another device saved to it and wrong when it was deleted and started
+   * again: that is a different copy, made by someone who chose to begin afresh, and filing last
+   * night's answers into it would undo the choice.
+   */
+  const startedOn = copy.manifest.copy;
   for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
     if (attempt > 0) {
-      copy = await loadPoolFrom(deps.store);
-      if (!copy) return { ...result, end: "no-copy" };
+      const again = await loadPoolFrom(deps.store);
+      if (!again) return { ...result, end: "no-copy" };
+      copy = again;
       if (copy.manifest.copy !== startedOn) return { ...result, end: "copy-replaced", changed: [] };
       if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
       result.replays = attempt;
@@ -519,7 +570,7 @@ export const runCloudPull = async (
     onCloudPoolWrite((key) => touched.add(key));
     let filed: Filed;
     try {
-      filed = await fileAnswers(job, ids, answers, mark, complete, deps.now());
+      filed = await file(deps.now());
     } finally {
       onCloudPoolWrite(null);
     }

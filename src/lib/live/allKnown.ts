@@ -11,6 +11,8 @@ import {
   type ScoutTeam,
   type SeasonSegment,
 } from "../teamRankings";
+import { removedClubIds, type AutoRemovals } from "../autoRemoved";
+import { withoutClubs } from "../unrealClubs";
 
 /**
  * Every team and game Team Rankings knows about for one squad year, as one pure function of the
@@ -74,12 +76,21 @@ export type AllKnown = {
  * being shown, which is the year every board is built from. A season on a page of another year
  * keeps its picks and goes by name for the rest. So the result is a year's, and a server that
  * shows several years derives it once for each, always walking every age group.
+ *
+ * A club taken off as plainly made up (`autoRemoved`, every GameChanger id of it marked, and no
+ * page's own team) is left out, with every game naming it, as Delete club would take it out
+ * (`withoutClubs`), unless a League Standings team picks it or is carried onto it by its name: the
+ * user's league says it is real, and only this pass reads League Standings, so the guard is here.
+ * It goes after the league pass, which links League Standings teams off the stored games as they
+ * are, so a club the league links is still found, and with no club to leave out everything is
+ * exactly as it was. Required, so no caller can forget the marks and draw a board with the club.
  */
 export const deriveAllKnown = ({
   ageGroups,
   teams: scoutTeams,
   yearGames,
   readSeason,
+  autoRemoved,
 }: {
   ageGroups: AgeGroup[];
   /** The stored roster, as `loadScoutTeams` decodes it. */
@@ -87,6 +98,8 @@ export const deriveAllKnown = ({
   /** One squad year's stored games, as `loadScoutGamesForYear` decodes them. */
   yearGames: ScoutGame[];
   readSeason: SeasonReader;
+  /** The clubs taken off as plainly made up, by GameChanger id (`loadAutoRemoved`). */
+  autoRemoved: AutoRemovals;
 }): AllKnown => {
   let teams = scoutTeams;
   const derivedGames: ScoutGame[] = [];
@@ -123,15 +136,30 @@ export const deriveAllKnown = ({
       )
     );
   });
+  // Taken off as plainly made up, unless a League Standings team links it.
+  const linked = new Set([
+    ...picked,
+    ...named,
+    ...[...leagueClubs.values()].flatMap((seasons) =>
+      [...seasons.values()].flatMap((clubs) => [...clubs.values()])
+    ),
+  ]);
+  const removed = new Set(
+    [...removedClubIds(scoutTeams, ageGroups, autoRemoved)].filter((id) => !linked.has(id))
+  );
+  const left = withoutClubs(removed, teams, yearGames, ageGroups);
   // `derivedGames` stays whole — the page reads it to decide which teams arrived from the league —
   // while `games` gets one row per real fixture.
   return {
-    teams,
+    teams: left.teams,
     derivedGames,
     pickedOnly: new Set([...picked].filter((id) => !named.has(id))),
     leagueClubs,
     leagueHalves,
-    games: dedupeLeagueFixtures([...derivedGames, ...yearGames], leagueStandIns(teams, ageGroups)),
+    games: dedupeLeagueFixtures(
+      [...derivedGames, ...left.games],
+      leagueStandIns(left.teams, ageGroups)
+    ),
   };
 };
 

@@ -20,6 +20,7 @@ import {
   type PoolWrite,
 } from "../commands";
 import { refusalOf } from "../../notThisTeam";
+import { autoRemovalsList, type AutoRemoval } from "../../autoRemoved";
 import { unlinkGcTeam } from "../../teamRankings";
 
 /*
@@ -37,6 +38,7 @@ type Parts = {
   ageless: AgeUnknownTeam[];
   cadence: RefreshCadence;
   orgs: OrgMembership;
+  marks: Map<string, AutoRemoval>;
 };
 
 const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
@@ -48,6 +50,7 @@ const applyWrites = (parts: Parts, writes: readonly PoolWrite[]) =>
     else if (one.part === "namedAges") parts.named = one.named;
     else if (one.part === "cadence") parts.cadence = one.cadence;
     else if (one.part === "orgs") parts.orgs = one.membership;
+    else if (one.part === "autoRemoved") parts.marks = one.marks;
     else parts.ageless = one.list;
   });
 
@@ -62,6 +65,7 @@ const memory = (parts: Parts) => {
     ageless: () => parts.ageless,
     cadence: () => parts.cadence,
     orgs: () => parts.orgs,
+    autoRemoved: () => parts.marks,
   };
   const write = (writes: readonly PoolWrite[]) => applyWrites(parts, writes);
   /** Applies, writes, and hands back what came of it; throws when it was not applied. */
@@ -88,6 +92,7 @@ const stored = (parts: Parts) => ({
   ageless: JSON.stringify(parts.ageless),
   cadence: parts.cadence,
   orgs: JSON.stringify(parts.orgs),
+  marks: JSON.stringify(autoRemovalsList(parts.marks)),
 });
 
 const clone = (parts: Parts): Parts => ({
@@ -99,6 +104,7 @@ const clone = (parts: Parts): Parts => ({
   ageless: structuredClone(parts.ageless),
   cadence: parts.cadence,
   orgs: structuredClone(parts.orgs),
+  marks: new Map(parts.marks),
 });
 
 const club = (id: string, extra: Partial<ScoutTeam> = {}): ScoutTeam => ({
@@ -115,6 +121,12 @@ const played = (id: string, a: string, b: string, scoreA: number, scoreB: number
   teamAScore: scoreA,
   teamBScore: scoreB,
 });
+
+/** A mark taking a club's GameChanger team off the boards, as the nightly sweep makes one. */
+const mark = (gcTeamId: string): [string, AutoRemoval] => [
+  gcTeamId,
+  { gcTeamId, name: "Club B", on: "2026-10-11", signs: ["named"], word: "demo" },
+];
 
 /** A team nobody could age, waiting on somebody to say, one of them with what was kept about it. */
 const waitingOn = (teamId: string): AgeUnknownTeam => ({
@@ -176,6 +188,8 @@ const POOL = (): Parts => ({
   ageless: [1, 2, 3, 4].map((at) => waitingOn(`gcW${at}`)),
   cadence: "daily",
   orgs: NO_MEMBERSHIP,
+  // Club B taken off as plainly made up, under both its GameChanger ids.
+  marks: new Map([mark("gcB1"), mark("gcB2")]),
 });
 
 describe("a command's change", () => {
@@ -485,6 +499,70 @@ describe("the clean-up commands", () => {
       ok: false,
       why: "missing",
     });
+  });
+
+  it("forgets a club's marks as it throws it out, and its undo makes them again", () => {
+    const pool = memory(POOL());
+    const before = stored(pool.parts);
+    const dropped = pool.run({ kind: "club.drop", teamId: "B" });
+    expect(pool.parts.marks.size).toBe(0);
+    pool.run(dropped.inverse);
+    expect(stored(pool.parts)).toEqual(before);
+    expect([...pool.parts.marks.keys()]).toEqual(["gcB1", "gcB2"]);
+  });
+
+  it("takes marks and makes them, and its undo puts each back as it was", () => {
+    const pool = memory(POOL());
+    const before = stored(pool.parts);
+    const other: AutoRemoval = {
+      gcTeamId: "gcA",
+      name: "Club A",
+      on: "2026-10-12",
+      signs: ["ahead"],
+      ahead: { first: "2027-04-01", results: 1, played: 1, nextSeason: true },
+    };
+    const changed = { ...mark("gcB1")[1], on: "2026-10-12" };
+    const result = pool.run({ kind: "autoRemoved", put: [other, changed], forget: ["gcB2"] });
+    expect(result.writes.map((write) => write.part)).toEqual(["autoRemoved"]);
+    expect([...pool.parts.marks.values()]).toEqual([changed, other]);
+    expect(result.inverse).toEqual({
+      kind: "autoRemoved",
+      put: [mark("gcB1")[1], mark("gcB2")[1]],
+      forget: ["gcA"],
+    });
+    pool.run(result.inverse);
+    expect(stored(pool.parts)).toEqual(before);
+    expect(pool.run({ kind: "autoRemoved", put: [], forget: ["gcZ"] }).writes).toEqual([]);
+  });
+
+  it("puts a club back as Pool health does: its marks forgotten and the club said to be real", () => {
+    const pool = memory(POOL());
+    const before = stored(pool.parts);
+    const back: PoolCommand = {
+      kind: "batch",
+      commands: [
+        { kind: "autoRemoved", put: [], forget: ["gcB1", "gcB2"] },
+        { kind: "answers", list: "realClubs", add: ["gcB1", "gcB2"], remove: [] },
+      ],
+    };
+    const result = pool.run(back);
+    expect(pool.parts.marks.size).toBe(0);
+    expect([...(pool.parts.answers.get("realClubs") ?? [])].sort()).toEqual([
+      "gcA",
+      "gcB1",
+      "gcB2",
+    ]);
+    const after = stored(pool.parts);
+    const undone = pool.run(result.inverse);
+    expect(stored(pool.parts)).toEqual(before);
+    pool.run(undone.inverse);
+    expect(stored(pool.parts)).toEqual(after);
+    // And it reads back as sent, as a device sends it.
+    expect(coerceCommand(JSON.parse(JSON.stringify(back)))).toEqual(back);
+    expect(coerceCommand(JSON.parse(JSON.stringify(result.inverse)))).toEqual(result.inverse);
+    expect(
+      coerceCommand({ kind: "autoRemoved", put: [{ gcTeamId: "gcA", signs: [] }], forget: [] })
+    ).toBeNull();
   });
 
   it("puts a league season on the page of its age, making the page under the id it is given", () => {
@@ -1025,7 +1103,7 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
   const team = pick(parts.teams);
   const ids = ["gcA", "gcB1", "gcB2", "gcC", "gcZ"];
   const n = Math.floor(next() * 1000);
-  switch (Math.floor(next() * 22)) {
+  switch (Math.floor(next() * 23)) {
     case 0:
       return game
         ? {
@@ -1189,6 +1267,23 @@ const drawCommand = (parts: Parts, next: () => number): PoolCommand => {
           .filter((org) => org.teamIds.length > 0),
         at: `2026-10-0${1 + (n % 9)}T00:00:00.000Z`,
       };
+    case 21: {
+      // A club put back, or a mark made or forgotten, as Pool health and the sweep send them.
+      const gcTeamId = pick(ids);
+      return next() < 0.5
+        ? {
+            kind: "batch",
+            commands: [
+              { kind: "autoRemoved", put: [], forget: [gcTeamId] },
+              { kind: "answers", list: "realClubs", add: [gcTeamId], remove: [] },
+            ],
+          }
+        : {
+            kind: "autoRemoved",
+            put: next() < 0.6 ? [mark(gcTeamId)[1]] : [],
+            forget: ids.filter(() => next() < 0.3),
+          };
+    }
     default:
       return {
         kind: "batch",
@@ -1228,6 +1323,7 @@ describe("a command's inverse", () => {
           ageless: pool.parts.ageless,
           cadence: pool.parts.cadence,
           orgs: pool.parts.orgs,
+          marks: pool.parts.marks,
         }),
       ]).toEqual([seed, after]);
       const undone = applyCommand(pool.read, result.inverse);
