@@ -1,0 +1,84 @@
+# Does GameChanger answer the app's pull from one of GitHub's servers, as it answers the Firebase
+# proxy? Asked before a nightly pull is built to run here, and again by hand whenever it matters
+# (`scripts/gcReach.ts`). It runs the proxy's own handler against real public teams, and prints
+# counts, sizes and timings only: this repository is public, and so are its Actions logs.
+name: GameChanger from GitHub
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/gc-reach.yml"
+      - "scripts/gcReach.ts"
+      - "scripts/cloudPool.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  reach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install: the handler and what it imports are the app's own files, run by Node as they
+      # are (`scripts/tsRegister.mjs`).
+      - run: npm run gc:reach -- --rounds 10
+
+  # Where the live site sends its pulls: a build with VITE_GC_PROXY_URL set names the Firebase
+  # proxy in its page's policy and its script (`contentPolicy.ts`, `gcProxyEndpoint`), and one
+  # without calls the Vercel function at /api/gc-team, which Vercel bills in CPU. And whether the
+  # live site signs in with the project's own key (`FIREBASE_WEB_CONFIG`).
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Where the live site sends its pulls
+        run: |
+          site=https://leagueforecast.vercel.app
+          page=$(curl -fsS "$site/")
+          echo "The live page may connect to: $(printf '%s' "$page" | grep -o "connect-src[^;\"]*")"
+          entry=$(printf '%s' "$page" | grep -o '/assets/index-[^"]*\.js' | head -1)
+          code=$(curl -fsS "$site$entry")
+          # The pull code may sit in a chunk loaded later, so every chunk the entry names is read.
+          for chunk in $(printf '%s' "$code" | grep -o 'assets/[A-Za-z0-9_.-]*\.js' | sort -u); do
+            code="$code
+          $(curl -fsS "$site/$chunk")"
+          done
+          proxies=$(printf '%s' "$code" | grep -o 'https://[a-z0-9.-]*\(cloudfunctions\.net\|run\.app\)[^"`]*' | sort -u)
+          if [ -n "$proxies" ]; then
+            echo "Pulls go to the Firebase proxy: $proxies"
+          else
+            echo "Pulls go to the Vercel function (/api/gc-team)."
+          fi
+          key=$(node --input-type=module -e 'const { FIREBASE_WEB_CONFIG } = await import("./src/lib/cloud/cloudConfig.ts"); console.log(FIREBASE_WEB_CONFIG.apiKey);')
+          if grep -qF "$key" <<< "$code"; then
+            echo "The live site signs in with the project's own key."
+          else
+            echo "The live site does not carry the project's key yet."
+          fi
+
+  # The user's own teams, read out of the cloud copy with the Firebase key GitHub keeps for deploys
+  # (`scripts/cloudPool.ts`, read only): tonight's rota worked out as the Refresh button does, and a
+  # spread of it asked of GameChanger at the app's pace, to say what a night of them would take.
+  # The day is the user's, not the server's.
+  cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - run: npm run gc:reach -- --cloud 1000
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          TZ: America/New_York

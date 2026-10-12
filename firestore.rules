@@ -1,0 +1,180 @@
+rules_version = '2';
+
+// Who may read and write the cloud copy of League Forecast's data: the Google accounts on the
+// owner's list. See README, "Your data on every device"; the tests are
+// src/lib/cloud/__tests__/firestoreRules.test.ts, run with `npm run test:rules`.
+//
+// The list is `members/{address}`, one document per account, named by its address in lower case:
+// `{ role: "owner" }` for the owner, made once by hand in the Firebase console, and
+// `{ role: "member", addedAt }` for each account the owner adds from the app. Google sign-in alone
+// was the lock until the copy became the one place the data lives; any Google account could then
+// have read and changed it. A browser nobody has signed in to gets nothing, and nothing but the
+// copy, the list and the views a server publishes from the copy is open to anyone.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Signed in, and with Google. A way of signing in that needs no Google account (anonymous, or
+    // an address and a password), were one ever turned on in the console, opens nothing.
+    function signedInWithGoogle() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == "google.com";
+    }
+
+    // The signed-in account's address as the list names it. Google may hand it back in any case
+    // the account was made in; the list is kept in lower case.
+    function address() {
+      return request.auth.token.email.lower();
+    }
+
+    function entry() {
+      return /databases/$(database)/documents/members/$(address());
+    }
+
+    // On the list, under an address Google has verified belongs to the account.
+    function isMember() {
+      return signedInWithGoogle()
+        && request.auth.token.email_verified == true
+        && exists(entry());
+    }
+
+    function isOwner() {
+      return isMember() && get(entry()).data.role == "owner";
+    }
+
+    // The copy itself, `copies/main` and its `chunks`: read by the list, written by no browser,
+    // the owner's included (1.6f). Only the cloud's servers write it, as service accounts the rules
+    // do not apply to: the nightly, the edit and rebuild functions, and the pulls in the cloud.
+    // Every edit a member makes goes through them, or into League Standings' own documents. Got
+    // by name and never listed. The first version's `cloud/` is open to nobody.
+    match /copies/{document=**} {
+      allow get: if isMember();
+    }
+
+    // The views a server publishes from the copy for the list to read: `live/meta`, which names
+    // every view, and its pieces, `live/meta/chunks` (README, "Views a server publishes"). Got by
+    // name and never listed, since a device fetches only the pieces the meta names, and a listing
+    // costs a read for every piece. Only the server writes here, as a service account the rules do
+    // not apply to; no browser does, the owner's included.
+    match /live/{document=**} {
+      allow get: if isMember();
+    }
+
+    // League Standings, one document per season, `league/{season}`, which the list reads and writes
+    // into directly, a record at a time (README, "League Standings in the cloud";
+    // `src/lib/live/leagueDocs.ts`). A season is made whole, with every field a season has, and
+    // keeps them, carrying no other field ever after, so every device reads what every other
+    // writes: every field but `updatedAt` is read by the check below, and a field the rules read
+    // that is not there refuses the write; `rev` is read, and its value set, by the create and
+    // update rules. Only the owner deletes one, since a season deleted here is gone from every
+    // device at once.
+    function leagueFields() {
+      return ["schema", "rev", "name", "createdAt", "updatedAt", "teams", "teamOrder", "matchups", "order", "logs", "bracketLogs", "settings"];
+    }
+
+    function isLeagueSeason(data) {
+      return data.keys().hasOnly(leagueFields())
+        && data.schema is int && data.schema >= 1
+        && data.name is string
+        && data.createdAt is string
+        && (!("updatedAt" in data) || data.updatedAt is string)
+        && data.teams is map && data.teamOrder is list
+        && data.matchups is map && data.order is list
+        && data.logs is map && data.bracketLogs is map
+        && data.settings is map;
+    }
+
+    match /league/{season} {
+      allow get, list: if isMember();
+      // Named by the season's id as `encodeKey` writes it: as it is, or `~` and base64url.
+      allow create: if isMember()
+        && season.matches("^(~[A-Za-z0-9_-]+|[A-Za-z0-9_-]{1,64})$")
+        && isLeagueSeason(request.resource.data)
+        && request.resource.data.rev == 1;
+      // Never back to an older layout than the one it is in, which a device that predates it
+      // would write over a newer device's season; and each write one past the last, so every
+      // device can tell which versions hold which writes, and a write made without reading the
+      // season first is refused.
+      allow update: if isMember()
+        && isLeagueSeason(request.resource.data)
+        && request.resource.data.schema >= resource.data.schema
+        && request.resource.data.rev == resource.data.rev + 1;
+      allow delete: if isOwner();
+    }
+
+    // A file the owner stages for the server (`src/lib/cloud/uploads.ts`): a Team Rankings backup
+    // to restore, too big for a call. Its record, `uploads/{id}`, says what it is and how many
+    // pieces it has, and is written first; the pieces, `uploads/{id}/chunks/{id}-{n}`, are the
+    // gzipped JSON as the copy keeps a part, each at most a document's size. The owner's alone,
+    // since restoring a backup is, and never changed once written: the server reads it as a
+    // service account the rules do not apply to, checks it against the record's fingerprint, and
+    // deletes it once used, as the nightly does any left a day.
+    function isUploadRecord(data) {
+      return data.keys().hasOnly(["kind", "hash", "bytes", "chunks", "createdAt"])
+        && data.kind == "team-rankings"
+        && data.hash is string && data.hash.matches("^[0-9a-f]{64}$")
+        && data.bytes is int && data.bytes >= 0
+        && data.chunks is int && data.chunks >= 1 && data.chunks <= 200
+        && data.createdAt is string;
+    }
+
+    match /uploads/{upload} {
+      allow get, delete: if isOwner();
+      allow create: if isOwner()
+        && upload.matches("^[0-9a-f]{32}$")
+        && isUploadRecord(request.resource.data);
+
+      // A piece only of an upload whose record is there, which is what the nightly sweeps by.
+      match /chunks/{piece} {
+        allow get, delete: if isOwner();
+        allow create: if isOwner()
+          && exists(/databases/$(database)/documents/uploads/$(upload))
+          && piece.matches("^" + upload + "-[0-9]{1,3}$")
+          && request.resource.data.keys().hasOnly(["data"])
+          && request.resource.data.data is bytes
+          && request.resource.data.data.size() <= 1000000;
+      }
+    }
+
+    // A pull a member leaves for the cloud to run (`src/lib/cloud/pullJobs.ts`): the job,
+    // `pullJobs/{job}`, and its list in pieces, `pullJobs/{job}/pieces/{n}`, written pieces first.
+    // Outside the copy, which only servers write. A member makes a job as a new one is made, reads
+    // any, and may change one thing of one once made: ask it to stop. The function that runs it
+    // keeps it up to date as a service account the rules do not apply to.
+    match /pullJobs/{job} {
+      allow get: if isMember();
+      allow create: if isMember()
+        && job.matches("^[0-9a-f]{32}$")
+        && request.resource.data.format == 1
+        && request.resource.data.status == "queued"
+        && request.resource.data.legsDone == 0
+        && request.resource.data.stopAsked == false;
+      allow update: if isMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["stopAsked"])
+        && request.resource.data.stopAsked == true;
+
+      match /pieces/{piece} {
+        allow get: if isMember();
+        allow create: if isMember()
+          && piece.matches("^[0-9]{1,3}$")
+          && request.resource.data.keys().hasOnly(["data"])
+          && request.resource.data.data is bytes
+          && request.resource.data.data.size() <= 1000000;
+      }
+    }
+
+    // The list. A member may read their own entry, which is how the app learns whether they are
+    // the owner; the owner reads all of it, adds accounts to it and takes them off. The owner's own
+    // entry is never changed from the app, so no click can lock the owner out or hand the list
+    // to somebody else: it is made, and only ever changed, in the console.
+    match /members/{member} {
+      allow get: if isMember() && (member == address() || isOwner());
+      allow list: if isOwner();
+      allow create: if isOwner()
+        && member == member.lower()
+        && member.matches("^[^@\\s]+@[^@\\s]+$")
+        && request.resource.data.keys().hasOnly(["role", "addedAt"])
+        && request.resource.data.role == "member"
+        && request.resource.data.addedAt is string;
+      allow delete: if isOwner() && member != address();
+    }
+  }
+}

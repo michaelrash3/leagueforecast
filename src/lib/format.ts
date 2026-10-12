@@ -16,13 +16,26 @@ export const displayName = (name: string) => {
 };
 
 export const teamAbbr = (name: string) => {
-  const short = displayName(name).replace(/[^a-z0-9 ]/gi, "").trim();
+  const short = displayName(name)
+    .replace(/[^a-z0-9 ]/gi, "")
+    .trim();
   const words = short.split(/\s+/).filter(Boolean);
   if (words.length >= 2) {
-    return words.map((w) => w[0]).join("").slice(0, 3).toUpperCase();
+    return words
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 3)
+      .toUpperCase();
   }
   return short.slice(0, 3).toUpperCase() || "TM";
 };
+
+/**
+ * A winning percentage the way a standings table writes one: three decimals, no leading zero.
+ * ".833", not "0.833" and not "83%" — the number the table sorts on, printed as it is read.
+ */
+export const winPct = (value: number): string =>
+  value >= 1 ? "1.000" : value.toFixed(3).replace(/^0/, "");
 
 export const recordText = (team: Pick<Team, "w" | "l" | "t">) =>
   `${team.w}-${team.l}${team.t ? `-${team.t}` : ""}`;

@@ -1,0 +1,4 @@
+Entity Type,Entity Name,Organization ID,City,State,Season Name,Season Year,Sport,Home URL,Teams URL,Schedule URL,Team Count,First Seen,Last Seen
+"travel","Cincy Legends Baseball","3sazmL1VgPnC","Cincinnati","OH","Spring","2027","baseball","https://web.gc.com/organizations/3sazmL1VgPnC/home","https://web.gc.com/organizations/3sazmL1VgPnC/teams","https://web.gc.com/organizations/3sazmL1VgPnC/schedule","12","2026-09-22","2026-09-22"
+"league","NKB 11u","Pqy5Av4tHncy","","","2027","","baseball","https://web.gc.com/organizations/Pqy5Av4tHncy/home","https://web.gc.com/organizations/Pqy5Av4tHncy/teams","https://web.gc.com/organizations/Pqy5Av4tHncy/schedule","","2026-09-22","2026-09-22"
+"tournament","NB Summer Slam 12U","e7BuP4Z9MPM4","","","","","baseball","https://web.gc.com/organizations/e7BuP4Z9MPM4/home","https://web.gc.com/organizations/e7BuP4Z9MPM4/teams","https://web.gc.com/organizations/e7BuP4Z9MPM4/schedule","","2026-09-22","2026-09-22"

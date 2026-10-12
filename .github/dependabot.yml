@@ -1,0 +1,62 @@
+# Keeps dependencies current without letting them drift silently.
+#
+# Every update arrives as a pull request that CI builds, type-checks, lints and tests before it can
+# merge — which is the point: "up to date" is only safe when something proves the update works
+# first. Patch and minor updates are batched into one PR a week so routine currency costs one
+# review; major updates are deliberately excluded (see below) because each one is a migration.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the whole safe batch rather than a stream of single-package PRs.
+      routine:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    # Majors still arrive as their own pull request — each is a migration and wants its own review,
+    # and letting them through is how vite 8 got taken the week it became possible. What does NOT
+    # arrive is a major that cannot install today. Those used to be left open on purpose, on the
+    # theory that a red check is a free signal that would flip to green the day upstream caught up.
+    # In practice it produced a permanently red pull request list, which is worse than a quiet one:
+    # a list that is always red teaches you to stop reading red, and red is the only thing here
+    # worth reading. So each one is ignored by name and version below, with what would unblock it.
+    #
+    # Ignoring by *version* rather than by update-type is deliberate. "eslint 10.x" stops the PR
+    # that cannot work without also hiding eslint 11, so nothing is silently frozen — only the one
+    # version known to be impossible is skipped, and the next one still gets asked about.
+    #
+    # To re-check any of these: delete its entry, remove package-lock.json, and run npm install.
+    # Do not trust the reasons written here. They have twice been the stale part — vite 8 and
+    # @vitejs/plugin-react 6 each sat on this list looking blocked when the only real problem was
+    # that the other one had not moved yet, and both install clean now. A red pull request says a
+    # package is blocked against the base branch it was opened on, which is not the same as blocked.
+    ignore:
+      # eslint-plugin-jsx-a11y@6.10.2 peers ^3 || … || ^9 and is the latest release, with no
+      # prerelease saying otherwise; eslint-plugin-react@7.37.5 peers ^9.7 behind it.
+      # eslint-plugin-react-hooks already peers ^10, so those two decide when this can move.
+      - dependency-name: eslint
+        versions: ["10.x"]
+      # Same blocker wearing a different hat: eslint and @eslint/js are versioned in lockstep and
+      # peer each other, so bumping either half alone fails on the other's 9. Bumping both together
+      # still hits jsx-a11y — verified against a clean resolve, not assumed.
+      - dependency-name: "@eslint/js"
+        versions: ["10.x"]
+      # typescript-eslint declares typescript >=4.8.4 <6.1.0. The 6.x line ends at the 6.0.3 pinned
+      # here, so this is the only typescript update currently out of reach.
+      - dependency-name: typescript
+        versions: ["7.x"]
+    commit-message:
+      prefix: deps
+
+  # The workflow's own actions age too, and a pinned action that stops being maintained is the
+  # kind of thing nobody notices until a run breaks.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

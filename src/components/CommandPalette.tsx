@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useEscape, useFocusTrap } from "../hooks/useFocusTrap";
 
 export type Command = {
@@ -38,12 +38,18 @@ export function CommandPalette({
   useFocusTrap(open, containerRef as React.RefObject<HTMLElement>);
   useEscape(open, onClose);
 
-  useEffect(() => {
+  // Reset as the palette closes. Done while rendering the change rather than in
+  // an effect: React applies it before anything paints, so there is no extra
+  // render pass, and no frame where a reopened palette still shows the last
+  // search. (react.dev: "adjusting state when a prop changes".)
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
     if (!open) {
       setQuery("");
       setActive(0);
     }
-  }, [open]);
+  }
 
   const filtered = useMemo(() => {
     const scored = commands
@@ -77,18 +83,18 @@ export function CommandPalette({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-start justify-center bg-slate-950/40 p-3 pt-24"
+      className="fixed inset-0 z-70 flex items-start justify-center bg-slate-950/40 p-3 pt-24"
       role="presentation"
       onClick={onClose}
     >
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
         ref={containerRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="w-full max-w-xl overflow-hidden rounded-none bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
+        className="w-full max-w-xl overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
@@ -106,14 +112,10 @@ export function CommandPalette({
             onKeyDown={onKeyDown}
             placeholder="Type a team name or action…"
             aria-label="Command palette search"
-            className="w-full bg-transparent text-base font-bold text-slate-950 outline-none placeholder:font-semibold placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
+            className="w-full bg-transparent text-base font-bold text-slate-950 outline-hidden placeholder:font-semibold placeholder:text-slate-400 dark:text-slate-100 dark:placeholder:text-slate-500"
           />
         </div>
-        <ul
-          role="listbox"
-          aria-label="Commands"
-          className="max-h-80 overflow-y-auto py-1"
-        >
+        <ul role="listbox" aria-label="Commands" className="max-h-80 overflow-y-auto py-1">
           {filtered.length === 0 && (
             <li className="px-4 py-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
               No matches.
@@ -140,14 +142,14 @@ export function CommandPalette({
               >
                 <span className="flex items-center gap-3">
                   {cmd.group && (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    <span className="rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                       {cmd.group}
                     </span>
                   )}
                   <span>{cmd.label}</span>
                 </span>
                 {cmd.hint && (
-                  <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                     {cmd.hint}
                   </span>
                 )}
@@ -155,7 +157,7 @@ export function CommandPalette({
             );
           })}
         </ul>
-        <div className="border-t border-slate-200 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:border-slate-700 dark:text-slate-500">
+        <div className="border-t border-slate-200 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
           ↑↓ navigate · Enter run · Esc close
         </div>
       </div>

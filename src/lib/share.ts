@@ -11,6 +11,10 @@ export type SharedSnapshot = {
 export type ShareUiState = { view?: ActiveShareView; teamId?: string };
 export const MAX_SHARE_URL_PAYLOAD = 7000;
 
+/**
+ * Id and name only. A pool pick (`TeamBase.scoutTeamId`) is an id minted in the browser that
+ * made it, so in the browser opening the link it would point at another club or at nothing.
+ */
 type CompactTeam = [id: string, name: string];
 type CompactMatchup = [id: string, date: string, away: string, home: string];
 type CompactGameLog = [
@@ -42,6 +46,7 @@ const SHARE_VIEWS = new Set<ActiveShareView>([
   "teamStats",
   "games",
   "model",
+  "quality",
   "settings",
 ]);
 
@@ -56,12 +61,14 @@ const base64ToBytes = (base64: string) => {
   const binary = atob(base64);
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 };
-const encodeRaw = (value: string) =>
+/** Text as URL-safe base64, for the part of a link after `#`. */
+export const encodeRaw = (value: string) =>
   bytesToBase64(new TextEncoder().encode(value))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
-const decodeRaw = (encoded: string) => {
+/** The text `encodeRaw` made, back. */
+export const decodeRaw = (encoded: string) => {
   const padded = encoded.replace(/-/g, "+").replace(/_/g, "/");
   const padLen = (4 - (padded.length % 4)) % 4;
   const full = padded + "=".repeat(padLen);
@@ -133,7 +140,7 @@ const expandCompactSnapshot = (parsed: CompactSnapshot): SharedSnapshot | null =
     v: 1,
     teams: coercedTeams,
     matchups: coercedMatchups,
-    logs: coerceLogs(logs, coercedMatchups, settings),
+    logs: coerceLogs(logs, coercedMatchups),
     settings,
   };
 };
@@ -153,7 +160,7 @@ export const decodeSnapshot = (encoded: string): SharedSnapshot | null => {
     const settings = coerceSettings(parsed.settings);
     const teams = coerceTeams(parsed.teams);
     const matchups = coerceMatchups(parsed.matchups, teams);
-    const logs = coerceLogs(parsed.logs, matchups, settings);
+    const logs = coerceLogs(parsed.logs, matchups);
     return { v: 1, teams, matchups, logs, settings };
   } catch {
     return null;

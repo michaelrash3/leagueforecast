@@ -6,17 +6,72 @@ on:
   pull_request:
     branches: [main]
 
+# One run per branch. Pushing three times in a minute used to start three full gates and let all
+# of them finish, so the queue filled with answers about commits nobody was waiting on any more —
+# and the answer that mattered, the newest one, came last. `main` is exempt: a push there is a
+# merge, and cancelling the gate on a merge would leave the branch with no result at all.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm test -- --run
+      # Coverage rather than a bare run: same tests, same time, and the summary is printed in the
+      # log so what the suite misses is visible on every pull request. The thresholds in
+      # vite.config.ts are a floor under where the suite already is, so this fails on a real drop.
+      - run: npm run test:coverage
       - run: npm run build
+      # What a visit downloads, held to limits: the first download, each League view's own load,
+      # Team Rankings and the stylesheet (`scripts/bundleBudget.mjs`). Fails naming what grew.
+      - run: npm run bundle:check
+      # The GameChanger proxy's address is a build setting (`gcProxyEndpoint`), and Vite fills in
+      # `import.meta.env.VITE_…` only where the read is written out whole. Read any other way it
+      # passes every unit test, which run with an `import.meta.env` of their own, and the setting
+      # never reaches a browser. So build once with it set and look for it in the bundle, and in
+      # the page's content policy, without which the browser refuses every call to it
+      # (`src/lib/contentPolicy.ts`).
+      - name: The proxy setting reaches the bundle and the page's policy
+        run: |
+          VITE_GC_PROXY_URL=https://proxy.example.invalid/gcTeam npx vite build --outDir "$RUNNER_TEMP/dist-proxy"
+          grep -rlq "proxy.example.invalid/gcTeam" --include="*.js" "$RUNNER_TEMP/dist-proxy"
+          grep -q "connect-src 'self' https://proxy.example.invalid" "$RUNNER_TEMP/dist-proxy/index.html"
+      # The Firebase project the cloud copy lives in (`FIREBASE_WEB_CONFIG`, README "Your data on
+      # every device") is in the app's own build (`npm run build`, above) and in its page's policy
+      # for Google sign-in, the project read out of the source rather than written here again. And
+      # Firebase stays out of the first download. It is loaded for a browser that signs in, so
+      # neither the entry script nor anything it preloads may carry it.
+      - name: The Firebase project reaches the page's policy, and Firebase loads only on sign-in
+        run: |
+          auth=$(node --input-type=module -e 'const { FIREBASE_WEB_CONFIG } = await import("./src/lib/cloud/cloudConfig.ts"); console.log(FIREBASE_WEB_CONFIG.authDomain);')
+          test -n "$auth"
+          grep -rlqF "$auth" --include="*.js" dist
+          grep -qF "frame-src 'self' https://$auth" dist/index.html
+          for file in $(grep -o 'assets/[^"]*\.js' dist/index.html); do
+            if grep -q "firestore.googleapis.com" "dist/$file"; then
+              echo "::error::Firebase is in the first download: $file"
+              exit 1
+            fi
+          done
+          grep -rlq "firestore.googleapis.com" --include="*.js" dist/assets
+          # Firestore's listener is a chunk of its own, which a live board loads and the service
+          # worker does not store ahead (`vite.config.ts`).
+          ls dist/assets/firestoreListen-*.js
+          if grep -q "firestoreListen-" dist/sw.js; then
+            echo "::error::The service worker stores Firestore's listener ahead"
+            exit 1
+          fi
+      # One browser, one smoke spec, against the build above: a season loads, a score moves the
+      # standings, and the backup carries it. The unit suites cover the pieces; this covers the wiring.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

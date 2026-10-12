@@ -39,6 +39,8 @@ const team = (
   goldStatus: overrides.goldStatus ?? "Alive",
   maxPoints: overrides.maxPoints ?? 2,
   blockersAhead: overrides.blockersAhead ?? 0,
+  maxPct: overrides.maxPct ?? 1,
+  minPct: overrides.minPct ?? 0,
   ...overrides,
   id: overrides.id,
 });

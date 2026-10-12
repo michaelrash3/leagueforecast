@@ -1,4 +1,5 @@
-import { parseDateValue } from "./date";
+import { parseDateValue, seasonStartMonth } from "./date";
+import { wilsonScoreInterval } from "./probability";
 import { clamp, isFinal, parseNumber } from "./util";
 import {
   DEFAULT_TIEBREAKER_ORDER,
@@ -6,6 +7,7 @@ import {
   RUN_SCORE_CAP,
   type GameLog,
   type Matchup,
+  type PitchMode,
   type Prediction,
   type Settings,
   type Team,
@@ -41,6 +43,7 @@ export const emptyTeam = (base: TeamBase): Team => ({
   awayK6: null,
   homeK6: null,
   totalK6: null,
+  contactBonus: 0,
   machineDifficulty: 0,
   headToHead: {},
 });
@@ -94,8 +97,33 @@ export type MathGoldStatus = {
   goldStatus: "Clinched" | "Eliminated" | "In" | "Alive";
   maxPoints: number;
   blockersAhead: number;
+  /** The best and worst PCT this team can still finish on, which is what the cut is decided by. */
+  maxPct: number;
+  minPct: number;
 };
 
+/**
+ * The best and worst PCT a team can still finish on.
+ *
+ * PCT counts a tie as half a win over games *played*, so both ends move as the season runs: the
+ * best case wins everything left, the worst loses everything left, and either way the denominator
+ * grows. That growth is the whole reason points and PCT disagree — points only ever go up, so a
+ * team that has played twice as many games looks twice as strong on points and no stronger at all
+ * on PCT.
+ */
+const pctBounds = (team: Team, remaining: number): { min: number; max: number } => {
+  const played = team.w + team.l + team.t;
+  const total = played + remaining;
+  if (total <= 0) return { min: 0, max: 0 };
+  const credited = team.w + team.t * 0.5;
+  return { min: credited / total, max: (credited + remaining) / total };
+};
+
+/**
+ * Whether the maths alone settles a team's Gold Bracket place. The table and simulations rank on
+ * league points, so the clinch calculation must use that same currency. PCT bounds remain in the
+ * result because callers display them as useful best/worst-record context.
+ */
 export const getMathGoldStatus = (
   team: Team,
   teams: Team[],
@@ -103,20 +131,23 @@ export const getMathGoldStatus = (
   cutoff: number,
   settings: Pick<Settings, "winPoints" | "tiePoints">
 ): MathGoldStatus => {
+  const maxPoints =
+    standingsPoints(team, settings) + (remainingCounts[team.id] ?? 0) * settings.winPoints;
   const currentPoints = standingsPoints(team, settings);
-  const winPoints = settings.winPoints;
-  const maxPoints = currentPoints + (remainingCounts[team.id] ?? 0) * winPoints;
+  const mine = pctBounds(team, remainingCounts[team.id] ?? 0);
 
+  // Teams that finish above this one however the season goes: their floor clears its ceiling.
   const blockersAhead = teams.filter((other) => {
     if (other.id === team.id) return false;
     return standingsPoints(other, settings) > maxPoints;
   }).length;
 
+  // Teams that can still reach it: their ceiling reaches its floor.
   const possibleCatchers = teams.filter((other) => {
     if (other.id === team.id) return false;
-    const otherMaxPoints =
-      standingsPoints(other, settings) + (remainingCounts[other.id] ?? 0) * winPoints;
-    return otherMaxPoints >= currentPoints;
+    const otherMax =
+      standingsPoints(other, settings) + (remainingCounts[other.id] ?? 0) * settings.winPoints;
+    return otherMax >= currentPoints;
   }).length;
 
   const eliminated = blockersAhead >= cutoff;
@@ -132,6 +163,8 @@ export const getMathGoldStatus = (
           : "Alive",
     maxPoints,
     blockersAhead,
+    maxPct: mine.max,
+    minPct: mine.min,
   };
 };
 
@@ -173,15 +206,26 @@ const compareByTiebreaker = (a: Team, b: Team, factor: TiebreakerFactor, tiedGro
       if (aPct === null || bPct === null || Math.abs(aPct - bPct) <= 0.0001) return 0;
       return bPct - aPct;
     }
-    case "runDifferential":
-      if (a.runDiff !== b.runDiff) return b.runDiff - a.runDiff;
+    case "runDifferential": {
+      // USSSA seeds on AVG run differential (with the run diff already capped upstream).
+      const aAvg = a.games ? a.runDiff / a.games : 0;
+      const bAvg = b.games ? b.runDiff / b.games : 0;
+      if (Math.abs(aAvg - bAvg) > 1e-9) return bAvg - aAvg;
       return 0;
-    case "runsAgainst":
-      if (a.ra !== b.ra) return a.ra - b.ra;
+    }
+    case "runsAgainst": {
+      // USSSA seeds on AVG runs allowed, ascending (fewer is better).
+      const aAvg = a.games ? a.ra / a.games : 0;
+      const bAvg = b.games ? b.ra / b.games : 0;
+      if (Math.abs(aAvg - bAvg) > 1e-9) return aAvg - bAvg;
       return 0;
-    case "runsFor":
-      if (a.rs !== b.rs) return b.rs - a.rs;
+    }
+    case "runsFor": {
+      const aAvg = a.games ? a.rs / a.games : 0;
+      const bAvg = b.games ? b.rs / b.games : 0;
+      if (Math.abs(aAvg - bAvg) > 1e-9) return bAvg - aAvg;
       return 0;
+    }
     default:
       return 0;
   }
@@ -201,23 +245,34 @@ const compareTiedTeams = (tiebreakerOrder: TiebreakerFactor[], tiedGroupSize: nu
 
 export const rankTeams = (teams: Team[], options: RankOptions) => {
   const tiebreakerOrder = resolvedTiebreakerOrder(options);
-  const sortedByPct = [...teams].sort((a, b) => {
-    // GameChanger's PCT column treats ties as half a win and sorts standings
-    // by that percentage before applying secondary tiebreakers.
-    if (Math.abs(b.pct - a.pct) > 0.0001) return b.pct - a.pct;
+  const pointsFor = (team: Team) =>
+    team.w * (options.winPoints ?? 1) + team.t * (options.tiePoints ?? 0.5);
+  const sortedByRecord = [...teams].sort((a, b) => {
+    // These are league standings, not a power ranking. Credit wins already earned first, then
+    // penalize losses already spent: with the same points, 0-1 must stay ahead of 0-2 because the
+    // latter has one fewer remaining opportunity in an equal-length season.
+    const pointsDiff = pointsFor(b) - pointsFor(a);
+    if (Math.abs(pointsDiff) > 0.0001) return pointsDiff;
+    if (a.l !== b.l) return a.l - b.l;
     return a.id.localeCompare(b.id);
   });
 
   const sorted: Team[] = [];
-  for (let index = 0; index < sortedByPct.length; ) {
-    const first = sortedByPct[index];
+  for (let index = 0; index < sortedByRecord.length;) {
+    const first = sortedByRecord[index];
     if (!first) break;
 
     const tiedGroup = [first];
     let nextIndex = index + 1;
-    while (nextIndex < sortedByPct.length) {
-      const candidate = sortedByPct[nextIndex];
-      if (!candidate || Math.abs(candidate.pct - first.pct) > 0.0001) break;
+    while (nextIndex < sortedByRecord.length) {
+      const candidate = sortedByRecord[nextIndex];
+      if (
+        !candidate ||
+        Math.abs(pointsFor(candidate) - pointsFor(first)) > 0.0001 ||
+        candidate.l !== first.l
+      ) {
+        break;
+      }
       tiedGroup.push(candidate);
       nextIndex += 1;
     }
@@ -266,19 +321,66 @@ type InternalTeam = Team & {
   results: { diff: number; oppId: string }[];
 };
 
-const cappedRunDiff = (runsFor: number, runsAgainst: number, maxRunDifferential = RUN_SCORE_CAP) => {
+const cappedRunDiff = (
+  runsFor: number,
+  runsAgainst: number,
+  maxRunDifferential = RUN_SCORE_CAP
+) => {
   const cap = Math.max(0, Math.min(RUN_SCORE_CAP, Math.round(maxRunDifferential)));
   const rawDiff = runsFor - runsAgainst;
   if (cap <= 0) return rawDiff;
   return clamp(rawDiff, -cap, cap);
 };
 
+/**
+ * Resolve the effective per-game run-differential cap. When autoRunDiffCap is on, the cap follows
+ * the pitch format — 8 for machine/coach pitch (which carry a per-inning run limit and earlier
+ * mercy) and 12 for player pitch (9U+ has no run limit) — otherwise the manual maxRunDifferential.
+ */
+/**
+ * Puts an opponent-adjusted rating onto each team, which is what lets a forecast know who a team
+ * played rather than only what it scored.
+ *
+ * Attached here and nowhere else, so there is one answer to "does this team have a rating".
+ * A team the fit never saw a game for gets no field at all, and every forecast for it stays
+ * exactly the number it was before any of this existed.
+ *
+ * The count is the games the *rating* rests on, not the team's league games, and the difference
+ * is the whole point where Team Rankings is switched on: a team with two league games and five
+ * tournament results already has a firm rating and should be trusted like one. It is also why the
+ * count is read here rather than inside the forecast — a simulated season adds to a team's games
+ * as it runs, and leaning ever harder on a rating that is frozen at reality would be wrong.
+ */
+export const attachAdjustedRatings = (
+  teams: Team[],
+  ratings: { byTeam: Map<string, number>; games: Map<string, number> }
+): Team[] =>
+  teams.map((team) => {
+    const rating = ratings.byTeam.get(team.id);
+    const rated = ratings.games.get(team.id) ?? 0;
+    if (rating === undefined || !Number.isFinite(rating) || rated <= 0) return team;
+    return { ...team, adjustedRating: rating, ratedGames: rated };
+  });
+
+export const resolveMaxRunDifferential = (settings: {
+  maxRunDifferential: number;
+  pitchMode?: PitchMode;
+  autoRunDiffCap?: boolean;
+}): number => {
+  if (settings.autoRunDiffCap) return settings.pitchMode === "player" ? 12 : 8;
+  return settings.maxRunDifferential;
+};
+
 export const calculateTeams = (
   teamBases: TeamBase[],
   matchups: Matchup[],
   logs: Record<string, GameLog>,
-  settings: Pick<Settings, "maxRunDifferential"> = { maxRunDifferential: RUN_SCORE_CAP }
+  settings: Pick<Settings, "maxRunDifferential"> &
+    Partial<Pick<Settings, "pitchMode" | "autoRunDiffCap">> = {
+    maxRunDifferential: RUN_SCORE_CAP,
+  }
 ): Team[] => {
+  const runDiffCap = resolveMaxRunDifferential(settings);
   const teams: InternalTeam[] = teamBases.map((base) => ({
     ...emptyTeam(base),
     awayKs: 0,
@@ -303,8 +405,10 @@ export const calculateTeams = (
   let leagueKs = 0;
   let leagueInnings = 0;
 
+  // The season's own order, which turns over New Year when its schedule does.
+  const start = seasonStartMonth(matchups.map((game) => game.date));
   [...matchups]
-    .sort((a, b) => parseDateValue(a.date) - parseDateValue(b.date))
+    .sort((a, b) => parseDateValue(a.date, start) - parseDateValue(b.date, start))
     .forEach((game) => {
       const log = logs[game.id];
       if (!log || !isFinal(log)) return;
@@ -331,8 +435,8 @@ export const calculateTeams = (
       away.ra += homeRuns;
       home.rs += homeRuns;
       home.ra += awayRuns;
-      away.runDiff += cappedRunDiff(awayRuns, homeRuns, settings.maxRunDifferential);
-      home.runDiff += cappedRunDiff(homeRuns, awayRuns, settings.maxRunDifferential);
+      away.runDiff += cappedRunDiff(awayRuns, homeRuns, runDiffCap);
+      home.runDiff += cappedRunDiff(homeRuns, awayRuns, runDiffCap);
 
       away.awayKs += awayK;
       away.awayInns += innings;
@@ -397,6 +501,8 @@ export const calculateTeams = (
     const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
 
     team.baseTpi = team.games ? diffPerGame + team.pct * 2 + contactBonus : 0;
+    // Kept on the team so `settleGame` can rebuild `baseTpi` around it: see `Team.contactBonus`.
+    team.contactBonus = team.games ? contactBonus : 0;
     team.awayK6 = team.awayInns ? (team.awayKs / team.awayInns) * 6 : null;
     team.homeK6 = team.homeInns ? (team.homeKs / team.homeInns) * 6 : null;
     team.totalK6 = k6;
@@ -564,9 +670,27 @@ const playerPitchEdge = (away: Team, home: Team) => {
   const homeDiffPerGame = home.games ? home.runDiff / home.games : 0;
   const runDiffEdge = clamp((awayDiffPerGame - homeDiffPerGame) / 8, -1, 1);
   const scoringEdge = clamp((away.rsg - home.rsg + (home.rag - away.rag)) / 10, -1, 1);
-  const walkEdge = clamp(((away.walkDiff ?? 0) / Math.max(away.games, 1) - (home.walkDiff ?? 0) / Math.max(home.games, 1)) / 5, -1, 1);
-  const hitEdge = clamp(((away.hitDiff ?? 0) / Math.max(away.games, 1) - (home.hitDiff ?? 0) / Math.max(home.games, 1)) / 7, -1, 1);
-  const errorEdge = clamp(((away.errorDiff ?? 0) / Math.max(away.games, 1) - (home.errorDiff ?? 0) / Math.max(home.games, 1)) / 4, -1, 1);
+  const walkEdge = clamp(
+    ((away.walkDiff ?? 0) / Math.max(away.games, 1) -
+      (home.walkDiff ?? 0) / Math.max(home.games, 1)) /
+      5,
+    -1,
+    1
+  );
+  const hitEdge = clamp(
+    ((away.hitDiff ?? 0) / Math.max(away.games, 1) -
+      (home.hitDiff ?? 0) / Math.max(home.games, 1)) /
+      7,
+    -1,
+    1
+  );
+  const errorEdge = clamp(
+    ((away.errorDiff ?? 0) / Math.max(away.games, 1) -
+      (home.errorDiff ?? 0) / Math.max(home.games, 1)) /
+      4,
+    -1,
+    1
+  );
   const sosEdge = clamp((away.sos - home.sos) / 8, -1, 1);
   const momentumEdge = clamp((away.momentum - home.momentum) / 7, -1, 1);
   const h2hEdge = headToHeadEdge(away, home.id) * 0.05;
@@ -584,56 +708,229 @@ const playerPitchEdge = (away: Team, home: Team) => {
   );
 };
 
+/**
+ * How far a forecast leans on the opponent-adjusted rating rather than this league's own per-game
+ * stats, by how many rated games the thinner-rated of the two sides has.
+ *
+ * The floor is not zero. A rating of 0 means "league average", which is a better guess than a
+ * record-based edge built out of one game, and on simulated seasons the blend was already worth
+ * 0.003 to 0.008 of Brier score with nothing but a game or two behind it. 0.40 with nothing rated,
+ * 0.52 at one game, 0.70 at four, 0.80 at eight, 0.88 at sixteen.
+ *
+ * The weights come from a sweep over 400 simulated leagues per case with known true team strengths:
+ * every measure — Brier, log loss, winner accuracy, margin error — improved the further the
+ * forecast leaned on the rating, in all six scenario-by-pitch-mode cells. The reason is scale
+ * rather than direction. The stats model's expected margin has about twice the spread of real
+ * margins, while the rating's spread is about right, so a model that is half signal and twice as
+ * wide as it should be loses to one that is narrower and better aimed.
+ */
+export const RATING_PRIOR_FLOOR = 0.4;
+export const RATING_PRIOR_GROWTH = 0.6;
+export const RATING_PRIOR_MIDPOINT = 4;
+/**
+ * Runs of rating margin per unit of pre-calibration win edge: how hard the rating pulls a game's
+ * forecast.
+ *
+ * It was 0.25, held below the 0.43 that fitted best on Poisson-scored simulated seasons, because
+ * on overdispersed ones anything at 0.43 or above was worse than not blending at all. Real games
+ * said otherwise once the rating was fitted to real margins. On the pseudo-leagues
+ * `FORECAST_RUN_CAP` describes, 54,265 games scored after three cuts, with the rating capped at 20
+ * the per-game log loss was lowest at 0.43 both with Team Rankings results (0.6230, against 0.6327
+ * at 0.25) and without them (0.6303 against 0.6394), and the forecast stopped being too shy: the
+ * favourite called at about 65% won 66% of the time, at 75% won 76% and at 84% won 84%, where at
+ * 0.25 and the old cap of 8 it had won 78%, 90% and 97%. At 0.5 and above it was too sure again.
+ * The 8U pages, machine and coach pitch, did best a little higher (0.50, 0.5689 against 0.5716 at
+ * 0.43) and were still far better at 0.43 than at the old 0.25 (0.6162).
+ *
+ * `scheduleDifficulty.ts` reads it too, to state a record as runs, which is the same conversion
+ * with no bet riding on it.
+ */
+export const RATING_EDGE_PER_RUN = 0.43;
+
+/**
+ * How many games the model has on a team, counting the ones Team Rankings brought in.
+ *
+ * Every place that asks "how much do we know here" used the league count alone, which is the one
+ * number that is deliberately blind to a tournament. A team with one league game and eight
+ * tournament results is not an unknown, and shrinking its forecast toward a coin flip as though it
+ * were throws away the evidence the rating was fitted from. Falls back to the league count, so a
+ * league with no Team Rankings data behind it is unchanged.
+ */
+const knownGames = (team: Team) => Math.max(team.games, team.ratedGames ?? 0);
+
+type RatingPrior = { weight: number; margin: number };
+
+/** The rating's view of a matchup, or null when either side has no rating attached. */
+const ratingPrior = (away: Team, home: Team): RatingPrior | null => {
+  const awayRating = away.adjustedRating;
+  const homeRating = home.adjustedRating;
+  if (
+    awayRating === undefined ||
+    homeRating === undefined ||
+    !Number.isFinite(awayRating) ||
+    !Number.isFinite(homeRating)
+  ) {
+    return null;
+  }
+  const rated = Math.max(0, Math.min(away.ratedGames ?? 0, home.ratedGames ?? 0));
+  return {
+    weight: RATING_PRIOR_FLOOR + RATING_PRIOR_GROWTH * (rated / (rated + RATING_PRIOR_MIDPOINT)),
+    margin: awayRating - homeRating,
+  };
+};
+
+/**
+ * Pull a model's expected margin and its pre-calibration win edge toward what the rating says.
+ *
+ * The edge is blended rather than nudged by the difference between the two margins. Nudging was
+ * tried first and made every probability measure worse at every weight, because these models'
+ * win edge is not a function of their own margin — it is a separate, better-behaved aggregate of
+ * run differential, scoring, walks, hits, errors and form — so pushing it by a margin correction
+ * takes out information the probability never had in it.
+ *
+ * With no rating attached both come back untouched, which is what keeps a league that has never
+ * built one on exactly the numbers it has today.
+ */
+const blendWithRating = (prior: RatingPrior | null, modelMargin: number, modelEdge: number) => {
+  if (!prior) return { margin: modelMargin, edge: modelEdge };
+  return {
+    margin: modelMargin + prior.weight * (prior.margin - modelMargin),
+    edge: modelEdge + prior.weight * (prior.margin * RATING_EDGE_PER_RUN - modelEdge),
+  };
+};
+
+/**
+ * What the model needs to know about the league as a whole, carried rather than recounted.
+ *
+ * Both models place a game against the league's scoring rate, which meant two or three full passes
+ * over every team on every prediction — and the simulators predict once per remaining game per
+ * iteration, so those passes dominated. A settled game moves the totals by exactly what it added,
+ * so the loop builds this once and hands it down. The cap on one game's run differential is a pure
+ * function of settings, so it is resolved here too instead of per settled game.
+ *
+ * Runs and games are counts, so carrying them is exact: integers this small add without rounding,
+ * and the pinned answers in sim.test.ts hold to the digit. Strikeouts are not — `kpg` is a rate, so
+ * a carried sum of kpg times games and a recounted one can differ in the last bit, and that is a
+ * published number moving for no reason anybody chose. So the machine-pitch model still counts
+ * that one, and loses the other two.
+ */
+export type LeagueTally = {
+  runs: number;
+  games: number;
+  runDiffCap: number;
+};
+
+const leagueTallyOf = (teams: Team[], settings: Settings): LeagueTally => ({
+  runs: teams.reduce((sum, team) => sum + team.rs, 0),
+  games: teams.reduce((sum, team) => sum + team.games, 0),
+  runDiffCap: resolveMaxRunDifferential(settings),
+});
+
 export const predictPlayerPitchGame = (
   game: Matchup,
   teams: Team[],
   settings: Pick<Settings, "modelAggression">,
-  byId?: Map<string, Team>
+  byId?: Map<string, Team>,
+  tally?: LeagueTally
 ): Prediction => {
   const lookup = byId ?? buildByIdMap(teams);
   const away = lookup.get(game.away);
   const home = lookup.get(game.home);
-  const totalRuns = teams.reduce((sum, team) => sum + team.rs, 0);
-  const totalGames = teams.reduce((sum, team) => sum + team.games, 0);
+  const totalRuns = tally ? tally.runs : teams.reduce((sum, team) => sum + team.rs, 0);
+  const totalGames = tally ? tally.games : teams.reduce((sum, team) => sum + team.games, 0);
   const leagueRuns = totalGames ? totalRuns / totalGames : 7;
   const aggression = MODEL_AGGRESSION[settings.modelAggression] ?? 1;
 
   if (!away || !home) {
-    return { awayScore: Math.round(leagueRuns), homeScore: Math.round(leagueRuns), awayWinPct: 0.5, winnerId: game.away, confidence: "Low" };
+    return {
+      awayScore: Math.round(leagueRuns),
+      homeScore: Math.round(leagueRuns),
+      awayWinPct: 0.5,
+      winnerId: game.away,
+      confidence: "Low",
+    };
   }
 
   if (away.games < 2 || home.games < 2) {
     const awayPrior = away.games ? away.pct : 0.5;
     const homePrior = home.games ? home.pct : 0.5;
-    const awayWinPct = calibrateAwayWinPct(0.5 + clamp((awayPrior - homePrior) * 0.16, -0.08, 0.08), away.games, home.games, aggression);
-    const spread = clamp((awayWinPct - 0.5) * 6, -1, 1);
-    return { awayScore: Math.max(1, Math.round(leagueRuns + spread)), homeScore: Math.max(1, Math.round(leagueRuns - spread)), awayWinPct, winnerId: awayWinPct >= 0.5 ? game.away : game.home, confidence: "Low" };
+    const rawPct = clamp(0.5 + clamp((awayPrior - homePrior) * 0.16, -0.08, 0.08), 0.02, 0.98);
+    // Blended in logit space, the same as the full model below, so a rating fitted from games this
+    // league never saw is the thing that answers here. Win percentage over one or two games is
+    // barely evidence; a rating over nine is, and this is the case it was brought in for.
+    const prior = ratingPrior(away, home);
+    const blended = blendWithRating(prior, 0, logit(rawPct));
+    const awayWinPct = calibrateAwayWinPct(
+      logistic(blended.edge),
+      knownGames(away),
+      knownGames(home),
+      aggression
+    );
+    // With no rating this is the spread this branch has always produced, from the pct alone.
+    const spread = prior ? clamp(blended.margin / 2, -4, 4) : clamp((awayWinPct - 0.5) * 6, -1, 1);
+    return {
+      awayScore: Math.max(1, Math.round(leagueRuns + spread)),
+      homeScore: Math.max(1, Math.round(leagueRuns - spread)),
+      awayWinPct,
+      winnerId: awayWinPct >= 0.5 ? game.away : game.home,
+      confidence: "Low",
+    };
   }
 
-  const awayCommandPressure = (home.walksAllowedPerGame ?? 0) * 0.28 - (away.errorsPerGame ?? 0) * 0.18;
-  const homeCommandPressure = (away.walksAllowedPerGame ?? 0) * 0.28 - (home.errorsPerGame ?? 0) * 0.18;
-  const awayScore = Math.max(1, (away.rsg * home.rag) / Math.max(leagueRuns, 1) + awayCommandPressure + away.momentum * 0.08);
-  const homeScore = Math.max(1, (home.rsg * away.rag) / Math.max(leagueRuns, 1) + homeCommandPressure + home.momentum * 0.08);
+  const awayCommandPressure =
+    (home.walksAllowedPerGame ?? 0) * 0.28 - (away.errorsPerGame ?? 0) * 0.18;
+  const homeCommandPressure =
+    (away.walksAllowedPerGame ?? 0) * 0.28 - (home.errorsPerGame ?? 0) * 0.18;
+  const awayScore = Math.max(
+    1,
+    (away.rsg * home.rag) / Math.max(leagueRuns, 1) + awayCommandPressure + away.momentum * 0.08
+  );
+  const homeScore = Math.max(
+    1,
+    (home.rsg * away.rag) / Math.max(leagueRuns, 1) + homeCommandPressure + home.momentum * 0.08
+  );
   const edge = playerPitchEdge(away, home) * clamp(0.95 + aggression * 0.16, 0.95, 1.25);
-  const awayWinPct = calibrateAwayWinPct(logistic(edge), away.games, home.games, aggression);
+  const blended = blendWithRating(ratingPrior(away, home), awayScore - homeScore, edge);
+  const awayWinPct = calibrateAwayWinPct(
+    logistic(blended.edge),
+    knownGames(away),
+    knownGames(home),
+    aggression
+  );
   const winnerId = awayWinPct >= 0.5 ? game.away : game.home;
   const winnerPct = winnerId === game.away ? awayWinPct : 1 - awayWinPct;
-  const margin = Math.abs(awayScore - homeScore);
-  const confidence: Prediction["confidence"] = away.games >= 6 && home.games >= 6 && margin >= 5 && winnerPct >= 0.76 ? "High" : away.games >= 4 && home.games >= 4 && margin >= 2.5 && winnerPct >= 0.63 ? "Medium" : "Low";
-  return { awayScore: Math.round(awayScore), homeScore: Math.round(homeScore), awayWinPct, winnerId, confidence };
+  const margin = Math.abs(blended.margin);
+  const confidence: Prediction["confidence"] =
+    away.games >= 6 && home.games >= 6 && margin >= 5 && winnerPct >= 0.76
+      ? "High"
+      : away.games >= 4 && home.games >= 4 && margin >= 2.5 && winnerPct >= 0.63
+        ? "Medium"
+        : "Low";
+  // The expected total is kept and only the gap between the two sides moves, so a blend cannot
+  // quietly turn a 9-7 into a 2-0.
+  const midpoint = (awayScore + homeScore) / 2;
+  return {
+    awayScore: Math.max(1, Math.round(midpoint + blended.margin / 2)),
+    homeScore: Math.max(1, Math.round(midpoint - blended.margin / 2)),
+    awayWinPct,
+    winnerId,
+    confidence,
+  };
 };
 
 export const predictMachinePitchGame = (
   game: Matchup,
   teams: Team[],
   settings: Pick<Settings, "modelAggression">,
-  byId?: Map<string, Team>
+  byId?: Map<string, Team>,
+  tally?: LeagueTally
 ): Prediction => {
   const lookup = byId ?? buildByIdMap(teams);
   const away = lookup.get(game.away);
   const home = lookup.get(game.home);
-  const totalRuns = teams.reduce((sum, team) => sum + team.rs, 0);
-  const totalGames = teams.reduce((sum, team) => sum + team.games, 0);
+  const totalRuns = tally ? tally.runs : teams.reduce((sum, team) => sum + team.rs, 0);
+  const totalGames = tally ? tally.games : teams.reduce((sum, team) => sum + team.games, 0);
+  // Counted, not carried: see LeagueTally on why this one cannot be added up as it goes.
   const totalStrikeouts = teams.reduce((sum, team) => sum + team.kpg * team.games, 0);
   const leagueRuns = totalGames ? totalRuns / totalGames : 7;
   const leagueK6 = totalGames ? totalStrikeouts / totalGames : 4.5;
@@ -653,8 +950,18 @@ export const predictMachinePitchGame = (
     const awayPrior = away.games ? away.pct : 0.5;
     const homePrior = home.games ? home.pct : 0.5;
     const priorDiff = clamp((awayPrior - homePrior) * 0.18, -0.08, 0.08);
-    const awayWinPct = calibrateAwayWinPct(0.5 + priorDiff, away.games, home.games, aggression);
-    const scoreSpread = clamp((awayWinPct - 0.5) * 6, -1, 1);
+    // See the same branch in the player-pitch model: the rating answers here when there is one.
+    const prior = ratingPrior(away, home);
+    const blended = blendWithRating(prior, 0, logit(clamp(0.5 + priorDiff, 0.02, 0.98)));
+    const awayWinPct = calibrateAwayWinPct(
+      logistic(blended.edge),
+      knownGames(away),
+      knownGames(home),
+      aggression
+    );
+    const scoreSpread = prior
+      ? clamp(blended.margin / 2, -4, 4)
+      : clamp((awayWinPct - 0.5) * 6, -1, 1);
     return {
       awayScore: Math.max(1, Math.round(leagueRuns + scoreSpread)),
       homeScore: Math.max(1, Math.round(leagueRuns - scoreSpread)),
@@ -682,14 +989,21 @@ export const predictMachinePitchGame = (
   const safeAway = Math.max(1, awayScore);
   const safeHome = Math.max(1, homeScore);
   const rawMargin = safeAway - safeHome;
-  const roundedAway = Math.round(safeAway);
-  const roundedHome = Math.round(safeHome);
   const edge = matchupWinEdge({ away, home, leagueK6, rawMargin, aggression });
-  const rawAwayWinPct = logistic(edge);
-  const awayWinPct = calibrateAwayWinPct(rawAwayWinPct, away.games, home.games, aggression);
+  const blended = blendWithRating(ratingPrior(away, home), rawMargin, edge);
+  const midpoint = (safeAway + safeHome) / 2;
+  const roundedAway = Math.max(1, Math.round(midpoint + blended.margin / 2));
+  const roundedHome = Math.max(1, Math.round(midpoint - blended.margin / 2));
+  const rawAwayWinPct = logistic(blended.edge);
+  const awayWinPct = calibrateAwayWinPct(
+    rawAwayWinPct,
+    knownGames(away),
+    knownGames(home),
+    aggression
+  );
   const winnerId = awayWinPct >= 0.5 ? game.away : game.home;
   const winnerPct = winnerId === game.away ? awayWinPct : 1 - awayWinPct;
-  const margin = Math.abs(rawMargin);
+  const margin = Math.abs(blended.margin);
 
   let confidence: Prediction["confidence"] = "Low";
   if (away.games >= 6 && home.games >= 6 && margin >= 6 && winnerPct >= 0.78) {
@@ -711,26 +1025,36 @@ export const predictGame = (
   game: Matchup,
   teams: Team[],
   settings: Pick<Settings, "modelAggression" | "pitchMode">,
-  byId?: Map<string, Team>
+  byId?: Map<string, Team>,
+  tally?: LeagueTally
 ): Prediction => {
-  if (settings.pitchMode === "player") return predictPlayerPitchGame(game, teams, settings, byId);
-  return predictMachinePitchGame(game, teams, settings, byId);
+  if (settings.pitchMode === "player")
+    return predictPlayerPitchGame(game, teams, settings, byId, tally);
+  return predictMachinePitchGame(game, teams, settings, byId, tally);
 };
 
-export const applyResult = (
-  teams: Team[],
+/**
+ * Books one simulated result onto its two sides, in place.
+ *
+ * The score is the model's predicted one, nudged so the drawn winner actually wins; the records,
+ * runs, run differential, head-to-head and the rating fields the tiebreakers read all move with it.
+ * Mutating is the point: this is the inner step of the Monte Carlo loop, and it used to run through
+ * `applyResult` below, which copies every team and every head-to-head record and re-runs the
+ * prediction it had just been handed — per game, per iteration. For twelve teams and sixty games
+ * that was some hundred and fifty thousand copies of the league per forecast.
+ *
+ * Callers hand it teams they own: `applyResult` its own fresh copies, the simulators their
+ * per-iteration scratch season.
+ */
+const settleGame = (
+  away: Team,
+  home: Team,
   game: Matchup,
   winnerId: string,
-  modelTeams: Team[],
-  settings: Settings
-) => {
-  const next = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
-  const byId = buildByIdMap(next);
-  const away = byId.get(game.away);
-  const home = byId.get(game.home);
-  if (!away || !home) return next;
-
-  const prediction = predictGame(game, modelTeams, settings);
+  prediction: Prediction,
+  settings: Settings,
+  tally?: LeagueTally
+): void => {
   let awayRuns = prediction.awayScore;
   let homeRuns = prediction.homeScore;
 
@@ -743,8 +1067,14 @@ export const applyResult = (
   away.ra += homeRuns;
   home.rs += homeRuns;
   home.ra += awayRuns;
-  away.runDiff += cappedRunDiff(awayRuns, homeRuns, settings.maxRunDifferential);
-  home.runDiff += cappedRunDiff(homeRuns, awayRuns, settings.maxRunDifferential);
+  const runDiffCap = tally ? tally.runDiffCap : resolveMaxRunDifferential(settings);
+  if (tally) {
+    // Exactly what was just booked onto the two sides, so the carried totals stay the counted ones.
+    tally.runs += awayRuns + homeRuns;
+    tally.games += 2;
+  }
+  away.runDiff += cappedRunDiff(awayRuns, homeRuns, runDiffCap);
+  home.runDiff += cappedRunDiff(homeRuns, awayRuns, runDiffCap);
 
   addHeadToHeadResult(away, home.id, awayRuns - homeRuns);
   addHeadToHeadResult(home, away.id, homeRuns - awayRuns);
@@ -763,11 +1093,67 @@ export const applyResult = (
     // results can update standings and run-differential tiebreakers, but they
     // should not dilute displayed R/G, H/G, K/G, or opponent K/G with model-generated games.
     const diffPerGame = team.games ? clamp(team.runDiff / team.games, -8, 8) : 0;
-    team.baseTpi = team.games ? diffPerGame + team.pct * 2 : 0;
+    // The contact term is carried, not recomputed. It is the one piece of `baseTpi` that comes
+    // from strikeout rates, and a model game has none — so recomputing it here does not leave it
+    // undiluted, it deletes it. Before this, booking the first simulated game moved `baseTpi` by
+    // up to 1.25 in either direction on a four-team pin, and `tpi` feeds `predictGame` and the
+    // tiebreakers for every game after it in the same iteration.
+    team.baseTpi = team.games ? diffPerGame + team.pct * 2 + (team.contactBonus ?? 0) : 0;
     team.tpi = team.baseTpi + team.sos * 0.2;
   });
+};
 
+/**
+ * The teams with one result applied, as new objects; the inputs are untouched. What
+ * `projectStandings` and the tests use, and what the simulators used to, one clone per game.
+ */
+export const applyResult = (
+  teams: Team[],
+  game: Matchup,
+  winnerId: string,
+  modelTeams: Team[],
+  settings: Settings
+) => {
+  const next = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
+  const byId = buildByIdMap(next);
+  const away = byId.get(game.away);
+  const home = byId.get(game.home);
+  if (!away || !home) return next;
+  settleGame(away, home, game, winnerId, predictGame(game, modelTeams, settings), settings);
   return next;
+};
+
+/**
+ * One iteration's copy of the league to play a season out on: every team and every head-to-head
+ * record copied once, so the loop can write results straight onto them, with the lookup built once
+ * beside them rather than once per game.
+ */
+const scratchSeason = (teams: Team[]): { season: Team[]; byId: Map<string, Team> } => {
+  const season = teams.map((team) => ({ ...team, headToHead: cloneHeadToHead(team.headToHead) }));
+  return { season, byId: buildByIdMap(season) };
+};
+
+/**
+ * Plays the remaining games once, in order, writing each result onto the scratch season so the
+ * next prediction sees the standings as they then are. Draws exactly one random number per game,
+ * before looking the sides up, so the stream of draws — and therefore every answer — is the same
+ * as when this loop copied the league per game.
+ */
+const playOut = (
+  season: Team[],
+  byId: Map<string, Team>,
+  remaining: Matchup[],
+  settings: Settings,
+  random: () => number
+): void => {
+  const tally = leagueTallyOf(season, settings);
+  for (const game of remaining) {
+    const prediction = predictGame(game, season, settings, byId, tally);
+    const winner = random() < prediction.awayWinPct ? game.away : game.home;
+    const away = byId.get(game.away);
+    const home = byId.get(game.home);
+    if (away && home) settleGame(away, home, game, winner, prediction, settings, tally);
+  }
 };
 
 export const DEFAULT_SEED_LOCK_REMAINING_GAME_LIMIT = 12;
@@ -832,88 +1218,125 @@ export const makeRandom = (seed: number) => {
   };
 };
 
+/**
+ * A text that changes exactly when the forecast's inputs do: which games are final, and what they
+ * finished. It seeds the random draws, and it is the key the hooks use to say whether the odds on
+ * screen describe the current season.
+ *
+ * The score is in it because a corrected result — a 5–3 that was really 12–0 — changes every
+ * standing the simulation starts from and used to change nothing here: the game was final before
+ * and final after, so the key read "current" while the odds on screen were the ones from before
+ * the correction, for as long as the refit took.
+ */
 export const simulationSeed = (
   matchups: Matchup[],
   logs: Record<string, GameLog>,
   extras: string
 ) => {
   const finals = [...matchups]
-    .map((game) => `${game.id}|${isFinal(logs[game.id]) ? "F" : "O"}`)
+    .map((game) => {
+      const log = logs[game.id];
+      /*
+       * A game still to play carries the two sides, because the model gives the home one an
+       * advantage and simulating it is the whole of what this seed is a key for. Without them,
+       * swapping a fixture's home and away left the key byte for byte identical while the odds
+       * moved — measured on a two-team league with one game left, 48.85% against 51.15% — so the
+       * page went on showing the old forecast, and `resultKey === key` reported it as current.
+       * A finished game needs no such thing: its score is here, and the sides are which way round
+       * that score is written.
+       */
+      return isFinal(log)
+        ? `${game.id}|F${log?.awayRuns ?? ""}-${log?.homeRuns ?? ""}`
+        : `${game.id}|O${game.away}>${game.home}`;
+    })
     .sort()
     .join(",");
   return `${extras}::${finals}`;
 };
 
-const hasConvergedOdds = (
+/**
+ * How close the odds have to be known before the loop may stop: a 95% half-width, as a
+ * probability. Two points. A settled league — every team plainly in or plainly out — gets there in
+ * a couple of hundred seasons; a contested cut line runs to the ceiling instead, which is the
+ * right way round.
+ */
+export const ODDS_PRECISION = 0.02;
+/** Below this many seasons nothing is asked of the interval: too few draws to trust its width. */
+const ODDS_MIN_ITERATIONS = 200;
+const ODDS_CHECK_INTERVAL = 50;
+
+/**
+ * Whether every team's odds are known to within `tolerance`.
+ *
+ * The rule this replaces compared the running average with itself twenty-five seasons earlier and
+ * called the odds converged when the largest move was under a third of a point. A cumulative mean
+ * is guaranteed to move less as it grows, whatever it is converging to — at a hundred seasons and
+ * even odds the true 95% half-width is about ten points, and a drift under a third of a point
+ * satisfied the rule by construction. This asks the question that rule only looked like it was
+ * asking, how wide the interval is, with the same Wilson interval the app prints beside the odds,
+ * so the stop and the ± on screen mean the same thing.
+ */
+const oddsArePrecise = (
   teams: Team[],
   counts: Record<string, number>,
-  previous: Record<string, number> | null,
-  completedIterations: number,
-  thresholdPct: number
-) => {
-  if (!previous || completedIterations <= 0) return false;
+  completed: number,
+  tolerance: number
+): boolean =>
+  teams.every(
+    (team) => wilsonScoreInterval((counts[team.id] ?? 0) / completed, completed).margin <= tolerance
+  );
 
-  let maxDelta = 0;
-  teams.forEach((team) => {
-    const currentPct = ((counts[team.id] ?? 0) / completedIterations) * 100;
-    const delta = Math.abs(currentPct - (previous[team.id] ?? 0));
-    if (delta > maxDelta) maxDelta = delta;
-  });
-
-  return maxDelta <= thresholdPct;
+export type GoldOddsRun = {
+  /** Per team, the probability (0–100) of finishing inside the cut. */
+  odds: Record<string, number>;
+  /**
+   * How many seasons were actually played out. The ± beside the odds has to be computed from
+   * this: the loop stops early when the odds are settled, and an interval computed from the
+   * ceiling would claim a precision the draws never reached.
+   */
+  iterations: number;
 };
 
-export const simulateGoldOdds = (
+/**
+ * Plays the rest of the season out `iterations` times, or until every team's odds are known to
+ * `ODDS_PRECISION`, and counts who finished inside the cut.
+ */
+export const simulateGoldOddsRun = (
   teams: Team[],
   remaining: Matchup[],
   iterations: number,
   seedText: string,
   cutoff: number,
   settings: Settings
-) => {
+): GoldOddsRun => {
   const counts: Record<string, number> = {};
   teams.forEach((team) => {
     counts[team.id] = 0;
   });
 
   const random = makeRandom(hashSeed(seedText));
-  const minIterations = Math.min(iterations, 100);
-  const convergenceCheckInterval = 25;
-  const convergenceThresholdPct = 0.35;
-  let lastSnapshot: Record<string, number> | null = null;
+  const minIterations = Math.min(iterations, ODDS_MIN_ITERATIONS);
   let completedIterations = 0;
+  const rankOptions = rankOptionsFromSettings(settings);
 
   for (let i = 0; i < iterations; i += 1) {
-    let simTeams = teams.map((team) => ({ ...team }));
+    const { season, byId } = scratchSeason(teams);
+    playOut(season, byId, remaining, settings, random);
 
-    remaining.forEach((game) => {
-      const simById = buildByIdMap(simTeams);
-      const prediction = predictGame(game, simTeams, settings, simById);
-      const winner = random() < prediction.awayWinPct ? game.away : game.home;
-      simTeams = applyResult(simTeams, game, winner, simTeams, settings);
-    });
-
-    rankTeams(simTeams, rankOptionsFromSettings(settings))
+    rankTeams(season, rankOptions)
       .slice(0, cutoff)
       .forEach((team) => {
         counts[team.id] = (counts[team.id] ?? 0) + 1;
       });
 
     completedIterations += 1;
-    const reachedMinimum = completedIterations >= minIterations;
-    const onCheckInterval = completedIterations % convergenceCheckInterval === 0;
-    if (!reachedMinimum || !onCheckInterval) continue;
-
     if (
-      hasConvergedOdds(teams, counts, lastSnapshot, completedIterations, convergenceThresholdPct)
+      completedIterations >= minIterations &&
+      completedIterations % ODDS_CHECK_INTERVAL === 0 &&
+      oddsArePrecise(teams, counts, completedIterations, ODDS_PRECISION)
     ) {
       break;
     }
-
-    lastSnapshot = {};
-    teams.forEach((team) => {
-      lastSnapshot![team.id] = ((counts[team.id] ?? 0) / completedIterations) * 100;
-    });
   }
 
   const denominator = Math.max(1, completedIterations);
@@ -921,5 +1344,170 @@ export const simulateGoldOdds = (
   teams.forEach((team) => {
     odds[team.id] = ((counts[team.id] ?? 0) / denominator) * 100;
   });
-  return odds;
+  return { odds, iterations: completedIterations };
+};
+
+/** The odds alone, for callers that have no use for the count. */
+export const simulateGoldOdds = (
+  teams: Team[],
+  remaining: Matchup[],
+  iterations: number,
+  seedText: string,
+  cutoff: number,
+  settings: Settings
+): Record<string, number> =>
+  simulateGoldOddsRun(teams, remaining, iterations, seedText, cutoff, settings).odds;
+
+// Standard single-elimination bracket helpers (kept local to avoid a cycle with bracket.ts,
+// which already imports predictGame/hashSeed from this module).
+const bracketNextPowerOfTwo = (value: number) => {
+  let size = 1;
+  while (size < value) size *= 2;
+  return size;
+};
+
+const bracketSeedOrder = (size: number): number[] => {
+  if (size <= 1) return [1];
+  const previous = bracketSeedOrder(size / 2);
+  return previous.flatMap((seed) => [seed, size + 1 - seed]);
+};
+
+export type BracketOddsResult = {
+  /** Per team, the probability (0–100) of finishing at each final seed (index 0 = seed 1). */
+  seedDistribution: Record<string, number[]>;
+  /** Per team, the probability (0–100) of winning the Gold Bracket. */
+  championOdds: Record<string, number>;
+  /** Per team, the probability (0–100) of reaching the Gold Bracket final. */
+  finalsOdds: Record<string, number>;
+  iterations: number;
+};
+
+// Play out a single seeded bracket among `entrants` (already in seed order), drawing each game
+// from the model's win probability with the shared PRNG. Returns the champion and both finalists.
+/**
+ * Of the two sides of a bracket game, the one that hosts: the better seed, which is the lower
+ * number. Named and exported because it is the rule, and because reading it off the slot a team
+ * happens to be standing in is wrong from the second round onward — see `simulateBracketRun`.
+ */
+export const bracketHost = <T extends { seed: number }>(top: T, bottom: T): T =>
+  top.seed <= bottom.seed ? top : bottom;
+
+const simulateBracketRun = (
+  entrants: Team[],
+  byId: Map<string, Team>,
+  settings: Settings,
+  random: () => number
+): { championId: string | null; finalistIds: string[] } => {
+  if (entrants.length < 2) {
+    const only = entrants[0]?.id ?? null;
+    return { championId: only, finalistIds: only ? [only] : [] };
+  }
+
+  const size = bracketNextPowerOfTwo(entrants.length);
+  const totalRounds = Math.log2(size);
+  // The league as it stands at season's end, for the model to read both sides from.
+  const allTeams = [...byId.values()];
+  // A bracket game is drawn, not booked, so the league behind it is the same for every round.
+  const tally = leagueTallyOf(allTeams, settings);
+  /**
+   * Each slot carries the seed that is standing in it, not just the team.
+   *
+   * The higher seed hosts, which is what a bracket is seeded for — and `bracketSeedOrder` only
+   * puts it in the top slot in the *first* round. After that a slot holds whoever won that branch,
+   * so reading the host off the slot gives it to the upset winner: a four-team bracket starts
+   * [1, 4, 2, 3], and if 4 beats 1 while 2 beats 3 the final is top = 4 against bottom = 2, with
+   * the seat handed to the worse of the two. Carrying the seed makes the rule mean in every round
+   * what it means in the first.
+   */
+  type Slot = { id: string; seed: number };
+  let slots: (Slot | null)[] = bracketSeedOrder(size).map((seed) => {
+    const entrant = entrants[seed - 1];
+    return entrant ? { id: entrant.id, seed } : null;
+  });
+  let finalistIds: string[] = [];
+
+  for (let round = 0; round < totalRounds; round += 1) {
+    if (round === totalRounds - 1) {
+      finalistIds = slots.flatMap((slot) => (slot ? [slot.id] : []));
+    }
+    const next: (Slot | null)[] = [];
+    for (let game = 0; game < slots.length; game += 2) {
+      const top = slots[game] ?? null;
+      const bottom = slots[game + 1] ?? null;
+      if (top && bottom) {
+        const host = bracketHost(top, bottom);
+        const visitor = host === top ? bottom : top;
+        const matchup: Matchup = {
+          id: `sim-r${round}-g${game}`,
+          date: "",
+          away: visitor.id,
+          home: host.id,
+        };
+        const prediction = predictGame(matchup, allTeams, settings, byId, tally);
+        next.push(random() < prediction.awayWinPct ? visitor : host);
+      } else {
+        next.push(top ?? bottom);
+      }
+    }
+    slots = next;
+  }
+
+  return { championId: slots[0]?.id ?? null, finalistIds };
+};
+
+export const simulateBracketOdds = (
+  teams: Team[],
+  remaining: Matchup[],
+  iterations: number,
+  seedText: string,
+  cutoff: number,
+  settings: Settings
+): BracketOddsResult => {
+  const teamCount = teams.length;
+  const seedCounts: Record<string, number[]> = {};
+  const championCounts: Record<string, number> = {};
+  const finalsCounts: Record<string, number> = {};
+  teams.forEach((team) => {
+    seedCounts[team.id] = new Array(teamCount).fill(0);
+    championCounts[team.id] = 0;
+    finalsCounts[team.id] = 0;
+  });
+
+  const random = makeRandom(hashSeed(`${seedText}::bracket`));
+  const rankOptions = rankOptionsFromSettings(settings);
+  const bracketCutoff = Math.max(0, Math.min(cutoff, teamCount));
+
+  for (let i = 0; i < iterations; i += 1) {
+    const { season, byId } = scratchSeason(teams);
+    playOut(season, byId, remaining, settings, random);
+
+    const finalRanking = rankTeams(season, rankOptions);
+    finalRanking.forEach((team, index) => {
+      const distribution = seedCounts[team.id];
+      if (distribution && index >= 0 && index < distribution.length) {
+        distribution[index] = (distribution[index] ?? 0) + 1;
+      }
+    });
+
+    const entrants = finalRanking.slice(0, bracketCutoff);
+    const { championId, finalistIds } = simulateBracketRun(entrants, byId, settings, random);
+    if (championId) championCounts[championId] = (championCounts[championId] ?? 0) + 1;
+    finalistIds.forEach((id) => {
+      finalsCounts[id] = (finalsCounts[id] ?? 0) + 1;
+    });
+  }
+
+  const denominator = Math.max(1, iterations);
+  const seedDistribution: Record<string, number[]> = {};
+  const championOdds: Record<string, number> = {};
+  const finalsOdds: Record<string, number> = {};
+  teams.forEach((team) => {
+    seedDistribution[team.id] = (seedCounts[team.id] ?? []).map(
+      (count) => (count / denominator) * 100
+    );
+    championOdds[team.id] = ((championCounts[team.id] ?? 0) / denominator) * 100;
+    finalsOdds[team.id] = ((finalsCounts[team.id] ?? 0) / denominator) * 100;
+  });
+
+  return { seedDistribution, championOdds, finalsOdds, iterations: denominator };
 };

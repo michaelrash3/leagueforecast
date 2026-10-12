@@ -1,0 +1,355 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  FIXTURE_TODAY,
+  fingerprint,
+  madeUpClub,
+  poolFixture,
+} from "../../../../scripts/poolFixture";
+import type { CloudManifest, ManifestPart } from "../../cloud/cloudManifest";
+import { LEAGUE_PART } from "../../cloud/cloudPlan";
+import { memoryIo } from "../../cloud/cloudRunner";
+import { encodeScoutGames } from "../../teamRankingsCompact";
+import {
+  applyCloudPoolValues,
+  cloudPoolKeys,
+  initTeamRankingsStore,
+  isBoardInputKey,
+  loadAgeGroups,
+  loadAgeUnknown,
+  loadDroppedClubs,
+  loadNamedAges,
+  loadScoutGames,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+  loadTooYoungClubs,
+  readCloudPoolValue,
+  resetTeamRankingsStore,
+  saveAgeGroups,
+  saveAgeUnknown,
+  saveAutoRemoved,
+  saveDroppedClubs,
+  saveKeptApart,
+  saveNamedAges,
+  saveRealClubs,
+  saveRefreshCadence,
+  saveRefreshLog,
+  saveScoutGames,
+  saveScoutTeams,
+  saveTidyStamp,
+  saveTooYoungClubs,
+  loadAutoRemoved,
+} from "../../teamRankingsStorage";
+import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
+import type { SeasonReader } from "../allKnown";
+import {
+  BOARD_FAMILY,
+  boardInputsPrint,
+  boardInputsPrintOf,
+  boardsState,
+  builtFrom,
+  isBoardInput,
+} from "../boardInputs";
+import { BOARD_RULES, BOARD_SHAPE, boardViews, buildBoardsAndFacts } from "../views/board";
+import { clubViews } from "../views/clubs";
+import { searchViews } from "../views/search";
+import { LIVE_FORMAT, LIVE_SCHEMA, type LiveMeta } from "../viewStore";
+
+/*
+ * What the boards are built from (`boardInputs.ts`): the keys they read, a fingerprint of a copy's
+ * inputs that moves exactly when one of them does, and whether the boards published are already
+ * the copy's.
+ */
+
+const fixture = poolFixture({ seed: 11, clubsPerPage: 60 });
+const readSeason: SeasonReader = (seasonId) => {
+  const stored = fixture.seasons[seasonId];
+  const teams = coerceTeams(stored?.teams ?? null);
+  const matchups = coerceMatchups(stored?.matchups ?? null, teams);
+  return { teams, matchups, logs: coerceLogs(stored?.logs ?? null, matchups) };
+};
+
+/**
+ * The fixture's boards and the club cards and Find a team lists published with them, from whatever
+ * the store now holds, folded to one fingerprint.
+ */
+const boardsHeld = (): string => {
+  const ageGroups = loadAgeGroups();
+  const built = buildBoardsAndFacts({
+    autoRemoved: loadAutoRemoved(),
+    ageGroups,
+    teams: loadScoutTeams(),
+    gamesOfYear: loadScoutGamesForYear,
+    readSeason,
+    today: FIXTURE_TODAY,
+  });
+  return fingerprint([
+    ...boardViews(ageGroups, built),
+    ...clubViews({ ageGroups, built, namedAges: loadNamedAges() }),
+    ...searchViews({
+      ageGroups,
+      built,
+      storedGames: loadScoutGames(),
+      held: {
+        dropped: loadDroppedClubs(),
+        ageless: loadAgeUnknown(),
+        tooYoung: loadTooYoungClubs(),
+      },
+    }),
+  ]);
+};
+
+/** The boards of a store holding only `values`, as a server laying in a copy's parts would. */
+const boardsOf = async (values: ReadonlyMap<string, unknown>): Promise<string> => {
+  resetTeamRankingsStore();
+  await initTeamRankingsStore(memoryIo());
+  expect(await applyCloudPoolValues(values)).toBe(true);
+  return boardsHeld();
+};
+
+/** Every value the fixture's pool puts in a cloud copy, with some no board reads beside it. */
+let everything = new Map<string, unknown>();
+let full = "";
+beforeAll(async () => {
+  resetTeamRankingsStore();
+  await initTeamRankingsStore(memoryIo());
+  saveAgeGroups(fixture.ageGroups);
+  saveScoutTeams(fixture.teams);
+  saveScoutGames(fixture.games);
+  // An age a person pinned on a club's panel, which only its card reads.
+  const linked = fixture.teams.find((team) => (team.gcTeams?.length ?? 0) > 0)?.gcTeams?.[0];
+  if (!linked) throw new Error("the fixture has no linked club");
+  saveNamedAges(
+    new Map([
+      [
+        linked.teamId,
+        { teamId: linked.teamId, level: 11, namedAt: "2027-01-01", pinned: true as const, was: 10 },
+      ],
+    ])
+  );
+  const someone = fixture.teams[0]?.id ?? "nobody";
+  // GameChanger ids kept off every page, which only the Find a team lists read.
+  saveDroppedClubs(new Set(["gcDROPPED001"]));
+  saveAgeUnknown([
+    { teamId: "gcWAITING001", firstSeen: "2027-03-01", lastTried: "2027-03-02", tries: 1 },
+  ]);
+  saveTooYoungClubs(new Set(["gcTOOYOUNG01"]));
+  // A club taken off as plainly made up, which every view leaves out.
+  saveAutoRemoved(madeUpClub(fixture).marks);
+  // And keys no view reads.
+  saveRealClubs(new Set([someone]));
+  saveKeptApart(new Set([`${someone}|elsewhere`]));
+  saveTidyStamp("r999|0|0|0|");
+  saveRefreshCadence("daily");
+  saveRefreshLog({ "9": "2027-04-14" });
+  const keys = cloudPoolKeys();
+  everything = new Map(
+    await Promise.all(keys.map(async (key) => [key, await readCloudPoolValue(key)] as const))
+  );
+  full = boardsHeld();
+});
+afterAll(() => {
+  resetTeamRankingsStore();
+});
+
+describe("the keys the boards, club cards and Find a team lists read", () => {
+  it("are enough: the boards of a store holding only them are the boards of the whole pool", async () => {
+    const inputs = new Map([...everything].filter(([key]) => isBoardInputKey(key)));
+    // Some keys left out, or the test proves nothing.
+    expect(inputs.size).toBeLessThan(everything.size);
+    expect(everything.size - inputs.size).toBeGreaterThanOrEqual(5);
+    expect(await boardsOf(inputs)).toBe(full);
+  });
+
+  it("are each needed: without any one of them the boards are not the same", async () => {
+    /*
+     * The games' index aside: each year's shard is read by its own name, and the index only when
+     * an older pool's games are split into years. It changes only with a shard, which changes the
+     * fingerprint anyway, so keeping it costs no rebuild.
+     */
+    const inputs = [...everything.keys()].filter(
+      (key) => isBoardInputKey(key) && key !== "league_forecast_scout_games_v2_index"
+    );
+    expect(inputs.length).toBeGreaterThanOrEqual(4);
+    for (const key of inputs) {
+      const without = new Map([...everything].filter(([held]) => held !== key));
+      let boards: string | null = null;
+      try {
+        boards = await boardsOf(without);
+      } catch {
+        // A build that cannot run without it needs it as surely as one that differs.
+      }
+      expect(boards, key).not.toBe(full);
+    }
+  });
+
+  it("take in an older pool's games under its one key, which the year shards are split from", async () => {
+    const legacy = new Map([...everything].filter(([key]) => !key.includes("scout_games_v2")));
+    legacy.set("league_forecast_scout_games_v1", encodeScoutGames(fixture.games));
+    expect(isBoardInputKey("league_forecast_scout_games_v1")).toBe(true);
+    expect(await boardsOf(legacy)).toBe(full);
+  });
+
+  it("are, with League Standings, what a copy's board inputs are", () => {
+    expect(isBoardInput(LEAGUE_PART)).toBe(true);
+    expect(isBoardInput("league_forecast_gc_refresh_v1")).toBe(false);
+    expect(isBoardInput("league_forecast_gc_tidy_v1")).toBe(false);
+    expect(isBoardInput("league_forecast_scout_age_groups_v1")).toBe(true);
+    // A club card's age reads the ages a person named.
+    expect(isBoardInput("league_forecast_gc_named_ages_v1")).toBe(true);
+    // A Find a team list says where a pasted id the copy keeps off every page went.
+    expect(isBoardInput("league_forecast_gc_ageless_v1")).toBe(true);
+    expect(isBoardInput("league_forecast_gc_dropped_clubs_v1")).toBe(true);
+    expect(isBoardInput("league_forecast_gc_too_young_v1")).toBe(true);
+    expect(isBoardInput("league_forecast_gc_real_clubs_v1")).toBe(false);
+    // Every view leaves out a club taken off as plainly made up.
+    expect(isBoardInput("league_forecast_gc_auto_removed_v1")).toBe(true);
+  });
+});
+
+const part = (key: string, hash: string, more: Partial<ManifestPart> = {}): ManifestPart => ({
+  key,
+  hash,
+  bytes: 10,
+  chunks: 1,
+  id: "0123456789abcdef",
+  at: 1,
+  by: "phone",
+  ...more,
+});
+const h = (n: number) => n.toString(16).padStart(64, "0");
+const manifest = (parts: ManifestPart[], more: Partial<CloudManifest> = {}): CloudManifest => ({
+  format: 2,
+  schema: 1,
+  copy: "c0ffee",
+  version: 4,
+  save: "s",
+  updatedAt: "2027-04-15T10:00:00.000Z",
+  device: "phone",
+  parts,
+  kept: [],
+  ...more,
+});
+const PARTS = [
+  part(LEAGUE_PART, h(1)),
+  part("league_forecast_scout_teams_v1", h(2)),
+  part("league_forecast_scout_age_groups_v1", h(3)),
+  part("league_forecast_scout_games_v2_index", h(4)),
+  part("league_forecast_scout_games_v2:2027", h(5)),
+  part("league_forecast_gc_refresh_v1", h(6)),
+];
+
+describe("a copy's board inputs, as one fingerprint", () => {
+  it("moves with every input's value, and with nothing else", async () => {
+    const base = await boardInputsPrint(manifest(PARTS));
+    for (const [at, input] of PARTS.entries()) {
+      const changed = PARTS.map((one, index) => (index === at ? { ...one, hash: h(99) } : one));
+      const print = await boardInputsPrint(manifest(changed));
+      if (isBoardInput(input.key)) expect(print, input.key).not.toBe(base);
+      else expect(print, input.key).toBe(base);
+    }
+    // Who saved it, when, under which upload, the earlier versions kept, the copy's version and
+    // the order the parts are listed in say nothing about what the boards read.
+    const restamped = PARTS.map((one) => ({ ...one, at: 9, by: "laptop", id: "fedcba9876543210" }));
+    expect(
+      await boardInputsPrint(
+        manifest([...restamped].reverse(), {
+          version: 9,
+          kept: [{ ...part(LEAGUE_PART, h(7)), group: "g", keptAt: "x", why: "replaced" }],
+        })
+      )
+    ).toBe(base);
+    // An input taken out moves it too.
+    expect(await boardInputsPrint(manifest(PARTS.slice(1)))).not.toBe(base);
+  });
+
+  it("is the same from a copy's key and hash pairs alone, in any order, as from its manifest", async () => {
+    // Pinned from the code before the pairs could be given alone: published boards say this.
+    const base = "f4aa8e17b385ba9a68f0f5f2440bb5902c8e1bd6b8c5eed007ae5350d6eb5676";
+    expect(await boardInputsPrint(manifest(PARTS))).toBe(base);
+    const pairs = PARTS.map((one) => [one.key, one.hash] as const);
+    expect(await boardInputsPrintOf(pairs)).toBe(base);
+    expect(await boardInputsPrintOf([...pairs].reverse())).toBe(base);
+    expect(await boardInputsPrintOf(pairs.slice(1))).not.toBe(base);
+  });
+});
+
+describe("where the published boards stand against a copy", () => {
+  const copy = manifest(PARTS);
+  const metaWith = async (more: Partial<LiveMeta["built"][string]> = {}, schema = LIVE_SCHEMA) => {
+    const from = { ...(await builtFrom(copy, "2027-04-15")), ...more };
+    const meta: LiveMeta = {
+      format: LIVE_FORMAT,
+      schema,
+      today: from.today,
+      builtAt: "x",
+      copy: { id: from.k, version: from.v },
+      marks: { [from.k]: from.v },
+      inline: {},
+      views: {},
+      retired: [],
+      built: { [BOARD_FAMILY]: from },
+    };
+    return meta;
+  };
+
+  it("are current only when the copy, its version, its inputs, the day, the rules and the shape all match", async () => {
+    expect(await boardsState(await metaWith(), copy, "2027-04-15")).toBe("current");
+    // An older version with the same inputs is not: answering current would leave the copy's mark
+    // behind, and a slower build of a version in between could publish over them.
+    expect(await boardsState(await metaWith({ v: 1 }), copy, "2027-04-15")).toBe("stale");
+    expect(await boardsState(await metaWith({ k: "other" }), copy, "2027-04-15")).toBe("stale");
+    expect(await boardsState(await metaWith({ inputs: h(5) }), copy, "2027-04-15")).toBe("stale");
+    expect(await boardsState(await metaWith(), copy, "2027-04-16")).toBe("stale");
+    expect(await boardsState(await metaWith({ rules: BOARD_RULES - 1 }), copy, "2027-04-15")).toBe(
+      "stale"
+    );
+    expect(await boardsState(await metaWith({}, LIVE_SCHEMA - 1), copy, "2027-04-15")).toBe(
+      "stale"
+    );
+    expect(await boardsState(null, copy, "2027-04-15")).toBe("stale");
+    const unbuilt = { ...(await metaWith()), built: {} };
+    expect(await boardsState(unbuilt, copy, "2027-04-15")).toBe("stale");
+    // A floor, which a late publish leaves when no build vouches for every board, is never current.
+    expect(await boardsState(await metaWith({ k: "", v: 0, inputs: "" }), copy, "2027-04-15")).toBe(
+      "stale"
+    );
+  });
+
+  it("are built again in this build's shape over boards of an older shape, or of none, and not over a newer one", async () => {
+    // What a publish records, so the next rebuild of the same copy finds them current.
+    expect((await builtFrom(copy, "2027-04-15")).shape).toBe(BOARD_SHAPE);
+    const { shape: _shape, ...unshaped } = await builtFrom(copy, "2027-04-15");
+    const unrecorded = { ...(await metaWith()), built: { [BOARD_FAMILY]: unshaped } };
+    expect(await boardsState(unrecorded, copy, "2027-04-15")).toBe("stale");
+    const older = await metaWith({ shape: BOARD_SHAPE - 1 });
+    expect(await boardsState(older, copy, "2027-04-15")).toBe("stale");
+    // A newer build's boards carry more than this build's would, so this build's rebuild stands
+    // aside for them rather than writing boards without it (Codex, #371).
+    const newer = await metaWith({ shape: BOARD_SHAPE + 1 });
+    expect(await boardsState(newer, copy, "2027-04-15")).toBe("older-rules");
+  });
+
+  it("are current only when built from the same League Standings seasons, whether documents or the copy's part", async () => {
+    // Built from the copy's part: no fingerprint of their own, which the copy's inputs cover.
+    expect(await builtFrom(copy, "2027-04-15")).not.toHaveProperty("league");
+    expect(await boardsState(await metaWith(), copy, "2027-04-15", "")).toBe("current");
+    expect(await boardsState(await metaWith(), copy, "2027-04-15", "l1")).toBe("stale");
+    // Built from the seasons' documents: current only for those very seasons.
+    const fromDocs = await builtFrom(copy, "2027-04-15", "l1");
+    expect(fromDocs.league).toBe("l1");
+    const meta = await metaWith({ league: "l1" });
+    expect(await boardsState(meta, copy, "2027-04-15", "l1")).toBe("current");
+    expect(await boardsState(meta, copy, "2027-04-15", "l2")).toBe("stale");
+    expect(await boardsState(meta, copy, "2027-04-15", "")).toBe("stale");
+  });
+
+  it("are another build's to leave when newer rules built them, and a passed day's when built later", async () => {
+    expect(await boardsState(await metaWith({ rules: BOARD_RULES + 1 }), copy, "2027-04-15")).toBe(
+      "older-rules"
+    );
+    expect(await boardsState(await metaWith(), copy, "2027-04-14")).toBe("older-day");
+    expect(await boardsState(await metaWith({}, LIVE_SCHEMA + 1), copy, "2027-04-15")).toBe(
+      "newer-schema"
+    );
+  });
+});

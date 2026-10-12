@@ -1,0 +1,913 @@
+import { Fragment, useMemo } from "react";
+import {
+  previewMatchup,
+  RATING_CAP,
+  SCOUT_REPORT_NATIONAL_TOP,
+  SCOUT_REPORT_STATE_TOP,
+  type MatchupPreview,
+  type MatchupTier,
+  type ScoutingReport,
+  type ScoutRankingRow,
+  type UpcomingMatchup,
+} from "../../lib/teamRankings";
+import { formatIsoDayShort } from "../../lib/date";
+import { forecastWords, formatRating } from "../../lib/matchupForecast";
+import { holdsFrom, type WhatIfCurve, type WhatIfDeclined } from "../../lib/scoutWhatIf";
+import type { WhatIfState } from "../../hooks/useRankingsWorker";
+import type { LeagueSummaryState } from "../../hooks/useLeagueSummary";
+import { AiStoryPanel } from "../AiStoryPanel";
+import { TeamSearchSelect } from "../TeamSearchSelect";
+import { ClubCompare } from "./ClubCompare";
+import type { ClubComparison } from "../../lib/clubCompare";
+import { useWideViewport } from "../../hooks/useWideViewport";
+import { card, pill } from "../../styles/tokens";
+
+const tierTone = (tier: MatchupTier) =>
+  tier === "Favored" ? "emerald" : tier === "Underdog" ? "red" : "neutral";
+
+/**
+ * Says a projection is not one, because nothing in the pool joins the two clubs.
+ *
+ * Worded as what it is rather than as a fact about the clubs, which is the distinction that took
+ * two goes to get right. On a part-pulled pool this is usually the pull's fault, not the schedule's:
+ * two clubs that really did share an opponent look unconnected while that opponent is only a name
+ * on somebody's list. So the label points at the games we have, and the fix it implies is pulling
+ * the rest rather than distrusting either club.
+ *
+ * The numbers stay beside it. They are the only answer the model has, and hiding them would be no
+ * more honest than showing them silently — what a reader needs is to know that these two ratings
+ * were worked out against different sets of opponents, so their difference is not a prediction.
+ */
+function NoSharedOpponents() {
+  return (
+    <span
+      // A line of its own under the margin: beside it, unbroken, it made the margin column 205px
+      // wide and pushed the win chance and the outlook off a 640px screen.
+      className="block text-xs font-bold text-amber-700 dark:text-amber-400"
+      title="Nothing in the games pulled so far links these two — not even through opponents of opponents — so their ratings were worked out against different sets of teams and this projection is a guess. Usually it means the club that connects them has not been pulled yet; Setup lists which clubs those are."
+    >
+      no shared opponents yet
+    </span>
+  );
+}
+
+const formatPct = (value: number) => `${Math.round(value * 100)}%`;
+
+const formatMargin = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+
+const formatDay = formatIsoDayShort;
+
+/**
+ * The answer to the question the pickers ask — how would this team fare against that one — said
+ * before anything else: who should win, who should lose, by how many runs, and each side's chance
+ * (`forecastWords`), then the two ratings the margin is the gap between.
+ *
+ * It sat nowhere at all at first. Compare with laid out the meetings, the common opponents and each
+ * club's best and worst, and left the reader to work the answer out from them, which is the one
+ * thing the box was opened to be told. The games stay, under it, as the reason for it.
+ *
+ * From `previewMatchup`, so a club set beside the report reads the numbers it would if added to
+ * the report by name. No caveat rides on it, even for two clubs nothing in the pool joins: every
+ * forecast is an estimate, the owner asked for the answer without a preface, and the tables below
+ * keep their own marks.
+ */
+function ClubForecast({ forRow, against }: { forRow: ScoutRankingRow; against: ScoutRankingRow }) {
+  const words = forecastWords(forRow.teamName, against.teamName, previewMatchup(forRow, against));
+  return (
+    <section
+      aria-label={`Forecast: ${forRow.teamName} against ${against.teamName}`}
+      className="mt-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700"
+    >
+      <h4 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Forecast
+      </h4>
+      <p className="mt-1 text-lg font-black wrap-break-word text-slate-950 dark:text-white">
+        {words.headline}
+      </p>
+      <p className="mt-1 text-sm font-semibold wrap-break-word text-slate-700 dark:text-slate-200">
+        {words.chances}
+      </p>
+      <p className="mt-2 text-xs wrap-break-word text-slate-500 dark:text-slate-400">
+        Why: {forRow.teamName} rates {formatRating(forRow.rating)} runs against an average club (#
+        {forRow.rank}) and {against.teamName} {formatRating(against.rating)} (#{against.rank}); the
+        margin is the gap between them.
+      </p>
+    </section>
+  );
+}
+
+type ScoutingSectionProps = {
+  rankings: ScoutRankingRow[];
+  reportForId: string;
+  onReportTeamChange: (teamId: string) => void;
+  reportRow: ScoutRankingRow | null;
+  report: ScoutingReport;
+  /** Adds a team to the report by name, for one that neither list reaches. */
+  onPickOpponent: (teamId: string) => void;
+  onDropOpponent: (teamId: string) => void;
+  /** The games still to be played on this team's schedule, soonest first. */
+  upcomingRows: UpcomingMatchup[];
+  /**
+   * Said in their place when they cannot be had at all, rather than that there are none: on the
+   * cloud's board, a club the cloud publishes no card for (`LiveScouting`).
+   */
+  upcomingUnread?: string;
+  explanation: LeagueSummaryState;
+  /** "Prosper, TX" for a pulled club; nothing for a stand-in. */
+  placeOf: (teamId: string) => string | undefined;
+  /** Who coaches a club (`coachesOf`), searched and listed by the pickers; none for a stand-in. */
+  coachesFor?: (teamId: string) => readonly string[];
+  /** The fixture whose what-if is open, if any. */
+  whatIfGameId: string | null;
+  whatIf: WhatIfState;
+  onToggleWhatIf: (gameId: string) => void;
+  /** Why this fixture cannot be asked about, or null when it can. */
+  whatIfDeclineFor: (gameId: string) => WhatIfDeclined | null;
+  /** The club the report's team is being compared with, or "" for none. */
+  compareId?: string;
+  onCompareChange?: (teamId: string) => void;
+  /** The two side by side (`compareClubs`), when a club to compare with is picked. */
+  comparison?: ClubComparison | null;
+};
+
+/** "52 places better", "1 place worse", "no change". Direction in words, never in colour. */
+const placesMoved = (from: number, to: number): string => {
+  if (from === to) return "no change";
+  const places = Math.abs(from - to);
+  return `${places} ${places === 1 ? "place" : "places"} ${to < from ? "better" : "worse"}`;
+};
+
+/** "1 run", "2 runs", and the top rung which stands for every bigger win. */
+const runsLabel = (margin: number): string => {
+  const runs = Math.abs(margin);
+  if (runs === RATING_CAP) return `${runs} runs or more`;
+  return `${runs} ${runs === 1 ? "run" : "runs"}`;
+};
+
+/**
+ * The one sentence worth leading with: what it would take to come out of this no worse off.
+ *
+ * Phrased off the curve rather than off the projection, because they are not the same question.
+ * The projection says who is expected to win; this says what winning has to look like for the
+ * table not to move against you, and the extra game's own evidence shifts that by a couple of
+ * tenths of a run.
+ */
+const breakEven = (curve: WhatIfCurve, standing: number): string => {
+  const hold = holdsFrom(curve, standing);
+  const best = curve.points[curve.points.length - 1];
+  if (hold === null) {
+    return best
+      ? `No result here can lift you. Even a ${RATING_CAP}-run win leaves you at #${best.rank}, so this game can only cost places.`
+      : "There is nothing to say about this one.";
+  }
+  if (hold === 1) return `Any win holds #${standing} or better, and any loss costs you places.`;
+  return `Win by ${hold} or more and you hold #${standing} or better. Win by less and you still slip — the table already expects you to beat them.`;
+};
+
+/**
+ * One team's next games, then that team against every other, with the AI panel explaining where
+ * its rank comes from.
+ *
+ * It sits in a section of its own rather than under the tables it is built from: it answers a
+ * different question — how would *this* team do — and reaching it used to mean scrolling past a
+ * table of every ranked team in the country.
+ */
+export function ScoutingSection({
+  rankings,
+  reportForId,
+  onReportTeamChange,
+  reportRow,
+  report,
+  onPickOpponent,
+  onDropOpponent,
+  upcomingRows,
+  upcomingUnread,
+  explanation,
+  placeOf,
+  coachesFor,
+  whatIfGameId,
+  whatIf,
+  onToggleWhatIf,
+  whatIfDeclineFor,
+  compareId = "",
+  onCompareChange,
+  comparison = null,
+}: ScoutingSectionProps) {
+  /**
+   * The place rides along as the detail line: a nationwide pool holds several clubs of the same
+   * name, and the name alone cannot tell you which one you meant.
+   */
+  const teamOptions = useMemo(
+    () =>
+      rankings.map((row) => {
+        const coaches = coachesFor?.(row.teamId) ?? [];
+        return {
+          id: row.teamId,
+          label: row.teamName,
+          ...(placeOf(row.teamId) ? { detail: placeOf(row.teamId) as string } : {}),
+          ...(coaches.length > 0 ? { coaches } : {}),
+        };
+      }),
+    [rankings, placeOf, coachesFor]
+  );
+
+  /** The same options, minus the team the report is about — it cannot be its own opponent. */
+  // One shape rendered, the way the rankings table does it: see `useWideViewport`.
+  const wide = useWideViewport();
+  const opponentOptions = useMemo(
+    () => teamOptions.filter((option) => option.id !== reportForId),
+    [teamOptions, reportForId]
+  );
+  /**
+   * The club set beside the report, read off the board itself rather than off the comparison: the
+   * forecast needs only the two ratings, so it is there the moment a club is picked, while the
+   * games behind it may still be on their way (`LiveScouting` reads them from two clubs' cards).
+   */
+  const compareRow = useMemo(
+    () =>
+      compareId && compareId !== reportForId
+        ? (rankings.find((row) => row.teamId === compareId) ?? null)
+        : null,
+    [rankings, compareId, reportForId]
+  );
+
+  return (
+    <div className={`${card} p-5`}>
+      <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Scouting report
+      </h2>
+      {/*
+        On a phone the question is asked whole above a box of its own: squeezed into one line
+        beside "How would", a 224px box printed "fare?" over the name picked in it.
+      */}
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <label
+          className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+          htmlFor="scout-report-team"
+        >
+          How would<span className="sm:hidden"> this team fare?</span>
+        </label>
+        {/*
+          A dropdown, until this page held a nationwide pool. Picking one club out of several
+          thousand by scrolling is not picking, so this is the same search box the merge picker
+          uses: type a name and the list narrows to it.
+        */}
+        <TeamSearchSelect
+          id="scout-report-team"
+          value={reportForId}
+          onChange={onReportTeamChange}
+          options={teamOptions}
+          placeholder="Search for a team or coach"
+          className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
+        />
+        <span className="hidden text-xs font-semibold uppercase tracking-wide text-slate-500 sm:inline dark:text-slate-400">
+          fare?
+        </span>
+      </div>
+      {/*
+        Under the question it finishes, and its answer under it, before the write-up of this team's
+        own rank: below that, a coach who asked how two clubs would do had to scroll past an
+        explanation of something else to find out, and then found no answer at all.
+      */}
+      {reportRow && onCompareChange && (
+        <div className="mt-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <label
+              className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+              htmlFor="scout-compare-team"
+            >
+              Compare with
+            </label>
+            <TeamSearchSelect
+              id="scout-compare-team"
+              value={compareId}
+              onChange={onCompareChange}
+              options={opponentOptions}
+              placeholder="Search for a team or coach"
+              className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
+            />
+            {compareId && (
+              <button
+                type="button"
+                onClick={() => onCompareChange("")}
+                className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {compareRow ? (
+            <ClubForecast forRow={reportRow} against={compareRow} />
+          ) : (
+            compareId &&
+            compareId !== reportForId && (
+              // A club picked on another page or half that is not ranked on this one: said, rather
+              // than an empty space where the answer was, or a comparison with "Other club".
+              <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+                The club picked to compare is not ranked on this board, so there is nothing to
+                forecast. Pick another, or Clear.
+              </p>
+            )
+          )}
+          {comparison && compareRow && (
+            <ClubCompare
+              comparison={comparison}
+              aName={reportRow.teamName}
+              bName={compareRow.teamName}
+            />
+          )}
+        </div>
+      )}
+      {reportRow && (
+        <div className="mt-4">
+          <AiStoryPanel
+            title="Why this ranking"
+            text={explanation.status === "ready" ? explanation.summary : ""}
+            source={explanation.status === "ready" ? explanation.provider : "local"}
+            model={explanation.model}
+            loading={explanation.status === "loading"}
+            loadingLabel="Writing rank explanation…"
+            unavailableReason={explanation.reason}
+            errorMessage={explanation.message}
+            onRetry={explanation.retry}
+            waiting={explanation.waiting}
+            onAsk={explanation.ask}
+          />
+        </div>
+      )}
+      <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Next up — games still to play
+      </h3>
+      {upcomingUnread ? (
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{upcomingUnread}</p>
+      ) : upcomingRows.length === 0 ? (
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+          No unplayed games on this team&apos;s schedule. A GameChanger pull brings future fixtures
+          in with no score, so they appear here as soon as the schedule has them.
+        </p>
+      ) : wide ? (
+        <div className="mt-2 overflow-x-auto">
+          <table className="min-w-full text-sm" aria-label="Next up">
+            <thead>
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className="py-2">Date</th>
+                <th>Opponent</th>
+                <th>Opponent rank</th>
+                <th>Projected margin</th>
+                <th>Win probability</th>
+                <th>Outlook</th>
+              </tr>
+            </thead>
+            <tbody>
+              {upcomingRows.map((row) => (
+                <Fragment key={row.gameId}>
+                  <tr className="border-t border-slate-100 dark:border-slate-800">
+                    <td className="whitespace-nowrap py-3 font-semibold text-slate-700 dark:text-slate-200">
+                      {formatDay(row.date)}
+                      {row.event && (
+                        <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
+                          {row.event}
+                        </span>
+                      )}
+                    </td>
+                    <td className="font-bold text-slate-950 dark:text-white">
+                      {row.opponentName}
+                      {placeOf(row.opponentId) && (
+                        <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
+                          {placeOf(row.opponentId)}
+                        </span>
+                      )}
+                      {/*
+                      Under the opponent rather than in a column of its own. This table already has
+                      six, and a seventh would push it into the sideways scroll inside a card that
+                      the rankings table went to some trouble to get rid of.
+                    */}
+                      <WhatIfTrigger
+                        gameId={row.gameId}
+                        opponentName={row.opponentName}
+                        decline={whatIfDeclineFor(row.gameId)}
+                        open={whatIfGameId === row.gameId}
+                        onToggle={onToggleWhatIf}
+                      />
+                    </td>
+                    {/* An opponent nobody has pulled has no rating, and a made-up one would be
+                      worse than none: the row says so and stops there. */}
+                    {row.tier === undefined ? (
+                      <td className="text-slate-500 dark:text-slate-400" colSpan={4}>
+                        Not rated here yet
+                      </td>
+                    ) : (
+                      <>
+                        <td>#{row.opponentRank}</td>
+                        <td>
+                          {formatMargin(row.projectedMargin ?? 0)}
+                          {row.unconnected && <NoSharedOpponents />}
+                        </td>
+                        <td>{formatPct(row.winProb ?? 0)}</td>
+                        <td>
+                          <span className={pill(tierTone(row.tier))}>{row.tier}</span>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                  {whatIfGameId === row.gameId && reportRow && (
+                    <tr className="bg-slate-50 dark:bg-slate-900/40">
+                      <td colSpan={6} className="px-1 py-3" id={`what-if-${row.gameId}`}>
+                        <WhatIfPanel
+                          state={whatIf}
+                          gameId={row.gameId}
+                          standing={reportRow}
+                          opponentName={row.opponentName}
+                          projectedMargin={row.projectedMargin}
+                          unconnected={row.unconnected === true}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        /*
+         * A card per fixture on a phone. Six columns in a card's width left the win chance and the
+         * outlook, the two the table exists for, past the right edge of every row.
+         */
+        <ul className="mt-2 space-y-3" aria-label="Next up">
+          {upcomingRows.map((row) => (
+            <li
+              key={row.gameId}
+              className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+            >
+              <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                {formatDay(row.date)}
+                {row.event && <span className="block font-normal">{row.event}</span>}
+              </div>
+              <div className="mt-1 font-bold wrap-break-word text-slate-950 dark:text-white">
+                {row.opponentName}
+              </div>
+              {placeOf(row.opponentId) && (
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {placeOf(row.opponentId)}
+                </div>
+              )}
+              {row.tier === undefined ? (
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                  Not rated here yet
+                </p>
+              ) : (
+                <>
+                  <dl className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <dt className="text-xs text-slate-500 dark:text-slate-400">Win chance</dt>
+                      <dd className="font-bold">{formatPct(row.winProb ?? 0)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-slate-500 dark:text-slate-400">Margin</dt>
+                      <dd className="font-bold">{formatMargin(row.projectedMargin ?? 0)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-slate-500 dark:text-slate-400">Their rank</dt>
+                      <dd className="font-bold">#{row.opponentRank}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className={pill(tierTone(row.tier))}>{row.tier}</span>
+                    {row.unconnected && <NoSharedOpponents />}
+                  </div>
+                </>
+              )}
+              <WhatIfTrigger
+                gameId={row.gameId}
+                opponentName={row.opponentName}
+                decline={whatIfDeclineFor(row.gameId)}
+                open={whatIfGameId === row.gameId}
+                onToggle={onToggleWhatIf}
+              />
+              {whatIfGameId === row.gameId && reportRow && (
+                <div className="mt-3" id={`what-if-${row.gameId}`}>
+                  <WhatIfPanel
+                    state={whatIf}
+                    gameId={row.gameId}
+                    standing={reportRow}
+                    opponentName={row.opponentName}
+                    projectedMargin={row.projectedMargin}
+                    unconnected={row.unconnected === true}
+                  />
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <MatchupTable
+        heading={`Against the top ${SCOUT_REPORT_NATIONAL_TOP}`}
+        note="The best in this age group's pool, wherever they play."
+        rows={report.national}
+        placeOf={placeOf}
+        empty="Add at least two teams to this age group to see scouting projections."
+      />
+
+      {report.stateName && (
+        <MatchupTable
+          heading={`Against the top ${SCOUT_REPORT_STATE_TOP} in ${report.stateName}`}
+          note="Ranked within the state, which is the number a state table would show."
+          rows={report.state}
+          placeOf={placeOf}
+          empty={`Nobody else on this page has a ${report.stateName} address yet.`}
+        />
+      )}
+
+      {/*
+        The two lists above are the questions worth asking without being asked — how do we sit
+        against the best, and against the ones we might actually draw. This is everyone else. It
+        used to be a row per ranked team, which on a nationwide pool is thousands in rank order:
+        a list nobody reads and nobody can find a particular club in. A name is faster.
+      */}
+      <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        Against anyone else
+      </h3>
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <label
+          className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+          htmlFor="scout-report-opponent"
+        >
+          Check a team
+        </label>
+        <TeamSearchSelect
+          id="scout-report-opponent"
+          value=""
+          onChange={onPickOpponent}
+          options={opponentOptions}
+          placeholder="Search for an opponent or coach"
+          className="w-full sm:w-auto sm:min-w-56 sm:max-w-xs"
+        />
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          {report.opponentCount === 0
+            ? "Nobody else is ranked on this page yet."
+            : `${report.opponentCount.toLocaleString()} ranked ${
+                report.opponentCount === 1 ? "team" : "teams"
+              } to choose from.`}
+        </span>
+      </div>
+      {report.picked.length > 0 && (
+        <MatchupTable
+          label="Teams you added"
+          rows={report.picked}
+          placeOf={placeOf}
+          onDrop={onDropOpponent}
+          empty=""
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * One block of "how would we do against these", with its own heading.
+ *
+ * The rank column shows whatever rank the rows arrived with — national in the national list, place
+ * within the state in the state one — because a state list numbered #4, #87, #212 reads as though
+ * nine teams had gone missing.
+ */
+function MatchupTable({
+  heading,
+  label,
+  note,
+  rows,
+  placeOf,
+  onDrop,
+  empty,
+}: {
+  heading?: string;
+  /** The table's own name, for when there is no heading above it to borrow. */
+  label?: string;
+  note?: string;
+  rows: MatchupPreview[];
+  placeOf: (teamId: string) => string | undefined;
+  /** Given for the searched-for rows, which are the only ones a person can take back off. */
+  onDrop?: (teamId: string) => void;
+  empty: string;
+}) {
+  const wide = useWideViewport();
+  return (
+    <>
+      {heading && (
+        <h3 className="mt-6 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          {heading}
+        </h3>
+      )}
+      {note && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{note}</p>}
+      {wide ? (
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-sm" aria-label={label ?? heading}>
+            <thead>
+              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <th className="py-2">Opponent</th>
+                <th>Opponent rank</th>
+                <th>Projected margin</th>
+                <th>Win probability</th>
+                <th>Outlook</th>
+                {onDrop && <th className="sr-only">Remove</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((preview) => (
+                <tr
+                  key={preview.opponentId}
+                  className="border-t border-slate-100 dark:border-slate-800"
+                >
+                  <td className="py-3 font-bold text-slate-950 dark:text-white">
+                    {preview.opponentName}
+                    {placeOf(preview.opponentId) && (
+                      <span className="block text-xs font-normal text-slate-500 dark:text-slate-400">
+                        {placeOf(preview.opponentId)}
+                      </span>
+                    )}
+                  </td>
+                  <td>#{preview.opponentRank}</td>
+                  <td>
+                    {formatMargin(preview.projectedMargin)}
+                    {preview.unconnected && <NoSharedOpponents />}
+                  </td>
+                  <td>{formatPct(preview.winProb)}</td>
+                  <td>
+                    <span className={pill(tierTone(preview.tier))}>{preview.tier}</span>
+                  </td>
+                  {onDrop && (
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => onDrop(preview.opponentId)}
+                        aria-label={`Remove ${preview.opponentName} from the report`}
+                        className="text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        // A card per opponent on a phone, for the reason the Next up list gives.
+        <ul className="mt-3 space-y-3" aria-label={label ?? heading}>
+          {rows.map((preview) => (
+            <li
+              key={preview.opponentId}
+              className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-bold wrap-break-word text-slate-950 dark:text-white">
+                    {preview.opponentName}
+                  </div>
+                  {placeOf(preview.opponentId) && (
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      {placeOf(preview.opponentId)}
+                    </div>
+                  )}
+                </div>
+                {onDrop && (
+                  <button
+                    type="button"
+                    onClick={() => onDrop(preview.opponentId)}
+                    aria-label={`Remove ${preview.opponentName} from the report`}
+                    className="shrink-0 text-xs font-semibold text-slate-500 underline hover:text-slate-950 dark:text-slate-400 dark:hover:text-white"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <dl className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                <div>
+                  <dt className="text-xs text-slate-500 dark:text-slate-400">Win chance</dt>
+                  <dd className="font-bold">{formatPct(preview.winProb)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500 dark:text-slate-400">Margin</dt>
+                  <dd className="font-bold">{formatMargin(preview.projectedMargin)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500 dark:text-slate-400">Their rank</dt>
+                  <dd className="font-bold">#{preview.opponentRank}</dd>
+                </div>
+              </dl>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={pill(tierTone(preview.tier))}>{preview.tier}</span>
+                {preview.unconnected && <NoSharedOpponents />}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {rows.length === 0 && empty && (
+        <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">{empty}</p>
+      )}
+    </>
+  );
+}
+
+/**
+ * Why a fixture cannot be asked about, in a sentence — or nothing at all.
+ *
+ * Only the two a reader can do something about get words. The rest cannot be reached from a row
+ * this table would list as upcoming, or are already said plainly in the row itself: a club nobody
+ * has rated yet reads "Not rated here yet" across the four columns, and repeating it underneath
+ * the name would be the same news twice.
+ */
+const declineNote = (decline: WhatIfDeclined): string | null => {
+  if (decline === "other-half")
+    return "In the other half of the season, so it cannot change this table.";
+  if (decline === "no-date")
+    return "No date, so it belongs to the year but to neither half of it. Ask on the whole-year board.";
+  return null;
+};
+
+/** The way into the answer, under the opponent's name. */
+function WhatIfTrigger({
+  gameId,
+  opponentName,
+  decline,
+  open,
+  onToggle,
+}: {
+  gameId: string;
+  opponentName: string;
+  decline: WhatIfDeclined | null;
+  open: boolean;
+  onToggle: (gameId: string) => void;
+}) {
+  if (decline !== null) {
+    const note = declineNote(decline);
+    return note ? (
+      <span className="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">
+        {note}
+      </span>
+    ) : null;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(gameId)}
+      aria-expanded={open}
+      aria-controls={`what-if-${gameId}`}
+      className="mt-1 block text-xs font-semibold text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+    >
+      {open ? "Hide" : "What if?"}
+      <span className="sr-only">
+        {" "}
+        what a win or a loss against {opponentName} would do to the ranking
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Where every margin would leave the club, once the whole table has been fitted again with the
+ * result in it.
+ *
+ * A margin table rather than two buttons, because the margin is the larger half of the answer: the
+ * gap between winning by one and winning by the cap moves a club further than the gap between
+ * winning and losing at the margin the projection expects. Two buttons would hide that.
+ *
+ * Nothing here is coloured by outcome. Winning is not always good news and losing is not always
+ * bad — a narrow loss to a much stronger club can lift a thinly played side, because the table
+ * rates who you played and one more game is one more thing the rating stands on. A green "win"
+ * column above a rank that fell would teach the reader the feature is broken.
+ */
+function WhatIfPanel({
+  state,
+  gameId,
+  standing,
+  opponentName,
+  projectedMargin,
+  unconnected,
+}: {
+  state: WhatIfState;
+  gameId: string;
+  standing: ScoutRankingRow;
+  opponentName: string;
+  projectedMargin: number | undefined;
+  unconnected: boolean;
+}) {
+  const mine = state.status !== "idle" && state.ask.gameId === gameId;
+  if (!mine || state.status === "working") {
+    return (
+      <p className="text-sm text-slate-500 dark:text-slate-400" role="status" aria-live="polite">
+        Working it out — the whole table is fitted again, three times.
+      </p>
+    );
+  }
+  if (state.status === "failed") {
+    return (
+      <p className="text-sm text-slate-500 dark:text-slate-400" role="status" aria-live="polite">
+        That could not be worked out. Nothing here changed — the table above is still what the pool
+        says today.
+      </p>
+    );
+  }
+
+  const { curve } = state;
+  const wins = curve.points.filter((point) => point.margin > 0);
+  const losses = curve.points.filter((point) => point.margin < 0);
+  const headline = breakEven(curve, standing.rank);
+  // The rung the projection points at, so the reader can see which line is the expected one.
+  const expected =
+    projectedMargin === undefined
+      ? null
+      : Math.min(RATING_CAP, Math.max(1, Math.round(Math.abs(projectedMargin))));
+
+  return (
+    <div className="space-y-2">
+      <p
+        className="text-sm font-bold text-slate-950 dark:text-white"
+        role="status"
+        aria-live="polite"
+      >
+        {headline}
+      </p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Now #{standing.rank} of {curve.rankedCount.toLocaleString()}, at{" "}
+        {standing.rating.toFixed(1)}.
+      </p>
+      <div className="overflow-x-auto">
+        <table
+          className="min-w-full text-sm"
+          aria-label={`What a win or a loss against ${opponentName} would do`}
+        >
+          <thead>
+            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {/* Padded apart: wrapped on a phone, two unpadded headers ran into one line. */}
+              <th className="py-1 pr-3">By</th>
+              <th className="pr-3">
+                If we win <span className="whitespace-nowrap">({curve.winRecord})</span>
+              </th>
+              <th>
+                If we lose <span className="whitespace-nowrap">({curve.lossRecord})</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {wins.map((win, index) => {
+              const loss = losses[losses.length - 1 - index];
+              const runs = win.margin;
+              return (
+                <tr key={runs} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="py-2 pr-3 font-semibold text-slate-700 sm:whitespace-nowrap dark:text-slate-200">
+                    {runsLabel(runs)}
+                    {expected === runs && (
+                      <span className="ml-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+                        projected
+                      </span>
+                    )}
+                  </td>
+                  {/* Unbroken only where there is room: on a phone the note goes under the place. */}
+                  <td className="pr-3 sm:whitespace-nowrap">
+                    #{win.rank}{" "}
+                    <span className="block text-xs text-slate-500 sm:inline dark:text-slate-400">
+                      {placesMoved(standing.rank, win.rank)}
+                    </span>
+                  </td>
+                  <td className="sm:whitespace-nowrap">
+                    {loss ? (
+                      <>
+                        #{loss.rank}{" "}
+                        <span className="block text-xs text-slate-500 sm:inline dark:text-slate-400">
+                          {placesMoved(standing.rank, loss.rank)}
+                        </span>
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        {RATING_CAP} runs is as much as one game can carry, so the last row is every bigger win at
+        once: a {RATING_CAP + 1}-1 and a 20-0 move the table by exactly the same amount. A narrow
+        loss to a stronger club can still lift you — the table rates who you played, not only who
+        you beat, and one more game is one more thing your rating stands on.
+      </p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Every rating is worked out again from scratch with this one result added, so a few other
+        clubs shift places too. Nobody else&apos;s next game is played here. It is fitted as if the
+        game were played today, because recent games count for more and a result dated weeks ahead
+        would outweigh the season you have actually had.
+      </p>
+      {unconnected && (
+        <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
+          Nothing in the games pulled so far links these two clubs, so where this would leave you
+          rests on a comparison the pool has not actually made.
+        </p>
+      )}
+    </div>
+  );
+}

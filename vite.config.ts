@@ -1,13 +1,50 @@
-/// <reference types="vitest" />
-import { defineConfig } from "vite";
+// Vitest 3 dropped the module augmentation that let Vite's own `defineConfig` accept a `test`
+// block, so the config is defined through `vitest/config` instead. It is Vite's `defineConfig`
+// with the test options typed on top; every Vite option below is unchanged.
+import { defineConfig } from "vitest/config";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { FIREBASE_WEB_CONFIG } from "./src/lib/cloud/cloudConfig.ts";
+import { widenPolicyInHtml } from "./src/lib/contentPolicy.ts";
+
+/**
+ * Writes the page's Content-Security-Policy for this build: `index.html`'s, plus the origins the
+ * build talks to (`src/lib/contentPolicy.ts`). The proxy is read from the environment Vite loaded,
+ * which is the one the bundle is built from, and the Firebase project from the module the bundle
+ * imports it from, so neither can disagree with what the page does.
+ */
+const contentPolicy = (): Plugin => {
+  let env: Record<string, string> = {};
+  return {
+    name: "league-forecast:content-policy",
+    configResolved: (config) => {
+      env = config.env;
+    },
+    transformIndexHtml: (html) =>
+      widenPolicyInHtml(html, {
+        VITE_GC_PROXY_URL: env.VITE_GC_PROXY_URL,
+        firebase: FIREBASE_WEB_CONFIG,
+      }),
+  };
+};
 
 export default defineConfig({
   plugins: [
     react(),
+    contentPolicy(),
     VitePWA({
-      registerType: "autoUpdate",
+      /*
+       * A new version waits to be let in rather than taking over.
+       *
+       * Under `autoUpdate` the page reloads itself the moment a new service worker activates —
+       * no warning, mid-score-entry, and every open tab at once on every deploy. It also made
+       * the "A fresh app version is ready" toast in App unreachable: vite-plugin-pwa only wires
+       * `onNeedRefresh` on this branch, so the app had a prompt in its source that could never
+       * fire. Prompting makes that toast real and puts the moment of reloading in the hands of
+       * whoever is standing at the field with a phone.
+       */
+      registerType: "prompt",
       includeAssets: ["icon.svg", "icon-maskable.svg"],
       manifest: {
         name: "League Forecast",
@@ -35,7 +72,18 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Firestore's listener (`firestoreListen.ts`, 159 KB gzipped) is not stored ahead: it is
+        // no use offline, and a browser that opens no live board never loads it. The rest of the
+        // default stays: nothing from node_modules.
+        globIgnores: ["**/node_modules/**/*", "**/firestoreListen-*.js"],
         navigateFallback: "/index.html",
+        // What pressing one of the app's notifications does (2.6, `public/notification-click.js`).
+        importScripts: ["notification-click.js"],
+        // Without this, the service worker answers *every* navigation with the
+        // cached app shell — including /api/*, so opening an API URL in the
+        // browser shows the dashboard instead of the server's response and the
+        // endpoint looks broken when it is not.
+        navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
@@ -47,8 +95,11 @@ export default defineConfig({
             },
           },
           {
-            urlPattern: ({ request }) =>
-              ["script", "style", "worker"].includes(request.destination),
+            // This origin's own files only. Signing in to keep a cloud copy loads Google's script
+            // for the sign-in frame, at an address that changes every time it is asked for; kept
+            // here, each one would be another entry in a cache nothing ever reads back.
+            urlPattern: ({ request, sameOrigin }) =>
+              sameOrigin && ["script", "style", "worker"].includes(request.destination),
             handler: "StaleWhileRevalidate",
             options: { cacheName: "assets" },
           },
@@ -62,9 +113,78 @@ export default defineConfig({
   },
   build: {
     sourcemap: true,
+    // Which chunk each module landed in and what it imports, for the bundle budget's per-view sizes
+    // (`scripts/bundleBudget.mjs`, 2.1). Written to `dist/.vite/`, beside the build.
+    manifest: true,
+    rollupOptions: {
+      output: {
+        /*
+         * React and React DOM go in a chunk of their own. They are a third of what a first visit
+         * downloads and they change only when the dependency is upgraded, so keeping them apart
+         * means a deploy of our own code re-downloads our own code and nothing else — every
+         * returning visit after a release is that much lighter.
+         */
+        manualChunks: (id) =>
+          /node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id) ? "react" : undefined,
+      },
+    },
   },
   test: {
-    environment: "node",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    /*
+     * Reported and, now that the report has been read, enforced — as a floor under where the suite
+     * already is rather than a target for it. The numbers below sit about a point under the run
+     * that set them (80.89% statements, 68.45% branches, 77.32% functions, 82.50% lines), which is
+     * the whole intent: a point is more than an ordinary change moves and less than deleting a
+     * test file. It answers a question nothing else does — a pull request that adds a hundred
+     * lines and no test reads as green everywhere else, and the summary in the log is a number
+     * nobody compares against last week's.
+     *
+     * `include` is what makes this honest. Every file it matches is reported whether a test
+     * touched it or not, so a file with no test counts as zero rather than vanishing from the
+     * denominator — the point is to find what is untested, and the untested files are exactly the
+     * ones that would otherwise not appear. (This was `all: true` before Vitest 3; `include` now
+     * carries that meaning on its own.)
+     */
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{ts,tsx}",
+        "src/test/**",
+        "src/lib/__tests__/**",
+        // Type-only and entry modules: nothing to execute, so a percentage says nothing.
+        "src/lib/types.ts",
+        "src/main.tsx",
+        "src/vite-env.d.ts",
+      ],
+      reporter: ["text-summary", "lcov"],
+      thresholds: { statements: 80, branches: 67, functions: 76, lines: 81 },
+    },
+    // Vitest stubs every stylesheet out as empty, which suits the app's. Tailwind's theme is let
+    // through so the contrast test can read the palette the build draws with (`?raw`, as text),
+    // and the app's own sheet so the tab bar's test can read the room it keeps for the bar.
+    css: { include: [/\/tailwindcss\/theme\.css/, /\/src\/index\.css/] },
+    // Two projects rather than one environment, because they want different ones. The lib tests are
+    // pure functions and run fastest with no DOM at all; the component tests need one. Splitting
+    // them keeps the 1,000-odd lib tests from paying for a jsdom they never touch.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "lib",
+          environment: "node",
+          include: ["src/**/*.test.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "components",
+          environment: "jsdom",
+          include: ["src/**/*.test.tsx"],
+          setupFiles: ["./src/test/setup.ts"],
+        },
+      },
+    ],
   },
 });

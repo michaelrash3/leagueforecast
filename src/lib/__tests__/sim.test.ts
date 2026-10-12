@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   applyResult,
+  attachAdjustedRatings,
   calculateTeams,
   emptyTeam,
   isSeedingLocked,
   predictGame,
   projectStandings,
   rankTeams,
+  simulateBracketOdds,
   simulateGoldOdds,
+  simulateGoldOddsRun,
   simulationSeed,
   standingsPoints,
   calibrateAwayWinPct,
@@ -169,7 +172,7 @@ describe("standingsPoints + rankTeams", () => {
     expect(standingsPoints(team, { winPoints: 3, tiePoints: 1 })).toBe(14);
   });
 
-  it("ranks GameChanger-style winning percentage with ties as half a win", () => {
+  it("ranks league points earned before winning percentage", () => {
     const higherWinTotal = {
       ...emptyTeam({ id: "A", name: "10-4 Team" }),
       w: 10,
@@ -191,14 +194,14 @@ describe("standingsPoints + rankTeams", () => {
 
     const ranked = rankTeams([higherWinTotal, betterPct], { winPoints: 1, tiePoints: 0.5 });
 
-    expect(ranked.map((team) => team.id)).toEqual(["B", "A"]);
+    expect(ranked.map((team) => team.id)).toEqual(["A", "B"]);
     expect(betterPct.pct).toBeGreaterThan(higherWinTotal.pct);
     expect(standingsPoints(higherWinTotal, { winPoints: 1, tiePoints: 0.5 })).toBeGreaterThan(
       standingsPoints(betterPct, { winPoints: 1, tiePoints: 0.5 })
     );
   });
 
-  it("uses tournament tiebreakers after equal winning percentage instead of standings points", () => {
+  it("ranks more league points ahead of tournament tiebreakers", () => {
     const shortUndefeated = {
       ...emptyTeam({ id: "A", name: "1-0 Team" }),
       w: 1,
@@ -222,10 +225,31 @@ describe("standingsPoints + rankTeams", () => {
       tiePoints: 0.5,
     });
 
-    expect(ranked.map((team) => team.id)).toEqual(["A", "B"]);
+    expect(ranked.map((team) => team.id)).toEqual(["B", "A"]);
     expect(standingsPoints(longerUndefeated, { winPoints: 1, tiePoints: 0.5 })).toBeGreaterThan(
       standingsPoints(shortUndefeated, { winPoints: 1, tiePoints: 0.5 })
     );
+  });
+
+  it("ranks 0-1 ahead of 0-2 before applying score tiebreakers", () => {
+    const oneLoss = {
+      ...emptyTeam({ id: "A", name: "0-1 Team" }),
+      l: 1,
+      games: 1,
+      runDiff: -20,
+    };
+    const twoLosses = {
+      ...emptyTeam({ id: "B", name: "0-2 Team" }),
+      l: 2,
+      games: 2,
+      runDiff: -2,
+    };
+
+    expect(
+      rankTeams([twoLosses, oneLoss], { tiebreakerOrder: ["runDifferential"] }).map(
+        (team) => team.id
+      )
+    ).toEqual(["A", "B"]);
   });
 
   it("skips run-diff tier when disabled", () => {
@@ -369,10 +393,12 @@ describe("predictGame", () => {
   it("aggression scales the predicted scores", () => {
     const conservative = predictGame(game, live, {
       ...settings,
+      pitchMode: "machine",
       modelAggression: "Conservative",
     });
     const aggressive = predictGame(game, live, {
       ...settings,
+      pitchMode: "machine",
       modelAggression: "Aggressive",
     });
     // The two aggressions should not produce identical scores when there is a
@@ -423,10 +449,14 @@ describe("predictGame", () => {
       headToHead: { A: { wins: 0, losses: 2, ties: 0 } },
     };
 
+    // Contact/strikeout/tpi signals drive the machine-pitch model specifically.
     const prediction = predictGame(
       { id: "future", date: "5/9", away: "A", home: "B" },
       [away, home],
-      settings
+      {
+        ...settings,
+        pitchMode: "machine",
+      }
     );
 
     expect(prediction.winnerId).toBe("A");
@@ -614,6 +644,90 @@ describe("projectStandings + simulateGoldOdds", () => {
   });
 });
 
+/**
+ * The loop's answers, pinned to the digit, so that making it faster can be shown to have changed
+ * nothing else. An eight-team round robin with ten results in: enough teams for the cut to be
+ * contested and enough games left for the draws to matter.
+ */
+describe("the simulation loop, pinned", () => {
+  const rounded = (odds: Record<string, number>) =>
+    Object.fromEntries(Object.entries(odds).map(([id, pct]) => [id, Number(pct.toFixed(3))]));
+  const pinned = () => {
+    const eight: TeamBase[] = Array.from({ length: 8 }, (_, i) => ({
+      id: `T${i + 1}`,
+      name: `Team ${i + 1}`,
+    }));
+    const games: Matchup[] = [];
+    eight.forEach((away, i) =>
+      eight
+        .slice(i + 1)
+        .forEach((home, j) =>
+          games.push({ id: `p${i}-${j}`, date: "5/1", away: away.id, home: home.id })
+        )
+    );
+    const logs: Record<string, GameLog> = {};
+    games.slice(0, 10).forEach((game, at) => {
+      logs[game.id] = finalLog({
+        awayRuns: String(2 + (at % 5)),
+        homeRuns: String(1 + ((at * 3) % 6)),
+      });
+    });
+    const live = calculateTeams(eight, games, logs, settings);
+    return { live, remaining: games.filter((game) => !logs[game.id]) };
+  };
+
+  it("gold odds", () => {
+    const { live, remaining } = pinned();
+    const odds = simulateGoldOdds(live, remaining, 150, "pinned", 3, settings);
+    expect(rounded(odds)).toMatchInlineSnapshot(`
+      {
+        "T1": 99.333,
+        "T2": 47.333,
+        "T3": 46,
+        "T4": 10,
+        "T5": 11.333,
+        "T6": 15.333,
+        "T7": 50,
+        "T8": 20.667,
+      }
+    `);
+  });
+
+  it("bracket odds", () => {
+    const { live, remaining } = pinned();
+    const result = simulateBracketOdds(live, remaining, 80, "pinned", 4, settings);
+    expect({
+      champion: rounded(result.championOdds),
+      finals: rounded(result.finalsOdds),
+      iterations: result.iterations,
+    }).toMatchInlineSnapshot(`
+      {
+        "champion": {
+          "T1": 23.75,
+          "T2": 21.25,
+          "T3": 18.75,
+          "T4": 1.25,
+          "T5": 7.5,
+          "T6": 3.75,
+          "T7": 12.5,
+          "T8": 11.25,
+        },
+        "finals": {
+          "T1": 51.25,
+          "T2": 38.75,
+          "T3": 32.5,
+          "T4": 5,
+          "T5": 10,
+          "T6": 10,
+          "T7": 35,
+          "T8": 17.5,
+        },
+        "iterations": 80,
+      }
+    `);
+  });
+});
+
 describe("simulationSeed", () => {
   it("is stable across key ordering of logs", () => {
     const logsA: Record<string, GameLog> = {
@@ -626,10 +740,41 @@ describe("simulationSeed", () => {
     };
     expect(simulationSeed(matchups, logsA, "x")).toBe(simulationSeed(matchups, logsB, "x"));
   });
+
+  it("changes when a final's score is corrected, not only when a game goes final", () => {
+    const before = { g1: finalLog({ awayRuns: "5", homeRuns: "3" }) };
+    const after = { g1: finalLog({ awayRuns: "12", homeRuns: "0" }) };
+    expect(simulationSeed(matchups, before, "x")).not.toBe(simulationSeed(matchups, after, "x"));
+  });
 });
 
-it("defaults pitch mode to machine", () => {
-  expect(DEFAULT_SETTINGS.pitchMode).toBe("machine");
+describe("how many seasons the odds are counted over", () => {
+  it("stops a couple of hundred in when every team is plainly in or plainly out", () => {
+    // Nothing left to play, so every season ends the same way and the interval closes at once.
+    const live = calculateTeams(teams, matchups, {
+      g1: finalLog({ awayRuns: "9", homeRuns: "1" }),
+      g2: finalLog({ awayRuns: "8", homeRuns: "2" }),
+      g3: finalLog({ awayRuns: "7", homeRuns: "3" }),
+    });
+    const run = simulateGoldOddsRun(live, [], 4000, "settled", 2, settings);
+    expect(run.iterations).toBe(200);
+    expect(run.odds.A).toBe(100);
+  });
+
+  it("runs to the ceiling while a cut line is still contested", () => {
+    const live = calculateTeams(teams, matchups, {});
+    const run = simulateGoldOddsRun(live, matchups, 1000, "contested", 2, settings);
+    expect(run.iterations).toBe(1000);
+    // And the odds are counted over the seasons actually played, so they still fill the cut.
+    const total = Object.values(run.odds).reduce((sum, value) => sum + value, 0);
+    expect(Math.round(total)).toBe(200);
+  });
+});
+
+it("defaults pitch mode to kid pitch", () => {
+  // Kid pitch (`player`) is the common format, so it is the default for a new
+  // league. The machine-pitch model stays available via Settings.
+  expect(DEFAULT_SETTINGS.pitchMode).toBe("player");
 });
 
 it("player-pitch predictions are affected by walks and errors", () => {
@@ -718,4 +863,186 @@ it("allows run differential to be uncapped when configured", () => {
 
   expect(uncapped.find((team) => team.id === "A")?.runDiff).toBe(16);
   expect(uncapped.find((team) => team.id === "B")?.runDiff).toBe(-16);
+});
+
+it("defaults to scoring errors", () => {
+  expect(DEFAULT_SETTINGS.trackErrors).toBe(true);
+});
+
+describe("the opponent-adjusted rating in a forecast", () => {
+  /** A team with a real record, so neither predictor takes its thin-sample early return. */
+  const played = (id: string, over: Partial<Team> = {}): Team => ({
+    ...emptyTeam({ id, name: id }),
+    w: 5,
+    l: 5,
+    games: 10,
+    pct: 0.5,
+    rs: 80,
+    ra: 80,
+    rsg: 8,
+    rag: 8,
+    runDiff: 0,
+    ...over,
+  });
+  const fixture: Matchup = { id: "g1", date: "5/1", away: "A", home: "B" };
+  const modes: Settings["pitchMode"][] = ["player", "machine"];
+
+  it("attaches nothing to a team the fit never saw a game for", () => {
+    const fitted = attachAdjustedRatings([played("A"), played("B")], {
+      byTeam: new Map([["A", 2.5]]),
+      games: new Map([["A", 6]]),
+    });
+    expect(fitted[0]).toMatchObject({ adjustedRating: 2.5, ratedGames: 6 });
+    expect("adjustedRating" in fitted[1]!).toBe(false);
+  });
+
+  it("attaches nothing when the fit saw the team but rated no games", () => {
+    // A rating of 0 off zero games is "league average because we know nothing", not a measurement.
+    const fitted = attachAdjustedRatings([played("A")], {
+      byTeam: new Map([["A", 0]]),
+      games: new Map([["A", 0]]),
+    });
+    expect("adjustedRating" in fitted[0]!).toBe(false);
+  });
+
+  modes.forEach((pitchMode) => {
+    const settings: Settings = { ...DEFAULT_SETTINGS, pitchMode };
+
+    it(`leaves a ${pitchMode}-pitch forecast untouched when neither side has a rating`, () => {
+      // This is what keeps every league that has never built a rating on the numbers it has now.
+      const plain = [played("A"), played("B")];
+      const halfRated = attachAdjustedRatings(plain, {
+        byTeam: new Map([["A", 4]]),
+        games: new Map([["A", 10]]),
+      });
+      expect(predictGame(fixture, halfRated, settings)).toEqual(
+        predictGame(fixture, plain, settings)
+      );
+    });
+
+    it(`moves a ${pitchMode}-pitch forecast toward the better-rated side`, () => {
+      const rated = attachAdjustedRatings([played("A"), played("B")], {
+        byTeam: new Map([
+          ["A", 3],
+          ["B", -3],
+        ]),
+        games: new Map([
+          ["A", 12],
+          ["B", 12],
+        ]),
+      });
+      const before = predictGame(fixture, [played("A"), played("B")], settings);
+      const after = predictGame(fixture, rated, settings);
+      expect(after.awayWinPct).toBeGreaterThan(before.awayWinPct);
+      expect(after.awayScore - after.homeScore).toBeGreaterThan(
+        before.awayScore - before.homeScore
+      );
+      expect(after.winnerId).toBe("A");
+    });
+
+    it(`leans harder on a ${pitchMode}-pitch rating the more games are behind it`, () => {
+      const at = (rated: number) =>
+        predictGame(
+          fixture,
+          attachAdjustedRatings([played("A"), played("B")], {
+            byTeam: new Map([
+              ["A", 3],
+              ["B", -3],
+            ]),
+            games: new Map([
+              ["A", rated],
+              ["B", rated],
+            ]),
+          }),
+          settings
+        ).awayWinPct;
+      expect(at(20)).toBeGreaterThan(at(4));
+      expect(at(4)).toBeGreaterThan(at(1));
+    });
+
+    it(`keeps the expected total runs of a ${pitchMode}-pitch forecast`, () => {
+      // Only the gap between the two sides moves, so a blend cannot turn a 9-7 into a 2-0.
+      const plain = [played("A"), played("B")];
+      const rated = attachAdjustedRatings(plain, {
+        byTeam: new Map([
+          ["A", 5],
+          ["B", -5],
+        ]),
+        games: new Map([
+          ["A", 12],
+          ["B", 12],
+        ]),
+      });
+      const before = predictGame(fixture, plain, settings);
+      const after = predictGame(fixture, rated, settings);
+      const total = (p: { awayScore: number; homeScore: number }) => p.awayScore + p.homeScore;
+      expect(Math.abs(total(after) - total(before))).toBeLessThanOrEqual(1);
+      expect(after.awayScore).toBeGreaterThanOrEqual(1);
+      expect(after.homeScore).toBeGreaterThanOrEqual(1);
+    });
+  });
+});
+
+describe("the contact term across a simulated game", () => {
+  /*
+   * `baseTpi` is three things added together: run differential per game, twice winning
+   * percentage, and a bonus for a side that puts the ball in play more than the league does.
+   * `calculateTeams` builds all three from finalized games. `settleGame` then books a model
+   * result onto the scratch season and rebuilds `baseTpi` — deliberately, so that standings and
+   * run-differential tiebreakers move — and it used to rebuild only the first two terms.
+   *
+   * That is not the same as declining to dilute a rate with model games: the contact bonus is
+   * computed from finalized games and nothing else, and dropping it from the rebuild deletes it.
+   * `tpi` is what `predictGame` reads, so every later game of the same iteration was predicted
+   * from a rating that had silently lost up to 1.25 runs of team strength.
+   *
+   * The fixture makes the term as large as it can be. One six-inning game, so the league rate
+   * falls back to 4.5 K/6; the Aces strike out nobody and the Bears strike out nine times, so
+   * (4.5 - 0) * 0.35 and (4.5 - 9) * 0.35 both clamp, to +1.25 and -1.25.
+   */
+  const pair: TeamBase[] = [
+    { id: "A", name: "Aces" },
+    { id: "B", name: "Bears" },
+  ];
+  const onlyGame: Matchup = { id: "played", date: "5/1", away: "A", home: "B" };
+  const modelGame: Matchup = { id: "model", date: "5/8", away: "A", home: "B" };
+
+  const live = calculateTeams(pair, [onlyGame, modelGame], {
+    played: finalLog({ awayRuns: "6", homeRuns: "2", awayK: "0", homeK: "9" }),
+  });
+
+  const CONTACT = { A: 1.25, B: -1.25 };
+
+  it("reads the bonus the fixture was built to produce", () => {
+    expect(live.find((t) => t.id === "A")!.contactBonus).toBe(CONTACT.A);
+    expect(live.find((t) => t.id === "B")!.contactBonus).toBe(CONTACT.B);
+    // And it is in the rating: 4 run differential a game, plus twice a 1.000 record, plus 1.25.
+    expect(live.find((t) => t.id === "A")!.baseTpi).toBe(7.25);
+    expect(live.find((t) => t.id === "B")!.baseTpi).toBe(-5.25);
+  });
+
+  it("moves baseTpi by exactly what the booked result explains, and no further", () => {
+    const after = applyResult(live, modelGame, "A", live, settings);
+
+    (["A", "B"] as const).forEach((id) => {
+      const was = live.find((t) => t.id === id)!;
+      const now = after.find((t) => t.id === id)!;
+      const perGame = (team: Team) => (team.games ? team.runDiff / team.games : 0);
+      // The two terms a model game is allowed to move, measured from the booked totals.
+      const explained = perGame(now) - perGame(was) + (now.pct - was.pct) * 2;
+
+      expect(now.baseTpi - was.baseTpi).toBeCloseTo(explained, 10);
+    });
+  });
+
+  it("keeps the contact term in the rebuilt rating", () => {
+    const after = applyResult(live, modelGame, "A", live, settings);
+
+    (["A", "B"] as const).forEach((id) => {
+      const now = after.find((t) => t.id === id)!;
+      const rebuilt = now.runDiff / now.games + now.pct * 2 + CONTACT[id];
+
+      expect(now.baseTpi).toBeCloseTo(rebuilt, 10);
+    });
+  });
 });

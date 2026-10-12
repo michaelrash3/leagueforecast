@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { simulateGoldOdds } from "../lib/sim";
+import { useCallback, useMemo, useState } from "react";
+import {
+  simulateBracketOdds,
+  simulateGoldOdds,
+  simulateGoldOddsRun,
+  type BracketOddsResult,
+} from "../lib/sim";
 import type { Matchup, Settings, Team } from "../lib/types";
-import type { WorkerRequest, WorkerResponse } from "../workers/sim.worker";
+import type { WorkerResponse } from "../workers/sim.worker";
+import { useWorkerJob } from "./useWorkerJob";
 
 type OddsInput = {
   teams: Team[];
@@ -20,41 +26,57 @@ type TrendInput = {
   settings: Settings;
 };
 
-type WorkerHandle = {
-  worker: Worker | null;
-  nextId: number;
+type BracketInput = {
+  teams: Team[];
+  remaining: Matchup[];
+  iterations: number;
+  seedText: string;
+  cutoff: number;
+  settings: Settings;
+  /** When false, the sim is skipped entirely (e.g. the bracket view isn't visible). */
+  enabled: boolean;
 };
 
-const createWorker = (): Worker | null => {
-  if (typeof Worker === "undefined") return null;
-  try {
-    return new Worker(new URL("../workers/sim.worker.ts", import.meta.url), {
-      type: "module",
-    });
-  } catch (err) {
-    console.warn("Sim worker unavailable, falling back to inline.", err);
-    return null;
-  }
+/**
+ * The three hooks below all have an input that is simply not simulatable — no teams yet, no cut
+ * line, the panel switched off. That used to be handled by writing an empty result into state from
+ * inside the effect, which meant a render showing the previous result before the empty one landed.
+ * The empty answer is a fact about the input, not something to store, so it is derived on the way
+ * out instead. These constants keep that derived value referentially stable, so a consumer that
+ * memoises on it does not re-run every render.
+ */
+const EMPTY_ODDS: Record<string, number> = {};
+
+const EMPTY_BRACKET: BracketOddsResult = {
+  seedDistribution: {},
+  championOdds: {},
+  finalsOdds: {},
+  iterations: 0,
 };
+
+/**
+ * The opponent-adjusted rating each team carries into the simulation, as values.
+ *
+ * The keys below were made of counts, the seed and the settings, and the seed is built from the
+ * league's final scores. A rating moves without any of those moving: a league team linked to its
+ * club in Settings, a pull or a tidy in Team Rankings. The odds on screen then stayed the ones
+ * simulated from the old ratings while the game picks beside them used the new ones — measured on
+ * a rebuilt league, 9.8 points of Gold % after a preseason first pull. Values rather than the
+ * teams' identity, because the teams are rebuilt on every keystroke in a game still in progress,
+ * and a four-thousand-season run on each of those is the cost the seed was chosen to avoid.
+ */
+const ratingsKey = (teams: readonly Team[]) =>
+  teams.map((team) => [team.id, team.adjustedRating ?? null, team.ratedGames ?? 0]);
+
+/** The odds, and the number of seasons they were counted over. */
+type OddsResult = { odds: Record<string, number>; iterations: number };
 
 export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
-  const [odds, setOdds] = useState<Record<string, number>>({});
-  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<OddsResult>({ odds: EMPTY_ODDS, iterations: 0 });
   const [resultKey, setResultKey] = useState<string | null>(null);
-  const [workerError, setWorkerError] = useState<string | null>(null);
-  const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
-  const latestIdRef = useRef(0);
 
-  useEffect(() => {
-    const handle = handleRef.current;
-    if (!handle.worker) handle.worker = createWorker();
-    return () => {
-      handle.worker?.terminate();
-      handle.worker = null;
-    };
-  }, []);
-
-  // Stable hash of inputs so we don't re-run on identity changes.
+  // Stable hash of inputs so we don't re-run on identity changes. The seed text carries every
+  // final score (see `simulationSeed`), so correcting a score already marked final changes it.
   const key = useMemo(
     () =>
       JSON.stringify([
@@ -64,9 +86,10 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
         input.seedText,
         input.cutoff,
         input.settings,
+        ratingsKey(input.teams),
       ]),
     [
-      input.teams.length,
+      input.teams,
       input.remaining.length,
       input.iterations,
       input.seedText,
@@ -75,127 +98,72 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
     ]
   );
 
-  useEffect(() => {
-    if (!input.teams.length) {
-      setOdds({});
-      setResultKey(key);
-      setPending(false);
-      return;
-    }
-    const handle = handleRef.current;
-    const id = handle.nextId + 1;
-    handle.nextId = id;
-    latestIdRef.current = id;
-    setPending(true);
-    let removeWorkerListeners: (() => void) | null = null;
+  // Nothing to simulate; see EMPTY_ODDS above.
+  const idle = input.teams.length === 0;
 
-    const timer = window.setTimeout(() => {
-      if (latestIdRef.current !== id) return;
+  const onResult = useCallback((next: OddsResult, forKey: string) => {
+    setResult(next);
+    setResultKey(forKey);
+  }, []);
 
-      const runInline = () => {
-        const start = performance.now();
-        const result = simulateGoldOdds(
-          input.teams,
-          input.remaining,
-          input.iterations,
-          input.seedText,
-          input.cutoff,
-          input.settings
-        );
-        if (latestIdRef.current === id) {
-          setOdds(result);
-          setResultKey(key);
-          setPending(false);
-          console.debug(`[sim-inline] odds ${(performance.now() - start).toFixed(1)}ms`);
-        }
-      };
+  const workerError = useWorkerJob<OddsResult>({
+    idle,
+    key,
+    debounceMs,
+    label: "odds",
+    request: (id) => ({
+      kind: "odds",
+      id,
+      teams: input.teams,
+      remaining: input.remaining,
+      iterations: input.iterations,
+      seedText: input.seedText,
+      cutoff: input.cutoff,
+      settings: input.settings,
+    }),
+    accept: (data: WorkerResponse, id) =>
+      data.kind === "odds" && data.id === id
+        ? { odds: data.odds, iterations: data.iterations }
+        : null,
+    inline: () => {
+      const run = simulateGoldOddsRun(
+        input.teams,
+        input.remaining,
+        input.iterations,
+        input.seedText,
+        input.cutoff,
+        input.settings
+      );
+      return { odds: run.odds, iterations: run.iterations };
+    },
+    onResult,
+  });
 
-      if (handle.worker) {
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-          if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            console.debug(`[sim-worker] odds ${event.data.elapsedMs.toFixed(1)}ms`);
-            return;
-          }
-          if (event.data.kind !== "odds" || event.data.id !== id) return;
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          if (latestIdRef.current === id) {
-            setWorkerError(null);
-            setOdds(event.data.odds);
-            setResultKey(key);
-            setPending(false);
-          }
-        };
-        const onError = (event: Event) => {
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          setWorkerError(event.type);
-          runInline();
-        };
-        handle.worker.addEventListener("message", onMessage);
-        handle.worker.addEventListener("error", onError);
-        handle.worker.addEventListener("messageerror", onError);
-        removeWorkerListeners = () => {
-          handle.worker?.removeEventListener("message", onMessage);
-          handle.worker?.removeEventListener("error", onError);
-          handle.worker?.removeEventListener("messageerror", onError);
-        };
-        const req: WorkerRequest = {
-          kind: "odds",
-          id,
-          teams: input.teams,
-          remaining: input.remaining,
-          iterations: input.iterations,
-          seedText: input.seedText,
-          cutoff: input.cutoff,
-          settings: input.settings,
-        };
-        try {
-          handle.worker.postMessage(req);
-        } catch (err) {
-          setWorkerError(err instanceof Error ? err.message : "postMessage failed");
-          runInline();
-        }
-      } else {
-        runInline();
-      }
-    }, debounceMs);
-
-    return () => {
-      window.clearTimeout(timer);
-      removeWorkerListeners?.();
-      removeWorkerListeners = null;
-      try {
-        handle.worker?.postMessage({ kind: "cancel", id });
-      } catch {
-        // Worker may already be terminating; stale responses are ignored by id.
-      }
-    };
-  }, [key, debounceMs, input.teams, input.remaining, input.iterations, input.seedText, input.cutoff, input.settings]);
-
-  return { odds, pending, inputKey: key, resultKey, workerError };
+  // `resultKey` matching `inputKey` is how callers know the odds describe the current input, so an
+  // idle pool reports the current key: an empty answer for no teams is up to date, not stale.
+  // `pending` is not a separate fact to track: work is outstanding exactly when the stored result
+  // does not describe the current input. Deriving it removes a whole state whose only job was to
+  // be flipped on either side of the same await, and it is true from the first render rather than
+  // one render late.
+  return {
+    odds: idle ? EMPTY_ODDS : result.odds,
+    iterations: idle ? 0 : result.iterations,
+    pending: !idle && resultKey !== key,
+    inputKey: key,
+    resultKey: idle ? key : resultKey,
+    workerError,
+  };
 }
 
 export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
   const [trend, setTrend] = useState<Record<string, number[]>>({});
-  const [workerError, setWorkerError] = useState<string | null>(null);
-  const handleRef = useRef<WorkerHandle>({ worker: null, nextId: 0 });
-  const latestIdRef = useRef(0);
-
-  useEffect(() => {
-    const handle = handleRef.current;
-    if (!handle.worker) handle.worker = createWorker();
-    return () => {
-      handle.worker?.terminate();
-      handle.worker = null;
-    };
-  }, []);
 
   const key = useMemo(
     () =>
       JSON.stringify([
         input.teamIds,
-        input.states.map((s) => s.seedText),
+        // Each point's ratings too, for the reason `ratingsKey` gives: a pull moves them and no seed.
+        input.states.map((s) => [s.seedText, ratingsKey(s.teams)]),
         input.iterations,
         input.cutoff,
         input.settings,
@@ -203,108 +171,128 @@ export function useSimulationTrend(input: TrendInput, debounceMs = 250) {
     [input.teamIds, input.states, input.iterations, input.cutoff, input.settings]
   );
 
-  useEffect(() => {
-    if (!input.teamIds.length || !input.states.length) {
-      const empty: Record<string, number[]> = {};
-      input.teamIds.forEach((id) => {
-        empty[id] = [];
+  const idle = input.teamIds.length === 0 || input.states.length === 0;
+
+  // One empty series per team, so a chart still has its rows to draw.
+  const idleTrend = useMemo(() => {
+    const empty: Record<string, number[]> = {};
+    input.teamIds.forEach((id) => {
+      empty[id] = [];
+    });
+    return empty;
+  }, [input.teamIds]);
+
+  const onResult = useCallback((next: Record<string, number[]>) => setTrend(next), []);
+
+  useWorkerJob<Record<string, number[]>>({
+    idle,
+    key,
+    debounceMs,
+    label: "trend",
+    request: (id) => ({
+      kind: "trend",
+      id,
+      teamIds: input.teamIds,
+      states: input.states,
+      iterations: input.iterations,
+      cutoff: input.cutoff,
+      settings: input.settings,
+    }),
+    accept: (data: WorkerResponse, id) =>
+      data.kind === "trend" && data.id === id ? data.trend : null,
+    inline: () => {
+      const series: Record<string, number[]> = {};
+      input.teamIds.forEach((tid) => {
+        series[tid] = [];
       });
-      setTrend(empty);
-      return;
-    }
-    const handle = handleRef.current;
-    const id = handle.nextId + 1;
-    handle.nextId = id;
-    latestIdRef.current = id;
-    let removeWorkerListeners: (() => void) | null = null;
-
-    const timer = window.setTimeout(() => {
-      if (latestIdRef.current !== id) return;
-
-      const runInline = () => {
-        const start = performance.now();
-        const result: Record<string, number[]> = {};
+      input.states.forEach((state) => {
+        const odds = simulateGoldOdds(
+          state.teams,
+          state.remaining,
+          input.iterations,
+          state.seedText,
+          input.cutoff,
+          input.settings
+        );
         input.teamIds.forEach((tid) => {
-          result[tid] = [];
+          const row = series[tid];
+          if (row) row.push(odds[tid] ?? 0);
         });
-        input.states.forEach((state) => {
-          const odds = simulateGoldOdds(
-            state.teams,
-            state.remaining,
-            input.iterations,
-            state.seedText,
-            input.cutoff,
-            input.settings
-          );
-          input.teamIds.forEach((tid) => {
-            const series = result[tid];
-            if (series) series.push(odds[tid] ?? 0);
-          });
-        });
-        if (latestIdRef.current === id) setTrend(result);
-        console.debug(`[sim-inline] trend ${(performance.now() - start).toFixed(1)}ms`);
-      };
+      });
+      return series;
+    },
+    onResult,
+  });
 
-      if (handle.worker) {
-        const onMessage = (event: MessageEvent<WorkerResponse>) => {
-          if (event.data.kind === "runtime-stats" && event.data.id === id) {
-            console.debug(`[sim-worker] trend ${event.data.elapsedMs.toFixed(1)}ms`);
-            return;
-          }
-          if (event.data.kind !== "trend" || event.data.id !== id) return;
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          if (latestIdRef.current === id) {
-            setWorkerError(null);
-            setTrend(event.data.trend);
-          }
-        };
-        const onError = (event: Event) => {
-          removeWorkerListeners?.();
-          removeWorkerListeners = null;
-          setWorkerError(event.type);
-          runInline();
-        };
-        handle.worker.addEventListener("message", onMessage);
-        handle.worker.addEventListener("error", onError);
-        handle.worker.addEventListener("messageerror", onError);
-        removeWorkerListeners = () => {
-          handle.worker?.removeEventListener("message", onMessage);
-          handle.worker?.removeEventListener("error", onError);
-          handle.worker?.removeEventListener("messageerror", onError);
-        };
-        const req: WorkerRequest = {
-          kind: "trend",
-          id,
-          teamIds: input.teamIds,
-          states: input.states,
-          iterations: input.iterations,
-          cutoff: input.cutoff,
-          settings: input.settings,
-        };
-        try {
-          handle.worker.postMessage(req);
-        } catch (err) {
-          setWorkerError(err instanceof Error ? err.message : "postMessage failed");
-          runInline();
-        }
-      } else {
-        runInline();
-      }
-    }, debounceMs);
+  return idle ? idleTrend : trend;
+}
 
-    return () => {
-      window.clearTimeout(timer);
-      removeWorkerListeners?.();
-      removeWorkerListeners = null;
-      try {
-        handle.worker?.postMessage({ kind: "cancel", id });
-      } catch {
-        // Worker may already be terminating; stale responses are ignored by id.
-      }
-    };
-  }, [key, debounceMs, input.teamIds, input.states, input.iterations, input.cutoff, input.settings]);
+export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
+  const [result, setResult] = useState<BracketOddsResult>(EMPTY_BRACKET);
+  /** Which input the stored bracket describes, so `pending` can be derived rather than tracked. */
+  const [resultKey, setResultKey] = useState<string | null>(null);
 
-  void workerError;
-  return trend;
+  const key = useMemo(
+    () =>
+      JSON.stringify([
+        input.enabled,
+        input.teams.length,
+        input.remaining.length,
+        input.iterations,
+        input.seedText,
+        input.cutoff,
+        input.settings,
+        ratingsKey(input.teams),
+      ]),
+    [
+      input.enabled,
+      input.teams,
+      input.remaining.length,
+      input.iterations,
+      input.seedText,
+      input.cutoff,
+      input.settings,
+    ]
+  );
+
+  const idle = !input.enabled || input.teams.length === 0;
+
+  const onResult = useCallback((next: BracketOddsResult, forKey: string) => {
+    setResult(next);
+    setResultKey(forKey);
+  }, []);
+
+  useWorkerJob<BracketOddsResult>({
+    idle,
+    key,
+    debounceMs,
+    label: "bracket",
+    request: (id) => ({
+      kind: "bracket",
+      id,
+      teams: input.teams,
+      remaining: input.remaining,
+      iterations: input.iterations,
+      seedText: input.seedText,
+      cutoff: input.cutoff,
+      settings: input.settings,
+    }),
+    accept: (data: WorkerResponse, id) =>
+      data.kind === "bracket" && data.id === id ? data.result : null,
+    inline: () =>
+      simulateBracketOdds(
+        input.teams,
+        input.remaining,
+        input.iterations,
+        input.seedText,
+        input.cutoff,
+        input.settings
+      ),
+    onResult,
+  });
+
+  return {
+    bracketOdds: idle ? EMPTY_BRACKET : result,
+    pending: !idle && resultKey !== key,
+  };
 }

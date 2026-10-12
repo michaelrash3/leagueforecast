@@ -1,0 +1,352 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetPullSession } from "../lib/pullSession";
+import type { GcTeamResponse } from "../lib/gameChangerApi";
+import type { GcImportState } from "../lib/gameChangerImport";
+import { markRefreshed, type RefreshLog } from "../lib/gameChangerSchedule";
+import { AGE_LEVELS } from "../lib/teamRankings";
+
+/*
+ * Two clubs playing this fall, and one from last summer: the squad a crawl across the calendar year
+ * hands over beside this fall's, with a new GameChanger id and nothing else to say it is finished.
+ * On 24 September 2026 the season being played is the 2027 one, Fall 2026 through Summer 2027.
+ */
+const FALL_ONE = "FallTeam0001";
+const FALL_TWO = "FallTeam0002";
+const SUMMER = "SummerTeam01";
+const lastSummer = (teamId: string) => teamId === SUMMER;
+
+vi.mock("../lib/gameChangerClient", async () => {
+  const actual = await vi.importActual<typeof import("../lib/gameChangerClient")>(
+    "../lib/gameChangerClient"
+  );
+  return {
+    ...actual,
+    fetchGcTeams: vi.fn(
+      async (
+        ids: string[],
+        options?: {
+          onProgress?: (p: {
+            done: number;
+            total: number;
+            teamId: string;
+            result: GcTeamResponse;
+          }) => void;
+        }
+      ) => {
+        const out = new Map<string, GcTeamResponse>();
+        ids.forEach((teamId, index) => {
+          const summer = lastSummer(teamId);
+          const result: GcTeamResponse = {
+            ok: true,
+            schedule: {
+              profile: {
+                id: teamId,
+                name: summer ? "Summer Club 12U" : `Fall Club ${teamId.slice(-1)} 12U`,
+                ageLevel: 12,
+                season: summer ? { season: "summer", year: 2026 } : { season: "fall", year: 2026 },
+              },
+              games: [
+                {
+                  id: `g-${teamId}`,
+                  date: summer ? "2026-06-20" : "2026-09-12",
+                  opponentName: "Somebody 12U",
+                  teamScore: 5,
+                  opponentScore: 3,
+                  status: "completed",
+                },
+              ],
+              fetchedAt: "2026-09-24T12:00:00.000Z",
+            },
+          };
+          out.set(teamId, result);
+          options?.onProgress?.({ done: index + 1, total: ids.length, teamId, result });
+        });
+        return out;
+      }
+    ),
+  };
+});
+
+const { fetchGcTeams } = await import("../lib/gameChangerClient");
+const { GameChangerImportPanel } = await import("./GameChangerImportPanel");
+
+const emptyPool: GcImportState = { ageGroups: [], teams: [], games: [] };
+
+const panel = (
+  onPersist: (pool: GcImportState) => boolean = () => true,
+  { pool = emptyPool, refreshLog = {} }: { pool?: GcImportState; refreshLog?: RefreshLog } = {}
+) =>
+  render(
+    <GameChangerImportPanel
+      pool={pool}
+      onPersist={onPersist}
+      savedProgress={null}
+      droppedClubs={new Set()}
+      onInvented={() => {}}
+      namedAges={new Map()}
+      onSaveProgress={() => {}}
+      onClearProgress={() => {}}
+      onClose={() => {}}
+      showToast={() => {}}
+      refreshLog={refreshLog}
+      onRefreshLog={() => {}}
+    />
+  );
+
+const teamFile = (rows: string[]) =>
+  new File([["Team Name,Team ID,Age Group,Season", ...rows].join("\n")], "GC_Teams.csv", {
+    type: "text/csv",
+  });
+
+describe("a pull keeps to the season being played", () => {
+  beforeEach(() => {
+    resetPullSession();
+    localStorage.clear();
+    vi.mocked(fetchGcTeams).mockClear();
+    // Only the date is faked: the pull's own timers and the user events run as they always do.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-24T12:00:00"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("leaves last season's rows out of a list that says its seasons, before a request", async () => {
+    const user = userEvent.setup();
+    panel();
+    await user.upload(
+      screen.getByLabelText("Team list CSV"),
+      teamFile([
+        `Fall Club 1 12U,${FALL_ONE},12U,Fall 2026`,
+        `Fall Club 2 12U,${FALL_TWO},12U,Fall 2026`,
+        `Summer Club 12U,${SUMMER},12U,Summer 2026`,
+      ])
+    );
+
+    const thisSeason = await screen.findByRole("checkbox", {
+      name: "2027: Fall 2026 to Summer 2027, this season (2 teams)",
+    });
+    expect(thisSeason).toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "2026: Fall 2025 to Summer 2026 (1 team)" })
+    ).not.toBeChecked();
+    expect(screen.getByText("1 from other seasons, skipped")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Pull 2 schedules" }));
+    await waitFor(() => expect(fetchGcTeams).toHaveBeenCalled());
+    expect(vi.mocked(fetchGcTeams).mock.calls[0]?.[0]).toEqual([FALL_ONE, FALL_TWO]);
+  });
+
+  it("keeps a winter row labelled with the year its winter ends, counted in this season", async () => {
+    // "Winter 2027" names the winter from November 2026 as often as the one after: kept here, and
+    // filed by its games' dates when it arrives (`squadYearOfGcTeam`).
+    const user = userEvent.setup();
+    panel();
+    await user.upload(
+      screen.getByLabelText("Team list CSV"),
+      teamFile([
+        `Fall Club 1 12U,${FALL_ONE},12U,Fall 2026`,
+        "Winter Club 12U,WinterTeam01,12U,Winter 2027",
+      ])
+    );
+
+    expect(
+      await screen.findByRole("checkbox", {
+        name: "2027: Fall 2026 to Summer 2027, this season (2 teams)",
+      })
+    ).toBeChecked();
+    expect(screen.queryByText(/from other seasons, skipped/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pull 2 schedules" })).toBeEnabled();
+    // Its other reading, the winter a year on, can be ticked too, and takes the row with it.
+    const nextWinter = screen.getByRole("checkbox", { name: "2028: Fall 2027 to Summer 2028" });
+    expect(nextWinter).not.toBeChecked();
+    await user.click(nextWinter);
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "2027: Fall 2026 to Summer 2027, this season (2 teams)",
+      })
+    );
+    expect(
+      screen.getByRole("checkbox", { name: "2028: Fall 2027 to Summer 2028 (1 team)" })
+    ).toBeChecked();
+    expect(screen.getByRole("button", { name: "Pull 1 schedule" })).toBeEnabled();
+  });
+
+  it("pulls last season too once it is ticked", async () => {
+    const user = userEvent.setup();
+    panel();
+    await user.upload(
+      screen.getByLabelText("Team list CSV"),
+      teamFile([
+        `Fall Club 1 12U,${FALL_ONE},12U,Fall 2026`,
+        `Summer Club 12U,${SUMMER},12U,Summer 2026`,
+      ])
+    );
+
+    await user.click(
+      await screen.findByRole("checkbox", { name: "2026: Fall 2025 to Summer 2026 (1 team)" })
+    );
+    expect(screen.queryByText(/from other seasons, skipped/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pull 2 schedules" })).toBeEnabled();
+  });
+
+  it("will not pull with no season ticked", async () => {
+    const user = userEvent.setup();
+    panel();
+    await user.type(screen.getByLabelText("Teams"), FALL_ONE);
+    await user.click(
+      screen.getByRole("checkbox", { name: "2027: Fall 2026 to Summer 2027, this season" })
+    );
+    expect(screen.getByTestId("gc-season-note")).toHaveTextContent("Tick a season to pull.");
+    expect(screen.getByRole("button", { name: /^Pull/ })).toBeDisabled();
+  });
+
+  it("files only this season's teams from a list that does not say, by GameChanger's own season", async () => {
+    const persisted: GcImportState[] = [];
+    const user = userEvent.setup();
+    panel((pool) => {
+      persisted.push(pool);
+      return true;
+    });
+    await user.type(screen.getByLabelText("Teams"), `${FALL_ONE}\n${SUMMER}`);
+    expect(screen.getByTestId("gc-season-note")).toHaveTextContent(
+      "2 teams do not say their season, so each is checked when it arrives and filed only if it is from a ticked season."
+    );
+
+    await user.click(screen.getByRole("button", { name: "Pull 2 schedules" }));
+    await screen.findByText("1 team from a season this pull was not asked for left out.");
+    const names = (persisted[persisted.length - 1]?.teams ?? []).map((team) => team.name);
+    expect(names.some((name) => name.startsWith("Fall Club"))).toBe(true);
+    expect(names.some((name) => name.startsWith("Summer Club"))).toBe(false);
+  });
+});
+
+/*
+ * And a team a pull turned away is remembered, so pasting the same list again does not ask
+ * GameChanger about it again: a list with no Season column cannot say, and every paste of one
+ * re-fetched every other-season team it had already been told about.
+ */
+describe("a team turned away as another season's", () => {
+  beforeEach(() => {
+    resetPullSession();
+    localStorage.clear();
+    vi.mocked(fetchGcTeams).mockClear();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-24T12:00:00"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("is left out when the list is pasted again, until it is asked about again", async () => {
+    const persisted: GcImportState[] = [];
+    const user = userEvent.setup();
+    const first = panel((pool) => {
+      persisted.push(pool);
+      return true;
+    });
+    await user.type(screen.getByLabelText("Teams"), `${FALL_TWO}\n${SUMMER}`);
+    await user.click(screen.getByRole("button", { name: "Pull 2 schedules" }));
+    await screen.findByText("1 team from a season this pull was not asked for left out.");
+    first.unmount();
+
+    // The same two ids, a day later, into the pool the first pull left.
+    vi.mocked(fetchGcTeams).mockClear();
+    panel(() => true, { pool: persisted[persisted.length - 1]! });
+    await user.type(screen.getByLabelText("Teams"), `${FALL_ONE}\n${FALL_TWO}\n${SUMMER}`);
+    expect(screen.getByText(/1 turned away before, skipped/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Pull 1 schedule" }));
+    await waitFor(() => expect(fetchGcTeams).toHaveBeenCalled());
+    expect(vi.mocked(fetchGcTeams).mock.calls[0]?.[0]).toEqual([FALL_ONE]);
+  });
+
+  it("is asked about again once last season is ticked, or at a click", async () => {
+    const user = userEvent.setup();
+    const first = panel();
+    await user.type(screen.getByLabelText("Teams"), SUMMER);
+    await user.click(screen.getByRole("button", { name: "Pull 1 schedule" }));
+    await screen.findByText("1 team from a season this pull was not asked for left out.");
+    first.unmount();
+
+    panel();
+    await user.type(screen.getByLabelText("Teams"), `${FALL_ONE}\n${SUMMER}`);
+    expect(screen.getByText(/1 turned away before, skipped/)).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "2026: Fall 2025 to Summer 2026" }));
+    expect(screen.queryByText(/turned away before/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "2026: Fall 2025 to Summer 2026" }));
+    await user.click(screen.getByRole("button", { name: "Ask again" }));
+    expect(screen.queryByText(/turned away before/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pull 2 schedules" })).toBeEnabled();
+  });
+});
+
+/*
+ * The rota keeps to the season being played too. A finished season's pages cannot change, so
+ * walking them every day spent a pool's worth of requests on nothing.
+ */
+describe("the refresh keeps to the season being played", () => {
+  beforeEach(() => {
+    resetPullSession();
+    localStorage.clear();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-24T12:00:00"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const twoSeasons: GcImportState = {
+    ageGroups: [
+      { id: "ag12now", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] },
+      { id: "ag12old", name: "12U 2026", ageLevel: 12, year: 2026, seasonIds: [] },
+    ],
+    teams: [
+      {
+        id: "now",
+        name: "This Fall 12U",
+        gcTeams: [{ teamId: "NowTeam0001", name: "This Fall 12U", ageGroupId: "ag12now" }],
+      },
+      {
+        id: "old",
+        name: "Last Summer 12U",
+        gcTeams: [{ teamId: "OldTeam0001", name: "Last Summer 12U", ageGroupId: "ag12old" }],
+      },
+    ],
+    games: [],
+  };
+
+  it("offers this season's teams and not last season's", () => {
+    panel(undefined, { pool: twoSeasons });
+    expect(screen.getByRole("button", { name: "Refresh all 1 teams" })).toBeInTheDocument();
+  });
+
+  it("leaves a team pulled an hour ago with no game near today for a later run", () => {
+    const justPulled: GcImportState = {
+      ...twoSeasons,
+      teams: [
+        ...twoSeasons.teams,
+        {
+          id: "fresh",
+          name: "Pulled Just Now 12U",
+          gcTeams: [
+            {
+              teamId: "FreshTeam001",
+              name: "Pulled Just Now 12U",
+              ageGroupId: "ag12now",
+              importedAt: "2026-09-24T11:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    };
+    panel(undefined, { pool: justPulled });
+    expect(screen.getByRole("button", { name: "Refresh all 1 teams" })).toBeInTheDocument();
+    expect(screen.getByTestId("gc-held-back")).toHaveTextContent(
+      "1 team pulled in the last 16 hours with no game yesterday, today or tomorrow waits for a later run."
+    );
+  });
+
+  it("does the same when today is done and it is asked to run again", () => {
+    panel(undefined, {
+      pool: twoSeasons,
+      refreshLog: markRefreshed({}, AGE_LEVELS, new Date("2026-09-24T12:00:00")),
+    });
+    expect(screen.getByRole("button", { name: "Refresh all 1 teams again" })).toBeInTheDocument();
+  });
+});

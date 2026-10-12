@@ -1,0 +1,89 @@
+# The nightly refresh (README, "The nightly refresh on GitHub"): the Refresh button pressed on the
+# cloud copy by one of GitHub's servers (`scripts/nightly.ts`), so every device opens on teams
+# pulled overnight. It can also be run by hand, as a dry run or live, with a limit for a trial. It
+# prints counts, sizes and timings only: this repository is public, and so are its Actions logs.
+#
+# A night that fails opens an issue on this repository, or comments on the one already open, and
+# the next live night that succeeds closes it; the rebuilds after saves get one of their own while
+# their ledger shows failures in a row or a pause (`scripts/alarm.ts`, README "When a run fails").
+name: Nightly refresh
+
+on:
+  # 04:17 UTC: 12:17 in the morning Eastern in summer, 11:17 at night in winter. Off the hour, since
+  # GitHub starts a run late when every repository's is due at once. Even so it has been starting
+  # this one about seven hours late (set for 07:17 UTC, it began between 14:09 and 14:33 UTC on 6 to
+  # 9 October 2026), so it is set three hours earlier than the 3:17 it used to be. The run works out
+  # its day in Eastern time (TZ below), so a winter run before midnight counts as the day it starts.
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run does everything but save; live saves to the cloud copy"
+        type: choice
+        options: [dry-run, live]
+        default: dry-run
+      limit:
+        description: "Only the first this many teams due (blank for every one)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  # The alarms' issues, opened, commented on and closed with the run's own token.
+  issues: write
+
+# One at a time: two runs saving the same copy would only make each other file again.
+concurrency:
+  group: nightly-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # A run on the clock is live; one by hand is what was chosen.
+      MODE: ${{ github.event_name == 'schedule' && 'live' || inputs.mode }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install: everything it runs is the app's own files, run by Node as they are
+      # (`scripts/tsRegister.mjs`).
+      - name: Refresh the cloud copy
+        id: refresh
+        # Short of the job's 90, so a run that hangs ends here as a failure and the alarm after it
+        # still has its minutes.
+        timeout-minutes: 85
+        run: |
+          args=()
+          if [ "$MODE" = "live" ]; then args+=(--live); fi
+          if [ -n "$LIMIT" ]; then args+=(--limit "$LIMIT"); fi
+          npm run nightly -- "${args[@]}"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # The user's day, which is what the rota and the day log are kept in.
+          TZ: America/New_York
+          # The collation the members' browsers sort tied board rows by, pinned rather than left to
+          # the runner's image: Node takes it from LANG (unset, C and C.UTF-8 give English, an
+          # empty LANG the root one), and the publish refuses under any other (`publishCopy.ts`).
+          LANG: en_US.UTF-8
+          # The whole pool is held at once; measured at about 4.3 GB on the pool of 29 September
+          # 2026, on a runner with 16 GB.
+          NODE_OPTIONS: --max-old-space-size=12288
+          LIMIT: ${{ inputs.limit }}
+      # However the refresh ended: what is raised or settled, and every word of it, is the script's
+      # (`runAlarms.ts`), from the step's outcome and the rebuilds' word the refresh handed over.
+      # Allowed to fail on its own (gh refused, say) without failing the run: a night that saved
+      # stays green, and GitHub does not email that it failed, for want of an issue; a night whose
+      # refresh failed is red from that step already.
+      - name: Raise or settle the alarms
+        if: always()
+        continue-on-error: true
+        run: npm run alarm -- nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.refresh.outcome }}
+          REBUILDS: ${{ steps.refresh.outputs.rebuilds }}

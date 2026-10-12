@@ -27,18 +27,18 @@ export function ShortcutsHelp({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 p-3"
+      className="fixed inset-0 z-70 flex items-center justify-center bg-slate-950/40 p-3"
       role="presentation"
       onClick={onClose}
     >
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <div
         ref={containerRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="w-full max-w-md overflow-hidden rounded-none bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
+        className="w-full max-w-md overflow-hidden rounded-lg bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
@@ -49,7 +49,7 @@ export function ShortcutsHelp({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-2 py-1 text-xs font-black uppercase tracking-wide text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+            className="rounded-lg px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
           >
             Close
           </button>
@@ -57,7 +57,7 @@ export function ShortcutsHelp({
         <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
           {Object.entries(grouped).map(([group, entries]) => (
             <section key={group} className="mb-4">
-              <h3 className="mb-2 text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 {group}
               </h3>
               <ul className="space-y-1.5">
@@ -67,7 +67,7 @@ export function ShortcutsHelp({
                     className="flex items-center justify-between gap-3 text-sm font-bold text-slate-700 dark:text-slate-200"
                   >
                     <span>{entry.description}</span>
-                    <kbd className="rounded border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                    <kbd className="rounded-sm border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                       {entry.combo}
                     </kbd>
                   </li>

@@ -51,8 +51,7 @@ export function LineChart({
   const innerH = height - padding.top - padding.bottom;
 
   const maxLen = Math.max(1, ...series.map((s) => s.values.length));
-  const xFor = (i: number) =>
-    padding.left + (i / Math.max(maxLen - 1, 1)) * innerW;
+  const xFor = (i: number) => padding.left + (i / Math.max(maxLen - 1, 1)) * innerW;
   const yFor = (v: number) => {
     const clamped = Math.max(yMin, Math.min(yMax, v));
     const ratio = (clamped - yMin) / Math.max(yMax - yMin, 1);
@@ -143,7 +142,7 @@ export function LineChart({
                 x={padding.left + innerW - 4}
                 y={yFor(cutLine.value) - 4}
                 textAnchor="end"
-                className="fill-red-500 text-[10px] font-black uppercase tracking-wide"
+                className="fill-red-500 text-[10px] font-semibold uppercase tracking-wide"
               >
                 {cutLine.label}
               </text>
@@ -153,9 +152,7 @@ export function LineChart({
         {/* Series */}
         {series.map((s) => {
           const tone = s.tone ?? "blue";
-          const points = s.values
-            .map((value, i) => `${xFor(i)},${yFor(value)}`)
-            .join(" ");
+          const points = s.values.map((value, i) => `${xFor(i)},${yFor(value)}`).join(" ");
           const last = s.values[s.values.length - 1] ?? yMin;
           return (
             <g key={s.id}>
@@ -214,7 +211,7 @@ export function LineChart({
                 <text
                   x={8}
                   y={14}
-                  className="fill-slate-500 dark:fill-slate-400 text-[10px] font-black uppercase tracking-wide"
+                  className="fill-slate-500 dark:fill-slate-400 text-[10px] font-semibold uppercase tracking-wide"
                 >
                   {xLabels[hover.index]}
                 </text>
@@ -246,7 +243,7 @@ export function LineChart({
               <span key={`lg-${s.id}`} className="inline-flex items-center gap-2">
                 <span
                   aria-hidden
-                  className={`inline-block h-2 w-3 rounded ${TONE_FILL[tone].replace("fill", "bg")}`}
+                  className={`inline-block h-2 w-3 rounded-sm ${TONE_FILL[tone].replace("fill", "bg")}`}
                 />
                 {s.label}
               </span>

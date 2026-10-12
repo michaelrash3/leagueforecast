@@ -4,8 +4,12 @@ dist-ssr
 *.local
 .vite
 *.tsbuildinfo
-.env*.local
+.env
+.env.*
+!.env.example
 coverage
+test-results
+playwright-report
 .cache
 
 # Logs

@@ -11,11 +11,7 @@ describe("parseCSVLine", () => {
   });
 
   it("strips formula-injection prefix on import", () => {
-    expect(parseCSVLine("'=SUM(A1),'+payload,'@cmd")).toEqual([
-      "=SUM(A1)",
-      "+payload",
-      "@cmd",
-    ]);
+    expect(parseCSVLine("'=SUM(A1),'+payload,'@cmd")).toEqual(["=SUM(A1)", "+payload", "@cmd"]);
   });
 });
 

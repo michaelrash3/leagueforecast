@@ -16,7 +16,7 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
               Model Health
             </h3>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs font-black text-slate-600 dark:text-slate-300">
+          <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
             <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
               {backtestResult.sampleSize} samples
             </span>
@@ -25,31 +25,57 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
                 Brier {backtestResult.brierScore.toFixed(3)}
               </span>
             )}
+            {backtestResult.winnerAccuracy != null && (
+              <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
+                {Math.round(backtestResult.winnerAccuracy * 100)}% winners
+              </span>
+            )}
           </div>
         </summary>
 
         <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
           {backtestResult.sampleSize === 0 ? (
-            <div className="rounded-none border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm font-bold text-slate-500 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-400">
               No calibration yet.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
               <div className="grid grid-cols-3 gap-2 text-center lg:grid-cols-1">
                 <Metric
-                  label="Brier"
-                  value={backtestResult.brierScore.toFixed(3)}
+                  label="Winner accuracy"
+                  value={
+                    backtestResult.winnerAccuracy == null
+                      ? "—"
+                      : `${Math.round(backtestResult.winnerAccuracy * 100)}%`
+                  }
                 />
                 <Metric
-                  label="Upsets"
-                  value={`${Math.round(backtestResult.upsetCaptureRate * 100)}%`}
+                  label="Margin error"
+                  value={
+                    backtestResult.averageMarginError == null
+                      ? "—"
+                      : `±${backtestResult.averageMarginError.toFixed(1)}`
+                  }
+                />
+                <Metric
+                  label={`High-conf (${backtestResult.highConfidenceSamples})`}
+                  value={
+                    backtestResult.highConfidenceAccuracy == null
+                      ? "—"
+                      : `${Math.round(backtestResult.highConfidenceAccuracy * 100)}%`
+                  }
+                />
+                <Metric label="Brier" value={backtestResult.brierScore.toFixed(3)} />
+                <Metric
+                  label="Confident misses"
+                  value={`${Math.round(backtestResult.confidentMissRate * 100)}%`}
                 />
                 <Metric label="Buckets" value={String(backtestResult.calibration.length)} />
               </div>
               <div className="space-y-3">
                 {backtestResult.calibration.map((bucket) => (
                   <div key={`${bucket.min}-${bucket.max}`}>
-                    <div className="mb-1 flex justify-between gap-3 text-xs font-black text-slate-500 dark:text-slate-400">
+                    <div className="mb-1 flex justify-between gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
                       <span>
                         {Math.round(bucket.min * 100)}-{Math.round(bucket.max * 100)}% away ·{" "}
                         {bucket.samples} game{bucket.samples === 1 ? "" : "s"}
@@ -78,8 +104,8 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
 
 function Metric({ label, value }: { label: ReactNode; value: string }) {
   return (
-    <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
-      <div className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+    <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </div>
       <div className="mt-1 text-lg font-black text-slate-900 dark:text-slate-100">{value}</div>

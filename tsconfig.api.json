@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "types": []
+  },
+  "include": [
+    "api",
+    "scripts",
+    "src/lib/gcPullCheck.ts",
+    "src/lib/geminiModels.ts",
+    "src/lib/leagueSummary.ts",
+    "src/lib/gameChangerApi.ts",
+    "src/lib/ttlCache.ts",
+    "src/lib/apiShared.ts",
+    "src/lib/firebaseProxy.ts"
+  ]
+}

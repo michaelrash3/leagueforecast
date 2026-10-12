@@ -1,0 +1,653 @@
+import { clamp } from "./util";
+
+/**
+ * Opponent-adjusted power ratings: a ridge-regularized least-squares (Massey) fit on capped run
+ * margins. This is the "NET in spirit" model — it keeps margin of victory (unlike RPI) but caps
+ * it, adjusts it for opponent strength, and regresses thin records toward the league mean so
+ * ~10–20-game seasons stay stable.
+ *
+ * Per game the model reads
+ *
+ *     margin = r_home − r_away + hf·HFA + gap·(g0 + δ) + ε
+ *
+ * `margin` is the home side's run margin capped at ±cap. `r` are the team ratings: the expected
+ * margin against a league-average team, in runs, and the thing everything else is measured in.
+ * `hf` is 1 for a real home game and 0 for a neutral one, so only games with a genuine home side
+ * inform the home-field term `HFA`. `gap` is the home side's age level minus the away side's, in
+ * years, and is what lets a game across age levels count. Youth baseball's rule of thumb is that
+ * the older side wins by about `g0` runs per year of age (`AGE_GAP_RUNS_PER_YEAR`): an 8U losing to
+ * a 9U by that much has played it even, and only the margin beyond it says anything about the two
+ * teams. `δ` is a correction to that figure a caller can ask the data for, with a ridge term of its
+ * own (`ageGapShrinkage`); by default it is not fitted at all, and a year of age is worth `g0`
+ * (`DEFAULT_AGE_GAP_SHRINKAGE` says why). Without a single cross-age game δ is 0 either way and the
+ * fit is the same-level model, digit for digit.
+ *
+ * The fit is done by regressing `y = margin − gap·g0` on the columns (+1 home, −1 away, hf, gap)
+ * with a ridge penalty on every parameter — `shrinkage` on each rating, `homeFieldShrinkage` on
+ * HFA, `ageGapShrinkage` on δ — and reporting `ageGapRuns = g0 + δ`. The ridge is what makes the
+ * normal equations positive definite even for a team with no games or a pool with no home games,
+ * so there is always one answer and it is the sensible one (zero, the league mean).
+ *
+ * Strength of schedule is the mean, over a team's games, of the opponent's strength *as seen from
+ * that team's seat*: `r_opp + ageGapRuns · (level_opp − level_self)`. A 9U that plays a 10U rated
+ * 0 has faced something worth about two runs more than a 9U rated 0, and its schedule says so;
+ * the 10U playing down gets the mirror-image debit. Same-level games reduce to the opponent's
+ * rating, as before.
+ *
+ * Two solvers produce the same answer. The dense one is Gaussian elimination on the full matrix,
+ * exact to rounding and the right tool for a league or a single age group. A season-wide pool fed
+ * from GameChanger can hold hundreds or thousands of teams, where an n³ elimination stops being
+ * quick; for those the normal equations are kept as sparse rows and solved by conjugate gradient,
+ * to a tolerance far below anything a ranking table can show.
+ */
+
+export type RatingGame = {
+  home: string;
+  away: string;
+  /** Actual run margin from the home team's perspective (homeScore − awayScore), uncapped. */
+  homeMargin: number;
+  /**
+   * True when nobody was at home — a tournament game, or any result where the pair order is just
+   * the order it was typed in. Such a game still tells you who is better, but it says nothing
+   * about home-field advantage, so it is left out of that estimate. Without this, entering
+   * neutral games with the same side first every time invents a home-field edge out of nothing.
+   */
+  neutral?: boolean;
+  /**
+   * Home side's age level minus the away side's, in years (9U vs 8U at home = +1). Absent/0 =
+   * same level. The older side is expected to win by `ageGapRuns` per year of it, so only the
+   * margin beyond that counts as evidence about the two teams.
+   */
+  ageGap?: number;
+  /**
+   * How much this game counts, relative to a game of weight 1. Absent means 1, and a pool where
+   * every game is absent fits exactly as it did before weights existed.
+   *
+   * The fit minimises the weighted sum of squared residuals, so a game of weight 0.5 pulls on the
+   * ratings half as hard as a game of weight 1 — the same as counting it half a time, and a game
+   * of weight 2 counts exactly as that game listed twice. It is how an old result is made to
+   * matter less than a recent one without being thrown away.
+   *
+   * Because the ridge is denominated in games and stays a constant, halving every weight halves
+   * the evidence and doubles how far everything regresses toward the mean. That is arithmetically
+   * right and never what anybody means, so a scheme that sets these normalises them to average
+   * one — see `ratingRecency.ts`.
+   *
+   * It changes the *fit* and nothing else. Games played, own average margin and strength of
+   * schedule are descriptions of a season rather than beliefs about a team: a side played twelve
+   * games whatever the fit leans on, and saying otherwise in a table would be a lie about the
+   * record.
+   */
+  weight?: number;
+};
+
+export type OpponentAdjustedRatings = {
+  /** Opponent-adjusted rating in run units: expected margin vs a league-average team. */
+  ratings: Map<string, number>;
+  /** Own average capped run margin per game (before opponent adjustment). */
+  rawMargin: Map<string, number>;
+  /**
+   * Average opponent strength faced, seen from this team's seat — a run-denominated strength of
+   * schedule. Playing up counts the opponent as `ageGapRuns` per year stronger, playing down as
+   * that much weaker.
+   */
+  strengthOfSchedule: Map<string, number>;
+  /** Games played, per team. */
+  games: Map<string, number>;
+  /** Estimated additive home-field advantage in runs (shrunk toward 0). */
+  homeAdvantage: number;
+  /** The per-game margin cap that was applied. */
+  cap: number;
+  /** Fitted runs per year of age gap: prior + what the data added. */
+  ageGapRuns: number;
+  /**
+   * How far a game lands from what the ratings said, in runs: the RMS residual of the fit.
+   *
+   * The pool's own scale of noise, and the other half of how sure the fit is about a team. A
+   * rating's standard error is about `residualScale / sqrt(games + shrinkage)`, which is what lets
+   * a table rank on what a team is confidently worth rather than on its best guess. Measured
+   * rather than assumed, because a league of one-run games and a pool of blowouts are not equally
+   * uncertain about the same number of games.
+   *
+   * Weighted like the fit is, and 0 for a pool with no games.
+   */
+  residualScale: number;
+};
+
+export type OpponentAdjustedOptions = {
+  /** Per-game run-margin cap (blowouts beyond this don't dominate). */
+  cap?: number;
+  /**
+   * Ridge/shrinkage strength on team ratings — acts like this many virtual games against a
+   * league-average opponent, regressing thin records toward the mean. Higher = more shrinkage.
+   */
+  shrinkage?: number;
+  /** Ridge strength on the home-field term — high by default because many youth games are neutral-site. */
+  homeFieldShrinkage?: number;
+  /** Runs of advantage per year of age, held or a fit's prior; default AGE_GAP_RUNS_PER_YEAR. */
+  ageGapPrior?: number;
+  /**
+   * Ridge strength pulling a fitted age gap toward the prior; default DEFAULT_AGE_GAP_SHRINKAGE,
+   * which fits none. Finite to ask the data for a correction.
+   */
+  ageGapShrinkage?: number;
+  /**
+   * "dense" (Gaussian elimination, current), "sparse" (conjugate gradient), "auto" (sparse above
+   * SPARSE_SOLVER_THRESHOLD teams). Default "auto".
+   */
+  solver?: "dense" | "sparse" | "auto";
+};
+
+/**
+ * Runs of advantage per year of age between the two sides, as the fit reads a game's age gap: the
+ * rule of thumb a coach uses when a team plays up a level. Since 11 October 2026 it is the unit a
+ * gap is counted in rather than what every year is worth: a game's gap is each level's step at its
+ * own worth (`AGE_STEP_RUNS`, `ageGapYears`), so 9U against 10U reads as two such years.
+ */
+export const AGE_GAP_RUNS_PER_YEAR = 2;
+/**
+ * Ridge strength on the age-gap correction: none fitted. A finite value fits δ and pulls it toward
+ * the prior with that weight, which is how the rankings ran until 27 September 2026 (at 6).
+ *
+ * The fitted figure was biased low, and not by a little. Nearly every club plays at one level (only
+ * 1,153 of 76,787 in the pool of 26 September 2026 appear at a second), so shifting every level's
+ * ratings by a steady amount and the gap by the opposite fits the results equally well: the games
+ * cannot set the gap, and the ridge on the ratings, summed over tens of thousands of clubs, did.
+ * It read 0.85, 0.92, 0.97 and 1.02 runs a year as that season filled, and simulated on its real
+ * schedule it reads 0.81 to 1.05 when the truth is 1.75. Read directly instead — each club rated
+ * on its same-level games alone, then each one-year cross-age game between clubs with eight or
+ * more of them — a year is worth 2.00 ± 0.24 runs.
+ *
+ * Held at two, the ratings predict the games after a cut better at every cut tried (7, 13 and 20
+ * September): margin error 0.0063, 0.0051 and 0.0078 runs lower on every game between two clubs
+ * the fit had seen, 0.011 to 0.018 lower on same-level games where a side had crossed a level,
+ * and Brier lower too. A club that spends its fall playing up gets the credit for it, and one that
+ * padded against younger sides stops getting too much. Nothing the data says about a year of age
+ * is lost: Setup's model check still fits several held values and says which predicted best.
+ *
+ * Those figures are for ratings capped at 8 runs a game. With `RATING_CAP` at 12, the check on the
+ * 9U 2027 page of 26 September still read two best of the five values held (4.9810 runs a game on
+ * the 21,967 held-back games between rated clubs, 1.5 a ten-thousandth behind).
+ */
+export const DEFAULT_AGE_GAP_SHRINKAGE = Number.POSITIVE_INFINITY;
+
+/**
+ * Runs a year of age is worth between two neighbouring levels, by the younger of the two (9 is 9U
+ * against 10U), which a game between them is read through (`ageGapYears`). A level not listed takes
+ * the nearest one listed.
+ *
+ * Read directly on the pool of 11 October 2026, the way the two runs below were: each level's clubs
+ * rated on their own level's games alone, then every one-year game between two clubs with eight or
+ * more of those, the older side's margin (capped) less the two ratings' difference. 8U–9U 5.85 ±
+ * 1.01 runs (47 games), 9U–10U 4.16 ± 0.30 (385), 10U–11U 2.57 ± 0.39 (236), 11U–12U 2.91 ± 0.24
+ * (610), 12U–13U 2.99 ± 0.58 (99), 13U–14U 3.28 ± 0.44 (169), 14U–15U 4.18 ± 0.77 (39), 15U–16U 2.12
+ * ± 0.44 (178), and above that −1.48 ± 1.16 (16U–17U, 29) and −0.97 ± 0.66 (17U–18U, 87), where a
+ * year means little and is held at one. Two runs, the single figure for every age, was a pooled
+ * reading across all of them on the season's first weeks, and is right only in the middle teens:
+ * a 9U that played a 10U was charged for a gap half as big as the one it faced.
+ *
+ * Held to predict games, the table is no better than two everywhere: on the same pool, cut in
+ * September and scored on what came after, the error over every held-back game was 5.1849 runs
+ * against 5.1832, and on the 490 held back between 9U and 10U clubs, with that step alone at four,
+ * 4.82 against 4.80, since a club that plays up is rated partly on those very games. It is the
+ * user's call (11 October 2026)
+ * that the board should rank a young club against its own age, and a club that plays up should not
+ * fall below one that never left it for losing to sides a year older by about what a year is
+ * worth: two runs a year took the 9U Otters from first in Kentucky to third on two such losses,
+ * behind clubs of 8-0 and 7-0 against a weak schedule, and the table leaves them second, 0.04
+ * behind the first.
+ */
+export const AGE_STEP_RUNS: Readonly<Record<number, number>> = {
+  8: 5,
+  9: 4,
+  10: 3,
+  11: 3,
+  12: 3,
+  13: 3,
+  14: 3,
+  15: 2,
+  16: 1,
+  17: 1,
+};
+
+const STEP_LEVELS = Object.keys(AGE_STEP_RUNS)
+  .map(Number)
+  .sort((a, b) => a - b);
+
+/** What the year from `younger` to the level above it is worth, in runs (`AGE_STEP_RUNS`). */
+export const ageStepRuns = (younger: number): number => {
+  const nearest = STEP_LEVELS.reduce((best, level) =>
+    Math.abs(level - younger) < Math.abs(best - younger) ? level : best
+  );
+  return AGE_STEP_RUNS[nearest] ?? AGE_GAP_RUNS_PER_YEAR;
+};
+
+/**
+ * The age table in words, for the pages that explain it: "5 runs from 8U to 9U, 4 from 9U to 10U, 3
+ * a year from 10U to 15U, 2 from 15U to 16U and 1 a year from 16U up". Neighbouring levels worth
+ * the same are run together.
+ */
+export const ageStepsInWords = (): string => {
+  const runs: Array<{ from: number; to: number; worth: number }> = [];
+  STEP_LEVELS.forEach((level) => {
+    const worth = ageStepRuns(level);
+    const last = runs[runs.length - 1];
+    if (last && last.worth === worth && last.to === level) last.to = level + 1;
+    else runs.push({ from: level, to: level + 1, worth });
+  });
+  const phrases = runs.map(({ from, to, worth }, index) => {
+    const unit = index === 0 ? (worth === 1 ? " run" : " runs") : "";
+    const span = to - from > 1 ? " a year" : "";
+    const end =
+      index === runs.length - 1 && to - from > 1 ? `from ${from}U up` : `from ${from}U to ${to}U`;
+    return `${worth}${unit}${span} ${end}`;
+  });
+  const last = phrases.pop();
+  return phrases.length === 0 ? (last ?? "") : `${phrases.join(", ")} and ${last}`;
+};
+
+/**
+ * The age gap between a side at level `a` and one at level `b` as the fit reads it
+ * (`RatingGame.ageGap`), in years of `AGE_GAP_RUNS_PER_YEAR` runs each: every step between the two
+ * levels at what it is worth (`ageStepRuns`), so 10U against 9U reads two such years, four runs.
+ * Signed as `a − b` is. A held value other than `AGE_GAP_RUNS_PER_YEAR` (the model check's) scales
+ * the whole table.
+ */
+export const ageGapYears = (a: number, b: number): number => {
+  if (a === b) return 0;
+  const [low, high] = a < b ? [a, b] : [b, a];
+  let runs = 0;
+  for (let level = low; level < high; level += 1) runs += ageStepRuns(level);
+  return ((a > b ? 1 : -1) * runs) / AGE_GAP_RUNS_PER_YEAR;
+};
+/**
+ * Team count above which "auto" switches from Gaussian elimination to conjugate gradient. Below
+ * it the dense solve is instant and bit-for-bit what the rankings have always shown; above it the
+ * n³ elimination is the slow part of building a page.
+ */
+export const SPARSE_SOLVER_THRESHOLD = 150;
+
+const DEFAULT_CAP = 8;
+/**
+ * Ridge strength on each team's rating, in virtual games against a league-average opponent.
+ *
+ * Exported because it is half of how sure the fit is about a team: a rating stands on its games
+ * plus this many, so the spread of a team's rating goes as `1/sqrt(games + shrinkage)`. Anything
+ * that wants to say how confident a rating is needs the same number the fit used, not a copy of it.
+ */
+export const DEFAULT_SHRINKAGE = 1.5;
+const DEFAULT_HOME_FIELD_SHRINKAGE = 3;
+
+/**
+ * Conjugate gradient stops once the residual is this small relative to the right-hand side. With
+ * a ridge term of at least ~1 on every diagonal, the rating error is bounded by the residual, so
+ * this keeps the sparse answer within ~1e-8 runs of the dense one — invisible at the two decimals a
+ * table shows and far inside the 1e-6 the tests demand.
+ */
+const CG_RELATIVE_TOLERANCE = 1e-10;
+/**
+ * In exact arithmetic conjugate gradient finishes in as many steps as there are unknowns, and
+ * with the diagonal preconditioner it needs a small fraction of that here; the cap only exists so
+ * a system nobody anticipated ends rather than spins.
+ */
+const CG_MAX_ITERATIONS_PER_UNKNOWN = 20;
+
+// Solve the symmetric linear system A x = b via Gaussian elimination with partial pivoting.
+// A is (n × n) row-major; returns x of length n (zeros if the system is degenerate).
+const solveLinearSystem = (matrix: number[][], vector: number[]): number[] => {
+  const n = vector.length;
+  const a = matrix.map((row) => row.slice());
+  const b = vector.slice();
+
+  for (let col = 0; col < n; col += 1) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row += 1) {
+      if (Math.abs(a[row]![col]!) > Math.abs(a[pivot]![col]!)) pivot = row;
+    }
+    if (Math.abs(a[pivot]![col]!) < 1e-9) continue; // singular column; ridge should prevent this
+    if (pivot !== col) {
+      [a[col], a[pivot]] = [a[pivot]!, a[col]!];
+      [b[col], b[pivot]] = [b[pivot]!, b[col]!];
+    }
+    const pivotValue = a[col]![col]!;
+    for (let row = 0; row < n; row += 1) {
+      if (row === col) continue;
+      const factor = a[row]![col]! / pivotValue;
+      if (factor === 0) continue;
+      for (let k = col; k < n; k += 1) {
+        a[row]![k]! -= factor * a[col]![k]!;
+      }
+      b[row]! -= factor * b[col]!;
+    }
+  }
+
+  return b.map((value, index) => {
+    const diag = a[index]![index]!;
+    return Math.abs(diag) < 1e-9 ? 0 : value / diag;
+  });
+};
+
+/** One row of a sparse symmetric matrix: column index → value, only the non-zeros. */
+type SparseRow = Map<number, number>;
+
+const dot = (u: Float64Array, v: Float64Array): number => {
+  let sum = 0;
+  for (let i = 0; i < u.length; i += 1) sum += u[i]! * v[i]!;
+  return sum;
+};
+
+// Solve the symmetric positive-definite system A x = b by preconditioned conjugate gradient, with
+// A held as sparse rows. The preconditioner is A's own diagonal: the home-field and age-gap rows
+// touch every game and so are hundreds of times heavier than a team's row, and without rescaling
+// that spread is what conjugate gradient would spend most of its iterations on. Positive
+// definiteness is the caller's job — it holds once a ridge term sits on every diagonal.
+const solveSparseSystem = (rows: SparseRow[], vector: number[]): number[] => {
+  const size = vector.length;
+  const x = new Float64Array(size);
+  const residual = Float64Array.from(vector);
+  const rhsNorm = Math.sqrt(dot(residual, residual));
+  if (rhsNorm === 0) return Array.from(x);
+
+  const inverseDiagonal = new Float64Array(size);
+  rows.forEach((row, i) => {
+    const diagonal = row.get(i) ?? 0;
+    inverseDiagonal[i] = diagonal > 0 ? 1 / diagonal : 1;
+  });
+
+  /*
+   * The rows copied once into flat arrays (compressed sparse rows), each row's entries in its own
+   * Map's order. The product below is the whole cost of an iteration, and walking a Map through a
+   * closure per entry made it about 25 ms an iteration on a nationwide year (76,794 unknowns,
+   * 364,274 non-zeros); over flat arrays it is about 4 ms, and the solve inside one table fit went
+   * from about 1,050 ms to 190 ms. The order is what keeps the answer the same to the last bit: a
+   * floating-point sum depends on the order it is added in, and sorting each row's columns instead
+   * moved half the numbers of that fit in the twelfth place.
+   */
+  const rowStart = new Int32Array(size + 1);
+  rows.forEach((row, i) => {
+    rowStart[i + 1] = rowStart[i]! + row.size;
+  });
+  const columns = new Int32Array(rowStart[size]!);
+  const values = new Float64Array(rowStart[size]!);
+  rows.forEach((row, i) => {
+    let at = rowStart[i]!;
+    row.forEach((value, j) => {
+      columns[at] = j;
+      values[at] = value;
+      at += 1;
+    });
+  });
+
+  const preconditioned = new Float64Array(size);
+  const direction = new Float64Array(size);
+  const product = new Float64Array(size);
+  for (let i = 0; i < size; i += 1) {
+    preconditioned[i] = residual[i]! * inverseDiagonal[i]!;
+    direction[i] = preconditioned[i]!;
+  }
+  let residualDot = dot(residual, preconditioned);
+
+  const tolerance = CG_RELATIVE_TOLERANCE * rhsNorm;
+  const maxIterations = CG_MAX_ITERATIONS_PER_UNKNOWN * size + 100;
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    if (Math.sqrt(dot(residual, residual)) <= tolerance) break;
+
+    for (let i = 0; i < size; i += 1) {
+      let sum = 0;
+      for (let at = rowStart[i]!; at < rowStart[i + 1]!; at += 1) {
+        sum += values[at]! * direction[columns[at]!]!;
+      }
+      product[i] = sum;
+    }
+    const curvature = dot(direction, product);
+    // Zero or negative curvature means the matrix is not positive definite after all (a ridge
+    // term of 0 somewhere); the best answer available is the one reached so far.
+    if (!(curvature > 0)) break;
+
+    const step = residualDot / curvature;
+    for (let i = 0; i < size; i += 1) {
+      x[i]! += step * direction[i]!;
+      residual[i]! -= step * product[i]!;
+      preconditioned[i] = residual[i]! * inverseDiagonal[i]!;
+    }
+    const nextResidualDot = dot(residual, preconditioned);
+    const conjugation = nextResidualDot / residualDot;
+    for (let i = 0; i < size; i += 1) {
+      direction[i] = preconditioned[i]! + conjugation * direction[i]!;
+    }
+    residualDot = nextResidualDot;
+  }
+
+  return Array.from(x);
+};
+
+/**
+ * The normal equations A x = b being accumulated, behind the two storage schemes. Every call is
+ * `A[i][j] += value` or `b[i] += value`, so the dense scheme performs exactly the additions the
+ * original single-solver code did, in the same order — which is what keeps its results identical.
+ */
+type NormalEquations = {
+  add: (i: number, j: number, value: number) => void;
+  addRhs: (i: number, value: number) => void;
+  solve: () => number[];
+};
+
+const denseNormalEquations = (size: number): NormalEquations => {
+  const a: number[][] = Array.from({ length: size }, () => new Array<number>(size).fill(0));
+  const rhs = new Array<number>(size).fill(0);
+  return {
+    add: (i, j, value) => {
+      a[i]![j]! += value;
+    },
+    addRhs: (i, value) => {
+      rhs[i]! += value;
+    },
+    solve: () => solveLinearSystem(a, rhs),
+  };
+};
+
+const sparseNormalEquations = (size: number): NormalEquations => {
+  const rows: SparseRow[] = Array.from({ length: size }, () => new Map<number, number>());
+  const rhs = new Array<number>(size).fill(0);
+  return {
+    add: (i, j, value) => {
+      // A neutral game's home-field entries and a same-level game's age-gap entries are zeros;
+      // storing them would only make the home-field and age-gap rows dense for nothing.
+      if (value === 0) return;
+      const row = rows[i]!;
+      row.set(j, (row.get(j) ?? 0) + value);
+    },
+    addRhs: (i, value) => {
+      rhs[i]! += value;
+    },
+    solve: () => solveSparseSystem(rows, rhs),
+  };
+};
+
+/**
+ * Opponent-adjusted power ratings via ridge-regularized least squares (a Massey rating) on capped
+ * per-game run margins, with an estimated home-field term and an age-gap term for games played
+ * across levels — the model described at the top of this file. Teams the `games` mention but
+ * `teamIds` does not are ignored, as are games with a side missing from `teamIds`.
+ */
+export const buildOpponentAdjustedRatings = (
+  teamIds: string[],
+  games: RatingGame[],
+  options: OpponentAdjustedOptions = {}
+): OpponentAdjustedRatings => {
+  const cap = options.cap ?? DEFAULT_CAP;
+  const shrinkage = options.shrinkage ?? DEFAULT_SHRINKAGE;
+  const homeFieldShrinkage = options.homeFieldShrinkage ?? DEFAULT_HOME_FIELD_SHRINKAGE;
+  const ageGapPrior = options.ageGapPrior ?? AGE_GAP_RUNS_PER_YEAR;
+  const ageGapShrinkage = options.ageGapShrinkage ?? DEFAULT_AGE_GAP_SHRINKAGE;
+  const solver = options.solver ?? "auto";
+
+  const ratings = new Map<string, number>();
+  const rawMarginSum = new Map<string, number>();
+  const gameCount = new Map<string, number>();
+  // Per team, each opponent faced together with the age gap from this team's seat
+  // (opponent's level minus own level), so strength of schedule can be read off after the fit.
+  const faced = new Map<string, Array<{ opponent: string; seatGap: number }>>();
+  teamIds.forEach((id) => {
+    ratings.set(id, 0);
+    rawMarginSum.set(id, 0);
+    gameCount.set(id, 0);
+    faced.set(id, []);
+  });
+
+  const index = new Map(teamIds.map((id, i) => [id, i]));
+  const n = teamIds.length;
+  if (n === 0) {
+    return {
+      ratings,
+      rawMargin: new Map(),
+      strengthOfSchedule: new Map(),
+      games: gameCount,
+      homeAdvantage: 0,
+      cap,
+      ageGapRuns: ageGapPrior,
+      // No games, so nothing landed anywhere: the scale of the noise is not small, it is unmeasured.
+      // Zero is what a caller needs it to be — an evidence discount of zero rather than a guess.
+      residualScale: 0,
+    };
+  }
+
+  // Parameters: n team ratings, the home-field term (index n), the age-gap correction δ (n + 1).
+  // With no ridge to hold δ, δ is not fitted: its column stays empty and it solves to 0.
+  const size = n + 2;
+  const hfa = n;
+  const delta = n + 1;
+  const fitsGap = Number.isFinite(ageGapShrinkage);
+  const useSparse = solver === "sparse" || (solver === "auto" && n > SPARSE_SOLVER_THRESHOLD);
+  const system = useSparse ? sparseNormalEquations(size) : denseNormalEquations(size);
+
+  games.forEach((game) => {
+    const h = index.get(game.home);
+    const w = index.get(game.away);
+    if (h === undefined || w === undefined) return;
+    // A negative or unreadable weight is not a smaller opinion, it is a wrong one; 0 drops the
+    // game from the fit while leaving it in the record, which is a thing a caller may want.
+    const weight =
+      game.weight === undefined || !Number.isFinite(game.weight) || game.weight < 0
+        ? 1
+        : game.weight;
+    const margin = clamp(game.homeMargin, -cap, cap);
+    const gap = game.ageGap !== undefined && Number.isFinite(game.ageGap) ? game.ageGap : 0;
+    // The prior's share of the gap is taken off the margin before the fit; only what is left
+    // over is evidence about the teams (and about δ, the correction to that prior).
+    const y = gap ? margin - gap * ageGapPrior : margin;
+
+    // Row vector c: +1 at home, −1 at away, `hf` at HFA — 1 for a real home game, 0 when the game
+    // was neutral — and the age gap at δ when there is one. Contributes c·cᵀ to A and c·y to b.
+    const hf = game.neutral ? 0 : 1;
+    const row: Array<[number, number]> = [
+      [h, 1],
+      [w, -1],
+      [hfa, hf],
+    ];
+    if (gap && fitsGap) row.push([delta, gap]);
+    row.forEach(([i, ci]) => {
+      row.forEach(([j, cj]) => system.add(i, j, weight * ci * cj));
+      system.addRhs(i, weight * ci * y);
+    });
+
+    rawMarginSum.set(game.home, (rawMarginSum.get(game.home) ?? 0) + margin);
+    rawMarginSum.set(game.away, (rawMarginSum.get(game.away) ?? 0) - margin);
+    gameCount.set(game.home, (gameCount.get(game.home) ?? 0) + 1);
+    gameCount.set(game.away, (gameCount.get(game.away) ?? 0) + 1);
+    faced.get(game.home)?.push({ opponent: game.away, seatGap: -gap });
+    faced.get(game.away)?.push({ opponent: game.home, seatGap: gap });
+  });
+
+  /*
+   * Ridge regularization: shrink team ratings toward 0 (league mean), the HFA toward 0, and the
+   * age-gap correction toward 0 — that is, the fitted runs per year toward the prior.
+   *
+   * A plain constant, not scaled by anything the weights do. `shrinkage` is denominated in games —
+   * "acts like this many virtual games against a league-average opponent" — and a game of weight 2
+   * is two games, so the ridge that means "two virtual games" is the same number either way. That
+   * is what keeps a weight a count rather than a knob.
+   *
+   * It does mean a caller who halves every weight has halved its evidence and will be regressed
+   * twice as far for it, which is correct and is also never what a caller wants: a weighting
+   * scheme is about which games count *more than others*, not about counting less overall. So the
+   * schemes in `ratingRecency.ts` normalise to a mean weight of one, and the scale never moves.
+   */
+  for (let i = 0; i < n; i += 1) system.add(i, i, shrinkage);
+  system.add(hfa, hfa, homeFieldShrinkage);
+  system.add(delta, delta, fitsGap ? ageGapShrinkage : 1);
+
+  const solution = system.solve();
+  teamIds.forEach((id, i) => ratings.set(id, solution[i] ?? 0));
+  const homeAdvantage = solution[hfa] ?? 0;
+  const ageGapRuns = ageGapPrior + (fitsGap ? (solution[delta] ?? 0) : 0);
+
+  const rawMargin = new Map<string, number>();
+  const strengthOfSchedule = new Map<string, number>();
+  teamIds.forEach((id) => {
+    const played = gameCount.get(id) ?? 0;
+    rawMargin.set(id, played ? (rawMarginSum.get(id) ?? 0) / played : 0);
+    const opponents = faced.get(id) ?? [];
+    strengthOfSchedule.set(
+      id,
+      opponents.length
+        ? opponents.reduce((sum, { opponent, seatGap }) => {
+            const rating = ratings.get(opponent) ?? 0;
+            // An older opponent is worth `ageGapRuns` more per year from this seat, a younger
+            // one that much less; a same-level opponent is worth exactly its rating.
+            return sum + (seatGap ? rating + ageGapRuns * seatGap : rating);
+          }, 0) / opponents.length
+        : 0
+    );
+  });
+
+  /*
+   * The residual scale, from the same rows the fit used and with the same weights.
+   *
+   * One extra pass over the games, after a solve that already walked them several times, so the
+   * cost is noise; and it has to be here rather than in a caller because only here are the fitted
+   * ratings, the home-field term and the age-gap slope all in hand at once.
+   */
+  let weight = 0;
+  let squared = 0;
+  games.forEach((game) => {
+    const own = game.weight ?? 1;
+    if (!(own > 0)) return;
+    const gap = game.ageGap ?? 0;
+    const predicted =
+      (ratings.get(game.home) ?? 0) -
+      (ratings.get(game.away) ?? 0) +
+      (game.neutral ? 0 : homeAdvantage) +
+      gap * ageGapRuns;
+    const actual = clamp(game.homeMargin, -cap, cap);
+    weight += own;
+    squared += own * (actual - predicted) ** 2;
+  });
+  const residualScale = weight > 0 ? Math.sqrt(squared / weight) : 0;
+
+  return {
+    ratings,
+    rawMargin,
+    strengthOfSchedule,
+    games: gameCount,
+    homeAdvantage,
+    cap,
+    ageGapRuns,
+    residualScale,
+  };
+};
+
+/** What a table of ratings is sorted on. */
+type RatedRow = { rating: number; rawMargin: number; strengthOfSchedule: number; teamName: string };
+
+/**
+ * The order a table of ratings is read in, in League Standings and Team Rankings alike: the higher
+ * rating first, then the higher raw margin, then the name, by `localeCompare` in the runtime's own
+ * locale. A tie the fit leaves goes to the club that won its games by more.
+ */
+export const byRating = (a: RatedRow, b: RatedRow): number =>
+  b.rating - a.rating || b.rawMargin - a.rawMargin || a.teamName.localeCompare(b.teamName);
+
+/** The order of the schedule column: the toughest schedule first, then the name. */
+export const bySchedule = (a: RatedRow, b: RatedRow): number =>
+  b.strengthOfSchedule - a.strengthOfSchedule || a.teamName.localeCompare(b.teamName);

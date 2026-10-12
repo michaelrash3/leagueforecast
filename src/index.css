@@ -1,42 +1,98 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-html,
-body,
-#root {
-  min-height: 100%;
+@custom-variant dark (&:is(.dark *));
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
 }
 
-body {
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@utility stadium-grid {
+  background:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.09) 0 1px, transparent 1px 22px),
+    radial-gradient(circle at 50% 100%, rgba(255, 255, 255, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.45) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent 92%);
 }
 
-@layer utilities {
-  .stadium-grid {
-    background:
-      linear-gradient(115deg, rgba(255, 255, 255, 0.09) 0 1px, transparent 1px 22px),
-      radial-gradient(circle at 50% 100%, rgba(255, 255, 255, 0.18), transparent 42%),
-      linear-gradient(180deg, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.45) 100%);
-    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent 92%);
+@utility hero-orb {
+  animation: hero-float 12s ease-in-out infinite alternate;
+}
+
+@utility hero-orb-delay {
+  animation-delay: -5s;
+}
+
+/* Page-level defaults, not utilities: the upgrade tool put these in @layer utilities, where they
+   would outrank any utility class applied to <body>. */
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
   }
 
-  .hero-orb {
-    animation: hero-float 12s ease-in-out infinite alternate;
+  /* On a phone the tab bar is fixed along the bottom of the screen (2.4), 52px tall and 81px with
+     the Data Quality strip, and the browser scrolls a control the focus moves to only as far as
+     the screen's bottom edge, which is behind the bar: at 360 by 640, tabbing down Settings left
+     fields wholly under it. Scroll padding is the room a scroll into view keeps clear, here the
+     bar, the strip and a little over, and the query is the one the bar is drawn by
+     (`useNarrowViewport`). */
+  @media (max-width: 639px) {
+    html {
+      scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+    }
   }
 
-  .hero-orb-delay {
-    animation-delay: -5s;
+  body {
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      "Helvetica Neue",
+      Arial,
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Every button gives a little on press, so a tap on a phone at a ballfield is seen to land
+     before whatever it does has finished. A base rule rather than a token so it reaches the
+     hundreds of buttons styled inline too. The individual `scale` property, not `transform`, so it
+     composes with a button that is already rotated or translated instead of replacing that; and
+     the reduced-motion block below turns the ease into a snap, so the feedback stays and only the
+     motion goes. */
+  button {
+    transition-property: scale;
+    transition-duration: 80ms;
+    transition-timing-function: ease-out;
+  }
+
+  button:not(:disabled):active {
+    scale: 0.97;
+  }
+
+  /* A control League Standings has turned off while its season may not be written (\`EditLock\`)
+     is seen to be off: most buttons here are styled inline, with no look of their own for it. A
+     file picker's label is the control a person sees. */
+  fieldset:disabled :is(button, input, select, textarea, label:has(input[type="file"])) {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 }
 
@@ -47,5 +103,20 @@ body {
 
   to {
     transform: translate3d(24px, 18px, 0) scale(1.08);
+  }
+}
+
+/* The orb drifts forever and never settles, which is exactly what someone who has asked their
+   system for less motion is asking not to see — and it is decoration, so there is nothing to
+   replace it with. The transition is a blanket rule rather than a list because the only motion in
+   this app is presentational; anything added later that genuinely needs to move can opt back in. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

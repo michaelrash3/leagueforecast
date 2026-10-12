@@ -10,24 +10,35 @@ import {
 } from "../share";
 import { DEFAULT_SETTINGS } from "../types";
 
+const finalLog = (awayRuns: string, homeRuns: string) => ({
+  awayRuns,
+  awayHits: "0",
+  awayK: "0",
+  homeRuns,
+  homeHits: "0",
+  homeK: "0",
+  innings: "6",
+  isFinal: true,
+});
+
 const snapshot: SharedSnapshot = {
   v: 1,
   teams: [
     { id: "A", name: "Aces" },
     { id: "B", name: "Bears" },
+    { id: "C", name: "Comets" },
+    { id: "D", name: "Ducks" },
   ],
-  matchups: [{ id: "g1", date: "5/1", away: "A", home: "B" }],
+  matchups: [
+    { id: "g1", date: "5/1", away: "A", home: "B" },
+    { id: "g2", date: "5/2", away: "C", home: "D" },
+    { id: "g3", date: "5/3", away: "A", home: "C" },
+    { id: "g4", date: "5/4", away: "B", home: "D" },
+  ],
   logs: {
-    g1: {
-      awayRuns: "1",
-      awayHits: "0",
-      awayK: "0",
-      homeRuns: "0",
-      homeHits: "0",
-      homeK: "0",
-      innings: "6",
-      isFinal: true,
-    },
+    g1: finalLog("1", "0"),
+    g2: finalLog("4", "2"),
+    g3: finalLog("3", "5"),
   },
   settings: { ...DEFAULT_SETTINGS },
 };

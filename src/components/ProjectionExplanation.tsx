@@ -20,7 +20,7 @@ function ProjectionExplanationView({ explanations }: ProjectionExplanationProps)
               className="mt-2 h-1 w-1 shrink-0 rounded-full bg-slate-300 dark:bg-slate-600"
               aria-hidden="true"
             />
-            <span className="min-w-0 flex-1 break-words">{item}</span>
+            <span className="min-w-0 flex-1 wrap-break-word">{item}</span>
           </li>
         ))}
       </ul>

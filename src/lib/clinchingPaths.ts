@@ -90,7 +90,12 @@ export const clinchingPathForTeam = ({
   } else if (remaining.length <= exactLimit) {
     const elimination = eliminationNumberForGold(team.id, teams, remaining, cutoff, settings);
 
-    if (elimination.type === "elimination" && elimination.opponentLossesNeeded === 0) {
+    // A tie the tiebreakers settle is not an elimination, however it reads on points.
+    if (
+      elimination.type === "elimination" &&
+      elimination.opponentLossesNeeded === 0 &&
+      !elimination.tiebreak
+    ) {
       effectiveStatus = "Eliminated";
       notes.push("Eliminated from Gold Bracket contention; can only play spoiler.");
     } else {
@@ -99,6 +104,12 @@ export const clinchingPathForTeam = ({
       if (magic.type === "clinched") {
         effectiveStatus = "Clinched";
         notes.push("Gold spot clinched; remaining games are for seeding and tiebreak cushion.");
+      } else if (magic.type === "magic" && magic.tiebreak) {
+        notes.push(
+          magic.ownWinsNeeded > 0
+            ? `${plural(magic.ownWinsNeeded, "win")} guarantees at least a share of the last spot; the tiebreakers decide.`
+            : "Level for the last Gold spot at worst; the tiebreakers decide."
+        );
       } else if (magic.type === "magic" && magic.ownWinsNeeded > 0) {
         if (magic.ownWinsNeeded >= teamRemaining.length) {
           notes.push("Controls a Gold spot by winning out.");
@@ -111,7 +122,13 @@ export const clinchingPathForTeam = ({
         notes.push(firstCutLineHelp(team, teams, remaining, cutoff));
       }
 
-      if (elimination.type === "elimination" && elimination.opponentLossesNeeded > 0) {
+      if (elimination.type === "elimination" && elimination.tiebreak) {
+        notes.push(
+          elimination.opponentLossesNeeded === 0
+            ? "Only a won tiebreak can still put them in."
+            : `After ${plural(elimination.opponentLossesNeeded, "more loss", "more losses")}, only a won tiebreak keeps them in.`
+        );
+      } else if (elimination.type === "elimination" && elimination.opponentLossesNeeded > 0) {
         const nextOwnGame = teamRemaining[0];
         if (elimination.opponentLossesNeeded === 1 && nextOwnGame) {
           const opponentName = opponentFor(team.id, nextOwnGame, teamsById);

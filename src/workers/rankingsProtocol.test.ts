@@ -1,0 +1,398 @@
+import { describe, expect, it } from "vitest";
+import { createRankingsHandler, type WorkerRequest, type WorkerResponse } from "./rankingsProtocol";
+import {
+  buildTeamRankings,
+  type AgeGroup,
+  type ScoutGame,
+  type ScoutTeam,
+} from "../lib/teamRankings";
+import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
+import { whatIfCurve } from "../lib/scoutWhatIf";
+import { daysBefore, RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
+
+const groups: AgeGroup[] = [
+  { id: "u10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
+];
+const teams: ScoutTeam[] = ["A", "B", "C", "D", "E", "F"].map((id) => ({
+  id: `S-${id}`,
+  name: `Club ${id}`,
+  state: "KY",
+}));
+const games: ScoutGame[] = [];
+const play = (a: string, b: string, sa: number, sb: number, day: string) =>
+  games.push({
+    id: `g${games.length}`,
+    teamAId: `S-${a}`,
+    teamBId: `S-${b}`,
+    ageGroupId: "u10",
+    teamAScore: sa,
+    teamBScore: sb,
+    date: `2026-09-${day}`,
+  });
+play("A", "B", 7, 3, "05");
+play("B", "C", 5, 4, "05");
+play("C", "D", 6, 2, "06");
+play("D", "E", 3, 8, "06");
+play("E", "F", 4, 4, "12");
+play("F", "A", 2, 9, "12");
+play("A", "C", 5, 1, "13");
+play("B", "D", 6, 6, "13");
+play("C", "E", 3, 7, "19");
+play("D", "F", 8, 1, "19");
+
+/** The pool as the page ships it: compact, under a revision. */
+const shipment = (revision: number) => ({
+  revision,
+  teams: encodeScoutTeams(teams),
+  games: encodeScoutGames(games),
+});
+const base = { kind: "rankings" as const, ageGroupId: "u10", ageGroups: groups };
+
+const harness = () => {
+  const posted: WorkerResponse[] = [];
+  const handle = createRankingsHandler(
+    (response) => posted.push(response),
+    () => 0
+  );
+  return { posted, handle };
+};
+
+describe("the rankings worker's side of the protocol", () => {
+  it("asks for the pool when it has never been sent one", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: { revision: 1 } });
+    expect(posted).toEqual([{ kind: "pool-needed", id: 1, revision: 1 }]);
+  });
+
+  it("fits the pool it was shipped exactly as the page would have inline", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    const answer = posted[0];
+    expect(answer?.kind).toBe("rankings");
+    if (answer?.kind !== "rankings") return;
+    // Through the codec and back is the same fit: nothing the rating reads is lost on the wire.
+    expect(answer.rows).toEqual(buildTeamRankings("u10", teams, games, undefined, groups));
+    expect(answer.rows.length).toBeGreaterThan(0);
+  });
+
+  it("keeps the pool between requests, so a request from another seat ships nothing", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    handle({ ...base, id: 2, myTeamId: "S-A", pool: { revision: 1 } });
+    const second = posted[1];
+    expect(second?.kind).toBe("rankings");
+    if (second?.kind !== "rankings") return;
+    expect(second.id).toBe(2);
+    expect(second.rows.find((row) => row.teamId === "S-A")?.isMine).toBe(true);
+  });
+
+  it("asks again when the page names a revision it does not hold", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    handle({ ...base, id: 2, pool: { revision: 2 } });
+    expect(posted[1]).toEqual({ kind: "pool-needed", id: 2, revision: 2 });
+  });
+
+  it("takes the pool off a cancelled request rather than making the next one ship it again", () => {
+    const { posted, handle } = harness();
+    handle({ kind: "cancel", id: 1 } satisfies WorkerRequest);
+    handle({ ...base, id: 1, pool: shipment(1) });
+    expect(posted).toEqual([]);
+    handle({ ...base, id: 2, pool: { revision: 1 } });
+    expect(posted[0]?.kind).toBe("rankings");
+  });
+});
+
+/*
+ * The what-if rides the same protocol as the board, and these are the three ways that could go
+ * wrong: it could be answered against a pool the worker does not hold, it could be answered
+ * against a different day than the page asked about, and it could leave its hypothetical behind
+ * in the pool every later fit reads.
+ */
+describe("the what-if branch", () => {
+  /** An upcoming fixture between two clubs that have played, so only the date makes it upcoming. */
+  const fixture: ScoutGame = {
+    id: "upcoming",
+    teamAId: "S-A",
+    teamBId: "S-D",
+    ageGroupId: "u10",
+    date: "2026-10-31",
+  };
+  const withFixture = [...games, fixture];
+  const poolWithFixture = (revision: number) => ({
+    revision,
+    teams: encodeScoutTeams(teams),
+    games: encodeScoutGames(withFixture),
+  });
+  const askBase = {
+    kind: "what-if" as const,
+    ageGroupId: "u10",
+    ageGroups: groups,
+    forTeamId: "S-A",
+    gameId: "upcoming",
+    today: "2026-09-20",
+  };
+
+  it("asks for the pool rather than answering about one it does not hold", () => {
+    const { posted, handle } = harness();
+    handle({ ...askBase, id: 1, pool: { revision: 7 } } satisfies WorkerRequest);
+
+    expect(posted).toEqual([{ kind: "pool-needed", id: 1, revision: 7 }]);
+  });
+
+  it("answers for the day the page named, not for the day the worker is having", () => {
+    const { posted, handle } = harness();
+    handle({ ...askBase, id: 1, pool: poolWithFixture(1) } satisfies WorkerRequest);
+
+    const answer = posted[0];
+    expect(answer?.kind).toBe("what-if");
+    const direct = whatIfCurve(
+      fixture,
+      "S-A",
+      "u10",
+      teams,
+      withFixture,
+      undefined,
+      groups,
+      undefined,
+      "2026-09-20"
+    );
+    expect(answer?.kind === "what-if" && answer.curve).toEqual(direct);
+  });
+
+  it("says so when the held pool no longer carries the fixture", () => {
+    const { posted, handle } = harness();
+    handle({ ...askBase, id: 1, pool: shipment(1) } satisfies WorkerRequest);
+
+    expect(posted[0]).toMatchObject({ kind: "what-if", id: 1, curve: null });
+  });
+
+  it("leaves the held pool exactly as it found it", () => {
+    // The hypothetical is a game nobody played. If it were written into the pool the worker holds,
+    // every later fit at this revision would count it, and the board would quietly be wrong.
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: poolWithFixture(1) } satisfies WorkerRequest);
+    const before = posted[0];
+
+    handle({ ...askBase, id: 2, pool: { revision: 1 } } satisfies WorkerRequest);
+    handle({ ...base, id: 3, pool: { revision: 1 } } satisfies WorkerRequest);
+    const after = posted[2];
+
+    expect(before?.kind === "rankings" && before.rows).toEqual(
+      after?.kind === "rankings" && after.rows
+    );
+  });
+});
+
+describe("last week's places, from the pool the worker holds", () => {
+  const movement = (id: number, asOf: string, revision = 1) =>
+    ({
+      kind: "movement",
+      id,
+      ageGroupId: "u10",
+      ageGroups: groups,
+      asOf,
+      pool: { revision },
+    }) satisfies WorkerRequest;
+
+  /*
+   * A week of the "My team" rank line asks for one club's place: the whole board's is a number for
+   * every club in the year, sent back for the sake of one.
+   */
+  it("answers for the clubs named, and says when that day's board was empty", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    handle({ ...movement(2, "2026-09-12"), teamIds: ["A", "nobody"] });
+    const answer = posted[1];
+    if (answer?.kind !== "movement") throw new Error("no answer");
+    const all = ranksAsOf("u10", teams, games, groups, undefined, "2026-09-12");
+    expect(answer.ranks).toEqual({ A: all.A });
+    expect(answer.empty).toBe(false);
+
+    handle({ ...movement(3, "2025-01-01"), teamIds: ["A"] });
+    const before = posted[2];
+    if (before?.kind !== "movement") throw new Error("no answer");
+    expect(before.ranks).toEqual({});
+    expect(before.empty).toBe(true);
+  });
+
+  it("keeps every board of a rank line, so walking it does not push last week's out", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    // Last week's board, then each week before it back to the start of the line.
+    const weeks = Array.from({ length: RANK_HISTORY_WEEKS }, (_, at) =>
+      daysBefore("2026-09-19", 7 * (at + 1))
+    );
+    weeks.forEach((asOf, at) => handle(movement(2 + at, asOf)));
+    // Back on the page after another: last week's and the oldest week's, answered again.
+    handle(movement(100, weeks[0] ?? ""));
+    handle(movement(101, weeks[weeks.length - 1] ?? ""));
+    const answers = posted.filter((one) => one.kind === "movement");
+    expect(answers).toHaveLength(RANK_HISTORY_WEEKS + 2);
+    const ranksOf = (at: number) => {
+      const one = answers[at];
+      if (one?.kind !== "movement") throw new Error("no answer");
+      return one.ranks;
+    };
+    // The same objects: answered from what was kept, not fitted again.
+    expect(ranksOf(RANK_HISTORY_WEEKS)).toBe(ranksOf(0));
+    expect(ranksOf(RANK_HISTORY_WEEKS + 1)).toBe(ranksOf(RANK_HISTORY_WEEKS - 1));
+  });
+
+  it("fits the year as it stood that day, as ranksAsOf does", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    handle(movement(2, "2026-09-12"));
+    const answer = posted[1];
+    expect(answer?.kind).toBe("movement");
+    if (answer?.kind !== "movement") return;
+    expect(answer.asOf).toBe("2026-09-12");
+    expect(answer.ranks).toEqual(ranksAsOf("u10", teams, games, groups, undefined, "2026-09-12"));
+  });
+
+  it("answers again from what it kept rather than refitting", () => {
+    const { posted, handle } = harness();
+    handle({ ...base, id: 1, pool: shipment(1) });
+    handle(movement(2, "2026-09-12"));
+    handle(movement(3, "2026-09-12"));
+    const [, first, second] = posted;
+    if (first?.kind !== "movement" || second?.kind !== "movement") throw new Error("no answer");
+    // The same object: kept, not fitted a second time.
+    expect(second.ranks).toBe(first.ranks);
+  });
+
+  it("asks for the pool like any other request, and posts nothing once cancelled", () => {
+    const { posted, handle } = harness();
+    handle(movement(1, "2026-09-12"));
+    expect(posted).toEqual([{ kind: "pool-needed", id: 1, revision: 1 }]);
+    handle({ kind: "cancel", id: 2 });
+    handle({ ...movement(2, "2026-09-12"), pool: shipment(1) });
+    expect(posted).toHaveLength(1);
+  });
+
+  /*
+   * The page asks for last week's places on every tab of a year at one revision, and the worker
+   * keeps the answer for the pool, so a tab after the first is answered from what the first left.
+   * That is only right where the first tab's fit is the next one's too.
+   */
+  describe("for each page of a pool in turn, as a reader moves through the tabs", () => {
+    /** Each page's answer, asked in order at one revision, the pool shipped with the first. */
+    const walk = (
+      ageGroups: AgeGroup[],
+      pool: { teams: ScoutTeam[]; games: ScoutGame[] },
+      pages: string[],
+      asOf: string
+    ) => {
+      const { posted, handle } = harness();
+      pages.forEach((ageGroupId, at) =>
+        handle({
+          kind: "movement",
+          id: at + 1,
+          ageGroupId,
+          ageGroups,
+          asOf,
+          pool: {
+            revision: 1,
+            ...(at === 0
+              ? { teams: encodeScoutTeams(pool.teams), games: encodeScoutGames(pool.games) }
+              : {}),
+          },
+        })
+      );
+      return posted.map((answer) => {
+        if (answer.kind !== "movement") throw new Error(`no answer: ${answer.kind}`);
+        return answer.ranks;
+      });
+    };
+
+    it("gives a page its places after a page too young to rank was asked first", () => {
+      // An 8U page has no table, so no places; its 10U sibling, in the same pool, has a board.
+      const withEightU: AgeGroup[] = [
+        { id: "u8", name: "8U 2027", ageLevel: 8, year: 2027, seasonIds: [] },
+        ...groups,
+      ];
+      const [eightU, tenU] = walk(withEightU, { teams, games }, ["u8", "u10"], "2026-09-12");
+      expect(eightU).toEqual({});
+      const expected = ranksAsOf("u10", teams, games, withEightU, undefined, "2026-09-12");
+      expect(Object.keys(expected).length).toBeGreaterThan(0);
+      expect(tenU).toEqual(expected);
+    });
+
+    it("keeps a page's whole rank line while a page too young to rank is visited", () => {
+      /*
+       * The worker keeps one rank line and one board more. A page with no table asks too, for last
+       * week and for the week before, and had its answers been kept they would have pushed the
+       * first page's out, so that going back to it fitted its line again one week at a time.
+       */
+      const withEightU: AgeGroup[] = [
+        { id: "u8", name: "8U 2027", ageLevel: 8, year: 2027, seasonIds: [] },
+        ...groups,
+      ];
+      const { posted, handle } = harness();
+      let id = 0;
+      const ask = (ageGroupId: string, asOf: string) => {
+        id += 1;
+        handle({
+          kind: "movement",
+          id,
+          ageGroupId,
+          ageGroups: withEightU,
+          asOf,
+          pool: {
+            revision: 1,
+            ...(id === 1 ? { teams: encodeScoutTeams(teams), games: encodeScoutGames(games) } : {}),
+          },
+        });
+        const answer = posted[posted.length - 1];
+        if (answer?.kind !== "movement") throw new Error("no answer");
+        return answer.ranks;
+      };
+      const weeks = Array.from({ length: RANK_HISTORY_WEEKS }, (_, at) =>
+        daysBefore("2026-09-19", 7 * (at + 1))
+      );
+      const first = weeks.map((asOf) => ask("u10", asOf));
+      expect(ask("u8", weeks[0] ?? "")).toEqual({});
+      expect(ask("u8", weeks[1] ?? "")).toEqual({});
+      // The same objects: every week of the line answered from what was kept, none fitted again.
+      weeks.forEach((asOf, at) => expect(ask("u10", asOf), asOf).toBe(first[at]));
+    });
+
+    it("gives a page the places of its own year's fit when a restore repeats its sibling's id", () => {
+      /*
+       * Ids are minted unique, but a hand-edited restore can repeat one across years. The fit reads
+       * a page's year off the last age group of its id, so here 9U is fitted for 2026 and 10U, in
+       * the same pool, for 2027: two fits, and 10U's places are not 9U's.
+       */
+      const repeated: AgeGroup[] = [
+        { id: "d9", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] },
+        { id: "d10", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
+        { id: "d9", name: "9U 2026", ageLevel: 9, year: 2026, seasonIds: [] },
+      ];
+      const played = (id: string, ageGroupId: string, a: string, b: string): ScoutGame => ({
+        id,
+        ageGroupId,
+        teamAId: `S-${a}`,
+        teamBId: `S-${b}`,
+        teamAScore: 7,
+        teamBScore: 4,
+        date: "2027-03-07",
+      });
+      const pool = {
+        teams,
+        games: [
+          played("a", "d9", "A", "B"),
+          played("b", "d9", "B", "C"),
+          played("c", "d10", "C", "A"),
+          played("d", "d10", "D", "A"),
+        ],
+      };
+      const [nineU, tenU] = walk(repeated, pool, ["d9", "d10"], "2027-04-08");
+      const ranksOf = (page: string) =>
+        ranksAsOf(page, pool.teams, pool.games, repeated, undefined, "2027-04-08");
+      expect(nineU).toEqual(ranksOf("d9"));
+      expect(tenU).toEqual(ranksOf("d10"));
+      // The two fits differ, so an answer kept from the first could not stand for the second.
+      expect(ranksOf("d10")).not.toEqual(ranksOf("d9"));
+    });
+  });
+});

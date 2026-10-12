@@ -3,11 +3,15 @@ import {
   GAME_STAT_CAP,
   RUN_SCORE_CAP,
   DEFAULT_TIEBREAKER_ORDER,
+  POSTSEASON_FORMAT_VALUES,
+  SCORE_DETAIL_VALUES,
   type GameLog,
   type Matchup,
   type ModelAggression,
   type PitchMode,
+  type PostseasonFormat,
   type RecapGrouping,
+  type ScoreDetail,
   type Settings,
   type TeamBase,
   type TiebreakerFactor,
@@ -15,7 +19,7 @@ import {
 import { normalizeDateInput } from "./date";
 
 const AGGRESSION_VALUES: ModelAggression[] = ["Conservative", "Balanced", "Aggressive"];
-const PITCH_MODE_VALUES: PitchMode[] = ["machine", "player"];
+const PITCH_MODE_VALUES: PitchMode[] = ["machine", "coach", "player"];
 const RECAP_GROUPING_VALUES: RecapGrouping[] = ["game", "date", "week"];
 const TIEBREAKER_VALUES: TiebreakerFactor[] = [
   "headToHead",
@@ -85,7 +89,12 @@ export const coerceTeams = (raw: unknown): TeamBase[] => {
     const name = cleanName(item.name);
     if (!id || !name || seen.has(id)) return;
     seen.add(id);
-    out.push({ id, name });
+    // A stored pick is kept as the opaque id it is. This side of the app cannot see the Team
+    // Rankings pool, so "does this club still exist" is a question only a reader of the pool can
+    // answer — `leagueScoutBridge` does, and reports it. Dropping the id here because the pool is
+    // not loaded yet would erase a person's answer every time the app opened.
+    const scoutTeamId = isString(item.scoutTeamId) ? cleanId(item.scoutTeamId) : "";
+    out.push({ id, name, ...(scoutTeamId ? { scoutTeamId } : {}) });
   });
   return out;
 };
@@ -114,11 +123,7 @@ export const coerceMatchups = (raw: unknown, teams: TeamBase[] = []): Matchup[] 
   return out;
 };
 
-export const coerceLogs = (
-  raw: unknown,
-  matchups: Matchup[] = [],
-  settings: Pick<Settings, "maxScoreCap" | "pitchMode"> = DEFAULT_SETTINGS
-): Record<string, GameLog> => {
+export const coerceLogs = (raw: unknown, matchups: Matchup[] = []): Record<string, GameLog> => {
   if (!isRecord(raw)) return {};
   const matchupIds = new Set(matchups.map((matchup) => matchup.id));
   const requireKnownGames = matchupIds.size > 0;
@@ -142,10 +147,12 @@ export const coerceLogs = (
       log.awayWalksAllowed = clampGameStatText(value.awayWalksAllowed);
     if (value.homeWalksAllowed !== undefined)
       log.homeWalksAllowed = clampGameStatText(value.homeWalksAllowed);
+    // A final is a score and nothing more. Machine and coach pitch under the full box score once
+    // needed strikeouts here too, but nothing on the way in asks for them — Verify Final takes a
+    // score, Fill scores from Team Rankings writes runs — so the rule only ever surfaced as every
+    // such final read back as not final on the next reload, and saved that way.
     const hasScore = log.awayRuns !== "" && log.homeRuns !== "";
-    const hasKs = log.awayK !== "" && log.homeK !== "";
-    const hasRequiredStats = settings.pitchMode === "player" ? hasScore : hasKs;
-    log.isFinal = Boolean(log.isFinal && hasScore && hasRequiredStats);
+    log.isFinal = Boolean(log.isFinal && hasScore);
     out[key] = log;
   });
   return out;
@@ -157,6 +164,9 @@ const coerceTiebreakerOrder = (raw: unknown, runDiffTiebreaker: boolean): Tiebre
       ? [...DEFAULT_TIEBREAKER_ORDER]
       : ["headToHead", "runsAgainst", "runsFor"];
   }
+  // All four set to None is a choice, and the standings honour it; only a list with something in
+  // it and nothing readable falls back below.
+  if (raw.length === 0) return [];
 
   const order: TiebreakerFactor[] = [];
   raw.forEach((value) => {
@@ -188,17 +198,32 @@ export const coerceSettings = (raw: unknown): Settings => {
       ? (recapGroupingRaw as RecapGrouping)
       : DEFAULT_SETTINGS.recapGrouping;
 
+  const postseasonRaw = raw.postseasonFormat;
+  const postseasonFormat: PostseasonFormat =
+    isString(postseasonRaw) && POSTSEASON_FORMAT_VALUES.includes(postseasonRaw as PostseasonFormat)
+      ? (postseasonRaw as PostseasonFormat)
+      : DEFAULT_SETTINGS.postseasonFormat;
+
   const pitchModeRaw = raw.pitchMode;
   const pitchMode: PitchMode =
     isString(pitchModeRaw) && PITCH_MODE_VALUES.includes(pitchModeRaw as PitchMode)
       ? (pitchModeRaw as PitchMode)
       : DEFAULT_SETTINGS.pitchMode;
 
+  // A season saved before this setting existed has no stored value and lands on
+  // the "runs" default, which is what those leagues were really recording anyway.
+  const scoreDetailRaw = raw.scoreDetail;
+  const scoreDetail: ScoreDetail =
+    isString(scoreDetailRaw) && SCORE_DETAIL_VALUES.includes(scoreDetailRaw as ScoreDetail)
+      ? (scoreDetailRaw as ScoreDetail)
+      : DEFAULT_SETTINGS.scoreDetail;
+
   const runDiffTiebreaker = isBoolean(raw.runDiffTiebreaker)
     ? raw.runDiffTiebreaker
     : DEFAULT_SETTINGS.runDiffTiebreaker;
 
   return {
+    postseasonFormat,
     goldCutoff: isNumber(raw.goldCutoff)
       ? Math.min(64, Math.max(1, Math.round(raw.goldCutoff)))
       : DEFAULT_SETTINGS.goldCutoff,
@@ -223,8 +248,18 @@ export const coerceSettings = (raw: unknown): Settings => {
     maxRunDifferential: isNumber(raw.maxRunDifferential)
       ? Math.min(RUN_SCORE_CAP, Math.max(0, Math.round(raw.maxRunDifferential)))
       : DEFAULT_SETTINGS.maxRunDifferential,
+    autoRunDiffCap:
+      typeof raw.autoRunDiffCap === "boolean"
+        ? raw.autoRunDiffCap
+        : DEFAULT_SETTINGS.autoRunDiffCap,
+    useScoutResults:
+      typeof raw.useScoutResults === "boolean"
+        ? raw.useScoutResults
+        : DEFAULT_SETTINGS.useScoutResults,
     modelAggression,
     pitchMode,
+    scoreDetail,
+    trackErrors: isBoolean(raw.trackErrors) ? raw.trackErrors : DEFAULT_SETTINGS.trackErrors,
     recapGrouping,
   };
 };

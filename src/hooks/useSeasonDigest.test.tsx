@@ -1,0 +1,662 @@
+import { act, renderHook } from "@testing-library/react";
+import { useEffect } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { forgetSeasons, readSeen } from "../lib/preferences";
+import { forgetAppKeys } from "../lib/resetApp";
+import type { RaceSeen } from "../lib/seasonDigest";
+import { createSeasonStore, type SeasonState } from "../lib/seasonStore";
+import { DEFAULT_SETTINGS, type GameLog } from "../lib/types";
+import { useSeasonDigest } from "./useSeasonDigest";
+
+/*
+ * What changed since this device last looked, as the page meets it (2.6): its own edits taken as
+ * seen, another device's as news until acknowledged, the last look kept per season across visits,
+ * and the forecast that follows an edit made here not reported as news. Placeholder teams.
+ */
+
+const final = (away: string, home: string, isFinal = true): GameLog => ({
+  awayRuns: away,
+  homeRuns: home,
+  awayHits: "",
+  homeHits: "",
+  awayK: "",
+  homeK: "",
+  innings: "6",
+  isFinal,
+});
+
+const season = (logs: Record<string, GameLog> = {}): SeasonState => ({
+  teams: [
+    { id: "A", name: "Aces" },
+    { id: "B", name: "Bears" },
+  ],
+  matchups: [
+    { id: "g1", date: "2026-05-02", away: "A", home: "B" },
+    { id: "g2", date: "2026-05-09", away: "B", home: "A" },
+  ],
+  logs,
+  bracketLogs: {},
+  settings: DEFAULT_SETTINGS,
+});
+
+const race = (a: RaceSeen, b: RaceSeen) => ({ A: a, B: b });
+
+type Props = { race: Record<string, RaceSeen> | null; heard?: boolean };
+
+const mount = (
+  seasonId: string,
+  data: SeasonState,
+  options: {
+    race?: Record<string, RaceSeen> | null;
+    followed?: string | null;
+    heard?: boolean;
+  } = {}
+) => {
+  const store = createSeasonStore({ id: seasonId, season: data });
+  // The kinds of change each render the page commits shows, however briefly.
+  const shown: string[][] = [];
+  const view = renderHook(
+    (props: Props) => {
+      const digest = useSeasonDigest({
+        store,
+        race: props.race,
+        followed: options.followed ?? null,
+        oddsMove: 10,
+        heard: props.heard ?? false,
+      });
+      useEffect(() => {
+        shown.push(digest.changes.map((change) => change.kind));
+      });
+      return digest;
+    },
+    { initialProps: { race: options.race ?? null, heard: options.heard ?? false } as Props }
+  );
+  return { store, view, shown };
+};
+
+/** What the browser tells every other tab when one keeps a look; jsdom tells none. */
+const toldOfLook = () =>
+  act(() => {
+    window.dispatchEvent(new StorageEvent("storage", { key: "lf_league_seen_v1" }));
+  });
+
+const kinds = (changes: { kind: string }[]) => changes.map((change) => change.kind);
+
+describe("useSeasonDigest", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it("starts a season this device never looked at from the cloud's first word", () => {
+    const { store, view } = mount("s1", season());
+    act(() => store.apply(season({ g1: final("4", "2") })));
+    expect(view.result.current.changes).toEqual([]);
+    act(() => store.apply(season({ g1: final("4", "2"), g2: final("1", "3") })));
+    expect(kinds(view.result.current.changes)).toEqual(["final"]);
+  });
+
+  it("takes this device's own edits as seen, and another device's as news until acknowledged", () => {
+    const { store, view } = mount("s1", season());
+    act(() => view.result.current.acknowledge());
+    act(() => store.setSeason(season({ g1: final("4", "2") })));
+    expect(view.result.current.changes).toEqual([]);
+    act(() => store.apply(season({ g1: final("4", "2"), g2: final("1", "3") })));
+    expect(kinds(view.result.current.changes)).toEqual(["final"]);
+    act(() => view.result.current.acknowledge());
+    expect(view.result.current.changes).toEqual([]);
+  });
+
+  it("keeps the last look on the device, so news that came while away is still news", () => {
+    const first = mount("s1", season({ g1: final("4", "2") }));
+    act(() => first.view.result.current.acknowledge());
+    first.view.unmount();
+    expect(readSeen("s1")?.games.g1?.final).toBe("4-2");
+
+    // Opened again later: the cloud's version, with another device's scores, arrives.
+    const later = mount("s1", season({ g1: final("4", "2") }));
+    act(() => later.store.apply(season({ g1: final("5", "2"), g2: final("1", "3") })));
+    expect(kinds(later.view.result.current.changes)).toEqual(["corrected", "final"]);
+  });
+
+  it("keeps the newest look of a season written twice", () => {
+    const { store, view } = mount("s1", season());
+    act(() => view.result.current.acknowledge());
+    act(() => store.apply(season({ g1: final("4", "2") })));
+    act(() => view.result.current.acknowledge());
+    expect(readSeen("s1")?.games.g1?.final).toBe("4-2");
+  });
+
+  it("does not make the cloud's first word news when the page reloads before it", () => {
+    mount("s1", season()).view.unmount();
+    const again = mount("s1", season());
+    act(() => again.store.apply(season({ g1: final("4", "2") })));
+    expect(again.view.result.current.changes).toEqual([]);
+  });
+
+  it("starts looking once the cloud is heard, even when it brought nothing this device lacked", () => {
+    const { store, view } = mount("s1", season());
+    act(() => store.setSeason(season({ g1: final("4", "2") })));
+    expect(readSeen("s1")).toBeNull();
+    view.rerender({ race: null, heard: true });
+    expect(readSeen("s1")?.games.g1?.final).toBe("4-2");
+    // So the first news to arrive is news, not taken for the cloud's first word.
+    act(() => store.apply(season({ g1: final("4", "2"), g2: final("1", "3") })));
+    expect(kinds(view.result.current.changes)).toEqual(["final"]);
+  });
+
+  it("keeps the look begun when the cloud was heard, so what comes while away is news", () => {
+    mount("s1", season(), { heard: true }).view.unmount();
+    const later = mount("s1", season());
+    act(() => later.store.apply(season({ g1: final("4", "2") })));
+    expect(kinds(later.view.result.current.changes)).toEqual(["final"]);
+  });
+
+  it("keeps the last looks of the twelve seasons opened most recently", () => {
+    const clock = vi.spyOn(Date, "now");
+    for (let at = 0; at < 13; at += 1) {
+      clock.mockReturnValue(1_000 + at);
+      const { view } = mount(`s${at}`, season());
+      act(() => view.result.current.acknowledge());
+      view.unmount();
+    }
+    clock.mockRestore();
+    expect(readSeen("s0")).toBeNull();
+    expect(readSeen("s1")).not.toBeNull();
+    expect(readSeen("s12")).not.toBeNull();
+  });
+
+  it("counts a season opened again as opened, though nothing in its look changed", () => {
+    const clock = vi.spyOn(Date, "now");
+    for (let at = 0; at < 12; at += 1) {
+      clock.mockReturnValue(1_000 + at);
+      const { view } = mount(`s${at}`, season());
+      act(() => view.result.current.acknowledge());
+      view.unmount();
+    }
+    // The first season opened again, just as it was last looked at; then a thirteenth.
+    clock.mockReturnValue(2_000);
+    mount("s0", season()).view.unmount();
+    clock.mockReturnValue(2_001);
+    const { view } = mount("s12", season());
+    act(() => view.result.current.acknowledge());
+    view.unmount();
+    clock.mockRestore();
+    expect(readSeen("s0")).not.toBeNull();
+    expect(readSeen("s1")).toBeNull();
+  });
+
+  it("brings each season's own last look when another is opened", () => {
+    const first = mount("s1", season());
+    act(() => first.view.result.current.acknowledge());
+    act(() => first.store.open("s2", season({ g1: final("1", "0") })));
+    // Never looked at on this device: nothing to report.
+    expect(first.view.result.current.changes).toEqual([]);
+    act(() => first.view.result.current.acknowledge());
+    act(() => first.store.open("s1", season({ g2: final("2", "2") })));
+    // Looked at empty; it has a final now.
+    expect(kinds(first.view.result.current.changes)).toEqual(["final"]);
+  });
+
+  it("takes the same season opened afresh, from a file, as this device's own doing", () => {
+    const { store, view } = mount("s1", season());
+    act(() => view.result.current.acknowledge());
+    act(() => store.open("s1", season({ g1: final("4", "2") })));
+    expect(view.result.current.changes).toEqual([]);
+  });
+
+  describe("the race", () => {
+    const start = race({ status: "Alive", gold: 50 }, { status: "Alive", gold: 50 });
+
+    it("does not report the forecast that follows an edit made here", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      act(() => view.result.current.acknowledge());
+      act(() => store.setSeason((now) => ({ ...now, logs: { g1: final("4", "2") } })));
+      view.rerender({ race: null });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+      });
+      expect(view.result.current.changes).toEqual([]);
+    });
+
+    it("reports the forecast that follows news from elsewhere", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      act(() => view.result.current.acknowledge());
+      act(() => store.apply(season({ g1: final("4", "2") })));
+      view.rerender({ race: null });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["final", "clinched"]);
+    });
+
+    it("does not report the forecast that follows a setting changed here", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      act(() => view.result.current.acknowledge());
+      act(() => store.setSeason({ ...season(), settings: { ...DEFAULT_SETTINGS, goldCutoff: 1 } }));
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 }),
+      });
+      expect(view.result.current.changes).toEqual([]);
+    });
+
+    it("reports the forecast that settles after news was acknowledged without it", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      act(() => view.result.current.acknowledge());
+      act(() => store.apply(season({ g1: final("4", "2") })));
+      view.rerender({ race: null });
+      act(() => view.result.current.acknowledge());
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["clinched"]);
+    });
+
+    it("reports the forecast after an edit here when news from elsewhere is still unread", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      act(() => view.result.current.acknowledge());
+      act(() => store.apply(season({ g2: final("1", "3") })));
+      act(() => store.setSeason(season({ g1: final("4", "2"), g2: final("1", "3") })));
+      view.rerender({ race: race({ status: "Alive", gold: 75 }, { status: "Alive", gold: 25 }) });
+      expect(kinds(view.result.current.changes)).toEqual(["final", "odds"]);
+    });
+
+    it("keeps the forecast that settles as the cloud is heard as where the race starts", () => {
+      const { store, view } = mount("s1", season(), { followed: "A" });
+      view.rerender({ race: start, heard: true });
+      act(() => store.apply(season({ g1: final("4", "2") })));
+      view.rerender({ race: null, heard: true });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+        heard: true,
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["final", "clinched"]);
+    });
+
+    it("owes nothing after the first forecast it takes as where the race starts", () => {
+      const { store, view } = mount("s1", season(), { followed: "A" });
+      act(() => view.result.current.acknowledge());
+      act(() => store.setSeason((now) => ({ ...now, logs: { g1: final("4", "2") } })));
+      view.rerender({ race: start });
+      act(() =>
+        store.apply({ ...store.get().season, settings: { ...DEFAULT_SETTINGS, goldCutoff: 1 } })
+      );
+      view.rerender({ race: null });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 }),
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["clinched", "eliminated"]);
+    });
+
+    it("takes the forecast after a team is linked to its club here as its own", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      act(() => view.result.current.acknowledge());
+      act(() =>
+        store.setSeason((now) => ({
+          ...now,
+          teams: [
+            { id: "A", name: "Aces", scoutTeamId: "placeholder-club" },
+            { id: "B", name: "Bears" },
+          ],
+        }))
+      );
+      view.rerender({ race: null });
+      view.rerender({ race: race({ status: "Alive", gold: 75 }, { status: "Alive", gold: 25 }) });
+      expect(view.result.current.changes).toEqual([]);
+    });
+
+    it("reports a forecast another device's setting moved after an edit here that moved nothing", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      act(() => view.result.current.acknowledge());
+      // Runs typed into a game still being played: the forecast reads none of them.
+      act(() => store.setSeason((now) => ({ ...now, logs: { g1: final("2", "1", false) } })));
+      act(() => store.setSeason((now) => ({ ...now, logs: { g1: final("3", "1", false) } })));
+      // Another device moves the cut line, and the odds follow it.
+      act(() =>
+        store.apply({
+          ...store.get().season,
+          settings: { ...DEFAULT_SETTINGS, goldCutoff: 1 },
+        })
+      );
+      view.rerender({ race: null });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 }),
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["clinched", "eliminated"]);
+    });
+
+    it("keeps the last look's race when news is acknowledged before the forecast settles", () => {
+      const first = mount("s1", season(), { race: start, followed: "A" });
+      act(() => first.view.result.current.acknowledge());
+      first.view.unmount();
+      // Opened again with another device's final already held here, the odds still worked out.
+      const later = mount("s1", season({ g1: final("4", "2") }), { followed: "A" });
+      expect(kinds(later.view.result.current.changes)).toEqual(["final"]);
+      act(() => later.view.result.current.acknowledge());
+      later.view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+      });
+      expect(kinds(later.view.result.current.changes)).toEqual(["clinched"]);
+    });
+
+    it("takes the race from the forecast of the cloud's first word, not the one before it", () => {
+      const decided = race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 });
+      const both = season({ g1: final("4", "2"), g2: final("1", "3") });
+      const { store, view } = mount("s1", season(), {
+        race: race({ status: "Alive", gold: 55 }, { status: "Alive", gold: 45 }),
+        followed: "A",
+      });
+      act(() => store.apply(both));
+      view.rerender({ race: null });
+      view.rerender({ race: decided });
+      expect(view.result.current.changes).toEqual([]);
+      view.unmount();
+      // Nor on the next visit, from the look kept.
+      const later = mount("s1", both, { race: decided, followed: "A" });
+      expect(later.view.result.current.changes).toEqual([]);
+    });
+
+    it("keeps the race when the cloud's first word moved nothing the forecast reads", () => {
+      const { store, view } = mount("s1", season(), { race: start, followed: "A" });
+      // Runs another device typed into a game still being played: the same forecast.
+      act(() => store.apply({ ...store.get().season, logs: { g1: final("2", "1", false) } }));
+      act(() => store.apply({ ...store.get().season, logs: { g1: final("4", "2") } }));
+      view.rerender({ race: null });
+      view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 }),
+      });
+      expect(kinds(view.result.current.changes)).toEqual(["final", "clinched"]);
+    });
+  });
+
+  describe("two tabs on one device", () => {
+    const start = race({ status: "Alive", gold: 50 }, { status: "Alive", gold: 50 });
+    /** The installed app and a browser tab on the same season, both looked at. */
+    const tabs = (data: SeasonState = season()) => {
+      const one = mount("s1", data, { race: start, followed: "A" });
+      const two = mount("s1", data, { race: start, followed: "A" });
+      act(() => one.view.result.current.acknowledge());
+      act(() => two.view.result.current.acknowledge());
+      return [one, two] as const;
+    };
+
+    it("takes one tab's own edit as seen when it comes back to the other through the cloud", () => {
+      const [here, there] = tabs();
+      const after = race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 });
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      // The forecast settles first in the tab that made the edit, which takes it as its own.
+      here.view.rerender({ race: null });
+      here.view.rerender({ race: after });
+      toldOfLook();
+      // The other tab's League kept live hears the edit as it would another device's.
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      expect(there.view.result.current.changes).toEqual([]);
+      // And the forecast that follows it is the device's own there too, from the moment it shows.
+      there.shown.length = 0;
+      there.view.rerender({ race: null });
+      there.view.rerender({ race: { ...after } });
+      expect(there.view.result.current.changes).toEqual([]);
+      expect(there.shown.flat()).toEqual([]);
+    });
+
+    it("takes the forecast after one tab's edit as seen once that tab has, whichever settles first", () => {
+      const [here, there] = tabs();
+      const after = race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 });
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      there.view.rerender({ race: null });
+      there.view.rerender({ race: { ...after } });
+      // Not yet taken by the tab that made the edit: as another device's would be, for now.
+      expect(kinds(there.view.result.current.changes)).toEqual(["clinched"]);
+      here.view.rerender({ race: null });
+      here.view.rerender({ race: after });
+      toldOfLook();
+      expect(there.view.result.current.changes).toEqual([]);
+    });
+
+    it("keeps a clinch news acknowledged in one tab brings, before either forecast settled", () => {
+      const [here, there] = tabs();
+      const after = race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 20 });
+      // Another device's final reaches one tab, and Got it is pressed with the odds still out.
+      act(() => here.store.apply(season({ g1: final("4", "2") })));
+      here.view.rerender({ race: null });
+      act(() => here.view.result.current.acknowledge());
+      toldOfLook();
+      // The other tab hears the cloud later: the final is seen, the clinch it brings is not.
+      act(() => there.store.apply(season({ g1: final("4", "2") })));
+      expect(there.view.result.current.changes).toEqual([]);
+      there.view.rerender({ race: null });
+      there.view.rerender({ race: { ...after } });
+      expect(kinds(there.view.result.current.changes)).toEqual(["clinched"]);
+      here.view.rerender({ race: after });
+      toldOfLook();
+      expect(kinds(here.view.result.current.changes)).toEqual(["clinched"]);
+      expect(kinds(there.view.result.current.changes)).toEqual(["clinched"]);
+    });
+
+    it("takes it as seen when the cloud brings it before the other tab has kept its look", () => {
+      const [here, there] = tabs();
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      expect(kinds(there.view.result.current.changes)).toEqual(["final"]);
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      expect(there.view.result.current.changes).toEqual([]);
+    });
+
+    it("measures the cloud's first word here from the look another tab kept", () => {
+      // Both opened the season before either had looked; one has looked since.
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      act(() => here.view.result.current.acknowledge());
+      toldOfLook();
+      act(() => there.store.apply(season({ g1: final("4", "2") })));
+      expect(kinds(there.view.result.current.changes)).toEqual(["final"]);
+    });
+
+    it("does not take another tab's edit as seen at this tab's first look, before it arrives", () => {
+      // Both opened the season before either had looked; one has looked since, then edited.
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      act(() => here.view.result.current.acknowledge());
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      // The other tab hears the cloud before the edit has reached it: the game is as it was.
+      there.view.rerender({ race: start, heard: true });
+      expect(there.view.result.current.changes).toEqual([]);
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      expect(there.view.result.current.changes).toEqual([]);
+    });
+
+    it("nor at a first word that brings another device's news but not the edit", () => {
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      act(() => here.view.result.current.acknowledge());
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      // Another device's final, which neither tab has seen, is news; the edit is not undone.
+      act(() => there.store.apply(season({ g2: final("1", "3") })));
+      expect(kinds(there.view.result.current.changes)).toEqual(["final"]);
+    });
+
+    it("takes the race another tab keeps at this tab's first word, not its own from before", () => {
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      // One tab's first word brings a final that clinches, and its race starts after it.
+      act(() => here.store.apply(season({ g1: final("4", "2") })));
+      here.view.rerender({ race: null });
+      here.view.rerender({
+        race: race({ status: "Clinched", gold: 100 }, { status: "Alive", gold: 40 }),
+      });
+      // Then another device's final, news in that tab, eliminates the other team.
+      const both = season({ g1: final("4", "2"), g2: final("1", "3") });
+      const decided = race({ status: "Clinched", gold: 100 }, { status: "Eliminated", gold: 0 });
+      act(() => here.store.apply(both));
+      here.view.rerender({ race: null });
+      here.view.rerender({ race: decided });
+      expect(kinds(here.view.result.current.changes)).toEqual(["final", "eliminated"]);
+      toldOfLook();
+      // The other tab's first word brings both: the same news, and the clinch still not news.
+      act(() => there.store.apply(both));
+      there.view.rerender({ race: null });
+      there.view.rerender({ race: { ...decided } });
+      expect(kinds(there.view.result.current.changes)).toEqual(["final", "eliminated"]);
+    });
+
+    it("keeps an edit made before this tab first looked as its own, though another looked first", () => {
+      const here = mount("s1", season(), { race: start, followed: "A" });
+      const there = mount("s1", season(), { race: start, followed: "A" });
+      const renamed = {
+        ...season(),
+        teams: [
+          { id: "A", name: "Aces" },
+          { id: "B", name: "Bruins" },
+        ],
+      };
+      act(() => there.store.setSeason(renamed));
+      act(() => here.view.result.current.acknowledge());
+      toldOfLook();
+      there.view.rerender({ race: start, heard: true });
+      expect(there.view.result.current.changes).toEqual([]);
+    });
+
+    it("does not take another tab's edit as seen before it has arrived", () => {
+      const [here, there] = tabs();
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      // The game is still as it was in this tab: nothing to say of it either way.
+      expect(there.view.result.current.changes).toEqual([]);
+      // Another device's final for it, at another score, is news when it comes.
+      act(() => there.store.apply(season({ g1: final("6", "3") })));
+      expect(kinds(there.view.result.current.changes)).toEqual(["final"]);
+    });
+
+    it("keeps what one tab took as seen when the other keeps its own look", () => {
+      const [here, there] = tabs();
+      act(() => here.store.setSeason(season({ g1: final("5", "3") })));
+      toldOfLook();
+      act(() => there.store.apply(season({ g1: final("5", "3") })));
+      act(() => there.store.setSeason(season({ g1: final("5", "3"), g2: final("1", "0") })));
+      toldOfLook();
+      here.view.unmount();
+      const again = mount("s1", season({ g1: final("5", "3"), g2: final("1", "0") }));
+      expect(again.view.result.current.changes).toEqual([]);
+    });
+
+    it("shares a Got it between tabs, and keeps it through the other's writes", () => {
+      const [here, there] = tabs();
+      act(() => here.store.apply(season({ g1: final("4", "2") })));
+      act(() => there.store.apply(season({ g1: final("4", "2") })));
+      act(() => here.view.result.current.acknowledge());
+      toldOfLook();
+      expect(there.view.result.current.changes).toEqual([]);
+      const renamed = {
+        ...season({ g1: final("4", "2") }),
+        teams: [
+          { id: "A", name: "Aces" },
+          { id: "B", name: "Bruins" },
+        ],
+      };
+      act(() => there.store.setSeason(renamed));
+      toldOfLook();
+      here.view.unmount();
+      expect(mount("s1", renamed).view.result.current.changes).toEqual([]);
+    });
+  });
+
+  /*
+   * Another tab lets go of the look of the season this one still shows (`forgetSeasons`): deleted
+   * there, replaced by a restore, moved by a cloud merge, or reset. The browser tells this tab of
+   * that write as of any other.
+   */
+  describe("a season another tab lets go of", () => {
+    const start = race({ status: "Alive", gold: 50 }, { status: "Alive", gold: 50 });
+    /** The season made under the id afterwards: other teams, another game. */
+    const another: SeasonState = {
+      ...season(),
+      teams: [
+        { id: "C", name: "Comets" },
+        { id: "D", name: "Ducks" },
+      ],
+      matchups: [{ id: "n1", date: "2026-06-06", away: "C", home: "D" }],
+    };
+    const looked = () => {
+      const stale = mount("s1", season({ g1: final("4", "2") }), { race: start, followed: "A" });
+      act(() => stale.view.result.current.acknowledge());
+      expect(readSeen("s1")).not.toBeNull();
+      return stale;
+    };
+
+    it("does not put back the look of a season deleted there, nor when its id is given again", () => {
+      looked();
+      forgetSeasons(["s1"]);
+      toldOfLook();
+      expect(readSeen("s1")).toBeNull();
+      // A season made there under the id, which lets go of whatever is under it again.
+      forgetSeasons(["s1"]);
+      toldOfLook();
+      expect(readSeen("s1")).toBeNull();
+      // Never looked at on this device: nothing to report, not the deleted season's games removed.
+      expect(mount("s1", another, { race: start }).view.result.current.changes).toEqual([]);
+    });
+
+    it("does not put back the look moved with its season to the id a cloud merge gave it", () => {
+      looked();
+      forgetSeasons([], { moved: { s1: "s3" } });
+      toldOfLook();
+      expect(readSeen("s1")).toBeNull();
+      expect(readSeen("s3")?.games.g1?.final).toBe("4-2");
+    });
+
+    it("does not put back a look Start again let go of", () => {
+      looked();
+      forgetAppKeys(window.localStorage);
+      toldOfLook();
+      expect(readSeen("s1")).toBeNull();
+    });
+
+    it("keeps no look of it, whatever is done in this tab, until a season is opened here", () => {
+      const stale = looked();
+      forgetSeasons(["s1"]);
+      toldOfLook();
+      // An edit, or Got it, in the tab still showing the deleted season writes no look of it.
+      act(() => stale.store.setSeason(season({ g1: final("5", "2") })));
+      act(() => stale.view.result.current.acknowledge());
+      expect(readSeen("s1")).toBeNull();
+      // Nor does it lay its own over the look of the season made under the id since.
+      const fresh = mount("s1", another, { race: start });
+      act(() => fresh.view.result.current.acknowledge());
+      toldOfLook();
+      const kept = readSeen("s1");
+      act(() => stale.store.setSeason(season({ g1: final("6", "2") })));
+      act(() => stale.view.result.current.acknowledge());
+      expect(readSeen("s1")).toEqual(kept);
+      // A season opened in this tab is this tab's to keep a look of again.
+      act(() => stale.store.open("s2", season()));
+      act(() => stale.store.open("s1", another));
+      act(() => stale.store.setSeason({ ...another, logs: { n1: final("3", "1") } }));
+      expect(readSeen("s1")?.games.n1?.final).toBe("3-1");
+    });
+
+    it("takes nothing as seen from the look of a season made under the id since", () => {
+      const stale = looked();
+      forgetSeasons(["s1"]);
+      toldOfLook();
+      // Made from the same team names in another tab, and looked at there with both finals in.
+      const both = season({ g1: final("4", "2"), g2: final("1", "3") });
+      const fresh = mount("s1", both, { race: start });
+      act(() => fresh.view.result.current.acknowledge());
+      toldOfLook();
+      // Another device's final reaches the tab still showing the deleted season: news there still.
+      act(() => stale.store.apply(both));
+      expect(kinds(stale.view.result.current.changes)).toEqual(["final"]);
+    });
+
+    it("is told only by a look this tab wrote, not by another season's written meanwhile", () => {
+      const waiting = mount("s2", season(), { race: start });
+      looked();
+      toldOfLook();
+      // The cloud's first word for the season it shows: where its looking starts, kept.
+      act(() => waiting.store.apply(season({ g1: final("4", "2") })));
+      expect(readSeen("s2")?.games.g1?.final).toBe("4-2");
+    });
+  });
+});

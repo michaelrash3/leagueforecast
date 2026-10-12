@@ -1,7 +1,7 @@
 import type { TeamWithProjection } from "./types";
 
 export type ProjectionConfidence = {
-  label: "Stable" | "Volatile" | "Too close";
+  label: "Stable" | "Volatile" | "Toss-up";
   tone: "emerald" | "amber" | "red";
   detail: string;
 };
@@ -13,7 +13,7 @@ export const projectionConfidenceForTeam = (team: TeamWithProjection): Projectio
 
   if (margin >= 12 || nearCutLine <= 12 || seedDelta >= 3) {
     return {
-      label: "Too close",
+      label: "Toss-up",
       tone: "red",
       detail: "Gold odds are near the cut line, have a wide interval, or move multiple seeds.",
     };

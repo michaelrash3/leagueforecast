@@ -1,0 +1,787 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { GcTeamLink, ScoutGame, ScoutTeam } from "../teamRankings";
+import { emptyPullRunLog } from "../pullTracker";
+import { markTaken, resetCloudGuard } from "../cloud/cloudGuard";
+import {
+  clearTeamRankings,
+  coerceGcTeamLink,
+  coerceGcTeamLinks,
+  coerceScoutGames,
+  coerceScoutTeams,
+  initTeamRankingsStore,
+  loadAgeGroups,
+  loadPullLog,
+  loadPullProgress,
+  loadRefreshLog,
+  loadTidyStamp,
+  flushPoolWrites,
+  poolKeysNotStored,
+  loadScoutGames,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+  resetTeamRankingsStore,
+  saveAgeGroups,
+  savePullLog,
+  savePullProgress,
+  saveRefreshLog,
+  saveTidyStamp,
+  saveScoutGames,
+  saveScoutGamesForYear,
+  saveScoutTeams,
+  writePoolTogether,
+  type PoolStoreIo,
+} from "../teamRankingsStorage";
+
+const backing = new Map<string, string>();
+
+beforeEach(() => {
+  // A test that opened the IndexedDB path must not leave the next one on it.
+  resetTeamRankingsStore();
+  backing.clear();
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => backing.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      backing.set(k, v);
+    },
+    removeItem: (k: string) => {
+      backing.delete(k);
+    },
+  });
+});
+
+const fullLink: GcTeamLink = {
+  teamId: "gsUthn4XoIxS",
+  name: "NV Stars 9u Scout",
+  ageGroupId: "ag1",
+  season: "fall",
+  seasonYear: 2026,
+  ageLevel: 9,
+  avatarKey: "5192a689-d888-4ae5-abce-446885dca7c7",
+  record: { win: 11, loss: 1, tie: 0 },
+  importedAt: "2026-09-14T12:00:00.000Z",
+};
+
+describe("teamRankingsStorage", () => {
+  it("round-trips teams and games", () => {
+    const teams = [
+      { id: "S-ICEC", name: "Ice Cats", isMine: true },
+      { id: "S-ROCK", name: "Rockets" },
+    ];
+    const games = [
+      {
+        id: "g1",
+        teamAId: "S-ICEC",
+        teamBId: "S-ROCK",
+        teamAScore: 5,
+        teamBScore: 3,
+        ageGroupId: "ag1",
+        date: "2026-04-01",
+        event: "Spring Classic",
+      },
+      // A scheduled game with no score yet.
+      { id: "g2", teamAId: "S-ICEC", teamBId: "S-ROCK", ageGroupId: "ag1" },
+    ];
+
+    expect(saveScoutTeams(teams)).toBe(true);
+    expect(saveScoutGames(games).written).toBe(true);
+
+    expect(loadScoutTeams()).toEqual(teams);
+    expect(loadScoutGames()).toEqual(games);
+  });
+
+  it("round-trips a team's city and GameChanger links, and a game's provenance", () => {
+    const teams: ScoutTeam[] = [
+      {
+        id: "S-NVST",
+        name: "NV Stars Scout",
+        state: "KY",
+        city: "Georgetown",
+        gcTeams: [fullLink, { teamId: "zjvVkYnqLrf0", name: "NV Stars 9U", ageGroupId: "ag1" }],
+      },
+      { id: "S-ROCK", name: "Rockets" },
+    ];
+    const games: ScoutGame[] = [
+      {
+        id: "gc_gsUthn4XoIxS_59cdce43",
+        teamAId: "S-NVST",
+        teamBId: "S-ROCK",
+        teamAScore: 12,
+        teamBScore: 2,
+        ageGroupId: "ag1",
+        date: "2026-08-22",
+        ageLevelA: 9,
+        ageLevelB: 8,
+        season: "Fall 2026",
+        source: { kind: "gamechanger", teamId: "gsUthn4XoIxS", gameId: "59cdce43" },
+      },
+    ];
+
+    expect(saveScoutTeams(teams)).toBe(true);
+    expect(saveScoutGames(games).written).toBe(true);
+    expect(loadScoutTeams()).toEqual(teams);
+    expect(loadScoutGames()).toEqual(games);
+  });
+
+  it("round-trips age groups", () => {
+    const ageGroups = [
+      { id: "ag1", name: "2027", seasonIds: ["fall2026", "spring2027"] },
+      { id: "ag2", name: "10U", seasonIds: [] },
+      // Carries on from ag1 as the squad ages up, with its own "my team".
+      { id: "ag3", name: "11U", seasonIds: [], continuesFromId: "ag1", myTeamId: "S-ICEC" },
+    ];
+    expect(saveAgeGroups(ageGroups)).toBe(true);
+    expect(loadAgeGroups()).toEqual(ageGroups);
+  });
+
+  it("returns empty arrays when nothing is stored", () => {
+    expect(loadScoutTeams()).toEqual([]);
+    expect(loadScoutGames()).toEqual([]);
+    expect(loadAgeGroups()).toEqual([]);
+  });
+
+  it("falls back safely from corrupted json", () => {
+    backing.set("league_forecast_scout_teams_v1", "{not json");
+    backing.set("league_forecast_scout_games_v1", "[1, 2,");
+    backing.set("league_forecast_scout_age_groups_v1", "not json at all");
+    expect(loadScoutTeams()).toEqual([]);
+    expect(loadScoutGames()).toEqual([]);
+    expect(loadAgeGroups()).toEqual([]);
+  });
+
+  it("drops malformed entries but keeps valid ones", () => {
+    backing.set(
+      "league_forecast_scout_teams_v1",
+      JSON.stringify([{ id: "A", name: "Aces" }, { id: "no-name" }, "not an object"])
+    );
+    backing.set(
+      "league_forecast_scout_games_v1",
+      JSON.stringify([
+        { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1" },
+        { id: "g2", teamAId: "A", ageGroupId: "ag1" }, // missing teamBId
+        { id: "g3", teamAId: "A", teamBId: "B", teamAScore: "not a number", ageGroupId: "ag1" },
+      ])
+    );
+    backing.set(
+      "league_forecast_scout_age_groups_v1",
+      JSON.stringify([
+        { id: "ag1", name: "2027", seasonIds: ["fall2026"] },
+        { id: "ag2", name: "no seasons array" }, // missing seasonIds
+        { id: "ag3" }, // missing name
+      ])
+    );
+
+    expect(loadScoutTeams()).toEqual([{ id: "A", name: "Aces" }]);
+    expect(loadScoutGames()).toEqual([{ id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1" }]);
+    expect(loadAgeGroups()).toEqual([{ id: "ag1", name: "2027", seasonIds: ["fall2026"] }]);
+  });
+});
+
+describe("clearing Team Rankings", () => {
+  /** Everything the pool is made of, filled in so a reset has something to remove. */
+  const fillPool = () => {
+    saveAgeGroups([{ id: "ag1", name: "9U 2027", seasonIds: ["fall2026"] }]);
+    saveScoutTeams([{ id: "S-ICEC", name: "Ice Cats" }]);
+    saveScoutGames([{ id: "g1", teamAId: "S-ICEC", teamBId: "S-ROCK", ageGroupId: "ag1" }]);
+    savePullProgress({
+      ids: ["gc1"],
+      settled: [],
+      failures: [],
+      startedAt: "2026-09-14T12:00:00.000Z",
+      updatedAt: "2026-09-14T12:00:00.000Z",
+    });
+    saveRefreshLog({ "9": "2026-09-14" });
+  };
+
+  /** Nothing of the pool is left — the state of a browser that has never opened Team Rankings. */
+  const expectEmptyPool = () => {
+    expect(loadAgeGroups()).toEqual([]);
+    expect(loadScoutTeams()).toEqual([]);
+    expect(loadScoutGames()).toEqual([]);
+    expect(loadPullProgress()).toBeNull();
+    expect(loadRefreshLog()).toEqual({});
+  };
+
+  it("clears every key the pool is made of", () => {
+    fillPool();
+    expect(clearTeamRankings()).toBe(true);
+    expectEmptyPool();
+  });
+
+  // League Standings keeps its own season-namespaced keys, and a reset here must not reach them.
+  it("leaves League Standings data where it is", () => {
+    fillPool();
+    backing.set("league_forecast_teams_v1_fall2026", JSON.stringify([{ id: "t1" }]));
+    backing.set("league_forecast_seasons_v1", JSON.stringify([{ id: "fall2026" }]));
+    clearTeamRankings();
+    expect(backing.get("league_forecast_teams_v1_fall2026")).toBe(JSON.stringify([{ id: "t1" }]));
+    expect(backing.get("league_forecast_seasons_v1")).toBe(JSON.stringify([{ id: "fall2026" }]));
+  });
+
+  it("is happy to clear a pool that was already empty", () => {
+    expect(clearTeamRankings()).toBe(true);
+    expectEmptyPool();
+  });
+
+  it("clears the pool on the IndexedDB path too", async () => {
+    const store = new Map<string, unknown>();
+    const io: PoolStoreIo = {
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    };
+    await initTeamRankingsStore(io);
+    fillPool();
+    // Saved to the cache, not to localStorage, so the reset has to reach the cache to be a reset.
+    expect(loadScoutTeams()).toHaveLength(1);
+
+    expect(clearTeamRankings()).toBe(true);
+    expectEmptyPool();
+  });
+});
+
+describe("decoding the pool once per version of it", () => {
+  const idbIo = () => {
+    const store = new Map<string, unknown>();
+    const io: PoolStoreIo = {
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    };
+    return io;
+  };
+
+  /*
+   * The club-linking panel read the pool once per league team on every render, and Settings
+   * re-renders on every keystroke - so at nationwide scale each character typed decoded a
+   * 40,000-team pool a dozen times over. The decode is now keyed on the compact value's identity:
+   * the same array comes back until the pool actually changes.
+   */
+  it("hands back the same arrays until the pool is saved again", async () => {
+    await initTeamRankingsStore(idbIo());
+    saveScoutTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
+    saveScoutGames([
+      { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1", teamAScore: 5, teamBScore: 3 },
+    ]);
+
+    const teams1 = loadScoutTeams();
+    // The year on screen is the one that is kept; `ag1` has no year, so that is the "none" year.
+    const games1 = loadScoutGamesForYear(undefined);
+    // Twelve reads in a row, as the panel makes them: one decode, eleven free.
+    for (let i = 0; i < 11; i += 1) {
+      expect(loadScoutTeams()).toBe(teams1);
+      expect(loadScoutGamesForYear(undefined)).toBe(games1);
+    }
+    expect(teams1).toEqual([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
+  });
+
+  it("decodes afresh the moment the pool changes, and not before", async () => {
+    await initTeamRankingsStore(idbIo());
+    saveScoutTeams([{ id: "A", name: "Aces" }]);
+    const before = loadScoutTeams();
+
+    saveScoutTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
+    const after = loadScoutTeams();
+
+    expect(after).not.toBe(before);
+    expect(after).toHaveLength(2);
+    // And the earlier array is exactly what it was: a shared copy is never edited underneath a holder.
+    expect(before).toEqual([{ id: "A", name: "Aces" }]);
+  });
+
+  /*
+   * Every save is followed by a read - the league bridge and the refit both ask - and the caller
+   * holds the very array it just encoded. Seeding the memo at save time means that read is free
+   * rather than a full decode of what was written a moment ago.
+   */
+  it("does not decode the pool it was just handed", async () => {
+    await initTeamRankingsStore(idbIo());
+    const teams: ScoutTeam[] = [
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ];
+    const games: ScoutGame[] = [
+      { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1", teamAScore: 5, teamBScore: 3 },
+    ];
+    saveScoutTeams(teams);
+    saveScoutGamesForYear(undefined, games);
+
+    const readTeams = loadScoutTeams();
+    const readGames = loadScoutGamesForYear(undefined);
+    // The objects are the caller's own - not decoded copies of them.
+    expect(readTeams[0]).toBe(teams[0]);
+    expect(readTeams[1]).toBe(teams[1]);
+    expect(readGames).toBe(games);
+    // And a placeholder-named team the caller forgot to flag is still caught, exactly as a decode
+    // would have caught it - the seed is what a decode produces, not a shortcut past it.
+    saveScoutTeams([{ id: "T", name: "TBD" }]);
+    expect(loadScoutTeams()[0]!.placeholder).toBe(true);
+  });
+
+  it("does not let a reset keep a decoded pool alive", async () => {
+    await initTeamRankingsStore(idbIo());
+    saveScoutTeams([{ id: "A", name: "Aces" }]);
+    const held = loadScoutTeams();
+    resetTeamRankingsStore();
+    // A fresh store answers empty, from a fresh decode - never from the copy the old store made.
+    const fresh = loadScoutTeams();
+    expect(fresh).toEqual([]);
+    expect(fresh).not.toBe(held);
+  });
+});
+
+describe("coerceScoutTeams with GameChanger links", () => {
+  it("drops a malformed link, not the team carrying it", () => {
+    const teams = coerceScoutTeams([
+      {
+        id: "A",
+        name: "Aces",
+        city: "Georgetown",
+        gcTeams: [
+          fullLink,
+          { name: "no team id", ageGroupId: "ag1" },
+          { teamId: "   ", name: "blank team id", ageGroupId: "ag1" },
+          { teamId: "x1", name: "no group", season: "fall" },
+          { teamId: "x2", name: 9, ageGroupId: "ag1" },
+          "not an object",
+          null,
+        ],
+      },
+    ]);
+    expect(teams).toEqual([{ id: "A", name: "Aces", city: "Georgetown", gcTeams: [fullLink] }]);
+  });
+
+  it("keeps a team whose links are not a list, and adds no key for an empty list", () => {
+    expect(coerceScoutTeams([{ id: "A", name: "Aces", gcTeams: "nope" }])).toEqual([
+      { id: "A", name: "Aces" },
+    ]);
+    expect(coerceScoutTeams([{ id: "A", name: "Aces", gcTeams: [] }])).toEqual([
+      { id: "A", name: "Aces" },
+    ]);
+    expect(coerceScoutTeams([{ id: "A", name: "Aces", city: 42 }])).toEqual([
+      { id: "A", name: "Aces" },
+    ]);
+  });
+
+  it("keeps a link whose optional fields are the wrong shape, minus those fields", () => {
+    const link = coerceGcTeamLink({
+      teamId: "x1",
+      name: "Aces 9U",
+      ageGroupId: "ag1",
+      season: 2026,
+      seasonYear: "2026",
+      ageLevel: "9U",
+      avatarKey: { id: "x" },
+      record: { win: 1, loss: "0", tie: 0 },
+      importedAt: 1700000000,
+    });
+    expect(link).toEqual({ teamId: "x1", name: "Aces 9U", ageGroupId: "ag1" });
+  });
+
+  it("reads a full link back exactly", () => {
+    expect(coerceGcTeamLink(JSON.parse(JSON.stringify(fullLink)))).toEqual(fullLink);
+    expect(coerceGcTeamLinks([fullLink, 1, {}])).toEqual([fullLink]);
+    expect(coerceGcTeamLinks("nope")).toEqual([]);
+  });
+});
+
+describe("coerceScoutGames with levels, seasons and sources", () => {
+  const base = { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1" };
+
+  it("keeps well-formed levels, season and source", () => {
+    const source = { kind: "gamechanger", teamId: "gsUthn4XoIxS", gameId: "59cdce43" };
+    expect(
+      coerceScoutGames([{ ...base, ageLevelA: 9, ageLevelB: 10, season: "Fall 2026", source }])
+    ).toEqual([{ ...base, ageLevelA: 9, ageLevelB: 10, season: "Fall 2026", source }]);
+  });
+
+  it("drops a source that is not a GameChanger game, keeping the game", () => {
+    expect(
+      coerceScoutGames([
+        { ...base, source: { kind: "csv", teamId: "x", gameId: "y" } },
+        { ...base, id: "g2", source: { kind: "gamechanger", teamId: "x" } },
+        { ...base, id: "g3", source: { kind: "gamechanger", teamId: "x", gameId: "" } },
+        { ...base, id: "g4", source: "gamechanger" },
+        { ...base, id: "g5", source: { kind: "gamechanger", teamId: "x", gameId: "y", extra: 1 } },
+      ])
+    ).toEqual([
+      base,
+      { ...base, id: "g2" },
+      { ...base, id: "g3" },
+      { ...base, id: "g4" },
+      { ...base, id: "g5", source: { kind: "gamechanger", teamId: "x", gameId: "y" } },
+    ]);
+  });
+
+  it("drops levels and seasons of the wrong type", () => {
+    expect(
+      coerceScoutGames([{ ...base, ageLevelA: "9", ageLevelB: Number.NaN, season: 2026 }])
+    ).toEqual([base]);
+  });
+
+  // The flags and the rows folded in, as a pool saved as plain JSON holds them.
+  it("keeps a withdrawn game and a folded row's own day", () => {
+    const folded = {
+      teamId: "gcR",
+      gameId: "r1",
+      date: "2026-08-30",
+      ownScore: 3,
+      opponentScore: 5,
+    };
+    expect(
+      coerceScoutGames([{ ...base, withdrawn: true, alsoRows: [folded, { ...folded, date: 7 }] }])
+    ).toEqual([
+      {
+        ...base,
+        withdrawn: true,
+        alsoRows: [folded, { teamId: "gcR", gameId: "r1", ownScore: 3, opponentScore: 5 }],
+      },
+    ]);
+  });
+
+  it("keeps the team a claimed row was filed against and its level, and nothing malformed", () => {
+    const claimed = { teamId: "gcR", gameId: "r1", filedAgainst: "S-SHAR", filedLevel: 10 };
+    expect(
+      coerceScoutGames([
+        {
+          ...base,
+          alsoRows: [
+            claimed,
+            { ...claimed, gameId: "r2", filedLevel: "10" },
+            { ...claimed, gameId: "r3", filedAgainst: "" },
+            { teamId: "gcR", gameId: "r4", filedLevel: 10 },
+          ],
+        },
+      ])
+    ).toEqual([
+      {
+        ...base,
+        alsoRows: [
+          claimed,
+          { teamId: "gcR", gameId: "r2", filedAgainst: "S-SHAR" },
+          { teamId: "gcR", gameId: "r3" },
+          { teamId: "gcR", gameId: "r4" },
+        ],
+      },
+    ]);
+  });
+});
+
+describe("healing a pool saved before placeholders were understood", () => {
+  it("reads a placeholder-named team back as a slot", () => {
+    saveScoutTeams([
+      { id: "S-TBD1", name: "TBD- 08/04/26, 5:00 PM" },
+      { id: "S-ACES", name: "Aces" },
+    ]);
+    const loaded = loadScoutTeams();
+    expect(loaded.find((team) => team.id === "S-TBD1")!.placeholder).toBe(true);
+    // A real club is untouched, and gains no flag it did not have.
+    expect(loaded.find((team) => team.id === "S-ACES")).toEqual({ id: "S-ACES", name: "Aces" });
+  });
+});
+
+describe("the tidy stamp", () => {
+  it("remembers the shape of the pool the tidy last saw", () => {
+    expect(loadTidyStamp()).toBeNull();
+    expect(saveTidyStamp("1|2|3|2026-09-15T18:02:58.539Z")).toBe(true);
+    expect(loadTidyStamp()).toBe("1|2|3|2026-09-15T18:02:58.539Z");
+  });
+});
+
+/**
+ * The pull's record is the largest thing in storage after the games, and every page was loading
+ * it at startup for the sake of two download buttons in Setup. It is read when asked now.
+ */
+describe("the pull log, read on demand", () => {
+  const TRACK_KEY = "league_forecast_gc_track_v1";
+  const storeIo = (store: Map<string, unknown>, reads: string[] = []) => {
+    const io: PoolStoreIo = {
+      keys: async () => [...store.keys()],
+      get: async (key) => {
+        reads.push(key);
+        return store.get(key) ?? null;
+      },
+      set: async (key, value) => {
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    };
+    return io;
+  };
+
+  it("is not read at startup, and comes back when asked for", async () => {
+    const log = emptyPullRunLog("2026-09-18T12:00:00.000Z");
+    const store = new Map<string, unknown>([[TRACK_KEY, log]]);
+    const reads: string[] = [];
+    await initTeamRankingsStore(storeIo(store, reads));
+    expect(reads).not.toContain(TRACK_KEY);
+
+    expect(await loadPullLog()).toEqual(log);
+    expect(reads).toContain(TRACK_KEY);
+  });
+
+  it("is saved past the cache and dropped by a reset", async () => {
+    const store = new Map<string, unknown>();
+    await initTeamRankingsStore(storeIo(store));
+    expect(await savePullLog(emptyPullRunLog("2026-09-18T12:00:00.000Z"))).toBe(true);
+    expect(store.has(TRACK_KEY)).toBe(true);
+
+    expect(clearTeamRankings()).toBe(true);
+    // The drop is asynchronous; give it the turn it needs.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.get(TRACK_KEY) ?? null).toBeNull();
+    expect(await loadPullLog()).toBeNull();
+  });
+
+  it("still moves out of localStorage with the pool, though it is not cached", async () => {
+    const log = emptyPullRunLog("2026-09-18T12:00:00.000Z");
+    const store = new Map<string, unknown>();
+    const cleared: string[] = [];
+    const io: PoolStoreIo = {
+      ...storeIo(store),
+      readLocal: (key) => (key === TRACK_KEY ? log : null),
+      clearLocal: (key) => {
+        cleared.push(key);
+      },
+    };
+    await initTeamRankingsStore(io);
+    expect(store.get(TRACK_KEY)).toEqual(log);
+    expect(cleared).toContain(TRACK_KEY);
+  });
+
+  it("answers from localStorage where there is no IndexedDB", async () => {
+    const log = emptyPullRunLog("2026-09-18T12:00:00.000Z");
+    expect(await savePullLog(log)).toBe(true);
+    expect(await loadPullLog()).toEqual(log);
+    clearTeamRankings();
+    expect(await loadPullLog()).toBeNull();
+  });
+});
+
+/**
+ * The shard index names the years the pool is stored in, so it must never reach the store ahead of
+ * a shard it names. A load that finds it there first reads that year as empty — the games are not
+ * gone, but nothing can find them, and the pool health card reports a squad year that has lost its
+ * games.
+ *
+ * The queue is what decides it. Writes are held in a Map and drained one key at a time, each
+ * awaited on its own rather than in a single transaction, so a tab closed mid-drain lands a prefix
+ * of it. A Map keeps a key at the position it was *first* inserted, so an index rewritten while an
+ * earlier copy of itself was still queued travelled at the earlier one's place — ahead of the very
+ * shard the rewrite existed to name.
+ */
+describe("the order the shard index reaches the store in", () => {
+  const GROUPS = [
+    { id: "ag_2027", name: "2027", ageLevel: 10, year: 2027, seasonIds: [] },
+    { id: "ag_2028", name: "2028", ageLevel: 10, year: 2028, seasonIds: [] },
+  ];
+  const gameIn = (id: string, ageGroupId: string): ScoutGame => ({
+    id,
+    ageGroupId,
+    teamAId: "A",
+    teamBId: "B",
+    teamAScore: 4,
+    teamBScore: 1,
+    date: "2026-09-12",
+  });
+  /** The index is whichever stored value is a list of year labels; its key is not this test's. */
+  const looksLikeIndex = (value: unknown): value is string[] =>
+    Array.isArray(value) && value.every((entry) => typeof entry === "string");
+
+  it("lands every shard before the index that names it", async () => {
+    const written: string[] = [];
+    const store = new Map<string, unknown>();
+    await initTeamRankingsStore({
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        written.push(key);
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    });
+    saveAgeGroups(GROUPS);
+
+    // One year, then a second added while the first save is still on the queue. The second rewrites
+    // the index, and that rewrite is what used to travel at the first one's place.
+    saveScoutGames([gameIn("g1", "ag_2027")]);
+    saveScoutGames([gameIn("g1", "ag_2027"), gameIn("g2", "ag_2028")]);
+    await flushPoolWrites();
+
+    const indexKey = [...store.entries()].find(
+      ([, value]) => looksLikeIndex(value) && value.includes("2028")
+    )?.[0];
+    expect(indexKey).toBeDefined();
+    const shardKey = [...store.keys()].find((key) => key.endsWith("2028") && key !== indexKey);
+    expect(shardKey).toBeDefined();
+    // Every write of the index, including the last, comes after the shard it names.
+    expect(written.lastIndexOf(shardKey!)).toBeLessThan(written.lastIndexOf(indexKey!));
+  });
+});
+
+describe("a store that throws rather than answer", () => {
+  it("counts the write as not landed, as a store that says so does", async () => {
+    const store = new Map<string, unknown>();
+    let throwing = false;
+    await initTeamRankingsStore({
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        if (throwing) throw new Error("the store broke");
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    });
+    throwing = true;
+    // Accepted into the cache, as every write is on this path; the store is what refuses it.
+    expect(saveTidyStamp("r1|thrown")).toBe(true);
+    expect(await flushPoolWrites()).toBe(false);
+    expect([...poolKeysNotStored()]).toEqual(["league_forecast_gc_tidy_v1"]);
+    throwing = false;
+    expect(saveTidyStamp("r1|kept")).toBe(true);
+    expect(await flushPoolWrites()).toBe(true);
+    expect([...poolKeysNotStored()]).toEqual([]);
+  });
+});
+
+describe("a run of saves that stands or falls as one", () => {
+  const memoryIo = (store: Map<string, unknown>): PoolStoreIo => ({
+    keys: async () => [...store.keys()],
+    get: async (key) => store.get(key) ?? null,
+    set: async (key, value) => {
+      store.set(key, value);
+      return true;
+    },
+    readLocal: () => null,
+    clearLocal: () => {},
+  });
+
+  beforeEach(() => resetCloudGuard());
+
+  it("puts back what it wrote when a later save is refused, and forgets a key it made", () => {
+    saveScoutTeams([{ id: "A", name: "Aces" }]);
+    saveAgeGroups([{ id: "ag1", name: "10U 2026", ageLevel: 10, year: 2026, seasonIds: [] }]);
+    const before = new Map(backing);
+    const games = [...backing.keys()].length;
+    // Storage full for the year's games alone: the roster and the pages go in, the games do not.
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        if (k.endsWith(":2026")) throw new Error("quota");
+        backing.set(k, v);
+      },
+      removeItem: (k: string) => {
+        backing.delete(k);
+      },
+    });
+    const written = writePoolTogether(
+      () =>
+        saveScoutTeams([
+          { id: "A", name: "Aces" },
+          { id: "B", name: "Bears" },
+        ]) &&
+        saveTidyStamp("r1|first") &&
+        // A key written twice is put back to what it held before the first.
+        saveTidyStamp("r1|second") &&
+        saveScoutGamesForYear(2026, [
+          { id: "g1", teamAId: "A", teamBId: "B", ageGroupId: "ag1", teamAScore: 5, teamBScore: 3 },
+        ])
+    );
+    expect(written).toBe(false);
+    expect(backing).toEqual(before);
+    expect([...backing.keys()]).toHaveLength(games);
+    expect(loadScoutTeams()).toEqual([{ id: "A", name: "Aces" }]);
+    expect(loadTidyStamp()).toBeNull();
+  });
+
+  it("keeps everything when every save goes in", () => {
+    expect(writePoolTogether(() => saveTidyStamp("r1|kept") && saveScoutTeams([]))).toBe(true);
+    expect(loadTidyStamp()).toBe("r1|kept");
+  });
+
+  it("puts back on IndexedDB too, in the cache and then in the store", async () => {
+    const store = new Map<string, unknown>();
+    await initTeamRankingsStore(memoryIo(store));
+    saveScoutTeams([{ id: "A", name: "Aces" }]);
+    await flushPoolWrites();
+    const stored = new Map(store);
+    expect(
+      writePoolTogether(() => {
+        saveScoutTeams([{ id: "B", name: "Bears" }]);
+        saveTidyStamp("r1|thrown");
+        return false;
+      })
+    ).toBe(false);
+    expect(loadScoutTeams()).toEqual([{ id: "A", name: "Aces" }]);
+    expect(loadTidyStamp()).toBeNull();
+    expect(await flushPoolWrites()).toBe(true);
+    // A key that was not there is forgotten the way the store forgets one: set to nothing.
+    expect(new Map([...store].filter(([, value]) => value !== null))).toEqual(stored);
+  });
+
+  it("leaves the putting back to the outer run when one runs inside another", () => {
+    expect(
+      writePoolTogether(() => {
+        writePoolTogether(() => {
+          saveTidyStamp("r1|inner");
+          return false;
+        });
+        return true;
+      })
+    ).toBe(true);
+    expect(loadTidyStamp()).toBe("r1|inner");
+  });
+});
+
+describe("a year's save the store refuses", () => {
+  it("leaves the year reading as it is stored, not as empty", async () => {
+    const store = new Map<string, unknown>();
+    await initTeamRankingsStore({
+      keys: async () => [...store.keys()],
+      get: async (key) => store.get(key) ?? null,
+      set: async (key, value) => {
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => {},
+    });
+    resetCloudGuard();
+    saveAgeGroups([
+      { id: "ag26", name: "10U 2026", ageLevel: 10, year: 2026, seasonIds: [] },
+      { id: "ag27", name: "10U 2027", ageLevel: 10, year: 2027, seasonIds: [] },
+    ]);
+    const kept: ScoutGame = { id: "g27", teamAId: "A", teamBId: "B", ageGroupId: "ag27" };
+    saveScoutGames([{ id: "g26", teamAId: "A", teamBId: "B", ageGroupId: "ag26" }, kept]);
+    // Another year is the one held decoded, so the save below has to pin 2027 for itself.
+    loadScoutGamesForYear(2026);
+    // Another tab took a newer copy in, so this one's writes are refused.
+    markTaken("pool", false);
+    expect(saveScoutGamesForYear(2027, [{ ...kept, teamAScore: 4, teamBScore: 1 }])).toBe(false);
+    expect(loadScoutGamesForYear(2027)).toEqual([kept]);
+  });
+});

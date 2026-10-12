@@ -1,0 +1,551 @@
+import type { FirestoreRestDocuments } from "../cloud/firestoreRest";
+import { isRecord } from "../validate";
+
+/**
+ * What the rebuilds may spend, and have spent, kept in one document (`ops/rebuild`) that no client
+ * can read or write: the switch the owner turns them on and off with, the caps on what they spend
+ * a day and a month, and the totals that count against them. The free tier is the budget, and the
+ * $1 billing stop only a backstop behind this, so one bad day cannot spend a month's allowance.
+ *
+ * Every rebuild reserves the most a run can cost before it starts (`reserveRun`) and puts what it
+ * cost in its place when it ends (`settleRun`). A run that never ends (killed for memory, timed
+ * out, its instance lost) leaves its reservation charged and is counted as a failure by the next
+ * reserve; failures in a row pause the rebuilds for the rest of the day. All of it is pure, so it
+ * is tested; the document is read and written through `updateLedger`.
+ */
+
+/** A run's cost in GiB-seconds of memory and vCPU-seconds, as Cloud Run bills a function's time. */
+export type RunCost = { gibs: number; vcpuS: number };
+
+/** How long a run can last at most: a rebuild's 300 s timeout and 20 s of start-up. */
+export const RUN_SPAN_S = 320;
+
+/**
+ * What a run may cost at most: its whole span at 8 GiB and two vCPUs. Charged whole when a run is
+ * reserved, so the caps hold even for a run that never settles.
+ */
+export const RUN_CEILING: RunCost = { gibs: RUN_SPAN_S * 8, vcpuS: RUN_SPAN_S * 2 };
+
+export type LedgerCaps = {
+  /** GiB-seconds a New York day. */
+  dayGiBs: number;
+  /** GiB-seconds and vCPU-seconds a New York month. */
+  monthGiBs: number;
+  monthVcpuS: number;
+  /** Failures in a row that pause the rebuilds until the next day. */
+  failures: number;
+};
+
+/**
+ * The caps where the document sets none. The month's are a third of Cloud Run's free 360,000
+ * GiB-seconds and a sixth of its 180,000 vCPU-seconds, which the pulls and the proxy share; a day's
+ * is a twelfth of the month's, so a month's spend takes at least twelve days of the worst kind.
+ */
+export const DEFAULT_CAPS: LedgerCaps = {
+  dayGiBs: 10_000,
+  monthGiBs: 120_000,
+  monthVcpuS: 30_000,
+  failures: 3,
+};
+
+/** The most any cap may be, whatever the document says: a typo cannot lift the guard. */
+export const HARD_CAPS: LedgerCaps = {
+  dayGiBs: 40_000,
+  monthGiBs: 250_000,
+  monthVcpuS: 125_000,
+  failures: 10,
+};
+
+export type Ledger = {
+  /** Whether rebuilds run at all. */
+  on: boolean;
+  /** `dry` builds everything and publishes nothing, which is how they first ship. */
+  mode: "dry" | "live";
+  /** Whether one worker is kept from run to run, or one started afresh for each. */
+  warm: boolean;
+  caps: LedgerCaps;
+  /** The New York day `dayGiBs` counts, and the month (YYYY-MM) the month's totals count. */
+  day: string;
+  dayGiBs: number;
+  /**
+   * The runs reserved on `day`, and those of them that failed (`failed`); the same of `month` in
+   * `monthRuns` and `monthFailed`. Only counted, for the nightly to say (`rebuildReport.ts`): no
+   * cap reads them.
+   */
+  dayRuns: number;
+  dayFailed: number;
+  /**
+   * The last day before `day` that had a run, with its runs, failed runs and GiB-seconds as they
+   * stood when a reserve moved the ledger on from it, or null before there was one. A new day
+   * empties `day`'s counts on its first reserve, refused or not, so without it a save just after
+   * midnight, or a day of refusals at a cap, would leave the nightly nothing to say of the last
+   * day the rebuilds ran.
+   */
+  lastDay: { day: string; runs: number; failed: number; gibs: number } | null;
+  month: string;
+  monthGiBs: number;
+  monthVcpuS: number;
+  monthRuns: number;
+  monthFailed: number;
+  /** Failures since the last run that did not fail. */
+  failures: number;
+  /** The day the failures paused the rebuilds, which they stay paused for. */
+  pausedDay: string | null;
+  /**
+   * The run reserved and not yet settled: when, on which day, what it was charged, the queued task
+   * it runs (the same on each of that task's tries), and `by`, the handling of the task that
+   * reserved it (an id made afresh each time a task is handled, so two deliveries of one task are
+   * two); "" where either was not said.
+   */
+  open: { at: string; day: string; cost: RunCost; task: string; by: string } | null;
+  /**
+   * When the last run settled, or null before one has: what a quick rebuild is spaced from
+   * (`LIVE_SPACING_S`), whatever the run published, so a dry run counts as a live one does.
+   */
+  lastEndedAt: string | null;
+};
+
+/** Where the ledger is kept: a path no rule opens, so only a server's key reads or writes it. */
+export const REBUILD_LEDGER_PATH = "ops/rebuild";
+
+const isCount = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+const isWhole = (value: unknown): value is number => isCount(value) && Number.isInteger(value);
+
+const isCost = (value: unknown): value is RunCost =>
+  isRecord(value) && isCount(value.gibs) && isCount(value.vcpuS);
+
+/**
+ * The caps as set, each held to `HARD_CAPS`; a cap the document leaves out is the default. The
+ * failures that pause are at least one, or the first run would find the rebuilds paused.
+ */
+const capsOf = (raw: unknown): LedgerCaps | null => {
+  if (raw === undefined) return { ...DEFAULT_CAPS };
+  if (!isRecord(raw)) return null;
+  const caps = { ...DEFAULT_CAPS };
+  for (const name of Object.keys(DEFAULT_CAPS) as (keyof LedgerCaps)[]) {
+    const value = raw[name];
+    if (value === undefined) continue;
+    if (!isCount(value)) return null;
+    caps[name] = Math.min(value, HARD_CAPS[name]);
+  }
+  caps.failures = Math.max(1, Math.floor(caps.failures));
+  return caps;
+};
+
+/**
+ * The ledger the document holds, or null where there is none or it is not one: read as off, so a
+ * document nobody can read stops the rebuilds rather than letting them run unmetered. The owner
+ * makes it in the console with only the switch (`{ on, mode, warm }`), and a field left out is
+ * its default, the totals nothing spent; a field set to anything but what it holds is a ledger
+ * this build cannot read.
+ */
+export const coerceLedger = (raw: unknown): Ledger | null => {
+  if (!isRecord(raw) || typeof raw.on !== "boolean") return null;
+  // Only a field left out is its default: one set to null is set, and to nothing a ledger holds.
+  const given = <T>(value: unknown, fallback: T): unknown =>
+    value === undefined ? fallback : value;
+  const mode = given(raw.mode, "dry");
+  if (mode !== "dry" && mode !== "live") return null;
+  const warm = given(raw.warm, true);
+  if (typeof warm !== "boolean") return null;
+  const caps = capsOf(raw.caps);
+  if (!caps) return null;
+  const day = given(raw.day, "");
+  const month = given(raw.month, "");
+  if (typeof day !== "string" || typeof month !== "string") return null;
+  const dayGiBs = given(raw.dayGiBs, 0);
+  const monthGiBs = given(raw.monthGiBs, 0);
+  const monthVcpuS = given(raw.monthVcpuS, 0);
+  const failures = given(raw.failures, 0);
+  if (!isCount(dayGiBs) || !isCount(monthGiBs) || !isCount(monthVcpuS)) return null;
+  if (!isWhole(failures)) return null;
+  const dayRuns = given(raw.dayRuns, 0);
+  const dayFailed = given(raw.dayFailed, 0);
+  const monthRuns = given(raw.monthRuns, 0);
+  const monthFailed = given(raw.monthFailed, 0);
+  if (!isWhole(dayRuns) || !isWhole(dayFailed)) return null;
+  if (!isWhole(monthRuns) || !isWhole(monthFailed)) return null;
+  const last = given(raw.lastDay, null);
+  let lastDay: Ledger["lastDay"] = null;
+  if (last !== null) {
+    if (!isRecord(last) || typeof last.day !== "string") return null;
+    if (!isWhole(last.runs) || !isWhole(last.failed) || !isCount(last.gibs)) return null;
+    lastDay = { day: last.day, runs: last.runs, failed: last.failed, gibs: last.gibs };
+  }
+  const pausedDay = given(raw.pausedDay, null);
+  if (pausedDay !== null && typeof pausedDay !== "string") return null;
+  const lastEndedAt = given(raw.lastEndedAt, null);
+  if (
+    lastEndedAt !== null &&
+    (typeof lastEndedAt !== "string" || Number.isNaN(Date.parse(lastEndedAt)))
+  ) {
+    return null;
+  }
+  const held = given(raw.open, null);
+  let open: Ledger["open"] = null;
+  if (held !== null) {
+    if (!isRecord(held) || typeof held.at !== "string" || typeof held.day !== "string") return null;
+    if (!isCost(held.cost)) return null;
+    const task = given(held.task, "");
+    const by = given(held.by, "");
+    if (typeof task !== "string" || typeof by !== "string") return null;
+    open = {
+      at: held.at,
+      day: held.day,
+      cost: { gibs: held.cost.gibs, vcpuS: held.cost.vcpuS },
+      task,
+      by,
+    };
+  }
+  return {
+    on: raw.on,
+    mode,
+    warm,
+    caps,
+    day,
+    dayGiBs,
+    dayRuns,
+    dayFailed,
+    lastDay,
+    month,
+    monthGiBs,
+    monthVcpuS,
+    monthRuns,
+    monthFailed,
+    failures,
+    pausedDay,
+    open,
+    lastEndedAt,
+  };
+};
+
+/** The ledger's fields as written, in one order, so two ledgers compare by their text. */
+const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
+  on: ledger.on,
+  mode: ledger.mode,
+  warm: ledger.warm,
+  caps: {
+    dayGiBs: ledger.caps.dayGiBs,
+    monthGiBs: ledger.caps.monthGiBs,
+    monthVcpuS: ledger.caps.monthVcpuS,
+    failures: ledger.caps.failures,
+  },
+  day: ledger.day,
+  dayGiBs: ledger.dayGiBs,
+  dayRuns: ledger.dayRuns,
+  dayFailed: ledger.dayFailed,
+  lastDay: ledger.lastDay && {
+    day: ledger.lastDay.day,
+    runs: ledger.lastDay.runs,
+    failed: ledger.lastDay.failed,
+    gibs: ledger.lastDay.gibs,
+  },
+  month: ledger.month,
+  monthGiBs: ledger.monthGiBs,
+  monthVcpuS: ledger.monthVcpuS,
+  monthRuns: ledger.monthRuns,
+  monthFailed: ledger.monthFailed,
+  failures: ledger.failures,
+  pausedDay: ledger.pausedDay,
+  open: ledger.open && {
+    at: ledger.open.at,
+    day: ledger.open.day,
+    cost: { gibs: ledger.open.cost.gibs, vcpuS: ledger.open.cost.vcpuS },
+    task: ledger.open.task,
+    by: ledger.open.by,
+  },
+  lastEndedAt: ledger.lastEndedAt,
+});
+
+const monthOf = (day: string): string => day.slice(0, 7);
+
+/**
+ * The failure of a run reserved on `runDay` counted, and the rebuilds paused for `today` once there
+ * are enough in a row. It is a failed run of `runDay` (or of `lastDay`, where that is `runDay`) and
+ * of its month only while the ledger still counts that day's runs and that month's, so a day's
+ * failed runs are always among its runs.
+ */
+const failed = (ledger: Ledger, today: string, runDay: string): Ledger => {
+  const failures = ledger.failures + 1;
+  const { lastDay } = ledger;
+  return {
+    ...ledger,
+    failures,
+    pausedDay: failures >= ledger.caps.failures ? today : ledger.pausedDay,
+    dayFailed: ledger.dayFailed + (ledger.day === runDay ? 1 : 0),
+    lastDay: lastDay?.day === runDay ? { ...lastDay, failed: lastDay.failed + 1 } : lastDay,
+    monthFailed: ledger.monthFailed + (ledger.month === monthOf(runDay) ? 1 : 0),
+  };
+};
+
+/**
+ * The ledger moved on to `today`: the day's counts emptied, and kept as `lastDay` where the day
+ * they counted had a run.
+ */
+const newDay = (ledger: Ledger, today: string): Ledger => ({
+  ...ledger,
+  day: today,
+  dayGiBs: 0,
+  dayRuns: 0,
+  dayFailed: 0,
+  lastDay:
+    ledger.dayRuns > 0
+      ? { day: ledger.day, runs: ledger.dayRuns, failed: ledger.dayFailed, gibs: ledger.dayGiBs }
+      : ledger.lastDay,
+});
+
+/**
+ * The ledger moved on to `today` (New York's day): a new day empties the day's total and lifts a
+ * pause from an earlier day, and a new month empties the month's.
+ */
+const rolledOver = (ledger: Ledger, today: string): Ledger => {
+  let next: Ledger = { ...ledger };
+  if (next.day !== today) next = newDay(next, today);
+  if (next.pausedDay !== null && next.pausedDay !== today) {
+    next = { ...next, pausedDay: null, failures: 0 };
+  }
+  if (next.month !== monthOf(today)) {
+    next = {
+      ...next,
+      month: monthOf(today),
+      monthGiBs: 0,
+      monthVcpuS: 0,
+      monthRuns: 0,
+      monthFailed: 0,
+    };
+  }
+  return next;
+};
+
+/**
+ * The ledger with an edit's compute added to the day's and the month's totals (`editRun.ts`), so
+ * the caps the rebuilds are held to count what the edits spent beside them. An edit is never
+ * refused for the caps: it is a member's change to the copy, and the bill's hard stop is the
+ * backstop. It is not a run either, so it counts no run, opens nothing and clears no failure; and it
+ * is charged whether the switch is on or off, since its compute was spent either way. Null where
+ * there is no ledger to charge.
+ *
+ * A charge carries no id, as a reservation does: one whose write landed though its answer was lost
+ * is told apart by the ledger reading as written (`updateLedger`), so another write landing between
+ * makes it charge twice. That errs over the caps, never under, and is left so.
+ */
+export const chargeEdit = (ledger: Ledger | null, today: string, used: RunCost): Ledger | null => {
+  if (!ledger) return null;
+  const next = rolledOver(ledger, today);
+  return {
+    ...next,
+    dayGiBs: next.dayGiBs + used.gibs,
+    monthGiBs: next.monthGiBs + used.gibs,
+    monthVcpuS: next.monthVcpuS + used.vcpuS,
+  };
+};
+
+/**
+ * Which caps are spent on `today` (New York's day): the day's GiB-seconds, or either of the
+ * month's totals, at or past its cap; or null. A question that refits a year (`editHandle.ts`) is
+ * then refused: it spends what a rebuild's fit does, and unlike an edit it changes nothing a member
+ * is owed, so it is held to the caps the rebuilds are. Whether the switch is on or off, as an edit
+ * is charged either way; no ledger meters nothing.
+ */
+export const capsSpent = (ledger: Ledger | null, today: string): "day" | "month" | null => {
+  if (!ledger) return null;
+  const next = rolledOver(ledger, today);
+  if (next.monthGiBs >= next.caps.monthGiBs || next.monthVcpuS >= next.caps.monthVcpuS)
+    return "month";
+  return next.dayGiBs >= next.caps.dayGiBs ? "day" : null;
+};
+
+export type ReserveRefusal = "off" | "busy" | "failing" | "day-cap" | "month-cap";
+
+/**
+ * How far ahead of this clock another instance's may run, and its run still read as reserved
+ * before this one: a minute, far more than two of Google's servers disagree by.
+ */
+const CLOCK_SKEW_MS = 60_000;
+
+/**
+ * Whether a run of queued `task`, handled `by` one handling of it, may start on `today` (New York's
+ * day) at `now`, and the ledger with its ceiling charged and the run open. A refusal hands back the
+ * ledger to write where reading it moved it on (a new day or month, or a run left open counted as
+ * failed), or null where nothing is written.
+ *
+ * In order: off; a run reserved less than a run's span ago may still be going, so this one is
+ * `busy` and that run is neither counted nor cleared (counting it would count a failure that has
+ * not happened, and drop the settle it is still to make). That holds for the same task's earlier
+ * try as for another task's: the queue delivers a task at least once, and may hand it over again
+ * while a try still runs, past its dispatch deadline or twice at once. A handling that finds its
+ * own reservation, written though the answer was lost, keeps it before asking this. Then a new day
+ * empties the day's total and lifts a pause from an earlier day, and a new month empties the
+ * month's; a run still open after that never settled, and counts as a failure with its ceiling
+ * left charged; a pause for today refuses; then the caps, each with this run's ceiling.
+ */
+export const reserveRun = (
+  ledger: Ledger | null,
+  today: string,
+  now: string,
+  {
+    ceiling = RUN_CEILING,
+    task = "",
+    by = "",
+  }: { ceiling?: RunCost; task?: string; by?: string } = {}
+): { ok: true; next: Ledger } | { ok: false; why: ReserveRefusal; next: Ledger | null } => {
+  if (!ledger || !ledger.on) return { ok: false, why: "off", next: null };
+  const open = ledger.open;
+  if (open) {
+    const age = Date.parse(now) - Date.parse(open.at);
+    if (age > -CLOCK_SKEW_MS && age < RUN_SPAN_S * 1000) {
+      return { ok: false, why: "busy", next: null };
+    }
+  }
+  let next = rolledOver(ledger, today);
+  if (next.open) next = { ...failed(next, today, next.open.day), open: null };
+  if (next.pausedDay === today) return { ok: false, why: "failing", next };
+  if (next.dayGiBs + ceiling.gibs > next.caps.dayGiBs) return { ok: false, why: "day-cap", next };
+  if (
+    next.monthGiBs + ceiling.gibs > next.caps.monthGiBs ||
+    next.monthVcpuS + ceiling.vcpuS > next.caps.monthVcpuS
+  ) {
+    return { ok: false, why: "month-cap", next };
+  }
+  return {
+    ok: true,
+    next: {
+      ...next,
+      dayGiBs: next.dayGiBs + ceiling.gibs,
+      dayRuns: next.dayRuns + 1,
+      monthGiBs: next.monthGiBs + ceiling.gibs,
+      monthVcpuS: next.monthVcpuS + ceiling.vcpuS,
+      monthRuns: next.monthRuns + 1,
+      open: { at: now, day: today, cost: { ...ceiling }, task, by },
+    },
+  };
+};
+
+/** What `seconds` of an instance of `gib` GiB and `cpu` vCPUs costs, rounded up to a whole unit. */
+export const runCost = (seconds: number, size: { gib: number; cpu: number }): RunCost => ({
+  gibs: Math.ceil(Math.max(0, seconds) * size.gib),
+  vcpuS: Math.ceil(Math.max(0, seconds) * size.cpu),
+});
+
+/**
+ * The ledger once the run reserved at `at`, `by` one handling of its task, has ended: what it
+ * `used` in place of its ceiling, and a failure counted or the failures cleared. Null where that
+ * run is no longer the open one, since a later reserve has counted it as never settled (its
+ * ceiling stays charged) or the owner has cleared it; nothing is then written.
+ */
+export const settleRun = (
+  ledger: Ledger | null,
+  run: {
+    at: string;
+    by?: string;
+    used: RunCost;
+    failed: boolean;
+    today: string;
+    /** When the run ended, which a quick rebuild is spaced from. */
+    endedAt: string;
+  }
+): Ledger | null => {
+  const open = ledger?.open;
+  if (!ledger || !open || open.at !== run.at || open.by !== (run.by ?? "")) return null;
+  const swap = (total: number, charged: number, used: number) =>
+    Math.max(0, total - charged) + used;
+  let next: Ledger = { ...ledger, open: null, lastEndedAt: run.endedAt };
+  const { lastDay } = next;
+  if (next.day === open.day) {
+    next = { ...next, dayGiBs: swap(next.dayGiBs, open.cost.gibs, run.used.gibs) };
+  } else if (lastDay?.day === open.day) {
+    // The day turned under the run (an edit charged after midnight moves the ledger on): its
+    // ceiling went into the day kept for the nightly, and its cost takes its place there.
+    next = {
+      ...next,
+      lastDay: { ...lastDay, gibs: swap(lastDay.gibs, open.cost.gibs, run.used.gibs) },
+    };
+  }
+  if (next.month === monthOf(open.day)) {
+    next = {
+      ...next,
+      monthGiBs: swap(next.monthGiBs, open.cost.gibs, run.used.gibs),
+      monthVcpuS: swap(next.monthVcpuS, open.cost.vcpuS, run.used.vcpuS),
+    };
+  }
+  return run.failed ? failed(next, run.today, open.day) : { ...next, failures: 0 };
+};
+
+/** The ledger's document: its fields as read, and the token that writes it only if unchanged. */
+export type LedgerStore = {
+  read: () => Promise<{ raw: unknown; token: string | null }>;
+  /** Writes `next` whole if the document is still at `token` (absent where null). */
+  replace: (token: string | null, next: Ledger) => Promise<boolean>;
+};
+
+/** The ledger at `ops/rebuild` through Firestore's REST API. */
+export const restLedgerStore = (
+  docs: Pick<FirestoreRestDocuments, "readAt" | "replace">,
+  path = REBUILD_LEDGER_PATH
+): LedgerStore => ({
+  read: async () => {
+    const found = await docs.readAt(path);
+    return found ? { raw: found.fields, token: found.token } : { raw: null, token: null };
+  },
+  replace: (token, next) => docs.replace(path, fieldsOf(next), token),
+});
+
+/** Whether two ledgers hold the same, field for field. */
+const sameLedger = (a: Ledger, b: Ledger): boolean =>
+  JSON.stringify(fieldsOf(a)) === JSON.stringify(fieldsOf(b));
+
+/**
+ * Reads the ledger, and writes back what `step` makes of it only if nothing has written it since:
+ * a second run reserving at the same moment, or the owner turning the switch, is read again and
+ * `step` asked again, up to `tries` times, so two cannot both spend the same headroom. A step that
+ * leaves the ledger as it was, or hands back none, writes nothing. A read or a write that throws
+ * (Firestore busy for a moment) is tried again too, and only the last try's error is thrown. A
+ * write that threw may have landed though its answer was lost, so it is held until a read tells:
+ * the next read that succeeds, or, when none did, one more read after the last try, writing
+ * nothing. Found as written, it was, and its answer stands; otherwise `step` is asked of what is
+ * there, and after the last try its answer stands only where it would write nothing. Only
+ * otherwise is the error thrown.
+ */
+export const updateLedger = async <T>(
+  store: LedgerStore,
+  step: (ledger: Ledger | null) => { next: Ledger | null; answer: T },
+  tries = 3
+): Promise<{ answer: T; wrote: boolean } | { contended: true }> => {
+  let failure: { error: unknown } | null = null;
+  // A write made though its answer was lost, which no read since has told of: it may have landed.
+  let unsure: { next: Ledger; answer: T } | null = null;
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    try {
+      const { raw, token } = await store.read();
+      const ledger = coerceLedger(raw);
+      if (unsure && ledger && sameLedger(ledger, unsure.next)) {
+        return { answer: unsure.answer, wrote: true };
+      }
+      unsure = null;
+      const { next, answer } = step(ledger);
+      if (!next || (ledger && sameLedger(ledger, next))) return { answer, wrote: false };
+      unsure = { next, answer };
+      if (await store.replace(token, next)) return { answer, wrote: true };
+      unsure = null;
+      failure = null;
+    } catch (error) {
+      failure = { error };
+    }
+  }
+  if (!failure) return { contended: true };
+  if (unsure) {
+    const written = unsure;
+    const check = await store.read().catch(() => null);
+    if (check) {
+      const ledger = coerceLedger(check.raw);
+      if (ledger && sameLedger(ledger, written.next)) {
+        return { answer: written.answer, wrote: true };
+      }
+      const { next, answer } = step(ledger);
+      if (!next || (ledger && sameLedger(ledger, next))) return { answer, wrote: false };
+    }
+  }
+  throw failure.error;
+};

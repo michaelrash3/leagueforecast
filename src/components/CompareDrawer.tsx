@@ -12,6 +12,12 @@ type Props = {
   allTeams: TeamWithProjection[];
   matchups: Matchup[];
   logs: Record<string, GameLog>;
+  /**
+   * True when the league records the final score and nothing else. The hit and
+   * strikeout rows would then compare a season-long 0.0 against a season-long
+   * 0.0, so they are left out rather than shown as a fake dead heat.
+   */
+  runsOnly: boolean;
   onClose: () => void;
   onPickRight: (id: string) => void;
 };
@@ -26,6 +32,7 @@ export function CompareDrawer({
   allTeams,
   matchups,
   logs,
+  runsOnly,
   onClose,
   onPickRight,
 }: Props) {
@@ -114,30 +121,28 @@ export function CompareDrawer({
         right: fmt(right.rag),
         better: compare(left.rag, right.rag, false),
       },
-      {
-        label: "Hits/Game",
-        left: fmt(left.hpg),
-        right: fmt(right.hpg),
-        better: compare(left.hpg, right.hpg),
-      },
-      {
-        label: "K/Game (batting)",
-        left: fmt(left.kpg),
-        right: fmt(right.kpg),
-        better: compare(left.kpg, right.kpg, false),
-      },
-      {
-        label: "Ks Against/Game",
-        left: fmt(left.oppKpg),
-        right: fmt(right.oppKpg),
-        better: compare(left.oppKpg, right.oppKpg),
-      },
-      {
-        label: "TPI",
-        left: (left.tpi > 0 ? "+" : "") + fmt(left.tpi, 2),
-        right: (right.tpi > 0 ? "+" : "") + fmt(right.tpi, 2),
-        better: compare(left.tpi, right.tpi),
-      },
+      ...(runsOnly
+        ? []
+        : [
+            {
+              label: "Hits/Game",
+              left: fmt(left.hpg),
+              right: fmt(right.hpg),
+              better: compare(left.hpg, right.hpg),
+            },
+            {
+              label: "K/Game (batting)",
+              left: fmt(left.kpg),
+              right: fmt(right.kpg),
+              better: compare(left.kpg, right.kpg, false),
+            },
+            {
+              label: "Opp K/Game",
+              left: fmt(left.oppKpg),
+              right: fmt(right.oppKpg),
+              better: compare(left.oppKpg, right.oppKpg),
+            },
+          ]),
       {
         label: "Gold Odds",
         left: `${Math.round(left.goldPct)}%`,
@@ -157,35 +162,35 @@ export function CompareDrawer({
         better: compare(left.projectedRank, right.projectedRank, false),
       },
     ];
-  }, [left, right]);
+  }, [left, right, runsOnly]);
 
   const tone = (which: "left" | "right" | "tie" | undefined, side: "left" | "right") => {
     if (which === "tie" || which === undefined) return "text-slate-700 dark:text-slate-200";
     return which === side
-      ? "text-emerald-600 font-black dark:text-emerald-400"
+      ? "text-emerald-700 font-black dark:text-emerald-400"
       : "text-slate-500 dark:text-slate-400";
   };
 
   return (
     <div
-      className="fixed inset-0 z-[55] flex justify-end bg-slate-950/40 p-3"
+      className="fixed inset-0 z-55 flex justify-end bg-slate-950/40 p-3"
       role="presentation"
       onClick={onClose}
     >
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/click-events-have-key-events */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
       <aside
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="h-full w-full max-w-md overflow-y-auto rounded-none bg-white p-5 shadow-2xl outline-none sm:max-w-2xl sm:p-6 md:max-w-3xl dark:bg-slate-900"
+        className="h-full w-full max-w-md overflow-y-auto rounded-lg bg-white p-5 shadow-2xl outline-hidden sm:max-w-2xl sm:p-6 md:max-w-3xl dark:bg-slate-900"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Compare
             </div>
             <h2
@@ -199,7 +204,7 @@ export function CompareDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-black text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
           >
             Close
           </button>
@@ -208,7 +213,7 @@ export function CompareDrawer({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label
             htmlFor={compareSelectId}
-            className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
           >
             Compare with
           </label>
@@ -216,7 +221,7 @@ export function CompareDrawer({
             id={compareSelectId}
             value={right.id}
             onChange={(event) => onPickRight(event.target.value)}
-            className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold outline-hidden dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             aria-label="Compare with another team"
           >
             {allTeams
@@ -229,9 +234,9 @@ export function CompareDrawer({
           </select>
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-none border border-slate-200 dark:border-slate-700">
+        <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
           <table className="w-full text-left text-xs sm:text-sm">
-            <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               <tr>
                 <th className="px-2 py-2 sm:px-4">Metric</th>
                 <th className="px-2 py-2 text-right sm:px-4">{displayName(left.name)}</th>
@@ -256,7 +261,7 @@ export function CompareDrawer({
           </table>
         </div>
 
-        <section className="mt-6 rounded-none border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+        <section className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
             Head-to-Head
           </h3>
@@ -298,7 +303,7 @@ export function CompareDrawer({
           )}
         </section>
 
-        <section className="mt-4 rounded-none border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <section className="mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-700 dark:bg-slate-900">
           <h3 className="font-black tracking-tight text-slate-950 dark:text-slate-100">
             Common Opponents Played
           </h3>

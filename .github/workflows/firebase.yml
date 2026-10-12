@@ -1,0 +1,199 @@
+# The Firebase project: the functions (`functions/`) and the Firestore rules (`firestore.rules`).
+# Both are tested on every change to them and deployed on merge once the project is connected.
+#
+# The pulls in the cloud (`startPull`, `runPull`) are deployed too once the CLOUD_PULLS variable
+# is `on`, which is the last step of their one-time setup (README, "Pulls in the cloud: the
+# one-time setup"): until then the project has no Cloud Tasks, and no account for them to run as.
+# The rebuilds after saves (`onCopyWrite`, `rebuild`) are the same once the LIVE_REBUILD variable is
+# `on` (README, "Rebuilds after saves: the one-time setup"), and the edit function (`edit`) with
+# them, which runs as their account and asks nothing more of the project.
+#
+# The GameChanger proxy runs on Firebase because Vercel's Hobby plan bills a function's CPU and
+# invocations, and a nationwide pull spends both; see README, "The GameChanger proxy on Firebase".
+# The rules open the cloud copy of the app's data to the Google accounts on the owner's list and
+# nothing else; see README, "Your data on every device". Until the FIREBASE_PROJECT_ID variable and the
+# FIREBASE_SERVICE_ACCOUNT secret are set the deploy step says so and passes, so this workflow is
+# never red for want of an account.
+#
+# A push to main that deploys then publishes the members' views again from the cloud copy wherever
+# this build wants them published (`republishWanted`, `scripts/republish.ts`, README "Views a server
+# publishes"): where none are published (`nothing`); where they are of an older schema than this
+# build writes (`older-schema`); and where they are of this schema but their boards are recorded
+# under an older shape than this build's (`BOARD_SHAPE`), or under none (`older-shape`), so that
+# they draw but lack what this build adds to them; and where they were built under older rules than
+# this build's (`BOARD_RULES`, `older-rules`), since rules raised as a barrier to older publishers
+# bar nothing until boards under them are published. Otherwise a deploy that raises the schema leaves
+# every member on the older schema's notice until the nightly, and one that raises the shape leaves
+# the boards without what it was deployed for until the next rebuild or the nightly.
+name: Firebase functions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "api/gc-team.ts"
+      - "scripts/handlerFetch.ts"
+      # The whole of it, since a pull in the cloud files through the app's own importer and tidy:
+      # a function left on older rules than the app would stamp the copy with them.
+      - "src/lib/**"
+      - "firestore.rules"
+      - "firebase.json"
+      - ".github/workflows/firebase.yml"
+      # The republish after a deploy, and what it opens the cloud with.
+      - "scripts/republish.ts"
+      - "scripts/viewsReport.ts"
+      - "scripts/cloudPool.ts"
+  pull_request:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "api/gc-team.ts"
+      - "scripts/handlerFetch.ts"
+      # The whole of it, since a pull in the cloud files through the app's own importer and tidy:
+      # a function left on older rules than the app would stamp the copy with them.
+      - "src/lib/**"
+      - "firestore.rules"
+      - "firebase.json"
+      - ".github/workflows/firebase.yml"
+      - "scripts/republish.ts"
+      - "scripts/viewsReport.ts"
+      - "scripts/cloudPool.ts"
+  workflow_dispatch:
+
+# Deploys queue rather than cancel: a deploy cut off halfway can leave a function half-updated. The
+# republish after one is in the same run, so two never publish at once, and a deploy waiting behind
+# it publishes with the newer build.
+concurrency:
+  group: firebase-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  functions:
+    runs-on: ubuntu-latest
+    outputs:
+      # Whether this run really deployed: the project connected and the key set.
+      deployed: ${{ steps.deploy.outputs.deployed }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --prefix functions
+      # The built bundle, run as Cloud Functions will run it: a fake request, no network. Built
+      # with the pulls in the cloud and the rebuilds after saves, and then without either, as a
+      # project not yet set up for them has it.
+      - run: npm run build --prefix functions && npm run smoke --prefix functions
+        env:
+          CLOUD_PULLS: "on"
+          LIVE_REBUILD: "on"
+      - run: npm run build --prefix functions && npm run smoke --prefix functions
+      # The rules, tried against the Firestore emulator by the app's own Firestore code: an owner,
+      # a second account and a signed-out browser, each doing what the app does and what it must
+      # not. The emulator wants Java 21, which the runner carries beside its default.
+      - run: npm ci
+      - name: Firestore rules
+        run: |
+          if [ -n "${JAVA_HOME_21_X64:-}" ]; then
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+          fi
+          java -version
+          npm run test:rules
+
+      - name: Deploy
+        id: deploy
+        if: github.event_name != 'pull_request'
+        env:
+          PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
+          KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # Read by the deploy's own build too (`functions/build.mjs`), which leaves the pulls and
+          # the rebuilds out until each is on.
+          CLOUD_PULLS: ${{ vars.CLOUD_PULLS }}
+          LIVE_REBUILD: ${{ vars.LIVE_REBUILD }}
+        run: |
+          if [ -z "$PROJECT" ] || [ -z "$KEY" ]; then
+            echo "::notice::Not deployed: set the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret (README, 'The GameChanger proxy on Firebase')."
+            exit 0
+          fi
+          # With the pulls on, every function built is deployed, and one no longer built is taken
+          # down; without them, only the functions named, the rebuilds' once they are on.
+          only="functions,firestore:rules"
+          if [ "$CLOUD_PULLS" != "on" ]; then
+            only="functions:gcTeam,functions:billingCap"
+            if [ "$LIVE_REBUILD" = "on" ]; then
+              only="$only,functions:onCopyWrite,functions:onLeagueWrite,functions:rebuild,functions:edit"
+            fi
+            only="$only,firestore:rules"
+            echo "::notice::Pulls in the cloud not deployed: do their one-time setup, then set the CLOUD_PULLS variable to on (README, 'Pulls in the cloud: the one-time setup')."
+          fi
+          if [ "$LIVE_REBUILD" != "on" ]; then
+            echo "::notice::Rebuilds after saves not deployed: do their one-time setup, then set the LIVE_REBUILD variable to on (README, 'Rebuilds after saves: the one-time setup')."
+          fi
+          printf '%s' "$KEY" > "$RUNNER_TEMP/deploy-key.json"
+          trap 'rm -f "$RUNNER_TEMP/deploy-key.json"' EXIT
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/deploy-key.json"
+          # --force sets up the cleanup policy for old build images, which is what keeps their
+          # storage from growing a cost of its own.
+          npx --yes firebase-tools@15 deploy --only "$only" --project "$PROJECT" --non-interactive --force
+          # A deploy that names its functions takes none down, and a rebuild or an edit function left
+          # standing once the rebuilds are off would go on writing the copy on an old build, as a
+          # League trigger would go on asking for rebuilds: each is taken down, where it is there to
+          # take.
+          if [ "$CLOUD_PULLS" != "on" ] && [ "$LIVE_REBUILD" != "on" ]; then
+            for fn in onCopyWrite onLeagueWrite rebuild edit; do
+              npx --yes firebase-tools@15 functions:delete "$fn" --region us-central1 --project "$PROJECT" --force \
+                || echo "::notice::No $fn function to take down."
+            done
+          fi
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+
+  # The members' views published again from the cloud copy once a push to main has deployed, only
+  # where this build wants them published (`republishWanted`): none published (`nothing`), an older
+  # schema (`older-schema`), or this schema with its boards recorded under an older shape or none
+  # (`older-shape`) or under older rules (`older-rules`). The first deploy of a build that raises `BOARD_SHAPE` meets the last over a
+  # meta of the current schema, so a full publish, which can fail as any publish can, follows it
+  # though the schema has not moved. Any other time it says so and stops. It runs as the nightly
+  # does, under its day, collation and heap, since it builds every board from the whole pool. It
+  # does not share the nightly's concurrency group: a run waiting in a group is cancelled by the
+  # next to join it, which could lose a night, and the two publishing at once is what the views'
+  # store is built for (the meta is replaced only over the version read, and a late publish
+  # replaces nothing newer: README, "Views a server publishes").
+  republish:
+    needs: functions
+    if: github.event_name == 'push' && needs.functions.outputs.deployed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # Its alarm's issue, opened, commented on and closed with the run's own token.
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install, as the nightly: the app's own files, run by Node as they are.
+      - name: Publish the views again where they are older
+        id: republish
+        # Short of the job's 60, so a republish that hangs ends here and the alarm still runs.
+        timeout-minutes: 55
+        run: npm run republish
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          TZ: America/New_York
+          LANG: en_US.UTF-8
+          NODE_OPTIONS: --max-old-space-size=12288
+      # A republish that fails opens an issue, or comments on the one open; one that does not closes
+      # it (`scripts/alarm.ts`, README "When a run fails"). Allowed to fail on its own, as the
+      # nightly's is: a deploy and a republish that both succeeded stay green.
+      - name: Raise or settle the alarm
+        if: always()
+        continue-on-error: true
+        run: npm run alarm -- republish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.republish.outcome }}
