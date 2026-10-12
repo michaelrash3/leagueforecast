@@ -4445,6 +4445,12 @@ off every board ("Clubs removed for you"): the fixture holds one such club, 5's
 fingerprint is the boards without it, and the same fixture with its marks taken
 off still gives 4's.
 
+Board rules 6 apply a circular-schedule deduction capped at one rating point.
+The deduction reads the opponents' other games, uses the fit's recency weights,
+and leaves missing opponent schedules inconclusive. The historical pins for
+rules 5 and 4 are still checked by adding the deduction back. Details and the
+season-sample evaluation are in [the deduction notes](docs/circular-schedule-deduction.md).
+
 The pool these run on is `scripts/poolFixture.ts`: a seeded pool of the 26
 September 2026 pool's shape, with invented names. It has ten pages in two squad
 years and one with none, League Standings seasons that mint, link and fold,

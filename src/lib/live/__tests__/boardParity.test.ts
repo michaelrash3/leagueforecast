@@ -231,6 +231,9 @@ const steady = (boards: PageBoard[]) =>
         ...row,
         rating: toMillionth(row.rating),
         pointRating: toMillionth(row.pointRating),
+        ...(row.scheduleDeduction === undefined
+          ? {}
+          : { scheduleDeduction: toMillionth(row.scheduleDeduction) }),
         rawMargin: toMillionth(row.rawMargin),
         strengthOfSchedule: toMillionth(row.strengthOfSchedule),
       }))
@@ -245,7 +248,7 @@ const steady = (boards: PageBoard[]) =>
  * another collation, skips this pin and keeps the steady one; a new engine's value is added here
  * once its boards are seen to match its own worker's.
  */
-const DIGIT_PINS: Record<string, string> = { "12.4": "1cbcbc31", "13.6": "67c44dec" };
+const DIGIT_PINS: Record<string, string> = { "12.4": "07988d0f", "13.6": "bd6af00f" };
 const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions?.v8;
 const english = new Intl.Collator().resolvedOptions().locale.startsWith("en");
 const digitPin = english ? DIGIT_PINS[(engine ?? "").split(".").slice(0, 2).join(".")] : undefined;
@@ -748,7 +751,8 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * fingerprint is what says so; a version need not have one of its own unless it moved a board.
      * 4 moved them: a year of age is worth what it measured at each level (`AGE_STEP_RUNS`).
      * 5 moved them: a club taken off as plainly made up is left off every board (`autoRemoved.ts`),
-     * which the fixture now has one of; without it, the boards are 4's to the digit.
+     * which the fixture now has one of. 6 applies a bounded circular-schedule deduction.
+     * Adding that deduction back reproduces 5; also restoring marked clubs reproduces 4.
      */
     const RULES_PINS: Record<number, string> = {
       1: "a2c59173",
@@ -756,11 +760,21 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       3: "f9baf500",
       4: "2303b63a",
       5: "48c5c405",
+      6: "d2a7b071",
     };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
-    expect(fingerprint(steady(builtBoards({ ...stored(), autoRemoved: NO_REMOVALS })))).toBe(
-      RULES_PINS[4]
-    );
+    const beforeDeduction = (boards: PageBoard[]): PageBoard[] =>
+      boards.map((board) => ({
+        ...board,
+        rows: board.rows.map(({ scheduleDeduction, ...row }) => ({
+          ...row,
+          rating: row.rating + (scheduleDeduction ?? 0),
+        })),
+      }));
+    expect(fingerprint(steady(beforeDeduction(builtBoards(stored()))))).toBe(RULES_PINS[5]);
+    expect(
+      fingerprint(steady(beforeDeduction(builtBoards({ ...stored(), autoRemoved: NO_REMOVALS }))))
+    ).toBe(RULES_PINS[4]);
   });
 
   it("leave a club taken off as plainly made up off every board, and on them without its marks", () => {

@@ -29,6 +29,21 @@ const its = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: fal
 const your = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: true, cap: CAP });
 
 describe("the line above a club's games", () => {
+  it("separates the schedule deduction from confidence in the record", () => {
+    const breakdown = { rating: 2.3, pointRating: 2.5, scheduleDeduction: 0.5, lines: new Map() };
+    const notes = gameNotesOf(breakdown, { span: "Season", own: true, cap: CAP });
+    expect(notes.headline).toBe(
+      "Season rating +2.3: +2.5 from your games, +0.3 because your record makes your rating surer than the average club's, -0.5 for a circular schedule."
+    );
+    expect(notes.key).toContain("Game effects hold the schedule deduction fixed.");
+    expect(
+      ratingHeadline(
+        { rating: 1.5, pointRating: 2.5, scheduleDeduction: 1 },
+        { span: "Season", own: false }
+      )
+    ).toBe("Season rating +1.5: +2.5 from its games, -1.0 for a circular schedule.");
+  });
+
   it("splits the rating into its games and its record, surer or less sure than the average club's", () => {
     expect(
       ratingHeadline({ rating: 2.8, pointRating: 2.5 }, { span: "Fall 2026", own: true })

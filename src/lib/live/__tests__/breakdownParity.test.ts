@@ -293,16 +293,20 @@ describe("what each game did, worked out on a device", { timeout: 60_000 }, () =
       for (const row of view.rows) {
         const said = ratingHeadline(row, { span: "Season", own: false });
         const at = `${row.teamId} on ${pageId} ${segment ?? "year"}: ${said}`;
-        if (said.endsWith("because its record makes its rating surer than the average club's.")) {
+        if (said.includes("because its record makes its rating surer than the average club's")) {
           surer += 1;
           expect(spreadOf(row.teamId), at).toBeLessThan(average);
         } else if (
-          said.endsWith("because its record makes its rating less sure than the average club's.")
+          said.includes("because its record makes its rating less sure than the average club's")
         ) {
           lessSure += 1;
           expect(spreadOf(row.teamId), at).toBeGreaterThan(average);
         } else {
-          expect(said, at).toMatch(/^Season rating [+-]\d+\.\d, all of it from its games\.$/);
+          expect(said, at).toMatch(
+            (row.scheduleDeduction ?? 0) > 0
+              ? /^Season rating [+-]\d+\.\d: [+-]\d+\.\d from its games, -\d+\.\d for a circular schedule\.$/
+              : /^Season rating [+-]\d+\.\d, all of it from its games\.$/
+          );
         }
         if (spreadOf(row.teamId) < average) gaining += 1;
       }

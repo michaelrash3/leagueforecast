@@ -129,39 +129,39 @@ describe("the what-if curve", () => {
     const curve = curveFor(fixture())!;
     /*
      * With `RATING_CAP` at 12 the curve runs to twelve either way. The rows from -8 to 8 and the
-     * rating at 3 are the numbers pinned when the cap was 8, to the digit: this pool's games never
-     * reach eight, so the fit is the same one and the cap only adds the rows past it.
+     * rating at 3 first came from the cap at 8. Board rules 6 add the same circular-schedule
+     * deduction as a real re-fit, so this pin now records that ranking policy too.
      */
     expect(curve.points.map((point) => [point.margin, point.rank])).toEqual([
-      [-12, 111],
+      [-12, 114],
       [-11, 110],
       [-10, 109],
-      [-9, 107],
-      [-8, 104],
-      [-7, 103],
+      [-9, 109],
+      [-8, 107],
+      [-7, 105],
       [-6, 101],
       [-5, 98],
-      [-4, 94],
-      [-3, 85],
-      [-2, 78],
-      [-1, 74],
-      [1, 57],
-      [2, 52],
-      [3, 47],
-      [4, 42],
+      [-4, 97],
+      [-3, 90],
+      [-2, 84],
+      [-1, 77],
+      [1, 63],
+      [2, 58],
+      [3, 50],
+      [4, 45],
       [5, 38],
-      [6, 31],
-      [7, 26],
-      [8, 21],
-      [9, 17],
-      [10, 14],
+      [6, 35],
+      [7, 30],
+      [8, 23],
+      [9, 19],
+      [10, 15],
       [11, 13],
-      [12, 7],
+      [12, 10],
     ]);
     expect(curve.winRecord).toBe("7-5");
     expect(curve.lossRecord).toBe("6-6");
     expect(curve.rankedCount).toBe(120);
-    expect(curve.points.find((point) => point.margin === 3)!.rating).toBeCloseTo(0.1997, 4);
+    expect(curve.points.find((point) => point.margin === 3)!.rating).toBeCloseTo(-0.1179, 4);
   });
 
   /*

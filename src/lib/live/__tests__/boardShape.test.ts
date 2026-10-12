@@ -37,6 +37,13 @@ const ROW: BoardRow = {
   fromGameChanger: true,
 };
 
+it("reads both earlier boards and rows carrying a schedule deduction", () => {
+  expect(isBoardRow(ROW)).toBe(true);
+  const next = coerceBoardView({ rows: [{ ...ROW, scheduleDeduction: 0.5 }] });
+  expect(next?.rows[0]?.scheduleDeduction).toBe(0.5);
+  expect(isBoardRow({ ...ROW, scheduleDeduction: "0.5" })).toBe(false);
+});
+
 describe("a published board's row", () => {
   it("is every field a ranking row has but the star, with the facts it carries", () => {
     expect(isBoardRow(ROW)).toBe(true);
