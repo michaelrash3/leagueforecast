@@ -1,7 +1,7 @@
 /**
- * GET /api/gc-team?id=<teamId> — one GameChanger team's public profile and schedule.
+ * GET /gcTeam?id=<teamId> — one GameChanger team's public profile and schedule.
  *
- * Runs as a Vercel Serverless Function because GameChanger's public API only answers browsers on
+ * Runs as a Firebase function because GameChanger's public API only answers browsers on
  * web.gc.com (its CORS allows nothing else), so the app's own origin has to ask from a server.
  * Nothing here is secret: the upstream endpoints need no login. The function's job is to look
  * like the schedule page (the `Accept` versions, `gc-app-name`, origin and referer that page
@@ -52,12 +52,11 @@ import {
 
 /**
  * The one Node global this function needs. Declared here rather than via `@types/node`: installing
- * that package also changes global timer typings for the browser project, and Vercel type-checks
- * this entrypoint with its own config, which would not pick up a sibling declaration file.
+ * that package also changes global timer typings for the browser project.
  */
 declare const process: { env: Record<string, string | undefined> };
 
-/** The error half of `GcTeamResponse`, spelled out so the non-strict Vercel check narrows it. */
+/** The error half of `GcTeamResponse`. */
 type GcTeamFailure = {
   ok: false;
   reason: GcFetchErrorReason;
@@ -143,9 +142,7 @@ const upstreamHeaders = (accept: string, config: UpstreamConfig): Record<string,
 });
 
 /**
- * Outcome of one upstream fetch. Deliberately a flat shape rather than a discriminated union:
- * Vercel type-checks this file with its own non-strict TypeScript defaults, where narrowing a
- * union by a boolean field after an early return does not work.
+ * Outcome of one upstream fetch, including diagnostics when the request failed.
  */
 type UpstreamResult = {
   url: string;
@@ -365,7 +362,7 @@ const MAX_CACHED_PROFILES = 2_000;
 const profileCache = createTtlCache<GcTeamProfile>(PROFILE_TTL_MS, MAX_CACHED_PROFILES);
 
 /**
- * Empties the profile cache. Vercel routes only the default export, so this is here for tests —
+ * Empties the profile cache. Firebase runs only the default handler, so this is here for tests —
  * without it one test's cached profile answers the next one's request and the fetch under test
  * never happens.
  */
@@ -402,8 +399,7 @@ const pullTeam = async (teamId: string, config: UpstreamConfig): Promise<PulledT
   if (cachedProfile) {
     profile = cachedProfile;
   } else {
-    // Not cached, so `profileResult` is the fetch above; the fallback keeps the non-strict Vercel
-    // check happy about a value it cannot see is always present here.
+    // Not cached, so `profileResult` is the fetch above; retain diagnostics if none was returned.
     const fetched = profileResult ?? {
       url: gcProfileApiUrl(teamId, config.base),
       status: 0,
@@ -620,7 +616,7 @@ export async function gcTeamHandler(req: ApiRequest, res: ApiResponse): Promise<
 }
 
 /**
- * The proxy as it is served, on Vercel and as the Firebase function (`functions/src/index.ts`):
+ * The proxy as it is served, as the Firebase function (`functions/src/index.ts`):
  * behind the cloud copy's list, so a caller from outside must be signed in with an account on it.
  * The check is made once per instance and keeps its answers (`createMemberCheck`).
  */

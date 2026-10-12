@@ -48,7 +48,9 @@ const TEAM_ID = "gsUthn4XoIxS";
 
 describe("constants and URLs", () => {
   it("names the proxy endpoint and GameChanger's public API base", () => {
-    expect(GC_TEAM_ENDPOINT).toBe("/api/gc-team");
+    expect(GC_TEAM_ENDPOINT).toBe(
+      "https://us-central1-league-forecast-youth.cloudfunctions.net/gcTeam"
+    );
     expect(GC_PUBLIC_API_BASE).toBe("https://api.team-manager.gc.com");
     expect(GC_PROFILE_ACCEPT).toContain("public_team_profile+json");
     expect(GC_GAMES_ACCEPT).toContain("public_team_schedule_event:list+json");

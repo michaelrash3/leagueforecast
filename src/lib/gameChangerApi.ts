@@ -1,8 +1,8 @@
 /**
  * GameChanger's public team API, as this app understands it.
  *
- * Everything here is pure and imports nothing else from the app, because it is shared between the
- * browser and the Vercel function in `api/gc-team.ts` (which `tsconfig.api.json` type-checks on
+ * The normalization is pure and shared between the
+ * browser and the Firebase function in `server/gc-team.ts` (which `tsconfig.api.json` type-checks on
  * its own, without the React side). The browser cannot call GameChanger directly — the API's CORS
  * only admits web.gc.com — so the function fetches the raw JSON and both sides agree here on what
  * that JSON means: how a profile and a schedule normalize, how a status maps, and how the user's
@@ -11,6 +11,8 @@
  * The shapes were taken from a real capture of web.gc.com's schedule page; the fixtures under
  * `src/lib/__tests__/fixtures/` are the ground truth for every normalizer.
  */
+
+import { GC_TEAM_FUNCTION_URL } from "./cloud/apiEndpoints";
 
 export type GcSeasonName = "fall" | "winter" | "spring" | "summer";
 
@@ -280,8 +282,8 @@ export type GcTeamListEntry = {
   tournaments?: GcTeamAssociation[];
 };
 
-/** The app's own proxy for GameChanger (a Vercel function; see `api/gc-team.ts`). */
-export const GC_TEAM_ENDPOINT = "/api/gc-team";
+/** The app's Firebase proxy for GameChanger (see `server/gc-team.ts`). */
+export const GC_TEAM_ENDPOINT = GC_TEAM_FUNCTION_URL;
 
 export const GC_PUBLIC_API_BASE = "https://api.team-manager.gc.com";
 

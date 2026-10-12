@@ -7,8 +7,8 @@ A browser-first web app for league predictions, power ratings, matchup analysis,
 - Vite 8 + React 19 + TypeScript 6
 - Tailwind CSS 4 (configured in CSS; there is no tailwind.config.js)
 - Web Worker-based Monte Carlo simulation
-- Two Vercel Serverless Functions: `api/league-summary.ts` for the AI league story (Gemini, and
-  Groq when Gemini cannot), `api/gc-team.ts` for the GameChanger pull
+- Firebase HTTP functions for the AI league story (`server/league-summary.ts`, Gemini then Groq)
+  and GameChanger pulls (`server/gc-team.ts`); Vercel serves the static website
 - Vitest, with coverage reported (not enforced) on every pull request
 - ESLint + Prettier
 
@@ -84,9 +84,9 @@ starts in its June. A season inside one calendar year is ordered exactly as befo
 A map rather than a manifest — the directories and the files worth knowing about, not every file.
 
 ```
-api/
-  league-summary.ts     # Vercel function: AI recap of standings movement (Gemini, then Groq)
-  gc-team.ts            # Vercel function: CORS proxy for the GameChanger pull
+server/
+  league-summary.ts     # Firebase handler: AI recap of standings movement (Gemini, then Groq)
+  gc-team.ts            # Firebase handler: GameChanger pull
 scripts/
   poolFixture.ts        # a seeded pool of a real pool's shape, for the live views' tests and timings
   recencySweep.ts       # research: which recency scheme predicts best on a real pool
@@ -1605,14 +1605,14 @@ a **league is neither automatically** — "NKB 11u" is a travel league and
 "Mt. Carmel Little League" is rec ball, and only the name says which.
 
 GameChanger's public API allows only its own site as an origin, so the browser
-cannot call it. `api/gc-team.ts` is a serverless function that reads a team's
+cannot call it. `server/gc-team.ts` is a Firebase handler that reads a team's
 profile and games on the app's behalf and maps every failure to a reason the
 panel can explain. It sends the same `Accept` versions and `gc-app-name` header
 the site does. `GC_EXTRA_HEADERS` takes a JSON object of extra headers for the
 day AWS WAF starts challenging server traffic.
 
-**Only the accounts on the cloud copy's list can pull.** The proxy, on Vercel and
-on Firebase alike, answers a request only when it carries the Firebase sign-in of
+**Only the accounts on the cloud copy's list can pull.** The Firebase proxy
+answers a request only when it carries the Firebase sign-in of
 an account on the list (**Your data on every device**), and tells anyone else
 `members-only` with what to do (**The GameChanger proxy on Firebase** says how it
 checks). A browser nobody has signed in to, or one signed in with an account the
@@ -3950,9 +3950,13 @@ two catch-ups sent beside a 9,270-team pull waited behind it, and a leg took 199
 to 379 s. A job's own legs are never at once, since each queues the next as it
 ends; legs of two jobs that save together cost the later one a second filing onto
 the copy as the other left it, never a lost save. Each leg runs in a worker thread capped at 5,120 MB of heap, which
-leaves the rest of the 8 GiB for the bytes a heap does not count. A leg that runs
-out of memory ends as an error the function can see, rather than taking the
-instance down with it. Before starting the worker, the function sets the job's
+leaves the rest of the 8 GiB for the bytes a heap does not count. A heap failure is
+reported by the worker; total instance memory still has its own limit. The worker
+has a 25-minute deadline inside the task's 30 minutes, and the parent waits for it
+to terminate before returning or retrying. Its error is recorded on the job on
+every try, so the progress line can say it is waiting to retry. Hashing the copy
+happens before building the loaded pool, reducing temporary memory during loading.
+Before starting the worker, the function sets the job's
 time zone: a worker cannot change its own zone, but one started after its parent
 changes it keeps the new one.
 
@@ -6541,11 +6545,13 @@ point or two between runs.
 | `GROQ_API_KEY`       | No       | Groq writes the story when Gemini cannot. Server-side only, like Gemini's.    |
 | `GROQ_MODEL`         | No       | Pins one Groq model id (e.g. `llama-3.3-70b-versatile`). Tried first.         |
 
-Set these in Vercel under **Project → Settings → Environment Variables**, for
-every environment you want the AI story in, then redeploy. Do
+Set `GEMINI_API_KEY` and `GROQ_API_KEY` as GitHub Actions repository secrets, and
+optional `GEMINI_MODEL` and `GROQ_MODEL` as repository variables. The **Firebase functions**
+workflow passes them to Firebase on deployment. For a local Firebase deployment, use the
+gitignored `functions/.env.<project-id>` file. Do
 _not_ prefix them with `VITE_`: any `VITE_*` variable is inlined into the client
 bundle and would publish the key to every visitor. The browser posts recap facts
-to `/api/league-summary` and the function calls Gemini with the key, and Groq with
+to the Firebase `leagueSummary` function and the function calls Gemini with the key, and Groq with
 its key when Gemini cannot write the story.
 
 ### Model selection
@@ -6607,7 +6613,7 @@ diagnosable at a glance instead of looking like "the AI just isn't running":
 | -------------------------------- | ----------------------------------------------------------------------------------- |
 | `AI` badge                       | Gemini or Groq wrote this. The tooltip names which, and the model.                  |
 | `AI off — no API key`            | The function ran but neither `GEMINI_API_KEY` nor `GROQ_API_KEY` is readable by it. |
-| `AI off — endpoint not deployed` | Nothing is serving `/api/league-summary`.                                           |
+| `AI off — endpoint not deployed` | The Firebase `leagueSummary` function is unavailable.                              |
 | `Paused — too many retries`      | This app's own per-browser limit. No model was attempted.                           |
 | `AI limit reached`               | Gemini's quota refused every model tried, and Groq's too when its key is set.       |
 | `No AI model available`          | The key listed no usable model.                                                     |
@@ -6625,12 +6631,12 @@ model the key can reach, or that the key is not reaching the function, or that
 nothing is serving the endpoint at all. It runs as a `fetch`, so a stale service
 worker cannot answer it with the cached app shell.
 
-The same check is available directly at `GET /api/league-summary` — no console
+The same check is available directly at `GET /leagueSummary` on Firebase — no console
 needed:
 
 ```
-https://<your-site>/api/league-summary
-https://<your-site>/api/league-summary?probe=1
+https://us-central1-league-forecast-youth.cloudfunctions.net/leagueSummary
+https://us-central1-league-forecast-youth.cloudfunctions.net/leagueSummary?probe=1
 ```
 
 | Result                              | Meaning                                                                                          |
@@ -6640,7 +6646,7 @@ https://<your-site>/api/league-summary?probe=1
 | `keyHadSurroundingWhitespace: true` | The stored value has leading/trailing whitespace (a paste artifact).                             |
 | `keyLength`                         | Length only, never the value — catches a truncated paste.                                        |
 | `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.                |
-| `vercelEnv`                         | `production` or `preview` — environment variables are scoped per environment.                    |
+| `vercelEnv`                         | Legacy diagnostic field; empty on Firebase.                                                     |
 | `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                     |
 | `?probe=1` → `ok: false`            | Gemini rejected the key. The response quotes Google's own error and names the fix.               |
 | `?probe=1` → `listError`            | Google's verbatim status and message for the model listing.                                      |
@@ -6648,10 +6654,8 @@ https://<your-site>/api/league-summary?probe=1
 | `groq`                              | The Groq key's side: `keyConfigured`, `keyLength`, `keyHadSurroundingWhitespace`, `pinnedModel`. |
 | `?probe=1` → `groq.probe`           | Whether Groq lists models for its key, the order they would be tried, and Groq's own error.      |
 
-Two Vercel behaviors cause most of the confusion: environment variables are
-**scoped per environment** (a Production-only variable is invisible to preview
-deploys), and a variable added after the last build **is not picked up until you
-redeploy**.
+Credentials previously stored in Vercel do not reach Firebase. Copy the provider keys into
+GitHub Actions repository secrets and redeploy **Firebase functions** after changing them.
 
 A key **restricted to HTTP referrers** is the trap worth knowing about: it works
 from a browser and fails from a server, because a server sends no referrer. That
@@ -6671,9 +6675,9 @@ Gemini rejected.
 
 ### Local development
 
-`npm run dev` serves the Vite app only, so `/api/league-summary` returns 404 and
-the deterministic story is shown. To exercise the AI path locally, run
-`vercel dev` with `GEMINI_API_KEY` in a local `.env` file (git-ignored).
+`npm run dev` serves the Vite app and uses the deployed Firebase APIs. When the summary
+function has no provider keys, the deterministic story is shown. API tests exercise the
+shared handlers with recorded provider responses and require no deployed credentials.
 
 ## Performance notes
 
@@ -6984,23 +6988,29 @@ This project tracks the newest dependency/runtime baseline that can be installed
 
 ## Deploy
 
-Vercel deploys the Vite app plus the `api/` serverless function. CI runs lint,
-typecheck, tests, and build. Set `GEMINI_API_KEY` in the Vercel project to turn
-on the AI league story; without it the deploy still works and uses the local
-story generator.
+Vercel deploys the static Vite app. There is no `api/` directory, so this repository
+does not create Vercel serverless functions. Firebase deploys both HTTP APIs, `gcTeam`
+and `leagueSummary`, and the app uses their URLs by default. `VITE_GC_PROXY_URL` is an
+optional override for another proxy, rather than a setting needed to avoid Vercel CPU.
+CI runs lint, typecheck, tests, build, and checks that both default endpoints are Firebase.
+
+To stop Vercel function CPU usage, merge and deploy this version of the site. Existing
+deployments retain their old functions; remove obsolete preview deployments in Vercel if
+they still receive traffic. Usage already incurred remains in the month's total. Optional
+AI provider keys belong in GitHub Actions secrets for the Firebase deployment, not Vercel.
+Without those keys the app continues to use its local story generator.
 
 ### The GameChanger proxy on Firebase
 
-The proxy can run as a Firebase function instead of on Vercel. Vercel's Hobby plan
+The proxy runs as a Firebase function. Vercel's Hobby plan
 bills a function's invocations and CPU, and a nationwide pull spends both: 443,000
 calls had used the month's four hours of Active CPU by 28 September 2026. The
-function in `functions/` is the same handler as `api/gc-team.ts`, bundled by
+function in `functions/` is the shared handler in `server/gc-team.ts`, bundled by
 esbuild, with two things a function on another host adds for itself
 (`serveGcProxy`): CORS for the app's own pages, including exposing `Retry-After` so
 the pull can still hold itself back, and gzip, which Vercel does for a function and
-Firebase does not. The app asks whichever proxy `VITE_GC_PROXY_URL` names at build
-time, and `/api/gc-team` when it names none, so moving is a setting and so is moving
-back. The Vercel function stays deployed either way. CI builds the bundle and runs
+Firebase does not. The app defaults to the project's Firebase function even when
+`VITE_GC_PROXY_URL` is absent; there is no fallback to a Vercel API. CI builds the bundle and runs
 it on a fake request (`functions/smoke.mjs`) on every change to it, and the
 **Firebase functions** workflow deploys it on merge once the project is connected.
 
@@ -7097,10 +7107,9 @@ it either way.
    through as it does Vercel's is the first pull from the app, signed in, through
    the function. Setting the repository variable `VERIFY_GC_PROXY` to the URL makes
    the weekly check use it too.
-6. In the Vercel project, add the environment variable `VITE_GC_PROXY_URL` set to
-   that URL, and redeploy. Pulls now go to Firebase; the **Usage** page in the
-   Firebase console shows them arrive. Removing the variable and redeploying moves
-   them back.
+6. Deploy the latest site. It defaults to this project's Firebase `gcTeam` URL. Only
+   when using another Firebase project, set `VITE_GC_PROXY_URL` to its function URL
+   before building the site. The Firebase **Usage** page shows requests arrive.
 
 **A hard stop on the bill.** Google Cloud has no spending cap: a budget only sends
 email. The `billingCap` function (`src/lib/billingCap.ts`) makes one, the way
@@ -7165,9 +7174,8 @@ budget**, under its actions, names `billing-cap`. After a deploy, the function's
 log (Firebase console, **Functions**, `billingCap`) shows a line for every reading:
 "Under the budget (0.12 USD of 1.00 USD); nothing done."
 
-**If it stops the project.** Pulls fail, since the proxy is down; removing
-`VITE_GC_PROXY_URL` from Vercel and redeploying sends them back to Vercel's proxy
-meanwhile. To start it again, raise the budget's amount first, or the next reading
+**If it stops the project.** Pulls fail, since the proxy is down. The app does not
+switch requests to Vercel. To start it again, raise the budget's amount first, or the next reading
 turns billing off again, since the month's cost is still past it; then link the
 project to its billing account (**Billing → Account management**, the project's
 menu, **Change billing**) and run **Firebase functions** to bring the functions back.

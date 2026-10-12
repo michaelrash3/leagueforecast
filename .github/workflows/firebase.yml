@@ -32,7 +32,7 @@ on:
     branches: [main]
     paths:
       - "functions/**"
-      - "api/gc-team.ts"
+      - "server/**"
       - "scripts/handlerFetch.ts"
       # The whole of it, since a pull in the cloud files through the app's own importer and tidy:
       # a function left on older rules than the app would stamp the copy with them.
@@ -48,7 +48,7 @@ on:
     branches: [main]
     paths:
       - "functions/**"
-      - "api/gc-team.ts"
+      - "server/**"
       - "scripts/handlerFetch.ts"
       # The whole of it, since a pull in the cloud files through the app's own importer and tidy:
       # a function left on older rules than the app would stamp the copy with them.
@@ -110,6 +110,10 @@ jobs:
         env:
           PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
           KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GROQ_MODEL: ${{ vars.GROQ_MODEL }}
           # Read by the deploy's own build too (`functions/build.mjs`), which leaves the pulls and
           # the rebuilds out until each is on.
           CLOUD_PULLS: ${{ vars.CLOUD_PULLS }}
@@ -123,7 +127,7 @@ jobs:
           # down; without them, only the functions named, the rebuilds' once they are on.
           only="functions,firestore:rules"
           if [ "$CLOUD_PULLS" != "on" ]; then
-            only="functions:gcTeam,functions:billingCap"
+            only="functions:gcTeam,functions:leagueSummary,functions:billingCap"
             if [ "$LIVE_REBUILD" = "on" ]; then
               only="$only,functions:onCopyWrite,functions:onLeagueWrite,functions:rebuild,functions:edit"
             fi
@@ -134,8 +138,16 @@ jobs:
             echo "::notice::Rebuilds after saves not deployed: do their one-time setup, then set the LIVE_REBUILD variable to on (README, 'Rebuilds after saves: the one-time setup')."
           fi
           printf '%s' "$KEY" > "$RUNNER_TEMP/deploy-key.json"
-          trap 'rm -f "$RUNNER_TEMP/deploy-key.json"' EXIT
+          trap 'rm -f "$RUNNER_TEMP/deploy-key.json" "functions/.env.$PROJECT"' EXIT
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/deploy-key.json"
+          # Optional AI credentials stay server-side. Never use VITE_* for these keys.
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const lines = ['GEMINI_API_KEY', 'GROQ_API_KEY', 'GEMINI_MODEL', 'GROQ_MODEL']
+            .filter(name => process.env[name]?.trim())
+            .map(name => `${name}=${JSON.stringify(process.env[name].trim())}`);
+          if (lines.length) writeFileSync(`functions/.env.${process.env.PROJECT}`, lines.join('\n') + '\n', { mode: 0o600 });
+          NODE
           # --force sets up the cleanup policy for old build images, which is what keeps their
           # storage from growing a cost of its own.
           npx --yes firebase-tools@15 deploy --only "$only" --project "$PROJECT" --non-interactive --force

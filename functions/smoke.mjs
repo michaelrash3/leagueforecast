@@ -17,10 +17,19 @@ process.env.GCLOUD_PROJECT = "smoke-project";
 // the list, which the stand-in below answers). Read once, as the SDK loads.
 process.env.FIREBASE_DEBUG_MODE = "true";
 process.env.FIREBASE_DEBUG_FEATURES = JSON.stringify({ skipTokenVerification: true });
-const { gcTeam, billingCap, startPull, runPull, onCopyWrite, onLeagueWrite, rebuild, edit } =
-  await import("./lib/index.js");
+const {
+  gcTeam,
+  leagueSummary,
+  billingCap,
+  startPull,
+  runPull,
+  onCopyWrite,
+  onLeagueWrite,
+  rebuild,
+  edit,
+} = await import("./lib/index.js");
 
-const call = (url, headers = {}) =>
+const call = (url, headers = {}, handler = gcTeam, method = "GET", body) =>
   new Promise((resolve, reject) => {
     const sent = { status: 200, headers: {} };
     const res = {
@@ -43,13 +52,14 @@ const call = (url, headers = {}) =>
       on: () => res,
     };
     const req = {
-      method: "GET",
+      method,
       url,
+      body,
       headers: { origin: "https://leagueforecast.vercel.app", ...headers },
       socket: { remoteAddress: "203.0.113.7" },
       get: (name) => headers[name.toLowerCase()],
     };
-    Promise.resolve(gcTeam(req, res)).catch(reject);
+    Promise.resolve(handler(req, res)).catch(reject);
   });
 
 const text = (sent) =>
@@ -63,6 +73,39 @@ const check = (label, ok, detail) => {
     process.exitCode = 1;
   } else console.log(`ok   ${label}`);
 };
+
+// The migrated summary function answers from Firebase without making provider calls.
+{
+  const saved = {
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
+  };
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  try {
+    const preflight = await call("/leagueSummary", {}, leagueSummary, "OPTIONS");
+    check(
+      "summary preflight allows JSON POST",
+      preflight.status === 204 &&
+        preflight.headers["access-control-allow-methods"] === "GET, POST" &&
+        preflight.headers["access-control-allow-headers"].includes("content-type"),
+      "unexpected CORS response"
+    );
+    const health = await call("/leagueSummary", {}, leagueSummary);
+    check("summary health is served by Firebase", health.status === 200, String(health.status));
+    const missing = await call("/leagueSummary", {}, leagueSummary, "POST", {});
+    check(
+      "summary without keys preserves the local-story fallback",
+      missing.status === 503 && JSON.parse(text(missing)).reason === "unconfigured",
+      String(missing.status)
+    );
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
 
 // A callable's result is sent through the SDK's own `encode`, which is not JSON: it throws on a
 // number with no end and sends a field left undefined as null. So the edit function writes every

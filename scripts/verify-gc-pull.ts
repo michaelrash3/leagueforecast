@@ -13,11 +13,10 @@
  * refresh pulls them, which asks GameChanger from wherever this runs: one of GitHub's servers, in
  * the workflow (`verify-gc.yml`).
  *
- *   npm run verify:gc -- --base https://your-app.vercel.app --id FtEExZwB4b8E
+ *   npm run verify:gc -- --id FtEExZwB4b8E
  *
- * `--base` defaults to http://localhost:3000, which is where `vercel dev` serves the function.
- * `--proxy` names the proxy itself instead, for one that is not at `<base>/api/gc-team` — the
- * Firebase function (`functions/`), whose own URL is the endpoint:
+ * Defaults to this project's Firebase gcTeam function. `--base` names another functions origin
+ * (the script appends `/gcTeam`), and `--proxy` names a complete endpoint:
  *
  *   npm run verify:gc -- --proxy https://us-central1-<project>.cloudfunctions.net/gcTeam
  *
@@ -25,7 +24,7 @@
  * anything essential failed, so CI or a shell script can rely on it.
  */
 
-import type { GcTeamResponse } from "../src/lib/gameChangerApi.ts";
+import { GC_TEAM_ENDPOINT, type GcTeamResponse } from "../src/lib/gameChangerApi.ts";
 import {
   checkStrangerRefused,
   checkTeamResponse,
@@ -36,12 +35,11 @@ import { handlerFetch } from "./handlerFetch.ts";
 
 /**
  * The one Node global this script needs. Declared here rather than via `@types/node`, for the same
- * reason `api/gc-team.ts` does it: installing that package changes global timer typings for the
+ * reason `server/gc-team.ts` does it: installing that package changes global timer typings for the
  * browser project too.
  */
 declare const process: { argv: string[]; exit: (code: number) => never };
 
-const DEFAULT_BASE = "http://localhost:3000";
 /** A team id known to exist publicly, so the script is runnable with no arguments at all. */
 const SAMPLE_ID = "FtEExZwB4b8E";
 
@@ -49,7 +47,7 @@ type Args = { endpoint: string; ids: string[] };
 
 const parseArgs = (argv: string[]): Args => {
   const ids: string[] = [];
-  let base = DEFAULT_BASE;
+  let base: string | undefined;
   let proxy: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
@@ -65,7 +63,10 @@ const parseArgs = (argv: string[]): Args => {
       index += 1;
     }
   }
-  return { endpoint: proxy ?? `${base}/api/gc-team`, ids: ids.length > 0 ? ids : [SAMPLE_ID] };
+  return {
+    endpoint: proxy ?? (base ? `${base}/gcTeam` : GC_TEAM_ENDPOINT),
+    ids: ids.length > 0 ? ids : [SAMPLE_ID],
+  };
 };
 
 const MARK: Record<PullCheck["status"], string> = { pass: "  ok ", warn: "warn ", fail: "FAIL " };
@@ -97,7 +98,7 @@ const getJson = async (url: string): Promise<unknown> =>
   (await getJsonVia((input, init) => fetch(input, init), url)).body;
 
 /** The proxy's handler in this process: where the teams are pulled from (see the top). */
-const IN_PROCESS = "/api/gc-team";
+const IN_PROCESS = "/gcTeam";
 
 /**
  * How long a proxy that answers a stranger is asked again before that counts. A check run on a

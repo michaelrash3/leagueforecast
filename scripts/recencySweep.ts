@@ -61,7 +61,7 @@ import {
 
 /**
  * The Node globals this script needs. Declared here rather than via `@types/node`, for the same
- * reason `api/gc-team.ts` and `scripts/verify-gc-pull.ts` do it: installing that package changes
+ * reason `server/gc-team.ts` and `scripts/verify-gc-pull.ts` do it: installing that package changes
  * global timer typings for the browser project too.
  */
 declare const process: { argv: string[]; exitCode?: number };

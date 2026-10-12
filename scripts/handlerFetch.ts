@@ -1,6 +1,6 @@
 /**
  * `fetch` for the app's GameChanger client (`fetchGcTeams`) that is answered by the proxy's own
- * handler (`api/gc-team.ts`) in this process, rather than over the network by a deployed proxy.
+ * handler (`server/gc-team.ts`) in this process, rather than over the network by a deployed proxy.
  * A job on one of GitHub's servers asks GameChanger directly, as the Firebase proxy does, and pays
  * for nothing but the minutes: GameChanger answers GitHub's servers (`gcReach.ts`, 11,395 teams a
  * minute on 29 September 2026).
@@ -10,7 +10,7 @@
  * (`memberCheck.ts`): the job is not a caller from outside, and has no account to sign in with.
  * Here, beside the scripts, so the app's bundle never holds the handler.
  */
-import { gcTeamHandler } from "../api/gc-team.ts";
+import { gcTeamHandler } from "../server/gc-team.ts";
 import type { ApiRequest, ApiResponse } from "../src/lib/apiShared.ts";
 
 type Sent = { status: number; headers: Record<string, string>; body: string };

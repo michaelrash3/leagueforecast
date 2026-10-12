@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       base:
-        description: "Deployment to check (defaults to the VERIFY_GC_BASE variable)"
+        description: "Optional Firebase functions origin; the project's gcTeam function is the default"
         required: false
         type: string
       ids:
@@ -24,7 +24,7 @@ on:
         required: false
         type: string
       proxy:
-        description: "A proxy's own URL, such as the Firebase function's (overrides the deployment's /api/gc-team)"
+        description: "Optional complete proxy URL (overrides the project's Firebase function)"
         required: false
         type: string
 
@@ -50,23 +50,22 @@ jobs:
 
       - name: Wait for the deployment to be the one we just merged
         if: github.event_name == 'push'
-        # Vercel builds from the same push. Checking too early checks the previous deployment,
+        # Firebase deploys from the same push. Checking too early checks the previous deployment,
         # which passes while the new one is broken — the exact failure this job exists to catch.
         run: sleep 90
 
       - name: Verify
         id: verify
         env:
-          # Set the VERIFY_GC_BASE repository variable to point this at your own deployment.
-          # Until then it uses the project's default Vercel production URL; if that is wrong, the
-          # Proxy check fails and says so, which is its own answer rather than a silent pass.
-          BASE: ${{ inputs.base || vars.VERIFY_GC_BASE || 'https://leagueforecast.vercel.app' }}
+          # The script defaults to this project's Firebase function.
+          BASE: ${{ inputs.base }}
           IDS: ${{ inputs.ids }}
-          # Set the VERIFY_GC_PROXY repository variable to check the Firebase function as well.
+          # VERIFY_GC_PROXY can name another Firebase function if needed.
           PROXY: ${{ inputs.proxy || vars.VERIFY_GC_PROXY }}
         run: |
           set -o pipefail
-          args=(--base "$BASE")
+          args=()
+          if [ -n "$BASE" ]; then args+=(--base "$BASE"); fi
           if [ -n "$PROXY" ]; then args+=(--proxy "$PROXY"); fi
           for id in $IDS; do args+=(--id "$id"); done
           npm run --silent verify:gc -- "${args[@]}" 2>&1 | tee verify-gc.log
@@ -100,7 +99,7 @@ jobs:
               echo
               echo "### If the Proxy line failed"
               echo
-              echo "Nothing reached the app. Either the deployment is down, or \`$BASE\` is not"
-              echo "where it lives — set the \`VERIFY_GC_BASE\` repository variable to the right URL."
+              echo "The Firebase proxy check failed. Check the Firebase functions deployment, or"
+              echo "set the \`VERIFY_GC_PROXY\` repository variable if using another Firebase project."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

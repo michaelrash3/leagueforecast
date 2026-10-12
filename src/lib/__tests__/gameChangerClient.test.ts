@@ -102,8 +102,8 @@ describe("fetchGcTeam", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe("unconfigured");
-      expect(result.message).toMatch(/Vercel function/);
-      expect(result.message).toMatch(/vercel dev/);
+      expect(result.message).toMatch(/Firebase function/);
+      expect(result.message).toContain(GC_TEAM_ENDPOINT);
     }
   });
 
@@ -716,13 +716,12 @@ describe("reading GameChanger's own bodies", () => {
 });
 
 /*
- * Which proxy a pull asks. The Vercel function beside the app unless the build names another —
- * the Firebase function, `VITE_GC_PROXY_URL` — so moving hosts, and moving back, is a setting.
+ * Which proxy a pull asks: this project's Firebase function, with an optional build override.
  */
 describe("where the proxy is", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it("is the Vercel function unless the build names another", () => {
+  it("is the project's Firebase function unless the build names another", () => {
     expect(gcProxyEndpoint(undefined)).toBe(GC_TEAM_ENDPOINT);
     expect(gcProxyEndpoint("   ")).toBe(GC_TEAM_ENDPOINT);
     expect(gcProxyEndpoint(" https://gcteam-abc-uc.a.run.app/ ")).toBe(
@@ -730,7 +729,7 @@ describe("where the proxy is", () => {
     );
   });
 
-  it("is where a pull goes once the build names it, and the Vercel route when it does not", async () => {
+  it("uses the configured endpoint, or Firebase when none is configured", async () => {
     const asked = async () => {
       const fetchImpl = fakeFetch((url) =>
         jsonResponse(200, {
@@ -748,7 +747,7 @@ describe("where the proxy is", () => {
       await fetchGcTeams([TEAM_ID], { fetchImpl, delayMs: () => 0 });
       return fetchImpl.calls[0]!.url;
     };
-    expect(await asked()).toMatch(/^\/api\/gc-team\?ids=/);
+    expect(await asked()).toContain(`${GC_TEAM_ENDPOINT}?ids=`);
     vi.stubEnv("VITE_GC_PROXY_URL", "https://us-central1-example.cloudfunctions.net/gcTeam");
     expect(await asked()).toMatch(
       /^https:\/\/us-central1-example\.cloudfunctions\.net\/gcTeam\?ids=gsUthn4XoIxS&raw=1$/

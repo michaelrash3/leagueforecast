@@ -35,6 +35,11 @@ jobs:
       # What a visit downloads, held to limits: the first download, each League view's own load,
       # Team Rankings and the stylesheet (`scripts/bundleBudget.mjs`). Fails naming what grew.
       - run: npm run bundle:check
+      - name: Vercel serves a static app and both API defaults are Firebase
+        run: |
+          test ! -d api
+          grep -q 'name="gc-proxy-endpoint" content="https://us-central1-league-forecast-youth.cloudfunctions.net/gcTeam"' dist/index.html
+          grep -q 'name="league-summary-endpoint" content="https://us-central1-league-forecast-youth.cloudfunctions.net/leagueSummary"' dist/index.html
       # The GameChanger proxy's address is a build setting (`gcProxyEndpoint`), and Vite fills in
       # `import.meta.env.VITE_…` only where the read is written out whole. Read any other way it
       # passes every unit test, which run with an `import.meta.env` of their own, and the setting

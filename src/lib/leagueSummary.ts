@@ -3,7 +3,7 @@
  *
  * The browser posts a snapshot of everything the manager has entered — final
  * scores, the standings table, the model's power ratings, and the stat
- * leaderboards — to `/api/league-summary`. The serverless function turns that
+ * leaderboards — to the Firebase `leagueSummary` function. The serverless function turns that
  * into a Gemini prompt and the generated analysis replaces the deterministic
  * story in the Standings panel. Types, clamping, and prompt construction live
  * here so both sides agree and so the prompt is unit-testable without a
@@ -14,7 +14,9 @@
  * game logs.
  */
 
-export const LEAGUE_SUMMARY_ENDPOINT = "/api/league-summary";
+import { LEAGUE_SUMMARY_FUNCTION_URL } from "./cloud/apiEndpoints";
+
+export const LEAGUE_SUMMARY_ENDPOINT = LEAGUE_SUMMARY_FUNCTION_URL;
 
 /** One deterministic recap line, already scored for impact by `weeklyRecap`. */
 export type LeagueSummaryFact = {
@@ -137,7 +139,7 @@ export type LeagueSummaryRequest = {
   fallback?: string;
 };
 
-/** Which provider wrote a story: Gemini, or Groq when Gemini could not (`api/league-summary.ts`). */
+/** Which provider wrote a story: Gemini, or Groq when Gemini could not (`server/league-summary.ts`). */
 export type AiProvider = "gemini" | "groq";
 
 export type LeagueSummaryResponse = {

@@ -6,6 +6,7 @@ import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { FIREBASE_WEB_CONFIG } from "./src/lib/cloud/cloudConfig.ts";
+import { GC_TEAM_FUNCTION_URL, LEAGUE_SUMMARY_FUNCTION_URL } from "./src/lib/cloud/apiEndpoints.ts";
 import { widenPolicyInHtml } from "./src/lib/contentPolicy.ts";
 
 /**
@@ -21,11 +22,27 @@ const contentPolicy = (): Plugin => {
     configResolved: (config) => {
       env = config.env;
     },
-    transformIndexHtml: (html) =>
-      widenPolicyInHtml(html, {
+    transformIndexHtml: (html) => ({
+      html: widenPolicyInHtml(html, {
         VITE_GC_PROXY_URL: env.VITE_GC_PROXY_URL,
         firebase: FIREBASE_WEB_CONFIG,
       }),
+      tags: [
+        {
+          tag: "meta",
+          attrs: {
+            name: "gc-proxy-endpoint",
+            content: env.VITE_GC_PROXY_URL?.trim().replace(/\/+$/, "") || GC_TEAM_FUNCTION_URL,
+          },
+          injectTo: "head",
+        },
+        {
+          tag: "meta",
+          attrs: { name: "league-summary-endpoint", content: LEAGUE_SUMMARY_FUNCTION_URL },
+          injectTo: "head",
+        },
+      ],
+    }),
   };
 };
 
