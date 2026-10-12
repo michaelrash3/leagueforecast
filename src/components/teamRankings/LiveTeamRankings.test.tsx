@@ -700,6 +700,70 @@ describe("Team Rankings on the cloud's board", () => {
     expect(pool.prepared).toBe(0);
   });
 
+  it("imports a CSV on the cloud Import tab without rendering the file in the text box", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
+    pool.wants = false;
+    const cloud = cloudPulls();
+    const user = userEvent.setup();
+    open(sourcesOf(live, { pulls: () => cloud.sender }));
+    const button = await screen.findByRole("button", { name: "Import CSV" });
+    const input = screen.getByLabelText("Team list CSV");
+    const click = vi.spyOn(input, "click");
+    await user.click(button);
+    expect(click).toHaveBeenCalledOnce();
+    await user.upload(
+      input,
+      new File(["Team Name,Team ID\nAces,gcACES000001\nBadgers,gcACES000002"], "teams.csv", {
+        type: "text/csv",
+      })
+    );
+    expect(await screen.findByText("teams.csv")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Teams to pull")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Pull 2 teams in the cloud" }));
+    await waitFor(() => expect(cloud.started).toHaveLength(1));
+    expect([...cloud.jobs.values()][0]).toMatchObject({ list: { teams: 2 }, seasonYears: [] });
+    expect(screen.queryByText("teams.csv")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Teams to pull")).toHaveValue("");
+  });
+
+  it("lets a CSV selection be cleared and the same file selected again", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
+    pool.wants = false;
+    const cloud = cloudPulls();
+    const user = userEvent.setup();
+    open(sourcesOf(live, { pulls: () => cloud.sender }));
+    const input = await screen.findByLabelText("Team list CSV");
+    const file = new File(["gcACES000001"], "teams.csv", { type: "text/csv" });
+    await user.upload(input, file);
+    await screen.findByText("teams.csv");
+    await user.click(screen.getByRole("button", { name: "Choose a different file" }));
+    expect(screen.getByLabelText("Teams to pull")).toHaveValue("");
+    await user.upload(input, file);
+    expect(await screen.findByText("teams.csv")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pull 1 team in the cloud" })).toBeEnabled();
+  });
+
+  it("accepts a nationwide CSV larger than 32 MiB without filling the text box", async () => {
+    window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
+    pool.wants = false;
+    const cloud = cloudPulls();
+    const user = userEvent.setup();
+    open(sourcesOf(live, { pulls: () => cloud.sender }));
+    const input = await screen.findByLabelText("Team list CSV");
+    const csv =
+      "\uFEFFTeam Name,Team ID,Season,Age Group,City,State,League Associations,Staff,Staff Count,Player Count,Org ID,Org Name,Org Type,GC URL,Age Source\r\n" +
+      Array.from({ length: 150_000 }, (_, index) => {
+        const id = `gcteam${String(index).padStart(6, "0")}`;
+        return `"Club ${index} 12U","${id}","Fall 2026","12U","Town","KY","${"Export detail ".repeat(15)}","Avery, Blake, Casey","3","15","org123456","Club 12U","Organization","https://web.gc.com/teams/${id}","Team"`;
+      }).join("\r\n");
+    const file = new File([csv], "GC_Teams_Desktop_2026-10-12.csv", { type: "text/csv" });
+    expect(file.size).toBeGreaterThan(32 * 1024 * 1024);
+    await user.upload(input, file);
+    expect(await screen.findByText(file.name, {}, { timeout: 20_000 })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Teams to pull")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pull 150,000 teams in the cloud" })).toBeEnabled();
+  }, 30_000);
+
   // The screen that sat for hours: two catch-ups "waiting to start" whose start had failed where
   // the device could not hear, and that nothing would ever run or end.
   it("asks the cloud again about a pull still waiting to start, and says what came of it", async () => {
