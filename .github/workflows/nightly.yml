@@ -22,7 +22,7 @@ on:
         description: "dry-run does everything but save; live saves to the cloud copy"
         type: choice
         options: [dry-run, live]
-        default: dry-run
+        default: live
       limit:
         description: "Only the first this many teams due (blank for every one)"
         type: string
