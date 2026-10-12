@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import gcTeamForMembers, {
   clearProfileCache,
   gcTeamHandler as handler,
-} from "../../../api/gc-team";
+} from "../../../server/gc-team";
 import type { ApiRequest, ApiResponse } from "../apiShared";
 import {
   isGcProxyOrigin,
@@ -50,6 +50,32 @@ const ungzip = async (bytes: Uint8Array): Promise<string> => {
 };
 
 const APP = "https://leagueforecast.vercel.app";
+
+it("accepts JSON summary preflights and passes POST bodies to the handler", async () => {
+  const handler = vi.fn(async (req: ApiRequest, res: ApiResponse) => {
+    res.status(200).json({ summary: req.body });
+  });
+  const cors = { methods: "GET, POST", headers: "accept, content-type" };
+  const preflight = respond();
+  await serveGcProxy(
+    request("/leagueSummary", { origin: APP }, "OPTIONS"),
+    preflight.res,
+    handler,
+    cors
+  );
+  expect(preflight.sent.headers["access-control-allow-methods"]).toBe("GET, POST");
+  expect(preflight.sent.headers["access-control-allow-headers"]).toContain("content-type");
+  expect(handler).not.toHaveBeenCalled();
+  const post = respond();
+  await serveGcProxy(
+    { ...request("/leagueSummary", { origin: APP }, "POST"), body: "facts" },
+    post.res,
+    handler,
+    cors
+  );
+  expect(post.sent.headers["access-control-allow-origin"]).toBe(APP);
+  expect(JSON.parse(String(post.sent.body))).toEqual({ summary: "facts" });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

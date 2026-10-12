@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import handler, { clearModelCaches } from "../../../api/league-summary";
+import handler, { clearModelCaches } from "../../../server/league-summary";
 import { buildLeagueSummaryRequest } from "../leagueSummaryClient";
 
 /**

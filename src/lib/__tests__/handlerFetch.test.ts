@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import profileFixture from "./fixtures/gc-team-profile.json";
 import gamesFixture from "./fixtures/gc-team-games.json";
-import { clearProfileCache } from "../../../api/gc-team";
+import { clearProfileCache } from "../../../server/gc-team";
 import { handlerFetch } from "../../../scripts/handlerFetch";
 import { fetchGcTeams } from "../gameChangerClient";
 

@@ -1,6 +1,6 @@
 /**
  * Asks GameChanger for real public teams from wherever this runs, through the app's own proxy
- * handler (`api/gc-team.ts`), and says whether it answered, how fast, and how much it sent.
+ * handler (`server/gc-team.ts`), and says whether it answered, how fast, and how much it sent.
  *
  * Written to settle one question before a nightly pull is built on GitHub's servers: whether
  * GameChanger's firewall answers one of them as it answers the Firebase proxy. It prints counts,
@@ -20,7 +20,7 @@
  * night of them would take can be read off the answer.
  */
 import { gzipSync } from "node:zlib";
-import { clearProfileCache, gcTeamHandler } from "../api/gc-team.ts";
+import { clearProfileCache, gcTeamHandler } from "../server/gc-team.ts";
 import type { ApiRequest, ApiResponse } from "../src/lib/apiShared.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { gcGameListFrom } from "../src/lib/gameChangerApi.ts";

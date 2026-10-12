@@ -312,7 +312,9 @@ const legAndStage = (job: PullJob): string => {
           ? "filing"
           : job.stage === "saving"
             ? "saving"
-            : "between parts";
+            : job.error
+              ? `waiting to retry (${job.error})`
+              : "between parts";
   return `${leg}${stage}`;
 };
 

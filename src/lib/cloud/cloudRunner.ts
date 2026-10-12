@@ -253,11 +253,14 @@ export const loadPoolFrom = async (
   if (signal?.aborted) return null;
   resetTeamRankingsStore();
   await initTeamRankingsStore(memoryIo());
+  // Release the previous pool before hashing, and hash before building its second representation.
+  // Otherwise the loaded pool sits beside the original values and the hash's temporary JSON.
+  const said = new Map<string, string>();
+  for (const [key, value] of values) said.set(key, await contentHash(value));
   if (!(await applyCloudPoolValues(values))) {
     throw new Error("The cloud copy holds a pool key this build does not keep.");
   }
-  const said = new Map<string, string>();
-  for (const [key, value] of values) said.set(key, await contentHash(value));
+  values.clear();
   return {
     manifest,
     keys: parts.length,

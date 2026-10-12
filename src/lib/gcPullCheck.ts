@@ -45,7 +45,7 @@ export const ADVICE: Record<GcFetchErrorReason, string> = {
   network:
     "The server could not reach GameChanger at all. That is a network or DNS problem at the deployment, not a GameChanger one.",
   unconfigured:
-    "The proxy is not deployed or not configured. Check /api/gc-team?probe=1 answers at all.",
+    "The Firebase proxy is not deployed or not configured. Check its gcTeam?probe=1 endpoint answers.",
   timeout:
     "GameChanger did not answer in time. Usually transient; if every attempt times out, the WAF may be holding the connection open rather than refusing it.",
   "members-only":
@@ -75,7 +75,7 @@ export const checkStrangerRefused = (status: number, body: unknown): PullCheck =
       status: "fail",
       detail: "Answered a request with no sign-in: the deployed proxy is open to anyone.",
       advice:
-        "The proxy should be behind the cloud copy's list. Check the deployment is a build whose api/gc-team.ts default export is membersOnly(...), and that the Firebase function serves that export.",
+        "The proxy should be behind the cloud copy's list. Check the deployment is a build whose server/gc-team.ts default export is membersOnly(...), and that the Firebase function serves that export.",
     };
   }
   return {

@@ -1,7 +1,7 @@
 /**
  * Browser side of the AI League Story.
  *
- * Talks to `/api/league-summary`, which holds the Gemini key. Every failure is
+ * Talks to Firebase’s `leagueSummary` function, which holds the Gemini key. Every failure is
  * reported as data rather than thrown: the caller keeps rendering the
  * deterministic story, so a missing key or an offline deploy is invisible to
  * the reader.
@@ -249,7 +249,7 @@ export const requestLeagueSummary = async (
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as LeagueSummaryError | null;
       // A 404 means the function is not deployed or not routed (for example
-      // `vite dev` without `vercel dev`). That is a different problem from a
+      // a Firebase deploy missing the summary function). That is a different problem from a
       // deployed function that cannot see the key, so it gets its own reason —
       // reporting it as "no API key" sends you looking in the wrong place.
       const reason =
@@ -260,7 +260,7 @@ export const requestLeagueSummary = async (
         message:
           payload?.error ??
           (response.status === 404
-            ? "No function is deployed at /api/league-summary."
+            ? `No summary function is deployed at ${endpoint}.`
             : `Summary request failed (${response.status}).`),
       };
     }
@@ -274,7 +274,7 @@ export const requestLeagueSummary = async (
       return {
         ok: false,
         reason: "endpoint-missing",
-        message: "/api/league-summary did not return JSON; the function is probably not deployed.",
+        message: `${endpoint} did not return JSON; the summary function is probably not deployed.`,
       };
     }
     const summary = typeof payload.summary === "string" ? payload.summary.trim() : "";
@@ -296,7 +296,7 @@ export const requestLeagueSummary = async (
   }
 };
 
-/** Shape of the `GET /api/league-summary` health payload. */
+/** Shape of the Firebase `GET /leagueSummary` health payload. */
 export type LeagueSummaryHealth = {
   endpoint?: string;
   functionDeployed?: boolean;
@@ -455,8 +455,8 @@ const describeGroqHealth = (groq: LeagueSummaryHealth["groq"], alone: boolean): 
 const describeGeminiHealth = (outcome: LeagueSummaryHealthOutcome): string => {
   if (!outcome.ok) {
     return outcome.reason === "endpoint-missing"
-      ? "Nothing is serving /api/league-summary, so the function is not deployed. That is a build or routing problem, not the API key."
-      : `Could not reach /api/league-summary: ${outcome.message}`;
+      ? "The Firebase leagueSummary function is unavailable. Check the Firebase functions deployment."
+      : `Could not reach the Firebase leagueSummary function: ${outcome.message}`;
   }
 
   const { health } = outcome;
@@ -474,7 +474,7 @@ const describeGeminiHealth = (outcome: LeagueSummaryHealthOutcome): string => {
     if (health.groq?.keyConfigured) {
       return `The function is deployed${suffix} with no GEMINI_API_KEY, so Groq writes every story.`;
     }
-    return `The function is deployed${suffix} but GEMINI_API_KEY is not reaching it. Set the variable for this environment and redeploy — Vercel scopes variables per environment and does not apply a new one until the next build.`;
+    return `The function is deployed${suffix} but GEMINI_API_KEY is not reaching it. Set the GEMINI_API_KEY GitHub Actions secret and redeploy Firebase functions.`;
   }
 
   const whitespace = health.keyHadSurroundingWhitespace

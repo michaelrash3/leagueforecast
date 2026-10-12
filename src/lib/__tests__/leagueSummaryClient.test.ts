@@ -456,8 +456,8 @@ describe("describeLeagueSummaryHealth", () => {
       reason: "endpoint-missing",
       message: "HTTP 404",
     });
-    expect(text).toContain("not deployed");
-    expect(text).toContain("not the API key");
+    expect(text).toContain("Firebase leagueSummary");
+    expect(text).toContain("Firebase functions deployment");
   });
 
   it("names the environment and build when the key is missing", () => {
