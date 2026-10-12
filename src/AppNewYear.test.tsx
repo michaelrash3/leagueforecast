@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -56,10 +56,8 @@ describe("a season with games either side of 1 January", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: "Dashboard" }));
-    await user.selectOptions(
-      within(screen.getByRole("region", { name: "Our team" })).getByRole("combobox"),
-      "Aces"
-    );
+    const ourTeam = await screen.findByRole("region", { name: "Our team" });
+    await user.selectOptions(within(ourTeam).getByRole("combobox"), "Aces");
     expect(screen.getByRole("region", { name: "Our team" })).toHaveTextContent(
       /Next: 12\/12 vs Comets/
     );
@@ -69,8 +67,10 @@ describe("a season with games either side of 1 January", () => {
     const user = userEvent.setup();
     const { container } = render(<App />);
     await user.click(screen.getByRole("tab", { name: "Schedule" }));
-    const cards = [...container.querySelectorAll('[id^="game-card-"]')].map((card) => card.id);
-    expect(cards.filter((id) => id !== "game-card-g1")).toEqual(["game-card-g2", "game-card-g3"]);
+    await waitFor(() => {
+      const cards = [...container.querySelectorAll('[id^="game-card-"]')].map((card) => card.id);
+      expect(cards.filter((id) => id !== "game-card-g1")).toEqual(["game-card-g2", "game-card-g3"]);
+    });
   });
 
   it("puts December's game first in the playoff machine", async () => {

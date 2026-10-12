@@ -354,6 +354,7 @@ export function GameChangerImportPanel({
    * handful of ids somebody wants pulled now.
    */
   const [loaded, setLoaded] = useState<{ name: string; size: number; text: string } | null>(null);
+  const teamListFileRef = useRef<HTMLInputElement>(null);
   const text = loaded ? loaded.text : typed;
   const [phase, setPhase] = useState<RunPhase>({ kind: "picking" });
   /*
@@ -1535,6 +1536,48 @@ export function GameChangerImportPanel({
    * not the file.
    */
   const runLog = (): PullRunLog | null => livePullTracker()?.log() ?? lastPullLog() ?? storedLog;
+  const refreshStatus = (() => {
+    const days = Object.values(refreshLog).sort();
+    const last = days[days.length - 1];
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      return {
+        label: "Offline",
+        detail: "Automatic refresh will be eligible again when this device is online.",
+      };
+    }
+    if (pullLive)
+      return {
+        label: "Refreshing",
+        detail:
+          stats && stats.total > 0
+            ? `${stats.done} of ${stats.total} pulled.`
+            : "Starting refresh…",
+      };
+    if (savedProgress?.failures.length) {
+      const retryable = retryableIds(savedProgress).length;
+      return retryable > 0
+        ? {
+            label: "Retry scheduled",
+            detail: `${retryable} source${retryable === 1 ? "" : "s"} can be retried.`,
+          }
+        : {
+            label: "Manual action required",
+            detail: savedProgress.failures[0]?.message ?? "A source needs review.",
+          };
+    }
+    if (due.ageLevels.length === 0)
+      return {
+        label: "Updated recently",
+        detail: last ? `Last successful refresh ${last}.` : "Today's refresh is complete.",
+      };
+    if (last && last < todayIsoDay()) {
+      return { label: "Stale", detail: `Last successful refresh ${last}.` };
+    }
+    return {
+      label: "Next automatic refresh",
+      detail: `${describeDue(due)} Runs when the app or cloud refresh opens.`,
+    };
+  })();
   /*
    * Read again when the button is pressed rather than used from the render that drew it. A run
    * still going is writing to this the whole time, and a file built from the copy that happened to
@@ -1669,6 +1712,14 @@ export function GameChangerImportPanel({
         >
           Close
         </button>
+      </div>
+
+      <div
+        className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900"
+        role="status"
+      >
+        <p className="text-sm font-black">{refreshStatus.label}</p>
+        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{refreshStatus.detail}</p>
       </div>
 
       {phase.kind === "picking" && poolBusy && (
@@ -1918,32 +1969,35 @@ export function GameChangerImportPanel({
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-3">
-            <label className="inline-block">
-              <span className={`${button.ghost} inline-block cursor-pointer`}>
-                Choose a CSV file
-              </span>
-              <input
-                type="file"
-                accept=".csv,.txt,text/csv,text/plain"
-                className="hidden"
-                aria-label="Team list CSV"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null;
-                  // Cleared straight away so picking the same file twice still fires a change.
-                  event.currentTarget.value = "";
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
-                  reader.onload = () =>
-                    setLoaded({
-                      name: file.name,
-                      size: file.size,
-                      text: String(reader.result ?? ""),
-                    });
-                  reader.readAsText(file);
-                }}
-              />
-            </label>
+            <button
+              type="button"
+              className={button.ghost}
+              onClick={() => teamListFileRef.current?.click()}
+            >
+              Upload CSV
+            </button>
+            <input
+              ref={teamListFileRef}
+              type="file"
+              accept=".csv,.txt,text/csv,text/plain"
+              className="sr-only"
+              aria-label="Team list CSV"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                // Cleared straight away so picking the same file twice still fires a change.
+                event.currentTarget.value = "";
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
+                reader.onload = () =>
+                  setLoaded({
+                    name: file.name,
+                    size: file.size,
+                    text: String(reader.result ?? ""),
+                  });
+                reader.readAsText(file);
+              }}
+            />
             <span className="text-xs text-slate-500 dark:text-slate-400">
               The export from GameChanger, headers and all — or paste a few ids above. A file of any
               size is fine; the rota is there so they need not all be pulled at once.

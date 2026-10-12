@@ -51,6 +51,7 @@ describe("choosing a team list file", () => {
     renderTeamRankings(pool());
     await user.click(screen.getByRole("tab", { name: "Import" }));
 
+    expect(screen.getByRole("button", { name: "Upload CSV" })).toBeInTheDocument();
     const text = csv(400);
     await user.upload(
       screen.getByLabelText("Team list CSV"),

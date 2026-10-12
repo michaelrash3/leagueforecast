@@ -12,6 +12,19 @@ import type {
   TeamWithProjection,
 } from "../../lib/types";
 import { button as buttonClasses, card } from "../../styles/tokens";
+import {
+  createSavedScenario,
+  duplicateSavedScenario,
+  decodeSharedScenario,
+  encodeSharedScenario,
+  loadSavedScenarios,
+  rebaseSavedScenario,
+  renameSavedScenario,
+  saveSavedScenarios,
+  scenarioFingerprint,
+  staleScenarioReasons,
+  type SavedScenario,
+} from "../../lib/savedScenario";
 
 type PlayoffMachineProps = {
   teams: TeamBase[];
@@ -28,6 +41,7 @@ type PlayoffMachineProps = {
   currentRows: TeamWithProjection[];
   oddsSeed: string;
   iterations: number;
+  seasonId: string;
 };
 
 const SIDE_BUTTON =
@@ -60,8 +74,17 @@ export function PlayoffMachine({
   currentRows,
   oddsSeed,
   iterations,
+  seasonId,
 }: PlayoffMachineProps) {
   const [picks, setPicks] = useState<Record<string, ScenarioPick>>({});
+  const [saved, setSaved] = useState<SavedScenario[]>(() => loadSavedScenarios(seasonId));
+  const [scenarioName, setScenarioName] = useState("My scenario");
+  const [presetTeamId, setPresetTeamId] = useState(teams[0]?.id ?? "");
+  const [scenarioMessage, setScenarioMessage] = useState("");
+  const [sharedPreview, setSharedPreview] = useState<SavedScenario | null>(() => {
+    const encoded = new URL(window.location.href).searchParams.get("scenario");
+    return encoded ? decodeSharedScenario(encoded) : null;
+  });
   const nameOf = useMemo(() => {
     const names = new Map(teams.map((team) => [team.id, displayName(team.name)]));
     return (id: string) => names.get(id) ?? id;
@@ -115,6 +138,47 @@ export function PlayoffMachine({
       else next[side] = runs;
       return { ...before, [game.id]: next };
     });
+  const keepSaved = (next: SavedScenario[]) => {
+    if (saveSavedScenarios(seasonId, next)) {
+      setSaved(next);
+      setScenarioMessage("Saved on this device.");
+    } else setScenarioMessage("The browser could not save this scenario.");
+  };
+  const saveCurrent = () => {
+    if (picked === 0) return;
+    const now = new Date().toISOString();
+    const value = createSavedScenario(
+      {
+        id: globalThis.crypto?.randomUUID?.() ?? `scenario-${Date.now()}`,
+        name: scenarioName.trim() || "My scenario",
+        seasonId,
+        picks: livePicks,
+        sourceFingerprint: scenarioFingerprint(matchups, logs),
+      },
+      now
+    );
+    keepSaved([...saved, value]);
+  };
+  const preset = (kind: "win" | "lose" | "favorites" | "all") => {
+    const byId = new Map(liveTeams.map((team) => [team.id, team]));
+    const next: Record<string, ScenarioPick> = {};
+    games.forEach((game) => {
+      let winnerId: string;
+      if (kind === "win" && (game.away === presetTeamId || game.home === presetTeamId)) {
+        winnerId = presetTeamId;
+      } else if (kind === "lose" && (game.away === presetTeamId || game.home === presetTeamId)) {
+        winnerId = game.away === presetTeamId ? game.home : game.away;
+      } else if (kind === "favorites") {
+        winnerId =
+          (byId.get(game.away)?.adjustedRating ?? 0) >= (byId.get(game.home)?.adjustedRating ?? 0)
+            ? game.away
+            : game.home;
+      } else if (kind === "all") winnerId = game.home;
+      else return;
+      next[game.id] = { winnerId };
+    });
+    setPicks(next);
+  };
 
   return (
     <section aria-label="Playoff machine" className={`${card} p-5`}>
@@ -130,8 +194,216 @@ export function PlayoffMachine({
       </div>
       <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
         Pick the winner of any game left and see where everyone lands. A pick plays out at the
-        model&apos;s expected score unless you type one. Nothing here is saved.
+        model&apos;s expected score unless you type one. Save useful paths on this device.
       </p>
+      {sharedPreview && (
+        <div className="mt-3 rounded-lg border border-blue-300 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950/30">
+          <p className="text-sm font-black">Shared scenario preview: {sharedPreview.name}</p>
+          <p className="mt-1 text-xs">
+            {Object.keys(sharedPreview.picks).length} assumed outcomes. Your season has not been
+            changed.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              className={buttonClasses.primary}
+              onClick={() => {
+                if (sharedPreview.seasonId !== seasonId) {
+                  setScenarioMessage(
+                    "This scenario belongs to a different season and cannot be applied here."
+                  );
+                  return;
+                }
+                const rebased = rebaseSavedScenario(
+                  sharedPreview,
+                  matchups,
+                  logs,
+                  new Date().toISOString()
+                );
+                setPicks(rebased.scenario.picks);
+                setSharedPreview(null);
+                setScenarioMessage(
+                  `Applied preview${rebased.removed.length ? ` after removing ${rebased.removed.length} stale picks` : ""}.`
+                );
+              }}
+            >
+              Apply preview
+            </button>
+            <button
+              type="button"
+              className={buttonClasses.ghost}
+              onClick={() => setSharedPreview(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 rounded-lg bg-slate-50 p-3 dark:bg-slate-900">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-xs font-bold">
+            Preset team
+            <select
+              value={presetTeamId}
+              onChange={(event) => setPresetTeamId(event.target.value)}
+              className="mt-1 block rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
+            >
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {displayName(team.name)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className={buttonClasses.ghost} onClick={() => preset("win")}>
+            Win out
+          </button>
+          <button type="button" className={buttonClasses.ghost} onClick={() => preset("lose")}>
+            Lose out
+          </button>
+          <button type="button" className={buttonClasses.ghost} onClick={() => preset("favorites")}>
+            Favorites win
+          </button>
+          <button type="button" className={buttonClasses.ghost} onClick={() => preset("all")}>
+            Pick all remaining
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="text-xs font-bold">
+            Scenario name
+            <input
+              value={scenarioName}
+              onChange={(event) => setScenarioName(event.target.value)}
+              className="mt-1 block rounded-lg border border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950"
+            />
+          </label>
+          <button
+            type="button"
+            className={buttonClasses.primary}
+            disabled={picked === 0}
+            onClick={saveCurrent}
+          >
+            Save scenario
+          </button>
+        </div>
+        {scenarioMessage && (
+          <p role="status" className="mt-2 text-xs font-semibold">
+            {scenarioMessage}
+          </p>
+        )}
+      </div>
+
+      {saved.length > 0 && (
+        <div className="mt-4" aria-label="Saved scenarios">
+          <h4 className="text-sm font-black">Saved scenarios</h4>
+          <ul className="mt-2 space-y-2">
+            {saved.map((item) => {
+              const stale = staleScenarioReasons(item, matchups, logs);
+              return (
+                <li
+                  key={item.id}
+                  className="rounded-lg border border-slate-200 p-3 dark:border-slate-700"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold">
+                      {item.name}
+                      {stale.length > 0 ? ` · ${stale.length} stale` : ""}
+                    </span>
+                    <span className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        className={buttonClasses.ghost}
+                        onClick={() => setPicks(item.picks)}
+                      >
+                        Apply
+                      </button>
+                      {stale.length > 0 && (
+                        <button
+                          type="button"
+                          className={buttonClasses.ghost}
+                          onClick={() => {
+                            const rebased = rebaseSavedScenario(
+                              item,
+                              matchups,
+                              logs,
+                              new Date().toISOString()
+                            );
+                            keepSaved(
+                              saved.map((entry) =>
+                                entry.id === item.id ? rebased.scenario : entry
+                              )
+                            );
+                            setScenarioMessage(
+                              `Rebased ${item.name}; removed ${rebased.removed.length} invalid pick${rebased.removed.length === 1 ? "" : "s"}.`
+                            );
+                          }}
+                        >
+                          Rebase
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={buttonClasses.ghost}
+                        onClick={() =>
+                          keepSaved(
+                            saved.map((entry) =>
+                              entry.id === item.id
+                                ? renameSavedScenario(
+                                    entry,
+                                    `${entry.name} renamed`,
+                                    new Date().toISOString()
+                                  )
+                                : entry
+                            )
+                          )
+                        }
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        className={buttonClasses.ghost}
+                        onClick={() =>
+                          keepSaved([
+                            ...saved,
+                            duplicateSavedScenario(
+                              item,
+                              globalThis.crypto?.randomUUID?.() ?? `scenario-${Date.now()}`,
+                              new Date().toISOString()
+                            ),
+                          ])
+                        }
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        type="button"
+                        className={buttonClasses.ghost}
+                        onClick={() => {
+                          const url = new URL(window.location.href);
+                          url.searchParams.set("scenario", encodeSharedScenario(item));
+                          void navigator.clipboard?.writeText(url.toString());
+                          setScenarioMessage("Scenario preview link copied.");
+                        }}
+                      >
+                        Share
+                      </button>
+                      <button
+                        type="button"
+                        className={buttonClasses.danger}
+                        onClick={() => keepSaved(saved.filter((entry) => entry.id !== item.id))}
+                      >
+                        Delete
+                      </button>
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {games.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">No games left to pick.</p>

@@ -19,6 +19,14 @@ import { CloudPoolGate } from "./components/CloudPoolGate";
 import { cloudStatus, startCloudSession, subscribeCloud } from "./lib/cloud/cloudSession";
 import { RANKINGS_COMMAND_SECTIONS, rankingsSectionCommandId } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
+import {
+  auditLeagueData,
+  dismissFinding,
+  loadFindingDismissals,
+  saveFindingDismissals,
+  visibleFindings,
+  type DataQualityFinding,
+} from "./lib/dataQuality";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useSeasons } from "./hooks/useSeasons";
@@ -27,9 +35,7 @@ import { useScoutBridge } from "./hooks/useScoutBridge";
 import { finalScoresKey, leagueFixturesOf } from "./lib/teamRankings";
 import { CompareDrawer } from "./components/CompareDrawer";
 import { LoadingPanel } from "./components/LoadingPanel";
-import { ModelView } from "./components/league/ModelView";
-import { GamesView } from "./components/league/GamesView";
-import { StandingsView } from "./components/league/StandingsView";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
   applyLeagueScoreFill,
   planLeagueScoreFill,
@@ -53,7 +59,6 @@ import {
 import { ourTeamSummary } from "./lib/ourTeam";
 import { leagueClubRankFor } from "./lib/leagueClubRanks";
 import { OurTeamCard } from "./components/league/OurTeamCard";
-import { PlayoffMachine } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
@@ -149,13 +154,15 @@ import { buildTeamTrendSummary } from "./lib/teamTrend";
 import { blankLog, clamp, isFinal, swappedLog } from "./lib/util";
 import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
-import { DashboardView } from "./components/league/DashboardView";
 import { TeamDrawer } from "./components/league/TeamDrawer";
 import { EmptyState } from "./components/league/EmptyState";
-import { PowerRatingsView } from "./components/league/PowerRatingsView";
 import { SeasonManager } from "./components/league/SeasonManager";
-import { TeamStatsView } from "./components/league/TeamStatsView";
-import { SettingsView } from "./components/league/SettingsView";
+import {
+  likelyLeagueViewAfter,
+  loadLeagueView,
+  prefetchLeagueView,
+  resetLeagueViewLoad,
+} from "./lib/leagueViewLoader";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 import {
   formatGoldPct as formatGoldPctValue,
@@ -209,6 +216,7 @@ const VIEW_LABELS: Record<ActiveView, string> = {
   teamStats: "League Stats",
   games: "Schedule",
   model: "Forecast",
+  dataQuality: "Data Quality",
   settings: "Settings",
 };
 
@@ -219,8 +227,10 @@ const VIEW_ORDER: ActiveView[] = [
   "standings",
   "teamStats",
   "model",
+  "dataQuality",
   "settings",
 ];
+const MOBILE_PRIMARY_VIEWS: ActiveView[] = ["dashboard", "games", "standings", "model"];
 
 // ---------- Main app ----------
 
@@ -250,6 +260,82 @@ const OnboardingTour = lazy(() =>
 const TeamRankingsView = lazy(() =>
   import("./components/TeamRankingsView").then((module) => ({ default: module.TeamRankingsView }))
 );
+const PlayoffMachine = lazy(() =>
+  import("./components/league/PlayoffMachine").then((module) => ({
+    default: module.PlayoffMachine,
+  }))
+);
+
+const lazyDashboardView = () =>
+  lazy(() =>
+    loadLeagueView("dashboard").then((module) => ({
+      default: (module as typeof import("./components/league/DashboardView")).DashboardView,
+    }))
+  );
+const lazyPowerRatingsView = () =>
+  lazy(() =>
+    loadLeagueView("power").then((module) => ({
+      default: (module as typeof import("./components/league/PowerRatingsView")).PowerRatingsView,
+    }))
+  );
+const lazyGamesView = () =>
+  lazy(() =>
+    loadLeagueView("games").then((module) => ({
+      default: (module as typeof import("./components/league/GamesView")).GamesView,
+    }))
+  );
+const lazyStandingsView = () =>
+  lazy(() =>
+    loadLeagueView("standings").then((module) => ({
+      default: (module as typeof import("./components/league/StandingsView")).StandingsView,
+    }))
+  );
+const lazyTeamStatsView = () =>
+  lazy(() =>
+    loadLeagueView("teamStats").then((module) => ({
+      default: (module as typeof import("./components/league/TeamStatsView")).TeamStatsView,
+    }))
+  );
+const lazyModelView = () =>
+  lazy(() =>
+    loadLeagueView("model").then((module) => ({
+      default: (module as typeof import("./components/league/ModelView")).ModelView,
+    }))
+  );
+const lazySettingsView = () =>
+  lazy(() =>
+    loadLeagueView("settings").then((module) => ({
+      default: (module as typeof import("./components/league/SettingsView")).SettingsView,
+    }))
+  );
+const lazyDataQualityView = () =>
+  lazy(() =>
+    loadLeagueView("dataQuality").then((module) => ({
+      default: (module as typeof import("./components/league/DataQualityView")).DataQualityView,
+    }))
+  );
+
+let DashboardView = lazyDashboardView();
+let PowerRatingsView = lazyPowerRatingsView();
+let GamesView = lazyGamesView();
+let StandingsView = lazyStandingsView();
+let TeamStatsView = lazyTeamStatsView();
+let ModelView = lazyModelView();
+let SettingsView = lazySettingsView();
+let DataQualityView = lazyDataQualityView();
+
+/** React.lazy remembers a rejected import, so recovery requires a new wrapper as well as a new request. */
+const resetLazyLeagueView = (view: ActiveView): void => {
+  resetLeagueViewLoad(view);
+  if (view === "dashboard") DashboardView = lazyDashboardView();
+  else if (view === "power") PowerRatingsView = lazyPowerRatingsView();
+  else if (view === "games") GamesView = lazyGamesView();
+  else if (view === "standings") StandingsView = lazyStandingsView();
+  else if (view === "teamStats") TeamStatsView = lazyTeamStatsView();
+  else if (view === "model") ModelView = lazyModelView();
+  else if (view === "dataQuality") DataQualityView = lazyDataQualityView();
+  else SettingsView = lazySettingsView();
+};
 
 /**
  * One add-game select, settled against the team list it names: the id it holds when that is still
@@ -265,6 +351,7 @@ export const settleSide = (teams: readonly TeamBase[], held: string, fallback: n
 
 export default function App() {
   const [activeView, setActiveView] = useState<ActiveView>("dashboard");
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [teams, setTeams] = useState<TeamBase[]>(() => loadTeams());
   const [matchups, setMatchups] = useState<Matchup[]>(() => loadMatchups());
   const [logs, setLogs] = useState<Record<string, GameLog>>(() => loadLogs());
@@ -300,6 +387,7 @@ export default function App() {
       window.removeEventListener("offline", onOffline);
     };
   }, []);
+
   const [lastImpact, setLastImpact] = useState<LastImpact | null>(null);
   const [scoreboardTeamFilter, setScoreboardTeamFilter] = useState("ALL");
   const [scoreboardPredictions, setScoreboardPredictions] = useState<
@@ -353,6 +441,19 @@ export default function App() {
   );
   const { theme, setTheme, toggle: toggleTheme } = useDarkMode();
   const { appMode, setAppMode } = useAppMode();
+  useEffect(() => {
+    const likelyNext = likelyLeagueViewAfter(activeView);
+    if (!likelyNext || appMode !== "league" || teams.length === 0) return;
+
+    const warm = () => prefetchLeagueView(likelyNext);
+    if (typeof window.requestIdleCallback === "function") {
+      const requestId = window.requestIdleCallback(warm, { timeout: 2_000 });
+      return () => window.cancelIdleCallback(requestId);
+    }
+
+    const timeoutId = globalThis.setTimeout(warm, 750);
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [activeView, appMode, teams.length]);
   /*
    * The cloud copy of this browser's data (`lib/cloud`, README "Your data on every device"): its
    * changes are listened for once the app is on screen, and where it stands is the header button.
@@ -555,6 +656,29 @@ export default function App() {
     requestConfirmation,
   });
   const activeSeasonId = seasons.activeId;
+  const [findingDismissalRevision, setFindingDismissalRevision] = useState(0);
+  const findingDismissals = useMemo(
+    () => loadFindingDismissals(activeSeasonId),
+    // The revision changes only after this browser dismisses a finding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSeasonId, findingDismissalRevision]
+  );
+  const qualityFindings = useMemo(
+    () =>
+      visibleFindings(
+        auditLeagueData({ teams, matchups, logs: deferredLogs, settings }),
+        findingDismissals
+      ),
+    [teams, matchups, deferredLogs, settings, findingDismissals]
+  );
+  const dismissQualityFinding = useCallback(
+    (item: DataQualityFinding) => {
+      const next = dismissFinding(findingDismissals, item, new Date().toISOString());
+      if (saveFindingDismissals(activeSeasonId, next))
+        setFindingDismissalRevision((value) => value + 1);
+    },
+    [activeSeasonId, findingDismissals]
+  );
 
   /** What Team Rankings has for this season: the results, the picks and the search behind them. */
   const {
@@ -1869,6 +1993,7 @@ export default function App() {
     teamStats: null,
     games: null,
     model: null,
+    dataQuality: null,
     settings: null,
   });
 
@@ -2368,6 +2493,12 @@ export default function App() {
               handler: () => setActiveView("model"),
             },
             {
+              combo: "g q",
+              description: "Go to Data Quality",
+              group: "Navigate",
+              handler: () => setActiveView("dataQuality"),
+            },
+            {
               combo: "g e",
               description: "Go to Settings",
               group: "Navigate",
@@ -2559,7 +2690,7 @@ export default function App() {
             <div
               role="tablist"
               aria-label="Main views"
-              className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-1.5 sm:px-6 lg:px-8"
+              className="mx-auto hidden max-w-7xl gap-1 overflow-x-auto px-4 py-1.5 md:flex sm:px-6 lg:px-8"
             >
               {VIEW_ORDER.map((view) => (
                 <button
@@ -2574,12 +2705,97 @@ export default function App() {
                   tabIndex={activeView === view ? 0 : -1}
                   onClick={() => setActiveView(view)}
                   onKeyDown={onTabKeyDown}
+                  onPointerEnter={() => prefetchLeagueView(view)}
+                  onFocus={() => prefetchLeagueView(view)}
                   className={tab(activeView === view)}
                 >
                   {VIEW_LABELS[view]}
                 </button>
               ))}
             </div>
+            <nav
+              className="relative mx-auto grid max-w-7xl grid-cols-5 gap-1 px-2 py-1.5 md:hidden"
+              aria-label="League views"
+            >
+              {MOBILE_PRIMARY_VIEWS.map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  aria-current={activeView === view ? "page" : undefined}
+                  onClick={() => {
+                    setMobileMoreOpen(false);
+                    setActiveView(view);
+                  }}
+                  className={`min-h-11 rounded-lg px-1 text-xs font-bold ${
+                    activeView === view
+                      ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
+                      : "text-slate-600 dark:text-slate-300"
+                  }`}
+                >
+                  {VIEW_LABELS[view]}
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-expanded={mobileMoreOpen}
+                aria-controls="mobile-league-more"
+                onClick={() => setMobileMoreOpen((open) => !open)}
+                className={`relative min-h-11 rounded-lg px-1 text-xs font-bold ${
+                  !MOBILE_PRIMARY_VIEWS.includes(activeView)
+                    ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950"
+                    : "text-slate-600 dark:text-slate-300"
+                }`}
+              >
+                More
+                {qualityFindings.some((item) => item.severity === "needs-attention") && (
+                  <span
+                    className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500"
+                    aria-label="Data quality needs attention"
+                  />
+                )}
+              </button>
+              {mobileMoreOpen && (
+                <div
+                  id="mobile-league-more"
+                  className="absolute right-2 top-full z-40 mt-1 min-w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+                >
+                  {["power", "teamStats", "dataQuality", "settings"].map((view) => {
+                    const destination = view as ActiveView;
+                    const count =
+                      destination === "dataQuality"
+                        ? qualityFindings.filter((item) => item.severity === "needs-attention")
+                            .length
+                        : 0;
+                    return (
+                      <button
+                        key={destination}
+                        type="button"
+                        className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 text-left text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
+                        onClick={() => {
+                          setMobileMoreOpen(false);
+                          setActiveView(destination);
+                        }}
+                      >
+                        {VIEW_LABELS[destination]}
+                        {count > 0 && (
+                          <span aria-label={`${count} issues need attention`}>{count}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    className="flex min-h-11 w-full items-center rounded-lg px-3 text-left text-sm font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
+                    onClick={() => {
+                      setMobileMoreOpen(false);
+                      setShowShortcuts(true);
+                    }}
+                  >
+                    Help and shortcuts
+                  </button>
+                </div>
+              )}
+            </nav>
           </div>
         )}
 
@@ -2620,228 +2836,261 @@ export default function App() {
                 loadDemoSeason={loadDemoSeason}
                 openTour={() => setShowTour(true)}
               />
-            ) : activeView === "dashboard" ? (
-              <DashboardView
-                engine={predictionEngine}
-                backtestResult={backtestResult}
-                teamsById={liveById}
-                matchups={matchups}
-                setActiveView={setActiveView}
-                ourTeam={
-                  <OurTeamCard
-                    summary={ourTeam}
-                    {...(ourClubRank ? { clubRank: ourClubRank } : {})}
-                    teams={teams}
-                    onPick={pickOurTeam}
-                    onEnterScore={(teamId) => {
-                      setScoreboardTeamFilter(teamId);
-                      setActiveView("games");
-                    }}
-                  />
-                }
-              />
-            ) : activeView === "power" ? (
-              <PowerRatingsView engine={predictionEngine} />
-            ) : activeView === "standings" ? (
-              <StandingsView
-                goldCutoff={goldCutoff}
-                latestCompletedDate={latestCompletedDate}
-                lastImpact={lastImpact}
-                dismissImpact={() => setLastImpact(null)}
-                copyRecap={async () => {
-                  if (!lastImpact) return;
-                  const md = recapToMarkdown(settings.seasonLabel, lastImpact.recapItems);
-                  try {
-                    await navigator.clipboard.writeText(md);
-                    showToast("Recap copied.", { tone: "success" });
-                  } catch {
-                    showToast("Could not copy recap to clipboard.", { tone: "error" });
-                  }
-                }}
-                copyStory={async () => {
-                  if (!lastImpact) return;
-                  const story =
-                    storyText || recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
-                  try {
-                    await navigator.clipboard.writeText(story);
-                    showToast("League story copied.", { tone: "success" });
-                  } catch {
-                    showToast("Could not copy story to clipboard.", { tone: "error" });
-                  }
-                }}
-                dashboardRows={dashboardRows}
-                hasCutLine={hasCutLine}
-                storyText={storyText}
-                storySource={aiStory.status === "ready" ? aiStory.provider : "local"}
-                storyModel={aiStory.model}
-                storyLoading={aiStory.status === "loading"}
-                storyUnavailableReason={
-                  aiStory.status === "unavailable" || aiStory.status === "error"
-                    ? (aiStory.reason ?? "upstream-error")
-                    : null
-                }
-                storyErrorMessage={aiStory.message}
-                retryStory={aiStory.retry}
-                storyWaiting={aiStory.waiting}
-                askStory={aiStory.ask}
-                currentSosRanks={currentSosRanks}
-                statusClass={statusClass}
-                statusLabel={statusLabel}
-                formatGoldPct={formatGoldPct}
-                formatGoldMargin={(team) =>
-                  formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
-                }
-                onSelectTeam={openTeamData}
-              />
-            ) : activeView === "teamStats" ? (
-              <TeamStatsView
-                leagueAverageStats={leagueAverageStats}
-                statRankings={statRankings}
-                pitchMode={settings.pitchMode}
-                trackErrors={settings.trackErrors}
-                runsOnly={runsOnly}
-                matrixTeams={headToHeadMatrixTeams}
-                headToHeadCell={headToHeadCell}
-              />
-            ) : activeView === "model" ? (
-              <ModelView
-                goldCutoff={goldCutoff}
-                modelRows={modelRows}
-                bracketProjection={bracketProjection}
-                silverBracketProjection={silverBracketProjection}
-                updateBracketLog={updateBracketLog}
-                toggleBracketFinal={toggleBracketFinal}
-                clearBracketScores={clearBracketScores}
-                seedRangeForTeam={seedRangeForTeam}
-                gamesThatMatterMost={gamesThatMatterMost}
-                bubbleMovementRows={bubbleMovementRows}
-                scheduleDifficultyForTeam={scheduleDifficultyForTeam}
-                formatGoldPct={formatGoldPct}
-                formatGoldMargin={(team) =>
-                  formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
-                }
-                projectedCutLineTeams={projectedCutLineTeams}
-                nextTwoSwingGames={nextTwoSwingGames}
-                gameForecasts={gameForecasts}
-                byId={liveById}
-                gameStatusClasses={gameStatusClasses}
-                teams={teams}
-                matchups={matchups}
-                logs={logs}
-                settings={settings}
-                cutoff={goldCutoff}
-                onSelectTeam={openTeamData}
-                liveTeams={liveTeams}
-                remainingGames={remainingGames}
-                backtestResult={backtestResult}
-                bracketOdds={bracketOdds}
-                clinchingPaths={clinchingPaths}
-                cutLineSnapshot={cutLineSnapshot}
-                timelineEntries={timelineEntries}
-                hasCutLine={hasCutLine}
-                hasPostseason={hasPostseason}
-                forecastStoryText={forecastStory.status === "ready" ? forecastStory.summary : ""}
-                forecastStoryModel={forecastStory.model}
-                forecastStoryProvider={forecastStory.provider}
-                forecastStoryLoading={forecastStory.status === "loading"}
-                forecastStoryUnavailableReason={
-                  forecastStory.status === "unavailable" || forecastStory.status === "error"
-                    ? (forecastStory.reason ?? "upstream-error")
-                    : null
-                }
-                forecastStoryErrorMessage={forecastStory.message}
-                retryForecastStory={forecastStory.retry}
-                forecastStoryWaiting={forecastStory.waiting}
-                askForecastStory={forecastStory.ask}
-                playoffMachine={
-                  <PlayoffMachine
-                    teams={teams}
-                    matchups={matchups}
-                    logs={deferredLogs}
-                    settings={settings}
-                    liveTeams={liveTeams}
-                    ratings={predictionEngine.ratings}
-                    remainingGames={remainingGames}
-                    cutoff={goldCutoff}
-                    hasCutLine={hasCutLine}
-                    currentRows={dashboardRows}
-                    oddsSeed={oddsSeed}
-                    iterations={SIM_ITERATIONS}
-                  />
-                }
-              />
-            ) : activeView === "settings" ? (
-              <div className="space-y-6">
-                <SeasonManager
-                  seasons={seasons.all}
-                  activeSeasonId={activeSeasonId}
-                  onSwitch={seasons.switchTo}
-                  onCreate={seasons.create}
-                  onDuplicate={seasons.duplicate}
-                  onDelete={(id) => void seasons.remove(id)}
-                />
-                {/* Above Settings because it answers the question the "Team Rankings results"
-                    setting down there raises: which club is which. */}
-                <ScoutLinkPanel
-                  bridge={scoutBridge}
-                  candidatesFor={scoutCandidatesFor}
-                  allClubs={allScoutClubs}
-                  seasonLabel={settings.seasonLabel}
-                  countingOn={settings.useScoutResults}
-                  onPick={setScoutLink}
-                />
-                <SettingsView
-                  onOpenCloud={cloud.kind === "off" ? undefined : cloudPanel.show}
-                  settings={settings}
-                  setSettings={setSettings}
-                  teamsCount={teams.length}
-                  importCSV={importCSV}
-                  importBackup={importBackup}
-                  exportCSV={exportCSV}
-                  exportBackup={exportBackup}
-                  resetSeason={resetSeason}
-                  loadDemoSeason={loadDemoSeason}
-                  summaryMode={summaryMode}
-                  onSummaryMode={setSummaryMode}
-                />
-              </div>
             ) : (
-              <GamesView
-                teams={teams}
-                matchups={matchups}
-                logs={logs}
-                scoreboardGames={scoreboardGames}
-                scoreboardPredictions={scoreboardPredictions}
-                scoreboardTeamFilter={scoreboardTeamFilter}
-                pitchMode={settings.pitchMode}
-                trackErrors={settings.trackErrors}
-                runsOnly={runsOnly}
-                setScoreboardTeamFilter={setScoreboardTeamFilter}
-                newDate={newDate}
-                setNewDate={setNewDate}
-                newAway={newAway}
-                setNewAway={setNewAway}
-                newHome={newHome}
-                setNewHome={setNewHome}
-                addGameValid={addGameValid}
-                addGame={addGame}
-                toggleFinal={toggleFinal}
-                swapGame={swapGame}
-                removeGame={removeGame}
-                updateLog={updateLog}
-                setMatchups={setMatchups}
-                gameStatusClasses={gameStatusClasses}
-                seasonGamesFinalized={matchups.length > 0 && remainingGames.length === 0}
-                bracketProjection={bracketProjection}
-                silverBracketProjection={silverBracketProjection}
-                updateBracketLog={updateBracketLog}
-                toggleBracketFinal={toggleBracketFinal}
-                scoreFillPlan={scoreFillPlan}
-                openScoreFill={openScoreFill}
-                closeScoreFill={() => setScoreFillPlan(null)}
-                applyScoreFill={applyScoreFill}
-                seasonLabel={settings.seasonLabel}
-              />
+              <ErrorBoundary
+                key={activeView}
+                area={`${VIEW_LABELS[activeView]} view`}
+                onReset={() => resetLazyLeagueView(activeView)}
+              >
+                <Suspense fallback={<LoadingPanel area={VIEW_LABELS[activeView]} />}>
+                  {activeView === "dashboard" ? (
+                    <DashboardView
+                      engine={predictionEngine}
+                      backtestResult={backtestResult}
+                      teamsById={liveById}
+                      matchups={matchups}
+                      setActiveView={setActiveView}
+                      qualityFindings={qualityFindings}
+                      ourTeam={
+                        <OurTeamCard
+                          summary={ourTeam}
+                          {...(ourClubRank ? { clubRank: ourClubRank } : {})}
+                          teams={teams}
+                          onPick={pickOurTeam}
+                          onEnterScore={(teamId) => {
+                            setScoreboardTeamFilter(teamId);
+                            setActiveView("games");
+                          }}
+                        />
+                      }
+                    />
+                  ) : activeView === "power" ? (
+                    <PowerRatingsView engine={predictionEngine} />
+                  ) : activeView === "standings" ? (
+                    <StandingsView
+                      goldCutoff={goldCutoff}
+                      latestCompletedDate={latestCompletedDate}
+                      lastImpact={lastImpact}
+                      dismissImpact={() => setLastImpact(null)}
+                      copyRecap={async () => {
+                        if (!lastImpact) return;
+                        const md = recapToMarkdown(settings.seasonLabel, lastImpact.recapItems);
+                        try {
+                          await navigator.clipboard.writeText(md);
+                          showToast("Recap copied.", { tone: "success" });
+                        } catch {
+                          showToast("Could not copy recap to clipboard.", { tone: "error" });
+                        }
+                      }}
+                      copyStory={async () => {
+                        if (!lastImpact) return;
+                        const story =
+                          storyText ||
+                          recapToStoryBrief(settings.seasonLabel, lastImpact.recapItems);
+                        try {
+                          await navigator.clipboard.writeText(story);
+                          showToast("League story copied.", { tone: "success" });
+                        } catch {
+                          showToast("Could not copy story to clipboard.", { tone: "error" });
+                        }
+                      }}
+                      dashboardRows={dashboardRows}
+                      hasCutLine={hasCutLine}
+                      storyText={storyText}
+                      storySource={aiStory.status === "ready" ? aiStory.provider : "local"}
+                      storyModel={aiStory.model}
+                      storyLoading={aiStory.status === "loading"}
+                      storyUnavailableReason={
+                        aiStory.status === "unavailable" || aiStory.status === "error"
+                          ? (aiStory.reason ?? "upstream-error")
+                          : null
+                      }
+                      storyErrorMessage={aiStory.message}
+                      retryStory={aiStory.retry}
+                      storyWaiting={aiStory.waiting}
+                      askStory={aiStory.ask}
+                      currentSosRanks={currentSosRanks}
+                      statusClass={statusClass}
+                      statusLabel={statusLabel}
+                      formatGoldPct={formatGoldPct}
+                      formatGoldMargin={(team) =>
+                        formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
+                      }
+                      onSelectTeam={openTeamData}
+                    />
+                  ) : activeView === "teamStats" ? (
+                    <TeamStatsView
+                      leagueAverageStats={leagueAverageStats}
+                      statRankings={statRankings}
+                      pitchMode={settings.pitchMode}
+                      trackErrors={settings.trackErrors}
+                      runsOnly={runsOnly}
+                      matrixTeams={headToHeadMatrixTeams}
+                      headToHeadCell={headToHeadCell}
+                    />
+                  ) : activeView === "model" ? (
+                    <ModelView
+                      goldCutoff={goldCutoff}
+                      modelRows={modelRows}
+                      bracketProjection={bracketProjection}
+                      silverBracketProjection={silverBracketProjection}
+                      updateBracketLog={updateBracketLog}
+                      toggleBracketFinal={toggleBracketFinal}
+                      clearBracketScores={clearBracketScores}
+                      seedRangeForTeam={seedRangeForTeam}
+                      gamesThatMatterMost={gamesThatMatterMost}
+                      bubbleMovementRows={bubbleMovementRows}
+                      scheduleDifficultyForTeam={scheduleDifficultyForTeam}
+                      formatGoldPct={formatGoldPct}
+                      formatGoldMargin={(team) =>
+                        formatProbabilityMargin((team.goldPctMargin ?? 0) / 100)
+                      }
+                      projectedCutLineTeams={projectedCutLineTeams}
+                      nextTwoSwingGames={nextTwoSwingGames}
+                      gameForecasts={gameForecasts}
+                      byId={liveById}
+                      gameStatusClasses={gameStatusClasses}
+                      teams={teams}
+                      matchups={matchups}
+                      logs={logs}
+                      settings={settings}
+                      cutoff={goldCutoff}
+                      onSelectTeam={openTeamData}
+                      liveTeams={liveTeams}
+                      remainingGames={remainingGames}
+                      backtestResult={backtestResult}
+                      bracketOdds={bracketOdds}
+                      clinchingPaths={clinchingPaths}
+                      cutLineSnapshot={cutLineSnapshot}
+                      timelineEntries={timelineEntries}
+                      hasCutLine={hasCutLine}
+                      hasPostseason={hasPostseason}
+                      forecastStoryText={
+                        forecastStory.status === "ready" ? forecastStory.summary : ""
+                      }
+                      forecastStoryModel={forecastStory.model}
+                      forecastStoryProvider={forecastStory.provider}
+                      forecastStoryLoading={forecastStory.status === "loading"}
+                      forecastStoryUnavailableReason={
+                        forecastStory.status === "unavailable" || forecastStory.status === "error"
+                          ? (forecastStory.reason ?? "upstream-error")
+                          : null
+                      }
+                      forecastStoryErrorMessage={forecastStory.message}
+                      retryForecastStory={forecastStory.retry}
+                      forecastStoryWaiting={forecastStory.waiting}
+                      askForecastStory={forecastStory.ask}
+                      playoffMachine={
+                        <PlayoffMachine
+                          key={activeSeasonId}
+                          teams={teams}
+                          matchups={matchups}
+                          logs={deferredLogs}
+                          settings={settings}
+                          liveTeams={liveTeams}
+                          ratings={predictionEngine.ratings}
+                          remainingGames={remainingGames}
+                          cutoff={goldCutoff}
+                          hasCutLine={hasCutLine}
+                          currentRows={dashboardRows}
+                          oddsSeed={oddsSeed}
+                          iterations={SIM_ITERATIONS}
+                          seasonId={activeSeasonId}
+                        />
+                      }
+                    />
+                  ) : activeView === "dataQuality" ? (
+                    <DataQualityView
+                      findings={qualityFindings}
+                      onDismiss={dismissQualityFinding}
+                      onRepair={(finding) => {
+                        const duplicateId = finding.gameIds[1];
+                        if (finding.safeRepair === "remove-duplicate" && duplicateId) {
+                          void removeGame(duplicateId);
+                        }
+                      }}
+                      onNavigate={(view, finding) => {
+                        if (view === "games" && finding.deepLink.teamId) {
+                          setScoreboardTeamFilter(finding.deepLink.teamId);
+                        }
+                        setActiveView(view);
+                      }}
+                    />
+                  ) : activeView === "settings" ? (
+                    <div className="space-y-6">
+                      <SeasonManager
+                        seasons={seasons.all}
+                        activeSeasonId={activeSeasonId}
+                        onSwitch={seasons.switchTo}
+                        onCreate={seasons.create}
+                        onDuplicate={seasons.duplicate}
+                        onDelete={(id) => void seasons.remove(id)}
+                      />
+                      {/* Above Settings because it answers the question the "Team Rankings results"
+                    setting down there raises: which club is which. */}
+                      <ScoutLinkPanel
+                        bridge={scoutBridge}
+                        candidatesFor={scoutCandidatesFor}
+                        allClubs={allScoutClubs}
+                        seasonLabel={settings.seasonLabel}
+                        countingOn={settings.useScoutResults}
+                        onPick={setScoutLink}
+                      />
+                      <SettingsView
+                        onOpenCloud={cloud.kind === "off" ? undefined : cloudPanel.show}
+                        settings={settings}
+                        setSettings={setSettings}
+                        teamsCount={teams.length}
+                        importCSV={importCSV}
+                        importBackup={importBackup}
+                        exportCSV={exportCSV}
+                        exportBackup={exportBackup}
+                        resetSeason={resetSeason}
+                        loadDemoSeason={loadDemoSeason}
+                        summaryMode={summaryMode}
+                        onSummaryMode={setSummaryMode}
+                      />
+                    </div>
+                  ) : (
+                    <GamesView
+                      teams={teams}
+                      matchups={matchups}
+                      logs={logs}
+                      scoreboardGames={scoreboardGames}
+                      scoreboardPredictions={scoreboardPredictions}
+                      scoreboardTeamFilter={scoreboardTeamFilter}
+                      pitchMode={settings.pitchMode}
+                      trackErrors={settings.trackErrors}
+                      runsOnly={runsOnly}
+                      setScoreboardTeamFilter={setScoreboardTeamFilter}
+                      newDate={newDate}
+                      setNewDate={setNewDate}
+                      newAway={newAway}
+                      setNewAway={setNewAway}
+                      newHome={newHome}
+                      setNewHome={setNewHome}
+                      addGameValid={addGameValid}
+                      addGame={addGame}
+                      toggleFinal={toggleFinal}
+                      swapGame={swapGame}
+                      removeGame={removeGame}
+                      updateLog={updateLog}
+                      setMatchups={setMatchups}
+                      gameStatusClasses={gameStatusClasses}
+                      seasonGamesFinalized={matchups.length > 0 && remainingGames.length === 0}
+                      bracketProjection={bracketProjection}
+                      silverBracketProjection={silverBracketProjection}
+                      updateBracketLog={updateBracketLog}
+                      toggleBracketFinal={toggleBracketFinal}
+                      scoreFillPlan={scoreFillPlan}
+                      openScoreFill={openScoreFill}
+                      closeScoreFill={() => setScoreFillPlan(null)}
+                      applyScoreFill={applyScoreFill}
+                      seasonLabel={settings.seasonLabel}
+                    />
+                  )}
+                </Suspense>
+              </ErrorBoundary>
             )}
           </main>
         )}

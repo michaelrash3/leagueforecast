@@ -46,6 +46,7 @@ const SHARE_VIEWS = new Set<ActiveShareView>([
   "teamStats",
   "games",
   "model",
+  "dataQuality",
   "settings",
 ]);
 

@@ -9,8 +9,13 @@ import { card } from "../styles/tokens";
  */
 export function LoadingPanel({ area }: { area: string }) {
   return (
-    <div className={`${card} p-5`} role="status" aria-live="polite">
+    <div className={`${card} min-h-64 p-5`} role="status" aria-live="polite">
       <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Loading {area}…</p>
+      <div className="mt-5 space-y-3" aria-hidden="true">
+        <div className="h-7 w-2/5 animate-pulse rounded bg-slate-200 motion-reduce:animate-none dark:bg-slate-800" />
+        <div className="h-16 animate-pulse rounded-lg bg-slate-100 motion-reduce:animate-none dark:bg-slate-900" />
+        <div className="h-16 animate-pulse rounded-lg bg-slate-100 motion-reduce:animate-none dark:bg-slate-900" />
+      </div>
     </div>
   );
 }

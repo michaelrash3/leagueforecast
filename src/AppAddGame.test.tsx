@@ -76,7 +76,7 @@ describe("the add-a-game selects across a season switch", () => {
 
     render(<App />);
     await user.click(screen.getByRole("tab", { name: /schedule/i }));
-    const away = screen.getByRole("combobox", { name: /away team/i });
+    const away = await screen.findByRole("combobox", { name: /away team/i });
     await waitFor(() => expect(away).toHaveValue("AAAA"));
 
     await user.selectOptions(screen.getByRole("combobox", { name: /active season/i }), other.id);

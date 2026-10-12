@@ -18,6 +18,7 @@ import {
   type TiebreakerFactor,
 } from "../../lib/types";
 import { button as buttonClasses, card } from "../../styles/tokens";
+import { NotificationSettings } from "../NotificationSettings";
 
 /** The order the tiebreaker pickers offer, and the "none" they also allow. */
 const TIEBREAKER_FACTORS: TiebreakerFactor[] = [
@@ -554,6 +555,10 @@ export function SettingsView({
               Reset Season
             </button>
           </div>
+        </div>
+
+        <div className="mt-8">
+          <NotificationSettings />
         </div>
 
         {onOpenCloud && (

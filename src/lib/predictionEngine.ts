@@ -38,6 +38,20 @@ export type LeaguePrediction = {
   dataQuality: { tier: DataQualityTier; warnings: string[]; recommendedActions: string[] };
   keyFactors: string[];
   riskFactors: string[];
+  explanation: {
+    factors: Array<{
+      key: "rating" | "recent-form" | "schedule" | "home-field" | "sample-size" | "data-quality";
+      label: string;
+      contribution: number;
+      detail: string;
+    }>;
+    sensitivity: string[];
+  };
+  uncertainty: {
+    /** 80% model interval in runs; distinct from winner probability and confidence. */
+    margin: { low: number; high: number; level: 0.8 };
+    expectedScore?: { teamA: [number, number]; teamB: [number, number]; level: 0.8 };
+  };
 };
 
 export type PredictionEngineResult = {
@@ -436,6 +450,18 @@ export const buildPredictionEngine = (
         dataQuality,
         keyFactors: ["Insufficient completed game data."],
         riskFactors: dataQuality.warnings,
+        explanation: {
+          factors: [
+            {
+              key: "data-quality",
+              label: "Missing results",
+              contribution: 0,
+              detail: "Completed scores are needed before matchup factors can be estimated.",
+            },
+          ],
+          sensitivity: ["This forecast is a league-average placeholder."],
+        },
+        uncertainty: { margin: { low: -8, high: 8, level: 0.8 } },
       };
     }
     const headToHead = a.headToHead?.[b.id];
@@ -497,6 +523,49 @@ export const buildPredictionEngine = (
     const riskFactors = [...dataQuality.warnings];
     if (knownGames < 3) riskFactors.push("Small sample size can make ratings unstable.");
     if (Math.abs(margin) < 3) riskFactors.push("Similar team ratings create a close-game risk.");
+    const marginWidth = clamp(
+      2.5 + 8 / Math.sqrt(Math.max(1, knownGames)) + volatilityPenalty / 5,
+      3,
+      12
+    );
+    const expectedScore = leagueAvgScoring
+      ? {
+          teamA: Math.max(0, Number((leagueAvgScoring + margin / 2).toFixed(1))),
+          teamB: Math.max(0, Number((leagueAvgScoring - margin / 2).toFixed(1))),
+        }
+      : undefined;
+    const factors: LeaguePrediction["explanation"]["factors"] = [
+      {
+        key: "rating",
+        label: "Opponent-adjusted rating",
+        contribution: Number((ar.rating - br.rating).toFixed(2)),
+        detail: `${a.name} ${ar.rating >= br.rating ? "leads" : "trails"} the adjusted rating comparison.`,
+      },
+      {
+        key: "home-field",
+        label: "Home-field adjustment",
+        contribution: Number((-adjusted.homeAdvantage).toFixed(2)),
+        detail: `${b.name} receives the model's home-field adjustment.`,
+      },
+      {
+        key: "recent-form",
+        label: "Recent league form",
+        contribution: Number((ar.recentForm - br.recentForm).toFixed(2)),
+        detail: "Recent results are weighted without replacing the full-season rating.",
+      },
+      {
+        key: "schedule",
+        label: "Strength of schedule",
+        contribution: Number((ar.strengthOfSchedule - br.strengthOfSchedule).toFixed(2)),
+        detail: "Opponent quality changes how the same record is interpreted.",
+      },
+      {
+        key: "sample-size",
+        label: "Sample size",
+        contribution: -samplePenalty / 10,
+        detail: `${knownGames} fitted game${knownGames === 1 ? "" : "s"} support the thinner side of this matchup.`,
+      },
+    ];
     return {
       gameId: game.id,
       teamAId: a.id,
@@ -504,16 +573,34 @@ export const buildPredictionEngine = (
       predictedWinnerId: projectedWinnerId,
       projectedMargin: Math.abs(Number(margin.toFixed(1))),
       winProbability: { teamA: Number(probA.toFixed(2)), teamB: Number((1 - probA).toFixed(2)) },
-      expectedScore: leagueAvgScoring
-        ? {
-            teamA: Math.max(0, Number((leagueAvgScoring + margin / 2).toFixed(1))),
-            teamB: Math.max(0, Number((leagueAvgScoring - margin / 2).toFixed(1))),
-          }
-        : undefined,
+      expectedScore,
       confidence,
       dataQuality,
       keyFactors,
       riskFactors,
+      explanation: { factors, sensitivity: riskFactors },
+      uncertainty: {
+        margin: {
+          low: Number((margin - marginWidth).toFixed(1)),
+          high: Number((margin + marginWidth).toFixed(1)),
+          level: 0.8,
+        },
+        ...(expectedScore
+          ? {
+              expectedScore: {
+                teamA: [
+                  Math.max(0, Number((expectedScore.teamA - marginWidth / 2).toFixed(1))),
+                  Number((expectedScore.teamA + marginWidth / 2).toFixed(1)),
+                ],
+                teamB: [
+                  Math.max(0, Number((expectedScore.teamB - marginWidth / 2).toFixed(1))),
+                  Number((expectedScore.teamB + marginWidth / 2).toFixed(1)),
+                ],
+                level: 0.8 as const,
+              },
+            }
+          : {}),
+      },
     };
   };
 

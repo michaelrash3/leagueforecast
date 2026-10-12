@@ -1,6 +1,7 @@
 import { ageGroupYear, type AgeGroup, type ScoutGame, type ScoutTeam } from "./teamRankings";
 import { isNumber, isRecord, isString } from "./validate";
 import { coercePullProgress, type GcPullProgress } from "./gameChangerPull";
+import { coerceGcRefreshState, type GcRefreshState } from "./gameChangerRefresh";
 import {
   DEFAULT_REFRESH_CADENCE,
   isRefreshCadence,
@@ -102,6 +103,8 @@ const AGE_GROUPS_KEY = "league_forecast_scout_age_groups_v1";
 const GC_PULL_KEY = "league_forecast_gc_pull_v1";
 /** When each age level last had its turn in the weekly rotation. */
 const GC_REFRESH_KEY = "league_forecast_gc_refresh_v1";
+/** Versioned per-source attempts, revisions, changes, retry state, and overlap leases. */
+const GC_REFRESH_STATE_KEY = "league_forecast_gc_refresh_state_v1";
 /** How much comes round at once: the week's rotation, or every age group every day. */
 const GC_CADENCE_KEY = "league_forecast_gc_cadence_v1";
 /** The shape of the pool the last time it was tidied, so a load can tell whether it needs to be. */
@@ -457,6 +460,7 @@ const POOL_KEYS = [
   AGE_GROUPS_KEY,
   GC_PULL_KEY,
   GC_REFRESH_KEY,
+  GC_REFRESH_STATE_KEY,
   GC_CADENCE_KEY,
   GC_TIDY_KEY,
   GC_AGELESS_KEY,
@@ -1347,6 +1351,12 @@ export const loadRefreshLog = (): RefreshLog => {
 };
 
 export const saveRefreshLog = (log: RefreshLog): boolean => writeValue(GC_REFRESH_KEY, log);
+
+/** Detailed refresh state is additive; the legacy per-level completion log remains compatible. */
+export const loadGcRefreshState = (): GcRefreshState =>
+  coerceGcRefreshState(readValue(GC_REFRESH_STATE_KEY));
+export const saveGcRefreshState = (state: GcRefreshState): boolean =>
+  writeValue(GC_REFRESH_STATE_KEY, state);
 
 /**
  * Which cadence the refresh offers. Anything unreadable falls back to the default rather than to

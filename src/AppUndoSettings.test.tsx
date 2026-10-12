@@ -73,7 +73,7 @@ describe("undoing a change that brought its own settings", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: "Settings" }));
-    await user.click(screen.getByRole("button", { name: "Load Demo" }));
+    await user.click(await screen.findByRole("button", { name: "Load Demo" }));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", { name: "Load demo" })
     );
