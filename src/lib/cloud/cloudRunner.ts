@@ -360,7 +360,10 @@ const sweep = (pool: SweepPool, now: Date): void => {
   }
 };
 
-/** Whether `job` sweeps: a refresh, not a pasted list. */
+/**
+ * Whether `job` sweeps: a refresh of the pool (a rota job), never a list, a catch-up list with
+ * `refresh` included, which asks about every team on it but is still a list leg.
+ */
 const sweeps = (job: CloudPullJob): boolean => job.kind === "rota";
 
 /** The sweep alone, for a refresh with nothing to pull: the pool as the copy holds it. */
@@ -498,7 +501,7 @@ export const runCloudPull = async (
   const ids = limit === undefined ? wanted : wanted.slice(0, Math.max(0, limit));
   result.asked = ids.length;
   if (ids.length === 0) {
-    // A pasted list with nothing to pull writes nothing, the sweep included (`sweeps`).
+    // A list with nothing to pull, a paste or a catch-up, writes nothing, the sweep included.
     if (!sweeps(job)) return { ...result, end: "nothing-due", manifest: copy.manifest };
     /*
      * A refresh with nothing to pull still sweeps for clubs plainly made up, through the same tries

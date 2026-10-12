@@ -2326,10 +2326,11 @@ acts at once, without a dialog, as the user asked the same day.
 spotted and taken off without them, and for teams named void, test or demo to be among them. So
 each night, after its pull and its tidy, and on a night with nothing to pull as well, the nightly
 sweeps the cloud copy for them (`obviousFakes.ts`, run from `cloudRunner.ts`), as each leg of
-**Refresh now** in the cloud does. A leg of a pasted list pulled in the cloud does not, nor does a
-pasted list with nothing new to pull: the sweep walks every game of the pool, and a whole squad
-year, about three times the pool of 11 October, is to come in through pasted lists, so each of
-their legs is kept as light as it can be and that night's refresh sweeps what they filed. A pull
+**Refresh now** in the cloud does. A leg of a list pulled in the cloud does not, a pasted list's or
+a catch-up's (**Ask again about teams nobody could age**, **Check short rosters again**), nor does
+a list with nothing new to pull: the sweep walks every game of the pool, and a whole squad year,
+about three times the pool of 11 October, is to come in through pasted lists, so each of their
+legs is kept as light as it can be and that night's refresh sweeps what they filed. A pull
 in a browser that keeps its own pool sweeps that pool when it ends, in the tidy worker after the
 tidy (1.5 s on the pool of 26 September at 18:40 and 2.5 s on 11 October's measured in Node,
 which the page's thread would spend frozen). A pulled club is taken off when it shows one of four

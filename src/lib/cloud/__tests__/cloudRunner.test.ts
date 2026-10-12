@@ -260,8 +260,9 @@ describe("a pull run on the cloud copy", () => {
   /*
    * The sweep for clubs plainly made up (`obviousFakes.ts`) runs on the copy after a refresh's tidy,
    * the nightly's or a leg of Refresh now's, and on one with nothing left to pull, its marks saved in
-   * the run's one commit. A pasted list's legs never sweep, nor does a list with nothing due: every
-   * list leg is kept as light as it can be, and the nightly sweeps what they filed that night.
+   * the run's one commit. A list's legs never sweep, a paste's or a catch-up's, nor does a list with
+   * nothing due: every list leg is kept as light as it can be, and the nightly sweeps what they filed
+   * that night.
    */
   describe("the sweep for clubs plainly made up", () => {
     const MARKS = "league_forecast_gc_auto_removed_v1";
@@ -312,11 +313,21 @@ describe("a pull run on the cloud copy", () => {
       expect((await marksInCopy(cloud)).get(ROUTER)?.signs).toEqual(["wins"]);
     });
 
-    it("files a pasted list's leg without sweeping it", async () => {
+    /*
+     * Both kinds of list leg the page sends: a paste, and a catch-up (`refresh`) such as "Ask again
+     * about teams nobody could age" or "Check short rosters again", which asks about every team on
+     * it and still is a list, not a refresh of the pool.
+     */
+    const lists = [
+      ["pasted list", {}],
+      ["catch-up list", { refresh: true }],
+    ] as const;
+
+    it.each(lists)("files a %s's leg without sweeping it", async (_, kind) => {
       const cloud = memoryCloud();
       const before = await seed(cloud);
       const result = await runCloudPull(
-        { kind: "list", entries: [{ teamId: ROUTER }], seasonYears: [2027] },
+        { kind: "list", entries: [{ teamId: ROUTER }], seasonYears: [2027], ...kind },
         deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: routerAnswers })
       );
       expect(result).toMatchObject({ end: "finished", filed: 1 });
@@ -360,20 +371,26 @@ describe("a pull run on the cloud copy", () => {
       expect(result.version).toBe(before.version + 1);
     });
 
-    it("writes nothing for a pasted list with nothing due, whatever the copy holds", async () => {
-      const cloud = memoryCloud();
-      const before = await seed(cloud, () => {
-        saveDroppedClubs(new Set([ACES, BEARS]));
-        demo("gcDEMO000001")();
-      });
-      const writes = cloud.costs.writes;
-      const result = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
-      expect(result).toMatchObject({ end: "nothing-due", asked: 0, changed: [] });
-      expect(result.manifest).toEqual(before);
-      expect(cloud.manifest()).toEqual(before);
-      expect(cloud.costs.writes).toBe(writes);
-      expect((await marksInCopy(cloud)).size).toBe(0);
-    });
+    it.each(lists)(
+      "writes nothing for a %s with nothing due, whatever the copy holds",
+      async (_, kind) => {
+        const cloud = memoryCloud();
+        const before = await seed(cloud, () => {
+          saveDroppedClubs(new Set([ACES, BEARS]));
+          demo("gcDEMO000001")();
+        });
+        const writes = cloud.costs.writes;
+        const result = await runCloudPull(
+          { ...list, ...kind },
+          deps(cloud, "2026-09-29T13:00:00.000Z")
+        );
+        expect(result).toMatchObject({ end: "nothing-due", asked: 0, changed: [] });
+        expect(result.manifest).toEqual(before);
+        expect(cloud.manifest()).toEqual(before);
+        expect(cloud.costs.writes).toBe(writes);
+        expect((await marksInCopy(cloud)).size).toBe(0);
+      }
+    );
 
     it("never marks a club said to be real", async () => {
       const cloud = memoryCloud();
