@@ -6363,7 +6363,7 @@ function SettingsView({
           </h3>
           <div className="mt-4 flex flex-wrap gap-3">
             <label className="cursor-pointer rounded-xl bg-slate-950 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-slate-800">
-              Import CSV
+              Upload CSV
               <input
                 type="file"
                 accept=".csv,text/csv"
