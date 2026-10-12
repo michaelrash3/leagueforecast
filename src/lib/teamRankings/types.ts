@@ -380,7 +380,7 @@ export type ScoutRankingRow = {
   /**
    * What the table ranks and shows: the opponent-adjusted expected margin vs an average team in
    * this pool, in runs, less one standard error for how little may stand behind it. See
-   * `confidentRating` and `EVIDENCE_STANDARD_ERRORS`.
+   * `confidentRating` and `EVIDENCE_STANDARD_ERRORS`, followed by the bounded schedule deduction.
    */
   rating: number;
   /**
@@ -391,6 +391,8 @@ export type ScoutRankingRow = {
    * not first in the nation, and without this the table could only assert the conclusion.
    */
   pointRating: number;
+  /** Run units deducted for opponents whose other games stay inside the same opponent circle. */
+  scheduleDeduction?: number;
   record: string;
   wins: number;
   losses: number;

@@ -40,8 +40,9 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * (`BOARD_SHAPE` 1). 4: a year of age worth what it measured at each level (`AGE_STEP_RUNS`),
  * four runs from 9U to 10U, rather than two runs at every level. 5: a club removed automatically as
  * plainly made up, and every game naming it, are left off every board (`autoRemoved.ts`).
+ * 6: a bounded one-run deduction for observed circular opponent schedules (`circularSchedule.ts`).
  */
-export const BOARD_RULES = 5;
+export const BOARD_RULES = 6;
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of
@@ -188,6 +189,7 @@ const ROW_FIELDS: { [K in keyof ScoutRankingRow]-?: FieldKind } = {
   rank: "number",
   rating: "number",
   pointRating: "number",
+  scheduleDeduction: "number?",
   record: "string",
   wins: "number",
   losses: "number",

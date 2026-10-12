@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ageGroup,
   game,
@@ -10,6 +10,8 @@ import {
   type Pool,
 } from "../../test/teamRankingsHarness";
 import { NATIONAL_TOP, STATE_TOP } from "./RankingsSection";
+
+afterEach(() => vi.unstubAllGlobals());
 
 /**
  * A pool big enough that both leaderboards have to cut something: thirty teams across two states,
@@ -87,6 +89,45 @@ describe("the two leaderboards", () => {
 });
 
 describe("the full table", () => {
+  it.each([true, false])("explains the circular-schedule deduction with wide=%s", async (wide) => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: wide,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })
+    );
+    const user = userEvent.setup();
+    const group = ageGroup(12, 2027);
+    const clubs = ["A", "B", "C", "D"].map((id) => team(`S-${id}`, `Club ${id}`));
+    const games = clubs.flatMap((a, i) =>
+      clubs.slice(i + 1).flatMap((b) =>
+        Array.from({ length: 3 }, (_, round) =>
+          game(`${a.id}-${b.id}-${round}`, group.id, a.id, b.id, 4, 4, {
+            date: seasonDate(2027),
+          })
+        )
+      )
+    );
+    renderTeamRankings({ ageGroups: [group], teams: clubs, games });
+    await user.click(screen.getByRole("button", { name: "Show all 4 teams" }));
+    if (wide) {
+      const table = screen.getByRole("table");
+      expect(within(table).getAllByText(/Schedule deduction -1/)).toHaveLength(4);
+      expect(
+        within(table).getAllByTitle(/Opponents' other games mostly stay in the same circle/)
+      ).toHaveLength(4);
+    } else {
+      expect(screen.queryByRole("table")).toBeNull();
+      const labels = screen.getAllByText("Schedule deduction");
+      expect(labels).toHaveLength(4);
+      for (const label of labels) {
+        expect(within(label.parentElement!).getByText("-1.0")).toBeInTheDocument();
+      }
+    }
+  });
+
   it("stays collapsed until it is asked for", () => {
     renderTeamRankings(bigPool());
     expect(screen.queryByRole("table")).toBeNull();

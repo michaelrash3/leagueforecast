@@ -63,6 +63,8 @@ export type GameLine = {
 export type Breakdown = {
   rating: number;
   pointRating: number;
+  /** Held fixed while describing each game's score and record effects. */
+  scheduleDeduction?: number;
   lines: ReadonlyMap<string, GameLine>;
 };
 
@@ -244,7 +246,14 @@ export const gameBreakdown = ({
   const discount = discountAbout(fit.middle, fit.scale, shrink, fit.errors);
   const pointRating = weighed / (weight + shrink);
   if (!(Math.abs(pointRating - row.pointRating) <= RATING_TOLERANCE)) return null;
-  if (!(Math.abs(discount(pointRating, evidence) - row.rating) <= RATING_TOLERANCE)) return null;
+  if (
+    !(
+      Math.abs(discount(pointRating, evidence) - (row.scheduleDeduction ?? 0) - row.rating) <=
+      RATING_TOLERANCE
+    )
+  ) {
+    return null;
+  }
 
   // Each opponent's own total weight, read off its games as if each weighed what its meetings
   // with the club did, and the echo of the club's games back through its opponents.
@@ -289,5 +298,10 @@ export const gameBreakdown = ({
       levelsUp: line.levelsUp,
     });
   }
-  return { rating: row.rating, pointRating: row.pointRating, lines };
+  return {
+    rating: row.rating,
+    pointRating: row.pointRating,
+    ...(row.scheduleDeduction === undefined ? {} : { scheduleDeduction: row.scheduleDeduction }),
+    lines,
+  };
 };

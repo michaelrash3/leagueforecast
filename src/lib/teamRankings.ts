@@ -12,6 +12,7 @@ import { normalizeDateInput, todayIsoDay } from "./date";
 import { weightsForGames } from "./ratingRecency";
 import { ageLevelFromName } from "./gameChangerApi";
 import { coachesOf } from "./gcStaff";
+import { circularScheduleDeductions } from "./circularSchedule";
 
 /**
  * What has been split out so far, re-exported so nothing that imports from here had to change.
@@ -2997,6 +2998,14 @@ export const buildTeamRankings = (
     { games: effective, residualScale: adjusted.residualScale },
     teams.filter(isClub).map((team) => team.id)
   );
+  const scheduleDeductions = circularScheduleDeductions(
+    teams,
+    playedGames.map((game, at) => ({
+      a: game.teamAId,
+      b: game.teamBId,
+      weight: weights?.[at] ?? 1,
+    }))
+  );
   const rows = teams
     /*
      * Everyone is in the fit above, because every one of them was somebody's opponent. Only clubs
@@ -3007,13 +3016,17 @@ export const buildTeamRankings = (
     .map((team): ScoutRankingRow => {
       const { wins, losses, ties } = records.get(team.id) ?? NO_RECORD;
       const gamesPlayed = adjusted.games.get(team.id) ?? 0;
+      const scheduleDeduction = scheduleDeductions.get(team.id) ?? 0;
       return {
         teamId: team.id,
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
+        rating:
+          confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0) -
+          scheduleDeduction,
         pointRating: adjusted.ratings.get(team.id) ?? 0,
+        ...(scheduleDeduction > 0 ? { scheduleDeduction } : {}),
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
         losses,
@@ -3198,6 +3211,8 @@ export type ScoutYearFit = {
   adjusted: OpponentAdjustedRatings;
   /** Each team's games weighed by its opponents' (`effectiveGames`): what the discount reads. */
   effective: Map<string, number>;
+  /** The bounded deduction for opponents whose other schedules recycle the same circle. */
+  scheduleDeductions: Map<string, number>;
   homeLevels: Map<string, number | undefined>;
   records: Map<string, WinLoss>;
   /** How many of each team's games crossed a level. */
@@ -3286,6 +3301,14 @@ export const fitScoutYear = (
     nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
   );
   const confident = discountAbout(middle, adjusted.residualScale);
+  const scheduleDeductions = circularScheduleDeductions(
+    nodes,
+    ratedGames.map((game, at) => ({
+      a: game.teamAId,
+      b: game.teamBId,
+      weight: weights?.[at] ?? 1,
+    }))
+  );
   /*
    * Over the same games the fit read, so "the piece this club is in" means the piece the ridge
    * pinned to zero on its own. Nodes rather than rows: a club reaches the rest of the table through
@@ -3301,6 +3324,7 @@ export const fitScoutYear = (
     filedByPage,
     adjusted,
     effective,
+    scheduleDeductions,
     homeLevels,
     records,
     crossAgeCounts,
@@ -3379,13 +3403,17 @@ export const rowsOfYearFit = (
       const crossAgeGames = crossAgeCounts.get(team.id) ?? 0;
       const ageLevel = homeLevels.get(team.id);
       const gamesPlayed = adjusted.games.get(team.id) ?? 0;
+      const scheduleDeduction = fit.scheduleDeductions.get(team.id) ?? 0;
       return {
         teamId: team.id,
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
+        rating:
+          confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0) -
+          scheduleDeduction,
         pointRating: adjusted.ratings.get(team.id) ?? 0,
+        ...(scheduleDeduction > 0 ? { scheduleDeduction } : {}),
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
         losses,

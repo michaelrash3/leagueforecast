@@ -12,7 +12,9 @@
  * The fit is least squares and `RATING_CAP` clamps a margin before it reaches the fit, so within
  * ±12 runs every club's fitted rating is an affine function of the margin assumed, and two fits,
  * the two ends, give it at every margin between. The shown rating is that less an evidence
- * discount, which is the pool's residual scale times a number fixed for each club — its games
+ * discount, plus a schedule deduction fixed across those margins, since the same hypothetical
+ * opponent and date are added at every margin. The evidence discount is the pool's residual
+ * scale times a number fixed for each club — its games
  * weighed by its opponents', which no margin changes — and the residual scale is not linear: its
  * square is the weighted mean of squared residuals, each affine in the margin, so it is a quadratic
  * in the margin, pinned exactly by a third fit, at a tie. A straight line between the two ends
@@ -315,11 +317,16 @@ export const whatIfCurve = (
   const perScale = new Map(
     reference.rows.map((row) => [
       row.teamId,
-      reference.residualScale > 0 ? (row.pointRating - row.rating) / reference.residualScale : 0,
+      reference.residualScale > 0
+        ? (row.pointRating - row.rating - (row.scheduleDeduction ?? 0)) / reference.residualScale
+        : 0,
     ])
   );
   const lowPoint = new Map(lost.map((row) => [row.teamId, row.pointRating]));
   const highPoint = new Map(won.map((row) => [row.teamId, row.pointRating]));
+  const scheduleDeductions = new Map(
+    reference.rows.map((row) => [row.teamId, row.scheduleDeduction ?? 0])
+  );
 
   const points: WhatIfPoint[] = [];
   for (let margin = -RATING_CAP; margin <= RATING_CAP; margin += 1) {
@@ -330,7 +337,12 @@ export const whatIfCurve = (
       const low = lowPoint.get(teamId);
       const high = highPoint.get(teamId);
       if (low === undefined || high === undefined) return 0;
-      return low + (high - low) * share - scale * (perScale.get(teamId) ?? 0);
+      return (
+        low +
+        (high - low) * share -
+        scale * (perScale.get(teamId) ?? 0) -
+        (scheduleDeductions.get(teamId) ?? 0)
+      );
     };
     const mine = between(forTeamId);
     // Counting who is above is what a rank is. Strictly above, so a club level with this one on

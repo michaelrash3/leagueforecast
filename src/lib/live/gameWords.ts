@@ -58,18 +58,30 @@ const tenthsPrinted = (printed: string): number => Math.round(Number(printed) * 
  *
  * The two ratings are printed as the row prints its Rating and Best guess (`formatBoardRating`),
  * so the line never reads "0.0" above a row reading "-0.0", nor rounds a rating stored a hair under
- * a half the other way from the row. The record's part is what those two printed figures differ
- * by, so the three add up on screen to the rating shown, as a reader will check.
+ * a half the other way from the row. The record's part compares the rating before any schedule
+ * deduction with the fitted estimate, so rounding cannot label the deduction as lost confidence
+ * in the record. The separate schedule amount is rounded on its own.
  */
 export const ratingHeadline = (
-  breakdown: Pick<Breakdown, "rating" | "pointRating">,
+  breakdown: Pick<Breakdown, "rating" | "pointRating" | "scheduleDeduction">,
   { span, own }: { span: string; own: boolean }
 ): string => {
   const whose = own ? "your" : "its";
   const shown = formatBoardRating(breakdown.rating);
   const fromGames = formatBoardRating(breakdown.pointRating);
-  const record = tenthsPrinted(shown) - tenthsPrinted(fromGames);
+  const scheduleDeduction = breakdown.scheduleDeduction ?? 0;
+  const schedule = scheduleDeduction > 0 ? formatBoardRating(-scheduleDeduction) : null;
+  const record =
+    tenthsPrinted(formatBoardRating(breakdown.rating + scheduleDeduction)) -
+    tenthsPrinted(fromGames);
   const lead = `${span} rating ${shown}`;
+  if (schedule !== null) {
+    const evidence =
+      record === 0
+        ? ""
+        : `, ${tenths(record)} because ${whose} record makes ${whose} rating ${record > 0 ? "surer" : "less sure"} than the average club's`;
+    return `${lead}: ${fromGames} from ${whose} games${evidence}, ${schedule} for a circular schedule.`;
+  }
   if (record === 0) return `${lead}, all of it from ${whose} games.`;
   return `${lead}: ${fromGames} from ${whose} games, ${tenths(record)} because ${whose} record makes ${whose} rating ${
     record > 0 ? "surer" : "less sure"
@@ -149,7 +161,10 @@ export const gameNotesOf = (
   { span, own, cap }: { span: string; own: boolean; cap: number }
 ): GameNotes => ({
   headline: ratingHeadline(breakdown, { span, own }),
-  key: GAME_NOTES_KEY,
+  key:
+    (breakdown.scheduleDeduction ?? 0) > 0
+      ? `${GAME_NOTES_KEY} Game effects hold the schedule deduction fixed.`
+      : GAME_NOTES_KEY,
   byGame: new Map(
     [...breakdown.lines].map(([gameId, line]) => [gameId, gameClauses(line, { own, cap })])
   ),
