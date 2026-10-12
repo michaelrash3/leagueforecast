@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   askAgain,
   describeEnd,
@@ -187,12 +187,14 @@ export default function LiveCloudPulls({
   now: () => string;
 }) {
   const [text, setText] = useState("");
+  const [loaded, setLoaded] = useState<{ name: string; text: string } | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const sendingNow = useRef(false);
   const [said, setSaid] = useState<string | null>(null);
   const { look } = watching;
 
-  const entries = pastedTeams(text);
+  const entries = useMemo(() => pastedTeams(loaded?.text ?? text), [loaded, text]);
   const send = useCallback(
     async (list: readonly GcTeamListEntry[], options: { refresh: boolean; years: number[] }) => {
       const sender = pulls();
@@ -214,7 +216,10 @@ export default function LiveCloudPulls({
       sendingNow.current = false;
       setSending(false);
       if (sent.ok) {
-        if (!options.refresh) setText("");
+        if (!options.refresh) {
+          setText("");
+          setLoaded(null);
+        }
         look();
       } else {
         setSaid(sent.message);
@@ -236,9 +241,9 @@ export default function LiveCloudPulls({
         Pull teams in the cloud
       </h2>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        Paste GameChanger team links or ids, or a whole spreadsheet export. The cloud pulls the
-        teams it does not have yet, or a handful pasted by hand again, and files them for every
-        device; this page can be closed meanwhile.
+        Import a CSV file or paste GameChanger team links, ids, or a spreadsheet export. The cloud
+        pulls the teams it does not have yet, or a handful pasted by hand again, and files them for
+        every device; this page can be closed meanwhile.
       </p>
       {blocked !== null ? (
         blocked ? (
@@ -246,15 +251,58 @@ export default function LiveCloudPulls({
         ) : null
       ) : (
         <>
-          <label className="mt-3 block text-sm font-bold text-slate-600 dark:text-slate-300">
-            Teams to pull
-            <textarea
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              rows={4}
-              className="mt-1 block w-full rounded border border-slate-300 bg-white p-2 font-mono text-xs dark:border-slate-600 dark:bg-slate-900"
-            />
-          </label>
+          {loaded ? (
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+              <span className="font-mono font-bold">{loaded.name}</span>
+              <button
+                type="button"
+                disabled={sending}
+                onClick={() => setLoaded(null)}
+                className={button.ghost}
+              >
+                Choose a different file
+              </button>
+            </div>
+          ) : (
+            <label className="mt-3 block text-sm font-bold text-slate-600 dark:text-slate-300">
+              Teams to pull
+              <textarea
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                rows={4}
+                className="mt-1 block w-full rounded border border-slate-300 bg-white p-2 font-mono text-xs dark:border-slate-600 dark:bg-slate-900"
+              />
+            </label>
+          )}
+          <button
+            type="button"
+            disabled={sending}
+            onClick={() => fileInput.current?.click()}
+            className={`${button.ghost} mt-3 mr-3`}
+          >
+            Import CSV
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".csv,.txt,text/csv,text/plain"
+            className="hidden"
+            aria-label="Team list CSV"
+            disabled={sending}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.currentTarget.value = "";
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onerror = () => setSaid("Could not read that file.");
+              reader.onload = () => {
+                setSaid(null);
+                setText("");
+                setLoaded({ name: file.name, text: String(reader.result ?? "") });
+              };
+              reader.readAsText(file);
+            }}
+          />
           <button
             type="button"
             disabled={sending || entries.length === 0}
