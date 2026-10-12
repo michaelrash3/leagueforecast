@@ -6,6 +6,7 @@ import { latestImportedAt } from "../gameChangerImport";
 import {
   loadAgeGroups,
   loadAgeUnknown,
+  loadAutoRemoved,
   loadDroppedClubs,
   loadNamedAges,
   loadScoutGames,
@@ -14,6 +15,7 @@ import {
   loadTooYoungClubs,
 } from "../teamRankingsStorage";
 import type { LeagueSeasonData, SeasonReader } from "./allKnown";
+import { removedDays } from "../removedClubs";
 import { BOARD_FAMILY, builtFrom } from "./boardInputs";
 import {
   leaguePrintOf,
@@ -257,6 +259,7 @@ export const publishCopyViews = async ({
     teams,
     gamesOfYear: loadScoutGamesForYear,
     readSeason,
+    autoRemoved: loadAutoRemoved(),
     today,
   });
   const boards = boardViews(ageGroups, built);
@@ -269,10 +272,15 @@ export const publishCopyViews = async ({
     ageGroups,
     built,
     storedGames: loadScoutGames(),
-    held: { dropped: loadDroppedClubs(), ageless: loadAgeUnknown(), tooYoung: loadTooYoungClubs() },
+    held: {
+      dropped: loadDroppedClubs(),
+      ageless: loadAgeUnknown(),
+      tooYoung: loadTooYoungClubs(),
+      removed: removedDays(loadAutoRemoved()),
+    },
   });
   // And each page's Games list.
-  const games = gamesViews({ ageGroups, built, gamesOfYear: loadScoutGamesForYear });
+  const games = gamesViews({ ageGroups, built, gamesOfYear: loadScoutGamesForYear, roster: teams });
   const views = [...boards, ...clubs, ...searches, ...games];
   // With the copy's age groups, so a device that has never held the pool can lay the page out.
   const pages = livePagesOf(built, latestImportedAt(teams), ageGroups);

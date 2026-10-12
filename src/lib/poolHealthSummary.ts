@@ -4,7 +4,10 @@ import { squadYearHoldings, type SquadYearHolding } from "./poolHealth";
 import { isImplausibleScore, ratedMargin } from "./teamRankings";
 import { ageGroupYear } from "./teamRankings/seasons";
 import type { ScoutGame } from "./teamRankings/types";
-import { clubsByGcId, filedBy, unrealClubs, type UnrealClub } from "./unrealClubs";
+import { clubsByGcId, filedBy, unrealClubs, withoutClubs, type UnrealClub } from "./unrealClubs";
+import { type AutoRemovals } from "./autoRemoved";
+import { removedClubIds } from "./removedClubs";
+import { removedForYou, type RemovedClub } from "./removedForYou";
 
 /**
  * What Pool health shows as it opens, before anyone asks it to look harder (`PoolHealthCard`): what
@@ -45,14 +48,34 @@ export type PoolHealthSummary = {
    * always drew one.
    */
   clubs: Record<string, { name: string; gcId?: string }>;
+  /**
+   * The clubs taken off as plainly made up (`autoRemoved.ts`), newest first, which the lists above
+   * leave out; those a League Standings team links are among them, said to be kept on their boards
+   * (`RemovedClub.keptByLeague`) and left on the lists, as the boards keep them. Absent from a
+   * server's answer from before they were kept, which is the same as none.
+   */
+  removed?: RemovedClub[];
 };
 
-/** What Pool health shows as it opens, from `pool`, on `today`, with the stored games per year. */
+/**
+ * What Pool health shows as it opens, from `pool`, on `today`, with the stored games per year. A
+ * club `marks` takes off (`removedClubIds`) is on none of its lists but its own, "Removed for you":
+ * its games count for nothing and the boards leave it out, so there is nothing left to ask about it
+ * but whether to put it back or delete it for good. Unless a League Standings team links it
+ * (`leagueKept`, `leagueKeptClubs`): the boards keep such a club, and so do the lists.
+ */
 export const poolHealthSummary = (
-  pool: GcImportState,
+  whole: GcImportState,
   today: string,
-  storedByYear: { year: number | undefined; games: number }[]
+  storedByYear: { year: number | undefined; games: number }[],
+  marks: AutoRemovals,
+  leagueKept: ReadonlySet<string>
 ): PoolHealthSummary => {
+  const removed = removedClubIds(whole.teams, whole.ageGroups, marks, leagueKept);
+  const pool =
+    removed.size === 0
+      ? whole
+      : { ...whole, ...withoutClubs(removed, whole.teams, whole.games, whole.ageGroups) };
   const clubOfGcId = clubsByGcId(pool.teams);
   const yearOfPage = new Map(pool.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
   const rowOf = (game: ScoutGame): HealthGame => ({
@@ -86,11 +109,12 @@ export const poolHealthSummary = (
     clubs[id] = { name: team.name, ...(gcId === undefined ? {} : { gcId }) };
   }
   return {
-    holdings: squadYearHoldings(pool.ageGroups, pool.teams, storedByYear),
+    holdings: squadYearHoldings(whole.ageGroups, whole.teams, storedByYear),
     datedAhead,
     implausible,
     suspected: unrealClubs(pool, today),
     clubs,
+    removed: removedForYou(whole.teams, whole.ageGroups, marks, leagueKept),
   };
 };
 

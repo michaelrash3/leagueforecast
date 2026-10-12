@@ -62,7 +62,7 @@ const state = {
 };
 const TODAY = "2026-09-27";
 
-const inspect = (apart: string[] = []) => {
+const inspect = (apart: string[] = [], leftOut: string[] = []) => {
   const posted: WorkerResponse[] = [];
   createTidyHandler((response) => posted.push(response))({
     kind: "inspect",
@@ -71,6 +71,7 @@ const inspect = (apart: string[] = []) => {
     stamp: "",
     today: TODAY,
     apart,
+    leftOut,
   });
   const answer = posted[0];
   if (answer?.kind !== "inspect") throw new Error("no inspection");
@@ -93,7 +94,7 @@ describe("pool health's lists, from the worker", () => {
     // The fixture is worth something: there is a twin pair to offer.
     expect(lists.twins).toHaveLength(1);
     // And the inline path is the same function.
-    expect(poolLists(state, new Set(), TODAY)).toEqual(lists);
+    expect(poolLists(state, new Set(), TODAY, new Set())).toEqual(lists);
   });
 
   it("do not offer a pair the user said is two clubs", () => {
@@ -142,5 +143,18 @@ describe("the clubs filed at the wrong age, from the worker", () => {
     expect(answer.lists.wrongAge).toMatchObject([
       { teamId: "HORN", year: 2027, filed: 8, suggested: 9, gcTeamIds: ["gcHORN"] },
     ]);
+  });
+
+  /*
+   * A club taken off as plainly made up is on no list but its own: offered as a twin, a press of
+   * Fold would carry its games back onto the boards under a club no mark takes off.
+   */
+  it("leave out the clubs the boards leave out", () => {
+    expect(inspect().twins).toHaveLength(1);
+    const lists = inspect([], ["CUBS"]);
+    expect(lists.twins).toEqual([]);
+    expect(JSON.stringify(lists)).not.toContain("CUBS");
+    // The inline path leaves it out the same way.
+    expect(poolLists(state, new Set(), TODAY, new Set(["CUBS"]))).toEqual(lists);
   });
 });

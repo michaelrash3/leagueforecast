@@ -8,6 +8,9 @@ import { coerceKeptApart } from "../lib/keptApart";
 import { coerceNotThisTeam } from "../lib/notThisTeam";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
 import { poolLists, type PoolLists } from "../lib/poolLists";
+import { sweepMarks } from "../lib/obviousFakes";
+import { coerceAutoRemovals, type AutoRemoval } from "../lib/autoRemoved";
+import { marksChange, type MarksChange } from "../lib/removedForYou";
 import type { AgeGroup } from "../lib/teamRankings";
 import {
   decodePoolGames,
@@ -50,6 +53,24 @@ export type TidyRequest = {
    * reason, since the refile would otherwise file a refused name straight back onto the club.
    */
   notThisTeam?: string[];
+  /**
+   * The sweep for clubs plainly made up to run on the tidied pool, as the nightly runs it on the
+   * cloud copy after its tidy (`obviousFakes.ts`): asked at the end of a pull, where it walks every
+   * game of the pool, 1.5 s on the pool of 26 September 2026 at 18:40 and 2.5 s on 11 October's
+   * measured in Node, longer on a phone, which belongs on this thread and not the page's.
+   */
+  sweep?: SweepAsked;
+};
+/**
+ * What the sweep reads, as stored when it was asked: the user's answers it honours and the marks
+ * before it. The ages named go as their GameChanger ids, all the sweep asks of them.
+ */
+export type SweepAsked = {
+  today: string;
+  realClubs: string[];
+  keptApart: string[];
+  namedAges: string[];
+  marks: AutoRemoval[];
 };
 /** What a tidy would do, without doing it — the numbers behind the pool health card. */
 export type InspectRequest = {
@@ -63,6 +84,12 @@ export type InspectRequest = {
   apart?: string[];
   /** The names the owner has said are not a club, which the settle count reads as the tidy does. */
   notThisTeam?: string[];
+  /**
+   * The clubs taken off as plainly made up that the boards leave out, which the lists leave out
+   * too (`poolLists`): a pair of twins offering to fold a removed club into a standing one would
+   * put its games back on the boards unsaid.
+   */
+  leftOut?: string[];
 };
 export type WorkerRequest = TidyRequest | InspectRequest;
 
@@ -72,6 +99,8 @@ export type TidyResponse = {
   /** Only the parts of the pool the tidy changed. Absent means untouched, not empty. */
   changed: Partial<GcImportState>;
   tidy: Omit<PoolTidy, "state">;
+  /** What the sweep changed in the marks, where one was asked: null for nothing. */
+  marks?: MarksChange | null;
 };
 /**
  * One step of one pass, sent while the tidy is still running.
@@ -128,6 +157,26 @@ export const applyTidied = (
   games: changed.games ?? before.games,
 });
 
+/**
+ * The sweep's change to the marks (`sweepMarks`, `marksChange`) on `state`, with what it was asked
+ * with: null when it changes nothing. The worker runs it after the tidy, and the page inline where
+ * it has no worker, so both read the same.
+ */
+export const sweepAsked = (state: GcImportState, asked: SweepAsked): MarksChange | null => {
+  const before = coerceAutoRemovals(asked.marks);
+  const after = sweepMarks(
+    state,
+    {
+      realClubs: new Set(asked.realClubs),
+      keptApart: new Set(asked.keptApart),
+      namedAges: new Map(asked.namedAges.map((id) => [id, true])),
+    },
+    before,
+    asked.today
+  );
+  return marksChange(before, after);
+};
+
 /** The worker's side of the conversation, as a function of each message it receives. */
 export const createTidyHandler =
   (post: (response: WorkerResponse) => void) =>
@@ -144,7 +193,12 @@ export const createTidyHandler =
           health.standInPlayed === 0
             ? 0
             : settleableNow(state, coerceNotThisTeam(request.notThisTeam)),
-        lists: poolLists(state, coerceKeptApart(request.apart), request.today),
+        lists: poolLists(
+          state,
+          coerceKeptApart(request.apart),
+          request.today,
+          new Set(request.leftOut ?? [])
+        ),
       });
       return;
     }
@@ -162,5 +216,11 @@ export const createTidyHandler =
       ...(tidied.teams === state.teams ? {} : { teams: tidied.teams }),
       ...(tidied.games === state.games ? {} : { games: tidied.games }),
     };
-    post({ kind: "tidy", id: request.id, changed, tidy: counts });
+    post({
+      kind: "tidy",
+      id: request.id,
+      changed,
+      tidy: counts,
+      ...(request.sweep ? { marks: sweepAsked(tidied, request.sweep) } : {}),
+    });
   };

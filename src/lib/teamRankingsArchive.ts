@@ -4,6 +4,7 @@ import {
   inSegment,
   buildTeamRankings,
   filedTeamIds,
+  gcRowId,
   SEASON_SEGMENT_ORDER,
   segmentLabel,
   type AgeGroup,
@@ -344,7 +345,14 @@ export const archiveSquadYear = (
   const keptTeams = stored.teams.filter(clubOutlivesYear(stored, going));
 
   // A frozen game the stored pool never held came from the league, so the table is now its record.
-  const onDisk = new Set(stored.games.map((game) => game.id));
+  // A claimed row stood back up for a club taken off as made up (`archivedFrom`) is the pool's own,
+  // held inside the game that claimed it, and no league game.
+  const onDisk = new Set(
+    stored.games.flatMap((game) => [
+      game.id,
+      ...(game.alsoRows ?? []).map((record) => gcRowId(record.teamId, record.gameId)),
+    ])
+  );
   const frozen = shown.games.filter((game) => going.has(game.ageGroupId));
   return {
     seasons,

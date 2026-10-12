@@ -13,6 +13,11 @@ export type GcIdStores = {
   ageless: ReadonlyArray<Pick<AgeUnknownTeam, "teamId" | "name">>;
   dropped: ReadonlySet<string>;
   tooYoung: ReadonlySet<string>;
+  /**
+   * The GameChanger ids of clubs taken off as plainly made up (`autoRemoved.ts`), each with the day
+   * it was; absent where the list it was read off said nothing of them.
+   */
+  removed?: ReadonlyMap<string, string>;
 };
 
 /**
@@ -32,6 +37,9 @@ export const whereIsGcId = (gcTeamId: string, stores: GcIdStores): string | unde
     return `${filed.name} was filed during the pull that is running. Find a team adds it when the pull ends.`;
   if (stores.dropped.has(gcTeamId))
     return "That team was thrown out, so pulls refuse it. One thrown out from Teams waiting on an age can be taken back from that card's Find a team.";
+  const removedOn = stores.removed?.get(gcTeamId);
+  if (removedOn !== undefined)
+    return `That team was removed automatically on ${removedOn} as plainly made up. Put back, under Removed for you in Pool health, brings it back.`;
   const waiting = stores.ageless.find((row) => row.teamId === gcTeamId);
   if (waiting)
     return `${waiting.name ?? "That team"} is waiting on an age: nothing it was pulled with says one, so it is on no page yet. Give it one under Teams waiting on an age in Setup.`;

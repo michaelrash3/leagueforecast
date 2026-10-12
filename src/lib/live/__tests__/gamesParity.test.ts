@@ -1,8 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { FIXTURE_TODAY, poolFixture } from "../../../../scripts/poolFixture";
+import { FIXTURE_TODAY, madeUpClub, poolFixture } from "../../../../scripts/poolFixture";
 import { memoryIo } from "../../cloud/cloudRunner";
 import { ageGroupYear, type AgeGroup, type ScoutGame } from "../../teamRankings";
-import { gamesWindowFor, loggedGamesOn, windowGames } from "../../teamRankings/gamesWindow";
+import {
+  gamesWindowFor,
+  listedTeamNames,
+  loggedGamesOn,
+  REMOVED_ON_LIST,
+  windowGames,
+} from "../../teamRankings/gamesWindow";
 import {
   initTeamRankingsStore,
   loadAgeGroups,
@@ -12,6 +18,8 @@ import {
   saveAgeGroups,
   saveScoutGames,
   saveScoutTeams,
+  loadAutoRemoved,
+  saveAutoRemoved,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { deriveAllKnown, type SeasonReader } from "../allKnown";
@@ -27,7 +35,7 @@ import { coerceGames, gamesKey, type GamesView } from "../views/gamesShape";
  * The page reads its year's stored games and names them by its own derivation; the server reads
  * the store and the boards' build, through JSON and back; the two must agree. The pool is the
  * seeded fixture (`scripts/poolFixture.ts`), with a game set not to count, one still to be played
- * and one with no day added.
+ * and one with no day added, and one club taken off as plainly made up (`madeUpClub`).
  */
 
 const fixture = poolFixture({ seed: 13, clubsPerPage: 200 });
@@ -51,6 +59,8 @@ beforeAll(async () => {
   const { teamAScore: _a, teamBScore: _b, ...unplayed } = second;
   const { date: _date, ...undated } = third;
   saveScoutGames([{ ...first, excluded: true }, unplayed, undated, ...rest]);
+  // One club taken off as made up, whose stored games the lists still carry, named as removed.
+  saveAutoRemoved(madeUpClub(fixture).marks);
   ageGroups = loadAgeGroups();
 });
 afterAll(() => {
@@ -73,6 +83,7 @@ describe("the Games lists a server publishes", { timeout: 30_000 }, () => {
   it("say what the page's own Games tab says, on every page", () => {
     const teams = loadScoutTeams();
     const built = buildBoardsAndFacts({
+      autoRemoved: loadAutoRemoved(),
       ageGroups,
       teams,
       gamesOfYear: loadScoutGamesForYear,
@@ -85,6 +96,7 @@ describe("the Games lists a server publishes", { timeout: 30_000 }, () => {
       ageGroups,
       built,
       gamesOfYear: loadScoutGamesForYear,
+      roster: teams,
     })) {
       // Read back as a device reads it: through JSON and the list's own check.
       const read = coerceGames(JSON.parse(JSON.stringify(value)));
@@ -92,13 +104,19 @@ describe("the Games lists a server publishes", { timeout: 30_000 }, () => {
       lists.set(key, read);
     }
     expect(lists.size).toBe(ageGroups.length);
-    const seen = { games: 0, unplayed: 0, excluded: 0, undated: 0, today: 0 };
+    const seen = { games: 0, unplayed: 0, excluded: 0, undated: 0, today: 0, removed: 0 };
     for (const group of ageGroups) {
       const year = ageGroupYear(group);
       // The page on this page: its year's stored games, named by its own derivation.
       const yearGames = loadScoutGamesForYear(year);
-      const allKnown = deriveAllKnown({ ageGroups, teams, yearGames, readSeason });
-      const names = new Map(allKnown.teams.map((team) => [team.id, team.name]));
+      const allKnown = deriveAllKnown({
+        ageGroups,
+        teams,
+        yearGames,
+        readSeason,
+        autoRemoved: loadAutoRemoved(),
+      });
+      const names = listedTeamNames(allKnown.teams, allKnown.removed, teams);
       const logged = loggedGamesOn(yearGames, group.id);
       const list = lists.get(gamesKey(year, group.id));
       if (!list) throw new Error(`no list for ${group.id}`);
@@ -128,6 +146,10 @@ describe("the Games lists a server publishes", { timeout: 30_000 }, () => {
       seen.unplayed += logged.filter((game) => game.teamAScore === undefined).length;
       seen.excluded += logged.filter((game) => game.excluded).length;
       seen.undated += logged.filter((game) => !game.date).length;
+      // The club the fixture takes off as made up is listed by name, said to be removed, not "?".
+      seen.removed += list.games.filter((game) =>
+        [game.teamAId, game.teamBId].some((id) => list.names.get(id)?.endsWith(REMOVED_ON_LIST))
+      ).length;
     }
     // Every case a list carries is reached.
     expect(

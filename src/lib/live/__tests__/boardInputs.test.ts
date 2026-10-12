@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIXTURE_TODAY, fingerprint, poolFixture } from "../../../../scripts/poolFixture";
+import {
+  FIXTURE_TODAY,
+  fingerprint,
+  madeUpClub,
+  poolFixture,
+} from "../../../../scripts/poolFixture";
 import type { CloudManifest, ManifestPart } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { memoryIo } from "../../cloud/cloudRunner";
@@ -21,6 +26,7 @@ import {
   resetTeamRankingsStore,
   saveAgeGroups,
   saveAgeUnknown,
+  saveAutoRemoved,
   saveDroppedClubs,
   saveKeptApart,
   saveNamedAges,
@@ -31,6 +37,7 @@ import {
   saveScoutTeams,
   saveTidyStamp,
   saveTooYoungClubs,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import type { SeasonReader } from "../allKnown";
@@ -68,6 +75,7 @@ const readSeason: SeasonReader = (seasonId) => {
 const boardsHeld = (): string => {
   const ageGroups = loadAgeGroups();
   const built = buildBoardsAndFacts({
+    autoRemoved: loadAutoRemoved(),
     ageGroups,
     teams: loadScoutTeams(),
     gamesOfYear: loadScoutGamesForYear,
@@ -125,6 +133,8 @@ beforeAll(async () => {
     { teamId: "gcWAITING001", firstSeen: "2027-03-01", lastTried: "2027-03-02", tries: 1 },
   ]);
   saveTooYoungClubs(new Set(["gcTOOYOUNG01"]));
+  // A club taken off as plainly made up, which every view leaves out.
+  saveAutoRemoved(madeUpClub(fixture).marks);
   // And keys no view reads.
   saveRealClubs(new Set([someone]));
   saveKeptApart(new Set([`${someone}|elsewhere`]));
@@ -191,6 +201,8 @@ describe("the keys the boards, club cards and Find a team lists read", () => {
     expect(isBoardInput("league_forecast_gc_dropped_clubs_v1")).toBe(true);
     expect(isBoardInput("league_forecast_gc_too_young_v1")).toBe(true);
     expect(isBoardInput("league_forecast_gc_real_clubs_v1")).toBe(false);
+    // Every view leaves out a club taken off as plainly made up.
+    expect(isBoardInput("league_forecast_gc_auto_removed_v1")).toBe(true);
   });
 });
 

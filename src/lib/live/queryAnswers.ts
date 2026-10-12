@@ -259,6 +259,20 @@ const HEALTH_SUMMARY: Shape = {
           },
         },
         clubs: { dictionary: { record: { name: "string", gcId: { optional: "id" } } } },
+        // Optional: a server from before the clubs taken off were kept says nothing of them.
+        removed: {
+          optional: {
+            list: {
+              record: {
+                teamId: "id",
+                name: "string",
+                gcTeamIds: { list: "id" },
+                on: "string",
+                reasons: { list: "string" },
+              },
+            },
+          },
+        },
       },
     },
     answers: {

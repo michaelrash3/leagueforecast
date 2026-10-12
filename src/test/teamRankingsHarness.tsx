@@ -7,6 +7,7 @@ import {
   resetTeamRankingsStore,
   saveAgeGroups,
   saveAgeUnknown,
+  saveAutoRemoved,
   saveScoutGames,
   saveScoutTeams,
   saveTidyStamp,
@@ -20,6 +21,7 @@ import {
   type SeasonMeta,
 } from "../lib/storage";
 import type { AgeUnknownList } from "../lib/ageUnknown";
+import type { AutoRemovals } from "../lib/autoRemoved";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../lib/types";
 import { writeDefaultAge, type DefaultAge } from "../lib/preferences";
 
@@ -46,6 +48,8 @@ export type Pool = {
   untidied?: boolean;
   /** Teams nobody could age, for the review card on Setup. */
   ageless?: AgeUnknownList;
+  /** Clubs taken off as plainly made up, as a nightly sweep left them (`autoRemoved.ts`). */
+  autoRemoved?: AutoRemovals;
   /** Where the live board left off, for a page taking over from it. */
   handover?: RankingsHandover;
   /**
@@ -139,6 +143,7 @@ export const renderTeamRankings = (pool: Pool): Harness => {
   saveScoutTeams(pool.teams);
   saveScoutGames(pool.games);
   if (pool.ageless) saveAgeUnknown(pool.ageless);
+  if (pool.autoRemoved) saveAutoRemoved(pool.autoRemoved);
   if (pool.league) {
     saveTeams(pool.league.teams);
     saveMatchups(pool.league.matchups);

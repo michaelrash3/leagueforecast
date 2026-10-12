@@ -22,6 +22,7 @@ import {
   encodeScoutTeams,
 } from "../../teamRankingsCompact";
 import { countedByHalf } from "../../teamRankings/halves";
+import type { AutoRemovals } from "../../autoRemoved";
 import { daysBefore, rankLineStep, ranksAsOf } from "../../rankMovement";
 import {
   deriveAllKnown,
@@ -236,6 +237,8 @@ type BuildInput = {
   teams: ScoutTeam[];
   gamesOfYear: (year: number | undefined) => ScoutGame[];
   readSeason: SeasonReader;
+  /** The clubs taken off as plainly made up (`loadAutoRemoved`), which no board shows. */
+  autoRemoved: AutoRemovals;
   /** The day the members are in, as an ISO day. Never the server's own. */
   today: string;
   /**
@@ -278,6 +281,7 @@ export const buildBoardsAndFacts = ({
   teams,
   gamesOfYear,
   readSeason,
+  autoRemoved,
   today,
   past = true,
 }: BuildInput): BoardsBuilt => {
@@ -285,7 +289,13 @@ export const buildBoardsAndFacts = ({
   const knownFor = (year: number | undefined) => {
     const held = known.get(year);
     if (held) return held;
-    const derived = deriveAllKnown({ ageGroups, teams, yearGames: gamesOfYear(year), readSeason });
+    const derived = deriveAllKnown({
+      ageGroups,
+      teams,
+      yearGames: gamesOfYear(year),
+      readSeason,
+      autoRemoved,
+    });
     known.set(year, derived);
     return derived;
   };

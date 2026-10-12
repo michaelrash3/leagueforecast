@@ -21,6 +21,7 @@ import {
   saveAgeGroups,
   saveScoutGames,
   saveScoutTeams,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { deriveAllKnown, gamesOnPages, type SeasonReader } from "../allKnown";
@@ -101,6 +102,7 @@ const HALVES: Array<[string, SeasonSegment | undefined]> = [
 describe("a what-if asked of the server", { timeout: 60_000 }, () => {
   it("says what the page's own says, its fixture named as the club's card holds it", () => {
     const built = buildBoardsAndFacts({
+      autoRemoved: loadAutoRemoved(),
       ageGroups,
       teams: loadScoutTeams(),
       gamesOfYear: loadScoutGamesForYear,
@@ -286,6 +288,7 @@ describe("a model check asked of the server", { timeout: 120_000 }, () => {
     expect(() => callableEncode(asked)).toThrow(/Infinity/);
     const read = coerceQueryAnswer(callableEncode(asJson(asked)), "model.check");
     const known = deriveAllKnown({
+      autoRemoved: loadAutoRemoved(),
       ageGroups,
       teams: loadScoutTeams(),
       yearGames: loadScoutGamesForYear(ageGroupYear(page)),

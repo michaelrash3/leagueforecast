@@ -2322,6 +2322,119 @@ with a red pill saying how many; the clubs with results dated ahead follow in th
 The list is its own section now, so it shows when nothing is dated ahead at all. **Delete club**
 acts at once, without a dialog, as the user asked the same day.
 
+**Clubs removed for you.** The user asked on 11 October 2026 for the obviously fake teams to be
+spotted and taken off without them, and for teams named void, test or demo to be among them. So
+each night, after its pull and its tidy, and on a night with nothing to pull as well, the nightly
+sweeps the cloud copy for them (`obviousFakes.ts`, run from `cloudRunner.ts`), as each leg of
+**Refresh now** in the cloud does. A leg of a list pulled in the cloud does not, a pasted list's or
+a catch-up's (**Ask again about teams nobody could age**, **Check short rosters again**), nor does
+a list with nothing new to pull: the sweep walks every game of the pool, and a whole squad year,
+about three times the pool of 11 October, is to come in through pasted lists, so each of their
+legs is kept as light as it can be and that night's refresh sweeps what they filed. A pull
+in a browser that keeps its own pool sweeps that pool when it ends, in the tidy worker after the
+tidy (1.5 s on the pool of 26 September at 18:40 and 2.5 s on 11 October's measured in Node,
+which the page's thread would spend frozen). A pulled club is taken off when it shows one of four
+signs and nothing keeps it:
+
+- **Routs nobody else lists** (A): two or more wins by 40 runs or more that nobody has vouched
+  for, filed by its own schedule, and none of its wins by 40 or more listed by the losing club's
+  own schedule, at any age: the user's "repeated wins by 40 or more instead of 30" of 11 October.
+  At thirty the sign waited for 11U unless one of the wins was by fifty, since a young travel team
+  routs stand-ins and three clubs of 8U to 10U the user had called real were each one such win
+  from it on 11 October. At forty the wait changes no mark on the five backups of 25 September to
+  11 October, and with the word "real" set aside the sweep takes none of the 131 clubs the user
+  had called real, 72 of them 10U and under, so it is gone.
+- **One impossible rout** (B): a win by 75 or more that the loser's own schedule does not list. On
+  11 October 2026 no game both clubs' schedules list, and none of the 77 scores the user has
+  vouched for, reaches fifty (the widest of each is 42.5); on 29 September one game both list read
+  54.5, and on 26 September, before the user's own sweep of the 28th, three reached fifty, the
+  widest 119. A game the loser lists is never a sign, whatever its margin.
+- **Results from the future** (C): three or more scored games, half or more of them its own
+  schedule's results dated eight or more days ahead, no opponent's schedule lists any of its
+  results dated ahead, and no real opponent's schedule lists any game of it at all. The eight days
+  keep out a game keyed a day or two off. The three games are the user's word of 11 October: it
+  "can't be a situation where they only have 2 games listed and one of them is in the future". On
+  the five backups that leaves C two clubs on each of 25 and 26 September, each with two of its
+  three scores dated weeks ahead, both deleted by hand since, and takes from it the next season's
+  squads with fewer than three scores that were all it marked on 29 September (two) and 11 October
+  (one). Where a club C takes is next season's squad, the list says so, with the day of its first
+  score ahead. The last clause is what lets C's lift below hold: without it a club whose mark one
+  real game had lifted showed the sign again that night, short of the guard's three or half, and
+  was marked afresh, on a day after that game, so that game could never lift it again. On the five
+  backups of 25 September to 11 October it changes no mark.
+- **A name nobody plays under** (N): its name, or the name of a GameChanger team filed under it,
+  has void, voided, test, testing or demo as a word of its own, in any case ("Contest", "Avoid",
+  "Demons" and "Testudo" do not). It is marked by GameChanger team, so a club with one such team
+  among others stands.
+
+What keeps a club: any of its GameChanger ids, or its club id, said to be real (**It's real**);
+being any page's own team; the user's word on it, a pair kept apart, an age named or a score
+vouched for in a game of it; for A, B and C but not N, real opponents' own schedules listing three
+of its scored games, or half of them, a real opponent being a pulled club that shows no sign (C
+read without its clause about real opponents, which would make the question ask itself) whatever
+marks it carries, since a mark outlives its sign and two clubs marked for their stray scores,
+playing each other in the spring, would otherwise keep each other off for good; and a League
+Standings team that picks it or is carried onto it by its name. The last only a pass that reads
+League Standings can see, so it is checked where the boards are derived, and a club so linked stays
+on every board whatever its marks say; Pool health asks the same of every squad year with a season
+on a page (`leagueKeptClubs`), so on the live page its two questions read League Standings too.
+
+A mark is kept by GameChanger id, as the clubs thrown out and said to be real are, with the day it
+was made and why, in a pool key of its own (`league_forecast_gc_auto_removed_v1`) that the cloud
+copy, every backup and every device carry. Nothing is deleted. The club, its games and its links
+stay filed and are pulled as before; only the derivation of what the boards know (`deriveAllKnown`)
+leaves out a club every one of whose ids is marked, with every game naming it, the way Delete club
+would take it out (`withoutClubs`), so the boards, the club cards, Find a team and the ratings all
+go without it. A claimed row in one of its games that is another club's own stands back up against
+the team it was filed against; one that is the removed club's own goes with it (Delete club now
+does the same), which on 11 October left 4 games naming a removed club and now leaves none. A
+year's archive is frozen from the same pool (`archivedFrom`), so its tables are the boards on
+screen. The Games tab still lists a removed club's stored games, which a mark leaves filed, with
+the club named "(removed for you)" rather than a bare "?". A mark stays until something lifts it,
+so a club whose results dated ahead have merely been reached stays off: any guard lifts it; A and
+B lift on the sign's own escape, A once a losing club's own schedule lists one of the wins counted
+or any win of the club's by 40 or more, B once the win counted is listed or every win of the
+club's by 75 or more is one its loser lists, read off the club's games as they now stand rather
+than the counted game's id alone, since a game the loser comes to list can be filed under another
+id (9 of the 97 one-sided games between pulled clubs that both schedules came to list between 29
+September and 11 October did); C lifts once a real opponent's schedule lists even one game of the
+club's dated after the mark, which is how a squad whose scores ran ahead of its games answers once
+it plays, and such a club no longer shows C, so it stays lifted; N lifts once neither the club's
+name nor its GameChanger team's has the word. Saying a club is real forgets its marks there and then, with the
+answer and in its Undo, rather than at the next sweep, so a club marked after the card was opened
+is back on the boards as it is said; a restored backup that says a club is real does the same.
+
+Pool health lists them under **Removed for you**, newest first, each with when and why in a line
+("named 'test'", "its GameChanger team is named '…'" where only that name has the word, "next
+season's squad, 3 scores dated from 2027-04-01") and a link to each schedule, and on none of its
+other lists: neither what it shows as it opens nor what **Check the pool** finds (the twin pairs,
+the rows counted twice, the wrong ages), where on 11 October 1 of the 100 twin pairs paired a removed
+club with a standing one, a fold that would have put its games back unsaid, and 7 of the 985 rows
+counted twice named one. A club a League Standings team links is listed too, said to be kept on
+its boards, and stays on the other lists. **Put back on the boards** forgets the club's marks and
+says it is real, so no later sweep takes it again; **Delete for good** deletes it as Delete club
+does, which forgets its marks too; **Put back the N taken off on** a day forgets every mark of that
+night's sweep and says nothing of the clubs, which is how a sweep that went wrong is taken back as a
+whole once what made it go wrong is mended (the next sweep takes off again any club still showing
+its sign); each offers Undo. Find a team says of a pasted id taken off that it was removed, when,
+and where to put it back. The thrown-out list is never written, so a re-paste or a re-pull refiles
+the club and its mark keeps it off; a fold keeps a club on the boards unless every id it carries is
+marked.
+
+Measured with this code on the backups, each swept from no marks. On 11 October 2026 the sweep
+takes off 249 of 69,487 pulled clubs, all by N, eight of them only through a GameChanger team's
+name; A, B and C find none, the obvious ones having been deleted by hand on 28 September. 48 of
+them are on a board, the best 47th, and leaving them off reorders the top 25 of two boards with
+nobody new in either. On 29 September it takes off 86, all by N; 39 are on a board, the best 98th,
+and the top 25 of four boards reorder with nobody new. On the pool of 26 September at 18:40,
+before that sweep by hand, A, B and C take off 21 clubs (9 by A, 16 by B, 2 by C, some by two),
+every one of which the user had deleted by 11 October, and N 84 more; 54 of the 105 are on a
+board, the best 106th, and the top 25 of four boards reorder with nobody new. Of the 66 clubs the
+user deleted by hand between one backup and the next from 25 September to 11 October, A, B and C
+had taken 21 off the backup before, every one of them among the 46 deleted between 26 September
+at 18:40 and 29 September. On no backup of the five is a club the user had said was real by 11
+October taken off, even with that word set aside (131 such clubs were pulled on 11 October).
+
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
 what lets somebody correct a team filed at the wrong age rather than only one filed at
@@ -3821,11 +3934,14 @@ accounts on the copy's list, as the copy is, checked as the proxy checks them
 **Legs.** A list is pulled in legs of 25,000 teams (`pullJobRunner.ts`). Each leg
 is a Cloud Tasks task, and `runPull` runs it: it loads the copy, pulls the leg's
 teams through the same runner as the nightly refresh (`runCloudPull`), saves, adds
-what it did to the job's tally, and queues the next leg. Legs are needed for two
-reasons. A task has at most half an hour. And the answers for a nationwide list,
-all at once, would not fit beside the pool in the function's memory. A leg the
-size of the nightly refresh on 29 September 2026 took 101 s and held 3.5 GB at
-its end on one of GitHub's servers, so a leg of 25,000 is a few minutes.
+what it did to the job's tally, and queues the next leg. A leg of a list files and
+tidies but does not sweep for clubs plainly made up ("Clubs removed for you"):
+that is the night's refresh's to do, so a leg stays as light as it can be. Legs
+are needed for two reasons. A task has at most half an hour. And the answers for a
+nationwide list, all at once, would not fit beside the pool in the function's
+memory. A leg the size of the nightly refresh on 29 September 2026 took 101 s and
+held 3.5 GB at its end on one of GitHub's servers, so a leg of 25,000 is a few
+minutes.
 
 **Three legs at once.** Up to three legs run at once, each on an instance of its
 own with 8 GiB and two processors, so a pull sent while another runs starts as
@@ -4122,6 +4238,13 @@ teams twice and the copy nothing; a gate that cannot be read or written is pulle
 without, for the same reason. A dry run writes nothing, the gate included, and takes
 no turn.
 
+After its tidy it sweeps the copy for clubs plainly made up ("Clubs removed for
+you"), on the pool as tidied, and the marks go in the same commit as the pull; a
+night with nothing due sweeps alone, through the same tries and commit, and one
+that finds nothing new writes nothing. A leg of Refresh now sweeps as the nightly
+does; a leg of a pasted list never does, and a pasted list with nothing new to
+pull writes nothing at all, so the night's refresh sweeps what the lists filed.
+
 What it replaces it keeps, as an earlier version of the copy: the cloud panel's
 **Earlier versions** lists it, and **Bring back** undoes a bad night on every
 device. Six are kept, for 30 days at most.
@@ -4316,7 +4439,11 @@ updates the pins, raises the board rules' version (`BOARD_RULES`) with a
 fingerprint of its own beside the old, and says so. The version was raised once
 without moving anything, to 3, as a barrier to the publishers from before the
 boards' shape ("Views a server publishes", **What each game did**); its
-fingerprint is 2's, which is how the test says no board moved.
+fingerprint is 2's, which is how the test says no board moved. It went to 5 when a
+club removed automatically as plainly made up, and every game naming it, were left
+off every board ("Clubs removed for you"): the fixture holds one such club, 5's
+fingerprint is the boards without it, and the same fixture with its marks taken
+off still gives 4's.
 
 The pool these run on is `scripts/poolFixture.ts`: a seeded pool of the 26
 September 2026 pool's shape, with invented names. It has ten pages in two squad
@@ -4548,7 +4675,8 @@ every club the pool has a page for, not the board on screen. Beside the boards, 
 squad year with a page gets its list (`views/search.ts`, `search:{year}`): every
 club its pages' box offers, with the line under its name, its coaches and its
 GameChanger ids, the page a pick of it opens, and the GameChanger ids the copy keeps
-off every page (waiting on an age, thrown out, too young), so a pasted one is
+off every page (waiting on an age, thrown out, too young, removed as plainly made up
+with the day it was), so a pasted one is
 answered as the page answers it (`whereIsGcId`). It is worked out by the page's own
 code, now shared (`clubSearch.ts`): the year's roster with its League Standings
 teams, over that year's League Standings games and every stored game of every
@@ -5271,7 +5399,12 @@ edit the device's card makes: rows thrown out (`games.drop`), a club deleted
 (`club.drop`), a rout counted (`game.confirm`), a fold (`teams.merge`, asked about first
 with what the server says it moves), an age (`club.age`, with an Undo), every suggested
 age at once (planned on the server's pool, `ages.plan`, and sent as one batch with one
-Undo), and the answers (a club real, a club at the right age, two clubs kept apart). Once
+Undo), the answers (a club real, a club at the right age, two clubs kept apart), and the
+clubs removed for you: **Put back on the boards** (its marks forgotten and the club said to
+be real, `autoRemoved` and `answers` as one batch, with an Undo), a night's clubs put back
+at once (`autoRemoved`, with an Undo) and **Delete for good** (`club.drop`, with an Undo).
+Both questions read League Standings, as the boards do, so a club a League Standings team
+links is said to be kept rather than removed. Once
 an edit is made, what the pool shows is asked for again, so the lists are the copy's as it
 now stands; an answer kept is shown at once, and the question already on its way is let
 go, since it was asked before the answer was given. The file of every club worth pulling
@@ -6017,24 +6150,25 @@ change needs that the pool does not hold travels in the command. Each command co
 inverse, and a property test draws hundreds of edits on pools of every shape and checks that the
 inverse puts every part the command touched back as it was, to the stored byte.
 
-| Command                                                                                                                                                               | What it changes                                                                                                                                                                                                    |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `answers`                                                                                                                                                             | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart, names said not to be a club.                                                                       |
-| `team.state`, `team.unlinkGc`                                                                                                                                         | A club's state; one GameChanger id taken off a club.                                                                                                                                                               |
-| `game.score`, `game.exclude`, `game.confirm`                                                                                                                          | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now.                                                                                                  |
-| `game.add`, `game.remove`                                                                                                                                             | Games added at the end of their year, with the new clubs they name (and only those); games taken out of their year.                                                                                                |
-| `game.notThisTeam`                                                                                                                                                    | A game a club has only by a name another club's schedule wrote taken off it, with that club's other such games, onto the stand-in the name would have had, made under the command's id where none is reused.       |
-| `page.myTeam`                                                                                                                                                         | A page's own team marked or unmarked.                                                                                                                                                                              |
-| `club.leavePage`                                                                                                                                                      | A club taken off one page: its games there, the page's mark if it was the page's own team, and the club itself only when no game in any year names it and no row is filed against it.                              |
-| `games.drop`, `club.drop`                                                                                                                                             | Games thrown out of whichever years hold them, the rows that scored them remembered so that a pull does not file them again; a club thrown out with every game it is in, its GameChanger ids refused from then on. |
-| `season.assign`                                                                                                                                                       | A League Standings season put on the page of its age, the page made under the id the command names if there is none, or taken off Team Rankings.                                                                   |
-| `club.age`, `club.ageClear`                                                                                                                                           | A pulled club filed at the age somebody says it plays at and held there whatever a later pull says; and that taken back, each of its ids to the level the app had it at.                                           |
-| `teams.merge`, `team.rename`                                                                                                                                          | One club folded into another, every page whose own team it was following it; a club renamed, refused onto a name another club goes by, since that is a merge and only the person asking can say which club stays.  |
-| `team.put`, `team.insert`, `team.remove`, `game.put`, `game.insert`, `group.put`, `group.insert`, `group.remove`, `namedAges`, `games.set`, `teams.set`, `groups.set` | A record put back as it was, in its place, or a part put back whole: what inverses, and work laid down from a copy, are made of.                                                                                   |
-| `ageless.forget`, `ageless.insert`                                                                                                                                    | Teams taken off the list of those nobody could age (1.5), and put back at their places, a team a pull has asked about since left as the pull left it.                                                              |
-| `refresh.cadence`                                                                                                                                                     | How much the nightly refresh pulls at once (1.5): every age group, or one or two levels a day.                                                                                                                     |
-| `orgs.merge`, `orgs.put`                                                                                                                                              | An Organizations file's organizations kept beside those kept (1.5), one named again replacing its own; and the organizations put back as they were.                                                                |
-| `batch`                                                                                                                                                               | Several commands as one, each reading what the last wrote.                                                                                                                                                         |
+| Command                                                                                                                                                               | What it changes                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `answers`                                                                                                                                                             | Ids added to and taken from the user's answers: clubs said to be real, ages said to be right, pairs kept apart, names said not to be a club. A club said to be real has its marks as one taken off as plainly made up forgotten with the answer, and put back by its Undo.                                                         |
+| `team.state`, `team.unlinkGc`                                                                                                                                         | A club's state; one GameChanger id taken off a club.                                                                                                                                                                                                                                                                               |
+| `game.score`, `game.exclude`, `game.confirm`                                                                                                                          | A score typed; a game kept out of the maths or put back; a lopsided score vouched for at the margin it reads now.                                                                                                                                                                                                                  |
+| `game.add`, `game.remove`                                                                                                                                             | Games added at the end of their year, with the new clubs they name (and only those); games taken out of their year.                                                                                                                                                                                                                |
+| `game.notThisTeam`                                                                                                                                                    | A game a club has only by a name another club's schedule wrote taken off it, with that club's other such games, onto the stand-in the name would have had, made under the command's id where none is reused.                                                                                                                       |
+| `page.myTeam`                                                                                                                                                         | A page's own team marked or unmarked.                                                                                                                                                                                                                                                                                              |
+| `club.leavePage`                                                                                                                                                      | A club taken off one page: its games there, the page's mark if it was the page's own team, and the club itself only when no game in any year names it and no row is filed against it.                                                                                                                                              |
+| `games.drop`, `club.drop`                                                                                                                                             | Games thrown out of whichever years hold them, the rows that scored them remembered so that a pull does not file them again; a club thrown out with every game it is in, its own row another club's copy claimed among them, its GameChanger ids refused from then on and its marks as one taken off as plainly made up forgotten. |
+| `season.assign`                                                                                                                                                       | A League Standings season put on the page of its age, the page made under the id the command names if there is none, or taken off Team Rankings.                                                                                                                                                                                   |
+| `club.age`, `club.ageClear`                                                                                                                                           | A pulled club filed at the age somebody says it plays at and held there whatever a later pull says; and that taken back, each of its ids to the level the app had it at.                                                                                                                                                           |
+| `teams.merge`, `team.rename`                                                                                                                                          | One club folded into another, every page whose own team it was following it; a club renamed, refused onto a name another club goes by, since that is a merge and only the person asking can say which club stays.                                                                                                                  |
+| `team.put`, `team.insert`, `team.remove`, `game.put`, `game.insert`, `group.put`, `group.insert`, `group.remove`, `namedAges`, `games.set`, `teams.set`, `groups.set` | A record put back as it was, in its place, or a part put back whole: what inverses, and work laid down from a copy, are made of.                                                                                                                                                                                                   |
+| `ageless.forget`, `ageless.insert`                                                                                                                                    | Teams taken off the list of those nobody could age (1.5), and put back at their places, a team a pull has asked about since left as the pull left it.                                                                                                                                                                              |
+| `refresh.cadence`                                                                                                                                                     | How much the nightly refresh pulls at once (1.5): every age group, or one or two levels a day.                                                                                                                                                                                                                                     |
+| `orgs.merge`, `orgs.put`                                                                                                                                              | An Organizations file's organizations kept beside those kept (1.5), one named again replacing its own; and the organizations put back as they were.                                                                                                                                                                                |
+| `autoRemoved`                                                                                                                                                         | Marks of clubs taken off as plainly made up ("Clubs removed for you") put and forgotten by GameChanger id: what the nightly sweep and a pull's end write, what Put back on the boards and a night's put back forget, and what their Undo puts back.                                                                                |
+| `batch`                                                                                                                                                               | Several commands as one, each reading what the last wrote.                                                                                                                                                                                                                                                                         |
 
 On this browser a command runs through `runPoolCommand`, which writes only the parts it changed
 (vouching for a score writes that game's year, not every year as it once did) and the roster as it

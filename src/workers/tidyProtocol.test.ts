@@ -341,4 +341,57 @@ describe("saying a step has started, not only that it finished", () => {
     expect(inAt).toBeGreaterThanOrEqual(0);
     expect(inAt).toBeLessThan(outAt);
   });
+
+  /*
+   * The end of a pull sweeps the tidied pool for clubs plainly made up here, not on the page: on
+   * the 11 October 2026 pool the walk takes 2.5 s, measured in Node.
+   */
+  it("sweeps the tidied pool when asked, and says nothing of marks when not", () => {
+    const pool = withStandIn();
+    const demo = {
+      ...pool.teams[0]!,
+      name: "Demo Club",
+      gcTeams: [{ teamId: "gcHOME", name: "Demo Club 10U", ageGroupId: "ag_10u_2027" }],
+    };
+    const state = packPool({ ...pool, teams: [demo, ...pool.teams.slice(1)] });
+    const { handle, answersOf } = harness();
+    handle({ kind: "tidy", id: 1, state });
+    handle({
+      kind: "tidy",
+      id: 2,
+      state,
+      sweep: { today: "2026-10-11", realClubs: [], keptApart: [], namedAges: [], marks: [] },
+    });
+    handle({
+      kind: "tidy",
+      id: 3,
+      state,
+      sweep: {
+        today: "2026-10-11",
+        realClubs: ["gcHOME"],
+        keptApart: [],
+        namedAges: [],
+        marks: [],
+      },
+    });
+    const [plain, swept, real] = answersOf("tidy");
+    if (plain?.kind !== "tidy" || swept?.kind !== "tidy" || real?.kind !== "tidy") {
+      throw new Error("expected answers");
+    }
+    expect("marks" in plain).toBe(false);
+    expect(swept.marks).toEqual({
+      put: [
+        {
+          gcTeamId: "gcHOME",
+          name: "Demo Club",
+          on: "2026-10-11",
+          signs: ["named"],
+          word: "demo",
+        },
+      ],
+      forget: [],
+    });
+    // The user's word is told with it, and honoured.
+    expect(real.marks).toBeNull();
+  });
 });

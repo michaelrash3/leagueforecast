@@ -6,6 +6,7 @@ import {
   cloudPoolKeys,
   flushPoolWrites,
   initTeamRankingsStore,
+  loadAutoRemoved,
   loadDroppedClubs,
   loadRefreshLog,
   loadScoutGames,
@@ -17,6 +18,7 @@ import {
   saveDroppedClubs,
   saveKeptApart,
   saveRefreshCadence,
+  saveRealClubs,
   saveRefreshLog,
   saveRefusedClubs,
   saveScoutGames,
@@ -34,6 +36,7 @@ import {
   runCloudPull,
   workOutRefresh,
   type CloudPullDeps,
+  type CloudPullJob,
 } from "../cloudRunner";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
 
@@ -252,6 +255,157 @@ describe("a pull run on the cloud copy", () => {
     const result = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
     expect(result).toMatchObject({ end: "nothing-due", asked: 0 });
     expect(result.manifest).toEqual(before);
+  });
+
+  /*
+   * The sweep for clubs plainly made up (`obviousFakes.ts`) runs on the copy after a refresh's tidy,
+   * the nightly's or a leg of Refresh now's, and on one with nothing left to pull, its marks saved in
+   * the run's one commit. A list's legs never sweep, a paste's or a catch-up's, nor does a list with
+   * nothing due: every list leg is kept as light as it can be, and the nightly sweeps what they filed
+   * that night.
+   */
+  describe("the sweep for clubs plainly made up", () => {
+    const MARKS = "league_forecast_gc_auto_removed_v1";
+    const ROUTER = "gcROUTER0001";
+    // Two wins by 40 over clubs nobody pulled, at 9U: sign A at any age.
+    const routs = schedule(ROUTER, "Router", [
+      game("r1", "Owls", 40, 0),
+      { ...game("r2", "Hawks", 41, 0), id: "r2", date: "2026-09-21" },
+    ]);
+    const routerAnswers = async (ids: string[]) =>
+      new Map(ids.map((id) => [id, { ok: true, schedule: routs } as GcTeamResponse]));
+    const demo = (gcId: string) => () =>
+      saveScoutTeams([
+        {
+          id: "S-DEMO",
+          name: "Demo Squad",
+          gcTeams: [{ teamId: gcId, name: "Demo Squad", ageGroupId: "ag_9u_2027", ageLevel: 9 }],
+        },
+      ]);
+    /** A leg of Refresh now, these teams its share. */
+    const leg = (teamIds: string[]): CloudPullJob => ({
+      kind: "rota",
+      walk: {
+        teamIds,
+        ageLevels: [9, 12],
+        markOn: null,
+        workedAt: new Date("2026-09-29T12:00:00.000Z"),
+      },
+    });
+    const marksInCopy = async (cloud: MemoryCloud) => {
+      resetTeamRankingsStore();
+      await loadPoolFrom(cloud.store);
+      return loadAutoRemoved();
+    };
+
+    it("marks a club a refresh filed with two routs no loser's schedule lists, in the same commit", async () => {
+      const cloud = memoryCloud();
+      const before = await seed(cloud);
+      const result = await runCloudPull(
+        leg([ROUTER]),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: routerAnswers })
+      );
+      expect(result).toMatchObject({ end: "finished", filed: 1 });
+      expect(result.version).toBe(before.version + 1);
+      expect(result.changed).toEqual(
+        expect.arrayContaining([MARKS, "league_forecast_scout_teams_v1"])
+      );
+      expect((await marksInCopy(cloud)).get(ROUTER)?.signs).toEqual(["wins"]);
+    });
+
+    /*
+     * Both kinds of list leg the page sends: a paste, and a catch-up (`refresh`) such as "Ask again
+     * about teams nobody could age" or "Check short rosters again", which asks about every team on
+     * it and still is a list, not a refresh of the pool.
+     */
+    const lists = [
+      ["pasted list", {}],
+      ["catch-up list", { refresh: true }],
+    ] as const;
+
+    it.each(lists)("files a %s's leg without sweeping it", async (_, kind) => {
+      const cloud = memoryCloud();
+      const before = await seed(cloud);
+      const result = await runCloudPull(
+        { kind: "list", entries: [{ teamId: ROUTER }], seasonYears: [2027], ...kind },
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: routerAnswers })
+      );
+      expect(result).toMatchObject({ end: "finished", filed: 1 });
+      expect(result.version).toBe(before.version + 1);
+      expect(result.changed).toContain("league_forecast_scout_teams_v1");
+      expect(result.changed).not.toContain(MARKS);
+      expect((await marksInCopy(cloud)).size).toBe(0);
+      // The next refresh sweeps what the list filed, though it has nothing left to pull.
+      const night = await runCloudPull(leg([]), deps(cloud, "2026-09-30T07:17:00.000Z"));
+      expect(night).toMatchObject({ end: "finished", asked: 0, changed: [MARKS] });
+      expect((await marksInCopy(cloud)).get(ROUTER)?.signs).toEqual(["wins"]);
+    });
+
+    it("commits only the marks on a refresh with nothing left to pull", async () => {
+      const cloud = memoryCloud();
+      const before = await seed(cloud, () => {
+        saveDroppedClubs(new Set([ACES, BEARS]));
+        demo("gcDEMO000001")();
+      });
+      const result = await runCloudPull(
+        leg([ACES, BEARS]),
+        deps(cloud, "2026-09-29T13:00:00.000Z")
+      );
+      expect(result).toMatchObject({ end: "finished", asked: 0, changed: [MARKS] });
+      expect(result.version).toBe(before.version + 1);
+      expect(result.manifest).toEqual(cloud.manifest());
+      expect([...(await marksInCopy(cloud)).keys()]).toEqual(["gcDEMO000001"]);
+      // And the next night, with nothing new, writes nothing.
+      const again = await runCloudPull(leg([ACES, BEARS]), deps(cloud, "2026-09-30T13:00:00.000Z"));
+      expect(again).toMatchObject({ end: "finished", changed: [], version: result.version });
+    });
+
+    it("sweeps on a nightly with nothing due", async () => {
+      const cloud = memoryCloud();
+      const before = await seed(cloud, () => {
+        saveDroppedClubs(new Set([ACES, BEARS, "gcDEMO000001"]));
+        demo("gcDEMO000001")();
+      });
+      const result = await runCloudPull({ kind: "rota" }, deps(cloud, "2026-09-29T13:00:00.000Z"));
+      expect(result).toMatchObject({ end: "nothing-due", asked: 0, changed: [MARKS] });
+      expect(result.version).toBe(before.version + 1);
+    });
+
+    it.each(lists)(
+      "writes nothing for a %s with nothing due, whatever the copy holds",
+      async (_, kind) => {
+        const cloud = memoryCloud();
+        const before = await seed(cloud, () => {
+          saveDroppedClubs(new Set([ACES, BEARS]));
+          demo("gcDEMO000001")();
+        });
+        const writes = cloud.costs.writes;
+        const result = await runCloudPull(
+          { ...list, ...kind },
+          deps(cloud, "2026-09-29T13:00:00.000Z")
+        );
+        expect(result).toMatchObject({ end: "nothing-due", asked: 0, changed: [] });
+        expect(result.manifest).toEqual(before);
+        expect(cloud.manifest()).toEqual(before);
+        expect(cloud.costs.writes).toBe(writes);
+        expect((await marksInCopy(cloud)).size).toBe(0);
+      }
+    );
+
+    it("never marks a club said to be real", async () => {
+      const cloud = memoryCloud();
+      const before = await seed(cloud, () => {
+        saveDroppedClubs(new Set([ACES, BEARS]));
+        demo("gcDEMO000001")();
+        saveRealClubs(new Set(["gcDEMO000001"]));
+      });
+      const result = await runCloudPull(
+        leg([ACES, BEARS]),
+        deps(cloud, "2026-09-29T13:00:00.000Z")
+      );
+      expect(result).toMatchObject({ end: "finished", changed: [] });
+      expect(result.manifest).toEqual(before);
+    });
   });
 
   it("never asks about a club the copy has thrown out", async () => {

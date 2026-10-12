@@ -17,6 +17,13 @@ import {
   type NamedAges,
 } from "../namedAges";
 import { withoutClub } from "../unrealClubs";
+import {
+  coerceAutoRemovals,
+  marksOfRealClubs,
+  NO_REMOVALS,
+  type AutoRemoval,
+  type AutoRemovals,
+} from "../autoRemoved";
 import { refusalsFor, takeOffClub } from "../notThisTeam";
 import { coerceAgeUnknown, type AgeUnknownList, type AgeUnknownTeam } from "../ageUnknown";
 import {
@@ -160,6 +167,11 @@ export type PoolCommand =
   /** Named ages set (each under its GameChanger id) and taken back. */
   | { kind: "namedAges"; put: NamedAge[]; forget: string[] }
   /**
+   * Marks of clubs taken off as plainly made up (`autoRemoved.ts`) set, each under its GameChanger
+   * id, and forgotten: Pool health's Put back forgets a club's, and its Undo puts them back.
+   */
+  | { kind: "autoRemoved"; put: AutoRemoval[]; forget: string[] }
+  /**
    * Games thrown out, from whichever years hold them, with the rows that carried their scores
    * remembered (`scoringRowsOf`) so that pulling those schedules again does not file them back.
    */
@@ -262,20 +274,25 @@ export type PoolRead = {
   cadence: () => RefreshCadence;
   /** The organizations an Organizations file named, with the teams under each. */
   orgs: () => OrgMembership;
+  /** The clubs taken off as plainly made up, by GameChanger id. */
+  autoRemoved: () => AutoRemovals;
 };
 
 /**
  * The parts besides the roster, the pages and the games, as a pool holding none of them reads
  * them: for a pool of those three alone, which the commands that read only those can be run on.
  */
-export const NO_ANSWERS: Pick<PoolRead, "answers" | "namedAges" | "ageless" | "cadence" | "orgs"> =
-  {
-    answers: () => new Set(),
-    namedAges: () => new Map(),
-    ageless: () => [],
-    cadence: () => DEFAULT_REFRESH_CADENCE,
-    orgs: () => NO_MEMBERSHIP,
-  };
+export const NO_ANSWERS: Pick<
+  PoolRead,
+  "answers" | "namedAges" | "ageless" | "cadence" | "orgs" | "autoRemoved"
+> = {
+  answers: () => new Set(),
+  namedAges: () => new Map(),
+  ageless: () => [],
+  cadence: () => DEFAULT_REFRESH_CADENCE,
+  orgs: () => NO_MEMBERSHIP,
+  autoRemoved: () => NO_REMOVALS,
+};
 
 /** One part of the pool, as a command would leave it. */
 export type PoolWrite =
@@ -286,7 +303,8 @@ export type PoolWrite =
   | { part: "namedAges"; named: Map<string, NamedAge> }
   | { part: "ageless"; list: AgeUnknownTeam[] }
   | { part: "cadence"; cadence: RefreshCadence }
-  | { part: "orgs"; membership: OrgMembership };
+  | { part: "orgs"; membership: OrgMembership }
+  | { part: "autoRemoved"; marks: Map<string, AutoRemoval> };
 
 export type Applied = { ok: true; writes: PoolWrite[]; inverse: PoolCommand };
 
@@ -325,6 +343,7 @@ const overlay = (read: PoolRead, writes: readonly PoolWrite[]): PoolRead => {
   const ageless = writes.filter((write) => write.part === "ageless").pop();
   const cadence = writes.filter((write) => write.part === "cadence").pop();
   const orgs = writes.filter((write) => write.part === "orgs").pop();
+  const marks = writes.filter((write) => write.part === "autoRemoved").pop();
   return {
     teams: () => (teams?.part === "teams" ? teams.teams : read.teams()),
     groups: () => (groups?.part === "groups" ? groups.groups : read.groups()),
@@ -339,6 +358,7 @@ const overlay = (read: PoolRead, writes: readonly PoolWrite[]): PoolRead => {
     ageless: () => (ageless?.part === "ageless" ? ageless.list : read.ageless()),
     cadence: () => (cadence?.part === "cadence" ? cadence.cadence : read.cadence()),
     orgs: () => (orgs?.part === "orgs" ? orgs.membership : read.orgs()),
+    autoRemoved: () => (marks?.part === "autoRemoved" ? marks.marks : read.autoRemoved()),
   };
 };
 
@@ -753,6 +773,29 @@ const namedAgesChange = (before: NamedAges, after: ReadonlyMap<string, NamedAge>
       };
 };
 
+/** A write of the marks, and the command that puts back the entries it changed. */
+const autoRemovedChange = (
+  before: AutoRemovals,
+  after: ReadonlyMap<string, AutoRemoval>
+): Applied => {
+  const put: AutoRemoval[] = [];
+  const forget: string[] = [];
+  new Set([...before.keys(), ...after.keys()]).forEach((id) => {
+    const was = before.get(id);
+    const now = after.get(id);
+    if (was === now) return;
+    if (was === undefined) forget.push(id);
+    else put.push(was);
+  });
+  return put.length + forget.length === 0
+    ? unchanged()
+    : {
+        ok: true,
+        writes: [{ part: "autoRemoved", marks: new Map(after) }],
+        inverse: { kind: "autoRemoved", put, forget },
+      };
+};
+
 /**
  * `read` answering each part from the first time it was asked. The browser's store decodes a year
  * afresh on every read, tens of thousands of games at a time, and a command reads a part more than
@@ -775,6 +818,7 @@ const readOnce = (read: PoolRead): PoolRead => {
     ageless: () => once("ageless", read.ageless),
     cadence: () => once("cadence", read.cadence),
     orgs: () => once("orgs", read.orgs),
+    autoRemoved: () => once("autoRemoved", read.autoRemoved),
   };
 };
 
@@ -862,11 +906,26 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       const ids = new Set(was);
       removed.forEach((id) => ids.delete(id));
       added.forEach((id) => ids.add(id));
-      return {
+      const said: Applied = {
         ok: true,
         writes: [{ part: "answers", list: command.list, ids }],
         inverse: { kind: "answers", list: command.list, add: removed, remove: added },
       };
+      /*
+       * A club said to be real carries no mark of one taken off as plainly made up: forgotten here,
+       * with the answer, rather than at the next night's sweep, so the club is back on the boards
+       * as it is said, and its Undo puts both back. Said from a card opened before the sweep that
+       * marked it, the button never knew of the mark.
+       */
+      const lifted =
+        command.list === "realClubs"
+          ? marksOfRealClubs(read.teams(), new Set(added), read.autoRemoved())
+          : [];
+      if (lifted.length === 0) return said;
+      return applySteps(read, [
+        () => said,
+        (pool) => apply(pool, { kind: "autoRemoved", put: [], forget: lifted }),
+      ]);
     }
     case "team.state": {
       const state = command.state === null ? undefined : normalizeState(command.state);
@@ -1235,6 +1294,13 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       command.put.forEach((entry) => (after = nameAge(after, entry)));
       return namedAgesChange(before, after);
     }
+    case "autoRemoved": {
+      const before = read.autoRemoved();
+      const after = new Map(before);
+      command.forget.forEach((id) => after.delete(id));
+      command.put.forEach((mark) => after.set(mark.gcTeamId, mark));
+      return autoRemovedChange(before, after);
+    }
     case "ageless.forget": {
       const going = new Set(command.teamIds);
       const rows: { entry: AgeUnknownTeam; at: number }[] = [];
@@ -1326,6 +1392,8 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       return applySteps(read, [
         remember("droppedClubs", gcTeamIds),
         remember("deletedGames", rowsOfGames(all, gameIds)),
+        // Thrown out for good, it is no longer a club taken off for the user to put back.
+        (pool) => apply(pool, { kind: "autoRemoved", put: [], forget: gcTeamIds }),
         (pool) => {
           // Another club's row one of its games held as a claim stands back up rather than go.
           const left = withoutClub(
@@ -1588,6 +1656,12 @@ export const everyOne = <T>(raw: unknown, one: (item: unknown) => T | null): T[]
 };
 
 /** A named age, every field read back exactly as it was sent, or null. */
+/** A mark as it is kept, read back exactly, or null. */
+const oneMark = (raw: unknown): AutoRemoval | null => {
+  const [mark] = coerceAutoRemovals([raw]).values();
+  return mark && JSON.stringify(mark) === JSON.stringify(raw) ? mark : null;
+};
+
 const oneNamedAge = (raw: unknown): NamedAge | null => {
   const [entry] = coerceNamedAges([raw]).values();
   return entry && JSON.stringify(entry) === JSON.stringify(raw) ? entry : null;
@@ -1814,6 +1888,11 @@ const readCommand = (raw: unknown, depth: number): PoolCommand | null => {
       const put = everyOne(raw.put, oneNamedAge);
       const forget = strings(raw.forget);
       return put && forget ? { kind: "namedAges", put, forget } : null;
+    }
+    case "autoRemoved": {
+      const put = everyOne(raw.put, oneMark);
+      const forget = strings(raw.forget);
+      return put && forget ? { kind: "autoRemoved", put, forget } : null;
     }
     case "games.drop": {
       const gameIds = strings(raw.gameIds);

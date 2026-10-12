@@ -30,6 +30,7 @@ import {
   saveScoutTeams,
   saveTidyStamp,
   TIDY_STAMP_KEY,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
 import type { SeasonReader } from "../allKnown";
 import { createPoolCache, type PoolEnsure } from "../poolCache";
@@ -182,6 +183,7 @@ const boardsOf = (readSeason: SeasonReader): string => {
     boardViews(
       ageGroups,
       buildBoardsAndFacts({
+        autoRemoved: loadAutoRemoved(),
         ageGroups,
         teams: loadScoutTeams(),
         gamesOfYear: loadScoutGamesForYear,

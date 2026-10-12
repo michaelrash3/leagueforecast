@@ -1,11 +1,11 @@
 import { deleteSquadYear } from "../deleteSquadYear";
 import { poolSignature } from "../gameChangerImport";
-import { dedupeLeagueFixtures, leagueStandIns } from "../teamRankings";
 import { archiveSquadYear, type StoredPool } from "../teamRankingsArchive";
 import {
   forgetArchivedSeason,
   loadAgeGroups,
   loadArchiveIndex,
+  loadAutoRemoved,
   loadScoutGames,
   loadScoutGamesForYear,
   loadScoutTeams,
@@ -22,7 +22,7 @@ import {
   type YearDeletePreview,
   type YearSummary,
 } from "../yearSummary";
-import { deriveAllKnown, type SeasonReader } from "./allKnown";
+import { archivedFrom, deriveAllKnown, type SeasonReader } from "./allKnown";
 import { poolParts, type PoolParts, type PoolWrite } from "./commands";
 import { writePool } from "./runPoolCommand";
 
@@ -82,17 +82,11 @@ export const planYearArchive = (year: number, seasons: SeasonReader, at: string)
     teams: stored.teams,
     yearGames: loadScoutGamesForYear(year),
     readSeason: seasons,
+    autoRemoved: loadAutoRemoved(),
   });
-  const shown = {
-    teams: known.teams,
-    games: dedupeLeagueFixtures(
-      [...known.derivedGames, ...stored.games],
-      leagueStandIns(known.teams, stored.ageGroups)
-    ),
-  };
   return {
     stored,
-    done: archiveSquadYear(year, shown, stored, at),
+    done: archiveSquadYear(year, archivedFrom(known, stored), stored, at),
     // Whether the pool was tidy before, as the page asks: a tidy pool with a year taken from it
     // has nothing new to tidy, so it keeps its stamp.
     wasTidy: loadTidyStamp() === poolSignature(stored),

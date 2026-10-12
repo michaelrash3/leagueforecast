@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { FIXTURE_TODAY, fingerprint, poolFixture } from "../../../../scripts/poolFixture";
+import {
+  FIXTURE_TODAY,
+  fingerprint,
+  madeUpClub,
+  poolFixture,
+} from "../../../../scripts/poolFixture";
 import { memoryIo } from "../../cloud/cloudRunner";
 import {
   ageGroupYear,
@@ -21,10 +26,12 @@ import {
 import {
   initTeamRankingsStore,
   loadAgeGroups,
+  loadAutoRemoved,
   loadScoutGamesForYear,
   loadScoutTeams,
   resetTeamRankingsStore,
   saveAgeGroups,
+  saveAutoRemoved,
   saveScoutGames,
   saveScoutTeams,
 } from "../../teamRankingsStorage";
@@ -53,6 +60,7 @@ import {
   type PageFacts,
 } from "../views/board";
 import { coerceLivePages } from "../views/boardShape";
+import { NO_REMOVALS, type AutoRemovals } from "../../autoRemoved";
 
 /**
  * The boards a server builds are the boards a browser draws, to the last digit.
@@ -77,6 +85,13 @@ const readSeason: SeasonReader = (seasonId) => {
   return { teams, matchups, logs: coerceLogs(stored?.logs ?? null, matchups) };
 };
 
+/**
+ * One club of the fixture taken off as plainly made up (`madeUpClub`), as the nightly marks one. It
+ * plays on this year's 10U board, so leaving it off moves the board, which is what board rules 5
+ * are.
+ */
+const { club: MARKED, marks: MARKS } = madeUpClub(fixture);
+
 let ageGroups: AgeGroup[] = [];
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -87,6 +102,7 @@ beforeAll(async () => {
   saveAgeGroups(fixture.ageGroups);
   saveScoutTeams(fixture.teams);
   saveScoutGames(fixture.games);
+  saveAutoRemoved(MARKS);
   ageGroups = loadAgeGroups();
 });
 afterAll(() => {
@@ -99,6 +115,7 @@ type PoolSource = {
   teams: ScoutTeam[];
   gamesOfYear: (year: number | undefined) => ScoutGame[];
   readSeason: SeasonReader;
+  autoRemoved: AutoRemovals;
 };
 
 /**
@@ -140,6 +157,7 @@ const workerBoards = (source: PoolSource, navigating: boolean): Map<string, Scou
         teams,
         yearGames: gamesOfYear(year),
         readSeason: source.readSeason,
+        autoRemoved: source.autoRemoved,
       });
       held = { key, revision: (id += 1) };
       pool = {
@@ -227,7 +245,7 @@ const steady = (boards: PageBoard[]) =>
  * another collation, skips this pin and keeps the steady one; a new engine's value is added here
  * once its boards are seen to match its own worker's.
  */
-const DIGIT_PINS: Record<string, string> = { "12.4": "b8724dfe", "13.6": "9c84177b" };
+const DIGIT_PINS: Record<string, string> = { "12.4": "1cbcbc31", "13.6": "67c44dec" };
 const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions?.v8;
 const english = new Intl.Collator().resolvedOptions().locale.startsWith("en");
 const digitPin = english ? DIGIT_PINS[(engine ?? "").split(".").slice(0, 2).join(".")] : undefined;
@@ -238,6 +256,7 @@ const stored = (): PoolSource => ({
   teams: loadScoutTeams(),
   gamesOfYear: loadScoutGamesForYear,
   readSeason,
+  autoRemoved: loadAutoRemoved(),
 });
 
 /** One squad year's games out of a list, in its order, as a shard holds them. */
@@ -283,6 +302,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       teams: fixture.teams,
       gamesOfYear: byYear(fixture.ageGroups, fixture.games),
       readSeason,
+      autoRemoved: MARKS,
     });
   });
 
@@ -311,6 +331,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       teams,
       gamesOfYear: byYear(groups, games),
       readSeason,
+      autoRemoved: NO_REMOVALS,
     });
     const rec12 = built.find((board) => board.pageId === "rec12" && board.half === "year");
     expect(rec12?.rows.map((row) => row.teamId)).toContain("X");
@@ -366,6 +387,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
         teams: source.teams,
         yearGames: source.gamesOfYear(year),
         readSeason,
+        autoRemoved: source.autoRemoved,
       });
       const byId = new Map(known.teams.map((team) => [team.id, team]));
       const leagueIds = new Set(
@@ -422,6 +444,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
         teams: source.teams,
         yearGames: source.gamesOfYear(year),
         readSeason,
+        autoRemoved: source.autoRemoved,
       });
       for (const { half, segment } of BOARD_HALVES) {
         const answers: WorkerResponse[] = [];
@@ -521,6 +544,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
         teams: source.teams,
         yearGames: source.gamesOfYear(ageGroupYear(group)),
         readSeason,
+        autoRemoved: source.autoRemoved,
       });
       const games = gamesOnPages(known.games, rankingPoolGroupIds(group.id, ageGroups));
       const on = (asOf: string) =>
@@ -554,6 +578,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
         teams: source.teams,
         yearGames: source.gamesOfYear(ageGroupYear(page)),
         readSeason,
+        autoRemoved: source.autoRemoved,
       });
       const byId = new Map(known.teams.map((team) => [team.id, team]));
       const rankedTeams = read.rows
@@ -605,9 +630,11 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
   });
 
   it("count each page's games by half as the page does, beside its boards", () => {
-    // Pinned from the page's own count (`segmentGames`) on the fixture before it was shared.
+    // Pinned from the page's own count (`segmentGames`) on the fixture before it was shared, which
+    // had no club taken off as plainly made up.
+    const bare = { ...stored(), autoRemoved: NO_REMOVALS };
     const pages = livePagesOf(
-      buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }),
+      buildBoardsAndFacts({ ...bare, today: FIXTURE_TODAY }),
       "2027-04-15T07:20:00.000Z"
     );
     const lastYear = { fall: 714, spring: 1808 };
@@ -631,17 +658,17 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
     });
     // In the order the boards come out in, and with no pull time where the roster was never pulled.
     expect(Object.keys(pages.halves)).toEqual(ratingPools(ageGroups).flat());
-    expect(livePagesOf(buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }), null)).toEqual({
+    expect(livePagesOf(buildBoardsAndFacts({ ...bare, today: FIXTURE_TODAY }), null)).toEqual({
       league: pages.league,
       halves: pages.halves,
     });
     // A score dated ahead of the day counts in no half, as it rates nobody: a month earlier, the
     // spring holds fewer.
-    const earlier = livePagesOf(
-      buildBoardsAndFacts({ ...stored(), today: "2027-03-20" }),
-      null
-    ).halves;
+    const earlier = livePagesOf(buildBoardsAndFacts({ ...bare, today: "2027-03-20" }), null).halves;
     expect(earlier.ag_12u_2027).toEqual({ fall: 1771, spring: 1505 });
+    // And the club taken off counts in no half either: its two counted games are this spring's.
+    const marked = livePagesOf(buildBoardsAndFacts({ ...stored(), today: FIXTURE_TODAY }), null);
+    expect(marked.halves.ag_12u_2027).toEqual({ fall: 1771, spring: 2008 });
   });
 
   it("name each League Standings team's club on each page claiming its season, as the page does", () => {
@@ -657,6 +684,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
         teams: loadScoutTeams(),
         yearGames: loadScoutGamesForYear(ageGroupYear(page)),
         readSeason,
+        autoRemoved: loadAutoRemoved(),
       });
       return [...(known.leagueClubs.get(page.id) ?? new Map<string, Map<string, string>>())].map(
         ([season, clubs]) => ({
@@ -719,14 +747,27 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * shape, which read only the rules (`BOARD_RULES`), and no board moved. Holding 3 to the same
      * fingerprint is what says so; a version need not have one of its own unless it moved a board.
      * 4 moved them: a year of age is worth what it measured at each level (`AGE_STEP_RUNS`).
+     * 5 moved them: a club taken off as plainly made up is left off every board (`autoRemoved.ts`),
+     * which the fixture now has one of; without it, the boards are 4's to the digit.
      */
     const RULES_PINS: Record<number, string> = {
       1: "a2c59173",
       2: "f9baf500",
       3: "f9baf500",
       4: "2303b63a",
+      5: "48c5c405",
     };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
+    expect(fingerprint(steady(builtBoards({ ...stored(), autoRemoved: NO_REMOVALS })))).toBe(
+      RULES_PINS[4]
+    );
+  });
+
+  it("leave a club taken off as plainly made up off every board, and on them without its marks", () => {
+    const on = (boards: PageBoard[]) =>
+      boards.filter((board) => board.rows.some((row) => row.teamId === MARKED.id)).length;
+    expect(on(builtBoards({ ...stored(), autoRemoved: NO_REMOVALS }))).toBeGreaterThan(0);
+    expect(on(builtBoards(stored()))).toBe(0);
   });
 
   it.skipIf(digitPin === undefined)(
@@ -875,6 +916,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
         teams,
         gamesOfYear: byYear(groups, games),
         readSeason,
+        autoRemoved: NO_REMOVALS,
       });
       const pageIds = [...new Set(groups.map((group) => group.id))];
       pageIds.forEach((pageId) => {
@@ -897,6 +939,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       teams: fixture.teams,
       gamesOfYear: () => fixture.games.map((game) => ({ ...game, ageGroupId: "ag_8u_2030" })),
       readSeason,
+      autoRemoved: NO_REMOVALS,
       today: FIXTURE_TODAY,
     });
     expect(boards.map(({ half, rows }) => [half, rows.length])).toEqual([

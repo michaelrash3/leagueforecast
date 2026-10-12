@@ -147,6 +147,7 @@ import {
   segmentOn,
 } from "../lib/teamRankings";
 import { todayIsoDay } from "../lib/date";
+import type { MarksChange } from "../lib/removedForYou";
 import { cloudStatus, subscribeCloud } from "../lib/cloud/cloudSession";
 import { pullBlockedBy } from "../lib/cloud/pullGate";
 import type { ToastTone } from "../hooks/useToast";
@@ -192,6 +193,12 @@ type GameChangerImportPanelProps = {
    * a save made here would leave the view offering the same ids to the rota until the next reload.
    */
   onInvented: (gcTeamIds: string[]) => void;
+  /**
+   * What the sweep for clubs plainly made up (`obviousFakes.ts`) changed in the marks, run in the
+   * tidy worker on the pool a finished run left, tidied, as the nightly sweeps the cloud copy after
+   * its pull. Up, for the same reason as the clubs thrown out: the marks are the view's state.
+   */
+  onSwept?: (change: MarksChange) => void;
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -336,6 +343,7 @@ export function GameChangerImportPanel({
   namedAges,
   droppedClubs,
   onInvented,
+  onSwept,
   onSaveProgress,
   onClearProgress,
   onClose,
@@ -1219,7 +1227,9 @@ export function GameChangerImportPanel({
           games: loadScoutGames(),
         });
       }
-      const outcome = await tidyInWorker(heldRef.current.state);
+      // With the sweep for clubs plainly made up after it, in the worker: 2.5 s of walking every
+      // game of the 11 October 2026 pool, measured in Node, which this thread would spend frozen.
+      const outcome = await tidyInWorker(heldRef.current.state, {}, todayIsoDay());
       /*
        * Refused only if something else claimed the pool in the moment between this run giving it up
        * and the tidy asking for it. Nothing is lost by skipping it: the stamp is left alone, so the
@@ -1249,6 +1259,7 @@ export function GameChangerImportPanel({
       if (lists.tooYoung) setTooYoung(lists.tooYoung);
       // Thrown out like a club somebody deleted by hand, which is the page's to do.
       if (lists.invented.length > 0) onInvented(lists.invented);
+      if (outcome?.marks) onSwept?.(outcome.marks);
 
       track(() => {
         // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that

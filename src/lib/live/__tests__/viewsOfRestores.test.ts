@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NO_REMOVALS } from "../../autoRemoved";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings";
 import { coerceAgeGroups } from "../../teamRankingsStorage";
 import { publishViews } from "../viewStore";
@@ -53,13 +54,14 @@ describe("a page id a restore stores twice in one year", () => {
 
   it("has one Games list, as it has one set of boards, and publishes", async () => {
     const built = buildBoardsAndFacts({
+      autoRemoved: NO_REMOVALS,
       ageGroups: groups,
       teams,
       gamesOfYear,
       readSeason,
       today: TODAY,
     });
-    const lists = gamesViews({ ageGroups: groups, built, gamesOfYear });
+    const lists = gamesViews({ ageGroups: groups, built, gamesOfYear, roster: teams });
     expect(lists.map((list) => list.key)).toEqual(["games:2027:d9", "games:2027:d10"]);
     const read = coerceGames(JSON.parse(JSON.stringify(lists[0]?.value)));
     expect(read?.games.map((game) => `${game.teamAId}${game.teamBId}`)).toEqual(["AB", "BC"]);
@@ -88,16 +90,16 @@ describe("a page id a restore stores twice in one year", () => {
   it("lists a page repeated in another year only under its first copy's year", () => {
     const across: AgeGroup[] = [page("d9", 9, 2027), page("d10", 10, 2028), page("d9", 9, 2028)];
     const built = buildBoardsAndFacts({
+      autoRemoved: NO_REMOVALS,
       ageGroups: across,
       teams,
       gamesOfYear,
       readSeason,
       today: TODAY,
     });
-    expect(gamesViews({ ageGroups: across, built, gamesOfYear }).map((list) => list.key)).toEqual([
-      "games:2027:d9",
-      "games:2028:d10",
-    ]);
+    expect(
+      gamesViews({ ageGroups: across, built, gamesOfYear, roster: teams }).map((list) => list.key)
+    ).toEqual(["games:2027:d9", "games:2028:d10"]);
   });
 });
 
@@ -107,6 +109,7 @@ describe("a page whose own club is the empty id", () => {
     expect(groups[0]?.myTeamId).toBe("");
     const games = [played("a", "d10", "AB", "2027-03-07"), played("b", "d10", "BC", "2027-03-14")];
     const built = buildBoardsAndFacts({
+      autoRemoved: NO_REMOVALS,
       ageGroups: groups,
       teams,
       gamesOfYear: (year) => (year === 2027 ? games : []),

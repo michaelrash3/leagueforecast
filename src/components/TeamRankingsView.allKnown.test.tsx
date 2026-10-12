@@ -5,7 +5,12 @@ import { deriveAllKnown, gamesOnPages } from "../lib/live/allKnown";
 import { loadLogsForSeason, loadMatchupsForSeason, loadTeamsForSeason } from "../lib/storage";
 import { ageGroupYear, rankingPoolGroupIds } from "../lib/teamRankings";
 import { encodeScoutGames, encodeScoutTeams } from "../lib/teamRankingsCompact";
-import { loadAgeGroups, loadScoutGamesForYear, loadScoutTeams } from "../lib/teamRankingsStorage";
+import {
+  loadAgeGroups,
+  loadAutoRemoved,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+} from "../lib/teamRankingsStorage";
 import { renderTeamRankings } from "../test/teamRankingsHarness";
 import type { RankingsRequest, WorkerRequest } from "../workers/rankingsProtocol";
 
@@ -81,6 +86,7 @@ describe("what the page knows, against deriveAllKnown", () => {
     const ageGroups = loadAgeGroups();
     const page = ageGroups.find((group) => group.id === request.ageGroupId);
     const known = deriveAllKnown({
+      autoRemoved: loadAutoRemoved(),
       ageGroups,
       teams: loadScoutTeams(),
       yearGames: loadScoutGamesForYear(ageGroupYear(page)),

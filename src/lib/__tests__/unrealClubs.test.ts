@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unrealClubs, withoutClub } from "../unrealClubs";
+import { unrealClubs, withoutClub, withoutClubs } from "../unrealClubs";
 import { forgetClubs, isDeletedClub, restoreClubs } from "../deletedGames";
 import { createGcImporter, type GcImportState } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
@@ -324,5 +324,40 @@ describe("deleting a club that is not one", () => {
       [group]
     );
     expect(alone.teams.some((one) => one.id === "S-BEARS")).toBe(false);
+  });
+
+  /*
+   * The boards leave a club taken off as plainly made up out the way Delete club takes it out
+   * (`withoutClubs`, read by `deriveAllKnown`), so the two never drift apart.
+   */
+  it("takes one club out as Delete club does, and several with no row left naming any", () => {
+    const one = withoutClub({ teamId: "S-BEARS", gameIds: ["gc_gcBEARS_b1"] }, teams, pool, [
+      group,
+    ]);
+    expect(withoutClubs(new Set(["S-BEARS"]), teams, pool, [group])).toEqual(one);
+    // The Owls' row claimed into the Hawks' copy was filed against the Bears, who go too: it goes
+    // with them, whichever of the two is taken first, rather than stand up against a club gone.
+    const two = withoutClubs(new Set(["S-BEARS", "S-HAWKS"]), teams, pool, [group]);
+    expect(two.games.map((one) => one.id)).toEqual(["gc_gcACES_a1"]);
+    expect(two.teams.map((one) => one.id)).toEqual(["S-ACES", "S-OWLS", "S-SHARKS"]);
+    // None, and the pool is the pool.
+    const none = withoutClubs(new Set(), teams, pool, [group]);
+    expect(none.teams).toBe(teams);
+    expect(none.games).toBe(pool);
+  });
+
+  /*
+   * The Bears' copy holds the Aces' own row, claimed: taking the Aces out, that row goes with them
+   * rather than stand up as a game of the Aces against the Sharks, a club gone and still named.
+   */
+  it("takes the club's own claimed row with it, one club or several", () => {
+    const naming = (games: readonly ScoutGame[]) =>
+      games.filter((one) => one.teamAId === "S-ACES" || one.teamBId === "S-ACES");
+    const one = withoutClub({ teamId: "S-ACES", gameIds: ["gc_gcBEARS_b1"] }, teams, pool, [group]);
+    expect(naming(one.games)).toEqual([]);
+    expect(one.teams.some((club) => club.id === "S-ACES")).toBe(false);
+    const several = withoutClubs(new Set(["S-ACES"]), teams, pool, [group]);
+    expect(naming(several.games)).toEqual([]);
+    expect(several).toEqual(one);
   });
 });

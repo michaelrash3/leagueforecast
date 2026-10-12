@@ -50,6 +50,20 @@ describe("a Find a team list", () => {
     expect(coerceSearch(wire())).toEqual(VIEW);
   });
 
+  it("carries the clubs taken off as plainly made up, and reads a list from before them", () => {
+    const removed = new Map([["gcREMOVED001", "2026-10-11"]]);
+    const view = { ...VIEW, held: { ...VIEW.held, removed } };
+    const sent = JSON.parse(JSON.stringify(encodeSearch(view))) as Record<string, unknown>;
+    expect(sent.removed).toEqual([["gcREMOVED001", "2026-10-11"]]);
+    expect(coerceSearch(sent)).toEqual(view);
+    // None, and the list says nothing of them, as one published before them did.
+    expect("removed" in encodeSearch({ ...VIEW, held: { ...VIEW.held, removed: new Map() } })).toBe(
+      false
+    );
+    expect(coerceSearch({ ...sent, removed: [["gcREMOVED001"]] })).toBeNull();
+    expect(coerceSearch({ ...sent, removed: [["gcREMOVED001", "2026-10-11", "more"]] })).toBeNull();
+  });
+
   it("names each page once, and each club's page by its place", () => {
     const sent = encodeSearch(VIEW);
     expect(sent.pages).toEqual(["ag_10u_2027", "ag_9u_2027"]);

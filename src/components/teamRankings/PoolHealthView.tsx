@@ -13,6 +13,8 @@ import { IMPLAUSIBLE_MARGIN, segmentOn } from "../../lib/teamRankings";
 import { apartKey, isKeptApart, type KeptApart } from "../../lib/keptApart";
 import type { WrongAgeClub } from "../../lib/wrongAge";
 import type { UnrealClub } from "../../lib/unrealClubs";
+import type { RemovedClub } from "../../lib/removedForYou";
+import { ABSURD_MARGIN, ROUT_MARGIN } from "../../lib/autoRemoved";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { countedTwiceCsv, countedTwiceCsvFilename } from "../../lib/countedTwice";
@@ -74,6 +76,19 @@ export type PoolHealthActions = {
    * its schedule rather than rebuilding it. See `deletedGames.ts`.
    */
   dropClub: (club: UnrealClub) => Promise<boolean>;
+  /**
+   * Puts a club taken off as plainly made up back on the boards: its marks forgotten and the club
+   * said to be real, so the sweep never takes it again (`autoRemoved` and `realClubs`), with Undo.
+   */
+  putBack: (club: RemovedClub) => Promise<boolean> | boolean;
+  /**
+   * Puts back every club one day's sweep took off: their marks forgotten, and nothing said of
+   * them, so the next sweep takes off again any that still shows its sign. How a sweep that went
+   * wrong is taken back as a whole, once what made it go wrong is mended. With Undo.
+   */
+  putBackDay: (day: string, clubs: readonly RemovedClub[]) => Promise<boolean> | boolean;
+  /** Deletes a club taken off for good, as Delete club does (`club.drop`), with Undo. */
+  deleteRemoved: (club: RemovedClub) => Promise<boolean> | boolean;
   /**
    * Says a game won by more than `IMPLAUSIBLE_MARGIN` runs really was played that way, so it counts
    * and leaves the list (`ScoutGame.scoreConfirmed`).
@@ -272,6 +287,19 @@ export function PoolHealthView({
   const [showKeptReal, setShowKeptReal] = useState(false);
 
   /**
+   * The clubs taken off as plainly made up, newest first (`autoRemoved.ts`): on no list above and
+   * no board, each kept filed with its games so that putting it back is forgetting a mark.
+   */
+  const removed = useMemo(() => summary.removed ?? [], [summary.removed]);
+  const [allRemoved, setAllRemoved] = useState(false);
+  /** The clubs taken off, by the day that took them off, newest first: a night's sweep at once. */
+  const removedDays = useMemo(() => {
+    const byDay = new Map<string, RemovedClub[]>();
+    removed.forEach((club) => byDay.set(club.on, [...(byDay.get(club.on) ?? []), club]));
+    return [...byDay];
+  }, [removed]);
+
+  /**
    * Games won by more than `IMPLAUSIBLE_MARGIN` runs, the widest first: none of them counts, and
    * each is here to be deleted or vouched for (`isImplausibleScore`).
    */
@@ -374,6 +402,26 @@ export function PoolHealthView({
   /** Takes the user's word that a club is real back: it goes on the list again. */
   const unconfirmClub = (club: UnrealClub) =>
     void actions.answer("realClubs", [], [club.teamId, ...club.gcTeamIds]);
+
+  /** Puts a club taken off back, or deletes it for good: one at a time, as the other buttons. */
+  const decideRemoved = async (club: RemovedClub, decide: (club: RemovedClub) => unknown) => {
+    setDropping(club.teamId);
+    try {
+      await decide(club);
+    } finally {
+      setDropping(null);
+    }
+  };
+
+  /** Puts back every club one night took off, as one change. */
+  const putBackDay = async (day: string, clubs: readonly RemovedClub[]) => {
+    setDropping(day);
+    try {
+      await actions.putBackDay(day, clubs);
+    } finally {
+      setDropping(null);
+    }
+  };
 
   /** Throws out a club outright: the team, its rows, and its GameChanger ids. */
   const dropClub = async (club: UnrealClub) => {
@@ -810,6 +858,94 @@ export function PoolHealthView({
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {removed.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+          <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Removed for you
+          </h3>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Clubs the nightly refresh took off every board as plainly made up, newest first: two
+            wins by {ROUT_MARGIN} runs or more, or one by {ABSURD_MARGIN}, that the losers&apos; own
+            schedules do not list; three results or more, half of them dated well ahead, that no
+            opponent lists; or void, test or demo in the name. Nothing is deleted: each stays filed
+            with its games and is pulled as before, and its games count for nothing. A club a League
+            Standings team links stays on its boards, and is said to here.{" "}
+            <strong>Put back on the boards</strong> puts it there again and keeps it there as real
+            (not the same as <em>Put it back</em> under the clubs you said are real, which takes
+            that word back); <strong>Delete for good</strong> deletes it as Delete club does.
+          </p>
+          <ul className="mt-2 space-y-1" aria-label="Removed for you">
+            {(allRemoved ? removed : removed.slice(0, 12)).map((club) => (
+              <li key={club.teamId} className="text-xs">
+                <span className="font-bold text-slate-700 dark:text-slate-200">{club.name}</span>{" "}
+                {club.gcTeamIds.map((gcId, at) => (
+                  <a
+                    key={gcId}
+                    href={gcTeamPageUrl(gcId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mr-1 text-slate-500 dark:text-slate-400 underline hover:text-slate-950 dark:hover:text-white"
+                  >
+                    {club.gcTeamIds.length > 1 ? `schedule ${at + 1}` : "schedule"}
+                  </a>
+                ))}
+                <span className="text-slate-500 dark:text-slate-400">
+                  {club.on}: {club.reasons.join("; ")}
+                  {club.keptByLeague && "; kept on its boards, as a League Standings team links it"}
+                </span>{" "}
+                <button
+                  type="button"
+                  onClick={() => void decideRemoved(club, actions.putBack)}
+                  disabled={dropping !== null || held}
+                  className={`${button.ghost} text-xs`}
+                >
+                  {dropping === club.teamId ? "Working…" : "Put back on the boards"}
+                </button>{" "}
+                <button
+                  type="button"
+                  onClick={() => void decideRemoved(club, actions.deleteRemoved)}
+                  disabled={dropping !== null || held}
+                  className={`${button.ghost} text-xs`}
+                >
+                  Delete for good
+                </button>
+              </li>
+            ))}
+          </ul>
+          {removed.length > 12 && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {allRemoved
+                ? `All ${count(removed.length)}, newest first. `
+                : `Drawing 12 of ${count(removed.length)}, newest first. `}
+              <button
+                type="button"
+                onClick={() => setAllRemoved((shown) => !shown)}
+                className="underline hover:text-slate-950 dark:hover:text-white"
+              >
+                {allRemoved ? "Show the newest 12" : `Show all ${count(removed.length)}`}
+              </button>
+            </p>
+          )}
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Or put back every club one night took off: nothing is said of them, so the next sweep
+            takes off again any that still shows its sign.{" "}
+            {removedDays.map(([day, clubs]) => (
+              <button
+                key={day}
+                type="button"
+                onClick={() => void putBackDay(day, clubs)}
+                disabled={dropping !== null || held}
+                className={`${button.ghost} mr-1 text-xs`}
+              >
+                {dropping === day
+                  ? "Working…"
+                  : `Put back the ${count(clubs.length)} taken off on ${day}`}
+              </button>
+            ))}
+          </p>
         </div>
       )}
 

@@ -20,6 +20,7 @@ import {
   saveScoutGames,
   saveScoutTeams,
   saveTooYoungClubs,
+  loadAutoRemoved,
 } from "../../teamRankingsStorage";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { deriveAllKnown, type SeasonReader } from "../allKnown";
@@ -88,6 +89,7 @@ describe("the Find a team lists a server publishes", { timeout: 30_000 }, () => 
   it("say what the page's own search says, on every year with a page", () => {
     const teams = loadScoutTeams();
     const built = buildBoardsAndFacts({
+      autoRemoved: loadAutoRemoved(),
       ageGroups,
       teams,
       gamesOfYear: loadScoutGamesForYear,
@@ -118,6 +120,7 @@ describe("the Find a team lists a server publishes", { timeout: 30_000 }, () => 
     for (const year of years) {
       // The page on a page of this year: its own derivation, over the year's stored games.
       const allKnown = deriveAllKnown({
+        autoRemoved: loadAutoRemoved(),
         ageGroups,
         teams,
         yearGames: loadScoutGamesForYear(year),

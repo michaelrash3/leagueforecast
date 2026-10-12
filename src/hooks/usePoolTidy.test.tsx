@@ -83,7 +83,7 @@ describe("tidying the pool", () => {
     // Inspecting reads and writes nothing, so it has no business blocking a pull.
     beginPull("2026-09-17T08:00:00.000Z");
     const { result } = renderHook(() => usePoolTidy());
-    const looked = await result.current.inspect(withStandIn(), "");
+    const looked = await result.current.inspect(withStandIn(), "", new Set());
     expect(looked?.health.games).toBe(2);
   });
 });
@@ -129,7 +129,7 @@ describe("a tidy whose panel goes away", () => {
   it("settles an inspection the same way, rather than leaving it hanging", async () => {
     vi.stubGlobal("Worker", SilentWorker);
     const { result, unmount } = renderHook(() => usePoolTidy());
-    const pending = result.current.inspect(withStandIn(), "");
+    const pending = result.current.inspect(withStandIn(), "", new Set());
     unmount();
     await expect(pending).resolves.toBeNull();
   });
@@ -179,7 +179,7 @@ describe("what the tidy worker is told", () => {
     RecordingWorker.sent = [];
     vi.stubGlobal("Worker", RecordingWorker);
     const { result, unmount } = renderHook(() => usePoolTidy());
-    const pending = result.current.inspect(withStandIn(), "");
+    const pending = result.current.inspect(withStandIn(), "", new Set());
     expect(RecordingWorker.sent).toEqual([
       expect.objectContaining({ kind: "inspect", notThisTeam: [refused] }),
     ]);
