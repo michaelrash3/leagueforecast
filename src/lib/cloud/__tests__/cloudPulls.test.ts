@@ -226,6 +226,19 @@ const waitingPull = (patch: Partial<PullJob> = {}) => {
 describe("a pull still waiting to start", () => {
   const at = (minutes: number) => Date.parse(NOW) + minutes * 60_000;
 
+  it("shows the worker's error while the current part waits to retry", () => {
+    const pull = waitingPull({
+      status: "running",
+      stage: "waiting",
+      legs: 18,
+      legsDone: 8,
+      error: "Worker time limit",
+    });
+    expect(describeProgress(pull, at(185))).toBe(
+      "Pulling 1,710 teams in the cloud: part 9 of 18, waiting to retry (Worker time limit)."
+    );
+  });
+
   // The screen that sat for hours: a pull never started said "waiting to start" and nothing else,
   // and Stop's press changed nothing on it.
   it("says how long it has waited, what its last try said, and a stop before anything", () => {

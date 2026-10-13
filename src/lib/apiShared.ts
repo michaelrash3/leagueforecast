@@ -1,7 +1,7 @@
 /**
  * What both serverless functions need and neither owns.
  *
- * `api/league-summary.ts` and `api/gc-team.ts` carried byte-identical copies of the handler types,
+ * `server/league-summary.ts` and `server/gc-team.ts` carried byte-identical copies of the handler types,
  * the client key and the throttle — about sixty lines, diverging the moment one of them was fixed
  * and the other was not. It lives here rather than in `api/` because Vercel turns files under that
  * directory into endpoints, and a helper is not an endpoint.
@@ -11,8 +11,8 @@
  */
 
 /**
- * Minimal structural types for the Vercel Node handler. Declared here rather than taken from
- * `@vercel/node` so the project keeps its two-dependency footprint, and rather than from
+ * Minimal structural types for the shared Node handlers. Declared here rather than taken from
+ * a platform's types, and rather than from
  * `@types/node` because installing that also changes global timer typings for the browser project.
  */
 export type ApiRequest = {
@@ -43,8 +43,8 @@ const MAX_TRACKED_CLIENTS = 5_000;
 /**
  * Who is asking, as far as a serverless function can tell.
  *
- * `x-forwarded-for` is set by the platform in front of the function, so on Vercel it is the real
- * client. Behind anything that does not set it, this degrades to the socket address and then to a
+ * `x-forwarded-for` is set by the platform in front of the function. Behind anything that does
+ * not set it, this degrades to the socket address and then to a
  * single shared bucket, which throttles everyone together rather than nobody.
  */
 export const clientKey = (req: ApiRequest): string => {

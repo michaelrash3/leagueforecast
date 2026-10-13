@@ -1,6 +1,6 @@
 /**
  * Builds the "why is this team ranked here" request for Team Rankings, reusing the same
- * `/api/league-summary` endpoint/contract as League Standings' AI write-ups (see
+ * Firebase `leagueSummary` endpoint/contract as League Standings' AI write-ups (see
  * `leagueSummary.ts`'s "team-rank-explanation" kind) rather than standing up a parallel Gemini
  * integration for a separate feature that otherwise has nothing to do with League Standings.
  */

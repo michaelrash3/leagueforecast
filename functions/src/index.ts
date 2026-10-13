@@ -1,6 +1,6 @@
 /**
  * The app's Firebase functions. Bundled with esbuild into `lib/index.js` (`npm run build`), so the
- * handler is the very file Vercel runs rather than a copy of it: see `serveGcProxy` for what a
+ * handlers live under `server/`: see `serveGcProxy` for what a
  * function on another host adds.
  */
 import { Worker } from "node:worker_threads";
@@ -9,7 +9,8 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onMessagePublished } from "firebase-functions/v2/pubsub";
 import { onTaskDispatched } from "firebase-functions/v2/tasks";
-import gcTeamForMembers from "../../api/gc-team";
+import gcTeamForMembers from "../../server/gc-team";
+import leagueSummaryHandler from "../../server/league-summary";
 import { capBilling, describeCap } from "../../src/lib/billingCap";
 import { FIREBASE_WEB_CONFIG } from "../../src/lib/cloud/cloudConfig";
 import {
@@ -57,9 +58,10 @@ import {
 } from "../../src/lib/memberCheck";
 import { enqueueLeg, enqueueRebuild, REGION, restAccess, zoneOf } from "./pullAccess";
 import type { LegAnswer, LegRequest } from "./pullLeg";
+import { waitForPullWorker } from "../../src/lib/cloud/pullWorkerLifetime";
 
 /**
- * GET /gcTeam?ids=<id,id,…>&raw=1 — the GameChanger proxy, as `/api/gc-team` is on Vercel.
+ * GET /gcTeam?ids=<id,id,…>&raw=1 — the GameChanger proxy.
  *
  * For the accounts on the cloud copy's list alone, as that one is (`memberCheck.ts`): a caller
  * sends its Firebase sign-in, and the check asks Firestore for the caller's own entry with it. The
@@ -79,6 +81,23 @@ export const gcTeam = onRequest(
     maxInstances: 5,
   },
   (req, res) => serveGcProxy(req, res, gcTeamForMembers)
+);
+
+/** Both standings stories and ranking explanations use this Firebase endpoint. */
+export const leagueSummary = onRequest(
+  {
+    region: REGION,
+    invoker: "public",
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    concurrency: 10,
+    maxInstances: 2,
+  },
+  (req, res) =>
+    serveGcProxy(req, res, leagueSummaryHandler, {
+      methods: "GET, POST",
+      headers: "accept, content-type",
+    })
 );
 
 /**
@@ -260,30 +279,24 @@ export const startPull = !CLOUD_PULLS
     );
 
 /** Runs a leg in a worker of its own, holding at most `LEG_HEAP_MB`, and hands back its answer. */
-const legInWorker = (request: LegRequest): Promise<LegAnswer> =>
-  new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("./pullLeg.js", import.meta.url), {
-      workerData: request,
-      resourceLimits: { maxOldGenerationSizeMb: LEG_HEAP_MB },
-    });
-    let answered = false;
-    worker.once("message", (answer: LegAnswer) => {
-      answered = true;
-      resolve(answer);
-      void worker.terminate();
-    });
-    worker.once("error", (error: Error & { code?: string }) => {
-      reject(
-        error.code === "ERR_WORKER_OUT_OF_MEMORY"
-          ? new Error("The pull ran out of memory on the cloud's server.")
-          : error
-      );
-    });
-    worker.once("exit", (code) => {
-      if (!answered)
-        reject(new Error(`The pull's worker stopped (exit ${code}) without an answer.`));
-    });
+const legInWorker = (request: LegRequest): Promise<LegAnswer> => {
+  const worker = new Worker(new URL("./pullLeg.js", import.meta.url), {
+    workerData: request,
+    resourceLimits: { maxOldGenerationSizeMb: LEG_HEAP_MB },
   });
+  return waitForPullWorker<LegAnswer>({
+    onMessage: (listener) => {
+      worker.once("message", listener);
+    },
+    onError: (listener) => {
+      worker.once("error", listener);
+    },
+    onExit: (listener) => {
+      worker.once("exit", listener);
+    },
+    stop: () => worker.terminate(),
+  });
+};
 
 /**
  * Legs that may run at once, each on an instance of its own with the memory the whole pool takes.
@@ -297,7 +310,8 @@ const LEGS_AT_ONCE = 3;
 
 /**
  * One leg of a pull, as Cloud Tasks sends it, beside at most `LEGS_AT_ONCE - 1` others. A leg has
- * half an hour, the most a task may; one that fails is tried twice more, two minutes apart and then
+ * a 25-minute worker limit inside the task's half hour, so its thread ends and its error can be
+ * recorded before the request times out. One that fails is tried twice more, two minutes apart and then
  * longer, and its job marked failed after the third.
  */
 export const runPull = !CLOUD_PULLS
@@ -343,14 +357,17 @@ export const runPull = !CLOUD_PULLS
         const took = `${Math.round((Date.now() - started) / 1000)} s`;
         if ("error" in answer) {
           logger.error(said(`${answer.error} (${took}${lastTry ? ", its last try" : ""})`));
-          // Tried again later, while tries are left.
-          if (!lastTry) throw new Error(answer.error);
-          // Otherwise the job says so, if its worker died before it could.
+          // A killed worker cannot record its own failure. Record it on every try, while this
+          // leg is still current; a stopped or advanced job must never be overwritten by it.
           const now = await jobs.read(task.jobId).catch(() => null);
-          if (now?.status === "queued" || now?.status === "running") {
+          if (
+            now &&
+            (now.status === "queued" || now.status === "running") &&
+            now.legsDone === task.leg
+          ) {
             await jobs
-              .update(task.jobId, {
-                status: "failed",
+              .updateIfUnchanged(task.jobId, now, {
+                ...(now.stopAsked ? { status: "cancelled" } : lastTry ? { status: "failed" } : {}),
                 stage: "waiting",
                 error: answer.error,
                 updatedAt: new Date().toISOString(),
@@ -358,11 +375,12 @@ export const runPull = !CLOUD_PULLS
               .catch((error: unknown) => {
                 logger.error(
                   said(
-                    `could not be marked failed: ${error instanceof Error ? error.message : String(error)}`
+                    `could not record its failure: ${error instanceof Error ? error.message : String(error)}`
                   )
                 );
               });
           }
+          if (!lastTry) throw new Error(answer.error);
           return;
         }
         logger.info(said(`${answer.outcome} in ${took}.`));

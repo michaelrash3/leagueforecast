@@ -1,8 +1,7 @@
 import type { ApiRequest, ApiResponse } from "./apiShared";
 
 /**
- * The GameChanger proxy as a Firebase function: the same handler Vercel runs (`api/gc-team.ts`),
- * with the two things a function on another host has to add for itself.
+ * The shared JSON handlers under `server/`, served by Firebase with CORS and compression.
  *
  * It answers from another origin than the app's, so a browser needs CORS to read it. GameChanger's
  * own CORS is why the proxy exists at all; this one admits the app's pages and nobody else's. And
@@ -55,7 +54,8 @@ const gzip = async (text: string): Promise<Uint8Array> => {
 export const serveGcProxy = async (
   req: ApiRequest,
   res: ProxyResponse,
-  handler: (req: ApiRequest, res: ApiResponse) => Promise<void>
+  handler: (req: ApiRequest, res: ApiResponse) => Promise<void>,
+  cors: { methods?: string; headers?: string } = {}
 ): Promise<void> => {
   const origin = header(req, "origin");
   if (origin && isGcProxyOrigin(origin)) {
@@ -66,10 +66,10 @@ export const serveGcProxy = async (
   }
   res.setHeader("vary", "Origin, Accept-Encoding");
   if (req.method === "OPTIONS") {
-    res.setHeader("access-control-allow-methods", "GET");
+    res.setHeader("access-control-allow-methods", cors.methods ?? "GET");
     // The sign-in a pull carries (`memberCheck.ts`), which a page on another origin may send
     // only when the answer to this preflight names it.
-    res.setHeader("access-control-allow-headers", "accept, authorization");
+    res.setHeader("access-control-allow-headers", cors.headers ?? "accept, authorization");
     res.setHeader("access-control-max-age", "86400");
     res.status(204);
     res.end();

@@ -1,8 +1,8 @@
 /**
- * POST /api/league-summary — Gemini-written recap of standings movement, and Groq's when Gemini
+ * POST /leagueSummary — Gemini-written recap of standings movement, and Groq's when Gemini
  * cannot write one.
  *
- * Runs as a Vercel Serverless Function so `GEMINI_API_KEY` and `GROQ_API_KEY` stay on the server.
+ * Runs as a Firebase function so `GEMINI_API_KEY` and `GROQ_API_KEY` stay on the server.
  * A key inlined into the Vite bundle (any `VITE_*` variable) ships to every
  * visitor, so the browser never sees it: it posts recap facts here instead.
  *
@@ -52,8 +52,7 @@ import {
 /**
  * The one Node global this function needs. Declared here rather than via
  * `@types/node`: installing that package also changes global timer typings for
- * the browser project, and Vercel type-checks this entrypoint with its own
- * config, which would not pick up a sibling declaration file.
+ * the browser project.
  */
 declare const process: { env: Record<string, string | undefined> };
 
@@ -139,10 +138,7 @@ type GenerateContentResponse = {
 };
 
 /**
- * Outcome of one model attempt. Deliberately a flat shape rather than a
- * discriminated union: Vercel type-checks this file with its own non-strict
- * TypeScript defaults, where narrowing a union by a boolean field after an
- * early return does not work.
+ * Outcome of one model attempt, including diagnostics when the request failed.
  */
 type AttemptResult = {
   ok: boolean;

@@ -178,9 +178,8 @@ const defaultDelayMs = (attempt: number): number =>
 
 /**
  * Where the GameChanger proxy answers: the Firebase function the build names in
- * `VITE_GC_PROXY_URL`, else the Vercel function beside the app (`GC_TEAM_ENDPOINT`). A build
- * setting rather than a code change, so switching hosts, and back, is a redeploy with the variable
- * set or cleared.
+ * `VITE_GC_PROXY_URL`, otherwise this project's Firebase function (`GC_TEAM_ENDPOINT`).
+ * A missing build setting must never send requests back to a Vercel function.
  */
 export const gcProxyEndpoint = (configured: string | undefined = configuredProxy()): string =>
   configured?.trim().replace(/\/+$/, "") || GC_TEAM_ENDPOINT;
@@ -201,9 +200,7 @@ function configuredProxy(): string | undefined {
 }
 
 const unconfiguredMessage = (endpoint: string): string =>
-  endpoint === GC_TEAM_ENDPOINT
-    ? `${endpoint} did not answer with JSON. The GameChanger proxy runs as a Vercel function: deploy the app to Vercel, or run it locally with \`vercel dev\` instead of \`vite\`.`
-    : `${endpoint} did not answer with JSON. Check the Firebase function is deployed and VITE_GC_PROXY_URL names it.`;
+  `${endpoint} did not answer with JSON. Check the Firebase function is deployed and VITE_GC_PROXY_URL names it.`;
 
 /**
  * A failed answer with no JSON in it. Every answer the proxy gives is JSON, its failures included,

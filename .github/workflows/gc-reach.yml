@@ -29,11 +29,12 @@ jobs:
       # are (`scripts/tsRegister.mjs`).
       - run: npm run gc:reach -- --rounds 10
 
-  # Where the live site sends its pulls: a build with VITE_GC_PROXY_URL set names the Firebase
-  # proxy in its page's policy and its script (`contentPolicy.ts`, `gcProxyEndpoint`), and one
-  # without calls the Vercel function at /api/gc-team, which Vercel bills in CPU. And whether the
-  # live site signs in with the project's own key (`FIREBASE_WEB_CONFIG`).
+  # The live page identifies both Firebase API endpoints in its metadata, including the default
+  # used when VITE_GC_PROXY_URL is absent. Also check the project's public Firebase sign-in key.
+  # A PR's endpoint metadata is verified in CI's own build. Production may still run the older
+  # version during review, so inspect the live deployment only when this workflow is run by hand.
   site:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -53,12 +54,16 @@ jobs:
             code="$code
           $(curl -fsS "$site/$chunk")"
           done
-          proxies=$(printf '%s' "$code" | grep -o 'https://[a-z0-9.-]*\(cloudfunctions\.net\|run\.app\)[^"`]*' | sort -u)
-          if [ -n "$proxies" ]; then
-            echo "Pulls go to the Firebase proxy: $proxies"
-          else
-            echo "Pulls go to the Vercel function (/api/gc-team)."
-          fi
+          proxy=$(printf '%s' "$page" | sed -n 's/.*name="gc-proxy-endpoint" content="\([^"]*\)".*/\1/p')
+          summary=$(printf '%s' "$page" | sed -n 's/.*name="league-summary-endpoint" content="\([^"]*\)".*/\1/p')
+          echo "GameChanger endpoint: $proxy"
+          echo "Summary endpoint: $summary"
+          for endpoint in "$proxy" "$summary"; do
+            case "$endpoint" in
+              https://*.cloudfunctions.net/*|https://*.run.app/*) ;;
+              *) echo "::error::The live build does not identify a Firebase endpoint: $endpoint"; exit 1 ;;
+            esac
+          done
           key=$(node --input-type=module -e 'const { FIREBASE_WEB_CONFIG } = await import("./src/lib/cloud/cloudConfig.ts"); console.log(FIREBASE_WEB_CONFIG.apiKey);')
           if grep -qF "$key" <<< "$code"; then
             echo "The live site signs in with the project's own key."

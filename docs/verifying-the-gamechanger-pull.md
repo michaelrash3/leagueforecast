@@ -13,10 +13,11 @@ Those need one real request. This is how to make it.
 ## Run it
 
 ```sh
-npm run verify:gc -- --base https://your-deployment.vercel.app --id FtEExZwB4b8E
+npm run verify:gc -- --id FtEExZwB4b8E
 ```
 
-`--base` defaults to `http://localhost:3000`, where `vercel dev` serves the function. Pass `--id`
+The endpoint defaults to this project's Firebase `gcTeam` function. Use `--proxy <url>`
+to check another Firebase endpoint. Pass `--id`
 more than once to check several teams; the batch endpoint is exercised with all of them together,
 because that is the path a real pull uses and a single id never touches it.
 
