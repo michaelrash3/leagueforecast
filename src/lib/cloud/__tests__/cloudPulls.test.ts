@@ -246,6 +246,25 @@ const waitingPull = (patch: Partial<PullJob> = {}) => {
 describe("a pull still waiting to start", () => {
   const at = (minutes: number) => Date.parse(NOW) + minutes * 60_000;
 
+  it("separates downloaded teams from skipped downloads in staged import progress and completion", () => {
+    const pull = waitingPull({
+      pipeline: "staged-v1",
+      status: "running",
+      stage: "fetching",
+      legs: 2,
+      progress: { done: 1500, total: 2000, failed: 4 },
+    });
+    expect(describeProgress(pull, at(1))).toContain(
+      "download batch 1 of 2, 1,496 downloaded, 4 skipped, 500 remaining in this batch"
+    );
+    pull.job.detail = "download batch 1 of 2 complete, 1,996 downloaded, 4 skipped (Timed out: 4)";
+    pull.job.legsDone = 1;
+    expect(describeProgress(pull, at(1))).toContain(pull.job.detail);
+    pull.job.status = "done";
+    pull.job.tally.failed = 4;
+    expect(describeEnd(pull)).toContain("4 skipped because their downloads failed");
+  });
+
   it("shows the worker's error while the current part waits to retry", () => {
     const pull = waitingPull({
       status: "running",

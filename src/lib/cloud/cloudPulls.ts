@@ -392,8 +392,12 @@ const legAndStage = (job: PullJob): string => {
     if (job.stage === "tidying") return job.detail || "running the final tidy";
     if (job.stage === "saving") return "saving the finished import";
     if (job.error) return `retrying from the saved checkpoint: ${job.error}`;
-    if (job.stage === "fetching")
-      return `download batch ${Math.min(job.legsDone + 1, job.legs)} of ${job.legs}, ${job.progress.done.toLocaleString()} of ${job.progress.total.toLocaleString()} teams downloaded in this batch`;
+    if (job.stage === "fetching") {
+      if (job.detail) return job.detail;
+      const downloaded = Math.max(0, job.progress.done - job.progress.failed);
+      const remaining = Math.max(0, job.progress.total - job.progress.done);
+      return `download batch ${Math.min(job.legsDone + 1, job.legs)} of ${job.legs}, ${downloaded.toLocaleString()} downloaded, ${job.progress.failed.toLocaleString()} skipped, ${remaining.toLocaleString()} remaining in this batch`;
+    }
   }
   const leg = job.legs > 1 ? `part ${Math.min(job.legsDone + 1, job.legs)} of ${job.legs}, ` : "";
   const stage =
@@ -418,7 +422,12 @@ export const describeEnd = (pull: WatchedPull): string => {
   const teams = sent.teams.toLocaleString();
   const { filed, gamesAdded, gamesUpdated, failed } = job.tally;
   const games = `${gamesAdded.toLocaleString()} games added and ${gamesUpdated.toLocaleString()} updated`;
-  const unanswered = failed > 0 ? `; ${failed.toLocaleString()} did not answer` : "";
+  const unanswered =
+    failed > 0
+      ? job.pipeline === "staged-v1"
+        ? `; ${failed.toLocaleString()} skipped because their downloads failed`
+        : `; ${failed.toLocaleString()} did not answer`
+      : "";
   if (job.status === "failed") {
     return `The pull of ${teams} teams in the cloud failed${job.error ? `: ${job.error}` : "."}`;
   }

@@ -244,7 +244,7 @@ export function PullLines({
                     ) : null}
                     <p className="mt-1 text-slate-500 dark:text-slate-400">
                       {pull.job.pipeline === "staged-v1"
-                        ? `Downloaded and checkpointed: ${pull.job.tally.answered.toLocaleString()} teams. The finished import is published after the final tidy. Filed so far: `
+                        ? `Downloaded and checkpointed: ${pull.job.tally.answered.toLocaleString()} teams. Skipped downloads: ${pull.job.tally.failed.toLocaleString()}. The finished import is published after the final tidy. Filed so far: `
                         : "Saved so far: "}
                       {pull.job.tally.filed.toLocaleString()} teams;{" "}
                       {pull.job.tally.gamesAdded.toLocaleString()} games added and{" "}

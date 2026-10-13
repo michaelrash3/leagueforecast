@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GcTeamResponse } from "../../gameChangerApi";
+import type { FetchGcTeamsOptions } from "../../gameChangerClient";
 import { newPullJob } from "../pullJobs";
 import type { JobDocs } from "../pullJobRunner";
 import { restImportArtifacts, runStagedImport } from "../stagedImport";
@@ -52,7 +53,7 @@ const setup = (teams = 5001) => {
     })),
   });
   const fetched: string[][] = [];
-  const fetchTeams = vi.fn(async (ids: string[]) => {
+  const fetchTeams = vi.fn(async (ids: string[], _options?: FetchGcTeamsOptions) => {
     fetched.push(ids);
     return new Map(ids.map((id) => [id, good(id)]));
   });
@@ -100,9 +101,8 @@ describe("a staged CSV import", () => {
       version: 8,
     });
   });
-  it("resumes failed downloads without refetching successful teams or completed batches", async () => {
+  it("skips failed downloads and continues through every batch before the final tidy", async () => {
     const test = setup(2003);
-    test.fetchTeams.mockImplementationOnce(async (ids) => new Map(ids.map((id) => [id, good(id)])));
     test.fetchTeams.mockImplementationOnce(
       async (ids) =>
         new Map(
@@ -112,13 +112,143 @@ describe("a staged CSV import", () => {
           ])
         )
     );
-    await expect(runStagedImport(ID, test.deps)).rejects.toThrow("another attempt");
-    expect(finishStagedImport).not.toHaveBeenCalled();
-    expect(test.job().legsDone).toBe(1);
     await runStagedImport(ID, test.deps);
-    expect(test.fetchTeams.mock.calls.map(([ids]) => ids.length)).toEqual([2000, 3, 1]);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids.length)).toEqual([2000, 3]);
+    expect(test.fetchTeams).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        retries: 0,
+        stopOnRefused: false,
+      })
+    );
     expect(finishStagedImport).toHaveBeenCalledTimes(1);
-    expect(test.job().tally.answered).toBe(2003);
+    expect(test.job()).toMatchObject({
+      status: "done",
+      legsDone: 2,
+      tally: { asked: 2003, answered: 2002, failed: 1, filed: 2002 },
+    });
+    expect(test.filed).not.toContain("gc0000000001");
+  });
+  it("resumes an old incomplete checkpoint without downloading its successes or failures again", async () => {
+    const test = setup(2003);
+    test.values.set("batch-0", {
+      complete: true,
+      answers: Array.from({ length: 2000 }, (_, n) => {
+        const id = `gc${String(n).padStart(10, "0")}`;
+        return [id, good(id)];
+      }),
+    });
+    test.values.set("batch-1", {
+      complete: false,
+      answers: [
+        ["gc0000002000", good("gc0000002000")],
+        ["gc0000002001", { ok: false, reason: "timeout", message: "Timed out" }],
+      ],
+    });
+    await test.jobs.update(ID, { error: "Some team downloads need another attempt." });
+    await runStagedImport(ID, test.deps);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids)).toEqual([["gc0000002002"]]);
+    expect(test.job()).toMatchObject({
+      status: "done",
+      tally: { asked: 2003, answered: 2002, failed: 1, filed: 2002 },
+      error: null,
+    });
+  });
+  it("reports failure reasons and bounded diagnostics, then files every successful team", async () => {
+    const test = setup(4);
+    test.fetchTeams.mockImplementationOnce(
+      async (ids) =>
+        new Map([
+          [ids[0]!, good(ids[0]!)],
+          ...ids.slice(1).map((id): [string, GcTeamResponse] => [
+            id,
+            {
+              ok: false,
+              reason: "unrecognized",
+              message: "Unreadable profile",
+              diagnostics: {
+                status: 200,
+                bodyPreview: "x".repeat(600),
+                topLevelKeys: ["unexpected"],
+              },
+            },
+          ]),
+        ])
+    );
+    const onDownloadReport = vi.fn();
+    await runStagedImport(ID, { ...test.deps, onDownloadReport });
+    expect(onDownloadReport).toHaveBeenCalledTimes(1);
+    expect(onDownloadReport.mock.calls[0]![0]).toMatchObject({
+      batch: 1,
+      downloaded: 1,
+      skipped: 3,
+      reasons: { unrecognized: 3 },
+    });
+    const samples = onDownloadReport.mock.calls[0]![0].samples;
+    expect(samples).toHaveLength(1);
+    expect(samples[0].error.diagnostics.bodyPreview).toHaveLength(300);
+    expect(test.filed).toEqual(["gc0000000000"]);
+    expect(test.job().status).toBe("done");
+  });
+  it("counts a missing download result as skipped instead of restarting the job", async () => {
+    const test = setup(2);
+    test.fetchTeams.mockImplementationOnce(async (ids) => new Map([[ids[0]!, good(ids[0]!)]]));
+    await runStagedImport(ID, test.deps);
+    expect(test.job()).toMatchObject({
+      status: "done",
+      tally: { asked: 2, answered: 1, failed: 1, filed: 1 },
+    });
+    expect(test.fetchTeams).toHaveBeenCalledTimes(1);
+  });
+  it("keeps unattempted teams available when a user stops during a batch", async () => {
+    const test = setup(3);
+    test.fetchTeams.mockImplementationOnce(async (ids) => {
+      await test.jobs.update(ID, { stopAsked: true });
+      return new Map([[ids[0]!, good(ids[0]!)]]);
+    });
+    await runStagedImport(ID, test.deps);
+    expect(test.job().status).toBe("cancelled");
+    expect(finishStagedImport).not.toHaveBeenCalled();
+    await test.jobs.update(ID, { stopAsked: false, status: "queued" });
+    await runStagedImport(ID, test.deps);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids)).toEqual([
+      ["gc0000000000", "gc0000000001", "gc0000000002"],
+      ["gc0000000001", "gc0000000002"],
+    ]);
+    expect(test.job()).toMatchObject({ status: "done", tally: { answered: 3, failed: 0 } });
+  });
+  it("preserves unattempted teams when the download service denies access", async () => {
+    const test = setup(2);
+    test.fetchTeams.mockImplementationOnce(async (ids, options) => {
+      options?.onMembersOnly?.("Access denied");
+      return new Map([[ids[0]!, good(ids[0]!)]]);
+    });
+    await expect(runStagedImport(ID, test.deps)).rejects.toThrow(
+      "could not access its download service"
+    );
+    expect(finishStagedImport).not.toHaveBeenCalled();
+    await runStagedImport(ID, test.deps);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids)).toEqual([
+      ["gc0000000000", "gc0000000001"],
+      ["gc0000000001"],
+    ]);
+    expect(test.job()).toMatchObject({ status: "done", tally: { answered: 2, failed: 0 } });
+  });
+  it("keeps all downloaded answers from the old failed batch without any new requests", async () => {
+    const test = setup(2);
+    test.values.set("batch-0", {
+      complete: false,
+      answers: [
+        ["gc0000000000", good("gc0000000000")],
+        ["gc0000000001", { ok: false, reason: "network", message: "Disconnected" }],
+      ],
+    });
+    await runStagedImport(ID, test.deps);
+    expect(test.fetchTeams).not.toHaveBeenCalled();
+    expect(test.job()).toMatchObject({
+      status: "done",
+      tally: { asked: 2, answered: 1, failed: 1, filed: 1 },
+    });
   });
   it("keeps permanent missing teams as reported failures instead of endlessly retrying them", async () => {
     const test = setup(2);
