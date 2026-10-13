@@ -31,7 +31,10 @@ jobs:
 
   # The live page identifies both Firebase API endpoints in its metadata, including the default
   # used when VITE_GC_PROXY_URL is absent. Also check the project's public Firebase sign-in key.
+  # A PR's endpoint metadata is verified in CI's own build. Production may still run the older
+  # version during review, so inspect the live deployment only when this workflow is run by hand.
   site:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
