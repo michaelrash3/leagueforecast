@@ -927,6 +927,26 @@ describe("Team Rankings on the cloud's board", () => {
     expect(handedOver()).toBeNull();
   });
 
+  it("opens the saved board immediately while a fresh meta arrives and its changed board is still downloading", async () => {
+    const first = open(sourcesOf(live));
+    await screen.findByText("The cloud's board");
+    await waitFor(async () => expect(await sourcesOf(live).cache.meta("uid-1")).not.toBeNull());
+    first.unmount();
+    forgetDecodedBoards();
+    const meta = (await live.store.readMeta())?.meta;
+    const newer = structuredClone(meta) as { views: Record<string, { h: string }> };
+    for (const entry of Object.values(newer.views)) entry.h = "f".repeat(64);
+    const slow: LiveReader = {
+      readMeta: async () => newer,
+      getChunk: () => new Promise(() => undefined),
+    };
+    open(sourcesOf(live, { reader: async () => slow }));
+    await waitFor(() => expect(screen.getAllByText("Placeholder S-1").length).toBeGreaterThan(0), {
+      timeout: 3000,
+    });
+    expect(screen.queryByText("Reading the cloud's board…")).toBeNull();
+  });
+
   it("forgets every board it kept, and hands over, when the rules refuse this account", async () => {
     const first = open(sourcesOf(live));
     expect(await screen.findByText("The cloud's board")).toBeTruthy();
@@ -4374,7 +4394,9 @@ describe("the Import tab on the cloud's board", () => {
       refused && data.query ? { ok: false, why: "kept-moving" } : importAnswers()(data)
     );
     open(sourcesOf(live, { call: server.call }));
-    expect(await screen.findByText("The cloud's refresh could not be read just now.")).toBeTruthy();
+    expect(
+      await screen.findByText("Reconnecting to the cloud. Status checks will retry automatically.")
+    ).toBeTruthy();
     refused = false;
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(

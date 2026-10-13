@@ -1,6 +1,5 @@
 import { DamagedValueError, unpackChunks } from "../cloud/cloudPack";
-import { idbDelete, idbGet, idbKeys, idbSet } from "../idb";
-import { isPoolStoreOpen } from "../teamRankingsStorage";
+import { idbAvailable, idbDelete, idbGet, idbKeys, idbSet } from "../idb";
 
 /**
  * The published views this device has read, kept so an open shows them before any network read
@@ -14,8 +13,8 @@ import { isPoolStoreOpen } from "../teamRankingsStorage";
  *
  * The keys sit in the pool's IndexedDB store beside the saved board (`savedBoard.ts`). None is a
  * pool key, so the boot's fill never reads them, the cloud copy never carries them, and a reset of
- * the app, which empties the store, takes them with it. A browser whose pool is not in IndexedDB
- * keeps nothing here: localStorage has no room for megabytes of views, so it reads them every open.
+ * the app, which empties the store, takes them with it. The live cache opens IndexedDB independently of the browser pool, which stays closed
+ * in cloud mode. A browser that refuses IndexedDB still works through the network.
  *
  * At most `VIEW_CACHE_BYTES` of views are kept, the least recently read going first.
  */
@@ -33,7 +32,7 @@ export const VIEW_CACHE_BYTES = 100_000_000;
 
 /** What the cache is kept in; IndexedDB's, but for a test. */
 export type ViewCacheIo = {
-  /** Whether anything is kept: only while the pool's store is IndexedDB. */
+  /** Whether anything is kept: when the browser supports IndexedDB. */
   enabled: () => boolean;
   keys: () => Promise<string[]>;
   get: (key: string) => Promise<unknown>;
@@ -44,7 +43,7 @@ export type ViewCacheIo = {
 };
 
 const browserIo: ViewCacheIo = {
-  enabled: isPoolStoreOpen,
+  enabled: idbAvailable,
   keys: idbKeys,
   get: idbGet,
   set: idbSet,
@@ -57,7 +56,7 @@ export type CachedMeta = { meta: unknown; readAt: string };
 /** The board an account last had on screen: its key in the meta and its fingerprint. */
 export type LastShown = { key: string; h: string };
 
-type IndexEntry = { bytes: number; usedAt: number };
+type IndexEntry = { bytes: number; usedAt: number; key?: string; copy?: string };
 
 const isRecord = (raw: unknown): raw is Record<string, unknown> =>
   typeof raw === "object" && raw !== null && !Array.isArray(raw);
@@ -71,7 +70,12 @@ const indexOf = (raw: unknown): Map<string, IndexEntry> => {
     if (!HASH.test(h) || !isRecord(entry)) continue;
     const { bytes, usedAt } = entry;
     if (typeof bytes !== "number" || typeof usedAt !== "number") continue;
-    index.set(h, { bytes, usedAt });
+    index.set(h, {
+      bytes,
+      usedAt,
+      ...(typeof entry.key === "string" ? { key: entry.key } : {}),
+      ...(typeof entry.copy === "string" ? { copy: entry.copy } : {}),
+    });
   }
   return index;
 };
@@ -86,7 +90,12 @@ export type ViewCache = {
   /** The view of fingerprint `h`, read back and checked against it, or null when none is kept. */
   view: (h: string) => Promise<unknown>;
   /** Keeps a view's gzipped bytes, which must be the ones that unpacked to fingerprint `h`. */
-  keepView: (h: string, bytes: Uint8Array) => Promise<void>;
+  keepView: (
+    h: string,
+    bytes: Uint8Array,
+    context?: { key: string; copy: string }
+  ) => Promise<void>;
+  previous?: (key: string, copy: string) => Promise<{ h: string; value: unknown } | null>;
   /** Takes out everything kept here, for an account that may no longer read the views. */
   clear: () => Promise<void>;
 };
@@ -133,7 +142,7 @@ export const openViewCache = (
     return read(raw);
   };
 
-  return {
+  const cache: ViewCache = {
     meta: (uid) =>
       owned(META_KEY, uid, ({ meta, readAt }) =>
         typeof readAt === "string" && meta !== undefined ? { meta, readAt } : null
@@ -169,12 +178,23 @@ export const openViewCache = (
       });
       return value;
     },
-    keepView: (h, bytes) =>
+    previous: async (key, copy) => {
+      if (!io.enabled()) return null;
+      const candidates = [...(await readIndex())]
+        .filter(([, entry]) => entry.key === key && entry.copy === copy)
+        .sort(([, a], [, b]) => b.usedAt - a.usedAt);
+      for (const [h] of candidates) {
+        const value = await cache.view(h);
+        if (value !== null) return { h, value };
+      }
+      return null;
+    },
+    keepView: (h, bytes, context) =>
       inTurn(async () => {
         if (!io.enabled() || !HASH.test(h)) return;
         if (!(await io.set(`${VIEW_PREFIX}${h}`, bytes))) return;
         const index = await readIndex();
-        index.set(h, { bytes: bytes.length, usedAt: io.now() });
+        index.set(h, { bytes: bytes.length, usedAt: io.now(), ...context });
         let total = [...index.values()].reduce((sum, entry) => sum + entry.bytes, 0);
         const oldest = [...index.entries()]
           .filter(([kept]) => kept !== h)
@@ -197,4 +217,5 @@ export const openViewCache = (
         await Promise.all(ours.map((key) => io.remove(key)));
       }),
   };
+  return cache;
 };

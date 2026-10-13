@@ -5,6 +5,8 @@ import {
   askAgain,
   describeEnd,
   describeProgress,
+  describePullUpdate,
+  PULL_STALE_MS,
   STARTING_MS,
   dueForAsking,
   loadSentPulls,
@@ -61,6 +63,24 @@ const send = (sender: PullSender, refresh = false) =>
   );
 
 describe("a pull sent to the cloud", () => {
+  it("reconnects repeated submissions to the same active import, including a reordered list", async () => {
+    const cloud = cloudOf({ ok: true, value: { status: "queued" } });
+    const first = await send(cloud.sender);
+    const repeated = await send(cloud.sender);
+    expect(repeated).toEqual(first);
+    expect(cloud.jobs.size).toBe(1);
+    expect(loadSentPulls()).toHaveLength(1);
+  });
+  it("discovers imports sent from another device and remembers acknowledgements", async () => {
+    const cloud = cloudOf({ ok: true, value: { status: "queued" } });
+    const sent = await send(cloud.sender);
+    const jobId = sent.ok ? sent.jobId : "";
+    localStorage.removeItem(SENT_PULLS_KEY);
+    cloud.sender.jobs.recent = async () => [{ jobId, job: cloud.jobs.get(jobId)! }];
+    expect((await readSentPulls(cloud.sender.jobs)).map((p) => p.sent.jobId)).toEqual([jobId]);
+    markTold(jobId);
+    expect(await readSentPulls(cloud.sender.jobs)).toEqual([]);
+  });
   it("writes the job, a paste's or a catch-up's, and remembers it once started", async () => {
     const cloud = cloudOf({ ok: true, value: { status: "queued" } });
     const sent = await send(cloud.sender);
@@ -90,7 +110,7 @@ describe("a pull sent to the cloud", () => {
 
   it("is read back until told, forgotten once gone, and kept when it cannot be read now", async () => {
     const cloud = cloudOf({ ok: true, value: { status: "queued" } });
-    const first = await send(cloud.sender);
+    const first = await send(cloud.sender, true);
     const second = await send(cloud.sender);
     if (!first.ok || !second.ok) throw new Error("not sent");
     expect((await readSentPulls(cloud.sender.jobs)).map(({ sent }) => sent.jobId)).toEqual([
@@ -225,6 +245,25 @@ const waitingPull = (patch: Partial<PullJob> = {}) => {
 
 describe("a pull still waiting to start", () => {
   const at = (minutes: number) => Date.parse(NOW) + minutes * 60_000;
+
+  it("separates downloaded teams from skipped downloads in staged import progress and completion", () => {
+    const pull = waitingPull({
+      pipeline: "staged-v1",
+      status: "running",
+      stage: "fetching",
+      legs: 2,
+      progress: { done: 1500, total: 2000, failed: 4 },
+    });
+    expect(describeProgress(pull, at(1))).toContain(
+      "download batch 1 of 2, 1,496 downloaded, 4 skipped, 500 remaining in this batch"
+    );
+    pull.job.detail = "download batch 1 of 2 complete, 1,996 downloaded, 4 skipped (Timed out: 4)";
+    pull.job.legsDone = 1;
+    expect(describeProgress(pull, at(1))).toContain(pull.job.detail);
+    pull.job.status = "done";
+    pull.job.tally.failed = 4;
+    expect(describeEnd(pull)).toContain("4 skipped because their downloads failed");
+  });
 
   it("shows the worker's error while the current part waits to retry", () => {
     const pull = waitingPull({
@@ -363,4 +402,78 @@ describe("a pull still waiting to start", () => {
     });
     expect(loadSentPulls()).toEqual([]);
   });
+});
+
+describe("the age of a pull's server update", () => {
+  const job = () => waitingPull({ status: "running", stage: "loading" }).job;
+  const now = Date.parse(NOW);
+
+  it("distinguishes a recent update from five minutes with no progress", () => {
+    expect(describePullUpdate(job(), now)).toEqual({
+      stale: false,
+      message: "Last server update just now.",
+    });
+    expect(describePullUpdate(job(), now + PULL_STALE_MS - 1).stale).toBe(false);
+    expect(describePullUpdate(job(), now + PULL_STALE_MS)).toEqual({
+      stale: true,
+      message: "Last server update 5 minutes ago. No recent progress; this pull may be stalled.",
+    });
+  });
+
+  it("keeps an old stopping job visibly uncertain", () => {
+    expect(describePullUpdate({ ...job(), stopAsked: true }, now + 3 * 60 * 60_000)).toEqual({
+      stale: true,
+      message: "Last server update 3 hours ago. No recent progress; this pull may be stalled.",
+    });
+  });
+  it("distinguishes a live heartbeat from actual progress that has stopped advancing", () => {
+    const importJob = {
+      ...job(),
+      pipeline: "staged-v1" as const,
+      heartbeatAt: new Date(now).toISOString(),
+      progressAt: new Date(now - 10 * 60_000).toISOString(),
+    };
+    const update = describePullUpdate(importJob, now);
+    expect(update.stale).toBe(true);
+    expect(update.message).toContain("worker is connected, but progress has not advanced");
+  });
+
+  it("does not call a completed job stalled", () => {
+    for (const status of ["done", "failed", "cancelled"] as const) {
+      expect(describePullUpdate({ ...job(), status }, now + PULL_STALE_MS).stale).toBe(false);
+    }
+  });
+
+  it("reports unavailable timestamps and clamps a future timestamp to just now", () => {
+    expect(describePullUpdate({ ...job(), updatedAt: "unknown" }, now).message).toContain(
+      "unavailable"
+    );
+    expect(describePullUpdate(job(), now - 60_000)).toEqual({
+      stale: false,
+      message: "Last server update just now.",
+    });
+  });
+});
+
+it("reports failed status reads separately from jobs that no longer exist", async () => {
+  const cloud = cloudOf({ ok: true, value: { status: "queued" } });
+  const sent = await send(cloud.sender);
+  if (!sent.ok) throw new Error("not sent");
+  const unread = vi.fn();
+  await expect(
+    readSentPulls(
+      {
+        read: async () => {
+          throw new Error("offline");
+        },
+      },
+      unread
+    )
+  ).resolves.toEqual([]);
+  expect(unread).toHaveBeenCalledWith(expect.objectContaining({ jobId: sent.jobId }));
+  expect(loadSentPulls()).toHaveLength(1);
+  unread.mockClear();
+  await expect(readSentPulls({ read: async () => null }, unread)).resolves.toEqual([]);
+  expect(unread).not.toHaveBeenCalled();
+  expect(loadSentPulls()).toHaveLength(0);
 });

@@ -14,6 +14,7 @@ const ID = "0123456789abcdef0123456789abcdef";
 const NOW = Date.parse("2026-10-11T05:00:00Z");
 
 const job = newPullJob({
+  legTeams: 25_000,
   list: { hash: "h", teams: 9270, pieces: 1 },
   seasonYears: [2027],
   timeZone: "America/New_York",
@@ -21,6 +22,7 @@ const job = newPullJob({
   now: "2026-10-11T04:20:00Z",
   refresh: true,
 });
+delete job.pipeline;
 
 describe("masked", () => {
   it("cuts a pull's id to six characters wherever it sits, a task's name included", () => {

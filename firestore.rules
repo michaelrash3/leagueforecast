@@ -141,6 +141,7 @@ service cloud.firestore {
     // keeps it up to date as a service account the rules do not apply to.
     match /pullJobs/{job} {
       allow get: if isMember();
+      allow list: if isMember() && request.query.limit <= 20;
       allow create: if isMember()
         && job.matches("^[0-9a-f]{32}$")
         && request.resource.data.format == 1

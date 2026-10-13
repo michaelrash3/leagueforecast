@@ -15,19 +15,20 @@ import type { CloudPullEnd } from "./cloudRunner";
  *   packed as the copy packs a value (`cloudPack.ts`) and checked against its fingerprint on the
  *   way back, so a list is never pulled half from one upload and half from another.
  *
- * A long list is pulled in legs of `LEG_TEAMS` teams, each a task of its own that loads the copy,
- * pulls its teams and saves, and queues the next: a task has at most half an hour, and the answers
- * for every team of a nationwide list at once would not fit the function's memory beside the pool.
+ * New lists use the durable staged importer: 2,000-team download checkpoints and one final
+ * processing/tidy/save phase (`stagedImport.ts`). Legacy jobs and budgeted refreshes retain their
+ * frozen leg sizes and task runner (`pullJobRunner.ts`).
  */
 
 export const JOB_FORMAT = 1;
 
 /**
- * Teams in one leg. A leg of the nightly refresh's size, 15,793 teams on 29 September 2026, took
- * 101 s on one of GitHub's servers from loading the copy to saving it, and held 3.5 GB at its end;
- * 25,000 keeps a leg within minutes and the function's memory with room to spare.
+ * Legacy and budgeted refresh sizing. Frozen jobs and refresh budgets depend on this size;
+ * new CSV imports use IMPORT_BATCH_TEAMS and do not load or tidy the pool between batches.
  */
 export const LEG_TEAMS = 25_000;
+/** CSV downloads checkpoint every batch; only the final phase loads and tidies the pool. */
+export const IMPORT_BATCH_TEAMS = 2_000;
 
 export const jobPath = (jobId: string): string => `pullJobs/${jobId}`;
 export const jobPiecePath = (jobId: string, index: number): string =>
@@ -48,7 +49,8 @@ export type PullJobStatus =
   /** Stopped at the device's asking; what was fetched before it stopped is saved. */
   | "cancelled";
 
-export type PullJobStage = "waiting" | "loading" | "fetching" | "filing" | "saving";
+export type PullJobStage =
+  "waiting" | "loading" | "fetching" | "filing" | "saving" | "checking" | "tidying";
 
 /** What every leg so far did, added up. */
 export type PullJobTally = {
@@ -79,6 +81,13 @@ export type PullJobRota = {
 
 export type PullJob = {
   format: number;
+  /** Absent on legacy pulls and budgeted refreshes, which retain their original leg sizing. */
+  pipeline?: "staged-v1";
+  heartbeatAt?: string;
+  progressAt?: string;
+  detail?: string;
+  /** Work already published by a legacy import before migrating its remaining downloads. */
+  priorTally?: PullJobTally;
   /** The list, as its pieces make it: the SHA-256 of its JSON, its teams, and its pieces. */
   list: { hash: string; teams: number; pieces: number };
   /** The squad years the device's pull files into (`GcImportOptions.seasonYears`); empty for any. */
@@ -186,7 +195,7 @@ export const newPullJob = ({
   timeZone,
   device,
   now,
-  legTeams = LEG_TEAMS,
+  legTeams = IMPORT_BATCH_TEAMS,
   refresh = false,
 }: {
   list: PullJob["list"];
@@ -198,6 +207,7 @@ export const newPullJob = ({
   refresh?: boolean;
 }): PullJob => ({
   format: JOB_FORMAT,
+  pipeline: "staged-v1",
   list,
   seasonYears: [...seasonYears],
   ...(refresh ? { refresh: true as const } : {}),
@@ -230,16 +240,18 @@ export const newRefreshJob = ({
   timeZone: string;
   device: string;
   now: string;
-}): PullJob => ({
-  ...newPullJob({
+}): PullJob => {
+  const job = newPullJob({
     list: { hash: "", teams: 0, pieces: 0 },
     seasonYears: [],
     timeZone,
     device,
     now,
-  }),
-  rota: { at: null, ageLevels: [], again: false, heldBack: 0 },
-});
+    legTeams: LEG_TEAMS,
+  });
+  delete job.pipeline;
+  return { ...job, rota: { at: null, ageLevels: [], again: false, heldBack: 0 } };
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -264,7 +276,15 @@ const rotaOf = (raw: unknown): PullJobRota | null | undefined => {
 };
 
 const STATUSES = new Set<string>(["queued", "running", "done", "failed", "cancelled"]);
-const STAGES = new Set<string>(["waiting", "loading", "fetching", "filing", "saving"]);
+const STAGES = new Set<string>([
+  "waiting",
+  "loading",
+  "fetching",
+  "filing",
+  "saving",
+  "checking",
+  "tidying",
+]);
 
 const tallyOf = (raw: unknown): PullJobTally | null => {
   if (!isRecord(raw)) return null;
@@ -285,8 +305,14 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
   if (!isRecord(raw) || raw.format !== JOB_FORMAT) return null;
   const { list, progress } = raw;
   const tally = tallyOf(raw.tally);
+  const priorTally = raw.priorTally === undefined ? undefined : tallyOf(raw.priorTally);
   const rota = rotaOf(raw.rota);
   if (
+    !(raw.pipeline === undefined || raw.pipeline === "staged-v1") ||
+    !(raw.heartbeatAt === undefined || text(raw.heartbeatAt)) ||
+    !(raw.progressAt === undefined || text(raw.progressAt)) ||
+    !(raw.detail === undefined || text(raw.detail)) ||
+    priorTally === null ||
     rota === null ||
     !isRecord(list) ||
     !text(list.hash) ||
@@ -321,6 +347,11 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
   }
   return {
     format: JOB_FORMAT,
+    ...(raw.pipeline === "staged-v1" ? { pipeline: "staged-v1" as const } : {}),
+    ...(text(raw.heartbeatAt) ? { heartbeatAt: raw.heartbeatAt } : {}),
+    ...(text(raw.progressAt) ? { progressAt: raw.progressAt } : {}),
+    ...(text(raw.detail) ? { detail: raw.detail } : {}),
+    ...(priorTally ? { priorTally } : {}),
     list: { hash: list.hash, teams: list.teams, pieces: list.pieces },
     seasonYears: raw.seasonYears,
     ...(raw.refresh === true ? { refresh: true as const } : {}),

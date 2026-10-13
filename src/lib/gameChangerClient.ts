@@ -58,6 +58,8 @@ export type FetchGcTeamsOptions = {
    * again rather than writing them off.
    */
   onRefused?: (refusals: number) => void;
+  /** False for CSV imports that report each refused team as skipped and keep walking the list. */
+  stopOnRefused?: boolean;
   /**
    * How long a refusal holds every worker off, in milliseconds. Injectable for the same reason
    * `delayMs` is: a test should not have to wait out a real one to prove the counting works.
@@ -655,6 +657,7 @@ export const fetchGcTeams = async (
     signal,
     delayMs = defaultDelayMs,
     onRefused,
+    stopOnRefused = true,
     refusedHoldMs = DEFAULT_REFUSED_HOLD_MS,
     onHold,
     onBlocked,
@@ -722,7 +725,7 @@ export const fetchGcTeams = async (
           grow();
         }
       }
-      const refused = brake.refusals() > MAX_REFUSALS;
+      const refused = stopOnRefused && brake.refusals() > MAX_REFUSALS;
       if (refused && !givenUp) {
         givenUp = true;
         onRefused?.(brake.refusals());

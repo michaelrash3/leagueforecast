@@ -1,5 +1,5 @@
-/** Leave five minutes to record the failure before Cloud Tasks' 30-minute deadline. */
-export const PULL_WORKER_TIMEOUT_MS = 25 * 60_000;
+/** Stop the worker 30 seconds before Cloud Tasks' deadline; include startup in this budget. */
+export const PULL_WORKER_TIMEOUT_MS = 29.5 * 60_000;
 
 export type PullWorkerPort<T> = {
   onMessage: (listener: (answer: T) => void) => void;
@@ -29,9 +29,7 @@ export const waitForPullWorker = <T>(
     };
     const deadline = setTimeout(() => {
       void finish({
-        error: new Error(
-          `The pull exceeded its ${Math.round(timeoutMs / 60_000)}-minute worker limit and was stopped before retrying.`
-        ),
+        error: new Error("The pull reached its worker time limit and was stopped before retrying."),
       });
     }, timeoutMs);
     worker.onMessage((answer) => void finish({ answer }));

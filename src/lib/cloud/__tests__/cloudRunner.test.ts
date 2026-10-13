@@ -34,6 +34,8 @@ import {
   loadPoolFrom,
   memoryIo,
   runCloudPull,
+  selectImportTeams,
+  finishStagedImport,
   workOutRefresh,
   type CloudPullDeps,
   type CloudPullJob,
@@ -170,6 +172,114 @@ const list = {
 } as const;
 
 describe("a pull run on the cloud copy", () => {
+  it("reconsiders an unaged club after all its opponents arrive, before the single final tidy", async () => {
+    const cloud = memoryCloud();
+    const base = await seed(cloud);
+    const unknown = schedule("gcUNAGED0001", "Unaged", [
+      game("u1", "Alpha", 3, 2),
+      { ...game("u2", "Bravo", 3, 2), date: "2026-09-21" },
+      { ...game("u3", "Charlie", 3, 2), date: "2026-09-22" },
+    ]);
+    unknown.profile.name = "Unaged";
+    delete unknown.profile.ageLevel;
+    const anchors = ["Alpha", "Bravo", "Charlie"].map((name, n) =>
+      schedule(`gcANCHOR000${n}`, name, [
+        { ...game(`a${n}`, "Unaged", 2, 3), date: `2026-09-${20 + n}` },
+      ])
+    );
+    let tidies = 0;
+    const source = () =>
+      (async function* () {
+        yield unknown;
+        for (const anchor of anchors) yield anchor;
+      })();
+    const result = await finishStagedImport(
+      {
+        kind: "list",
+        entries: [unknown, ...anchors].map((s) => ({ teamId: s.profile.id })),
+        seasonYears: [2027],
+      },
+      source,
+      base.copy,
+      { asked: 4, answered: 4, failed: 0 },
+      {
+        store: cloud.store,
+        now: () => new Date("2026-09-29T13:00:00Z"),
+        device: "test",
+        beforeTidy: async () => {
+          tidies++;
+        },
+      }
+    );
+    expect(result.filed).toBe(4);
+    expect(
+      loadScoutTeams().some((t) => t.gcTeams?.some((link) => link.teamId === unknown.profile.id))
+    ).toBe(true);
+    expect(tidies).toBe(1);
+  });
+  it("selects from the team index without downloading games, in a stable import order", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud, () =>
+      saveScoutGames([
+        {
+          id: "untouched",
+          teamAId: "x",
+          teamBId: "y",
+          ageGroupId: "9",
+          date: "2026-09-20",
+          teamAScore: 1,
+          teamBScore: 2,
+        },
+      ])
+    );
+    const chunkReads = vi.spyOn(cloud.store, "getChunk");
+    const selected = await selectImportTeams(cloud.store, {
+      ...list,
+      entries: [...list.entries].reverse(),
+    });
+    expect(selected.entries.map((e) => e.teamId)).toEqual(
+      [...list.entries].map((e) => e.teamId).sort()
+    );
+    const gameParts = cloud.manifest()!.parts.filter((p) => p.key.includes("scout_games"));
+    for (const part of gameParts)
+      expect(chunkReads.mock.calls.every(([id]) => !id.startsWith(part.id))).toBe(true);
+  });
+
+  it("streams the entire downloaded set through one final tidy and one save, without fetching teams again", async () => {
+    const cloud = memoryCloud();
+    const base = await seed(cloud);
+    const commit = vi.spyOn(cloud.store, "commitManifest");
+    let tidyCalls = 0;
+    let consumed = 0;
+    const source = () =>
+      (async function* () {
+        consumed++;
+        yield schedules.get(ACES)!;
+        consumed++;
+        yield schedules.get(BEARS)!;
+      })();
+    const result = await finishStagedImport(
+      list,
+      source,
+      base.copy,
+      { asked: 2, answered: 2, failed: 0 },
+      {
+        store: cloud.store,
+        now: () => new Date("2026-09-29T13:00:00.000Z"),
+        device: "import-test",
+        beforeTidy: async () => {
+          tidyCalls++;
+          expect(consumed).toBe(2);
+        },
+      }
+    );
+    expect(result.end).toBe("finished");
+    expect(result.filed).toBe(2);
+    expect(tidyCalls).toBe(1);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(loadScoutGames()).toHaveLength(1);
+    expect(loadTidyStamp()).toBeTruthy();
+  });
   it("files a pasted list into the copy and sends only the values it changed", async () => {
     const cloud = memoryCloud();
     const before = await seed(cloud);

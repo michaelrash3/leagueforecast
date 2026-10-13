@@ -18,6 +18,9 @@ import {
   runTransaction,
   setDoc,
   updateDoc,
+  query,
+  orderBy,
+  limit,
   type Firestore,
 } from "firebase/firestore/lite";
 import type * as FullSdk from "./firestoreListen";
@@ -108,6 +111,7 @@ export type FirebaseCloud = {
 
 /** A pull's documents as a device sees them: written once, then read until it is over. */
 export type PullJobStore = {
+  recent?: () => Promise<{ jobId: string; job: PullJob }[]>;
   /** Writes the list's pieces, and the job last, so a job is never there without its list. */
   put: (jobId: string, job: PullJob, pieces: readonly Uint8Array[]) => Promise<void>;
   read: (jobId: string) => Promise<PullJob | null>;
@@ -115,20 +119,83 @@ export type PullJobStore = {
   askStop: (jobId: string) => Promise<void>;
 };
 
+/** A transient connection failure never turns an import upload into a new job. */
+const retryFirestore = async <T>(work: () => Promise<T>): Promise<T> => {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await work();
+    } catch (error) {
+      const code = String((error as { code?: unknown } | null)?.code ?? "");
+      if (
+        ![
+          "unavailable",
+          "deadline-exceeded",
+          "aborted",
+          "resource-exhausted",
+          "internal",
+          "unknown",
+        ].some((c) => code === c || code === `firestore/${c}`)
+      )
+        throw error;
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(30_000, 1_000 * 2 ** Math.min(attempt++, 5)))
+      );
+    }
+  }
+};
+
 export const firestoreJobs = (db: Firestore): PullJobStore => ({
+  recent: async () =>
+    (
+      await getDocs(query(collection(db, "pullJobs"), orderBy("createdAt", "desc"), limit(20)))
+    ).docs.flatMap((snap) => {
+      const job = coercePullJob(snap.data());
+      return job ? [{ jobId: snap.id, job }] : [];
+    }),
   put: async (jobId, job, pieces) => {
     for (const [index, piece] of pieces.entries()) {
-      await setDoc(doc(db, jobPiecePath(jobId, index)), { data: Bytes.fromUint8Array(piece) });
+      await retryFirestore(async () => {
+        const ref = doc(db, jobPiecePath(jobId, index));
+        const found = await getDoc(ref);
+        if (found.exists()) {
+          const held = found.data().data;
+          const bytes = held instanceof Bytes ? held.toUint8Array() : null;
+          if (!bytes || bytes.length !== piece.length || !bytes.every((b, i) => b === piece[i]))
+            throw new Error("The saved import list differs from this upload.");
+          return;
+        }
+        try {
+          await setDoc(ref, { data: Bytes.fromUint8Array(piece) });
+        } catch (error) {
+          // A write may have landed before its response was lost. Confirm before retrying.
+          if ((await getDoc(ref)).exists()) return;
+          throw error;
+        }
+      });
     }
-    await setDoc(doc(db, jobPath(jobId)), job);
+    await retryFirestore(async () => {
+      const ref = doc(db, jobPath(jobId));
+      const agrees = (value: unknown) => coercePullJob(value)?.list.hash === job.list.hash;
+      const held = await getDoc(ref);
+      if (held.exists()) {
+        if (!agrees(held.data())) throw new Error("A different import already uses this job id.");
+        return;
+      }
+      try {
+        await setDoc(ref, job);
+      } catch (error) {
+        const confirmed = await getDoc(ref);
+        if (confirmed.exists() && agrees(confirmed.data())) return;
+        throw error;
+      }
+    });
   },
   read: async (jobId) => {
     const snap = await getDoc(doc(db, jobPath(jobId)));
     return snap.exists() ? coercePullJob(snap.data()) : null;
   },
-  askStop: async (jobId) => {
-    await updateDoc(doc(db, jobPath(jobId)), { stopAsked: true });
-  },
+  askStop: (jobId) => retryFirestore(() => updateDoc(doc(db, jobPath(jobId)), { stopAsked: true })),
 });
 
 export type CloudMembers = {

@@ -276,6 +276,31 @@ describe("fetchGcTeams", () => {
     expect(seen.every((teamId) => teamId === ids[0])).toBe(true);
   });
 
+  it("reports refused teams and reaches later successes when an import asks to skip failures", async () => {
+    const ids = Array.from({ length: 30 }, (_, i) => `Team${String(i).padStart(8, "0")}`);
+    const fetchImpl = batchFetch((teamId) =>
+      ids.indexOf(teamId) < 15
+        ? { ok: false, reason: "blocked", message: "Refused", status: 403 }
+        : okBody
+    );
+    const seen: string[] = [];
+    const onRefused = vi.fn();
+    const results = await fetchGcTeams(ids, {
+      fetchImpl,
+      concurrency: 1,
+      retries: 0,
+      refusedHoldMs: 0,
+      stopOnRefused: false,
+      onRefused,
+      onProgress: ({ teamId }) => seen.push(teamId),
+    });
+    expect(fetchImpl.calls).toHaveLength(3);
+    expect(seen).toEqual(ids);
+    expect(results.size).toBe(30);
+    expect([...results.values()].filter((result) => result.ok)).toHaveLength(15);
+    expect(onRefused).not.toHaveBeenCalled();
+  });
+
   it("does not give up on a refusal that does not repeat", async () => {
     const blocked: GcTeamResponse = {
       ok: false,

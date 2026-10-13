@@ -3925,23 +3925,56 @@ copy, which only servers write (`src/lib/cloud/pullJobs.ts`):
 
 The rules let a member make a job as a new one is made (queued, no leg run, no
 stop asked) and its pieces, read them, and change one thing of a job once made:
-ask it to stop. Nobody lists or deletes them from a browser.
+ask it to stop. Members may list the latest 20 jobs; browsers delete none.
 
 The device then calls `startPull` with the job's id. That function is for the
 accounts on the copy's list, as the copy is, checked as the proxy checks them
 (`memberCheck.ts`), and queues the job's first leg.
 
-**Legs.** A list is pulled in legs of 25,000 teams (`pullJobRunner.ts`). Each leg
-is a Cloud Tasks task, and `runPull` runs it: it loads the copy, pulls the leg's
-teams through the same runner as the nightly refresh (`runCloudPull`), saves, adds
-what it did to the job's tally, and queues the next leg. A leg of a list files and
-tidies but does not sweep for clubs plainly made up ("Clubs removed for you"):
-that is the night's refresh's to do, so a leg stays as light as it can be. Legs
-are needed for two reasons. A task has at most half an hour. And the answers for a
-nationwide list, all at once, would not fit beside the pool in the function's
-memory. A leg the size of the nightly refresh on 29 September 2026 took 101 s and
-held 3.5 GB at its end on one of GitHub's servers, so a leg of 25,000 is a few
-minutes.
+**CSV imports.** New list imports run as the `team-import` Cloud Run Job. `runPull`
+launches it and returns immediately; the import is not tied to a 30-minute HTTP request.
+It reads only team identities and exclusion lists to select downloads, then keeps
+hash-checked compressed checkpoints in `pullJobs/{jobId}/artifacts`. Download batches
+contain 2,000 teams. Clean download concurrency carries forward between batches;
+GameChanger pushback lowers it rather than restarting at full speed.
+Each team gets one download attempt. Failed downloads are counted as skipped, and the
+import continues with the remaining teams; they do not consume Cloud Run execution
+retries or hold up the final tidy. Progress distinguishes downloaded, skipped and
+remaining teams. Warning logs record failure reasons and bounded diagnostic samples.
+Resuming an older incomplete batch keeps its successful downloads, skips its recorded
+failures and asks only for teams that had no answer yet.
+
+Once all downloads are accounted for, it loads the latest pool once and streams
+saved schedules through one importer. Opponent matches and ages are settled before
+one final tidy phase and one commit. Clubs skipped before their opponents arrived
+are reconsidered from the saved schedules. A concurrent save can require a rebase,
+which uses those downloads again; a replaced copy is never overwritten. The commit
+asks the existing rebuild trigger to publish rankings once.
+
+An execution lease prevents duplicate workers. A supervisor keeps a heartbeat alive
+while its worker matches and tidies; progress timestamps and tidy-step details are
+separate. Cloud Run retries interrupted executions from checkpoints, without fetching
+teams that already have a success or failure recorded. Stop keeps checkpoints and leaves
+a partial pool unpublished. Resume continues the same job. Stop during the final commit
+waits for that commit.
+Failed or stopped legacy list imports can resume with the staged importer, preserving
+previously filed work. Budgeted refresh jobs retain their existing leg sizes and caps.
+
+The Firebase deployment workflow builds and deploys the job before deploying its
+launcher, using the existing project, deploy key and runner account. The job has
+16 GiB, four CPUs, one task, two retries and a 24-hour task limit. The runner gets
+execution-with-overrides permission on this job alone. Successful imports delete
+their staging data; abandoned checkpoints expire after seven days through Firestore
+TTL. There are no import functions on Vercel.
+
+The browser retries transient upload, start and status failures with bounded backoff
+until confirmed. Repeated uploads reconnect to the same import on that device.
+The Import page also lists the latest 20 cloud jobs, so another signed-in device
+can see their progress, and links to Cloud Run execution details.
+
+**Legacy and refresh legs.** Older list jobs and budgeted refreshes still use
+`pullJobRunner.ts` and `runCloudPull`; their frozen leg counters are not silently
+reinterpreted. Stop an old list job before choosing Resume with faster importer.
 
 **Three legs at once.** Up to three legs run at once, each on an instance of its
 own with 8 GiB and two processors, so a pull sent while another runs starts as
@@ -3952,7 +3985,8 @@ ends; legs of two jobs that save together cost the later one a second filing ont
 the copy as the other left it, never a lost save. Each leg runs in a worker thread capped at 5,120 MB of heap, which
 leaves the rest of the 8 GiB for the bytes a heap does not count. A heap failure is
 reported by the worker; total instance memory still has its own limit. The worker
-has a 25-minute deadline inside the task's 30 minutes, and the parent waits for it
+has a 29-minute-30-second request budget inside the task's 30 minutes, including
+startup, and the parent waits for it
 to terminate before returning or retrying. Its error is recorded on the job on
 every try, so the progress line can say it is waiting to retry. Hashing the copy
 happens before building the loaded pool, reducing temporary memory during loading.
@@ -6613,7 +6647,7 @@ diagnosable at a glance instead of looking like "the AI just isn't running":
 | -------------------------------- | ----------------------------------------------------------------------------------- |
 | `AI` badge                       | Gemini or Groq wrote this. The tooltip names which, and the model.                  |
 | `AI off — no API key`            | The function ran but neither `GEMINI_API_KEY` nor `GROQ_API_KEY` is readable by it. |
-| `AI off — endpoint not deployed` | The Firebase `leagueSummary` function is unavailable.                              |
+| `AI off — endpoint not deployed` | The Firebase `leagueSummary` function is unavailable.                               |
 | `Paused — too many retries`      | This app's own per-browser limit. No model was attempted.                           |
 | `AI limit reached`               | Gemini's quota refused every model tried, and Groq's too when its key is set.       |
 | `No AI model available`          | The key listed no usable model.                                                     |
@@ -6646,7 +6680,7 @@ https://us-central1-league-forecast-youth.cloudfunctions.net/leagueSummary?probe
 | `keyHadSurroundingWhitespace: true` | The stored value has leading/trailing whitespace (a paste artifact).                             |
 | `keyLength`                         | Length only, never the value — catches a truncated paste.                                        |
 | `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.                |
-| `vercelEnv`                         | Legacy diagnostic field; empty on Firebase.                                                     |
+| `vercelEnv`                         | Legacy diagnostic field; empty on Firebase.                                                      |
 | `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                     |
 | `?probe=1` → `ok: false`            | Gemini rejected the key. The response quotes Google's own error and names the fix.               |
 | `?probe=1` → `listError`            | Google's verbatim status and message for the model listing.                                      |
@@ -7179,3 +7213,22 @@ switch requests to Vercel. To start it again, raise the budget's amount first, o
 turns billing off again, since the month's cost is still past it; then link the
 project to its billing account (**Billing → Account management**, the project's
 menu, **Change billing**) and run **Firebase functions** to bring the functions back.
+
+### Cached live data and reconnection
+
+The Import refresh panel keeps a validated status snapshot per account, so opening
+it shows saved counts while the cloud reconnects. Cached catch-up actions wait for
+fresh status before offering their team lists.
+
+Live rankings, games and scouting views use IndexedDB independently of the browser
+pool, which stays closed in cloud mode. Saved views render before a network request
+for their replacements, and remain visible during background refreshes or a dropped
+connection. Only a first visit without saved data needs a loading screen. Usable
+board snapshots are saved together; a new manifest does not strand the cache on
+bytes that have not downloaded yet. Cache entries are hash checked and isolated by copy. A membership refusal clears
+them, and changing the signed-in account discards its saved snapshot.
+
+Transient status reads and import starts reconnect automatically, with delays capped
+at 30 seconds. Sign-in and permission refusals remain actionable. Unkeyed edits are
+not blindly repeated after an uncertain save, because doing that could duplicate an
+edit. Import starts are safe to retry by their persistent job identity.

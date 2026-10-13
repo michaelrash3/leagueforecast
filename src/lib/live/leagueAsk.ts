@@ -24,7 +24,7 @@ const editClient = () => import("./editClient");
 export const askLeague: LeagueAsker = async <K extends LeagueQueryKind>(query: QueryOf<K>) => {
   const client = await editClient().catch(() => null);
   if (!client) return null;
-  const called = await client.callQuery<K>({ query }, { token: memberToken });
+  const called = await client.callQuery<K>({ query }, { token: memberToken, retry: true });
   return called.ok && called.value.ok ? called.value.answer : null;
 };
 

@@ -217,6 +217,13 @@ const GC_TOO_YOUNG_KEY = "league_forecast_gc_too_young_v1";
  * answers like the too-young list, and like it the largest thing here after the games.
  */
 const GC_REFUSED_KEY = "league_forecast_gc_refused_v1";
+/** Selection needs identities and exclusion lists, never games or the full rating pool. */
+export const IMPORT_INDEX_KEYS: ReadonlySet<string> = new Set([
+  TEAMS_KEY,
+  GC_DROPPED_CLUBS_KEY,
+  GC_TOO_YOUNG_KEY,
+  GC_REFUSED_KEY,
+]);
 /** The ages somebody named by hand for teams the app could not work out. */
 const GC_NAMED_AGES_KEY = "league_forecast_gc_named_ages_v1";
 /** The organizations the user's Organizations file named, with the teams under each. */

@@ -238,7 +238,7 @@ export const readView = async <T>({
       view = null;
     }
     if (view === null) return { ok: false, why: "damaged", meta: current };
-    await cache?.keepView(entry.h, joined).catch(() => undefined);
+    await cache?.keepView(entry.h, joined, { key, copy: entry.k }).catch(() => undefined);
     return {
       ok: true,
       view: remember(memory, entry.h, view),

@@ -13,6 +13,8 @@ import {
   getFirestore,
   setDoc,
   updateDoc,
+  query,
+  limit,
   type Firestore,
 } from "firebase/firestore/lite";
 import { CHUNK_BYTES } from "../cloudPack";
@@ -401,6 +403,18 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     // Nobody deletes one, or lists them: the function keeps them, past the rules.
     await expect(deleteDoc(doc(laptop, jobPath(job)))).rejects.toMatchObject(REFUSED);
     await expect(getDocs(collection(laptop, "pullJobs"))).rejects.toMatchObject(REFUSED);
+    expect((await getDocs(query(collection(laptop, "pullJobs"), limit(20)))).docs).toHaveLength(1);
+    await expect(getDocs(query(collection(laptop, "pullJobs"), limit(21)))).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(
+      getDocs(query(collection(as(STRANGER), "pullJobs"), limit(20)))
+    ).rejects.toMatchObject(REFUSED);
+    // Server artifacts and execution leases are never browser writable or readable.
+    for (const path of [`pullJobs/${job}/artifacts/plan`, `pullJobs/${job}/control/lease`]) {
+      await expect(setDoc(doc(laptop, path), { owner: "browser" })).rejects.toMatchObject(REFUSED);
+      await expect(getDoc(doc(laptop, path))).rejects.toMatchObject(REFUSED);
+    }
   });
 });
 

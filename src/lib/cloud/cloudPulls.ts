@@ -4,6 +4,7 @@ import type { Called, RefreshStart } from "../live/editClient";
 import { randomId } from "./cloudManifest";
 import type { PullJobStore } from "./firebaseCloud";
 import { newPullJob, packJobList, type PullJob } from "./pullJobs";
+import { hashValue } from "./cloudPack";
 
 /**
  * A pull sent to be run in the cloud, from the device's side (README, "Pulls in the cloud"): the
@@ -32,6 +33,7 @@ export type SentPull = {
 
 /** Kept at most: the pulls still being told about, and a few after. */
 const KEEP = 20;
+const UPLOADS_KEY = "league_forecast_import_uploads_v1";
 
 const isSentPull = (raw: unknown): raw is SentPull => {
   if (typeof raw !== "object" || raw === null) return false;
@@ -65,11 +67,13 @@ const saveSentPulls = (pulls: readonly SentPull[]): void => {
 /** What sending a pull needs of the cloud: where the jobs go, and the call that starts one. */
 export type PullSender = {
   jobs: PullJobStore;
+  ready?: () => Promise<Called<{ status: string }>>;
   /**
    * Asks `startPull` to queue the job's first leg (`callStartPull`); `waitedMs`, on an ask after
    * the first, is how long this device has waited for it by its own clock.
    */
   start: (jobId: string, waitedMs?: number) => Promise<Called<{ status: string }>>;
+  resume?: (jobId: string) => Promise<Called<{ status: string }>>;
   /**
    * Asks the cloud for "Refresh now" (`callStartRefresh`): the server makes the job, or hands back
    * the one under way. None on a sender that cannot, which offers no button. Only the device's name
@@ -110,8 +114,48 @@ export const sendPull = async (
     timeZone: string;
     now: string;
   },
-  sender: PullSender
+  sender: PullSender,
+  onStored?: () => void
 ): Promise<SendOutcome> => {
+  const ready = await sender.ready?.();
+  if (ready && !ready.ok) return { ok: false, message: ready.message };
+  const fingerprint = await hashValue({
+    entries: [...entries].sort((a, b) => a.teamId.localeCompare(b.teamId, "en")),
+    seasonYears: [...seasonYears].sort(),
+    refresh,
+  });
+  let uploads: { fingerprint: string; jobId: string }[] = [];
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(UPLOADS_KEY) ?? "[]");
+    if (Array.isArray(parsed))
+      uploads = parsed.filter(
+        (row) => row && typeof row.fingerprint === "string" && typeof row.jobId === "string"
+      );
+  } catch {
+    /* A browser without persistent storage still sends safely. */
+  }
+  const previous = uploads.find((row) => row.fingerprint === fingerprint);
+  if (previous) {
+    const known = await sender.jobs.read(previous.jobId).catch(() => undefined);
+    if (known !== null && !(refresh && known?.status === "done")) {
+      saveSentPulls([
+        ...loadSentPulls().filter((p) => p.jobId !== previous.jobId),
+        {
+          jobId: previous.jobId,
+          sentAt: known?.createdAt ?? now,
+          teams: entries.length,
+          told: false,
+        },
+      ]);
+      onStored?.();
+      let started: Called<{ status: string }> | undefined;
+      if (!known || known.status === "queued") started = await sender.start(previous.jobId);
+      else if ((known.status === "failed" || known.status === "cancelled") && sender.resume)
+        started = await sender.resume(previous.jobId);
+      if (started && !started.ok) return { ok: false, message: started.message, watching: true };
+      return { ok: true, jobId: previous.jobId };
+    }
+  }
   const jobId = randomId();
   const packed = await packJobList(entries);
   try {
@@ -124,13 +168,38 @@ export const sendPull = async (
     return { ok: false, message: "The pull could not be sent to the cloud. Try again." };
   }
   const remember = () =>
-    saveSentPulls([...loadSentPulls(), { jobId, sentAt: now, teams: entries.length, told: false }]);
+    saveSentPulls([
+      ...loadSentPulls().filter((p) => p.jobId !== jobId),
+      { jobId, sentAt: now, teams: entries.length, told: false },
+    ]);
+  remember();
+  try {
+    localStorage.setItem(
+      UPLOADS_KEY,
+      JSON.stringify(
+        [...uploads.filter((row) => row.fingerprint !== fingerprint), { fingerprint, jobId }].slice(
+          -KEEP
+        )
+      )
+    );
+  } catch {
+    /* optional */
+  }
+  onStored?.();
   let started = await sender.start(jobId);
   const unclear = !started.ok && started.why === "unanswered";
   if (unclear) started = await sender.start(jobId);
   if (!started.ok && started.why !== "unanswered") {
     const message = `The cloud would not start the pull: ${started.message}`;
-    if (!unclear) return { ok: false, message };
+    if (!unclear) {
+      saveSentPulls(loadSentPulls().filter((p) => p.jobId !== jobId));
+      try {
+        localStorage.setItem(UPLOADS_KEY, JSON.stringify(uploads));
+      } catch {
+        /* optional */
+      }
+      return { ok: false, message };
+    }
     remember();
     return { ok: false, message, watching: true };
   }
@@ -191,14 +260,27 @@ export type WatchedPull = { sent: SentPull; job: PullJob };
  * How each pull this device sent and has not told about stands: read once each. A job gone from
  * the cloud is forgotten here too; one that could not be read now is read again next time.
  */
-export const readSentPulls = async (jobs: Pick<PullJobStore, "read">): Promise<WatchedPull[]> => {
-  const sent = loadSentPulls();
+export const readSentPulls = async (
+  jobs: Pick<PullJobStore, "read" | "recent">,
+  onUnread?: (pull: SentPull) => void
+): Promise<WatchedPull[]> => {
+  let sent = loadSentPulls();
+  const recent = await jobs.recent?.().catch(() => []);
+  const known = new Set(sent.map((p) => p.jobId));
+  for (const { jobId, job } of recent ?? []) {
+    if (!known.has(jobId))
+      sent.push({ jobId, sentAt: job.createdAt, teams: job.list.teams, told: false });
+  }
+  saveSentPulls(sent);
+  sent = loadSentPulls();
+  const recentById = new Map(recent?.map((p) => [p.jobId, p.job]));
   const watched: WatchedPull[] = [];
   const gone = new Set<string>();
   for (const pull of sent.filter((entry) => !entry.told)) {
-    const job = await jobs.read(pull.jobId).catch(() => undefined);
+    const job = recentById.get(pull.jobId) ?? (await jobs.read(pull.jobId).catch(() => undefined));
     if (job) watched.push({ sent: pull, job });
     else if (job === null) gone.add(pull.jobId);
+    else onUnread?.(pull);
   }
   if (gone.size > 0) saveSentPulls(sent.filter((entry) => !gone.has(entry.jobId)));
   return watched;
@@ -302,7 +384,22 @@ const describeRefreshProgress = (pull: WatchedPull): string => {
 
 /** The part of a running job's line that says which part it is on and what it is doing. */
 const legAndStage = (job: PullJob): string => {
-  const leg = job.legs > 1 ? `part ${job.legsDone + 1} of ${job.legs}, ` : "";
+  if (job.pipeline === "staged-v1") {
+    if (job.stage === "checking") return "checking which teams need importing";
+    if (job.stage === "loading") return "loading the cloud copy for final processing";
+    if (job.stage === "filing")
+      return `matching opponents and assigning ages, ${job.progress.done.toLocaleString()} of ${job.progress.total.toLocaleString()} downloaded teams processed`;
+    if (job.stage === "tidying") return job.detail || "running the final tidy";
+    if (job.stage === "saving") return "saving the finished import";
+    if (job.error) return `retrying from the saved checkpoint: ${job.error}`;
+    if (job.stage === "fetching") {
+      if (job.detail) return job.detail;
+      const downloaded = Math.max(0, job.progress.done - job.progress.failed);
+      const remaining = Math.max(0, job.progress.total - job.progress.done);
+      return `download batch ${Math.min(job.legsDone + 1, job.legs)} of ${job.legs}, ${downloaded.toLocaleString()} downloaded, ${job.progress.failed.toLocaleString()} skipped, ${remaining.toLocaleString()} remaining in this batch`;
+    }
+  }
+  const leg = job.legs > 1 ? `part ${Math.min(job.legsDone + 1, job.legs)} of ${job.legs}, ` : "";
   const stage =
     job.stage === "fetching"
       ? `asking GameChanger, ${job.progress.done.toLocaleString()} of ${job.progress.total.toLocaleString()}`
@@ -325,7 +422,12 @@ export const describeEnd = (pull: WatchedPull): string => {
   const teams = sent.teams.toLocaleString();
   const { filed, gamesAdded, gamesUpdated, failed } = job.tally;
   const games = `${gamesAdded.toLocaleString()} games added and ${gamesUpdated.toLocaleString()} updated`;
-  const unanswered = failed > 0 ? `; ${failed.toLocaleString()} did not answer` : "";
+  const unanswered =
+    failed > 0
+      ? job.pipeline === "staged-v1"
+        ? `; ${failed.toLocaleString()} skipped because their downloads failed`
+        : `; ${failed.toLocaleString()} did not answer`
+      : "";
   if (job.status === "failed") {
     return `The pull of ${teams} teams in the cloud failed${job.error ? `: ${job.error}` : "."}`;
   }
@@ -356,6 +458,33 @@ export const agoFrom = (since: string, nowMs: number): string => {
  * is waiting behind other pulls, or its start failed somewhere the device has yet to hear.
  */
 export const STARTING_MS = 2 * 60_000;
+
+/** Warn about absent progress without claiming that a worker has definitely stopped. */
+export const PULL_STALE_MS = 5 * 60_000;
+
+/** The server's timestamp, independent of whether the browser's latest status read succeeded. */
+export const describePullUpdate = (
+  job: PullJob,
+  nowMs: number = Date.now()
+): { stale: boolean; message: string } => {
+  const updated = Date.parse(job.updatedAt);
+  if (job.pipeline === "staged-v1" && job.heartbeatAt && !isOver(job)) {
+    const alive = nowMs - Date.parse(job.heartbeatAt) < 120_000;
+    const advancing = nowMs - Date.parse(job.progressAt ?? job.updatedAt) < PULL_STALE_MS;
+    return {
+      stale: !alive || !advancing,
+      message: `Worker heartbeat ${agoFrom(job.heartbeatAt, nowMs)}. Last progress ${agoFrom(job.progressAt ?? job.updatedAt, nowMs)}.${alive ? (advancing ? " The worker is responding." : " The worker is connected, but progress has not advanced recently.") : " No recent heartbeat; checking whether the worker is restarting."}`,
+    };
+  }
+  if (!Number.isFinite(updated)) {
+    return { stale: false, message: "The last server update time is unavailable." };
+  }
+  const stale = !isOver(job) && nowMs - updated >= PULL_STALE_MS;
+  return {
+    stale,
+    message: `Last server update ${agoFrom(job.updatedAt, nowMs)}.${stale ? " No recent progress; this pull may be stalled." : ""}`,
+  };
+};
 
 /**
  * One line on how far a running pull has got. A stop asked is said before anything else, a pull
