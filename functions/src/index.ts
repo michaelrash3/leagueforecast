@@ -56,9 +56,9 @@ import {
   OWNER_ONLY_MESSAGE,
   WRITE_CHECK_TTL_MS,
 } from "../../src/lib/memberCheck";
-import { enqueueLeg, enqueueRebuild, REGION, restAccess, zoneOf } from "./pullAccess";
+import { enqueueLeg, enqueueRebuild, launchImport, REGION, restAccess, zoneOf } from "./pullAccess";
 import type { LegAnswer, LegRequest } from "./pullLeg";
-import { waitForPullWorker } from "../../src/lib/cloud/pullWorkerLifetime";
+import { PULL_WORKER_TIMEOUT_MS, waitForPullWorker } from "../../src/lib/cloud/pullWorkerLifetime";
 
 /**
  * GET /gcTeam?ids=<id,id,…>&raw=1 — the GameChanger proxy.
@@ -212,6 +212,8 @@ export const startPull = !CLOUD_PULLS
           );
         }
         const data = (request.data ?? null) as { jobId?: unknown; refresh?: unknown } | null;
+        if ((data as { importReady?: unknown } | null)?.importReady === true)
+          return { status: "staged-ready" };
         if (data?.refresh !== undefined) {
           // One of the two, read exactly: a request naming a job beside a refresh is neither.
           const ask = data.jobId === undefined ? coerceRefreshAsk(data.refresh) : null;
@@ -236,6 +238,47 @@ export const startPull = !CLOUD_PULLS
           return { status: refreshed.status, jobId: refreshed.jobId, already: refreshed.already };
         }
         const jobId = data?.jobId;
+        const resume = (data as { resume?: unknown } | null)?.resume;
+        if (resume !== undefined && resume !== true)
+          throw new HttpsError("invalid-argument", "Invalid resume request.");
+        if (resume === true) {
+          if (typeof jobId !== "string" || !JOB_ID.test(jobId))
+            throw new HttpsError("invalid-argument", "Invalid import id.");
+          const jobs = restJobDocs(firestoreRestDocuments(restAccess()));
+          const job = await jobs.read(jobId);
+          if (!job || job.rota)
+            throw new HttpsError("invalid-argument", "This import cannot be resumed.");
+          if (job.status === "done") return { status: "done" };
+          if (
+            job.pipeline &&
+            job.status === "running" &&
+            job.heartbeatAt &&
+            Date.now() - Date.parse(job.heartbeatAt) < 120_000
+          )
+            return { status: "running" };
+          if (job.status === "failed" || job.status === "cancelled") {
+            if (
+              !(await jobs.updateIfUnchanged(jobId, job, {
+                status: "queued",
+                ...(!job.pipeline ? { pipeline: "staged-v1" as const, priorTally: job.tally } : {}),
+                stopAsked: false,
+                stage: "waiting",
+                error: null,
+                updatedAt: new Date().toISOString(),
+              }))
+            ) {
+              throw new HttpsError("unavailable", "Retrying the resume request.");
+            }
+          }
+          if (!job.pipeline && job.status !== "failed" && job.status !== "cancelled")
+            throw new HttpsError(
+              "invalid-argument",
+              "Stop the earlier import before resuming it with the faster importer."
+            );
+          // The execution lease admits one worker; repeated or unanswered starts are safe.
+          await launchImport(jobId);
+          return { status: "queued" };
+        }
         // On an ask after the first, how long the sending device has waited, by its own clock.
         const waited = (data as { waited?: unknown } | null)?.waited;
         const started = await startPullJob(
@@ -279,23 +322,29 @@ export const startPull = !CLOUD_PULLS
     );
 
 /** Runs a leg in a worker of its own, holding at most `LEG_HEAP_MB`, and hands back its answer. */
-const legInWorker = (request: LegRequest): Promise<LegAnswer> => {
+const legInWorker = (request: LegRequest, deadlineMs: number): Promise<LegAnswer> => {
+  const remainingMs = deadlineMs - Date.now();
+  if (remainingMs <= 0)
+    throw new Error("The pull could not start its worker before the request deadline.");
   const worker = new Worker(new URL("./pullLeg.js", import.meta.url), {
     workerData: request,
     resourceLimits: { maxOldGenerationSizeMb: LEG_HEAP_MB },
   });
-  return waitForPullWorker<LegAnswer>({
-    onMessage: (listener) => {
-      worker.once("message", listener);
+  return waitForPullWorker<LegAnswer>(
+    {
+      onMessage: (listener) => {
+        worker.once("message", listener);
+      },
+      onError: (listener) => {
+        worker.once("error", listener);
+      },
+      onExit: (listener) => {
+        worker.once("exit", listener);
+      },
+      stop: () => worker.terminate(),
     },
-    onError: (listener) => {
-      worker.once("error", listener);
-    },
-    onExit: (listener) => {
-      worker.once("exit", listener);
-    },
-    stop: () => worker.terminate(),
-  });
+    remainingMs
+  );
 };
 
 /**
@@ -310,7 +359,7 @@ const LEGS_AT_ONCE = 3;
 
 /**
  * One leg of a pull, as Cloud Tasks sends it, beside at most `LEGS_AT_ONCE - 1` others. A leg has
- * a 25-minute worker limit inside the task's half hour, so its thread ends and its error can be
+ * a worker limit 30 seconds inside the task's half hour, so its thread ends and its error can be
  * recorded before the request times out. One that fails is tried twice more, two minutes apart and then
  * longer, and its job marked failed after the third.
  */
@@ -347,10 +396,17 @@ export const runPull = !CLOUD_PULLS
             logger.info(said("no such pull; nothing done."));
             return;
           }
+          if (job.pipeline === "staged-v1" && !job.rota) {
+            if (!["done", "failed", "cancelled"].includes(job.status)) {
+              await launchImport(task.jobId);
+              logger.info("import-launched", { jobId: task.jobId });
+            }
+            return;
+          }
           // The day the leg files and logs in is the job's: the device's for a list it sent, New
           // York's for "Refresh now" (`REFRESH_ZONE`). Its worker keeps the zone set here.
           process.env.TZ = zoneOf(job.timeZone);
-          answer = await legInWorker({ task, lastTry });
+          answer = await legInWorker({ task, lastTry }, started + PULL_WORKER_TIMEOUT_MS);
         } catch (error) {
           answer = { error: error instanceof Error ? error.message : String(error) };
         }

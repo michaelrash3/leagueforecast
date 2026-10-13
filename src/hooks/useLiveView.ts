@@ -35,14 +35,27 @@ export function useLiveView<T>(
   useEffect(() => {
     if (!key || !source) return;
     let alive = true;
-    void readView({
-      reader: source.reader,
-      meta: source.meta,
-      key,
-      cache: source.cache,
-      coerce,
-      memory,
-    }).then((done) => {
+    void (async () => {
+      // Saved data renders before any request for the replacement view.
+      const previous = await source.cache
+        ?.previous?.(key, source.meta.views[key]?.k ?? source.meta.copy.id)
+        .catch(() => null);
+      if (alive && previous) {
+        const view = coerce(previous.value);
+        if (view) {
+          memory.set(previous.h, view);
+          setRead((was) => (was?.key === key ? was : { key, view }));
+        }
+      }
+      return readView({
+        reader: source.reader,
+        meta: source.meta,
+        key,
+        cache: source.cache,
+        coerce,
+        memory,
+      });
+    })().then((done) => {
       if (!alive) return;
       if (done.ok) {
         setRead({ key, view: done.view });
@@ -62,8 +75,9 @@ export function useLiveView<T>(
   const failed =
     key !== null && failedAt !== null && failedAt.key === key && failedAt.attempt === attempt;
   return {
-    view: read && read.key === key ? read.view : null,
-    failed,
+    view: failedAt?.why === "refused" ? null : read && read.key === key ? read.view : null,
+    // A background refresh failure does not replace a valid saved view with a loading card.
+    failed: failed && !(read && read.key === key && failedAt?.why !== "refused"),
     missing: failed && failedAt?.why === "missing",
   };
 }

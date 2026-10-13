@@ -1,0 +1,138 @@
+/** Cloud Run Job supervisor: heartbeats and ownership survive a CPU-bound tidy in its worker. */
+import { randomUUID } from "node:crypto";
+import { Worker } from "node:worker_threads";
+import { getApps, initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
+import { importLease, IMPORT_LEASE_MS } from "../../src/lib/cloud/importLease";
+import { restJobDocs } from "../../src/lib/cloud/pullJobRunner";
+import { JOB_ID } from "../../src/lib/cloud/pullJobs";
+import { restAccess, zoneOf } from "./pullAccess";
+
+const jobId = process.env.IMPORT_JOB_ID ?? "";
+if (!JOB_ID.test(jobId)) throw new Error("A valid IMPORT_JOB_ID is required.");
+const docs = firestoreRestDocuments(restAccess());
+const jobs = restJobDocs(docs);
+const lease = importLease(docs, jobId, randomUUID());
+// A retry can start while a killed predecessor's last lease is still live. Wait beyond it.
+let claimed = false;
+for (let attempt = 0; attempt < 11 && !claimed; attempt++) {
+  claimed = await lease.claim(Date.now());
+  if (!claimed) await new Promise((resolve) => setTimeout(resolve, 10_000));
+}
+if (!claimed) {
+  console.log(JSON.stringify({ event: "import-duplicate", jobId }));
+} else {
+  let worker: Worker | null = null;
+  let beat: ReturnType<typeof setInterval> | undefined;
+  let ticking = false;
+  let lastRenew = Date.now();
+  let latestDetail: { detail: string; progressAt: string } | null = null;
+  try {
+    const job = await jobs.read(jobId);
+    if (!job) throw new Error("The import job is missing.");
+    process.env.TZ = zoneOf(job.timeZone);
+    worker = new Worker(new URL("./importWorker.js", import.meta.url), {
+      workerData: { jobId },
+      resourceLimits: { maxOldGenerationSizeMb: 12_288 },
+    });
+    const running = worker;
+    let completed = false;
+    let stopping = false;
+    await new Promise<void>((resolve, reject) => {
+      const fail = (error: unknown) => {
+        void running.terminate();
+        reject(error);
+      };
+      beat = setInterval(() => {
+        if (Date.now() - lastRenew >= IMPORT_LEASE_MS - 20_000) {
+          fail(
+            new Error(
+              "Lost contact with the import checkpoint store. The next execution will resume."
+            )
+          );
+          return;
+        }
+        if (ticking) return;
+        ticking = true;
+        void lease
+          .renew(Date.now())
+          .then(async (owned) => {
+            if (!owned) {
+              fail(new Error("Another execution owns this import."));
+              return;
+            }
+            lastRenew = Date.now();
+            const current = await jobs.read(jobId);
+            if (current?.stopAsked && current.stage !== "saving") {
+              stopping = true;
+              await running.terminate();
+              await jobs.update(jobId, {
+                status: "cancelled",
+                stage: "waiting",
+                error: "Downloads are kept. Resume this import when ready.",
+                updatedAt: new Date().toISOString(),
+              });
+              completed = true;
+              resolve();
+              return;
+            }
+            const detail = latestDetail;
+            latestDetail = null;
+            await jobs.update(jobId, { heartbeatAt: new Date().toISOString(), ...detail });
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            ticking = false;
+          });
+      }, 10_000);
+      running.on(
+        "message",
+        (message: { done?: boolean; error?: string; progress?: boolean; detail?: string }) => {
+          if (message.detail) {
+            latestDetail = { detail: message.detail, progressAt: new Date().toISOString() };
+          }
+          if (message.done) {
+            completed = true;
+            resolve();
+          }
+          if (message.error) reject(new Error(message.error));
+        }
+      );
+      running.once("error", reject);
+      running.once("exit", (code) => {
+        if (!completed && !stopping)
+          reject(new Error(`Import worker exited without completing, code ${code}.`));
+      });
+    });
+    console.log(JSON.stringify({ event: "import-complete", jobId }));
+    if ((await jobs.read(jobId))?.status === "done") {
+      const db = getFirestore(getApps().find((app) => app.name === "[DEFAULT]") ?? initializeApp());
+      await db.recursiveDelete(db.collection(`pullJobs/${jobId}/artifacts`)).catch((error) => {
+        console.error(
+          JSON.stringify({ event: "import-cleanup-retry-needed", jobId, error: String(error) })
+        );
+      });
+    }
+  } catch (error) {
+    const last = Number(process.env.CLOUD_RUN_TASK_ATTEMPT ?? 0) >= 2;
+    const message = error instanceof Error ? error.message : String(error);
+    const job = await jobs.read(jobId).catch(() => null);
+    if (job && !["done", "failed", "cancelled"].includes(job.status)) {
+      await jobs
+        .update(jobId, {
+          ...(last ? { status: "failed" as const } : {}),
+          stage: "waiting",
+          error: message,
+          updatedAt: new Date().toISOString(),
+        })
+        .catch(() => undefined);
+    }
+    console.error(JSON.stringify({ event: "import-retry", jobId, error: message, last }));
+    process.exitCode = 1;
+  } finally {
+    if (beat) clearInterval(beat);
+    await worker?.terminate();
+    await lease.release().catch(() => undefined);
+  }
+}

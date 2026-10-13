@@ -20,6 +20,8 @@ await build({
   entryPoints: [
     "src/index.ts",
     "src/pullLeg.ts",
+    "src/importJob.ts",
+    "src/importWorker.ts",
     ...(rebuilds ? ["src/rebuildWorker.ts", "src/editWorker.ts"] : []),
   ],
   bundle: true,

@@ -35,10 +35,10 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("a pull worker's lifetime", () => {
-  it("stops a stalled worker five minutes before the task deadline", async () => {
+  it("stops a stalled worker thirty seconds before the task deadline", async () => {
     const w = worker();
     const answer = waitForPullWorker(w.port);
-    const rejected = expect(answer).rejects.toThrow("25-minute worker limit");
+    const rejected = expect(answer).rejects.toThrow("worker time limit");
     await vi.advanceTimersByTimeAsync(PULL_WORKER_TIMEOUT_MS - 1);
     expect(w.stop).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
@@ -79,7 +79,7 @@ describe("a pull worker's lifetime", () => {
     const answer = waitForPullWorker(w.port);
     const returned = vi.fn();
     void answer.catch(returned);
-    const rejected = expect(answer).rejects.toThrow("worker limit");
+    const rejected = expect(answer).rejects.toThrow("worker time limit");
     await vi.advanceTimersByTimeAsync(PULL_WORKER_TIMEOUT_MS);
     expect(returned).not.toHaveBeenCalled();
     release(0);
@@ -89,7 +89,7 @@ describe("a pull worker's lifetime", () => {
   it("keeps the timeout error when an answer or exit arrives during termination", async () => {
     const w = worker();
     const answer = waitForPullWorker(w.port);
-    const rejected = expect(answer).rejects.toThrow("worker limit");
+    const rejected = expect(answer).rejects.toThrow("worker time limit");
     await vi.advanceTimersByTimeAsync(PULL_WORKER_TIMEOUT_MS);
     w.message("late answer");
     w.exit(1);

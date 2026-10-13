@@ -6,6 +6,7 @@ import {
   callQuery,
   callStartPull,
   callStartRefresh,
+  callImportReady,
   callWarm,
   coerceEditReply,
   EDIT_URL,
@@ -41,6 +42,96 @@ const answering = (status: number, body: unknown) => {
 };
 
 const signedIn = { token: async () => "id-token" };
+
+describe("automatic reconnection", () => {
+  it("waits for a deployment to support staged imports before letting a new job be uploaded", async () => {
+    let calls = 0;
+    const transport: typeof fetch = async () =>
+      ++calls === 1
+        ? new Response(JSON.stringify({ error: { status: "INVALID_ARGUMENT" } }), { status: 400 })
+        : new Response(JSON.stringify({ result: { status: "staged-ready" } }));
+    expect(
+      await callImportReady({
+        ...signedIn,
+        fetchImpl: transport,
+        retry: true,
+        retryDelayMs: () => 0,
+      })
+    ).toEqual({ ok: true, value: { status: "staged-ready" } });
+    expect(calls).toBe(2);
+  });
+  it("retries the same job through lost responses and 503s until the server confirms it", async () => {
+    const jobId = "0123456789abcdef0123456789abcdef";
+    const sent: string[] = [];
+    let calls = 0;
+    const transport: typeof fetch = async (_, init) => {
+      sent.push(String(init?.body));
+      if (++calls === 1) throw new TypeError("offline");
+      if (calls === 2) return new Response("unavailable", { status: 503 });
+      if (calls === 3)
+        return new Response(JSON.stringify({ error: { status: "UNAVAILABLE" } }), { status: 503 });
+      return new Response(JSON.stringify({ result: { status: "running" } }));
+    };
+    const onRetry = vi.fn();
+    expect(
+      await callStartPull(jobId, {
+        ...signedIn,
+        fetchImpl: transport,
+        retry: true,
+        retryDelayMs: () => 0,
+        onRetry,
+      })
+    ).toEqual({ ok: true, value: { status: "running" } });
+    expect(calls).toBe(4);
+    expect(new Set(sent).size).toBe(1);
+    expect(onRetry).toHaveBeenCalledTimes(3);
+  });
+  it("reconnects after a timed-out attempt without making the person press again", async () => {
+    let calls = 0;
+    const transport: typeof fetch = async (_, init) => {
+      if (++calls === 1)
+        return new Promise((_, reject) =>
+          init?.signal?.addEventListener("abort", () => reject(new Error("timeout")))
+        );
+      return new Response(JSON.stringify({ result: { status: "queued" } }));
+    };
+    expect(
+      (
+        await callStartPull("0".repeat(32), {
+          ...signedIn,
+          fetchImpl: transport,
+          retry: true,
+          limitMs: 5,
+          retryDelayMs: () => 0,
+        })
+      ).ok
+    ).toBe(true);
+    expect(calls).toBe(2);
+  });
+  it("stops retrying when cancelled, and does not retry sign-in or permission refusals", async () => {
+    const abort = new AbortController();
+    const transport: typeof fetch = async () => {
+      throw new TypeError("offline");
+    };
+    const onRetry = () => abort.abort();
+    expect(
+      await callStartPull("0".repeat(32), {
+        ...signedIn,
+        fetchImpl: transport,
+        retry: true,
+        signal: abort.signal,
+        onRetry,
+      })
+    ).toMatchObject({ ok: false, message: "Request cancelled." });
+    const denied = answering(403, {
+      error: { status: "PERMISSION_DENIED", message: "Not on the list" },
+    });
+    expect(
+      await callStartPull("0".repeat(32), { ...signedIn, fetchImpl: denied.fetchImpl, retry: true })
+    ).toMatchObject({ ok: false, why: "not-member" });
+    expect(denied.sent).toHaveLength(1);
+  });
+});
 
 describe("a call to the edit function", () => {
   it("is the function's own address, waited on past its timeout", () => {
@@ -127,7 +218,8 @@ describe("a call to the edit function", () => {
     expect(await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: timedOut })).toEqual({
       ok: false,
       why: "unanswered",
-      message: "The server answered HTTP 504.",
+      message:
+        "The connection was interrupted. Checking the cloud copy will confirm whether the change was saved.",
     });
   });
 
@@ -144,7 +236,8 @@ describe("a call to the edit function", () => {
     expect(await callEdit({ command: COMMAND }, { ...signedIn, fetchImpl: cut })).toEqual({
       ok: false,
       why: "unanswered",
-      message: "No answer came from the server, so the change may or may not have been made.",
+      message:
+        "The connection was interrupted. Checking the cloud copy will confirm whether the change was saved.",
     });
   });
 
@@ -306,7 +399,7 @@ describe("a question", () => {
         { query: QUESTION },
         { ...signedIn, fetchImpl: lost as unknown as typeof fetch }
       )
-    ).toEqual({ ok: false, why: "failed", message: "No answer came from the server." });
+    ).toEqual({ ok: false, why: "failed", message: "Reconnecting to the cloud…" });
   });
 });
 

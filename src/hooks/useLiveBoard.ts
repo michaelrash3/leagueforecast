@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   copyOwed,
   copyReader,
@@ -9,7 +9,12 @@ import {
   type CopySeen,
 } from "../lib/cloud/cloudSession";
 import type { CopyReader } from "../lib/live/copyArchive";
-import { callStartPull, callStartRefresh, type CallDeps } from "../lib/live/editClient";
+import {
+  callImportReady,
+  callStartPull,
+  callStartRefresh,
+  type CallDeps,
+} from "../lib/live/editClient";
 import type { PullSender } from "../lib/cloud/cloudPulls";
 import { loadCloudState } from "../lib/cloud/cloudState";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
@@ -26,7 +31,12 @@ import {
 } from "../lib/live/liveClient";
 import { openViewCache, type ViewCache } from "../lib/live/viewCache";
 import type { LiveMeta, LiveReader } from "../lib/live/viewStore";
-import { boardKey, type BoardView, type LivePages } from "../lib/live/views/boardShape";
+import {
+  boardKey,
+  coerceBoardView,
+  type BoardView,
+  type LivePages,
+} from "../lib/live/views/boardShape";
 import type { SeasonSegment } from "../lib/teamRankings";
 import { segmentWorthShowing } from "./useRankingsPages";
 
@@ -66,8 +76,16 @@ export const browserLiveSources = (): LiveSources =>
       return jobs
         ? {
             jobs,
-            start: (jobId, waitedMs) => callStartPull(jobId, { token: memberToken }, waitedMs),
-            startRefresh: (ask) => callStartRefresh(ask, { token: memberToken }),
+            ready: () => callImportReady({ token: memberToken, retry: true }),
+            start: (jobId, waitedMs) =>
+              callStartPull(jobId, { token: memberToken, retry: true }, waitedMs),
+            resume: async (jobId) => {
+              const ready = await callImportReady({ token: memberToken, retry: true });
+              return ready.ok
+                ? callStartPull(jobId, { token: memberToken, retry: true }, undefined, true)
+                : ready;
+            },
+            startRefresh: (ask) => callStartRefresh(ask, { token: memberToken, retry: true }),
           }
         : null;
     },
@@ -199,6 +217,10 @@ export function useLiveBoard({
   // The server's last answer for the meta, by the copy it named; null before any.
   const [heard, setHeard] = useState<{ copy: LiveMeta["copy"] | null } | null>(null);
   const readerRef = useRef<LiveReader | null>(null);
+  const requested = useRef({ pageId, year, routeSegment, calendarSegment });
+  useLayoutEffect(() => {
+    requested.current = { pageId, year, routeSegment, calendarSegment };
+  }, [pageId, year, routeSegment, calendarSegment]);
   // The same reader, for what a render hands on (`source`), which may not read a ref.
   const [networkReader, setNetworkReader] = useState<LiveReader | null>(null);
   // The board on screen, for the read of a board to see without depending on it.
@@ -277,8 +299,6 @@ export function useLiveBoard({
       hear(read.meta.copy);
       const at = sources.now();
       setHeardAt(at);
-      const uid = sources.uid();
-      if (uid) void cache.keepMeta(uid, read.meta, at).catch(() => undefined);
       const print = JSON.stringify(read.meta);
       if (print === shownPrint) {
         setMetaMiss(null);
@@ -304,6 +324,23 @@ export function useLiveBoard({
           keptAtRef.current = kept.readAt;
           setMeta((shown) => shown ?? { meta: read.meta, pages: read.pages, from: "cache" });
           setHeardAt((at) => at ?? kept.readAt);
+          // Finish the cache read before a quick meta response can supersede it with a new
+          // fingerprint whose bytes are still downloading. This never waits for the network.
+          const route = requested.current;
+          const savedSegment =
+            route.routeSegment ??
+            segmentWorthShowing(route.calendarSegment, read.pages.halves[route.pageId] ?? NO_GAMES);
+          const savedKey = boardKey(route.year, route.pageId, savedSegment ?? "year");
+          const saved = await readBoard({
+            reader: KEPT_ONLY,
+            meta: read.meta,
+            key: savedKey,
+            cache,
+          });
+          if (alive && saved.ok && !boardRef.current) {
+            show({ key: savedKey, h: saved.entry.h, view: saved.view, checked: false });
+            setBoardAt(kept.readAt);
+          }
         }
       }
       const reader = await sources.reader().catch(() => null);
@@ -375,6 +412,13 @@ export function useLiveBoard({
       return;
     let alive = true;
     void (async () => {
+      const previous = await sources.cache
+        .previous?.(key, meta.meta.views[key]?.k ?? meta.meta.copy.id)
+        .catch(() => null);
+      if (alive && previous && boardRef.current?.key !== key) {
+        const view = coerceBoardView(previous.value);
+        if (view) show({ key, h: previous.h, view, checked: false });
+      }
       const read = await readBoard({ reader, meta: meta.meta, key, cache: sources.cache });
       if (!alive) return;
       if (read.ok) {
@@ -383,7 +427,11 @@ export function useLiveBoard({
         if (network) missBoard(null);
         const uid = sources.uid();
         if (network && uid)
-          void sources.cache.keepLastShown(uid, { key, h: read.entry.h }).catch(() => undefined);
+          void Promise.all([
+            sources.cache.keepLastShown(uid, { key, h: read.entry.h }),
+            // Persist a usable snapshot, not a pointer to a board that has not arrived yet.
+            sources.cache.keepMeta(uid, read.meta, sources.now()),
+          ]).catch(() => undefined);
       } else if (network) {
         missBoard(read.why);
         // A board refused, though its meta was read (a half or page moved to after the account was

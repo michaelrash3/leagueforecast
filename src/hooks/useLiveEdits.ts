@@ -36,6 +36,7 @@ export type ShowToast = (
 export type EditSaid = { done: string; undo?: boolean; afterUndo?: () => void; same?: string };
 
 export type LiveEdits = {
+  reconnecting?: boolean;
   /** Why edits are off now, as the person is told, or null when they can be sent. */
   locked: string | null;
   /** Edits made that the views on screen may not show yet, oldest first (`overlayCard`). */
@@ -82,10 +83,12 @@ export function useLiveEdits({
 }): LiveEdits {
   // Every edit made that the views may not show, pruned as each new one is made.
   const [made, setMade] = useState<PendingEdit[]>([]);
+  const [reconnecting, setReconnecting] = useState(false);
+  const reconnectingCalls = useRef(new Set<symbol>());
   // The copy the views are of as it is now, for an answer that comes back after it moved.
   const current = useRef(copy);
   const lastCall = useRef<number | null>(null);
-  const callDeps = useMemo<CallDeps>(() => deps ?? { token: memberToken }, [deps]);
+  const callDeps = useMemo<CallDeps>(() => deps ?? { token: memberToken, retry: true }, [deps]);
 
   /*
    * Kept before any effect runs, not in one: the network's first answer brings the copy and turns
@@ -183,7 +186,20 @@ export function useLiveEdits({
         showToast(CLIENT_UNLOADED, { tone: "error" });
         return null;
       }
-      const called = await client.callQuery<K>({ query, copy: against.id }, callDeps);
+      const request = Symbol();
+      const called = await client.callQuery<K>(
+        { query, copy: against.id },
+        {
+          ...callDeps,
+          onRetry: (attempt) => {
+            callDeps.onRetry?.(attempt);
+            reconnectingCalls.current.add(request);
+            setReconnecting(true);
+          },
+        }
+      );
+      reconnectingCalls.current.delete(request);
+      setReconnecting(reconnectingCalls.current.size > 0);
       if (!called.ok) {
         showToast(called.message, { tone: "error" });
         return null;
@@ -212,5 +228,5 @@ export function useLiveEdits({
 
   const say = useCallback((message: string) => showToast(message, { tone: "error" }), [showToast]);
 
-  return { locked, pending, edit, ask, warm, say };
+  return { locked, pending, edit, ask, warm, say, reconnecting };
 }

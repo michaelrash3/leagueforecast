@@ -58,6 +58,14 @@ export const jobLine = (jobId: string, job: PullJob, nowMs: number): string => {
       ? "never written since"
       : `last written ${job.updatedAt} (${fromNow(job.updatedAt, nowMs)})`,
     `${count(job.tally.filed)} filed, ${count(job.tally.gamesAdded)} games added`,
+    ...(job.pipeline
+      ? [
+          `${count(job.tally.answered)} downloaded and checkpointed`,
+          `heartbeat ${fromNow(job.heartbeatAt, nowMs)}`,
+          `progress ${fromNow(job.progressAt, nowMs)}`,
+          ...(job.detail ? [clipped(job.detail)] : []),
+        ]
+      : []),
     ...(job.end ? [`last leg ended ${job.end}`] : []),
     ...(job.error ? [`error: ${clipped(job.error)}`] : []),
   ];

@@ -5,6 +5,7 @@ import {
   withListed,
   type GcTeamListEntry,
   type GcTeamResponse,
+  type GcTeamSchedule,
 } from "../gameChangerApi";
 import {
   PULL_CONCURRENCY,
@@ -18,6 +19,7 @@ import {
   tidyChangedAnything,
   tidyPool,
   type GcImportOutcome,
+  type TidyWatcher,
 } from "../gameChangerImport";
 import { lastPulled, localDayKey, markRefreshed, type RefreshLog } from "../gameChangerSchedule";
 import { orgAgesByTeam } from "../orgMembership";
@@ -54,6 +56,7 @@ import {
   saveDroppedClubs,
   saveRefreshLog,
   saveTidyStamp,
+  IMPORT_INDEX_KEYS,
 } from "../teamRankingsStorage";
 import { commitChanges, fetchValues, type Change, type CloudStore } from "./cloudEngine";
 import { DATA_SCHEMA, type CloudManifest } from "./cloudManifest";
@@ -137,6 +140,7 @@ export type CloudPullStage =
   | { stage: "loading" }
   | { stage: "fetching"; done: number; total: number; failed: number }
   | { stage: "filing" }
+  | { stage: "tidying" }
   | { stage: "saving"; attempt: number };
 
 export type CloudPullEnd =
@@ -291,6 +295,38 @@ const listIds = (job: Extract<CloudPullJob, { kind: "list" }>): string[] => {
   return fresh.length > 0 ? fresh : kept.length <= PASTE_HANDFUL ? kept : [];
 };
 
+/** Download selection reads just the team index and exclusions, once per whole import. */
+export const selectImportTeams = async (
+  store: CloudStore,
+  job: Extract<CloudPullJob, { kind: "list" }>,
+  alreadyPulledAfter?: Date
+): Promise<{ copy: string; entries: GcTeamListEntry[] }> => {
+  const manifest = await store.readManifest();
+  if (!manifest) throw new Error("There is no cloud copy to import into.");
+  if (manifest.schema > DATA_SCHEMA) throw new Error("Update the cloud importer before importing.");
+  const fetched = await fetchValues({
+    store,
+    parts: manifest.parts.filter((p) => IMPORT_INDEX_KEYS.has(p.key)),
+  });
+  if (!fetched.ok) throw new Error("The cloud team index could not be read.");
+  resetTeamRankingsStore();
+  await initTeamRankingsStore(memoryIo());
+  if (!(await applyCloudPoolValues(fetched.values)))
+    throw new Error("The team index could not be loaded.");
+  const dropped = loadDroppedClubs();
+  const wanted = new Set(listIds(job).filter((id) => !isDeletedClub(dropped, id)));
+  if (alreadyPulledAfter) {
+    for (const [id, when] of lastPulled(loadScoutTeams())) {
+      if (when > alreadyPulledAfter.getTime()) wanted.delete(id);
+    }
+  }
+  const entries = [
+    ...new Map(job.entries.filter((e) => wanted.has(e.teamId)).map((e) => [e.teamId, e])).values(),
+  ].sort((a, b) => a.teamId.localeCompare(b.teamId, "en"));
+  resetTeamRankingsStore();
+  return { copy: manifest.copy, entries };
+};
+
 /**
  * Whether the copy the store holds is not this build's to change or build from: saved by a newer
  * build, or tidied by newer rules. Read off the pool once it is loaded (`loadPoolFrom`), so a server
@@ -389,6 +425,30 @@ const fileAnswers = async (
   mark: Marking | null,
   complete: boolean,
   now: Date
+): Promise<Filed> =>
+  fileScheduleSource(
+    job,
+    () =>
+      (async function* () {
+        for (const id of ids) {
+          const answer = answers.get(id);
+          if (answer?.ok) yield answer.schedule;
+        }
+      })(),
+    mark,
+    complete,
+    now
+  );
+
+const fileScheduleSource = async (
+  job: CloudPullJob,
+  schedules: () => AsyncIterable<GcTeamSchedule>,
+  mark: Marking | null,
+  complete: boolean,
+  now: Date,
+  onTidy?: () => void | Promise<void>,
+  watchTidy?: TidyWatcher,
+  retryUnaged = false
 ): Promise<Filed> => {
   const pool = { ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() };
   const orgAges = orgAgesByTeam(loadOrgMembership());
@@ -412,14 +472,30 @@ const fileAnswers = async (
   );
   // In the order asked, so a replay files the same answers the same way.
   const outcomes: GcImportOutcome[] = [];
-  ids.forEach((teamId) => {
-    const answer = answers.get(teamId);
-    if (!answer?.ok) return;
-    outcomes.push(
-      importer.add(withListed(answer.schedule, claimed.get(teamId), orgAges.get(teamId)))
-    );
-  });
-  const tidy = tidyPool(importer.state, undefined, loadKeptApart(), refused);
+  const unaged = new Map<string, number>();
+  for await (const schedule of schedules()) {
+    const teamId = schedule.profile.id;
+    const outcome = importer.add(withListed(schedule, claimed.get(teamId), orgAges.get(teamId)));
+    if (outcome.skip === "no-age") unaged.set(teamId, outcomes.length);
+    outcomes.push(outcome);
+  }
+  // Reconsider clubs skipped before their opponents arrived. The source stays on disk;
+  // only these clubs are filed again, without refetching or running a tidy between them.
+  for (let pass = 0; retryUnaged && unaged.size > 0 && pass < 3; pass++) {
+    const before = unaged.size;
+    for await (const schedule of schedules()) {
+      const at = unaged.get(schedule.profile.id);
+      if (at === undefined) continue;
+      const outcome = importer.add(
+        withListed(schedule, claimed.get(schedule.profile.id), orgAges.get(schedule.profile.id))
+      );
+      outcomes[at] = outcome;
+      if (outcome.skip !== "no-age") unaged.delete(schedule.profile.id);
+    }
+    if (unaged.size === before) break;
+  }
+  await onTidy?.();
+  const tidy = tidyPool(importer.state, watchTidy, loadKeptApart(), refused);
   saveTidyStamp(poolSignature(tidy.state));
   const filed = tidyChangedAnything(tidy) ? tidy.state : importer.state;
   const kept = persistPool(filed, undefined);
@@ -432,6 +508,36 @@ const fileAnswers = async (
   if (mark && complete) saveRefreshLog(withRefreshed(loadRefreshLog(), mark, now));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the pull's pool.");
   return { outcomes };
+};
+
+/** A restartable source is streamed afresh only if a concurrent save requires a rebase. */
+export const finishStagedImport = async (
+  job: Extract<CloudPullJob, { kind: "list" }>,
+  source: () => AsyncIterable<GcTeamSchedule>,
+  expectedCopy: string,
+  counts: Pick<CloudPullResult, "asked" | "answered" | "failed">,
+  deps: Omit<CloudPullDeps, "fetchTeams"> & {
+    beforeTidy?: () => Promise<void>;
+    watchTidy?: TidyWatcher;
+  }
+): Promise<CloudPullResult> => {
+  deps.onStage?.({ stage: "loading" });
+  const copy = await loadPoolFrom(deps.store, deps.signal);
+  const result: CloudPullResult = {
+    ...counts,
+    end: "finished",
+    filed: 0,
+    gamesAdded: 0,
+    gamesUpdated: 0,
+    changed: [],
+    replays: 0,
+  };
+  if (!copy) return { ...result, end: "no-copy" };
+  if (copy.manifest.copy !== expectedCopy) return { ...result, end: "copy-replaced" };
+  if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
+  return fileAndSave(result, copy, deps, (now) =>
+    fileScheduleSource(job, source, null, true, now, deps.beforeTidy, deps.watchTidy, true)
+  );
 };
 
 /** What the run wrote that the copy does not already say, as changes to it. */
@@ -562,7 +668,7 @@ export const runCloudPull = async (
 const fileAndSave = async (
   result: CloudPullResult,
   read: LoadedCopy,
-  deps: CloudPullDeps,
+  deps: Omit<CloudPullDeps, "fetchTeams">,
   file: (now: Date) => Promise<Filed>
 ): Promise<CloudPullResult> => {
   let copy = read;

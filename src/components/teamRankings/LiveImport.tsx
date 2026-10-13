@@ -185,7 +185,7 @@ export default function LiveImport({
           ) : unread ? (
             <>
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                The cloud&apos;s refresh could not be read just now.
+                Reconnecting to the cloud. Status checks will retry automatically.
               </p>
               <button type="button" onClick={askAgain} className={`${button.ghost} mt-3`}>
                 Try again
@@ -193,7 +193,9 @@ export default function LiveImport({
             </>
           ) : (
             <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
-              Reading the cloud&apos;s refresh…
+              {edits.reconnecting
+                ? "Reconnecting to the cloud. Retrying automatically…"
+                : "Reading the cloud’s refresh…"}
             </p>
           )}
           {refreshNow}

@@ -54,6 +54,13 @@ export type CallDeps = {
   url?: string;
   fetchImpl?: typeof fetch;
   limitMs?: number;
+  /** Safe reads and job starts reconnect with bounded backoff until confirmed. */
+  retry?: boolean;
+  signal?: AbortSignal;
+  onRetry?: (attempt: number) => void;
+  retryDelayMs?: (attempt: number) => number;
+  /** A capability check waits for an older deployed server to gain the requested capability. */
+  retryStatuses?: readonly string[];
 };
 
 /** A call's outcome: the server's answer, or why there is none, said for a person. */
@@ -79,17 +86,57 @@ const FAILURE_OF: ReadonlyMap<string, CallFailure> = new Map([
 
 const failed = (why: CallFailure, message: string): Called<never> => ({ ok: false, why, message });
 
-const LOST = "No answer came from the server, so the change may or may not have been made.";
+const LOST =
+  "The connection was interrupted. Checking the cloud copy will confirm whether the change was saved.";
+class RetryableCall extends Error {
+  readonly answer: Called<never>;
+  constructor(answer: Called<never>) {
+    super("Reconnect");
+    this.answer = answer;
+  }
+}
+const reconnect = async <T>(work: () => Promise<Called<T>>, deps: CallDeps): Promise<Called<T>> => {
+  let attempt = 0;
+  for (;;) {
+    if (deps.signal?.aborted) return failed("failed", "Request cancelled.");
+    try {
+      return await work();
+    } catch (error) {
+      if (!(error instanceof RetryableCall)) throw error;
+      if (!deps.retry) return error.answer;
+      deps.onRetry?.(++attempt);
+      const delay =
+        deps.retryDelayMs?.(attempt) ?? Math.min(30_000, 1_000 * 2 ** Math.min(attempt - 1, 5));
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          deps.signal?.removeEventListener("abort", finish);
+          resolve();
+        };
+        const timer = setTimeout(finish, delay);
+        deps.signal?.addEventListener("abort", finish, { once: true });
+        if (deps.signal?.aborted) finish();
+      });
+    }
+  }
+};
 
 /**
  * One call: `data` sent with the sign-in, the `result` handed to `read`, or why there is none.
  * `unclear` is what an answer that proves nothing comes to: for an edit, that it may or may not have
  * been made; for a warm-up, that it failed.
  */
-const call = async <T>(
+const callOnce = async <T>(
   data: unknown,
   read: (result: unknown) => T | null,
-  { token, url = EDIT_URL, fetchImpl = fetch, limitMs = CALL_LIMIT_MS }: CallDeps,
+  {
+    token,
+    url = EDIT_URL,
+    fetchImpl = fetch,
+    limitMs = CALL_LIMIT_MS,
+    signal,
+    retryStatuses,
+  }: CallDeps,
   unclear: CallFailure,
   failures: ReadonlyMap<string, CallFailure> = FAILURE_OF
 ): Promise<Called<T>> => {
@@ -98,15 +145,15 @@ const call = async <T>(
     signIn = await token();
   } catch {
     // Nothing was sent: an offline device whose sign-in needed renewing, say.
-    return failed(
-      "unavailable",
-      "Your sign-in could not be checked just now. Try again in a minute."
-    );
+    throw new RetryableCall(failed("unavailable", "Reconnecting to check your sign-in…"));
   }
   if (!signIn) return failed("signed-out", "Sign in to make changes.");
-  const lost = unclear === "unanswered" ? LOST : "No answer came from the server.";
+  const lost = unclear === "unanswered" ? LOST : "Reconnecting to the cloud…";
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), limitMs);
+  const cancel = () => abort.abort();
+  signal?.addEventListener("abort", cancel, { once: true });
+  if (signal?.aborted) abort.abort();
+  const timer = setTimeout(cancel, limitMs);
   let response: Response;
   let body: unknown;
   try {
@@ -118,16 +165,24 @@ const call = async <T>(
         signal: abort.signal,
       });
     } catch {
-      return failed(unclear, lost);
+      throw new RetryableCall(failed(unclear, lost));
     }
     try {
       body = await response.json();
     } catch {
       // An answer cut off or not the protocol's: whatever the server did, this device cannot say.
-      return failed(unclear, response.ok ? lost : `The server answered HTTP ${response.status}.`);
+      if (
+        response.ok ||
+        response.status >= 500 ||
+        response.status === 429 ||
+        response.status === 408
+      )
+        throw new RetryableCall(failed(unclear, lost));
+      return failed(unclear, `The server answered HTTP ${response.status}.`);
     }
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
   }
   const error = isRecord(body) && isRecord(body.error) ? body.error : null;
   if (!response.ok || error) {
@@ -136,6 +191,13 @@ const call = async <T>(
       typeof error?.message === "string" && error.message
         ? error.message
         : `The server answered HTTP ${response.status}.`;
+    if (
+      ["UNAVAILABLE", "INTERNAL", "ABORTED", "UNKNOWN", "DEADLINE_EXCEEDED"].includes(status) ||
+      retryStatuses?.includes(status) ||
+      (!status && (response.status >= 500 || response.status === 429 || response.status === 408))
+    ) {
+      throw new RetryableCall(failed(failures.get(status) ?? unclear, message));
+    }
     return failed(failures.get(status) ?? unclear, message);
   }
   const value = isRecord(body) ? read(body.result) : null;
@@ -143,6 +205,14 @@ const call = async <T>(
     ? failed(unclear, "The server's answer is not one this version of the app can read.")
     : { ok: true, value };
 };
+
+const call = <T>(
+  data: unknown,
+  read: (result: unknown) => T | null,
+  deps: CallDeps,
+  unclear: CallFailure,
+  failures?: ReadonlyMap<string, CallFailure>
+): Promise<Called<T>> => reconnect(() => callOnce(data, read, deps, unclear, failures), deps);
 
 type EnsureRefusal = Extract<WarmResult, { ok: false }>["reason"];
 
@@ -274,7 +344,7 @@ export const callEdit = (
   call(
     { command: ask.command, ...(ask.copy === undefined ? {} : { copy: ask.copy }) },
     coerceEditReply,
-    deps,
+    { ...deps, retry: false },
     "unanswered"
   );
 
@@ -352,6 +422,16 @@ const START_PULL_FAILURES: ReadonlyMap<string, CallFailure> = new Map([
   ["NOT_FOUND", "failed"],
 ]);
 
+/** Prevent a frontend deployed first from handing staged jobs to the previous leg runner. */
+export const callImportReady = (deps: CallDeps): Promise<Called<{ status: string }>> =>
+  call(
+    { importReady: true },
+    (result) =>
+      isRecord(result) && result.status === "staged-ready" ? { status: result.status } : null,
+    { url: START_PULL_URL, limitMs: 60_000, ...deps, retryStatuses: ["INVALID_ARGUMENT"] },
+    "unanswered"
+  );
+
 /**
  * Asks `startPull` to queue the first leg of the job `jobId`, which this device wrote. On an ask
  * after the first, `waitedMs` is how long this device has waited for it by its own clock, which
@@ -360,10 +440,15 @@ const START_PULL_FAILURES: ReadonlyMap<string, CallFailure> = new Map([
 export const callStartPull = (
   jobId: string,
   deps: CallDeps,
-  waitedMs?: number
+  waitedMs?: number,
+  resume = false
 ): Promise<Called<{ status: string }>> =>
   call(
-    waitedMs === undefined ? { jobId } : { jobId, waited: Math.max(0, Math.round(waitedMs)) },
+    {
+      jobId,
+      ...(waitedMs === undefined ? {} : { waited: Math.max(0, Math.round(waitedMs)) }),
+      ...(resume ? { resume: true } : {}),
+    },
     (result) =>
       isRecord(result) && typeof result.status === "string" ? { status: result.status } : null,
     { url: START_PULL_URL, limitMs: 60_000, ...deps },
