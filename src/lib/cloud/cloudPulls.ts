@@ -383,16 +383,19 @@ const describeRefreshProgress = (pull: WatchedPull): string => {
 };
 
 /** The part of a running job's line that says which part it is on and what it is doing. */
-const legAndStage = (job: PullJob): string => {
+const legAndStage = (job: PullJob, nowMs = Date.now()): string => {
   if (job.pipeline === "staged-v1") {
     if (job.stage === "checking") return "checking which teams need importing";
     if (job.stage === "loading") return "loading the cloud copy for final processing";
     if (job.stage === "filing")
-      return `matching opponents and assigning ages, ${job.progress.done.toLocaleString()} of ${job.progress.total.toLocaleString()} downloaded teams processed`;
+      return `${job.detail || "matching opponents and assigning ages"}, ${job.progress.done.toLocaleString()} of ${job.progress.total.toLocaleString()} downloaded teams processed`;
     if (job.stage === "tidying") return job.detail || "running the final tidy";
     if (job.stage === "saving") return "saving the finished import";
     if (job.error) return `retrying from the saved checkpoint: ${job.error}`;
     if (job.stage === "fetching") {
+      const hold = Date.parse(job.download?.holdUntil ?? "") - nowMs;
+      if (hold > 0)
+        return `waiting on GameChanger; next requests in ${Math.ceil(hold / 1000).toLocaleString()} seconds`;
       if (job.detail) return job.detail;
       const downloaded = Math.max(0, job.progress.done - job.progress.failed);
       const remaining = Math.max(0, job.progress.total - job.progress.done);
@@ -462,6 +465,25 @@ export const STARTING_MS = 2 * 60_000;
 /** Warn about absent progress without claiming that a worker has definitely stopped. */
 export const PULL_STALE_MS = 5 * 60_000;
 
+/** Whole-import download counts and measured rate, separate from the current batch. */
+export const describeImportMetrics = (job: PullJob, nowMs = Date.now()): string | null => {
+  if (!job.download) return null;
+  const { done, total, perMinute, holdUntil } = job.download;
+  const percent = total > 0 ? Math.floor((done * 100) / total) : 100;
+  const holding = Date.parse(holdUntil ?? "") > nowMs;
+  const speed = holding
+    ? "paused for GameChanger"
+    : perMinute > 0
+      ? `${Math.round(perMinute).toLocaleString()} teams/min measured`
+      : "measuring speed";
+  const started = Date.parse(job.stageStartedAt ?? "");
+  const seconds = Math.floor(Math.max(0, nowMs - started) / 1000);
+  const age = Number.isFinite(seconds)
+    ? ` Current stage: ${seconds < 60 ? `${seconds} sec` : `${Math.floor(seconds / 60)} min ${seconds % 60} sec`}.`
+    : "";
+  return `Download progress: ${done.toLocaleString()} of ${total.toLocaleString()} teams (${percent}%). ${speed}.${age}`;
+};
+
 /** The server's timestamp, independent of whether the browser's latest status read succeeded. */
 export const describePullUpdate = (
   job: PullJob,
@@ -471,9 +493,10 @@ export const describePullUpdate = (
   if (job.pipeline === "staged-v1" && job.heartbeatAt && !isOver(job)) {
     const alive = nowMs - Date.parse(job.heartbeatAt) < 120_000;
     const advancing = nowMs - Date.parse(job.progressAt ?? job.updatedAt) < PULL_STALE_MS;
+    const holding = Date.parse(job.download?.holdUntil ?? "") > nowMs;
     return {
-      stale: !alive || !advancing,
-      message: `Worker heartbeat ${agoFrom(job.heartbeatAt, nowMs)}. Last progress ${agoFrom(job.progressAt ?? job.updatedAt, nowMs)}.${alive ? (advancing ? " The worker is responding." : " The worker is connected, but progress has not advanced recently.") : " No recent heartbeat; checking whether the worker is restarting."}`,
+      stale: !alive || (!advancing && !holding),
+      message: `Worker heartbeat ${agoFrom(job.heartbeatAt, nowMs)}. Last progress ${agoFrom(job.progressAt ?? job.updatedAt, nowMs)}.${alive ? (holding ? " The worker is responding and waiting on GameChanger." : advancing ? " The worker is responding." : " The worker is connected, but progress has not advanced recently.") : " No recent heartbeat; checking whether the worker is restarting."}`,
     };
   }
   if (!Number.isFinite(updated)) {
@@ -508,5 +531,5 @@ export const describeProgress = (pull: WatchedPull, nowMs: number = Date.now()):
     const waiting = `Pulling ${teams} teams in the cloud: ${starting ? "starting" : "waiting to start"}, sent ${agoFrom(sent.sentAt, nowMs)}.`;
     return job.error ? `${waiting} Its last try said: ${job.error}` : waiting;
   }
-  return `Pulling ${teams} teams in the cloud: ${legAndStage(job)}.`;
+  return `Pulling ${teams} teams in the cloud: ${legAndStage(job, nowMs)}.`;
 };

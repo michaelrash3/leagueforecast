@@ -111,6 +111,24 @@ describe("a pull's job", () => {
     expect(coercePullJob(fieldsOf(firestoreFieldsOf(catchUp)))).toEqual(catchUp);
     expect(coercePullJob({ ...job(), refresh: "yes" })).toBeNull();
   });
+  it("reads the optional import progress and report fields while rejecting invalid counts", () => {
+    const status = {
+      ...job(),
+      stageStartedAt: job().createdAt,
+      download: { total: 20, done: 4, perMinute: 120, holdUntil: null, holdReason: null },
+      report: { rows: 2, ready: true },
+    };
+    expect(coercePullJob(fieldsOf(firestoreFieldsOf(status)))).toEqual(status);
+    for (const download of [
+      { ...status.download, done: 21 },
+      { ...status.download, perMinute: Infinity },
+      { ...status.download, perMinute: -1 },
+      { ...status.download, holdReason: "unknown" },
+    ])
+      expect(coercePullJob({ ...status, download })).toBeNull();
+    expect(coercePullJob({ ...status, report: { rows: -1, ready: true } })).toBeNull();
+    expect(coercePullJob({ ...status, report: { rows: 1, ready: "true" } })).toBeNull();
+  });
 
   it("is not read at all when it is of a newer format, or anything is missing or wrong", () => {
     const good = job() as unknown as Record<string, unknown>;

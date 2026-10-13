@@ -112,6 +112,8 @@ export type FirebaseCloud = {
 /** A pull's documents as a device sees them: written once, then read until it is over. */
 export type PullJobStore = {
   recent?: () => Promise<{ jobId: string; job: PullJob }[]>;
+  /** Member-only CSV pieces for the skipped teams, retained after the schedules are cleaned up. */
+  report?: (jobId: string) => Promise<readonly string[]>;
   /** Writes the list's pieces, and the job last, so a job is never there without its list. */
   put: (jobId: string, job: PullJob, pieces: readonly Uint8Array[]) => Promise<void>;
   read: (jobId: string) => Promise<PullJob | null>;
@@ -146,6 +148,25 @@ const retryFirestore = async <T>(work: () => Promise<T>): Promise<T> => {
 };
 
 export const firestoreJobs = (db: Firestore): PullJobStore => ({
+  report: async (jobId) => {
+    const { readImportReportCsv } = await import("./importReports");
+    return retryFirestore(async () => {
+      const snap = await getDoc(doc(db, jobPath(jobId)));
+      const job = snap.exists() ? coercePullJob(snap.data()) : null;
+      if (!job?.report?.ready) throw new Error("The skipped-team report is still being prepared.");
+      return readImportReportCsv(
+        async (path) => {
+          const snap = await getDoc(doc(db, path));
+          if (!snap.exists()) return null;
+          const value = snap.data();
+          if (value.data instanceof Bytes) value.data = value.data.toUint8Array();
+          return value;
+        },
+        jobId,
+        job.report.rows
+      );
+    });
+  },
   recent: async () =>
     (
       await getDocs(query(collection(db, "pullJobs"), orderBy("createdAt", "desc"), limit(20)))

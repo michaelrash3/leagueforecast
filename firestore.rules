@@ -160,6 +160,13 @@ service cloud.firestore {
           && request.resource.data.data is bytes
           && request.resource.data.data.size() <= 1000000;
       }
+      // Reports expose only skipped-team details. Raw schedules and execution leases stay private.
+      match /reports/{kind} {
+        allow get: if isMember() && kind in ["download", "filing"];
+      }
+      match /reportChunks/{piece} {
+        allow get: if isMember();
+      }
     }
 
     // The list. A member may read their own entry, which is how the app learns whether they are

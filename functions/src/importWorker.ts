@@ -3,6 +3,7 @@ import { handlerFetch } from "../../scripts/handlerFetch";
 import { firestoreRestDocuments, firestoreRestStore } from "../../src/lib/cloud/firestoreRest";
 import { restJobDocs } from "../../src/lib/cloud/pullJobRunner";
 import { restImportArtifacts, runStagedImport } from "../../src/lib/cloud/stagedImport";
+import { restImportReports } from "../../src/lib/cloud/importReports";
 import { fetchGcTeams } from "../../src/lib/gameChangerClient";
 import { resetTeamRankingsStore } from "../../src/lib/teamRankingsStorage";
 import { restAccess } from "./pullAccess";
@@ -14,6 +15,7 @@ try {
   await runStagedImport(jobId, {
     jobs: restJobDocs(docs),
     artifacts: restImportArtifacts(docs, jobId),
+    reports: restImportReports(docs, jobId),
     store: firestoreRestStore({ ...access, writable: true }),
     fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
     now: () => new Date(),

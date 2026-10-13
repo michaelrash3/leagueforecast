@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
 import { newPullJob, type PullJob } from "../../lib/cloud/pullJobs";
 import LiveCloudPulls, { PULL_LOOK_MS, useWatchedPulls } from "./LiveCloudPulls";
+import { downloadCsv } from "../../lib/download";
+vi.mock("../../lib/download", () => ({ downloadCsv: vi.fn() }));
 
 const NOW = "2026-10-12T23:00:00.000Z";
 const ID = "0123456789abcdef0123456789abcdef";
@@ -59,6 +61,7 @@ function Panel({ sender }: { sender: PullSender }) {
 }
 
 beforeEach(() => {
+  vi.mocked(downloadCsv).mockClear();
   vi.useFakeTimers();
   vi.setSystemTime(new Date(NOW));
   localStorage.clear();
@@ -84,6 +87,56 @@ const tick = async (ms = PULL_LOOK_MS) => {
 };
 
 describe("visibility of a cloud pull", () => {
+  it("shows overall progress and downloads the retained skipped-team report", async () => {
+    const { sender, read } = cloud();
+    read.mockResolvedValue(
+      job({
+        pipeline: "staged-v1",
+        stage: "fetching",
+        stageStartedAt: NOW,
+        download: { total: 10000, done: 2500, perMinute: 600, holdUntil: null, holdReason: null },
+        report: { rows: 3, ready: true },
+      })
+    );
+    const report = vi.fn(async () => ["CSV header", "\nCSV rows"]);
+    sender.jobs.report = report;
+    await open(sender);
+    expect(screen.getByText(/Download progress: 2,500 of 10,000 teams \(25%\)/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Download skipped teams so far" }));
+    });
+    expect(report).toHaveBeenCalledWith(ID);
+    expect(downloadCsv).toHaveBeenCalledWith("team-import-skipped-01234567.csv", [
+      "CSV header",
+      "\nCSV rows",
+    ]);
+  });
+  it("keeps report download available after completion and offers a retry when the read fails", async () => {
+    const { sender, read } = cloud();
+    read.mockResolvedValue(
+      job({
+        pipeline: "staged-v1",
+        status: "done",
+        end: "finished",
+        report: { rows: 3, ready: true },
+      })
+    );
+    const report = vi
+      .fn<() => Promise<readonly string[]>>()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(["CSV"]);
+    sender.jobs.report = report;
+    await open(sender);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Download skipped teams" }));
+    });
+    expect(screen.getByText("The report could not be read. Try again.")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Download skipped teams" }));
+    });
+    expect(downloadCsv).toHaveBeenCalledWith("team-import-skipped-01234567.csv", ["CSV"]);
+    expect(screen.queryByText("The report could not be read. Try again.")).toBeNull();
+  });
   it("shows the current part, server update age, saved counts, and a manual check", async () => {
     const { sender } = cloud();
     await open(sender);

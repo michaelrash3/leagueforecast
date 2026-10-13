@@ -3948,11 +3948,16 @@ retries or hold up the final tidy. Progress distinguishes downloaded, skipped an
 remaining teams. Warning logs record failure reasons and bounded diagnostic samples.
 Resuming an older incomplete batch keeps its successful downloads, skips its recorded
 failures and asks only for teams that had no answer yet.
+Checkpoint pointers include small, validated count summaries, so a restart counts
+completed downloads without reading their schedules. Older checkpoints gain summaries
+after their first verified read.
 
 Once all downloads are accounted for, it loads the latest pool once and streams
 saved schedules through one importer. Opponent matches and ages are settled before
 one final tidy phase and one commit. Clubs skipped before their opponents arrived
-are reconsidered from the saved schedules. A concurrent save can require a rebase,
+are reconsidered in their original order. Age passes keep a bounded prefix of unresolved
+schedules in memory (up to 2,000 teams and 32 MiB); any remaining unresolved teams read
+only their relevant saved checkpoints. A concurrent save can require a rebase,
 which uses those downloads again; a replaced copy is never overwritten. The commit
 asks the existing rebuild trigger to publish rankings once.
 
@@ -3976,6 +3981,13 @@ The browser retries transient upload, start and status failures with bounded bac
 until confirmed. Repeated uploads reconnect to the same import on that device.
 The Import page also lists the latest 20 cloud jobs, so another signed-in device
 can see their progress, and links to Cloud Run execution details.
+Progress also shows overall download counts and percentage, measured teams per minute,
+time in the current phase, numbered age passes and intentional GameChanger waits.
+Members can download a CSV of skipped downloads and teams not filed, including their
+reasons. The report is available during an import and after completion; its hash-checked
+chunks are stored separately under `reports` and `reportChunks`, survive schedule cleanup
+and expose no raw schedules. Browser clients can read these report documents, but cannot
+write them or read the private download checkpoints.
 
 **Legacy and refresh legs.** Older list jobs and budgeted refreshes still use
 `pullJobRunner.ts` and `runCloudPull`; their frozen leg counters are not silently

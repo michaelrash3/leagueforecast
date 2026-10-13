@@ -6,6 +6,7 @@ import {
   describeEnd,
   describeProgress,
   describePullUpdate,
+  describeImportMetrics,
   PULL_STALE_MS,
   STARTING_MS,
   dueForAsking,
@@ -245,6 +246,42 @@ const waitingPull = (patch: Partial<PullJob> = {}) => {
 
 describe("a pull still waiting to start", () => {
   const at = (minutes: number) => Date.parse(NOW) + minutes * 60_000;
+  it("shows whole-import download progress, measured speed, and the stage duration", () => {
+    const pull = waitingPull({
+      pipeline: "staged-v1",
+      status: "running",
+      stage: "fetching",
+      stageStartedAt: NOW,
+      download: { total: 10000, done: 2500, perMinute: 600, holdUntil: null, holdReason: null },
+    });
+    expect(describeImportMetrics(pull.job, at(2))).toBe(
+      "Download progress: 2,500 of 10,000 teams (25%). 600 teams/min measured. Current stage: 2 min 0 sec."
+    );
+    pull.job.download!.holdUntil = new Date(at(10)).toISOString();
+    expect(describeImportMetrics(pull.job, at(2))).toContain("paused for GameChanger");
+    expect(describeProgress(pull, at(2))).toContain(
+      "waiting on GameChanger; next requests in 480 seconds"
+    );
+  });
+  it("does not call a scheduled GameChanger pause a stalled worker", () => {
+    const pull = waitingPull({
+      pipeline: "staged-v1",
+      status: "running",
+      stage: "fetching",
+      heartbeatAt: new Date(at(8)).toISOString(),
+      progressAt: NOW,
+      download: {
+        total: 10000,
+        done: 2500,
+        perMinute: 600,
+        holdUntil: new Date(at(10)).toISOString(),
+        holdReason: "throttled",
+      },
+    });
+    expect(describePullUpdate(pull.job, at(8))).toMatchObject({ stale: false });
+    expect(describePullUpdate(pull.job, at(8)).message).toContain("waiting on GameChanger");
+    expect(describePullUpdate(pull.job, at(11)).stale).toBe(true);
+  });
 
   it("separates downloaded teams from skipped downloads in staged import progress and completion", () => {
     const pull = waitingPull({

@@ -64,6 +64,14 @@ export type PullJobTally = {
   gamesUpdated: number;
 };
 
+export type ImportDownloadStatus = {
+  total: number;
+  done: number;
+  perMinute: number;
+  holdUntil: string | null;
+  holdReason: "throttled" | "refused" | null;
+};
+
 /**
  * What a "Refresh now" job knows of its refresh. Its teams are worked out once, by its first leg,
  * and kept as the job's list, so every leg after walks the list worked out at the start: worked out
@@ -88,6 +96,9 @@ export type PullJob = {
   heartbeatAt?: string;
   progressAt?: string;
   detail?: string;
+  stageStartedAt?: string;
+  download?: ImportDownloadStatus;
+  report?: { rows: number; ready: boolean };
   /** Work already published by a legacy import before migrating its remaining downloads. */
   priorTally?: PullJobTally;
   /** The list, as its pieces make it: the SHA-256 of its JSON, its teams, and its pieces. */
@@ -261,6 +272,29 @@ const whole = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 const text = (value: unknown): value is string => typeof value === "string";
 
+const downloadOf = (raw: unknown): ImportDownloadStatus | null | undefined => {
+  if (raw === undefined) return undefined;
+  if (
+    !isRecord(raw) ||
+    !whole(raw.total) ||
+    !whole(raw.done) ||
+    raw.done > raw.total ||
+    typeof raw.perMinute !== "number" ||
+    !Number.isFinite(raw.perMinute) ||
+    raw.perMinute < 0 ||
+    !(raw.holdUntil === null || text(raw.holdUntil)) ||
+    ![null, "throttled", "refused"].includes(raw.holdReason as string | null)
+  )
+    return null;
+  return {
+    total: raw.total,
+    done: raw.done,
+    perMinute: raw.perMinute,
+    holdUntil: raw.holdUntil,
+    holdReason: raw.holdReason as ImportDownloadStatus["holdReason"],
+  };
+};
+
 /** A job's refresh as read, or null for one that is not one; undefined where there is none. */
 const rotaOf = (raw: unknown): PullJobRota | null | undefined => {
   if (raw === undefined) return undefined;
@@ -309,11 +343,18 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
   const tally = tallyOf(raw.tally);
   const priorTally = raw.priorTally === undefined ? undefined : tallyOf(raw.priorTally);
   const rota = rotaOf(raw.rota);
+  const download = downloadOf(raw.download);
   if (
     !(raw.pipeline === undefined || raw.pipeline === "staged-v1") ||
     !(raw.heartbeatAt === undefined || text(raw.heartbeatAt)) ||
     !(raw.progressAt === undefined || text(raw.progressAt)) ||
     !(raw.detail === undefined || text(raw.detail)) ||
+    !(raw.stageStartedAt === undefined || text(raw.stageStartedAt)) ||
+    download === null ||
+    !(
+      raw.report === undefined ||
+      (isRecord(raw.report) && whole(raw.report.rows) && typeof raw.report.ready === "boolean")
+    ) ||
     priorTally === null ||
     rota === null ||
     !isRecord(list) ||
@@ -353,6 +394,11 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     ...(text(raw.heartbeatAt) ? { heartbeatAt: raw.heartbeatAt } : {}),
     ...(text(raw.progressAt) ? { progressAt: raw.progressAt } : {}),
     ...(text(raw.detail) ? { detail: raw.detail } : {}),
+    ...(text(raw.stageStartedAt) ? { stageStartedAt: raw.stageStartedAt } : {}),
+    ...(download ? { download } : {}),
+    ...(isRecord(raw.report)
+      ? { report: { rows: raw.report.rows as number, ready: raw.report.ready as boolean } }
+      : {}),
     ...(priorTally ? { priorTally } : {}),
     list: { hash: list.hash, teams: list.teams, pieces: list.pieces },
     seasonYears: raw.seasonYears,
