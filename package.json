@@ -32,7 +32,7 @@
     "live:bench": "node --disable-warning=ExperimentalWarning --experimental-strip-types --import ./scripts/tsRegister.mjs scripts/liveBench.ts"
   },
   "dependencies": {
-    "firebase": "^12.19.0",
+    "firebase": "^13.0.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
