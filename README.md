@@ -3937,6 +3937,12 @@ It reads only team identities and exclusion lists to select downloads, then keep
 hash-checked compressed checkpoints in `pullJobs/{jobId}/artifacts`. Download batches
 contain 2,000 teams. Clean download concurrency carries forward between batches;
 GameChanger pushback lowers it rather than restarting at full speed.
+Each team gets one download attempt. Failed downloads are counted as skipped, and the
+import continues with the remaining teams; they do not consume Cloud Run execution
+retries or hold up the final tidy. Progress distinguishes downloaded, skipped and
+remaining teams. Warning logs record failure reasons and bounded diagnostic samples.
+Resuming an older incomplete batch keeps its successful downloads, skips its recorded
+failures and asks only for teams that had no answer yet.
 
 Once all downloads are accounted for, it loads the latest pool once and streams
 saved schedules through one importer. Opponent matches and ages are settled before
@@ -3948,8 +3954,9 @@ asks the existing rebuild trigger to publish rankings once.
 An execution lease prevents duplicate workers. A supervisor keeps a heartbeat alive
 while its worker matches and tidies; progress timestamps and tidy-step details are
 separate. Cloud Run retries interrupted executions from checkpoints, without fetching
-successful downloads again. Stop keeps checkpoints and leaves a partial pool unpublished;
-Resume continues the same job. Stop during the final commit waits for that commit.
+teams that already have a success or failure recorded. Stop keeps checkpoints and leaves
+a partial pool unpublished. Resume continues the same job. Stop during the final commit
+waits for that commit.
 Failed or stopped legacy list imports can resume with the staged importer, preserving
 previously filed work. Budgeted refresh jobs retain their existing leg sizes and caps.
 

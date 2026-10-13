@@ -19,6 +19,10 @@ try {
     now: () => new Date(),
     onProgress: (detail) =>
       parentPort?.postMessage({ progress: true, ...(detail ? { detail } : {}) }),
+    onDownloadReport: (report) =>
+      console.warn(
+        JSON.stringify({ severity: "WARNING", event: "import-download-failures", jobId, ...report })
+      ),
   });
   parentPort?.postMessage({ done: true });
 } catch (error) {

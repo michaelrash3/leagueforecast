@@ -1,5 +1,11 @@
-import type { GcTeamListEntry, GcTeamResponse, GcTeamSchedule } from "../gameChangerApi";
+import type {
+  GcFetchErrorReason,
+  GcTeamListEntry,
+  GcTeamResponse,
+  GcTeamSchedule,
+} from "../gameChangerApi";
 import { PULL_CONCURRENCY, PULL_MAX_CONCURRENCY } from "../gameChangerClient";
+import { GC_FETCH_REASON_LABEL } from "../gameChangerReport";
 import { resetTeamRankingsStore } from "../teamRankingsStorage";
 import { finishStagedImport, selectImportTeams, type CloudPullDeps } from "./cloudRunner";
 import { hashJson, packHashed, unpackChunks } from "./cloudPack";
@@ -53,23 +59,63 @@ export const restImportArtifacts = (
 
 type ImportPlan = { copy: string; entries: GcTeamListEntry[]; batchTeams: number };
 type Batch = { answers: [string, GcTeamResponse][]; complete: boolean };
+export type ImportDownloadReport = {
+  batch: number;
+  downloaded: number;
+  skipped: number;
+  reasons: Partial<Record<GcFetchErrorReason, number>>;
+  samples: { teamId: string; error: Extract<GcTeamResponse, { ok: false }> }[];
+};
 type StagedDeps = Pick<CloudPullDeps, "store" | "fetchTeams" | "now"> & {
   jobs: JobDocs;
   artifacts: ImportArtifacts;
   signal?: AbortSignal;
   /** Parent process keeps heartbeats alive even during synchronous matching and tidy. */
   onProgress?: (detail?: string) => void;
+  onDownloadReport?: (report: ImportDownloadReport) => void;
 };
 
-const RETRYABLE = new Set([
-  "network",
-  "timeout",
-  "throttled",
-  "upstream-error",
-  "unrecognized",
-  "blocked",
-]);
-const retryable = (answer: GcTeamResponse): boolean => !answer.ok && RETRYABLE.has(answer.reason);
+const downloadReport = (
+  leg: number,
+  answers: ReadonlyMap<string, GcTeamResponse>
+): ImportDownloadReport => {
+  const report: ImportDownloadReport = {
+    batch: leg + 1,
+    downloaded: 0,
+    skipped: 0,
+    reasons: {},
+    samples: [],
+  };
+  for (const [teamId, answer] of answers) {
+    if (answer.ok) {
+      report.downloaded++;
+      continue;
+    }
+    report.skipped++;
+    const firstOfReason = !report.reasons[answer.reason];
+    report.reasons[answer.reason] = (report.reasons[answer.reason] ?? 0) + 1;
+    // One bounded diagnostic per reason, without successful schedules or request headers.
+    if (firstOfReason)
+      report.samples.push({
+        teamId,
+        error: {
+          ...answer,
+          message: answer.message.slice(0, 500),
+          ...(answer.diagnostics
+            ? {
+                diagnostics: {
+                  ...answer.diagnostics,
+                  ...(answer.diagnostics.bodyPreview
+                    ? { bodyPreview: answer.diagnostics.bodyPreview.slice(0, 300) }
+                    : {}),
+                },
+              }
+            : {}),
+        },
+      });
+  }
+  return report;
+};
 
 /** One execution may outlive HTTP. Restarts use the saved selection and completed downloads. */
 export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<void> => {
@@ -93,7 +139,7 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
     await say({ status: "cancelled", stage: "waiting" });
     return;
   }
-  await say({ status: "running", stage: "checking", error: null });
+  await say({ status: "running", stage: "checking", error: null, detail: "" });
   let plan = await artifacts.read<ImportPlan>("plan");
   if (!plan) {
     const entries = await unpackJobList(job.list, (i) => jobs.piece(jobId, i));
@@ -132,60 +178,81 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
     let batch = await artifacts.read<Batch>(name);
     const answers = new Map(batch?.answers ?? []);
     if (!batch?.complete) {
-      const pending = entries
-        .map((e) => e.teamId)
-        .filter((id) => !answers.has(id) || retryable(answers.get(id)!));
+      const pending = entries.map((e) => e.teamId).filter((id) => !answers.has(id));
       let done = entries.length - pending.length;
-      let batchFailed = 0;
+      let batchFailed = [...answers.values()].filter((a) => !a.ok).length;
       let progressWrite = Promise.resolve();
       await say({
         stage: "fetching",
         legsDone: leg,
-        progress: { done, total: entries.length, failed: 0 },
+        progress: { done, total: entries.length, failed: batchFailed },
+        detail: "",
       });
       let lastReport = 0;
-      const fetched = await deps.fetchTeams(pending, {
-        concurrency,
-        maxConcurrency,
-        onConcurrency: (workers) => {
-          concurrency = workers;
-        },
-        onHold: () => {
-          concurrency = PULL_CONCURRENCY;
-          maxConcurrency = PULL_CONCURRENCY;
-        },
-        ...(deps.signal ? { signal: deps.signal } : {}),
-        onProgress: ({ result }) => {
-          done++;
-          if (!result.ok) batchFailed++;
-          if (now().getTime() - lastReport >= 10_000) {
-            lastReport = now().getTime();
-            const progress = { done, total: entries.length, failed: batchFailed };
-            progressWrite = progressWrite.then(() => say({ progress })).catch(() => undefined);
-          }
-        },
-      });
+      let accessError: string | undefined;
+      const fetched =
+        pending.length === 0
+          ? new Map<string, GcTeamResponse>()
+          : await deps.fetchTeams(pending, {
+              concurrency,
+              maxConcurrency,
+              retries: 0,
+              stopOnRefused: false,
+              onMembersOnly: (message) => {
+                accessError = message;
+              },
+              onConcurrency: (workers) => {
+                concurrency = workers;
+              },
+              onHold: () => {
+                concurrency = PULL_CONCURRENCY;
+                maxConcurrency = PULL_CONCURRENCY;
+              },
+              ...(deps.signal ? { signal: deps.signal } : {}),
+              onProgress: ({ result }) => {
+                done++;
+                if (!result.ok) batchFailed++;
+                if (now().getTime() - lastReport >= 10_000) {
+                  lastReport = now().getTime();
+                  const progress = { done, total: entries.length, failed: batchFailed };
+                  progressWrite = progressWrite
+                    .then(() => say({ progress }))
+                    .catch(() => undefined);
+                }
+              },
+            });
       await progressWrite;
-      for (const [id, answer] of fetched) answers.set(id, answer);
+      for (const id of pending) {
+        const answer = fetched.get(id);
+        if (answer) answers.set(id, answer);
+      }
+      // A stop or a broken download service must keep unfinished ids available for resume.
+      if (accessError || (await stopped())) {
+        await artifacts.write(name, { answers: [...answers], complete: false });
+        if (accessError)
+          throw new Error(`The importer could not access its download service: ${accessError}`);
+        await say({
+          status: "cancelled",
+          stage: "waiting",
+          error: "Downloaded batches are kept; nothing from this import was published.",
+        });
+        return;
+      }
+      for (const id of pending)
+        if (!answers.has(id))
+          answers.set(id, {
+            ok: false,
+            reason: "network",
+            message: "No download result was returned for this team. Skipped during the import.",
+          });
       batch = {
         answers: [...answers],
-        complete: entries.every((e) => answers.has(e.teamId) && !retryable(answers.get(e.teamId)!)),
+        complete: true,
       };
       await artifacts.write(name, batch);
-      if (!batch.complete) {
-        await say({
-          stage: "waiting",
-          progress: {
-            done,
-            total: entries.length,
-            failed: [...answers.values()].filter((a) => !a.ok).length,
-          },
-          error:
-            "GameChanger is not answering some teams. Retrying the unfinished downloads; completed downloads are kept.",
-        });
-        throw new Error("Some team downloads need another attempt.");
-      }
     }
+    const report = downloadReport(leg, new Map(batch.answers));
+    if (report.skipped > 0) deps.onDownloadReport?.(report);
     asked += entries.length;
     answered += batch.answers.filter(([, a]) => a.ok).length;
     failed = asked - answered;
@@ -198,6 +265,16 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
         failed: batch.answers.filter(([, a]) => !a.ok).length,
       },
       tally: { ...prior, asked, answered, failed },
+      detail: `download batch ${leg + 1} of ${legs} complete, ${report.downloaded.toLocaleString()} downloaded, ${report.skipped.toLocaleString()} skipped${
+        report.skipped > 0
+          ? ` (${Object.entries(report.reasons)
+              .map(
+                ([reason, count]) =>
+                  `${GC_FETCH_REASON_LABEL[reason as GcFetchErrorReason]}: ${count?.toLocaleString()}`
+              )
+              .join("; ")})`
+          : ""
+      }`,
       error: null,
     });
   }
