@@ -7209,6 +7209,10 @@ menu, **Change billing**) and run **Firebase functions** to bring the functions 
 
 ### Cached live data and reconnection
 
+The Import refresh panel keeps a validated status snapshot per account, so opening
+it shows saved counts while the cloud reconnects. Cached catch-up actions wait for
+fresh status before offering their team lists.
+
 Live rankings, games and scouting views use IndexedDB independently of the browser
 pool, which stays closed in cloud mode. Saved views render before a network request
 for their replacements, and remain visible during background refreshes or a dropped

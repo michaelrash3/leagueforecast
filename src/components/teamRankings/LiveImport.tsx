@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PullSender } from "../../lib/cloud/cloudPulls";
+import { loadCloudState } from "../../lib/cloud/cloudState";
+import { cachedImportStatus, keepImportStatus } from "../../lib/live/importStatusCache";
 import { todayIsoDay } from "../../lib/date";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { parseGcOrgList } from "../../lib/gameChangerApi";
@@ -67,6 +69,9 @@ export default function LiveImport({
 }) {
   const { locked, ask, edit, say } = edits;
   const [status, setStatus] = useState<ImportStatus | null>(null);
+  const [cached, setCached] = useState(false);
+  const fresh = useRef(false);
+  const uid = loadCloudState().uid;
   const [unread, setUnread] = useState(false);
   const [asked, setAsked] = useState(0);
   const askAgain = useCallback(() => setAsked((times) => times + 1), []);
@@ -83,20 +88,36 @@ export default function LiveImport({
   const [showWeek, setShowWeek] = useState(false);
 
   useEffect(() => {
+    let alive = true;
+    void cachedImportStatus(uid).then((saved) => {
+      if (alive && saved && !fresh.current) {
+        setStatus(saved.answer);
+        setCached(true);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [uid]);
+
+  useEffect(() => {
     if (locked) return;
     let alive = true;
     void ask({ kind: "import.status", at: now() }).then((answer) => {
       if (!alive) return;
       setUnread(answer === null);
       if (!answer) return;
+      fresh.current = true;
+      setCached(false);
       setStatus(answer);
+      void keepImportStatus(uid, answer, now());
       // A status read with no edit on its way has the cadence as the copy keeps it.
       if (!sendingNow.current) setChosen(null);
     });
     return () => {
       alive = false;
     };
-  }, [locked, ask, now, asked]);
+  }, [locked, ask, now, asked, uid]);
 
   const choose = (cadence: RefreshCadence) => {
     const was = chosen;
@@ -151,8 +172,8 @@ export default function LiveImport({
       pulls={pulls}
       watching={watching}
       locked={locked}
-      agelessIds={status?.agelessIds ?? NO_IDS}
-      rosterIds={status?.rosterIds ?? NO_IDS}
+      agelessIds={cached ? NO_IDS : (status?.agelessIds ?? NO_IDS)}
+      rosterIds={cached ? NO_IDS : (status?.rosterIds ?? NO_IDS)}
       playing={segmentOn(todayIsoDay()).year}
       device={device}
       now={now}
@@ -166,7 +187,7 @@ export default function LiveImport({
    */
   const refreshNow = (
     <LiveRefreshNow
-      offer={status?.refreshNow}
+      offer={cached ? undefined : status?.refreshNow}
       locked={locked}
       pulls={pulls}
       watching={watching}
@@ -209,6 +230,11 @@ export default function LiveImport({
   return (
     <>
       <div className={`${card} p-5`}>
+        {cached ? (
+          <p role="status" className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+            Showing saved refresh status while checking for updates.
+          </p>
+        ) : null}
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           The nightly refresh
         </h2>
