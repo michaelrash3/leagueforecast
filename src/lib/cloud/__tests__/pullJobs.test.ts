@@ -87,7 +87,7 @@ describe("a pull's job", () => {
       status: "queued",
       pipeline: "staged-v1",
       legTeams: IMPORT_BATCH_TEAMS,
-      legs: 31,
+      legs: 7,
       legsDone: 0,
       stopAsked: false,
       stage: "waiting",

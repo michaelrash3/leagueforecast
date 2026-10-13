@@ -3935,8 +3935,13 @@ accounts on the copy's list, as the copy is, checked as the proxy checks them
 launches it and returns immediately; the import is not tied to a 30-minute HTTP request.
 It reads only team identities and exclusion lists to select downloads, then keeps
 hash-checked compressed checkpoints in `pullJobs/{jobId}/artifacts`. Download batches
-contain 2,000 teams. Clean download concurrency carries forward between batches;
-GameChanger pushback lowers it rather than restarting at full speed.
+contain 10,000 teams. Every 2,000 completed answers is saved as a checkpoint while the
+rest of the batch continues downloading; downloads do not pause to wait for each save.
+Saved-download counts advance after those writes complete. Existing 2,000-team
+checkpoints keep their identities when an older import resumes with larger batches.
+Checkpoint answers retain the selection order even when downloads finish out of order.
+Clean download concurrency carries forward between batches; GameChanger pushback
+lowers it rather than restarting at full speed.
 Each team gets one download attempt. Failed downloads are counted as skipped, and the
 import continues with the remaining teams; they do not consume Cloud Run execution
 retries or hold up the final tidy. Progress distinguishes downloaded, skipped and

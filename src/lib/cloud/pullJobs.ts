@@ -15,7 +15,7 @@ import type { CloudPullEnd } from "./cloudRunner";
  *   packed as the copy packs a value (`cloudPack.ts`) and checked against its fingerprint on the
  *   way back, so a list is never pulled half from one upload and half from another.
  *
- * New lists use the durable staged importer: 2,000-team download checkpoints and one final
+ * New lists use the durable staged importer: 10,000-team download batches, 2,000-team checkpoints and one final
  * processing/tidy/save phase (`stagedImport.ts`). Legacy jobs and budgeted refreshes retain their
  * frozen leg sizes and task runner (`pullJobRunner.ts`).
  */
@@ -27,8 +27,10 @@ export const JOB_FORMAT = 1;
  * new CSV imports use IMPORT_BATCH_TEAMS and do not load or tidy the pool between batches.
  */
 export const LEG_TEAMS = 25_000;
-/** CSV downloads checkpoint every batch; only the final phase loads and tidies the pool. */
-export const IMPORT_BATCH_TEAMS = 2_000;
+/** A continuous download run; checkpoints are saved while its requests keep running. */
+export const IMPORT_BATCH_TEAMS = 10_000;
+/** Small durable artifacts, independent of the work batch and preserved across upgrades. */
+export const IMPORT_CHECKPOINT_TEAMS = 2_000;
 
 export const jobPath = (jobId: string): string => `pullJobs/${jobId}`;
 export const jobPiecePath = (jobId: string, index: number): string =>

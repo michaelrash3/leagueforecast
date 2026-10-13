@@ -11,7 +11,13 @@ import { finishStagedImport, selectImportTeams, type CloudPullDeps } from "./clo
 import { hashJson, packHashed, unpackChunks } from "./cloudPack";
 import type { FirestoreRestDocuments } from "./firestoreRest";
 import type { JobDocs } from "./pullJobRunner";
-import { IMPORT_BATCH_TEAMS, NO_TALLY, unpackJobList, type PullJob } from "./pullJobs";
+import {
+  IMPORT_BATCH_TEAMS,
+  IMPORT_CHECKPOINT_TEAMS,
+  NO_TALLY,
+  unpackJobList,
+  type PullJob,
+} from "./pullJobs";
 
 /** Hash-checked artifacts outside the live copy. Only the server writes or reads these. */
 export type ImportArtifacts = {
@@ -61,6 +67,7 @@ type ImportPlan = { copy: string; entries: GcTeamListEntry[]; batchTeams: number
 type Batch = { answers: [string, GcTeamResponse][]; complete: boolean };
 export type ImportDownloadReport = {
   batch: number;
+  checkpoint?: number;
   downloaded: number;
   skipped: number;
   reasons: Partial<Record<GcFetchErrorReason, number>>;
@@ -153,11 +160,15 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
       },
       job.priorTally ? new Date(job.createdAt) : undefined
     );
-    plan = { ...selected, batchTeams: IMPORT_BATCH_TEAMS };
+    plan = { ...selected, batchTeams: IMPORT_CHECKPOINT_TEAMS };
     await artifacts.write("plan", plan);
   }
-  const legs = Math.ceil(plan.entries.length / plan.batchTeams);
-  await say({ legs: Math.max(1, legs), legTeams: plan.batchTeams });
+  // Existing artifact boundaries stay frozen. Group them into larger continuous download runs.
+  const checkpoints = Math.ceil(plan.entries.length / plan.batchTeams);
+  const perRun = Math.max(1, Math.floor(IMPORT_BATCH_TEAMS / plan.batchTeams));
+  const legTeams = perRun * plan.batchTeams;
+  const legs = Math.ceil(checkpoints / perRun);
+  await say({ legs: Math.max(1, legs), legTeams });
   const prior = job.priorTally ?? NO_TALLY;
   let asked = prior.asked;
   let answered = prior.answered;
@@ -173,97 +184,157 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
       });
       return;
     }
-    const entries = plan.entries.slice(leg * plan.batchTeams, (leg + 1) * plan.batchTeams);
-    const name = `batch-${leg}`;
-    let batch = await artifacts.read<Batch>(name);
-    const answers = new Map(batch?.answers ?? []);
-    if (!batch?.complete) {
-      const pending = entries.map((e) => e.teamId).filter((id) => !answers.has(id));
-      let done = entries.length - pending.length;
-      let batchFailed = [...answers.values()].filter((a) => !a.ok).length;
-      let progressWrite = Promise.resolve();
-      await say({
-        stage: "fetching",
-        legsDone: leg,
-        progress: { done, total: entries.length, failed: batchFailed },
-        detail: "",
-      });
-      let lastReport = 0;
-      let accessError: string | undefined;
-      const fetched =
-        pending.length === 0
-          ? new Map<string, GcTeamResponse>()
-          : await deps.fetchTeams(pending, {
-              concurrency,
-              maxConcurrency,
-              retries: 0,
-              stopOnRefused: false,
-              onMembersOnly: (message) => {
-                accessError = message;
-              },
-              onConcurrency: (workers) => {
-                concurrency = workers;
-              },
-              onHold: () => {
-                concurrency = PULL_CONCURRENCY;
-                maxConcurrency = PULL_CONCURRENCY;
-              },
-              ...(deps.signal ? { signal: deps.signal } : {}),
-              onProgress: ({ result }) => {
-                done++;
-                if (!result.ok) batchFailed++;
-                if (now().getTime() - lastReport >= 10_000) {
-                  lastReport = now().getTime();
-                  const progress = { done, total: entries.length, failed: batchFailed };
-                  progressWrite = progressWrite
-                    .then(() => say({ progress }))
-                    .catch(() => undefined);
-                }
-              },
-            });
-      await progressWrite;
-      for (const id of pending) {
-        const answer = fetched.get(id);
-        if (answer) answers.set(id, answer);
-      }
-      // A stop or a broken download service must keep unfinished ids available for resume.
-      if (accessError || (await stopped())) {
-        await artifacts.write(name, { answers: [...answers], complete: false });
-        if (accessError)
-          throw new Error(`The importer could not access its download service: ${accessError}`);
-        await say({
-          status: "cancelled",
-          stage: "waiting",
-          error: "Downloaded batches are kept; nothing from this import was published.",
-        });
-        return;
-      }
-      for (const id of pending)
-        if (!answers.has(id))
-          answers.set(id, {
-            ok: false,
-            reason: "network",
-            message: "No download result was returned for this team. Skipped during the import.",
-          });
-      batch = {
-        answers: [...answers],
-        complete: true,
+    const chunks: {
+      index: number;
+      entries: GcTeamListEntry[];
+      answers: Map<string, GcTeamResponse>;
+      queued: boolean;
+    }[] = [];
+    const countSaved = (answers: ReadonlyMap<string, GcTeamResponse>) => {
+      asked += answers.size;
+      answered += [...answers.values()].filter((a) => a.ok).length;
+      failed = asked - answered;
+    };
+    for (let index = leg * perRun; index < Math.min((leg + 1) * perRun, checkpoints); index++) {
+      const batch = await artifacts.read<Batch>(`batch-${index}`);
+      const chunk = {
+        index,
+        entries: plan.entries.slice(index * plan.batchTeams, (index + 1) * plan.batchTeams),
+        answers: new Map(batch?.answers ?? []),
+        queued: batch?.complete === true,
       };
-      await artifacts.write(name, batch);
+      if (chunk.queued) countSaved(chunk.answers);
+      chunks.push(chunk);
     }
-    const report = downloadReport(leg, new Map(batch.answers));
-    if (report.skipped > 0) deps.onDownloadReport?.(report);
-    asked += entries.length;
-    answered += batch.answers.filter(([, a]) => a.ok).length;
-    failed = asked - answered;
+    const owners = new Map(
+      chunks.flatMap((chunk) => chunk.entries.map((e) => [e.teamId, chunk] as const))
+    );
+    const pending = [...owners].filter(([id, chunk]) => !chunk.answers.has(id)).map(([id]) => id);
+    const total = owners.size;
+    let done = total - pending.length;
+    let batchFailed = chunks.reduce(
+      (n, chunk) => n + [...chunk.answers.values()].filter((a) => !a.ok).length,
+      0
+    );
+    const downloader = new AbortController();
+    const abort = () => downloader.abort();
+    if (deps.signal?.aborted) abort();
+    deps.signal?.addEventListener("abort", abort, { once: true });
+    let checkpointWrite = Promise.resolve();
+    let storageError: unknown;
+    let progressWrite = Promise.resolve();
+    const checkpoint = (chunk: (typeof chunks)[number], complete: boolean) => {
+      if (chunk.queued) return;
+      chunk.queued = true;
+      const snapshot: Batch = {
+        answers: chunk.entries.flatMap(({ teamId }) => {
+          const answer = chunk.answers.get(teamId);
+          return answer ? [[teamId, answer] as [string, GcTeamResponse]] : [];
+        }),
+        complete,
+      };
+      checkpointWrite = checkpointWrite.then(async () => {
+        await artifacts.write(`batch-${chunk.index}`, snapshot);
+        countSaved(new Map(snapshot.answers));
+        const report = downloadReport(leg, new Map(snapshot.answers));
+        if (report.skipped > 0) deps.onDownloadReport?.({ ...report, checkpoint: chunk.index + 1 });
+        await say({ tally: { ...prior, asked, answered, failed } });
+      });
+      // A persistence failure stops new requests; never turn the untouched ids into skipped teams.
+      void checkpointWrite.catch((error: unknown) => {
+        storageError = error;
+        downloader.abort();
+      });
+    };
+    const received = (id: string, result: GcTeamResponse) => {
+      const chunk = owners.get(id);
+      if (!chunk || chunk.answers.has(id)) return;
+      chunk.answers.set(id, result);
+      done++;
+      if (!result.ok) batchFailed++;
+      if (chunk.answers.size === chunk.entries.length) checkpoint(chunk, true);
+    };
+    await say({
+      stage: "fetching",
+      legsDone: leg,
+      progress: { done, total, failed: batchFailed },
+      tally: { ...prior, asked, answered, failed },
+      detail: "",
+    });
+    for (const chunk of chunks)
+      if (chunk.answers.size === chunk.entries.length) checkpoint(chunk, true);
+    let lastReport = 0;
+    let accessError: string | undefined;
+    let fetchError: unknown;
+    try {
+      if (pending.length > 0) {
+        const fetched = await deps.fetchTeams(pending, {
+          concurrency,
+          maxConcurrency,
+          retries: 0,
+          stopOnRefused: false,
+          onMembersOnly: (message) => {
+            accessError = message;
+          },
+          onConcurrency: (workers) => {
+            concurrency = workers;
+          },
+          onHold: () => {
+            concurrency = PULL_CONCURRENCY;
+            maxConcurrency = PULL_CONCURRENCY;
+          },
+          signal: downloader.signal,
+          onProgress: ({ teamId, result }) => {
+            if (downloader.signal.aborted) return;
+            received(teamId, result);
+            if (now().getTime() - lastReport >= 10_000) {
+              lastReport = now().getTime();
+              const progress = { done, total, failed: batchFailed };
+              progressWrite = progressWrite.then(() => say({ progress })).catch(() => undefined);
+            }
+          },
+        });
+        if (!downloader.signal.aborted) for (const [id, result] of fetched) received(id, result);
+      }
+    } catch (error) {
+      fetchError = error;
+    } finally {
+      deps.signal?.removeEventListener("abort", abort);
+    }
+    await progressWrite;
+    if (storageError !== undefined) {
+      await checkpointWrite;
+      throw storageError;
+    }
+    const cancelled = await stopped();
+    if (fetchError !== undefined || accessError || cancelled) {
+      for (const chunk of chunks) checkpoint(chunk, false);
+      await checkpointWrite;
+      if (fetchError !== undefined) throw fetchError;
+      if (accessError)
+        throw new Error(`The importer could not access its download service: ${accessError}`);
+      await say({
+        status: "cancelled",
+        stage: "waiting",
+        progress: { done, total, failed: batchFailed },
+        error: "Downloaded batches are kept; nothing from this import was published.",
+      });
+      return;
+    }
+    for (const id of pending)
+      if (!owners.get(id)!.answers.has(id))
+        received(id, {
+          ok: false,
+          reason: "network",
+          message: "No download result was returned for this team. Skipped during the import.",
+        });
+    for (const chunk of chunks) checkpoint(chunk, true);
+    await checkpointWrite;
+    const report = downloadReport(leg, new Map(chunks.flatMap((chunk) => [...chunk.answers])));
     await say({
       stage: "fetching",
       legsDone: leg + 1,
-      progress: {
-        done: entries.length,
-        total: entries.length,
-        failed: batch.answers.filter(([, a]) => !a.ok).length,
-      },
+      progress: { done: total, total, failed: batchFailed },
       tally: { ...prior, asked, answered, failed },
       detail: `download batch ${leg + 1} of ${legs} complete, ${report.downloaded.toLocaleString()} downloaded, ${report.skipped.toLocaleString()} skipped${
         report.skipped > 0
@@ -303,7 +374,7 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
     () =>
       (async function* (): AsyncGenerator<GcTeamSchedule> {
         let filed = 0;
-        for (let leg = 0; leg < legs; leg++) {
+        for (let leg = 0; leg < checkpoints; leg++) {
           if (deps.signal?.aborted) throw new Error("The import worker lost its lease.");
           const batch = await artifacts.read<Batch>(`batch-${leg}`);
           if (!batch?.complete) throw new Error("A finished import batch is missing.");
