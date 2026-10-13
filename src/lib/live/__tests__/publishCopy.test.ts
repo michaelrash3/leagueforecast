@@ -40,7 +40,7 @@ import {
   type CopyPublish,
 } from "../publishCopy";
 import { RETIRE_GRACE_MS, STRAY_AGE_MS, publishViews, sweepViews } from "../viewStore";
-import { boardViews, buildBoardsAndFacts, livePagesOf } from "../views/board";
+import { boardViews, buildBoardsAndFacts, livePagesOf, type PageBoard } from "../views/board";
 import { clubViews } from "../views/clubs";
 import { gamesViews } from "../views/games";
 import { searchViews } from "../views/search";
@@ -173,6 +173,40 @@ afterAll(() => {
  * (measured), and the gate runs them beside three hundred other files.
  */
 describe("publishing the copy's boards", { timeout: 20_000 }, () => {
+  it("leaves published rankings intact when a cached build is interrupted, then completes from its saved steps", async () => {
+    const { cloud, manifest } = await copyWith(LEAGUE);
+    const live = memoryLive();
+    await publish(cloud, live, manifest);
+    const before = structuredClone(live.meta());
+    const saved = new Map<string, PageBoard[]>();
+    let interrupted = false;
+    const cache = {
+      read: async (key: string) => saved.get(key) ?? null,
+      write: async (key: string, boards: readonly PageBoard[]) => {
+        if (saved.size === 2 && !interrupted) {
+          interrupted = true;
+          throw new Error("Interrupted build");
+        }
+        saved.set(key, [...boards]);
+      },
+    };
+    const input = {
+      copyStore: cloud.store,
+      liveStore: live.store,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      buildCache: cache,
+    };
+    await expect(publishCopyViews(input)).rejects.toThrow("Interrupted build");
+    expect(live.meta()).toEqual(before);
+    const hits: boolean[] = [];
+    expect(
+      (await publishCopyViews({ ...input, onBuildProgress: (step) => hits.push(step.cached) })).ok
+    ).toBe(true);
+    expect(hits.slice(0, 3)).toEqual([true, true, false]);
+    expect(live.meta()).toEqual(before);
+  });
   it("publishes the boards a browser holding the copy draws, under the copy and version saved", async () => {
     const { cloud, manifest } = await copyWith(LEAGUE);
     const live = memoryLive();

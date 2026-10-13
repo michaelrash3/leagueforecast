@@ -24,7 +24,14 @@ import {
   type CloudLeague,
   type LeagueDocsList,
 } from "./cloudLeague";
-import { boardViews, buildBoardsAndFacts, livePagesOf, type BoardView } from "./views/board";
+import {
+  boardViews,
+  buildBoardsAndFacts,
+  buildBoardsWithCache,
+  livePagesOf,
+  type BoardView,
+  type BoardBuildCache,
+} from "./views/board";
 import { clubViews } from "./views/clubs";
 import { CLUB_FAMILY } from "./views/clubShape";
 import { gamesViews } from "./views/games";
@@ -198,6 +205,8 @@ export const publishCopyViews = async ({
   sweep: sweeping = "full",
   locale = boardLocale(),
   atVersion = false,
+  buildCache,
+  onBuildProgress,
 }: {
   copyStore: CloudStore;
   liveStore: LiveStore;
@@ -225,6 +234,8 @@ export const publishCopyViews = async ({
    * just made, which a later one's marks hold.
    */
   atVersion?: boolean;
+  buildCache?: BoardBuildCache;
+  onBuildProgress?: Parameters<typeof buildBoardsWithCache>[2];
 }): Promise<CopyPublish> => {
   if (!/^en(-|$)/.test(locale)) return { ok: false, reason: "locale" };
   const league = leagueRead ?? (await readCloudLeague(leagueDocs));
@@ -254,14 +265,17 @@ export const publishCopyViews = async ({
   const started = Date.now();
   const ageGroups = loadAgeGroups();
   const teams = loadScoutTeams();
-  const built = buildBoardsAndFacts({
+  const input = {
     ageGroups,
     teams,
     gamesOfYear: loadScoutGamesForYear,
     readSeason,
     autoRemoved: loadAutoRemoved(),
     today,
-  });
+  };
+  const built = buildCache
+    ? await buildBoardsWithCache(input, buildCache, onBuildProgress)
+    : buildBoardsAndFacts(input);
   const boards = boardViews(ageGroups, built);
   const fits = fitsOf(boards);
   // Each club's card, from what the boards' build derived, published with them and vouched for by

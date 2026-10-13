@@ -34,6 +34,7 @@ on:
       - "functions/**"
       - "server/**"
       - "scripts/handlerFetch.ts"
+      - "scripts/requestRebuild.ts"
       # The whole of it, since a pull in the cloud files through the app's own importer and tidy:
       # a function left on older rules than the app would stamp the copy with them.
       - "src/lib/**"
@@ -50,6 +51,7 @@ on:
       - "functions/**"
       - "server/**"
       - "scripts/handlerFetch.ts"
+      - "scripts/requestRebuild.ts"
       # The whole of it, since a pull in the cloud files through the app's own importer and tidy:
       # a function left on older rules than the app would stamp the copy with them.
       - "src/lib/**"
@@ -142,17 +144,18 @@ jobs:
           printf '%s' "$KEY" > "$RUNNER_TEMP/deploy-key.json"
           trap 'rm -f "$RUNNER_TEMP/deploy-key.json" "functions/.env.$PROJECT"' EXIT
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/deploy-key.json"
-          if [ "$CLOUD_PULLS" = "on" ]; then
-            # Deploy the durable importer before any function can launch it. No browser setting
-            # or new secret is needed; this uses the same project and existing runner account.
+          if [ "$CLOUD_PULLS" = "on" ] || [ "$LIVE_REBUILD" = "on" ]; then
+            # Deploy durable jobs before their launchers, using the existing project and account.
             gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet
             gcloud artifacts repositories describe team-imports --location=us-central1 --project="$PROJECT" >/dev/null 2>&1 \
               || gcloud artifacts repositories create team-imports --repository-format=docker --location=us-central1 --project="$PROJECT"
             gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
-            CLOUD_PULLS=on npm run build --prefix functions
+            npm run build --prefix functions
             image="us-central1-docker.pkg.dev/$PROJECT/team-imports/import:$GITHUB_SHA"
             docker build -f functions/Import.Dockerfile -t "$image" functions
             docker push "$image"
+          fi
+          if [ "$CLOUD_PULLS" = "on" ]; then
             runner="pull-runner@$PROJECT.iam.gserviceaccount.com"
             if [ "$LIVE_REBUILD" = "on" ]; then runner="live-runner@$PROJECT.iam.gserviceaccount.com"; fi
             gcloud run jobs deploy team-import --project="$PROJECT" --region=us-central1 \
@@ -162,6 +165,17 @@ jobs:
             gcloud run jobs add-iam-policy-binding team-import --project="$PROJECT" --region=us-central1 \
               --member="serviceAccount:$runner" --role=roles/run.jobsExecutorWithOverrides --quiet
             # Abandoned or paused downloads expire after seven days. Successful jobs delete them.
+            gcloud firestore fields ttls update expiresAt --collection-group=artifacts --enable-ttl --async --project="$PROJECT" --quiet
+          fi
+          if [ "$LIVE_REBUILD" = "on" ]; then
+            runner="live-runner@$PROJECT.iam.gserviceaccount.com"
+            gcloud run jobs deploy ranking-rebuild --project="$PROJECT" --region=us-central1 \
+              --image="$image" --service-account="$runner" --memory=8Gi --cpu=2 \
+              --command=node --args=lib/rebuildJob.js --tasks=1 --parallelism=1 \
+              --max-retries=2 --task-timeout=2h \
+              --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,NODE_OPTIONS=--max-old-space-size=5120,TZ=America/New_York,LANG=en_US.UTF-8" --quiet
+            gcloud run jobs add-iam-policy-binding ranking-rebuild --project="$PROJECT" --region=us-central1 \
+              --member="serviceAccount:$runner" --role=roles/run.jobsExecutor --quiet
             gcloud firestore fields ttls update expiresAt --collection-group=artifacts --enable-ttl --async --project="$PROJECT" --quiet
           fi
           # Optional AI credentials stay server-side. Never use VITE_* for these keys.
@@ -175,6 +189,10 @@ jobs:
           # --force sets up the cleanup policy for old build images, which is what keeps their
           # storage from growing a cost of its own.
           npx --yes firebase-tools@15 deploy --only "$only" --project "$PROJECT" --non-interactive --force
+          if [ "$LIVE_REBUILD" = "on" ]; then
+            # Request current rankings after the runtime change; no fresh user save is required.
+            FIREBASE_SERVICE_ACCOUNT="$KEY" TZ=America/New_York npm run rebuild:request
+          fi
           # A deploy that names its functions takes none down, and a rebuild or an edit function left
           # standing once the rebuilds are off would go on writing the copy on an old build, as a
           # League trigger would go on asking for rebuilds: each is taken down, where it is there to

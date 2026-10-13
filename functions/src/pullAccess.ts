@@ -70,6 +70,25 @@ export const launchImport = async (jobId: string): Promise<void> => {
     throw new Error(`The durable importer could not be started (HTTP ${response.status}).`);
 };
 
+/** A rebuild's input is the latest durable request, so launches need no environment overrides. */
+export const launchRebuild = async (): Promise<void> => {
+  const access = restAccess();
+  const response = await fetch(
+    `https://run.googleapis.com/v2/projects/${access.projectId}/locations/${REGION}/jobs/ranking-rebuild:run`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await access.token()}`,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+      signal: AbortSignal.timeout(25_000),
+    }
+  );
+  if (!response.ok)
+    throw new Error(`The ranking rebuild job could not be started (HTTP ${response.status}).`);
+};
+
 /**
  * Queues a leg, named for its job and leg: a leg queued twice is queued once, and the second
  * queueing answers "already". Cloud Tasks gives that answer, too, for a name a task had until it

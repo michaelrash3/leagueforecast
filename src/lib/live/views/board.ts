@@ -1,5 +1,6 @@
 import { DEFAULT_SHRINKAGE } from "../../powerRating";
 import { recencyBasisFor, type RecencyBasis } from "../../ratingRecency";
+import { hashValue } from "../../cloud/cloudPack";
 import {
   ageGroupYear,
   EVIDENCE_STANDARD_ERRORS,
@@ -34,6 +35,8 @@ import {
 import {
   BOARD_FIT_VERSION,
   BOARD_HALVES,
+  BOARD_RULES,
+  BOARD_SHAPE,
   boardKey,
   type BoardFacts,
   type BoardFit,
@@ -231,7 +234,7 @@ export type BoardsBuilt = {
   known: ReadonlyMap<number | undefined, AllKnown>;
 };
 
-type BuildInput = {
+export type BuildInput = {
   ageGroups: AgeGroup[];
   /** The stored roster, as `loadScoutTeams` decodes it. */
   teams: ScoutTeam[];
@@ -276,7 +279,14 @@ const placeOf = ({ city, state }: ScoutTeam): { city?: string; state?: string } 
  * `gamesOfYear` is one squad year's stored games, `loadScoutGamesForYear`'s answer: the games of
  * the pages with no year when `year` is undefined.
  */
-export const buildBoardsAndFacts = ({
+type BoardBuildStep = {
+  pool: number;
+  half: BoardHalf;
+  inputs: () => unknown;
+  build: () => PageBoard[];
+};
+
+function* boardBuildSteps({
   ageGroups,
   teams,
   gamesOfYear,
@@ -284,7 +294,7 @@ export const buildBoardsAndFacts = ({
   autoRemoved,
   today,
   past = true,
-}: BuildInput): BoardsBuilt => {
+}: BuildInput): Generator<BoardBuildStep, BoardsBuilt, PageBoard[] | undefined> {
   const known = new Map<number | undefined, AllKnown>();
   const knownFor = (year: number | undefined) => {
     const held = known.get(year);
@@ -414,16 +424,79 @@ export const buildBoardsAndFacts = ({
     return { ...board, past: lastWeek, history: { teamId, points } };
   };
 
-  const boards = ratingPools(ageGroups).flatMap((pageIds) => {
+  const boards: PageBoard[] = [];
+  for (const [index, pageIds] of ratingPools(ageGroups).entries()) {
     shipped = new Map();
     fits = new Map();
     pastRanks = new Map();
     pageIds.forEach((pageId) => facts.set(pageId, factsOf(pageId)));
-    return BOARD_HALVES.flatMap(({ half, segment }) =>
-      pageIds.map((pageId) => boardOf(pageId, half, segment))
-    );
-  });
+    for (const { half, segment } of BOARD_HALVES) {
+      const build = () => pageIds.map((pageId) => boardOf(pageId, half, segment));
+      const restored = yield {
+        pool: index,
+        half,
+        inputs: () => ({
+          format: 1,
+          rules: BOARD_RULES,
+          shape: BOARD_SHAPE,
+          today,
+          past,
+          ageGroups,
+          pageIds,
+          sources: [...new Set(pageIds.map((id) => ageGroupYear(byId.get(id))))].map((year) => {
+            const known = knownFor(year);
+            return { year: year ?? null, teams: known.teams, games: known.games };
+          }),
+        }),
+        build,
+      };
+      boards.push(...(restored ?? build()));
+    }
+  }
   return { boards, facts, known };
+}
+
+export const buildBoardsAndFacts = (input: BuildInput): BoardsBuilt => {
+  const steps = boardBuildSteps(input);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+};
+
+export type BoardBuildCache = {
+  /** Different JavaScript runtimes can round tied ratings differently. */
+  namespace?: string;
+  read: (key: string) => Promise<PageBoard[] | null>;
+  write: (key: string, boards: readonly PageBoard[]) => Promise<void>;
+};
+
+/** Whole rating pools and halves share fits. Completed steps survive interrupted executions. */
+export const buildBoardsWithCache = async (
+  input: BuildInput,
+  cache: BoardBuildCache,
+  progress?: (step: { done: number; total: number; cached: boolean; half: BoardHalf }) => void
+): Promise<BoardsBuilt> => {
+  const steps = boardBuildSteps(input);
+  const prints = new Map<number, string>();
+  const total = ratingPools(input.ageGroups).length * BOARD_HALVES.length;
+  let done = 0;
+  let step = steps.next();
+  while (!step.done) {
+    const phase = step.value;
+    let print = prints.get(phase.pool);
+    if (!print) {
+      print = await hashValue(phase.inputs());
+      prints.set(phase.pool, print);
+    }
+    const key = await hashValue([cache.namespace ?? "", print, phase.half]);
+    const restored = await cache.read(key);
+    const boards = restored ?? phase.build();
+    if (!restored) await cache.write(key, boards);
+    done++;
+    progress?.({ done, total, cached: restored !== null, half: phase.half });
+    step = steps.next(boards);
+  }
+  return step.value;
 };
 
 /** Every board in a stored pool (`buildBoardsAndFacts`), without what their pages say. */

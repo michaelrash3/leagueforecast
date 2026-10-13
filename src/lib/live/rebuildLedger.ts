@@ -57,6 +57,8 @@ export const HARD_CAPS: LedgerCaps = {
 };
 
 export type Ledger = {
+  /** Runtime migration marker; deploying the job clears the old function's failure pause once. */
+  engine?: "job-v1";
   /** Whether rebuilds run at all. */
   on: boolean;
   /** `dry` builds everything and publishes nothing, which is how they first ship. */
@@ -97,7 +99,7 @@ export type Ledger = {
    * reserved it (an id made afresh each time a task is handled, so two deliveries of one task are
    * two); "" where either was not said.
    */
-  open: { at: string; day: string; cost: RunCost; task: string; by: string } | null;
+  open: { at: string; day: string; cost: RunCost; task: string; by: string; until?: string } | null;
   /**
    * When the last run settled, or null before one has: what a quick rebuild is spaced from
    * (`LIVE_SPACING_S`), whatever the run published, so a dry run counts as a live one does.
@@ -143,6 +145,7 @@ const capsOf = (raw: unknown): LedgerCaps | null => {
  */
 export const coerceLedger = (raw: unknown): Ledger | null => {
   if (!isRecord(raw) || typeof raw.on !== "boolean") return null;
+  if (!(raw.engine === undefined || raw.engine === "job-v1")) return null;
   // Only a field left out is its default: one set to null is set, and to nothing a ledger holds.
   const given = <T>(value: unknown, fallback: T): unknown =>
     value === undefined ? fallback : value;
@@ -191,15 +194,24 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
     const task = given(held.task, "");
     const by = given(held.by, "");
     if (typeof task !== "string" || typeof by !== "string") return null;
+    if (
+      held.until !== undefined &&
+      (typeof held.until !== "string" ||
+        !Number.isFinite(Date.parse(held.until)) ||
+        Date.parse(held.until) <= Date.parse(held.at))
+    )
+      return null;
     open = {
       at: held.at,
       day: held.day,
       cost: { gibs: held.cost.gibs, vcpuS: held.cost.vcpuS },
       task,
       by,
+      ...(typeof held.until === "string" ? { until: held.until } : {}),
     };
   }
   return {
+    ...(raw.engine === "job-v1" ? { engine: raw.engine } : {}),
     on: raw.on,
     mode,
     warm,
@@ -223,6 +235,7 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
 
 /** The ledger's fields as written, in one order, so two ledgers compare by their text. */
 const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
+  ...(ledger.engine ? { engine: ledger.engine } : {}),
   on: ledger.on,
   mode: ledger.mode,
   warm: ledger.warm,
@@ -389,18 +402,24 @@ export const reserveRun = (
     ceiling = RUN_CEILING,
     task = "",
     by = "",
-  }: { ceiling?: RunCost; task?: string; by?: string } = {}
+    spanS = RUN_SPAN_S,
+    engine,
+  }: { ceiling?: RunCost; task?: string; by?: string; spanS?: number; engine?: "job-v1" } = {}
 ): { ok: true; next: Ledger } | { ok: false; why: ReserveRefusal; next: Ledger | null } => {
   if (!ledger || !ledger.on) return { ok: false, why: "off", next: null };
   const open = ledger.open;
   if (open) {
     const age = Date.parse(now) - Date.parse(open.at);
-    if (age > -CLOCK_SKEW_MS && age < RUN_SPAN_S * 1000) {
+    const remaining = open.until
+      ? Date.parse(open.until) - Date.parse(now)
+      : RUN_SPAN_S * 1000 - age;
+    if (age > -CLOCK_SKEW_MS && remaining > 0) {
       return { ok: false, why: "busy", next: null };
     }
   }
   let next = rolledOver(ledger, today);
   if (next.open) next = { ...failed(next, today, next.open.day), open: null };
+  if (engine && next.engine !== engine) next = { ...next, engine, failures: 0, pausedDay: null };
   if (next.pausedDay === today) return { ok: false, why: "failing", next };
   if (next.dayGiBs + ceiling.gibs > next.caps.dayGiBs) return { ok: false, why: "day-cap", next };
   if (
@@ -418,7 +437,16 @@ export const reserveRun = (
       monthGiBs: next.monthGiBs + ceiling.gibs,
       monthVcpuS: next.monthVcpuS + ceiling.vcpuS,
       monthRuns: next.monthRuns + 1,
-      open: { at: now, day: today, cost: { ...ceiling }, task, by },
+      open: {
+        at: now,
+        day: today,
+        cost: { ...ceiling },
+        task,
+        by,
+        ...(engine || spanS !== RUN_SPAN_S
+          ? { until: new Date(Date.parse(now) + spanS * 1000).toISOString() }
+          : {}),
+      },
     },
   };
 };
@@ -441,7 +469,7 @@ export const settleRun = (
     at: string;
     by?: string;
     used: RunCost;
-    failed: boolean;
+    failed: boolean | null;
     today: string;
     /** When the run ended, which a quick rebuild is spaced from. */
     endedAt: string;
@@ -470,7 +498,11 @@ export const settleRun = (
       monthVcpuS: swap(next.monthVcpuS, open.cost.vcpuS, run.used.vcpuS),
     };
   }
-  return run.failed ? failed(next, run.today, open.day) : { ...next, failures: 0 };
+  return run.failed === null
+    ? next
+    : run.failed
+      ? failed(next, run.today, open.day)
+      : { ...next, failures: 0 };
 };
 
 /** The ledger's document: its fields as read, and the token that writes it only if unchanged. */
