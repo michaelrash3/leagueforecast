@@ -22,6 +22,7 @@ import { commitChanges, fetchValues } from "../cloudEngine";
 import { chunkId, DATA_SCHEMA, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
 import {
   firestoreLive,
+  firestoreJobs,
   firestoreMembers,
   firestoreStore,
   ownsCopy,
@@ -47,6 +48,7 @@ import { docToSeason, LEAGUE_COLLECTION, seasonDocId, seasonToDoc } from "../../
 import { unsaved, writesFor } from "../../live/leagueLive";
 import { firestoreLeague } from "../../live/leagueStore";
 import type { SeasonSnapshot } from "../../storage";
+import { restImportReports, importReportPath } from "../importReports";
 import { DEFAULT_SETTINGS, type GameLog } from "../../types";
 
 /*
@@ -359,6 +361,55 @@ describe.skipIf(!HOST)("the cloud copy's rules, on the Firestore emulator", () =
     }
   });
 
+  it("lets members download retained reports and lets no browser write reports or read raw schedules", async () => {
+    const id = "0123456789abcdef0123456789abcdef";
+    const server = firestoreRestDocuments({
+      projectId: PROJECT,
+      token: async () => "owner",
+      origin: `http://${HOST}`,
+    });
+    const job = newPullJob({
+      list: { hash: "", teams: 1, pieces: 0 },
+      seasonYears: [],
+      timeZone: "America/New_York",
+      device: "server",
+      now: "2026-10-13T12:00:00Z",
+    });
+    await server.set(jobPath(id), { ...job, status: "done", report: { rows: 1, ready: true } });
+    await restImportReports(server, id).download(0, [
+      {
+        teamId: "gcACES000002",
+        teamName: "Aces",
+        kind: "not-reached",
+        reason: "Timed out",
+        detail: "No response",
+        url: "https://web.gc.com/teams/gcACES000002",
+      },
+    ]);
+    const laptop = as(LAPTOP);
+    const csv = (await firestoreJobs(laptop).report!(id)).join("");
+    expect(csv).toContain("Aces");
+    expect(csv).toContain("Timed out");
+    const index = importReportPath(id, "download");
+    await expect(setDoc(doc(laptop, index), { format: 1, parts: [] })).rejects.toMatchObject(
+      REFUSED
+    );
+    await expect(
+      setDoc(doc(as(OWNER), `pullJobs/${id}/reportChunks/fake`), {
+        data: Bytes.fromUint8Array(new Uint8Array([1])),
+      })
+    ).rejects.toMatchObject(REFUSED);
+    const meta = await server.read(index);
+    const part = (meta!.parts as { id: string; hash: string }[])[0]!;
+    const chunk = `pullJobs/${id}/reportChunks/${part.id}-${part.hash}-0`;
+    for (const outsider of [as(null), as(STRANGER), as({ uid: "anon", provider: "anonymous" })]) {
+      await expect(getDoc(doc(outsider, index))).rejects.toMatchObject(REFUSED);
+      await expect(getDoc(doc(outsider, chunk))).rejects.toMatchObject(REFUSED);
+    }
+    await expect(getDoc(doc(laptop, `pullJobs/${id}/artifacts/batch-0`))).rejects.toMatchObject(
+      REFUSED
+    );
+  });
   it("let a member make a job only as a new one is made, and change nothing of it but a stop", async () => {
     const job = "fedcba9876543210fedcba9876543210";
     const packed = await packJobList([{ teamId: "gcACES000002" }]);

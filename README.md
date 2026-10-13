@@ -3935,19 +3935,29 @@ accounts on the copy's list, as the copy is, checked as the proxy checks them
 launches it and returns immediately; the import is not tied to a 30-minute HTTP request.
 It reads only team identities and exclusion lists to select downloads, then keeps
 hash-checked compressed checkpoints in `pullJobs/{jobId}/artifacts`. Download batches
-contain 2,000 teams. Clean download concurrency carries forward between batches;
-GameChanger pushback lowers it rather than restarting at full speed.
+contain 10,000 teams. Every 2,000 completed answers is saved as a checkpoint while the
+rest of the batch continues downloading; downloads do not pause to wait for each save.
+Saved-download counts advance after those writes complete. Existing 2,000-team
+checkpoints keep their identities when an older import resumes with larger batches.
+Checkpoint answers retain the selection order even when downloads finish out of order.
+Clean download concurrency carries forward between batches; GameChanger pushback
+lowers it rather than restarting at full speed.
 Each team gets one download attempt. Failed downloads are counted as skipped, and the
 import continues with the remaining teams; they do not consume Cloud Run execution
 retries or hold up the final tidy. Progress distinguishes downloaded, skipped and
 remaining teams. Warning logs record failure reasons and bounded diagnostic samples.
 Resuming an older incomplete batch keeps its successful downloads, skips its recorded
 failures and asks only for teams that had no answer yet.
+Checkpoint pointers include small, validated count summaries, so a restart counts
+completed downloads without reading their schedules. Older checkpoints gain summaries
+after their first verified read.
 
 Once all downloads are accounted for, it loads the latest pool once and streams
 saved schedules through one importer. Opponent matches and ages are settled before
 one final tidy phase and one commit. Clubs skipped before their opponents arrived
-are reconsidered from the saved schedules. A concurrent save can require a rebase,
+are reconsidered in their original order. Age passes keep a bounded prefix of unresolved
+schedules in memory (up to 2,000 teams and 32 MiB); any remaining unresolved teams read
+only their relevant saved checkpoints. A concurrent save can require a rebase,
 which uses those downloads again; a replaced copy is never overwritten. The commit
 asks the existing rebuild trigger to publish rankings once.
 
@@ -3971,6 +3981,13 @@ The browser retries transient upload, start and status failures with bounded bac
 until confirmed. Repeated uploads reconnect to the same import on that device.
 The Import page also lists the latest 20 cloud jobs, so another signed-in device
 can see their progress, and links to Cloud Run execution details.
+Progress also shows overall download counts and percentage, measured teams per minute,
+time in the current phase, numbered age passes and intentional GameChanger waits.
+Members can download a CSV of skipped downloads and teams not filed, including their
+reasons. The report is available during an import and after completion; its hash-checked
+chunks are stored separately under `reports` and `reportChunks`, survive schedule cleanup
+and expose no raw schedules. Browser clients can read these report documents, but cannot
+write them or read the private download checkpoints.
 
 **Legacy and refresh legs.** Older list jobs and budgeted refreshes still use
 `pullJobRunner.ts` and `runCloudPull`; their frozen leg counters are not silently

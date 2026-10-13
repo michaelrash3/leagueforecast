@@ -5,6 +5,7 @@ import {
   describeEnd,
   describeProgress,
   describePullUpdate,
+  describeImportMetrics,
   dueForAsking,
   isOver,
   isRefresh,
@@ -19,6 +20,7 @@ import {
 import { parseGcTeamList, type GcTeamListEntry } from "../../lib/gameChangerApi";
 import { button, card } from "../../styles/tokens";
 import { FIREBASE_WEB_CONFIG } from "../../lib/cloud/cloudConfig";
+import { downloadCsv } from "../../lib/download";
 
 /** How often a pull on its way is read again while the tab is open. */
 export const PULL_LOOK_MS = 15_000;
@@ -157,10 +159,59 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
     },
     [pulls, look]
   );
-  return { watched, unread, checkedAt, nowMs, look, told, stop, resume, resuming };
+  const report = useCallback(
+    async (jobId: string) => {
+      const sender = pulls();
+      if (!sender?.jobs.report) throw new Error("The report reader is unavailable.");
+      return sender.jobs.report(jobId);
+    },
+    [pulls]
+  );
+  return { watched, unread, checkedAt, nowMs, look, told, stop, resume, resuming, report };
 };
 
-export type WatchedPulls = ReturnType<typeof useWatchedPulls>;
+export type WatchedPulls = Omit<ReturnType<typeof useWatchedPulls>, "report"> &
+  Partial<Pick<ReturnType<typeof useWatchedPulls>, "report">>;
+
+function SkippedReportButton({
+  jobId,
+  read,
+  partial,
+}: {
+  jobId: string;
+  read: NonNullable<WatchedPulls["report"]>;
+  partial: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    setError(false);
+    try {
+      downloadCsv(`team-import-skipped-${jobId.slice(0, 8)}.csv`, await read(jobId));
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button type="button" className={button.ghost} disabled={busy} onClick={() => void save()}>
+        {busy
+          ? "Preparing report…"
+          : partial
+            ? "Download skipped teams so far"
+            : "Download skipped teams"}
+      </button>
+      {error ? (
+        <p className="text-amber-800 dark:text-amber-300">
+          The report could not be read. Try again.
+        </p>
+      ) : null}
+    </>
+  );
+}
 
 /**
  * How each of `pulls` is getting on, one line each: how far one on its way has got, with Stop,
@@ -183,6 +234,7 @@ export function PullLines({
         <ul className="mt-4 space-y-2">
           {pulls.map((pull) => {
             const update = describePullUpdate(pull.job, watching.nowMs);
+            const metrics = describeImportMetrics(pull.job, watching.nowMs);
             const unread = watching.unread.some((sent) => sent.jobId === pull.sent.jobId);
             return (
               <li key={pull.sent.jobId} className="text-sm text-slate-600 dark:text-slate-300">
@@ -226,8 +278,18 @@ export function PullLines({
                     Stop
                   </button>
                 )}
+                {pull.job.report?.ready && pull.job.report.rows > 0 && watching.report ? (
+                  <SkippedReportButton
+                    jobId={pull.sent.jobId}
+                    read={watching.report}
+                    partial={!isOver(pull.job)}
+                  />
+                ) : null}
                 {!isOver(pull.job) ? (
                   <>
+                    {metrics ? (
+                      <p className="mt-1 text-slate-500 dark:text-slate-400">{metrics}</p>
+                    ) : null}
                     <p
                       className={
                         update.stale

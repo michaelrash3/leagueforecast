@@ -188,10 +188,16 @@ describe("a pull run on the cloud copy", () => {
       ])
     );
     let tidies = 0;
-    const source = () =>
+    const selections: (string[] | undefined)[] = [];
+    let consumed = 0;
+    const source = (ids?: ReadonlySet<string>) =>
       (async function* () {
-        yield unknown;
-        for (const anchor of anchors) yield anchor;
+        selections.push(ids ? [...ids] : undefined);
+        for (const schedule of [unknown, ...anchors]) {
+          if (ids && !ids.has(schedule.profile.id)) continue;
+          consumed++;
+          yield schedule;
+        }
       })();
     const result = await finishStagedImport(
       {
@@ -215,6 +221,52 @@ describe("a pull run on the cloud copy", () => {
     expect(
       loadScoutTeams().some((t) => t.gcTeams?.some((link) => link.teamId === unknown.profile.id))
     ).toBe(true);
+    expect(tidies).toBe(1);
+    expect(selections).toEqual([undefined]);
+    expect(consumed).toBe(4);
+  });
+  it("rereads only uncached unresolved teams when an import exceeds the age cache", async () => {
+    const cloud = memoryCloud();
+    const base = await seed(cloud);
+    const unknown = Array.from({ length: 2001 }, (_, n) => {
+      const letters = [Math.floor(n / 676), Math.floor(n / 26) % 26, n % 26]
+        .map((letter) => String.fromCharCode(65 + letter))
+        .join("");
+      const team = schedule(`gc${String(n).padStart(10, "0")}`, `Unaged Club ${letters}`, [
+        game(`u${n}`, "Unknown rival", 3, 2),
+      ]);
+      team.profile.name = `Unaged Club ${letters}`;
+      delete team.profile.ageLevel;
+      return team;
+    });
+    const selections: (string[] | undefined)[] = [];
+    const source = (ids?: ReadonlySet<string>) =>
+      (async function* () {
+        selections.push(ids ? [...ids] : undefined);
+        for (const team of unknown) if (!ids || ids.has(team.profile.id)) yield team;
+      })();
+    let tidies = 0;
+    const result = await finishStagedImport(
+      {
+        kind: "list",
+        entries: unknown.map((team) => ({ teamId: team.profile.id })),
+        seasonYears: [2027],
+      },
+      source,
+      base.copy,
+      { asked: 2001, answered: 2001, failed: 0 },
+      {
+        store: cloud.store,
+        now: () => new Date("2026-09-29T13:00:00Z"),
+        device: "test",
+        beforeTidy: async () => {
+          tidies++;
+        },
+      }
+    );
+    expect(result.end).toBe("finished");
+    expect(result.filed).toBe(0);
+    expect(selections).toEqual([undefined, [unknown[2000]!.profile.id]]);
     expect(tidies).toBe(1);
   });
   it("selects from the team index without downloading games, in a stable import order", async () => {

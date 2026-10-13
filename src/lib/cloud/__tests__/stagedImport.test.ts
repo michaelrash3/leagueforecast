@@ -3,7 +3,11 @@ import type { GcTeamResponse } from "../../gameChangerApi";
 import type { FetchGcTeamsOptions } from "../../gameChangerClient";
 import { newPullJob } from "../pullJobs";
 import type { JobDocs } from "../pullJobRunner";
-import { restImportArtifacts, runStagedImport } from "../stagedImport";
+import {
+  restImportArtifacts,
+  runStagedImport,
+  type ImportCheckpointSummary,
+} from "../stagedImport";
 import { finishStagedImport, selectImportTeams } from "../cloudRunner";
 import { memoryCloud } from "./memoryCloud";
 
@@ -89,14 +93,15 @@ describe("a staged CSV import", () => {
   it("downloads bounded batches without a pool reload or tidy, then finalizes the whole import once", async () => {
     const test = setup();
     await runStagedImport(ID, test.deps);
-    expect(test.fetched.map((ids) => ids.length)).toEqual([2000, 2000, 1001]);
+    expect(test.fetched.map((ids) => ids.length)).toEqual([5001]);
     expect(selectImportTeams).not.toHaveBeenCalled();
     expect(finishStagedImport).toHaveBeenCalledTimes(1);
     expect(test.filed).toHaveLength(5001);
     expect(new Set(test.filed).size).toBe(5001);
     expect(test.job()).toMatchObject({
       status: "done",
-      legsDone: 3,
+      legsDone: 1,
+      legTeams: 10000,
       tally: { asked: 5001, answered: 5001, failed: 0, filed: 5001 },
       version: 8,
     });
@@ -113,7 +118,7 @@ describe("a staged CSV import", () => {
         )
     );
     await runStagedImport(ID, test.deps);
-    expect(test.fetchTeams.mock.calls.map(([ids]) => ids.length)).toEqual([2000, 3]);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids.length)).toEqual([2003]);
     expect(test.fetchTeams).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({
@@ -124,10 +129,246 @@ describe("a staged CSV import", () => {
     expect(finishStagedImport).toHaveBeenCalledTimes(1);
     expect(test.job()).toMatchObject({
       status: "done",
-      legsDone: 2,
+      legsDone: 1,
       tally: { asked: 2003, answered: 2002, failed: 1, filed: 2002 },
     });
     expect(test.filed).not.toContain("gc0000000001");
+  });
+  it("groups existing 2,000-team checkpoints into bounded 10,000-team download runs", async () => {
+    const test = setup(12001);
+    await runStagedImport(ID, test.deps);
+    expect(test.fetched.map((ids) => ids.length)).toEqual([10000, 2001]);
+    expect(Array.from(test.values.keys()).filter((name) => name.startsWith("batch-"))).toHaveLength(
+      7
+    );
+    expect(test.job()).toMatchObject({
+      status: "done",
+      legTeams: 10000,
+      legs: 2,
+      legsDone: 2,
+      tally: { asked: 12001, answered: 12001, failed: 0 },
+    });
+    expect(test.filed).toHaveLength(12001);
+    expect(new Set(test.filed).size).toBe(12001);
+    expect(finishStagedImport).toHaveBeenCalledTimes(1);
+  });
+  it("keeps downloading while a completed checkpoint is still being written", async () => {
+    const test = setup(10000);
+    let startSaving!: () => void;
+    const saving = new Promise<void>((resolve) => {
+      startSaving = resolve;
+    });
+    let releaseSave!: () => void;
+    const saveAllowed = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    let downloadsFinished!: () => void;
+    const downloaded = new Promise<void>((resolve) => {
+      downloadsFinished = resolve;
+    });
+    const write = test.artifacts.write;
+    test.artifacts.write = async (name, value) => {
+      if (name === "batch-0") {
+        startSaving();
+        await saveAllowed;
+      }
+      await write(name, value);
+    };
+    test.fetchTeams.mockImplementationOnce(async (ids, options) => {
+      const answers = new Map<string, GcTeamResponse>();
+      for (let n = 0; n < ids.length; n++) {
+        if (n === 2000) await saving;
+        const id = ids[n]!;
+        const result = good(id);
+        answers.set(id, result);
+        options?.onProgress?.({ teamId: id, result, done: n + 1, total: ids.length, attempts: 1 });
+      }
+      downloadsFinished();
+      return answers;
+    });
+    const importing = runStagedImport(ID, test.deps);
+    await downloaded;
+    expect(test.values.has("batch-0")).toBe(false);
+    expect(finishStagedImport).not.toHaveBeenCalled();
+    releaseSave();
+    await importing;
+    expect(test.job()).toMatchObject({ status: "done", tally: { answered: 10000, filed: 10000 } });
+  });
+  it("stops downloading on a checkpoint write failure and resumes only unsaved teams", async () => {
+    const test = setup(5001);
+    const write = test.artifacts.write;
+    let fail = true;
+    test.artifacts.write = async (name, value) => {
+      if (name === "batch-1" && fail) throw new Error("Checkpoint write failed");
+      await write(name, value);
+    };
+    test.fetchTeams.mockImplementationOnce(async (ids, options) => {
+      const answers = new Map<string, GcTeamResponse>();
+      for (const [n, id] of ids.slice(0, 4000).entries()) {
+        const result = good(id);
+        answers.set(id, result);
+        options?.onProgress?.({ teamId: id, result, done: n + 1, total: ids.length, attempts: 1 });
+      }
+      await new Promise<void>((resolve) => {
+        if (options?.signal?.aborted) resolve();
+        else options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      return answers;
+    });
+    await expect(runStagedImport(ID, test.deps)).rejects.toThrow("Checkpoint write failed");
+    expect(test.values.has("batch-0")).toBe(true);
+    expect(test.values.has("batch-1")).toBe(false);
+    expect(finishStagedImport).not.toHaveBeenCalled();
+    fail = false;
+    await runStagedImport(ID, test.deps);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids.length)).toEqual([5001, 3001]);
+    expect(test.job()).toMatchObject({ status: "done", tally: { answered: 5001, failed: 0 } });
+  });
+  it("preserves partial progress callbacks if the downloader itself crashes", async () => {
+    const test = setup(2003);
+    test.fetchTeams.mockImplementationOnce(async (ids, options) => {
+      const id = ids[0]!;
+      options?.onProgress?.({
+        teamId: id,
+        result: good(id),
+        done: 1,
+        total: ids.length,
+        attempts: 1,
+      });
+      throw new Error("Downloader crashed");
+    });
+    await expect(runStagedImport(ID, test.deps)).rejects.toThrow("Downloader crashed");
+    await runStagedImport(ID, test.deps);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids.length)).toEqual([2003, 2002]);
+    expect(test.job()).toMatchObject({ status: "done", tally: { answered: 2003, failed: 0 } });
+  });
+  it("files schedules in the frozen selection order even when downloads finish out of order", async () => {
+    const test = setup(4001);
+    test.fetchTeams.mockImplementationOnce(async (ids, options) => {
+      for (const [n, id] of [...ids].reverse().entries())
+        options?.onProgress?.({
+          teamId: id,
+          result: good(id),
+          done: n + 1,
+          total: ids.length,
+          attempts: 1,
+        });
+      return new Map(ids.map((id) => [id, good(id)]));
+    });
+    await runStagedImport(ID, test.deps);
+    expect(test.filed).toEqual(
+      Array.from({ length: 4001 }, (_, n) => `gc${String(n).padStart(10, "0")}`)
+    );
+  });
+  it("resumes from summaries without loading completed schedule batches until final processing", async () => {
+    const test = setup(12001);
+    const summaries = new Map<string, ImportCheckpointSummary>();
+    const readStages: { name: string; stage: string }[] = [];
+    const artifacts = {
+      read: async <T>(name: string) => {
+        readStages.push({ name, stage: test.job().stage });
+        return test.artifacts.read<T>(name);
+      },
+      summary: async (name: string) => summaries.get(name) ?? null,
+      write: async (name: string, value: unknown, summary?: ImportCheckpointSummary) => {
+        await test.artifacts.write(name, value);
+        if (summary) summaries.set(name, summary);
+      },
+    };
+    vi.mocked(finishStagedImport).mockRejectedValueOnce(new Error("Execution interrupted"));
+    await expect(runStagedImport(ID, { ...test.deps, artifacts })).rejects.toThrow(
+      "Execution interrupted"
+    );
+    expect(summaries.size).toBe(7);
+    readStages.length = 0;
+    await runStagedImport(ID, { ...test.deps, artifacts });
+    expect(test.fetchTeams).toHaveBeenCalledTimes(2);
+    expect(
+      readStages.filter((read) => read.name.startsWith("batch-") && read.stage !== "filing")
+    ).toEqual([]);
+    expect(test.job()).toMatchObject({ status: "done", download: { total: 12001, done: 12001 } });
+  });
+  it("reads only requested checkpoints during an extra age pass", async () => {
+    const test = setup(6001);
+    const read = vi.spyOn(test.artifacts, "read");
+    const realFinish = vi.mocked(finishStagedImport).getMockImplementation()!;
+    vi.mocked(finishStagedImport).mockImplementationOnce(
+      async (job, source, copy, counts, deps) => {
+        const result = await realFinish(job, source, copy, counts, deps);
+        read.mockClear();
+        const selected: string[] = [];
+        for await (const schedule of source(new Set(["gc0000004001"])))
+          selected.push(schedule.profile.id);
+        expect(read.mock.calls.map(([name]) => name)).toEqual(["batch-2"]);
+        expect(selected).toEqual(["gc0000004001"]);
+        expect(test.job().detail).toBe("Assigning ages, pass 1");
+        expect(test.job().progress).toMatchObject({ done: 1, total: 1 });
+        return result;
+      }
+    );
+    await runStagedImport(ID, test.deps);
+    expect(finishStagedImport).toHaveBeenCalledTimes(1);
+  });
+  it("publishes failure reports before accepting their checkpoints and records measured throughput", async () => {
+    const test = setup(3);
+    let elapsed = 0;
+    const reports = { download: vi.fn(async () => {}), filing: vi.fn(async () => {}) };
+    test.fetchTeams.mockImplementationOnce(async (ids, options) => {
+      const answers = new Map<string, GcTeamResponse>();
+      for (const [n, id] of ids.entries()) {
+        elapsed += 1000;
+        const result: GcTeamResponse =
+          n === 0 ? { ok: false, reason: "timeout", message: "Slow" } : good(id);
+        answers.set(id, result);
+        options?.onProgress?.({ teamId: id, result, done: n + 1, total: ids.length, attempts: 1 });
+      }
+      return answers;
+    });
+    const write = test.artifacts.write;
+    test.artifacts.write = async (name, value) => {
+      if (name === "batch-0") expect(reports.download).toHaveBeenCalledTimes(1);
+      await write(name, value);
+    };
+    await runStagedImport(ID, {
+      ...test.deps,
+      reports,
+      now: () => new Date(Date.parse(NOW) + elapsed),
+    });
+    expect(reports.download.mock.calls[0]).toMatchObject([
+      0,
+      [{ teamId: "gc0000000000", reason: "Timed out" }],
+    ]);
+    expect(test.job()).toMatchObject({
+      status: "done",
+      report: { rows: 1, ready: true },
+      download: { total: 3, done: 3, perMinute: 60 },
+    });
+  });
+  it("shows a provider wait immediately after a progress update and clears it when downloads finish", async () => {
+    const test = setup(2);
+    test.fetchTeams.mockImplementationOnce(async (ids, options) => {
+      const first = good(ids[0]!);
+      options?.onProgress?.({
+        teamId: ids[0]!,
+        result: first,
+        done: 1,
+        total: 2,
+        attempts: 1,
+      });
+      options?.onHold?.(60_000, "retry-after");
+      await vi.waitFor(() =>
+        expect(test.job().download).toMatchObject({
+          holdUntil: new Date(Date.parse(NOW) + 60_000).toISOString(),
+          holdReason: "throttled",
+        })
+      );
+      return new Map(ids.map((id) => [id, good(id)]));
+    });
+    await runStagedImport(ID, test.deps);
+    expect(test.job()).toMatchObject({
+      status: "done",
+      download: { done: 2, total: 2, holdUntil: null, holdReason: null },
+    });
   });
   it("resumes an old incomplete checkpoint without downloading its successes or failures again", async () => {
     const test = setup(2003);
@@ -274,7 +515,7 @@ describe("a staged CSV import", () => {
     expect(finishStagedImport).not.toHaveBeenCalled();
     await test.jobs.update(ID, { stopAsked: false, status: "queued" });
     await runStagedImport(ID, test.deps);
-    expect(test.fetchTeams.mock.calls.map(([ids]) => ids.length)).toEqual([2000, 1]);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids.length)).toEqual([2001]);
   });
   it("leaves data unpublished when the original copy was replaced", async () => {
     const test = setup(1);
@@ -321,4 +562,56 @@ it("checkpoint pointers survive a partial replacement and reject corrupted bytes
   for (const [path, value] of documents)
     if (value.data) documents.set(path, { data: new Uint8Array([0, 1]) });
   await expect(artifacts.read("batch-0")).rejects.toThrow();
+});
+
+it("reads checkpoint summaries without fetching schedule pieces, and upgrades old metadata with a precondition", async () => {
+  const values = new Map<string, Record<string, unknown>>();
+  const tokens = new Map<string, string>();
+  let version = 0;
+  const read = vi.fn(async (path: string) => values.get(path) ?? null);
+  const set = async (path: string, value: Record<string, unknown>) => {
+    values.set(path, value);
+    tokens.set(path, String(++version));
+  };
+  const replace = vi.fn(
+    async (path: string, value: Record<string, unknown>, token: string | null) => {
+      if (tokens.get(path) !== token) return false;
+      await set(path, value);
+      return true;
+    }
+  );
+  const artifacts = restImportArtifacts(
+    {
+      read,
+      set,
+      replace,
+      readAt: async (path) =>
+        values.has(path) ? { fields: values.get(path)!, token: tokens.get(path)! } : null,
+    },
+    ID
+  );
+  const batch = { complete: true, answers: [["gc0000000000", good("gc0000000000")]] };
+  const summary: ImportCheckpointSummary = {
+    complete: true,
+    asked: 1,
+    answered: 1,
+    failed: 0,
+    reportReady: true,
+  };
+  await artifacts.write("batch-0", batch, summary);
+  read.mockClear();
+  expect(await artifacts.summary!("batch-0")).toEqual(summary);
+  expect(read.mock.calls.map(([path]) => path)).toEqual([`pullJobs/${ID}/artifacts/batch-0`]);
+  await artifacts.write("batch-1", batch);
+  expect(await artifacts.summary!("batch-1")).toBeNull();
+  await artifacts.read("batch-1");
+  await artifacts.rememberSummary!("batch-1", summary);
+  expect(await artifacts.summary!("batch-1")).toEqual(summary);
+  await artifacts.write("batch-2", batch);
+  await artifacts.read("batch-2");
+  const path = `pullJobs/${ID}/artifacts/batch-2`;
+  await set(path, { ...values.get(path), newer: true });
+  await artifacts.rememberSummary!("batch-2", summary);
+  expect(values.get(path)!.summary).toBeUndefined();
+  expect(values.get(path)!.newer).toBe(true);
 });

@@ -136,6 +136,9 @@ export type CloudPullDeps = {
   keep?: boolean;
 };
 
+/** Age passes request only unresolved ids; older sources can ignore the optional selection. */
+export type ImportScheduleSource = (teamIds?: ReadonlySet<string>) => AsyncIterable<GcTeamSchedule>;
+
 export type CloudPullStage =
   | { stage: "loading" }
   | { stage: "fetching"; done: number; total: number; failed: number }
@@ -442,13 +445,15 @@ const fileAnswers = async (
 
 const fileScheduleSource = async (
   job: CloudPullJob,
-  schedules: () => AsyncIterable<GcTeamSchedule>,
+  schedules: ImportScheduleSource,
   mark: Marking | null,
   complete: boolean,
   now: Date,
   onTidy?: () => void | Promise<void>,
   watchTidy?: TidyWatcher,
-  retryUnaged = false
+  retryUnaged = false,
+  onOutcomes?: (outcomes: readonly GcImportOutcome[]) => Promise<void>,
+  onAgeProgress?: (pass: number, done: number, total: number) => Promise<void>
 ): Promise<Filed> => {
   const pool = { ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() };
   const orgAges = orgAgesByTeam(loadOrgMembership());
@@ -473,25 +478,53 @@ const fileScheduleSource = async (
   // In the order asked, so a replay files the same answers the same way.
   const outcomes: GcImportOutcome[] = [];
   const unaged = new Map<string, number>();
+  // Retain a bounded prefix so retry order stays identical to the original selection.
+  const retained = new Map<string, GcTeamSchedule>();
+  let retainedBytes = 0;
+  let cacheFull = false;
   for await (const schedule of schedules()) {
     const teamId = schedule.profile.id;
     const outcome = importer.add(withListed(schedule, claimed.get(teamId), orgAges.get(teamId)));
-    if (outcome.skip === "no-age") unaged.set(teamId, outcomes.length);
+    if (outcome.skip === "no-age") {
+      unaged.set(teamId, outcomes.length);
+      if (retryUnaged && !cacheFull) {
+        const bytes = JSON.stringify(schedule).length * 2;
+        if (retained.size < 2000 && retainedBytes + bytes <= 32 * 1024 * 1024) {
+          retained.set(teamId, structuredClone(schedule));
+          retainedBytes += bytes;
+        } else cacheFull = true;
+      }
+    }
     outcomes.push(outcome);
   }
   // Reconsider clubs skipped before their opponents arrived. The source stays on disk;
   // only these clubs are filed again, without refetching or running a tidy between them.
   for (let pass = 0; retryUnaged && unaged.size > 0 && pass < 3; pass++) {
     const before = unaged.size;
-    for await (const schedule of schedules()) {
+    const uncached = new Set([...unaged.keys()].filter((id) => !retained.has(id)));
+    let processed = 0;
+    await onAgeProgress?.(pass + 1, 0, before);
+    const reconsider = (schedule: GcTeamSchedule) => {
       const at = unaged.get(schedule.profile.id);
-      if (at === undefined) continue;
+      if (at === undefined) return;
       const outcome = importer.add(
         withListed(schedule, claimed.get(schedule.profile.id), orgAges.get(schedule.profile.id))
       );
       outcomes[at] = outcome;
-      if (outcome.skip !== "no-age") unaged.delete(schedule.profile.id);
+      if (outcome.skip !== "no-age") {
+        unaged.delete(schedule.profile.id);
+        retained.delete(schedule.profile.id);
+      }
+      processed++;
+    };
+    for (const schedule of retained.values()) reconsider(schedule);
+    if (uncached.size > 0) {
+      await onAgeProgress?.(pass + 1, processed, before);
+      for await (const schedule of schedules(uncached)) {
+        if (uncached.has(schedule.profile.id)) reconsider(schedule);
+      }
     }
+    await onAgeProgress?.(pass + 1, processed, before);
     if (unaged.size === before) break;
   }
   await onTidy?.();
@@ -507,18 +540,21 @@ const fileScheduleSource = async (
   // Marked only when every team due was asked about: a run stopped half way has not refreshed them.
   if (mark && complete) saveRefreshLog(withRefreshed(loadRefreshLog(), mark, now));
   if (!(await flushPoolWrites())) throw new Error("The store in memory refused the pull's pool.");
+  await onOutcomes?.(outcomes);
   return { outcomes };
 };
 
 /** A restartable source is streamed afresh only if a concurrent save requires a rebase. */
 export const finishStagedImport = async (
   job: Extract<CloudPullJob, { kind: "list" }>,
-  source: () => AsyncIterable<GcTeamSchedule>,
+  source: ImportScheduleSource,
   expectedCopy: string,
   counts: Pick<CloudPullResult, "asked" | "answered" | "failed">,
   deps: Omit<CloudPullDeps, "fetchTeams"> & {
     beforeTidy?: () => Promise<void>;
     watchTidy?: TidyWatcher;
+    onOutcomes?: (outcomes: readonly GcImportOutcome[]) => Promise<void>;
+    onAgeProgress?: (pass: number, done: number, total: number) => Promise<void>;
   }
 ): Promise<CloudPullResult> => {
   deps.onStage?.({ stage: "loading" });
@@ -536,7 +572,18 @@ export const finishStagedImport = async (
   if (copy.manifest.copy !== expectedCopy) return { ...result, end: "copy-replaced" };
   if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
   return fileAndSave(result, copy, deps, (now) =>
-    fileScheduleSource(job, source, null, true, now, deps.beforeTidy, deps.watchTidy, true)
+    fileScheduleSource(
+      job,
+      source,
+      null,
+      true,
+      now,
+      deps.beforeTidy,
+      deps.watchTidy,
+      true,
+      deps.onOutcomes,
+      deps.onAgeProgress
+    )
   );
 };
 
