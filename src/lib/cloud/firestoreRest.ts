@@ -92,6 +92,7 @@ const valueAt = (value: unknown, at: string, inList: boolean): FirestoreValue =>
       : { doubleValue: value };
   }
   if (typeof value === "string") return { stringValue: value };
+  if (value instanceof Date) return { timestampValue: value.toISOString() };
   if (value instanceof Uint8Array) return { bytesValue: base64Of(value) };
   if (Array.isArray(value)) {
     if (inList) throw new UnstorableValueError(at, "it is a list directly inside another list");

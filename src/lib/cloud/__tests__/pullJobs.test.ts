@@ -5,6 +5,7 @@ import { fieldsOf, firestoreFieldsOf } from "../firestoreRest";
 import {
   JOB_FORMAT,
   LEG_TEAMS,
+  IMPORT_BATCH_TEAMS,
   coercePullJob,
   legsFor,
   newPullJob,
@@ -84,8 +85,9 @@ describe("a pull's job", () => {
     expect(job()).toMatchObject({
       format: JOB_FORMAT,
       status: "queued",
-      legTeams: LEG_TEAMS,
-      legs: 3,
+      pipeline: "staged-v1",
+      legTeams: IMPORT_BATCH_TEAMS,
+      legs: 31,
       legsDone: 0,
       stopAsked: false,
       stage: "waiting",
@@ -115,7 +117,7 @@ describe("a pull's job", () => {
     expect(coercePullJob({ ...good, format: JOB_FORMAT + 1 })).toBeNull();
     expect(coercePullJob(null)).toBeNull();
     expect(coercePullJob("job")).toBeNull();
-    for (const key of Object.keys(good)) {
+    for (const key of Object.keys(good).filter((k) => k !== "pipeline")) {
       const { [key]: _gone, ...without } = good;
       expect(coercePullJob(without), key).toBeNull();
     }

@@ -5,7 +5,7 @@ import { openViewCache, type ViewCacheIo } from "../viewCache";
 /*
  * The views a device keeps (`viewCache.ts`): every read checked against its fingerprint, the least
  * recently read going first past the limit, the meta and the last board kept for one account, and
- * nothing kept at all where the pool is not in IndexedDB.
+ * nothing kept at all when IndexedDB is unavailable.
  */
 
 const mapIo = (enabled = true) => {
@@ -110,7 +110,7 @@ describe("the views a device keeps", () => {
     expect([...kept.keys()]).toEqual([]);
   });
 
-  it("keeps and reads nothing where the pool is not in IndexedDB", async () => {
+  it("keeps and reads nothing when IndexedDB is unavailable", async () => {
     const { io, kept } = mapIo(false);
     const cache = openViewCache(io);
     const board = await packed({ rows: [] });
