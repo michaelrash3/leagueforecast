@@ -5013,120 +5013,64 @@ its default (10,000 GiB-seconds a New York day, 120,000 a month and 30,000
 vCPU-seconds, and 3 failures in a row), and each is held to a hard limit
 whatever the document says (40,000, 250,000, 125,000 and 10). A field set to
 anything but what it holds makes the document unreadable, which reads as off,
-rather than a ledger with its guard lifted. Each run reserves its ceiling first
-(its 300 s timeout and 20 s of start-up at 8 GiB and two vCPUs: 2,560
-GiB-seconds and 640 vCPU-seconds) against the day's and the month's caps, and
-puts what it cost in place of it when it ends. It also counts the runs reserved
-on its day and in its month and how many of them failed, which no cap reads, for
-the nightly's log (`rebuildReport.ts`), and keeps the counts of the last day
-before its own that had a run (`lastDay`); a failure counts on the day and month of
-the run's reservation while the ledger still counts those, so a day's failed runs
-are always among its runs. An edit run on the server adds what it spent to the
-day's and month's totals too (`chargeEdit`), without reserving or counting a run,
-so the caps count the edits' compute beside the rebuilds'. A run that never ends
-leaves its ceiling charged, and the next reserve counts it as a failure; the third failure
-in a row pauses the rebuilds for the rest of the day, and a run that does not
-fail clears the count. A run reserved less than a run's span ago (320 s) may
-still be going, so a reserve then waits (`busy`, and the queue tries it again)
-rather than counting that run as dead and dropping the settle it is still to
-make. That holds for the same task's earlier try as for another task's: the
-queue delivers a task at least once, and may hand it over again while a try
-still runs, past its dispatch deadline or twice at once, so a try that died
-holds the next one off until its span is up. Every write is a read and then a
-replace only over the version read, tried three times, as is a read or write that
-throws, so two runs reserving at once cannot both spend the same headroom, an
-owner turning the switch is read before anything is written over it, and a write
-that landed though its answer was lost is found on the next read, by the id each
-handling of a task writes with its reservation and settles it by. Such a write is
-held until a read tells whether it landed, and when no read after it succeeds it
-is read back once more after the last try, writing nothing, so a reservation that
-landed runs rather than waiting out its span to be counted as a failure, and a
-settle that landed is logged as made. `rebuildLedger.test.ts` holds each rule, and the
-rules test on the emulator holds the document shut to every browser; each guard
-was broken in turn and seen to fail a test.
+rather than a ledger with its guard lifted. The durable worker reserves the time its current day and month budgets can cover,
+including memory, CPU and the Cloud Run job's one-minute billing minimum. Its reservation
+has an explicit expiry, so another worker cannot mistake a rebuild lasting longer than
+five minutes for a dead one. Actual compute replaces the reservation when the run ends.
+Spending, switches, dry/live mode and caps are retained. The first deployment of the job
+clears the old function's settled failure pause once, using the `job-v1` engine marker;
+new genuine failures still count toward the same failure guard.
 
-A queued rebuild runs in two halves (`rebuild.ts`). The function's main thread
-reads the switch, then asks, for three reads (the ledger, the copy's manifest
-and the published meta), whether the boards are already the copy's for today,
-or another's to leave alone: built by newer rules, for a later day, or by a newer
-build; a copy a newer build saved, or one this build cannot read at all, is left
-there too, while a read that failed is thrown for the queue to try again. Only then
-does it reserve the run and hand it to the worker, which brings
-the pool to the copy as it now stands and checks again against the very manifest
-it loaded, so a save landing between the two is published at the version the
-pool holds and the next rebuild publishes the newer one. It publishes with one
-meta commit, taking out the retired pieces that are due in the same commit and
-listing none. A dry run builds everything and writes nothing. A run turned away
-by boards for a later day goes once more only if the New York day turned while
-it ran. Then the main thread settles what the run cost: the time since it began,
-and the first time the instance's start-up, at 8 GiB and two vCPUs. The start-up
-is how long the function's code took to load, at most the 20 s a run's span allows
-it, and never the time the instance then sat idle: one a deploy starts may wait
-many minutes for its first task, which is not billed. It counts as
-a failure a run that threw, and one that ended on anything but its job done or a
-newer one's (a copy or a meta it cannot read, a store that refused, something
-that kept moving under it). Boards or a copy a newer build or newer rules made
-are a newer one's: this build is due to be replaced, and a pause would hold every
-save's rebuild for the rest of the day, past that deploy. It asks the queue for a
-retry only for one that threw or that something kept moving under, or that
-waited on another run, or that lost the ledger to other writers on every try,
-which may have been an owner's edits to the switch rather than a run that
-published the copy. A settle that cannot be written is said in the line and left for the next reserve
-to count. Each run logs one line, with its copy and version and, for a live run
-that wrote boards, when they went up; the trigger logs a line for each save it
-queues (`saveLineOf`). `npm run live:lag -- rebuilds.json` reads both from Cloud
-Logging and joins them: each save reached the members' boards with the first
-live run that wrote its copy at its version or a later one, and it prints the
-median, 90th-percentile and longest wait, and how many saves no logged run
-reached (the nightly's publishes are logged on GitHub, not here). `rebuild.test.ts` holds the
-worker's half against the copy and `live/` in memory on a seeded pool, its views
-the very ones the nightly publishes from the same copy, and the main thread's
-against a stand-in worker; each guard was broken in turn and seen to fail a test.
+**Continuous rebuild jobs.** `onCopyWrite` and `onLeagueWrite` retain their existing
+save windows. The `rebuild` task function is a small launcher (256 MiB, one CPU,
+120-second request limit). It checks whether rankings are already current before starting
+a billable job, preserves the spacing of quick edits and records each pending request.
+`ranking-rebuild` runs the calculations in Cloud Run, with 8 GiB, two CPUs, one task,
+two execution retries and a two-hour task limit. Its runtime is bounded by the compute
+budget it reserved, rather than the old worker's 270-second request cutoff.
 
-Three functions run it (`functions/src/index.ts`), built and deployed only once
-their setup is done. `onCopyWrite` takes each write of `copies/main`, and of
-nothing under it, plans it (`rebuildTrigger.ts`), queues the task it asks for, and
-logs one line: a skip and why, or the save with the task it shares and whether the
-queue took it. `onLeagueWrite` does the same for each write of a season's
-document, `league/{season}`, its line naming the season's document. Both stay
-once the copy is the server's alone to write: every server that saves it (the
-nightly, the edit function, a pull's legs) reaches the boards through the copy's
-trigger, rather than each queueing its own rebuild after its commit, where a
-queue that failed would leave a save unpublished until the night. It is not tried again when the queue refuses, since the next save,
-or the night, publishes that one, and a write that failed every time would
-otherwise be retried for days. `rebuild` takes each task on one instance of 8 GiB
-and two vCPUs, one at a time, with a 300 s timeout. The queue tries a task again
-two minutes on and then four, past the 320 s that another try's run may still hold
-the ledger for. The function's timeout answers the queue first, and a run still
-going then is never tried a second time beside it: the worker ends a run at 270 s,
-inside the timeout, and the ledger holds its reservation busy for 320 s. The
-queue's ten minutes on a dispatch matter only for an answer lost on its way. A task of any shape but
-the trigger's is logged and done with before anything is read. The run itself is
-made in a worker (`functions/src/rebuildWorker.ts`, on `rebuildWorkerProtocol.ts`)
-kept from task to task while the switch says warm, so a rebuild after a small save
-fetches only the pieces that moved. It is started afresh for each run while warm
-is off, and ended when its run threw or it died, when it ran past 270 s (so the
-settle is still written inside the timeout), and once its heap passes 3,072 MB,
-the process 6,144 MB, or it has run 200 times; its heap is capped at 5,120 MB,
-above that line, unless the runtime starts Node with a heap limit of its own, which
-stands over a worker's cap. Each run's line gives the limit its worker ran under
-(`heapLimitMb`), with its heap and the process's size as it ended, so the first
-runs show which holds. The worker holds its pool for its whole life and never empties
-the pool's store any other way: emptied under it, the pool would still name the
-copy it loaded, and the next run of an unchanged copy would publish boards of no
-one. The day is New York's, as the nightly's: the function sets the zone before it
-starts the worker, which keeps the zone it was started in. Rows that tie are put in
-order by the runtime's collation, which the publish requires to be English (unset,
-`C`, `C.UTF-8` and `en_US.UTF-8` all are); a runtime that were not would end every
-run `locale`, which the first dry runs would show. `rebuildWorkerProtocol.test.ts`
-holds the worker kept, recycled and ended as it should be, and the sizes and
-limits against the ledger's prices; `rebuildTrigger.test.ts` holds the trigger's
-plans and lines, the manifest Firestore's REST API reads back planning as the plain
-one does; and the functions' smoke test (`functions/smoke.mjs`) sends the built
-trigger Firestore's own events, which it skips as it should with nothing read, and
-pings the built worker. It also queues a save's rebuild through firebase-admin to
-a stand-in for Cloud Tasks, which shows the task's name and deadline, and a second
-save in the window finding it queued.
+One compare-and-swap control document, `ops/rebuildJob`, coalesces incoming saves and
+holds the execution lease. Its heartbeat remains independent of the worker's calculation.
+A worker checks for saves received during its build before finishing; a concurrent request
+cannot be lost between that check and releasing the lease. The in-memory pool stays warm
+within an execution and reads only changed cloud pieces for follow-up builds. The first
+rankings publish immediately; a short execution uses the remainder of its paid startup
+minute to collect more saves.
+
+Every rating pool and season is a saved build step. `buildBoardsWithCache` runs the same
+builder as a complete rebuild, including movement arrows and rank history, and reuses a
+step only when its inputs, day, rules, shape and JavaScript runtime match. A changed score
+invalidates its year's steps while unchanged years can be reused. Private, hash-checked
+chunks under `rebuildCache/{fingerprint}/artifacts` keep completed work across an execution
+restart and expire after seven days. Missing or damaged cached work is recomputed from
+the source. Browser accounts cannot read or write these checkpoints or the control document.
+
+All boards, club cards, search and games views still publish in one metadata commit,
+with the existing copy, league, schema and newer-publication checks. An incomplete build
+leaves the visible rankings intact. Concurrent saves that move a rebuild's inputs are
+handled by a following pass, without counting them as broken workers. Dry mode builds
+and caches privately and publishes no member views.
+
+A budget-limited job queues its continuation for the next available New York day or
+month before releasing its control record. It does not need another user save to restart.
+New requests join that continuation while it waits. Actual worker failures remain errors;
+Cloud Run retries them using completed build steps. Budget deferral and execution-lease
+interruptions do not increase the failure streak.
+
+The Firebase workflow deploys this job before its launcher, using the existing image
+repository, project and `live-runner` account. Job-specific execution permission is granted
+to that account. After deployment, `npm run rebuild:request` uses the deployment's existing
+key to request stale rankings, joins any active or deferred work, and starts no job when
+rankings are current. No new browser setting or secret is required.
+
+The control document records worker heartbeats and current status. Worker logs report
+build-step counts, reused steps, budget deferrals, copy/version and publication time.
+Read them in Cloud Logging with
+`resource.type="cloud_run_job" AND resource.labels.job_name="ranking-rebuild"`.
+The existing `npm run live:lag -- rebuilds.json` reads these publication records alongside
+the triggers' save records. Tests cover a rebuild lasting past the old cutoff, coalescing,
+execution leases, budget accounting and daylight-saving boundaries, checkpoint recovery,
+and parity with the original rankings.
 
 ### The live board on a member's device
 

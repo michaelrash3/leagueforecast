@@ -544,14 +544,14 @@ if (process.env.LIVE_REBUILD !== "on") {
   );
   const queued = rebuild.__endpoint;
   check(
-    "a rebuild runs one at a time, as the rebuilds' account, at the size the ledger prices",
+    "the rebuild launcher queues one request at a time without fitting rankings in HTTP",
     queued.taskQueueTrigger?.retryConfig?.maxAttempts === 3 &&
       queued.taskQueueTrigger?.retryConfig?.minBackoffSeconds === 120 &&
       queued.taskQueueTrigger?.rateLimits?.maxConcurrentDispatches === 1 &&
       queued.serviceAccountEmail === "live-runner@" &&
-      queued.availableMemoryMb === 8192 &&
-      queued.cpu === 2 &&
-      queued.timeoutSeconds === 300 &&
+      queued.availableMemoryMb === 256 &&
+      queued.cpu === 1 &&
+      queued.timeoutSeconds === 120 &&
       queued.maxInstances === 1 &&
       queued.concurrency === 1,
     JSON.stringify(queued)

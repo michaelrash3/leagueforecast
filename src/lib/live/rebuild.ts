@@ -20,6 +20,7 @@ import {
   type RebuildTask,
 } from "./rebuildPlan";
 import { coerceLiveMeta, type LiveStore } from "./viewStore";
+import type { BoardBuildCache, buildBoardsWithCache } from "./views/board";
 
 /**
  * One rebuild of the boards after a save of the copy, in two halves. The worker's (`runRebuild`)
@@ -149,6 +150,8 @@ export const runRebuild = async ({
   locale,
   clock = Date.now,
   deadline = Number.POSITIVE_INFINITY,
+  buildCache,
+  onBuildProgress,
 }: {
   /** The copy, read only: the rebuild never writes it. */
   copyStore: CloudStore;
@@ -163,6 +166,8 @@ export const runRebuild = async ({
   locale?: string;
   clock?: () => number;
   deadline?: number;
+  buildCache?: BoardBuildCache;
+  onBuildProgress?: Parameters<typeof buildBoardsWithCache>[2];
 }): Promise<RebuildResult> => {
   for (let tries = 1; ; tries += 1) {
     const day = today();
@@ -208,6 +213,8 @@ export const runRebuild = async ({
       leagueDocs,
       league,
       sweep: "due",
+      buildCache,
+      onBuildProgress,
       ...(locale === undefined ? {} : { locale }),
     });
     const tookMs = clock() - publishing;

@@ -9,7 +9,7 @@
  * function ends.
  */
 import { getHeapStatistics } from "node:v8";
-import { parentPort } from "node:worker_threads";
+import { parentPort, workerData } from "node:worker_threads";
 import {
   firestoreRestDocuments,
   firestoreRestLive,
@@ -19,6 +19,7 @@ import { todayIsoDay } from "../../src/lib/date";
 import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
 import { createPoolCache } from "../../src/lib/live/poolCache";
 import { runRebuild } from "../../src/lib/live/rebuild";
+import { restBoardBuildCache } from "../../src/lib/live/rebuildCache";
 import {
   answerRebuild,
   memoryOf,
@@ -44,6 +45,20 @@ parentPort?.on("message", (request: RebuildRequest) => {
         now: () => new Date().toISOString(),
         dry,
         deadline,
+        ...(workerData?.durable
+          ? {
+              buildCache: restBoardBuildCache(
+                firestoreRestDocuments(access),
+                `${process.version}/${process.versions.v8}/${Intl.Collator().resolvedOptions().locale}`
+              ),
+              onBuildProgress: (step: {
+                done: number;
+                total: number;
+                cached: boolean;
+                half: string;
+              }) => parentPort?.postMessage({ kind: "progress", ...step }),
+            }
+          : {}),
       });
     },
     // Read here, in the worker: the main thread's heap and limit are not the worker's.

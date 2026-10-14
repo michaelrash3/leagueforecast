@@ -301,11 +301,11 @@ afterAll(() => {
 });
 
 describe("a warm pool brought up to a new version", () => {
-  it("reads only the parts that changed, and holds what a fresh start on that version holds", async () => {
+  it("starts with only the parts the boards read", async () => {
     expect(scoredGame).toBeDefined();
     expect(base.has(NO_YEAR)).toBe(true);
     const cloud = memoryCloud();
-    const { store, read } = readOnly(cloud);
+    const { store } = readOnly(cloud);
     const cache = createPoolCache();
     await save(cloud, null, base);
     const first = ok(await cache.ensure(store));
@@ -317,21 +317,27 @@ describe("a warm pool brought up to a new version", () => {
         .sort()
     );
     expect(cache.held()).toEqual({ copy: first.manifest.copy, version: 1, keys: 9 });
-    const firstBoards = boardsOf(first.readSeason);
-    let boards = firstBoards;
+  });
 
-    const steps: Array<[string, Map<string, unknown>, string[], string[]]> = [
-      ["one game's score", V.scored, [YEAR_2027], []],
-      ["a team's name", V.renamed, [TEAMS], []],
-      ["a page's name", V.regrouped, [AGE_GROUPS], []],
-      ["a year with no games left", V.noShowcase, [INDEX], [NO_YEAR]],
-      ["League Standings", V.leagueEdited, [LEAGUE_PART], []],
-      ["only what no board reads", V.refreshed, [], []],
-    ];
-    let from = base;
-    for (const [what, values, fetched, gone] of steps) {
-      const manifest = await save(cloud, from, values);
-      from = values;
+  // Keep each warm/cold board comparison within its own test's time limit. The sequential
+  // there-and-back test below separately checks a cache kept warm across all these edits.
+  const steps: Array<[string, keyof typeof V, keyof typeof V, string[], string[]]> = [
+    ["one game's score", "base", "scored", [YEAR_2027], []],
+    ["a team's name", "scored", "renamed", [TEAMS], []],
+    ["a page's name", "renamed", "regrouped", [AGE_GROUPS], []],
+    ["a year with no games left", "regrouped", "noShowcase", [INDEX], [NO_YEAR]],
+    ["League Standings", "noShowcase", "leagueEdited", [LEAGUE_PART], []],
+    ["only what no board reads", "leagueEdited", "refreshed", [], []],
+  ];
+  it.each(steps)(
+    "%s: reads only changed parts and gives the same boards as a fresh start",
+    async (what, before, after, fetched, gone) => {
+      const cloud = memoryCloud();
+      const { store, read } = readOnly(cloud);
+      const cache = createPoolCache();
+      await save(cloud, null, V[before]);
+      expect(ok(await cache.ensure(store)).cold).toBe(true);
+      const manifest = await save(cloud, V[before], V[after]);
       read.length = 0;
       const warm = ok(await cache.ensure(store));
       expect(warm, what).toMatchObject({ cold: false, fetched, gone, tries: 1 });
@@ -347,11 +353,10 @@ describe("a warm pool brought up to a new version", () => {
       expect(cold.cold, what).toBe(true);
       expect(held(cold.readSeason), what).toEqual(warmHeld);
       expect(boardsOf(cold.readSeason), what).toBe(warmBoards);
-      boards = warmBoards;
+      // The complete edit sequence moved the boards, or parity alone could prove little.
+      if (after === "refreshed") expect(warmBoards).not.toBe(COLD.get(V.base)?.boards);
     }
-    // And the steps moved the boards, or the comparisons above prove little.
-    expect(boards).not.toBe(firstBoards);
-  });
+  );
 
   it("reads nothing for a part changed and changed back, though a new upload holds it", async () => {
     const cloud = memoryCloud();

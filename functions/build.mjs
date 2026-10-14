@@ -22,7 +22,7 @@ await build({
     "src/pullLeg.ts",
     "src/importJob.ts",
     "src/importWorker.ts",
-    ...(rebuilds ? ["src/rebuildWorker.ts", "src/editWorker.ts"] : []),
+    ...(rebuilds ? ["src/rebuildWorker.ts", "src/rebuildJob.ts", "src/editWorker.ts"] : []),
   ],
   bundle: true,
   platform: "node",

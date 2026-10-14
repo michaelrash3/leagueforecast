@@ -904,6 +904,26 @@ describe.skipIf(!HOST)("the rebuilds' switch and ledger, on the Firestore emulat
     }
     expect((await server().read()).raw).toEqual(before);
   });
+  it("keeps ranking job coordination and build checkpoints private to the server", async () => {
+    const docs = firestoreRestDocuments({
+      projectId: PROJECT,
+      token: async () => "owner",
+      origin: `http://${HOST}`,
+    });
+    const paths = [
+      "ops/rebuildJob",
+      "rebuildCache/test/artifacts/boards",
+      "rebuildCache/test/artifacts/chunk-0",
+    ];
+    for (const path of paths) await docs.set(path, { marker: "private" });
+    for (const account of [OWNER, LAPTOP, STRANGER, null]) {
+      const db = as(account);
+      for (const path of paths) {
+        await expect(getDoc(doc(db, path))).rejects.toMatchObject(REFUSED);
+        await expect(setDoc(doc(db, path), { marker: "changed" })).rejects.toMatchObject(REFUSED);
+      }
+    }
+  });
 });
 
 describe.skipIf(!HOST)("League seasons' rules, on the Firestore emulator", () => {
