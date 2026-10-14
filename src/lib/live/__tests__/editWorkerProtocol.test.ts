@@ -183,6 +183,30 @@ describe("the worker's answer", () => {
 });
 
 describe("the main thread's worker", () => {
+  it("lets copy commands supersede reads while retaining the order of earlier writes", async () => {
+    const workers = fakeWorkers((request, worker) => (worker === 1 ? null : answering()(request)));
+    const runner = editRunner({ spawn: workers.spawn });
+    const reading = runner.query(QUESTION).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(workers.posted).toHaveLength(1));
+    const warm = runner.warm();
+    const queuedRead = runner.query(QUESTION);
+    const writing = runner.edit(ASK);
+    const reset = runner.edit({ command: { kind: "copy.reset" } });
+    expect(await reading).toMatchObject({ message: "The read was superseded by a copy command." });
+    expect(await warm).toEqual({ ran: false, why: "gone" });
+    expect(await queuedRead).toEqual({ ran: false, why: "gone" });
+    expect(resultOf(await writing)).toEqual(EDITED);
+    expect(resultOf(await reset)).toEqual(EDITED);
+    expect(
+      workers.posted.map((request) =>
+        request.kind === "edit" ? request.ask.command.kind : request.kind
+      )
+    ).toEqual(["query", "team.state", "copy.reset"]);
+    expect(workers.ended).toEqual([1]);
+    expect(resultOf(await runner.query(QUESTION))).toEqual(QUERIED);
+    await runner.stop();
+  });
+
   it("ends an abandoned read so queued controls can proceed, but lets a running edit finish", async () => {
     const read = new AbortController();
     const workers = fakeWorkers((request, worker) => (worker === 1 ? null : answering()(request)));

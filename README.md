@@ -6455,7 +6455,10 @@ waiting on an age, use `poolQuery`, a separate callable service with its own war
 Year lists and archive/delete previews use `edit`, beside the corresponding writes. Both
 services use the same member checks and existing ledger; `poolQuery` refuses every write.
 The read client falls back to `edit` on a 404 while the new function is still deploying.
-Reset and restore bypass the worker queue after the owner's authorization is checked.
+Reset and restore keep their place in the write queue after the owner's authorization is
+checked. An earlier write finishes before them; only active or queued reads can be cancelled
+or skipped. The copy command then updates metadata without downloading the pool, so an
+earlier edit cannot retry after the reset and repopulate the data just cleared.
 
 Reads and warm-ups are cancelled when their screen closes. An active cancelled read ends
 its worker, and a queued one never starts; a running edit finishes its save. A successful

@@ -1,5 +1,6 @@
 import type { EditAsk, QueryAsk, WarmResult } from "./editHandle";
 import type { EditRun, QueryRun } from "./editRun";
+import { isCopyCommand } from "./commands";
 import { shouldRecycle } from "./rebuild";
 import type { WorkerMemory } from "./rebuildWorkerProtocol";
 
@@ -149,6 +150,7 @@ type Held = {
   port: EditPort;
   runs: number;
   dead: boolean;
+  active: Asked["kind"] | null;
   waiting: ((outcome: Outcome) => void) | null;
 };
 
@@ -201,9 +203,10 @@ export const editRunner = ({
   let held: Held | null = null;
   let nextId = 1;
   let line: Promise<unknown> = Promise.resolve();
+  let readGeneration = 0;
 
   const start = (): Held => {
-    const worker: Held = { port: spawn(), runs: 0, dead: false, waiting: null };
+    const worker: Held = { port: spawn(), runs: 0, dead: false, active: null, waiting: null };
     const tell = (outcome: Outcome) => worker.waiting?.(outcome);
     worker.port.listen({
       answer: (answer) => tell({ kind: "answer", answer }),
@@ -244,7 +247,6 @@ export const editRunner = ({
     limitMs: number,
     signal?: AbortSignal
   ): Promise<{ answer: EditWorkerAnswer; busyMs: number }> => {
-    if (held?.dead) await end(held);
     const worker = held ?? start();
     held = worker;
     const id = nextId;
@@ -256,6 +258,7 @@ export const editRunner = ({
         cancel();
         signal?.removeEventListener("abort", abandoned);
         worker.waiting = null;
+        worker.active = null;
         resolve(outcome);
       };
       const abandoned = () => finish({ kind: "died", error: "The read request was cancelled." });
@@ -280,6 +283,7 @@ export const editRunner = ({
           return;
         }
       }
+      worker.active = asked.kind;
       worker.port.post({ ...asked, id });
     });
     const busyMs = clock() - began;
@@ -315,9 +319,22 @@ export const editRunner = ({
     { signal }: TurnAsk,
     read: (answer: EditWorkerAnswer) => T | null
   ): Promise<Turned<T>> => {
+    if (signal?.aborted) return Promise.resolve({ ran: false, why: "gone" });
     const deadline = clock() + callS * 1000;
+    if (asked.kind === "edit" && isCopyCommand(asked.ask.command)) {
+      // Keep the reset/restore in the write order. Only old reads may be skipped or stopped:
+      // killing a running write would let its uncertain commit retry over the reset.
+      readGeneration++;
+      if (held?.active === "query" || held?.active === "warm")
+        held.waiting?.({ kind: "died", error: "The read was superseded by a copy command." });
+    }
+    const generation = readGeneration;
     return inTurn(async (): Promise<Turned<T>> => {
+      // Cleanup can yield. Check cancellation and copy-command priority after it, before posting.
+      if (held?.dead) await end(held);
       if (signal?.aborted) return { ran: false, why: "gone" };
+      if (asked.kind !== "edit" && generation !== readGeneration)
+        return { ran: false, why: "gone" };
       const left = deadline - clock();
       if (left <= 0) return { ran: false, why: "late" };
       const { answer, busyMs } = await send(asked, Math.min(limitS * 1000, left), signal);

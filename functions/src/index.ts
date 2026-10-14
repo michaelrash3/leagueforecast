@@ -4,7 +4,6 @@
  * function on another host adds.
  */
 import { Worker } from "node:worker_threads";
-import { getHeapStatistics } from "node:v8";
 import { logger } from "firebase-functions";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
@@ -25,15 +24,8 @@ import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pul
 import { coerceRefreshAsk, startRefresh } from "../../src/lib/cloud/refreshGate";
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
-import { coerceCommand, isCopyCommand, isOwnerCommand } from "../../src/lib/live/commands";
-import { runEdit } from "../../src/lib/live/editRun";
-import {
-  chargeQueue,
-  handleEdit,
-  handleQuery,
-  handleWarm,
-  type EditAsk,
-} from "../../src/lib/live/editHandle";
+import { coerceCommand, isOwnerCommand } from "../../src/lib/live/commands";
+import { chargeQueue, handleEdit, handleQuery, handleWarm } from "../../src/lib/live/editHandle";
 import {
   EDIT_CONCURRENCY,
   EDIT_SIZE,
@@ -734,34 +726,6 @@ const poolEndpoint = (queriesOnly = false) =>
           try {
             handled = await handleEdit({
               ...deps,
-              ...(isCopyCommand(command)
-                ? {
-                    worker: {
-                      edit: async (ask: EditAsk) => {
-                        if (deps.signal?.aborted)
-                          return { ran: false as const, why: "gone" as const };
-                        const began = performance.now();
-                        const result = await runEdit({
-                          store: firestoreRestStore({ ...restAccess(), writable: true }),
-                          leagueDocs: restLeagueDocs(firestoreRestDocuments(restAccess())),
-                          command: ask.command,
-                          copy: ask.copy,
-                          now: () => new Date().toISOString(),
-                        });
-                        return {
-                          ran: true as const,
-                          result,
-                          busyMs: performance.now() - began,
-                          memory: {
-                            heapUsedMb: process.memoryUsage().heapUsed / 1048576,
-                            rssMb: process.memoryUsage().rss / 1048576,
-                            heapLimitMb: getHeapStatistics().heap_size_limit / 1048576,
-                          },
-                        };
-                      },
-                    },
-                  }
-                : {}),
               ask: { command, ...(typeof copy === "string" ? { copy } : {}) },
             });
           } catch (error) {
