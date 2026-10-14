@@ -437,10 +437,6 @@ if (process.env.LIVE_REBUILD !== "on") {
     });
   };
   const command = { kind: "team.state", teamId: "B", state: "KY" };
-  const queryWrite = await post(poolQuery, { data: { command } }, signedInAs("member@example.com"));
-  check("the background-read endpoint refuses a write before any worker starts", queryWrite.status === 400, String(queryWrite.body));
-  const queryUnsigned = await post(poolQuery, { data: { query: { kind: "year.list" } } });
-  check("background reads require sign-in too", queryUnsigned.status === 401, String(queryUnsigned.body));
   const unsignedEdit = await post(edit, { data: { command } });
   check(
     "an edit is not made for a caller who has not signed in",
@@ -499,6 +495,10 @@ if (process.env.LIVE_REBUILD !== "on") {
     reads.length === memberReads + 1 && reads.every((url) => url.includes("/documents/members/")),
     JSON.stringify(reads)
   );
+  const queryWrite = await post(poolQuery, { data: { command } }, signedInAs("member@example.com"));
+  check("the background-read endpoint refuses a write before any worker starts", queryWrite.status === 400, String(queryWrite.body));
+  const queryUnsigned = await post(poolQuery, { data: { query: { kind: "year.list" } } });
+  check("background reads require sign-in too", queryUnsigned.status === 401, String(queryUnsigned.body));
   const query = { kind: "rename.preview", teamId: "B", name: "Club B" };
   const outsiderQuery = await post(edit, { data: { query } }, signedInAs("outsider@example.com"));
   const junkQuery = await post(
