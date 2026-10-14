@@ -484,6 +484,54 @@ describe("Team Rankings started again or brought back by the copy's owner", () =
   const hashes = (manifest: CloudManifest | null) =>
     new Map((manifest?.parts ?? []).map((part) => [part.key, part.hash]));
 
+  it("resets and restores by metadata even when the bulk pool cannot be downloaded", async () => {
+    const cloud = await withLeague();
+    const before = hashes(cloud.manifest());
+    const store: CloudStore = {
+      ...cloud.store,
+      getChunk: async () => {
+        throw new Error("Bulk downloads are stuck");
+      },
+    };
+    const started = await runEdit({
+      store,
+      leagueDocs: NO_LEAGUE_DOCS,
+      command: { kind: "copy.reset" },
+      now: () => NOW,
+    });
+    expect(started).toMatchObject({ ok: true, fetched: 0 });
+    if (!started.ok) throw new Error(started.why);
+    expect(cloud.manifest()?.parts.map(({ key }) => key)).toEqual([LEAGUE_PART]);
+    expect(
+      await runEdit({ store, leagueDocs: NO_LEAGUE_DOCS, command: started.inverse, now: () => NOW })
+    ).toMatchObject({ ok: true, fetched: 0 });
+    expect(hashes(cloud.manifest())).toEqual(before);
+  });
+
+  it("still refuses a reset of another copy or newer data before changing metadata", async () => {
+    const cloud = await withLeague();
+    const before = cloud.manifest();
+    expect(
+      await runEdit({
+        store: cloud.store,
+        leagueDocs: NO_LEAGUE_DOCS,
+        command: { kind: "copy.reset" },
+        copy: "another-copy",
+        now: () => NOW,
+      })
+    ).toMatchObject({ ok: false, why: "copy-replaced" });
+    cloud.setManifest({ ...before!, schema: 2 });
+    expect(
+      await runEdit({
+        store: cloud.store,
+        leagueDocs: NO_LEAGUE_DOCS,
+        command: { kind: "copy.reset" },
+        now: () => NOW,
+      })
+    ).toMatchObject({ ok: false, why: "newer-schema" });
+    expect(cloud.manifest()?.version).toBe(before?.version);
+  });
+
   it("starts again in one save: every Team Rankings part out and kept whole, League left as it was", async () => {
     const cloud = await withLeague();
     const before = cloud.manifest();

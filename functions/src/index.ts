@@ -4,6 +4,7 @@
  * function on another host adds.
  */
 import { Worker } from "node:worker_threads";
+import { getHeapStatistics } from "node:v8";
 import { logger } from "firebase-functions";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
@@ -24,8 +25,15 @@ import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pul
 import { coerceRefreshAsk, startRefresh } from "../../src/lib/cloud/refreshGate";
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
-import { coerceCommand, isOwnerCommand } from "../../src/lib/live/commands";
-import { chargeQueue, handleEdit, handleQuery, handleWarm } from "../../src/lib/live/editHandle";
+import { coerceCommand, isCopyCommand, isOwnerCommand } from "../../src/lib/live/commands";
+import { runEdit } from "../../src/lib/live/editRun";
+import {
+  chargeQueue,
+  handleEdit,
+  handleQuery,
+  handleWarm,
+  type EditAsk,
+} from "../../src/lib/live/editHandle";
 import {
   EDIT_CONCURRENCY,
   EDIT_SIZE,
@@ -635,106 +643,141 @@ const COPY_ID = /^[0-9a-f]{8,64}$/;
  * (`EDIT_CALL_S`), and is answered as an edit not made (`aborted`); a worker lost with an edit in
  * its hands answers that the edit may or may not be in the copy (`unsure`).
  */
-export const edit = !LIVE_REBUILD
-  ? undefined
-  : onCall(
-      {
-        region: REGION,
-        invoker: "public",
-        serviceAccount: LIVE_RUNNER,
-        memory: "4GiB",
-        cpu: EDIT_SIZE.cpu,
-        timeoutSeconds: EDIT_TIMEOUT_S,
-        maxInstances: 1,
-        concurrency: EDIT_CONCURRENCY,
-      },
-      async (request, response) => {
-        const verdict = await editCheck(request.rawRequest.headers.authorization);
-        if (verdict === "unavailable") {
-          throw new HttpsError(
-            "unavailable",
-            "Could not check this account against the cloud copy's list just now. Try again in a minute."
-          );
-        }
-        if (!onTheList(verdict)) {
-          throw new HttpsError(
-            verdict === "signed-out" ? "unauthenticated" : "permission-denied",
-            EDIT_MEMBERS_ONLY_MESSAGES[verdict]
-          );
-        }
-        const data = (request.data ?? null) as {
-          command?: unknown;
-          query?: unknown;
-          copy?: unknown;
-          warm?: unknown;
-        } | null;
-        // One of the three, read exactly: a request naming more than one is none of them.
-        const asks = [data?.command, data?.query, data?.warm].filter((one) => one !== undefined);
-        const warm = asks.length === 1 && data?.warm === true;
-        const command = asks.length === 1 && !warm ? coerceCommand(data?.command) : null;
-        const query = asks.length === 1 && !warm && !command ? coerceQuery(data?.query) : null;
-        const copy = data?.copy;
-        if (!warm && !command && !query) {
-          throw new HttpsError("invalid-argument", "That is not an edit this server knows.");
-        }
-        // A year's archive or delete is the owner's alone: the rules let only the owner delete a
-        // season, and this is the pool's like of it.
-        if (command && isOwnerCommand(command) && verdict !== "owner") {
-          throw new HttpsError("permission-denied", OWNER_ONLY_MESSAGE);
-        }
-        if (copy !== undefined && (typeof copy !== "string" || !COPY_ID.test(copy))) {
-          throw new HttpsError("invalid-argument", "That is not a copy's id.");
-        }
-        // New York's day, as the rebuilds': set before the worker starts, which keeps the zone it
-        // starts in.
-        process.env.TZ = "America/New_York";
-        edits ??= editRunner({ spawn: startEditWorker });
-        const deps = {
-          ledger: restLedgerStore(firestoreRestDocuments(restAccess())),
-          worker: edits,
-          today: () => todayIsoDay(),
-          size: EDIT_SIZE,
-          startupS,
-          charges: editCharges,
-          // The request's own end: a call whose caller has gone is never sent to the worker.
-          ...(response?.signal ? { signal: response.signal } : {}),
-        };
-        if (query) {
-          const handled = await handleQuery({
-            ...deps,
-            ask: { query, ...(typeof copy === "string" ? { copy } : {}) },
-          });
-          logger.info("edit", handled.line);
-          if ("notAnswered" in handled) throw new HttpsError("aborted", handled.notAnswered);
-          return handled.reply;
-        }
-        if (!command) {
-          const { warmed, line } = await handleWarm(deps);
-          logger.info("edit", line);
-          if (!warmed) {
+const poolEndpoint = (queriesOnly = false) =>
+  !LIVE_REBUILD
+    ? undefined
+    : onCall(
+        {
+          region: REGION,
+          invoker: "public",
+          serviceAccount: LIVE_RUNNER,
+          memory: "8GiB",
+          cpu: EDIT_SIZE.cpu,
+          timeoutSeconds: EDIT_TIMEOUT_S,
+          maxInstances: 1,
+          concurrency: EDIT_CONCURRENCY,
+        },
+        async (request, response) => {
+          const verdict = await editCheck(request.rawRequest.headers.authorization);
+          if (verdict === "unavailable") {
             throw new HttpsError(
-              "aborted",
-              "The pool could not be brought up just now; the next edit brings it up itself."
+              "unavailable",
+              "Could not check this account against the cloud copy's list just now. Try again in a minute."
             );
           }
-          return { warmed };
+          if (!onTheList(verdict)) {
+            throw new HttpsError(
+              verdict === "signed-out" ? "unauthenticated" : "permission-denied",
+              EDIT_MEMBERS_ONLY_MESSAGES[verdict]
+            );
+          }
+          const data = (request.data ?? null) as {
+            command?: unknown;
+            query?: unknown;
+            copy?: unknown;
+            warm?: unknown;
+          } | null;
+          // One of the three, read exactly: a request naming more than one is none of them.
+          const asks = [data?.command, data?.query, data?.warm].filter((one) => one !== undefined);
+          const warm = asks.length === 1 && data?.warm === true;
+          const command = asks.length === 1 && !warm ? coerceCommand(data?.command) : null;
+          const query = asks.length === 1 && !warm && !command ? coerceQuery(data?.query) : null;
+          const copy = data?.copy;
+          if (queriesOnly && !query)
+            throw new HttpsError("invalid-argument", "This endpoint only answers questions.");
+          if (!warm && !command && !query) {
+            throw new HttpsError("invalid-argument", "That is not an edit this server knows.");
+          }
+          // A year's archive or delete is the owner's alone: the rules let only the owner delete a
+          // season, and this is the pool's like of it.
+          if (command && isOwnerCommand(command) && verdict !== "owner") {
+            throw new HttpsError("permission-denied", OWNER_ONLY_MESSAGE);
+          }
+          if (copy !== undefined && (typeof copy !== "string" || !COPY_ID.test(copy))) {
+            throw new HttpsError("invalid-argument", "That is not a copy's id.");
+          }
+          // New York's day, as the rebuilds': set before the worker starts, which keeps the zone it
+          // starts in.
+          process.env.TZ = "America/New_York";
+          edits ??= editRunner({ spawn: startEditWorker });
+          const deps = {
+            ledger: restLedgerStore(firestoreRestDocuments(restAccess())),
+            worker: edits,
+            today: () => todayIsoDay(),
+            size: EDIT_SIZE,
+            startupS,
+            charges: editCharges,
+            // The request's own end: a call whose caller has gone is never sent to the worker.
+            ...(response?.signal ? { signal: response.signal } : {}),
+          };
+          if (query) {
+            const handled = await handleQuery({
+              ...deps,
+              ask: { query, ...(typeof copy === "string" ? { copy } : {}) },
+            });
+            logger.info("edit", handled.line);
+            if ("notAnswered" in handled) throw new HttpsError("aborted", handled.notAnswered);
+            return handled.reply;
+          }
+          if (!command) {
+            const { warmed, line } = await handleWarm(deps);
+            logger.info("edit", line);
+            if (!warmed) {
+              throw new HttpsError(
+                "aborted",
+                "The pool could not be brought up just now; the next edit brings it up itself."
+              );
+            }
+            return { warmed };
+          }
+          let handled: Awaited<ReturnType<typeof handleEdit>>;
+          try {
+            handled = await handleEdit({
+              ...deps,
+              ...(isCopyCommand(command)
+                ? {
+                    worker: {
+                      edit: async (ask: EditAsk) => {
+                        if (deps.signal?.aborted)
+                          return { ran: false as const, why: "gone" as const };
+                        const began = performance.now();
+                        const result = await runEdit({
+                          store: firestoreRestStore({ ...restAccess(), writable: true }),
+                          leagueDocs: restLeagueDocs(firestoreRestDocuments(restAccess())),
+                          command: ask.command,
+                          copy: ask.copy,
+                          now: () => new Date().toISOString(),
+                        });
+                        return {
+                          ran: true as const,
+                          result,
+                          busyMs: performance.now() - began,
+                          memory: {
+                            heapUsedMb: process.memoryUsage().heapUsed / 1048576,
+                            rssMb: process.memoryUsage().rss / 1048576,
+                            heapLimitMb: getHeapStatistics().heap_size_limit / 1048576,
+                          },
+                        };
+                      },
+                    },
+                  }
+                : {}),
+              ask: { command, ...(typeof copy === "string" ? { copy } : {}) },
+            });
+          } catch (error) {
+            // Nothing it hands back throws, so this is not an answer anyone made: the edit may be in.
+            logger.error("edit", { kind: command.kind, end: "threw", error: messageOf(error) });
+            throw new HttpsError(
+              "internal",
+              "The edit may or may not have been made. Check it before making it again."
+            );
+          }
+          logger.info("edit", handled.line);
+          if ("notMade" in handled) throw new HttpsError("aborted", handled.notMade);
+          return handled.reply;
         }
-        let handled: Awaited<ReturnType<typeof handleEdit>>;
-        try {
-          handled = await handleEdit({
-            ...deps,
-            ask: { command, ...(typeof copy === "string" ? { copy } : {}) },
-          });
-        } catch (error) {
-          // Nothing it hands back throws, so this is not an answer anyone made: the edit may be in.
-          logger.error("edit", { kind: command.kind, end: "threw", error: messageOf(error) });
-          throw new HttpsError(
-            "internal",
-            "The edit may or may not have been made. Check it before making it again."
-          );
-        }
-        logger.info("edit", handled.line);
-        if ("notMade" in handled) throw new HttpsError("aborted", handled.notMade);
-        return handled.reply;
-      }
-    );
+      );
+
+export const edit = poolEndpoint();
+/** Background diagnostics have their own worker and cannot queue ahead of edits or year controls. */
+export const poolQuery = poolEndpoint(true);

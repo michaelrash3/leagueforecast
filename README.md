@@ -6273,16 +6273,17 @@ proxy's ten, since it writes the copy past the rules. It reads the command back 
 (`coerceCommand`, which refuses a field it does not know at any level, and a command of more than
 500 steps) and refuses anything else before a worker starts. The edits run one at a time in a
 worker that keeps the pool from call to call (`editWorkerProtocol.ts`), one instance taking up to
-eight calls at once and queueing them. The instance has 4 GiB, half a rebuild's, since the edits
-build no boards (measured below); the worker's heap is held to 2.5 GB, and a worker past 2 GB of
-heap or 3 GB in all is started afresh between edits (`EDIT_RECYCLE_AT`). The edit is made whatever
+eight calls at once and queueing them. The instance has 8 GiB, with a 5 GiB worker heap cap;
+a worker past 4 GiB of heap or 6 GiB in all is started afresh between requests
+(`EDIT_RECYCLE_AT`). The edit is made whatever
 the rebuilds' switch says, since it is a member's change to the copy, and the call answers as soon
 as the save has landed, with the version saved, the inverse for an Undo, and what changed.
 
 No call is left for the platform's timeout to answer with its edit still to come. Each has 520 s
 from when it came (`EDIT_CALL_S`, inside the 540 s timeout): one whose caller has gone, or whose
 time is up, before its turn is never sent, and a run is cut short at the time its call has left or
-a minute, whichever is less (`EDIT_LIMIT_S`; eight calls each run to the minute fit). A call never
+520 seconds, whichever is less (`EDIT_LIMIT_S`). A cold nationwide pool is no longer killed
+at sixty seconds and downloaded again on each retry. A call never
 sent, or one whose worker said it threw short of any save, is answered as an edit not made
 (`aborted`); a worker lost with an edit in its hands (died, cut short, out of memory), or a save
 whose answer never came, as one that may or may not be in the copy (`unsure`), which the copy then
@@ -6387,7 +6388,7 @@ bench is run on a backup (`npm run live:bench -- <backup.json>`) or the seeded p
 <clubs a page>`); it keeps the copy it makes in a file (`--save <copy.json>`) and runs again from
 that (`-- --copy <copy.json>`), and only such a run reports the most the process held, since one
 that read a backup holds what reading it took. From the copy, the process held at most 1.1 GB
-bringing the pool up and making and undoing the edits, which is what sets the edit function's 4 GiB.
+bringing the pool up and making and undoing the edits, which set the previous four-GiB profile.
 The first build of every board took it to 2.6 GB, and builds after it to 3.8 GB (2.3 GB with the heap
 held to 2.5 GB, the builds taking as long), so the rebuild keeps its 8 GiB, with room for the pool
 to double over a season.
@@ -6439,13 +6440,30 @@ device's Bring back made by the server: the version made current, what it replac
 A version holding League Standings is not brought back once its seasons have documents of their
 own (`league-kept-live`), since neither the boards nor any device read the copy's part then. Setup
 on the live page has the start (`LiveStartAgainCard`), which asks the server what the cloud holds
-when pressed (`year.list`) and confirms with those counts; nothing on the device is deleted, as the
+when pressed by opening its confirmation immediately; it does not wait for `year.list`.
+Reset and restore work directly on manifest metadata and download no team or game chunks.
+Nothing on the device is deleted, as the
 device's own Start from scratch does. The Cloud panel's Bring back asks the server
 (`serverRestore.ts`), then takes the copy as it takes any other save, so a device never writes the
 copy to bring a version back. Both are the owner's alone, refused to a member with "Only the cloud
 copy's owner can …", as the functions' smoke run holds for all four of the owner's commands.
 `editRun.test.ts` holds the start, its Undo, a version a device kept brought back, the boards
 emptied and published again, and a save landing between.
+
+**Responsive Setup controls.** Background questions, including Pool health and the teams
+waiting on an age, use `poolQuery`, a separate callable service with its own warm worker.
+Year lists and archive/delete previews use `edit`, beside the corresponding writes. Both
+services use the same member checks and existing ledger; `poolQuery` refuses every write.
+The read client falls back to `edit` on a 404 while the new function is still deploying.
+Reset and restore bypass the worker queue after the owner's authorization is checked.
+
+Reads and warm-ups are cancelled when their screen closes. An active cancelled read ends
+its worker, and a queued one never starts; a running edit finishes its save. A successful
+reset, restore, archive or delete cancels obsolete questions and refreshes Setup's lists
+immediately. Reset confirmation and working status appear before any pool download,
+archive/delete show working status, and an unanswered year list offers a retry. Tests
+cover reset/Undo with all bulk downloads failing, a stuck background read beside a
+successful reset, cancellation, a read lasting past sixty seconds, and the endpoint routing.
 
 **Team Rankings restored from a backup by the owner** (1.6). A backup of Team Rankings is
 tens of megabytes (70 MB of JSON on the 29 September backup), far past what a call may carry, so

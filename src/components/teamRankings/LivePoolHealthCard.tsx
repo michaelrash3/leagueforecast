@@ -50,13 +50,17 @@ export function LivePoolHealthCard({
   today: string;
   onOpenTeam?: (teamId: string, year?: number) => void;
 }) {
-  const { locked, edit, ask, say } = edits;
+  const { locked, edit, ask, say, poolRevision } = edits;
   const [opened, setOpened] = useState<HealthSummaryAnswer | null>(null);
+  const [openedAt, setOpenedAt] = useState(poolRevision);
   const [answers, setAnswers] = useState<PoolHealthAnswers | null>(null);
   const [unread, setUnread] = useState(false);
+  const [unreadAt, setUnreadAt] = useState(poolRevision);
   // Bumped to ask what the pool shows again, after an edit that changed it or a try again.
   const [asked, setAsked] = useState(0);
-  const [inspection, setInspection] = useState<HealthInspectAnswer | null>(null);
+  const [inspected, setInspection] = useState<HealthInspectAnswer | null>(null);
+  const [inspectedAt, setInspectedAt] = useState(poolRevision);
+  const inspection = inspectedAt === poolRevision ? inspected : null;
   const [looking, setLooking] = useState(false);
 
   // What the pool shows as it opens, once edits can be sent: asked of the copy, never of a board
@@ -64,20 +68,24 @@ export function LivePoolHealthCard({
   useEffect(() => {
     if (locked) return;
     let alive = true;
-    void ask({ kind: "health.summary", today }).then((answer) => {
+    const controller = new AbortController();
+    void ask({ kind: "health.summary", today }, { signal: controller.signal }).then((answer) => {
       if (!alive) return;
       if (!answer) {
         setUnread(true);
+        setUnreadAt(poolRevision);
         return;
       }
       setUnread(false);
       setOpened(answer);
+      setOpenedAt(poolRevision);
       setAnswers(answersOf(answer));
     });
     return () => {
       alive = false;
+      controller.abort();
     };
-  }, [locked, ask, today, asked]);
+  }, [locked, ask, today, asked, poolRevision]);
   const askAgain = () => setAsked((times) => times + 1);
 
   /** An edit that changes the pool, after which (and after its Undo) the lists are asked for. */
@@ -91,10 +99,13 @@ export function LivePoolHealthCard({
     setLooking(true);
     const found = await ask({ kind: "health.inspect", today });
     setLooking(false);
-    if (found) setInspection(found);
+    if (found) {
+      setInspection(found);
+      setInspectedAt(poolRevision);
+    }
   };
 
-  if (!opened || !answers)
+  if (!opened || !answers || openedAt !== poolRevision)
     return (
       <div className={`${card} p-5`} role="status" aria-live="polite">
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -102,11 +113,13 @@ export function LivePoolHealthCard({
         </h2>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           {locked ??
-            (unread
+            (unread && unreadAt === poolRevision
               ? "Pool health could not be read from the cloud just now."
-              : "Reading the pool's health from the cloud…")}
+              : edits.reconnecting
+                ? "Reconnecting to read the pool's health…"
+                : "Reading the pool's health from the cloud…")}
         </p>
-        {unread && !locked && (
+        {unread && unreadAt === poolRevision && !locked && (
           <button type="button" onClick={askAgain} className={`${button.ghost} mt-3`}>
             Try again
           </button>

@@ -16,27 +16,22 @@ import type { WorkerMemory } from "./rebuildWorkerProtocol";
  */
 
 /**
- * The function's instance, as a run's cost is reckoned (`runCost`): half the rebuild's, since the
- * edits build no boards. On the 29 September 2026 pool, a process that brought the pool up cold and
- * made and undid one edit of each of eight kinds held at most 1.1 GB, where building every board
- * then took it to 2.6 GB and, build after build, 3.8 GB (`npm run live:bench -- --copy`, 4
- * October).
+ * The edit and background-read instances, charged at their actual provisioned size. Nationwide
+ * imports can exceed the old four-GiB profile; both workers have the rebuild job's memory room.
  */
-export const EDIT_SIZE = { gib: 4, cpu: 2 } as const;
+export const EDIT_SIZE = { gib: 8, cpu: 2 } as const;
 
 /**
- * The most the edit worker's heap may hold, in MiB: five times the most the edits above left it
- * holding (466 MB), for a pool that grows through the season, and below the instance's 4 GiB with
- * the main thread and the worker's buffers beside it.
+ * The worker's heap cap, below the instance's eight GiB to leave room for buffers and the parent.
  */
-export const EDIT_WORKER_HEAP_MB = 2_560;
+export const EDIT_WORKER_HEAP_MB = 5_120;
 
 /**
  * When the edit worker is started afresh, as `RECYCLE_AT` says for the rebuild's: below its heap's
  * cap and the instance's memory, so a worker that grows is let go between edits rather than running
  * out in the middle of one.
  */
-export const EDIT_RECYCLE_AT = { heapUsedMb: 2_048, rssMb: 3_072, runs: 200 } as const;
+export const EDIT_RECYCLE_AT = { heapUsedMb: 4_096, rssMb: 6_144, runs: 200 } as const;
 
 /** The function's timeout, after which the platform answers a caller still waiting. */
 export const EDIT_TIMEOUT_S = 540;
@@ -53,13 +48,11 @@ export const EDIT_CONCURRENCY = 8;
 export const EDIT_CALL_S = EDIT_TIMEOUT_S - 20;
 
 /**
- * How long an edit may take in the worker before the main thread ends the worker and says so. On
- * the 29 September 2026 pool a cold start read every part in 1.4 s and the costliest edit, a merge,
- * took 4.5 s to apply and commit (`npm run live:bench`, 4 October), both in memory; Firestore adds
- * a round trip a read and the upload of the parts changed. A minute leaves a slow store a wide
- * berth, and keeps a full line, every call in it run to the limit, inside a call's time.
+ * A cold nationwide pool gets the call's remaining time, rather than being killed and repeatedly
+ * downloaded at sixty seconds. Queued calls retain their own deadlines and cancelled reads end
+ * their worker; an edit already running is allowed to finish within its deadline.
  */
-export const EDIT_LIMIT_S = 60;
+export const EDIT_LIMIT_S = EDIT_CALL_S;
 
 export type EditRequest =
   | { kind: "edit"; id: number; ask: EditAsk }
@@ -248,7 +241,8 @@ export const editRunner = ({
    */
   const send = async (
     asked: Asked,
-    limitMs: number
+    limitMs: number,
+    signal?: AbortSignal
   ): Promise<{ answer: EditWorkerAnswer; busyMs: number }> => {
     if (held?.dead) await end(held);
     const worker = held ?? start();
@@ -257,9 +251,17 @@ export const editRunner = ({
     nextId += 1;
     const began = clock();
     const outcome = await new Promise<Outcome>((resolve) => {
-      const cancel = setTimer(
+      let cancel = () => {};
+      const finish = (outcome: Outcome) => {
+        cancel();
+        signal?.removeEventListener("abort", abandoned);
+        worker.waiting = null;
+        resolve(outcome);
+      };
+      const abandoned = () => finish({ kind: "died", error: "The read request was cancelled." });
+      cancel = setTimer(
         () =>
-          resolve({
+          finish({
             kind: "died",
             error: `The ${asked.kind} ran past the ${Math.round(limitMs / 1000)} s it had.`,
           }),
@@ -267,10 +269,17 @@ export const editRunner = ({
       );
       worker.waiting = (heard) => {
         if (heard.kind === "answer" && heard.answer.id !== id) return;
-        cancel();
-        worker.waiting = null;
-        resolve(heard);
+        finish(heard);
       };
+      // Reads cannot commit changes. Cancel their worker so an abandoned diagnostic cannot
+      // keep queued controls waiting; an edit already running must still finish its save.
+      if (asked.kind !== "edit") {
+        signal?.addEventListener("abort", abandoned, { once: true });
+        if (signal?.aborted) {
+          abandoned();
+          return;
+        }
+      }
       worker.port.post({ ...asked, id });
     });
     const busyMs = clock() - began;
@@ -311,7 +320,7 @@ export const editRunner = ({
       if (signal?.aborted) return { ran: false, why: "gone" };
       const left = deadline - clock();
       if (left <= 0) return { ran: false, why: "late" };
-      const { answer, busyMs } = await send(asked, Math.min(limitS * 1000, left));
+      const { answer, busyMs } = await send(asked, Math.min(limitS * 1000, left), signal);
       // `send` hands back only the answer the request is due, which `read` takes.
       const result = read(answer);
       if (result === null || answer.kind === "pong") {

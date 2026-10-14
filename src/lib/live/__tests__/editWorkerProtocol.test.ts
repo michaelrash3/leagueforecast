@@ -16,7 +16,6 @@ import {
   type EditWorkerAnswer,
   type Turned,
 } from "../editWorkerProtocol";
-import { RECYCLE_AT } from "../rebuild";
 import type { WorkerMemory } from "../rebuildWorkerProtocol";
 
 /*
@@ -97,14 +96,51 @@ const answering =
 const resultOf = <T>(turned: Turned<T>): T | string => (turned.ran ? turned.result : turned.why);
 
 describe("the edit function's sizes", () => {
-  it("fit a full line of calls inside a call's time, that inside the timeout, and the worker inside the instance", () => {
-    expect(EDIT_CONCURRENCY * EDIT_LIMIT_S).toBeLessThanOrEqual(EDIT_CALL_S);
+  it("gives a cold nationwide pool the call's available time and keeps the worker inside the instance", () => {
+    expect(EDIT_CONCURRENCY).toBeGreaterThan(1);
+    expect(EDIT_LIMIT_S).toBe(EDIT_CALL_S);
     expect(EDIT_CALL_S).toBeLessThan(EDIT_TIMEOUT_S);
     expect(EDIT_TIMEOUT_S).toBeLessThanOrEqual(540);
-    expect(EDIT_SIZE).toEqual({ gib: 4, cpu: 2 });
+    expect(EDIT_SIZE).toEqual({ gib: 8, cpu: 2 });
     expect(EDIT_RECYCLE_AT.heapUsedMb).toBeLessThan(EDIT_WORKER_HEAP_MB);
     expect(EDIT_RECYCLE_AT.rssMb).toBeLessThan(EDIT_SIZE.gib * 1024);
     expect(EDIT_WORKER_HEAP_MB).toBeLessThan(EDIT_SIZE.gib * 1024);
+  });
+  it("lets a cold read finish past the old sixty-second cutoff", async () => {
+    vi.useFakeTimers();
+    try {
+      let listeners: Parameters<EditPort["listen"]>[0] | null = null;
+      const sent: EditRequest[] = [];
+      let ended = 0;
+      const runner = editRunner({
+        clock: Date.now,
+        spawn: () => ({
+          listen: (given) => {
+            listeners = given;
+          },
+          post: (request) => {
+            sent.push(request);
+          },
+          terminate: async () => {
+            ended++;
+          },
+        }),
+      });
+      const pending = runner.query(QUESTION);
+      await vi.advanceTimersByTimeAsync(80_000);
+      expect(ended).toBe(0);
+      const request = sent[0]!;
+      (listeners as unknown as Parameters<EditPort["listen"]>[0]).answer({
+        kind: "queried",
+        id: request.id,
+        result: QUERIED,
+        memory: SMALL,
+      });
+      expect(resultOf(await pending)).toEqual(QUERIED);
+      await runner.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -147,6 +183,31 @@ describe("the worker's answer", () => {
 });
 
 describe("the main thread's worker", () => {
+  it("ends an abandoned read so queued controls can proceed, but lets a running edit finish", async () => {
+    const read = new AbortController();
+    const workers = fakeWorkers((request, worker) => (worker === 1 ? null : answering()(request)));
+    const runner = editRunner({ spawn: workers.spawn });
+    const pending = runner.query(QUESTION, { signal: read.signal });
+    await vi.waitFor(() => expect(workers.posted).toHaveLength(1));
+    const ended = expect(pending).rejects.toMatchObject({
+      message: "The read request was cancelled.",
+    });
+    read.abort();
+    await ended;
+    expect(resultOf(await runner.edit(ASK))).toEqual(EDITED);
+    expect(workers.started).toEqual([1, 2]);
+    expect(workers.ended).toEqual([1]);
+    const writing = new AbortController();
+    const active = fakeWorkers((request) => {
+      writing.abort();
+      return answering()(request);
+    });
+    const saving = editRunner({ spawn: active.spawn });
+    expect(resultOf(await saving.edit(ASK, { signal: writing.signal }))).toEqual(EDITED);
+    expect(active.ended).toEqual([]);
+    await runner.stop();
+    await saving.stop();
+  });
   it("keeps one worker for the edits, the questions and the warm-ups between them", async () => {
     const workers = fakeWorkers(answering());
     const runner = editRunner({ spawn: workers.spawn });
@@ -286,8 +347,8 @@ describe("the main thread's worker", () => {
   });
 
   it("starts a fresh worker once the heap or the process has grown past the edit function's own recycle point", async () => {
-    // The process's, past the edit function's point and well short of the rebuild's.
-    expect(EDIT_RECYCLE_AT.rssMb + 1).toBeLessThan(RECYCLE_AT.rssMb);
+    // Recycle before the instance's memory limit, between requests.
+    expect(EDIT_RECYCLE_AT.rssMb + 1).toBeLessThan(EDIT_SIZE.gib * 1024);
     const grown: WorkerMemory[] = [
       { heapUsedMb: EDIT_RECYCLE_AT.heapUsedMb + 1, rssMb: 100, heapLimitMb: 1 },
       { heapUsedMb: 100, rssMb: EDIT_RECYCLE_AT.rssMb + 1, heapLimitMb: 1 },

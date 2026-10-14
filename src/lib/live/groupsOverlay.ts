@@ -45,6 +45,10 @@ export const overlayGroups = (
 ): readonly AgeGroup[] => {
   let shown = groups;
   for (const step of edits.flatMap(stepsOf)) {
+    if (step.kind === "copy.reset") {
+      shown = [];
+      continue;
+    }
     if (step.kind !== "season.assign") continue;
     shown = groupsAfter(shown, step) ?? shown;
   }

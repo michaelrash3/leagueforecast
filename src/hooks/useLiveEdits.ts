@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { memberToken } from "../lib/cloud/cloudSession";
 import type { PoolCommand } from "../lib/live/commands";
 import type { CallDeps } from "../lib/live/editClient";
@@ -36,6 +36,8 @@ export type ShowToast = (
 export type EditSaid = { done: string; undo?: boolean; afterUndo?: () => void; same?: string };
 
 export type LiveEdits = {
+  /** Structural saves invalidate Setup's lists before the next board publication. */
+  poolRevision?: number;
   reconnecting?: boolean;
   /** Why edits are off now, as the person is told, or null when they can be sent. */
   locked: string | null;
@@ -44,7 +46,10 @@ export type LiveEdits = {
   /** Sends `command`; whether the server made it. Every answer is said in a toast. */
   edit: (command: PoolCommand, said: EditSaid) => Promise<boolean>;
   /** Asks the server a question about the copy; its answer, or null once a toast has said why not. */
-  ask: <K extends QueryKind>(query: QueryOf<K>) => Promise<AnswerOf<K> | null>;
+  ask: <K extends QueryKind>(
+    query: QueryOf<K>,
+    options?: { signal?: AbortSignal }
+  ) => Promise<AnswerOf<K> | null>;
   /** Brings the server's pool up ahead of an edit, unless a call has done so lately. */
   warm: () => void;
   /** Says why an edit was not sent, as every refusal here is said. */
@@ -83,8 +88,16 @@ export function useLiveEdits({
 }): LiveEdits {
   // Every edit made that the views may not show, pruned as each new one is made.
   const [made, setMade] = useState<PendingEdit[]>([]);
+  const [poolRevision, setPoolRevision] = useState(0);
   const [reconnecting, setReconnecting] = useState(false);
   const reconnectingCalls = useRef(new Set<symbol>());
+  const reading = useRef(new Set<AbortController>());
+  useEffect(
+    () => () => {
+      for (const controller of reading.current) controller.abort();
+    },
+    [copy?.id]
+  );
   // The copy the views are of as it is now, for an answer that comes back after it moved.
   const current = useRef(copy);
   const lastCall = useRef<number | null>(null);
@@ -140,6 +153,14 @@ export function useLiveEdits({
           showToast(EDIT_REFUSED[reply.why], { tone: "error" });
           return false;
         }
+        if (
+          ["copy.reset", "copy.restore", "backup.restore", "year.archive", "year.delete"].includes(
+            command.kind
+          )
+        ) {
+          for (const controller of reading.current) controller.abort();
+          setPoolRevision((value) => value + 1);
+        }
         const shown = pendingOf(command, reply);
         // Drawn until the views show it (`pending`); those they already show are let go here.
         if (shown)
@@ -173,43 +194,64 @@ export function useLiveEdits({
   );
 
   const ask = useCallback(
-    async <K extends QueryKind>(query: QueryOf<K>): Promise<AnswerOf<K> | null> => {
+    async <K extends QueryKind>(
+      query: QueryOf<K>,
+      options?: { signal?: AbortSignal }
+    ): Promise<AnswerOf<K> | null> => {
       const against = current.current;
       const lock = lockedNow.current;
       if (lock || !against) {
         showToast(lock ?? NO_COPY, { tone: "error" });
         return null;
       }
-      lastCall.current = now();
-      const client = await editClient().catch(() => null);
-      if (!client) {
-        showToast(CLIENT_UNLOADED, { tone: "error" });
-        return null;
-      }
       const request = Symbol();
-      const called = await client.callQuery<K>(
-        { query, copy: against.id },
-        {
-          ...callDeps,
-          onRetry: (attempt) => {
-            callDeps.onRetry?.(attempt);
-            reconnectingCalls.current.add(request);
-            setReconnecting(true);
-          },
-        }
+      const controller = new AbortController();
+      reading.current.add(controller);
+      const signals = [callDeps.signal, options?.signal].filter(
+        (signal): signal is AbortSignal => !!signal
       );
-      reconnectingCalls.current.delete(request);
-      setReconnecting(reconnectingCalls.current.size > 0);
-      if (!called.ok) {
-        showToast(called.message, { tone: "error" });
-        return null;
+      const cancel = () => controller.abort();
+      for (const signal of signals) {
+        signal.addEventListener("abort", cancel, { once: true });
+        if (signal.aborted) cancel();
       }
-      const reply = called.value;
-      if (!reply.ok) {
-        showToast(QUERY_REFUSED[reply.why], { tone: "error" });
-        return null;
+      try {
+        lastCall.current = now();
+        const client = await editClient().catch(() => null);
+        if (controller.signal.aborted) return null;
+        if (!client) {
+          showToast(CLIENT_UNLOADED, { tone: "error" });
+          return null;
+        }
+        const called = await client.callQuery<K>(
+          { query, copy: against.id },
+          {
+            ...callDeps,
+            signal: controller.signal,
+            onRetry: (attempt) => {
+              callDeps.onRetry?.(attempt);
+              reconnectingCalls.current.add(request);
+              setReconnecting(true);
+            },
+          }
+        );
+        if (controller.signal.aborted) return null;
+        if (!called.ok) {
+          showToast(called.message, { tone: "error" });
+          return null;
+        }
+        const reply = called.value;
+        if (!reply.ok) {
+          showToast(QUERY_REFUSED[reply.why], { tone: "error" });
+          return null;
+        }
+        return reply.answer;
+      } finally {
+        reading.current.delete(controller);
+        for (const signal of signals) signal.removeEventListener("abort", cancel);
+        reconnectingCalls.current.delete(request);
+        setReconnecting(reconnectingCalls.current.size > 0);
       }
-      return reply.answer;
     },
     [showToast, callDeps, now]
   );
@@ -220,13 +262,20 @@ export function useLiveEdits({
     if (lastCall.current !== null && at - lastCall.current < WARM_AFTER_MS) return;
     lastCall.current = at;
     // Nothing rides on a warm-up: the next edit brings the pool up itself.
-    void editClient().then(
-      (client) => client.callWarm(callDeps),
-      () => undefined
-    );
+    const controller = new AbortController();
+    reading.current.add(controller);
+    void editClient()
+      .then(
+        (client) =>
+          controller.signal.aborted
+            ? undefined
+            : client.callWarm({ ...callDeps, signal: controller.signal }),
+        () => undefined
+      )
+      .finally(() => reading.current.delete(controller));
   }, [callDeps, now]);
 
   const say = useCallback((message: string) => showToast(message, { tone: "error" }), [showToast]);
 
-  return { locked, pending, edit, ask, warm, say, reconnecting };
+  return { locked, pending, edit, ask, warm, say, reconnecting, poolRevision };
 }

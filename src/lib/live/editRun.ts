@@ -6,7 +6,7 @@ import {
   type CloudStore,
   type CommitResult,
 } from "../cloud/cloudEngine";
-import type { CloudManifest } from "../cloud/cloudManifest";
+import { DATA_SCHEMA, type CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import {
   loadAgeGroups,
@@ -14,6 +14,7 @@ import {
   loadScoutGamesForYear,
   loadScoutTeams,
   readCloudPoolValue,
+  isCloudPoolKey,
 } from "../teamRankingsStorage";
 import { ageGroupYear } from "../teamRankings/seasons";
 import { isCopyCommand, isServerCommand, type PoolCommand } from "./commands";
@@ -108,6 +109,26 @@ const changesOf = async (keys: ReadonlySet<string>, at: number): Promise<Change[
   return changes;
 };
 
+/** Copy commands move existing pieces by metadata; they never interpret the pool's contents. */
+const copyForEdit = async (store: CloudStore): Promise<PoolEnsure> => {
+  const manifest = await store.readManifest();
+  if (!manifest) return { ok: false, reason: "no-copy" };
+  if (manifest.schema > DATA_SCHEMA) return { ok: false, reason: "newer-schema" };
+  if (manifest.parts.some(({ key }) => key !== LEAGUE_PART && !isCloudPoolKey(key)))
+    return { ok: false, reason: "unknown-key" };
+  return {
+    ok: true,
+    manifest,
+    readSeason: () => ({ teams: [], matchups: [], logs: {} }),
+    cold: false,
+    fetched: [],
+    gone: [],
+    pieces: 0,
+    bytes: 0,
+    tries: 1,
+  };
+};
+
 /**
  * Runs `command` on the copy `store` holds: `pool` brought to it, the command applied, and the
  * changed parts committed onto the version read. `copy`, when given, is the copy the device edited,
@@ -123,7 +144,7 @@ export const runEdit = async ({
   now,
   clock = () => performance.now(),
 }: {
-  pool: EditPool;
+  pool?: EditPool;
   store: CloudStore;
   /** The League Standings seasons' documents (`league/`), read only, for a year's archive. */
   leagueDocs: LeagueDocsList;
@@ -135,10 +156,11 @@ export const runEdit = async ({
   /** A clock for the timings, which never steps back as the wall clock may. */
   clock?: () => number;
 }): Promise<EditRun> => {
+  if (!pool && !isCopyCommand(command)) throw new Error("This edit needs a loaded pool.");
   let editing = copy ?? null;
   for (let tries = 1; tries <= MAX_TRIES; tries += 1) {
     const loading = clock();
-    const ensured = await pool.ensure(store);
+    const ensured = isCopyCommand(command) ? await copyForEdit(store) : await pool!.ensure(store);
     const loadMs = Math.round(clock() - loading);
     if (!ensured.ok) return { ok: false, why: ensured.reason, tries };
     if (editing !== null && ensured.manifest.copy !== editing) {
@@ -156,7 +178,7 @@ export const runEdit = async ({
       command,
       manifest: ensured.manifest,
       leagueDocs,
-      written: pool.written,
+      written: () => pool?.written() ?? new Set(),
       now,
       runServer: () =>
         runServerCommand(command, {
@@ -184,13 +206,14 @@ export const runEdit = async ({
       // are let go of, so the next read fetches whatever the copy holds, and the device is told
       // the edit may or may not be in it. Anything else thrown is a save known not to have landed.
       if (!(error instanceof CommitUnanswered)) throw error;
-      await pool.forget();
+      await pool?.forget();
       return { ok: false, why: "unsure", tries };
     }
     const commitMs = Math.round(clock() - committing);
     if (commit.ok) {
       // The save is in the copy whatever the pool makes of it: one that cannot follow starts afresh.
-      await pool.committed(commit.manifest).catch(() => pool.drop());
+      if (isCopyCommand(command)) await pool?.drop();
+      else await pool!.committed(commit.manifest).catch(() => pool!.drop());
       // A restored backup's upload is used: deleted now, or by the nightly's sweep if this fails.
       if (command.kind === "backup.restore") {
         await uploads.remove(command.upload).catch(() => undefined);
@@ -215,7 +238,7 @@ export const runEdit = async ({
         commitMs,
       };
     }
-    await pool.forget();
+    await pool?.forget();
   }
   return { ok: false, why: "kept-moving", tries: MAX_TRIES };
 };
