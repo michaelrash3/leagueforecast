@@ -10,7 +10,7 @@ import {
   nothingUnder,
   type YearSummary,
 } from "../../lib/yearSummary";
-import { card } from "../../styles/tokens";
+import { button, card } from "../../styles/tokens";
 import { ArchiveSeasonCard } from "./ArchiveSeasonCard";
 
 /** What the card says while the cloud has not yet said which years there are. */
@@ -34,24 +34,35 @@ export function LiveArchiveCard({
   /** The year of the page on screen, which the card offers with a warning beside it. */
   currentYear: number | undefined;
 }) {
-  const { ask, edit, say, locked } = edits;
+  const { ask, edit, say, locked, poolRevision } = edits;
   const [years, setYears] = useState<YearSummary[] | null>(null);
+  const [yearsAt, setYearsAt] = useState(poolRevision);
   const [busy, setBusy] = useState(false);
+  const [unread, setUnread] = useState(false);
   /** Bumped once an archive or a delete is made, so the years are read again. */
   const [made, setMade] = useState(0);
+  const [answeredRequest, setAnsweredRequest] = useState(-1);
+  const shownYears = yearsAt === poolRevision ? years : null;
+  const readFailed = unread && answeredRequest === made && yearsAt === poolRevision;
 
   // Asked once edits are on, as the other cards ask: a question sent while they are off is only
   // the lock said again.
   useEffect(() => {
     if (locked) return;
     let alive = true;
-    void ask({ kind: "year.list" }).then((answer) => {
-      if (alive && answer) setYears(answer.years);
+    const controller = new AbortController();
+    void ask({ kind: "year.list" }, { signal: controller.signal }).then((answer) => {
+      if (!alive) return;
+      setUnread(!answer);
+      setAnsweredRequest(made);
+      setYearsAt(poolRevision);
+      setYears(answer?.years ?? null);
     });
     return () => {
       alive = false;
+      controller.abort();
     };
-  }, [locked, ask, made]);
+  }, [locked, ask, made, poolRevision]);
 
   /** One archive or delete: asked about, confirmed, sent, and the years read again after. */
   const run = async (work: () => Promise<boolean>) => {
@@ -90,23 +101,46 @@ export function LiveArchiveCard({
       return edit({ kind: "year.delete", year }, { done: `${year} deleted.` });
     });
 
-  if (years === null) {
+  if (shownYears === null) {
     return (
       <div className={`${card} p-5`}>
         <h2 className="text-sm font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Archive or delete a season
         </h2>
-        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{YEARS_READING}</p>
+        <p role="status" className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          {locked ??
+            (readFailed
+              ? "The cloud's years could not be read just now."
+              : edits.reconnecting
+                ? "Reconnecting to read the cloud's years…"
+                : YEARS_READING)}
+        </p>
+        {readFailed && !locked && (
+          <button
+            type="button"
+            className={`${button.ghost} mt-3`}
+            onClick={() => setMade((count) => count + 1)}
+          >
+            Try again
+          </button>
+        )}
       </div>
     );
   }
   return (
-    <ArchiveSeasonCard
-      years={years}
-      currentYear={currentYear}
-      busy={busy}
-      onArchive={(year) => void archive(year)}
-      onDelete={(year) => void remove(year)}
-    />
+    <>
+      {busy && (
+        <p role="status" className="text-sm text-slate-500 dark:text-slate-400">
+          Working on this season in the cloud…
+        </p>
+      )}
+      <ArchiveSeasonCard
+        years={shownYears}
+        currentYear={currentYear}
+        busy={busy}
+        onArchive={(year) => void archive(year)}
+        onDelete={(year) => void remove(year)}
+      />
+    </>
   );
 }

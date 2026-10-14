@@ -27,6 +27,7 @@ const {
   onLeagueWrite,
   rebuild,
   edit,
+  poolQuery,
 } = await import("./lib/index.js");
 
 const call = (url, headers = {}, handler = gcTeam, method = "GET", body) =>
@@ -403,22 +404,27 @@ if (process.env.LIVE_REBUILD !== "on") {
     onCopyWrite === undefined &&
       onLeagueWrite === undefined &&
       rebuild === undefined &&
-      edit === undefined,
+      edit === undefined && poolQuery === undefined,
     `${typeof onCopyWrite} ${typeof onLeagueWrite} ${typeof rebuild} ${typeof edit}`
   );
 } else {
   const called = edit.__endpoint;
   check(
-    "an edit is a call, as the rebuilds' account, one instance taking several at half the rebuild's size",
+    "an edit is a call with room for a nationwide pool, taking several requests on one instance",
     called.callableTrigger !== undefined &&
       called.serviceAccountEmail === "live-runner@" &&
-      called.availableMemoryMb === 4096 &&
+      called.availableMemoryMb === 8192 &&
       called.cpu === 2 &&
       called.timeoutSeconds === 540 &&
       called.maxInstances === 1 &&
       called.concurrency === 8,
     JSON.stringify(called)
   );
+  check("background pool reads have a separate callable instance",
+    poolQuery.__endpoint.callableTrigger !== undefined &&
+    poolQuery.__endpoint.availableMemoryMb === 8192 &&
+    poolQuery.__endpoint.serviceAccountEmail === called.serviceAccountEmail,
+    JSON.stringify(poolQuery.__endpoint));
   // Who may call: the list's answer comes from the stand-in, there for the one member alone. Every
   // call here is turned away before the worker starts or the copy is read.
   const reads = [];
@@ -489,6 +495,10 @@ if (process.env.LIVE_REBUILD !== "on") {
     reads.length === memberReads + 1 && reads.every((url) => url.includes("/documents/members/")),
     JSON.stringify(reads)
   );
+  const queryWrite = await post(poolQuery, { data: { command } }, signedInAs("member@example.com"));
+  check("the background-read endpoint refuses a write before any worker starts", queryWrite.status === 400, String(queryWrite.body));
+  const queryUnsigned = await post(poolQuery, { data: { query: { kind: "year.list" } } });
+  check("background reads require sign-in too", queryUnsigned.status === 401, String(queryUnsigned.body));
   const query = { kind: "rename.preview", teamId: "B", name: "Club B" };
   const outsiderQuery = await post(edit, { data: { query } }, signedInAs("outsider@example.com"));
   const junkQuery = await post(

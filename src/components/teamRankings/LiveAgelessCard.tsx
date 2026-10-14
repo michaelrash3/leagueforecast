@@ -32,66 +32,91 @@ export function LiveAgelessCard({
   /** The device's day, which the queue's "asked about lately" is judged by. */
   today: string;
 }) {
-  const { locked, edit, ask } = edits;
+  const { locked, edit, ask, poolRevision } = edits;
   const [queue, setQueue] = useState<AgelessQueueAnswer | null>(null);
+  const [queueAt, setQueueAt] = useState(poolRevision);
   const [unread, setUnread] = useState(false);
   // Bumped to ask again, after an answer made or taken back.
   const [asked, setAsked] = useState(0);
   const askAgain = () => setAsked((times) => times + 1);
   /** The ten in front of the person, sent with each question so they stay there. */
   const pinned = useRef<string[]>([]);
+  const pinnedAt = useRef(poolRevision);
 
   useEffect(() => {
     if (locked) return;
+    if (pinnedAt.current !== poolRevision) {
+      pinned.current = [];
+      pinnedAt.current = poolRevision;
+    }
     let alive = true;
-    void ask({ kind: "ageless.queue", today, pinned: pinned.current }).then((answer) => {
+    const controller = new AbortController();
+    void ask(
+      { kind: "ageless.queue", today, pinned: pinned.current },
+      { signal: controller.signal }
+    ).then((answer) => {
       if (!alive) return;
       setUnread(answer === null);
-      if (answer) setQueue(answer);
+      if (answer) {
+        setQueue(answer);
+        setQueueAt(poolRevision);
+      }
     });
     return () => {
       alive = false;
+      controller.abort();
     };
-  }, [locked, ask, today, asked]);
+  }, [locked, ask, today, asked, poolRevision]);
 
   // The search, asked once the typing stops, and again with the list after an answer.
   const [query, setQuery] = useState("");
   // What a search found, with the words it was asked for: another search's answer is not drawn
   // under words it was not asked for while theirs is on its way.
-  const [found, setFound] = useState<{ query: string; found: typeof NOTHING_FOUND } | null>(null);
+  const [found, setFound] = useState<{
+    query: string;
+    revision?: number;
+    found: typeof NOTHING_FOUND;
+  } | null>(null);
   useEffect(() => {
     if (locked || query.trim() === "") return;
     let alive = true;
+    const controller = new AbortController();
     const soon = window.setTimeout(() => {
-      void ask({ kind: "ageless.search", today, query }).then((answer) => {
-        if (alive && answer)
-          setFound({
-            query,
-            found: {
-              total: answer.total,
-              hits: answer.hits.map(({ entry, aside }) => ({
-                row: agelessRowFor(entry),
-                ...(aside ? { aside } : {}),
-              })),
-            },
-          });
-      });
+      void ask({ kind: "ageless.search", today, query }, { signal: controller.signal }).then(
+        (answer) => {
+          if (alive && answer)
+            setFound({
+              query,
+              revision: poolRevision,
+              found: {
+                total: answer.total,
+                hits: answer.hits.map(({ entry, aside }) => ({
+                  row: agelessRowFor(entry),
+                  ...(aside ? { aside } : {}),
+                })),
+              },
+            });
+        }
+      );
     }, AGELESS_SEARCH_WAIT_MS);
     return () => {
       alive = false;
+      controller.abort();
       window.clearTimeout(soon);
     };
-  }, [locked, ask, today, query, asked]);
+  }, [locked, ask, today, query, asked, poolRevision]);
 
   const sitting = useMemo(
     (): AgelessSitting | null =>
-      queue && {
-        listed: queue.listed,
-        waiting: queue.waiting,
-        batch: queue.batch.map(agelessRowFor),
-        groups: queue.groups,
-      },
-    [queue]
+      queue && queueAt === poolRevision
+        ? {
+            listed: queue.listed,
+            waiting: queue.waiting,
+            batch: queue.batch.map(agelessRowFor),
+            groups: queue.groups,
+          }
+        : null,
+    [queue, queueAt, poolRevision]
   );
 
   if (!sitting && locked)
@@ -156,7 +181,11 @@ export function LiveAgelessCard({
       }}
       query={query}
       onQuery={setQuery}
-      found={query.trim() !== "" && found?.query === query ? found.found : NOTHING_FOUND}
+      found={
+        query.trim() !== "" && found?.query === query && found.revision === poolRevision
+          ? found.found
+          : NOTHING_FOUND
+      }
       onNameAge={(teamId, name, level) =>
         void answer(
           {

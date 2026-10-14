@@ -4,12 +4,7 @@ import type { LiveEdits } from "../../hooks/useLiveEdits";
 import type { PoolCommand } from "../../lib/live/commands";
 import type { AnswerOf, QueryKind, QueryOf } from "../../lib/live/queries";
 import type { YearSummary } from "../../lib/yearSummary";
-import {
-  LiveStartAgainCard,
-  NOTHING_TO_START,
-  STARTED_AGAIN,
-  startAgainConfirmation,
-} from "./LiveStartAgainCard";
+import { LiveStartAgainCard, STARTED_AGAIN, startAgainConfirmation } from "./LiveStartAgainCard";
 
 /*
  * Starting Team Rankings again on the live page (`LiveStartAgainCard`): what the cloud holds asked
@@ -51,12 +46,12 @@ const setUp = ({
 };
 
 describe("starting Team Rankings again on the live page", () => {
-  it("asks what the cloud holds, confirms with it, and sends the start with an Undo", async () => {
+  it("confirms immediately without waiting for pool reads, then sends the start with an Undo", async () => {
     const { asked, edit, confirm, press } = setUp();
     press();
     await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
-    expect(asked).toEqual(["year.list"]);
-    expect(confirm).toHaveBeenCalledWith(startAgainConfirmation(YEARS));
+    expect(asked).toEqual([]);
+    expect(confirm).toHaveBeenCalledWith(startAgainConfirmation());
     expect(edit.mock.calls[0]).toEqual([
       { kind: "copy.reset" },
       { done: STARTED_AGAIN, undo: true },
@@ -80,6 +75,24 @@ describe("starting Team Rankings again on the live page", () => {
     );
   });
 
+  it("shows a working status and prevents another reset while the server is answering", async () => {
+    const { edit, press } = setUp();
+    let finish: ((done: boolean) => void) | undefined;
+    edit.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    press();
+    expect(await screen.findByRole("status")).toHaveTextContent("Saving an earlier version");
+    expect(screen.getByRole("button", { name: "Starting again in the cloud…" })).toBeDisabled();
+    finish?.(true);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Start Team Rankings again" })).not.toBeDisabled()
+    );
+  });
+
   it("sends nothing when the confirmation is declined, or no answer comes", async () => {
     const declined = setUp({ confirmed: false });
     declined.press();
@@ -87,22 +100,22 @@ describe("starting Team Rankings again on the live page", () => {
     expect(declined.edit).not.toHaveBeenCalled();
   });
 
-  it("sends nothing without an answer about what the cloud holds", async () => {
+  it("can start again when the cloud's year list cannot answer", async () => {
     const unanswered = setUp({ years: null });
     unanswered.press();
-    await waitFor(() => expect(unanswered.asked).toEqual(["year.list"]));
+    await waitFor(() => expect(unanswered.edit).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Start Team Rankings again" })).not.toBeDisabled()
     );
-    expect(unanswered.confirm).not.toHaveBeenCalled();
-    expect(unanswered.edit).not.toHaveBeenCalled();
+    expect(unanswered.confirm).toHaveBeenCalledWith(startAgainConfirmation());
+    expect(unanswered.asked).toEqual([]);
   });
 
-  it("says there is nothing to start again from, without asking to confirm", async () => {
+  it("lets the server decide whether there is anything to reset", async () => {
     const empty = setUp({ years: [] });
     empty.press();
-    await waitFor(() => expect(empty.say).toHaveBeenCalledWith(NOTHING_TO_START));
-    expect(empty.confirm).not.toHaveBeenCalled();
-    expect(empty.edit).not.toHaveBeenCalled();
+    await waitFor(() => expect(empty.edit).toHaveBeenCalledTimes(1));
+    expect(empty.asked).toEqual([]);
+    expect(empty.confirm).toHaveBeenCalledWith(startAgainConfirmation());
   });
 });

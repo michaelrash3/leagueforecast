@@ -27,6 +27,7 @@ export const CALL_LIMIT_MS = 600_000;
 
 /** The edit function's address for the app's own project. */
 export const EDIT_URL = functionUrl(FIREBASE_WEB_CONFIG.projectId, "edit");
+export const POOL_QUERY_URL = functionUrl(FIREBASE_WEB_CONFIG.projectId, "poolQuery");
 
 /** `startPull`, which queues the first leg of a pull a member has left for the cloud. */
 export const START_PULL_URL = functionUrl(FIREBASE_WEB_CONFIG.projectId, "startPull");
@@ -52,6 +53,8 @@ export type CallDeps = {
   /** The member's sign-in, or null when there is none. */
   token: () => Promise<string | null>;
   url?: string;
+  /** A new read endpoint falls back while the preceding server deployment is still live. */
+  fallbackUrl?: string;
   fetchImpl?: typeof fetch;
   limitMs?: number;
   /** Safe reads and job starts reconnect with bounded backoff until confirmed. */
@@ -136,6 +139,7 @@ const callOnce = async <T>(
     limitMs = CALL_LIMIT_MS,
     signal,
     retryStatuses,
+    fallbackUrl,
   }: CallDeps,
   unclear: CallFailure,
   failures: ReadonlyMap<string, CallFailure> = FAILURE_OF
@@ -164,6 +168,13 @@ const callOnce = async <T>(
         body: JSON.stringify({ data }),
         signal: abort.signal,
       });
+      if (response.status === 404 && fallbackUrl)
+        response = await fetchImpl(fallbackUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${signIn}` },
+          body: JSON.stringify({ data }),
+          signal: abort.signal,
+        });
     } catch {
       throw new RetryableCall(failed(unclear, lost));
     }
@@ -363,7 +374,11 @@ export const callQuery = <K extends QueryKind>(
   call(
     { query: ask.query, ...(ask.copy === undefined ? {} : { copy: ask.copy }) },
     (result) => coerceQueryReply(result, ask.query.kind),
-    deps,
+    {
+      url: ask.query.kind.startsWith("year.") ? EDIT_URL : POOL_QUERY_URL,
+      fallbackUrl: ask.query.kind.startsWith("year.") || deps.url ? undefined : EDIT_URL,
+      ...deps,
+    },
     "failed"
   );
 

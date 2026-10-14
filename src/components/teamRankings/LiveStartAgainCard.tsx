@@ -15,10 +15,10 @@ const plural = (count: number, noun: string) =>
   `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
 
 /** The confirmation starting again asks, with what the cloud holds now. */
-export const startAgainConfirmation = (years: readonly YearSummary[]) => {
-  const pages = years.reduce((sum, year) => sum + year.pages, 0);
-  const games = years.reduce((sum, year) => sum + year.games, 0);
-  const tables = years.reduce((sum, year) => sum + year.archives, 0);
+export const startAgainConfirmation = (years?: readonly YearSummary[]) => {
+  const pages = (years ?? []).reduce((sum, year) => sum + year.pages, 0);
+  const games = (years ?? []).reduce((sum, year) => sum + year.games, 0);
+  const tables = (years ?? []).reduce((sum, year) => sum + year.archives, 0);
   const held = [
     plural(pages, "page"),
     plural(games, "stored game"),
@@ -27,7 +27,7 @@ export const startAgainConfirmation = (years: readonly YearSummary[]) => {
   return {
     title: "Start Team Rankings again?",
     message: [
-      `The cloud's Team Rankings holds ${held.join(", ")} across ${plural(years.length, "squad year")}. All of it goes, on every device: the pages, the clubs and their games, the archive, and every decision made along the way (the clubs and games thrown out, the ages named by hand, the teams waiting on an age, the Organizations file and the nightly's pull lists).`,
+      `${years ? `The cloud's Team Rankings holds ${held.join(", ")} across ${plural(years.length, "squad year")}.` : "This starts all of the cloud's Team Rankings again."} All of it goes, on every device: the pages, the clubs and their games, the archive, and every decision made along the way (the clubs and games thrown out, the ages named by hand, the teams waiting on an age, the Organizations file and the nightly's pull lists).`,
       "League Standings is left as it is.",
       "What goes is kept as an earlier version, so it can be brought back: Undo straight after, or Bring back in the Cloud panel. The panel keeps the six most recent versions for 30 days at most, and each nightly refresh that changes anything keeps one too, so do not leave it long.",
     ].join("\n\n"),
@@ -41,8 +41,8 @@ export const startAgainConfirmation = (years: readonly YearSummary[]) => {
  * it takes is kept whole as an earlier version (`copyOps.ts`), so Undo brings it back, and so does
  * the Cloud panel's Bring back while it is one of the six versions kept (`KEEP_GROUPS`), which the
  * nightly's own kept versions push out within a week of refreshes that change anything. Unlike the device's card, nothing on this device is
- * deleted: the cloud's copy is the one started again. The size of it is asked of the server
- * (`year.list`) when the button is pressed, so the confirmation counts what the cloud holds then.
+ * deleted: the cloud's copy is the one started again. Confirmation opens immediately and the
+ * server updates its manifest directly, so a stuck pool read cannot block the owner's reset.
  */
 export function LiveStartAgainCard({
   edits,
@@ -51,22 +51,21 @@ export function LiveStartAgainCard({
   edits: LiveEdits;
   confirm: Confirmation["request"];
 }) {
-  const { ask, edit, say } = edits;
-  const [busy, setBusy] = useState(false);
+  const { edit, say, locked } = edits;
+  const [phase, setPhase] = useState<"confirm" | "reset" | null>(null);
 
   const startAgain = async () => {
-    setBusy(true);
+    if (locked) {
+      say(locked);
+      return;
+    }
+    setPhase("confirm");
     try {
-      const asked = await ask({ kind: "year.list" });
-      if (!asked) return;
-      if (asked.years.length === 0) {
-        say(NOTHING_TO_START);
-        return;
-      }
-      if (!(await confirm(startAgainConfirmation(asked.years)))) return;
+      if (!(await confirm(startAgainConfirmation()))) return;
+      setPhase("reset");
       await edit({ kind: "copy.reset" }, { done: STARTED_AGAIN, undo: true });
     } finally {
-      setBusy(false);
+      setPhase(null);
     }
   };
 
@@ -84,11 +83,20 @@ export function LiveStartAgainCard({
       <button
         type="button"
         onClick={() => void startAgain()}
-        disabled={busy}
+        disabled={phase !== null}
         className={`${button.danger} mt-3`}
       >
-        Start Team Rankings again
+        {phase === "reset"
+          ? "Starting again in the cloud…"
+          : phase === "confirm"
+            ? "Waiting for confirmation…"
+            : "Start Team Rankings again"}
       </button>
+      {phase === "reset" && (
+        <p role="status" className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+          Saving an earlier version and starting Team Rankings again…
+        </p>
+      )}
     </div>
   );
 }

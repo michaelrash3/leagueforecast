@@ -66,6 +66,12 @@ describe("the pages after a league season is put on one", () => {
 });
 
 describe("the pages with the edits not yet published drawn over them", () => {
+  it("shows a reset immediately, including when earlier assignments are still pending", () => {
+    expect(overlayGroups(PAGES, [{ kind: "copy.reset" }])).toEqual([]);
+    expect(
+      overlayGroups(PAGES, [assign("s-new", { ageLevel: 9, year: 2028 }), { kind: "copy.reset" }])
+    ).toEqual([]);
+  });
   it("is the very pages published when no edit since puts a season anywhere", () => {
     const edits: PoolCommand[] = [{ kind: "club.drop", teamId: "S-1" }];
     expect(overlayGroups(PAGES, [])).toBe(PAGES);

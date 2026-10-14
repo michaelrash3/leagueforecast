@@ -46,12 +46,14 @@ const setUp = ({
   confirmed = true,
   made = true,
   locked = null,
+  years = YEARS as YearSummary[] | null,
 }: {
   archive?: YearArchivePreview;
   remove?: YearDeletePreview;
   confirmed?: boolean;
   made?: boolean;
   locked?: string | null;
+  years?: YearSummary[] | null;
 } = {}) => {
   const asked: QueryKind[] = [];
   const answers: { [K in QueryKind]?: AnswerOf<K> } = {
@@ -61,6 +63,7 @@ const setUp = ({
   };
   const ask = vi.fn(async <K extends QueryKind>(query: QueryOf<K>) => {
     asked.push(query.kind);
+    if (query.kind === "year.list" && years === null) return null;
     return (answers[query.kind] as AnswerOf<K> | undefined) ?? null;
   });
   const edit = vi.fn(async (_command: PoolCommand, _said: { done: string }) => made);
@@ -74,8 +77,8 @@ const setUp = ({
     say,
   };
   const confirm = vi.fn(async () => confirmed);
-  render(<LiveArchiveCard edits={edits} confirm={confirm} currentYear={2027} />);
-  return { asked, edit, say, confirm };
+  const rendered = render(<LiveArchiveCard edits={edits} confirm={confirm} currentYear={2027} />);
+  return { asked, edit, say, confirm, edits, answers, rerender: rendered.rerender };
 };
 
 const pick = async (year: string) => {
@@ -85,7 +88,7 @@ const pick = async (year: string) => {
 describe("the live Archive card", () => {
   it("asks nothing while edits are off, which would only say the lock again", () => {
     const { asked } = setUp({ locked: "Offline · editing is off." });
-    expect(screen.getByText(YEARS_READING)).toBeTruthy();
+    expect(screen.getByText("Offline · editing is off.")).toBeTruthy();
     expect(asked).toEqual([]);
   });
 
@@ -95,6 +98,25 @@ describe("the live Archive card", () => {
     await pick("2026");
     expect(screen.getByText(/holds 3 pages, 8 games and 7 teams/)).toBeTruthy();
     expect(screen.queryByText(YEARS_READING)).toBeNull();
+  });
+
+  it("offers a retry when the years cannot be read instead of leaving the loading line forever", async () => {
+    const { asked } = setUp({ years: null });
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(asked).toEqual(["year.list", "year.list"]));
+  });
+
+  it("refreshes the years after a reset and clears the old controls before the new answer", async () => {
+    const { asked, edits, answers, confirm, rerender } = setUp();
+    await pick("2026");
+    answers["year.list"] = { kind: "year.list", years: [] };
+    rerender(
+      <LiveArchiveCard edits={{ ...edits, poolRevision: 1 }} confirm={confirm} currentYear={2027} />
+    );
+    expect(screen.getByText(YEARS_READING)).toBeTruthy();
+    expect(screen.queryByLabelText("Baseball year")).toBeNull();
+    await screen.findByText(/No season to archive yet/);
+    expect(asked).toEqual(["year.list", "year.list"]);
   });
 
   it("archives a year once confirmed in the device's words, and reads the years again", async () => {

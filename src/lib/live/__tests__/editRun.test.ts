@@ -43,6 +43,7 @@ import { seasonReaderOf } from "../publishCopy";
 import type { PoolQuery } from "../queries";
 import { runRebuild } from "../rebuild";
 import { createEditPool, type EditPool } from "../poolCache";
+import { answerEdit, editRunner, type EditPort } from "../editWorkerProtocol";
 import { docsOf, listing, seasonsOf } from "./leagueDocsFixture";
 import { memoryLive } from "./memoryLive";
 
@@ -483,6 +484,156 @@ describe("Team Rankings started again or brought back by the copy's owner", () =
   };
   const hashes = (manifest: CloudManifest | null) =>
     new Map((manifest?.parts ?? []).map((part) => [part.key, part.hash]));
+
+  it.each(["copy.reset", "copy.restore"] as const)(
+    "%s waits for an in-flight answer-list save and cannot be repopulated by its retry",
+    async (kind) => {
+      const cloud = await withLeague();
+      const wanted = hashes(cloud.manifest());
+      let command: PoolCommand = { kind: "copy.reset" };
+      if (kind === "copy.restore") {
+        const snapshot = await commitChanges({
+          store: cloud.store,
+          base: cloud.manifest(),
+          changes: [{ key: REAL_KEY, value: ["gcCurrent001"], at: 2 }],
+          keepReplaced: cloud
+            .manifest()!
+            .parts.filter(({ key }) => key !== LEAGUE_PART)
+            .map(({ key }) => key),
+          keepWhole: true,
+          device: "phone",
+          now: NOW,
+        });
+        if (!snapshot.ok) throw new Error("No restore snapshot");
+        command = { kind: "copy.restore", group: snapshot.manifest.kept[0]!.group };
+      }
+      let release = () => {};
+      let entered = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const atCommit = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let first = true;
+      let commits = 0;
+      const store: CloudStore = {
+        ...cloud.store,
+        commitManifest: async (expected, next) => {
+          commits++;
+          if (first) {
+            first = false;
+            entered();
+            await gate;
+          }
+          return cloud.store.commitManifest(expected, next);
+        },
+      };
+      const cache = editPool();
+      const posted: string[] = [];
+      const runner = editRunner({
+        spawn: () => {
+          let listeners: Parameters<EditPort["listen"]>[0] | null = null;
+          return {
+            listen: (given) => {
+              listeners = given;
+            },
+            terminate: async () => {},
+            post: (request) => {
+              if (request.kind === "edit") posted.push(request.ask.command.kind);
+              void answerEdit(request, {
+                edit: (ask) =>
+                  runEdit({
+                    pool: cache,
+                    store,
+                    leagueDocs: NO_LEAGUE_DOCS,
+                    ...ask,
+                    now: () => NOW,
+                  }),
+                query: async () => {
+                  throw new Error("Unexpected query");
+                },
+                warm: async () => {
+                  throw new Error("Unexpected warm-up");
+                },
+                memory: () => ({ heapUsedMb: 100, rssMb: 200, heapLimitMb: 5120 }),
+              }).then((answer) => listeners?.answer(answer));
+            },
+          };
+        },
+      });
+      const writing = runner.edit({
+        command: { kind: "answers", list: "realClubs", add: ["gcLATE000001"], remove: [] },
+      });
+      await atCommit;
+      const copying = runner.edit({ command });
+      try {
+        await Promise.resolve();
+        expect(posted).toEqual(["answers"]);
+        expect(commits).toBe(1);
+        release();
+        expect(await writing).toMatchObject({ ran: true, result: { ok: true, tries: 1 } });
+        expect(await copying).toMatchObject({ ran: true, result: { ok: true, tries: 1 } });
+        expect(posted).toEqual(["answers", kind]);
+        expect(commits).toBe(2);
+        if (kind === "copy.reset")
+          expect(cloud.manifest()?.parts.map(({ key }) => key)).toEqual([LEAGUE_PART]);
+        else expect(hashes(cloud.manifest())).toEqual(wanted);
+      } finally {
+        release();
+        await Promise.allSettled([writing, copying]);
+        await runner.stop();
+      }
+    }
+  );
+
+  it("resets and restores by metadata even when the bulk pool cannot be downloaded", async () => {
+    const cloud = await withLeague();
+    const before = hashes(cloud.manifest());
+    const store: CloudStore = {
+      ...cloud.store,
+      getChunk: async () => {
+        throw new Error("Bulk downloads are stuck");
+      },
+    };
+    const started = await runEdit({
+      store,
+      leagueDocs: NO_LEAGUE_DOCS,
+      command: { kind: "copy.reset" },
+      now: () => NOW,
+    });
+    expect(started).toMatchObject({ ok: true, fetched: 0 });
+    if (!started.ok) throw new Error(started.why);
+    expect(cloud.manifest()?.parts.map(({ key }) => key)).toEqual([LEAGUE_PART]);
+    expect(
+      await runEdit({ store, leagueDocs: NO_LEAGUE_DOCS, command: started.inverse, now: () => NOW })
+    ).toMatchObject({ ok: true, fetched: 0 });
+    expect(hashes(cloud.manifest())).toEqual(before);
+  });
+
+  it("still refuses a reset of another copy or newer data before changing metadata", async () => {
+    const cloud = await withLeague();
+    const before = cloud.manifest();
+    expect(
+      await runEdit({
+        store: cloud.store,
+        leagueDocs: NO_LEAGUE_DOCS,
+        command: { kind: "copy.reset" },
+        copy: "another-copy",
+        now: () => NOW,
+      })
+    ).toMatchObject({ ok: false, why: "copy-replaced" });
+    cloud.setManifest({ ...before!, schema: 2 });
+    expect(
+      await runEdit({
+        store: cloud.store,
+        leagueDocs: NO_LEAGUE_DOCS,
+        command: { kind: "copy.reset" },
+        now: () => NOW,
+      })
+    ).toMatchObject({ ok: false, why: "newer-schema" });
+    expect(cloud.manifest()?.version).toBe(before?.version);
+  });
 
   it("starts again in one save: every Team Rankings part out and kept whole, League left as it was", async () => {
     const cloud = await withLeague();

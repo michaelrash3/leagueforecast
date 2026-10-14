@@ -62,6 +62,62 @@ const hook = (
 };
 
 describe("an edit from the live page", () => {
+  it("can reset while a background query is stuck, and cancels the abandoned query without a toast", async () => {
+    const controller = new AbortController();
+    const urls: string[] = [];
+    const sent: unknown[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      urls.push(String(url));
+      const data = JSON.parse(String(init?.body)).data;
+      sent.push(data);
+      if (data.query)
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new Error("cancelled")), {
+            once: true,
+          });
+        });
+      return new Response(JSON.stringify(made(5, [], { kind: "none" }).body));
+    };
+    const call = { sent, deps: { token: async () => "id-token", fetchImpl } };
+    const { result, toasts } = hook(call);
+    const background = result.current.ask(
+      { kind: "health.summary", today: "2026-10-14" },
+      { signal: controller.signal }
+    );
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      expect(await result.current.edit({ kind: "copy.reset" }, { done: "Started again." })).toBe(
+        true
+      );
+    });
+    expect(urls[0]).toMatch(/\/poolQuery$/);
+    expect(urls[1]).toMatch(/\/edit$/);
+    expect(result.current.poolRevision).toBe(1);
+    await act(async () => {
+      controller.abort();
+      expect(await background).toBeNull();
+    });
+    expect(toasts).toEqual([["Started again.", { tone: "success" }]]);
+  });
+
+  it("cancels a read when its screen is unmounted", async () => {
+    let signal: AbortSignal | null = null;
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      signal = init?.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+      });
+    };
+    const call = { sent: [] as unknown[], deps: { token: async () => "id-token", fetchImpl } };
+    const { result, unmount, toasts } = hook(call);
+    const pending = result.current.ask({ kind: "year.list" });
+    await vi.waitFor(() => expect(signal).not.toBeNull());
+    unmount();
+    expect((signal as unknown as AbortSignal).aborted).toBe(true);
+    expect(await pending).toBeNull();
+    expect(toasts).toEqual([]);
+  });
+
   it("is sent against the copy the views are of, said, and taken back by its inverse", async () => {
     const call = server(made(5), made(6));
     const { result, toasts } = hook(call);

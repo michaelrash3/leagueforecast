@@ -10,6 +10,7 @@ import {
   callWarm,
   coerceEditReply,
   EDIT_URL,
+  POOL_QUERY_URL,
   START_PULL_URL,
 } from "../editClient";
 import type { EditReply } from "../editHandle";
@@ -350,6 +351,35 @@ describe("a question", () => {
     games: 4,
     dropped: 2,
   } as const;
+
+  it("keeps year controls on the edit service and background questions on their own service", async () => {
+    const server = answering(200, {
+      result: { ok: true, copy: "c0ffee01", version: 9, answer: ANSWER },
+    });
+    await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: server.fetchImpl });
+    expect(server.sent[0]?.url).toBe(POOL_QUERY_URL);
+    const years = answering(200, {
+      result: { ok: true, copy: "c0ffee01", version: 9, answer: { kind: "year.list", years: [] } },
+    });
+    await callQuery({ query: { kind: "year.list" } }, { ...signedIn, fetchImpl: years.fetchImpl });
+    expect(years.sent[0]?.url).toBe(EDIT_URL);
+  });
+
+  it("falls back for safe reads while the new read function has not deployed", async () => {
+    const urls: string[] = [];
+    const fetchImpl: typeof fetch = async (url) => {
+      urls.push(String(url));
+      return urls.length === 1
+        ? new Response("Not found", { status: 404 })
+        : new Response(
+            JSON.stringify({ result: { ok: true, copy: "c0ffee01", version: 9, answer: ANSWER } })
+          );
+    };
+    expect(await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl })).toMatchObject({
+      ok: true,
+    });
+    expect(urls).toEqual([POOL_QUERY_URL, EDIT_URL]);
+  });
 
   it("posts the question and the copy with the member's sign-in, and hands back its answer", async () => {
     const server = answering(200, {
