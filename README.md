@@ -5520,7 +5520,10 @@ the pool brought in step, behind it, and Team Rankings' own code loads under the
 board once it is drawn, so it is there by then. The pages are the meta's whenever
 it carries them (`LivePages.groups`), kept or read, rather than this device's own,
 which a member's device no longer keeps in step; this device's own lay the page
-out only until a meta comes, or under one from a build that published none.
+out only until a meta comes, or under one from a build that published none. On a
+member's device those are read once its store is in, which then comes at once
+rather than after the board, and until then the page does not say the cloud has
+no pages.
 
 A board is built before changes it does not have only when it was built from a
 version of the copy no later than the one this device read, or from another copy.

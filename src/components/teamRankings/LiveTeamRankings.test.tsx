@@ -69,7 +69,12 @@ import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { NAMED_GAMES_MAX } from "../../lib/teamRankings/namedGames";
 import type { SeasonMeta } from "../../lib/storage";
 import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
-import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
+import {
+  initTeamRankingsStore,
+  resetTeamRankingsStore,
+  saveAgeGroups,
+  type PoolStoreIo,
+} from "../../lib/teamRankingsStorage";
 import type { LiveSources } from "../../hooks/useLiveBoard";
 import { askToScout, scoutAsked } from "../../lib/scoutRequest";
 import { releaseOpening, resetOpeningHold } from "../../lib/live/openingHold";
@@ -4888,5 +4893,38 @@ describe("what waits for the board's first draw", () => {
     expect(screen.getByText("This opens on this device's copy as soon as it is in…")).toBeTruthy();
     await act(async () => readIn());
     await waitFor(() => expect(handedOver()).not.toBeNull());
+  });
+
+  it("lays the page out by this device's own pages once its store is in, under a meta naming none", async () => {
+    // A member's pool moved into IndexedDB: localStorage holds none of it, the store all of it,
+    // read after the page; and the cloud's meta, an older build's, names no pages of its own.
+    resetTeamRankingsStore();
+    window.localStorage.clear();
+    let letGo = (): void => undefined;
+    const gate = new Promise<void>((resolve) => (letGo = resolve));
+    const store = new Map<string, unknown>([["league_forecast_scout_age_groups_v1", GROUPS]]);
+    const io: PoolStoreIo = {
+      keys: async () => [...store.keys()],
+      get: async (key) => {
+        await gate;
+        return store.get(key) ?? null;
+      },
+      set: async (key, value) => {
+        store.set(key, value);
+        return true;
+      },
+      readLocal: () => null,
+      clearLocal: () => undefined,
+    };
+    // Its read waiting for a first draw that, with no pages, would not come.
+    startPoolFill(() => initTeamRankingsStore(io), new Promise(() => undefined));
+    expect(live.meta()?.inline.pages).not.toHaveProperty("groups");
+    open(sourcesOf(live));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    // Not said to have no pages while its own are still being read.
+    expect(screen.queryByText(LIVE_NOTICES.noPages)).toBeNull();
+    letGo();
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    expect(screen.queryByText(LIVE_NOTICES.noPages)).toBeNull();
   });
 });

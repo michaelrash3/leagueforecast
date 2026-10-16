@@ -34,6 +34,7 @@ import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib
 import { editLock, myTeamShown, startedAgainNotice } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { afterOpening, releaseOpening } from "../../lib/live/openingHold";
+import { poolFilled } from "../../lib/poolFill";
 import { poolGamesOfCard, teamsOfCard } from "../../lib/live/scoutingFromCards";
 import { boardKey, lastWeekOf, withMine } from "../../lib/live/views/boardShape";
 import { clubRankPage, leagueClubRanksFrom, writeLeagueClubRanks } from "../../lib/leagueClubRanks";
@@ -258,7 +259,13 @@ function LiveBoard({
    * out by (1.6e). This device's own pages lay the page out only until then, and under a meta from
    * a build that published none.
    */
-  const [localGroups] = useState(() => loadAgeGroups());
+  // Read again once this device's store is in (`poolFill.ts`): a member's device reads it after
+  // the page, and until then its pages read as none, which a meta naming none would lay out.
+  const filled = usePoolFilled();
+  const localGroups = useMemo(() => {
+    void filled;
+    return loadAgeGroups();
+  }, [filled]);
   const [publishedRaw, setPublishedRaw] = useState<unknown[] | undefined>(undefined);
   const publishedGroups = useMemo(
     () => (publishedRaw ? coerceAgeGroups(publishedRaw) : null),
@@ -439,7 +446,14 @@ function LiveBoard({
     live.metaMiss === "unreadable"
       ? LIVE_NOTICES[live.metaMiss]
       : null;
-  const noPages = ageGroups.length === 0 && live.meta !== null;
+  // Not before this device's own pages are read, where the meta names none to lay out by.
+  const noPages =
+    ageGroups.length === 0 && live.meta !== null && (publishedGroups !== null || filled);
+  // Those pages wanted now, rather than once the board is drawn, which without them it is not.
+  const pagesFromHere = live.meta !== null && publishedGroups === null && !filled;
+  useEffect(() => {
+    if (pagesFromHere) void poolFilled();
+  }, [pagesFromHere]);
   const pageNotice = missNotice ?? (noPages ? LIVE_NOTICES.noPages : null);
   const boardNotice =
     pageNotice ??
