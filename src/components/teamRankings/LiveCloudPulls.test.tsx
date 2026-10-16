@@ -102,6 +102,9 @@ describe("visibility of a cloud pull", () => {
     sender.jobs.report = report;
     await open(sender);
     expect(screen.getByText(/Download progress: 2,500 of 10,000 teams \(25%\)/)).toBeTruthy();
+    expect(
+      screen.getByText(/Skipped downloads: 10,000\. The finished import is published/)
+    ).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Download skipped teams so far" }));
     });
@@ -262,6 +265,25 @@ describe("visibility of a cloud pull", () => {
  * Dismiss, which asks the cloud about the job (ending it there if it is dead) and stops showing
  * it; a staged import also offers Resume.
  */
+it("says a staged import's skips apart: those for now, asked once more, and those for good", async () => {
+  const { sender, read } = cloud();
+  read.mockResolvedValue(
+    job({
+      pipeline: "staged-v1",
+      stage: "fetching",
+      heartbeatAt: NOW,
+      tally: { ...job().tally, failed: 4 },
+      skipped: { transient: 3, permanent: 1 },
+    })
+  );
+  await open(sender);
+  expect(
+    screen.getByText(
+      /Skipped downloads: 4: 3 for now, asked once more before the final tidy, and 1 for good\./
+    )
+  ).toBeTruthy();
+});
+
 describe("a pull gone silent", () => {
   const hoursAgo = (hours: number) => new Date(Date.parse(NOW) - hours * 3_600_000).toISOString();
 

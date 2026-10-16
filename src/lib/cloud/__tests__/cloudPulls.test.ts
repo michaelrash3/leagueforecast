@@ -302,6 +302,11 @@ describe("a pull still waiting to start", () => {
     pull.job.status = "done";
     pull.job.tally.failed = 4;
     expect(describeEnd(pull)).toContain("4 skipped because their downloads failed");
+    // Apart, where the importer counted them: a later paste asks again for those for now.
+    pull.job.skipped = { transient: 3, permanent: 1 };
+    expect(describeEnd(pull)).toContain(
+      "; 4 skipped because their downloads failed: 3 for now (GameChanger throttled, timed out or dropped them; a later paste asks again) and 1 for good."
+    );
   });
 
   it("shows the worker's error while the current part waits to retry", () => {

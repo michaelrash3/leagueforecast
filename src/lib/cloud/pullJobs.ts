@@ -115,6 +115,13 @@ export type PullJob = {
   stageStartedAt?: string;
   download?: ImportDownloadStatus;
   report?: { rows: number; ready: boolean };
+  /**
+   * A staged import's skipped downloads, apart (`stagedImport.ts`): those that failed for a passing
+   * reason (throttled, timed out, cut off), asked once more before the final phase and asked again
+   * by a later paste, and the rest (not found, not a team id, an upstream error), which will not
+   * answer otherwise.
+   */
+  skipped?: { transient: number; permanent: number };
   /** Work already published by a legacy import before migrating its remaining downloads. */
   priorTally?: PullJobTally;
   /** The list, as its pieces make it: the SHA-256 of its JSON, its teams, and its pieces. */
@@ -383,6 +390,10 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
       raw.report === undefined ||
       (isRecord(raw.report) && whole(raw.report.rows) && typeof raw.report.ready === "boolean")
     ) ||
+    !(
+      raw.skipped === undefined ||
+      (isRecord(raw.skipped) && whole(raw.skipped.transient) && whole(raw.skipped.permanent))
+    ) ||
     priorTally === null ||
     rota === null ||
     !isRecord(list) ||
@@ -426,6 +437,14 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     ...(download ? { download } : {}),
     ...(isRecord(raw.report)
       ? { report: { rows: raw.report.rows as number, ready: raw.report.ready as boolean } }
+      : {}),
+    ...(isRecord(raw.skipped)
+      ? {
+          skipped: {
+            transient: raw.skipped.transient as number,
+            permanent: raw.skipped.permanent as number,
+          },
+        }
       : {}),
     ...(priorTally ? { priorTally } : {}),
     list: { hash: list.hash, teams: list.teams, pieces: list.pieces },

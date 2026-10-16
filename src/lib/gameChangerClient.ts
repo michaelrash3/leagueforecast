@@ -175,6 +175,15 @@ const signedInFetch: typeof fetch = async (input, init) => {
 /** Failures that a second try can fix; a missing team or a bad id will fail the same way again. */
 const RETRYABLE_REASONS = new Set<GcFetchErrorReason>(["throttled", "network", "timeout"]);
 
+/**
+ * Whether a failure is one a later try may fix: GameChanger throttling, a request that timed out,
+ * a connection that dropped. Everything else (not found, not a team id, an upstream error, a
+ * refused route) answers the same way again. The cloud import asks once more for these at the end
+ * of its downloads, and counts them apart from the rest.
+ */
+export const isTransientFailure = (reason: GcFetchErrorReason): boolean =>
+  RETRYABLE_REASONS.has(reason);
+
 const defaultDelayMs = (attempt: number): number =>
   DEFAULT_BACKOFF_MS[attempt - 1] ?? DEFAULT_BACKOFF_MS[DEFAULT_BACKOFF_MS.length - 1] ?? 3_000;
 
@@ -634,7 +643,14 @@ const fetchBatchWithRetries = async (
         .map((teamId) => answers.get(teamId))
         .find((answer) => answer && !answer.ok && answer.reason === "throttled");
       const named = asked && retryAfterMs(asked);
-      brake.hold(named ?? backoff, named === undefined ? "backoff" : "retry-after");
+      /*
+       * With no figure named, the ladder's next rung, whether or not another attempt is to come.
+       * The backoff above is worked out only while one is, so a pull asking with no retries, as the
+       * cloud import did, held nothing on a throttle naming no wait, and the batch behind walked
+       * straight into the same throttle.
+       */
+      const rung = attempt < retries ? backoff : delayMs(attempt + 1);
+      brake.hold(named ?? rung, named === undefined ? "backoff" : "retry-after");
     }
   }
   return settled;

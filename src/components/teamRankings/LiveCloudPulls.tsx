@@ -65,6 +65,15 @@ export const readPaste = (
   };
 };
 
+/**
+ * A staged import's skips apart, where it counted them: those that failed for a passing reason,
+ * asked once more when every batch is in, and those that will not answer otherwise.
+ */
+const skipsApart = (job: WatchedPull["job"]): string =>
+  job.skipped && job.tally.failed > 0
+    ? `: ${job.skipped.transient.toLocaleString()} for now, asked once more before the final tidy, and ${job.skipped.permanent.toLocaleString()} for good`
+    : "";
+
 /** What the card says of a paste's ids that will likely be refused, and its lines with none. */
 const pasteWarning = ({ malformed, skipped }: { malformed: number; skipped: number }): string =>
   [
@@ -395,7 +404,7 @@ export function PullLines({
                     ) : null}
                     <p className="mt-1 text-slate-500 dark:text-slate-400">
                       {pull.job.pipeline === "staged-v1"
-                        ? `Downloaded and checkpointed: ${pull.job.tally.answered.toLocaleString()} teams. Skipped downloads: ${pull.job.tally.failed.toLocaleString()}. The finished import is published after the final tidy. Filed so far: `
+                        ? `Downloaded and checkpointed: ${pull.job.tally.answered.toLocaleString()} teams. Skipped downloads: ${pull.job.tally.failed.toLocaleString()}${skipsApart(pull.job)}. The finished import is published after the final tidy. Filed so far: `
                         : "Saved so far: "}
                       {pull.job.tally.filed.toLocaleString()} teams;{" "}
                       {pull.job.tally.gamesAdded.toLocaleString()} games added and{" "}

@@ -14,6 +14,7 @@ import {
   fetchGcTeam,
   fetchGcTeams,
   gcProxyEndpoint,
+  isTransientFailure,
   MAX_REFUSALS,
 } from "../gameChangerClient";
 import { setGcAuthorization } from "../gcAuthorization";
@@ -364,6 +365,33 @@ describe("fetchGcTeams", () => {
     expect(holds).toContainEqual([50, "retry-after"]);
   });
 
+  /*
+   * The cloud import asked with no retries, and a throttled answer naming no wait then held
+   * nothing: the backoff it held for is only worked out while another attempt is to come. So
+   * the batch behind walked straight into the same throttle, and every throttled team was
+   * skipped. With no figure named, the ladder's next rung holds the pull, last attempt or not.
+   */
+  it("holds every worker for the ladder's next rung on a throttle naming no wait, retries or not", async () => {
+    const ids = ["Aaaaaaaa0001", "Bbbbbbbb0002"];
+    for (const retries of [0, 1]) {
+      const holds: Array<[number, string]> = [];
+      const fetchImpl = batchFetch(() => throttled);
+      await fetchGcTeams(ids, {
+        fetchImpl,
+        retries,
+        delayMs: (attempt) => attempt * 2,
+        onHold: (ms, source) => holds.push([ms, source]),
+      });
+      // One hold per attempt: the rung after it, whether or not another attempt was to come.
+      expect(holds).toEqual(
+        Array.from({ length: retries + 1 }, (_, attempt): [number, string] => [
+          (attempt + 1) * 2,
+          "backoff",
+        ])
+      );
+    }
+  });
+
   it("gives one team's failure to that team and leaves the rest of the batch alone", async () => {
     const ids = ["Aaaaaaaa0001", "Bbbbbbbb0002", "Cccccccc0003"];
     const missing: GcTeamResponse = {
@@ -464,6 +492,15 @@ describe("fetchGcTeams", () => {
       const results = await fetchGcTeams([TEAM_ID], { fetchImpl, delayMs: () => 0 });
       expect(fetchImpl.calls).toHaveLength(1);
       expect(results.get(TEAM_ID)).toMatchObject({ ok: false, reason });
+    }
+  });
+
+  it("calls a throttle, a timeout and a dropped connection passing, and nothing else", () => {
+    for (const reason of ["throttled", "timeout", "network"] as const) {
+      expect(isTransientFailure(reason)).toBe(true);
+    }
+    for (const reason of ["not-found", "invalid-id", "upstream-error", "blocked"] as const) {
+      expect(isTransientFailure(reason)).toBe(false);
     }
   });
 

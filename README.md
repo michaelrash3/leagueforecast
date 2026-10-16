@@ -3960,12 +3960,22 @@ checkpoints keep their identities when an older import resumes with larger batch
 Checkpoint answers retain the selection order even when downloads finish out of order.
 Clean download concurrency carries forward between batches; GameChanger pushback
 lowers it rather than restarting at full speed.
-Each team gets one download attempt. Failed downloads are counted as skipped, and the
-import continues with the remaining teams; they do not consume Cloud Run execution
-retries or hold up the final tidy. Progress distinguishes downloaded, skipped and
-remaining teams. Warning logs record failure reasons and bounded diagnostic samples.
+A download that fails for a passing reason (GameChanger throttling, a timeout, a
+dropped connection) is tried twice more within its batch (`IMPORT_RETRIES`), and a
+throttle holds every worker back, for as long as GameChanger names or, when it names
+nothing, for the client's own next backoff: from 12 and 13 October 2026 each team was
+asked once and every throttled one skipped on its first answer. Not found, not a team
+id and an upstream error are final. When every batch is in, the downloads that still
+failed for a passing reason are asked once more, before the final phase, and their
+checkpoints and report saved again; a checkpoint says it was done, so a restart does
+not ask them a third time. Failed downloads are counted as skipped, and the import
+continues with the remaining teams; they do not consume Cloud Run execution retries or
+hold up the final tidy. Progress distinguishes downloaded, skipped and remaining teams,
+and the skips apart: those for now, which a later paste asks again, and those for good.
+Warning logs record failure reasons and bounded diagnostic samples.
 Resuming an older incomplete batch keeps its successful downloads, skips its recorded
-failures and asks only for teams that had no answer yet.
+failures and asks only for teams that had no answer yet, then asks its passing failures
+once more with the rest.
 Checkpoint pointers include small, validated count summaries, so a restart counts
 completed downloads without reading their schedules. Older checkpoints gain summaries
 after their first verified read.
