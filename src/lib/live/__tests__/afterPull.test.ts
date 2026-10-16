@@ -192,6 +192,7 @@ const storesOf = (
     jobs = [] as PullJob[],
     savedAt = SAVED,
     leagueDocs = NO_LEAGUE_DOCS as LeagueDocsList,
+    deletedAt = undefined as string | undefined,
   } = {}
 ) => {
   const reads = { ledger: 0 };
@@ -208,6 +209,7 @@ const storesOf = (
       return Promise.resolve(manifest ? { manifest, savedAt } : null);
     },
     pullsUnderWay: () => Promise.resolve(jobs),
+    leagueDeletedAt: () => Promise.resolve(deletedAt),
     readLedger: () => {
       reads.ledger += 1;
       return Promise.resolve(ledger);
@@ -286,6 +288,7 @@ describe("the boards when a pull ends", () => {
       })
     ).toEqual({
       decided: { publish: false, because: "rebuild-coming", behind: "nothing" },
+      rounds: 1,
     });
     expect(live.meta()).toBeNull();
   });
@@ -443,6 +446,23 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     ).toEqual({ publish: true, behind: "nothing" });
   });
 
+  it("counts a season deleted as a save it waits out, though its document is gone", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const old = ago(60 * 60_000);
+    const deleted = storesOf(cloud, live, { savedAt: old, deletedAt: ago(30_000) }).stores;
+    expect(await afterPullDecision(deleted, FIXTURE_TODAY, NOW, true, BOARDS_SETTLE_MS)).toEqual({
+      publish: false,
+      because: "settling",
+      behind: "nothing",
+    });
+    const longAgo = storesOf(cloud, live, { savedAt: old, deletedAt: old }).stores;
+    expect(await afterPullDecision(longAgo, FIXTURE_TODAY, NOW, true, BOARDS_SETTLE_MS)).toEqual({
+      publish: true,
+      behind: "nothing",
+    });
+  });
+
   it("starts no second publish while one holds the lease, and says until when", async () => {
     const cloud = await copied();
     const live = memoryLive();
@@ -527,6 +547,7 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     };
     expect(await publishAfterPull(edited, job)).toEqual({
       decided: { publish: false, because: "settling", behind: "nothing" },
+      rounds: 1,
     });
     expect(live.meta()).toBeNull();
     // A pull's end asks no settle: its job publishes the same copy at once.
@@ -535,6 +556,52 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     });
     const run = await publishAfterPull(edited, { ...job, owner: "job-2" });
     expect(run.result).toMatchObject({ end: "published" });
+  });
+
+  it("has the job publish again where a pull ended while it was under way", async () => {
+    // A job reads the copy, and a pull saves after it: the pull's end finds the lease held, and
+    // asks the job to go again, rather than leave its save to the catch-up or the nightly.
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const { stores } = storesOf(cloud, live);
+    // The second pull's save and its end, made while the first round publishes, and done before
+    // the job hands the lease back.
+    let pull: Promise<void> | null = null;
+    const watched = {
+      ...lease,
+      handBack: async (owner: string, now: number) => {
+        await pull;
+        return lease.handBack(owner, now);
+      },
+    };
+    const run = await publishAfterPull(stores, {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease: watched,
+      owner: "job-1",
+      onViews: () => {
+        if (pull) return;
+        pull = (async () => {
+          const moved = await commitChanges({
+            store: cloud.store,
+            base: cloud.manifest(),
+            changes: [{ key: LEAGUE_PART, value: { seasons: [], again: true }, at: 2 }],
+            device: "cloud-pull",
+            now: NOW.toISOString(),
+          });
+          if (!moved.ok) throw new Error("the second pull's save was not made");
+          expect(await lease.launch(NOW.getTime(), AT_ONCE)).toMatchObject({ ok: false });
+        })();
+      },
+    });
+    expect(run.rounds).toBe(2);
+    expect(run.result).toMatchObject({ end: "published" });
+    expect(live.meta()?.built[BOARD_FAMILY]?.v).toBe(cloud.manifest()?.version);
+    // And let go at its end, for the next launch.
+    expect(await lease.launch(NOW.getTime(), AT_ONCE)).toEqual({ ok: true });
   });
 
   it("has the job count on no rebuild where its check's save could not queue one", async () => {
@@ -564,6 +631,7 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     const again = storesOf(cloud, memoryLive(), { ledger: { ...SPENT, monthVcpuS: 0 } }).stores;
     expect(await publishAfterPull(again, { ...job, lease: counting })).toEqual({
       decided: { publish: false, because: "rebuild-coming", behind: "nothing" },
+      rounds: 1,
     });
   });
 });

@@ -2,7 +2,7 @@ import { REFRESH_GATE_PATH } from "../cloud/refreshGate";
 import { catchUpDecision, stillBehind, type Behind, type CatchUp } from "./catchUp";
 import { readCloudLeague } from "./cloudLeague";
 import type { CopyPublish } from "./publishCopy";
-import type { PublishLease } from "./publishLease";
+import type { LaunchAsk, PublishLease } from "./publishLease";
 import { reserveRebuildJob } from "./rebuildJobBudget";
 import { coerceLedger } from "./rebuildLedger";
 import { republishViews, type Republish } from "./republish";
@@ -66,7 +66,14 @@ const latestOf = (...times: ReadonlyArray<string | undefined>): string | undefin
 /** What a publish after a pull reads of the cloud, and writes: only the views (`"live"` stores). */
 export type AfterPullStores = Pick<
   ServerStores,
-  "copy" | "live" | "leagueDocs" | "gate" | "readCopyAt" | "pullsUnderWay" | "readLedger"
+  | "copy"
+  | "live"
+  | "leagueDocs"
+  | "gate"
+  | "readCopyAt"
+  | "pullsUnderWay"
+  | "readLedger"
+  | "leagueDeletedAt"
 >;
 
 /**
@@ -83,7 +90,8 @@ export type AfterPullStores = Pick<
  *
  * `settleMs` is how long the copy and the seasons must have been still: none at a pull's end, and
  * `BOARDS_SETTLE_MS` for a save's check (`boardsCheck.ts`), so a run of edits or League scores is
- * one publish after it. A season's last write is Firestore's own time for its document.
+ * one publish after it. A season's last write is Firestore's own time for its document, and a
+ * season deleted, the time its deletion was noted (`noteLeagueDeleted`).
  */
 export const afterPullDecision = async (
   stores: Omit<AfterPullStores, "copy">,
@@ -92,13 +100,14 @@ export const afterPullDecision = async (
   rebuilds: boolean,
   settleMs = 0
 ): Promise<AfterPull> => {
-  const [copy, read, seasons] = await Promise.all([
+  const [copy, read, seasons, deletedAt] = await Promise.all([
     stores.readCopyAt(),
     stores.live.readMeta(),
     stores.leagueDocs(),
+    stores.leagueDeletedAt?.(),
   ]);
   const league = await readCloudLeague(() => Promise.resolve(seasons));
-  const lastSave = latestOf(copy?.savedAt, ...seasons.map((season) => season.updatedAt));
+  const lastSave = latestOf(copy?.savedAt, deletedAt, ...seasons.map((season) => season.updatedAt));
   const rebuild: { ledger?: unknown } = {};
   const decided = await catchUpDecision({
     copy: copy && { ...copy, savedAt: lastSave ?? copy.savedAt },
@@ -187,8 +196,17 @@ export const askInTime = async <T>(
   }
 };
 
-/** What the publish after a pull decided, and how its publish ended where it published. */
-export type AfterPullRun = { decided: AfterPull; result?: Republish };
+/**
+ * What the publish after a pull decided, and how its publish ended where it published: its last
+ * round's, and how many rounds it ran (`rounds`, one but where launchers asked again).
+ */
+export type AfterPullRun = { decided: AfterPull; result?: Republish; rounds?: number };
+
+/**
+ * How many rounds one job publishes at most, asked again each time by a launcher that found it
+ * under way: each builds the year's boards in about two minutes, well inside the job's half hour.
+ */
+export const PUBLISH_ROUNDS = 3;
 
 /**
  * The `boards-publish` job's run: asked again, since the job starts a minute or so after the pull
@@ -210,7 +228,7 @@ export const publishAfterPull = async (
      * The lease the job holds while it publishes (`publishLease.ts`), taken over from the launch
      * that started it, under `owner`, and let go at its end whatever happens.
      */
-    lease: Pick<PublishLease, "take" | "release">;
+    lease: Pick<PublishLease, "take" | "handBack" | "release">;
     owner: string;
     /** The collation the boards are built under: the server's own (`boardLocale`) unless a test says. */
     locale?: string;
@@ -219,12 +237,21 @@ export const publishAfterPull = async (
 ): Promise<AfterPullRun> => {
   const held = await deps.lease.take(deps.now().getTime(), deps.owner);
   if (!held.taken) return { decided: { publish: false, because: "publishing" } };
+  const asking = (asked: LaunchAsk | null) => ({
+    ...deps,
+    rebuilds: deps.rebuilds && (asked?.rebuilds ?? true),
+    settleMs: asked?.settleMs ?? 0,
+  });
   try {
-    return await publishHeld(stores, {
-      ...deps,
-      rebuilds: deps.rebuilds && (held.asked?.rebuilds ?? true),
-      settleMs: held.asked?.settleMs ?? 0,
-    });
+    let run = await publishHeld(stores, asking(held.asked));
+    // A launcher that found this job under way asked it to go again (`handBack`): its save may have
+    // come after this round read the copy.
+    for (let round = 2; round <= PUBLISH_ROUNDS; round += 1) {
+      const again = await deps.lease.handBack(deps.owner, deps.now().getTime());
+      if (!again) return { ...run, rounds: round - 1 };
+      run = await publishHeld(stores, asking(again));
+    }
+    return { ...run, rounds: PUBLISH_ROUNDS };
   } finally {
     await deps.lease.release(deps.owner).catch(() => undefined);
   }

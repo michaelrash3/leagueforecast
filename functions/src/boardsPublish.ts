@@ -58,8 +58,13 @@ try {
   log(
     "boards-after-pull",
     run.decided.publish
-      ? { behind: run.decided.behind, end: run.result?.end, tries: run.result?.tries }
-      : { left: run.decided.because }
+      ? {
+          behind: run.decided.behind,
+          end: run.result?.end,
+          tries: run.result?.tries,
+          rounds: run.rounds,
+        }
+      : { left: run.decided.because, rounds: run.rounds }
   );
 } catch (error) {
   // The message and the network's code only.

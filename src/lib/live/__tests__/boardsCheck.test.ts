@@ -7,6 +7,9 @@ import {
   boardsCheckAgain,
   boardsCheckTask,
   coerceBoardsCheck,
+  LEAGUE_DELETED_PATH,
+  leagueDeletedAt,
+  noteLeagueDeleted,
 } from "../boardsCheck";
 
 /*
@@ -101,5 +104,35 @@ describe("which saves ask for a check, and when a check finding a publish asks a
     const now = 1_000_000;
     expect(againAt(now + 60_000, now)).toBe(now + 90_000);
     expect(againAt(now + 30 * 60_000, now)).toBe(now + BOARDS_SETTLE_MS + 30_000);
+  });
+});
+
+describe("a League Standings season deleted, as the settle counts it", () => {
+  it("is noted at its time, and only ever moved forward", async () => {
+    let value: { fields: Record<string, unknown>; token: string } | null = null;
+    let revision = 0;
+    const paths = new Set<string>();
+    const docs = {
+      readAt: async (path: string) => {
+        paths.add(path);
+        return value ? structuredClone(value) : null;
+      },
+      replace: async (path: string, fields: Record<string, unknown>, token: string | null) => {
+        paths.add(path);
+        if (token !== (value?.token ?? null)) return false;
+        value = { fields, token: String(++revision) };
+        return true;
+      },
+    };
+    await noteLeagueDeleted(docs, "2027-04-15T12:00:05.000Z");
+    expect(leagueDeletedAt(value?.fields)).toBe("2027-04-15T12:00:05.000Z");
+    // A trigger delivered late, for an earlier deletion, leaves the later one noted.
+    await noteLeagueDeleted(docs, "2027-04-15T11:59:00.000Z");
+    expect(leagueDeletedAt(value?.fields)).toBe("2027-04-15T12:00:05.000Z");
+    await noteLeagueDeleted(docs, "2027-04-15T12:03:00.000Z");
+    expect(leagueDeletedAt(value?.fields)).toBe("2027-04-15T12:03:00.000Z");
+    expect(paths).toEqual(new Set([LEAGUE_DELETED_PATH]));
+    expect(leagueDeletedAt(null)).toBeUndefined();
+    expect(leagueDeletedAt({ at: "whenever" })).toBeUndefined();
   });
 });

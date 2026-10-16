@@ -13,6 +13,12 @@ import type { FirestoreRestDocuments } from "../cloud/firestoreRest";
  * for the settle, so an edit made between the check and the job's start is left to its own check
  * rather than published seconds old beside a person still editing; and a check whose save's rebuild
  * could not be queued, that no rebuild be counted on (Codex, on #409).
+ *
+ * A launcher that finds the lease held asks its holder to publish again once it is done (`again`,
+ * what it asked merged into what any launcher before it asked), since a job that read the copy
+ * before the launcher's save would otherwise end without it: a pull's end has no check to ask after
+ * it where the rebuilds are not deployed (Codex, on #409). The job hands the lease back at its end
+ * (`handBack`), and finds there whether it was asked again, in the same write.
  */
 export const PUBLISH_LEASE_PATH = "ops/boardsPublish";
 
@@ -33,12 +39,22 @@ const LAUNCH = "launch";
 export type LaunchAsk = { settleMs: number; rebuilds: boolean };
 
 /** What a launch's claim says it asked, or null where it says nothing this build can read. */
-const askOf = (fields: Record<string, unknown>): LaunchAsk | null => {
-  const { settleMs, rebuilds } = fields;
+const askOf = (fields: unknown): LaunchAsk | null => {
+  if (typeof fields !== "object" || fields === null) return null;
+  const { settleMs, rebuilds } = fields as Record<string, unknown>;
   if (typeof settleMs !== "number" || !(settleMs >= 0) || !Number.isFinite(settleMs)) return null;
   if (typeof rebuilds !== "boolean") return null;
   return { settleMs, rebuilds };
 };
+
+/** Two asks as one: the shorter settle, and a rebuild counted on only where both count on one. */
+const merged = (was: LaunchAsk | null, ask: LaunchAsk): LaunchAsk =>
+  was
+    ? { settleMs: Math.min(was.settleMs, ask.settleMs), rebuilds: was.rebuilds && ask.rebuilds }
+    : ask;
+
+/** How many times a launcher may find the lease moved under it before it takes it for held. */
+const TRIES = 3;
 
 type LeaseDocs = Pick<FirestoreRestDocuments, "readAt" | "replace">;
 
@@ -49,8 +65,9 @@ const heldUntil = (fields: Record<string, unknown> | undefined): number => {
 
 export type PublishLease = {
   /**
-   * For a launcher, at `now`: the lease claimed for a launch, or until when someone else holds it.
-   * Lost to another writer between the read and the write, it is held by them.
+   * For a launcher, at `now`: the lease claimed for a launch, or until when someone else holds it,
+   * who is asked to publish again once done (`handBack`). Read again where another writer moved it
+   * between the read and the write.
    */
   launch: (now: number, ask: LaunchAsk) => Promise<{ ok: true } | { ok: false; until: number }>;
   /** A launch's claim let go again, where the launch failed and no job is coming to take it. */
@@ -63,21 +80,34 @@ export type PublishLease = {
     now: number,
     owner: string
   ) => Promise<{ taken: false } | { taken: true; asked: LaunchAsk | null }>;
-  /** The job's hold let go, where it is still the job's. */
+  /**
+   * The job's hold handed back at `now`, where it is still the job's: let go, and null; or, where a
+   * launcher asked meanwhile, kept for another round, and what was asked.
+   */
+  handBack: (owner: string, now: number) => Promise<LaunchAsk | null>;
+  /** The job's hold let go, where it is still the job's, asked again or not. */
   release: (owner: string) => Promise<void>;
 };
 
 export const publishLease = (docs: LeaseDocs): PublishLease => ({
   launch: async (now, ask) => {
-    const at = await docs.readAt(PUBLISH_LEASE_PATH);
-    const until = heldUntil(at?.fields);
-    if (until > now) return { ok: false, until };
-    const wrote = await docs.replace(
-      PUBLISH_LEASE_PATH,
-      { owner: LAUNCH, until: now + LAUNCH_HOLD_MS, ...ask },
-      at?.token ?? null
-    );
-    return wrote ? { ok: true } : { ok: false, until: now + LAUNCH_HOLD_MS };
+    for (let tries = 0; tries < TRIES; tries += 1) {
+      const at = await docs.readAt(PUBLISH_LEASE_PATH);
+      const until = heldUntil(at?.fields);
+      if (at && until > now) {
+        const again = merged(askOf(at.fields.again), ask);
+        if (await docs.replace(PUBLISH_LEASE_PATH, { ...at.fields, again }, at.token))
+          return { ok: false, until };
+        continue;
+      }
+      const wrote = await docs.replace(
+        PUBLISH_LEASE_PATH,
+        { owner: LAUNCH, until: now + LAUNCH_HOLD_MS, ...ask },
+        at?.token ?? null
+      );
+      if (wrote) return { ok: true };
+    }
+    return { ok: false, until: now + LAUNCH_HOLD_MS };
   },
   unlaunch: async () => {
     const at = await docs.readAt(PUBLISH_LEASE_PATH);
@@ -94,7 +124,20 @@ export const publishLease = (docs: LeaseDocs): PublishLease => ({
     );
     if (!wrote) return { taken: false };
     // A job's own hold carries no ask, so one taken over from a lapsed job reads as asked nothing.
-    return { taken: true, asked: at ? askOf(at.fields) : null };
+    // A launch's carries its own, and what launchers that found it held asked after it, all of
+    // which this job, yet to read the copy, publishes for.
+    const launched = at ? askOf(at.fields) : null;
+    return { taken: true, asked: launched && merged(askOf(at?.fields.again), launched) };
+  },
+  handBack: async (owner, now) => {
+    for (let tries = 0; tries < TRIES; tries += 1) {
+      const at = await docs.readAt(PUBLISH_LEASE_PATH);
+      if (at?.fields.owner !== owner) return null;
+      const again = askOf(at.fields.again);
+      const next = again ? { owner, until: now + PUBLISH_HOLD_MS } : { owner: "", until: 0 };
+      if (await docs.replace(PUBLISH_LEASE_PATH, next, at.token)) return again;
+    }
+    return null;
   },
   release: async (owner) => {
     const at = await docs.readAt(PUBLISH_LEASE_PATH);

@@ -4588,7 +4588,9 @@ It cannot ask GitHub whether the nightly is running.
 
 The job runs once with no retries. A publish that fails is left to the catch-up
 and the nightly, and it fails nothing of the pull, which is over. Two pulls ending
-at once start it once (the lease, in "Boards published after an edit"). The deploy
+at once start it once (the lease, in "Boards published after an edit"), and one
+that ends while a publish runs asks that publish to go again once it is done,
+since it may have read the copy before the pull's save. The deploy
 sets the job up whenever the pulls or the rebuilds are on, since both start it,
 and runs it as the account that starts it.
 
@@ -4628,7 +4630,12 @@ rebuilds' own queue, which tells a check from a rebuild's task by its shape.
   publish may have read the copy before its save. The launch's claim carries what
   its launcher asked, and the job asks the same when it asks again: an edit made
   between a check and the job's start is left to its own check, not published
-  seconds old beside someone still editing.
+  seconds old beside someone still editing. A launcher that finds a publish
+  under way asks it to go again, with what it asked, and the job finds that when
+  it hands the lease back at its end: up to three rounds (`PUBLISH_ROUNDS`).
+- **A season deleted.** A deleted season's document leaves no time of its own, so
+  the seasons' trigger notes the deletion (`ops/leagueDeleted`), and the settle
+  counts it as a save.
 - **A rebuild that could not be queued.** A save whose rebuild the queue refused
   queues a check of its own that counts on no rebuild, however much budget the
   ledger has left, and its job counts on none either.

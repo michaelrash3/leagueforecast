@@ -1,4 +1,5 @@
 import { hashValue } from "../cloud/cloudPack";
+import type { FirestoreRestDocuments } from "../cloud/firestoreRest";
 
 /**
  * The check a save queues for the boards where no rebuild is coming to publish it (README, "Boards
@@ -85,3 +86,36 @@ export const asksBoards = (line: Readonly<Record<string, unknown>>): boolean =>
  */
 export const againAt = (until: number, now: number): number =>
   Math.min(until, now + BOARDS_SETTLE_MS) + 30_000;
+
+/**
+ * Where the last deletion of a League Standings season is noted (`onLeagueWrite`): a season's last
+ * write is the settle's evidence that it is still (`afterPullDecision`), and a deleted document
+ * leaves no time of its own, so a check or a job that read the seasons just after one was deleted
+ * would take the others for still and publish at once (Codex, on #409). No client reads or writes
+ * it (`firestore.rules`).
+ */
+export const LEAGUE_DELETED_PATH = "ops/leagueDeleted";
+
+/** When the last deletion noted was, from the note's fields, or undefined where there is none. */
+export const leagueDeletedAt = (
+  fields: Readonly<Record<string, unknown>> | null | undefined
+): string | undefined => {
+  const at = fields?.at;
+  return typeof at === "string" && !Number.isNaN(Date.parse(at)) ? at : undefined;
+};
+
+/**
+ * A season deleted at `at` (Firestore's commit time) noted, unless a later deletion already is:
+ * triggers may arrive out of order, and the note only ever moves forward.
+ */
+export const noteLeagueDeleted = async (
+  docs: Pick<FirestoreRestDocuments, "readAt" | "replace">,
+  at: string
+): Promise<void> => {
+  for (let tries = 0; tries < 3; tries += 1) {
+    const was = await docs.readAt(LEAGUE_DELETED_PATH);
+    const known = leagueDeletedAt(was?.fields);
+    if (known !== undefined && Date.parse(known) >= Date.parse(at)) return;
+    if (await docs.replace(LEAGUE_DELETED_PATH, { at }, was?.token ?? null)) return;
+  }
+};

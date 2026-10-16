@@ -53,6 +53,7 @@ import {
   boardsCheckAgain,
   BOARDS_SETTLE_MS,
   coerceBoardsCheck,
+  noteLeagueDeleted,
 } from "../../src/lib/live/boardsCheck";
 import { coerceRebuildTask } from "../../src/lib/live/rebuildPlan";
 import { handleCopyWrite, handleLeagueWrite } from "../../src/lib/live/rebuildTrigger";
@@ -561,6 +562,12 @@ export const onLeagueWrite = !LIVE_REBUILD
           enqueue: enqueueRebuild,
         });
         logger[level](message, line);
+        // A season deleted leaves no time of its own for the boards' settle to count: noted here.
+        if (event.data?.before.exists && !event.data.after.exists)
+          await noteLeagueDeleted(firestoreRestDocuments(restAccess()), event.time).catch(
+            (error: unknown) =>
+              logger.warn("season deleted", { noted: false, error: messageOf(error) })
+          );
         if (asksBoards(line))
           logger.info("boards-check", {
             savedAt: event.time,
