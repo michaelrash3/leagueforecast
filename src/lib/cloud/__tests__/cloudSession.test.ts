@@ -533,25 +533,14 @@ describe("opening at boot beside the live board", () => {
     expect(session.restoresInCloud()).toBe(true);
   });
 
-  it("is ready once signed in where League arrives live, the copy read behind it", async () => {
-    const laptop = await laptopFirst();
-    noteLeagueMet(ME.uid);
-    runAs(laptop);
-    // The copy's manifest, which the boot reads, never answering.
-    session.setCloudTestHooks({
-      openCloud: async () => ({
-        ...firebaseFor(ME),
-        store: { ...sky.store, readManifest: () => new Promise<null>(() => undefined) },
-      }),
-    });
-    void session.bootCloud();
-    await vi.waitFor(() => expect(session.cloudStatus()).toMatchObject({ kind: "saved" }));
-  });
-
-  it("still waits for the copy where League has yet to meet the cloud's documents", async () => {
-    const laptop = await laptopFirst();
-    runAs(laptop);
-    let answer = () => undefined as void;
+  /*
+   * The boot reads the manifest under the lock every tab shares (`exclusively`), so each case that
+   * holds the read answers it before it ends: on Node 24, which has `navigator.locks`, a read left
+   * unanswered held the lock for the manifest's 20 s limit, and the next three cases' sign-ins
+   * waited on it past their own 5 s.
+   */
+  const heldManifest = () => {
+    const held = { asked: false, answer: () => undefined as void };
     session.setCloudTestHooks({
       openCloud: async () => ({
         ...firebaseFor(ME),
@@ -559,16 +548,44 @@ describe("opening at boot beside the live board", () => {
           ...sky.store,
           readManifest: () =>
             new Promise<CloudManifest | null>((resolve) => {
-              answer = () => resolve(sky.manifest());
+              held.asked = true;
+              held.answer = () => resolve(sky.manifest());
             }),
         },
       }),
     });
+    return held;
+  };
+
+  it("is ready once signed in where League arrives live, the copy read behind it", async () => {
+    const laptop = await laptopFirst();
+    noteLeagueMet(ME.uid);
+    runAs(laptop);
+    const manifest = heldManifest();
     const booting = session.bootCloud();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(session.cloudStatus()).toMatchObject({ kind: "connecting" });
-    answer();
-    await booting;
+    try {
+      await vi.waitFor(() => expect(manifest.asked).toBe(true));
+      // The copy's manifest asked for and not answered: signed in, and ready already.
+      expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+    } finally {
+      manifest.answer();
+      await booting;
+    }
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+  });
+
+  it("still waits for the copy where League has yet to meet the cloud's documents", async () => {
+    const laptop = await laptopFirst();
+    runAs(laptop);
+    const manifest = heldManifest();
+    const booting = session.bootCloud();
+    try {
+      await vi.waitFor(() => expect(manifest.asked).toBe(true));
+      expect(session.cloudStatus()).toMatchObject({ kind: "connecting" });
+    } finally {
+      manifest.answer();
+      await booting;
+    }
     expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
   });
 });
