@@ -176,6 +176,7 @@ describe("the boards when a pull ends", () => {
     const run = await publishAfterPull(stores, {
       today: () => FIXTURE_TODAY,
       now: () => NOW,
+      rebuilds: true,
       locale: "en-US",
     });
     expect(run.decided).toEqual({ publish: true, behind: "nothing" });
@@ -187,7 +188,7 @@ describe("the boards when a pull ends", () => {
 
     // And asked again, are current: nothing more is built or launched.
     const launch = vi.fn(() => Promise.resolve());
-    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW)).toEqual({
+    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW, true)).toEqual({
       publish: false,
       because: "current",
     });
@@ -198,9 +199,9 @@ describe("the boards when a pull ends", () => {
     const cloud = await copied();
     const live = memoryLive();
     const launch = vi.fn(() => Promise.resolve());
-    expect(await launchAfterPull(storesOf(cloud, live).stores, launch, FIXTURE_TODAY, NOW)).toEqual(
-      { publish: true, behind: "nothing" }
-    );
+    expect(
+      await launchAfterPull(storesOf(cloud, live).stores, launch, FIXTURE_TODAY, NOW, true)
+    ).toEqual({ publish: true, behind: "nothing" });
     expect(launch).toHaveBeenCalledTimes(1);
     // The launch only asks: the job it starts publishes.
     expect(live.meta()).toBeNull();
@@ -212,13 +213,15 @@ describe("the boards when a pull ends", () => {
     const roomy = { ...SPENT, monthVcpuS: 0 };
     const { stores } = storesOf(cloud, live, { ledger: roomy });
     const launch = vi.fn(() => Promise.resolve());
-    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW)).toEqual({
+    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW, true)).toEqual({
       publish: false,
       because: "rebuild-coming",
       behind: "nothing",
     });
     expect(launch).not.toHaveBeenCalled();
-    expect(await publishAfterPull(stores, { today: () => FIXTURE_TODAY, now: () => NOW })).toEqual({
+    expect(
+      await publishAfterPull(stores, { today: () => FIXTURE_TODAY, now: () => NOW, rebuilds: true })
+    ).toEqual({
       decided: { publish: false, because: "rebuild-coming", behind: "nothing" },
     });
     expect(live.meta()).toBeNull();
@@ -233,18 +236,35 @@ describe("the boards when a pull ends", () => {
       Promise.resolve({ owner: "run-1", until: NOW.getTime() + 60_000, state: "running" })
     );
     const stores = { ...storesOf(cloud, live).stores, readRebuildJob };
-    expect(await afterPullDecision(stores, FIXTURE_TODAY, NOW)).toEqual({
+    expect(await afterPullDecision(stores, FIXTURE_TODAY, NOW, true)).toEqual({
       publish: true,
       behind: "nothing",
     });
     expect(readRebuildJob).not.toHaveBeenCalled();
   });
 
+  it("are published where the build deployed no rebuilds, whatever a ledger left on says", async () => {
+    // A build without LIVE_REBUILD takes the rebuilds' trigger down, and nothing asks for one.
+    const cloud = await copied();
+    const live = memoryLive();
+    const roomy = { ...SPENT, monthVcpuS: 0 };
+    const { stores } = storesOf(cloud, live, { ledger: roomy });
+    expect(await afterPullDecision(stores, FIXTURE_TODAY, NOW, false)).toEqual({
+      publish: true,
+      behind: "nothing",
+    });
+    expect(await afterPullDecision(stores, FIXTURE_TODAY, NOW, true)).toEqual({
+      publish: false,
+      because: "rebuild-coming",
+      behind: "nothing",
+    });
+  });
+
   it("wait for another import still filing into the copy, whose own end publishes them", async () => {
     const cloud = await copied();
     const live = memoryLive();
     const { stores } = storesOf(cloud, live, { jobs: [filing()] });
-    expect(await afterPullDecision(stores, FIXTURE_TODAY, NOW)).toEqual({
+    expect(await afterPullDecision(stores, FIXTURE_TODAY, NOW, true)).toEqual({
       publish: false,
       because: "pulling",
       behind: "nothing",
@@ -255,9 +275,14 @@ describe("the boards when a pull ends", () => {
     const cloud = await copied();
     const live = memoryLive();
     const { stores, reads } = storesOf(cloud, live);
-    await publishAfterPull(stores, { today: () => FIXTURE_TODAY, now: () => NOW, locale: "en-US" });
+    await publishAfterPull(stores, {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+    });
     reads.ledger = 0;
-    expect(await afterPullDecision(stores, FIXTURE_TODAY, NOW)).toEqual({
+    expect(await afterPullDecision(stores, FIXTURE_TODAY, NOW, true)).toEqual({
       publish: false,
       because: "current",
     });

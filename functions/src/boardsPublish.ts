@@ -13,6 +13,9 @@ import { restServerStores } from "../../src/lib/live/serverStores";
 import { resetTeamRankingsStore } from "../../src/lib/teamRankingsStorage";
 import { restAccess } from "./pullAccess";
 
+/** Whether this build holds the rebuilds after saves: set by `build.mjs` from LIVE_REBUILD. */
+declare const LIVE_REBUILD: boolean;
+
 const started = Date.now();
 const log = (event: string, fields: Record<string, unknown> = {}) =>
   console.log(
@@ -30,6 +33,7 @@ try {
   const run = await publishAfterPull(restServerStores(restAccess(), "live"), {
     today: () => budgetDay(new Date()),
     now: () => new Date(),
+    rebuilds: LIVE_REBUILD,
     onViews: (views) =>
       log(
         "boards-views",

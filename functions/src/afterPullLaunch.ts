@@ -13,6 +13,9 @@ import { restServerStores } from "../../src/lib/live/serverStores";
 import { launchBoardsPublish, restAccess } from "./pullAccess";
 
 /** `deadline`: when the caller's own time is up, in milliseconds since the epoch (`askInTime`). */
+/** Whether this build holds the rebuilds after saves: set by `build.mjs` from LIVE_REBUILD. */
+declare const LIVE_REBUILD: boolean;
+
 export const publishBoardsIfDue = async (
   deadline = Number.POSITIVE_INFINITY
 ): Promise<Record<string, unknown>> => {
@@ -24,7 +27,8 @@ export const publishBoardsIfDue = async (
           restServerStores(restAccess(), false),
           launchBoardsPublish,
           budgetDay(now),
-          now
+          now,
+          LIVE_REBUILD
         ),
       deadline,
       now.getTime()

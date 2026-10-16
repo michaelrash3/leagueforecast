@@ -4570,8 +4570,9 @@ differences:
 - **It does not wait ten minutes for the copy to be still.** The save it would
   wait out is the pull's own last.
 - **It leaves the boards to a rebuild where one is coming** (`rebuildWillPublish`).
-  That means the rebuilds are on and publishing, and either a run is open on the
-  ledger, its budget reserved, or the ledger would let one start. Holding the
+  That means the build deployed the rebuilds (`LIVE_REBUILD`), they are on and
+  publishing, and either a run is open on the ledger, its budget reserved, or the
+  ledger would let one start. Holding the
   rebuild job's control does not count by itself: a job claims it before it
   reserves, and one whose budget is spent defers at once and publishes nothing.
   Where a cap is spent, failures paused them for the day, or they are off or dry,

@@ -60,12 +60,16 @@ export type AfterPullStores = Pick<
  * coming to publish them, which is the boards' way after any save while the rebuilds' budget lasts.
  * The nightly is not asked after on GitHub, which nothing in the cloud can ask; one pulling holds
  * the refresh gate, and is waited on there. Nor is the rebuild job's control, which the catch-up
- * waits on: whether a rebuild is coming is the ledger's to say (`rebuildWillPublish`).
+ * waits on: whether a rebuild is coming is the ledger's to say (`rebuildWillPublish`), and only
+ * where the build deployed the rebuilds at all (`rebuilds`, the functions' LIVE_REBUILD). A build
+ * without them takes their trigger down, and a ledger left on from before would wait for ever on
+ * a rebuild nothing asks for (Codex, on #408).
  */
 export const afterPullDecision = async (
   stores: Omit<AfterPullStores, "copy">,
   today: string,
-  now: Date
+  now: Date,
+  rebuilds: boolean
 ): Promise<AfterPull> => {
   const [copy, read, league] = await Promise.all([
     stores.readCopyAt(),
@@ -91,7 +95,7 @@ export const afterPullDecision = async (
     },
   });
   if (!decided.publish) return decided;
-  return rebuildWillPublish(rebuild.ledger, today, now)
+  return rebuilds && rebuildWillPublish(rebuild.ledger, today, now)
     ? { publish: false, because: "rebuild-coming", behind: decided.behind }
     : decided;
 };
@@ -104,9 +108,10 @@ export const launchAfterPull = async (
   stores: Omit<AfterPullStores, "copy">,
   launch: () => Promise<void>,
   today: string,
-  now: Date
+  now: Date,
+  rebuilds: boolean
 ): Promise<AfterPull> => {
-  const decided = await afterPullDecision(stores, today, now);
+  const decided = await afterPullDecision(stores, today, now, rebuilds);
   if (decided.publish) await launch();
   return decided;
 };
@@ -160,12 +165,14 @@ export const publishAfterPull = async (
   deps: {
     today: () => string;
     now: () => Date;
+    /** Whether the build deployed the rebuilds after saves (`afterPullDecision`). */
+    rebuilds: boolean;
     /** The collation the boards are built under: the server's own (`boardLocale`) unless a test says. */
     locale?: string;
     onViews?: (views: CopyPublish) => void;
   }
 ): Promise<AfterPullRun> => {
-  const decided = await afterPullDecision(stores, deps.today(), deps.now());
+  const decided = await afterPullDecision(stores, deps.today(), deps.now(), deps.rebuilds);
   if (!decided.publish) return { decided };
   const result = await republishViews({
     copyStore: stores.copy,
