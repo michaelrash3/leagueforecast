@@ -12,12 +12,14 @@ import { needsRepublish, type LiveStore } from "./viewStore";
  * older schema's notice until the next nightly, which GitHub starts hours late; in the third the
  * boards lack what the build adds to them until a save's rebuild or the night.
  * `scripts/republish.ts` runs it after a push to main that deployed; it is kept here so its rules
- * are tested.
+ * are tested. The catch-up between nights (`scripts/catchUp.ts`) runs it too, with what wants
+ * publishing its own: boards behind the copy (`catchUp.ts`).
  *
  * What it answers for is the views at its end, not its own publish. It goes on only while what is
- * published wants publishing again (`needsRepublish`): read before it starts, and again after a
- * publish it did not make, since another publisher (a rebuild after a save, on the functions
- * deployed just before, or an edit's) may have put out this build's views meanwhile. A publish
+ * published wants publishing again (`needsRepublish`, or the caller's `wanted`): read before it
+ * starts, and again after a publish it did not make, since another publisher (a rebuild after a
+ * save, on the functions deployed just before, or an edit's) may have put out this build's views
+ * meanwhile. A publish
  * turned away by something saved or committed while it built (`MOVING`) is tried again on the copy
  * as it now stands, up to `tries` times in all: the rebuild such a save asks for is not certain to
  * publish (the rebuilds may be off, paused, capped or failing), and a run that left the members on
@@ -43,9 +45,9 @@ const MOVING: ReadonlySet<Extract<CopyPublish, { ok: false }>["reason"]> = new S
 
 export type Republish = {
   /**
-   * `not-needed`: what was published did not want publishing when the run began: of this build's
-   * schema with boards of this build's shape or a newer one, of a newer build's schema, or of
-   * another layout. `no-copy`: there is no cloud copy to publish
+   * `not-needed`: what was published did not want publishing when the run began (`wanted`): of
+   * this build's schema with boards of this build's shape or a newer one, of a newer build's
+   * schema, or of another layout. `no-copy`: there is no cloud copy to publish
    * from. `newer-copy`: a newer build saved or tidied the copy (`copyTooNew`), so its views are that
    * build's. `published`: this run published them, whatever the sweep after them did, which only
    * collects pieces nothing names and the next night's full sweep collects as well.
@@ -75,6 +77,8 @@ export const republishViews = async ({
   now,
   locale,
   tries = REPUBLISH_TRIES,
+  wanted = needsRepublish,
+  sweep,
   onLoaded,
   onViews,
 }: {
@@ -88,6 +92,14 @@ export const republishViews = async ({
   /** The collation the boards are built under (`boardLocale`, unless a test says). */
   locale?: string;
   tries?: number;
+  /**
+   * Whether what is published (`live/meta` as stored, null where there is none) wants publishing:
+   * asked before the run starts and after each try that did not publish. `needsRepublish` unless
+   * the caller says: the catch-up asks whether the boards are behind the copy as it then stands.
+   */
+  wanted?: (published: unknown) => boolean | Promise<boolean>;
+  /** The sweep after a publish (`publishCopyViews`): the full one unless the caller says. */
+  sweep?: "full" | "due";
   /** Told as each try has loaded the copy, before it builds, with what is published as it found it. */
   onLoaded?: (loaded: LoadedCopy, published: unknown, attempt: number) => void;
   /** Told how each try's publish ended. */
@@ -96,7 +108,7 @@ export const republishViews = async ({
   const read = async () => (await liveStore.readMeta())?.meta ?? null;
   const found = await read();
   let published = found;
-  if (!needsRepublish(found)) {
+  if (!(await wanted(found))) {
     return { end: "not-needed", ok: true, tries: 0, found, now: found };
   }
   for (let attempt = 1; ; attempt += 1) {
@@ -114,13 +126,14 @@ export const republishViews = async ({
       now,
       leagueDocs,
       ...(locale !== undefined ? { locale } : {}),
+      ...(sweep !== undefined ? { sweep } : {}),
       // Over an older schema's meta nothing holds a version saved since from being put back.
       atVersion: true,
     });
     onViews?.(views);
     if (views.ok) return { end: "published", ok: true, tries: attempt, found };
     published = await read();
-    if (!needsRepublish(published)) {
+    if (!(await wanted(published))) {
       return { end: "published-since", ok: true, tries: attempt, found, now: published };
     }
     if (!MOVING.has(views.reason) || attempt >= tries) {

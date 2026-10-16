@@ -48,7 +48,10 @@ export const MAX_LIST_TEAMS = 50_000;
 export const tooManyTeams = (teams: number): string =>
   `This list has ${teams.toLocaleString("en-US")} teams, and one pull takes at most ${MAX_LIST_TEAMS.toLocaleString("en-US")}. Split it into smaller lists and send them one at a time.`;
 
-export const jobPath = (jobId: string): string => `pullJobs/${jobId}`;
+/** Where every pull's job is kept, by its id. */
+export const JOBS_COLLECTION = "pullJobs";
+
+export const jobPath = (jobId: string): string => `${JOBS_COLLECTION}/${jobId}`;
 export const jobPiecePath = (jobId: string, index: number): string =>
   `${jobPath(jobId)}/pieces/${index}`;
 

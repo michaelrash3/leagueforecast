@@ -89,6 +89,40 @@ const fakeFirestore = () => {
       });
       return reply(200, {});
     }
+    if (url.pathname.endsWith(":runQuery")) {
+      // A query of one collection under its parent, by one field holding one of a list of values.
+      const { structuredQuery } = JSON.parse(String(init?.body)) as {
+        structuredQuery: {
+          from: { collectionId: string }[];
+          where: {
+            fieldFilter: { field: { fieldPath: string }; op: string; value: FirestoreValue };
+          };
+        };
+      };
+      const parent = decodeURIComponent(url.pathname.slice(PREFIX.length + 1, -":runQuery".length));
+      const collectionId = structuredQuery.from[0]!.collectionId;
+      const collection = parent ? `${parent}/${collectionId}` : collectionId;
+      const { field, op, value } = structuredQuery.where.fieldFilter;
+      if (op !== "IN") return reply(400, { error: { status: "INVALID_ARGUMENT" } });
+      const wanted = (value.arrayValue?.values ?? []).map((one) => JSON.stringify(one));
+      const found = [...docs.keys()]
+        .filter(
+          (name) =>
+            name.startsWith(`${collection}/`) &&
+            !name.slice(collection.length + 1).includes("/") &&
+            wanted.includes(JSON.stringify(docs.get(name)!.fields[field.fieldPath]))
+        )
+        .sort()
+        .map((name) => ({
+          document: {
+            name: `projects/proj/databases/(default)/documents/${name}`,
+            ...docs.get(name)!,
+          },
+          readTime: "2027-01-01T00:00:00Z",
+        }));
+      // Where nothing is found, one answer with a time and no document.
+      return reply(200, found.length > 0 ? found : [{ readTime: "2027-01-01T00:00:00Z" }]);
+    }
     const path = decodeURIComponent(url.pathname.slice(PREFIX.length + 1));
     if (method === "GET" && path.split("/").length % 2 === 1) {
       // A collection: its documents in name order, a page at a time, with only the masked fields.
@@ -747,6 +781,59 @@ describe("a pull's job through Firestore's REST API", () => {
     // A field set to null is cleared, as the job's type has it, not left as it was.
     await jobs.update(JOB, { error: null });
     expect((await jobs.read(JOB))?.error).toBeNull();
+  });
+
+  it("finds the pulls queued or running by their status, in one query, and asks it again while Firestore cannot answer", async () => {
+    const firestore = fakeFirestore();
+    const statuses = ["queued", "running", "done", "failed", "cancelled", "running"] as const;
+    statuses.forEach((status, index) => {
+      const job = newPullJob({
+        list: { hash: "0".repeat(64), teams: 1, pieces: 1 },
+        seasonYears: [],
+        timeZone: "America/New_York",
+        device: "phone",
+        now: "2026-09-29T12:00:00.000Z",
+      });
+      firestore.docs.set(`pullJobs/${String(index).repeat(32)}`, {
+        fields: firestoreFieldsOf({ ...job, status }),
+        updateTime: "t0",
+      });
+    });
+    // A document of another collection with the same field is not one of them.
+    firestore.docs.set("ops/refresh", {
+      fields: firestoreFieldsOf({ status: "running" }),
+      updateTime: "t0",
+    });
+    const answers = firestore.fetchImpl.getMockImplementation()!;
+    let busy = 1;
+    firestore.fetchImpl.mockImplementation(async (input, init) => {
+      if (busy > 0 && String(input).endsWith(":runQuery")) {
+        busy -= 1;
+        return new Response("{}", { status: 503 });
+      }
+      return answers(input, init);
+    });
+    const waits: number[] = [];
+    const docs = firestoreRestDocuments({
+      projectId: "proj",
+      token: async () => "a-token",
+      fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
+      pause: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    const found = await docs.where("pullJobs", "status", ["queued", "running"]);
+    expect(found.map(({ id }) => id)).toEqual(["0".repeat(32), "1".repeat(32), "5".repeat(32)]);
+    expect(found.map(({ fields }) => fields.status)).toEqual(["queued", "running", "running"]);
+    // A read, though it is sent as a POST: asked again.
+    expect(waits).toEqual([1_000]);
+    const queries = firestore.fetchImpl.mock.calls.filter(([input]) =>
+      String(input).endsWith(":runQuery")
+    );
+    expect(queries).toHaveLength(2);
+    expect(String(queries[0]![0])).toBe(`https://firestore.googleapis.com${PREFIX}:runQuery`);
+    // None found: an empty list, not the answer that carries only a time.
+    expect(await docs.where("pullJobs", "status", ["paused"])).toEqual([]);
   });
 
   it("never makes again a job deleted while a leg ran", async () => {

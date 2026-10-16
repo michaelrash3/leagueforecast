@@ -4,9 +4,10 @@ import {
   firestoreRestLive,
   firestoreRestStore,
   firestoreRestUploads,
+  MANIFEST_PATH,
   type RestAccess,
 } from "../cloud/firestoreRest";
-import { coercePullJob, jobPath, type PullJob } from "../cloud/pullJobs";
+import { coercePullJob, jobPath, JOBS_COLLECTION, type PullJob } from "../cloud/pullJobs";
 import type { GateDocs } from "../cloud/refreshGate";
 import type { UploadStore } from "../cloud/uploads";
 import { restLeagueDocs, type LeagueDocsList } from "./cloudLeague";
@@ -35,6 +36,19 @@ export type ServerStores = {
   gate: GateDocs;
   /** A pull's job, as the gate names one: the refresh the nightly waits on. */
   readJob: (jobId: string) => Promise<PullJob | null>;
+  /**
+   * The copy's manifest, its fields as stored, and when Firestore last wrote it, by Firestore's own
+   * clock (its update time), or null where there is no copy: what the catch-up between nights holds
+   * the boards to, and how long the copy has been still (`catchUp.ts`).
+   */
+  readCopyAt: () => Promise<{ manifest: unknown; savedAt: string } | null>;
+  /** The rebuild job's control document (`ops/rebuildJob`), its fields as stored, or null. */
+  readRebuildJob: () => Promise<unknown>;
+  /**
+   * Every pull queued or running (`pullJobs`), "Refresh now" and pasted lists alike, as
+   * `coercePullJob` reads each: one it cannot read is left out.
+   */
+  pullsUnderWay: () => Promise<PullJob[]>;
 };
 
 const refuseWrite = () => Promise.reject(new Error("This store was opened to read, not to write."));
@@ -42,9 +56,10 @@ const refuseWrite = () => Promise.reject(new Error("This store was opened to rea
 /**
  * Those stores, read only unless `writable`: `true` for the nightly's live run, which saves the
  * copy, publishes the views, deletes staged uploads and takes its turn at the refresh gate; `false`
- * for its dry run, which writes nothing; and `"live"` for the republish after a deploy, which writes
- * the views and nothing else, so a slip in it cannot touch the copy it builds them from. The
- * seasons, the ledger and the jobs are never written, whatever the stores are opened for.
+ * for its dry run, which writes nothing; and `"live"` for the republish after a deploy and the
+ * catch-up between nights, which write the views and nothing else, so a slip in either cannot touch
+ * the copy it builds them from. The seasons, the ledger, the jobs and the rebuild job's control are
+ * never written, whatever the stores are opened for.
  */
 export const restServerStores = (access: RestAccess, writable: boolean | "live"): ServerStores => {
   const copyWrites = { ...access, writable: writable === true };
@@ -64,5 +79,14 @@ export const restServerStores = (access: RestAccess, writable: boolean | "live")
           : refuseWrite,
     },
     readJob: async (jobId) => coercePullJob(await docs.read(jobPath(jobId))),
+    readCopyAt: async () => {
+      const at = await docs.readAt(MANIFEST_PATH);
+      return at ? { manifest: at.fields, savedAt: at.token } : null;
+    },
+    readRebuildJob: () => docs.read(REBUILD_JOB_CONTROL),
+    pullsUnderWay: async () =>
+      (await docs.where(JOBS_COLLECTION, "status", ["queued", "running"])).flatMap(
+        ({ fields }) => coercePullJob(fields) ?? []
+      ),
   };
 };

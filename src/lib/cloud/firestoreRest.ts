@@ -140,7 +140,9 @@ const manifestFields = (next: CloudManifest): Record<string, FirestoreValue> =>
     kept: next.kept.map((part) => ({ ...part })),
   });
 
-const MANIFEST = "copies/main";
+/** The copy's manifest, as a document. */
+export const MANIFEST_PATH = "copies/main";
+const MANIFEST = MANIFEST_PATH;
 const CHUNKS = "copies/main/chunks";
 const LIVE_META = "live/meta";
 const LIVE_CHUNKS = "live/meta/chunks";
@@ -557,6 +559,18 @@ export type FirestoreRestDocuments = {
    */
   list: (collection: string) => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
   /**
+   * The documents of `collection` whose field `field` holds one of `values` (at most 30), with
+   * their ids and fields as plain values, in one query: the pulls still queued or running
+   * (`pullJobs`), which the catch-up between nights finds by their status rather than by listing
+   * every pull there has been (`catchUp.ts`). Firestore counts a read for each document found, and
+   * one where none is.
+   */
+  where: (
+    collection: string,
+    field: string,
+    values: readonly string[]
+  ) => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
+  /**
    * Writes `fields` as the whole document at `path`, made or replaced, whatever was there: a piece
    * of the list a "Refresh now" job works out (`pullJobRunner.ts`), which a first leg tried again
    * writes over whatever the try before it left.
@@ -603,6 +617,33 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
         page = answer.nextPageToken;
       } while (page);
       return found;
+    },
+    where: async (collection, field, values) => {
+      // A query is asked of the collection's parent: the database's documents, or a document.
+      const cut = collection.lastIndexOf("/");
+      const parent = cut < 0 ? documents : `${documents}/${collection.slice(0, cut)}`;
+      const response = await call(`${parent}:runQuery`, "query", {
+        method: "POST",
+        body: JSON.stringify({
+          structuredQuery: {
+            from: [{ collectionId: collection.slice(cut + 1) }],
+            where: {
+              fieldFilter: {
+                field: { fieldPath: field },
+                op: "IN",
+                value: firestoreValueOf([...values]),
+              },
+            },
+          },
+        }),
+      });
+      if (!response.ok) throw await refusalOf(response, `querying ${collection}`);
+      // One answer for each document found, and one with no document where none was.
+      const answers = (await response.json()) as Array<{ document?: FirestoreDocument }>;
+      return answers.flatMap(({ document }) => {
+        const id = document?.name?.split("/").pop();
+        return id ? [{ id: decodeURIComponent(id), fields: fieldsOf(document?.fields ?? {}) }] : [];
+      });
     },
     update: async (path, patch) => {
       const mask = Object.keys(patch)
