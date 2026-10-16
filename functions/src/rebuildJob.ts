@@ -13,7 +13,7 @@ import {
 } from "../../src/lib/live/rebuildJobBudget";
 import {
   coerceLedger,
-  chargeEdit,
+  chargeRebuild,
   restLedgerStore,
   runCost,
   settleRun,
@@ -61,7 +61,7 @@ const chargeOverhead = async () => {
   const { total, used } = unchargedCost();
   if (used.gibs === 0 && used.vcpuS === 0) return;
   await updateLedger(ledger, (current) => ({
-    next: chargeEdit(current, todayIsoDay(), used),
+    next: chargeRebuild(current, todayIsoDay(), used),
     answer: null,
   }));
   charged = total;

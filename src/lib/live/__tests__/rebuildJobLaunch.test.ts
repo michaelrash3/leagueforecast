@@ -92,9 +92,43 @@ describe("cheap ranking rebuild requests", () => {
     expect(test.deps.enqueue).toHaveBeenCalledTimes(1);
     await test.control.request(task);
     await test.control.claim("worker");
+    // The day's budget spent, which the deferral waits on.
+    test.values.set("ops/rebuild", { on: true, lastEndedAt: AT, day: DAY, dayGiBs: 10_000 });
     await test.control.defer("worker", new Date("2026-10-14T04:01:00Z"), "Daily budget");
     expect(await requestRebuildJob(task, test.deps)).toEqual({ end: "joined" });
     expect(test.deps.enqueue).toHaveBeenCalledTimes(2);
+    expect(test.deps.launch).not.toHaveBeenCalled();
+  });
+  it("lifts a deferral once its budget has room again, the owner having raised the cap", async () => {
+    const test = await setup();
+    // October 2026 as it stood: the month's vCPU-seconds past their cap, the job waiting for 1 Nov.
+    const spent = { on: true, month: "2026-10", monthGiBs: 113_924, monthVcpuS: 49_530 };
+    test.values.set("ops/rebuild", spent);
+    await test.control.request(task);
+    await test.control.claim("worker");
+    await test.control.defer("worker", new Date("2026-11-01T04:01:00Z"), "Waiting for month-cap");
+    expect(await requestRebuildJob(task, test.deps)).toEqual({ end: "joined" });
+    expect(test.deps.launch).not.toHaveBeenCalled();
+    test.values.set("ops/rebuild", { ...spent, caps: { monthGiBs: 250_000, monthVcpuS: 125_000 } });
+    expect(await requestRebuildJob(task, test.deps)).toEqual({ end: "launched" });
+    expect(test.deps.launch).toHaveBeenCalledTimes(1);
+    expect((await test.control.read()).deferredUntil).toBe("");
+  });
+  it("keeps a deferral while a run is still going", async () => {
+    const test = await setup();
+    await test.control.request(task);
+    await test.control.claim("worker");
+    await test.control.defer("worker", new Date("2026-10-13T17:05:00Z"), "Waiting for busy");
+    test.values.set("ops/rebuild", {
+      on: true,
+      open: {
+        at: "2026-10-13T16:59:00Z",
+        day: DAY,
+        cost: { gibs: 2_560, vcpuS: 640 },
+        until: "2026-10-13T17:59:00Z",
+      },
+    });
+    expect(await requestRebuildJob(task, test.deps)).toEqual({ end: "joined" });
     expect(test.deps.launch).not.toHaveBeenCalled();
   });
 });

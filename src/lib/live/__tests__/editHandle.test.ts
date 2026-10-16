@@ -49,6 +49,8 @@ const ledgerOf = (more: Partial<Ledger> = {}): Ledger => ({
   monthVcpuS: 0,
   monthRuns: 0,
   monthFailed: 0,
+  editMonthGiBs: 0,
+  editMonthVcpuS: 0,
   failures: 0,
   pausedDay: null,
   open: null,
@@ -146,12 +148,15 @@ describe("an edit request", () => {
         ms: { load: 40, apply: 5, commit: 300 },
       },
     });
-    // The turn's 2 s and the start-up's 3, at 8 GiB and 2 vCPUs; no run reserved or counted.
+    // The turn's 2 s and the start-up's 3, at 8 GiB and 2 vCPUs, to the edits' own totals: none
+    // to the rebuilds', so what members use never holds the boards back. No run reserved or counted.
     expect(ledger.held()).toMatchObject({
-      dayGiBs: 40,
+      editMonthGiBs: 40,
+      editMonthVcpuS: 10,
+      dayGiBs: 0,
       dayRuns: 0,
-      monthGiBs: 40,
-      monthVcpuS: 10,
+      monthGiBs: 0,
+      monthVcpuS: 0,
       open: null,
     });
     expect(handled.line).toEqual({
@@ -183,7 +188,8 @@ describe("an edit request", () => {
       expect(await run(ledger.store, workerOf())).toMatchObject({
         reply: { ok: true, version: 8 },
       });
-      expect(ledger.held()?.dayGiBs).toBe(held.dayGiBs + 16);
+      expect(ledger.held()?.editMonthGiBs).toBe(held.editMonthGiBs + 16);
+      expect(ledger.held()?.dayGiBs).toBe(held.dayGiBs);
     }
   });
 
@@ -251,7 +257,7 @@ describe("an edit request", () => {
       reply: { ok: false, why: "missing" },
       line: { end: "missing", tries: 1 },
     });
-    expect(ledger.held()).toMatchObject({ dayGiBs: 16, dayRuns: 0 });
+    expect(ledger.held()).toMatchObject({ editMonthGiBs: 16, dayGiBs: 0, dayRuns: 0 });
   });
 
   it("says the edit may or may not be in the copy when the worker was lost with it", async () => {
@@ -271,7 +277,7 @@ describe("an edit request", () => {
         end: "unsure",
       },
     });
-    expect(ledger.held()).toMatchObject({ dayGiBs: 24 });
+    expect(ledger.held()).toMatchObject({ editMonthGiBs: 24 });
   });
 
   it("says the edit was not made when the worker said it threw, or failed before having it", async () => {
@@ -293,7 +299,7 @@ describe("an edit request", () => {
       })
     );
     expect(unstarted).toMatchObject({ notMade: NOT_MADE.threw, line: { end: "threw", gibs: 0 } });
-    expect(ledger.held()).toMatchObject({ dayGiBs: 8 });
+    expect(ledger.held()).toMatchObject({ editMonthGiBs: 8 });
   });
 
   it("says the edit was not made, never sent, when its caller went or its time ran out", async () => {
@@ -367,7 +373,7 @@ describe("an edit request", () => {
     const handled = await Promise.all(calls);
     expect(handled.every((one) => "reply" in one && one.reply.ok)).toBe(true);
     // Eighty seconds the worker was busy, at 8 GiB: what the instance is billed.
-    expect({ busyS: t / 1000, charged: ledger.held()?.dayGiBs }).toEqual({
+    expect({ busyS: t / 1000, charged: ledger.held()?.editMonthGiBs }).toEqual({
       busyS: 80,
       charged: 640,
     });
@@ -390,7 +396,7 @@ describe("an edit request", () => {
       )
     );
     expect(handled.map((one) => one.line.chargeError)).toEqual(Array(8).fill(undefined));
-    expect(ledger.held()?.dayGiBs).toBe(8 * 16);
+    expect(ledger.held()?.editMonthGiBs).toBe(8 * 16);
   });
 
   it("answers the edit made, and says so in the line, when the ledger cannot be charged", async () => {
@@ -450,7 +456,13 @@ describe("a warm-up", () => {
     expect(warmed).toEqual({ ok: true, cold: true, fetched: 12, loadMs: 4_000 });
     expect(line).toMatchObject({ kind: "warm", end: "warmed", cold: true, fetched: 12 });
     // Four seconds of loading and one of start-up, at 8 GiB and 2 vCPUs, and no run counted.
-    expect(ledger.held()).toMatchObject({ dayGiBs: 40, monthVcpuS: 10, dayRuns: 0, open: null });
+    expect(ledger.held()).toMatchObject({
+      editMonthGiBs: 40,
+      editMonthVcpuS: 10,
+      dayGiBs: 0,
+      dayRuns: 0,
+      open: null,
+    });
   });
 
   it("says why the pool could not come up, and brings none up for a worker that failed or a caller gone", async () => {
@@ -534,7 +546,13 @@ describe("a question", () => {
       },
     });
     // One second in the worker at 8 GiB and 2 vCPUs; no run reserved or counted.
-    expect(ledger.held()).toMatchObject({ dayGiBs: 8, monthVcpuS: 2, dayRuns: 0, open: null });
+    expect(ledger.held()).toMatchObject({
+      editMonthGiBs: 8,
+      editMonthVcpuS: 2,
+      dayGiBs: 0,
+      dayRuns: 0,
+      open: null,
+    });
   });
 
   it("is sent as JSON writes it, so the callable sends it as it is", async () => {
@@ -560,7 +578,7 @@ describe("a question", () => {
     expect(
       await ask(ledger.store, { query: async () => ran({ ok: false, why: "copy-replaced" }) })
     ).toMatchObject({ reply: { ok: false, why: "copy-replaced" }, line: { end: "copy-replaced" } });
-    expect(ledger.held()).toMatchObject({ dayGiBs: 16 });
+    expect(ledger.held()).toMatchObject({ editMonthGiBs: 16 });
   });
 
   it("is only to be asked again when the worker failed with it or never had it, whatever it was doing", async () => {
@@ -592,6 +610,9 @@ describe("a question", () => {
       [{ dayGiBs: DEFAULT_CAPS.dayGiBs }, "day-spent"],
       [{ monthGiBs: DEFAULT_CAPS.monthGiBs }, "month-spent"],
       [{ monthVcpuS: DEFAULT_CAPS.monthVcpuS }, "month-spent"],
+      // The edits' own month, which the questions themselves fill.
+      [{ editMonthGiBs: DEFAULT_CAPS.editMonthGiBs }, "month-spent"],
+      [{ editMonthVcpuS: DEFAULT_CAPS.editMonthVcpuS }, "month-spent"],
       // Both spent: the month's lasts the longer, so it is the one said.
       [{ dayGiBs: DEFAULT_CAPS.dayGiBs, monthGiBs: DEFAULT_CAPS.monthGiBs }, "month-spent"],
       // Spent with the switch off too, as an edit is charged either way.
@@ -641,7 +662,9 @@ describe("a question", () => {
     for (const more of [
       { day: "2027-04-14", dayGiBs: DEFAULT_CAPS.dayGiBs },
       { month: "2027-03", monthGiBs: DEFAULT_CAPS.monthGiBs },
+      { month: "2027-03", editMonthVcpuS: DEFAULT_CAPS.editMonthVcpuS },
       { dayGiBs: DEFAULT_CAPS.dayGiBs - 1, monthGiBs: DEFAULT_CAPS.monthGiBs - 1 },
+      { editMonthGiBs: DEFAULT_CAPS.editMonthGiBs - 1 },
     ]) {
       const ledger = memoryLedger(ledgerOf(more));
       expect(await ask(ledger.store, workerOf(), undefined, { question: CHECK })).toMatchObject({

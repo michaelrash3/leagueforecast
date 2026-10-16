@@ -101,9 +101,12 @@ const ASK_AFTER_MS = 800;
  * How long after a question goes unanswered it is asked again, the last wait repeated until one is
  * answered: a device offline, a sign-in not loaded yet, a server waking up. Each wait is a
  * question asked again, and a member's device offline or signed out fails it without reaching the
- * server at all.
+ * server at all. The waits lengthen to half an hour: a question the server cannot answer in its
+ * time costs a cold load of the whole pool at 8 GiB each try, and every two minutes for as long as
+ * the page stayed open was what an unanswerable pool cost in October 2026. Coming back online,
+ * signing in, and the page shown anew still ask at once.
  */
-const RETRY_AFTER_MS = [5_000, 30_000, 120_000] as const;
+const RETRY_AFTER_MS = [5_000, 30_000, 120_000, 600_000, 1_800_000] as const;
 
 /**
  * The least time between a question and one asked because the page was shown anew. Looking away

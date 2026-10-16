@@ -16,6 +16,38 @@ const OPEN = {
 };
 
 describe("the nightly's lines on the rebuilds", () => {
+  it("says the edits' own compute apart, and the job held back by its budget until when", () => {
+    const now = Date.parse("2026-10-16T09:00:00Z");
+    const lines = describeRebuilds(
+      {
+        on: true,
+        mode: "live",
+        day: "2026-10-14",
+        month: "2026-10",
+        monthGiBs: 113_924,
+        monthVcpuS: 49_530,
+        monthRuns: 34,
+        monthFailed: 9,
+        editMonthGiBs: 2_000,
+        editMonthVcpuS: 500,
+      },
+      { format: 1, deferredUntil: "2026-11-01T04:01:00.000Z", state: "deferred" },
+      now
+    );
+    expect(lines).toContain(
+      "  Edits and questions, 2026-10: 2,000 of 120,000 GiB-seconds and 500 of 60,000 vCPU-seconds."
+    );
+    expect(lines).toContain(
+      "  Held back by their budget until 2026-11-01T04:01:00.000Z: saves wait for then, or for a cap raised in ops/rebuild."
+    );
+    // A deferral past, or none, says nothing; nor do edits that spent nothing.
+    for (const job of [null, { deferredUntil: "" }, { deferredUntil: "2026-10-15T04:01:00Z" }]) {
+      expect(describeRebuilds({ on: true, month: "2026-10" }, job, now).join("\n")).not.toMatch(
+        /Held back|Edits and questions/
+      );
+    }
+  });
+
   it("says they are off where there is no ledger, or none this build reads", () => {
     expect(describeRebuilds(null)).toEqual([
       "Rebuilds after saves: there is no ledger in ops/rebuild, so they are off.",

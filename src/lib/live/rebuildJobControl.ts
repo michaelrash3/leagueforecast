@@ -113,6 +113,19 @@ export const rebuildJobControl = (
           answer: true,
         };
       }),
+    /**
+     * The deferral lifted, where no worker holds the job: for a launcher that finds the budget the
+     * deferral waited on has room again (`requestRebuildJob`). False where there was none to lift.
+     */
+    undefer: () =>
+      change((current) => {
+        if (
+          !(Date.parse(current.deferredUntil ?? "") > now()) ||
+          (current.owner !== null && current.until > now())
+        )
+          return { answer: false };
+        return { next: { ...current, deferredUntil: "", state: "waiting" }, answer: true };
+      }),
     release: (owner: string) =>
       change((current) => {
         if (current.owner !== owner) return { answer: false };

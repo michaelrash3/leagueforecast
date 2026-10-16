@@ -2,6 +2,7 @@ import type { CloudStore } from "../cloud/cloudEngine";
 import type { FirestoreRestDocuments } from "../cloud/firestoreRest";
 import { boardsState } from "./boardInputs";
 import { leaguePrintOf, readCloudLeague, type LeagueDocsList } from "./cloudLeague";
+import { reserveRebuildJob } from "./rebuildJobBudget";
 import { rebuildJobControl } from "./rebuildJobControl";
 import { coerceLedger, restLedgerStore } from "./rebuildLedger";
 import { LIVE_SPACING_S, newerBuildOf, spacedTask, type RebuildTask } from "./rebuildPlan";
@@ -25,7 +26,19 @@ export const requestRebuildJob = async (
   const ledger = coerceLedger((await restLedgerStore(deps.docs).read()).raw);
   if (!ledger?.on) return { end: "off" };
   const control = rebuildJobControl(deps.docs, deps.now);
-  const active = await control.read();
+  let active = await control.read();
+  /*
+   * A deferral is a reserve the budget refused, queued again for when it renews (`rebuildRetryAt`):
+   * the first of next month for a month's cap. Lifted here once the budget has room again, the
+   * owner having raised a cap in ops/rebuild, so the boards do not wait out the date it set.
+   */
+  if (
+    !(active.owner && active.until > deps.now()) &&
+    Date.parse(active.deferredUntil ?? "") > deps.now() &&
+    reserveRebuildJob(ledger, deps.today(), new Date(deps.now()).toISOString(), "").ok &&
+    (await control.undefer())
+  )
+    active = await control.read();
   if (
     !(active.owner && active.until > deps.now()) &&
     !(Date.parse(active.deferredUntil ?? "") > deps.now())
