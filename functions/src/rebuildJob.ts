@@ -5,7 +5,12 @@ import { Worker } from "node:worker_threads";
 import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
 import { todayIsoDay } from "../../src/lib/date";
 import { isRebuildFailure, type RebuildResult } from "../../src/lib/live/rebuild";
-import { rebuildJobControl, REBUILD_JOB_LEASE_MS } from "../../src/lib/live/rebuildJobControl";
+import {
+  deferralDetail,
+  rebuildJobControl,
+  REBUILD_JOB_LEASE_MS,
+  type DeferralReason,
+} from "../../src/lib/live/rebuildJobControl";
 import {
   reserveRebuildJob,
   rebuildRetryAt,
@@ -13,12 +18,11 @@ import {
 } from "../../src/lib/live/rebuildJobBudget";
 import {
   coerceLedger,
-  chargeEdit,
+  chargeRebuild,
   restLedgerStore,
   runCost,
   settleRun,
   updateLedger,
-  type ReserveRefusal,
 } from "../../src/lib/live/rebuildLedger";
 import { spacedTask, type RebuildTask } from "../../src/lib/live/rebuildPlan";
 import {
@@ -61,7 +65,7 @@ const chargeOverhead = async () => {
   const { total, used } = unchargedCost();
   if (used.gibs === 0 && used.vcpuS === 0) return;
   await updateLedger(ledger, (current) => ({
-    next: chargeEdit(current, todayIsoDay(), used),
+    next: chargeRebuild(current, todayIsoDay(), used),
     answer: null,
   }));
   charged = total;
@@ -84,13 +88,13 @@ if (!claimed) {
   let reservation: { at: string; limiting: string } | null = null;
   let task: RebuildTask = claimed.task!;
 
-  const defer = async (why: ReserveRefusal | "budget") => {
+  const defer = async (why: DeferralReason) => {
     const held = coerceLedger((await ledger.read()).raw);
     const due = rebuildRetryAt(why, todayIsoDay(), Date.now(), held);
     // Cloud Tasks accepts a schedule at most 30 days ahead. A month cap checks again after 29.
     const queued = new Date(Math.min(due.getTime(), Date.now() + 29 * 86400_000));
     await enqueueRebuild(await spacedTask(task, queued.getTime()));
-    await control.defer(owner, queued, `Waiting for ${why}; queued for ${queued.toISOString()}`);
+    await control.defer(owner, queued, deferralDetail(why, queued));
     log("rebuild-deferred", { why, until: queued.toISOString() });
   };
   const settle = async (failed: boolean | null) => {

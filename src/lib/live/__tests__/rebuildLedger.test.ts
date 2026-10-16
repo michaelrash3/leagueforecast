@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   chargeEdit,
+  chargeRebuild,
   coerceLedger,
   DEFAULT_CAPS,
   HARD_CAPS,
   reserveRun,
+  restLedgerStore,
   RUN_CEILING,
   runCost,
   settleRun,
@@ -45,6 +47,8 @@ const ledger = (more: Partial<Ledger> = {}): Ledger => ({
   monthVcpuS: 0,
   monthRuns: 0,
   monthFailed: 0,
+  editMonthGiBs: 0,
+  editMonthVcpuS: 0,
   failures: 0,
   pausedDay: null,
   open: null,
@@ -75,6 +79,8 @@ describe("the ledger as the document holds it", () => {
       monthVcpuS: 0,
       monthRuns: 0,
       monthFailed: 0,
+      editMonthGiBs: 0,
+      editMonthVcpuS: 0,
       failures: 0,
       pausedDay: null,
       open: null,
@@ -95,6 +101,8 @@ describe("the ledger as the document holds it", () => {
       monthVcpuS: 9_000,
       monthRuns: 31,
       monthFailed: 3,
+      editMonthGiBs: 70_000,
+      editMonthVcpuS: 20_000,
       failures: 2,
       pausedDay: "2027-04-14",
       open: { at: NOW, day: TODAY, cost: { ...RUN_CEILING }, task: "T1", by: "h1" },
@@ -114,13 +122,22 @@ describe("the ledger as the document holds it", () => {
     expect(
       coerceLedger({
         on: true,
-        caps: { dayGiBs: 1e9, monthGiBs: 300_000, monthVcpuS: 12, failures: 0 },
+        caps: {
+          dayGiBs: 1e9,
+          monthGiBs: 300_000,
+          monthVcpuS: 12,
+          failures: 0,
+          editMonthGiBs: 1e9,
+          editMonthVcpuS: 7,
+        },
       })?.caps
     ).toEqual({
       dayGiBs: HARD_CAPS.dayGiBs,
       monthGiBs: HARD_CAPS.monthGiBs,
       monthVcpuS: 12,
       failures: 1,
+      editMonthGiBs: HARD_CAPS.editMonthGiBs,
+      editMonthVcpuS: 7,
     });
     // A cap left out is its default; a cap of nothing is nothing.
     expect(coerceLedger({ on: true, caps: { dayGiBs: 0 } })?.caps).toEqual({
@@ -618,16 +635,18 @@ describe("settling a run", () => {
   });
 
   it("puts the cost in place of the ceiling in the day kept for the nightly, the day turned under it", () => {
-    // An edit charged just after New York's midnight moves the ledger on while the run is open.
+    // An edit charged just after New York's midnight moves the ledger on while the run is open,
+    // though its own compute goes to the edits' totals, not the day's.
     const turned = chargeEdit({ ...open, dayRuns: 1 }, "2027-04-16", { gibs: 8, vcpuS: 2 });
     expect(turned?.lastDay).toEqual({ day: TODAY, runs: 1, failed: 0, gibs: 7_560 });
     expect(
       settleRun(turned, { at: NOW, used, failed: false, today: "2027-04-16", endedAt: ENDED })
     ).toMatchObject({
       day: "2027-04-16",
-      dayGiBs: 8,
+      dayGiBs: 0,
       lastDay: { day: TODAY, runs: 1, failed: 0, gibs: 5_490 },
-      monthGiBs: 20_498,
+      monthGiBs: 20_490,
+      editMonthGiBs: 8,
     });
   });
 });
@@ -667,10 +686,80 @@ const reserving = (ledger: Ledger | null) => {
 };
 
 describe("charging an edit", () => {
-  it("adds what it cost to the day and the month, counting no run and opening none", () => {
+  it("adds what it cost to the edits' month, and nothing to the rebuilds' day or month", () => {
+    const open = { at: NOW, day: TODAY, cost: RUN_CEILING, task: "t", by: "r" };
+    const held = ledger({
+      dayGiBs: 100,
+      dayRuns: 2,
+      monthGiBs: 900,
+      monthVcpuS: 30,
+      editMonthGiBs: 500,
+      editMonthVcpuS: 125,
+      open,
+    });
+    expect(chargeEdit(held, TODAY, { gibs: 40, vcpuS: 10 })).toEqual({
+      ...held,
+      editMonthGiBs: 540,
+      editMonthVcpuS: 135,
+    });
+  });
+
+  it("never brings a rebuild nearer its caps, however much the edits spend", () => {
+    // What stopped the boards in October 2026: questions asked again and again, charged to the
+    // rebuilds' month, left no room for a rebuild with none of its own runs made.
+    const held = ledger({ monthGiBs: 1_000, monthVcpuS: 500 });
+    const spent = chargeEdit(held, TODAY, { gibs: 500_000, vcpuS: 200_000 });
+    expect(reserveRun(spent, TODAY, NOW)).toMatchObject({ ok: true });
+  });
+
+  it("is charged with the switch off, at the caps, and while paused, since it was spent", () => {
+    const held = ledger({
+      on: false,
+      dayGiBs: DEFAULT_CAPS.dayGiBs,
+      editMonthGiBs: DEFAULT_CAPS.editMonthGiBs,
+      failures: DEFAULT_CAPS.failures,
+      pausedDay: TODAY,
+    });
+    expect(chargeEdit(held, TODAY, { gibs: 8, vcpuS: 2 })).toMatchObject({
+      on: false,
+      dayGiBs: DEFAULT_CAPS.dayGiBs,
+      editMonthGiBs: DEFAULT_CAPS.editMonthGiBs + 8,
+      pausedDay: TODAY,
+    });
+  });
+
+  it("starts a new day's total and a new month's, as a reserve would", () => {
+    const held = ledger({
+      dayGiBs: 500,
+      dayRuns: 3,
+      monthGiBs: 900,
+      monthVcpuS: 60,
+      editMonthGiBs: 4_000,
+      editMonthVcpuS: 1_000,
+    });
+    expect(chargeEdit(held, "2027-05-01", { gibs: 8, vcpuS: 2 })).toMatchObject({
+      day: "2027-05-01",
+      dayGiBs: 0,
+      dayRuns: 0,
+      lastDay: { day: TODAY, runs: 3, failed: 0, gibs: 500 },
+      month: "2027-05",
+      monthGiBs: 0,
+      monthVcpuS: 0,
+      editMonthGiBs: 8,
+      editMonthVcpuS: 2,
+    });
+  });
+
+  it("charges nothing where there is no ledger", () => {
+    expect(chargeEdit(null, TODAY, { gibs: 8, vcpuS: 2 })).toBeNull();
+  });
+});
+
+describe("charging a rebuild's compute no reservation covered", () => {
+  it("adds what it cost to the rebuilds' day and month, counting no run and opening none", () => {
     const open = { at: NOW, day: TODAY, cost: RUN_CEILING, task: "t", by: "r" };
     const held = ledger({ dayGiBs: 100, dayRuns: 2, monthGiBs: 900, monthVcpuS: 30, open });
-    expect(chargeEdit(held, TODAY, { gibs: 40, vcpuS: 10 })).toEqual({
+    expect(chargeRebuild(held, TODAY, { gibs: 40, vcpuS: 10 })).toEqual({
       ...held,
       dayGiBs: 140,
       monthGiBs: 940,
@@ -678,35 +767,38 @@ describe("charging an edit", () => {
     });
   });
 
-  it("is charged with the switch off, at the caps, and while paused, since it was spent", () => {
-    const held = ledger({
-      on: false,
-      dayGiBs: DEFAULT_CAPS.dayGiBs,
-      failures: DEFAULT_CAPS.failures,
-      pausedDay: TODAY,
-    });
-    expect(chargeEdit(held, TODAY, { gibs: 8, vcpuS: 2 })).toMatchObject({
-      on: false,
-      dayGiBs: DEFAULT_CAPS.dayGiBs + 8,
-      pausedDay: TODAY,
-    });
-  });
-
-  it("starts a new day's total and a new month's, as a reserve would", () => {
+  it("starts a new day's total and a new month's, and charges nothing where there is no ledger", () => {
     const held = ledger({ dayGiBs: 500, dayRuns: 3, monthGiBs: 900, monthVcpuS: 60 });
-    expect(chargeEdit(held, "2027-05-01", { gibs: 8, vcpuS: 2 })).toMatchObject({
+    expect(chargeRebuild(held, "2027-05-01", { gibs: 8, vcpuS: 2 })).toMatchObject({
       day: "2027-05-01",
       dayGiBs: 8,
-      dayRuns: 0,
-      lastDay: { day: TODAY, runs: 3, failed: 0, gibs: 500 },
       month: "2027-05",
       monthGiBs: 8,
       monthVcpuS: 2,
     });
+    expect(chargeRebuild(null, TODAY, { gibs: 8, vcpuS: 2 })).toBeNull();
   });
+});
 
-  it("charges nothing where there is no ledger", () => {
-    expect(chargeEdit(null, TODAY, { gibs: 8, vcpuS: 2 })).toBeNull();
+describe("the ledger's document as written", () => {
+  it("keeps a long reservation's end, so the next reserve reads the run as going until then", async () => {
+    let written: Record<string, unknown> | null = null;
+    const store = restLedgerStore({
+      readAt: async () => (written ? { fields: written, token: "t1" } : null),
+      replace: async (_path, fields) => {
+        written = JSON.parse(JSON.stringify(fields)) as Record<string, unknown>;
+        return true;
+      },
+    });
+    // The rebuild job reserves up to two hours, not a run's 320 s.
+    const reserved = reserveRun(ledger(), TODAY, NOW, { spanS: 3_600, engine: "job-v1" });
+    expect(reserved.ok).toBe(true);
+    await store.replace(null, reserved.next!);
+    const read = coerceLedger((await store.read()).raw);
+    expect(read?.open?.until).toBe(new Date(Date.parse(NOW) + 3_600_000).toISOString());
+    // Ten minutes in, past a run's 320 s, the run is still going and another is refused as busy.
+    const later = new Date(Date.parse(NOW) + 600_000).toISOString();
+    expect(reserveRun(read, TODAY, later)).toMatchObject({ ok: false, why: "busy" });
   });
 });
 

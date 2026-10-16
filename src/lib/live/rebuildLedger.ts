@@ -34,6 +34,13 @@ export type LedgerCaps = {
   monthVcpuS: number;
   /** Failures in a row that pause the rebuilds until the next day. */
   failures: number;
+  /**
+   * GiB-seconds and vCPU-seconds a New York month of the edit function's own compute: edits,
+   * questions and warm-ups. Kept apart from the rebuilds' so the members' use can never hold the
+   * boards back; past them only the questions that refit a year are refused (`capsSpent`).
+   */
+  editMonthGiBs: number;
+  editMonthVcpuS: number;
 };
 
 /**
@@ -46,6 +53,8 @@ export const DEFAULT_CAPS: LedgerCaps = {
   monthGiBs: 120_000,
   monthVcpuS: 30_000,
   failures: 3,
+  editMonthGiBs: 120_000,
+  editMonthVcpuS: 60_000,
 };
 
 /** The most any cap may be, whatever the document says: a typo cannot lift the guard. */
@@ -54,6 +63,8 @@ export const HARD_CAPS: LedgerCaps = {
   monthGiBs: 250_000,
   monthVcpuS: 125_000,
   failures: 10,
+  editMonthGiBs: 250_000,
+  editMonthVcpuS: 125_000,
 };
 
 export type Ledger = {
@@ -89,6 +100,15 @@ export type Ledger = {
   monthVcpuS: number;
   monthRuns: number;
   monthFailed: number;
+  /**
+   * What the edit function spent in `month` (`chargeEdit`), apart from the rebuilds' totals. Until
+   * 16 Oct 2026 an edit's compute went into those, and a Setup question answered "not in time" was
+   * asked again and again for a day, each time a cold load of the whole pool at 8 GiB: that put
+   * October's totals past the vCPU cap with no rebuild run, and the boards stopped updating for
+   * the rest of the month.
+   */
+  editMonthGiBs: number;
+  editMonthVcpuS: number;
   /** Failures since the last run that did not fail. */
   failures: number;
   /** The day the failures paused the rebuilds, which they stay paused for. */
@@ -170,6 +190,9 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
   const monthFailed = given(raw.monthFailed, 0);
   if (!isWhole(dayRuns) || !isWhole(dayFailed)) return null;
   if (!isWhole(monthRuns) || !isWhole(monthFailed)) return null;
+  const editMonthGiBs = given(raw.editMonthGiBs, 0);
+  const editMonthVcpuS = given(raw.editMonthVcpuS, 0);
+  if (!isCount(editMonthGiBs) || !isCount(editMonthVcpuS)) return null;
   const last = given(raw.lastDay, null);
   let lastDay: Ledger["lastDay"] = null;
   if (last !== null) {
@@ -226,6 +249,8 @@ export const coerceLedger = (raw: unknown): Ledger | null => {
     monthVcpuS,
     monthRuns,
     monthFailed,
+    editMonthGiBs,
+    editMonthVcpuS,
     failures,
     pausedDay,
     open,
@@ -244,6 +269,8 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
     monthGiBs: ledger.caps.monthGiBs,
     monthVcpuS: ledger.caps.monthVcpuS,
     failures: ledger.caps.failures,
+    editMonthGiBs: ledger.caps.editMonthGiBs,
+    editMonthVcpuS: ledger.caps.editMonthVcpuS,
   },
   day: ledger.day,
   dayGiBs: ledger.dayGiBs,
@@ -260,6 +287,8 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
   monthVcpuS: ledger.monthVcpuS,
   monthRuns: ledger.monthRuns,
   monthFailed: ledger.monthFailed,
+  editMonthGiBs: ledger.editMonthGiBs,
+  editMonthVcpuS: ledger.editMonthVcpuS,
   failures: ledger.failures,
   pausedDay: ledger.pausedDay,
   open: ledger.open && {
@@ -268,6 +297,9 @@ const fieldsOf = (ledger: Ledger): Record<string, unknown> => ({
     cost: { gibs: ledger.open.cost.gibs, vcpuS: ledger.open.cost.vcpuS },
     task: ledger.open.task,
     by: ledger.open.by,
+    // The rebuild job reserves up to two hours, not a run's 320 s: written, so the next reserve
+    // reads the run as going until then rather than as one that never settled.
+    ...(ledger.open.until ? { until: ledger.open.until } : {}),
   },
   lastEndedAt: ledger.lastEndedAt,
 });
@@ -327,24 +359,45 @@ const rolledOver = (ledger: Ledger, today: string): Ledger => {
       monthVcpuS: 0,
       monthRuns: 0,
       monthFailed: 0,
+      editMonthGiBs: 0,
+      editMonthVcpuS: 0,
     };
   }
   return next;
 };
 
 /**
- * The ledger with an edit's compute added to the day's and the month's totals (`editRun.ts`), so
- * the caps the rebuilds are held to count what the edits spent beside them. An edit is never
- * refused for the caps: it is a member's change to the copy, and the bill's hard stop is the
- * backstop. It is not a run either, so it counts no run, opens nothing and clears no failure; and it
- * is charged whether the switch is on or off, since its compute was spent either way. Null where
- * there is no ledger to charge.
+ * The ledger with an edit's compute (an edit, a question or a warm-up of the edit function) added to
+ * the month's edit totals, and nothing to the rebuilds': what the members use never holds the
+ * boards back. An edit is never refused for its caps: it is a member's change to the copy, and the
+ * bill's hard stop is the backstop. It is not a run either, so it counts no run, opens nothing and
+ * clears no failure; and it is charged whether the switch is on or off, since its compute was spent
+ * either way. Null where there is no ledger to charge.
  *
  * A charge carries no id, as a reservation does: one whose write landed though its answer was lost
  * is told apart by the ledger reading as written (`updateLedger`), so another write landing between
  * makes it charge twice. That errs over the caps, never under, and is left so.
  */
 export const chargeEdit = (ledger: Ledger | null, today: string, used: RunCost): Ledger | null => {
+  if (!ledger) return null;
+  const next = rolledOver(ledger, today);
+  return {
+    ...next,
+    editMonthGiBs: next.editMonthGiBs + used.gibs,
+    editMonthVcpuS: next.editMonthVcpuS + used.vcpuS,
+  };
+};
+
+/**
+ * The ledger with a rebuild's compute that no reservation covered (the rebuild job's start-up when
+ * it only joins a run under way) added to the day's and the month's rebuild totals, as `chargeEdit`
+ * adds an edit's to its own. Null where there is no ledger to charge.
+ */
+export const chargeRebuild = (
+  ledger: Ledger | null,
+  today: string,
+  used: RunCost
+): Ledger | null => {
   if (!ledger) return null;
   const next = rolledOver(ledger, today);
   return {
@@ -357,15 +410,20 @@ export const chargeEdit = (ledger: Ledger | null, today: string, used: RunCost):
 
 /**
  * Which caps are spent on `today` (New York's day): the day's GiB-seconds, or either of the
- * month's totals, at or past its cap; or null. A question that refits a year (`editHandle.ts`) is
- * then refused: it spends what a rebuild's fit does, and unlike an edit it changes nothing a member
- * is owed, so it is held to the caps the rebuilds are. Whether the switch is on or off, as an edit
- * is charged either way; no ledger meters nothing.
+ * month's totals, the rebuilds' or the edits', at or past its cap; or null. A question that refits
+ * a year (`editHandle.ts`) is then refused: it spends what a rebuild's fit does, and unlike an edit
+ * it changes nothing a member is owed, so it is held to the caps the rebuilds are and to the edits'
+ * own. Whether the switch is on or off, as an edit is charged either way; no ledger meters nothing.
  */
 export const capsSpent = (ledger: Ledger | null, today: string): "day" | "month" | null => {
   if (!ledger) return null;
   const next = rolledOver(ledger, today);
-  if (next.monthGiBs >= next.caps.monthGiBs || next.monthVcpuS >= next.caps.monthVcpuS)
+  if (
+    next.monthGiBs >= next.caps.monthGiBs ||
+    next.monthVcpuS >= next.caps.monthVcpuS ||
+    next.editMonthGiBs >= next.caps.editMonthGiBs ||
+    next.editMonthVcpuS >= next.caps.editMonthVcpuS
+  )
     return "month";
   return next.dayGiBs >= next.caps.dayGiBs ? "day" : null;
 };

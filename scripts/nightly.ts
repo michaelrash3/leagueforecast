@@ -101,6 +101,7 @@ const dryRun = (
 
 /** The rebuilds' ledger, read on the stores' sign-in once they are open (`tellRebuilds`). */
 let readLedger: (() => Promise<unknown>) | null = null;
+let readRebuildJob: (() => Promise<unknown>) | null = null;
 
 /**
  * Hands the workflow a word for the steps after this one (`steps.refresh.outputs.<name>`), where it
@@ -123,7 +124,8 @@ const tellRebuilds = async (): Promise<void> => {
   if (!readLedger) return;
   try {
     const ledger = await readLedger();
-    for (const line of describeRebuilds(ledger)) console.log(line);
+    const job = await (readRebuildJob?.() ?? Promise.resolve(null)).catch(() => null);
+    for (const line of describeRebuilds(ledger, job)) console.log(line);
     const trouble = rebuildsTrouble(ledger);
     if (trouble) output("rebuilds", trouble);
   } catch (error) {
@@ -142,6 +144,7 @@ const main = async (): Promise<void> => {
   }
   const opened = openStores(key, live);
   readLedger = opened.readLedger;
+  readRebuildJob = opened.readRebuildJob;
   const dry = live ? null : dryRun(opened.copy);
   console.log(
     `${live ? "Live" : "Dry run (nothing is saved)"}: the Refresh rota${

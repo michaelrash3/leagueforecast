@@ -64,7 +64,28 @@ export type CallDeps = {
   retryDelayMs?: (attempt: number) => number;
   /** A capability check waits for an older deployed server to gain the requested capability. */
   retryStatuses?: readonly string[];
+  /**
+   * Statuses that end the call where it is, though a lost connection would be asked again: for a
+   * question or a warm-up, the server having given up on it (`GAVE_UP`).
+   */
+  finalStatuses?: readonly string[];
 };
+
+/**
+ * How many times a call that may only have been lost on the way is sent again before its last
+ * answer is handed back: with the backoff below, about half a minute of trying. It had no bound
+ * until 16 Oct 2026, and a Setup question the server had given up on was sent again for a day.
+ */
+export const MAX_RECONNECTS = 5;
+
+/**
+ * What the edit function answers a question or a warm-up it gave up on (`handleQuery`,
+ * `handleWarm`): not answered in its time, or past the call's own. Each try is a cold load of the
+ * whole pool on an 8 GiB instance, so asking again at once only spends that again; the card that
+ * asked says so and offers to ask again. Asked again on its own on 13 and 14 Oct 2026, it spent
+ * October's compute with no rebuild run, and the boards stopped updating for the month.
+ */
+const GAVE_UP = ["ABORTED", "DEADLINE_EXCEEDED"] as const;
 
 /** A call's outcome: the server's answer, or why there is none, said for a person. */
 export type Called<T> = { ok: true; value: T } | { ok: false; why: CallFailure; message: string };
@@ -106,7 +127,7 @@ const reconnect = async <T>(work: () => Promise<Called<T>>, deps: CallDeps): Pro
       return await work();
     } catch (error) {
       if (!(error instanceof RetryableCall)) throw error;
-      if (!deps.retry) return error.answer;
+      if (!deps.retry || attempt >= MAX_RECONNECTS) return error.answer;
       deps.onRetry?.(++attempt);
       const delay =
         deps.retryDelayMs?.(attempt) ?? Math.min(30_000, 1_000 * 2 ** Math.min(attempt - 1, 5));
@@ -140,6 +161,7 @@ const callOnce = async <T>(
     signal,
     retryStatuses,
     fallbackUrl,
+    finalStatuses,
   }: CallDeps,
   unclear: CallFailure,
   failures: ReadonlyMap<string, CallFailure> = FAILURE_OF
@@ -203,9 +225,10 @@ const callOnce = async <T>(
         ? error.message
         : `The server answered HTTP ${response.status}.`;
     if (
-      ["UNAVAILABLE", "INTERNAL", "ABORTED", "UNKNOWN", "DEADLINE_EXCEEDED"].includes(status) ||
-      retryStatuses?.includes(status) ||
-      (!status && (response.status >= 500 || response.status === 429 || response.status === 408))
+      !finalStatuses?.includes(status) &&
+      (["UNAVAILABLE", "INTERNAL", "ABORTED", "UNKNOWN", "DEADLINE_EXCEEDED"].includes(status) ||
+        retryStatuses?.includes(status) ||
+        (!status && (response.status >= 500 || response.status === 429 || response.status === 408)))
     ) {
       throw new RetryableCall(failed(failures.get(status) ?? unclear, message));
     }
@@ -361,7 +384,7 @@ export const callEdit = (
 
 /** Asks the server to bring its pool up ahead of an edit. */
 export const callWarm = (deps: CallDeps): Promise<Called<WarmResult>> =>
-  call({ warm: true }, coerceWarmed, deps, "failed");
+  call({ warm: true }, coerceWarmed, { finalStatuses: GAVE_UP, ...deps }, "failed");
 
 /**
  * Asks the server a question about the copy (`queries.ts`), about `copy` when given. It changes
@@ -377,6 +400,7 @@ export const callQuery = <K extends QueryKind>(
     {
       url: ask.query.kind.startsWith("year.") ? EDIT_URL : POOL_QUERY_URL,
       fallbackUrl: ask.query.kind.startsWith("year.") || deps.url ? undefined : EDIT_URL,
+      finalStatuses: GAVE_UP,
       ...deps,
     },
     "failed"

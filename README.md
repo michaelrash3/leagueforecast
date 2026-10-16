@@ -5011,7 +5011,19 @@ the switch (`on`, `mode` dry or live, `warm`), the caps, and the totals against
 them. The owner makes it in the console with the switch alone; a cap left out is
 its default (10,000 GiB-seconds a New York day, 120,000 a month and 30,000
 vCPU-seconds, and 3 failures in a row), and each is held to a hard limit
-whatever the document says (40,000, 250,000, 125,000 and 10). A field set to
+whatever the document says (40,000, 250,000, 125,000 and 10).
+
+The edit function's own compute (its edits, questions and warm-ups) is counted apart, in the
+month's `editMonthGiBs` and `editMonthVcpuS` against caps of their own (120,000 and 60,000 by
+default, held to 250,000 and 125,000), and none of it counts against the rebuilds'. Until 16
+October 2026 it went into the rebuilds' totals: a Setup question the server gave up on was asked
+again and again by the device for a day, each try a cold load of the whole pool on an 8 GiB
+instance, and October's vCPU-seconds passed their cap with no rebuild run, so every save waited
+for the first of November. An edit is never refused for its caps; past them only the questions
+that refit a year are (`capsSpent`). October's totals were left as they stood, which keeps the
+rebuilds deferred for the rest of that month: raising a cap in `ops/rebuild` lets the next save
+start one, since the launcher lifts a deferral whose budget has room again (`requestRebuildJob`).
+The nightly says the edits' month and, while the job is deferred, why (its budget, a run still going, or failures in a row) and until when; only a budget's deferral is lifted by a raised cap. A field set to
 anything but what it holds makes the document unreadable, which reads as off,
 rather than a ledger with its guard lifted. The durable worker reserves the time its current day and month budgets can cover,
 including memory, CPU and the Cloud Run job's one-minute billing minimum. Its reservation
@@ -6093,8 +6105,9 @@ functions the device would run, over the cloud's pool):
   out is never thrown away for another about the same teams: a change noted
   meanwhile is asked about once its answer is in, and being shown anew asks
   nothing while one is out. An answer for teams or scores since changed is
-  dropped. A question unanswered is asked again after 5 s, 30 s, and then every
-  2 minutes until one is answered. The last bridge for a season, the bridge alone
+  dropped. A question unanswered is asked again after 5 s, 30 s, 2 minutes and
+  10 minutes, then every half hour until one is answered (every 2 minutes until 16 Oct 2026,
+  when a pool the server could not answer in time made each try a cold 8 GiB load). The last bridge for a season, the bridge alone
   and never the clubs, about 2,400 characters, is kept on the device
   (`lf_league_bridge_v2`, the last four seasons, the open one alone when storage is
   full; what an earlier build kept under `lf_league_bridge_v1`, every club with it,
@@ -6288,8 +6301,8 @@ sent, or one whose worker said it threw short of any save, is answered as an edi
 (`aborted`); a worker lost with an edit in its hands (died, cut short, out of memory), or a save
 whose answer never came, as one that may or may not be in the copy (`unsure`), which the copy then
 settles. A call's compute is its own turn in the worker, which is what fills the instance's billed
-time, with the instance's start-up the first time, and it is charged to the ledger's totals
-(`handleEdit`): the charges one at a time, so none is written over another; one the ledger is slow
+time, with the instance's start-up the first time, and it is charged to the ledger's totals for
+the edits (`handleEdit`, `chargeEdit`): the charges one at a time, so none is written over another; one the ledger is slow
 to take left to finish behind the answer after five seconds; and one lost to other writers said in
 the log line. It does not build the boards: every board of the real pool
 takes about half a minute, which the member would wait on and which would hold every edit queued
@@ -7211,6 +7224,9 @@ bytes that have not downloaded yet. Cache entries are hash checked and isolated 
 them, and changing the signed-in account discards its saved snapshot.
 
 Transient status reads and import starts reconnect automatically, with delays capped
-at 30 seconds. Sign-in and permission refusals remain actionable. Unkeyed edits are
+at 30 seconds and at most five tries again (`MAX_RECONNECTS`), after which the card says what
+went wrong and offers to try again. A question or a warm-up the server gave up on (`aborted`,
+or past its time) is not asked again on its own at all: each try is a cold load of the whole
+pool. Sign-in and permission refusals remain actionable. Unkeyed edits are
 not blindly repeated after an uncertain save, because doing that could duplicate an
 edit. Import starts are safe to retry by their persistent job identity.

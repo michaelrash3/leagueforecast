@@ -10,6 +10,7 @@ import { coercePullJob, jobPath, type PullJob } from "../cloud/pullJobs";
 import type { GateDocs } from "../cloud/refreshGate";
 import type { UploadStore } from "../cloud/uploads";
 import { restLeagueDocs, type LeagueDocsList } from "./cloudLeague";
+import { REBUILD_JOB_CONTROL } from "./rebuildJobControl";
 import { REBUILD_LEDGER_PATH } from "./rebuildLedger";
 import type { LiveStore } from "./viewStore";
 
@@ -24,6 +25,8 @@ export type ServerStores = {
   live: LiveStore;
   leagueDocs: LeagueDocsList;
   readLedger: () => Promise<unknown>;
+  /** The rebuild job's control document (`rebuildJobControl.ts`), its fields or null. */
+  readRebuildJob: () => Promise<unknown>;
   uploads: UploadStore;
   /**
    * The refresh gate (`refreshGate.ts`): the nightly waits there for a "Refresh now" under way, and
@@ -51,6 +54,7 @@ export const restServerStores = (access: RestAccess, writable: boolean | "live")
     live: firestoreRestLive({ ...access, writable: writable !== false }),
     leagueDocs: restLeagueDocs(docs),
     readLedger: () => docs.read(REBUILD_LEDGER_PATH),
+    readRebuildJob: () => docs.read(REBUILD_JOB_CONTROL),
     uploads: firestoreRestUploads(copyWrites),
     gate: {
       readAt: (path) => docs.readAt(path),

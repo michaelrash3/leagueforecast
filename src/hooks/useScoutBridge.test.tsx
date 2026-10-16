@@ -559,7 +559,7 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     expect(setup().result.current.unanswered).toBeUndefined();
   });
 
-  it("asks again after 5 s, 30 s, and then every 2 minutes, until it is answered", async () => {
+  it("asks again after 5 s, 30 s, 2 and 10 minutes, then every half hour, until answered", async () => {
     let answering = false;
     const asked: number[] = [];
     const asker = (async () => {
@@ -572,14 +572,18 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     await wait(5_000);
     await wait(30_000);
     await wait(120_000);
-    await wait(120_000);
-    expect(asked.map((at) => at - start)).toEqual([800, 5_800, 35_800, 155_800, 275_800]);
+    await wait(600_000);
+    await wait(1_800_000);
+    await wait(1_800_000);
+    expect(asked.map((at) => at - start)).toEqual([
+      800, 5_800, 35_800, 155_800, 755_800, 2_555_800, 4_355_800,
+    ]);
     answering = true;
-    await wait(120_000);
+    await wait(1_800_000);
     expect(result.current.bridge).toEqual(ANSWER.bridge);
     expect(result.current.unanswered).toBeUndefined();
-    await wait(10 * 60_000);
-    expect(asked).toHaveLength(6);
+    await wait(60 * 60_000);
+    expect(asked).toHaveLength(8);
   });
 
   it("is asked again once the sign-in is ready, or the device is back online", async () => {

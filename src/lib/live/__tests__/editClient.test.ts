@@ -10,6 +10,7 @@ import {
   callWarm,
   coerceEditReply,
   EDIT_URL,
+  MAX_RECONNECTS,
   POOL_QUERY_URL,
   START_PULL_URL,
 } from "../editClient";
@@ -109,6 +110,65 @@ describe("automatic reconnection", () => {
     ).toBe(true);
     expect(calls).toBe(2);
   });
+  it("gives up after a few tries, handing back the last answer, rather than asking for ever", async () => {
+    let calls = 0;
+    const transport: typeof fetch = async () => {
+      calls += 1;
+      throw new TypeError("offline");
+    };
+    const onRetry = vi.fn();
+    expect(
+      await callStartPull("0".repeat(32), {
+        ...signedIn,
+        fetchImpl: transport,
+        retry: true,
+        retryDelayMs: () => 0,
+        onRetry,
+      })
+    ).toMatchObject({ ok: false });
+    expect(calls).toBe(1 + MAX_RECONNECTS);
+    expect(onRetry).toHaveBeenCalledTimes(MAX_RECONNECTS);
+  });
+
+  it("does not ask a question again that the server gave up on, which would load the pool again", async () => {
+    // Each try of a question the server answered ABORTED (not answered in time) or that ran out of
+    // time is a cold load of the whole pool on an 8 GiB instance: asked again and again on 13 and
+    // 14 Oct 2026, it spent October's compute with no rebuild run.
+    for (const status of ["ABORTED", "DEADLINE_EXCEEDED"]) {
+      const server = answering(409, { error: { status, message: "Not answered in time." } });
+      expect(
+        await callQuery(
+          { query: { kind: "health.inspect" } as never },
+          { ...signedIn, fetchImpl: server.fetchImpl, retry: true, retryDelayMs: () => 0 }
+        )
+      ).toEqual({ ok: false, why: "failed", message: "Not answered in time." });
+      expect(server.sent, status).toHaveLength(1);
+      const warm = answering(409, { error: { status, message: "Not brought up." } });
+      expect(
+        await callWarm({
+          ...signedIn,
+          fetchImpl: warm.fetchImpl,
+          retry: true,
+          retryDelayMs: () => 0,
+        })
+      ).toMatchObject({ ok: false, why: "failed" });
+      expect(warm.sent, status).toHaveLength(1);
+    }
+    // A question lost on the way, or a server busy for a moment, is still asked again.
+    let calls = 0;
+    const flaky: typeof fetch = async () =>
+      ++calls === 1
+        ? new Response(JSON.stringify({ error: { status: "UNAVAILABLE" } }), { status: 503 })
+        : new Response(JSON.stringify({ error: { status: "ABORTED", message: "late" } }), {
+            status: 409,
+          });
+    await callQuery(
+      { query: { kind: "health.inspect" } as never },
+      { ...signedIn, fetchImpl: flaky, retry: true, retryDelayMs: () => 0 }
+    );
+    expect(calls).toBe(2);
+  });
+
   it("stops retrying when cancelled, and does not retry sign-in or permission refusals", async () => {
     const abort = new AbortController();
     const transport: typeof fetch = async () => {
