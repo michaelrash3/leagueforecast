@@ -2100,6 +2100,9 @@ describe("a list sent in parts", () => {
     jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "running", stage: "fetching" });
     const now = new Date("2026-10-16T18:00:00.000Z");
     const stopped = await stopPullsUnderWay({
+      // Parts sent before the start: Firestore says nothing here of when each was made.
+      start: START,
+      landed: async () => null,
       list: async () =>
         [...jobs.jobs].map(([id, job]) => ({
           id,
