@@ -731,6 +731,39 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     expect(unlaunch).toHaveBeenCalledTimes(1);
   });
 
+  it("hands an ask made during a round that fails on to a job of its own", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const pullEnd = { settleMs: 0, rebuilds: false };
+    const relaunch = vi.fn(() => Promise.resolve());
+    let asked: Promise<unknown> = Promise.resolve();
+    await expect(
+      publishAfterPull(storesOf(cloud, live).stores, {
+        today: () => FIXTURE_TODAY,
+        now: () => NOW,
+        rebuilds: true,
+        locale: "en-US",
+        lease: {
+          ...lease,
+          handOn: async (owner: string, now: number) => {
+            await asked;
+            return lease.handOn(owner, now);
+          },
+        },
+        owner: "job-1",
+        relaunch,
+        // A pull ends while the round publishes, and then the round fails.
+        onViews: () => {
+          asked = lease.launch(NOW.getTime(), pullEnd);
+          throw new Error("the round failed");
+        },
+      })
+    ).rejects.toThrow("the round failed");
+    expect(relaunch).toHaveBeenCalledTimes(1);
+    expect(await lease.take(NOW.getTime(), "job-2")).toEqual({ taken: true, asked: pullEnd });
+  });
+
   it("has the job count on no rebuild where its check's save could not queue one", async () => {
     // A ledger that would let a rebuild start: but the save's own rebuild was never queued.
     const cloud = await copied();

@@ -255,6 +255,19 @@ export const publishAfterPull = async (
     rebuilds: deps.rebuilds && (asked?.rebuilds ?? true),
     settleMs: asked?.settleMs ?? 0,
   });
+  // Asks this job will not get to are handed on to another job, not dropped (Codex, on #409): where
+  // one is left, whether that job was started; undefined where none is.
+  const passOn = async (): Promise<boolean | undefined> => {
+    const left = await deps.lease.handOn(deps.owner, deps.now().getTime());
+    if (!left) return undefined;
+    if (!deps.relaunch) return false;
+    const relaunched = await deps.relaunch().then(
+      () => true,
+      () => false
+    );
+    if (!relaunched) await deps.lease.unlaunch().catch(() => undefined);
+    return relaunched;
+  };
   try {
     let run = await publishHeld(stores, asking(held.asked));
     // A launcher that found this job under way asked it to go again (`handBack`): its save may have
@@ -264,17 +277,13 @@ export const publishAfterPull = async (
       if (!again) return { ...run, rounds: round - 1 };
       run = await publishHeld(stores, asking(again));
     }
-    // Asks made during the last round are handed on to another job, not dropped (Codex, on #409).
-    const left = await deps.lease.handOn(deps.owner, deps.now().getTime());
-    if (left && deps.relaunch) {
-      const relaunched = await deps.relaunch().then(
-        () => true,
-        () => false
-      );
-      if (!relaunched) await deps.lease.unlaunch().catch(() => undefined);
-      return { ...run, rounds: PUBLISH_ROUNDS, handedOn: relaunched };
-    }
-    return { ...run, rounds: PUBLISH_ROUNDS, ...(left ? { handedOn: false } : {}) };
+    // Asked during its last round.
+    const handedOn = await passOn();
+    return { ...run, rounds: PUBLISH_ROUNDS, ...(handedOn !== undefined ? { handedOn } : {}) };
+  } catch (error) {
+    // Asked during a round that then failed.
+    await passOn().catch(() => undefined);
+    throw error;
   } finally {
     await deps.lease.release(deps.owner).catch(() => undefined);
   }

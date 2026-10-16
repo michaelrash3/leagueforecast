@@ -4635,8 +4635,8 @@ rebuilds' own queue, which tells a check from a rebuild's task by its shape.
   loads the copy, for one saved after its own decision. A launcher that finds a publish
   under way asks it to go again, with what it asked, and the job finds that when
   it hands the lease back at its end: up to three rounds (`PUBLISH_ROUNDS`). Asks
-  still left after the last round turn the lease into a launch's claim and start
-  another job (`handOn`), and a job whose takeover lost to a launcher writing onto
+  still left after the last round, or after a round that failed, turn the lease
+  into a launch's claim and start another job (`handOn`), and a job whose takeover lost to a launcher writing onto
   the claim reads it again and takes it over with that ask.
 - **A season deleted.** A deleted season's document leaves no time of its own, so
   the seasons' trigger notes the deletion (`ops/leagueDeleted`), and the settle
