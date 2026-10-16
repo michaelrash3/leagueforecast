@@ -16,6 +16,7 @@ import {
   saveTidyStamp,
 } from "../../teamRankingsStorage";
 import { commitChanges, type Change } from "../cloudEngine";
+import type { CloudManifest } from "../cloudManifest";
 import { LEAGUE_PART } from "../cloudPlan";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
 import {
@@ -37,6 +38,7 @@ import {
   resumePullJob,
   runPullLeg,
   startPullJob,
+  stopPullsUnderWay,
   NEVER_STARTED,
   NEVER_STARTED_MS,
   tooManyLegs,
@@ -46,7 +48,9 @@ import {
   type LegTask,
 } from "../pullJobRunner";
 import type { FirestoreRestDocuments } from "../firestoreRest";
-import { startRefresh } from "../refreshGate";
+import { NIGHTLY_HOLD_MS, REFRESH_GATE_PATH, startRefresh } from "../refreshGate";
+import { NO_LEAGUE_DOCS } from "../../live/cloudLeague";
+import { runEdit } from "../../live/editRun";
 import { inTimeZoneAsync } from "../../../test/timeZone";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
 
@@ -159,6 +163,21 @@ const clubsIn = async (cloud: MemoryCloud): Promise<string[]> => {
 };
 
 const JOB = "0123456789abcdef0123456789abcdef";
+
+/**
+ * The owner's Start again, as the edit function makes it (`copy.reset`): Team Rankings out of the
+ * copy under the same copy id, and the manifest it leaves.
+ */
+const startAgain = async (cloud: MemoryCloud): Promise<CloudManifest> => {
+  const done = await runEdit({
+    store: cloud.store,
+    leagueDocs: NO_LEAGUE_DOCS,
+    command: { kind: "copy.reset" },
+    now: () => "2026-10-02T16:20:00.000Z",
+  });
+  if (!done.ok) throw new Error(`start again: ${done.why}`);
+  return cloud.manifest()!;
+};
 
 /** A job's documents in memory, with every update kept in order. */
 const memoryJobs = () => {
@@ -512,6 +531,29 @@ describe("a pull the cloud runs a leg at a time", () => {
     expect(cloud.manifest()).toMatchObject({ version: 1, parts: [{ key: LEAGUE_PART }] });
   });
 
+  it("files no leg into Team Rankings started again after its first leg, asking nothing for it", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const jobs = memoryJobs();
+    await jobs.put(LIST, { legTeams: 2 });
+    const fetched: string[][] = [];
+    const { deps } = legDeps(cloud, jobs, { fetchTeams: answering(fetched) });
+    expect(await runPullLeg({ jobId: JOB, leg: 0 }, deps)).toBe("next-queued");
+    const first = cloud.manifest()!;
+    // The first leg keeps the copy it read, for the legs after it to be held to.
+    expect(jobs.job().on).toEqual({ copy: first.copy, epoch: first.epoch });
+    const started = await startAgain(cloud);
+    expect(await runPullLeg({ jobId: JOB, leg: 1 }, deps)).toBe("failed");
+    expect(fetched).toEqual([[ACES, BEARS]]);
+    expect(jobs.job()).toMatchObject({
+      status: "failed",
+      legsDone: 1,
+      error: expect.stringMatching(/started again.*Send the list again/),
+    });
+    expect(cloud.manifest()).toEqual(started);
+    expect(await clubsIn(cloud)).toEqual([]);
+  });
+
   it("throws trouble for another try, and fails the job on the last", async () => {
     const cloud = memoryCloud();
     await seed(cloud);
@@ -826,6 +868,46 @@ describe("a Refresh now job, a leg at a time", () => {
     expect(new Set(kept.map((part) => part.group)).size).toBe(1);
   });
 
+  it("walks none of its teams into Team Rankings started again after they were worked out", async () => {
+    const { cloud, jobs } = await filed();
+    jobs.putRefresh(REFRESH, { legTeams: 2 });
+    const fetched: string[][] = [];
+    const { deps } = legDeps(cloud, jobs, {
+      fetchTeams: answering(fetched),
+      now: () => FRIDAY,
+      chargeLegs: async () => true,
+    });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("next-queued");
+    const worked = cloud.manifest()!;
+    expect(jobs.job(REFRESH).on).toEqual({ copy: worked.copy, epoch: worked.epoch });
+    const started = await startAgain(cloud);
+    expect(await runPullLeg({ jobId: REFRESH, leg: 1 }, deps)).toBe("failed");
+    // Asked about only the first leg's share, before the start; never the rest, for a pool gone.
+    expect(fetched.map((ids) => ids.length)).toEqual([2]);
+    expect(jobs.job(REFRESH).error).toMatch(/started again.*Press Refresh now again/);
+    expect(cloud.manifest()).toEqual(started);
+  });
+
+  it("asks nothing for teams worked out just before Team Rankings was started again", async () => {
+    const { cloud, jobs } = await filed();
+    jobs.putRefresh(REFRESH, { legTeams: 2 });
+    const fetched: string[][] = [];
+    let started: CloudManifest | null = null;
+    const { deps } = legDeps(cloud, jobs, {
+      fetchTeams: answering(fetched),
+      now: () => FRIDAY,
+      // Between the teams worked out and the first leg's pull of them, the owner starts again.
+      chargeLegs: async () => {
+        started = await startAgain(cloud);
+        return true;
+      },
+    });
+    expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("failed");
+    expect(fetched).toEqual([]);
+    expect(jobs.job(REFRESH).error).toMatch(/started again.*Press Refresh now again/);
+    expect(cloud.manifest()).toEqual(started);
+  });
+
   it("fails, saying to press again rather than to send a list, when its copy is started again", async () => {
     const { cloud, jobs } = await filed();
     jobs.putRefresh(REFRESH);
@@ -844,7 +926,7 @@ describe("a Refresh now job, a leg at a time", () => {
     const { deps } = legDeps(cloud, jobs, { fetchTeams: replacing, now: () => FRIDAY });
     expect(await runPullLeg({ jobId: REFRESH, leg: 0 }, deps)).toBe("failed");
     const { error } = jobs.job(REFRESH);
-    expect(error).toMatch(/started again while this refresh ran.*Press Refresh now again/);
+    expect(error).toMatch(/started again.* while this refresh ran.*Press Refresh now again/);
     expect(error).not.toMatch(/list/);
   });
 
@@ -1565,5 +1647,114 @@ describe("a list longer than one pull takes", () => {
     });
     expect(started).toEqual({ ok: true, status: "queued" });
     expect(queued).toEqual([{ jobId: JOB, leg: 0 }]);
+  });
+});
+
+describe("pulls under way when Team Rankings is started again", () => {
+  /** The gate as the nightly leaves it while it pulls, said `minutesAgo`; none at all for null. */
+  const gateOf = (minutesAgo: number | null, now: Date) => ({
+    readAt: async (path: string) =>
+      path === REFRESH_GATE_PATH && minutesAgo !== null
+        ? {
+            fields: {
+              jobId: null,
+              nightlyAt: new Date(now.getTime() - minutesAgo * 60_000).toISOString(),
+              day: "2026-10-02",
+              legs: 0,
+            },
+            token: "t1",
+          }
+        : null,
+  });
+
+  it("are each asked to stop as a device's Stop asks, the nightly said, and nothing else touched", async () => {
+    const jobs = memoryJobs();
+    const now = new Date("2026-10-02T16:30:00.000Z");
+    const ids = {
+      queued: "1".repeat(32),
+      running: "2".repeat(32),
+      refresh: "3".repeat(32),
+      done: "4".repeat(32),
+      failed: "5".repeat(32),
+      cancelled: "6".repeat(32),
+      stopping: "7".repeat(32),
+    };
+    await jobs.put(LIST, { jobId: ids.queued });
+    await jobs.put(LIST, { jobId: ids.running });
+    jobs.jobs.set(ids.running, { ...jobs.job(ids.running), status: "running", stage: "fetching" });
+    jobs.putRefresh(ids.refresh);
+    jobs.jobs.set(ids.refresh, { ...jobs.job(ids.refresh), status: "running" });
+    for (const status of ["done", "failed", "cancelled"] as const) {
+      await jobs.put(LIST, { jobId: ids[status] });
+      jobs.jobs.set(ids[status], { ...jobs.job(ids[status]), status });
+    }
+    await jobs.put(LIST, { jobId: ids.stopping });
+    jobs.jobs.set(ids.stopping, { ...jobs.job(ids.stopping), status: "running", stopAsked: true });
+    const before = new Map([...jobs.jobs].map(([id, job]) => [id, structuredClone(job)]));
+    const listed = async () => [
+      ...[...jobs.jobs].map(([id, job]) => ({ id, fields: structuredClone(job) as never })),
+      // A document no job is made of is not asked anything.
+      { id: "not-a-job", fields: { status: "running" } },
+    ];
+    const stopped = await stopPullsUnderWay({
+      list: listed,
+      jobs: jobs.docs,
+      gate: gateOf(null, now),
+      now: () => now,
+    });
+    expect(stopped).toEqual({ pulls: 3, nightly: false });
+    // Each asked once, with the one field a device's Stop writes, and its stamp left as it was.
+    expect(jobs.updates).toEqual([{ stopAsked: true }, { stopAsked: true }, { stopAsked: true }]);
+    for (const [id, job] of jobs.jobs) {
+      const was = before.get(id)!;
+      const asked = id === ids.queued || id === ids.running || id === ids.refresh;
+      expect(job, id).toEqual(asked ? { ...was, stopAsked: true } : was);
+    }
+    // The nightly is said while it says it is pulling, and not once its word has run out.
+    const pulling = await stopPullsUnderWay({
+      list: listed,
+      jobs: jobs.docs,
+      gate: gateOf(30, now),
+      now: () => now,
+    });
+    expect(pulling).toEqual({ pulls: 0, nightly: true });
+    const late = await stopPullsUnderWay({
+      list: listed,
+      jobs: jobs.docs,
+      gate: gateOf(NIGHTLY_HOLD_MS / 60_000 + 1, now),
+      now: () => now,
+    });
+    expect(late).toEqual({ pulls: 0, nightly: false });
+  });
+
+  it("stops a leg under way at its next look, which then files nothing into the emptied copy", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const jobs = memoryJobs();
+    // The clubs filed by an earlier pull, and the same handful pasted again.
+    await jobs.put(LIST, { jobId: "a".repeat(32) });
+    await runPullLeg({ jobId: "a".repeat(32), leg: 0 }, legDeps(cloud, jobs).deps);
+    await jobs.put(LIST);
+    let started: CloudManifest | null = null;
+    // While GameChanger answers the leg, the owner starts again, and the edit function asks the
+    // pulls under way to stop; the leg then sees its stop.
+    const meanwhile: LegDeps["fetchTeams"] = async (ids, options) => {
+      started = await startAgain(cloud);
+      await stopPullsUnderWay({
+        list: async () =>
+          [[JOB, jobs.job()] as const].map(([id, job]) => ({ id, fields: job as never })),
+        jobs: jobs.docs,
+        gate: { readAt: async () => null },
+        now: () => new Date("2026-10-02T16:20:00.000Z"),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return answering()(ids, { ...options });
+    };
+    const { deps } = legDeps(cloud, jobs, { fetchTeams: meanwhile });
+    const ended = await runPullLeg({ jobId: JOB, leg: 0 }, deps);
+    expect(["failed", "cancelled"]).toContain(ended);
+    expect(jobs.job().stopAsked).toBe(true);
+    expect(cloud.manifest()).toEqual(started);
+    expect(await clubsIn(cloud)).toEqual([]);
   });
 });

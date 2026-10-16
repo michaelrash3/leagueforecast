@@ -28,7 +28,7 @@ import {
   saveTooYoungClubs,
 } from "../../teamRankingsStorage";
 import { commitChanges, type Change } from "../cloudEngine";
-import { DATA_SCHEMA } from "../cloudManifest";
+import { DATA_SCHEMA, epochOf } from "../cloudManifest";
 import { LEAGUE_PART } from "../cloudPlan";
 import type { CloudManifest } from "../cloudManifest";
 import {
@@ -42,6 +42,8 @@ import {
   type CloudPullJob,
 } from "../cloudRunner";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
+import { NO_LEAGUE_DOCS } from "../../live/cloudLeague";
+import { runEdit } from "../../live/editRun";
 
 /*
  * A pull run on the cloud copy (`runCloudPull`): it files what GameChanger answers into the copy's
@@ -172,6 +174,21 @@ const list = {
   seasonYears: [2027],
 } as const;
 
+/**
+ * The owner's Start again, as the edit function makes it (`runEdit`'s `copy.reset`): every Team
+ * Rankings part out of the copy, under the same copy id, and the manifest it leaves.
+ */
+const startAgain = async (cloud: MemoryCloud): Promise<CloudManifest> => {
+  const done = await runEdit({
+    store: cloud.store,
+    leagueDocs: NO_LEAGUE_DOCS,
+    command: { kind: "copy.reset" },
+    now: () => "2026-09-29T13:00:30.000Z",
+  });
+  if (!done.ok) throw new Error(`start again: ${done.why}`);
+  return cloud.manifest()!;
+};
+
 describe("a pull run on the cloud copy", () => {
   it("reconsiders an unaged club after all its opponents arrive, before the single final tidy", async () => {
     const cloud = memoryCloud();
@@ -207,7 +224,7 @@ describe("a pull run on the cloud copy", () => {
         seasonYears: [2027],
       },
       source,
-      base.copy,
+      epochOf(base),
       { asked: 4, answered: 4, failed: 0 },
       {
         store: cloud.store,
@@ -254,7 +271,7 @@ describe("a pull run on the cloud copy", () => {
         seasonYears: [2027],
       },
       source,
-      base.copy,
+      epochOf(base),
       { asked: 2001, answered: 2001, failed: 0 },
       {
         store: cloud.store,
@@ -314,7 +331,7 @@ describe("a pull run on the cloud copy", () => {
     const result = await finishStagedImport(
       list,
       source,
-      base.copy,
+      epochOf(base),
       { asked: 2, answered: 2, failed: 0 },
       {
         store: cloud.store,
@@ -476,7 +493,7 @@ describe("a pull run on the cloud copy", () => {
     await finishStagedImport(
       list,
       source,
-      base.copy,
+      epochOf(base),
       { asked: 2, answered: 1, failed: 1 },
       {
         store: cloud.store,
@@ -910,7 +927,14 @@ describe("a pull run on the cloud copy", () => {
     await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
     const day = new Date("2026-10-02T07:17:00.000Z");
     const worked = await workOutRefresh(cloud.store, day);
-    expect(worked).toMatchObject({ ok: true, again: false, heldBack: 0 });
+    const copy = cloud.manifest()!;
+    // With the copy and the start of its Team Rankings they were worked out from.
+    expect(worked).toMatchObject({
+      ok: true,
+      again: false,
+      heldBack: 0,
+      on: { copy: copy.copy, epoch: copy.epoch },
+    });
     expect(worked.ok && [...worked.teamIds].sort()).toEqual([ACES, BEARS].sort());
 
     expect(await workOutRefresh(memoryCloud().store, day)).toEqual({
@@ -1122,6 +1146,77 @@ describe("a pull run on the cloud copy", () => {
     expect(result).toMatchObject({ end: "copy-replaced", changed: [] });
     expect(result.manifest).toBeUndefined();
     expect(cloud.manifest()).toEqual(fresh);
+  });
+
+  it("files nothing into a copy whose Team Rankings was started again while it fetched", async () => {
+    const cloud = memoryCloud();
+    const before = await seed(cloud);
+    let started: CloudManifest | null = null;
+    // While GameChanger answers, the owner starts Team Rankings again: the copy keeps its id.
+    const result = await runCloudPull(
+      list,
+      deps(cloud, "2026-09-29T13:01:00.000Z", {
+        fetchTeams: answering(async () => {
+          started = await startAgain(cloud);
+        }),
+      })
+    );
+    expect(started!.copy).toBe(before.copy);
+    expect(started!.parts.map((part) => part.key)).toEqual([LEAGUE_PART]);
+    expect(result).toMatchObject({ end: "copy-replaced", changed: [], answered: 2 });
+    expect(result.manifest).toBeUndefined();
+    // The emptied copy is as the start left it: not one team of the answers filed into it.
+    expect(cloud.manifest()).toEqual(started);
+  });
+
+  it("asks GameChanger nothing for a job whose first part read another start of Team Rankings", async () => {
+    const cloud = memoryCloud();
+    const before = await seed(cloud);
+    const fetchTeams = vi.fn(answering());
+    const elsewhere = await runCloudPull(
+      list,
+      deps(cloud, "2026-09-29T13:01:00.000Z", {
+        fetchTeams,
+        startedOn: { copy: before.copy, epoch: "an-earlier-start" },
+      })
+    );
+    expect(elsewhere).toMatchObject({ end: "copy-replaced", asked: 0, changed: [] });
+    expect(fetchTeams).not.toHaveBeenCalled();
+    expect(cloud.manifest()).toEqual(before);
+    // Held to the start it did read, the same job's part runs as any other.
+    const same = await runCloudPull(
+      list,
+      deps(cloud, "2026-09-29T13:01:00.000Z", { fetchTeams, startedOn: epochOf(before) })
+    );
+    expect(same).toMatchObject({ end: "finished", answered: 2 });
+  });
+
+  it("files none of an import's downloads once Team Rankings is started again after it chose them", async () => {
+    const cloud = memoryCloud();
+    const base = await seed(cloud);
+    const selected = await selectImportTeams(cloud.store, list);
+    expect(selected).toMatchObject({ copy: base.copy, epoch: base.epoch });
+    const started = await startAgain(cloud);
+    let consumed = 0;
+    const source = () =>
+      (async function* () {
+        consumed++;
+        yield schedules.get(ACES)!;
+      })();
+    const result = await finishStagedImport(
+      list,
+      source,
+      selected,
+      { asked: 2, answered: 1, failed: 1 },
+      {
+        store: cloud.store,
+        now: () => new Date("2026-09-29T13:02:00.000Z"),
+        device: "import-test",
+      }
+    );
+    expect(result).toMatchObject({ end: "copy-replaced", filed: 0, changed: [] });
+    expect(consumed).toBe(0);
+    expect(cloud.manifest()).toEqual(started);
   });
 
   it("gives up on a copy that keeps moving, writing nothing and leaving no pieces behind", async () => {

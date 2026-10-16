@@ -2,6 +2,7 @@ import { unlinkGcTeam } from "../teamRankings";
 import { cleanTeamName, normalizeState } from "../teamRankings/names";
 import { isBoardInput } from "./boardInputs";
 import type { PoolCommand } from "./commands";
+import type { StoppedPulls } from "../cloud/pullJobRunner";
 import type { EditReply } from "./editHandle";
 import type { EditRefusal, QueryRefusal } from "./editRun";
 import type { ClubCard } from "./views/clubShape";
@@ -132,6 +133,23 @@ export const EDIT_REFUSED: Record<EditRefusal, string> = {
     "That would change too many clubs at once, so nothing was added. Add the games in smaller parts.",
   "store-refused":
     "The cloud would not answer just now, so nothing was changed. Try again in a minute.",
+};
+
+/**
+ * What a start of Team Rankings adds to its toast about the pulls it stopped (`EditReply.stopped`):
+ * nothing where there were none, so a start with nothing under way says only that it was made.
+ */
+export const stoppedSaid = (stopped: StoppedPulls | undefined): string => {
+  if (!stopped) return "";
+  const said: string[] = [];
+  if (stopped.pulls > 0) {
+    const one = stopped.pulls === 1;
+    said.push(
+      `${stopped.pulls.toLocaleString()} ${one ? "pull" : "pulls"} under way in the cloud ${one ? "was" : "were"} asked to stop, and ${one ? "files" : "file"} nothing more.`
+    );
+  }
+  if (stopped.nightly) said.push("The nightly refresh pulling now files nothing it fetched.");
+  return said.join(" ");
 };
 
 /** What a person is told of a question the server would not answer. */

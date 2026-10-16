@@ -279,6 +279,7 @@ export const firestoreStore = (db: Firestore): CloudStore => ({
         format: next.format,
         schema: next.schema,
         copy: next.copy,
+        epoch: next.epoch,
         version: next.version,
         save: next.save,
         updatedAt: next.updatedAt,

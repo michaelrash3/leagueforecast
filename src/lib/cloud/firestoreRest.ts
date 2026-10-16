@@ -132,6 +132,7 @@ const manifestFields = (next: CloudManifest): Record<string, FirestoreValue> =>
     format: next.format,
     schema: next.schema,
     copy: next.copy,
+    epoch: next.epoch,
     version: next.version,
     save: next.save,
     updatedAt: next.updatedAt,

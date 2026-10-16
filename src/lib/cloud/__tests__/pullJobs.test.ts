@@ -136,6 +136,15 @@ describe("a pull's job", () => {
     expect(coercePullJob({ ...job(), skipped: { transient: 1 } })).toBeNull();
   });
 
+  it("reads the copy its first leg read, and is no job with that spoiled", () => {
+    const begun = { ...job(), on: { copy: "copy-a", epoch: "" } };
+    expect(coercePullJob(fieldsOf(firestoreFieldsOf(begun)))).toEqual(begun);
+    const started = { ...job(), on: { copy: "copy-a", epoch: "e1" } };
+    expect(coercePullJob(fieldsOf(firestoreFieldsOf(started)))).toEqual(started);
+    for (const on of ["copy-a", null, { copy: "", epoch: "" }, { copy: "copy-a" }, { epoch: "" }])
+      expect(coercePullJob({ ...job(), on }), JSON.stringify(on)).toBeNull();
+  });
+
   it("is not read at all when it is of a newer format, or anything is missing or wrong", () => {
     const good = job() as unknown as Record<string, unknown>;
     expect(coercePullJob({ ...good, format: JOB_FORMAT + 1 })).toBeNull();

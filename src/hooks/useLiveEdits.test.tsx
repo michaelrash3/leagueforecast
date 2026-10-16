@@ -271,6 +271,25 @@ describe("an edit from the live page", () => {
     });
     expect(two.toasts).toEqual([["INTERNAL", { tone: "error" }]]);
   });
+
+  it("says a start of Team Rankings made with the pulls it asked to stop after it", async () => {
+    const RESET = { kind: "copy.reset" } as const;
+    const started = made(5, ["league_forecast_scout_teams_v1"], { kind: "none" });
+    const stopped = hook(
+      server({
+        body: { result: { ...started.body.result, stopped: { pulls: 2, nightly: false } } },
+      })
+    );
+    await act(async () => {
+      await stopped.result.current.edit(RESET, { done: "Started again." });
+    });
+    expect(stopped.toasts).toEqual([
+      [
+        "Started again. 2 pulls under way in the cloud were asked to stop, and file nothing more.",
+        { tone: "success" },
+      ],
+    ]);
+  });
 });
 
 describe("a question from the live page", () => {

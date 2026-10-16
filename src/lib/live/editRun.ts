@@ -6,7 +6,13 @@ import {
   type CloudStore,
   type CommitResult,
 } from "../cloud/cloudEngine";
-import { DATA_SCHEMA, type CloudManifest } from "../cloud/cloudManifest";
+import {
+  DATA_SCHEMA,
+  epochOf,
+  sameEpoch,
+  type CloudManifest,
+  type CopyEpoch,
+} from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import {
   loadAgeGroups,
@@ -17,7 +23,7 @@ import {
   isCloudPoolKey,
 } from "../teamRankingsStorage";
 import { ageGroupYear } from "../teamRankings/seasons";
-import { isCopyCommand, isServerCommand, type PoolCommand } from "./commands";
+import { isCopyCommand, isServerCommand, startsAgain, type PoolCommand } from "./commands";
 import { keptBy, planCopyCommand, poolKeysOf } from "./copyOps";
 import { runBackupRestore } from "./backupRestore";
 import { NO_UPLOADS, type UploadReader, type UploadStore } from "../cloud/uploads";
@@ -54,7 +60,9 @@ const MAX_TRIES = 3;
  * Why an edit was not made.
  * - `missing`, `refused`: the command's own (`commands.ts`).
  * - `unsaved`: the server's store would not take a write.
- * - `copy-replaced`: the copy is not the one the device edited, or was started again under the run.
+ * - `copy-replaced`: the copy is not the one the device edited, or was started again under the run:
+ *   deleted and made afresh, or its Team Rankings started again, brought back or restored between
+ *   one run through and the next (`CloudManifest.epoch`).
  * - `kept-moving`: other saves landed between each read and commit.
  * - `unsure`: the save went out and no answer came back, nor would the copy read to tell, so the
  *   edit may or may not be in it; the copy says which.
@@ -88,6 +96,12 @@ export type EditRun =
       inverse: PoolCommand;
       /** The copy's parts the save changed: none for an edit the copy already held. */
       changed: string[];
+      /**
+       * Whether the save started Team Rankings again (`startsAgain`): gave the copy a new epoch,
+       * which a command that moved nothing does not, and after which the edit function asks
+       * every pull under way to stop (`stopPullsUnderWay`).
+       */
+      startedAgain: boolean;
       /** Runs through: a second or third when a save moved the copy under the one before. */
       tries: number;
       /** How the last run through found the pool: started afresh, and the parts it fetched. */
@@ -158,6 +172,12 @@ export const runEdit = async ({
 }): Promise<EditRun> => {
   if (!pool && !isCopyCommand(command)) throw new Error("This edit needs a loaded pool.");
   let editing = copy ?? null;
+  /*
+   * The start of Team Rankings the first run through read. A run through after a save landed
+   * between is made again on the copy as it now is, which is right after anyone's edit and wrong
+   * after a start of Team Rankings: the command was made on the pool before it.
+   */
+  let started: CopyEpoch | null = null;
   for (let tries = 1; tries <= MAX_TRIES; tries += 1) {
     const loading = clock();
     const ensured = isCopyCommand(command) ? await copyForEdit(store) : await pool!.ensure(store);
@@ -166,7 +186,11 @@ export const runEdit = async ({
     if (editing !== null && ensured.manifest.copy !== editing) {
       return { ok: false, why: "copy-replaced", tries };
     }
+    if (started !== null && !sameEpoch(ensured.manifest, started)) {
+      return { ok: false, why: "copy-replaced", tries };
+    }
     editing = ensured.manifest.copy;
+    started = epochOf(ensured.manifest);
 
     /*
      * A run that is refused, throws, or whose commit throws leaves its writes unaccounted for, and a
@@ -198,6 +222,8 @@ export const runEdit = async ({
         keepReplaced: saving.keepReplaced,
         keepWhole: saving.keepWhole,
         ...(saving.restore ? { restore: saving.restore } : {}),
+        // Team Rankings made another whole: whatever loaded it before files nothing into it now.
+        newEpoch: startsAgain(command),
         device: EDIT_DEVICE,
         now: now(),
       });
@@ -230,6 +256,7 @@ export const runEdit = async ({
         changed: [...new Set([...was.keys(), ...after.keys()])]
           .filter((key) => was.get(key) !== after.get(key))
           .sort(),
+        startedAgain: commit.manifest.epoch !== ensured.manifest.epoch,
         tries,
         cold: ensured.cold,
         fetched: ensured.fetched.length,

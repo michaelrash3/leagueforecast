@@ -10,6 +10,7 @@ import {
   pendingOf,
   QUERY_REFUSED,
   settledBy,
+  stoppedSaid,
 } from "../liveEdits";
 import type { ClubCard } from "../views/clubShape";
 
@@ -299,6 +300,20 @@ describe("what the person is told", () => {
           EDIT_LOCKS.unlinked
         );
       }
+  });
+
+  it("says what a start of Team Rankings stopped, and nothing where it stopped nothing", () => {
+    expect(stoppedSaid(undefined)).toBe("");
+    expect(stoppedSaid({ pulls: 0, nightly: false })).toBe("");
+    expect(stoppedSaid({ pulls: 1, nightly: false })).toBe(
+      "1 pull under way in the cloud was asked to stop, and files nothing more."
+    );
+    expect(stoppedSaid({ pulls: 3, nightly: true })).toBe(
+      "3 pulls under way in the cloud were asked to stop, and file nothing more. The nightly refresh pulling now files nothing it fetched."
+    );
+    expect(stoppedSaid({ pulls: 0, nightly: true })).toBe(
+      "The nightly refresh pulling now files nothing it fetched."
+    );
   });
 
   it("names every reason an edit or a question is refused, and never says a refused edit may have been made but the one that may", () => {

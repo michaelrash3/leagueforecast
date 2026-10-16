@@ -15,8 +15,10 @@ import {
   finishStagedImport,
   selectImportTeams,
   type CloudPullDeps,
+  type CloudPullEnd,
   type ImportScheduleSource,
 } from "./cloudRunner";
+import { sameEpoch, type CopyEpoch } from "./cloudManifest";
 import { inBatches } from "./cloudEngine";
 import { downloadProblems, filingProblems, type ImportReportWriter } from "./importReports";
 import { hashJson, packHashed, unpackChunks } from "./cloudPack";
@@ -156,7 +158,35 @@ export const restImportArtifacts = (
   };
 };
 
-type ImportPlan = { copy: string; entries: GcTeamListEntry[]; batchTeams: number };
+/**
+ * The teams an import chose, once, and the copy and start of its Team Rankings they were chosen
+ * from (`selectImportTeams`), which the import files into at the end or not at all. `epoch` is
+ * absent from a plan chosen before epochs were kept, which was chosen from the empty one.
+ */
+type ImportPlan = {
+  copy: string;
+  epoch?: string;
+  entries: GcTeamListEntry[];
+  batchTeams: number;
+};
+
+/** The copy and epoch a plan was chosen from. */
+const chosenFrom = (plan: ImportPlan): CopyEpoch => ({ copy: plan.copy, epoch: plan.epoch ?? "" });
+
+/** The ends that leave an import's downloads unfiled for want of the copy they were chosen for. */
+type NotFiled = Extract<CloudPullEnd, "no-copy" | "copy-replaced" | "newer-copy">;
+
+/** What an import that filed nothing says, by why: the person who sent it reads it. */
+export const IMPORT_NOT_FILED: Record<NotFiled, string> = {
+  "no-copy": "There is no cloud copy to import into, so nothing this import downloaded was filed.",
+  "copy-replaced":
+    "The cloud's Team Rankings was started again, restored or brought back to an earlier version after this import chose its teams, so nothing it downloaded was filed. Send the list again to import it into Team Rankings as it is now.",
+  "newer-copy":
+    "The cloud copy was saved by a newer version of the app than the importer, so nothing this import downloaded was filed. It can be resumed once the importer is updated.",
+};
+
+const isNotFiled = (end: CloudPullEnd): end is NotFiled =>
+  Object.prototype.hasOwnProperty.call(IMPORT_NOT_FILED, end);
 type Batch = { answers: [string, GcTeamResponse][]; complete: boolean };
 /**
  * A checkpoint's failures as the import job logs them (`importWorker.ts`): counts and reasons
@@ -238,7 +268,23 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
   }
   await say({ status: "running", stage: "checking", error: null, detail: "" });
   let plan = await artifacts.read<ImportPlan>("plan");
-  if (!plan) {
+  if (plan) {
+    /*
+     * Resumed, or started again by Cloud Run: a plan chosen before Team Rankings was started again
+     * (whose start asks every import to stop) is for a pool that is gone. Said now, before another
+     * download is spent on it, rather than when the final phase finds it after every batch.
+     */
+    const current = await deps.store.readManifest();
+    const end = !current
+      ? "no-copy"
+      : !sameEpoch(current, chosenFrom(plan))
+        ? "copy-replaced"
+        : null;
+    if (end) {
+      await say({ status: "failed", stage: "waiting", end, error: IMPORT_NOT_FILED[end] });
+      return;
+    }
+  } else {
     const entries = await unpackJobList(job.list, (i) => jobs.piece(jobId, i));
     const selected = await selectImportTeams(
       deps.store,
@@ -715,7 +761,7 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
   const result = await finishStagedImport(
     { kind: "list", entries: plan.entries, seasonYears: job.seasonYears },
     source,
-    plan.copy,
+    chosenFrom(plan),
     { asked, answered, failed },
     {
       store: deps.store,
@@ -759,13 +805,12 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
     throw new Error(
       "The cloud copy changed during the final save. Retrying with the downloaded data."
     );
-  if (["no-copy", "copy-replaced", "newer-copy"].includes(result.end)) {
+  if (isNotFiled(result.end)) {
     await say({
       status: "failed",
       stage: "waiting",
       end: result.end,
-      error:
-        "The cloud copy was replaced or needs a newer importer. Downloaded data was not published.",
+      error: IMPORT_NOT_FILED[result.end],
     });
     return;
   }

@@ -85,6 +85,7 @@ const EDITED: EditRun = {
   version: 8,
   inverse: { kind: "team.state", teamId: "B", state: null },
   changed: ["league_forecast_scout_teams_v1"],
+  startedAgain: false,
   tries: 1,
   cold: false,
   fetched: 0,
@@ -176,6 +177,49 @@ describe("an edit request", () => {
       applyMs: 5,
       commitMs: 300,
     });
+  });
+
+  it("asks the pulls under way to stop once Team Rankings is started again, and says what it stopped", async () => {
+    const STARTED: EditRun = { ...(EDITED as Extract<EditRun, { ok: true }>), startedAgain: true };
+    const reset = { command: { kind: "copy.reset" } } as const;
+    const handle = (
+      result: EditRun,
+      stopPulls: () => Promise<{ pulls: number; nightly: boolean }>
+    ) =>
+      handleEdit({
+        ask: reset,
+        ledger: memoryLedger(ledgerOf()).store,
+        worker: workerOf(async () => ran(result)),
+        today: () => TODAY,
+        size: SIZE,
+        startupS: () => 0,
+        charges: chargeQueue(),
+        stopPulls,
+      });
+    const asked: string[] = [];
+    const stopping = async () => {
+      asked.push("stop");
+      return { pulls: 2, nightly: true };
+    };
+    const handled = await handle(STARTED, stopping);
+    expect(asked).toEqual(["stop"]);
+    expect(handled).toMatchObject({
+      reply: { ok: true, version: 8, stopped: { pulls: 2, nightly: true } },
+      line: { kind: "copy.reset", end: "edited", stoppedPulls: 2, nightly: true },
+    });
+    // An edit that started nothing again stops nothing, and says nothing of pulls.
+    const edited = await handle(EDITED, stopping);
+    expect(asked).toEqual(["stop"]);
+    expect("stopped" in (edited as { reply: object }).reply).toBe(false);
+    // Pulls that could not be listed leave the start made, and said in the line alone.
+    const failed = await handle(STARTED, async () => {
+      throw new Error("listing refused");
+    });
+    expect(failed).toMatchObject({
+      reply: { ok: true, version: 8 },
+      line: { end: "edited", stopError: "listing refused" },
+    });
+    expect("stopped" in (failed as { reply: object }).reply).toBe(false);
   });
 
   it("makes and charges the edit with the switch off, at the caps, and while paused", async () => {

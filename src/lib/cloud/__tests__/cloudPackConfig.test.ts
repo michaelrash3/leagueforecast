@@ -100,6 +100,7 @@ describe("a manifest from Firestore", () => {
     format: MANIFEST_FORMAT,
     schema: DATA_SCHEMA,
     copy: "copy-a",
+    epoch: "e1",
     version: 3,
     save: "s1",
     updatedAt: "2026-09-28T23:00:00.000Z",
@@ -135,6 +136,17 @@ describe("a manifest from Firestore", () => {
     expect(coerceManifest({ ...stored, format: MANIFEST_FORMAT + 1 })).toBeNull();
     expect(coerceManifest({ ...stored, format: 1 })).toBeNull();
     expect(coerceManifest({ ...stored, schema: undefined })).toBeNull();
+  });
+
+  it("is read from the layout before epochs as never started again, and not without one after", () => {
+    expect(MANIFEST_FORMAT).toBe(3);
+    const { epoch: _epoch, ...older } = { ...stored, format: 2 };
+    // Whatever such a manifest says of an epoch, a build of its layout neither wrote nor kept one.
+    expect(coerceManifest(older)).toEqual({ ...older, epoch: "" });
+    expect(coerceManifest({ ...older, epoch: "e1" })).toEqual({ ...older, epoch: "" });
+    expect(coerceManifest({ ...stored, epoch: undefined })).toBeNull();
+    expect(coerceManifest({ ...stored, epoch: 7 })).toBeNull();
+    expect(coerceManifest({ ...stored, epoch: "" })).toEqual({ ...stored, epoch: "" });
   });
 });
 

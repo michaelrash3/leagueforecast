@@ -188,6 +188,61 @@ describe("a save onto the copy", () => {
     expect(result).toEqual({ ok: false, reason: "moved" });
   });
 
+  it("keeps the copy's epoch through every save but one that starts Team Rankings again", async () => {
+    const sky = memoryCloud();
+    const v1 = await first(sky.store, { league: { a: 1 }, teams: [["t1", "Hawks"]] });
+    // A first copy has started nothing again; the layout written is this build's, epoch and all.
+    expect(v1).toMatchObject({ format: MANIFEST_FORMAT, epoch: "" });
+    const edit = await commitChanges({
+      store: sky.store,
+      base: v1,
+      changes: [
+        change("teams", [
+          ["t1", "Hawks"],
+          ["t2", "Owls"],
+        ]),
+      ],
+      device: "phone",
+      now: NOW,
+    });
+    if (!edit.ok) throw new Error("edit refused");
+    expect(edit.manifest.epoch).toBe("");
+    const started = await commitChanges({
+      store: sky.store,
+      base: edit.manifest,
+      changes: [change("teams", null)],
+      keepReplaced: ["teams"],
+      keepWhole: true,
+      newEpoch: true,
+      device: "phone",
+      now: NOW,
+    });
+    if (!started.ok) throw new Error("start refused");
+    expect(started.manifest.epoch).toMatch(/^[0-9a-f]{32}$/);
+    expect(started.manifest.copy).toBe(v1.copy);
+    expect(sky.manifest()?.epoch).toBe(started.manifest.epoch);
+    const after = await commitChanges({
+      store: sky.store,
+      base: started.manifest,
+      changes: [change("league", { a: 2 })],
+      device: "phone",
+      now: NOW,
+    });
+    if (!after.ok) throw new Error("save refused");
+    expect(after.manifest.epoch).toBe(started.manifest.epoch);
+    // A start that moves nothing writes nothing, so the jobs under way keep the epoch they read.
+    const again = await commitChanges({
+      store: sky.store,
+      base: after.manifest,
+      changes: [change("teams", null)],
+      newEpoch: true,
+      device: "phone",
+      now: NOW,
+    });
+    expect(again).toMatchObject({ ok: true, manifest: after.manifest });
+    expect(sky.manifest()?.epoch).toBe(started.manifest.epoch);
+  });
+
   it("knows its own commit when the reply was lost, rather than taking it for another device's", async () => {
     const sky = memoryCloud();
     const v1 = await first(sky.store, { league: { a: 1 } });

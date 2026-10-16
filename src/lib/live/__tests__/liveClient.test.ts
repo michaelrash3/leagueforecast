@@ -82,6 +82,7 @@ const manifest = (parts = PARTS): CloudManifest => ({
   format: 2,
   schema: 1,
   copy: "c0ffee",
+  epoch: "",
   version: 4,
   save: "s",
   updatedAt: T,

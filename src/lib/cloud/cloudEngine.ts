@@ -153,6 +153,10 @@ export class CommitUnanswered extends Error {
  *   (`copyOps.ts`, `editRun.ts`), whose `keepReplaced` is every key of the area. A settlement kept
  *   whole that moves nothing keeps nothing, since the same values kept again would push out a
  *   version that differs. Otherwise a value already kept is not kept a second time.
+ * - `newEpoch`: give the copy a new `epoch`, for a save that makes Team Rankings another whole
+ *   (started again, a version brought back, a backup restored), so a job under way that loaded it
+ *   before files nothing into it (`CopyEpoch`). Every other save keeps the epoch it was made on,
+ *   and a save that moves nothing writes nothing, epoch and all.
  *
  * A value whose fingerprint the copy already holds is named from the pieces it has, never uploaded
  * again. Every upload gets pieces of its own name, recorded through `onUploads` before the first is
@@ -172,6 +176,7 @@ export const commitChanges = async ({
   keepLost = [],
   restore,
   keepWhole = false,
+  newEpoch = false,
   device,
   now,
   onUploads,
@@ -186,6 +191,7 @@ export const commitChanges = async ({
   keepLost?: readonly Change[];
   restore?: string;
   keepWhole?: boolean;
+  newEpoch?: boolean;
   device: string;
   now: string;
   onUploads?: (chunkIds: string[]) => void;
@@ -307,6 +313,7 @@ export const commitChanges = async ({
     format: MANIFEST_FORMAT,
     schema: Math.max(base?.schema ?? DATA_SCHEMA, DATA_SCHEMA),
     copy: base?.copy ?? copy ?? randomId(),
+    epoch: newEpoch ? randomId() : (base?.epoch ?? ""),
     version: (base?.version ?? 0) + 1,
     save: randomId(),
     updatedAt: now,

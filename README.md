@@ -3743,7 +3743,27 @@ match stops the load before anything is written.
 by the SHA-256 of its JSON, so a device can tell its copy is the cloud's without
 downloading it. A manifest (`copies/main`) names every value's fingerprint and
 the upload that stored its pieces (`copies/main/chunks`), and carries a
-version, a layout number, a schema number and the id of the copy it belongs to.
+version, a layout number, a schema number, the id of the copy it belongs to,
+and its epoch: which start of the copy's Team Rankings this is.
+
+- **A start of Team Rankings is a new epoch, under the same copy id.** The
+  owner's Start again, a version brought back and a backup restored on the
+  server each give the copy a new random `epoch` (`commitChanges`' `newEpoch`);
+  every other save keeps the one it was made on, and a start that moves nothing
+  saves nothing and keeps it. The copy's id cannot mark a start: League
+  Standings lives in the same copy and is not started again with Team Rankings,
+  and every device that had met the copy would take a new id for a copy it had
+  never seen. Whatever loads the pool to file or publish from it holds every
+  later read to the copy and epoch it loaded (`CopyEpoch`, `sameEpoch`), and
+  ends `copy-replaced` on any other: a pull's retry, each leg of a job after its
+  first, a staged import's final phase, and a publish of the views. Before, the
+  checks were of the copy's id alone, and a nightly that read the pool before
+  the owner started again, finding the copy moved at its save, read the emptied
+  copy and filed into it every team it had asked about. Epochs came with layout
+  3 (`MANIFEST_FORMAT`); a manifest of layout 2 is read as one never started
+  again (`epoch` empty) and written as 3 by the next save, and a build older
+  than layout 3 refuses the copy from then on rather than drop the epoch with
+  its next save.
 
 - **A save goes on only if the manifest is still the version this device last
   saw, on the copy it last saw**: committed in a transaction, so two devices
@@ -3887,8 +3907,13 @@ device's change is built on rather than written over: a club it threw out in
 the meantime is not filed. A copy that keeps moving through three tries is left
 as it was, with nothing of the run's left in it. A copy deleted and started again
 meanwhile is a different copy, somebody's fresh start, and nothing is filed into
-it: the run ends as replaced, which fails a cloud pull's job and turns the nightly
-red.
+it; nor into a copy whose Team Rankings was started again, brought back or
+restored meanwhile, which keeps its id and has a new epoch (see "How it is
+stored"): the run ends as replaced, which fails a cloud pull's job and turns the
+nightly red. A job of several legs keeps the copy and epoch its first leg read
+(`PullJob.on`: the copy Refresh now's teams were worked out from, or the one a
+list's first share was filed into), and a later leg that finds another asks
+GameChanger nothing.
 
 ### A pasted list, pulled in the cloud
 
@@ -3990,7 +4015,12 @@ one final tidy phase and one commit. Clubs skipped before their opponents arrive
 are reconsidered in their original order. Age passes keep a bounded prefix of unresolved
 schedules in memory (up to 2,000 teams and 32 MiB); any remaining unresolved teams read
 only their relevant saved checkpoints. A concurrent save can require a rebase,
-which uses those downloads again; a replaced copy is never overwritten. The commit
+which uses those downloads again; a replaced copy is never overwritten. The teams are
+chosen once, and the plan keeps the copy and the epoch they were chosen from
+(`selectImportTeams`): the final phase files nothing into a copy whose Team Rankings
+was started again, brought back or restored since, and an import resumed or retried
+with its plan in hand checks the copy before downloading another team, ending at once
+with the reason (`IMPORT_NOT_FILED`) rather than after every batch. The commit
 asks the existing rebuild trigger to publish rankings once.
 
 An execution lease prevents duplicate workers. A supervisor keeps a heartbeat alive
@@ -4225,8 +4255,11 @@ the save are the pull's own (`runCloudPull`), and the save's own rebuild publish
 boards, as a pasted list's does. Each save keeps what it replaces as an earlier
 version, as the nightly's does, so the cloud panel's **Bring back** undoes a bad
 refresh as it undoes a bad night; a pasted list's pull keeps nothing, as before. A
-refresh whose copy is deleted and started again while it pulls fails saying to press
-again, not to send a list it never had. A job a device writes that calls itself a refresh is
+refresh whose copy is deleted and started again while it pulls, or whose Team
+Rankings the owner starts again, brings back or restores at any point after its
+teams were worked out (the job keeps the copy and epoch they were worked out from,
+`PullJob.on`, and every leg is held to it), fails saying to press again, not to send
+a list it never had. A job a device writes that calls itself a refresh is
 never started (`startPullJob`): only the server's own start goes through the gate.
 
 **The gate** (`refreshGate.ts`, `ops/refresh`, a path no rule opens). It names the
@@ -4388,12 +4421,15 @@ rules or a later day published first leave it green too (`publishFailedRun`), as
 they do a rebuild: only servers publish views, so that is a deploy landing while
 the run is on the build it checked out before, whose own functions, or the
 republish after it, publish first. A season a newer build saved is not among
-them, since a device of any build saves seasons. The copy's id is read again
-just before each commit of the meta, after the uploads and on every retry
+them, since a device of any build saves seasons. The copy's id and epoch are read
+again just before each commit of the meta, after the uploads and on every retry
 (`publishViews`'s `stillCurrent`): a copy deleted and started again during the
 run is not theirs, and two copies have no order to keep the fresh one's boards
-from being replaced, so its uploads are taken back, nothing is published, and
-the night turns red, as the pull's own end does when it finds the copy replaced.
+from being replaced; nor are they of a copy whose Team Rankings was started again
+during the run, whose boards they would set back to the pool it emptied until the
+start's own rebuild published over them. Either way its uploads are taken back,
+nothing is published, and the night turns red, as the pull's own end does when it
+finds the copy replaced.
 The check and the commit are two documents, so a reset in the round trip between
 them is the one window left. The publish refuses under any collation but
 English, the order the members' browsers put tied rows in; the workflow pins
@@ -6414,7 +6450,9 @@ the copy on; the written keys are then let go of one by one (`forget`), so the n
 those and whatever the other save changed rather than the whole pool, and the command runs again on
 the copy as it now is, up to three times. Its ids and times travel in it, so the second run makes
 the same change or is refused where the newer pool no longer allows it. A device may name the copy
-it edited, and an edit is refused on any other, as it is on a copy started again under the run. A
+it edited, and an edit is refused on any other, as it is on a copy started again under the run, or
+one whose Team Rankings was started again, brought back or restored between one run through and the
+next (its epoch, which the next run through compares with the first's). A
 commit that lands tells the pool its writes now stand in the copy (`committed`), so the next edit
 fetches none of them back. A command refused writes nothing, and the pool stays warm; a store that
 would not take a write, or a run that throws, leaves the pool to start afresh on its next read, which
@@ -6611,6 +6649,25 @@ copy to bring a version back. Both are the owner's alone, refused to a member wi
 copy's owner can …", as the functions' smoke run holds for all four of the owner's commands.
 `editRun.test.ts` holds the start, its Undo, a version a device kept brought back, the boards
 emptied and published again, and a save landing between.
+
+**A start is not undone by work already under way.** The start keeps the copy's id, so until
+16 October 2026 a nightly, a Refresh now leg or a staged import that had read the pool before it
+took the emptied copy for the one it read: its save, finding the copy moved, read it again and
+filed into it every team it had asked about, and a publish of the views built before it put the
+old pool back on the boards. Each start, a version brought back and a backup restored now gives
+the copy a new epoch (see "How it is stored"), and every one of those refuses a copy of another
+epoch (`copy-replaced`): a pull's retry (`fileAndSave`), each leg after a job's first, held to
+the copy and epoch the first read (`PullJob.on`), a staged import's final phase and its resumes,
+held to the epoch its teams were chosen from, and every publish (`publishCopyViews`). Once the
+start is saved, the edit function asks every pull queued or running to stop (`stopPullsUnderWay`,
+writing `stopAsked` as a device's Stop does), so none goes on asking GameChanger for a pool that is
+gone, and it reads the refresh gate for a nightly pulling, which it cannot stop from there; the
+owner's toast says how many it stopped and whether the nightly was pulling ("2 pulls under way in
+the cloud were asked to stop, and file nothing more."), so a start never races a pull silently.
+A pull's job ends saying Team Rankings was started again and to send its list, or press Refresh
+now, again; a resumed import that was stopped by it ends at once, before downloading another team.
+`cloudRunner.test.ts`, `pullJobRunner.test.ts`, `stagedImport.test.ts`, `publishCopy.test.ts` and
+`editRun.test.ts` hold each guard against the edit function's own start.
 
 **Responsive Setup controls.** Background questions, including Pool health and the teams
 waiting on an age, use `poolQuery`, a separate callable service with its own warm worker.

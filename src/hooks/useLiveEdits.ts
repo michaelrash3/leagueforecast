@@ -8,6 +8,7 @@ import {
   pendingOf,
   QUERY_REFUSED,
   settledBy,
+  stoppedSaid,
   WARM_AFTER_MS,
   type PendingEdit,
 } from "../lib/live/liveEdits";
@@ -172,8 +173,10 @@ export function useLiveEdits({
           showToast(said.same);
           return true;
         }
+        // A start of Team Rankings says too what it found pulling into the copy, and stopped.
+        const stopped = stoppedSaid(reply.stopped);
         showToast(
-          said.done,
+          stopped ? `${said.done} ${stopped}` : said.done,
           // An edit with nothing to take it back by (none, or too big to send back) offers none.
           said.undo && reply.inverse.kind !== "none"
             ? {

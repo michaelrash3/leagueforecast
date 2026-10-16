@@ -1,3 +1,4 @@
+import type { StoppedPulls } from "../cloud/pullJobRunner";
 import { MAX_COMMAND_STEPS, stepCount, type PoolCommand } from "./commands";
 import type { EditRefusal, EditRun, QueryRefusal, QueryRun } from "./editRun";
 import { TurnFailed, type TurnAsk, type Turned } from "./editWorkerProtocol";
@@ -54,6 +55,12 @@ export type EditReply =
       inverse: PoolCommand;
       changed: string[];
       ms: { load: number; apply: number; commit: number };
+      /**
+       * After a start of Team Rankings (`EditRun.startedAgain`), the pulls it asked to stop and
+       * whether the nightly is pulling (`stopPullsUnderWay`), for the owner to be told. Absent
+       * after any other edit, and where the pulls could not be listed.
+       */
+      stopped?: StoppedPulls;
     }
   | { ok: false; why: EditRefusal };
 
@@ -169,8 +176,18 @@ export type EditHandled = { line: Line } & ({ reply: EditReply } | { notMade: st
 export const handleEdit = async ({
   ask,
   worker,
+  stopPulls,
   ...deps
-}: Deps & { ask: EditAsk; worker: Pick<EditWorker, "edit"> }): Promise<EditHandled> => {
+}: Deps & {
+  ask: EditAsk;
+  worker: Pick<EditWorker, "edit">;
+  /**
+   * Asks every pull under way to stop (`stopPullsUnderWay`), once a start of Team Rankings is
+   * saved. Awaited before the answer, which says what it stopped: a start is the owner's alone and
+   * rare, and a pull left running past it would go on asking GameChanger for a pool that is gone.
+   */
+  stopPulls?: () => Promise<StoppedPulls>;
+}): Promise<EditHandled> => {
   const line: Line = { kind: ask.command.kind };
   let turned: Turned<EditRun>;
   try {
@@ -202,6 +219,16 @@ export const handleEdit = async ({
   }
   const { copy, version, inverse, changed, tries, cold, fetched, loadMs, applyMs, commitMs } =
     edited;
+  let stopped: StoppedPulls | null = null;
+  if (edited.startedAgain && stopPulls) {
+    try {
+      stopped = await stopPulls();
+      Object.assign(line, { stoppedPulls: stopped.pulls, nightly: stopped.nightly });
+    } catch (error) {
+      // The start is saved whatever this comes to, and every pull is held to the start it read.
+      line.stopError = messageOf(error);
+    }
+  }
   return {
     reply: asJson({
       ok: true,
@@ -216,6 +243,7 @@ export const handleEdit = async ({
       inverse: stepCount(inverse) <= MAX_COMMAND_STEPS ? inverse : NO_UNDO,
       changed,
       ms: { load: loadMs, apply: applyMs, commit: commitMs },
+      ...(stopped ? { stopped } : {}),
     }),
     line: {
       ...line,

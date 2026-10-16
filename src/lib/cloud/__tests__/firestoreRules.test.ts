@@ -144,6 +144,7 @@ const manifestOf = (version: number): CloudManifest => ({
   format: MANIFEST_FORMAT,
   schema: DATA_SCHEMA,
   copy: "copy-a",
+  epoch: "",
   version,
   save: `save-${version}`,
   updatedAt: "2026-09-28T00:00:00.000Z",

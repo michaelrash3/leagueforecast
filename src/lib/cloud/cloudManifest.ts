@@ -19,9 +19,18 @@
  * The manifest's layout. A device refuses a manifest in any layout but its own, rather than
  * misreading it and saving its misreading back over it. Any field added to the manifest is a new
  * layout: a build that drops fields it does not know would otherwise write the manifest back
- * without them.
+ * without them. Layout 3 added `epoch`, and an older build that kept writing layout 2 would drop
+ * it with its next save, which would let a job begun before a start of Team Rankings take the
+ * start for the copy it read and file into it after all.
  */
-export const MANIFEST_FORMAT = 2;
+export const MANIFEST_FORMAT = 3;
+
+/**
+ * The layout before this one, which lacks only `epoch`: still read, as a copy whose Team Rankings
+ * has not been started again since epochs were kept (`epoch` empty), and written as this layout
+ * by the next save, so the copy in Firestore moves to it with the first save of this build.
+ */
+const FORMAT_WITHOUT_EPOCH = 2;
 
 /**
  * The shape of the data inside the values, as this build reads and writes it. Raised with any
@@ -91,6 +100,17 @@ export type CloudManifest = {
    * the first must not take the second for a later version of it.
    */
   copy: string;
+  /**
+   * Which start of the copy's Team Rankings this is: made at random by a save that makes Team
+   * Rankings another whole (started again, an earlier version brought back, a backup restored;
+   * `commitChanges`' `newEpoch`), and kept by every other save. Empty on a copy not so started
+   * since epochs were kept. The copy's id cannot say this: League Standings lives in the same copy
+   * and is not started again with Team Rankings, and every device that met the copy would take a
+   * new id for a copy it has never seen. A job that loaded the pool keeps the copy and the epoch
+   * it loaded (`CopyEpoch`) and files nothing into another: a nightly that read the pool before
+   * the owner started again otherwise filed its answers into the emptied copy on its retry.
+   */
+  epoch: string;
   /** One more with every save, so a device can tell the copy moved on without reading it. */
   version: number;
   /**
@@ -104,6 +124,26 @@ export type CloudManifest = {
   parts: ManifestPart[];
   kept: KeptPart[];
 };
+
+/**
+ * The copy a job loaded, and which start of its Team Rankings (`CloudManifest.epoch`): what the
+ * job holds every later read of the copy to before it files or publishes anything from it.
+ */
+export type CopyEpoch = { copy: string; epoch: string };
+
+/** The copy and epoch `manifest` is of. */
+export const epochOf = (manifest: CloudManifest): CopyEpoch => ({
+  copy: manifest.copy,
+  epoch: manifest.epoch,
+});
+
+/**
+ * Whether `manifest` is still of the copy and the start of its Team Rankings `at` names: a save
+ * since that only moved it on (a device's edit, a pull) leaves both, and a start of Team Rankings,
+ * or the copy deleted and started again, changes one.
+ */
+export const sameEpoch = (manifest: CloudManifest, at: CopyEpoch): boolean =>
+  manifest.copy === at.copy && manifest.epoch === at.epoch;
 
 /** A piece's document id: the upload's id and its place among that upload's pieces. */
 export const chunkId = (id: string, index: number): string => `${id}-${index}`;
@@ -164,12 +204,14 @@ const coerceKept = (raw: unknown): KeptPart | null => {
 /**
  * A manifest as Firestore hands it back, or null for anything this app cannot read: malformed, or
  * in another layout. Null is not "no copy": the store refuses to treat an unreadable manifest as an
- * absent one (`firebaseCloud.ts`).
+ * absent one (`firebaseCloud.ts`). The layout before this one is read with an empty epoch
+ * (`FORMAT_WITHOUT_EPOCH`); one of this layout without its epoch is not one this build wrote.
  */
 export const coerceManifest = (raw: unknown): CloudManifest | null => {
   if (!isRecord(raw)) return null;
-  const { format, schema, copy, version, save, updatedAt, device, parts, kept } = raw;
-  if (format !== MANIFEST_FORMAT) return null;
+  const { format, schema, copy, epoch, version, save, updatedAt, device, parts, kept } = raw;
+  if (format !== MANIFEST_FORMAT && format !== FORMAT_WITHOUT_EPOCH) return null;
+  if (format === MANIFEST_FORMAT && typeof epoch !== "string") return null;
   if (typeof schema !== "number" || !Number.isInteger(schema) || schema < 1) return null;
   if (typeof copy !== "string" || !copy) return null;
   if (typeof version !== "number" || !Number.isInteger(version) || version < 1) return null;
@@ -192,6 +234,7 @@ export const coerceManifest = (raw: unknown): CloudManifest | null => {
     format,
     schema,
     copy,
+    epoch: format === MANIFEST_FORMAT && typeof epoch === "string" ? epoch : "",
     version,
     save: typeof save === "string" ? save : "",
     updatedAt: typeof updatedAt === "string" ? updatedAt : "",

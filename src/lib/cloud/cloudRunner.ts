@@ -59,7 +59,13 @@ import {
   IMPORT_INDEX_KEYS,
 } from "../teamRankingsStorage";
 import { commitChanges, fetchValues, type Change, type CloudStore } from "./cloudEngine";
-import { DATA_SCHEMA, type CloudManifest } from "./cloudManifest";
+import {
+  DATA_SCHEMA,
+  epochOf,
+  sameEpoch,
+  type CloudManifest,
+  type CopyEpoch,
+} from "./cloudManifest";
 import { hashValue } from "./cloudPack";
 import { LEAGUE_PART } from "./cloudPlan";
 
@@ -74,7 +80,10 @@ import { LEAGUE_PART } from "./cloudPlan";
  * The answers are asked for once. Where another device saved while they were being fetched, the
  * copy is read again and the same answers filed onto it, so a device's change made in the meantime
  * is built on rather than written over; a copy that keeps moving under three tries is left alone.
- * League Standings and archived seasons are neither read nor written: a pull touches neither.
+ * A copy whose Team Rankings was started again meanwhile is not built on: the answers were asked
+ * for the pool as it was, and filing them into the emptied one would undo the start
+ * (`CloudManifest.epoch`). League Standings and archived seasons are neither read nor written: a
+ * pull touches neither.
  *
  * Nothing here reaches the network except through `store` and `fetchTeams`, so every rule is tried
  * against stand-ins (`cloudRunner.test.ts`). A Node process that runs it ends it with
@@ -134,6 +143,13 @@ export type CloudPullDeps = {
    * bring back from its cloud panel (`KeptPart`). An unattended job's way back from a bad night.
    */
   keep?: boolean;
+  /**
+   * The copy, and the start of its Team Rankings, that the job this run is a part of first read
+   * (`PullJob.on`, the staged import's plan): a run that finds another ends `copy-replaced` before
+   * asking GameChanger anything, and its saves are held to it. Without it, the run holds its saves
+   * to the copy and epoch it reads itself.
+   */
+  startedOn?: CopyEpoch;
 };
 
 /** Age passes request only unresolved ids; older sources can ignore the optional selection. */
@@ -165,8 +181,10 @@ export type CloudPullEnd =
   /** Another device kept saving while this one tried to: nothing was written. */
   | "copy-kept-changing"
   /**
-   * The copy was deleted and started again while this run fetched. Its answers were for the copy
-   * that is gone, and the new one is somebody's fresh start, so nothing was written to it.
+   * The copy was deleted and started again while this run fetched, or its Team Rankings was
+   * started again, an earlier version brought back or a backup restored (`CloudManifest.epoch`),
+   * since this run or the job it is part of read it. Its answers were for the pool as it was, and
+   * the copy now is somebody's fresh start, so nothing was written to it.
    */
   | "copy-replaced";
 
@@ -303,7 +321,7 @@ export const selectImportTeams = async (
   store: CloudStore,
   job: Extract<CloudPullJob, { kind: "list" }>,
   alreadyPulledAfter?: Date
-): Promise<{ copy: string; entries: GcTeamListEntry[] }> => {
+): Promise<CopyEpoch & { entries: GcTeamListEntry[] }> => {
   const manifest = await store.readManifest();
   if (!manifest) throw new Error("There is no cloud copy to import into.");
   if (manifest.schema > DATA_SCHEMA) throw new Error("Update the cloud importer before importing.");
@@ -327,7 +345,9 @@ export const selectImportTeams = async (
     ...new Map(job.entries.filter((e) => wanted.has(e.teamId)).map((e) => [e.teamId, e])).values(),
   ].sort((a, b) => a.teamId.localeCompare(b.teamId, "en"));
   resetTeamRankingsStore();
-  return { copy: manifest.copy, entries };
+  // The copy and the start of its Team Rankings the teams were chosen from, which the import files
+  // into at the end, hours later, or not at all (`finishStagedImport`).
+  return { ...epochOf(manifest), entries };
 };
 
 /**
@@ -339,7 +359,12 @@ export const copyTooNew = (manifest: CloudManifest): boolean =>
   manifest.schema > DATA_SCHEMA || stampFromNewerRules(loadTidyStamp());
 
 export type WorkedOutRefresh =
-  ({ ok: true } & RefreshNow) | { ok: false; end: Extract<CloudPullEnd, "no-copy" | "newer-copy"> };
+  | ({
+      ok: true;
+      /** The copy and the start of its Team Rankings the teams were worked out from. */
+      on: CopyEpoch;
+    } & RefreshNow)
+  | { ok: false; end: Extract<CloudPullEnd, "no-copy" | "newer-copy"> };
 
 /**
  * What "Refresh now" pulls, worked out from the copy at `now` as the card that offers it says
@@ -352,7 +377,7 @@ export const workOutRefresh = async (store: CloudStore, now: Date): Promise<Work
   const copy = await loadPoolFrom(store);
   if (!copy) return { ok: false, end: "no-copy" };
   if (copyTooNew(copy.manifest)) return { ok: false, end: "newer-copy" };
-  return { ok: true, ...refreshNow(now) };
+  return { ok: true, on: epochOf(copy.manifest), ...refreshNow(now) };
 };
 
 type Filed = { outcomes: GcImportOutcome[] };
@@ -564,11 +589,16 @@ const fileScheduleSource = async (
   return { outcomes };
 };
 
-/** A restartable source is streamed afresh only if a concurrent save requires a rebase. */
+/**
+ * A restartable source is streamed afresh only if a concurrent save requires a rebase. `expected`
+ * is the copy, and the start of its Team Rankings, that the teams were chosen from
+ * (`selectImportTeams`): an import that finds another, a copy made afresh or a Team Rankings
+ * started again while it downloaded, files nothing.
+ */
 export const finishStagedImport = async (
   job: Extract<CloudPullJob, { kind: "list" }>,
   source: ImportScheduleSource,
-  expectedCopy: string,
+  expected: CopyEpoch,
   counts: Pick<CloudPullResult, "asked" | "answered" | "failed">,
   deps: Omit<CloudPullDeps, "fetchTeams"> & {
     beforeTidy?: () => Promise<void>;
@@ -591,9 +621,9 @@ export const finishStagedImport = async (
     replays: 0,
   };
   if (!copy) return { ...result, end: "no-copy" };
-  if (copy.manifest.copy !== expectedCopy) return { ...result, end: "copy-replaced" };
+  if (!sameEpoch(copy.manifest, expected)) return { ...result, end: "copy-replaced" };
   if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
-  return fileAndSave(result, copy, deps, (now) =>
+  return fileAndSave(result, copy, { ...deps, startedOn: expected }, (now) =>
     fileScheduleSource(
       job,
       source,
@@ -655,6 +685,11 @@ export const runCloudPull = async (
   // Stopped before a team was asked about: nothing to file, so nothing to save.
   if (deps.signal?.aborted) return { ...result, end: "stopped" };
   if (!copy) return { ...result, end: "no-copy" };
+  // A leg of a job whose first leg read another start of Team Rankings: its teams, worked out or
+  // sent for the pool as it was, are not asked about for the pool as it is.
+  if (deps.startedOn && !sameEpoch(copy.manifest, deps.startedOn)) {
+    return { ...result, end: "copy-replaced" };
+  }
   if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
 
   // A walked refresh's teams were worked out at its start, and are not worked out again here.
@@ -743,18 +778,23 @@ const fileAndSave = async (
 ): Promise<CloudPullResult> => {
   let copy = read;
   /*
-   * Which copy the answers are for. A retry files them again onto whatever the copy has become,
-   * which is right when another device saved to it and wrong when it was deleted and started
-   * again: that is a different copy, made by someone who chose to begin afresh, and filing last
-   * night's answers into it would undo the choice.
+   * Which copy, and which start of its Team Rankings, the answers are for. A retry files them again
+   * onto whatever the copy has become, which is right when another device saved to it and wrong
+   * when it was deleted and started again, or its Team Rankings started again, brought back or
+   * restored (`CloudManifest.epoch`): that is somebody's choice to begin afresh, and filing last
+   * night's answers into it would undo the choice. The copy keeps its id through a start of Team
+   * Rankings, so the id alone let a nightly that read the pool before the owner started again
+   * fill the emptied copy with every team it had asked about.
    */
-  const startedOn = copy.manifest.copy;
+  const startedOn = deps.startedOn ?? epochOf(copy.manifest);
   for (let attempt = 0; attempt < MAX_TRIES; attempt += 1) {
     if (attempt > 0) {
       const again = await loadPoolFrom(deps.store);
       if (!again) return { ...result, end: "no-copy" };
       copy = again;
-      if (copy.manifest.copy !== startedOn) return { ...result, end: "copy-replaced", changed: [] };
+      if (!sameEpoch(copy.manifest, startedOn)) {
+        return { ...result, end: "copy-replaced", changed: [] };
+      }
       if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
       result.replays = attempt;
     }
