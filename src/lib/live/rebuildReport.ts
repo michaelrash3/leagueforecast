@@ -1,4 +1,5 @@
 import { isRecord } from "../validate";
+import { deferralReason } from "./rebuildJobControl";
 import { coerceLedger, type Ledger } from "./rebuildLedger";
 
 /**
@@ -77,17 +78,30 @@ export const rebuildsTrouble = (raw: unknown): "off" | "paused" | "failing" | "n
 };
 
 /**
- * The line saying the rebuild job is held back by its budget (`rebuildJobControl.ts`'s deferral),
- * and until when, or none. Without it the nightly said nothing amiss through the second half of
- * October 2026, while every save waited for the first of November.
+ * The line saying the rebuild job is deferred (`rebuildJobControl.ts`), why and until when, or
+ * none. Without it the nightly said nothing amiss through the second half of October 2026, while
+ * every save waited for the first of November. Only a budget's deferral is lifted by a cap raised
+ * in ops/rebuild, so only it says so.
  */
 const heldBack = (job: unknown, now: number): string[] => {
   if (!isRecord(job) || typeof job.deferredUntil !== "string") return [];
   const until = Date.parse(job.deferredUntil);
   if (!(until > now)) return [];
-  return [
-    `  Held back by their budget until ${new Date(until).toISOString()}: saves wait for then, or for a cap raised in ops/rebuild.`,
-  ];
+  const at = new Date(until).toISOString();
+  switch (deferralReason(job.detail)) {
+    case "day-cap":
+    case "month-cap":
+    case "budget":
+      return [
+        `  Held back by their budget until ${at}: saves wait for then, or for a cap raised in ops/rebuild.`,
+      ];
+    case "busy":
+      return [`  Waiting until ${at} for a rebuild still running to end.`];
+    case "failing":
+      return [`  Paused until ${at} after failures in a row.`];
+    default:
+      return [`  Deferred until ${at}.`];
+  }
 };
 
 const switchOf = (ledger: Ledger): string => {

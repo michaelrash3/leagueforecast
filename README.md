@@ -5023,7 +5023,7 @@ for the first of November. An edit is never refused for its caps; past them only
 that refit a year are (`capsSpent`). October's totals were left as they stood, which keeps the
 rebuilds deferred for the rest of that month: raising a cap in `ops/rebuild` lets the next save
 start one, since the launcher lifts a deferral whose budget has room again (`requestRebuildJob`).
-The nightly says the edits' month and, while the job waits on its budget, until when. A field set to
+The nightly says the edits' month and, while the job is deferred, why (its budget, a run still going, or failures in a row) and until when; only a budget's deferral is lifted by a raised cap. A field set to
 anything but what it holds makes the document unreadable, which reads as off,
 rather than a ledger with its guard lifted. The durable worker reserves the time its current day and month budgets can cover,
 including memory, CPU and the Cloud Run job's one-minute billing minimum. Its reservation

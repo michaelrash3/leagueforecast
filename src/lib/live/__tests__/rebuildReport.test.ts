@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { deferralDetail } from "../rebuildJobControl";
 import { describeRebuilds, rebuildsTrouble } from "../rebuildReport";
 
 /*
@@ -31,7 +32,12 @@ describe("the nightly's lines on the rebuilds", () => {
         editMonthGiBs: 2_000,
         editMonthVcpuS: 500,
       },
-      { format: 1, deferredUntil: "2026-11-01T04:01:00.000Z", state: "deferred" },
+      {
+        format: 1,
+        deferredUntil: "2026-11-01T04:01:00.000Z",
+        state: "deferred",
+        detail: deferralDetail("month-cap", new Date("2026-11-01T04:01:00.000Z")),
+      },
       now
     );
     expect(lines).toContain(
@@ -40,6 +46,31 @@ describe("the nightly's lines on the rebuilds", () => {
     expect(lines).toContain(
       "  Held back by their budget until 2026-11-01T04:01:00.000Z: saves wait for then, or for a cap raised in ops/rebuild."
     );
+    // A deferral for anything but the budget says what it waits on, and no cap to raise: only a
+    // budget's deferral is lifted by one.
+    const until = new Date("2026-10-16T09:05:00.000Z");
+    const said = (why: "busy" | "failing" | "day-cap" | "budget") =>
+      describeRebuilds(
+        { on: true, month: "2026-10" },
+        { deferredUntil: until.toISOString(), detail: deferralDetail(why, until) },
+        now
+      ).filter((line) => line.includes("2026-10-16T09:05"));
+    expect(said("busy")).toEqual([
+      "  Waiting until 2026-10-16T09:05:00.000Z for a rebuild still running to end.",
+    ]);
+    expect(said("failing")).toEqual([
+      "  Paused until 2026-10-16T09:05:00.000Z after failures in a row.",
+    ]);
+    for (const why of ["day-cap", "budget"] as const) {
+      expect(said(why)[0]).toMatch(/^ {2}Held back by their budget until .*a cap raised/);
+    }
+    expect(
+      describeRebuilds(
+        { on: true, month: "2026-10" },
+        { deferredUntil: until.toISOString(), detail: "something else" },
+        now
+      )
+    ).toContain("  Deferred until 2026-10-16T09:05:00.000Z.");
     // A deferral past, or none, says nothing; nor do edits that spent nothing.
     for (const job of [null, { deferredUntil: "" }, { deferredUntil: "2026-10-15T04:01:00Z" }]) {
       expect(describeRebuilds({ on: true, month: "2026-10" }, job, now).join("\n")).not.toMatch(

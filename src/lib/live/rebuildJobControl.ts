@@ -2,6 +2,20 @@ import type { FirestoreRestDocuments } from "../cloud/firestoreRest";
 import { coerceRebuildTask, type RebuildTask } from "./rebuildPlan";
 
 export const REBUILD_JOB_CONTROL = "ops/rebuildJob";
+
+/** Why a rebuild job was deferred: a reserve the ledger refused, or the budget its run used up. */
+export type DeferralReason = "busy" | "failing" | "day-cap" | "month-cap" | "budget";
+const DEFERRAL_REASONS: readonly string[] = ["busy", "failing", "day-cap", "month-cap", "budget"];
+
+/** The detail a deferral writes (`rebuildJob.ts`), which `deferralReason` reads back. */
+export const deferralDetail = (why: DeferralReason, until: Date): string =>
+  `Waiting for ${why}; queued for ${until.toISOString()}`;
+
+/** The reason a deferral's detail names, or null for a detail this build did not write. */
+export const deferralReason = (detail: unknown): DeferralReason | null => {
+  const named = typeof detail === "string" ? /^Waiting for ([a-z-]+);/.exec(detail)?.[1] : null;
+  return named && DEFERRAL_REASONS.includes(named) ? (named as DeferralReason) : null;
+};
 export const REBUILD_JOB_LEASE_MS = 90_000;
 type Control = {
   format: 1;
