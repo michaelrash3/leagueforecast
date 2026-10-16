@@ -11,6 +11,7 @@ import { noteBackupTaken } from "../lib/lastBackup";
 import { copyBackup, notMade } from "../lib/live/copyBackup";
 import { teamRankingsBackupIsEmpty, type TeamRankingsBackup } from "../lib/teamRankingsBackup";
 import { copyReader, restoresInCloud, restoreTeamRankingsInCloud } from "../lib/cloud/cloudSession";
+import { afterPoolFill, poolFilled } from "../lib/poolFill";
 import type { ConfirmState } from "./useConfirmation";
 
 export type FullBackupOptions = {
@@ -107,8 +108,12 @@ export function useFullBackup({
 
   const exportBackup = useCallback(() => {
     if (!rankingsLive || !restoresInCloud()) {
-      saveAsFile(readFullBackup(liveSeason()));
-      noteBackupTaken("league");
+      // League as it stands at the press; the pool once it is read in (`poolFill.ts`).
+      const season = liveSeason();
+      afterPoolFill(() => {
+        saveAsFile(readFullBackup(season));
+        noteBackupTaken("league");
+      });
       return;
     }
     if (reading.current) {
@@ -149,6 +154,9 @@ export function useFullBackup({
 
   const restoreFullBackup = useCallback(
     async (backup: FullBackup) => {
+      // What it replaces is read from this device's pool, and the file's written into it: once
+      // the pool is read in (`poolFill.ts`).
+      await poolFilled();
       // In the cloud, the pool is the copy's, and the server restores it (1.6): this browser
       // writes the seasons and settings, and takes the pool from the copy when Team Rankings next
       // reads it. What the copy replaces it keeps, so the cloud's pool can be brought back.

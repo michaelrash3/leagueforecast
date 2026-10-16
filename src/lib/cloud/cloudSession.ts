@@ -14,6 +14,7 @@ import { subscribeLeagueMet } from "../preferences";
 import { onLeagueWrite } from "../storage";
 import { isCloudPoolKey, onCloudPoolWrite } from "../teamRankingsStorage";
 import { isPoolBusy, poolJobElsewhere } from "../pullSession";
+import { isPoolFilled, poolFilledInTime } from "../poolFill";
 import { FIREBASE_WEB_CONFIG, type FirebaseWebConfig } from "./cloudConfig";
 import { DATA_SCHEMA, type CloudManifest, type KeptPart } from "./cloudManifest";
 import { fetchValues, STORE_LIMITS, timed, timedStore, type CloudStore } from "./cloudEngine";
@@ -153,6 +154,15 @@ const MAX_BACKOFF_MS = 30 * 60_000;
 const LOCK = "league_forecast_cloud";
 
 let session: Session | null = null;
+/**
+ * The session being opened, while it is: shared by everything that asks meanwhile. The boot and
+ * the live board's reader used each to open one of their own, and whichever finished second
+ * replaced the other's, so the boot's sign-in landed on a session nobody held and the page stayed
+ * connecting, its League never kept live.
+ */
+let opening: Promise<Session | null> | null = null;
+/** Moved on by each reset, so an opening begun before one is not kept after it. */
+let generation = 0;
 let status: CloudStatus = { kind: "off" };
 const listeners = new Set<(status: CloudStatus) => void>();
 let lastLook = 0;
@@ -211,6 +221,8 @@ export const setCloudTestHooks = (hooks: {
 /** Forgets the session, for tests. */
 export const resetCloudSession = (): void => {
   session = null;
+  opening = null;
+  generation += 1;
   status = { kind: "off" };
   listeners.clear();
   lastLook = 0;
@@ -431,13 +443,39 @@ const seeing = (store: CloudStore): CloudStore => ({
   },
 });
 
-const loadSession = async (): Promise<Session | null> => {
-  if (session) return session;
+const loadSession = (): Promise<Session | null> => {
+  if (session) return Promise.resolve(session);
   const settings = config();
-  if (!settings) return null;
-  const cloud = await openCloud(settings);
-  session = { cloud, store: seeing(timedStore(cloud.store)), account: null };
-  return session;
+  if (!settings) return Promise.resolve(null);
+  if (opening) return opening;
+  const ours = generation;
+  const opened = openCloud(settings).then((cloud) => {
+    if (ours !== generation) return null;
+    session ??= { cloud, store: seeing(timedStore(cloud.store)), account: null };
+    return session;
+  });
+  opening = opened;
+  // Let go of once settled, so one that failed (Firebase's code would not load) is tried again.
+  void opened.then(
+    () => {
+      if (opening === opened) opening = null;
+    },
+    () => {
+      if (opening === opened) opening = null;
+    }
+  );
+  return opened;
+};
+
+/**
+ * Whether this browser opens as a member's device: a cloud record for a member, signed in when it
+ * was last here. It opens on the cloud's board (`liveBoardWanted`) and League kept live, and so is
+ * drawn before its own pool is read or its session has signed in (`bootOrder.ts`).
+ */
+export const memberBootsLive = (): boolean => {
+  if (!config()) return false;
+  const state = loadCloudState();
+  return state.enabled && state.uid !== null;
 };
 
 /**
@@ -932,8 +970,12 @@ const settleLocked = async (
 /** Runs `work` for the signed-in owner under the lock, saying what went wrong if it fails. */
 const withSession = async (
   work: (current: Session, account: CloudAccount) => Promise<unknown>,
-  { skip = false }: { skip?: boolean } = {}
+  { skip = false, pool = true }: { skip?: boolean; pool?: boolean } = {}
 ): Promise<boolean> => {
+  // A settlement of the pool reads and writes the device's own, so it waits for it to be read in
+  // where a member's device reads it after the page (`poolFill.ts`); outside the lock, which other
+  // tabs would otherwise wait on meanwhile. League's alone (`pool: false`) reads none of it.
+  if (pool && !isPoolFilled()) await poolFilledInTime();
   const current = session;
   const account = signedIn();
   if (!current || !account || !loadCloudState().enabled) return false;
@@ -1081,9 +1123,16 @@ export const bootCloud = async (onProgress?: (text: string) => void): Promise<vo
     );
     if (found) {
       if (found.one) {
+        /*
+         * Signed in, with no League to take at boot, since its seasons arrive live: the session
+         * is ready now, and the copy's manifest, which says only whether it is still there and of
+         * this build's schema, is read behind it rather than holding the page and League's going
+         * live at "connecting" for the round trip.
+         */
+        if (copyAreas(["league"]).length === 0) setStatus(savedStatus(found.one.account));
         const settling = withSession(
           (current, account) => settleLocked(current, account, ["league"], "boot"),
-          { skip: true }
+          { skip: true, pool: false }
         );
         await within(settling, STARTUP_TAKE_MS, false);
       }

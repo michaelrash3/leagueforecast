@@ -11,6 +11,8 @@ import { leagueBridgeOf, type LeagueBridgeAnswer } from "../lib/live/leagueAnswe
 import type { LeagueAsker } from "../lib/live/leagueAsk";
 import { BRIDGE_KEY } from "../lib/preferences";
 import { loadAgeGroups, loadScoutGamesForSeason, loadScoutTeams } from "../lib/teamRankingsStorage";
+import { poolFilled } from "../lib/poolFill";
+import { usePoolFilled } from "./useOpeningHold";
 
 /** A fixture as the bridge reads it: league names, the league's own date string, and final runs. */
 export type SeasonFixture = LeagueFixture;
@@ -52,6 +54,11 @@ export type ScoutBridgeOptions = {
    * a club; being shown anew asks only while it is on screen.
    */
   leagueOnScreen?: boolean;
+  /**
+   * Whether the question waits: while Team Rankings opens on the cloud's board, the server is
+   * asked once the board is drawn (`openingHold.ts`), and then as it would have been.
+   */
+  held?: boolean;
 };
 
 export type ScoutBridge = {
@@ -194,8 +201,16 @@ export function useScoutBridge({
   asker,
   signedIn,
   leagueOnScreen = true,
+  held = false,
 }: ScoutBridgeOptions): ScoutBridge {
   const [revision, setRevision] = useState(0);
+  // The device's own pool, read in after the page on a member's device (`poolFill.ts`): what is
+  // worked out from it is worked out again once it is in, and where it is read at all, as on a
+  // member's device signed out, it is wanted now rather than once a board is drawn.
+  const filled = usePoolFilled();
+  useEffect(() => {
+    if (!asker) void poolFilled();
+  }, [asker]);
 
   /** Whether a bridge question is out: asking again meanwhile would throw its answer away. */
   const out = useRef(false);
@@ -216,7 +231,7 @@ export function useScoutBridge({
 
   const local = useMemo(() => {
     void revision;
-    if (asker || !activeSeasonId) return NOTHING;
+    if (asker || !activeSeasonId || !filled) return NOTHING;
     return leagueScoutBridge(
       activeSeasonId,
       loadAgeGroups(),
@@ -225,7 +240,7 @@ export function useScoutBridge({
       teams,
       seasonFixtures
     );
-  }, [asker, activeSeasonId, teams, seasonFixtures, revision]);
+  }, [asker, activeSeasonId, teams, seasonFixtures, revision, filled]);
 
   // Nothing reads what an earlier build kept, so it is let go of whichever way this device reads.
   useEffect(() => {
@@ -283,7 +298,7 @@ export function useScoutBridge({
   }, [signedIn, asker, askIfIdle]);
 
   useEffect(() => {
-    if (!asker || !activeSeasonId) return;
+    if (!asker || !activeSeasonId || held) return;
     let current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const ask = (failures: number) => {
@@ -327,7 +342,7 @@ export function useScoutBridge({
       again.current = false;
       clearTimeout(timer);
     };
-  }, [asker, activeSeasonId, seasonKey, teams, seasonFixtures, revision]);
+  }, [asker, activeSeasonId, seasonKey, teams, seasonFixtures, revision, held]);
 
   const bridge = asker ? (answer?.bridge ?? kept ?? NOTHING) : local;
   const unanswered =
@@ -349,7 +364,7 @@ export function useScoutBridge({
   const candidatesFor = useCallback(
     (leagueTeamName: string) => {
       void revision;
-      if (!activeSeasonId) return [];
+      if (!activeSeasonId || (!asker && !filled)) return [];
       if (asker) {
         return answer?.candidates.find((entry) => entry.name === leagueTeamName)?.clubs ?? [];
       }
@@ -362,7 +377,7 @@ export function useScoutBridge({
         seasonFixtures
       );
     },
-    [asker, answer, activeSeasonId, seasonFixtures, revision]
+    [asker, answer, activeSeasonId, seasonFixtures, revision, filled]
   );
 
   /*
@@ -401,8 +416,9 @@ export function useScoutBridge({
   const wideOptions = useCallback((): readonly ClubPickOption[] => {
     void revision;
     if (asker) return wideHere?.options ?? NO_OPTIONS;
+    if (!filled) return NO_OPTIONS;
     return pickableClubs(activeSeasonId, loadAgeGroups(), loadScoutTeams()).map(clubPickOption);
-  }, [asker, wideHere, revision, activeSeasonId]);
+  }, [asker, wideHere, revision, activeSeasonId, filled]);
 
   return {
     bridge,

@@ -72,6 +72,8 @@ import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
 import { resetTeamRankingsStore, saveAgeGroups } from "../../lib/teamRankingsStorage";
 import type { LiveSources } from "../../hooks/useLiveBoard";
 import { askToScout, scoutAsked } from "../../lib/scoutRequest";
+import { releaseOpening, resetOpeningHold } from "../../lib/live/openingHold";
+import { resetPoolFill, startPoolFill } from "../../lib/poolFill";
 
 /*
  * Team Rankings opened on the cloud's board (`LiveTeamRankings`), from a board published to an
@@ -4793,5 +4795,98 @@ describe("what each game did, on a club's panel on the cloud's board", () => {
     // before the edit too.
     expect([...after]).toEqual([...before].filter(([day]) => day !== "2027-04-03"));
     expect(within(panel).getByText(/^Spring 2027 rating /).textContent).toBe(headline.textContent);
+  });
+});
+
+/*
+ * A phone opening the page gives the board its network and main thread first (`openingHold.ts`),
+ * and opens on this device's own copy only once that is read in (`poolFill.ts`).
+ */
+describe("what waits for the board's first draw", () => {
+  beforeEach(() => resetOpeningHold());
+  afterEach(() => {
+    releaseOpening();
+    resetPoolFill();
+  });
+
+  it("loads the page's code, reads its own club's card and watches the meta once it is drawn", async () => {
+    await publish(live, [
+      { key: `board:2027:${PAGE}:spring`, value: SPRING },
+      { key: `board:2027:${PAGE}:fall`, value: FALL },
+      { key: `board:2027:${PAGE}:year`, value: SPRING },
+      {
+        key: clubKey(2027, clubBucketOf("S-2")),
+        value: {
+          clubs: {
+            "S-2": encodeClubCard({
+              team: { id: "S-2", name: "Placeholder S-2" },
+              games: [],
+              names: {},
+            }),
+          },
+        },
+      },
+    ]);
+    const board = live.meta()?.views[`board:2027:${PAGE}:spring`];
+    const bucket = live.meta()?.views[clubKey(2027, clubBucketOf("S-2"))];
+    if (!board || !bucket) throw new Error("nothing published");
+    const reader = readerOf(live);
+    let release = (): void => undefined;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const asked: string[] = [];
+    const watchMeta = vi.fn(live.watchMeta);
+    const slow: LiveReader = {
+      ...reader,
+      watchMeta,
+      getChunk: async (id) => {
+        asked.push(id);
+        if (id.startsWith(board.id)) await released;
+        return reader.getChunk(id);
+      },
+    };
+    const preloadPage = vi.fn(() => Promise.resolve());
+    render(
+      <LiveTeamRankings
+        status={{ kind: "connecting" }}
+        renderPage={page}
+        preloadPage={preloadPage}
+        sources={sourcesOf(live, { reader: async () => slow })}
+        seasons={[]}
+        showToast={showToast}
+        confirm={confirm}
+      />
+    );
+    await waitFor(() => expect(asked.some((id) => id.startsWith(board.id))).toBe(true));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(preloadPage).not.toHaveBeenCalled();
+    expect(watchMeta).not.toHaveBeenCalled();
+    expect(asked.some((id) => id.startsWith(bucket.id))).toBe(false);
+    release();
+    expect(await screen.findByText("The cloud's board")).toBeTruthy();
+    await waitFor(() => expect(preloadPage).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(watchMeta).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(asked.some((id) => id.startsWith(bucket.id))).toBe(true));
+  });
+
+  it("opens on this device's copy only once the device's store is read in", async () => {
+    let readIn = (): void => undefined;
+    startPoolFill(
+      () =>
+        new Promise<void>((resolve) => {
+          readIn = resolve;
+        })
+    );
+    const refusing: LiveReader = {
+      readMeta: () => Promise.reject({ code: "permission-denied" }),
+      getChunk: () => Promise.reject({ code: "permission-denied" }),
+    };
+    open(sourcesOf(live, { reader: async () => refusing }));
+    await waitFor(() => expect(pool.prepared).toBe(1));
+    await act(async () => pool.finish());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(handedOver()).toBeNull();
+    expect(screen.getByText("This opens on this device's copy as soon as it is in…")).toBeTruthy();
+    await act(async () => readIn());
+    await waitFor(() => expect(handedOver()).not.toBeNull());
   });
 });

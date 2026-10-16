@@ -16,6 +16,7 @@ import {
 } from "./lib/storage";
 import { blankLog } from "./lib/util";
 import { prefetchAllViews } from "./components/league/leagueViews";
+import { releaseOpening, resetOpeningHold } from "./lib/live/openingHold";
 
 // League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
 beforeAll(() => prefetchAllViews());
@@ -41,6 +42,8 @@ const server = vi.hoisted(() => ({
   bridge: null as LeagueBridgeAnswer | null,
   /** What a season put on a Team Rankings page sent to the server (3.7). */
   placed: [] as unknown[],
+  /** Whether League is kept live here, as a member's device whose seasons met the cloud's is. */
+  leagueLive: false,
 }));
 
 vi.mock("./lib/live/leagueAsk", () => ({
@@ -114,10 +117,15 @@ vi.mock("./lib/leagueScoreFill", async (actual) => ({
   planLeagueScoreFill: () => server.plan,
 }));
 
-vi.mock("./lib/live/leagueWanted", async (actual) => ({
-  ...(await actual<typeof import("./lib/live/leagueWanted")>()),
-  memberSignedIn: () => server.signedIn,
-}));
+vi.mock("./lib/live/leagueWanted", async (actual) => {
+  const wanted = await actual<typeof import("./lib/live/leagueWanted")>();
+  return {
+    ...wanted,
+    memberSignedIn: () => server.signedIn,
+    leagueLiveWanted: (asked: Parameters<typeof wanted.leagueLiveWanted>[0]) =>
+      server.leagueLive || wanted.leagueLiveWanted(asked),
+  };
+});
 
 const PLAN: LeagueFillPlan = {
   rows: [
@@ -160,6 +168,7 @@ describe("League Standings asking the server what Team Rankings has", () => {
     server.live = true;
     server.bridge = null;
     server.placed = [];
+    server.leagueLive = false;
     saveTeams([
       { id: "A", name: "Aces" },
       { id: "B", name: "Bears", scoutTeamId: "S-BEARS" },
@@ -182,6 +191,48 @@ describe("League Standings asking the server what Team Rankings has", () => {
       ],
       fixtures: [{ away: "Aces", home: "Bears", date: "5/1" }],
     });
+  });
+
+  it("holds League's listener and its question while Team Rankings opens on the cloud's board", async () => {
+    resetOpeningHold();
+    server.leagueLive = true;
+    const listened = vi.spyOn(cloudSession, "leagueStore").mockResolvedValue(null);
+    window.history.replaceState(null, "", "/?view=rankings");
+    try {
+      render(<App />);
+      expect(await screen.findByText("The cloud's board")).toBeTruthy();
+      // Past the 0.8 s the question waits for the season to stand still.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1_200)));
+      expect(server.asked.map((query) => query.kind)).not.toContain("league.bridge");
+      expect(listened).not.toHaveBeenCalled();
+      // The board drawn: both go ahead.
+      act(() => releaseOpening());
+      await waitFor(() => expect(listened).toHaveBeenCalled());
+      await waitFor(
+        () => expect(server.asked.map((query) => query.kind)).toContain("league.bridge"),
+        { timeout: 5_000 }
+      );
+    } finally {
+      vi.restoreAllMocks();
+      releaseOpening();
+    }
+  });
+
+  it("holds nothing of League's while League Standings is the page shown", async () => {
+    resetOpeningHold();
+    server.leagueLive = true;
+    const listened = vi.spyOn(cloudSession, "leagueStore").mockResolvedValue(null);
+    try {
+      render(<App />);
+      await waitFor(() => expect(listened).toHaveBeenCalled());
+      await waitFor(
+        () => expect(server.asked.map((query) => query.kind)).toContain("league.bridge"),
+        { timeout: 2_500 }
+      );
+    } finally {
+      vi.restoreAllMocks();
+      releaseOpening();
+    }
   });
 
   it("reads a CSV's bare dates in the squad year the server's bridge gives the season", async () => {

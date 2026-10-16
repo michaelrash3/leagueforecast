@@ -239,6 +239,18 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     expect(result.current.candidatesFor("Owls")).toEqual([]);
   });
 
+  it("asks nothing while held back for the live board's first draw, and asks once let go", async () => {
+    const { asked, asker } = server();
+    const { result, rerender } = setup({ asker, held: true, signedIn: true });
+    await settle();
+    expect(asked).toEqual([]);
+    expect(result.current.unanswered).toBe("asking");
+    rerender({ ...props(), asker, held: false, signedIn: true });
+    await settle();
+    expect(asked).toHaveLength(1);
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+  });
+
   it("keeps the bridge alone for the next visit, and reads it before the server answers", async () => {
     const { asker } = server();
     const first = setup({ asker });

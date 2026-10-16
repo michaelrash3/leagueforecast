@@ -40,6 +40,7 @@ import {
 } from "./teamRankingsArchive";
 import { idbDelete, idbGet, idbKeys, idbSet, openPoolDb } from "./idb";
 import { mayWrite } from "./cloud/cloudGuard";
+import { isPoolFilled } from "./poolFill";
 import {
   listenForLocalPoolWrites,
   openPoolBroadcast,
@@ -608,8 +609,10 @@ export const writePoolTogether = (write: () => boolean): boolean => {
  * newer copy in (`cloudGuard.ts`): its values would go back over the newer ones.
  */
 const writeValue = (key: string, value: unknown, quiet = false): boolean => {
-  // Refused rather than written somewhere nothing will read it back.
-  if (poolUnavailable) return false;
+  // Refused rather than written somewhere nothing will read it back: a store that would not open,
+  // or one still to be read in after the page (`poolFill.ts`), whose read would lay what it holds
+  // over this, or leave it in a localStorage nothing reads once the store is open.
+  if (poolUnavailable || !isPoolFilled()) return false;
   if (isCloudPoolKey(key) && !mayWrite("pool")) return false;
   noteBefore(key);
   // On localStorage the browser raises `storage` in every other tab by itself, so there is nothing
@@ -639,6 +642,8 @@ const writeValue = (key: string, value: unknown, quiet = false): boolean => {
 };
 
 const forgetValue = (key: string, quiet = false): void => {
+  // Not while the store is still being read in, for the reason a write is not (`writeValue`).
+  if (!isPoolFilled()) return;
   if (isCloudPoolKey(key) && !mayWrite("pool")) return;
   noteBefore(key);
   if (!usingIdb) {
@@ -716,7 +721,8 @@ export const fillPoolCache = async (io: PoolStoreIo): Promise<Map<string, unknow
 
   /*
    * Read together rather than one after another. These keys are independent, and this runs on the
-   * startup path — `main.tsx` waits on it before anything mounts — so serial reads made the wait
+   * startup path — `main.tsx` waits on it before anything mounts, and on a member's device what
+   * reads the pool waits on it (`poolFill.ts`) — so serial reads made the wait
    * the sum of every key rather than the slowest one. The migration above stays serial: it writes,
    * and a key is only cleared from localStorage once the store has confirmed it.
    *
@@ -735,7 +741,8 @@ export const fillPoolCache = async (io: PoolStoreIo): Promise<Map<string, unknow
 };
 
 /**
- * Opens the pool's store and fills the cache, once, before the app reads anything.
+ * Opens the pool's store and fills the cache, once, before the app reads anything: before it
+ * mounts, or, on a member's device, before anything that reads the pool (`poolFill.ts`).
  *
  * Never throws and never blocks the app: a browser without IndexedDB, or one that refuses it,
  * simply carries on using `localStorage`.
@@ -1078,7 +1085,7 @@ const writeRouted = (games: ScoutGame[], replacing: ReadonlySet<string>): boolea
  *
  * Awaited, and the old key is emptied only once every year's write has been confirmed, so a
  * write that fails leaves the pool exactly where it was and this runs again next time. Runs on
- * the startup path, before anything mounts, so the app never sees both shapes at once.
+ * the startup path, before anything reads the pool, so the app never sees both shapes at once.
  */
 const splitLegacyGames = async (io: PoolStoreIo): Promise<void> => {
   const legacy = cache.get(GAMES_KEY);

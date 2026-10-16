@@ -18,12 +18,14 @@ import {
 import type { PullSender } from "../lib/cloud/cloudPulls";
 import { loadCloudState } from "../lib/cloud/cloudState";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
+import { afterOpening } from "../lib/live/openingHold";
 import {
   boardStanding,
   checkLiveMeta,
   failedLive,
   readBoard,
   readLive,
+  rememberBoard,
   type BoardRead,
   type BoardStanding,
   type LiveMiss,
@@ -239,6 +241,10 @@ export function useLiveBoard({
    */
   const boardMissRef = useRef<LiveBoardState["boardMiss"]>(null);
   const [keptMissKey, setKeptMissKey] = useState<string | null>(null);
+  // Refused since the page opened: what was kept is not drawn after, as the account may not see it.
+  const refusedRef = useRef(false);
+  // The read of what this account kept, while it runs: a board read for the same key waits for it.
+  const keptReadRef = useRef<Promise<void> | null>(null);
   const [retries, setRetries] = useState(0);
   const missBoard = (why: LiveBoardState["boardMiss"]) => {
     boardMissRef.current = why;
@@ -248,8 +254,10 @@ export function useLiveBoard({
   useEffect(() => {
     let alive = true;
     let unwatch: (() => void) | null = null;
+    refusedRef.current = false;
     const { cache } = sources;
     const forgetAll = () => {
+      refusedRef.current = true;
       forgetLiveBoard();
       setMeta(null);
       setHeard(null);
@@ -315,38 +323,49 @@ export function useLiveBoard({
       setMeta({ meta: read.meta, pages: read.pages, from: "network" });
       setMetaMiss(null);
     };
-    void (async () => {
+    /*
+     * What this account kept: its last meta, and the board the page opens on, read together and
+     * put on screen together, so the board is decoded once, here, and the page's own read of it
+     * (below) finds it on screen. Never waits for the network, and the network does not wait for
+     * it: a board the network reads first stays, since the kept one is drawn only while nothing
+     * is, and a meta the network reads first stays, since the kept one is laid out by only while
+     * no other is.
+     */
+    const keptRead = (async () => {
       const uid = sources.uid();
-      if (uid) {
-        const kept = await cache.meta(uid).catch(() => null);
-        const read = kept ? checkLiveMeta(kept.meta) : null;
-        if (alive && kept && read?.ok) {
-          keptAtRef.current = kept.readAt;
-          setMeta((shown) => shown ?? { meta: read.meta, pages: read.pages, from: "cache" });
-          setHeardAt((at) => at ?? kept.readAt);
-          // Finish the cache read before a quick meta response can supersede it with a new
-          // fingerprint whose bytes are still downloading. This never waits for the network.
-          const route = requested.current;
-          const savedSegment =
-            route.routeSegment ??
-            segmentWorthShowing(route.calendarSegment, read.pages.halves[route.pageId] ?? NO_GAMES);
-          const savedKey = boardKey(route.year, route.pageId, savedSegment ?? "year");
-          const saved = await readBoard({
-            reader: KEPT_ONLY,
-            meta: read.meta,
-            key: savedKey,
-            cache,
-          });
-          if (alive && saved.ok && !boardRef.current) {
-            show({ key: savedKey, h: saved.entry.h, view: saved.view, checked: false });
-            setBoardAt(kept.readAt);
-          }
-        }
+      if (!uid) return;
+      const kept = await cache.meta(uid).catch(() => null);
+      const read = kept ? checkLiveMeta(kept.meta) : null;
+      if (!alive || !kept || !read?.ok) return;
+      const route = requested.current;
+      const savedSegment =
+        route.routeSegment ??
+        segmentWorthShowing(route.calendarSegment, read.pages.halves[route.pageId] ?? NO_GAMES);
+      const savedKey = boardKey(route.year, route.pageId, savedSegment ?? "year");
+      const saved = await readBoard({ reader: KEPT_ONLY, meta: read.meta, key: savedKey, cache });
+      if (!alive || refusedRef.current) return;
+      keptAtRef.current = kept.readAt;
+      setMeta((shown) => shown ?? { meta: read.meta, pages: read.pages, from: "cache" });
+      setHeardAt((at) => at ?? kept.readAt);
+      if (saved.ok && !boardRef.current) {
+        show({ key: savedKey, h: saved.entry.h, view: saved.view, checked: false });
+        setBoardAt(kept.readAt);
       }
+    })().catch(() => undefined);
+    keptReadRef.current = keptRead;
+    /*
+     * The network's, started at once beside what was kept rather than after it: on a phone the
+     * reader is a sign-in, a round trip or two, and the meta another, which waited on the kept
+     * board's unzipping for nothing.
+     */
+    void (async () => {
       const reader = await sources.reader().catch(() => null);
       if (!alive) return;
       if (!reader) {
-        setMetaMiss("no-reader");
+        // Said once what was kept has been looked at: with no reader, the page hands over only
+        // where nothing kept can be drawn, which it cannot know before then.
+        await keptRead;
+        if (alive) setMetaMiss("no-reader");
         return;
       }
       readerRef.current = reader;
@@ -355,6 +374,9 @@ export function useLiveBoard({
       if (!alive) return;
       await take(first);
       if (!alive || !reader.watchMeta || (!first.ok && first.why === "refused")) return;
+      // The watch loads the full Firestore SDK, which waits for the board's first draw.
+      await afterOpening();
+      if (!alive) return;
       // Nothing after the last wait: the watch is in place before a cleanup could run.
       unwatch = reader.watchMeta({
         next: (raw, fromServer) => {
@@ -392,6 +414,7 @@ export function useLiveBoard({
    * does, since the account may no longer see any of it.
    */
   const refuse = useCallback(() => {
+    refusedRef.current = true;
     forgetLiveBoard();
     boardRef.current = null;
     setBoard(null);
@@ -412,12 +435,22 @@ export function useLiveBoard({
       return;
     let alive = true;
     void (async () => {
-      const previous = await sources.cache
-        .previous?.(key, meta.meta.views[key]?.k ?? meta.meta.copy.id)
-        .catch(() => null);
+      // What this account kept, still being read off the device (it never waits on the network):
+      // the board it draws is this one's stand-in, and decoded there it is not decoded again here.
+      await keptReadRef.current;
+      if (!alive) return;
+      // An earlier board of this key kept here, drawn while this one is read, unless one of the
+      // key is on screen already; decoded, it is remembered as a read board is.
+      const previous =
+        boardRef.current?.key === key
+          ? null
+          : await sources.cache
+              .previous?.(key, meta.meta.views[key]?.k ?? meta.meta.copy.id)
+              .catch(() => null);
       if (alive && previous && boardRef.current?.key !== key) {
         const view = coerceBoardView(previous.value);
-        if (view) show({ key, h: previous.h, view, checked: false });
+        if (view)
+          show({ key, h: previous.h, view: rememberBoard(previous.h, view), checked: false });
       }
       const read = await readBoard({ reader, meta: meta.meta, key, cache: sources.cache });
       if (!alive) return;

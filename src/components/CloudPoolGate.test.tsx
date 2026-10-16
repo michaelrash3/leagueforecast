@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudStatus } from "../lib/cloud/cloudSession";
+import { resetPoolFill, startPoolFill } from "../lib/poolFill";
 
 /*
  * Team Rankings' wait for its pool to come from the cloud copy (`CloudPoolGate`): the progress card
@@ -32,6 +33,7 @@ beforeEach(() => {
   pool.wants = true;
   pool.shown = 0;
 });
+afterEach(() => resetPoolFill());
 
 describe("the wait for Team Rankings' pool", () => {
   it("shows its progress and a way past it, then the page once the pool is in", async () => {
@@ -88,5 +90,36 @@ describe("the wait for Team Rankings' pool", () => {
     fireEvent.click(screen.getByRole("button", { name: "board 5/20" }));
     expect(screen.getByText("the page")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /board/ })).toBeNull();
+  });
+
+  it("waits for this device's own store, read at once though it was waiting for the board", async () => {
+    const reads: string[] = [];
+    let readIn = (): void => undefined;
+    // A member's device, whose store is read once the live board is drawn, which here it never is.
+    startPoolFill(
+      () =>
+        new Promise<void>((resolve) => {
+          reads.push("read");
+          readIn = resolve;
+        }),
+      new Promise(() => undefined)
+    );
+    render(
+      <CloudPoolGate status={working(0, 0)}>
+        <p>the page</p>
+      </CloudPoolGate>
+    );
+    // Read at once, though the cloud's pool is still being brought in step.
+    await act(async () => undefined);
+    expect(reads).toEqual(["read"]);
+    await act(async () => pool.finish());
+    expect(screen.getByRole("status").textContent).toContain(
+      "Reading Team Rankings on this device…"
+    );
+    expect(screen.queryByText("the page")).toBeNull();
+    expect(pool.shown).toBe(0);
+    await act(async () => readIn());
+    expect(screen.getByText("the page")).toBeTruthy();
+    expect(pool.shown).toBe(1);
   });
 });

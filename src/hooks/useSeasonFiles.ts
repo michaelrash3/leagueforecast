@@ -17,6 +17,7 @@ import {
   type TeamRankingsBackup,
 } from "../lib/teamRankingsBackup";
 import { loadAgeGroups, replaceArchivedSeasons } from "../lib/teamRankingsStorage";
+import { afterPoolFill, poolFilled } from "../lib/poolFill";
 import { copyReader, restoresInCloud, restoreTeamRankingsInCloud } from "../lib/cloud/cloudSession";
 import { copyBackup, COPY_UNREAD } from "../lib/live/copyBackup";
 import { squadYearForLeagueSeason } from "../lib/teamRankings/seasons";
@@ -226,6 +227,8 @@ export function useSeasonFiles({
       try {
         const raw = event.target?.result;
         if (typeof raw !== "string") throw new Error("File is not text");
+        // The pool is read below, and may be written: once it is read in (`poolFill.ts`).
+        await poolFilled();
 
         /*
          * A Team Rankings backup is JSON and carries the pool alone — no schedule, no season. Sent
@@ -351,7 +354,7 @@ This will replace the current season data and save an undo snapshot.`,
       URL.revokeObjectURL(url);
     };
     if (!rankingsLive || !restoresInCloud()) {
-      write(teamRankingsCsvSections(readTeamRankingsBackup()));
+      afterPoolFill(() => write(teamRankingsCsvSections(readTeamRankingsBackup())));
       return;
     }
     // One read at a time: each is the whole copy, unpacked and decoded in a worker of its own.
@@ -473,6 +476,8 @@ This backup carries one season, so it replaces the current season data and saves
       try {
         const raw = event.target?.result;
         if (typeof raw !== "string") throw new Error("Backup is not text");
+        // What it replaces is read first and the pool written: once it is read in (`poolFill.ts`).
+        await poolFilled();
 
         /*
          * Two JSON backups arrive at this button now, and they are not the same file. The whole-app

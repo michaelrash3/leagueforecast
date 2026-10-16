@@ -503,6 +503,76 @@ describe("the published boards, as this browser reads them", () => {
   });
 });
 
+describe("opening at boot beside the live board", () => {
+  it("opens one session for the boot and the board's reader, so the boot's sign-in holds", async () => {
+    const laptop = await laptopFirst();
+    runAs(laptop);
+    // Firebase's code arriving late, for each that asks: the board's reader asks while the boot
+    // is still waiting for it.
+    const opened: Array<() => void> = [];
+    let opens = 0;
+    session.setCloudTestHooks({
+      openCloud: () =>
+        new Promise<FirebaseCloud>((resolve) => {
+          opens += 1;
+          opened.push(() => resolve(firebaseFor(ME)));
+        }),
+    });
+    const booting = session.bootCloud();
+    const reading = session.liveReader();
+    // Each open let go of in the order asked, the boot's first.
+    while (opened.length > 0) {
+      opened.shift()?.();
+      await Promise.resolve();
+    }
+    await booting;
+    expect(await reading).not.toBeNull();
+    // Firebase opened once, and the boot's sign-in is the session's: settled, and signed in.
+    expect(opens).toBe(1);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+    expect(session.restoresInCloud()).toBe(true);
+  });
+
+  it("is ready once signed in where League arrives live, the copy read behind it", async () => {
+    const laptop = await laptopFirst();
+    noteLeagueMet(ME.uid);
+    runAs(laptop);
+    // The copy's manifest, which the boot reads, never answering.
+    session.setCloudTestHooks({
+      openCloud: async () => ({
+        ...firebaseFor(ME),
+        store: { ...sky.store, readManifest: () => new Promise<null>(() => undefined) },
+      }),
+    });
+    void session.bootCloud();
+    await vi.waitFor(() => expect(session.cloudStatus()).toMatchObject({ kind: "saved" }));
+  });
+
+  it("still waits for the copy where League has yet to meet the cloud's documents", async () => {
+    const laptop = await laptopFirst();
+    runAs(laptop);
+    let answer = () => undefined as void;
+    session.setCloudTestHooks({
+      openCloud: async () => ({
+        ...firebaseFor(ME),
+        store: {
+          ...sky.store,
+          readManifest: () =>
+            new Promise<CloudManifest | null>((resolve) => {
+              answer = () => resolve(sky.manifest());
+            }),
+        },
+      }),
+    });
+    const booting = session.bootCloud();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(session.cloudStatus()).toMatchObject({ kind: "connecting" });
+    answer();
+    await booting;
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+  });
+});
+
 describe("the copy as this device last found it", () => {
   const seenOf = (manifest: CloudManifest | null) =>
     manifest && {
