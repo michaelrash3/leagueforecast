@@ -19,7 +19,11 @@ import {
   type SentPull,
   type WatchedPull,
 } from "../../lib/cloud/cloudPulls";
-import { parseGcTeamList, type GcTeamListEntry } from "../../lib/gameChangerApi";
+import {
+  isWellFormedGcTeamId,
+  parseGcTeamList,
+  type GcTeamListEntry,
+} from "../../lib/gameChangerApi";
 import { MAX_LIST_TEAMS, tooManyTeams } from "../../lib/cloud/pullJobs";
 import { button, card } from "../../styles/tokens";
 import { FIREBASE_WEB_CONFIG } from "../../lib/cloud/cloudConfig";
@@ -39,10 +43,40 @@ const STOP_FAILED = "The pull could not be asked to stop just now. Try again.";
  * high school squads and adult or college teams cost no request. What the pool already has, and
  * the clubs refused or too young to rank, the cloud leaves out as it pulls (`cloudRunner.ts`).
  */
-export const pastedTeams = (text: string): GcTeamListEntry[] =>
-  parseGcTeamList(text).entries.filter(
+export const pastedTeams = (text: string): GcTeamListEntry[] => readPaste(text).entries;
+
+/**
+ * A paste as the card reads it: its teams worth sending (`pastedTeams`); how many of their ids are
+ * not of the shape GameChanger's are (`isWellFormedGcTeamId`), the slugs and names a list carries
+ * where an id should be, which GameChanger answers with HTTP 400; and how many lines named no team
+ * id, or one named above them. Both counts are said before the list is sent.
+ */
+export const readPaste = (
+  text: string
+): { entries: GcTeamListEntry[]; malformed: number; skipped: number } => {
+  const parsed = parseGcTeamList(text);
+  const entries = parsed.entries.filter(
     (entry) => !entry.notBaseball && !entry.highSchool && !entry.notYouth
   );
+  return {
+    entries,
+    malformed: entries.filter((entry) => !isWellFormedGcTeamId(entry.teamId)).length,
+    skipped: parsed.skipped.length,
+  };
+};
+
+/** What the card says of a paste's ids that will likely be refused, and its lines with none. */
+const pasteWarning = ({ malformed, skipped }: { malformed: number; skipped: number }): string =>
+  [
+    malformed > 0
+      ? `${malformed.toLocaleString()} of these ${malformed === 1 ? "does" : "do"} not look like GameChanger team ids, which are the 12 letters and digits after web.gc.com/teams/; GameChanger will likely refuse ${malformed === 1 ? "it" : "them"}.`
+      : "",
+    skipped > 0
+      ? `${skipped.toLocaleString()} ${skipped === 1 ? "line named no team id and is" : "lines named no team id and are"} left out.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
 /**
  * The pulls this device sent, or "Refresh now" handed it, and has not yet told the user the end
@@ -426,8 +460,10 @@ export default function LiveCloudPulls({
   const [said, setSaid] = useState<string | null>(null);
   const { look } = watching;
 
-  const entries = useMemo(() => pastedTeams(loaded?.text ?? text), [loaded, text]);
+  const paste = useMemo(() => readPaste(loaded?.text ?? text), [loaded, text]);
+  const { entries } = paste;
   const tooMany = entries.length > MAX_LIST_TEAMS;
+  const warning = pasteWarning(paste);
   const send = useCallback(
     async (list: readonly GcTeamListEntry[], options: { refresh: boolean; years: number[] }) => {
       const sender = pulls();
@@ -543,6 +579,9 @@ export default function LiveCloudPulls({
               reader.readAsText(file);
             }}
           />
+          {warning ? (
+            <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{warning}</p>
+          ) : null}
           {tooMany ? (
             <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
               {tooManyTeams(entries.length)}

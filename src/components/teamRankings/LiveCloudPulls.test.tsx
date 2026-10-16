@@ -368,4 +368,27 @@ describe("a pasted list", () => {
     );
     expect(sender.jobs.put).not.toHaveBeenCalled();
   });
+
+  // Slugs and names where an id should be, which GameChanger answers with HTTP 400, said before
+  // the list is sent rather than found in the skipped-team report after.
+  it("counts what does not look like a GameChanger id, and the lines that named none", async () => {
+    const { sender } = cloud();
+    await open(sender);
+    await paste(
+      [
+        "Team Name,Team ID",
+        "Aces 10U,gK5JSTKGwRYz",
+        "Bears 10U,bears-baseball-10u",
+        // Only the name filled in, under a header that says it is a name: no id at all.
+        "Cubs10Uteam,",
+        "Dodgers 10U,Dodgersxx",
+      ].join("\n")
+    );
+    expect(screen.getByRole("button", { name: /^Pull 3 teams in the cloud$/ })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "2 of these do not look like GameChanger team ids, which are the 12 letters and digits after web.gc.com/teams/; GameChanger will likely refuse them. 1 line named no team id and is left out."
+      )
+    ).toBeTruthy();
+  });
 });

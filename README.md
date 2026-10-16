@@ -1547,7 +1547,9 @@ links, or a whole spreadsheet export — the same reader handles all three, BOM,
 quoted names and tab-separated columns included. Each team's schedule is read and
 filed under its own age group and squad year, and the pages are created as they
 are needed, because a nationwide list cannot expect a page to exist for every
-level first.
+level first. Under a header, an id is read from the id column, the link column,
+or a link anywhere in the row, and nowhere else: a row with only its name filled
+in once sent that name to GameChanger as an id.
 
 #### Two lists: teams, and the organizations they belong to
 
@@ -3897,7 +3899,11 @@ how a pasted list is pulled at all.
 **On the page** (`LiveCloudPulls.tsx`, `src/lib/cloud/cloudPulls.ts`). The paste
 box reads a list or a spreadsheet export as the device's own pull panel does,
 leaving out wiffle ball, high school squads and adult or college teams, which cost
-no request. Two more buttons appear when the server's import status names teams
+no request. Before it is sent, it says how many of the ids do not have the shape
+every GameChanger team id seen so far has, twelve letters and digits
+(`isWellFormedGcTeamId`): slugs and names a list carries where an id should be,
+which GameChanger answers with HTTP 400; and how many lines named no team id at
+all. Two more buttons appear when the server's import status names teams
 for them: the teams nobody could age, asked again on a catch-up day, and the
 GameChanger pages playing this season whose roster is short and due a look. Those
 two are catch-ups: their teams are pulled again whether or not the pool has them,
@@ -3914,7 +3920,11 @@ so a tab still running an older page cannot send one either. A nationwide export
 goes up as several lists, one after another.
 
 **What the cloud pulls of a list** (`cloudRunner.ts`, `listIds`). Never a club
-refused for good or as another season's, nor one too young to rank. Of a paste,
+refused for good or as another season's, nor one too young to rank. An id
+GameChanger answered with HTTP 400 is `invalid-id`, final, and kept with the clubs
+refused for good by the run that filed the list (`rememberRefused`), so the next
+paste of it costs no request; a run that filed nothing remembers none, so a route
+that refused every id alike is never taken for a list of non-ids. Of a paste,
 only the teams the pool lacks, or a handful pasted by hand with none new, which
 is how a schedule that changed today is read before the rota comes round; the
 rest of an export is the nightly's to refresh. A catch-up pulls every team on it.

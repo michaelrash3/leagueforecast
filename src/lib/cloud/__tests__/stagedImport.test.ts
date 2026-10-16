@@ -431,6 +431,22 @@ describe("a staged CSV import", () => {
     expect(test.filed).toEqual(["gc0000000000"]);
     expect(test.job().status).toBe("done");
   });
+  it("hands the final phase the ids GameChanger said are not team ids, from every checkpoint", async () => {
+    const test = setup(4001);
+    const invalid = new Set(["gc0000000007", "gc0000003500"]);
+    test.fetchTeams.mockImplementationOnce(
+      async (ids) =>
+        new Map(
+          ids.map((id): [string, GcTeamResponse] => [
+            id,
+            invalid.has(id) ? { ok: false, reason: "invalid-id", message: "Not an id" } : good(id),
+          ])
+        )
+    );
+    await runStagedImport(ID, test.deps);
+    expect(vi.mocked(finishStagedImport).mock.calls[0]![4].invalidIds).toEqual([...invalid]);
+    expect(test.job()).toMatchObject({ status: "done", tally: { answered: 3999, failed: 2 } });
+  });
   it("counts a missing download result as skipped instead of restarting the job", async () => {
     const test = setup(2);
     test.fetchTeams.mockImplementationOnce(async (ids) => new Map([[ids[0]!, good(ids[0]!)]]));

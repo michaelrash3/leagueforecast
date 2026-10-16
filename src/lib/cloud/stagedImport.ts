@@ -516,6 +516,8 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
     return;
   }
   if (legs === 0 || answered === prior.answered) {
+    // Nothing downloaded, nothing filed: and no id GameChanger refused is remembered, either, so a
+    // route that answered every id alike with HTTP 400 is never taken for a list of non-ids.
     await say({
       status: "done",
       stage: "waiting",
@@ -525,6 +527,16 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
       error: null,
     });
     return;
+  }
+  // The ids GameChanger said are not team ids, off every checkpoint holding a failure, for the
+  // final phase to remember with the clubs refused for good, so a paste does not ask again.
+  const invalidIds: string[] = [];
+  for (let index = 0; index < checkpoints; index++) {
+    if (!summaries.get(index)?.failed) continue;
+    const batch = await artifacts.read<Batch>(`batch-${index}`);
+    if (!batch?.complete) throw new Error("A finished import batch is missing.");
+    for (const [teamId, answer] of batch.answers)
+      if (!answer.ok && answer.reason === "invalid-id") invalidIds.push(teamId);
   }
   let stageWrite: Promise<void> = Promise.resolve();
   const checkpointByTeam = new Map(
@@ -590,6 +602,7 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
       now,
       device: `import-${jobId}`,
       ...(deps.signal ? { signal: deps.signal } : {}),
+      invalidIds,
       onOutcomes: async (outcomes) => {
         if (!deps.reports) return;
         await say({ detail: "Saving the skipped-team report" });

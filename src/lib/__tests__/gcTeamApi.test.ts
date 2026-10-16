@@ -244,6 +244,34 @@ describe("GET /api/gc-team", () => {
     expect(recorded.body).toMatchObject({ ok: false, reason: "not-found", status: 404 });
   });
 
+  /*
+   * GameChanger answers HTTP 400 for something that is not a team id at all, a slug or a name a
+   * pasted list carried where its id should be. Read as an upstream error it was asked about
+   * again on every paste; as `invalid-id` it is final, and remembered (`rememberRefused`).
+   */
+  it("maps a profile 400 to invalid-id, alone and in a batch", async () => {
+    const slug = "bears-baseball-10u";
+    stubUpstream({
+      profile: { status: 400, body: { message: "Bad Request" } },
+      games: { status: 400, body: { message: "Bad Request" } },
+    });
+    const recorded = await run(`/api/gc-team?id=${slug}`);
+    expect(recorded.statusCode).toBe(400);
+    expect(recorded.body).toMatchObject({ ok: false, reason: "invalid-id", status: 400 });
+    const batch = (await run(`/api/gc-team?ids=${slug}&raw=1`)).body as {
+      teams: Array<{ teamId: string; result: GcTeamResponse }>;
+    };
+    expect(batch.teams).toEqual([
+      { teamId: slug, result: expect.objectContaining({ ok: false, reason: "invalid-id" }) },
+    ]);
+  });
+
+  it("keeps a schedule's 400 under a profile that answered an upstream error", async () => {
+    stubUpstream({ profile: { body: profileFixture }, games: { status: 400, body: "" } });
+    const recorded = await run(`/api/gc-team?id=${TEAM_ID}`);
+    expect(recorded.body).toMatchObject({ ok: false, reason: "upstream-error" });
+  });
+
   it("maps a 429 to throttled and passes Retry-After through", async () => {
     stubUpstream({
       profile: { status: 429, body: "slow down", headers: { "retry-after": "17" } },

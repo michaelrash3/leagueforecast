@@ -24,6 +24,7 @@ import {
   gcProfileApiUrl,
   gcTeamPageUrl,
   isGcFetchErrorReason,
+  isWellFormedGcTeamId,
   localDateInZone,
   normalizeGcGameStatus,
   gcGameIdsFrom,
@@ -238,6 +239,27 @@ describe("parseGcTeamList", () => {
 
   it("still takes a lone alphabetic token as an id (the API is the judge)", () => {
     expect(parseGcTeamList("abcdefghijkl").entries).toEqual([{ teamId: "abcdefghijkl" }]);
+  });
+
+  /*
+   * Under a header, a row with one cell filled took that cell as the id whatever column it sat
+   * in: a name with no spaces in the Team Name column ("Cubs10Uteam") went to GameChanger as an
+   * id, which it answers with HTTP 400. The header says which columns hold an id.
+   */
+  it("takes no id from a lone cell the header puts in another column", () => {
+    const { entries, skipped } = parseGcTeamList(
+      ["Team Name,Team ID", "Aces 10U,gK5JSTKGwRYz", "Cubs10Uteam,", "Dodgers10U"].join("\n")
+    );
+    expect(entries.map((entry) => entry.teamId)).toEqual(["gK5JSTKGwRYz"]);
+    expect(skipped).toEqual(["Cubs10Uteam,", "Dodgers10U"]);
+    // A lone id that sits in the id column, or a link anywhere, is still read.
+    expect(
+      parseGcTeamList(
+        ["Team ID,Team Name", "gK5JSTKGwRYz", "Bears,https://web.gc.com/teams/gsUthn4XoIxS"].join(
+          "\n"
+        )
+      ).entries.map((entry) => entry.teamId)
+    ).toEqual(["gK5JSTKGwRYz", TEAM_ID]);
   });
 
   it("returns nothing for empty input", () => {
@@ -929,6 +951,18 @@ describe("age labels travel ball actually uses", () => {
     expect(ageLevelFromName("12UNDER Bandits")).toBeUndefined();
     expect(ageLevelFromName("Team Umpire 9")).toBeUndefined();
     expect(ageLevelFromName("Wildcats")).toBeUndefined();
+  });
+});
+
+describe("isWellFormedGcTeamId", () => {
+  // Every GameChanger team id seen so far is 12 URL-safe characters; the parser takes 8 to 24.
+  it("is twelve URL-safe characters, and nothing the looser parse lets through besides", () => {
+    for (const id of ["gK5JSTKGwRYz", "Ab12Cd34Ef56", "a_b-c_d-e_f-"]) {
+      expect(isWellFormedGcTeamId(id)).toBe(true);
+    }
+    for (const id of ["bears-baseball-10u", "Dodgersxx", "gK5JSTKGwRYz1", "gK5JSTKGwRY", ""]) {
+      expect(isWellFormedGcTeamId(id)).toBe(false);
+    }
   });
 });
 

@@ -46,6 +46,19 @@ describe("what a finished run remembers", () => {
     );
     expect(rememberRefused(learned, [{ gcTeamId: "FiledFine002" }])).toBe(learned);
   });
+
+  /*
+   * Pasted lists carry slugs and names where an id should be, and GameChanger answers each with
+   * HTTP 400. Each was asked again on every paste of the list; kept for good, it is asked once.
+   */
+  it("keeps for good an id GameChanger said is not a team's, so the next paste leaves it out", () => {
+    const slug = "bears-baseball-10u";
+    const once = rememberRefused(learned, [], [slug]);
+    expect(isRefusedClub(once, slug, [2026, 2027])).toBe(true);
+    expect(refusedCount(once)).toBe(6);
+    expect(rememberRefused(once, [], [slug])).toBe(once);
+    expect(rememberRefused(learned, [], [])).toBe(learned);
+  });
 });
 
 describe("which ids a paste leaves out", () => {

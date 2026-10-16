@@ -270,6 +270,21 @@ const failureFor = (result: UpstreamResult, what: string): GcTeamFailure | null 
       diagnostics: diagnosticsFor(result),
     };
   }
+  /*
+   * GameChanger's answer for something that is not a team id at all: a slug or a name a pasted
+   * list carried where its id should be. Final, and remembered with the clubs refused for good
+   * (`rememberRefused`), where an upstream error was asked about again on every paste. The
+   * profile's alone: a schedule refused under a profile that answered is not about the id.
+   */
+  if (status === 400 && what === "profile") {
+    return {
+      ok: false,
+      reason: "invalid-id",
+      message: "GameChanger says this is not a team id (HTTP 400).",
+      status: 400,
+      diagnostics: diagnosticsFor(result),
+    };
+  }
   if (status === 429) {
     const wait = result.retryAfter ? ` Retry after ${result.retryAfter} seconds.` : "";
     return {

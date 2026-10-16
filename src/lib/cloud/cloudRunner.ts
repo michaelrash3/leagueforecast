@@ -440,7 +440,19 @@ const fileAnswers = async (
       })(),
     mark,
     complete,
-    now
+    now,
+    undefined,
+    undefined,
+    false,
+    undefined,
+    undefined,
+    invalidIdsOf(answers)
+  );
+
+/** The ids GameChanger said are not team ids (HTTP 400), which a run remembers for good. */
+const invalidIdsOf = (answers: ReadonlyMap<string, GcTeamResponse>): string[] =>
+  [...answers].flatMap(([id, answer]) =>
+    !answer.ok && answer.reason === "invalid-id" ? [id] : []
   );
 
 const fileScheduleSource = async (
@@ -453,7 +465,8 @@ const fileScheduleSource = async (
   watchTidy?: TidyWatcher,
   retryUnaged = false,
   onOutcomes?: (outcomes: readonly GcImportOutcome[]) => Promise<void>,
-  onAgeProgress?: (pass: number, done: number, total: number) => Promise<void>
+  onAgeProgress?: (pass: number, done: number, total: number) => Promise<void>,
+  invalidIds: readonly string[] = []
 ): Promise<Filed> => {
   const pool = { ageGroups: loadAgeGroups(), teams: loadScoutTeams(), games: loadScoutGames() };
   const orgAges = orgAgesByTeam(loadOrgMembership());
@@ -533,7 +546,7 @@ const fileScheduleSource = async (
   const filed = tidyChangedAnything(tidy) ? tidy.state : importer.state;
   const kept = persistPool(filed, undefined);
   if (!kept.saved) throw new Error("The pull's pool could not be written to the store in memory.");
-  const lists = settleRunLists(outcomes, now.toISOString());
+  const lists = settleRunLists(outcomes, now.toISOString(), invalidIds);
   if (lists.invented.length > 0) saveDroppedClubs(forgetClubs(loadDroppedClubs(), lists.invented));
   // On the pool as tidied, so a club the tidy folded or settled is judged as it now stands.
   if (sweeps(job)) sweep(filed, now);
@@ -555,6 +568,8 @@ export const finishStagedImport = async (
     watchTidy?: TidyWatcher;
     onOutcomes?: (outcomes: readonly GcImportOutcome[]) => Promise<void>;
     onAgeProgress?: (pass: number, done: number, total: number) => Promise<void>;
+    /** Ids GameChanger said are not team ids, to remember for good (`rememberRefused`). */
+    invalidIds?: readonly string[];
   }
 ): Promise<CloudPullResult> => {
   deps.onStage?.({ stage: "loading" });
@@ -582,7 +597,8 @@ export const finishStagedImport = async (
       deps.watchTidy,
       true,
       deps.onOutcomes,
-      deps.onAgeProgress
+      deps.onAgeProgress,
+      deps.invalidIds
     )
   );
 };
