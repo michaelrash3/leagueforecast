@@ -184,6 +184,29 @@ describe("the boards' publish lease", () => {
     expect(await lease.take(T + 8, "job-3")).toEqual({ taken: true, asked: pullEnd });
   });
 
+  it("hands back through several launchers writing onto it at once, with all their asks", async () => {
+    const { docs } = memoryDocs();
+    const lease = publishLease(docs);
+    await lease.take(T, "job-1");
+    // Five pulls end one after another, each between the job's read and its write.
+    let racing = 0;
+    const contended = {
+      readAt: async (path: string) => {
+        const at = await docs.readAt(path);
+        if (racing < 5) {
+          racing += 1;
+          await lease.launch(T + racing, { settleMs: 1_000 * racing, rebuilds: true });
+        }
+        return at;
+      },
+      replace: docs.replace,
+    };
+    expect(await publishLease(contended).handBack("job-1", T + 10)).toEqual({
+      settleMs: 1_000,
+      rebuilds: true,
+    });
+  });
+
   it("lapses at its time where nobody lets it go: a launch never answered, a job killed", async () => {
     const { docs } = memoryDocs();
     const lease = publishLease(docs);

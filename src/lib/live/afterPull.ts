@@ -236,7 +236,7 @@ export const publishAfterPull = async (
      * The lease the job holds while it publishes (`publishLease.ts`), taken over from the launch
      * that started it, under `owner`, and let go at its end whatever happens.
      */
-    lease: Pick<PublishLease, "take" | "handBack" | "handOn" | "release" | "unlaunch">;
+    lease: Pick<PublishLease, "take" | "handBack" | "handOn" | "unlaunch">;
     /**
      * Starts another job (`launchBoardsPublish`), for asks made during this one's last round, which
      * the lease hands on to it as a launch's claim (`handOn`). Without it, the claim lapses unused.
@@ -280,12 +280,11 @@ export const publishAfterPull = async (
     // Asked during its last round.
     const handedOn = await passOn();
     return { ...run, rounds: PUBLISH_ROUNDS, ...(handedOn !== undefined ? { handedOn } : {}) };
-  } catch (error) {
-    // Asked during a round that then failed.
-    await passOn().catch(() => undefined);
-    throw error;
   } finally {
-    await deps.lease.release(deps.owner).catch(() => undefined);
+    // Never let go blind: whatever was asked and not yet published for is handed on, after a round
+    // that threw, or a hand back that lost every write to launchers asking at once (Codex, on #409).
+    // Where the lease was already let go or handed on, this finds it no longer the job's.
+    await passOn().catch(() => undefined);
   }
 };
 

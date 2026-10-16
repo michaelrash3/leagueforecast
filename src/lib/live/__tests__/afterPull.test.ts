@@ -713,7 +713,11 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     const askedEveryRound = {
       take: () => Promise.resolve({ taken: true as const, asked: null }),
       handBack: () => Promise.resolve(AT_ONCE),
-      handOn: () => Promise.resolve(AT_ONCE),
+      // Once handed on, the lease is no longer the job's, so a second hand on finds nothing.
+      handOn: vi
+        .fn<() => Promise<typeof AT_ONCE | null>>()
+        .mockResolvedValueOnce(AT_ONCE)
+        .mockResolvedValue(null),
       release: () => Promise.resolve(),
       unlaunch,
     };
@@ -760,6 +764,30 @@ describe("a save's check of the boards, and the one publish at a time", () => {
         },
       })
     ).rejects.toThrow("the round failed");
+    expect(relaunch).toHaveBeenCalledTimes(1);
+    expect(await lease.take(NOW.getTime(), "job-2")).toEqual({ taken: true, asked: pullEnd });
+  });
+
+  it("hands on what is still asked where a hand back came back empty, never letting go blind", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const pullEnd = { settleMs: 0, rebuilds: false };
+    const relaunch = vi.fn(() => Promise.resolve());
+    const run = await publishAfterPull(storesOf(cloud, live).stores, {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      // A hand back that lost every write to launchers asking at once.
+      lease: { ...lease, handBack: () => Promise.resolve(null) },
+      owner: "job-1",
+      relaunch,
+      onViews: () => {
+        void lease.launch(NOW.getTime(), pullEnd);
+      },
+    });
+    expect(run).toMatchObject({ rounds: 1, result: { end: "published" } });
     expect(relaunch).toHaveBeenCalledTimes(1);
     expect(await lease.take(NOW.getTime(), "job-2")).toEqual({ taken: true, asked: pullEnd });
   });

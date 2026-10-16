@@ -56,6 +56,13 @@ const merged = (was: LaunchAsk | null, ask: LaunchAsk): LaunchAsk =>
 /** How many times a launcher may find the lease moved under it before it takes it for held. */
 const TRIES = 3;
 
+/**
+ * How many times the job's own writes are tried again while launchers keep writing onto the lease
+ * under it: each such write is one launcher's ask, merged in, so ten at once is past any day's
+ * pulls and checks, where three could be lost to three pulls ending together (Codex, on #409).
+ */
+const HOLDER_TRIES = 10;
+
 type LeaseDocs = Pick<FirestoreRestDocuments, "readAt" | "replace">;
 
 const heldUntil = (fields: Record<string, unknown> | undefined): number => {
@@ -141,7 +148,7 @@ export const publishLease = (docs: LeaseDocs): PublishLease => ({
     return { taken: false };
   },
   handBack: async (owner, now) => {
-    for (let tries = 0; tries < TRIES; tries += 1) {
+    for (let tries = 0; tries < HOLDER_TRIES; tries += 1) {
       const at = await docs.readAt(PUBLISH_LEASE_PATH);
       if (at?.fields.owner !== owner) return null;
       const again = askOf(at.fields.again);
@@ -151,7 +158,7 @@ export const publishLease = (docs: LeaseDocs): PublishLease => ({
     return null;
   },
   handOn: async (owner, now) => {
-    for (let tries = 0; tries < TRIES; tries += 1) {
+    for (let tries = 0; tries < HOLDER_TRIES; tries += 1) {
       const at = await docs.readAt(PUBLISH_LEASE_PATH);
       if (at?.fields.owner !== owner) return null;
       const again = askOf(at.fields.again);
