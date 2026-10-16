@@ -4587,9 +4587,10 @@ It waits for the same writers the catch-up waits for:
 It cannot ask GitHub whether the nightly is running.
 
 The job runs once with no retries. A publish that fails is left to the catch-up
-and the nightly, and it fails nothing of the pull, which is over. Two started at
-once both publish, and the later one finds the boards current or publishes over
-the earlier one, which a publish never puts back.
+and the nightly, and it fails nothing of the pull, which is over. Two pulls ending
+at once start it once (the lease, in "Boards published after an edit"). The deploy
+sets the job up whenever the pulls or the rebuilds are on, since both start it,
+and runs it as the account that starts it.
 
 The cost is part of the import's own. The catch-up of 16 October built the year's
 66 boards in 31 s and published them in 86 s in all, on GitHub's four vCPUs. An
