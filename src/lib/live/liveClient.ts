@@ -128,6 +128,14 @@ const decodedBoards: DecodedViews<BoardView> = new Map();
 export const forgetDecodedBoards = (): void => decodedBoards.clear();
 
 /**
+ * Keeps a board decoded elsewhere (a kept one the cache found by its key, `ViewCache.previous`)
+ * with the boards read this page load, so a read of the same fingerprint takes it from memory
+ * rather than unzipping and checking it again.
+ */
+export const rememberBoard = (h: string, view: BoardView): BoardView =>
+  remember(decodedBoards, h, view);
+
+/**
  * One view read:
  * - `memory`, `cache` or `network`: where its checked value came from, with the meta that names
  *   it, which is a newer one than asked with when a piece was missing and the meta read again.
@@ -238,7 +246,9 @@ export const readView = async <T>({
       view = null;
     }
     if (view === null) return { ok: false, why: "damaged", meta: current };
-    await cache?.keepView(entry.h, joined, { key, copy: entry.k }).catch(() => undefined);
+    // Kept behind the draw rather than before it: the write is an IndexedDB transaction the view
+    // does not need, and one that fails costs the next open its head start, and nothing else.
+    void cache?.keepView(entry.h, joined, { key, copy: entry.k }).catch(() => undefined);
     return {
       ok: true,
       view: remember(memory, entry.h, view),

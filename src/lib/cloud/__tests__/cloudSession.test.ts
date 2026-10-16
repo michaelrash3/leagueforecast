@@ -503,6 +503,109 @@ describe("the published boards, as this browser reads them", () => {
   });
 });
 
+describe("opening at boot beside the live board", () => {
+  it("opens one session for the boot and the board's reader, so the boot's sign-in holds", async () => {
+    const laptop = await laptopFirst();
+    runAs(laptop);
+    // Firebase's code arriving late, for each that asks: the board's reader asks while the boot
+    // is still waiting for it.
+    const opened: Array<() => void> = [];
+    let opens = 0;
+    session.setCloudTestHooks({
+      openCloud: () =>
+        new Promise<FirebaseCloud>((resolve) => {
+          opens += 1;
+          opened.push(() => resolve(firebaseFor(ME)));
+        }),
+    });
+    const booting = session.bootCloud();
+    const reading = session.liveReader();
+    // Each open let go of in the order asked, the boot's first.
+    while (opened.length > 0) {
+      opened.shift()?.();
+      await Promise.resolve();
+    }
+    await booting;
+    expect(await reading).not.toBeNull();
+    // Firebase opened once, and the boot's sign-in is the session's: settled, and signed in.
+    expect(opens).toBe(1);
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+    expect(session.restoresInCloud()).toBe(true);
+  });
+
+  /*
+   * The boot reads the manifest under the lock every tab shares (`exclusively`), so each case that
+   * holds the read answers it before it ends: on Node 24, which has `navigator.locks`, a read left
+   * unanswered held the lock for the manifest's 20 s limit, and the next three cases' sign-ins
+   * waited on it past their own 5 s.
+   */
+  const heldManifest = () => {
+    const held = { asked: false, answer: () => undefined as void };
+    session.setCloudTestHooks({
+      openCloud: async () => ({
+        ...firebaseFor(ME),
+        store: {
+          ...sky.store,
+          readManifest: () =>
+            new Promise<CloudManifest | null>((resolve) => {
+              held.asked = true;
+              held.answer = () => resolve(sky.manifest());
+            }),
+        },
+      }),
+    });
+    return held;
+  };
+
+  it("is ready once signed in where League arrives live, the copy read behind it", async () => {
+    const laptop = await laptopFirst();
+    noteLeagueMet(ME.uid);
+    runAs(laptop);
+    const manifest = heldManifest();
+    const booting = session.bootCloud();
+    try {
+      await vi.waitFor(() => expect(manifest.asked).toBe(true));
+      // The copy's manifest asked for and not answered: signed in, and ready already.
+      expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+    } finally {
+      manifest.answer();
+      await booting;
+    }
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+  });
+
+  it("still waits for the copy where League has yet to meet the cloud's documents", async () => {
+    const laptop = await laptopFirst();
+    runAs(laptop);
+    const manifest = heldManifest();
+    const booting = session.bootCloud();
+    try {
+      await vi.waitFor(() => expect(manifest.asked).toBe(true));
+      expect(session.cloudStatus()).toMatchObject({ kind: "connecting" });
+    } finally {
+      manifest.answer();
+      await booting;
+    }
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved" });
+  });
+});
+
+describe("a boot beside a page already mounting", () => {
+  it("takes no League in under it, though the page has not said yet that it is drawn", async () => {
+    const { phone } = await inStep();
+    await serverWrites({ league: league(season("fall", { g1: log(3, 2) })) });
+    // A member's device, mounted before its session starts (`bootOrder.ts`), signing in before
+    // the page's first effect has run (`startCloudSession`).
+    runAs(phone);
+    await session.bootCloud(undefined, { mounting: true });
+    expect(logsOf(phone)).toEqual({});
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: ["league"] });
+    // Offered rather than laid under the page: asked for, it comes.
+    await session.loadNewer();
+    expect(logsOf(phone)).toEqual({ g1: log(3, 2) });
+  });
+});
+
 describe("the copy as this device last found it", () => {
   const seenOf = (manifest: CloudManifest | null) =>
     manifest && {

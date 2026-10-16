@@ -3433,6 +3433,17 @@ synchronous; writes go out behind them, coalesced per key. A write is therefore
 reported as _accepted_ rather than as landed, and one that later fails surfaces
 as a toast, which is the only thing left that can still say so.
 
+A member's device is the exception. It opens on the cloud's board and on League
+Standings kept live, neither of which reads the pool, and a phone that held a pool
+before the board was published read all of it, tens of megabytes, at every open
+while the page stayed blank. There the read comes after the page
+(`poolFill.ts`, "Opening on a member's phone" below): once the board is drawn, or
+at once when something needs the pool first. Until it is in, a read answers what
+`localStorage` holds, which for a pool moved into IndexedDB is nothing, and a
+write is refused, since the read would lay the store over it or leave it in a
+`localStorage` nothing reads once the store is open; whatever needs the pool waits
+for it instead.
+
 Moving across is all or nothing: a value that will not write abandons the whole
 migration with `localStorage` untouched, and the old copies are dropped only once
 every value is known to be in the new store. A browser without IndexedDB — a
@@ -3798,12 +3809,23 @@ uploads a save left behind. A change is still recorded in storage (League's, for
 the first meeting with the cloud's League documents), and the panel's button
 looks at the copy now, taking in what it may.
 
-**When it loads.** League Standings before the app draws. A browser that keeps
-a copy waits at most four seconds to reach the cloud (`STARTUP_WAIT_MS`) and six
-more for the seasons to arrive (`STARTUP_TAKE_MS`); past either, the app opens
-on what it has and the panel offers the newer seasons (**Load them now**). The
-pool, which can be tens of megabytes, is loaded only when Team Rankings opens,
-before it draws, with **Show this device's copy now** for anyone who would
+**When it loads.** League Standings before the app draws, where anything is
+taken at boot at all. A browser that keeps a copy for a member, signed in when it
+was last here, no longer waits for it: it opens on the cloud's board and League
+kept live, and draws at once, signing in beside the page ("Opening on a member's
+phone", below). Its League arrives live once its seasons have met the cloud's
+documents, so for it the copy's League was nothing to wait for; one still to meet
+them takes the copy's League as a boot past its wait always did, and since no
+device has written the copy since 1.6f, it differs from the device's own only on
+one not opened since. Its boot is told the page is already mounting
+(`bootCloud`'s `mounting`), so a sign-in quicker than the page's first effect
+cannot lay the copy's seasons under a page that read the older ones as it
+rendered, and was free to write them back. Before 16 October 2026 such a browser waited at most four
+seconds to reach the cloud (`STARTUP_WAIT_MS`) and six more for the seasons to
+arrive (`STARTUP_TAKE_MS`), behind "Checking your cloud copy…"; past either, the
+app opened on what it had and the panel offered the newer seasons (**Load them
+now**), as it still does. The pool, which can be tens of megabytes, is loaded
+only when Team Rankings opens, before it draws, with **Show this device's copy now** for anyone who would
 rather not wait; whatever arrives after that waits to be asked for, rather than
 land under a view that has already read the pool. Once the app is open it looks again every ten minutes while
 the page is on screen, at most once a minute, and backs off to half an hour
@@ -5403,6 +5425,60 @@ another version of the app, or yesterday's.
 It opens on what this account last read and kept, so a board is drawn before any
 network read, and then on the network's.
 
+**Opening on a member's phone.** A member's device (`memberBootsLive`: a copy
+kept for a member, signed in when last here) draws at once (`bootOrder.ts`): its
+pool is not read before the first draw but after it (`poolFill.ts`), and its
+session starts beside the page, so the sign-in, Firebase's code and a round trip
+or two to restore it, is under way by the time the board asks for its reader.
+Everything that asks for the session shares one opening of it: the boot and the
+board's reader each used to open their own, the second to finish replaced the
+first, and the boot's sign-in landed on a session nobody held, leaving the page
+"Connecting to your cloud copy" and League never kept live, so never met, so
+waited on at the next open too. Signed in, with no League to take at boot, the
+session says it is ready at once and reads the copy's manifest behind it. The
+board then:
+
+- reads what the account kept, the meta and the board the page opens on, and puts
+  them on screen together, so the board is decoded once; the network's reader and
+  meta are asked for at the same moment rather than after that, and a board read
+  for the same key waits for the kept one rather than decoding it again. A board
+  or meta the network brings first stays; the kept one is drawn only while
+  nothing is. With no reader it says so only once the kept board has been looked
+  at, since with none drawn the page would hand over. A refusal heard first leaves
+  the kept board undrawn;
+- draws a board fetched from the network before keeping it, the write left to
+  run behind it;
+- gives the phone to the board until it is drawn, or says why not, or three
+  seconds have passed (`openingHold.ts`): until then Team Rankings' own code is not
+  fetched, the page's own club's card is not read, the watch on the meta does not
+  load the full Firestore SDK, and, while Team Rankings is the page shown, League
+  Standings neither starts its listener and fetch of every season nor asks the
+  server about the open season. League Standings shown waits for none of it. The
+  pool's read waits too, since unpacking it takes the main thread the board is
+  drawn on, unless something needs the pool first: a hand-over, Team Rankings on
+  the device's copy (which says it is reading it), a backup, export or import, a
+  reset, League's own bridge where Team Rankings is not the cloud's. Each of those
+  waits for the read rather than reading an empty pool.
+
+Measured on the built app (`vite preview`, Chromium at 4× CPU throttling, medians
+of five, 16 October 2026), seeded with a 34.5 MB placeholder pool, a kept board of
+2,500 rows, the Team Rankings page last open, and Firebase's own code never
+arriving, as on a slow network: the first draw came at 1,302 ms and the kept
+board's rows at 1,858 ms before, and at 460 ms and 1,000 ms after; a device still
+to meet League's documents went from 5,216 ms and 5,785 ms (the four-second wait)
+to 463 ms and 1,001 ms. With no pool at all the rows came at 1,084 ms before and
+982 ms after, so the pool no longer costs the first draw anything. What the
+network's side gains, a sign-in already under way and the meta read beside the
+kept board, needs Firebase to measure, and was not. The order, the shared
+session, the early ready, one decode, the meta read beside the kept board, the
+draw before the keep, and each thing held back are tested (`bootOrder.test.ts`,
+`poolFill.test.ts`, `cloudSession.test.ts`, `useLiveBoardOpen.test.tsx`,
+`LiveTeamRankings.test.tsx`, `CloudPoolGate.test.tsx`, `useScoutBridge.test.tsx`,
+`AppLeagueAsked.test.tsx`); each guard was broken in turn and seen to fail a test,
+29 of 29, one only after its test was tightened: the shared session's watched the
+status, which the early ready now sets by itself, and missed the race until it
+asked whether the boot's sign-in was the session's.
+
 The board is the page (1.6e). Until 1.5 it was a stand-in, as the saved board is,
 and went to Team Rankings on this device's copy once a second had passed with no
 tap, key or scroll; through 1.5 it stayed while it could, and went for anything it
@@ -5441,10 +5517,13 @@ signed in to read them as and no board kept to show, both of which the visitor's
 own app is for. A pasted list is pulled in the cloud from the Import tab, with
 no hand-over (1.8, "A pasted list, pulled in the cloud"). Only then is
 the pool brought in step, behind it, and Team Rankings' own code loads under the
-board from the start, so it is there by then. The pages are the meta's whenever
+board once it is drawn, so it is there by then. The pages are the meta's whenever
 it carries them (`LivePages.groups`), kept or read, rather than this device's own,
 which a member's device no longer keeps in step; this device's own lay the page
-out only until a meta comes, or under one from a build that published none.
+out only until a meta comes, or under one from a build that published none. On a
+member's device those are read once its store is in, which then comes at once
+rather than after the board, and until then the page does not say the cloud has
+no pages.
 
 A board is built before changes it does not have only when it was built from a
 version of the copy no later than the one this device read, or from another copy.
@@ -5948,8 +6027,10 @@ used only to be let go where a refusal forgets every board, and a refusal heard
 between a board's drawing and the effect was forgotten and then held again by the
 late effect. The listener's test caught it about one run in four.
 
-**Kept up to date while it is open.** Once its first read is in, the page listens
-to the meta (`watchMeta`), so a publish while it is open is drawn in place. It
+**Kept up to date while it is open.** Once its first read is in and its board
+drawn (or three seconds have passed), the page listens to the meta (`watchMeta`),
+so a publish while it is open is drawn in place; the listener hears the meta as it
+stands when it starts, so nothing published meanwhile is missed. It
 listens until Team Rankings opens, and stops with the board. The copy's lite Firestore reads
 but cannot listen, so the listener is the full SDK (`watchLiveMeta` in
 `firebaseCloud.ts`), loaded then and never before. Its parts the app uses are a

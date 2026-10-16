@@ -18,6 +18,7 @@ import {
 import type { Confirmation } from "../../hooks/useConfirmation";
 import { useLiveEdits, type ShowToast } from "../../hooks/useLiveEdits";
 import { useLiveSearch } from "../../hooks/useLiveSearch";
+import { useOpeningReleased, usePoolFilled } from "../../hooks/useOpeningHold";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
 import {
   copyReader,
@@ -32,6 +33,8 @@ import { whereIsGcId } from "../../lib/gcIdWhereabouts";
 import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
 import { editLock, myTeamShown, startedAgainNotice } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
+import { afterOpening, releaseOpening } from "../../lib/live/openingHold";
+import { poolFilled } from "../../lib/poolFill";
 import { poolGamesOfCard, teamsOfCard } from "../../lib/live/scoutingFromCards";
 import { boardKey, lastWeekOf, withMine } from "../../lib/live/views/boardShape";
 import { clubRankPage, leagueClubRanksFrom, writeLeagueClubRanks } from "../../lib/leagueClubRanks";
@@ -136,7 +139,8 @@ const SEARCH_BOX_ID = "scout-team-search";
  * Handed over while the pool is still coming in, the board stays on screen (or, with none to draw,
  * a card saying the page opens on this device's copy), with a strip saying how far the pool has
  * got, and works as before; Team Rankings opens once the pool is in (or the strip's button is
- * pressed) where the board then is, so nothing done meanwhile is lost (the club
+ * pressed), and this device's own store has been read in (`poolFill.ts`), where the board then
+ * is, so nothing done meanwhile is lost (the club
  * open, the search, Scouting's clubs, the state boards). Then the board is gone: its route, its
  * listener and its effects end with it, and Team Rankings alone has the page. The rows it showed
  * are held for Team Rankings to open on (`liveBoard.ts`) until its own fit replaces them, and let
@@ -168,10 +172,20 @@ export function LiveTeamRankings({
   const [where, setWhere] = useState<RankingsHandover>(NOWHERE);
   const [opened, setOpened] = useState<RankingsHandover | null>(null);
   const [poolReady, setPoolReady] = useState(() => !poolWantsCloud());
+  // This device's own store, read in after the page on a member's device (`poolFill.ts`): the
+  // page it hands over to reads it, so it opens only once that is in.
+  const filled = usePoolFilled();
 
-  // The page's code comes in under the board, for what it still hands over.
+  // The page's code comes in under the board, for what it still hands over, once the board is
+  // drawn: before, it is the board's network and main thread it takes (`openingHold.ts`).
   useEffect(() => {
-    void preloadPage().catch(() => undefined);
+    let alive = true;
+    void afterOpening()
+      .then(() => (alive ? preloadPage() : undefined))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
   }, [preloadPage]);
   // The pool only once handed over: the board is read from the cloud, which needs none of it.
   useEffect(() => {
@@ -193,7 +207,7 @@ export function LiveTeamRankings({
     setPoolReady(true);
   }, []);
 
-  if (handedOver && poolReady && opened === null) setOpened(where);
+  if (handedOver && poolReady && filled && opened === null) setOpened(where);
   if (opened) return <CloudPoolGate status={status}>{renderPage(opened)}</CloudPoolGate>;
   return (
     <LiveBoard
@@ -245,7 +259,13 @@ function LiveBoard({
    * out by (1.6e). This device's own pages lay the page out only until then, and under a meta from
    * a build that published none.
    */
-  const [localGroups] = useState(() => loadAgeGroups());
+  // Read again once this device's store is in (`poolFill.ts`): a member's device reads it after
+  // the page, and until then its pages read as none, which a meta naming none would lay out.
+  const filled = usePoolFilled();
+  const localGroups = useMemo(() => {
+    void filled;
+    return loadAgeGroups();
+  }, [filled]);
   const [publishedRaw, setPublishedRaw] = useState<unknown[] | undefined>(undefined);
   const publishedGroups = useMemo(
     () => (publishedRaw ? coerceAgeGroups(publishedRaw) : null),
@@ -426,7 +446,14 @@ function LiveBoard({
     live.metaMiss === "unreadable"
       ? LIVE_NOTICES[live.metaMiss]
       : null;
-  const noPages = ageGroups.length === 0 && live.meta !== null;
+  // Not before this device's own pages are read, where the meta names none to lay out by.
+  const noPages =
+    ageGroups.length === 0 && live.meta !== null && (publishedGroups !== null || filled);
+  // Those pages wanted now, rather than once the board is drawn, which without them it is not.
+  const pagesFromHere = live.meta !== null && publishedGroups === null && !filled;
+  useEffect(() => {
+    if (pagesFromHere) void poolFilled();
+  }, [pagesFromHere]);
   const pageNotice = missNotice ?? (noPages ? LIVE_NOTICES.noPages : null);
   const boardNotice =
     pageNotice ??
@@ -481,6 +508,11 @@ function LiveBoard({
   );
   // Said before the handover, so the page above has it when it hands over.
   useEffect(() => onWhere(where), [where, onWhere]);
+  // The board drawn, or why it is not said: what waited on its first draw goes ahead.
+  const drawnOrSaid = board !== null || boardNotice !== null || handedOver;
+  useEffect(() => {
+    if (drawnOrSaid) releaseOpening();
+  }, [drawnOrSaid]);
   useEffect(() => {
     if (handOverNow && !handedOver) onHandOver();
   }, [handOverNow, handedOver, onHandOver]);
@@ -572,9 +604,11 @@ function LiveBoard({
   );
   /*
    * The page's own club's card, for the games still on its schedule, read off the pages the board
-   * is fitted over as the page's own card reads them off the pool (`buildUpcomingSchedule`).
+   * is fitted over as the page's own card reads them off the pool (`buildUpcomingSchedule`): once
+   * the board is drawn, since its bucket is read over the same network (`openingHold.ts`).
    */
-  const mineCard = useClubCard(live.source, selectedYear, myTeamId ?? null);
+  const firstDrawn = useOpeningReleased();
+  const mineCard = useClubCard(firstDrawn ? live.source : null, selectedYear, myTeamId ?? null);
   const poolIds = useMemo(
     () => new Set(rankingPoolGroupIds(selectedAgeGroupId, ageGroups)),
     [selectedAgeGroupId, ageGroups]

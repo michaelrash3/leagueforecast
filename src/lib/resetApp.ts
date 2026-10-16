@@ -15,6 +15,7 @@
  */
 
 import { emptyPoolStore, type EmptiedPool } from "./teamRankingsStorage";
+import { poolFilled } from "./poolFill";
 import { forgetCloudCopyHere } from "./cloud/cloudState";
 
 /** What every key this app writes to `localStorage` begins with. */
@@ -43,6 +44,9 @@ export const forgetAppKeys = (storage: Storage): number => {
  */
 export const resetApp = async (storage: Storage = localStorage): Promise<EmptiedPool> => {
   forgetCloudCopyHere();
+  // Emptied once it is read in, where a member's device reads it after the page (`poolFill.ts`):
+  // until then the store refuses the writes that empty it.
+  await poolFilled();
   const pool = await emptyPoolStore();
   if (pool === "done") forgetAppKeys(storage);
   return pool;

@@ -4,7 +4,9 @@ import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initTeamRankingsStore } from "./lib/teamRankingsStorage";
 import { loadSavedBoard } from "./lib/savedBoard";
-import { bootCloud } from "./lib/cloud/cloudSession";
+import { bootCloud, memberBootsLive } from "./lib/cloud/cloudSession";
+import { startPoolFill } from "./lib/poolFill";
+import { afterOpening } from "./lib/live/openingHold";
 import { leagueMetHere } from "./lib/cloud/cloudState";
 import { startApp } from "./lib/bootOrder";
 import { listenForTakes } from "./lib/cloud/cloudTabs";
@@ -22,15 +24,6 @@ const mount = () => {
   );
 };
 
-/**
- * The Team Rankings pool lives in IndexedDB, which is asynchronous, and the app reads it during
- * render. So it is loaded into memory before anything mounts — one wait, at the only moment there
- * is nothing on screen to interrupt.
- *
- * This never rejects: a browser without IndexedDB, or one that refuses it, resolves having done
- * nothing and the app falls back to localStorage. Mounting is not allowed to depend on it either
- * way, so a failure here still starts the app.
- */
 /**
  * Asks the browser to keep this origin's storage through disk pressure and long absences. Safari
  * evicts script-writable storage after seven days without a visit, and a season is in nothing but
@@ -75,12 +68,26 @@ listenForTakes();
  *
  * The board Team Rankings last showed is read beside the pool, from the same store, so the page
  * can open on it while its own fit runs (`savedBoard.ts`).
+ *
+ * The Team Rankings pool lives in IndexedDB, which is asynchronous, and the app reads it during
+ * render. So it is loaded into memory before anything mounts — one wait, at the only moment there
+ * is nothing on screen to interrupt — except on a member's device, which opens on the cloud's
+ * board and reads no pool to draw it: there it is read once the board is drawn, and what reads
+ * the pool waits for it (`poolFill.ts`). Either way this never rejects: a browser without
+ * IndexedDB, or one that refuses it, resolves having done nothing and the app falls back to
+ * localStorage.
  */
 void startApp({
-  fill: () => Promise.all([initTeamRankingsStore(), loadSavedBoard()]),
+  fill: (after) =>
+    startPoolFill(() => Promise.all([initTeamRankingsStore(), loadSavedBoard()]), after),
   // A device whose League arrives live draws first and signs in beside the page (`bootOrder.ts`).
-  cloud: (waitedOn) => bootCloud(waitedOn ? showBootLine : undefined),
+  // Not waited on, the page is already mounting, and nothing is taken in under it.
+  cloud: (waitedOn) => bootCloud(waitedOn ? showBootLine : undefined, { mounting: !waitedOn }),
   leagueLive: leagueMetHere,
+  // A member's device draws at once, its sign-in started beside the page, and its store read
+  // once the board is drawn.
+  memberLive: memberBootsLive,
+  drawn: afterOpening,
   mount: () => {
     mount();
     askToKeepStorage();

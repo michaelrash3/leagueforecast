@@ -14,6 +14,7 @@ import {
 } from "../../lib/leagueStart";
 import { askLeague } from "../../lib/live/leagueAsk";
 import type { BuiltSeason } from "../../lib/roundRobin";
+import { poolFilled } from "../../lib/poolFill";
 import { segmentOn } from "../../lib/teamRankings/seasons";
 import {
   loadAgeGroups,
@@ -27,9 +28,9 @@ import { EditLock } from "./EditLock";
 /** Asks one step of a start (`answerStart`): of this device's pool, or of the cloud's. */
 export type StartAsker = (query: StartQuery) => Promise<StartAnswer | null>;
 
-/** This device's own Team Rankings, read where it is kept. */
+/** This device's own Team Rankings, read where it is kept, once it is read in (`poolFill.ts`). */
 export const deviceStartAsker: StartAsker = (query) =>
-  Promise.resolve(
+  poolFilled().then(() =>
     answerStart(query, {
       ageGroups: loadAgeGroups,
       teams: loadScoutTeams,

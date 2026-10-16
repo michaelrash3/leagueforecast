@@ -109,6 +109,8 @@ import type { MachineLeft } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
+import { useOpeningReleased, usePoolFilled } from "./hooks/useOpeningHold";
+import { poolFilled } from "./lib/poolFill";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useConfirmation } from "./hooks/useConfirmation";
 import { useLeagueCommands } from "./hooks/useLeagueCommands";
@@ -516,13 +518,15 @@ export default function App() {
    * refused it this time. Said out loud, because the alternative is a Team Rankings that looks
    * simply empty and quietly refuses everything typed into it.
    */
+  // Known once the store is read, which a member's device does after the page (`poolFill.ts`).
+  const poolFilledHere = usePoolFilled();
   useEffect(() => {
-    if (!isPoolUnavailable()) return;
+    if (!poolFilledHere || !isPoolUnavailable()) return;
     showToast(
       "Team Rankings is stored in this browser's database, which would not open. Your data is safe — reload, or try a normal (not private) window.",
       { tone: "error", durationMs: 15000 }
     );
-  }, [showToast]);
+  }, [showToast, poolFilledHere]);
   const recordSaveResult = useCallback(
     (ok: boolean, _label: string, errorMessage: string) => {
       if (!ok) showToast(errorMessage, { tone: "error" });
@@ -545,6 +549,13 @@ export default function App() {
    * pool cannot work out (1.6e), and which the board on the Team Rankings side is built from.
    */
   const rankingsLive = liveBoardWanted(cloud);
+  /*
+   * Opened on the cloud's board, what League Standings does in the background waits for the board
+   * to be drawn (`openingHold.ts`): its listener and fetch of every season, and the question to the
+   * server about the open season. League Standings on screen waits for nothing.
+   */
+  const openingReleased = useOpeningReleased();
+  const leagueHeldBack = rankingsLive && appMode === "rankings" && !openingReleased;
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -759,11 +770,13 @@ export default function App() {
   const leagueMet = useSyncExternalStore(subscribeLeagueMet, leagueMetHere, () => false);
   const leagueSettled = useSyncExternalStore(subscribeCloud, leagueInStep, () => false);
   const liveLeague = useLiveLeague({
-    enabled: leagueLiveWanted({
-      status: cloud,
-      met: leagueMet,
-      inStep: leagueSettled,
-    }),
+    enabled:
+      !leagueHeldBack &&
+      leagueLiveWanted({
+        status: cloud,
+        met: leagueMet,
+        inStep: leagueSettled,
+      }),
     seasons: seasonStore,
     entryOf: entryOfSeason,
     entryKey: seasons.all,
@@ -854,6 +867,7 @@ export default function App() {
           asker: askLeague,
           signedIn: memberSignedIn(cloud),
           leagueOnScreen: appMode === "league",
+          held: leagueHeldBack,
         }
       : {}),
   });
@@ -2053,8 +2067,9 @@ export default function App() {
     if (!rankingsLive) {
       const season = activeSeasonId;
       const seen = logs;
-      void loadScoreFill().then(
-        (code) => {
+      // Worked out from this device's pool, once it is read in (`poolFill.ts`).
+      void Promise.all([loadScoreFill(), poolFilled()]).then(
+        ([code]) => {
           // Opened for the season it was asked about, not one switched to while its code came in.
           if (season !== activeSeasonRef.current) return;
           scoreFillCode.current = code;
@@ -2544,8 +2559,8 @@ export default function App() {
     };
     const placed = rankingsLive
       ? await placeLeagueSeason(command)
-      : await import("./lib/live/runPoolCommand")
-          .then((module) => module.runPoolCommand(command).ok)
+      : await Promise.all([import("./lib/live/runPoolCommand"), poolFilled()])
+          .then(([module]) => module.runPoolCommand(command).ok)
           .catch(() => false);
     const games = `${made.matchups.length} game${made.matchups.length === 1 ? "" : "s"}`;
     showToast(

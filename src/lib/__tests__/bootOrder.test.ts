@@ -43,6 +43,51 @@ describe("startApp", () => {
     expect(run.said).toEqual(["cloud waited on", "cloud done", "drawn"]);
   });
 
+  it("draws a member's device at once, its store read only once the page is drawn", async () => {
+    const said: string[] = [];
+    let drawnNow = () => undefined as void;
+    const drawn = new Promise<void>((resolve) => {
+      drawnNow = resolve;
+    });
+    const asked: Array<Promise<void> | undefined> = [];
+    void startApp({
+      // A store, and a cloud, that never answer: neither holds the first draw.
+      fill: (after) => {
+        asked.push(after);
+        said.push("store asked for");
+        return new Promise(() => undefined);
+      },
+      cloud: (waitedOn) => {
+        said.push(`cloud ${waitedOn ? "waited on" : "beside the page"}`);
+        return new Promise(() => undefined);
+      },
+      leagueLive: () => false,
+      memberLive: () => true,
+      drawn: () => drawn,
+      mount: () => said.push("drawn"),
+    });
+    await settle();
+    expect(said).toEqual(["store asked for", "drawn", "cloud beside the page"]);
+    // The store's read is told to wait for the page's first draw.
+    expect(asked).toEqual([drawn]);
+    drawnNow();
+  });
+
+  it("still waits for the store before drawing a visitor's page", async () => {
+    const said: string[] = [];
+    void startApp({
+      fill: () => new Promise(() => undefined),
+      cloud: async () => {
+        said.push("cloud");
+      },
+      leagueLive: () => true,
+      memberLive: () => false,
+      mount: () => said.push("drawn"),
+    });
+    await settle();
+    expect(said).toEqual([]);
+  });
+
   it("still draws when the device's store cannot be read", async () => {
     const run = harness(true, async () => {
       throw new Error("no store");
