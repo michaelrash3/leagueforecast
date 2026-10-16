@@ -10,16 +10,21 @@ import {
 } from "./cloudRunner";
 import {
   JOB_ID,
+  MAX_LIST_TEAMS,
   coercePullJob,
   jobPath,
   jobPiecePath,
+  lastHeardFrom,
   legsFor,
   packJobList,
+  tooManyTeams,
   unpackJobList,
   type PullJob,
   type PullJobRota,
+  type PullJobStatus,
   type PullJobTally,
 } from "./pullJobs";
+import { REFRESH_QUIET_MS } from "./refreshGate";
 
 /**
  * The Firebase function's side of a pull a device left for the cloud (`pullJobs.ts`): one leg at a
@@ -517,6 +522,13 @@ export const startPullJob = async (
       ? { ok: true, status: "cancelled" }
       : { ok: true, status: job.status };
   }
+  // A list longer than one pull takes, sent by a tab from before the page refused one: ended, so it
+  // is not asked about again, and refused in words the device shows.
+  if (job.list.teams > MAX_LIST_TEAMS) {
+    const message = tooManyTeams(job.list.teams);
+    await end({ status: "failed", error: message });
+    return { ok: false, refusal: "invalid-argument", message };
+  }
   let queued: void | "already";
   try {
     queued = await deps.enqueue({ jobId, leg: 0 });
@@ -541,4 +553,143 @@ export const startPullJob = async (
     return { ok: true, status: "failed" };
   }
   return { ok: true, status: job.status };
+};
+
+/**
+ * How long a staged import may go unheard from before `reapPullJob` takes it for dead, if nothing
+ * holds its lease either. Its supervisor beats every ten seconds, gives up its own execution after
+ * seventy without renewing the lease (`importJob.ts`), and a Cloud Run retry waits out a dead
+ * one's ninety-second lease before it claims it (`IMPORT_LEASE_MS`): five minutes is past all of
+ * that, and is when the page starts calling the import silent (`PULL_STALE_MS`).
+ */
+export const IMPORT_SILENT_MS = 5 * 60_000;
+
+/**
+ * How long a job of the older runner, a list's legs or Refresh now's, may go unwritten while it
+ * says it is running before it is taken for dead. As long as the refresh gate gives a quiet
+ * refresh (`REFRESH_QUIET_MS`), and for its reason: a leg is three half-hour tries at most, and a
+ * job between legs waits only behind other pulls' legs, so two hours is past any that is alive.
+ */
+export const LEGS_SILENT_MS = REFRESH_QUIET_MS;
+
+/** What a staged import ended as dead says: its downloads are kept, and Resume carries on. */
+export const IMPORT_WENT_SILENT =
+  "The importer stopped without saying why: no heartbeat for five minutes, and nothing holds its lease. Its downloads are kept; Resume continues from the saved checkpoints.";
+
+/** What an import ended as dead after a stop was asked says, as its supervisor's own stop does. */
+export const STOPPED_WENT_SILENT = "Stopped. Downloads are kept; resume this import when ready.";
+
+/** What a job of the older runner ended as dead says. */
+export const LEGS_WENT_SILENT =
+  "Nothing of this ran for two hours, so it was ended. What it filed before then is kept.";
+
+/**
+ * Ends the job `jobId` names when its worker has died without a word, so no device shows it
+ * running for good: on 12 October 2026 a list's job said "running, loading; part 9 of 18; stop
+ * asked" for days, with nothing left that would ever run or end it, its Stop doing nothing and
+ * Refresh now held off behind it. Run by `startPull` before anything else it does with a job, so a
+ * device's ask (Dismiss, Stop, Resume, or the start of a list sent again) is what ends it.
+ *
+ * A staged import is dead once nothing has been heard from it in `IMPORT_SILENT_MS` and nothing
+ * holds its execution lease: a supervisor still renewing the lease is alive, however late its
+ * heartbeat. A job of the older runner, once nothing has written it in `LEGS_SILENT_MS`. Only a job
+ * that says it is running: a queued one is the start's to end (`startPullJob`), and one resumed is
+ * queued until Cloud Run starts it. Ended as failed, or cancelled where a stop was asked, and only
+ * while it is still as read, so a worker that wrote meanwhile keeps it. The status it was ended
+ * with, or null where it was left alone.
+ */
+export const reapPullJob = async (
+  jobId: string,
+  deps: {
+    jobs: Pick<JobDocs, "read" | "updateIfUnchanged">;
+    /** Until when an execution holds a staged import's lease, in milliseconds (`importLeaseUntil`). */
+    leaseUntil: (jobId: string) => Promise<number>;
+    now: () => Date;
+  }
+): Promise<PullJobStatus | null> => {
+  if (!JOB_ID.test(jobId)) return null;
+  const job = await deps.jobs.read(jobId);
+  if (!job || job.status !== "running") return null;
+  const nowMs = deps.now().getTime();
+  const silentMs = nowMs - lastHeardFrom(job);
+  const staged = job.pipeline === "staged-v1" && !job.rota;
+  if (!(silentMs >= (staged ? IMPORT_SILENT_MS : LEGS_SILENT_MS))) return null;
+  if (staged && (await deps.leaseUntil(jobId)) > nowMs) return null;
+  const status = job.stopAsked ? "cancelled" : "failed";
+  const error = !staged
+    ? LEGS_WENT_SILENT
+    : job.stopAsked
+      ? STOPPED_WENT_SILENT
+      : IMPORT_WENT_SILENT;
+  const ended = await deps.jobs.updateIfUnchanged(jobId, job, {
+    status,
+    stage: "waiting",
+    error,
+    updatedAt: deps.now().toISOString(),
+  });
+  return ended ? status : null;
+};
+
+/** How recent a heartbeat says a staged import's supervisor is still at work. */
+const ALIVE_MS = 120_000;
+
+export type ResumeAnswer =
+  | { ok: true; status: PullJobStatus }
+  | { ok: false; refusal: "invalid-argument" | "unavailable"; message: string };
+
+/**
+ * Resume on a list's job (`startPull` with `resume`): a failed or stopped import queued again and
+ * its staged importer launched, carrying on from its saved checkpoints; one of the older runner
+ * moved onto the staged importer, keeping what its legs filed (`priorTally`); and a staged import
+ * still marked running but silent launched again, whose execution lease admits one worker. One
+ * whose supervisor beat inside the last two minutes is left running. Refresh now is not a list's,
+ * and a list longer than one pull takes (`MAX_LIST_TEAMS`) is not resumed either.
+ */
+export const resumePullJob = async (
+  jobId: unknown,
+  deps: {
+    jobs: Pick<JobDocs, "read" | "updateIfUnchanged">;
+    /** Starts the staged importer's Cloud Run job for `jobId` (`launchImport`). */
+    launch: (jobId: string) => Promise<void>;
+    now: () => Date;
+  }
+): Promise<ResumeAnswer> => {
+  if (typeof jobId !== "string" || !JOB_ID.test(jobId))
+    return { ok: false, refusal: "invalid-argument", message: "Invalid import id." };
+  const job = await deps.jobs.read(jobId);
+  if (!job || job.rota)
+    return { ok: false, refusal: "invalid-argument", message: "This import cannot be resumed." };
+  if (job.status === "done") return { ok: true, status: "done" };
+  if (job.list.teams > MAX_LIST_TEAMS)
+    return { ok: false, refusal: "invalid-argument", message: tooManyTeams(job.list.teams) };
+  const nowMs = deps.now().getTime();
+  if (
+    job.pipeline &&
+    job.status === "running" &&
+    job.heartbeatAt &&
+    nowMs - Date.parse(job.heartbeatAt) < ALIVE_MS
+  )
+    return { ok: true, status: "running" };
+  const over = job.status === "failed" || job.status === "cancelled";
+  if (over) {
+    const queued = await deps.jobs.updateIfUnchanged(jobId, job, {
+      status: "queued",
+      ...(!job.pipeline ? { pipeline: "staged-v1" as const, priorTally: job.tally } : {}),
+      stopAsked: false,
+      stage: "waiting",
+      error: null,
+      updatedAt: deps.now().toISOString(),
+    });
+    if (!queued)
+      return { ok: false, refusal: "unavailable", message: "Retrying the resume request." };
+  }
+  if (!job.pipeline && !over)
+    return {
+      ok: false,
+      refusal: "invalid-argument",
+      message: "Stop the earlier import before resuming it with the faster importer.",
+    };
+  // The execution lease admits one worker; repeated or unanswered starts are safe.
+  await deps.launch(jobId);
+  return { ok: true, status: "queued" };
 };

@@ -18,6 +18,11 @@ import type { GcImportOutcome, GcSkipReason } from "./gameChangerImport";
  * only while that year is unticked. The rest are left to what already handles them: a team with no
  * age waits on its own list, a too-young one on its, and an empty schedule out of season is asked
  * about again when its season comes round.
+ *
+ * An id GameChanger said is not a team id at all (HTTP 400, `invalid-id`) is kept for good too: a
+ * pasted list's slugs and names were asked about again on every paste of it. It is remembered only
+ * by a run that went on to file something, so a route that refused every id alike is never taken
+ * for a list of ids that are not ones.
  */
 export type RefusedClubs = {
   /** Refused for what the team is. */
@@ -89,14 +94,23 @@ export const isRefusedClub = (
   return false;
 };
 
-/** The refusals a finished run learned, added to what was kept. */
+/**
+ * The refusals a finished run learned, added to what was kept: its outcomes', and the ids
+ * GameChanger said are not team ids (`invalidIds`), which are refused for good.
+ */
 export const rememberRefused = (
   refused: RefusedClubs,
-  outcomes: readonly Pick<GcImportOutcome, "gcTeamId" | "skip" | "otherSeasonYear">[]
+  outcomes: readonly Pick<GcImportOutcome, "gcTeamId" | "skip" | "otherSeasonYear">[],
+  invalidIds: Iterable<string> = []
 ): RefusedClubs => {
   const forGood = new Set(refused.forGood);
   const bySeason = new Map([...refused.bySeason].map(([year, ids]) => [year, new Set(ids)]));
   let learned = false;
+  for (const gcTeamId of invalidIds) {
+    if (forGood.has(gcTeamId)) continue;
+    forGood.add(gcTeamId);
+    learned = true;
+  }
   outcomes.forEach(({ gcTeamId, skip, otherSeasonYear }) => {
     if (skip && REFUSED_FOR_GOOD.has(skip) && !forGood.has(gcTeamId)) {
       forGood.add(gcTeamId);

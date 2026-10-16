@@ -298,6 +298,14 @@ export const GC_GAMES_ACCEPT =
  */
 export const GC_TEAM_ID_PATTERN = /^[A-Za-z0-9_-]{8,24}$/;
 
+/**
+ * Whether an id has the shape every GameChanger team id seen so far has: exactly 12 URL-safe
+ * characters, the ones after web.gc.com/teams/. Looser than this, the parse still lets a slug or a
+ * name through (`GC_TEAM_ID_PATTERN`), and GameChanger answers one with HTTP 400; the paste box
+ * counts the ids not of this shape and says so before the list is sent.
+ */
+export const isWellFormedGcTeamId = (id: string): boolean => /^[A-Za-z0-9_-]{12}$/.test(id);
+
 export const GC_FETCH_ERROR_REASONS: readonly GcFetchErrorReason[] = [
   "invalid-id",
   "not-found",
@@ -1704,7 +1712,12 @@ const readColumns = (headers: string[]): ListColumns | null => {
 const cellAt = (cells: string[], index: number): string =>
   index >= 0 ? (cells[index] ?? "").trim() : "";
 
-/** The id a spreadsheet row names: the id column, the URL column, then any cell holding a URL. */
+/**
+ * The id a spreadsheet row names: the id column, the URL column, then any cell holding a URL. A
+ * lone cell anywhere else is not taken for an id: it once was, and a row with only its name filled
+ * in ("Cubs10Uteam") went to GameChanger as an id, which it answers with HTTP 400. A bare id
+ * pasted under the header on a line of its own still reads where it sits in the id column.
+ */
 const idFromRow = (cells: string[], columns: ListColumns): string | null => {
   const fromId = parseGcTeamId(cellAt(cells, columns.id));
   if (fromId) return fromId;
@@ -1714,9 +1727,6 @@ const idFromRow = (cells: string[], columns: ListColumns): string | null => {
     const match = GC_TEAM_URL_PATTERN.exec(cell);
     if (match?.[1]) return match[1];
   }
-  // A bare id pasted under the header, on a line of its own.
-  const nonEmpty = cells.filter((cell) => cell.length > 0);
-  if (nonEmpty.length === 1 && nonEmpty[0] !== undefined) return parseGcTeamId(nonEmpty[0]);
   return null;
 };
 

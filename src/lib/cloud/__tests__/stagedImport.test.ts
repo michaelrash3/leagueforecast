@@ -4,6 +4,7 @@ import type { FetchGcTeamsOptions } from "../../gameChangerClient";
 import { newPullJob } from "../pullJobs";
 import type { JobDocs } from "../pullJobRunner";
 import {
+  IMPORT_RETRIES,
   restImportArtifacts,
   runStagedImport,
   type ImportCheckpointSummary,
@@ -113,16 +114,18 @@ describe("a staged CSV import", () => {
         new Map(
           ids.map((id, n) => [
             id,
-            n === 1 ? { ok: false, reason: "network", message: "Disconnected" } : good(id),
+            n === 1 ? { ok: false, reason: "not-found", message: "Missing" } : good(id),
           ])
         )
     );
     await runStagedImport(ID, test.deps);
     expect(test.fetchTeams.mock.calls.map(([ids]) => ids.length)).toEqual([2003]);
+    // A passing failure is tried again in its batch, twice; every other is walked past.
+    expect(IMPORT_RETRIES).toBe(2);
     expect(test.fetchTeams).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({
-        retries: 0,
+        retries: IMPORT_RETRIES,
         stopOnRefused: false,
       })
     );
@@ -313,7 +316,8 @@ describe("a staged CSV import", () => {
     const test = setup(3);
     let elapsed = 0;
     const reports = { download: vi.fn(async () => {}), filing: vi.fn(async () => {}) };
-    test.fetchTeams.mockImplementationOnce(async (ids, options) => {
+    // The timed-out team times out again when asked once more at the end.
+    test.fetchTeams.mockImplementation(async (ids, options) => {
       const answers = new Map<string, GcTeamResponse>();
       for (const [n, id] of ids.entries()) {
         elapsed += 1000;
@@ -325,8 +329,10 @@ describe("a staged CSV import", () => {
       return answers;
     });
     const write = test.artifacts.write;
+    // Each save of the checkpoint, the first and the one after asking once more, follows its report.
+    let saves = 0;
     test.artifacts.write = async (name, value) => {
-      if (name === "batch-0") expect(reports.download).toHaveBeenCalledTimes(1);
+      if (name === "batch-0") expect(reports.download).toHaveBeenCalledTimes(++saves);
       await write(name, value);
     };
     await runStagedImport(ID, {
@@ -338,6 +344,7 @@ describe("a staged CSV import", () => {
       0,
       [{ teamId: "gc0000000000", reason: "Timed out" }],
     ]);
+    expect(saves).toBe(2);
     expect(test.job()).toMatchObject({
       status: "done",
       report: { rows: 1, ready: true },
@@ -370,7 +377,7 @@ describe("a staged CSV import", () => {
       download: { done: 2, total: 2, holdUntil: null, holdReason: null },
     });
   });
-  it("resumes an old incomplete checkpoint without downloading its successes or failures again", async () => {
+  it("resumes an old incomplete checkpoint asking only what has no answer, then its passing failure once more", async () => {
     const test = setup(2003);
     test.values.set("batch-0", {
       complete: true,
@@ -388,16 +395,24 @@ describe("a staged CSV import", () => {
     });
     await test.jobs.update(ID, { error: "Some team downloads need another attempt." });
     await runStagedImport(ID, test.deps);
-    expect(test.fetchTeams.mock.calls.map(([ids]) => ids)).toEqual([["gc0000002002"]]);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids)).toEqual([
+      ["gc0000002002"],
+      ["gc0000002001"],
+    ]);
     expect(test.job()).toMatchObject({
       status: "done",
-      tally: { asked: 2003, answered: 2002, failed: 1, filed: 2002 },
+      tally: { asked: 2003, answered: 2003, failed: 0, filed: 2003 },
       error: null,
     });
   });
-  it("reports failure reasons and bounded diagnostics, then files every successful team", async () => {
+  /*
+   * The import's log lines are read back by the public pull-status workflow, so they carry counts
+   * and reasons alone: no team id, no GameChanger address, no body GameChanger sent. The teams
+   * themselves, with what was said of each, are in the members-only skipped-team report.
+   */
+  it("logs each checkpoint's failures as counts and reasons, with no team, address or body", async () => {
     const test = setup(4);
-    test.fetchTeams.mockImplementationOnce(
+    test.fetchTeams.mockImplementation(
       async (ids) =>
         new Map([
           [ids[0]!, good(ids[0]!)],
@@ -406,8 +421,9 @@ describe("a staged CSV import", () => {
             {
               ok: false,
               reason: "unrecognized",
-              message: "Unreadable profile",
+              message: `GameChanger's profile JSON for ${id} is not in a shape this app can read`,
               diagnostics: {
+                url: `https://api.team-manager.gc.com/public/teams/${id}`,
                 status: 200,
                 bodyPreview: "x".repeat(600),
                 topLevelKeys: ["unexpected"],
@@ -419,27 +435,50 @@ describe("a staged CSV import", () => {
     const onDownloadReport = vi.fn();
     await runStagedImport(ID, { ...test.deps, onDownloadReport });
     expect(onDownloadReport).toHaveBeenCalledTimes(1);
-    expect(onDownloadReport.mock.calls[0]![0]).toMatchObject({
+    expect(onDownloadReport.mock.calls[0]![0]).toEqual({
       batch: 1,
+      checkpoint: 1,
       downloaded: 1,
       skipped: 3,
       reasons: { unrecognized: 3 },
     });
-    const samples = onDownloadReport.mock.calls[0]![0].samples;
-    expect(samples).toHaveLength(1);
-    expect(samples[0].error.diagnostics.bodyPreview).toHaveLength(300);
+    const logged = JSON.stringify(onDownloadReport.mock.calls);
+    expect(logged).not.toMatch(/gc000000000\d|gc\.com|xxxx/);
     expect(test.filed).toEqual(["gc0000000000"]);
     expect(test.job().status).toBe("done");
   });
+  it("hands the final phase the ids GameChanger said are not team ids, from every checkpoint", async () => {
+    const test = setup(4001);
+    const invalid = new Set(["gc0000000007", "gc0000003500"]);
+    test.fetchTeams.mockImplementationOnce(
+      async (ids) =>
+        new Map(
+          ids.map((id): [string, GcTeamResponse] => [
+            id,
+            invalid.has(id) ? { ok: false, reason: "invalid-id", message: "Not an id" } : good(id),
+          ])
+        )
+    );
+    await runStagedImport(ID, test.deps);
+    expect(vi.mocked(finishStagedImport).mock.calls[0]![4].invalidIds).toEqual([...invalid]);
+    expect(test.job()).toMatchObject({ status: "done", tally: { answered: 3999, failed: 2 } });
+  });
   it("counts a missing download result as skipped instead of restarting the job", async () => {
     const test = setup(2);
-    test.fetchTeams.mockImplementationOnce(async (ids) => new Map([[ids[0]!, good(ids[0]!)]]));
+    // The second team never gets an answer, asked in its batch or once more at the end.
+    test.fetchTeams.mockImplementation(
+      async (ids) => new Map(ids.filter((id) => id === "gc0000000000").map((id) => [id, good(id)]))
+    );
     await runStagedImport(ID, test.deps);
     expect(test.job()).toMatchObject({
       status: "done",
       tally: { asked: 2, answered: 1, failed: 1, filed: 1 },
+      skipped: { transient: 1, permanent: 0 },
     });
-    expect(test.fetchTeams).toHaveBeenCalledTimes(1);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids)).toEqual([
+      ["gc0000000000", "gc0000000001"],
+      ["gc0000000001"],
+    ]);
   });
   it("keeps unattempted teams available when a user stops during a batch", async () => {
     const test = setup(3);
@@ -475,7 +514,7 @@ describe("a staged CSV import", () => {
     ]);
     expect(test.job()).toMatchObject({ status: "done", tally: { answered: 2, failed: 0 } });
   });
-  it("keeps all downloaded answers from the old failed batch without any new requests", async () => {
+  it("keeps all downloaded answers from the old failed batch, asking only its passing failure again", async () => {
     const test = setup(2);
     test.values.set("batch-0", {
       complete: false,
@@ -485,11 +524,129 @@ describe("a staged CSV import", () => {
       ],
     });
     await runStagedImport(ID, test.deps);
-    expect(test.fetchTeams).not.toHaveBeenCalled();
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids)).toEqual([["gc0000000001"]]);
     expect(test.job()).toMatchObject({
       status: "done",
-      tally: { asked: 2, answered: 1, failed: 1, filed: 1 },
+      tally: { asked: 2, answered: 2, failed: 0, filed: 2 },
     });
+  });
+  /*
+   * From 12 and 13 October 2026 every throttled team was skipped on its first answer: asked once,
+   * never again. Now the downloads that failed for a passing reason are asked once more, after
+   * every batch is in and before the final phase, and the skips that remain are counted apart:
+   * those that may answer another time, and those that will not.
+   */
+  it("asks once more, before the final phase, for downloads that failed for a passing reason", async () => {
+    const test = setup(2003);
+    const failing: Record<string, GcTeamResponse> = {
+      gc0000000001: { ok: false, reason: "network", message: "Disconnected" },
+      gc0000000002: { ok: false, reason: "throttled", message: "Slow down" },
+      gc0000000003: { ok: false, reason: "not-found", message: "Missing" },
+      gc0000002001: { ok: false, reason: "timeout", message: "Slow" },
+      gc0000002002: { ok: false, reason: "invalid-id", message: "Not an id" },
+    };
+    const reports = { download: vi.fn(async () => {}), filing: vi.fn(async () => {}) };
+    test.fetchTeams.mockImplementationOnce(
+      async (ids) => new Map(ids.map((id) => [id, failing[id] ?? good(id)]))
+    );
+    // Asked once more: the dropped connection and the timeout answer, the throttle holds.
+    test.fetchTeams.mockImplementationOnce(
+      async (ids) => new Map(ids.map((id) => [id, id === "gc0000000002" ? failing[id]! : good(id)]))
+    );
+    await runStagedImport(ID, { ...test.deps, reports });
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids)).toEqual([
+      expect.any(Array),
+      ["gc0000000001", "gc0000000002", "gc0000002001"],
+    ]);
+    expect(test.fetchTeams.mock.calls[1]![1]).toMatchObject({ retries: IMPORT_RETRIES });
+    expect(test.filed).toContain("gc0000000001");
+    expect(test.filed).toContain("gc0000002001");
+    expect(test.job()).toMatchObject({
+      status: "done",
+      tally: { asked: 2003, answered: 2000, failed: 3 },
+      skipped: { transient: 1, permanent: 2 },
+      report: { rows: 3 },
+    });
+    // The rewritten checkpoints' reports replace the first ones.
+    expect(reports.download).toHaveBeenLastCalledWith(1, [
+      expect.objectContaining({ teamId: "gc0000002002" }),
+    ]);
+    expect(vi.mocked(finishStagedImport).mock.calls[0]![4].invalidIds).toEqual(["gc0000002002"]);
+  });
+  it("asks once more only once, though the import restarts before its final phase", async () => {
+    const test = setup(3);
+    test.fetchTeams.mockImplementation(
+      async (ids) =>
+        new Map(
+          ids.map((id): [string, GcTeamResponse] => [
+            id,
+            id === "gc0000000001" ? { ok: false, reason: "throttled", message: "Slow" } : good(id),
+          ])
+        )
+    );
+    vi.mocked(finishStagedImport).mockRejectedValueOnce(new Error("Execution interrupted"));
+    await expect(runStagedImport(ID, test.deps)).rejects.toThrow("Execution interrupted");
+    expect(test.fetchTeams).toHaveBeenCalledTimes(2);
+    await runStagedImport(ID, test.deps);
+    expect(test.fetchTeams).toHaveBeenCalledTimes(2);
+    expect(test.job()).toMatchObject({
+      status: "done",
+      tally: { answered: 2, failed: 1 },
+      skipped: { transient: 1, permanent: 0 },
+    });
+  });
+  it("keeps what the re-ask brought, and asks again on restart, when the download service shuts it out", async () => {
+    const test = setup(3);
+    test.fetchTeams.mockImplementationOnce(
+      async (ids) =>
+        new Map(
+          ids.map((id): [string, GcTeamResponse] => [
+            id,
+            id === "gc0000000002" ? good(id) : { ok: false, reason: "timeout", message: "Slow" },
+          ])
+        )
+    );
+    test.fetchTeams.mockImplementationOnce(async (ids, options) => {
+      options?.onMembersOnly?.("Access denied");
+      return new Map([[ids[0]!, good(ids[0]!)]]);
+    });
+    await expect(runStagedImport(ID, test.deps)).rejects.toThrow(
+      "could not access its download service"
+    );
+    expect(finishStagedImport).not.toHaveBeenCalled();
+    await runStagedImport(ID, test.deps);
+    expect(test.fetchTeams.mock.calls.map(([ids]) => ids)).toEqual([
+      ["gc0000000000", "gc0000000001", "gc0000000002"],
+      ["gc0000000000", "gc0000000001"],
+      ["gc0000000001"],
+    ]);
+    expect(test.job()).toMatchObject({ status: "done", tally: { answered: 3, failed: 0 } });
+  });
+  it("says each batch's skips apart: those that may answer another time and those answered with an error", async () => {
+    const test = setup(4);
+    test.fetchTeams.mockImplementation(
+      async (ids) =>
+        new Map(
+          ids.map((id): [string, GcTeamResponse] => [
+            id,
+            id === "gc0000000001"
+              ? { ok: false, reason: "throttled", message: "Slow" }
+              : id === "gc0000000002"
+                ? { ok: false, reason: "not-found", message: "Missing" }
+                : good(id),
+          ])
+        )
+    );
+    const details: string[] = [];
+    const update = test.jobs.update;
+    test.jobs.update = async (jobId, patch) => {
+      if (patch.detail) details.push(patch.detail);
+      await update(jobId, patch);
+    };
+    await runStagedImport(ID, test.deps);
+    expect(details).toContain(
+      "download batch 1 of 1 complete, 2 downloaded, 2 skipped (1 for now, 1 answered with an error)"
+    );
   });
   it("keeps permanent missing teams as reported failures instead of endlessly retrying them", async () => {
     const test = setup(2);

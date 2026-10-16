@@ -32,6 +32,22 @@ export const IMPORT_BATCH_TEAMS = 10_000;
 /** Small durable artifacts, independent of the work batch and preserved across upgrades. */
 export const IMPORT_CHECKPOINT_TEAMS = 2_000;
 
+/**
+ * The most teams one list may carry. On 12 and 13 October 2026 lists of about 450,000 teams were
+ * pasted whole, and they overwhelmed the cloud's pulls: one of them, a 448,645-team list sent as
+ * eighteen parts, still said "part 9 of 18, stop asked" days later. Fifty thousand is five of the
+ * importer's download batches (`IMPORT_BATCH_TEAMS`), under half an hour of downloading at the
+ * two thousand teams a minute the client reckons its starting eight workers manage
+ * (`PULL_CONCURRENCY`), so a nationwide export goes up as several lists, one after another. The
+ * page refuses a longer list before uploading it (`sendPull`), and `startPull` refuses to start or
+ * resume one, so a tab still running an older copy of the page cannot send one either.
+ */
+export const MAX_LIST_TEAMS = 50_000;
+
+/** Why a list longer than `MAX_LIST_TEAMS` is refused, in the page's words and the server's. */
+export const tooManyTeams = (teams: number): string =>
+  `This list has ${teams.toLocaleString("en-US")} teams, and one pull takes at most ${MAX_LIST_TEAMS.toLocaleString("en-US")}. Split it into smaller lists and send them one at a time.`;
+
 export const jobPath = (jobId: string): string => `pullJobs/${jobId}`;
 export const jobPiecePath = (jobId: string, index: number): string =>
   `${jobPath(jobId)}/pieces/${index}`;
@@ -99,6 +115,15 @@ export type PullJob = {
   stageStartedAt?: string;
   download?: ImportDownloadStatus;
   report?: { rows: number; ready: boolean };
+  /**
+   * A staged import's skipped downloads, apart (`stagedImport.ts`): those that failed for a passing
+   * reason (throttled, timed out, cut off), asked once more before the final phase and asked again
+   * by a later paste, and the rest, which GameChanger answered with an error (not found, not a team
+   * id, an upstream error). Of the rest only "not a team id" is remembered for good, so neither
+   * count is said to be skipped for good (`skipsApart`). A legacy list resumed by the importer
+   * counts its earlier failures in `tally.failed` but not here.
+   */
+  skipped?: { transient: number; permanent: number };
   /** Work already published by a legacy import before migrating its remaining downloads. */
   priorTally?: PullJobTally;
   /** The list, as its pieces make it: the SHA-256 of its JSON, its teams, and its pieces. */
@@ -161,6 +186,18 @@ export const NO_TALLY: PullJobTally = {
 
 export const legsFor = (teams: number, legTeams: number = LEG_TEAMS): number =>
   Math.max(1, Math.ceil(teams / legTeams));
+
+/**
+ * When anything last came from the worker running a job, in milliseconds: its heartbeat, its
+ * progress or its last write, whichever is latest. A staged import's supervisor beats every ten
+ * seconds; a leg of the older runner writes only when it has news. NaN where none can be read.
+ */
+export const lastHeardFrom = (job: PullJob): number => {
+  const heard = [job.heartbeatAt, job.progressAt, job.updatedAt]
+    .map((at) => (at === undefined ? Number.NaN : Date.parse(at)))
+    .filter(Number.isFinite);
+  return heard.length > 0 ? Math.max(...heard) : Number.NaN;
+};
 
 /** A list packed for its pieces, and what the job says of it. */
 export type PackedList = { list: PullJob["list"]; pieces: Uint8Array<ArrayBuffer>[] };
@@ -355,6 +392,10 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
       raw.report === undefined ||
       (isRecord(raw.report) && whole(raw.report.rows) && typeof raw.report.ready === "boolean")
     ) ||
+    !(
+      raw.skipped === undefined ||
+      (isRecord(raw.skipped) && whole(raw.skipped.transient) && whole(raw.skipped.permanent))
+    ) ||
     priorTally === null ||
     rota === null ||
     !isRecord(list) ||
@@ -399,6 +440,14 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     ...(isRecord(raw.report)
       ? { report: { rows: raw.report.rows as number, ready: raw.report.ready as boolean } }
       : {}),
+    ...(isRecord(raw.skipped)
+      ? {
+          skipped: {
+            transient: raw.skipped.transient as number,
+            permanent: raw.skipped.permanent as number,
+          },
+        }
+      : {}),
     ...(priorTally ? { priorTally } : {}),
     list: { hash: list.hash, teams: list.teams, pieces: list.pieces },
     seasonYears: raw.seasonYears,
@@ -420,4 +469,26 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     version: raw.version,
     updatedAt: raw.updatedAt,
   };
+};
+
+/**
+ * A staged import's skipped downloads apart, in the words the card and the end line share: those
+ * for now (followed by `passing`, each caller's own words for them), those GameChanger answered with
+ * an error, and any a legacy run of the same list failed before the importer took it over, which
+ * `tally.failed` counts and `skipped` does not. Empty where the job did not count them apart.
+ */
+export const skipsApart = (job: Pick<PullJob, "skipped" | "tally">, passing: string): string => {
+  if (!job.skipped || job.tally.failed <= 0) return "";
+  const { transient, permanent } = job.skipped;
+  const earlier = Math.max(0, job.tally.failed - transient - permanent);
+  const parts = [
+    `${transient.toLocaleString("en-US")} for now${passing}`,
+    `${permanent.toLocaleString("en-US")} GameChanger answered with an error`,
+    ...(earlier > 0 ? [`${earlier.toLocaleString("en-US")} in the earlier run of this list`] : []),
+  ];
+  const last = parts.pop();
+  // A comma before the "and" too where the words for now are set off by one, so they never run on
+  // into the next count ("before the final tidy and 1 GameChanger answered").
+  const serial = parts.length > 1 || passing.startsWith(",");
+  return `: ${parts.join(", ")}${serial ? "," : ""} and ${last}`;
 };

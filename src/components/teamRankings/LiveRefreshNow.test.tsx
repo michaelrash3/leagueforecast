@@ -470,25 +470,43 @@ describe("Refresh now on the Import tab", () => {
     expect(refreshButton()).toHaveProperty("disabled", false);
   });
 
+  /** A list's pull this device sent, running, its importer last heard from at `heardAt`. */
+  const listPull = (heardAt: string): PullJob => ({
+    ...newPullJob({
+      list: { hash: "c".repeat(64), teams: 3, pieces: 1 },
+      seasonYears: [],
+      timeZone: "America/New_York",
+      device: "device-test-1",
+      now: NOW,
+    }),
+    status: "running",
+    heartbeatAt: heardAt,
+  });
+
   it("waits while a list this device sent is being pulled, saying so", async () => {
     watching(OTHER, 3);
     const { edits } = editsOf(STATUS);
     const cloud = cloudOf();
-    cloud.jobs.set(OTHER, {
-      ...newPullJob({
-        list: { hash: "c".repeat(64), teams: 3, pieces: 1 },
-        seasonYears: [],
-        timeZone: "America/New_York",
-        device: "device-test-1",
-        now: NOW,
-      }),
-      status: "running",
-    });
+    // Heard from just now, by the clock the tab reads: the tab's own, not the test's NOW.
+    cloud.jobs.set(OTHER, listPull(new Date().toISOString()));
     open({ edits, pulls: () => cloud.sender });
     expect(await screen.findByText(PULL_RUNNING)).toBeTruthy();
     expect(refreshButton()).toHaveProperty("disabled", true);
     // The list's own lines stay in the pull card, not the nightly's.
     expect(screen.getByText(/Pulling 3 teams in the cloud/)).toBeTruthy();
+  });
+
+  // A list whose worker died kept Refresh now off for days in October 2026.
+  it("does not wait on a list's pull gone silent, whose line offers Dismiss instead", async () => {
+    watching(OTHER, 3);
+    const { edits } = editsOf(STATUS);
+    const cloud = cloudOf();
+    cloud.jobs.set(OTHER, listPull(new Date(Date.now() - 6 * 60_000).toISOString()));
+    open({ edits, pulls: () => cloud.sender });
+    expect(await screen.findByText(/Pulling 3 teams in the cloud/)).toBeTruthy();
+    expect(screen.queryByText(PULL_RUNNING)).toBeNull();
+    expect(refreshButton()).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });
 
   it("still tells of a refresh on its way while the status cannot be read", async () => {

@@ -129,6 +129,12 @@ describe("a pull's job", () => {
     expect(coercePullJob({ ...status, report: { rows: -1, ready: true } })).toBeNull();
     expect(coercePullJob({ ...status, report: { rows: 1, ready: "true" } })).toBeNull();
   });
+  it("reads a staged import's skips apart, those for now and those for good", () => {
+    const counted = { ...job(), skipped: { transient: 3, permanent: 1 } };
+    expect(coercePullJob(fieldsOf(firestoreFieldsOf(counted)))).toEqual(counted);
+    expect(coercePullJob({ ...job(), skipped: { transient: -1, permanent: 1 } })).toBeNull();
+    expect(coercePullJob({ ...job(), skipped: { transient: 1 } })).toBeNull();
+  });
 
   it("is not read at all when it is of a newer format, or anything is missing or wrong", () => {
     const good = job() as unknown as Record<string, unknown>;

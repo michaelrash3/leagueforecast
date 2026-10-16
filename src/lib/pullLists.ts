@@ -51,11 +51,16 @@ export type RunLists = {
  * good — a GameChanger id is minted per team per season, so this cannot hold a club down as it
  * ages up.
  */
-export const settleRunLists = (outcomes: readonly GcImportOutcome[], now: string): RunLists => {
+export const settleRunLists = (
+  outcomes: readonly GcImportOutcome[],
+  now: string,
+  /** Ids GameChanger said are not team ids (`invalid-id`), refused for good (`rememberRefused`). */
+  invalidIds: Iterable<string> = []
+): RunLists => {
   const ageless = updateAgeUnknown(loadAgeUnknown(), outcomes, now);
   const agelessSaved = saveAgeUnknown(ageless);
   const heldRefusals = loadRefusedClubs();
-  const nextRefused = rememberRefused(heldRefusals, outcomes);
+  const nextRefused = rememberRefused(heldRefusals, outcomes, invalidIds);
   if (nextRefused !== heldRefusals) saveRefusedClubs(nextRefused);
   const learnedTooYoung = tooYoungFromOutcomes(outcomes);
   const nextTooYoung =

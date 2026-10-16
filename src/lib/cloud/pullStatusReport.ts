@@ -6,7 +6,11 @@ import type { PullJob } from "./pullJobs";
  * tasks waiting there, and what `startPull` and `runPull` logged. It runs where the log is public,
  * so a job's id is cut to its first six characters, which is enough to tell the jobs of a day
  * apart and too little to address one, and any address not a Google service account's is taken
- * out of whatever Google says: a refusal can name the account it refused.
+ * out of whatever Google says: a refusal can name the account it refused. Nothing about a team
+ * is printed either: a structured line loses its `teamId`, `url` and `bodyPreview` fields at any
+ * depth, and any text loses a GameChanger address and anything shaped like a team's id. The import
+ * job used to log a sample team per failure reason, with the address it asked and the start of
+ * the body that came back, and lines it logged then can still be in the window this reads.
  */
 
 /** A pull's id anywhere in a text, cut short; addresses not of a service account, taken out. */
@@ -17,11 +21,35 @@ export const masked = (text: string): string =>
       address.endsWith(".gserviceaccount.com") ? address : "(an address)"
     );
 
-/** At most `max` characters of `text`, masked. */
+/** A GameChanger address, which names a team in its path, with its scheme or without. */
+const GC_ADDRESS = /\b(?:https?:\/\/)?[\w.-]*\bgc\.com\/[^\s"'<>)]*/gi;
+
+/** A twelve-character URL-safe token standing alone, the shape of a GameChanger team id. */
+const ID_TOKEN = /(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{12}(?![A-Za-z0-9_-])/g;
+
+/**
+ * Whether such a token is likely an id rather than a word: it has a digit, or a capital past its
+ * first letter. "import-retry", "unrecognized" and "Organization" stay; "gK5JSTKGwRYz" goes. An id
+ * of lowercase letters alone would stay too: were ids twelve characters drawn at random from the
+ * sixty-four URL-safe ones, about one id in ten thousand would be of that kind, reckoned and not
+ * measured.
+ */
+const idLike = (token: string): boolean => /\d/.test(token) || /[A-Z]/.test(token.slice(1));
+
+/** `text` masked, with any GameChanger address and anything shaped like a team's id taken out. */
+export const scrubbed = (text: string): string =>
+  masked(text)
+    .replace(GC_ADDRESS, "(a GameChanger address)")
+    .replace(ID_TOKEN, (token) => (idLike(token) ? "(an id)" : token));
+
+/** At most `max` characters of `text`, scrubbed. */
 export const clipped = (text: string, max = 400): string => {
-  const plain = masked(text.replace(/\s+/g, " ").trim());
+  const plain = scrubbed(text.replace(/\s+/g, " ").trim());
   return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
 };
+
+/** Fields of a structured log line that name a team, or say what GameChanger sent about one. */
+const TEAM_FIELDS = new Set(["teamId", "url", "bodyPreview"]);
 
 /**
  * When the time `iso` is from `nowMs`, in minutes: "12 min ago", or "in 10 min" for one still to
@@ -180,7 +208,10 @@ export const logLine = (entry: LogEntry): string => {
   if (entry.jsonPayload) {
     const { message, ...rest } = entry.jsonPayload;
     const words = typeof message === "string" ? message : "";
-    const more = Object.keys(rest).length > 0 ? ` ${JSON.stringify(rest)}` : "";
+    const more =
+      Object.keys(rest).length > 0
+        ? ` ${JSON.stringify(rest, (key: string, value: unknown) => (TEAM_FIELDS.has(key) ? undefined : value))}`
+        : "";
     return `${head}: ${clipped(`${words}${more}`)}`;
   }
   if (entry.protoPayload?.methodName) {

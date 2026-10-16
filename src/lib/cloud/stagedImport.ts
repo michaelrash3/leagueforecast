@@ -4,7 +4,12 @@ import type {
   GcTeamResponse,
   GcTeamSchedule,
 } from "../gameChangerApi";
-import { PULL_CONCURRENCY, PULL_MAX_CONCURRENCY } from "../gameChangerClient";
+import {
+  isTransientFailure,
+  PULL_CONCURRENCY,
+  PULL_MAX_CONCURRENCY,
+  type GcHoldSource,
+} from "../gameChangerClient";
 import { resetTeamRankingsStore } from "../teamRankingsStorage";
 import {
   finishStagedImport,
@@ -39,6 +44,11 @@ export type ImportCheckpointSummary = {
   asked: number;
   answered: number;
   failed: number;
+  /**
+   * Of `failed`, those that failed for a passing reason (`isTransientFailure`). Absent from a
+   * checkpoint saved before it was counted; the end of the downloads reads those again.
+   */
+  transient?: number;
   reportReady: boolean;
 };
 const summaryOf = (raw: unknown): ImportCheckpointSummary | null => {
@@ -48,7 +58,11 @@ const summaryOf = (raw: unknown): ImportCheckpointSummary | null => {
     typeof s.complete !== "boolean" ||
     typeof s.reportReady !== "boolean" ||
     ![s.asked, s.answered, s.failed].every((n) => Number.isSafeInteger(n) && Number(n) >= 0) ||
-    Number(s.answered) + Number(s.failed) !== s.asked
+    Number(s.answered) + Number(s.failed) !== s.asked ||
+    !(
+      s.transient === undefined ||
+      (Number.isSafeInteger(s.transient) && s.transient >= 0 && s.transient <= Number(s.failed))
+    )
   )
     return null;
   return s as ImportCheckpointSummary;
@@ -60,9 +74,25 @@ const summarize = (batch: Batch, reportReady: boolean): ImportCheckpointSummary 
     asked: batch.answers.length,
     answered,
     failed: batch.answers.length - answered,
+    transient: batch.answers.filter(([, a]) => !a.ok && isTransientFailure(a.reason)).length,
     reportReady,
   };
 };
+
+/**
+ * Extra attempts at a download that failed for a passing reason (throttled, timed out, cut off),
+ * within its batch and with the whole pull held back on a throttle (`fetchGcTeams`). Two, for
+ * three attempts in all over the ladder's first two waits, one and three seconds: from 12 and 13
+ * October 2026 the import asked each team once, and every throttled team was skipped on its first
+ * answer. What still fails for such a reason is asked once more when every batch is in (`REASKED`).
+ */
+export const IMPORT_RETRIES = 2;
+
+/**
+ * The checkpoint saying the passing failures were asked once more, after every batch was in: so
+ * an import restarted, or resumed, before its final phase does not ask them a third time.
+ */
+const REASKED = "reasked";
 
 export const restImportArtifacts = (
   docs: Pick<FirestoreRestDocuments, "read" | "set"> &
@@ -128,13 +158,19 @@ export const restImportArtifacts = (
 
 type ImportPlan = { copy: string; entries: GcTeamListEntry[]; batchTeams: number };
 type Batch = { answers: [string, GcTeamResponse][]; complete: boolean };
+/**
+ * A checkpoint's failures as the import job logs them (`importWorker.ts`): counts and reasons
+ * alone. The job's log is read back by the public pull-status workflow (`pullStatusReport.ts`),
+ * and it once carried a sample team per reason, with the GameChanger address asked and the start
+ * of the body that came back. The teams themselves, with what was said of each, are in the
+ * members-only skipped-team report (`importReports.ts`).
+ */
 export type ImportDownloadReport = {
   batch: number;
   checkpoint?: number;
   downloaded: number;
   skipped: number;
   reasons: Partial<Record<GcFetchErrorReason, number>>;
-  samples: { teamId: string; error: Extract<GcTeamResponse, { ok: false }> }[];
 };
 type StagedDeps = Pick<CloudPullDeps, "store" | "fetchTeams" | "now"> & {
   jobs: JobDocs;
@@ -155,35 +191,14 @@ const downloadReport = (
     downloaded: 0,
     skipped: 0,
     reasons: {},
-    samples: [],
   };
-  for (const [teamId, answer] of answers) {
+  for (const answer of answers.values()) {
     if (answer.ok) {
       report.downloaded++;
       continue;
     }
     report.skipped++;
-    const firstOfReason = !report.reasons[answer.reason];
     report.reasons[answer.reason] = (report.reasons[answer.reason] ?? 0) + 1;
-    // One bounded diagnostic per reason, without successful schedules or request headers.
-    if (firstOfReason)
-      report.samples.push({
-        teamId,
-        error: {
-          ...answer,
-          message: answer.message.slice(0, 500),
-          ...(answer.diagnostics
-            ? {
-                diagnostics: {
-                  ...answer.diagnostics,
-                  ...(answer.diagnostics.bodyPreview
-                    ? { bodyPreview: answer.diagnostics.bodyPreview.slice(0, 300) }
-                    : {}),
-                },
-              }
-            : {}),
-        },
-      });
   }
   return report;
 };
@@ -286,8 +301,10 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
       answered += summary.answered;
     }
     failed = asked - answered;
+    const transient = [...summaries.values()].reduce((n, s) => n + (s.transient ?? 0), 0);
     return {
       tally: { ...prior, asked, answered, failed },
+      skipped: { transient, permanent: Math.max(0, failed - prior.failed - transient) },
       download: { ...download },
       ...(deps.reports
         ? {
@@ -302,6 +319,23 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
   await say({ legs: Math.max(1, legs), legTeams, ...savedStatus() });
   let concurrency = PULL_CONCURRENCY;
   let maxConcurrency = PULL_MAX_CONCURRENCY;
+  /**
+   * A hold GameChanger asked for, or a refused route, said on the job: every worker starts again
+   * at the floor and grows no more. Whether to say it at once: a newly started wait is, and a
+   * repeated provider reply stays throttled without a write each.
+   */
+  const held = (ms: number, source: GcHoldSource): boolean => {
+    concurrency = PULL_CONCURRENCY;
+    maxConcurrency = PULL_CONCURRENCY;
+    const previous = Date.parse(download.holdUntil ?? "") || 0;
+    const until = Math.max(previous, now().getTime() + ms);
+    download = {
+      ...download,
+      holdUntil: new Date(until).toISOString(),
+      holdReason: source === "refused" ? "refused" : "throttled",
+    };
+    return previous <= now().getTime() || until - previous >= 10_000;
+  };
   for (let leg = 0; leg < legs; leg++) {
     if (await stopped()) {
       await say({
@@ -425,7 +459,7 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
         const fetched = await deps.fetchTeams(pending, {
           concurrency,
           maxConcurrency,
-          retries: 0,
+          retries: IMPORT_RETRIES,
           stopOnRefused: false,
           onMembersOnly: (message) => {
             accessError = message;
@@ -433,19 +467,7 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
           onConcurrency: (workers) => {
             concurrency = workers;
           },
-          onHold: (ms, source) => {
-            concurrency = PULL_CONCURRENCY;
-            maxConcurrency = PULL_CONCURRENCY;
-            const previous = Date.parse(download.holdUntil ?? "") || 0;
-            const until = Math.max(previous, now().getTime() + ms);
-            download = {
-              ...download,
-              holdUntil: new Date(until).toISOString(),
-              holdReason: source === "refused" ? "refused" : "throttled",
-            };
-            // Publish a newly started wait immediately; repeated provider replies stay throttled.
-            reportProgress(previous <= now().getTime() || until - previous >= 10_000);
-          },
+          onHold: (ms, source) => reportProgress(held(ms, source)),
           signal: downloader.signal,
           onProgress: ({ teamId, result }) => {
             if (downloader.signal.aborted) return;
@@ -494,16 +516,24 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
     const counts = chunks.reduce(
       (sum, chunk) => {
         const s = summaries.get(chunk.index)!;
-        return { downloaded: sum.downloaded + s.answered, skipped: sum.skipped + s.failed };
+        return {
+          downloaded: sum.downloaded + s.answered,
+          skipped: sum.skipped + s.failed,
+          transient: sum.transient + (s.transient ?? 0),
+        };
       },
-      { downloaded: 0, skipped: 0 }
+      { downloaded: 0, skipped: 0, transient: 0 }
     );
+    const split =
+      counts.skipped > 0
+        ? ` (${counts.transient.toLocaleString()} for now, ${(counts.skipped - counts.transient).toLocaleString()} answered with an error)`
+        : "";
     await say({
       stage: "fetching",
       legsDone: leg + 1,
       progress: { done: total, total, failed: batchFailed },
       ...savedStatus(),
-      detail: `download batch ${leg + 1} of ${legs} complete, ${counts.downloaded.toLocaleString()} downloaded, ${counts.skipped.toLocaleString()} skipped`,
+      detail: `download batch ${leg + 1} of ${legs} complete, ${counts.downloaded.toLocaleString()} downloaded, ${counts.skipped.toLocaleString()} skipped${split}`,
       error: null,
     });
   }
@@ -515,7 +545,109 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
     });
     return;
   }
+  /*
+   * Every checkpoint holding a failure, read once: the ids that failed for a passing reason, to ask
+   * once more, and the ids GameChanger said are not team ids, for the final phase to remember with
+   * the clubs refused for good, so a paste does not ask again. A checkpoint saved before passing
+   * failures were counted gains the count here.
+   */
+  const passing = new Map<number, string[]>();
+  const invalidIds: string[] = [];
+  const failures = async (index: number) => {
+    const batch = await artifacts.read<Batch>(`batch-${index}`);
+    if (!batch?.complete) throw new Error("A finished import batch is missing.");
+    return batch;
+  };
+  for (let index = 0; index < checkpoints; index++) {
+    const summary = summaries.get(index);
+    if (!summary?.failed) continue;
+    const batch = await failures(index);
+    summaries.set(index, summarize(batch, summary.reportReady));
+    for (const [teamId, answer] of batch.answers) {
+      if (answer.ok) continue;
+      if (isTransientFailure(answer.reason))
+        passing.set(index, [...(passing.get(index) ?? []), teamId]);
+      else if (answer.reason === "invalid-id") invalidIds.push(teamId);
+    }
+  }
+  if (passing.size > 0 && !(await artifacts.read(REASKED))) {
+    const again = [...passing.values()].flat();
+    const answers = new Map<string, GcTeamResponse>();
+    let lastReport = 0;
+    let progressWrite = Promise.resolve();
+    const reportProgress = (force = false) => {
+      if (!force && now().getTime() - lastReport < 10_000) return;
+      lastReport = now().getTime();
+      const progress = {
+        done: answers.size,
+        total: again.length,
+        failed: [...answers.values()].filter((a) => !a.ok).length,
+      };
+      const status = { ...download };
+      progressWrite = progressWrite
+        .then(() => say({ progress, download: status }))
+        .catch(() => undefined);
+    };
+    await say({
+      stage: "fetching",
+      progress: { done: 0, total: again.length, failed: 0 },
+      detail: `Asking GameChanger once more for ${again.length.toLocaleString()} ${again.length === 1 ? "team whose download" : "teams whose downloads"} failed for a passing reason`,
+    });
+    let accessError: string | undefined;
+    const fetched = await deps.fetchTeams(again, {
+      concurrency,
+      maxConcurrency,
+      retries: IMPORT_RETRIES,
+      stopOnRefused: false,
+      onMembersOnly: (message) => {
+        accessError = message;
+      },
+      onConcurrency: (workers) => {
+        concurrency = workers;
+      },
+      onHold: (ms, source) => reportProgress(held(ms, source)),
+      ...(deps.signal ? { signal: deps.signal } : {}),
+      onProgress: ({ teamId, result }) => {
+        answers.set(teamId, result);
+        reportProgress();
+      },
+    });
+    for (const [teamId, result] of fetched) answers.set(teamId, result);
+    await progressWrite;
+    download = { ...download, holdUntil: null, holdReason: null };
+    // Each checkpoint asked of, saved again with whatever came: what did not come keeps its answer.
+    for (const index of passing.keys()) {
+      const batch = await failures(index);
+      const snapshot: Batch = {
+        complete: true,
+        answers: batch.answers.map(([teamId, answer]) => [teamId, answers.get(teamId) ?? answer]),
+      };
+      await deps.reports?.download(index, downloadProblems(snapshot.answers, names));
+      const summary = summarize(snapshot, !!deps.reports);
+      await artifacts.write(`batch-${index}`, snapshot, summary);
+      summaries.set(index, summary);
+      for (const teamId of passing.get(index) ?? []) {
+        const answer = answers.get(teamId);
+        if (answer && !answer.ok && answer.reason === "invalid-id") invalidIds.push(teamId);
+      }
+    }
+    if (accessError)
+      throw new Error(`The importer could not access its download service: ${accessError}`);
+    if (await stopped()) {
+      await say({
+        status: "cancelled",
+        stage: "waiting",
+        ...savedStatus(),
+        error: "Downloaded batches are kept; nothing from this import was published.",
+      });
+      return;
+    }
+    await artifacts.write(REASKED, { teams: again.length });
+  }
+  await say({ ...savedStatus(), download: { ...download }, detail: "" });
   if (legs === 0 || answered === prior.answered) {
+    // Nothing downloaded, nothing filed: and no id GameChanger refused is remembered, either, so a
+    // route that answered every id alike with HTTP 400 is never taken for a list of non-ids.
     await say({
       status: "done",
       stage: "waiting",
@@ -590,6 +722,7 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
       now,
       device: `import-${jobId}`,
       ...(deps.signal ? { signal: deps.signal } : {}),
+      invalidIds,
       onOutcomes: async (outcomes) => {
         if (!deps.reports) return;
         await say({ detail: "Saving the skipped-team report" });

@@ -19,8 +19,15 @@ import {
   firestoreRestLive,
 } from "../../src/lib/cloud/firestoreRest";
 import { randomId } from "../../src/lib/cloud/cloudManifest";
+import { importLeaseUntil } from "../../src/lib/cloud/importLease";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
-import { restJobDocs, startPullJob, type LegTask } from "../../src/lib/cloud/pullJobRunner";
+import {
+  reapPullJob,
+  restJobDocs,
+  resumePullJob,
+  startPullJob,
+  type LegTask,
+} from "../../src/lib/cloud/pullJobRunner";
 import { coerceRefreshAsk, startRefresh } from "../../src/lib/cloud/refreshGate";
 import { todayIsoDay } from "../../src/lib/date";
 import { serveGcProxy } from "../../src/lib/firebaseProxy";
@@ -244,50 +251,39 @@ export const startPull = !CLOUD_PULLS
         const resume = (data as { resume?: unknown } | null)?.resume;
         if (resume !== undefined && resume !== true)
           throw new HttpsError("invalid-argument", "Invalid resume request.");
+        const docs = firestoreRestDocuments(restAccess());
+        // Any ask about a job ends it first if its worker died without a word (`reapPullJob`):
+        // Dismiss, Stop and Resume on a pull gone silent all come here. Counts and words only.
+        if (typeof jobId === "string" && JOB_ID.test(jobId)) {
+          const reaped = await reapPullJob(jobId, {
+            jobs: restJobDocs(docs),
+            leaseUntil: (id) => importLeaseUntil(docs, id),
+            now: () => new Date(),
+          }).catch((error: unknown) => {
+            logger.warn("startPull", { kind: "reap", failed: messageOf(error) });
+            return null;
+          });
+          if (reaped) logger.info("startPull", { kind: "reap", ended: reaped });
+        }
         if (resume === true) {
-          if (typeof jobId !== "string" || !JOB_ID.test(jobId))
-            throw new HttpsError("invalid-argument", "Invalid import id.");
-          const jobs = restJobDocs(firestoreRestDocuments(restAccess()));
-          const job = await jobs.read(jobId);
-          if (!job || job.rota)
-            throw new HttpsError("invalid-argument", "This import cannot be resumed.");
-          if (job.status === "done") return { status: "done" };
-          if (
-            job.pipeline &&
-            job.status === "running" &&
-            job.heartbeatAt &&
-            Date.now() - Date.parse(job.heartbeatAt) < 120_000
-          )
-            return { status: "running" };
-          if (job.status === "failed" || job.status === "cancelled") {
-            if (
-              !(await jobs.updateIfUnchanged(jobId, job, {
-                status: "queued",
-                ...(!job.pipeline ? { pipeline: "staged-v1" as const, priorTally: job.tally } : {}),
-                stopAsked: false,
-                stage: "waiting",
-                error: null,
-                updatedAt: new Date().toISOString(),
-              }))
-            ) {
-              throw new HttpsError("unavailable", "Retrying the resume request.");
-            }
-          }
-          if (!job.pipeline && job.status !== "failed" && job.status !== "cancelled")
-            throw new HttpsError(
-              "invalid-argument",
-              "Stop the earlier import before resuming it with the faster importer."
-            );
-          // The execution lease admits one worker; repeated or unanswered starts are safe.
-          await launchImport(jobId);
-          return { status: "queued" };
+          const resumed = await resumePullJob(jobId, {
+            jobs: restJobDocs(docs),
+            launch: launchImport,
+            now: () => new Date(),
+          });
+          logger.info("startPull", {
+            kind: "resume",
+            ...(resumed.ok ? { status: resumed.status } : { refused: resumed.refusal }),
+          });
+          if (!resumed.ok) throw new HttpsError(resumed.refusal, resumed.message);
+          return { status: resumed.status };
         }
         // On an ask after the first, how long the sending device has waited, by its own clock.
         const waited = (data as { waited?: unknown } | null)?.waited;
         const started = await startPullJob(
           jobId,
           {
-            jobs: restJobDocs(firestoreRestDocuments(restAccess())),
+            jobs: restJobDocs(docs),
             enqueue: enqueueLeg,
             now: () => new Date(),
           },

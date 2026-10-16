@@ -1547,7 +1547,9 @@ links, or a whole spreadsheet export — the same reader handles all three, BOM,
 quoted names and tab-separated columns included. Each team's schedule is read and
 filed under its own age group and squad year, and the pages are created as they
 are needed, because a nationwide list cannot expect a page to exist for every
-level first.
+level first. Under a header, an id is read from the id column, the link column,
+or a link anywhere in the row, and nowhere else: a row with only its name filled
+in once sent that name to GameChanger as an id.
 
 #### Two lists: teams, and the organizations they belong to
 
@@ -3897,7 +3899,11 @@ how a pasted list is pulled at all.
 **On the page** (`LiveCloudPulls.tsx`, `src/lib/cloud/cloudPulls.ts`). The paste
 box reads a list or a spreadsheet export as the device's own pull panel does,
 leaving out wiffle ball, high school squads and adult or college teams, which cost
-no request. Two more buttons appear when the server's import status names teams
+no request. Before it is sent, it says how many of the ids do not have the shape
+every GameChanger team id seen so far has, twelve letters and digits
+(`isWellFormedGcTeamId`): slugs and names a list carries where an id should be,
+which GameChanger answers with HTTP 400; and how many lines named no team id at
+all. Two more buttons appear when the server's import status names teams
 for them: the teams nobody could age, asked again on a catch-up day, and the
 GameChanger pages playing this season whose roster is short and due a look. Those
 two are catch-ups: their teams are pulled again whether or not the pool has them,
@@ -3905,8 +3911,20 @@ filed in the season being played alone. Each pull sent is remembered on this
 device until its end has been said once, read again every 15 s while one is on
 its way, and can be asked to stop.
 
+One list holds at most 50,000 teams (`MAX_LIST_TEAMS`). On 12 and 13 October
+2026 lists of about 450,000 teams were pasted whole, and they overwhelmed the
+pulls: one, sent as eighteen parts, still said "part 9 of 18, stop asked" days
+later. A longer paste is refused on the page in plain words, with the button off,
+before anything is uploaded; `startPull` refuses to start or resume one as well,
+so a tab still running an older page cannot send one either. A nationwide export
+goes up as several lists, one after another.
+
 **What the cloud pulls of a list** (`cloudRunner.ts`, `listIds`). Never a club
-refused for good or as another season's, nor one too young to rank. Of a paste,
+refused for good or as another season's, nor one too young to rank. An id
+GameChanger answered with HTTP 400 is `invalid-id`, final, and kept with the clubs
+refused for good by the run that filed the list (`rememberRefused`), so the next
+paste of it costs no request; a run that filed nothing remembers none, so a route
+that refused every id alike is never taken for a list of non-ids. Of a paste,
 only the teams the pool lacks, or a handful pasted by hand with none new, which
 is how a schedule that changed today is read before the rota comes round; the
 rest of an export is the nightly's to refresh. A catch-up pulls every team on it.
@@ -3942,12 +3960,26 @@ checkpoints keep their identities when an older import resumes with larger batch
 Checkpoint answers retain the selection order even when downloads finish out of order.
 Clean download concurrency carries forward between batches; GameChanger pushback
 lowers it rather than restarting at full speed.
-Each team gets one download attempt. Failed downloads are counted as skipped, and the
-import continues with the remaining teams; they do not consume Cloud Run execution
-retries or hold up the final tidy. Progress distinguishes downloaded, skipped and
-remaining teams. Warning logs record failure reasons and bounded diagnostic samples.
+A download that fails for a passing reason (GameChanger throttling, a timeout, a
+dropped connection) is tried twice more within its batch (`IMPORT_RETRIES`), and a
+throttle holds every worker back, for as long as GameChanger names or, when it names
+nothing, for the client's own next backoff: from 12 and 13 October 2026 each team was
+asked once and every throttled one skipped on its first answer. Not found, not a team
+id and an upstream error are final. When every batch is in, the downloads that still
+failed for a passing reason are asked once more, before the final phase, and their
+checkpoints and report saved again; a checkpoint says it was done, so a restart does
+not ask them a third time. Failed downloads are counted as skipped, and the import
+continues with the remaining teams; they do not consume Cloud Run execution retries or
+hold up the final tidy. Progress distinguishes downloaded, skipped and remaining teams,
+and the skips apart: those for now, which a later paste asks again, those GameChanger
+answered with an error (of which only "not a team id" is remembered, so neither count is
+called skipped for good), and, on a list an earlier run started, the failures of that run.
+Warning logs record counts and failure reasons only, never a team's id, GameChanger
+address or body: the pull-status workflow, whose log is public, reads them back. The teams
+themselves, with what was said of each, are in the skipped-team report below.
 Resuming an older incomplete batch keeps its successful downloads, skips its recorded
-failures and asks only for teams that had no answer yet.
+failures and asks only for teams that had no answer yet, then asks its passing failures
+once more with the rest.
 Checkpoint pointers include small, validated count summaries, so a restart counts
 completed downloads without reading their schedules. Older checkpoints gain summaries
 after their first verified read.
@@ -3966,7 +3998,23 @@ while its worker matches and tidies; progress timestamps and tidy-step details a
 separate. Cloud Run retries interrupted executions from checkpoints, without fetching
 teams that already have a success or failure recorded. Stop keeps checkpoints and leaves
 a partial pool unpublished. Resume continues the same job. Stop during the final commit
-waits for that commit.
+waits for that commit. When Cloud Run ends an execution (a cancel, the task's time
+limit), its SIGTERM is taken as a failure of that try: the job is written back to
+waiting with the reason, failed on the last try, and the lease let go before it exits.
+
+**A pull gone silent.** A worker can still die without a word, its container killed
+with it, and its job then said "running" for good: one of 12 October sat at "part 9
+of 18, stop asked" for days, Stop already pressed and nothing else to press, and held
+Refresh now off behind it. Now any ask `startPull` gets about a job first ends it if
+it is dead (`reapPullJob`): a staged import nothing has been heard from in five
+minutes and whose lease nobody holds, or a job of the older runner nothing has
+written in two hours (`LEGS_SILENT_MS`, the refresh gate's own quiet), as failed, or
+cancelled where a stop was asked, and only while it is still as read. A line on the
+page that has heard nothing for five minutes offers Dismiss, which asks the cloud
+about the job and stops showing it on this device; a staged import also offers
+Resume, which launches it again from its checkpoints; and Stop on a silent pull asks
+the cloud at once. Refresh now no longer waits on a list's pull gone silent. Resume
+says why when the cloud refuses it.
 Failed or stopped legacy list imports can resume with the staged importer, preserving
 previously filed work. Budgeted refresh jobs retain their existing leg sizes and caps.
 
@@ -4076,7 +4124,13 @@ the deploy key, read only):
   by their answer and time taken only.
 
 It runs where the log is public, so it cuts each job's id to six characters and
-takes out any address but a service account's. A part the key may not read says
+takes out any address but a service account's. Nothing about a team is printed
+either: a structured line loses its `teamId`, `url` and `bodyPreview` fields at any
+depth, and any text loses a GameChanger address and anything shaped like a team's
+id (twelve URL-safe characters with a digit, or a capital past the first). The
+import job used to log a sample team per failure reason, with the address asked
+and the start of the body that came back, and lines it logged then can still be
+in the hours read. A part the key may not read says
 so, and the rest still prints. The deploy account reads the queues as the pulls'
 setup made it, but lists the tasks in them only with Cloud Tasks Viewer, which
 one paste in Cloud Shell grants; without it the queues are said, their tasks are

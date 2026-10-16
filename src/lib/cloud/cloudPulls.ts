@@ -3,7 +3,15 @@ import { MIN_PULL_GAP_HOURS } from "../gameChangerSchedule";
 import type { Called, RefreshStart } from "../live/editClient";
 import { randomId } from "./cloudManifest";
 import type { PullJobStore } from "./firebaseCloud";
-import { newPullJob, packJobList, type PullJob } from "./pullJobs";
+import {
+  MAX_LIST_TEAMS,
+  lastHeardFrom,
+  newPullJob,
+  packJobList,
+  skipsApart,
+  tooManyTeams,
+  type PullJob,
+} from "./pullJobs";
 import { hashValue } from "./cloudPack";
 
 /**
@@ -117,6 +125,8 @@ export const sendPull = async (
   sender: PullSender,
   onStored?: () => void
 ): Promise<SendOutcome> => {
+  // Refused here before anything is uploaded; `startPull` refuses one from an older page too.
+  if (entries.length > MAX_LIST_TEAMS) return { ok: false, message: tooManyTeams(entries.length) };
   const ready = await sender.ready?.();
   if (ready && !ready.ok) return { ok: false, message: ready.message };
   const fingerprint = await hashValue({
@@ -425,10 +435,14 @@ export const describeEnd = (pull: WatchedPull): string => {
   const teams = sent.teams.toLocaleString();
   const { filed, gamesAdded, gamesUpdated, failed } = job.tally;
   const games = `${gamesAdded.toLocaleString()} games added and ${gamesUpdated.toLocaleString()} updated`;
+  const apart = skipsApart(
+    job,
+    " (GameChanger throttled, timed out or dropped them; a later paste asks again)"
+  );
   const unanswered =
     failed > 0
       ? job.pipeline === "staged-v1"
-        ? `; ${failed.toLocaleString()} skipped because their downloads failed`
+        ? `; ${failed.toLocaleString()} skipped because their downloads failed${apart}`
         : `; ${failed.toLocaleString()} did not answer`
       : "";
   if (job.status === "failed") {
@@ -465,6 +479,29 @@ export const STARTING_MS = 2 * 60_000;
 /** Warn about absent progress without claiming that a worker has definitely stopped. */
 export const PULL_STALE_MS = 5 * 60_000;
 
+/**
+ * Whether a pull the cloud says is running has gone silent: nothing heard from its worker in
+ * `PULL_STALE_MS` (`lastHeardFrom`). A staged import beats every ten seconds, so five minutes of
+ * nothing is a dead or restarting worker; a leg of the older runner writes only with news, and is
+ * ended by the cloud only after two hours (`reapPullJob`). Such a line offers Dismiss, which asks
+ * the cloud about the job and so ends it there if it is dead, and Refresh now no longer waits on
+ * it. A pull still waiting to start has Stop and the device's own asks (`dueForAsking`) instead.
+ */
+export const goneSilent = (job: PullJob, nowMs: number): boolean =>
+  job.status === "running" && nowMs - lastHeardFrom(job) >= PULL_STALE_MS;
+
+/**
+ * Whether a list's pull can be resumed from the page: failed or stopped, or a staged import gone
+ * silent, which Resume launches again from its saved checkpoints (`resumePullJob`). Never Refresh
+ * now, which is pressed again instead, and never a list longer than one pull takes.
+ */
+export const resumable = (job: PullJob, nowMs: number): boolean =>
+  !job.rota &&
+  job.list.teams <= MAX_LIST_TEAMS &&
+  (job.status === "failed" ||
+    job.status === "cancelled" ||
+    (job.pipeline === "staged-v1" && goneSilent(job, nowMs)));
+
 /** Whole-import download counts and measured rate, separate from the current batch. */
 export const describeImportMetrics = (job: PullJob, nowMs = Date.now()): string | null => {
   if (!job.download) return null;
@@ -494,9 +531,10 @@ export const describePullUpdate = (
     const alive = nowMs - Date.parse(job.heartbeatAt) < 120_000;
     const advancing = nowMs - Date.parse(job.progressAt ?? job.updatedAt) < PULL_STALE_MS;
     const holding = Date.parse(job.download?.holdUntil ?? "") > nowMs;
+    const gone = nowMs - Date.parse(job.heartbeatAt) >= PULL_STALE_MS;
     return {
       stale: !alive || (!advancing && !holding),
-      message: `Worker heartbeat ${agoFrom(job.heartbeatAt, nowMs)}. Last progress ${agoFrom(job.progressAt ?? job.updatedAt, nowMs)}.${alive ? (holding ? " The worker is responding and waiting on GameChanger." : advancing ? " The worker is responding." : " The worker is connected, but progress has not advanced recently.") : " No recent heartbeat; checking whether the worker is restarting."}`,
+      message: `Worker heartbeat ${agoFrom(job.heartbeatAt, nowMs)}. Last progress ${agoFrom(job.progressAt ?? job.updatedAt, nowMs)}.${alive ? (holding ? " The worker is responding and waiting on GameChanger." : advancing ? " The worker is responding." : " The worker is connected, but progress has not advanced recently.") : gone ? " No heartbeat for five minutes: the importer has probably stopped. Resume carries on from its saved downloads." : " No recent heartbeat; checking whether the worker is restarting."}`,
     };
   }
   if (!Number.isFinite(updated)) {

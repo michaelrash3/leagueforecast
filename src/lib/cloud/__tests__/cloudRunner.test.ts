@@ -9,6 +9,7 @@ import {
   loadAutoRemoved,
   loadDroppedClubs,
   loadRefreshLog,
+  loadRefusedClubs,
   loadScoutGames,
   loadScoutTeams,
   loadTidyStamp,
@@ -398,6 +399,95 @@ describe("a pull run on the cloud copy", () => {
       deps(refused, "2026-09-29T13:00:00.000Z")
     );
     expect(none).toMatchObject({ asked: 0, end: "nothing-due" });
+  });
+
+  /*
+   * A pasted list's slugs and names, which GameChanger answers with HTTP 400 (`invalid-id`), were
+   * asked about again on every paste of the list. Remembered with the clubs refused for good, a
+   * paste asks about them once.
+   */
+  it("remembers the ids GameChanger said are not team ids, so a paste does not ask again", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const slug = "bears-baseball-10u";
+    const asked: string[][] = [];
+    const fetchTeams: CloudPullDeps["fetchTeams"] = async (ids, options) => {
+      asked.push([...ids]);
+      const answers = new Map<string, GcTeamResponse>();
+      for (const teamId of ids) {
+        const found = schedules.get(teamId);
+        const result: GcTeamResponse = found
+          ? { ok: true, schedule: found }
+          : { ok: false, reason: "invalid-id", message: "Not a team id." };
+        answers.set(teamId, result);
+        options.onProgress?.({ done: 1, total: ids.length, teamId, result, attempts: 1 });
+      }
+      return answers;
+    };
+    const paste = { kind: "list", entries: [{ teamId: ACES }, { teamId: slug }], seasonYears: [] };
+    const first = await runCloudPull(
+      paste as CloudPullJob,
+      deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams })
+    );
+    expect(first).toMatchObject({ asked: 2, answered: 1, failed: 1 });
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    expect([...loadRefusedClubs().forGood]).toEqual([slug]);
+    // Pasted again: the slug costs no request; the one club, a handful, is read again.
+    await runCloudPull(
+      paste as CloudPullJob,
+      deps(cloud, "2026-09-29T14:00:00.000Z", { fetchTeams })
+    );
+    expect(asked).toEqual([[ACES, slug], [ACES]]);
+  });
+
+  it("remembers none when every id came back invalid, as a route answering all with 400 would", async () => {
+    // GameChanger changing its route, or the proxy breaking, answers every id with HTTP 400 alike:
+    // remembered, every real club in the run would be skipped by every later paste.
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const fetchTeams: CloudPullDeps["fetchTeams"] = async (ids, options) => {
+      const answers = new Map<string, GcTeamResponse>();
+      for (const teamId of ids) {
+        const result: GcTeamResponse = { ok: false, reason: "invalid-id", message: "Bad Request" };
+        answers.set(teamId, result);
+        options.onProgress?.({ done: 1, total: ids.length, teamId, result, attempts: 1 });
+      }
+      return answers;
+    };
+    const paste = { kind: "list", entries: [{ teamId: ACES }], seasonYears: [] };
+    const run = await runCloudPull(
+      paste as CloudPullJob,
+      deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams })
+    );
+    expect(run).toMatchObject({ asked: 1, answered: 0, failed: 1 });
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    expect([...loadRefusedClubs().forGood]).toEqual([]);
+  });
+
+  it("remembers them from a staged import's final phase too", async () => {
+    const cloud = memoryCloud();
+    const base = await seed(cloud);
+    const source = () =>
+      (async function* () {
+        yield schedules.get(ACES)!;
+      })();
+    await finishStagedImport(
+      list,
+      source,
+      base.copy,
+      { asked: 2, answered: 1, failed: 1 },
+      {
+        store: cloud.store,
+        now: () => new Date("2026-09-29T13:00:00.000Z"),
+        device: "import-test",
+        invalidIds: ["bears-baseball-10u"],
+      }
+    );
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    expect([...loadRefusedClubs().forGood]).toEqual(["bears-baseball-10u"]);
   });
 
   it("leaves the copy as it was when a pull changes nothing in it", async () => {
