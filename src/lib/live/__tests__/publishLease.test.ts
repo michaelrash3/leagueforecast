@@ -144,6 +144,46 @@ describe("the boards' publish lease", () => {
     expect(await lease.handBack("job-1", T + 3)).toBeNull();
   });
 
+  it("takes a launch over though a launcher wrote onto its claim meanwhile, with that ask", async () => {
+    const { docs } = memoryDocs();
+    const lease = publishLease(docs);
+    await lease.launch(T, ASK);
+    // Between the job's read and its write, a pull's end finds the claim held and writes onto it.
+    let raced = false;
+    const racing = {
+      readAt: async (path: string) => {
+        const at = await docs.readAt(path);
+        if (!raced) {
+          raced = true;
+          await lease.launch(T + 1, { settleMs: 0, rebuilds: false });
+        }
+        return at;
+      },
+      replace: docs.replace,
+    };
+    expect(await publishLease(racing).take(T + 2, "job-1")).toEqual({
+      taken: true,
+      asked: { settleMs: 0, rebuilds: false },
+    });
+  });
+
+  it("hands what was asked in a job's last round on to the next job, as a launch's claim", async () => {
+    const { docs } = memoryDocs();
+    const lease = publishLease(docs);
+    await lease.take(T, "job-1");
+    // Nobody asked: let go.
+    expect(await lease.handOn("job-1", T + 1)).toBeNull();
+    expect(await lease.launch(T + 2, ASK)).toEqual({ ok: true });
+    await lease.take(T + 3, "job-2");
+    const pullEnd = { settleMs: 0, rebuilds: false };
+    await lease.launch(T + 4, pullEnd);
+    // Another job's changes nothing; its own turns into a claim the next job takes over.
+    expect(await lease.handOn("job-1", T + 5)).toBeNull();
+    expect(await lease.handOn("job-2", T + 6)).toEqual(pullEnd);
+    expect(await lease.launch(T + 7, ASK)).toEqual({ ok: false, until: T + 6 + LAUNCH_HOLD_MS });
+    expect(await lease.take(T + 8, "job-3")).toEqual({ taken: true, asked: pullEnd });
+  });
+
   it("lapses at its time where nobody lets it go: a launch never answered, a job killed", async () => {
     const { docs } = memoryDocs();
     const lease = publishLease(docs);

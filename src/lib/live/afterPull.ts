@@ -200,7 +200,13 @@ export const askInTime = async <T>(
  * What the publish after a pull decided, and how its publish ended where it published: its last
  * round's, and how many rounds it ran (`rounds`, one but where launchers asked again).
  */
-export type AfterPullRun = { decided: AfterPull; result?: Republish; rounds?: number };
+export type AfterPullRun = {
+  decided: AfterPull;
+  result?: Republish;
+  rounds?: number;
+  /** Where asks were left after the last round: whether another job was started for them. */
+  handedOn?: boolean;
+};
 
 /**
  * How many rounds one job publishes at most, asked again each time by a launcher that found it
@@ -228,7 +234,12 @@ export const publishAfterPull = async (
      * The lease the job holds while it publishes (`publishLease.ts`), taken over from the launch
      * that started it, under `owner`, and let go at its end whatever happens.
      */
-    lease: Pick<PublishLease, "take" | "handBack" | "release">;
+    lease: Pick<PublishLease, "take" | "handBack" | "handOn" | "release" | "unlaunch">;
+    /**
+     * Starts another job (`launchBoardsPublish`), for asks made during this one's last round, which
+     * the lease hands on to it as a launch's claim (`handOn`). Without it, the claim lapses unused.
+     */
+    relaunch?: () => Promise<void>;
     owner: string;
     /** The collation the boards are built under: the server's own (`boardLocale`) unless a test says. */
     locale?: string;
@@ -251,7 +262,17 @@ export const publishAfterPull = async (
       if (!again) return { ...run, rounds: round - 1 };
       run = await publishHeld(stores, asking(again));
     }
-    return { ...run, rounds: PUBLISH_ROUNDS };
+    // Asks made during the last round are handed on to another job, not dropped (Codex, on #409).
+    const left = await deps.lease.handOn(deps.owner, deps.now().getTime());
+    if (left && deps.relaunch) {
+      const relaunched = await deps.relaunch().then(
+        () => true,
+        () => false
+      );
+      if (!relaunched) await deps.lease.unlaunch().catch(() => undefined);
+      return { ...run, rounds: PUBLISH_ROUNDS, handedOn: relaunched };
+    }
+    return { ...run, rounds: PUBLISH_ROUNDS, ...(left ? { handedOn: false } : {}) };
   } finally {
     await deps.lease.release(deps.owner).catch(() => undefined);
   }

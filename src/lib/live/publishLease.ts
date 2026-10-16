@@ -73,8 +73,9 @@ export type PublishLease = {
   /** A launch's claim let go again, where the launch failed and no job is coming to take it. */
   unlaunch: () => Promise<void>;
   /**
-   * For the job, at `now`: taken over from a launch or a lapsed holder, with what the launch asked
-   * where it was one (null otherwise: a job started by hand); not taken where a job holds it.
+   * For the job, at `now`: taken over from a launch or a lapsed holder, read again where a launcher
+   * wrote onto the claim meanwhile, with what the launch asked where it was one (null otherwise: a
+   * job started by hand); not taken where a job holds it.
    */
   take: (
     now: number,
@@ -85,6 +86,12 @@ export type PublishLease = {
    * launcher asked meanwhile, kept for another round, and what was asked.
    */
   handBack: (owner: string, now: number) => Promise<LaunchAsk | null>;
+  /**
+   * The job's hold given up at `now` after its last round: let go, and null; or, where a launcher
+   * asked during that round, turned into a launch's claim carrying the ask, for the job its
+   * holder starts next to take over, and the ask (Codex, on #409).
+   */
+  handOn: (owner: string, now: number) => Promise<LaunchAsk | null>;
   /** The job's hold let go, where it is still the job's, asked again or not. */
   release: (owner: string) => Promise<void>;
 };
@@ -115,19 +122,23 @@ export const publishLease = (docs: LeaseDocs): PublishLease => ({
       await docs.replace(PUBLISH_LEASE_PATH, { owner: "", until: 0 }, at.token);
   },
   take: async (now, owner) => {
-    const at = await docs.readAt(PUBLISH_LEASE_PATH);
-    if (at && at.fields.owner !== LAUNCH && heldUntil(at.fields) > now) return { taken: false };
-    const wrote = await docs.replace(
-      PUBLISH_LEASE_PATH,
-      { owner, until: now + PUBLISH_HOLD_MS },
-      at?.token ?? null
-    );
-    if (!wrote) return { taken: false };
-    // A job's own hold carries no ask, so one taken over from a lapsed job reads as asked nothing.
-    // A launch's carries its own, and what launchers that found it held asked after it, all of
-    // which this job, yet to read the copy, publishes for.
-    const launched = at ? askOf(at.fields) : null;
-    return { taken: true, asked: launched && merged(askOf(at?.fields.again), launched) };
+    // Read again where the claim moved under it: a launcher that found the claim held and wrote
+    // its ask onto it, which this job, yet to read the copy, publishes for (Codex, on #409).
+    for (let tries = 0; tries < TRIES; tries += 1) {
+      const at = await docs.readAt(PUBLISH_LEASE_PATH);
+      if (at && at.fields.owner !== LAUNCH && heldUntil(at.fields) > now) return { taken: false };
+      const wrote = await docs.replace(
+        PUBLISH_LEASE_PATH,
+        { owner, until: now + PUBLISH_HOLD_MS },
+        at?.token ?? null
+      );
+      if (!wrote) continue;
+      // A job's own hold carries no ask, so one taken over from a lapsed job reads as asked
+      // nothing. A launch's carries its own, and what launchers that found it held asked after it.
+      const launched = at ? askOf(at.fields) : null;
+      return { taken: true, asked: launched && merged(askOf(at?.fields.again), launched) };
+    }
+    return { taken: false };
   },
   handBack: async (owner, now) => {
     for (let tries = 0; tries < TRIES; tries += 1) {
@@ -135,6 +146,18 @@ export const publishLease = (docs: LeaseDocs): PublishLease => ({
       if (at?.fields.owner !== owner) return null;
       const again = askOf(at.fields.again);
       const next = again ? { owner, until: now + PUBLISH_HOLD_MS } : { owner: "", until: 0 };
+      if (await docs.replace(PUBLISH_LEASE_PATH, next, at.token)) return again;
+    }
+    return null;
+  },
+  handOn: async (owner, now) => {
+    for (let tries = 0; tries < TRIES; tries += 1) {
+      const at = await docs.readAt(PUBLISH_LEASE_PATH);
+      if (at?.fields.owner !== owner) return null;
+      const again = askOf(at.fields.again);
+      const next = again
+        ? { owner: LAUNCH, until: now + LAUNCH_HOLD_MS, ...again }
+        : { owner: "", until: 0 };
       if (await docs.replace(PUBLISH_LEASE_PATH, next, at.token)) return again;
     }
     return null;

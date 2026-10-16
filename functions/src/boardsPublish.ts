@@ -13,7 +13,7 @@ import { publishAfterPull } from "../../src/lib/live/afterPull";
 import { publishLease } from "../../src/lib/live/publishLease";
 import { restServerStores } from "../../src/lib/live/serverStores";
 import { resetTeamRankingsStore } from "../../src/lib/teamRankingsStorage";
-import { restAccess } from "./pullAccess";
+import { launchBoardsPublish, restAccess } from "./pullAccess";
 
 /** Whether this build holds the rebuilds after saves: set by `build.mjs` from LIVE_REBUILD. */
 declare const LIVE_REBUILD: boolean;
@@ -37,6 +37,8 @@ try {
   const run = await publishAfterPull(restServerStores(access, "live"), {
     lease: publishLease(firestoreRestDocuments(access)),
     owner: randomUUID(),
+    // Asks left after this job's last round start the next one (`handOn`).
+    relaunch: launchBoardsPublish,
     today: () => budgetDay(new Date()),
     now: () => new Date(),
     rebuilds: LIVE_REBUILD,
@@ -63,6 +65,7 @@ try {
           end: run.result?.end,
           tries: run.result?.tries,
           rounds: run.rounds,
+          ...(run.handedOn !== undefined ? { handedOn: run.handedOn } : {}),
         }
       : { left: run.decided.because, rounds: run.rounds }
   );

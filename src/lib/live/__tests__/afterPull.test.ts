@@ -23,6 +23,7 @@ import {
   afterPullDecision,
   askInTime,
   launchAfterPull,
+  PUBLISH_ROUNDS,
   publishAfterPull,
   rebuildWillPublish,
   type AfterPullStores,
@@ -632,6 +633,81 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     expect(run.decided).toEqual({ publish: true, behind: "nothing" });
     expect(run.result).toMatchObject({ end: "not-needed", tries: 0 });
     expect(live.meta()).toBeNull();
+  });
+
+  it("hands asks made in the job's last round on to a job of their own", async () => {
+    // A pull saves and ends during every round, so the job runs all its rounds and is asked again
+    // in the last one: that ask starts another job rather than being dropped.
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const { stores } = storesOf(cloud, live);
+    let pull: Promise<void> | null = null;
+    let pulls = 0;
+    const watched = {
+      ...lease,
+      handBack: async (owner: string, now: number) => {
+        await pull;
+        pull = null;
+        return lease.handBack(owner, now);
+      },
+      handOn: async (owner: string, now: number) => {
+        await pull;
+        return lease.handOn(owner, now);
+      },
+    };
+    const relaunch = vi.fn(() => Promise.resolve());
+    const run = await publishAfterPull(stores, {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease: watched,
+      owner: "job-1",
+      relaunch,
+      onViews: () => {
+        if (pull) return;
+        pulls += 1;
+        const round = pulls;
+        pull = (async () => {
+          const moved = await commitChanges({
+            store: cloud.store,
+            base: cloud.manifest(),
+            changes: [{ key: LEAGUE_PART, value: { seasons: [], round }, at: 1 + round }],
+            device: "cloud-pull",
+            now: NOW.toISOString(),
+          });
+          if (!moved.ok) throw new Error("a pull's save was not made");
+          await lease.launch(NOW.getTime(), AT_ONCE);
+        })();
+      },
+    });
+    expect(run).toMatchObject({ rounds: PUBLISH_ROUNDS, handedOn: true });
+    expect(relaunch).toHaveBeenCalledTimes(1);
+    // The next job takes the claim over, asked as the last pull asked.
+    expect(await lease.take(NOW.getTime(), "job-2")).toEqual({ taken: true, asked: AT_ONCE });
+
+    // Where the next job cannot be started, its claim is let go for the next launcher.
+    const unlaunch = vi.fn(() => Promise.resolve());
+    const askedEveryRound = {
+      take: () => Promise.resolve({ taken: true as const, asked: null }),
+      handBack: () => Promise.resolve(AT_ONCE),
+      handOn: () => Promise.resolve(AT_ONCE),
+      release: () => Promise.resolve(),
+      unlaunch,
+    };
+    expect(
+      await publishAfterPull(storesOf(cloud, memoryLive()).stores, {
+        today: () => FIXTURE_TODAY,
+        now: () => NOW,
+        rebuilds: true,
+        locale: "en-US",
+        lease: askedEveryRound,
+        owner: "job-3",
+        relaunch: () => Promise.reject(new Error("HTTP 403")),
+      })
+    ).toMatchObject({ rounds: PUBLISH_ROUNDS, handedOn: false });
+    expect(unlaunch).toHaveBeenCalledTimes(1);
   });
 
   it("has the job count on no rebuild where its check's save could not queue one", async () => {
