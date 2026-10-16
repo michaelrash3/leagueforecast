@@ -726,30 +726,40 @@ export type StartOfRankings = CopyEpoch & { at: string };
  * stopped from here, is pulling. A job already asked to stop is not asked again, nor counted.
  *
  * Only pulls from before the start: one a device sent in the seconds between the start's save and
- * this look is a pull for the Team Rankings just started, and so is one whose leg already read the
- * new start (`PullJob.on`). When a job's document was made is Firestore's own word (`createdAt`,
- * its create time), set against the time the start was saved by the server that saved it; a job
- * Firestore says nothing of is taken for one from before, as every job was before this was asked.
+ * this look is a pull for the Team Rankings just started, and is left to run. Both sides of that are
+ * Firestore's own clock, so they are in the order Firestore wrote them: when a job's document was
+ * made (`createdAt`, its create time), against when the start landed, the copy's manifest's update
+ * time while the manifest is still at this start (`landed`). Where it has moved on, or cannot be
+ * read, the time the server stamped on the save stands in, which is a moment before the commit: a
+ * job made in that moment is left to run, and if it read the copy before the start it is held to
+ * the start it read like any other (`copy-replaced`). A job Firestore says nothing of is taken for
+ * one from before, as every job was before this was asked. Whatever a job has read since it was
+ * made does not save it: a list sent before the start is the start's to stop, whichever pool its
+ * worker went on to choose.
  */
 export const stopPullsUnderWay = async (deps: {
-  /** The start of Team Rankings the pulls are stopped for. */
+  /** The start of Team Rankings the pulls are stopped for, as the save saw it. */
   start: StartOfRankings;
+  /** The copy's manifest as Firestore holds it now: its fields and its update time. */
+  landed: () => Promise<{ fields: Record<string, unknown>; token: string } | null>;
   /** The jobs' documents (`pullJobs/`) still queued or running, as stored. */
   list: () => Promise<Array<{ id: string; fields: Record<string, unknown>; createdAt?: string }>>;
   jobs: Pick<JobDocs, "update">;
   gate: Pick<GateDocs, "readAt">;
   now: () => Date;
 }): Promise<StoppedPulls> => {
-  const savedAt = Date.parse(deps.start.at);
+  const manifest = await deps.landed().catch(() => null);
+  const landedHere =
+    manifest?.fields.copy === deps.start.copy && manifest.fields.epoch === deps.start.epoch;
+  const savedAt = Date.parse(landedHere ? manifest.token : deps.start.at);
   let pulls = 0;
   for (const { id, fields, createdAt } of await deps.list()) {
     const job = coercePullJob(fields);
     if (!JOB_ID.test(id) || !job || job.stopAsked) continue;
     if (job.status !== "queued" && job.status !== "running") continue;
     // Date.parse reads Firestore's microseconds to the millisecond, so a job made in the very
-    // millisecond of the start counts as after it: left to run, as one for the new start.
+    // millisecond the start landed counts as after it: left to run, as one for the new start.
     if (createdAt !== undefined && Date.parse(createdAt) >= savedAt) continue;
-    if (job.on?.copy === deps.start.copy && job.on.epoch === deps.start.epoch) continue;
     await deps.jobs.update(id, { stopAsked: true });
     pulls += 1;
   }

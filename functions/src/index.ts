@@ -17,6 +17,7 @@ import {
   firestoreRestDocuments,
   firestoreRestStore,
   firestoreRestLive,
+  MANIFEST_PATH,
 } from "../../src/lib/cloud/firestoreRest";
 import { randomId } from "../../src/lib/cloud/cloudManifest";
 import { importLeaseUntil } from "../../src/lib/cloud/importLease";
@@ -729,6 +730,7 @@ const poolEndpoint = (queriesOnly = false) =>
                 const docs = firestoreRestDocuments(restAccess());
                 return stopPullsUnderWay({
                   start,
+                  landed: () => docs.readAt(MANIFEST_PATH),
                   // Only the pulls still under way, found by their status in one query, rather
                   // than every pull there has been listed page by page while the owner waits.
                   list: () => docs.where(JOBS_COLLECTION, "status", ["queued", "running"]),

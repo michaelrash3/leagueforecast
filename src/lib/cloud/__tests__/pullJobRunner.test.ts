@@ -1704,6 +1704,7 @@ describe("pulls under way when Team Rankings is started again", () => {
     ];
     const stopped = await stopPullsUnderWay({
       start: START,
+      landed: async () => null,
       list: listed,
       jobs: jobs.docs,
       gate: gateOf(null, now),
@@ -1720,6 +1721,7 @@ describe("pulls under way when Team Rankings is started again", () => {
     // The nightly is said while it says it is pulling, and not once its word has run out.
     const pulling = await stopPullsUnderWay({
       start: START,
+      landed: async () => null,
       list: listed,
       jobs: jobs.docs,
       gate: gateOf(30, now),
@@ -1728,6 +1730,7 @@ describe("pulls under way when Team Rankings is started again", () => {
     expect(pulling).toEqual({ pulls: 0, nightly: true });
     const late = await stopPullsUnderWay({
       start: START,
+      landed: async () => null,
       list: listed,
       jobs: jobs.docs,
       gate: gateOf(NIGHTLY_HOLD_MS / 60_000 + 1, now),
@@ -1736,52 +1739,76 @@ describe("pulls under way when Team Rankings is started again", () => {
     expect(late).toEqual({ pulls: 0, nightly: false });
   });
 
-  it("leaves alone a pull made after the start was saved, or one already on the new start", async () => {
+  it("stops only the pulls Firestore made before the start landed, by Firestore's own clock", async () => {
     const jobs = memoryJobs();
     const now = new Date("2026-10-02T16:30:00.000Z");
-    const start = { copy: "c0ffee", epoch: "new", at: "2026-10-02T16:29:00.000Z" };
+    // The server stamped the save a moment before Firestore committed it.
+    const start = { copy: "c0ffee", epoch: "new", at: "2026-10-02T16:28:59.500Z" };
+    const landedAt = "2026-10-02T16:29:00.000000Z";
     const ids = {
       before: "1".repeat(32),
       after: "2".repeat(32),
       same: "3".repeat(32),
-      onNew: "4".repeat(32),
-      onOld: "5".repeat(32),
+      inCommit: "4".repeat(32),
+      onNew: "5".repeat(32),
       unstamped: "6".repeat(32),
     };
     for (const id of Object.values(ids)) await jobs.put(LIST, { jobId: id });
-    const running = (id: string, on?: { copy: string; epoch: string }) =>
-      jobs.jobs.set(id, { ...jobs.job(id), status: "running", ...(on ? { on } : {}) });
-    running(ids.onNew, { copy: "c0ffee", epoch: "new" });
-    running(ids.onOld, { copy: "c0ffee", epoch: "old" });
+    // A list sent before the start whose worker went on to read the new one is still from before.
+    jobs.jobs.set(ids.onNew, {
+      ...jobs.job(ids.onNew),
+      status: "running",
+      on: { copy: "c0ffee", epoch: "new" },
+    });
     // When Firestore made each job's document, by its own clock, in the finer time it keeps.
     const made: Record<string, string | undefined> = {
-      [ids.before]: "2026-10-02T16:28:59.999999Z",
+      [ids.before]: "2026-10-02T16:28:59.000000Z",
       [ids.after]: "2026-10-02T16:29:00.000001Z",
       [ids.same]: "2026-10-02T16:29:00.000000Z",
+      // After the server's stamp, before the commit landed: it may have read the old copy.
+      [ids.inCommit]: "2026-10-02T16:28:59.800000Z",
       [ids.onNew]: "2026-10-02T16:20:00.000000Z",
-      [ids.onOld]: "2026-10-02T16:20:00.000000Z",
       [ids.unstamped]: undefined,
     };
+    const list = async () =>
+      [...jobs.jobs].map(([id, job]) => {
+        const createdAt = made[id];
+        return { id, fields: structuredClone(job) as never, ...(createdAt ? { createdAt } : {}) };
+      });
+    const asked = () =>
+      [...jobs.jobs]
+        .filter(([, job]) => job.stopAsked)
+        .map(([id]) => id)
+        .sort();
     const stopped = await stopPullsUnderWay({
       start,
-      list: async () =>
-        [...jobs.jobs].map(([id, job]) => {
-          const createdAt = made[id];
-          return {
-            id,
-            fields: structuredClone(job) as never,
-            ...(createdAt ? { createdAt } : {}),
-          };
-        }),
+      landed: async () => ({ fields: { copy: "c0ffee", epoch: "new" }, token: landedAt }),
+      list,
       jobs: jobs.docs,
       gate: gateOf(null, now),
       now: () => now,
     });
-    // Made before the start and not on it: the pull from before, the one on the old start, and
-    // one whose making Firestore did not say, which is taken for one from before.
-    const asked = [...jobs.jobs].filter(([, job]) => job.stopAsked).map(([id]) => id);
-    expect(asked.sort()).toEqual([ids.before, ids.onOld, ids.unstamped].sort());
-    expect(stopped).toEqual({ pulls: 3, nightly: false });
+    expect(asked()).toEqual([ids.before, ids.inCommit, ids.onNew, ids.unstamped].sort());
+    expect(stopped).toEqual({ pulls: 4, nightly: false });
+    // A manifest moved on to another start, or unreadable, leaves the server's stamp to stand.
+    for (const landed of [
+      async () => ({ fields: { copy: "c0ffee", epoch: "newer" }, token: landedAt }),
+      async () => ({ fields: { copy: "other", epoch: "new" }, token: landedAt }),
+      async () => {
+        throw new Error("unreachable");
+      },
+    ]) {
+      for (const id of Object.values(ids)) jobs.jobs.set(id, { ...jobs.job(id), stopAsked: false });
+      await stopPullsUnderWay({
+        start,
+        landed,
+        list,
+        jobs: jobs.docs,
+        gate: gateOf(null, now),
+        now: () => now,
+      });
+      expect(asked()).toEqual([ids.before, ids.onNew, ids.unstamped].sort());
+    }
   });
 
   it("stops a leg under way at its next look, which then files nothing into the emptied copy", async () => {
@@ -1799,6 +1826,7 @@ describe("pulls under way when Team Rankings is started again", () => {
       started = await startAgain(cloud);
       await stopPullsUnderWay({
         start: { ...epochOf(started), at: started.updatedAt },
+        landed: async () => null,
         list: async () =>
           [[JOB, jobs.job()] as const].map(([id, job]) => ({ id, fields: job as never })),
         jobs: jobs.docs,

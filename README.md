@@ -6661,13 +6661,15 @@ the copy and epoch the first read (`PullJob.on`), a staged import's final phase 
 held to the epoch its teams were chosen from, and every publish (`publishCopyViews`). Once the
 start is saved, the edit function asks every pull queued or running to stop (`stopPullsUnderWay`,
 writing `stopAsked` as a device's Stop does), so none goes on asking GameChanger for a pool that is
-gone. Only pulls from before the start: one whose document Firestore made at or after the time the
-start was saved (its create time), or whose leg already read the new epoch, is a pull for the Team
-Rankings just started, sent in the seconds the look takes, and is left to run. It finds the pulls
-by their status in one query, and reads the refresh gate for a nightly pulling, which it cannot
-stop from there; the
-owner's toast says how many it stopped and whether the nightly was pulling ("2 pulls under way in
-the cloud were asked to stop, and file nothing more."), so a start never races a pull silently.
+gone. Only pulls from before the start: one whose document Firestore made at or after the moment
+the start landed is a pull for the Team Rankings just started, sent in the seconds the look takes,
+and is left to run. Both times are Firestore's own, so they are in the order it wrote them: a job's
+create time, against the copy's manifest's update time while the manifest is still at this start
+(the time the server stamped on the save stands in where it has moved on). A list sent before the
+start is stopped whichever pool its worker went on to choose. It finds the pulls by their status
+in one query, and reads the refresh gate for a nightly pulling, which it cannot stop from there;
+the owner's toast says how many it stopped and whether the nightly was pulling ("2 pulls under way
+in the cloud were asked to stop, and file nothing more."), so a start never races a pull silently.
 A pull's job ends saying Team Rankings was started again and to send its list, or press Refresh
 now, again; a resumed import that was stopped by it ends at once, before downloading another team.
 `cloudRunner.test.ts`, `pullJobRunner.test.ts`, `stagedImport.test.ts`, `publishCopy.test.ts` and
