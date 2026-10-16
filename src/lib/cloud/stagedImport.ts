@@ -526,7 +526,7 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
     );
     const split =
       counts.skipped > 0
-        ? ` (${counts.transient.toLocaleString()} for now, ${(counts.skipped - counts.transient).toLocaleString()} for good)`
+        ? ` (${counts.transient.toLocaleString()} for now, ${(counts.skipped - counts.transient).toLocaleString()} answered with an error)`
         : "";
     await say({
       stage: "fetching",

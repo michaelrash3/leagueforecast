@@ -305,7 +305,15 @@ describe("a pull still waiting to start", () => {
     // Apart, where the importer counted them: a later paste asks again for those for now.
     pull.job.skipped = { transient: 3, permanent: 1 };
     expect(describeEnd(pull)).toContain(
-      "; 4 skipped because their downloads failed: 3 for now (GameChanger throttled, timed out or dropped them; a later paste asks again) and 1 for good."
+      "; 4 skipped because their downloads failed: 3 for now (GameChanger throttled, timed out or dropped them; a later paste asks again) and 1 GameChanger answered with an error."
+    );
+    // Only GameChanger's "not a team id" is remembered for good, so no count says "for good".
+    expect(describeEnd(pull)).not.toMatch(/for good/);
+    // A legacy pull resumed by the staged importer counts its earlier failures in the tally but
+    // not in the split, which then says them apart rather than leave the parts short of the whole.
+    pull.job.tally.failed = 100;
+    expect(describeEnd(pull)).toContain(
+      "; 100 skipped because their downloads failed: 3 for now (GameChanger throttled, timed out or dropped them; a later paste asks again), 1 GameChanger answered with an error, and 96 in the earlier run of this list."
     );
   });
 

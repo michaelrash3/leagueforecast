@@ -3971,7 +3971,9 @@ checkpoints and report saved again; a checkpoint says it was done, so a restart 
 not ask them a third time. Failed downloads are counted as skipped, and the import
 continues with the remaining teams; they do not consume Cloud Run execution retries or
 hold up the final tidy. Progress distinguishes downloaded, skipped and remaining teams,
-and the skips apart: those for now, which a later paste asks again, and those for good.
+and the skips apart: those for now, which a later paste asks again, those GameChanger
+answered with an error (of which only "not a team id" is remembered, so neither count is
+called skipped for good), and, on a list an earlier run started, the failures of that run.
 Warning logs record counts and failure reasons only, never a team's id, GameChanger
 address or body: the pull-status workflow, whose log is public, reads them back. The teams
 themselves, with what was said of each, are in the skipped-team report below.

@@ -24,7 +24,7 @@ import {
   parseGcTeamList,
   type GcTeamListEntry,
 } from "../../lib/gameChangerApi";
-import { MAX_LIST_TEAMS, tooManyTeams } from "../../lib/cloud/pullJobs";
+import { MAX_LIST_TEAMS, skipsApart, tooManyTeams } from "../../lib/cloud/pullJobs";
 import { button, card } from "../../styles/tokens";
 import { FIREBASE_WEB_CONFIG } from "../../lib/cloud/cloudConfig";
 import { downloadCsv } from "../../lib/download";
@@ -66,13 +66,12 @@ export const readPaste = (
 };
 
 /**
- * A staged import's skips apart, where it counted them: those that failed for a passing reason,
- * asked once more when every batch is in, and those that will not answer otherwise.
+ * A staged import's skips apart, where it counted them (`skipsApart`): those that failed for a
+ * passing reason, asked once more when every batch is in, and those GameChanger answered with an
+ * error.
  */
-const skipsApart = (job: WatchedPull["job"]): string =>
-  job.skipped && job.tally.failed > 0
-    ? `: ${job.skipped.transient.toLocaleString()} for now, asked once more before the final tidy, and ${job.skipped.permanent.toLocaleString()} for good`
-    : "";
+const skipsApartHere = (job: WatchedPull["job"]): string =>
+  skipsApart(job, ", asked once more before the final tidy");
 
 /** What the card says of a paste's ids that will likely be refused, and its lines with none. */
 const pasteWarning = ({ malformed, skipped }: { malformed: number; skipped: number }): string =>
@@ -404,7 +403,7 @@ export function PullLines({
                     ) : null}
                     <p className="mt-1 text-slate-500 dark:text-slate-400">
                       {pull.job.pipeline === "staged-v1"
-                        ? `Downloaded and checkpointed: ${pull.job.tally.answered.toLocaleString()} teams. Skipped downloads: ${pull.job.tally.failed.toLocaleString()}${skipsApart(pull.job)}. The finished import is published after the final tidy. Filed so far: `
+                        ? `Downloaded and checkpointed: ${pull.job.tally.answered.toLocaleString()} teams. Skipped downloads: ${pull.job.tally.failed.toLocaleString()}${skipsApartHere(pull.job)}. The finished import is published after the final tidy. Filed so far: `
                         : "Saved so far: "}
                       {pull.job.tally.filed.toLocaleString()} teams;{" "}
                       {pull.job.tally.gamesAdded.toLocaleString()} games added and{" "}

@@ -265,7 +265,7 @@ describe("visibility of a cloud pull", () => {
  * Dismiss, which asks the cloud about the job (ending it there if it is dead) and stops showing
  * it; a staged import also offers Resume.
  */
-it("says a staged import's skips apart: those for now, asked once more, and those for good", async () => {
+it("says a staged import's skips apart: those for now, asked once more, and the errors", async () => {
   const { sender, read } = cloud();
   read.mockResolvedValue(
     job({
@@ -279,7 +279,26 @@ it("says a staged import's skips apart: those for now, asked once more, and thos
   await open(sender);
   expect(
     screen.getByText(
-      /Skipped downloads: 4: 3 for now, asked once more before the final tidy, and 1 for good\./
+      /Skipped downloads: 4: 3 for now, asked once more before the final tidy, and 1 GameChanger answered with an error\./
+    )
+  ).toBeTruthy();
+});
+
+it("says apart the skips of an earlier run of a resumed list", async () => {
+  const { sender, read } = cloud();
+  read.mockResolvedValue(
+    job({
+      pipeline: "staged-v1",
+      stage: "fetching",
+      heartbeatAt: NOW,
+      tally: { ...job().tally, failed: 10 },
+      skipped: { transient: 3, permanent: 1 },
+    })
+  );
+  await open(sender);
+  expect(
+    screen.getByText(
+      /Skipped downloads: 10: 3 for now, asked once more before the final tidy, 1 GameChanger answered with an error, and 6 in the earlier run of this list\./
     )
   ).toBeTruthy();
 });

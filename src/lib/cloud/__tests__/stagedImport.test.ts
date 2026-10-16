@@ -622,7 +622,7 @@ describe("a staged CSV import", () => {
     ]);
     expect(test.job()).toMatchObject({ status: "done", tally: { answered: 3, failed: 0 } });
   });
-  it("says each batch's skips apart: those that may answer another time and those that will not", async () => {
+  it("says each batch's skips apart: those that may answer another time and those answered with an error", async () => {
     const test = setup(4);
     test.fetchTeams.mockImplementation(
       async (ids) =>
@@ -645,7 +645,7 @@ describe("a staged CSV import", () => {
     };
     await runStagedImport(ID, test.deps);
     expect(details).toContain(
-      "download batch 1 of 1 complete, 2 downloaded, 2 skipped (1 for now, 1 for good)"
+      "download batch 1 of 1 complete, 2 downloaded, 2 skipped (1 for now, 1 answered with an error)"
     );
   });
   it("keeps permanent missing teams as reported failures instead of endlessly retrying them", async () => {

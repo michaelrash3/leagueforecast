@@ -118,8 +118,10 @@ export type PullJob = {
   /**
    * A staged import's skipped downloads, apart (`stagedImport.ts`): those that failed for a passing
    * reason (throttled, timed out, cut off), asked once more before the final phase and asked again
-   * by a later paste, and the rest (not found, not a team id, an upstream error), which will not
-   * answer otherwise.
+   * by a later paste, and the rest, which GameChanger answered with an error (not found, not a team
+   * id, an upstream error). Of the rest only "not a team id" is remembered for good, so neither
+   * count is said to be skipped for good (`skipsApart`). A legacy list resumed by the importer
+   * counts its earlier failures in `tally.failed` but not here.
    */
   skipped?: { transient: number; permanent: number };
   /** Work already published by a legacy import before migrating its remaining downloads. */
@@ -467,4 +469,26 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     version: raw.version,
     updatedAt: raw.updatedAt,
   };
+};
+
+/**
+ * A staged import's skipped downloads apart, in the words the card and the end line share: those
+ * for now (followed by `passing`, each caller's own words for them), those GameChanger answered with
+ * an error, and any a legacy run of the same list failed before the importer took it over, which
+ * `tally.failed` counts and `skipped` does not. Empty where the job did not count them apart.
+ */
+export const skipsApart = (job: Pick<PullJob, "skipped" | "tally">, passing: string): string => {
+  if (!job.skipped || job.tally.failed <= 0) return "";
+  const { transient, permanent } = job.skipped;
+  const earlier = Math.max(0, job.tally.failed - transient - permanent);
+  const parts = [
+    `${transient.toLocaleString("en-US")} for now${passing}`,
+    `${permanent.toLocaleString("en-US")} GameChanger answered with an error`,
+    ...(earlier > 0 ? [`${earlier.toLocaleString("en-US")} in the earlier run of this list`] : []),
+  ];
+  const last = parts.pop();
+  // A comma before the "and" too where the words for now are set off by one, so they never run on
+  // into the next count ("before the final tidy and 1 GameChanger answered").
+  const serial = parts.length > 1 || passing.startsWith(",");
+  return `: ${parts.join(", ")}${serial ? "," : ""} and ${last}`;
 };

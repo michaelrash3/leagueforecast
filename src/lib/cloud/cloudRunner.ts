@@ -449,11 +449,18 @@ const fileAnswers = async (
     invalidIdsOf(answers)
   );
 
-/** The ids GameChanger said are not team ids (HTTP 400), which a run remembers for good. */
+/**
+ * The ids GameChanger said are not team ids (HTTP 400), which a run remembers for good: none where
+ * no id was answered, as the staged import holds too (`runStagedImport`). A route that answers
+ * every id alike with HTTP 400 (GameChanger changing it, or the proxy broken) would otherwise mark
+ * every real club in the run for good, and every later paste would skip them.
+ */
 const invalidIdsOf = (answers: ReadonlyMap<string, GcTeamResponse>): string[] =>
-  [...answers].flatMap(([id, answer]) =>
-    !answer.ok && answer.reason === "invalid-id" ? [id] : []
-  );
+  [...answers.values()].some((answer) => answer.ok)
+    ? [...answers].flatMap(([id, answer]) =>
+        !answer.ok && answer.reason === "invalid-id" ? [id] : []
+      )
+    : [];
 
 const fileScheduleSource = async (
   job: CloudPullJob,

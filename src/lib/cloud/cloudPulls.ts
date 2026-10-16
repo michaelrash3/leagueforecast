@@ -8,6 +8,7 @@ import {
   lastHeardFrom,
   newPullJob,
   packJobList,
+  skipsApart,
   tooManyTeams,
   type PullJob,
 } from "./pullJobs";
@@ -434,9 +435,10 @@ export const describeEnd = (pull: WatchedPull): string => {
   const teams = sent.teams.toLocaleString();
   const { filed, gamesAdded, gamesUpdated, failed } = job.tally;
   const games = `${gamesAdded.toLocaleString()} games added and ${gamesUpdated.toLocaleString()} updated`;
-  const apart = job.skipped
-    ? `: ${job.skipped.transient.toLocaleString()} for now (GameChanger throttled, timed out or dropped them; a later paste asks again) and ${job.skipped.permanent.toLocaleString()} for good`
-    : "";
+  const apart = skipsApart(
+    job,
+    " (GameChanger throttled, timed out or dropped them; a later paste asks again)"
+  );
   const unanswered =
     failed > 0
       ? job.pipeline === "staged-v1"

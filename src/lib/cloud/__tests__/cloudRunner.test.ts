@@ -441,6 +441,31 @@ describe("a pull run on the cloud copy", () => {
     expect(asked).toEqual([[ACES, slug], [ACES]]);
   });
 
+  it("remembers none when every id came back invalid, as a route answering all with 400 would", async () => {
+    // GameChanger changing its route, or the proxy breaking, answers every id with HTTP 400 alike:
+    // remembered, every real club in the run would be skipped by every later paste.
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const fetchTeams: CloudPullDeps["fetchTeams"] = async (ids, options) => {
+      const answers = new Map<string, GcTeamResponse>();
+      for (const teamId of ids) {
+        const result: GcTeamResponse = { ok: false, reason: "invalid-id", message: "Bad Request" };
+        answers.set(teamId, result);
+        options.onProgress?.({ done: 1, total: ids.length, teamId, result, attempts: 1 });
+      }
+      return answers;
+    };
+    const paste = { kind: "list", entries: [{ teamId: ACES }], seasonYears: [] };
+    const run = await runCloudPull(
+      paste as CloudPullJob,
+      deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams })
+    );
+    expect(run).toMatchObject({ asked: 1, answered: 0, failed: 1 });
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    expect([...loadRefusedClubs().forGood]).toEqual([]);
+  });
+
   it("remembers them from a staged import's final phase too", async () => {
     const cloud = memoryCloud();
     const base = await seed(cloud);
