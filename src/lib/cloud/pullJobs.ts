@@ -32,6 +32,22 @@ export const IMPORT_BATCH_TEAMS = 10_000;
 /** Small durable artifacts, independent of the work batch and preserved across upgrades. */
 export const IMPORT_CHECKPOINT_TEAMS = 2_000;
 
+/**
+ * The most teams one list may carry. On 12 and 13 October 2026 lists of about 450,000 teams were
+ * pasted whole, and they overwhelmed the cloud's pulls: one of them, a 448,645-team list sent as
+ * eighteen parts, still said "part 9 of 18, stop asked" days later. Fifty thousand is five of the
+ * importer's download batches (`IMPORT_BATCH_TEAMS`), under half an hour of downloading at the
+ * two thousand teams a minute the client reckons its starting eight workers manage
+ * (`PULL_CONCURRENCY`), so a nationwide export goes up as several lists, one after another. The
+ * page refuses a longer list before uploading it (`sendPull`), and `startPull` refuses to start or
+ * resume one, so a tab still running an older copy of the page cannot send one either.
+ */
+export const MAX_LIST_TEAMS = 50_000;
+
+/** Why a list longer than `MAX_LIST_TEAMS` is refused, in the page's words and the server's. */
+export const tooManyTeams = (teams: number): string =>
+  `This list has ${teams.toLocaleString("en-US")} teams, and one pull takes at most ${MAX_LIST_TEAMS.toLocaleString("en-US")}. Split it into smaller lists and send them one at a time.`;
+
 export const jobPath = (jobId: string): string => `pullJobs/${jobId}`;
 export const jobPiecePath = (jobId: string, index: number): string =>
   `${jobPath(jobId)}/pieces/${index}`;
@@ -161,6 +177,18 @@ export const NO_TALLY: PullJobTally = {
 
 export const legsFor = (teams: number, legTeams: number = LEG_TEAMS): number =>
   Math.max(1, Math.ceil(teams / legTeams));
+
+/**
+ * When anything last came from the worker running a job, in milliseconds: its heartbeat, its
+ * progress or its last write, whichever is latest. A staged import's supervisor beats every ten
+ * seconds; a leg of the older runner writes only when it has news. NaN where none can be read.
+ */
+export const lastHeardFrom = (job: PullJob): number => {
+  const heard = [job.heartbeatAt, job.progressAt, job.updatedAt]
+    .map((at) => (at === undefined ? Number.NaN : Date.parse(at)))
+    .filter(Number.isFinite);
+  return heard.length > 0 ? Math.max(...heard) : Number.NaN;
+};
 
 /** A list packed for its pieces, and what the job says of it. */
 export type PackedList = { list: PullJob["list"]; pieces: Uint8Array<ArrayBuffer>[] };

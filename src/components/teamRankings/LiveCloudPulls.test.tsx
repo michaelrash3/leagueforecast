@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
-import { newPullJob, type PullJob } from "../../lib/cloud/pullJobs";
+import { loadSentPulls, SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
+import { MAX_LIST_TEAMS, newPullJob, tooManyTeams, type PullJob } from "../../lib/cloud/pullJobs";
 import LiveCloudPulls, { PULL_LOOK_MS, useWatchedPulls } from "./LiveCloudPulls";
 import { downloadCsv } from "../../lib/download";
 vi.mock("../../lib/download", () => ({ downloadCsv: vi.fn() }));
@@ -252,5 +252,120 @@ describe("visibility of a cloud pull", () => {
     });
     expect(screen.queryByText(/The pull in the cloud is done/)).toBeNull();
     expect(screen.queryByRole("button", { name: "OK" })).toBeNull();
+  });
+});
+
+/*
+ * A pull whose worker died without a word: the cloud keeps saying "running" until something asks
+ * about it, and the 448,645-team list of 12 October 2026 sat at "part 9 of 18, stopping" for days,
+ * its Stop already pressed and nothing else to press. A line silent for five minutes now offers
+ * Dismiss, which asks the cloud about the job (ending it there if it is dead) and stops showing
+ * it; a staged import also offers Resume.
+ */
+describe("a pull gone silent", () => {
+  const hoursAgo = (hours: number) => new Date(Date.parse(NOW) - hours * 3_600_000).toISOString();
+
+  it("offers Dismiss on the stuck stopping job, which asks the cloud and hides the line", async () => {
+    const { sender, read } = cloud();
+    read.mockResolvedValue(job({ stopAsked: true, updatedAt: hoursAgo(3) }));
+    await open(sender);
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    });
+    expect(sender.start).toHaveBeenCalledWith(ID);
+    expect(screen.queryByText(/Pulling 448,645 teams in the cloud/)).toBeNull();
+    expect(loadSentPulls()).toEqual([expect.objectContaining({ jobId: ID, told: true })]);
+  });
+
+  it("offers neither Dismiss nor Resume on a pull heard from lately", async () => {
+    const { sender, read } = cloud();
+    read.mockResolvedValue(job({ pipeline: "staged-v1", heartbeatAt: NOW }));
+    await open(sender);
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Resume saved import" })).toBeNull();
+  });
+
+  it("offers Resume on a staged import gone silent, beside Stop and Dismiss", async () => {
+    const { sender, read } = cloud();
+    const resume = vi.fn(async () => ({ ok: true as const, value: { status: "queued" } }));
+    sender.resume = resume;
+    read.mockResolvedValue(
+      job({
+        pipeline: "staged-v1",
+        list: { hash: "a".repeat(64), teams: 30_000, pieces: 1 },
+        stage: "fetching",
+        heartbeatAt: hoursAgo(0.1),
+        updatedAt: hoursAgo(0.2),
+      })
+    );
+    await open(sender);
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Resume saved import" }));
+    });
+    expect(resume).toHaveBeenCalledWith(ID);
+  });
+
+  it("says why the cloud would not resume one, rather than nothing", async () => {
+    const { sender, read } = cloud();
+    sender.resume = vi.fn(async () => ({
+      ok: false as const,
+      why: "invalid" as const,
+      message: "This import cannot be resumed.",
+    }));
+    read.mockResolvedValue(
+      job({
+        pipeline: "staged-v1",
+        status: "failed",
+        list: { hash: "a".repeat(64), teams: 30_000, pieces: 1 },
+      })
+    );
+    await open(sender);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Resume saved import" }));
+    });
+    expect(screen.getByRole("alert").textContent).toBe("This import cannot be resumed.");
+  });
+
+  it("asks the cloud about a silent pull at once when Stop is pressed on it", async () => {
+    const { sender, read } = cloud();
+    read.mockResolvedValue(job({ updatedAt: hoursAgo(3) }));
+    await open(sender);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    });
+    expect(sender.jobs.askStop).toHaveBeenCalledWith(ID);
+    expect(sender.start).toHaveBeenCalledWith(ID);
+  });
+});
+
+describe("a pasted list", () => {
+  const paste = async (text: string) => {
+    await act(async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: "Teams to pull" }), {
+        target: { value: text },
+      });
+    });
+  };
+  const ids = (count: number) =>
+    Array.from({ length: count }, (_, n) => `gc${String(n).padStart(10, "0")}`).join("\n");
+
+  it("longer than one pull takes is refused in plain words, with nothing sent", async () => {
+    const { sender } = cloud();
+    await open(sender);
+    await paste(ids(MAX_LIST_TEAMS + 1));
+    expect(screen.getByText(tooManyTeams(MAX_LIST_TEAMS + 1))).toBeTruthy();
+    const button = screen.getByRole("button", { name: /^Pull 50,001 teams in the cloud$/ });
+    expect(button).toHaveProperty("disabled", true);
+    await paste(ids(MAX_LIST_TEAMS));
+    expect(screen.queryByText(/one pull takes at most/)).toBeNull();
+    expect(screen.getByRole("button", { name: /^Pull 50,000 teams in the cloud$/ })).toHaveProperty(
+      "disabled",
+      false
+    );
+    expect(sender.jobs.put).not.toHaveBeenCalled();
   });
 });

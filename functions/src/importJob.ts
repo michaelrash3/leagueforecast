@@ -28,6 +28,22 @@ if (!claimed) {
   let ticking = false;
   let lastRenew = Date.now();
   let latestDetail: { detail: string; progressAt: string } | null = null;
+  /*
+   * Cloud Run sends SIGTERM, and ten seconds later SIGKILL, when it ends an execution: a cancel, the
+   * task's time limit, the machine taken away. Ended without a word, the job said "running" until
+   * the page's Dismiss or Resume asked about it (`reapPullJob`). Taken as a failure of this try
+   * instead, it is written down below as any other is: stage waiting with the reason, failed on the
+   * last try, and the lease let go, so a retry or Resume starts at once. One that comes before
+   * the worker starts is kept, and fails the try as soon as it can.
+   */
+  let termination: Error | null = null;
+  let terminated: ((error: Error) => void) | null = null;
+  process.once("SIGTERM", () => {
+    termination = new Error(
+      "Cloud Run stopped this execution. Downloads are kept; the next execution, or Resume, continues from the saved checkpoints."
+    );
+    terminated?.(termination);
+  });
   try {
     const job = await jobs.read(jobId);
     if (!job) throw new Error("The import job is missing.");
@@ -44,6 +60,8 @@ if (!claimed) {
         void running.terminate();
         reject(error);
       };
+      terminated = fail;
+      if (termination) fail(termination);
       beat = setInterval(() => {
         if (Date.now() - lastRenew >= IMPORT_LEASE_MS - 20_000) {
           fail(

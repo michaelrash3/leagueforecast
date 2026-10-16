@@ -7,7 +7,9 @@ import {
   describeProgress,
   describePullUpdate,
   describeImportMetrics,
+  goneSilent,
   PULL_STALE_MS,
+  resumable,
   STARTING_MS,
   dueForAsking,
   loadSentPulls,
@@ -20,7 +22,7 @@ import {
   type PullSender,
   type SentPull,
 } from "../cloudPulls";
-import { newRefreshJob, type PullJob } from "../pullJobs";
+import { MAX_LIST_TEAMS, newRefreshJob, tooManyTeams, type PullJob } from "../pullJobs";
 
 const backing = new Map<string, string>();
 beforeEach(() => {
@@ -513,4 +515,101 @@ it("reports failed status reads separately from jobs that no longer exist", asyn
   await expect(readSentPulls({ read: async () => null }, unread)).resolves.toEqual([]);
   expect(unread).not.toHaveBeenCalled();
   expect(loadSentPulls()).toHaveLength(0);
+});
+
+/*
+ * A pull whose worker died without a word stays "running" in the cloud until something asks about
+ * it (`reapPullJob`). The page offers what can be done with one: Dismiss it, which asks, and for a
+ * staged import Resume, which carries on from its saved downloads.
+ */
+describe("a pull gone silent", () => {
+  const now = Date.parse(NOW);
+  const running = (patch: Partial<PullJob> = {}) =>
+    waitingPull({
+      pipeline: "staged-v1",
+      status: "running",
+      stage: "fetching",
+      heartbeatAt: NOW,
+      ...patch,
+    }).job;
+
+  it("is one said to be running that nothing has been heard from in five minutes", () => {
+    expect(goneSilent(running(), now + PULL_STALE_MS - 1)).toBe(false);
+    expect(goneSilent(running(), now + PULL_STALE_MS)).toBe(true);
+    // Its heartbeat is what is heard, not its last progress or the job's own stamp.
+    const beating = running({ heartbeatAt: new Date(now + PULL_STALE_MS).toISOString() });
+    expect(goneSilent(beating, now + PULL_STALE_MS)).toBe(false);
+    // The stuck screen's case: the older runner's legs, stopped, last written hours ago.
+    const legacy = { ...running(), stopAsked: true, stage: "loading" as const };
+    delete legacy.pipeline;
+    delete legacy.heartbeatAt;
+    expect(goneSilent(legacy, now + 3 * 60 * 60_000)).toBe(true);
+  });
+
+  it("is never one waiting to start, nor one that is over", () => {
+    for (const status of ["queued", "done", "failed", "cancelled"] as const) {
+      expect(goneSilent(running({ status }), now + 60 * 60_000)).toBe(false);
+    }
+  });
+
+  it("offers Resume for a staged import gone silent, as for one failed or stopped", () => {
+    expect(resumable(running(), now)).toBe(false);
+    expect(resumable(running(), now + PULL_STALE_MS)).toBe(true);
+    expect(resumable(running({ status: "failed" }), now)).toBe(true);
+    expect(resumable(running({ status: "cancelled" }), now)).toBe(true);
+    expect(resumable(running({ status: "done" }), now)).toBe(false);
+    // The older runner's legs resume onto the staged importer only once they have ended.
+    const legacy = running();
+    delete legacy.pipeline;
+    expect(resumable(legacy, now + PULL_STALE_MS)).toBe(false);
+    expect(resumable({ ...legacy, status: "failed" }, now)).toBe(true);
+  });
+
+  it("offers none for Refresh now, nor for a list longer than one pull takes", () => {
+    const refresh = {
+      ...newRefreshJob({ timeZone: "America/New_York", device: "phone", now: NOW }),
+      status: "failed" as const,
+    };
+    expect(resumable(refresh, now)).toBe(false);
+    const huge = running({ status: "failed", list: { hash: "h", teams: 448_645, pieces: 9 } });
+    expect(resumable(huge, now)).toBe(false);
+  });
+
+  it("says the importer has probably stopped once its heartbeat has been missing five minutes", () => {
+    const update = describePullUpdate(running(), now + PULL_STALE_MS);
+    expect(update.stale).toBe(true);
+    expect(update.message).toBe(
+      "Worker heartbeat 5 minutes ago. Last progress 5 minutes ago. No heartbeat for five minutes: the importer has probably stopped. Resume carries on from its saved downloads."
+    );
+    expect(describePullUpdate(running(), now + 3 * 60_000).message).toContain(
+      "No recent heartbeat; checking whether the worker is restarting."
+    );
+  });
+});
+
+describe("a list longer than one pull takes", () => {
+  it("is refused before anything is uploaded or started, in plain words", async () => {
+    const cloud = cloudOf({ ok: true, value: { status: "queued" } });
+    const start = vi.spyOn(cloud.sender, "start");
+    const teams = MAX_LIST_TEAMS + 1;
+    const answer = await sendPull(
+      {
+        entries: Array.from({ length: teams }, (_, n) => ({
+          teamId: `gc${String(n).padStart(10, "0")}`,
+        })),
+        seasonYears: [],
+        device: "phone",
+        timeZone: "America/New_York",
+        now: NOW,
+      },
+      cloud.sender
+    );
+    expect(answer).toEqual({ ok: false, message: tooManyTeams(teams) });
+    expect(tooManyTeams(teams)).toBe(
+      "This list has 50,001 teams, and one pull takes at most 50,000. Split it into smaller lists and send them one at a time."
+    );
+    expect(cloud.jobs.size).toBe(0);
+    expect(start).not.toHaveBeenCalled();
+    expect(loadSentPulls()).toEqual([]);
+  });
 });

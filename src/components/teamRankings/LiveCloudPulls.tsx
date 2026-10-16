@@ -7,17 +7,20 @@ import {
   describePullUpdate,
   describeImportMetrics,
   dueForAsking,
+  goneSilent,
   isOver,
   isRefresh,
   markTold,
   loadSentPulls,
   readSentPulls,
+  resumable,
   sendPull,
   type PullSender,
   type SentPull,
   type WatchedPull,
 } from "../../lib/cloud/cloudPulls";
 import { parseGcTeamList, type GcTeamListEntry } from "../../lib/gameChangerApi";
+import { MAX_LIST_TEAMS, tooManyTeams } from "../../lib/cloud/pullJobs";
 import { button, card } from "../../styles/tokens";
 import { FIREBASE_WEB_CONFIG } from "../../lib/cloud/cloudConfig";
 import { downloadCsv } from "../../lib/download";
@@ -136,28 +139,48 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
         return false;
       }
       // One that never started is cancelled by the ask; one under way stops at its next look.
+      // One gone silent may have no worker left to look: asking the cloud about it ends it there
+      // if it is dead (`reapPullJob`), as cancelled, since the stop is now asked.
       const pull = watched.find(({ sent }) => sent.jobId === jobId);
       if (pull && !isRefresh(pull) && pull.job.status === "queued") {
         await askAgain(pull, sender, new Date()).catch(() => undefined);
+      } else if (pull && goneSilent(pull.job, Date.now())) {
+        await sender.start(jobId).catch(() => undefined);
       }
       setLooked((times) => times + 1);
       return true;
     },
     [pulls, watched]
   );
+  /** Asks the cloud to resume a pull: null once it has, or the cloud's words for why not. */
   const resume = useCallback(
-    async (jobId: string) => {
+    async (jobId: string): Promise<string | null> => {
       const sender = pulls();
-      if (!sender?.resume) return;
+      if (!sender?.resume) return null;
       setResuming(jobId);
       try {
-        await sender.resume(jobId);
+        const resumed = await sender.resume(jobId);
+        return resumed.ok || resumed.why === "unanswered" ? null : resumed.message;
       } finally {
         setResuming(null);
         look();
       }
     },
     [pulls, look]
+  );
+  /**
+   * Stops showing a pull gone silent on this device, having asked the cloud about it: the ask
+   * ends it there if its worker is dead (`reapPullJob`), so no other device shows it running
+   * either. Not waited on: the line goes at once, whatever the cloud answers.
+   */
+  const dismiss = useCallback(
+    (jobId: string) => {
+      void pulls()
+        ?.start(jobId)
+        .catch(() => undefined);
+      told(jobId);
+    },
+    [pulls, told]
   );
   const report = useCallback(
     async (jobId: string) => {
@@ -167,11 +190,23 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
     },
     [pulls]
   );
-  return { watched, unread, checkedAt, nowMs, look, told, stop, resume, resuming, report };
+  return {
+    watched,
+    unread,
+    checkedAt,
+    nowMs,
+    look,
+    told,
+    stop,
+    resume,
+    resuming,
+    dismiss,
+    report,
+  };
 };
 
-export type WatchedPulls = Omit<ReturnType<typeof useWatchedPulls>, "report"> &
-  Partial<Pick<ReturnType<typeof useWatchedPulls>, "report">>;
+export type WatchedPulls = Omit<ReturnType<typeof useWatchedPulls>, "report" | "dismiss"> &
+  Partial<Pick<ReturnType<typeof useWatchedPulls>, "report" | "dismiss">>;
 
 function SkippedReportButton({
   jobId,
@@ -215,18 +250,21 @@ function SkippedReportButton({
 
 /**
  * How each of `pulls` is getting on, one line each: how far one on its way has got, with Stop,
- * and how one ended, with OK, after which no tab says it again. The lines sit in a live region
- * drawn before there is any, since a screen reader may not read out one that arrives already
- * holding its words: a press's first line would be missed.
+ * and how one ended, with OK, after which no tab says it again. One gone silent (`goneSilent`)
+ * offers Dismiss as well, and a list's that failed, was stopped or, run by the staged importer,
+ * went silent offers Resume (`resumable`). The lines sit in a live region drawn before there is
+ * any, since a screen reader may not read out one that arrives already holding its words: a
+ * press's first line would be missed.
  */
 export function PullLines({
   pulls,
   watching,
-  onStopFailed,
+  onFailed,
 }: {
   pulls: readonly WatchedPull[];
   watching: WatchedPulls;
-  onStopFailed: (message: string) => void;
+  /** Told what to say where Stop could not be asked, or the cloud would not resume a pull. */
+  onFailed: (message: string) => void;
 }) {
   return (
     <div aria-live="polite">
@@ -236,19 +274,23 @@ export function PullLines({
             const update = describePullUpdate(pull.job, watching.nowMs);
             const metrics = describeImportMetrics(pull.job, watching.nowMs);
             const unread = watching.unread.some((sent) => sent.jobId === pull.sent.jobId);
+            const silent = goneSilent(pull.job, watching.nowMs);
             return (
               <li key={pull.sent.jobId} className="text-sm text-slate-600 dark:text-slate-300">
                 <span>
                   {unread ? "Last known status: " : ""}
                   {isOver(pull.job) ? describeEnd(pull) : describeProgress(pull, watching.nowMs)}
                 </span>{" "}
-                {!pull.job.rota &&
-                (pull.job.status === "failed" || pull.job.status === "cancelled") ? (
+                {resumable(pull.job, watching.nowMs) ? (
                   <button
                     type="button"
                     className={button.ghost}
                     disabled={watching.resuming === pull.sent.jobId}
-                    onClick={() => void watching.resume(pull.sent.jobId)}
+                    onClick={() =>
+                      void watching.resume(pull.sent.jobId).then((refused) => {
+                        if (refused) onFailed(refused);
+                      })
+                    }
                   >
                     {watching.resuming === pull.sent.jobId
                       ? "Reconnecting…"
@@ -265,18 +307,31 @@ export function PullLines({
                   >
                     OK
                   </button>
-                ) : pull.job.stopAsked ? null : (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void watching.stop(pull.sent.jobId).then((asked) => {
-                        if (!asked) onStopFailed(STOP_FAILED);
-                      })
-                    }
-                    className={button.ghost}
-                  >
-                    Stop
-                  </button>
+                ) : (
+                  <>
+                    {pull.job.stopAsked ? null : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void watching.stop(pull.sent.jobId).then((asked) => {
+                            if (!asked) onFailed(STOP_FAILED);
+                          })
+                        }
+                        className={button.ghost}
+                      >
+                        Stop
+                      </button>
+                    )}
+                    {silent ? (
+                      <button
+                        type="button"
+                        onClick={() => (watching.dismiss ?? watching.told)(pull.sent.jobId)}
+                        className={button.ghost}
+                      >
+                        Dismiss
+                      </button>
+                    ) : null}
+                  </>
                 )}
                 {pull.job.report?.ready && pull.job.report.rows > 0 && watching.report ? (
                   <SkippedReportButton
@@ -372,6 +427,7 @@ export default function LiveCloudPulls({
   const { look } = watching;
 
   const entries = useMemo(() => pastedTeams(loaded?.text ?? text), [loaded, text]);
+  const tooMany = entries.length > MAX_LIST_TEAMS;
   const send = useCallback(
     async (list: readonly GcTeamListEntry[], options: { refresh: boolean; years: number[] }) => {
       const sender = pulls();
@@ -487,9 +543,14 @@ export default function LiveCloudPulls({
               reader.readAsText(file);
             }}
           />
+          {tooMany ? (
+            <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
+              {tooManyTeams(entries.length)}
+            </p>
+          ) : null}
           <button
             type="button"
-            disabled={sending || entries.length === 0}
+            disabled={sending || entries.length === 0 || tooMany}
             aria-busy={sending}
             onClick={() => void send(entries, { refresh: false, years: [] })}
             className={`${button.primary} mt-3`}
@@ -555,7 +616,7 @@ export default function LiveCloudPulls({
       <PullLines
         pulls={watching.watched.filter((pull) => !isRefresh(pull))}
         watching={watching}
-        onStopFailed={setSaid}
+        onFailed={setSaid}
       />
     </div>
   );

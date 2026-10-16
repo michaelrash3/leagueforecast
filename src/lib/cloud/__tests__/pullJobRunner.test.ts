@@ -18,9 +18,23 @@ import {
 import { commitChanges, type Change } from "../cloudEngine";
 import { LEAGUE_PART } from "../cloudPlan";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
-import { newPullJob, newRefreshJob, packJobList, type PullJob } from "../pullJobs";
 import {
+  MAX_LIST_TEAMS,
+  newPullJob,
+  newRefreshJob,
+  packJobList,
+  tooManyTeams,
+  type PullJob,
+} from "../pullJobs";
+import {
+  IMPORT_SILENT_MS,
+  IMPORT_WENT_SILENT,
+  LEGS_SILENT_MS,
+  LEGS_WENT_SILENT,
+  STOPPED_WENT_SILENT,
+  reapPullJob,
   restJobDocs,
+  resumePullJob,
   runPullLeg,
   startPullJob,
   NEVER_STARTED,
@@ -1286,5 +1300,270 @@ describe("starting a pull", () => {
     expect(started).toEqual({ ok: true, status: "queued" });
     expect(queued).toEqual([{ jobId: JOB, leg: 0 }]);
     expect(jobs.job().status).toBe("queued");
+  });
+});
+
+/*
+ * A job whose worker died without a word: a staged import's supervisor killed with its container,
+ * or a leg of the older runner that never wrote again. One said "running, loading; part 9 of 18;
+ * stop asked" for days from 12 October 2026, with nothing left that would ever end it, Stop doing
+ * nothing and Refresh now held off behind it. `startPull` ends such a job when it is asked about
+ * it (`reapPullJob`), as failed, or cancelled where a stop was asked.
+ */
+describe("a pull nothing has been heard from", () => {
+  const T = Date.parse("2026-10-14T12:00:00.000Z");
+  const before = (ms: number) => new Date(T - ms).toISOString();
+  const minutes = (count: number) => count * 60_000;
+
+  /** A staged import, running, whose supervisor last beat `silentMs` ago. */
+  const staged = async (silentMs: number, patch: Partial<PullJob> = {}) => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    jobs.jobs.set(JOB, {
+      ...jobs.job(),
+      status: "running",
+      stage: "fetching",
+      updatedAt: before(silentMs + minutes(1)),
+      progressAt: before(silentMs + minutes(1)),
+      heartbeatAt: before(silentMs),
+      ...patch,
+    });
+    return jobs;
+  };
+  /** A leg of the older runner's list, running, last written `silentMs` ago. */
+  const legacy = async (silentMs: number, patch: Partial<PullJob> = {}) => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST, { legTeams: 1 });
+    const job = { ...jobs.job(), status: "running" as const, stage: "loading" as const };
+    delete job.pipeline;
+    jobs.jobs.set(JOB, { ...job, legsDone: 1, updatedAt: before(silentMs), ...patch });
+    return jobs;
+  };
+  const reaping = (jobs: ReturnType<typeof memoryJobs>, leaseUntil = 0) => {
+    const lease = vi.fn(async () => leaseUntil);
+    return { lease, deps: { jobs: jobs.docs, leaseUntil: lease, now: () => new Date(T) } };
+  };
+
+  it("ends a staged import silent past five minutes whose lease ran out, keeping its downloads", async () => {
+    const jobs = await staged(IMPORT_SILENT_MS);
+    const { deps, lease } = reaping(jobs, T - 1);
+    expect(await reapPullJob(JOB, deps)).toBe("failed");
+    expect(lease).toHaveBeenCalledWith(JOB);
+    expect(jobs.job()).toMatchObject({
+      status: "failed",
+      stage: "waiting",
+      error: IMPORT_WENT_SILENT,
+      updatedAt: new Date(T).toISOString(),
+    });
+    // The stuck screen's own case: a stop asked of a worker that was already gone.
+    const stopped = await staged(minutes(20), { stopAsked: true });
+    expect(await reapPullJob(JOB, reaping(stopped).deps)).toBe("cancelled");
+    expect(stopped.job()).toMatchObject({ status: "cancelled", error: STOPPED_WENT_SILENT });
+  });
+
+  it("leaves an import still holding its lease, one heard from lately, and one not yet started", async () => {
+    // Its supervisor still renews the lease: a slow heartbeat write, not a dead worker.
+    const leased = await staged(minutes(20));
+    expect(await reapPullJob(JOB, reaping(leased, T + 30_000).deps)).toBeNull();
+    expect(leased.job().status).toBe("running");
+
+    const recent = await staged(IMPORT_SILENT_MS - 1);
+    const quiet = reaping(recent);
+    expect(await reapPullJob(JOB, quiet.deps)).toBeNull();
+    expect(quiet.lease).not.toHaveBeenCalled();
+
+    // Resumed and waiting for Cloud Run to start it: an old heartbeat says nothing yet.
+    const waiting = await staged(minutes(30), { status: "queued", stage: "waiting" });
+    expect(await reapPullJob(JOB, reaping(waiting).deps)).toBeNull();
+    expect(waiting.job().status).toBe("queued");
+    expect(waiting.updates).toEqual([]);
+  });
+
+  it("ends a leg of the older runner that nothing has written in two hours, stop asked or not", async () => {
+    const quiet = await legacy(LEGS_SILENT_MS);
+    const { deps, lease } = reaping(quiet);
+    expect(await reapPullJob(JOB, deps)).toBe("failed");
+    expect(lease).not.toHaveBeenCalled();
+    expect(quiet.job()).toMatchObject({
+      status: "failed",
+      stage: "waiting",
+      error: LEGS_WENT_SILENT,
+    });
+
+    const stopped = await legacy(minutes(3 * 24 * 60), { stopAsked: true });
+    expect(await reapPullJob(JOB, reaping(stopped).deps)).toBe("cancelled");
+    expect(stopped.job()).toMatchObject({ status: "cancelled", legsDone: 1 });
+
+    // A leg is at most three half-hour tries: inside two hours one may still be running.
+    const alive = await legacy(LEGS_SILENT_MS - 1);
+    expect(await reapPullJob(JOB, reaping(alive).deps)).toBeNull();
+    expect(alive.job().status).toBe("running");
+  });
+
+  it("ends a Refresh now gone as quiet, and never touches a job that is over or not there", async () => {
+    const jobs = memoryJobs();
+    jobs.putRefresh(JOB);
+    jobs.jobs.set(JOB, { ...jobs.job(), status: "running", updatedAt: before(minutes(180)) });
+    expect(await reapPullJob(JOB, reaping(jobs).deps)).toBe("failed");
+
+    for (const status of ["done", "failed", "cancelled"] as const) {
+      const over = await legacy(minutes(24 * 60), { status });
+      expect(await reapPullJob(JOB, reaping(over).deps)).toBeNull();
+      expect(over.updates).toEqual([]);
+    }
+    expect(await reapPullJob("f".repeat(32), reaping(memoryJobs()).deps)).toBeNull();
+    expect(await reapPullJob("not-a-job", reaping(memoryJobs()).deps)).toBeNull();
+  });
+
+  it("leaves a job written meanwhile to whatever wrote it", async () => {
+    const jobs = await legacy(minutes(180));
+    const { deps } = reaping(jobs);
+    const raced = await reapPullJob(JOB, {
+      ...deps,
+      jobs: { ...jobs.docs, updateIfUnchanged: async () => false },
+    });
+    expect(raced).toBeNull();
+    expect(jobs.job().status).toBe("running");
+  });
+});
+
+describe("resuming an import", () => {
+  const T = new Date("2026-10-14T12:00:00.000Z");
+  const resuming = (jobs: ReturnType<typeof memoryJobs>) => {
+    const launched: string[] = [];
+    const deps = {
+      jobs: jobs.docs,
+      launch: async (jobId: string) => {
+        launched.push(jobId);
+      },
+      now: () => T,
+    };
+    return { launched, deps };
+  };
+
+  it("queues and launches a failed or stopped import again, and leaves a live one running", async () => {
+    for (const status of ["failed", "cancelled"] as const) {
+      const jobs = memoryJobs();
+      await jobs.put(LIST);
+      jobs.jobs.set(JOB, { ...jobs.job(), status, stopAsked: status === "cancelled" });
+      const { launched, deps } = resuming(jobs);
+      expect(await resumePullJob(JOB, deps)).toEqual({ ok: true, status: "queued" });
+      expect(launched).toEqual([JOB]);
+      expect(jobs.job()).toMatchObject({ status: "queued", stopAsked: false, error: null });
+    }
+    const live = memoryJobs();
+    await live.put(LIST);
+    live.jobs.set(JOB, {
+      ...live.job(),
+      status: "running",
+      heartbeatAt: new Date(T.getTime() - 30_000).toISOString(),
+    });
+    const { launched, deps } = resuming(live);
+    expect(await resumePullJob(JOB, deps)).toEqual({ ok: true, status: "running" });
+    expect(launched).toEqual([]);
+  });
+
+  it("relaunches a staged import gone silent while still marked running", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    jobs.jobs.set(JOB, {
+      ...jobs.job(),
+      status: "running",
+      heartbeatAt: new Date(T.getTime() - 10 * 60_000).toISOString(),
+    });
+    const { launched, deps } = resuming(jobs);
+    expect(await resumePullJob(JOB, deps)).toEqual({ ok: true, status: "queued" });
+    expect(launched).toEqual([JOB]);
+  });
+
+  it("moves a stopped older pull onto the staged importer, keeping what it filed", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const old = { ...jobs.job(), status: "cancelled" as const };
+    delete old.pipeline;
+    old.tally = { ...old.tally, asked: 3, answered: 2, failed: 1, filed: 2 };
+    jobs.jobs.set(JOB, old);
+    const { launched, deps } = resuming(jobs);
+    expect(await resumePullJob(JOB, deps)).toEqual({ ok: true, status: "queued" });
+    expect(jobs.job()).toMatchObject({ pipeline: "staged-v1", priorTally: old.tally });
+    expect(launched).toEqual([JOB]);
+  });
+
+  it("refuses an older pull still running, Refresh now, and anything that is not a job", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const old = { ...jobs.job(), status: "running" as const };
+    delete old.pipeline;
+    jobs.jobs.set(JOB, old);
+    const { launched, deps } = resuming(jobs);
+    expect(await resumePullJob(JOB, deps)).toMatchObject({
+      ok: false,
+      refusal: "invalid-argument",
+    });
+    jobs.putRefresh(JOB);
+    expect(await resumePullJob(JOB, deps)).toMatchObject({
+      ok: false,
+      refusal: "invalid-argument",
+    });
+    expect(await resumePullJob("not-a-job", deps)).toMatchObject({
+      ok: false,
+      refusal: "invalid-argument",
+    });
+    expect(launched).toEqual([]);
+  });
+
+  it("refuses a list longer than one pull takes, launching nothing", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const teams = 448_645;
+    jobs.jobs.set(JOB, { ...jobs.job(), status: "failed", list: { ...jobs.job().list, teams } });
+    const { launched, deps } = resuming(jobs);
+    expect(await resumePullJob(JOB, deps)).toEqual({
+      ok: false,
+      refusal: "invalid-argument",
+      message: tooManyTeams(teams),
+    });
+    expect(launched).toEqual([]);
+    expect(jobs.job().status).toBe("failed");
+  });
+});
+
+describe("a list longer than one pull takes", () => {
+  it("is ended, and refused in words, rather than started, however old the tab that sent it", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    const teams = MAX_LIST_TEAMS + 1;
+    jobs.jobs.set(JOB, { ...jobs.job(), list: { ...jobs.job().list, teams } });
+    const queued: LegTask[] = [];
+    const started = await startPullJob(JOB, {
+      jobs: jobs.docs,
+      enqueue: async (task: LegTask) => {
+        queued.push(task);
+      },
+      now: () => new Date("2026-10-14T12:00:00.000Z"),
+    });
+    expect(started).toEqual({
+      ok: false,
+      refusal: "invalid-argument",
+      message: tooManyTeams(teams),
+    });
+    expect(queued).toEqual([]);
+    expect(jobs.job()).toMatchObject({ status: "failed", error: tooManyTeams(teams) });
+  });
+
+  it("starts a list of exactly that many", async () => {
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    jobs.jobs.set(JOB, { ...jobs.job(), list: { ...jobs.job().list, teams: MAX_LIST_TEAMS } });
+    const queued: LegTask[] = [];
+    const started = await startPullJob(JOB, {
+      jobs: jobs.docs,
+      enqueue: async (task: LegTask) => {
+        queued.push(task);
+      },
+      now: () => new Date("2026-10-14T12:00:00.000Z"),
+    });
+    expect(started).toEqual({ ok: true, status: "queued" });
+    expect(queued).toEqual([{ jobId: JOB, leg: 0 }]);
   });
 });

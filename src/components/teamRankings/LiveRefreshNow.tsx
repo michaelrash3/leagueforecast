@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  goneSilent,
   isOver,
   isRefresh,
   sendRefresh,
@@ -99,7 +100,12 @@ export default function LiveRefreshNow({
   // New exactly when the watched list is, so the effect below runs on a read and not every render.
   const refreshes = useMemo(() => watched.filter(isRefresh), [watched]);
   const running = refreshes.some(({ job }) => !isOver(job));
-  const pulling = watched.some((pull) => !isRefresh(pull) && !isOver(pull.job));
+  // A list's pull gone silent holds nothing off: its worker is dead or restarting, and its line
+  // offers Dismiss and Resume. Waiting on it was what kept Refresh now off behind a pull that
+  // had been dead for days, in October 2026.
+  const pulling = watched.some(
+    (pull) => !isRefresh(pull) && !isOver(pull.job) && !goneSilent(pull.job, watching.nowMs)
+  );
   const reasonId = useId();
 
   // A refresh seen ending: what the card counts, and when each level was refreshed, have moved.
@@ -119,7 +125,7 @@ export default function LiveRefreshNow({
     <PullLines
       pulls={refreshes}
       watching={watching}
-      onStopFailed={(text) => setSaid({ text, alert: true, offer, whileRunning: false })}
+      onFailed={(text) => setSaid({ text, alert: true, offer, whileRunning: false })}
     />
   );
   // No count to offer (the status not read, or a server from before the button): the lines alone.
