@@ -10,7 +10,13 @@ import type { CopySeen } from "../../lib/cloud/cloudSession";
 import { BOARD_FAMILY, builtFrom } from "../../lib/live/boardInputs";
 import { forgetDecodedBoards } from "../../lib/live/liveClient";
 import { forgetLiveBoard, liveBoardFor, type RankingsHandover } from "../../lib/live/liveBoard";
-import { EDIT_LOCKS, EDIT_REFUSED, QUERY_REFUSED } from "../../lib/live/liveEdits";
+import {
+  EDIT_LOCKS,
+  EDIT_REFUSED,
+  QUERY_REFUSED,
+  STARTED_AGAIN_WAITING,
+} from "../../lib/live/liveEdits";
+import { STARTED_AGAIN } from "./LiveStartAgainCard";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { openViewCache, type ViewCache, type ViewCacheIo } from "../../lib/live/viewCache";
 import {
@@ -185,13 +191,14 @@ const publish = async (
     { key: `board:2027:${PAGE}:fall`, value: FALL },
     { key: `board:2027:${PAGE}:year`, value: SPRING },
   ],
-  pages: LivePages = { pulledAt: T, halves: { [PAGE]: { fall: 10, spring: 20 } } }
+  pages: LivePages = { pulledAt: T, halves: { [PAGE]: { fall: 10, spring: 20 } } },
+  version = MANIFEST.version
 ) =>
   publishViews({
     store: live.store,
     views,
     owns: [BOARD_FAMILY, CLUB_FAMILY, SEARCH_FAMILY, GAMES_FAMILY],
-    copy: { id: MANIFEST.copy, version: MANIFEST.version },
+    copy: { id: MANIFEST.copy, version },
     today: TODAY,
     now: T,
     built: { family: BOARD_FAMILY, from: await builtFrom(MANIFEST, TODAY) },
@@ -3660,6 +3667,35 @@ describe("Setup on the cloud's board", () => {
         "year.list",
       ])
     );
+    expect(handedOver()).toBeNull();
+  });
+
+  it("says Team Rankings was started again until the boards published reach the start", async () => {
+    onSetup();
+    pool.wants = false;
+    const server = editFunction((data) =>
+      (data.command as { kind?: string } | undefined)?.kind === "copy.reset"
+        ? { ...made(5), stopped: { pulls: 1, nightly: false } }
+        : setupAnswers(data)
+    );
+    open(sourcesOf(live, { call: server.call }));
+    expect(await screen.findByText("Placeholder Waiting")).toBeTruthy();
+    expect(screen.queryByText(STARTED_AGAIN_WAITING["copy.reset"])).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Start Team Rankings again" }));
+    await waitFor(() =>
+      expect(said.toasts).toContain(
+        `${STARTED_AGAIN} 1 pull under way in the cloud was asked to stop, and files nothing more.`
+      )
+    );
+    expect(said.asked).toContain("Start Team Rankings again?");
+    // Said on the page, not only in a toast, while the boards still show the pool as it was.
+    expect(await screen.findByText(STARTED_AGAIN_WAITING["copy.reset"])).toBeTruthy();
+    // The board's own area says it too.
+    fireEvent.click(screen.getByRole("tab", { name: "Rankings" }));
+    expect(await screen.findByText(STARTED_AGAIN_WAITING["copy.reset"])).toBeTruthy();
+    // Gone once the views of the start's version are published.
+    await publish(live, undefined, undefined, 5);
+    await waitFor(() => expect(screen.queryByText(STARTED_AGAIN_WAITING["copy.reset"])).toBeNull());
     expect(handedOver()).toBeNull();
   });
 

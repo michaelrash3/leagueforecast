@@ -6669,6 +6669,18 @@ now, again; a resumed import that was stopped by it ends at once, before downloa
 `cloudRunner.test.ts`, `pullJobRunner.test.ts`, `stagedImport.test.ts`, `publishCopy.test.ts` and
 `editRun.test.ts` hold each guard against the edit function's own start.
 
+**What a start says.** Pressed again on an emptied copy, Start again is refused as `missing`, and
+says the card's own words ("The cloud's Team Rankings has no pages, games or archived tables to
+start again from."), not that a club or a game is gone (`editRefused`); an earlier version no
+longer kept says so. A start, a version brought back or a backup restored whose answer never came
+(`unsure`, or a call that came to nothing) says to look at Setup's squad years or the earlier
+versions in the Cloud panel, which read the copy, rather than at the board, which goes on showing
+the old pool (`unansweredSaid`). The boards, Find a team and the club cards are views the server
+publishes, and a start does not build them: until views of the start's version are published,
+the live page says so on every area ("Team Rankings was started again. The boards, Find a team and
+the club cards still show what it held, and empty once they are published again, within half an
+hour."; `startedAgainNotice`, kept among the page's pending edits and gone once `settledBy`).
+
 **Responsive Setup controls.** Background questions, including Pool health and the teams
 waiting on an age, use `poolQuery`, a separate callable service with its own warm worker.
 Year lists and archive/delete previews use `edit`, beside the corresponding writes. Both

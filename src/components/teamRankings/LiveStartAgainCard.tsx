@@ -7,9 +7,6 @@ import { button, card } from "../../styles/tokens";
 /** Said once Team Rankings is started again, with its Undo beside it. */
 export const STARTED_AGAIN =
   "Team Rankings started again. Undo now, or bring it back from the Cloud panel while it is among the earlier versions kept there.";
-/** Said when the cloud's Team Rankings holds nothing a squad year is counted by. */
-export const NOTHING_TO_START =
-  "The cloud's Team Rankings has no pages, games or archived tables to start again from.";
 
 const plural = (count: number, noun: string) =>
   `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;

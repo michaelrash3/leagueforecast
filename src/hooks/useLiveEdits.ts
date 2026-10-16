@@ -4,11 +4,12 @@ import type { PoolCommand } from "../lib/live/commands";
 import type { CallDeps } from "../lib/live/editClient";
 import {
   CLIENT_UNLOADED,
-  EDIT_REFUSED,
+  editRefused,
   pendingOf,
   QUERY_REFUSED,
   settledBy,
   stoppedSaid,
+  unansweredSaid,
   WARM_AFTER_MS,
   type PendingEdit,
 } from "../lib/live/liveEdits";
@@ -146,12 +147,14 @@ export function useLiveEdits({
         }
         const called = await client.callEdit({ command, copy: against.id }, callDeps);
         if (!called.ok) {
-          showToast(called.message, { tone: "error" });
+          // A start of Team Rankings with no answer says where to see whether it was made.
+          const unanswered = called.why === "unanswered" ? unansweredSaid(command) : null;
+          showToast(unanswered ?? called.message, { tone: "error" });
           return false;
         }
         const reply = called.value;
         if (!reply.ok) {
-          showToast(EDIT_REFUSED[reply.why], { tone: "error" });
+          showToast(editRefused(command, reply.why), { tone: "error" });
           return false;
         }
         if (
