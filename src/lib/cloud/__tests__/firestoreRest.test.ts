@@ -12,13 +12,16 @@ import { commitChanges, type Change } from "../cloudEngine";
 import { UnreadableCopyError } from "../cloudManifest";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
 import {
-  BUSY_WAITS_MS,
+  failureWords,
   FirestoreError,
+  FirestoreUnreachableError,
   firestoreFieldsOf,
   firestoreRestDocuments,
   firestoreRestLive,
   firestoreRestStore,
   firestoreValueOf,
+  networkCodeOf,
+  RETRY_WAITS_MS,
   UnstorableValueError,
   type FirestoreValue,
 } from "../firestoreRest";
@@ -343,9 +346,10 @@ describe("a request Firestore turns away for load", () => {
     const firestore = fakeFirestore();
     const { store, waits } = busyStore(firestore, (method) => method === "PATCH", 429, 99);
     await expect(store.putChunk("up-0", new Uint8Array([1]))).rejects.toThrow(/HTTP 429/);
-    expect(waits).toEqual(BUSY_WAITS_MS);
-    expect(BUSY_WAITS_MS.reduce((sum, ms) => sum + ms, 0)).toBe(31_000);
-    expect(pieceWrites(firestore)).toBe(BUSY_WAITS_MS.length + 1);
+    expect(waits).toEqual(RETRY_WAITS_MS);
+    // 31 s until the night of 14 October 2026's failure of the network; 32 s more since.
+    expect(RETRY_WAITS_MS.reduce((sum, ms) => sum + ms, 0)).toBe(63_000);
+    expect(pieceWrites(firestore)).toBe(RETRY_WAITS_MS.length + 1);
   });
 
   it("asks a commit again only when it was turned away before anything was done", async () => {
@@ -360,33 +364,44 @@ describe("a request Firestore turns away for load", () => {
     expect(await throttled.store.commitManifest(at, next)).toBe(true);
     expect(throttled.waits).toEqual([1_000]);
 
-    // Unavailable may come after the write was done, when a second try would read the first as
-    // another writer's save: said, not asked again.
+    // An internal error, a bad gateway, unavailable or a gateway's timeout may each come after the
+    // write was done, when a second try would read the first as another writer's save: said, not
+    // asked again.
     const commits = () =>
       firestore.fetchImpl.mock.calls.filter(([input]) => String(input).endsWith(":commit")).length;
-    const before = commits();
-    const down = busyStore(firestore, isCommit, 503, 1);
-    await expect(
-      down.store.commitManifest({ version: next.version, copy: next.copy }, next)
-    ).rejects.toThrow(/HTTP 503/);
-    expect(down.waits).toEqual([]);
-    expect(commits() - before).toBe(1);
+    for (const status of [500, 502, 503, 504]) {
+      const before = commits();
+      const down = busyStore(firestore, isCommit, status, 1);
+      await expect(
+        down.store.commitManifest({ version: next.version, copy: next.copy }, next)
+      ).rejects.toThrow(`HTTP ${status}`);
+      expect(down.waits).toEqual([]);
+      expect(commits() - before).toBe(1);
+    }
   });
 
-  it("asks a read or a piece's write again while Firestore is unavailable", async () => {
+  it("asks a read, a piece's write or its delete again while Firestore cannot do it just now", async () => {
     const firestore = fakeFirestore();
     const manifest = await firstCopy(storeOn(firestore));
-    const reads = busyStore(firestore, (method) => method === "GET", 503, 1);
-    expect(await reads.store.readManifest()).toEqual(manifest);
-    expect(reads.waits).toEqual([1_000]);
+    for (const status of [500, 502, 503, 504]) {
+      const reads = busyStore(firestore, (method) => method === "GET", status, 1);
+      expect(await reads.store.readManifest()).toEqual(manifest);
+      expect(reads.waits).toEqual([1_000]);
 
-    // A piece written twice is the same piece.
-    const writes = busyStore(firestore, (method) => method === "PATCH", 503, 1);
-    await writes.store.putChunk("up-0", new Uint8Array([7]));
-    expect(writes.waits).toEqual([1_000]);
-    expect(firestore.docs.get("copies/main/chunks/up-0")!.fields.data).toEqual({
-      bytesValue: "Bw==",
-    });
+      // A piece written twice is the same piece.
+      const writes = busyStore(firestore, (method) => method === "PATCH", status, 1);
+      await writes.store.putChunk("up-0", new Uint8Array([status % 256]));
+      expect(writes.waits).toEqual([1_000]);
+      expect(firestore.docs.get("copies/main/chunks/up-0")!.fields.data).toEqual({
+        bytesValue: btoa(String.fromCharCode(status % 256)),
+      });
+
+      // And one deleted twice is as gone.
+      const deletes = busyStore(firestore, (method) => method === "DELETE", status, 1);
+      await deletes.store.deleteChunk("up-0");
+      expect(deletes.waits).toEqual([1_000]);
+      expect(firestore.docs.has("copies/main/chunks/up-0")).toBe(false);
+    }
   });
 
   it("never asks again a refusal that is not for load", async () => {
@@ -395,6 +410,283 @@ describe("a request Firestore turns away for load", () => {
     await expect(store.putChunk("up-0", new Uint8Array([1]))).rejects.toThrow(/HTTP 403/);
     expect(waits).toEqual([]);
     expect(pieceWrites(firestore)).toBe(1);
+  });
+});
+
+describe("a request the network fails", () => {
+  /** What Node's fetch throws when the network fails it: "fetch failed", the code on its cause. */
+  const failed = (code: string, message = "fetch failed") =>
+    Object.assign(new TypeError(message), {
+      cause: Object.assign(new Error(`read ${code}`), { code }),
+    });
+
+  /**
+   * The copy's store and the views' over `firestore`, whose requests matching `fail` throw
+   * `failure` while `times` of them last; the waits made before asking again are kept, not waited.
+   */
+  const flakyStores = (
+    firestore: ReturnType<typeof fakeFirestore>,
+    fail: (method: string, url: string) => boolean,
+    failure: () => unknown,
+    times: number,
+    token: () => Promise<string> = async () => "a-token"
+  ) => {
+    const answers = firestore.fetchImpl.getMockImplementation()!;
+    let left = times;
+    firestore.fetchImpl.mockImplementation(async (input, init) => {
+      if (left > 0 && fail(init?.method ?? "GET", String(input))) {
+        left -= 1;
+        throw failure();
+      }
+      return answers(input, init);
+    });
+    const waits: number[] = [];
+    const access = {
+      projectId: "proj",
+      token,
+      writable: true,
+      fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
+      pause: async (ms: number) => {
+        waits.push(ms);
+      },
+    };
+    return { store: firestoreRestStore(access), live: firestoreRestLive(access), waits };
+  };
+  const asked = (firestore: ReturnType<typeof fakeFirestore>, method: string) =>
+    firestore.fetchImpl.mock.calls.filter(([, init]) => (init?.method ?? "GET") === method).length;
+  const isCommit = (method: string, url: string) => method === "POST" && url.endsWith(":commit");
+
+  it("asks a piece's write, a read and a delete again until it lands", async () => {
+    const firestore = fakeFirestore();
+    const manifest = await firstCopy(storeOn(firestore));
+    const writes = flakyStores(
+      firestore,
+      (method) => method === "PATCH",
+      () => failed("ECONNRESET"),
+      2
+    );
+    await writes.live.putChunk("up-0", new Uint8Array([1, 2, 3]));
+    expect(writes.waits).toEqual([1_000, 2_000]);
+    expect(firestore.docs.get("live/meta/chunks/up-0")!.fields.data).toEqual({
+      bytesValue: "AQID",
+    });
+
+    const reads = flakyStores(
+      firestore,
+      (method) => method === "GET",
+      () => failed("ETIMEDOUT"),
+      3
+    );
+    expect(await reads.store.readManifest()).toEqual(manifest);
+    expect(await reads.live.getChunk("up-0")).toEqual(new Uint8Array([1, 2, 3]));
+    expect(reads.waits).toEqual([1_000, 2_000, 4_000]);
+
+    const deletes = flakyStores(
+      firestore,
+      (method) => method === "DELETE",
+      () => failed("UND_ERR_SOCKET", "terminated"),
+      1
+    );
+    await deletes.live.deleteChunk("up-0");
+    expect(deletes.waits).toEqual([1_000]);
+    expect(firestore.docs.has("live/meta/chunks/up-0")).toBe(false);
+  });
+
+  it("asks a read again whose answer was cut off before its end", async () => {
+    const firestore = fakeFirestore();
+    const manifest = await firstCopy(storeOn(firestore));
+    const answers = firestore.fetchImpl.getMockImplementation()!;
+    let cut = 1;
+    firestore.fetchImpl.mockImplementation(async (input, init) => {
+      if (cut > 0 && (init?.method ?? "GET") === "GET") {
+        cut -= 1;
+        // The status and headers came; the body stopped partway, as a socket closed under it does.
+        const body = new ReadableStream<Uint8Array>({
+          start: (controller) => {
+            controller.enqueue(new TextEncoder().encode('{"fields":'));
+            controller.error(failed("UND_ERR_SOCKET", "terminated"));
+          },
+        });
+        return new Response(body, { status: 200 });
+      }
+      return answers(input, init);
+    });
+    const waits: number[] = [];
+    const store = firestoreRestStore({
+      projectId: "proj",
+      token: async () => "a-token",
+      writable: false,
+      fetchImpl: firestore.fetchImpl as unknown as typeof fetch,
+      pause: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    expect(await store.readManifest()).toEqual(manifest);
+    expect(waits).toEqual([1_000]);
+  });
+
+  it("says, once it gives up, what kind of request failed and the network's code, never which document", async () => {
+    const firestore = fakeFirestore();
+    const { live, waits } = flakyStores(
+      firestore,
+      (method) => method === "PATCH",
+      () => failed("ECONNRESET"),
+      99
+    );
+    const thrown = await live
+      .putChunk("0123456789abcdef-0", new Uint8Array([1]))
+      .catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(FirestoreUnreachableError);
+    expect((thrown as Error).message).toBe(
+      "The network failed writing a piece (ECONNRESET), the last of 7 tries."
+    );
+    expect((thrown as Error).message).not.toContain("0123456789abcdef");
+    expect((thrown as FirestoreUnreachableError).code).toBe("ECONNRESET");
+    expect(networkCodeOf((thrown as FirestoreUnreachableError).cause)).toBe("ECONNRESET");
+    expect(waits).toEqual(RETRY_WAITS_MS);
+    expect(asked(firestore, "PATCH")).toBe(RETRY_WAITS_MS.length + 1);
+  });
+
+  it("never asks a commit again once it may have reached Firestore", async () => {
+    const firestore = fakeFirestore();
+    const manifest = await firstCopy(storeOn(firestore));
+    const next = { ...manifest, version: manifest.version + 1 };
+    const at = { version: manifest.version, copy: manifest.copy };
+    const saved = firestore.docs.get("copies/main")?.updateTime;
+    // A reset, a socket closed or no answer in time can each come after the commit was made.
+    for (const code of ["ECONNRESET", "UND_ERR_SOCKET", "UND_ERR_HEADERS_TIMEOUT", "EPIPE"]) {
+      const before = asked(firestore, "POST");
+      const { store, waits } = flakyStores(firestore, isCommit, () => failed(code), 1);
+      const thrown = await store.commitManifest(at, next).catch((error: unknown) => error);
+      expect(thrown).toBeInstanceOf(FirestoreUnreachableError);
+      expect((thrown as Error).message).toBe(`The network failed committing a write (${code}).`);
+      expect(waits).toEqual([]);
+      expect(asked(firestore, "POST") - before).toBe(1);
+    }
+    // The stand-in never got one of them, so the copy is as it was.
+    expect(firestore.docs.get("copies/main")?.updateTime).toBe(saved);
+  });
+
+  it("asks a commit again when the network failed it before it left", async () => {
+    const firestore = fakeFirestore();
+    const manifest = await firstCopy(storeOn(firestore));
+    let version = manifest.version;
+    for (const code of [
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "ECONNREFUSED",
+      "ENETUNREACH",
+      "EHOSTUNREACH",
+      "UND_ERR_CONNECT_TIMEOUT",
+    ]) {
+      const { store, waits } = flakyStores(firestore, isCommit, () => failed(code), 1);
+      const next = { ...manifest, version: version + 1 };
+      expect(await store.commitManifest({ version, copy: manifest.copy }, next)).toBe(true);
+      expect(waits).toEqual([1_000]);
+      version += 1;
+    }
+  });
+
+  it("takes a commit whose answer was cut off after it said it was done as done", async () => {
+    const firestore = fakeFirestore();
+    const manifest = await firstCopy(storeOn(firestore));
+    const answers = firestore.fetchImpl.getMockImplementation()!;
+    firestore.fetchImpl.mockImplementation(async (input, init) => {
+      const answer = await answers(input, init);
+      if (!isCommit(init?.method ?? "GET", String(input))) return answer;
+      const body = new ReadableStream<Uint8Array>({
+        start: (controller) => controller.error(failed("UND_ERR_SOCKET", "terminated")),
+      });
+      return new Response(body, { status: answer.status });
+    });
+    const store = storeOn(firestore);
+    const next = { ...manifest, version: manifest.version + 1 };
+    expect(
+      await store.commitManifest({ version: manifest.version, copy: manifest.copy }, next)
+    ).toBe(true);
+    expect(asked(firestore, "POST")).toBe(2);
+    expect((await store.readManifest())?.version).toBe(next.version);
+  });
+
+  it("asks again a sign-in the network failed, whatever the request, since nothing was sent", async () => {
+    const firestore = fakeFirestore();
+    const manifest = await firstCopy(storeOn(firestore));
+    let failures = 2;
+    const { store, waits } = flakyStores(
+      firestore,
+      () => false,
+      () => undefined,
+      0,
+      async () => {
+        if (failures > 0) {
+          failures -= 1;
+          throw failed("ECONNRESET");
+        }
+        return "a-token";
+      }
+    );
+    const next = { ...manifest, version: manifest.version + 1 };
+    expect(
+      await store.commitManifest({ version: manifest.version, copy: manifest.copy }, next)
+    ).toBe(true);
+    expect(waits).toEqual([1_000, 2_000]);
+    // And says so, once it gives up.
+    const { store: down } = flakyStores(
+      firestore,
+      () => false,
+      () => undefined,
+      0,
+      async () => {
+        throw failed("ENOTFOUND");
+      }
+    );
+    await expect(down.readManifest()).rejects.toThrow(
+      "The network failed signing in to Google (ENOTFOUND), the last of 7 tries."
+    );
+  });
+
+  it("throws at once what is not the network's", async () => {
+    const firestore = fakeFirestore();
+    const { store, waits } = flakyStores(
+      firestore,
+      (method) => method === "GET",
+      () => new Error("the code's own mistake"),
+      1
+    );
+    await expect(store.readManifest()).rejects.toThrow("the code's own mistake");
+    expect(waits).toEqual([]);
+    const refused = flakyStores(
+      firestore,
+      () => false,
+      () => undefined,
+      0,
+      async () => {
+        throw new Error("Google refused the key's sign-in (HTTP 400, invalid_grant)");
+      }
+    );
+    await expect(refused.store.readManifest()).rejects.toThrow(/refused the key/);
+    expect(refused.waits).toEqual([]);
+  });
+});
+
+describe("a failure as a public log says it", () => {
+  it("adds the network's code to a message that does not say it", () => {
+    const fetchFailed = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    });
+    expect(failureWords(fetchFailed)).toBe("fetch failed (ECONNRESET)");
+    expect(networkCodeOf(fetchFailed)).toBe("ECONNRESET");
+    // Said once where the message has it, and nothing added where there is none.
+    expect(failureWords(new FirestoreUnreachableError("reading a document", fetchFailed, 7))).toBe(
+      "The network failed reading a document (ECONNRESET), the last of 7 tries."
+    );
+    expect(failureWords(new Error("Firestore answered HTTP 403 reading live/meta."))).toBe(
+      "Firestore answered HTTP 403 reading live/meta."
+    );
+    expect(failureWords("a string")).toBe("a string");
+    // Only a code's own shape is taken for one.
+    expect(networkCodeOf(Object.assign(new Error("x"), { code: "not a code" }))).toBeUndefined();
+    expect(networkCodeOf(Object.assign(new Error("x"), { code: 7 }))).toBeUndefined();
   });
 });
 

@@ -27,6 +27,7 @@ import { appendFileSync } from "node:fs";
 import type { CloudStore } from "../src/lib/cloud/cloudEngine.ts";
 import type { CloudManifest } from "../src/lib/cloud/cloudManifest.ts";
 import { runCloudPull, type CloudPullStage } from "../src/lib/cloud/cloudRunner.ts";
+import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import {
   nightlyEndsTurn,
   nightlyTakesTurn,
@@ -129,9 +130,7 @@ const tellRebuilds = async (): Promise<void> => {
     const trouble = rebuildsTrouble(ledger);
     if (trouble) output("rebuilds", trouble);
   } catch (error) {
-    console.log(
-      `The rebuilds' ledger could not be read: ${error instanceof Error ? error.message : String(error)}`
-    );
+    console.log(`The rebuilds' ledger could not be read: ${failureWords(error)}`);
   }
 };
 
@@ -193,7 +192,7 @@ const main = async (): Promise<void> => {
       if (!turn.at) console.log("  The refresh gate kept moving; pulling without taking it.");
     } catch (error) {
       console.log(
-        `  The refresh gate could not be read (${error instanceof Error ? error.message : String(error)}); pulling without it.`
+        `  The refresh gate could not be read (${failureWords(error)}); pulling without it.`
       );
     }
   }
@@ -251,9 +250,9 @@ const main = async (): Promise<void> => {
       // meanwhile), are no fault of the run's; anything else that stops is (`publishFailedRun`).
       if (publishFailedRun(views)) process.exitCode = 1;
     } catch (error) {
-      console.log(
-        `Publishing the views stopped: ${error instanceof Error ? error.message : String(error)}`
-      );
+      // With the network's code where the network failed it: "fetch failed" alone, as on 14 October
+      // 2026, says nothing of why (`failureWords`).
+      console.log(`Publishing the views stopped: ${failureWords(error)}`);
       process.exitCode = 1;
     }
   }
@@ -268,9 +267,7 @@ const main = async (): Promise<void> => {
       );
     }
   } catch (error) {
-    console.log(
-      `  The staged backups were not swept: ${error instanceof Error ? error.message : String(error)}`
-    );
+    console.log(`  The staged backups were not swept: ${failureWords(error)}`);
   }
   console.log(
     `  Memory at the end: ${mb(process.memoryUsage().rss)} (at most ${mb(process.resourceUsage().maxRSS * 1024)}).`
@@ -289,7 +286,7 @@ try {
   await main();
 } catch (error) {
   // The message only: nothing here quotes the key, and a stack adds nothing a public log needs.
-  console.log(`The refresh stopped: ${error instanceof Error ? error.message : String(error)}`);
+  console.log(`The refresh stopped: ${failureWords(error)}`);
   process.exitCode = 1;
 } finally {
   // The store opens a channel to other tabs that would keep the process alive.
