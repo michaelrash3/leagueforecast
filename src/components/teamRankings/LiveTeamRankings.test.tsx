@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NO_REMOVALS } from "../../lib/autoRemoved";
 import { SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
-import { newPullJob, tooManyTeams, type PullJob } from "../../lib/cloud/pullJobs";
+import { newPullJob, type PullJob } from "../../lib/cloud/pullJobs";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CloudManifest, ManifestPart } from "../../lib/cloud/cloudManifest";
@@ -751,7 +751,7 @@ describe("Team Rankings on the cloud's board", () => {
     expect(screen.getByRole("button", { name: "Pull 1 team in the cloud" })).toBeEnabled();
   });
 
-  it("reads a nationwide CSV larger than 32 MiB without filling the text box, and asks for it in parts", async () => {
+  it("reads a nationwide CSV larger than 32 MiB without filling the text box, and sends it in parts", async () => {
     window.history.replaceState(null, "", "/?view=rankings&age=12&year=2027&section=import");
     pool.wants = false;
     const cloud = cloudPulls();
@@ -769,9 +769,13 @@ describe("Team Rankings on the cloud's board", () => {
     await user.upload(input, file);
     expect(await screen.findByText(file.name, {}, { timeout: 20_000 })).toBeInTheDocument();
     expect(screen.queryByLabelText("Teams to pull")).not.toBeInTheDocument();
-    // Read whole, but more than one pull takes (`MAX_LIST_TEAMS`): said, and not sendable.
-    expect(screen.getByRole("button", { name: "Pull 150,000 teams in the cloud" })).toBeDisabled();
-    expect(screen.getByText(tooManyTeams(150_000))).toBeInTheDocument();
+    // Read whole, and more than one pull takes (`MAX_LIST_TEAMS`): sendable, as parts it names.
+    expect(screen.getByRole("button", { name: "Pull 150,000 teams in the cloud" })).toBeEnabled();
+    expect(
+      screen.getByText(
+        "This list will run in the cloud as 3 parts of up to 50,000 teams, one after another."
+      )
+    ).toBeInTheDocument();
   }, 30_000);
 
   // The screen that sat for hours: two catch-ups "waiting to start" whose start had failed where

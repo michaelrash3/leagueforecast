@@ -1,8 +1,8 @@
 import { useCallback } from "react";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadSentPulls, SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
-import { MAX_LIST_TEAMS, newPullJob, tooManyTeams, type PullJob } from "../../lib/cloud/pullJobs";
+import { MAX_LIST_TEAMS, newPullJob, type PullJob } from "../../lib/cloud/pullJobs";
 import LiveCloudPulls, { PULL_LOOK_MS, useWatchedPulls } from "./LiveCloudPulls";
 import { downloadCsv } from "../../lib/download";
 vi.mock("../../lib/download", () => ({ downloadCsv: vi.fn() }));
@@ -394,21 +394,32 @@ describe("a pasted list", () => {
   const ids = (count: number) =>
     Array.from({ length: count }, (_, n) => `gc${String(n).padStart(10, "0")}`).join("\n");
 
-  it("longer than one pull takes is refused in plain words, with nothing sent", async () => {
+  it("longer than one pull takes says it runs as parts, and is sent as them", async () => {
+    // Packing and fingerprinting a list this long is real work, done on the real clock.
+    vi.useRealTimers();
     const { sender } = cloud();
     await open(sender);
-    await paste(ids(MAX_LIST_TEAMS + 1));
-    expect(screen.getByText(tooManyTeams(MAX_LIST_TEAMS + 1))).toBeTruthy();
-    const button = screen.getByRole("button", { name: /^Pull 50,001 teams in the cloud$/ });
-    expect(button).toHaveProperty("disabled", true);
     await paste(ids(MAX_LIST_TEAMS));
-    expect(screen.queryByText(/one pull takes at most/)).toBeNull();
-    expect(screen.getByRole("button", { name: /^Pull 50,000 teams in the cloud$/ })).toHaveProperty(
-      "disabled",
-      false
-    );
-    expect(sender.jobs.put).not.toHaveBeenCalled();
-  });
+    expect(screen.queryByText(/parts of up to/)).toBeNull();
+    await paste(ids(MAX_LIST_TEAMS + 1));
+    expect(
+      screen.getByText(
+        "This list will run in the cloud as 2 parts of up to 50,000 teams, one after another."
+      )
+    ).toBeTruthy();
+    const button = screen.getByRole("button", { name: /^Pull 50,001 teams in the cloud$/ });
+    expect(button).toHaveProperty("disabled", false);
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    await waitFor(() => expect(sender.start).toHaveBeenCalled(), { timeout: 20_000 });
+    // Two parts written, the last first, and only the first started.
+    const written = vi.mocked(sender.jobs.put).mock.calls.map(([jobId, job]) => [jobId, job]);
+    expect(written.map(([, job]) => (job as PullJob).chain?.part)).toEqual([2, 1]);
+    expect(written.map(([, job]) => (job as PullJob).list.teams)).toEqual([1, 50_000]);
+    expect(sender.start).toHaveBeenCalledTimes(1);
+    expect(sender.start).toHaveBeenCalledWith(written[1]?.[0]);
+  }, 30_000);
 
   // Slugs and names where an id should be, which GameChanger answers with HTTP 400, said before
   // the list is sent rather than found in the skipped-team report after.
@@ -431,5 +442,193 @@ describe("a pasted list", () => {
         "2 of these do not look like GameChanger team ids, which are the 12 letters and digits after web.gc.com/teams/; GameChanger will likely refuse them. 1 line named no team id and is left out."
       )
     ).toBeTruthy();
+  });
+});
+
+/*
+ * A list sent in parts (`PullJob.chain`) is one line on the card, about the whole list, carrying
+ * the buttons of its part under way, or of the part it halted at.
+ */
+describe("a list sent in parts", () => {
+  const PARTS = ["1".repeat(32), "2".repeat(32), "3".repeat(32)] as const;
+  const [FIRST, SECOND, THIRD] = PARTS;
+  const partJob = (index: number, patch: Partial<PullJob>): PullJob => {
+    const next = PARTS[index + 1];
+    return {
+      ...newPullJob({
+        list: { hash: "a".repeat(64), teams: index < 2 ? 50_000 : 1, pieces: 1 },
+        seasonYears: [],
+        timeZone: "America/New_York",
+        device: "test-device",
+        now: NOW,
+        chain: { id: FIRST, part: index + 1, parts: 3, teams: 100_001, ...(next ? { next } : {}) },
+      }),
+      ...patch,
+    };
+  };
+  /** The card watching the three parts, as `patches` leave each. */
+  const watchingParts = (patches: [Partial<PullJob>, Partial<PullJob>, Partial<PullJob>]) => {
+    localStorage.setItem(
+      SENT_PULLS_KEY,
+      JSON.stringify(
+        PARTS.map((jobId, index) => ({
+          jobId,
+          sentAt: NOW,
+          teams: index < 2 ? 50_000 : 1,
+          told: false,
+        }))
+      )
+    );
+    const jobs = new Map(PARTS.map((jobId, index) => [jobId, partJob(index, patches[index]!)]));
+    const { sender, read } = cloud();
+    read.mockImplementation(async (jobId?: string) => (jobId ? (jobs.get(jobId) ?? null) : null));
+    sender.resume = vi.fn(async () => ({ ok: true as const, value: { status: "queued" } }));
+    return { sender, jobs };
+  };
+  const hoursAgo = (hours: number) => new Date(Date.parse(NOW) - hours * 3_600_000).toISOString();
+
+  it("is one line about the whole list, with one Stop that stops the parts after it too", async () => {
+    const { sender } = watchingParts([
+      { status: "done" },
+      {
+        status: "running",
+        stage: "fetching",
+        legs: 5,
+        heartbeatAt: NOW,
+        progress: { done: 4_000, total: 10_000, failed: 0 },
+      },
+      {},
+    ]);
+    await open(sender);
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(
+      screen.getByText(
+        "Pulling 100,001 teams in the cloud as 3 parts, one after another. Part 2 of 3 (50,000 teams): download batch 1 of 5, 4,000 downloaded, 0 skipped, 6,000 remaining in this batch. Part 1 is done; part 3 waits its turn."
+      )
+    ).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Stop" })).toHaveLength(1);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    });
+    // The part after it first, then the part under way; the one that never ran asked about,
+    // which cancels it.
+    expect(vi.mocked(sender.jobs.askStop).mock.calls).toEqual([[THIRD], [SECOND]]);
+    expect(sender.start).toHaveBeenCalledWith(THIRD);
+    expect(sender.start).not.toHaveBeenCalledWith(SECOND, expect.anything());
+  });
+
+  it("says the whole list's end once, and OK tells of every part", async () => {
+    const tally = {
+      asked: 50_000,
+      answered: 50_000,
+      failed: 0,
+      filed: 50_000,
+      gamesAdded: 9,
+      gamesUpdated: 1,
+    };
+    const { sender } = watchingParts([
+      { status: "done", tally },
+      { status: "done", tally },
+      { status: "done", tally: { ...tally, asked: 1, answered: 1, filed: 1 } },
+    ]);
+    await open(sender);
+    expect(
+      screen.getByText(
+        "The pull of 100,001 teams in the cloud is done, in 3 parts: 100,001 of 100,001 teams filed, 27 games added and 3 updated."
+      )
+    ).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "OK" }));
+    });
+    expect(loadSentPulls().map(({ told }) => told)).toEqual([true, true, true]);
+    expect(screen.queryByRole("listitem")).toBeNull();
+  });
+
+  it("keeps each part's skipped-team report, not only the part it ended on", async () => {
+    const { sender } = watchingParts([
+      { status: "done", pipeline: "staged-v1", report: { rows: 3, ready: true } },
+      { status: "done", pipeline: "staged-v1", report: { rows: 0, ready: true } },
+      {
+        status: "running",
+        pipeline: "staged-v1",
+        stage: "fetching",
+        heartbeatAt: NOW,
+        report: { rows: 2, ready: true },
+      },
+    ]);
+    const report = vi.fn(async () => ["CSV"]);
+    sender.jobs.report = report;
+    await open(sender);
+    // Part 1's report though part 3 is under way, part 3's so far, and none for part 2, which
+    // skipped no team.
+    expect(
+      screen.getAllByRole("button", { name: /Download skipped teams/ }).map((b) => b.textContent)
+    ).toEqual(["Download skipped teams of part 1", "Download skipped teams of part 3 so far"]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Download skipped teams of part 1" }));
+    });
+    expect(report).toHaveBeenCalledWith(FIRST);
+    expect(downloadCsv).toHaveBeenCalledWith("team-import-skipped-11111111.csv", ["CSV"]);
+  });
+
+  it("offers Resume on the part it halted at, saying the list carries on from there", async () => {
+    const { sender } = watchingParts([
+      { status: "done" },
+      { status: "failed", error: "The importer stopped without saying why." },
+      {},
+    ]);
+    await open(sender);
+    expect(
+      screen.getByText(
+        "The pull of 100,001 teams in the cloud stopped at part 2 of 3, which failed: The importer stopped without saying why. Resume carries the list on from part 2."
+      )
+    ).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Resume saved import" }));
+    });
+    expect(sender.resume).toHaveBeenCalledWith(SECOND);
+    // Its later part, waiting on it, is never asked to start meanwhile.
+    expect(sender.start).not.toHaveBeenCalledWith(THIRD, expect.anything());
+    expect(sender.start).not.toHaveBeenCalledWith(THIRD);
+  });
+
+  it("stops reading once it halts at a part that failed, its later part still queued", async () => {
+    const { sender } = watchingParts([{ status: "done" }, { status: "failed" }, {}]);
+    await open(sender);
+    const reads = vi.mocked(sender.jobs.read).mock.calls.length;
+    await tick();
+    await tick();
+    expect(vi.mocked(sender.jobs.read).mock.calls.length).toBe(reads);
+    // While a part is under way it is read again at every look.
+    cleanup();
+    const moving = watchingParts([{ status: "done" }, { status: "running", heartbeatAt: NOW }, {}]);
+    await open(moving.sender);
+    const before = vi.mocked(moving.sender.jobs.read).mock.calls.length;
+    await tick();
+    expect(vi.mocked(moving.sender.jobs.read).mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it("asks the cloud to start a part whose turn has come, the part before it done", async () => {
+    const { sender } = watchingParts([{ status: "done" }, {}, {}]);
+    await open(sender);
+    expect(sender.start).toHaveBeenCalledWith(SECOND, undefined);
+    expect(sender.start).not.toHaveBeenCalledWith(THIRD, expect.anything());
+  });
+
+  it("Dismiss on a silent part cancels the parts after it and tells of the whole list", async () => {
+    const { sender } = watchingParts([
+      { status: "done" },
+      { status: "running", stage: "fetching", heartbeatAt: hoursAgo(1), updatedAt: hoursAgo(1) },
+      {},
+    ]);
+    await open(sender);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    });
+    expect(sender.start).toHaveBeenCalledWith(SECOND);
+    expect(sender.jobs.askStop).toHaveBeenCalledWith(THIRD);
+    expect(sender.jobs.askStop).not.toHaveBeenCalledWith(SECOND);
+    expect(sender.start).toHaveBeenCalledWith(THIRD);
+    expect(loadSentPulls().map(({ told }) => told)).toEqual([true, true, true]);
   });
 });

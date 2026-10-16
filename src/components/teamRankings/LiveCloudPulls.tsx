@@ -2,16 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   askAgain,
   agoFrom,
-  describeEnd,
-  describeProgress,
+  cancelParts,
+  currentPart,
+  describeListEnd,
+  describeListProgress,
   describePullUpdate,
   describeImportMetrics,
+  describeSplit,
   dueForAsking,
   goneSilent,
   isOver,
   isRefresh,
+  listOver,
+  listsOf,
   markTold,
   loadSentPulls,
+  partsAfter,
+  partsOfList,
   readSentPulls,
   resumable,
   sendPull,
@@ -24,7 +31,7 @@ import {
   parseGcTeamList,
   type GcTeamListEntry,
 } from "../../lib/gameChangerApi";
-import { MAX_LIST_TEAMS, skipsApart, tooManyTeams } from "../../lib/cloud/pullJobs";
+import { skipsApart } from "../../lib/cloud/pullJobs";
 import { button, card } from "../../styles/tokens";
 import { FIREBASE_WEB_CONFIG } from "../../lib/cloud/cloudConfig";
 import { downloadCsv } from "../../lib/download";
@@ -96,7 +103,9 @@ const pasteWarning = ({ malformed, skipped }: { malformed: number; skipped: numb
  * A list still waiting to start is asked about again (`dueForAsking`, `askAgain`) as it is read,
  * so one whose start failed where this device could not hear runs, or says why, within a minute or
  * so instead of waiting for good; and Stop on one that never started asks at once, which is what
- * cancels it, since only a running leg reads the stop.
+ * cancels it, since only a running leg reads the stop. A list sent in parts is stopped, dismissed
+ * and told about as the one list it is: Stop and Dismiss on its part under way cancel the parts
+ * after it too (`partsAfter`), so neither leaves the rest of the list to run.
  */
 export const useWatchedPulls = (pulls: () => PullSender | null) => {
   const [watched, setWatched] = useState<WatchedPull[]>([]);
@@ -109,7 +118,7 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
 
   // Keep the age honest even while a status request is waiting on a connection.
   useEffect(() => {
-    if (unread.length === 0 && !watched.some(({ job }) => !isOver(job))) return;
+    if (unread.length === 0 && listsOf(watched).every(listOver)) return;
     const clock = setInterval(() => setNowMs(Date.now()), PULL_LOOK_MS);
     return () => clearInterval(clock);
   }, [watched, unread]);
@@ -141,7 +150,8 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
       setCheckedAt(now.getTime());
       setNowMs(now.getTime());
       const due = received.filter(
-        (pull) => !starting.current.has(pull.sent.jobId) && dueForAsking(pull, now.getTime())
+        (pull) =>
+          !starting.current.has(pull.sent.jobId) && dueForAsking(pull, now.getTime(), received)
       );
       // Read again once the asks are answered, so what they did is said without waiting a look.
       if (due.length > 0) {
@@ -154,7 +164,9 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
           if (alive) setLooked((times) => times + 1);
         });
       }
-      if (missing.length > 0 || received.some(({ job }) => !isOver(job))) {
+      // Read again while any list is on its way; one halted at a part that failed or was stopped
+      // waits on Resume, not on the cloud, though the parts after that part are still queued.
+      if (missing.length > 0 || !listsOf(received).every(listOver)) {
         timer = setTimeout(() => setLooked((times) => times + 1), PULL_LOOK_MS);
       }
     });
@@ -170,20 +182,26 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
     setWatched((all) => all.filter(({ sent }) => sent.jobId !== jobId));
     setUnread((all) => all.filter((sent) => sent.jobId !== jobId));
   }, []);
-  /** Asks a pull to stop; whether it could be asked. */
+  /** Asks a pull to stop, and the parts of its list after it; whether it could be asked. */
   const stop = useCallback(
     async (jobId: string): Promise<boolean> => {
       const sender = pulls();
       if (!sender) return false;
+      const pull = watched.find(({ sent }) => sent.jobId === jobId);
+      const later = pull ? partsAfter(pull, watched) : [];
       try {
+        // The later parts first: a Stop that reached only some of them is still offered, since
+        // the part under way, not yet asked, keeps its button.
+        for (const part of later) await sender.jobs.askStop(part.sent.jobId);
         await sender.jobs.askStop(jobId);
       } catch {
         return false;
       }
+      // None of them has started, so asking about each cancels it (`startPullJob`).
+      for (const part of later) await sender.start(part.sent.jobId).catch(() => undefined);
       // One that never started is cancelled by the ask; one under way stops at its next look.
       // One gone silent may have no worker left to look: asking the cloud about it ends it there
       // if it is dead (`reapPullJob`), as cancelled, since the stop is now asked.
-      const pull = watched.find(({ sent }) => sent.jobId === jobId);
       if (pull && !isRefresh(pull) && pull.job.status === "queued") {
         await askAgain(pull, sender, new Date()).catch(() => undefined);
       } else if (pull && goneSilent(pull.job, Date.now())) {
@@ -213,16 +231,29 @@ export const useWatchedPulls = (pulls: () => PullSender | null) => {
   /**
    * Stops showing a pull gone silent on this device, having asked the cloud about it: the ask
    * ends it there if its worker is dead (`reapPullJob`), so no other device shows it running
-   * either. Not waited on: the line goes at once, whatever the cloud answers.
+   * either. The parts of its list after it are cancelled, so none starts behind a line no longer
+   * shown, and the whole list is told about. Not waited on: the line goes at once, whatever the
+   * cloud answers.
    */
   const dismiss = useCallback(
     (jobId: string) => {
-      void pulls()
+      const sender = pulls();
+      const pull = watched.find(({ sent }) => sent.jobId === jobId);
+      void sender
         ?.start(jobId)
-        .catch(() => undefined);
+        .catch(() => undefined)
+        .then(() =>
+          pull
+            ? cancelParts(
+                partsAfter(pull, watched).map((part) => part.sent.jobId),
+                sender
+              )
+            : undefined
+        );
+      for (const part of pull ? partsOfList(pull, watched) : []) told(part.sent.jobId);
       told(jobId);
     },
-    [pulls, told]
+    [pulls, told, watched]
   );
   const report = useCallback(
     async (jobId: string) => {
@@ -254,10 +285,13 @@ function SkippedReportButton({
   jobId,
   read,
   partial,
+  part,
 }: {
   jobId: string;
   read: NonNullable<WatchedPulls["report"]>;
   partial: boolean;
+  /** The part of a list sent in parts whose report it is; absent for a list sent whole. */
+  part?: number;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -277,9 +311,7 @@ function SkippedReportButton({
       <button type="button" className={button.ghost} disabled={busy} onClick={() => void save()}>
         {busy
           ? "Preparing report…"
-          : partial
-            ? "Download skipped teams so far"
-            : "Download skipped teams"}
+          : `Download skipped teams${part === undefined ? "" : ` of part ${part}`}${partial ? " so far" : ""}`}
       </button>
       {error ? (
         <p className="text-amber-800 dark:text-amber-300">
@@ -294,9 +326,11 @@ function SkippedReportButton({
  * How each of `pulls` is getting on, one line each: how far one on its way has got, with Stop,
  * and how one ended, with OK, after which no tab says it again. One gone silent (`goneSilent`)
  * offers Dismiss as well, and a list's that failed, was stopped or, run by the staged importer,
- * went silent offers Resume (`resumable`). The lines sit in a live region drawn before there is
- * any, since a screen reader may not read out one that arrives already holding its words: a
- * press's first line would be missed.
+ * went silent offers Resume (`resumable`). A list sent in parts is one line (`listsOf`), about
+ * the whole list, with the buttons of its part under way, or of the part it halted at
+ * (`currentPart`). The lines sit in a live region drawn before there is any, since a screen reader
+ * may not read out one that arrives already holding its words: a press's first line would be
+ * missed.
  */
 export function PullLines({
   pulls,
@@ -312,16 +346,25 @@ export function PullLines({
     <div aria-live="polite">
       {pulls.length === 0 ? null : (
         <ul className="mt-4 space-y-2">
-          {pulls.map((pull) => {
+          {listsOf(pulls).map((parts) => {
+            const pull = currentPart(parts);
+            if (!pull) return null;
+            const over = listOver(parts);
             const update = describePullUpdate(pull.job, watching.nowMs);
             const metrics = describeImportMetrics(pull.job, watching.nowMs);
             const unread = watching.unread.some((sent) => sent.jobId === pull.sent.jobId);
             const silent = goneSilent(pull.job, watching.nowMs);
+            const toldAll = () => {
+              for (const part of parts) watching.told(part.sent.jobId);
+            };
             return (
-              <li key={pull.sent.jobId} className="text-sm text-slate-600 dark:text-slate-300">
+              <li
+                key={pull.job.chain?.id ?? pull.sent.jobId}
+                className="text-sm text-slate-600 dark:text-slate-300"
+              >
                 <span>
                   {unread ? "Last known status: " : ""}
-                  {isOver(pull.job) ? describeEnd(pull) : describeProgress(pull, watching.nowMs)}
+                  {over ? describeListEnd(parts) : describeListProgress(parts, watching.nowMs)}
                 </span>{" "}
                 {resumable(pull.job, watching.nowMs) ? (
                   <button
@@ -341,12 +384,8 @@ export function PullLines({
                         : "Resume with faster importer"}
                   </button>
                 ) : null}
-                {isOver(pull.job) ? (
-                  <button
-                    type="button"
-                    onClick={() => watching.told(pull.sent.jobId)}
-                    className={button.ghost}
-                  >
+                {over ? (
+                  <button type="button" onClick={toldAll} className={button.ghost}>
                     OK
                   </button>
                 ) : (
@@ -367,7 +406,9 @@ export function PullLines({
                     {silent ? (
                       <button
                         type="button"
-                        onClick={() => (watching.dismiss ?? watching.told)(pull.sent.jobId)}
+                        onClick={() =>
+                          watching.dismiss ? watching.dismiss(pull.sent.jobId) : toldAll()
+                        }
                         className={button.ghost}
                       >
                         Dismiss
@@ -375,14 +416,20 @@ export function PullLines({
                     ) : null}
                   </>
                 )}
-                {pull.job.report?.ready && pull.job.report.rows > 0 && watching.report ? (
-                  <SkippedReportButton
-                    jobId={pull.sent.jobId}
-                    read={watching.report}
-                    partial={!isOver(pull.job)}
-                  />
-                ) : null}
-                {!isOver(pull.job) ? (
+                {/* Each part's own report, not only the part under way or ended on: a list's
+                    earlier parts keep the teams they skipped, which no later part carries. */}
+                {parts.map((part) =>
+                  part.job.report?.ready && part.job.report.rows > 0 && watching.report ? (
+                    <SkippedReportButton
+                      key={part.sent.jobId}
+                      jobId={part.sent.jobId}
+                      read={watching.report}
+                      partial={!isOver(part.job)}
+                      {...(part.job.chain ? { part: part.job.chain.part } : {})}
+                    />
+                  ) : null
+                )}
+                {!over ? (
                   <>
                     {metrics ? (
                       <p className="mt-1 text-slate-500 dark:text-slate-400">{metrics}</p>
@@ -470,7 +517,7 @@ export default function LiveCloudPulls({
 
   const paste = useMemo(() => readPaste(loaded?.text ?? text), [loaded, text]);
   const { entries } = paste;
-  const tooMany = entries.length > MAX_LIST_TEAMS;
+  const split = describeSplit(entries.length);
   const warning = pasteWarning(paste);
   const send = useCallback(
     async (list: readonly GcTeamListEntry[], options: { refresh: boolean; years: number[] }) => {
@@ -590,14 +637,12 @@ export default function LiveCloudPulls({
           {warning ? (
             <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{warning}</p>
           ) : null}
-          {tooMany ? (
-            <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">
-              {tooManyTeams(entries.length)}
-            </p>
+          {split ? (
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{split}</p>
           ) : null}
           <button
             type="button"
-            disabled={sending || entries.length === 0 || tooMany}
+            disabled={sending || entries.length === 0}
             aria-busy={sending}
             onClick={() => void send(entries, { refresh: false, years: [] })}
             className={`${button.primary} mt-3`}

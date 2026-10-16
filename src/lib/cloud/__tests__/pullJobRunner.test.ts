@@ -26,6 +26,7 @@ import {
   packJobList,
   tooManyTeams,
   type PullJob,
+  type PullJobChain,
 } from "../pullJobs";
 import {
   IMPORT_SILENT_MS,
@@ -37,6 +38,7 @@ import {
   restJobDocs,
   resumePullJob,
   runPullLeg,
+  startNextPart,
   startPullJob,
   stopPullsUnderWay,
   NEVER_STARTED,
@@ -235,7 +237,13 @@ const memoryJobs = () => {
   };
   const put = async (
     entries: GcTeamListEntry[],
-    options: { legTeams?: number; timeZone?: string; jobId?: string; refresh?: boolean } = {}
+    options: {
+      legTeams?: number;
+      timeZone?: string;
+      jobId?: string;
+      refresh?: boolean;
+      chain?: PullJobChain;
+    } = {}
   ) => {
     const jobId = options.jobId ?? JOB;
     const packed = await packJobList(entries);
@@ -248,6 +256,7 @@ const memoryJobs = () => {
       now: "2026-09-29T12:00:00.000Z",
       ...(options.legTeams ? { legTeams: options.legTeams } : {}),
       ...(options.refresh ? { refresh: true } : {}),
+      ...(options.chain ? { chain: options.chain } : {}),
     });
     jobs.set(jobId, job);
     return job;
@@ -1842,5 +1851,290 @@ describe("pulls under way when Team Rankings is started again", () => {
     expect(jobs.job().stopAsked).toBe(true);
     expect(cloud.manifest()).toEqual(started);
     expect(await clubsIn(cloud)).toEqual([]);
+  });
+});
+
+/*
+ * A list longer than one job takes, sent as parts that run one after another (`PullJob.chain`):
+ * the page starts the first, and the cloud starts each next part when the one before it is done
+ * (`startNextPart`), never two at once, and never one stopped with the list.
+ */
+describe("a list sent in parts", () => {
+  const PARTS = ["1".repeat(32), "2".repeat(32), "3".repeat(32)] as const;
+  const [FIRST, SECOND, THIRD] = PARTS;
+
+  /** The list's three parts, as the page writes them, each naming the next. */
+  const putParts = async (jobs: ReturnType<typeof memoryJobs>) => {
+    for (const [index, jobId] of PARTS.entries()) {
+      const next = PARTS[index + 1];
+      await jobs.put(LIST, {
+        jobId,
+        chain: { id: FIRST, part: index + 1, parts: 3, teams: 9, ...(next ? { next } : {}) },
+      });
+    }
+  };
+  const nexting = (
+    jobs: ReturnType<typeof memoryJobs>,
+    enqueue: (task: LegTask) => Promise<void | "already"> = async () => undefined
+  ) => {
+    const queued: LegTask[] = [];
+    const deps = {
+      jobs: jobs.docs,
+      enqueue: async (task: LegTask) => {
+        queued.push(task);
+        return enqueue(task);
+      },
+      now: () => new Date("2026-10-16T18:00:00.000Z"),
+    };
+    return { queued, deps };
+  };
+
+  it("starts the next part once a part is done, as a list is started, and on nothing else", async () => {
+    const jobs = memoryJobs();
+    await putParts(jobs);
+    const { queued, deps } = nexting(jobs);
+    // A part under way, failed or stopped starts nothing: Resume on it carries the list on.
+    for (const status of ["queued", "running", "failed", "cancelled"] as const) {
+      jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status });
+      expect(await startNextPart(FIRST, deps), status).toEqual({ kind: "none" });
+    }
+    expect(queued).toEqual([]);
+    jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "done" });
+    expect(await startNextPart(FIRST, deps)).toEqual({
+      kind: "started",
+      part: 2,
+      answer: { ok: true, status: "queued" },
+    });
+    expect(queued).toEqual([{ jobId: SECOND, leg: 0 }]);
+    // The last part, and a list sent whole, have no next to start.
+    jobs.jobs.set(THIRD, { ...jobs.job(THIRD), status: "done" });
+    expect(await startNextPart(THIRD, deps)).toEqual({ kind: "none" });
+    await jobs.put(LIST);
+    jobs.jobs.set(JOB, { ...jobs.job(), status: "done" });
+    expect(await startNextPart(JOB, deps)).toEqual({ kind: "none" });
+    expect(await startNextPart("f".repeat(32), deps)).toEqual({ kind: "none" });
+    expect(queued).toHaveLength(1);
+  });
+
+  it("leaves a next part asked to stop, under way, over, gone, or not this list's next", async () => {
+    const spoil: Array<[string, (job: PullJob) => PullJob | null]> = [
+      ["stop asked", (job) => ({ ...job, stopAsked: true })],
+      ["running", (job) => ({ ...job, status: "running" })],
+      ["cancelled", (job) => ({ ...job, status: "cancelled" })],
+      ["failed", (job) => ({ ...job, status: "failed" })],
+      ["done", (job) => ({ ...job, status: "done" })],
+      ["gone", () => null],
+      ["another list's", (job) => ({ ...job, chain: { ...job.chain!, id: "4".repeat(32) } })],
+      ["another place", (job) => ({ ...job, chain: { ...job.chain!, part: 3 } })],
+    ];
+    for (const [why, change] of spoil) {
+      const jobs = memoryJobs();
+      await putParts(jobs);
+      jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "done" });
+      const spoiled = change(jobs.job(SECOND));
+      if (spoiled) jobs.jobs.set(SECOND, spoiled);
+      else jobs.jobs.delete(SECOND);
+      const { queued, deps } = nexting(jobs);
+      expect(await startNextPart(FIRST, deps), why).toEqual({ kind: "left", part: 2 });
+      expect(queued, why).toEqual([]);
+      expect(jobs.jobs.get(SECOND)?.status, why).toBe(spoiled?.status);
+    }
+  });
+
+  it("never ends a later part as one the cloud left waiting, however long it waited its turn", async () => {
+    const jobs = memoryJobs();
+    await putParts(jobs);
+    // Its turn hours after it was written, its task already queued and nothing having touched it:
+    // as a start that says how long it waited would end it (`NEVER_STARTED`).
+    jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "done" });
+    const { deps } = nexting(jobs, async () => "already");
+    expect(await startNextPart(FIRST, deps)).toMatchObject({
+      kind: "started",
+      answer: { ok: true, status: "queued" },
+    });
+    expect(jobs.job(SECOND)).toMatchObject({ status: "queued", error: null });
+  });
+
+  // A tab still running a page from before lists were split takes each part for a list of its own
+  // waiting to start, and asks for it every minute, saying it has waited since the sending.
+  it("starts a later part asked for by any device only once the part before it is done", async () => {
+    const jobs = memoryJobs();
+    await putParts(jobs);
+    const { queued, deps } = nexting(jobs, async () => "already");
+    const hours = 3 * NEVER_STARTED_MS;
+    for (const status of ["queued", "running", "failed", "cancelled"] as const) {
+      jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status });
+      expect(await startPullJob(SECOND, deps, hours), status).toEqual({
+        ok: true,
+        status: "queued",
+      });
+      expect(await startPullJob(THIRD, deps, hours), status).toEqual({
+        ok: true,
+        status: "queued",
+      });
+    }
+    expect(queued).toEqual([]);
+    expect(jobs.job(SECOND)).toMatchObject({ status: "queued", error: null });
+    // Stopped, it is still cancelled by the ask, its turn come or not.
+    jobs.jobs.set(THIRD, { ...jobs.job(THIRD), stopAsked: true });
+    expect(await startPullJob(THIRD, deps)).toEqual({ ok: true, status: "cancelled" });
+    // Its turn come, it is started as any list.
+    jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "done" });
+    expect(await startPullJob(SECOND, deps)).toEqual({ ok: true, status: "queued" });
+    expect(queued).toEqual([{ jobId: SECOND, leg: 0 }]);
+  });
+
+  it("says so, ending nothing, when the parts before a part cannot be read", async () => {
+    const jobs = memoryJobs();
+    await putParts(jobs);
+    const read = jobs.docs.read;
+    jobs.docs.read = async (jobId) => {
+      if (jobId === FIRST) throw new Error("Firestore is unavailable.");
+      return read(jobId);
+    };
+    const { queued, deps } = nexting(jobs);
+    expect(await startPullJob(SECOND, deps)).toEqual({
+      ok: false,
+      refusal: "unavailable",
+      message: "The cloud could not read this pull's list: Firestore is unavailable.",
+    });
+    expect(queued).toEqual([]);
+    expect(jobs.job(SECOND).status).toBe("queued");
+  });
+
+  it("touches the part it starts, so no device's ask then ends it as never started", async () => {
+    const jobs = memoryJobs();
+    await putParts(jobs);
+    jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "done" });
+    const { deps } = nexting(jobs, async () => "already");
+    await startNextPart(FIRST, deps);
+    expect(jobs.job(SECOND).updatedAt).toBe("2026-10-16T18:00:00.000Z");
+    expect(jobs.job(SECOND).updatedAt).not.toBe(jobs.job(SECOND).createdAt);
+    // An older page's ask, timing its wait from the sending, while the importer starts up.
+    expect(await startPullJob(SECOND, deps, 3 * NEVER_STARTED_MS)).toEqual({
+      ok: true,
+      status: "queued",
+    });
+    expect(jobs.job(SECOND)).toMatchObject({ status: "queued", error: null });
+  });
+
+  it("is carried on by the older runner's last leg as by the importer", async () => {
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const jobs = memoryJobs();
+    await putParts(jobs);
+    const { deps, queued } = legDeps(cloud, jobs);
+    expect(await runPullLeg({ jobId: FIRST, leg: 0 }, deps)).toBe("done");
+    expect(queued).toEqual([{ jobId: SECOND, leg: 0 }]);
+    // A next part that cannot even be read fails no leg of a part already done and saved.
+    const failing = memoryJobs();
+    await putParts(failing);
+    const read = failing.docs.read;
+    failing.docs.read = async (jobId) => {
+      if (jobId === SECOND) throw new Error("Firestore is unavailable.");
+      return read(jobId);
+    };
+    const broken = legDeps(cloud, failing, { lastTry: true });
+    expect(await runPullLeg({ jobId: FIRST, leg: 0 }, broken.deps)).toBe("done");
+    expect(failing.job(FIRST)).toMatchObject({ status: "done", error: null });
+    expect(broken.queued).toEqual([]);
+  });
+
+  it("puts the parts stopped with a part back in the queue when it is resumed, and carries on", async () => {
+    const jobs = memoryJobs();
+    await putParts(jobs);
+    // Stop pressed on part 2: it ended cancelled, and part 3, which never ran, was cancelled too.
+    jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "done" });
+    jobs.jobs.set(SECOND, { ...jobs.job(SECOND), status: "cancelled", stopAsked: true });
+    jobs.jobs.set(THIRD, { ...jobs.job(THIRD), status: "cancelled", stopAsked: true });
+    const launched: string[] = [];
+    const resumed = await resumePullJob(SECOND, {
+      jobs: jobs.docs,
+      launch: async (jobId) => {
+        launched.push(jobId);
+      },
+      now: () => new Date("2026-10-16T18:00:00.000Z"),
+    });
+    expect(resumed).toEqual({ ok: true, status: "queued" });
+    expect(launched).toEqual([SECOND]);
+    expect(jobs.job(THIRD)).toMatchObject({ status: "queued", stopAsked: false, error: null });
+    // The part before it, done, is left as it was.
+    expect(jobs.job(FIRST).status).toBe("done");
+    // Once the resumed part is done, the list carries on from it.
+    jobs.jobs.set(SECOND, { ...jobs.job(SECOND), status: "done" });
+    const { queued, deps } = nexting(jobs);
+    expect(await startNextPart(SECOND, deps)).toMatchObject({ kind: "started", part: 3 });
+    expect(queued).toEqual([{ jobId: THIRD, leg: 0 }]);
+  });
+
+  it("leaves, on Resume, the parts after it that a stop never reached, or that ran", async () => {
+    for (const [why, later, expected] of [
+      [
+        "queued, stop asked",
+        { status: "queued", stopAsked: true },
+        { status: "queued", stopAsked: false },
+      ],
+      ["queued", { status: "queued", stopAsked: false }, { status: "queued", stopAsked: false }],
+      ["failed", { status: "failed", stopAsked: false }, { status: "failed" }],
+      ["running", { status: "running", stopAsked: false }, { status: "running" }],
+    ] as const) {
+      const jobs = memoryJobs();
+      await putParts(jobs);
+      jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "failed" });
+      jobs.jobs.set(SECOND, { ...jobs.job(SECOND), ...later });
+      const before = jobs.job(SECOND).updatedAt;
+      await resumePullJob(FIRST, {
+        jobs: jobs.docs,
+        launch: async () => undefined,
+        now: () => new Date("2026-10-16T18:00:00.000Z"),
+      });
+      expect(jobs.job(SECOND), why).toMatchObject(expected);
+      if (why !== "queued, stop asked") expect(jobs.job(SECOND).updatedAt, why).toBe(before);
+    }
+  });
+
+  // A start of Team Rankings asks every queued or running pull to stop: the list's later parts too.
+  it("starts no later part once Team Rankings is started again", async () => {
+    const jobs = memoryJobs();
+    await putParts(jobs);
+    jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "running", stage: "fetching" });
+    const now = new Date("2026-10-16T18:00:00.000Z");
+    const stopped = await stopPullsUnderWay({
+      // Parts sent before the start: Firestore says nothing here of when each was made.
+      start: START,
+      landed: async () => null,
+      list: async () =>
+        [...jobs.jobs].map(([id, job]) => ({
+          id,
+          fields: structuredClone(job) as unknown as Record<string, unknown>,
+        })),
+      jobs: jobs.docs,
+      gate: { readAt: async () => null },
+      now: () => now,
+    });
+    expect(stopped).toEqual({ pulls: 3, nightly: false });
+    // The part under way ends done all the same (its final save already begun): nothing follows.
+    jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "done" });
+    const { queued, deps } = nexting(jobs);
+    expect(await startNextPart(FIRST, deps)).toEqual({ kind: "left", part: 2 });
+    // A device's ask about a part asked to stop cancels it, its turn come or not.
+    expect(await startPullJob(SECOND, deps)).toEqual({ ok: true, status: "cancelled" });
+    expect(await startPullJob(THIRD, deps)).toEqual({ ok: true, status: "cancelled" });
+    expect(queued).toEqual([]);
+  });
+
+  it("holds each part to the cap, refusing a single job longer than one pull takes", async () => {
+    const jobs = memoryJobs();
+    await putParts(jobs);
+    const teams = MAX_LIST_TEAMS + 1;
+    jobs.jobs.set(FIRST, { ...jobs.job(FIRST), status: "done" });
+    jobs.jobs.set(SECOND, { ...jobs.job(SECOND), list: { ...jobs.job(SECOND).list, teams } });
+    const { queued, deps } = nexting(jobs);
+    expect(await startNextPart(FIRST, deps)).toEqual({
+      kind: "started",
+      part: 2,
+      answer: { ok: false, refusal: "invalid-argument", message: tooManyTeams(teams) },
+    });
+    expect(queued).toEqual([]);
   });
 });

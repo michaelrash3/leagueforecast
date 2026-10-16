@@ -509,6 +509,39 @@ describe("Refresh now on the Import tab", () => {
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });
 
+  // A list sent in parts halted at a part that failed waits on Resume, not on the cloud: the parts
+  // after it, still queued, hold nothing off.
+  it("does not wait on the parts of a list waiting behind a part that failed", async () => {
+    const parts = [OTHER, JOB];
+    localStorage.setItem(
+      SENT_PULLS_KEY,
+      JSON.stringify(parts.map((jobId) => ({ jobId, sentAt: NOW, teams: 3, told: false })))
+    );
+    const { edits } = editsOf(STATUS);
+    const cloud = cloudOf();
+    const part = (index: number): PullJob =>
+      newPullJob({
+        list: { hash: "a".repeat(64), teams: 3, pieces: 1 },
+        seasonYears: [],
+        timeZone: "America/New_York",
+        device: "device-test-1",
+        now: NOW,
+        chain: {
+          id: OTHER,
+          part: index + 1,
+          parts: 2,
+          teams: 50_003,
+          ...(index === 0 ? { next: JOB } : {}),
+        },
+      });
+    cloud.jobs.set(OTHER, { ...part(0), status: "failed", error: "The importer stopped." });
+    cloud.jobs.set(JOB, part(1));
+    open({ edits, pulls: () => cloud.sender });
+    expect(await screen.findByText(/stopped at part 1 of 2, which failed/)).toBeTruthy();
+    expect(screen.queryByText(PULL_RUNNING)).toBeNull();
+    expect(refreshButton()).toHaveProperty("disabled", false);
+  });
+
   it("still tells of a refresh on its way while the status cannot be read", async () => {
     watching(JOB);
     const cloud = cloudOf();
