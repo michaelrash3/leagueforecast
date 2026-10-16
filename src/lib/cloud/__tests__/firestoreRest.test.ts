@@ -929,7 +929,7 @@ describe("a document written only if nobody has since, through Firestore's REST 
     firestore.docs.set("league/~U2Vhc29uIDE", {
       fields: firestoreFieldsOf(fields(9)),
       createTime: "2027-01-02T00:00:00.000000Z",
-      updateTime: "t0",
+      updateTime: "2027-01-03T00:00:00.000000Z",
     });
     // Another collection's, and a document under one of the seasons, are not the collection's.
     firestore.docs.set("ops/rebuild", {
@@ -939,12 +939,14 @@ describe("a document written only if nobody has since, through Firestore's REST 
     firestore.docs.set("league/s000/kept/1", { fields: firestoreFieldsOf({}), updateTime: "t0" });
     const listed = await docsOn(firestore).list("league");
     expect(listed).toHaveLength(206);
-    expect(listed[0]).toEqual({ id: "s000", fields: fields(0) });
-    expect(listed[204]).toEqual({ id: "s204", fields: fields(204) });
+    // With when Firestore last wrote each, which a save's check waits out (`afterPull.ts`).
+    expect(listed[0]).toEqual({ id: "s000", fields: fields(0), updatedAt: "t0" });
+    expect(listed[204]).toEqual({ id: "s204", fields: fields(204), updatedAt: "t0" });
     expect(listed[205]).toEqual({
       id: "~U2Vhc29uIDE",
       fields: fields(9),
       createdAt: "2027-01-02T00:00:00.000000Z",
+      updatedAt: "2027-01-03T00:00:00.000000Z",
     });
     const pages = firestore.fetchImpl.mock.calls
       .map(([input]) => new URL(String(input)))

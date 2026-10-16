@@ -2,6 +2,7 @@ import { REFRESH_GATE_PATH } from "../cloud/refreshGate";
 import { catchUpDecision, stillBehind, type Behind, type CatchUp } from "./catchUp";
 import { readCloudLeague } from "./cloudLeague";
 import type { CopyPublish } from "./publishCopy";
+import type { LaunchAsk, PublishLease } from "./publishLease";
 import { reserveRebuildJob } from "./rebuildJobBudget";
 import { coerceLedger } from "./rebuildLedger";
 import { republishViews, type Republish } from "./republish";
@@ -45,12 +46,34 @@ export const rebuildWillPublish = (ledger: unknown, today: string, now: Date): b
 export type AfterPull =
   | CatchUp
   /** Behind, but a rebuild after the pull's save is coming to publish them (`rebuildWillPublish`). */
-  | { publish: false; because: "rebuild-coming"; behind: Behind };
+  | { publish: false; because: "rebuild-coming"; behind: Behind }
+  /**
+   * Behind, but a publish is under way or being started, which holds the lease until `until`
+   * (`publishLease.ts`); a check asks again after it (`boardsCheckAgain`).
+   */
+  | { publish: false; because: "publishing"; behind?: Behind; until?: number };
+
+/** The latest of the times given that are times at all, as an ISO instant, or undefined. */
+const latestOf = (...times: ReadonlyArray<string | undefined>): string | undefined => {
+  let latest: number | null = null;
+  for (const time of times) {
+    const at = Date.parse(time ?? "");
+    if (Number.isFinite(at) && (latest === null || at > latest)) latest = at;
+  }
+  return latest === null ? undefined : new Date(latest).toISOString();
+};
 
 /** What a publish after a pull reads of the cloud, and writes: only the views (`"live"` stores). */
 export type AfterPullStores = Pick<
   ServerStores,
-  "copy" | "live" | "leagueDocs" | "gate" | "readCopyAt" | "pullsUnderWay" | "readLedger"
+  | "copy"
+  | "live"
+  | "leagueDocs"
+  | "gate"
+  | "readCopyAt"
+  | "pullsUnderWay"
+  | "readLedger"
+  | "leagueDeletedAt"
 >;
 
 /**
@@ -64,26 +87,35 @@ export type AfterPullStores = Pick<
  * where the build deployed the rebuilds at all (`rebuilds`, the functions' LIVE_REBUILD). A build
  * without them takes their trigger down, and a ledger left on from before would wait for ever on
  * a rebuild nothing asks for (Codex, on #408).
+ *
+ * `settleMs` is how long the copy and the seasons must have been still: none at a pull's end, and
+ * `BOARDS_SETTLE_MS` for a save's check (`boardsCheck.ts`), so a run of edits or League scores is
+ * one publish after it. A season's last write is Firestore's own time for its document, and a
+ * season deleted, the time its deletion was noted (`noteLeagueDeleted`).
  */
 export const afterPullDecision = async (
   stores: Omit<AfterPullStores, "copy">,
   today: string,
   now: Date,
-  rebuilds: boolean
+  rebuilds: boolean,
+  settleMs = 0
 ): Promise<AfterPull> => {
-  const [copy, read, league] = await Promise.all([
+  const [copy, read, seasons, deletedAt] = await Promise.all([
     stores.readCopyAt(),
     stores.live.readMeta(),
-    readCloudLeague(stores.leagueDocs),
+    stores.leagueDocs(),
+    stores.leagueDeletedAt?.(),
   ]);
+  const league = await readCloudLeague(() => Promise.resolve(seasons));
+  const lastSave = latestOf(copy?.savedAt, deletedAt, ...seasons.map((season) => season.updatedAt));
   const rebuild: { ledger?: unknown } = {};
   const decided = await catchUpDecision({
-    copy,
+    copy: copy && { ...copy, savedAt: lastSave ?? copy.savedAt },
     meta: read?.meta ?? null,
     league,
     today,
     now,
-    settleMs: 0,
+    settleMs,
     writers: async () => {
       const [gate, jobs, ledger] = await Promise.all([
         stores.gate.readAt(REFRESH_GATE_PATH),
@@ -101,26 +133,42 @@ export const afterPullDecision = async (
 };
 
 /**
- * The end of a pull: where the boards want publishing now (`afterPullDecision`), `launch` starts
- * the job that publishes them. What it decided is handed back for the log.
+ * The end of a pull, or a save's check: where the boards want publishing now
+ * (`afterPullDecision`), the lease is claimed for a launch and `launch` starts the job that
+ * publishes them; where a publish already holds the lease, nothing is started, and the caller is
+ * told until when (`publishing`). A launch that fails lets its claim go again, so the next check
+ * is not held off for nothing. What it decided is handed back for the log.
  */
 export const launchAfterPull = async (
   stores: Omit<AfterPullStores, "copy">,
   launch: () => Promise<void>,
   today: string,
   now: Date,
-  rebuilds: boolean
+  rebuilds: boolean,
+  lease: Pick<PublishLease, "launch" | "unlaunch">,
+  settleMs = 0
 ): Promise<AfterPull> => {
-  const decided = await afterPullDecision(stores, today, now, rebuilds);
-  if (decided.publish) await launch();
+  const decided = await afterPullDecision(stores, today, now, rebuilds, settleMs);
+  if (!decided.publish) return decided;
+  const claimed = await lease.launch(now.getTime(), { settleMs, rebuilds });
+  if (!claimed.ok)
+    return { publish: false, because: "publishing", behind: decided.behind, until: claimed.until };
+  try {
+    // Tried once more before the claim is let go: another launcher that found it held has written
+    // its ask onto it, counting on this launch, and letting go would drop that too (Codex, on #409).
+    await launch().catch(() => launch());
+  } catch (error) {
+    await lease.unlaunch().catch(() => undefined);
+    throw error;
+  }
   return decided;
 };
 
 /**
  * The least time the ask at a pull's end needs before its caller's deadline: a few reads, and the
- * launch, whose request waits up to 25 s (`launchBoardsPublish`).
+ * launch, whose request waits up to 25 s (`launchBoardsPublish`) and is tried twice.
  */
-export const AFTER_PULL_ASK_MS = 30_000;
+export const AFTER_PULL_ASK_MS = 55_000;
 
 /**
  * `ask`, where there is time for it before `deadline` (milliseconds since the epoch), and raced
@@ -150,15 +198,32 @@ export const askInTime = async <T>(
   }
 };
 
-/** What the publish after a pull decided, and how its publish ended where it published. */
-export type AfterPullRun = { decided: AfterPull; result?: Republish };
+/**
+ * What the publish after a pull decided, and how its publish ended where it published: its last
+ * round's, and how many rounds it ran (`rounds`, one but where launchers asked again).
+ */
+export type AfterPullRun = {
+  decided: AfterPull;
+  result?: Republish;
+  rounds?: number;
+  /** Where asks were left after the last round: whether another job was started for them. */
+  handedOn?: boolean;
+};
+
+/**
+ * How many rounds one job publishes at most, asked again each time by a launcher that found it
+ * under way: each builds the year's boards in about two minutes, well inside the job's half hour.
+ */
+export const PUBLISH_ROUNDS = 3;
 
 /**
  * The `boards-publish` job's run: asked again, since the job starts a minute or so after the pull
  * ended and a rebuild or another pull's publish may have put the boards out meanwhile, and where
  * they still want it, published as the catch-up publishes them (`republishViews`): the copy loaded,
  * the boards built and published under the copy and version read, and tried again on the copy as it
- * then stands where a save moved it meanwhile, for as long as they are still behind it.
+ * then stands where a save moved it meanwhile, for as long as they are still behind it. Asked as
+ * its launcher asked (`LaunchAsk`, read off the lease it takes over): a save's check, after the
+ * settle, and a check whose save's rebuild was never queued, counting on no rebuild.
  */
 export const publishAfterPull = async (
   stores: AfterPullStores,
@@ -167,12 +232,73 @@ export const publishAfterPull = async (
     now: () => Date;
     /** Whether the build deployed the rebuilds after saves (`afterPullDecision`). */
     rebuilds: boolean;
+    /**
+     * The lease the job holds while it publishes (`publishLease.ts`), taken over from the launch
+     * that started it, under `owner`, and let go at its end whatever happens.
+     */
+    lease: Pick<PublishLease, "take" | "handBack" | "handOn" | "unlaunch">;
+    /**
+     * Starts another job (`launchBoardsPublish`), for asks made during this one's last round, which
+     * the lease hands on to it as a launch's claim (`handOn`). Without it, the claim lapses unused.
+     */
+    relaunch?: () => Promise<void>;
+    owner: string;
     /** The collation the boards are built under: the server's own (`boardLocale`) unless a test says. */
     locale?: string;
     onViews?: (views: CopyPublish) => void;
   }
 ): Promise<AfterPullRun> => {
-  const decided = await afterPullDecision(stores, deps.today(), deps.now(), deps.rebuilds);
+  const held = await deps.lease.take(deps.now().getTime(), deps.owner);
+  if (!held.taken) return { decided: { publish: false, because: "publishing" } };
+  const asking = (asked: LaunchAsk | null) => ({
+    ...deps,
+    rebuilds: deps.rebuilds && (asked?.rebuilds ?? true),
+    settleMs: asked?.settleMs ?? 0,
+  });
+  // Asks this job will not get to are handed on to another job, not dropped (Codex, on #409): where
+  // one is left, whether that job was started; undefined where none is.
+  const passOn = async (): Promise<boolean | undefined> => {
+    const left = await deps.lease.handOn(deps.owner, deps.now().getTime());
+    if (!left) return undefined;
+    if (!deps.relaunch) return false;
+    const relaunched = await deps.relaunch().then(
+      () => true,
+      () => false
+    );
+    if (!relaunched) await deps.lease.unlaunch().catch(() => undefined);
+    return relaunched;
+  };
+  try {
+    let run = await publishHeld(stores, asking(held.asked));
+    // A launcher that found this job under way asked it to go again (`handBack`): its save may have
+    // come after this round read the copy.
+    for (let round = 2; round <= PUBLISH_ROUNDS; round += 1) {
+      const again = await deps.lease.handBack(deps.owner, deps.now().getTime());
+      if (!again) return { ...run, rounds: round - 1 };
+      run = await publishHeld(stores, asking(again));
+    }
+    // Asked during its last round.
+    const handedOn = await passOn();
+    return { ...run, rounds: PUBLISH_ROUNDS, ...(handedOn !== undefined ? { handedOn } : {}) };
+  } finally {
+    // Never let go blind: whatever was asked and not yet published for is handed on, after a round
+    // that threw, or a hand back that lost every write to launchers asking at once (Codex, on #409).
+    // Where the lease was already let go or handed on, this finds it no longer the job's.
+    await passOn().catch(() => undefined);
+  }
+};
+
+const publishHeld = async (
+  stores: AfterPullStores,
+  deps: Parameters<typeof publishAfterPull>[1] & { settleMs: number }
+): Promise<AfterPullRun> => {
+  const decided = await afterPullDecision(
+    stores,
+    deps.today(),
+    deps.now(),
+    deps.rebuilds,
+    deps.settleMs
+  );
   if (!decided.publish) return { decided };
   const result = await republishViews({
     copyStore: stores.copy,
@@ -182,13 +308,18 @@ export const publishAfterPull = async (
     now: () => deps.now().toISOString(),
     // As a rebuild after a save sweeps: only what its own commit retires past its grace.
     sweep: "due",
+    // Where a settle was asked, the job's own decision asked again just before each load, so an
+    // edit saved between that decision and the load is left to its own check (Codex, on #409).
     wanted: async (published) =>
-      stillBehind({
-        meta: published,
-        manifest: await stores.copy.readManifest(),
-        league: await readCloudLeague(stores.leagueDocs),
-        today: deps.today(),
-      }),
+      deps.settleMs > 0
+        ? (await afterPullDecision(stores, deps.today(), deps.now(), deps.rebuilds, deps.settleMs))
+            .publish
+        : stillBehind({
+            meta: published,
+            manifest: await stores.copy.readManifest(),
+            league: await readCloudLeague(stores.leagueDocs),
+            today: deps.today(),
+          }),
     ...(deps.locale !== undefined ? { locale: deps.locale } : {}),
     ...(deps.onViews ? { onViews: deps.onViews } : {}),
   });

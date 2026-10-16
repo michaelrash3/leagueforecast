@@ -4,6 +4,9 @@ import { memoryCloud, type MemoryCloud } from "../../cloud/__tests__/memoryCloud
 import { commitChanges, type Change } from "../../cloud/cloudEngine";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { memoryIo } from "../../cloud/cloudRunner";
+import type { SeasonSnapshot } from "../../storage";
+import { DEFAULT_SETTINGS } from "../../types";
+import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import { newPullJob, type PullJob } from "../../cloud/pullJobs";
 import {
   cloudPoolKeys,
@@ -20,11 +23,15 @@ import {
   afterPullDecision,
   askInTime,
   launchAfterPull,
+  PUBLISH_ROUNDS,
   publishAfterPull,
   rebuildWillPublish,
   type AfterPullStores,
 } from "../afterPull";
-import { NO_LEAGUE_DOCS } from "../cloudLeague";
+import { BOARDS_SETTLE_MS } from "../boardsCheck";
+import { NO_LEAGUE_DOCS, type LeagueDocsList } from "../cloudLeague";
+import { seasonDocId, seasonToDoc } from "../leagueDocs";
+import { LAUNCH_HOLD_MS, publishLease } from "../publishLease";
 import { BOARD_FAMILY } from "../views/boardShape";
 import { RUN_CEILING } from "../rebuildLedger";
 import { memoryLive, type MemoryLive } from "./memoryLive";
@@ -119,6 +126,43 @@ const copied = async (): Promise<MemoryCloud> => {
   return cloud;
 };
 
+/** The boards' publish lease (`publishLease.ts`) over a document of its own in memory. */
+const leaseDocs = () => {
+  let value: { fields: Record<string, unknown>; token: string } | null = null;
+  let revision = 0;
+  return {
+    readAt: async () => (value ? structuredClone(value) : null),
+    replace: async (_: string, fields: Record<string, unknown>, token: string | null) => {
+      if (token !== (value?.token ?? null)) return false;
+      value = { fields, token: String(++revision) };
+      return true;
+    },
+  };
+};
+const freeLease = () => publishLease(leaseDocs());
+/** What a pull's end asks of the job it starts: no settle, and a rebuild coming counted on. */
+const AT_ONCE = { settleMs: 0, rebuilds: true };
+
+/** The fixture's first League Standings season as its document, last written at `updatedAt`. */
+const seasonWrittenAt = (updatedAt: string): LeagueDocsList => {
+  const [id, stored] = Object.entries(fixture.seasons)[0]!;
+  const teams = coerceTeams(stored?.teams ?? null);
+  const matchups = coerceMatchups(stored?.matchups ?? null, teams);
+  const season: SeasonSnapshot = {
+    id,
+    name: "Season 1",
+    createdAt: "2026-08-01T12:00:00.000Z",
+    teams,
+    matchups,
+    logs: coerceLogs(stored?.logs ?? null, matchups),
+    bracketLogs: {},
+    settings: DEFAULT_SETTINGS,
+  };
+  const fields = JSON.parse(JSON.stringify(seasonToDoc(season))) as Record<string, unknown>;
+  return () => Promise.resolve([{ id: seasonDocId(id), fields, updatedAt }]);
+};
+const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString();
+
 /** A list's import, still filing into the copy, last heard from a minute ago. */
 const filing = (): PullJob => ({
   ...newPullJob({
@@ -144,22 +188,29 @@ const SPENT = {
 const storesOf = (
   cloud: MemoryCloud,
   live: MemoryLive,
-  { ledger = SPENT as unknown, jobs = [] as PullJob[] } = {}
+  {
+    ledger = SPENT as unknown,
+    jobs = [] as PullJob[],
+    savedAt = SAVED,
+    leagueDocs = NO_LEAGUE_DOCS as LeagueDocsList,
+    deletedAt = undefined as string | undefined,
+  } = {}
 ) => {
   const reads = { ledger: 0 };
   const stores: AfterPullStores = {
     copy: cloud.store,
     live: live.store,
-    leagueDocs: NO_LEAGUE_DOCS,
+    leagueDocs,
     gate: {
       readAt: () => Promise.resolve(null),
       replace: () => Promise.reject(new Error("the gate was written")),
     },
     readCopyAt: () => {
       const manifest = cloud.manifest();
-      return Promise.resolve(manifest ? { manifest, savedAt: SAVED } : null);
+      return Promise.resolve(manifest ? { manifest, savedAt } : null);
     },
     pullsUnderWay: () => Promise.resolve(jobs),
+    leagueDeletedAt: () => Promise.resolve(deletedAt),
     readLedger: () => {
       reads.ledger += 1;
       return Promise.resolve(ledger);
@@ -177,6 +228,8 @@ describe("the boards when a pull ends", () => {
       today: () => FIXTURE_TODAY,
       now: () => NOW,
       rebuilds: true,
+      lease: freeLease(),
+      owner: "job",
       locale: "en-US",
     });
     expect(run.decided).toEqual({ publish: true, behind: "nothing" });
@@ -188,7 +241,7 @@ describe("the boards when a pull ends", () => {
 
     // And asked again, are current: nothing more is built or launched.
     const launch = vi.fn(() => Promise.resolve());
-    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW, true)).toEqual({
+    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW, true, freeLease())).toEqual({
       publish: false,
       because: "current",
     });
@@ -200,7 +253,14 @@ describe("the boards when a pull ends", () => {
     const live = memoryLive();
     const launch = vi.fn(() => Promise.resolve());
     expect(
-      await launchAfterPull(storesOf(cloud, live).stores, launch, FIXTURE_TODAY, NOW, true)
+      await launchAfterPull(
+        storesOf(cloud, live).stores,
+        launch,
+        FIXTURE_TODAY,
+        NOW,
+        true,
+        freeLease()
+      )
     ).toEqual({ publish: true, behind: "nothing" });
     expect(launch).toHaveBeenCalledTimes(1);
     // The launch only asks: the job it starts publishes.
@@ -213,16 +273,23 @@ describe("the boards when a pull ends", () => {
     const roomy = { ...SPENT, monthVcpuS: 0 };
     const { stores } = storesOf(cloud, live, { ledger: roomy });
     const launch = vi.fn(() => Promise.resolve());
-    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW, true)).toEqual({
+    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW, true, freeLease())).toEqual({
       publish: false,
       because: "rebuild-coming",
       behind: "nothing",
     });
     expect(launch).not.toHaveBeenCalled();
     expect(
-      await publishAfterPull(stores, { today: () => FIXTURE_TODAY, now: () => NOW, rebuilds: true })
+      await publishAfterPull(stores, {
+        today: () => FIXTURE_TODAY,
+        now: () => NOW,
+        rebuilds: true,
+        lease: freeLease(),
+        owner: "job",
+      })
     ).toEqual({
       decided: { publish: false, because: "rebuild-coming", behind: "nothing" },
+      rounds: 1,
     });
     expect(live.meta()).toBeNull();
   });
@@ -279,6 +346,8 @@ describe("the boards when a pull ends", () => {
       today: () => FIXTURE_TODAY,
       now: () => NOW,
       rebuilds: true,
+      lease: freeLease(),
+      owner: "job",
       locale: "en-US",
     });
     reads.ledger = 0;
@@ -310,8 +379,8 @@ describe("the ask at a pull's end, against its caller's deadline", () => {
     vi.useFakeTimers();
     try {
       const now = Date.now();
-      const answered = askInTime(() => new Promise<string>(() => undefined), now + 40_000, now);
-      await vi.advanceTimersByTimeAsync(39_999);
+      const answered = askInTime(() => new Promise<string>(() => undefined), now + 70_000, now);
+      await vi.advanceTimersByTimeAsync(69_999);
       let settled = false;
       void answered.then(() => {
         settled = true;
@@ -335,5 +404,422 @@ describe("the ask at a pull's end, against its caller's deadline", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("a save's check of the boards, and the one publish at a time", () => {
+  it("waits until the copy has been still the settle, then publishes", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    // The copy saved half a minute ago: a run of edits may still be going on.
+    const settling = storesOf(cloud, live).stores;
+    expect(await afterPullDecision(settling, FIXTURE_TODAY, NOW, true, BOARDS_SETTLE_MS)).toEqual({
+      publish: false,
+      because: "settling",
+      behind: "nothing",
+    });
+    const still = storesOf(cloud, live, { savedAt: ago(BOARDS_SETTLE_MS) }).stores;
+    expect(await afterPullDecision(still, FIXTURE_TODAY, NOW, true, BOARDS_SETTLE_MS)).toEqual({
+      publish: true,
+      behind: "nothing",
+    });
+  });
+
+  it("counts a League Standings season's last write as a save it waits out", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const old = ago(60 * 60_000);
+    const scored = storesOf(cloud, live, {
+      savedAt: old,
+      leagueDocs: seasonWrittenAt(ago(60_000)),
+    }).stores;
+    expect(await afterPullDecision(scored, FIXTURE_TODAY, NOW, true, BOARDS_SETTLE_MS)).toEqual({
+      publish: false,
+      because: "settling",
+      behind: "nothing",
+    });
+    const stillLeague = storesOf(cloud, live, {
+      savedAt: old,
+      leagueDocs: seasonWrittenAt(ago(BOARDS_SETTLE_MS)),
+    }).stores;
+    expect(
+      await afterPullDecision(stillLeague, FIXTURE_TODAY, NOW, true, BOARDS_SETTLE_MS)
+    ).toEqual({ publish: true, behind: "nothing" });
+  });
+
+  it("counts a season deleted as a save it waits out, though its document is gone", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const old = ago(60 * 60_000);
+    const deleted = storesOf(cloud, live, { savedAt: old, deletedAt: ago(30_000) }).stores;
+    expect(await afterPullDecision(deleted, FIXTURE_TODAY, NOW, true, BOARDS_SETTLE_MS)).toEqual({
+      publish: false,
+      because: "settling",
+      behind: "nothing",
+    });
+    const longAgo = storesOf(cloud, live, { savedAt: old, deletedAt: old }).stores;
+    expect(await afterPullDecision(longAgo, FIXTURE_TODAY, NOW, true, BOARDS_SETTLE_MS)).toEqual({
+      publish: true,
+      behind: "nothing",
+    });
+  });
+
+  it("starts no second publish while one holds the lease, and says until when", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    await lease.take(NOW.getTime(), "job-1");
+    const launch = vi.fn(() => Promise.resolve());
+    const decided = await launchAfterPull(
+      storesOf(cloud, live).stores,
+      launch,
+      FIXTURE_TODAY,
+      NOW,
+      true,
+      lease
+    );
+    expect(decided).toMatchObject({ publish: false, because: "publishing", behind: "nothing" });
+    expect(launch).not.toHaveBeenCalled();
+    // Two launchers at once start one job.
+    const free = freeLease();
+    const once = vi.fn(() => Promise.resolve());
+    const both = await Promise.all([
+      launchAfterPull(storesOf(cloud, live).stores, once, FIXTURE_TODAY, NOW, true, free),
+      launchAfterPull(storesOf(cloud, live).stores, once, FIXTURE_TODAY, NOW, true, free),
+    ]);
+    expect(once).toHaveBeenCalledTimes(1);
+    expect(both.map((one) => one.publish).sort()).toEqual([false, true]);
+  });
+
+  it("tries a refused launch once more, for the launchers counting on its claim", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const pullEnd = { settleMs: 0, rebuilds: false };
+    // The first try is refused; meanwhile another pull's end finds the claim held and asks on it.
+    const flaky = vi
+      .fn<() => Promise<void>>()
+      .mockImplementationOnce(async () => {
+        await lease.launch(NOW.getTime(), pullEnd);
+        throw new Error("HTTP 503");
+      })
+      .mockResolvedValueOnce(undefined);
+    expect(
+      await launchAfterPull(storesOf(cloud, live).stores, flaky, FIXTURE_TODAY, NOW, true, lease)
+    ).toEqual({ publish: true, behind: "nothing" });
+    expect(flaky).toHaveBeenCalledTimes(2);
+    // The job the second try started publishes for both.
+    expect(await lease.take(NOW.getTime(), "job-1")).toEqual({ taken: true, asked: pullEnd });
+  });
+
+  it("lets a failed launch's claim go, so the next check is not held off", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const refused = () => Promise.reject(new Error("HTTP 403"));
+    await expect(
+      launchAfterPull(storesOf(cloud, live).stores, refused, FIXTURE_TODAY, NOW, true, lease)
+    ).rejects.toThrow("HTTP 403");
+    expect(await lease.launch(NOW.getTime(), AT_ONCE)).toEqual({ ok: true });
+  });
+
+  it("has the job publish nothing beside another job, and let its own lease go when done", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    await lease.take(NOW.getTime(), "job-1");
+    const deps = {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease,
+      owner: "job-2",
+    };
+    expect(await publishAfterPull(storesOf(cloud, live).stores, deps)).toEqual({
+      decided: { publish: false, because: "publishing" },
+    });
+    expect(live.meta()).toBeNull();
+    await lease.release("job-1");
+    const run = await publishAfterPull(storesOf(cloud, live).stores, deps);
+    expect(run.result).toMatchObject({ end: "published" });
+    expect(await lease.launch(NOW.getTime() + LAUNCH_HOLD_MS, AT_ONCE)).toEqual({ ok: true });
+  });
+
+  it("has the job wait out the settle its check asked, so an edit made since is left to its own check", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    // The check finds everything still for the settle, and starts the job.
+    const still = storesOf(cloud, live, { savedAt: ago(BOARDS_SETTLE_MS) }).stores;
+    const launch = vi.fn(() => Promise.resolve());
+    expect(
+      await launchAfterPull(still, launch, FIXTURE_TODAY, NOW, true, lease, BOARDS_SETTLE_MS)
+    ).toEqual({ publish: true, behind: "nothing" });
+    expect(launch).toHaveBeenCalledTimes(1);
+    // An edit lands before the job starts: the job, asking as the check asked, leaves it.
+    const edited = storesOf(cloud, live, { savedAt: ago(10_000) }).stores;
+    const job = {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease,
+      owner: "job-1",
+    };
+    expect(await publishAfterPull(edited, job)).toEqual({
+      decided: { publish: false, because: "settling", behind: "nothing" },
+      rounds: 1,
+    });
+    expect(live.meta()).toBeNull();
+    // A pull's end asks no settle: its job publishes the same copy at once.
+    expect(await launchAfterPull(edited, launch, FIXTURE_TODAY, NOW, true, lease)).toMatchObject({
+      publish: true,
+    });
+    const run = await publishAfterPull(edited, { ...job, owner: "job-2" });
+    expect(run.result).toMatchObject({ end: "published" });
+  });
+
+  it("has the job publish again where a pull ended while it was under way", async () => {
+    // A job reads the copy, and a pull saves after it: the pull's end finds the lease held, and
+    // asks the job to go again, rather than leave its save to the catch-up or the nightly.
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const { stores } = storesOf(cloud, live);
+    // The second pull's save and its end, made while the first round publishes, and done before
+    // the job hands the lease back.
+    let pull: Promise<void> | null = null;
+    const watched = {
+      ...lease,
+      handBack: async (owner: string, now: number) => {
+        await pull;
+        return lease.handBack(owner, now);
+      },
+    };
+    const run = await publishAfterPull(stores, {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease: watched,
+      owner: "job-1",
+      onViews: () => {
+        if (pull) return;
+        pull = (async () => {
+          const moved = await commitChanges({
+            store: cloud.store,
+            base: cloud.manifest(),
+            changes: [{ key: LEAGUE_PART, value: { seasons: [], again: true }, at: 2 }],
+            device: "cloud-pull",
+            now: NOW.toISOString(),
+          });
+          if (!moved.ok) throw new Error("the second pull's save was not made");
+          expect(await lease.launch(NOW.getTime(), AT_ONCE)).toMatchObject({ ok: false });
+        })();
+      },
+    });
+    expect(run.rounds).toBe(2);
+    expect(run.result).toMatchObject({ end: "published" });
+    expect(live.meta()?.built[BOARD_FAMILY]?.v).toBe(cloud.manifest()?.version);
+    // And let go at its end, for the next launch.
+    expect(await lease.launch(NOW.getTime(), AT_ONCE)).toEqual({ ok: true });
+  });
+
+  it("has the job leave an edit saved between its decision and its load to the edit's own check", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    // The check that started the job asked for the settle.
+    await lease.launch(NOW.getTime(), { settleMs: BOARDS_SETTLE_MS, rebuilds: true });
+    const { stores } = storesOf(cloud, live, { savedAt: ago(BOARDS_SETTLE_MS) });
+    // The job's own decision reads the copy still; an edit lands just after it.
+    let reads = 0;
+    const editedMeanwhile = {
+      ...stores,
+      readCopyAt: async () => {
+        const at = await stores.readCopyAt();
+        reads += 1;
+        return at && reads > 1 ? { ...at, savedAt: ago(5_000) } : at;
+      },
+    };
+    const run = await publishAfterPull(editedMeanwhile, {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease,
+      owner: "job-1",
+    });
+    expect(run.decided).toEqual({ publish: true, behind: "nothing" });
+    expect(run.result).toMatchObject({ end: "not-needed", tries: 0 });
+    expect(live.meta()).toBeNull();
+  });
+
+  it("hands asks made in the job's last round on to a job of their own", async () => {
+    // A pull saves and ends during every round, so the job runs all its rounds and is asked again
+    // in the last one: that ask starts another job rather than being dropped.
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const { stores } = storesOf(cloud, live);
+    let pull: Promise<void> | null = null;
+    let pulls = 0;
+    const watched = {
+      ...lease,
+      handBack: async (owner: string, now: number) => {
+        await pull;
+        pull = null;
+        return lease.handBack(owner, now);
+      },
+      handOn: async (owner: string, now: number) => {
+        await pull;
+        return lease.handOn(owner, now);
+      },
+    };
+    const relaunch = vi.fn(() => Promise.resolve());
+    const run = await publishAfterPull(stores, {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease: watched,
+      owner: "job-1",
+      relaunch,
+      onViews: () => {
+        if (pull) return;
+        pulls += 1;
+        const round = pulls;
+        pull = (async () => {
+          const moved = await commitChanges({
+            store: cloud.store,
+            base: cloud.manifest(),
+            changes: [{ key: LEAGUE_PART, value: { seasons: [], round }, at: 1 + round }],
+            device: "cloud-pull",
+            now: NOW.toISOString(),
+          });
+          if (!moved.ok) throw new Error("a pull's save was not made");
+          await lease.launch(NOW.getTime(), AT_ONCE);
+        })();
+      },
+    });
+    expect(run).toMatchObject({ rounds: PUBLISH_ROUNDS, handedOn: true });
+    expect(relaunch).toHaveBeenCalledTimes(1);
+    // The next job takes the claim over, asked as the last pull asked.
+    expect(await lease.take(NOW.getTime(), "job-2")).toEqual({ taken: true, asked: AT_ONCE });
+
+    // Where the next job cannot be started, its claim is let go for the next launcher.
+    const unlaunch = vi.fn(() => Promise.resolve());
+    const askedEveryRound = {
+      take: () => Promise.resolve({ taken: true as const, asked: null }),
+      handBack: () => Promise.resolve(AT_ONCE),
+      // Once handed on, the lease is no longer the job's, so a second hand on finds nothing.
+      handOn: vi
+        .fn<() => Promise<typeof AT_ONCE | null>>()
+        .mockResolvedValueOnce(AT_ONCE)
+        .mockResolvedValue(null),
+      release: () => Promise.resolve(),
+      unlaunch,
+    };
+    expect(
+      await publishAfterPull(storesOf(cloud, memoryLive()).stores, {
+        today: () => FIXTURE_TODAY,
+        now: () => NOW,
+        rebuilds: true,
+        locale: "en-US",
+        lease: askedEveryRound,
+        owner: "job-3",
+        relaunch: () => Promise.reject(new Error("HTTP 403")),
+      })
+    ).toMatchObject({ rounds: PUBLISH_ROUNDS, handedOn: false });
+    expect(unlaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands an ask made during a round that fails on to a job of its own", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const pullEnd = { settleMs: 0, rebuilds: false };
+    const relaunch = vi.fn(() => Promise.resolve());
+    let asked: Promise<unknown> = Promise.resolve();
+    await expect(
+      publishAfterPull(storesOf(cloud, live).stores, {
+        today: () => FIXTURE_TODAY,
+        now: () => NOW,
+        rebuilds: true,
+        locale: "en-US",
+        lease: {
+          ...lease,
+          handOn: async (owner: string, now: number) => {
+            await asked;
+            return lease.handOn(owner, now);
+          },
+        },
+        owner: "job-1",
+        relaunch,
+        // A pull ends while the round publishes, and then the round fails.
+        onViews: () => {
+          asked = lease.launch(NOW.getTime(), pullEnd);
+          throw new Error("the round failed");
+        },
+      })
+    ).rejects.toThrow("the round failed");
+    expect(relaunch).toHaveBeenCalledTimes(1);
+    expect(await lease.take(NOW.getTime(), "job-2")).toEqual({ taken: true, asked: pullEnd });
+  });
+
+  it("hands on what is still asked where a hand back came back empty, never letting go blind", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const pullEnd = { settleMs: 0, rebuilds: false };
+    const relaunch = vi.fn(() => Promise.resolve());
+    const run = await publishAfterPull(storesOf(cloud, live).stores, {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      // A hand back that lost every write to launchers asking at once.
+      lease: { ...lease, handBack: () => Promise.resolve(null) },
+      owner: "job-1",
+      relaunch,
+      onViews: () => {
+        void lease.launch(NOW.getTime(), pullEnd);
+      },
+    });
+    expect(run).toMatchObject({ rounds: 1, result: { end: "published" } });
+    expect(relaunch).toHaveBeenCalledTimes(1);
+    expect(await lease.take(NOW.getTime(), "job-2")).toEqual({ taken: true, asked: pullEnd });
+  });
+
+  it("has the job count on no rebuild where its check's save could not queue one", async () => {
+    // A ledger that would let a rebuild start: but the save's own rebuild was never queued.
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const { stores } = storesOf(cloud, live, { ledger: { ...SPENT, monthVcpuS: 0 } });
+    const launch = vi.fn(() => Promise.resolve());
+    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW, false, lease)).toEqual({
+      publish: true,
+      behind: "nothing",
+    });
+    // The job's build deployed the rebuilds, and the ledger has room; it publishes all the same.
+    const job = {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease,
+      owner: "job-1",
+    };
+    expect((await publishAfterPull(stores, job)).result).toMatchObject({ end: "published" });
+    // One started by a check that counted on the rebuild leaves the boards to it.
+    const counting = freeLease();
+    await counting.launch(NOW.getTime(), AT_ONCE);
+    const again = storesOf(cloud, memoryLive(), { ledger: { ...SPENT, monthVcpuS: 0 } }).stores;
+    expect(await publishAfterPull(again, { ...job, lease: counting })).toEqual({
+      decided: { publish: false, because: "rebuild-coming", behind: "nothing" },
+      rounds: 1,
+    });
   });
 });

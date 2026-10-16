@@ -164,17 +164,6 @@ jobs:
               --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT" --quiet
             gcloud run jobs add-iam-policy-binding team-import --project="$PROJECT" --region=us-central1 \
               --member="serviceAccount:$runner" --role=roles/run.jobsExecutorWithOverrides --quiet
-            # The boards published when a pull ends with no rebuild coming to (`boardsPublish.ts`): the
-            # same image, with the rebuild's size, zone and collation, since it builds every board
-            # from the whole pool as a rebuild does. One try: the catch-up and the nightly publish
-            # what a failed one did not.
-            gcloud run jobs deploy boards-publish --project="$PROJECT" --region=us-central1 \
-              --image="$image" --service-account="$runner" --memory=8Gi --cpu=2 \
-              --command=node --args=lib/boardsPublish.js --tasks=1 --parallelism=1 \
-              --max-retries=0 --task-timeout=30m \
-              --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,NODE_OPTIONS=--max-old-space-size=6144,TZ=America/New_York,LANG=en_US.UTF-8" --quiet
-            gcloud run jobs add-iam-policy-binding boards-publish --project="$PROJECT" --region=us-central1 \
-              --member="serviceAccount:$runner" --role=roles/run.jobsExecutor --quiet
             # Abandoned or paused downloads expire after seven days. Successful jobs delete them.
             gcloud firestore fields ttls update expiresAt --collection-group=artifacts --enable-ttl --async --project="$PROJECT" --quiet
           fi
@@ -188,6 +177,22 @@ jobs:
             gcloud run jobs add-iam-policy-binding ranking-rebuild --project="$PROJECT" --region=us-central1 \
               --member="serviceAccount:$runner" --role=roles/run.jobsExecutor --quiet
             gcloud firestore fields ttls update expiresAt --collection-group=artifacts --enable-ttl --async --project="$PROJECT" --quiet
+          fi
+          if [ "$CLOUD_PULLS" = "on" ] || [ "$LIVE_REBUILD" = "on" ]; then
+            # The boards published when a pull ends, or after an edit's check, with no rebuild coming
+            # to (`boardsPublish.ts`): wanted by either, so deployed with either, as the account that
+            # launches it. The same image, with the rebuild's size, zone and collation, since it
+            # builds every board from the whole pool as a rebuild does. One try: the catch-up and the
+            # nightly publish what a failed one did not.
+            runner="pull-runner@$PROJECT.iam.gserviceaccount.com"
+            if [ "$LIVE_REBUILD" = "on" ]; then runner="live-runner@$PROJECT.iam.gserviceaccount.com"; fi
+            gcloud run jobs deploy boards-publish --project="$PROJECT" --region=us-central1 \
+              --image="$image" --service-account="$runner" --memory=8Gi --cpu=2 \
+              --command=node --args=lib/boardsPublish.js --tasks=1 --parallelism=1 \
+              --max-retries=0 --task-timeout=30m \
+              --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,NODE_OPTIONS=--max-old-space-size=6144,TZ=America/New_York,LANG=en_US.UTF-8" --quiet
+            gcloud run jobs add-iam-policy-binding boards-publish --project="$PROJECT" --region=us-central1 \
+              --member="serviceAccount:$runner" --role=roles/run.jobsExecutor --quiet
           fi
           # Optional AI credentials stay server-side. Never use VITE_* for these keys.
           node --input-type=module <<'NODE'

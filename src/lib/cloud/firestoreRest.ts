@@ -581,14 +581,20 @@ export type FirestoreRestDocuments = {
 
 /**
  * A document as a list or a query finds it: its id, its fields as plain values, and when Firestore
- * made it, by Firestore's own clock (`createTime`), where it says.
+ * made it and last wrote it, by Firestore's own clock (`createTime`, `updateTime`), where it says.
  */
-export type ListedDocument = { id: string; fields: Record<string, unknown>; createdAt?: string };
+export type ListedDocument = {
+  id: string;
+  fields: Record<string, unknown>;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 const listed = (id: string, document: FirestoreDocument): ListedDocument => ({
   id: decodeURIComponent(id),
   fields: fieldsOf(document.fields ?? {}),
   ...(document.createTime ? { createdAt: document.createTime } : {}),
+  ...(document.updateTime ? { updatedAt: document.updateTime } : {}),
 });
 
 export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocuments => {

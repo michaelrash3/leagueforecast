@@ -10,6 +10,7 @@ import {
 import { coercePullJob, jobPath, JOBS_COLLECTION, type PullJob } from "../cloud/pullJobs";
 import type { GateDocs } from "../cloud/refreshGate";
 import type { UploadStore } from "../cloud/uploads";
+import { LEAGUE_DELETED_PATH, leagueDeletedAt } from "./boardsCheck";
 import { restLeagueDocs, type LeagueDocsList } from "./cloudLeague";
 import { REBUILD_JOB_CONTROL } from "./rebuildJobControl";
 import { REBUILD_LEDGER_PATH } from "./rebuildLedger";
@@ -47,6 +48,11 @@ export type ServerStores = {
    * `coercePullJob` reads each: one it cannot read is left out.
    */
   pullsUnderWay: () => Promise<PullJob[]>;
+  /**
+   * When a League Standings season was last deleted, as noted (`noteLeagueDeleted`), or undefined
+   * where none is: the settle counts it as a save (`afterPullDecision`).
+   */
+  leagueDeletedAt?: () => Promise<string | undefined>;
 };
 
 const refuseWrite = () => Promise.reject(new Error("This store was opened to read, not to write."));
@@ -81,6 +87,7 @@ export const restServerStores = (access: RestAccess, writable: boolean | "live")
       const at = await docs.readAt(MANIFEST_PATH);
       return at ? { manifest: at.fields, savedAt: at.token } : null;
     },
+    leagueDeletedAt: async () => leagueDeletedAt(await docs.read(LEAGUE_DELETED_PATH)),
     pullsUnderWay: async () =>
       (await docs.where(JOBS_COLLECTION, "status", ["queued", "running"])).flatMap(
         ({ fields }) => coercePullJob(fields) ?? []
