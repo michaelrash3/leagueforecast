@@ -157,12 +157,12 @@ if (!keyJson) {
   });
 
   await part(
-    `What the durable importer, startPull, runPull and their queue logged in the last ${hours} hours`,
+    `What the durable importer, the boards' publish after a pull, startPull, runPull and their queue logged in the last ${hours} hours`,
     async () => {
       const from = new Date(nowMs - hours * 3_600_000).toISOString();
       const filter = [
         `timestamp>="${from}"`,
-        `((resource.type="cloud_run_revision" AND resource.labels.service_name=("startpull" OR "runpull")) OR (resource.type="cloud_run_job" AND resource.labels.job_name="team-import") OR resource.type="cloud_tasks_queue")`,
+        `((resource.type="cloud_run_revision" AND resource.labels.service_name=("startpull" OR "runpull")) OR (resource.type="cloud_run_job" AND resource.labels.job_name=("team-import" OR "boards-publish")) OR resource.type="cloud_tasks_queue")`,
       ].join(" AND ");
       const listed = (await ask("https://logging.googleapis.com/v2/entries:list", {
         resourceNames: [`projects/${projectId}`],

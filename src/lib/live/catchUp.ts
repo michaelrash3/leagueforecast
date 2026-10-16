@@ -165,18 +165,25 @@ const rebuildHolds = (raw: unknown, now: Date): boolean => {
  * What a publish now would run beside, or null where nothing is: the nightly, on GitHub
  * (`nightlyRuns`) or holding the refresh gate while it pulls; a pull or an import writing the copy
  * (`pullWritesCopy`); a rebuild after a save, which publishes the boards itself; or a save less
- * than `CATCH_UP_SETTLE_MS` ago, which a rebuild may yet publish and an edit may yet follow. Running
+ * than `settleMs` ago (`CATCH_UP_SETTLE_MS` unless the caller says), which a rebuild may yet
+ * publish and an edit may yet follow. The publish when a pull ends says none (`afterPull.ts`): the
+ * save it follows is the pull's own last, and it asks the rebuild itself whether one is coming. Running
  * beside any of them harms nothing, since every publish is made over the meta as read and never
  * puts back an older version (`publishViews`): it would build the whole pool for boards a moment
  * from being replaced, or published anyway. A GitHub that did not say is not waited on, for the
  * same reason.
  */
-export const heldBy = (look: WritersLook, savedAt: string, now: Date): LeftBecause | null => {
+export const heldBy = (
+  look: WritersLook,
+  savedAt: string,
+  now: Date,
+  settleMs = CATCH_UP_SETTLE_MS
+): LeftBecause | null => {
   if (look.nightlyRuns !== null && look.nightlyRuns > 0) return "nightly-running";
   if (nightlyUnderWay(coerceRefreshGate(look.gate), now)) return "nightly-pulling";
   if (look.jobs.some((job) => pullWritesCopy(job, now))) return "pulling";
   if (rebuildHolds(look.rebuildJob, now)) return "rebuilding";
-  if (now.getTime() - Date.parse(savedAt) < CATCH_UP_SETTLE_MS) return "settling";
+  if (now.getTime() - Date.parse(savedAt) < settleMs) return "settling";
   return null;
 };
 
@@ -185,7 +192,8 @@ export const heldBy = (look: WritersLook, savedAt: string, now: Date): LeftBecau
  * Firestore last wrote it, by its own clock (null where there is no copy); `meta` the views' meta as
  * stored; `league` the seasons as read. What may be at work (`writers`) is read only where the
  * boards are behind, so a run that finds them current costs the reads of the copy's manifest, the
- * meta and the seasons, and nothing more.
+ * meta and the seasons, and nothing more. `settleMs` is how long the copy must have been still
+ * (`heldBy`).
  */
 export const catchUpDecision = async ({
   copy,
@@ -194,6 +202,7 @@ export const catchUpDecision = async ({
   today,
   now,
   writers,
+  settleMs = CATCH_UP_SETTLE_MS,
 }: {
   copy: { manifest: unknown; savedAt: string } | null;
   meta: unknown;
@@ -201,6 +210,7 @@ export const catchUpDecision = async ({
   today: string;
   now: Date;
   writers: () => Promise<WritersLook>;
+  settleMs?: number;
 }): Promise<CatchUp> => {
   if (!copy) return { publish: false, because: "no-copy" };
   const manifest = coerceManifest(copy.manifest);
@@ -209,7 +219,7 @@ export const catchUpDecision = async ({
   if (!league.ok) return { publish: false, because: league.reason };
   const stands = await boardsBehind(meta, manifest, leaguePrintOf(league), today);
   if ("left" in stands) return { publish: false, because: stands.left };
-  const held = heldBy(await writers(), copy.savedAt, now);
+  const held = heldBy(await writers(), copy.savedAt, now, settleMs);
   return held
     ? { publish: false, because: held, behind: stands.behind }
     : { publish: true, behind: stands.behind };
