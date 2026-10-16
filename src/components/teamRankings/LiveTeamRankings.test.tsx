@@ -3126,6 +3126,9 @@ describe("what the board reads beside it, while the meta is only the one this de
     expect(screen.queryByText(/^Schedules last pulled/)).toBeNull();
     expect(screen.queryAllByText("Placeholder S-2")).toHaveLength(0);
     expect(liveBoardFor({ ageGroupId: PAGE, segment: "spring" })).toBeNull();
+    // Handed over first, which is when the pool is asked for: finished before that, it finishes
+    // nothing, which the full suite under coverage showed once on 16 October 2026.
+    await waitFor(() => expect(pool.prepared).toBe(1));
     await act(async () => pool.finish());
     expect(handedOver()).not.toBeNull();
   });
