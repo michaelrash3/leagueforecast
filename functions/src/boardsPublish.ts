@@ -5,10 +5,12 @@
  * a publish that fails is the catch-up's and the nightly's to make, and it fails nothing of the
  * pull, which is over. It logs counts, sizes and timings only, as the nightly does.
  */
+import { randomUUID } from "node:crypto";
 import process from "node:process";
-import { failureWords } from "../../src/lib/cloud/firestoreRest";
+import { failureWords, firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
 import { budgetDay } from "../../src/lib/cloud/refreshGate";
 import { publishAfterPull } from "../../src/lib/live/afterPull";
+import { publishLease } from "../../src/lib/live/publishLease";
 import { restServerStores } from "../../src/lib/live/serverStores";
 import { resetTeamRankingsStore } from "../../src/lib/teamRankingsStorage";
 import { restAccess } from "./pullAccess";
@@ -29,8 +31,12 @@ const log = (event: string, fields: Record<string, unknown> = {}) =>
   );
 
 try {
-  // The views written, and nothing else: the copy, the seasons, the jobs and the ledger only read.
-  const run = await publishAfterPull(restServerStores(restAccess(), "live"), {
+  // The views written, and the lease this job holds while it publishes (`publishLease.ts`), and
+  // nothing else: the copy, the seasons, the jobs and the ledger only read.
+  const access = restAccess();
+  const run = await publishAfterPull(restServerStores(access, "live"), {
+    lease: publishLease(firestoreRestDocuments(access)),
+    owner: randomUUID(),
     today: () => budgetDay(new Date()),
     now: () => new Date(),
     rebuilds: LIVE_REBUILD,

@@ -2,6 +2,7 @@ import { REFRESH_GATE_PATH } from "../cloud/refreshGate";
 import { catchUpDecision, stillBehind, type Behind, type CatchUp } from "./catchUp";
 import { readCloudLeague } from "./cloudLeague";
 import type { CopyPublish } from "./publishCopy";
+import type { PublishLease } from "./publishLease";
 import { reserveRebuildJob } from "./rebuildJobBudget";
 import { coerceLedger } from "./rebuildLedger";
 import { republishViews, type Republish } from "./republish";
@@ -45,7 +46,22 @@ export const rebuildWillPublish = (ledger: unknown, today: string, now: Date): b
 export type AfterPull =
   | CatchUp
   /** Behind, but a rebuild after the pull's save is coming to publish them (`rebuildWillPublish`). */
-  | { publish: false; because: "rebuild-coming"; behind: Behind };
+  | { publish: false; because: "rebuild-coming"; behind: Behind }
+  /**
+   * Behind, but a publish is under way or being started, which holds the lease until `until`
+   * (`publishLease.ts`); a check asks again after it (`boardsCheckAgain`).
+   */
+  | { publish: false; because: "publishing"; behind?: Behind; until?: number };
+
+/** The latest of the times given that are times at all, as an ISO instant, or undefined. */
+const latestOf = (...times: ReadonlyArray<string | undefined>): string | undefined => {
+  let latest: number | null = null;
+  for (const time of times) {
+    const at = Date.parse(time ?? "");
+    if (Number.isFinite(at) && (latest === null || at > latest)) latest = at;
+  }
+  return latest === null ? undefined : new Date(latest).toISOString();
+};
 
 /** What a publish after a pull reads of the cloud, and writes: only the views (`"live"` stores). */
 export type AfterPullStores = Pick<
@@ -64,26 +80,33 @@ export type AfterPullStores = Pick<
  * where the build deployed the rebuilds at all (`rebuilds`, the functions' LIVE_REBUILD). A build
  * without them takes their trigger down, and a ledger left on from before would wait for ever on
  * a rebuild nothing asks for (Codex, on #408).
+ *
+ * `settleMs` is how long the copy and the seasons must have been still: none at a pull's end, and
+ * `BOARDS_SETTLE_MS` for a save's check (`boardsCheck.ts`), so a run of edits or League scores is
+ * one publish after it. A season's last write is Firestore's own time for its document.
  */
 export const afterPullDecision = async (
   stores: Omit<AfterPullStores, "copy">,
   today: string,
   now: Date,
-  rebuilds: boolean
+  rebuilds: boolean,
+  settleMs = 0
 ): Promise<AfterPull> => {
-  const [copy, read, league] = await Promise.all([
+  const [copy, read, seasons] = await Promise.all([
     stores.readCopyAt(),
     stores.live.readMeta(),
-    readCloudLeague(stores.leagueDocs),
+    stores.leagueDocs(),
   ]);
+  const league = await readCloudLeague(() => Promise.resolve(seasons));
+  const lastSave = latestOf(copy?.savedAt, ...seasons.map((season) => season.updatedAt));
   const rebuild: { ledger?: unknown } = {};
   const decided = await catchUpDecision({
-    copy,
+    copy: copy && { ...copy, savedAt: lastSave ?? copy.savedAt },
     meta: read?.meta ?? null,
     league,
     today,
     now,
-    settleMs: 0,
+    settleMs,
     writers: async () => {
       const [gate, jobs, ledger] = await Promise.all([
         stores.gate.readAt(REFRESH_GATE_PATH),
@@ -101,18 +124,32 @@ export const afterPullDecision = async (
 };
 
 /**
- * The end of a pull: where the boards want publishing now (`afterPullDecision`), `launch` starts
- * the job that publishes them. What it decided is handed back for the log.
+ * The end of a pull, or a save's check: where the boards want publishing now
+ * (`afterPullDecision`), the lease is claimed for a launch and `launch` starts the job that
+ * publishes them; where a publish already holds the lease, nothing is started, and the caller is
+ * told until when (`publishing`). A launch that fails lets its claim go again, so the next check
+ * is not held off for nothing. What it decided is handed back for the log.
  */
 export const launchAfterPull = async (
   stores: Omit<AfterPullStores, "copy">,
   launch: () => Promise<void>,
   today: string,
   now: Date,
-  rebuilds: boolean
+  rebuilds: boolean,
+  lease: Pick<PublishLease, "launch" | "unlaunch">,
+  settleMs = 0
 ): Promise<AfterPull> => {
-  const decided = await afterPullDecision(stores, today, now, rebuilds);
-  if (decided.publish) await launch();
+  const decided = await afterPullDecision(stores, today, now, rebuilds, settleMs);
+  if (!decided.publish) return decided;
+  const claimed = await lease.launch(now.getTime());
+  if (!claimed.ok)
+    return { publish: false, because: "publishing", behind: decided.behind, until: claimed.until };
+  try {
+    await launch();
+  } catch (error) {
+    await lease.unlaunch().catch(() => undefined);
+    throw error;
+  }
   return decided;
 };
 
@@ -167,10 +204,29 @@ export const publishAfterPull = async (
     now: () => Date;
     /** Whether the build deployed the rebuilds after saves (`afterPullDecision`). */
     rebuilds: boolean;
+    /**
+     * The lease the job holds while it publishes (`publishLease.ts`), taken over from the launch
+     * that started it, under `owner`, and let go at its end whatever happens.
+     */
+    lease: Pick<PublishLease, "take" | "release">;
+    owner: string;
     /** The collation the boards are built under: the server's own (`boardLocale`) unless a test says. */
     locale?: string;
     onViews?: (views: CopyPublish) => void;
   }
+): Promise<AfterPullRun> => {
+  if (!(await deps.lease.take(deps.now().getTime(), deps.owner)))
+    return { decided: { publish: false, because: "publishing" } };
+  try {
+    return await publishHeld(stores, deps);
+  } finally {
+    await deps.lease.release(deps.owner).catch(() => undefined);
+  }
+};
+
+const publishHeld = async (
+  stores: AfterPullStores,
+  deps: Parameters<typeof publishAfterPull>[1]
 ): Promise<AfterPullRun> => {
   const decided = await afterPullDecision(stores, deps.today(), deps.now(), deps.rebuilds);
   if (!decided.publish) return { decided };

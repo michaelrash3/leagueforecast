@@ -4599,15 +4599,47 @@ Its lines (`boards-after-pull`, `import-boards`, and the job's `boards-publish`)
 are counts and reasons only. **Actions → Pulls in the cloud** shows them beside
 the importer's.
 
+### Boards published after an edit
+
+An edit is a save too: the edit function's own, for a club's panel, Pool health,
+merges and ages, and a device's, for a League Standings score. Each asks for a
+rebuild, and none reached the boards while the rebuilds were held, until the
+catch-up or the nightly. Now a save the boards read queues a check of them where
+no rebuild is coming to publish it (`boardsCheck.ts`). It is queued from the
+copy's trigger and the seasons' (`onCopyWrite`, `onLeagueWrite`) on the
+rebuilds' own queue, which tells a check from a rebuild's task by its shape.
+
+- **One a minute.** All the saves in a minute share one check, under one name.
+- **The settle.** A check runs three minutes after its minute ends
+  (`BOARDS_SETTLE_MS`). It publishes only if the copy and every season have been
+  still that long, a season's last write being Firestore's own time for its
+  document. Every check before the last save's finds a save still settling and
+  leaves the boards to it, so half an hour of clean-up in Pool health is one
+  publish after it, not one an edit. Each publish builds every board of the year,
+  about two minutes of an 8 GiB instance.
+- **The lease.** One publish runs at a time (`publishLease.ts`, `ops/boardsPublish`).
+  A launcher, whether a pull's end or a check, claims the lease before it starts
+  the job, so two that ask at once start one. The job takes the lease over when
+  it starts and lets it go when it ends. A launch that fails lets its claim go.
+  Any claim nobody lets go lapses: a launch's after five minutes, a job's after
+  the job's half hour. A check that finds a publish under way asks again half a
+  minute after the lease lapses, or after the settle at the latest, since that
+  publish may have read the copy before its save.
+
+The decision is otherwise the pull's end's (`afterPullDecision`): behind, nothing
+at work on the boards, and no rebuild coming. A pull's own saves queue checks
+too, which find the pull still writing and leave the boards to its end.
+
 ### Boards caught up on GitHub
 
 A save's rebuild ("Views a server publishes") puts an import or an edit on the
 boards within minutes, but only while the rebuilds run. Switched off, paused,
 failing, or deferred to a later month by their budget (as they were from 14
 October 2026, October's spent, until 1 November), a save reached the boards only
-with the nightly, which GitHub starts hours late. A pull's own end now publishes
-in those times ("Boards published when a pull ends"); an edit's save, and a pull
-whose publish failed, still wait for this. So every half hour one of
+with the nightly, which GitHub starts hours late. A pull's end and an edit's
+check now publish in those times ("Boards published when a pull ends", "Boards
+published after an edit"); a publish that failed still waits for this. So every
+half hour one of
 GitHub's servers looks (`.github/workflows/catch-up.yml`, `scripts/catchUp.ts`,
 `npm run catch-up`), and publishes the boards where they are behind the copy and
 nothing else is about to. Its rules are `catchUp.ts`'s, kept out of the script so

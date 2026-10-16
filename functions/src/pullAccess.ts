@@ -9,6 +9,7 @@ import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
 import { getFunctions } from "firebase-admin/functions";
 import { FUNCTIONS_REGION } from "../../src/lib/cloud/functionsUrl";
 import type { LegTask } from "../../src/lib/cloud/pullJobRunner";
+import type { BoardsCheckTask } from "../../src/lib/live/boardsCheck";
 import type { RebuildTask } from "../../src/lib/live/rebuildPlan";
 import { REBUILD_DISPATCH_S } from "../../src/lib/live/rebuildWorkerProtocol";
 
@@ -148,6 +149,30 @@ export const enqueueRebuild = async ({
   try {
     await getFunctions(adminApp())
       .taskQueue<RebuildTask>(`locations/${REGION}/functions/rebuild`)
+      .enqueue(task, { id, scheduleTime, dispatchDeadlineSeconds: REBUILD_DISPATCH_S });
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "functions/task-already-exists") return;
+    throw error;
+  }
+};
+
+/**
+ * Queues a save's check of the boards (`boardsCheck.ts`) on the rebuilds' own queue, which tells
+ * it from a rebuild's task by its shape: one a minute under one name, so a check asked for twice is
+ * queued once, as a rebuild's task is.
+ */
+export const enqueueBoardsCheck = async ({
+  id,
+  scheduleTime,
+  task,
+}: {
+  id: string;
+  scheduleTime: Date;
+  task: BoardsCheckTask;
+}): Promise<void> => {
+  try {
+    await getFunctions(adminApp())
+      .taskQueue<BoardsCheckTask>(`locations/${REGION}/functions/rebuild`)
       .enqueue(task, { id, scheduleTime, dispatchDeadlineSeconds: REBUILD_DISPATCH_S });
   } catch (error) {
     if ((error as { code?: unknown }).code === "functions/task-already-exists") return;

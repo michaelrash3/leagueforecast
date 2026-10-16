@@ -47,6 +47,13 @@ import { coerceQuery } from "../../src/lib/live/queries";
 import { requestRebuildJob } from "../../src/lib/live/rebuildJobLaunch";
 import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
 import { coerceLedger, restLedgerStore } from "../../src/lib/live/rebuildLedger";
+import {
+  againAt,
+  asksBoards,
+  boardsCheckAgain,
+  BOARDS_SETTLE_MS,
+  coerceBoardsCheck,
+} from "../../src/lib/live/boardsCheck";
 import { coerceRebuildTask } from "../../src/lib/live/rebuildPlan";
 import { handleCopyWrite, handleLeagueWrite } from "../../src/lib/live/rebuildTrigger";
 import { startupCharge } from "../../src/lib/live/rebuildWorkerProtocol";
@@ -59,6 +66,7 @@ import {
   WRITE_CHECK_TTL_MS,
 } from "../../src/lib/memberCheck";
 import {
+  enqueueBoardsCheck,
   enqueueLeg,
   enqueueRebuild,
   launchImport,
@@ -67,7 +75,7 @@ import {
   restAccess,
   zoneOf,
 } from "./pullAccess";
-import { publishBoardsIfDue } from "./afterPullLaunch";
+import { publishBoardsIfDue, queueBoardsCheck } from "./afterPullLaunch";
 import type { LegAnswer, LegRequest } from "./pullLeg";
 import { PULL_WORKER_TIMEOUT_MS, waitForPullWorker } from "../../src/lib/cloud/pullWorkerLifetime";
 
@@ -515,6 +523,12 @@ export const onCopyWrite = !LIVE_REBUILD
           enqueue: enqueueRebuild,
         });
         logger[level](message, line);
+        // Where no rebuild is coming to publish it, the save's check of the boards (`boardsCheck.ts`).
+        if (asksBoards(line))
+          logger.info("boards-check", {
+            savedAt: event.time,
+            ...(await queueBoardsCheck(event.time)),
+          });
       }
     );
 
@@ -547,6 +561,11 @@ export const onLeagueWrite = !LIVE_REBUILD
           enqueue: enqueueRebuild,
         });
         logger[level](message, line);
+        if (asksBoards(line))
+          logger.info("boards-check", {
+            savedAt: event.time,
+            ...(await queueBoardsCheck(event.time)),
+          });
       }
     );
 
@@ -576,6 +595,27 @@ export const rebuild = !LIVE_REBUILD
       },
       async (request) => {
         process.env.TZ = "America/New_York";
+        const started = Date.now();
+        // A save's check of the boards, which shares the rebuilds' queue (`boardsCheck.ts`): where
+        // a publish is under way, asked again once it should be over.
+        const check = coerceBoardsCheck(request.data);
+        if (check) {
+          const asked = await publishBoardsIfDue(started + 115_000, BOARDS_SETTLE_MS);
+          const until = asked.because === "publishing" ? asked.until : undefined;
+          const again =
+            typeof until === "number"
+              ? await boardsCheckAgain(check, againAt(until, Date.now()))
+                  .then(enqueueBoardsCheck)
+                  .then(() => "queued")
+                  .catch((error: unknown) => String(error))
+              : undefined;
+          logger.info("boards-check", {
+            savedAt: check.savedAt,
+            ...asked,
+            ...(again !== undefined ? { again } : {}),
+          });
+          return;
+        }
         const task = coerceRebuildTask(request.data);
         if (!task) {
           logger.warn("rebuild", { end: "not-a-task" });

@@ -17,7 +17,7 @@ import { docToSeason, LEAGUE_COLLECTION } from "./leagueDocs";
 
 /** Every document of the seasons' collection, with its id and its fields as plain values. */
 export type LeagueDocsList = () => Promise<
-  ReadonlyArray<{ id: string; fields: Record<string, unknown> }>
+  ReadonlyArray<{ id: string; fields: Record<string, unknown>; updatedAt?: string }>
 >;
 
 /** None: what a server with no documents to read, or a test, hands over. */
