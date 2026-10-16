@@ -558,7 +558,7 @@ export type FirestoreRestDocuments = {
    * League Standings seasons (`league/{season}`), a handful of documents of 10 to 70 KB each, which
    * a server reads whole to build the boards with.
    */
-  list: (collection: string) => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
+  list: (collection: string) => Promise<ListedDocument[]>;
   /**
    * The documents of `collection` whose field `field` holds one of `values` (at most 30), with
    * their ids and fields as plain values, in one query: the pulls still queued or running
@@ -570,7 +570,7 @@ export type FirestoreRestDocuments = {
     collection: string,
     field: string,
     values: readonly string[]
-  ) => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
+  ) => Promise<ListedDocument[]>;
   /**
    * Writes `fields` as the whole document at `path`, made or replaced, whatever was there: a piece
    * of the list a "Refresh now" job works out (`pullJobRunner.ts`), which a first leg tried again
@@ -578,6 +578,18 @@ export type FirestoreRestDocuments = {
    */
   set: (path: string, fields: Record<string, unknown>) => Promise<void>;
 };
+
+/**
+ * A document as a list or a query finds it: its id, its fields as plain values, and when Firestore
+ * made it, by Firestore's own clock (`createTime`), where it says.
+ */
+export type ListedDocument = { id: string; fields: Record<string, unknown>; createdAt?: string };
+
+const listed = (id: string, document: FirestoreDocument): ListedDocument => ({
+  id: decodeURIComponent(id),
+  fields: fieldsOf(document.fields ?? {}),
+  ...(document.createTime ? { createdAt: document.createTime } : {}),
+});
 
 export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocuments => {
   const { documents, call, read, commit } = restClient(access);
@@ -600,7 +612,7 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
         `replacing ${path}`
       ),
     list: async (collection) => {
-      const found: Array<{ id: string; fields: Record<string, unknown> }> = [];
+      const found: ListedDocument[] = [];
       let page: string | undefined;
       do {
         const query = ["pageSize=100"];
@@ -613,7 +625,7 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
         };
         for (const one of answer.documents ?? []) {
           const id = one.name?.split("/").pop();
-          if (id) found.push({ id: decodeURIComponent(id), fields: fieldsOf(one.fields ?? {}) });
+          if (id) found.push(listed(id, one));
         }
         page = answer.nextPageToken;
       } while (page);
@@ -643,7 +655,7 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
       const answers = (await response.json()) as Array<{ document?: FirestoreDocument }>;
       return answers.flatMap(({ document }) => {
         const id = document?.name?.split("/").pop();
-        return id ? [{ id: decodeURIComponent(id), fields: fieldsOf(document?.fields ?? {}) }] : [];
+        return id && document ? [listed(id, document)] : [];
       });
     },
     update: async (path, patch) => {

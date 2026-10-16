@@ -20,7 +20,7 @@ import {
 } from "../../src/lib/cloud/firestoreRest";
 import { randomId } from "../../src/lib/cloud/cloudManifest";
 import { importLeaseUntil } from "../../src/lib/cloud/importLease";
-import { JOB_ID } from "../../src/lib/cloud/pullJobs";
+import { JOB_ID, JOBS_COLLECTION } from "../../src/lib/cloud/pullJobs";
 import {
   reapPullJob,
   restJobDocs,
@@ -725,10 +725,13 @@ const poolEndpoint = (queriesOnly = false) =>
               ...deps,
               ask: { command, ...(typeof copy === "string" ? { copy } : {}) },
               // Once Team Rankings is started again, every pull under way is asked to stop.
-              stopPulls: () => {
+              stopPulls: (start) => {
                 const docs = firestoreRestDocuments(restAccess());
                 return stopPullsUnderWay({
-                  list: () => docs.list("pullJobs"),
+                  start,
+                  // Only the pulls still under way, found by their status in one query, rather
+                  // than every pull there has been listed page by page while the owner waits.
+                  list: () => docs.where(JOBS_COLLECTION, "status", ["queued", "running"]),
                   jobs: restJobDocs(docs),
                   gate: docs,
                   now: () => new Date(),

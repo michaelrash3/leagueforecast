@@ -102,6 +102,9 @@ export type EditRun =
        * every pull under way to stop (`stopPullsUnderWay`).
        */
       startedAgain: boolean;
+      /** The epoch the save left the copy at, and when the server saved it (`CloudManifest`). */
+      epoch: string;
+      savedAt: string;
       /** Runs through: a second or third when a save moved the copy under the one before. */
       tries: number;
       /** How the last run through found the pool: started afresh, and the parts it fetched. */
@@ -257,6 +260,8 @@ export const runEdit = async ({
           .filter((key) => was.get(key) !== after.get(key))
           .sort(),
         startedAgain: commit.manifest.epoch !== ensured.manifest.epoch,
+        epoch: commit.manifest.epoch,
+        savedAt: commit.manifest.updatedAt,
         tries,
         cold: ensured.cold,
         fetched: ensured.fetched.length,

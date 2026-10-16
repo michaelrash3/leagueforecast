@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { StartOfRankings } from "../../cloud/pullJobRunner";
 import type { PoolCommand } from "../commands";
 import type { EditRun, QueryRun } from "../editRun";
 import {
@@ -86,6 +87,8 @@ const EDITED: EditRun = {
   inverse: { kind: "team.state", teamId: "B", state: null },
   changed: ["league_forecast_scout_teams_v1"],
   startedAgain: false,
+  epoch: "e1",
+  savedAt: "2026-10-02T16:00:00.000Z",
   tries: 1,
   cold: false,
   fetched: 0,
@@ -180,11 +183,16 @@ describe("an edit request", () => {
   });
 
   it("asks the pulls under way to stop once Team Rankings is started again, and says what it stopped", async () => {
-    const STARTED: EditRun = { ...(EDITED as Extract<EditRun, { ok: true }>), startedAgain: true };
+    const STARTED: EditRun = {
+      ...(EDITED as Extract<EditRun, { ok: true }>),
+      startedAgain: true,
+      epoch: "e2",
+      savedAt: "2026-10-02T16:29:00.000Z",
+    };
     const reset = { command: { kind: "copy.reset" } } as const;
     const handle = (
       result: EditRun,
-      stopPulls: () => Promise<{ pulls: number; nightly: boolean }>
+      stopPulls: (start: StartOfRankings) => Promise<{ pulls: number; nightly: boolean }>
     ) =>
       handleEdit({
         ask: reset,
@@ -196,20 +204,22 @@ describe("an edit request", () => {
         charges: chargeQueue(),
         stopPulls,
       });
-    const asked: string[] = [];
-    const stopping = async () => {
-      asked.push("stop");
+    const asked: StartOfRankings[] = [];
+    const stopping = async (start: StartOfRankings) => {
+      asked.push(start);
       return { pulls: 2, nightly: true };
     };
     const handled = await handle(STARTED, stopping);
-    expect(asked).toEqual(["stop"]);
+    // Told the start as saved, so it leaves alone a pull sent after it.
+    const start = { copy: "c1", epoch: "e2", at: "2026-10-02T16:29:00.000Z" };
+    expect(asked).toEqual([start]);
     expect(handled).toMatchObject({
       reply: { ok: true, version: 8, stopped: { pulls: 2, nightly: true } },
       line: { kind: "copy.reset", end: "edited", stoppedPulls: 2, nightly: true },
     });
     // An edit that started nothing again stops nothing, and says nothing of pulls.
     const edited = await handle(EDITED, stopping);
-    expect(asked).toEqual(["stop"]);
+    expect(asked).toEqual([start]);
     expect("stopped" in (edited as { reply: object }).reply).toBe(false);
     // Pulls that could not be listed leave the start made, and said in the line alone.
     const failed = await handle(STARTED, async () => {

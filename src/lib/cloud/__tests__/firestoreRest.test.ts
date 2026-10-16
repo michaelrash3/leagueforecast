@@ -796,6 +796,8 @@ describe("a pull's job through Firestore's REST API", () => {
       });
       firestore.docs.set(`pullJobs/${String(index).repeat(32)}`, {
         fields: firestoreFieldsOf({ ...job, status }),
+        // When Firestore made it, which it says of the second alone here.
+        ...(index === 1 ? { createTime: "2026-10-02T16:29:00.000001Z" } : {}),
         updateTime: "t0",
       });
     });
@@ -825,6 +827,13 @@ describe("a pull's job through Firestore's REST API", () => {
     const found = await docs.where("pullJobs", "status", ["queued", "running"]);
     expect(found.map(({ id }) => id)).toEqual(["0".repeat(32), "1".repeat(32), "5".repeat(32)]);
     expect(found.map(({ fields }) => fields.status)).toEqual(["queued", "running", "running"]);
+    // Firestore's own word on when it made each, where it gives one, for a start of Team Rankings
+    // to tell the pulls sent after it from those from before (`stopPullsUnderWay`).
+    expect(found.map(({ createdAt }) => createdAt)).toEqual([
+      undefined,
+      "2026-10-02T16:29:00.000001Z",
+      undefined,
+    ]);
     // A read, though it is sent as a POST: asked again.
     expect(waits).toEqual([1_000]);
     const queries = firestore.fetchImpl.mock.calls.filter(([input]) =>
@@ -919,6 +928,7 @@ describe("a document written only if nobody has since, through Firestore's REST 
     // A season whose id is not one Firestore takes as it is (`encodeKey`).
     firestore.docs.set("league/~U2Vhc29uIDE", {
       fields: firestoreFieldsOf(fields(9)),
+      createTime: "2027-01-02T00:00:00.000000Z",
       updateTime: "t0",
     });
     // Another collection's, and a document under one of the seasons, are not the collection's.
@@ -931,7 +941,11 @@ describe("a document written only if nobody has since, through Firestore's REST 
     expect(listed).toHaveLength(206);
     expect(listed[0]).toEqual({ id: "s000", fields: fields(0) });
     expect(listed[204]).toEqual({ id: "s204", fields: fields(204) });
-    expect(listed[205]).toEqual({ id: "~U2Vhc29uIDE", fields: fields(9) });
+    expect(listed[205]).toEqual({
+      id: "~U2Vhc29uIDE",
+      fields: fields(9),
+      createdAt: "2027-01-02T00:00:00.000000Z",
+    });
     const pages = firestore.fetchImpl.mock.calls
       .map(([input]) => new URL(String(input)))
       .filter((url) => url.pathname.endsWith("/documents/league"));

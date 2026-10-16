@@ -1,4 +1,4 @@
-import type { StoppedPulls } from "../cloud/pullJobRunner";
+import type { StartOfRankings, StoppedPulls } from "../cloud/pullJobRunner";
 import { MAX_COMMAND_STEPS, stepCount, type PoolCommand } from "./commands";
 import type { EditRefusal, EditRun, QueryRefusal, QueryRun } from "./editRun";
 import { TurnFailed, type TurnAsk, type Turned } from "./editWorkerProtocol";
@@ -186,7 +186,7 @@ export const handleEdit = async ({
    * saved. Awaited before the answer, which says what it stopped: a start is the owner's alone and
    * rare, and a pull left running past it would go on asking GameChanger for a pool that is gone.
    */
-  stopPulls?: () => Promise<StoppedPulls>;
+  stopPulls?: (start: StartOfRankings) => Promise<StoppedPulls>;
 }): Promise<EditHandled> => {
   const line: Line = { kind: ask.command.kind };
   let turned: Turned<EditRun>;
@@ -222,7 +222,7 @@ export const handleEdit = async ({
   let stopped: StoppedPulls | null = null;
   if (edited.startedAgain && stopPulls) {
     try {
-      stopped = await stopPulls();
+      stopped = await stopPulls({ copy, epoch: edited.epoch, at: edited.savedAt });
       Object.assign(line, { stoppedPulls: stopped.pulls, nightly: stopped.nightly });
     } catch (error) {
       // The start is saved whatever this comes to, and every pull is held to the start it read.

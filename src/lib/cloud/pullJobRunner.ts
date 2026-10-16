@@ -1,6 +1,6 @@
 import type { GcTeamListEntry } from "../gameChangerApi";
 import type { CloudStore } from "./cloudEngine";
-import { epochOf } from "./cloudManifest";
+import { epochOf, type CopyEpoch } from "./cloudManifest";
 import type { FirestoreRestDocuments } from "./firestoreRest";
 import {
   runCloudPull,
@@ -712,6 +712,9 @@ export type StoppedPulls = {
   nightly: boolean;
 };
 
+/** A start of Team Rankings as saved: the copy, its new epoch, and the time it was saved at. */
+export type StartOfRankings = CopyEpoch & { at: string };
+
 /**
  * Every pull a device left for the cloud that is queued or running, asked to stop, as its Stop
  * button asks (`stopAsked` and nothing else, the stamp left as it was): run by the edit function
@@ -721,19 +724,32 @@ export type StoppedPulls = {
  * Rankings it read (`CloudManifest.epoch`); the stop ends it where it is rather than after its
  * downloads, and the start says how many it stopped, and whether the nightly, which cannot be
  * stopped from here, is pulling. A job already asked to stop is not asked again, nor counted.
+ *
+ * Only pulls from before the start: one a device sent in the seconds between the start's save and
+ * this look is a pull for the Team Rankings just started, and so is one whose leg already read the
+ * new start (`PullJob.on`). When a job's document was made is Firestore's own word (`createdAt`,
+ * its create time), set against the time the start was saved by the server that saved it; a job
+ * Firestore says nothing of is taken for one from before, as every job was before this was asked.
  */
 export const stopPullsUnderWay = async (deps: {
-  /** Every job's document (`pullJobs/`), as stored. */
-  list: () => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
+  /** The start of Team Rankings the pulls are stopped for. */
+  start: StartOfRankings;
+  /** The jobs' documents (`pullJobs/`) still queued or running, as stored. */
+  list: () => Promise<Array<{ id: string; fields: Record<string, unknown>; createdAt?: string }>>;
   jobs: Pick<JobDocs, "update">;
   gate: Pick<GateDocs, "readAt">;
   now: () => Date;
 }): Promise<StoppedPulls> => {
+  const savedAt = Date.parse(deps.start.at);
   let pulls = 0;
-  for (const { id, fields } of await deps.list()) {
+  for (const { id, fields, createdAt } of await deps.list()) {
     const job = coercePullJob(fields);
     if (!JOB_ID.test(id) || !job || job.stopAsked) continue;
     if (job.status !== "queued" && job.status !== "running") continue;
+    // Date.parse reads Firestore's microseconds to the millisecond, so a job made in the very
+    // millisecond of the start counts as after it: left to run, as one for the new start.
+    if (createdAt !== undefined && Date.parse(createdAt) >= savedAt) continue;
+    if (job.on?.copy === deps.start.copy && job.on.epoch === deps.start.epoch) continue;
     await deps.jobs.update(id, { stopAsked: true });
     pulls += 1;
   }

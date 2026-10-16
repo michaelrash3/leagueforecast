@@ -630,17 +630,25 @@ describe("Team Rankings started again or brought back by the copy's owner", () =
     const cloud = await withLeague();
     const before = cloud.manifest()!;
     expect(before.epoch).toBe("");
+    // A minute after the copy was last saved, so the start's own time is told from the copy's.
+    const startAt = "2026-10-04T12:01:00.000Z";
     const started = await runEdit({
       store: cloud.store,
       leagueDocs: NO_LEAGUE_DOCS,
       command: { kind: "copy.reset" },
-      now: () => NOW,
+      now: () => startAt,
     });
     if (!started.ok) throw new Error(started.why);
     const reset = cloud.manifest()!;
     expect(started.startedAgain).toBe(true);
     expect(reset).toMatchObject({ copy: before.copy, version: before.version + 1 });
     expect(reset.epoch).toMatch(/^[0-9a-f]{32}$/);
+    // The start as saved, which the edit function hands the stop of the pulls under way.
+    expect({ epoch: started.epoch, savedAt: started.savedAt }).toEqual({
+      epoch: reset.epoch,
+      savedAt: startAt,
+    });
+    expect(reset.updatedAt).toBe(startAt);
     // Its Undo starts it again in turn: a job that read the emptied copy files nothing either.
     const undone = await runEdit({
       store: cloud.store,

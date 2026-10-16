@@ -16,7 +16,7 @@ import {
   saveTidyStamp,
 } from "../../teamRankingsStorage";
 import { commitChanges, type Change } from "../cloudEngine";
-import type { CloudManifest } from "../cloudManifest";
+import { epochOf, type CloudManifest } from "../cloudManifest";
 import { LEAGUE_PART } from "../cloudPlan";
 import { loadPoolFrom, memoryIo } from "../cloudRunner";
 import {
@@ -111,6 +111,12 @@ const schedules = new Map<string, GcTeamSchedule>([
   [CUBS, schedule(CUBS, "Cubs", [game("c1", "Aces", 2, 4)])],
 ]);
 const LIST: GcTeamListEntry[] = [ACES, BEARS, CUBS].map((teamId) => ({ teamId }));
+/**
+ * A start of Team Rankings saved after every job the stopping tests make: what the edit function
+ * hands the stop of the pulls under way (`stopPullsUnderWay`), with Firestore saying nothing of when
+ * their documents were made unless a test says so.
+ */
+const START = { copy: "c0ffee", epoch: "e", at: "2026-10-02T17:00:00.000Z" };
 
 /** Answers from the schedules above, each told as it comes, as `fetchGcTeams` gives them. */
 const answer = (teamId: string): GcTeamResponse => {
@@ -1697,6 +1703,7 @@ describe("pulls under way when Team Rankings is started again", () => {
       { id: "not-a-job", fields: { status: "running" } },
     ];
     const stopped = await stopPullsUnderWay({
+      start: START,
       list: listed,
       jobs: jobs.docs,
       gate: gateOf(null, now),
@@ -1712,6 +1719,7 @@ describe("pulls under way when Team Rankings is started again", () => {
     }
     // The nightly is said while it says it is pulling, and not once its word has run out.
     const pulling = await stopPullsUnderWay({
+      start: START,
       list: listed,
       jobs: jobs.docs,
       gate: gateOf(30, now),
@@ -1719,12 +1727,61 @@ describe("pulls under way when Team Rankings is started again", () => {
     });
     expect(pulling).toEqual({ pulls: 0, nightly: true });
     const late = await stopPullsUnderWay({
+      start: START,
       list: listed,
       jobs: jobs.docs,
       gate: gateOf(NIGHTLY_HOLD_MS / 60_000 + 1, now),
       now: () => now,
     });
     expect(late).toEqual({ pulls: 0, nightly: false });
+  });
+
+  it("leaves alone a pull made after the start was saved, or one already on the new start", async () => {
+    const jobs = memoryJobs();
+    const now = new Date("2026-10-02T16:30:00.000Z");
+    const start = { copy: "c0ffee", epoch: "new", at: "2026-10-02T16:29:00.000Z" };
+    const ids = {
+      before: "1".repeat(32),
+      after: "2".repeat(32),
+      same: "3".repeat(32),
+      onNew: "4".repeat(32),
+      onOld: "5".repeat(32),
+      unstamped: "6".repeat(32),
+    };
+    for (const id of Object.values(ids)) await jobs.put(LIST, { jobId: id });
+    const running = (id: string, on?: { copy: string; epoch: string }) =>
+      jobs.jobs.set(id, { ...jobs.job(id), status: "running", ...(on ? { on } : {}) });
+    running(ids.onNew, { copy: "c0ffee", epoch: "new" });
+    running(ids.onOld, { copy: "c0ffee", epoch: "old" });
+    // When Firestore made each job's document, by its own clock, in the finer time it keeps.
+    const made: Record<string, string | undefined> = {
+      [ids.before]: "2026-10-02T16:28:59.999999Z",
+      [ids.after]: "2026-10-02T16:29:00.000001Z",
+      [ids.same]: "2026-10-02T16:29:00.000000Z",
+      [ids.onNew]: "2026-10-02T16:20:00.000000Z",
+      [ids.onOld]: "2026-10-02T16:20:00.000000Z",
+      [ids.unstamped]: undefined,
+    };
+    const stopped = await stopPullsUnderWay({
+      start,
+      list: async () =>
+        [...jobs.jobs].map(([id, job]) => {
+          const createdAt = made[id];
+          return {
+            id,
+            fields: structuredClone(job) as never,
+            ...(createdAt ? { createdAt } : {}),
+          };
+        }),
+      jobs: jobs.docs,
+      gate: gateOf(null, now),
+      now: () => now,
+    });
+    // Made before the start and not on it: the pull from before, the one on the old start, and
+    // one whose making Firestore did not say, which is taken for one from before.
+    const asked = [...jobs.jobs].filter(([, job]) => job.stopAsked).map(([id]) => id);
+    expect(asked.sort()).toEqual([ids.before, ids.onOld, ids.unstamped].sort());
+    expect(stopped).toEqual({ pulls: 3, nightly: false });
   });
 
   it("stops a leg under way at its next look, which then files nothing into the emptied copy", async () => {
@@ -1741,6 +1798,7 @@ describe("pulls under way when Team Rankings is started again", () => {
     const meanwhile: LegDeps["fetchTeams"] = async (ids, options) => {
       started = await startAgain(cloud);
       await stopPullsUnderWay({
+        start: { ...epochOf(started), at: started.updatedAt },
         list: async () =>
           [[JOB, jobs.job()] as const].map(([id, job]) => ({ id, fields: job as never })),
         jobs: jobs.docs,
