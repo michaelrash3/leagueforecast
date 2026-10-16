@@ -155,7 +155,7 @@ export const pullWritesCopy = (job: PullJob, now: Date): boolean => {
 };
 
 /** Whether a rebuild job holds its control document now: launching, or running and heard from. */
-export const rebuildHolds = (raw: unknown, now: Date): boolean => {
+const rebuildHolds = (raw: unknown, now: Date): boolean => {
   if (typeof raw !== "object" || raw === null) return false;
   const { owner, until } = raw as { owner?: unknown; until?: unknown };
   return typeof owner === "string" && typeof until === "number" && until > now.getTime();

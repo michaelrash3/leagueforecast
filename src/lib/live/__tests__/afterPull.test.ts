@@ -50,40 +50,38 @@ describe("whether a rebuild after a save is coming to publish the boards", () =>
   });
   /** October 2026's ledger on the 16th: its month's vCPU cap spent, so the rebuilds deferred. */
   const SPENT = ledgerOf({ monthGiBs: 113_924, monthVcpuS: 49_530 });
-  const held = (until: number) => ({ owner: "run-1", until });
 
   it("is coming where the rebuilds are on, publishing, and have the budget for a run", () => {
-    expect(rebuildWillPublish(ledgerOf(), null, DAY, NOW)).toBe(true);
+    expect(rebuildWillPublish(ledgerOf(), DAY, NOW)).toBe(true);
   });
 
   it("is not where they are off, a dry run, or set up nowhere", () => {
-    expect(rebuildWillPublish(null, null, DAY, NOW)).toBe(false);
-    expect(rebuildWillPublish(ledgerOf({ on: false }), null, DAY, NOW)).toBe(false);
-    expect(rebuildWillPublish(ledgerOf({ mode: "dry" }), null, DAY, NOW)).toBe(false);
+    expect(rebuildWillPublish(null, DAY, NOW)).toBe(false);
+    expect(rebuildWillPublish(ledgerOf({ on: false }), DAY, NOW)).toBe(false);
+    expect(rebuildWillPublish(ledgerOf({ mode: "dry" }), DAY, NOW)).toBe(false);
   });
 
   it("is not where a month's or a day's cap is spent, or failures paused them for the day", () => {
-    expect(rebuildWillPublish(SPENT, null, DAY, NOW)).toBe(false);
-    expect(rebuildWillPublish(ledgerOf({ dayGiBs: 10_000 }), null, DAY, NOW)).toBe(false);
-    expect(rebuildWillPublish(ledgerOf({ pausedDay: DAY, failures: 3 }), null, DAY, NOW)).toBe(
-      false
-    );
+    expect(rebuildWillPublish(SPENT, DAY, NOW)).toBe(false);
+    expect(rebuildWillPublish(ledgerOf({ dayGiBs: 10_000 }), DAY, NOW)).toBe(false);
+    expect(rebuildWillPublish(ledgerOf({ pausedDay: DAY, failures: 3 }), DAY, NOW)).toBe(false);
     // A cap spent last month counts nothing in this one.
-    expect(rebuildWillPublish({ ...SPENT, month: "2026-09" }, null, DAY, NOW)).toBe(true);
+    expect(rebuildWillPublish({ ...SPENT, month: "2026-09" }, DAY, NOW)).toBe(true);
   });
 
-  it("is where one is under way, holding the rebuild job or a run open, whatever the budget", () => {
-    expect(rebuildWillPublish(SPENT, held(NOW.getTime() + 60_000), DAY, NOW)).toBe(true);
-    // A hold run out is no run at all.
-    expect(rebuildWillPublish(SPENT, held(NOW.getTime() - 1), DAY, NOW)).toBe(false);
+  it("is where a run is open on the ledger, its budget reserved, whatever is left after it", () => {
     const open = {
       at: new Date(NOW.getTime() - 60_000).toISOString(),
       day: DAY,
       cost: RUN_CEILING,
       task: "t",
       by: "b",
+      until: new Date(NOW.getTime() + 60_000).toISOString(),
     };
-    expect(rebuildWillPublish({ ...SPENT, open }, null, DAY, NOW)).toBe(true);
+    expect(rebuildWillPublish({ ...SPENT, open }, DAY, NOW)).toBe(true);
+    // One whose span has run out is no run at all.
+    const over = { ...open, until: new Date(NOW.getTime() - 1).toISOString() };
+    expect(rebuildWillPublish({ ...SPENT, open: over }, DAY, NOW)).toBe(false);
   });
 });
 
@@ -146,7 +144,7 @@ const SPENT = {
 const storesOf = (
   cloud: MemoryCloud,
   live: MemoryLive,
-  { ledger = SPENT as unknown, jobs = [] as PullJob[], rebuildJob = null as unknown } = {}
+  { ledger = SPENT as unknown, jobs = [] as PullJob[] } = {}
 ) => {
   const reads = { ledger: 0 };
   const stores: AfterPullStores = {
@@ -162,7 +160,6 @@ const storesOf = (
       return Promise.resolve(manifest ? { manifest, savedAt: SAVED } : null);
     },
     pullsUnderWay: () => Promise.resolve(jobs),
-    readRebuildJob: () => Promise.resolve(rebuildJob),
     readLedger: () => {
       reads.ledger += 1;
       return Promise.resolve(ledger);
@@ -225,6 +222,22 @@ describe("the boards when a pull ends", () => {
       decided: { publish: false, because: "rebuild-coming", behind: "nothing" },
     });
     expect(live.meta()).toBeNull();
+  });
+
+  it("are published where a rebuild job holds its control with no budget left, which only defers", async () => {
+    // A job claims the control before it reserves, and one whose budget is spent defers the moment
+    // it asks, publishing nothing: the control is not asked after at all.
+    const cloud = await copied();
+    const live = memoryLive();
+    const readRebuildJob = vi.fn(() =>
+      Promise.resolve({ owner: "run-1", until: NOW.getTime() + 60_000, state: "running" })
+    );
+    const stores = { ...storesOf(cloud, live).stores, readRebuildJob };
+    expect(await afterPullDecision(stores, FIXTURE_TODAY, NOW)).toEqual({
+      publish: true,
+      behind: "nothing",
+    });
+    expect(readRebuildJob).not.toHaveBeenCalled();
   });
 
   it("wait for another import still filing into the copy, whose own end publishes them", async () => {

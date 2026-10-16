@@ -1,5 +1,5 @@
 import { REFRESH_GATE_PATH } from "../cloud/refreshGate";
-import { catchUpDecision, rebuildHolds, stillBehind, type Behind, type CatchUp } from "./catchUp";
+import { catchUpDecision, stillBehind, type Behind, type CatchUp } from "./catchUp";
 import { readCloudLeague } from "./cloudLeague";
 import type { CopyPublish } from "./publishCopy";
 import { reserveRebuildJob } from "./rebuildJobBudget";
@@ -27,21 +27,16 @@ import type { ServerStores } from "./serverStores";
 
 /**
  * Whether a rebuild after a save is coming to publish the boards: switched on to publish (not off,
- * nor a dry run that publishes nothing), and either one is under way now, holding the rebuild job's
- * control (`rebuildHolds`), or one run open on the ledger, or the ledger would let one start
- * (`reserveRebuildJob`). A month or a day whose cap is spent, or failures that paused them for the
- * day, would only defer it. `ledger` and `rebuildJob` are the documents as stored (`ops/rebuild`,
- * `ops/rebuildJob`), `today` New York's day, as the ledger counts days.
+ * nor a dry run that publishes nothing), and either a run is open on the ledger, its budget
+ * reserved, or the ledger would let one start (`reserveRebuildJob`). A month or a day whose cap is
+ * spent, or failures that paused them for the day, would only defer it. Holding the rebuild job's
+ * control counts for nothing by itself: a job claims it before it reserves, and one whose budget
+ * is spent defers the moment it asks, publishing nothing (Codex, on #408). `ledger` is the
+ * document as stored (`ops/rebuild`), `today` New York's day, as the ledger counts days.
  */
-export const rebuildWillPublish = (
-  ledger: unknown,
-  rebuildJob: unknown,
-  today: string,
-  now: Date
-): boolean => {
+export const rebuildWillPublish = (ledger: unknown, today: string, now: Date): boolean => {
   const read = coerceLedger(ledger);
   if (!read?.on || read.mode !== "live") return false;
-  if (rebuildHolds(rebuildJob, now)) return true;
   const reserved = reserveRebuildJob(read, today, now.toISOString(), "");
   return reserved.ok || reserved.why === "busy";
 };
@@ -55,14 +50,7 @@ export type AfterPull =
 /** What a publish after a pull reads of the cloud, and writes: only the views (`"live"` stores). */
 export type AfterPullStores = Pick<
   ServerStores,
-  | "copy"
-  | "live"
-  | "leagueDocs"
-  | "gate"
-  | "readCopyAt"
-  | "pullsUnderWay"
-  | "readRebuildJob"
-  | "readLedger"
+  "copy" | "live" | "leagueDocs" | "gate" | "readCopyAt" | "pullsUnderWay" | "readLedger"
 >;
 
 /**
@@ -71,7 +59,8 @@ export type AfterPullStores = Pick<
  * still, since the save it would wait out is the pull's own last; and then not where a rebuild is
  * coming to publish them, which is the boards' way after any save while the rebuilds' budget lasts.
  * The nightly is not asked after on GitHub, which nothing in the cloud can ask; one pulling holds
- * the refresh gate, and is waited on there.
+ * the refresh gate, and is waited on there. Nor is the rebuild job's control, which the catch-up
+ * waits on: whether a rebuild is coming is the ledger's to say (`rebuildWillPublish`).
  */
 export const afterPullDecision = async (
   stores: Omit<AfterPullStores, "copy">,
@@ -83,7 +72,7 @@ export const afterPullDecision = async (
     stores.live.readMeta(),
     readCloudLeague(stores.leagueDocs),
   ]);
-  const rebuild: { ledger?: unknown; job?: unknown } = {};
+  const rebuild: { ledger?: unknown } = {};
   const decided = await catchUpDecision({
     copy,
     meta: read?.meta ?? null,
@@ -92,19 +81,17 @@ export const afterPullDecision = async (
     now,
     settleMs: 0,
     writers: async () => {
-      const [gate, jobs, job, ledger] = await Promise.all([
+      const [gate, jobs, ledger] = await Promise.all([
         stores.gate.readAt(REFRESH_GATE_PATH),
         stores.pullsUnderWay(),
-        stores.readRebuildJob(),
         stores.readLedger(),
       ]);
       rebuild.ledger = ledger;
-      rebuild.job = job;
-      return { nightlyRuns: null, gate: gate?.fields ?? null, jobs, rebuildJob: job };
+      return { nightlyRuns: null, gate: gate?.fields ?? null, jobs, rebuildJob: null };
     },
   });
   if (!decided.publish) return decided;
-  return rebuildWillPublish(rebuild.ledger, rebuild.job, today, now)
+  return rebuildWillPublish(rebuild.ledger, today, now)
     ? { publish: false, because: "rebuild-coming", behind: decided.behind }
     : decided;
 };
