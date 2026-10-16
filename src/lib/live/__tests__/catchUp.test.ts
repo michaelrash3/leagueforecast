@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CloudManifest, ManifestPart } from "../../cloud/cloudManifest";
+import { MANIFEST_FORMAT, type CloudManifest, type ManifestPart } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { newPullJob, newRefreshJob, type PullJob } from "../../cloud/pullJobs";
 import { NIGHTLY_HOLD_MS, REFRESH_QUIET_MS } from "../../cloud/refreshGate";
@@ -43,9 +43,10 @@ const PARTS = [
   part("league_forecast_gc_refresh_v1", h(6)),
 ];
 const copyAt = (version: number, parts = PARTS, more: Partial<CloudManifest> = {}) => ({
-  format: 2,
+  format: MANIFEST_FORMAT,
   schema: 1,
   copy: "c0ffee",
+  epoch: "e1",
   version,
   save: "s",
   updatedAt: "2027-04-15T10:00:00.000Z",
