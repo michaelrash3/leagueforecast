@@ -80,6 +80,14 @@ export const asksBoards = (line: Readonly<Record<string, unknown>>): boolean =>
   line.event === "save" || line.event === "season" || (line.event === "skip" && line.why === "off");
 
 /**
+ * Whether a save's trigger line (`rebuildTrigger.ts`) queued its rebuild: not one whose queueing
+ * failed (`queued: false`), nor one the rebuilds, switched off, never asked for, which a ledger
+ * switched on again before its check runs would otherwise count on (Codex, on #409).
+ */
+export const rebuildQueued = (line: Readonly<Record<string, unknown>>): boolean =>
+  line.queued === true;
+
+/**
  * When a check that found a publish under way asks again (`boardsCheckAgain`): half a minute after
  * the lease lapses, or after the settle at the latest, so one that holds the lease for its whole
  * half hour is not waited out when the publish ends in two minutes, as it does.

@@ -277,13 +277,18 @@ const publishHeld = async (
     now: () => deps.now().toISOString(),
     // As a rebuild after a save sweeps: only what its own commit retires past its grace.
     sweep: "due",
+    // Where a settle was asked, the job's own decision asked again just before each load, so an
+    // edit saved between that decision and the load is left to its own check (Codex, on #409).
     wanted: async (published) =>
-      stillBehind({
-        meta: published,
-        manifest: await stores.copy.readManifest(),
-        league: await readCloudLeague(stores.leagueDocs),
-        today: deps.today(),
-      }),
+      deps.settleMs > 0
+        ? (await afterPullDecision(stores, deps.today(), deps.now(), deps.rebuilds, deps.settleMs))
+            .publish
+        : stillBehind({
+            meta: published,
+            manifest: await stores.copy.readManifest(),
+            league: await readCloudLeague(stores.leagueDocs),
+            today: deps.today(),
+          }),
     ...(deps.locale !== undefined ? { locale: deps.locale } : {}),
     ...(deps.onViews ? { onViews: deps.onViews } : {}),
   });

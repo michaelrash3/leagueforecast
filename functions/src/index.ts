@@ -54,6 +54,7 @@ import {
   BOARDS_SETTLE_MS,
   coerceBoardsCheck,
   noteLeagueDeleted,
+  rebuildQueued,
 } from "../../src/lib/live/boardsCheck";
 import { coerceRebuildTask } from "../../src/lib/live/rebuildPlan";
 import { handleCopyWrite, handleLeagueWrite } from "../../src/lib/live/rebuildTrigger";
@@ -528,7 +529,7 @@ export const onCopyWrite = !LIVE_REBUILD
         if (asksBoards(line))
           logger.info("boards-check", {
             savedAt: event.time,
-            ...(await queueBoardsCheck(event.time, line.queued !== false)),
+            ...(await queueBoardsCheck(event.time, rebuildQueued(line))),
           });
       }
     );
@@ -571,7 +572,7 @@ export const onLeagueWrite = !LIVE_REBUILD
         if (asksBoards(line))
           logger.info("boards-check", {
             savedAt: event.time,
-            ...(await queueBoardsCheck(event.time, line.queued !== false)),
+            ...(await queueBoardsCheck(event.time, rebuildQueued(line))),
           });
       }
     );

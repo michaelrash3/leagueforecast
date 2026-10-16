@@ -604,6 +604,36 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     expect(await lease.launch(NOW.getTime(), AT_ONCE)).toEqual({ ok: true });
   });
 
+  it("has the job leave an edit saved between its decision and its load to the edit's own check", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    // The check that started the job asked for the settle.
+    await lease.launch(NOW.getTime(), { settleMs: BOARDS_SETTLE_MS, rebuilds: true });
+    const { stores } = storesOf(cloud, live, { savedAt: ago(BOARDS_SETTLE_MS) });
+    // The job's own decision reads the copy still; an edit lands just after it.
+    let reads = 0;
+    const editedMeanwhile = {
+      ...stores,
+      readCopyAt: async () => {
+        const at = await stores.readCopyAt();
+        reads += 1;
+        return at && reads > 1 ? { ...at, savedAt: ago(5_000) } : at;
+      },
+    };
+    const run = await publishAfterPull(editedMeanwhile, {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease,
+      owner: "job-1",
+    });
+    expect(run.decided).toEqual({ publish: true, behind: "nothing" });
+    expect(run.result).toMatchObject({ end: "not-needed", tries: 0 });
+    expect(live.meta()).toBeNull();
+  });
+
   it("has the job count on no rebuild where its check's save could not queue one", async () => {
     // A ledger that would let a rebuild start: but the save's own rebuild was never queued.
     const cloud = await copied();

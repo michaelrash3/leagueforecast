@@ -4630,15 +4630,17 @@ rebuilds' own queue, which tells a check from a rebuild's task by its shape.
   publish may have read the copy before its save. The launch's claim carries what
   its launcher asked, and the job asks the same when it asks again: an edit made
   between a check and the job's start is left to its own check, not published
-  seconds old beside someone still editing. A launcher that finds a publish
+  seconds old beside someone still editing, and the job asks again just before it
+  loads the copy, for one saved after its own decision. A launcher that finds a publish
   under way asks it to go again, with what it asked, and the job finds that when
   it hands the lease back at its end: up to three rounds (`PUBLISH_ROUNDS`).
 - **A season deleted.** A deleted season's document leaves no time of its own, so
   the seasons' trigger notes the deletion (`ops/leagueDeleted`), and the settle
   counts it as a save.
-- **A rebuild that could not be queued.** A save whose rebuild the queue refused
-  queues a check of its own that counts on no rebuild, however much budget the
-  ledger has left, and its job counts on none either.
+- **A rebuild that could not be queued.** A save whose rebuild the queue refused,
+  or that the rebuilds, switched off, never asked for, queues a check of its own
+  that counts on no rebuild, however much budget the ledger has left by then, and
+  its job counts on none either.
 
 The decision is otherwise the pull's end's (`afterPullDecision`): behind, nothing
 at work on the boards, and no rebuild coming. A pull's own saves queue checks
