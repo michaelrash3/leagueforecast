@@ -10,7 +10,10 @@ import { reapSilentPulls, restJobDocs } from "../../src/lib/cloud/pullJobRunner"
 import { JOBS_COLLECTION } from "../../src/lib/cloud/pullJobs";
 import { restAccess } from "./pullAccess";
 
-const reap = async (): Promise<Record<string, unknown>> => {
+const reap = async (
+  skip: string | undefined,
+  stopped: () => boolean
+): Promise<Record<string, unknown>> => {
   try {
     const docs = firestoreRestDocuments(restAccess());
     const { ended } = await reapSilentPulls({
@@ -18,6 +21,8 @@ const reap = async (): Promise<Record<string, unknown>> => {
       jobs: restJobDocs(docs),
       leaseUntil: (jobId) => importLeaseUntil(docs, jobId),
       now: () => new Date(),
+      ...(skip !== undefined ? { skip } : {}),
+      stopped,
     });
     return ended > 0 ? { deadPullsEnded: ended } : {};
   } catch (error) {
@@ -28,13 +33,15 @@ const reap = async (): Promise<Record<string, unknown>> => {
 /**
  * For the caller's line: how many dead pulls were ended, where any were, and nothing otherwise.
  * Waited on for `withinMs` at most, so a slow Firestore never holds a caller past its own time
- * (`startPull` answers a device within thirty seconds); one not done by then is left to finish
- * meanwhile, every write of it made only on a job as read, or to the next round.
+ * (`startPull` answers a device within thirty seconds); one not done by then is told to stop, and
+ * ends no more pulls after the one it is on. `skip` is a job the caller acts on itself.
  */
 export const endDeadPulls = async (
-  withinMs = Number.POSITIVE_INFINITY
+  withinMs = Number.POSITIVE_INFINITY,
+  skip?: string
 ): Promise<Record<string, unknown>> => {
-  const ending = reap();
+  let late = false;
+  const ending = reap(skip, () => late);
   if (withinMs === Number.POSITIVE_INFINITY) return ending;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -42,7 +49,10 @@ export const endDeadPulls = async (
       ending,
       new Promise<Record<string, unknown>>((resolve) => {
         timer = setTimeout(
-          () => resolve({ deadPullsUnread: "out of time" }),
+          () => {
+            late = true;
+            resolve({ deadPullsUnread: "out of time" });
+          },
           Math.max(0, withinMs)
         );
       }),

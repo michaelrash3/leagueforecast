@@ -4126,7 +4126,12 @@ dead pull on its own rounds (`reapSilentPulls`, `functions/src/deadPulls.ts`): e
 ask `startPull` gets, whatever it is about (a press of Refresh now among them), the
 end of every pull, and every check of the boards a save queues. Each is the same
 one-query read of the pulls that say they are running, waited on for a few seconds
-at most where its caller has a deadline. Its lines say only how many it ended.
+at most where its caller has a deadline, and told to stop when that time is up.
+The job `startPull` is asked about is ended on its own first, as before, and the
+sweep leaves it alone, since a Resume may be launching it again meanwhile. At the
+end of a pull and in a save's check, the sweep runs before the boards are asked
+about, so a dead import still taken for one filing into the copy does not hold
+them back. Its lines say only how many it ended.
 Failed or stopped legacy list imports can resume with the staged importer, preserving
 previously filed work. Budgeted refresh jobs retain their existing leg sizes and caps.
 

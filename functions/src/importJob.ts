@@ -186,8 +186,9 @@ if (!claimed) {
       JSON.stringify({
         event: "import-boards",
         jobId,
-        ...(await publishBoardsIfDue()),
+        // Dead pulls ended first: one still taken for a writer would hold the boards back.
         ...(await endDeadPulls()),
+        ...(await publishBoardsIfDue()),
       })
     );
 }

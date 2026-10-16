@@ -796,16 +796,24 @@ export const reapPullJob = async (
  * running; each is read again and ended only as `reapPullJob` would, and one that cannot be read or
  * written is left to the next round rather than stopping the others. How many were found, and how
  * many of them ended.
+ *
+ * `skip` is a job its caller is about to act on itself, a Resume launching it again among them,
+ * which a round finishing late must not end from under it (Codex, on #410); and a round asked to
+ * stop (`stopped`, where its caller's time ran out) ends no more after the one it is on.
  */
 export const reapSilentPulls = async (deps: {
   running: () => Promise<ReadonlyArray<{ id: string }>>;
   jobs: Pick<JobDocs, "read" | "updateIfUnchanged">;
   leaseUntil: (jobId: string) => Promise<number>;
   now: () => Date;
+  skip?: string;
+  stopped?: () => boolean;
 }): Promise<{ running: number; ended: number }> => {
   const listed = await deps.running();
   let ended = 0;
   for (const { id } of listed) {
+    if (deps.stopped?.()) break;
+    if (id === deps.skip) continue;
     if (await reapPullJob(id, deps).catch(() => null)) ended += 1;
   }
   return { running: listed.length, ended };

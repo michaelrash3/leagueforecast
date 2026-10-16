@@ -1554,6 +1554,41 @@ describe("a pull nothing has been heard from", () => {
     expect(jobs.jobs.get(ENDED)?.status).toBe("done");
   });
 
+  it("leaves the job its caller acts on itself, and ends no more once told to stop", async () => {
+    const jobs = await legacy(minutes(180));
+    const OTHER = "4".repeat(32);
+    const THIRD = "5".repeat(32);
+    jobs.jobs.set(OTHER, jobs.job());
+    jobs.jobs.set(THIRD, jobs.job());
+    const { deps } = reaping(jobs);
+    // A Resume is launching JOB again: the round must not end it from under that.
+    const skipped = await reapSilentPulls({
+      ...deps,
+      skip: JOB,
+      running: async () => [{ id: JOB }, { id: OTHER }],
+    });
+    expect(skipped).toEqual({ running: 2, ended: 1 });
+    expect(jobs.job().status).toBe("running");
+    expect(jobs.jobs.get(OTHER)?.status).toBe("failed");
+    // Its caller's time ran out after the first: the rest are left to the next round.
+    let reads = 0;
+    const stopping = await reapSilentPulls({
+      ...deps,
+      jobs: {
+        ...jobs.docs,
+        read: async (jobId) => {
+          reads += 1;
+          return jobs.docs.read(jobId);
+        },
+      },
+      stopped: () => reads > 0,
+      running: async () => [{ id: JOB }, { id: THIRD }],
+    });
+    expect(stopping).toEqual({ running: 2, ended: 1 });
+    expect(jobs.job().status).toBe("failed");
+    expect(jobs.jobs.get(THIRD)?.status).toBe("running");
+  });
+
   it("goes on past a pull it could not read, leaving that one to its next round", async () => {
     const jobs = await legacy(minutes(180));
     const OTHER = "4".repeat(32);
