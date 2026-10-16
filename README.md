@@ -3972,7 +3972,9 @@ not ask them a third time. Failed downloads are counted as skipped, and the impo
 continues with the remaining teams; they do not consume Cloud Run execution retries or
 hold up the final tidy. Progress distinguishes downloaded, skipped and remaining teams,
 and the skips apart: those for now, which a later paste asks again, and those for good.
-Warning logs record failure reasons and bounded diagnostic samples.
+Warning logs record counts and failure reasons only, never a team's id, GameChanger
+address or body: the pull-status workflow, whose log is public, reads them back. The teams
+themselves, with what was said of each, are in the skipped-team report below.
 Resuming an older incomplete batch keeps its successful downloads, skips its recorded
 failures and asks only for teams that had no answer yet, then asks its passing failures
 once more with the rest.
@@ -4120,7 +4122,13 @@ the deploy key, read only):
   by their answer and time taken only.
 
 It runs where the log is public, so it cuts each job's id to six characters and
-takes out any address but a service account's. A part the key may not read says
+takes out any address but a service account's. Nothing about a team is printed
+either: a structured line loses its `teamId`, `url` and `bodyPreview` fields at any
+depth, and any text loses a GameChanger address and anything shaped like a team's
+id (twelve URL-safe characters with a digit, or a capital past the first). The
+import job used to log a sample team per failure reason, with the address asked
+and the start of the body that came back, and lines it logged then can still be
+in the hours read. A part the key may not read says
 so, and the rest still prints. The deploy account reads the queues as the pulls'
 setup made it, but lists the tasks in them only with Cloud Tasks Viewer, which
 one paste in Cloud Shell grants; without it the queues are said, their tasks are

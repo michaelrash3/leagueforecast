@@ -188,4 +188,65 @@ describe("logLine", () => {
       "2026-10-11T04:21:00Z ERROR runpull: Leg 0 of pull 012345…: failed"
     );
   });
+
+  /*
+   * The workflow's log is public, as the repository is. The import job logged a sample team per
+   * failure reason, with the GameChanger address it asked and the start of the body that came
+   * back, and this printed them whole. Its entries from before are still in the window read.
+   */
+  it("drops a team's id, address and body from a structured line, at any depth", () => {
+    const line = logLine({
+      timestamp: "2026-10-13T02:00:00Z",
+      severity: "WARNING",
+      resource: { type: "cloud_run_job" },
+      jsonPayload: {
+        event: "import-download-failures",
+        jobId: ID,
+        batch: 3,
+        skipped: 41,
+        reasons: { throttled: 40, "upstream-error": 1 },
+        samples: [
+          {
+            teamId: "gK5JSTKGwRYz",
+            error: {
+              ok: false,
+              reason: "upstream-error",
+              message: "GameChanger answered the profile request with HTTP 400.",
+              diagnostics: {
+                url: "https://api.team-manager.gc.com/public/teams/bears-baseball-10u",
+                status: 400,
+                bodyPreview: '{"name":"Bears Baseball 10U","coach":"Avery Stubmore"}',
+              },
+            },
+          },
+        ],
+      },
+    });
+    expect(line).toBe(
+      '2026-10-13T02:00:00Z WARNING cloud_run_job: {"event":"import-download-failures","jobId":"012345…",' +
+        '"batch":3,"skipped":41,"reasons":{"throttled":40,"upstream-error":1},"samples":[{"error":' +
+        '{"ok":false,"reason":"upstream-error","message":"GameChanger answered the profile request with HTTP 400.",' +
+        '"diagnostics":{"status":400}}}]}'
+    );
+  });
+
+  it("takes out anything shaped like a team's id, and any GameChanger address, from any text", () => {
+    expect(
+      logLine({
+        ...at,
+        severity: "ERROR",
+        textPayload:
+          "https://proxy.example.invalid/gcTeam answered without a result for gK5JSTKGwRYz; see web.gc.com/teams/bears-baseball-10u",
+      })
+    ).toBe(
+      "2026-10-11T04:21:00Z ERROR runpull: https://proxy.example.invalid/gcTeam answered without a result for (an id); see (a GameChanger address)"
+    );
+    // Words of twelve letters, a step's name and a time stay as they were.
+    expect(clipped("import-retry Organization successfully at 2026-10-11T04:21:00Z")).toBe(
+      "import-retry Organization successfully at 2026-10-11T04:21:00Z"
+    );
+    expect(clipped("teams Ab12Cd34Ef56 and gcACES000001 and zjvVkYnqLrf0")).toBe(
+      "teams (an id) and (an id) and (an id)"
+    );
+  });
 });

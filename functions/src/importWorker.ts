@@ -21,6 +21,8 @@ try {
     now: () => new Date(),
     onProgress: (detail) =>
       parentPort?.postMessage({ progress: true, ...(detail ? { detail } : {}) }),
+    // Counts and reasons alone (`ImportDownloadReport`): the public pull-status workflow reads
+    // this log back, and the teams themselves are in the members-only skipped-team report.
     onDownloadReport: (report) =>
       console.warn(
         JSON.stringify({ severity: "WARNING", event: "import-download-failures", jobId, ...report })

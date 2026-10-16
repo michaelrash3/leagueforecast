@@ -405,9 +405,14 @@ describe("a staged CSV import", () => {
       error: null,
     });
   });
-  it("reports failure reasons and bounded diagnostics, then files every successful team", async () => {
+  /*
+   * The import's log lines are read back by the public pull-status workflow, so they carry counts
+   * and reasons alone: no team id, no GameChanger address, no body GameChanger sent. The teams
+   * themselves, with what was said of each, are in the members-only skipped-team report.
+   */
+  it("logs each checkpoint's failures as counts and reasons, with no team, address or body", async () => {
     const test = setup(4);
-    test.fetchTeams.mockImplementationOnce(
+    test.fetchTeams.mockImplementation(
       async (ids) =>
         new Map([
           [ids[0]!, good(ids[0]!)],
@@ -416,8 +421,9 @@ describe("a staged CSV import", () => {
             {
               ok: false,
               reason: "unrecognized",
-              message: "Unreadable profile",
+              message: `GameChanger's profile JSON for ${id} is not in a shape this app can read`,
               diagnostics: {
+                url: `https://api.team-manager.gc.com/public/teams/${id}`,
                 status: 200,
                 bodyPreview: "x".repeat(600),
                 topLevelKeys: ["unexpected"],
@@ -429,15 +435,15 @@ describe("a staged CSV import", () => {
     const onDownloadReport = vi.fn();
     await runStagedImport(ID, { ...test.deps, onDownloadReport });
     expect(onDownloadReport).toHaveBeenCalledTimes(1);
-    expect(onDownloadReport.mock.calls[0]![0]).toMatchObject({
+    expect(onDownloadReport.mock.calls[0]![0]).toEqual({
       batch: 1,
+      checkpoint: 1,
       downloaded: 1,
       skipped: 3,
       reasons: { unrecognized: 3 },
     });
-    const samples = onDownloadReport.mock.calls[0]![0].samples;
-    expect(samples).toHaveLength(1);
-    expect(samples[0].error.diagnostics.bodyPreview).toHaveLength(300);
+    const logged = JSON.stringify(onDownloadReport.mock.calls);
+    expect(logged).not.toMatch(/gc000000000\d|gc\.com|xxxx/);
     expect(test.filed).toEqual(["gc0000000000"]);
     expect(test.job().status).toBe("done");
   });

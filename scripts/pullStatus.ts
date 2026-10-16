@@ -7,8 +7,9 @@
  * "waiting to start" or "stopping" is one of these, and this says which, from the cloud's side.
  *
  * It prints states, counts, times and the cloud's own words only, through `pullStatusReport.ts`,
- * which cuts every job's id short and takes out any address but a service account's: this
- * repository is public, and so are its Actions logs. A part it is refused (a key without the right
+ * which cuts every job's id short, takes out any address but a service account's, and drops a
+ * team's id, GameChanger address and body from every line: this repository is public, and so are
+ * its Actions logs. A part it is refused (a key without the right
  * to read the queues or the logs) says so and the rest still prints.
  *
  *   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run pull:status -- --hours 12

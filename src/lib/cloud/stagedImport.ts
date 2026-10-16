@@ -158,13 +158,19 @@ export const restImportArtifacts = (
 
 type ImportPlan = { copy: string; entries: GcTeamListEntry[]; batchTeams: number };
 type Batch = { answers: [string, GcTeamResponse][]; complete: boolean };
+/**
+ * A checkpoint's failures as the import job logs them (`importWorker.ts`): counts and reasons
+ * alone. The job's log is read back by the public pull-status workflow (`pullStatusReport.ts`),
+ * and it once carried a sample team per reason, with the GameChanger address asked and the start
+ * of the body that came back. The teams themselves, with what was said of each, are in the
+ * members-only skipped-team report (`importReports.ts`).
+ */
 export type ImportDownloadReport = {
   batch: number;
   checkpoint?: number;
   downloaded: number;
   skipped: number;
   reasons: Partial<Record<GcFetchErrorReason, number>>;
-  samples: { teamId: string; error: Extract<GcTeamResponse, { ok: false }> }[];
 };
 type StagedDeps = Pick<CloudPullDeps, "store" | "fetchTeams" | "now"> & {
   jobs: JobDocs;
@@ -185,35 +191,14 @@ const downloadReport = (
     downloaded: 0,
     skipped: 0,
     reasons: {},
-    samples: [],
   };
-  for (const [teamId, answer] of answers) {
+  for (const answer of answers.values()) {
     if (answer.ok) {
       report.downloaded++;
       continue;
     }
     report.skipped++;
-    const firstOfReason = !report.reasons[answer.reason];
     report.reasons[answer.reason] = (report.reasons[answer.reason] ?? 0) + 1;
-    // One bounded diagnostic per reason, without successful schedules or request headers.
-    if (firstOfReason)
-      report.samples.push({
-        teamId,
-        error: {
-          ...answer,
-          message: answer.message.slice(0, 500),
-          ...(answer.diagnostics
-            ? {
-                diagnostics: {
-                  ...answer.diagnostics,
-                  ...(answer.diagnostics.bodyPreview
-                    ? { bodyPreview: answer.diagnostics.bodyPreview.slice(0, 300) }
-                    : {}),
-                },
-              }
-            : {}),
-        },
-      });
   }
   return report;
 };
