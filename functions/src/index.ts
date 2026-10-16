@@ -23,6 +23,7 @@ import { randomId } from "../../src/lib/cloud/cloudManifest";
 import { importLeaseUntil } from "../../src/lib/cloud/importLease";
 import { JOB_ID, JOBS_COLLECTION } from "../../src/lib/cloud/pullJobs";
 import {
+  legsLastHeard,
   reapPullJob,
   restJobDocs,
   resumePullJob,
@@ -245,10 +246,16 @@ export const startPull = !CLOUD_PULLS
           typeof data?.jobId === "string" && JOB_ID.test(data.jobId) ? data.jobId : null;
         if (askedJob) {
           const docs = firestoreRestDocuments(restAccess());
+          const jobs = restJobDocs(docs);
+          const now = () => new Date();
           const ended = await reapPullJob(askedJob, {
-            jobs: restJobDocs(docs),
+            jobs,
             leaseUntil: (id) => importLeaseUntil(docs, id),
-            now: () => new Date(),
+            now,
+            // A job of the older runner waits behind other pulls' legs: ended only once none of
+            // them has been heard from either.
+            legsHeard: async () =>
+              legsLastHeard(await docs.where(JOBS_COLLECTION, "status", ["running"]), jobs, now),
           }).catch((error: unknown) => {
             logger.warn("startPull", { kind: "reap", failed: messageOf(error) });
             return null;

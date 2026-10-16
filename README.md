@@ -4126,7 +4126,14 @@ dead pull on its own rounds (`reapSilentPulls`, `functions/src/deadPulls.ts`): e
 ask `startPull` gets, whatever it is about (a press of Refresh now among them), the
 end of every pull, and every check of the boards a save queues. Each is the same
 one-query read of the pulls that say they are running, waited on for a few seconds
-at most where its caller has a deadline, and told to stop when that time is up.
+at most where its caller has a deadline, and ending nothing once that time is up
+(`reapSilentPullsWithin`): a write already sent is waited for, and none is sent
+after, so no pull ends behind a caller gone on to ask about the boards, which would
+have found it still running and left them. A job of the older runner between legs
+waits in the queue behind every other pull's legs, three at a time and with no bound
+on how long, so it is taken for dead only once no running job of that runner has
+been heard from in two hours either (`legsLastHeard`), and not on a round that
+could not read one of them.
 The job `startPull` is asked about is ended on its own first, as before, and the
 sweep leaves it alone, since a Resume may be launching it again meanwhile. At the
 end of a pull and in a save's check, the sweep runs before the boards are asked

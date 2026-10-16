@@ -748,7 +748,11 @@ export const LEGS_WENT_SILENT =
  *
  * A staged import is dead once nothing has been heard from it in `IMPORT_SILENT_MS` and nothing
  * holds its execution lease: a supervisor still renewing the lease is alive, however late its
- * heartbeat. A job of the older runner, once nothing has written it in `LEGS_SILENT_MS`. Only a job
+ * heartbeat. A job of the older runner, once nothing has written it in `LEGS_SILENT_MS`, nor, where
+ * `legsHeard` is given, any other running job of that runner (`legsLastHeard`): a job between legs
+ * waits for its next in the queue behind every other pull's legs, three at a time, with no bound on
+ * how long, so one silent while others are written may only be waiting its turn (Codex, on #410).
+ * Only once the whole queue has been quiet that long is it taken for dead. Only a job
  * that says it is running: a queued one is the start's to end (`startPullJob`), and one resumed is
  * queued until Cloud Run starts it. Ended as failed, or cancelled where a stop was asked, and only
  * while it is still as read, so a worker that wrote meanwhile keeps it. The status it was ended
@@ -761,6 +765,8 @@ export const reapPullJob = async (
     /** Until when an execution holds a staged import's lease, in milliseconds (`importLeaseUntil`). */
     leaseUntil: (jobId: string) => Promise<number>;
     now: () => Date;
+    /** When any running job of the older runner was last heard from (`legsLastHeard`). */
+    legsHeard?: () => Promise<number>;
   }
 ): Promise<PullJobStatus | null> => {
   if (!JOB_ID.test(jobId)) return null;
@@ -771,6 +777,8 @@ export const reapPullJob = async (
   const staged = job.pipeline === "staged-v1" && !job.rota;
   if (!(silentMs >= (staged ? IMPORT_SILENT_MS : LEGS_SILENT_MS))) return null;
   if (staged && (await deps.leaseUntil(jobId)) > nowMs) return null;
+  if (!staged && deps.legsHeard && !(nowMs - (await deps.legsHeard()) >= LEGS_SILENT_MS))
+    return null;
   const status = job.stopAsked ? "cancelled" : "failed";
   const error = !staged
     ? LEGS_WENT_SILENT
@@ -787,6 +795,29 @@ export const reapPullJob = async (
 };
 
 /**
+ * When any of `listed` that is a running job of the older runner (a list's legs, or Refresh now's)
+ * was last heard from (`lastHeardFrom`), in milliseconds; minus infinity where none is. A job that
+ * cannot be read counts as heard from now, since it may be the one at work: nothing of that runner
+ * is ended on a round that cannot tell.
+ */
+export const legsLastHeard = async (
+  listed: ReadonlyArray<{ id: string }>,
+  jobs: Pick<JobDocs, "read">,
+  now: () => Date
+): Promise<number> => {
+  let newest = Number.NEGATIVE_INFINITY;
+  for (const { id } of listed) {
+    if (!JOB_ID.test(id)) continue;
+    const job = await jobs.read(id).catch(() => undefined);
+    if (job === undefined) return now().getTime();
+    if (!job || job.status !== "running" || (job.pipeline === "staged-v1" && !job.rota)) continue;
+    const heard = lastHeardFrom(job);
+    if (Number.isFinite(heard)) newest = Math.max(newest, heard);
+  }
+  return newest;
+};
+
+/**
  * Every pull that says it is running ended where its worker has died without a word
  * (`reapPullJob`), and not only one a device asks about: the list of 12 October 2026 sat at "running,
  * loading; part 9 of 18; stop asked" until 16 October and on, since the device that sent it no
@@ -799,7 +830,9 @@ export const reapPullJob = async (
  *
  * `skip` is a job its caller is about to act on itself, a Resume launching it again among them,
  * which a round finishing late must not end from under it (Codex, on #410); and a round asked to
- * stop (`stopped`, where its caller's time ran out) ends no more after the one it is on.
+ * stop (`stopped`, where its caller's time ran out) ends no more after the one it is on. A job of
+ * the older runner is ended only while none of the jobs listed has been heard from either
+ * (`legsLastHeard`), read once a round.
  */
 export const reapSilentPulls = async (deps: {
   running: () => Promise<ReadonlyArray<{ id: string }>>;
@@ -810,13 +843,62 @@ export const reapSilentPulls = async (deps: {
   stopped?: () => boolean;
 }): Promise<{ running: number; ended: number }> => {
   const listed = await deps.running();
+  let heard: Promise<number> | undefined;
+  const legsHeard = () => (heard ??= legsLastHeard(listed, deps.jobs, deps.now));
   let ended = 0;
   for (const { id } of listed) {
     if (deps.stopped?.()) break;
     if (id === deps.skip) continue;
-    if (await reapPullJob(id, deps).catch(() => null)) ended += 1;
+    if (await reapPullJob(id, { ...deps, legsHeard }).catch(() => null)) ended += 1;
   }
   return { running: listed.length, ended };
+};
+
+/**
+ * A round of `reapSilentPulls` given `withinMs` at most, for a caller that goes on once its time is
+ * up: to answer a device, or to ask about the boards. Once time is up it ends nothing more, a write
+ * of a job not yet sent among it, and a write already sent is waited for, so no job is ended behind
+ * a caller that has gone on: one that asked about the boards straight after would have found the
+ * pull still running and left them, with nothing to ask again once it ended (Codex, on #410). How
+ * many were ended, and whether time ran out first.
+ */
+export const reapSilentPullsWithin = async (
+  deps: Parameters<typeof reapSilentPulls>[0],
+  withinMs: number
+): Promise<{ ended: number; late: boolean }> => {
+  let late = false;
+  let ended = 0;
+  // In an object, since only closures write it and a plain variable reads as never written.
+  const sending: { write: Promise<boolean> | null } = { write: null };
+  const jobs: Pick<JobDocs, "read" | "updateIfUnchanged"> = {
+    read: (jobId) => deps.jobs.read(jobId),
+    updateIfUnchanged: (jobId, seen, patch) => {
+      if (late) return Promise.resolve(false);
+      const write = deps.jobs.updateIfUnchanged(jobId, seen, patch).then((done) => {
+        if (done) ended += 1;
+        return done;
+      });
+      sending.write = write;
+      const sent = () => {
+        if (sending.write === write) sending.write = null;
+      };
+      write.then(sent, sent);
+      return write;
+    },
+  };
+  const round = reapSilentPulls({ ...deps, jobs, stopped: () => late || !!deps.stopped?.() });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<"late">((resolve) => {
+    if (Number.isFinite(withinMs)) timer = setTimeout(() => resolve("late"), Math.max(0, withinMs));
+  });
+  try {
+    if ((await Promise.race([round, timedOut])) !== "late") return { ended, late: false };
+  } finally {
+    clearTimeout(timer);
+  }
+  late = true;
+  await sending.write?.catch(() => false);
+  return { ended, late: true };
 };
 
 /** How recent a heartbeat says a staged import's supervisor is still at work. */
