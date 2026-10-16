@@ -81,7 +81,8 @@ void startApp({
   fill: (after) =>
     startPoolFill(() => Promise.all([initTeamRankingsStore(), loadSavedBoard()]), after),
   // A device whose League arrives live draws first and signs in beside the page (`bootOrder.ts`).
-  cloud: (waitedOn) => bootCloud(waitedOn ? showBootLine : undefined),
+  // Not waited on, the page is already mounting, and nothing is taken in under it.
+  cloud: (waitedOn) => bootCloud(waitedOn ? showBootLine : undefined, { mounting: !waitedOn }),
   leagueLive: leagueMetHere,
   // A member's device draws at once, its sign-in started beside the page, and its store read
   // once the board is drawn.

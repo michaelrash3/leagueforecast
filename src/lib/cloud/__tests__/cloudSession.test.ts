@@ -590,6 +590,22 @@ describe("opening at boot beside the live board", () => {
   });
 });
 
+describe("a boot beside a page already mounting", () => {
+  it("takes no League in under it, though the page has not said yet that it is drawn", async () => {
+    const { phone } = await inStep();
+    await serverWrites({ league: league(season("fall", { g1: log(3, 2) })) });
+    // A member's device, mounted before its session starts (`bootOrder.ts`), signing in before
+    // the page's first effect has run (`startCloudSession`).
+    runAs(phone);
+    await session.bootCloud(undefined, { mounting: true });
+    expect(logsOf(phone)).toEqual({});
+    expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: ["league"] });
+    // Offered rather than laid under the page: asked for, it comes.
+    await session.loadNewer();
+    expect(logsOf(phone)).toEqual({ g1: log(3, 2) });
+  });
+});
+
 describe("the copy as this device last found it", () => {
   const seenOf = (manifest: CloudManifest | null) =>
     manifest && {

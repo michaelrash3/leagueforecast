@@ -1075,12 +1075,20 @@ export const lookAgain = async ({ forced = false, arriving = false } = {}): Prom
  * past either the app opens on the data it has, and the newer seasons wait to be asked for. Another
  * tab already at work on the copy is left to it: this one opens at once.
  *
- * `onProgress` is for a line of text while nothing else is on screen.
+ * `onProgress` is for a line of text while nothing else is on screen. `mounting` says the app was
+ * already told to draw when this started (`bootOrder.ts`), so nothing is to be taken in under it.
  */
-export const bootCloud = async (onProgress?: (text: string) => void): Promise<void> => {
+export const bootCloud = async (
+  onProgress?: (text: string) => void,
+  { mounting = false }: { mounting?: boolean } = {}
+): Promise<void> => {
   // Run again after the app drew (Try again, after a sign-in lapsed), a take still may not land
-  // under it: only a first start, before the app draws, takes League Standings in silently.
-  if (!stopSession) drawn = false;
+  // under it: only a first start, before the app draws, takes League Standings in silently. Nor
+  // beside a page already mounting, which read its seasons as it first rendered: the page is drawn
+  // from then, not from the effect that says so (`startCloudSession`), which a quick sign-in could
+  // beat, leaving the page on the seasons the take replaced, and free to write them back.
+  if (mounting) drawn = true;
+  else if (!stopSession) drawn = false;
   if (!config()) return;
   const state = loadCloudState();
   if (!state.enabled) {

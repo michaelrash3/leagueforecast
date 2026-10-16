@@ -3817,7 +3817,10 @@ phone", below). Its League arrives live once its seasons have met the cloud's
 documents, so for it the copy's League was nothing to wait for; one still to meet
 them takes the copy's League as a boot past its wait always did, and since no
 device has written the copy since 1.6f, it differs from the device's own only on
-one not opened since. Before 16 October 2026 such a browser waited at most four
+one not opened since. Its boot is told the page is already mounting
+(`bootCloud`'s `mounting`), so a sign-in quicker than the page's first effect
+cannot lay the copy's seasons under a page that read the older ones as it
+rendered, and was free to write them back. Before 16 October 2026 such a browser waited at most four
 seconds to reach the cloud (`STARTUP_WAIT_MS`) and six more for the seasons to
 arrive (`STARTUP_TAKE_MS`), behind "Checking your cloud copy…"; past either, the
 app opened on what it had and the panel offered the newer seasons (**Load them
