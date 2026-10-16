@@ -42,8 +42,6 @@ export type ServerStores = {
    * the boards to, and how long the copy has been still (`catchUp.ts`).
    */
   readCopyAt: () => Promise<{ manifest: unknown; savedAt: string } | null>;
-  /** The rebuild job's control document (`ops/rebuildJob`), its fields as stored, or null. */
-  readRebuildJob: () => Promise<unknown>;
   /**
    * Every pull queued or running (`pullJobs`), "Refresh now" and pasted lists alike, as
    * `coercePullJob` reads each: one it cannot read is left out.
@@ -83,7 +81,6 @@ export const restServerStores = (access: RestAccess, writable: boolean | "live")
       const at = await docs.readAt(MANIFEST_PATH);
       return at ? { manifest: at.fields, savedAt: at.token } : null;
     },
-    readRebuildJob: () => docs.read(REBUILD_JOB_CONTROL),
     pullsUnderWay: async () =>
       (await docs.where(JOBS_COLLECTION, "status", ["queued", "running"])).flatMap(
         ({ fields }) => coercePullJob(fields) ?? []
