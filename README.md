@@ -4546,13 +4546,65 @@ the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
 set to `live`.
 
+### Boards published when a pull ends
+
+Every pull ends by saving the copy: a pasted list's import, each part of a list
+sent in parts, and "Refresh now". That save asks for a rebuild ("Views a server
+publishes"), which puts the new teams and games on the boards within minutes, but
+only while the rebuilds run. On 16 October 2026 they did not: October's budget was
+spent, so every rebuild was deferred to 1 November, and the 125,954 teams of 2027
+imported that afternoon showed "Nothing ranked yet" for hours. The catch-up on
+GitHub (below) was meant to cover such times, but GitHub's schedule did not start
+it once in the three and a half hours after it was merged, seven times due, and
+it started the nightly four and a half hours late that morning.
+
+So the end of a pull now asks for itself (`afterPull.ts`). Once an import's
+worker has gone, or the last leg of a pull has run, whether it finished, was
+stopped or failed for good, the cloud reads the copy's manifest, the published
+meta and the seasons. Where the boards are behind the copy, it starts the
+`boards-publish` job (`functions/src/boardsPublish.ts`, from the import's image,
+at the rebuild's size, zone and collation). The job asks again and publishes as
+the catch-up does. The decision is the catch-up's (`catchUpDecision`), with two
+differences:
+
+- **It does not wait ten minutes for the copy to be still.** The save it would
+  wait out is the pull's own last.
+- **It leaves the boards to a rebuild where one is coming** (`rebuildWillPublish`).
+  That means the rebuilds are on and publishing, and either one is under way
+  (holding the rebuild job, or a run open on the ledger) or the ledger would let
+  one start. Where a cap is spent, failures paused them for the day, or they are
+  off or dry, no rebuild is coming, and the pull's end publishes.
+
+It waits for the same writers the catch-up waits for:
+
+- another import filing into the copy, or a "Refresh now" under way, whose own
+  end publishes;
+- the nightly pulling at the refresh gate.
+
+It cannot ask GitHub whether the nightly is running.
+
+The job runs once with no retries. A publish that fails is left to the catch-up
+and the nightly, and it fails nothing of the pull, which is over. Two started at
+once both publish, and the later one finds the boards current or publishes over
+the earlier one, which a publish never puts back.
+
+The cost is part of the import's own. The catch-up of 16 October built the year's
+66 boards in 31 s and published them in 86 s in all, on GitHub's four vCPUs. An
+import of a list runs for hours at four vCPUs and 16 GiB.
+
+Its lines (`boards-after-pull`, `import-boards`, and the job's `boards-publish`)
+are counts and reasons only. **Actions → Pulls in the cloud** shows them beside
+the importer's.
+
 ### Boards caught up on GitHub
 
 A save's rebuild ("Views a server publishes") puts an import or an edit on the
 boards within minutes, but only while the rebuilds run. Switched off, paused,
 failing, or deferred to a later month by their budget (as they were from 14
 October 2026, October's spent, until 1 November), a save reached the boards only
-with the nightly, which GitHub starts hours late. So every half hour one of
+with the nightly, which GitHub starts hours late. A pull's own end now publishes
+in those times ("Boards published when a pull ends"); an edit's save, and a pull
+whose publish failed, still wait for this. So every half hour one of
 GitHub's servers looks (`.github/workflows/catch-up.yml`, `scripts/catchUp.ts`,
 `npm run catch-up`), and publishes the boards where they are behind the copy and
 nothing else is about to. Its rules are `catchUp.ts`'s, kept out of the script so

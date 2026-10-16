@@ -90,6 +90,30 @@ export const launchRebuild = async (): Promise<void> => {
 };
 
 /**
+ * Starts the `boards-publish` job (`boardsPublish.ts`), which publishes the boards once a pull has
+ * ended with no rebuild coming to (`afterPull.ts`). It reads what it publishes from the cloud, so it
+ * needs nothing handed over; two started at once both publish, the later finding the boards current
+ * or publishing over the earlier, which a publish never puts back.
+ */
+export const launchBoardsPublish = async (): Promise<void> => {
+  const access = restAccess();
+  const response = await fetch(
+    `https://run.googleapis.com/v2/projects/${access.projectId}/locations/${REGION}/jobs/boards-publish:run`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await access.token()}`,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+      signal: AbortSignal.timeout(25_000),
+    }
+  );
+  if (!response.ok)
+    throw new Error(`The boards' publish could not be started (HTTP ${response.status}).`);
+};
+
+/**
  * Queues a leg, named for its job and leg: a leg queued twice is queued once, and the second
  * queueing answers "already". Cloud Tasks gives that answer, too, for a name a task had until it
  * ran or was dropped, for some time after: a job whose first task was refused at every delivery

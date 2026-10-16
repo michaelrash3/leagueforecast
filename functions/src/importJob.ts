@@ -7,6 +7,7 @@ import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
 import { importLease, IMPORT_LEASE_MS } from "../../src/lib/cloud/importLease";
 import { restJobDocs, startNextPart } from "../../src/lib/cloud/pullJobRunner";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
+import { publishBoardsIfDue } from "./afterPullLaunch";
 import { enqueueLeg, restAccess, zoneOf } from "./pullAccess";
 
 const jobId = process.env.IMPORT_JOB_ID ?? "";
@@ -172,4 +173,13 @@ if (!claimed) {
     await worker?.terminate();
     await lease.release().catch(() => undefined);
   }
+  // Once the worker is gone, and however the import ended: done, stopped, or failed on its last
+  // try, any of which may have saved what it filed. What it saved goes on the boards now, where no
+  // rebuild is coming to (`afterPull.ts`); a try to be tried again leaves it to that try.
+  const ended = await jobs.read(jobId).catch(() => null);
+  if (
+    ended &&
+    (ended.status === "done" || ended.status === "failed" || ended.status === "cancelled")
+  )
+    console.log(JSON.stringify({ event: "import-boards", jobId, ...(await publishBoardsIfDue()) }));
 }

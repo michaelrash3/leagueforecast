@@ -67,6 +67,7 @@ import {
   restAccess,
   zoneOf,
 } from "./pullAccess";
+import { publishBoardsIfDue } from "./afterPullLaunch";
 import type { LegAnswer, LegRequest } from "./pullLeg";
 import { PULL_WORKER_TIMEOUT_MS, waitForPullWorker } from "../../src/lib/cloud/pullWorkerLifetime";
 
@@ -358,6 +359,9 @@ const legInWorker = (request: LegRequest, deadlineMs: number): Promise<LegAnswer
  */
 const LEGS_AT_ONCE = 3;
 
+/** How a leg that ended its job ends (`LegOutcome`): finished, stopped, or failed for good. */
+const PULL_ENDED: ReadonlySet<string> = new Set(["done", "cancelled", "failed"]);
+
 /**
  * One leg of a pull, as Cloud Tasks sends it, beside at most `LEGS_AT_ONCE - 1` others. A leg has
  * a worker limit 30 seconds inside the task's half hour, so its thread ends and its error can be
@@ -438,9 +442,16 @@ export const runPull = !CLOUD_PULLS
               });
           }
           if (!lastTry) throw new Error(answer.error);
+          // The job is failed now, and its earlier legs' saves may want publishing.
+          logger.info("boards-after-pull", { jobId: task.jobId, ...(await publishBoardsIfDue()) });
           return;
         }
         logger.info(said(`${answer.outcome} in ${took}.`));
+        // The leg that ended its job, however it ended: what its legs saved goes on the boards now,
+        // where no rebuild is coming to (`afterPull.ts`).
+        if (PULL_ENDED.has(answer.outcome)) {
+          logger.info("boards-after-pull", { jobId: task.jobId, ...(await publishBoardsIfDue()) });
+        }
       }
     );
 
