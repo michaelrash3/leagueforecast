@@ -544,6 +544,33 @@ describe("a list sent in parts", () => {
     expect(screen.queryByRole("listitem")).toBeNull();
   });
 
+  it("keeps each part's skipped-team report, not only the part it ended on", async () => {
+    const { sender } = watchingParts([
+      { status: "done", pipeline: "staged-v1", report: { rows: 3, ready: true } },
+      { status: "done", pipeline: "staged-v1", report: { rows: 0, ready: true } },
+      {
+        status: "running",
+        pipeline: "staged-v1",
+        stage: "fetching",
+        heartbeatAt: NOW,
+        report: { rows: 2, ready: true },
+      },
+    ]);
+    const report = vi.fn(async () => ["CSV"]);
+    sender.jobs.report = report;
+    await open(sender);
+    // Part 1's report though part 3 is under way, part 3's so far, and none for part 2, which
+    // skipped no team.
+    expect(
+      screen.getAllByRole("button", { name: /Download skipped teams/ }).map((b) => b.textContent)
+    ).toEqual(["Download skipped teams of part 1", "Download skipped teams of part 3 so far"]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Download skipped teams of part 1" }));
+    });
+    expect(report).toHaveBeenCalledWith(FIRST);
+    expect(downloadCsv).toHaveBeenCalledWith("team-import-skipped-11111111.csv", ["CSV"]);
+  });
+
   it("offers Resume on the part it halted at, saying the list carries on from there", async () => {
     const { sender } = watchingParts([
       { status: "done" },

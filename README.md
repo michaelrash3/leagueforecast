@@ -3975,7 +3975,10 @@ not yet ended to stop, the parts after it first, and asks about each part that
 never started, which cancels it; Dismiss does the same for the parts after the
 one gone silent. Resume on a part puts the parts after it that were stopped
 with it back in the queue, so the list carries on once that part is done. OK
-tells of every part at once. A device asks the cloud to start a later part
+tells of every part at once. Each part keeps its own skipped-team report, and
+the line offers every part's that skipped a team ("Download skipped teams of
+part 1"), so an earlier part's skips are not lost once a later part is under
+way or the list is done. A device asks the cloud to start a later part
 only once the part before it is done (at once, then each minute while nothing
 has touched it), so a supervisor lost between finishing one part and starting
 the next stalls nothing while a tab is open, and two parts of one list never

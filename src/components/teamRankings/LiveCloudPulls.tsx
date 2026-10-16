@@ -11,6 +11,7 @@ import {
   describeSplit,
   dueForAsking,
   goneSilent,
+  isOver,
   isRefresh,
   listOver,
   listsOf,
@@ -284,10 +285,13 @@ function SkippedReportButton({
   jobId,
   read,
   partial,
+  part,
 }: {
   jobId: string;
   read: NonNullable<WatchedPulls["report"]>;
   partial: boolean;
+  /** The part of a list sent in parts whose report it is; absent for a list sent whole. */
+  part?: number;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -307,9 +311,7 @@ function SkippedReportButton({
       <button type="button" className={button.ghost} disabled={busy} onClick={() => void save()}>
         {busy
           ? "Preparing report…"
-          : partial
-            ? "Download skipped teams so far"
-            : "Download skipped teams"}
+          : `Download skipped teams${part === undefined ? "" : ` of part ${part}`}${partial ? " so far" : ""}`}
       </button>
       {error ? (
         <p className="text-amber-800 dark:text-amber-300">
@@ -414,13 +416,19 @@ export function PullLines({
                     ) : null}
                   </>
                 )}
-                {pull.job.report?.ready && pull.job.report.rows > 0 && watching.report ? (
-                  <SkippedReportButton
-                    jobId={pull.sent.jobId}
-                    read={watching.report}
-                    partial={!over}
-                  />
-                ) : null}
+                {/* Each part's own report, not only the part under way or ended on: a list's
+                    earlier parts keep the teams they skipped, which no later part carries. */}
+                {parts.map((part) =>
+                  part.job.report?.ready && part.job.report.rows > 0 && watching.report ? (
+                    <SkippedReportButton
+                      key={part.sent.jobId}
+                      jobId={part.sent.jobId}
+                      read={watching.report}
+                      partial={!isOver(part.job)}
+                      {...(part.job.chain ? { part: part.job.chain.part } : {})}
+                    />
+                  ) : null
+                )}
                 {!over ? (
                   <>
                     {metrics ? (
