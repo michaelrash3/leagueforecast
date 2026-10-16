@@ -154,7 +154,9 @@ export const launchAfterPull = async (
   if (!claimed.ok)
     return { publish: false, because: "publishing", behind: decided.behind, until: claimed.until };
   try {
-    await launch();
+    // Tried once more before the claim is let go: another launcher that found it held has written
+    // its ask onto it, counting on this launch, and letting go would drop that too (Codex, on #409).
+    await launch().catch(() => launch());
   } catch (error) {
     await lease.unlaunch().catch(() => undefined);
     throw error;
@@ -164,9 +166,9 @@ export const launchAfterPull = async (
 
 /**
  * The least time the ask at a pull's end needs before its caller's deadline: a few reads, and the
- * launch, whose request waits up to 25 s (`launchBoardsPublish`).
+ * launch, whose request waits up to 25 s (`launchBoardsPublish`) and is tried twice.
  */
-export const AFTER_PULL_ASK_MS = 30_000;
+export const AFTER_PULL_ASK_MS = 55_000;
 
 /**
  * `ask`, where there is time for it before `deadline` (milliseconds since the epoch), and raced

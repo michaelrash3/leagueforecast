@@ -379,8 +379,8 @@ describe("the ask at a pull's end, against its caller's deadline", () => {
     vi.useFakeTimers();
     try {
       const now = Date.now();
-      const answered = askInTime(() => new Promise<string>(() => undefined), now + 40_000, now);
-      await vi.advanceTimersByTimeAsync(39_999);
+      const answered = askInTime(() => new Promise<string>(() => undefined), now + 70_000, now);
+      await vi.advanceTimersByTimeAsync(69_999);
       let settled = false;
       void answered.then(() => {
         settled = true;
@@ -489,6 +489,27 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     ]);
     expect(once).toHaveBeenCalledTimes(1);
     expect(both.map((one) => one.publish).sort()).toEqual([false, true]);
+  });
+
+  it("tries a refused launch once more, for the launchers counting on its claim", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const pullEnd = { settleMs: 0, rebuilds: false };
+    // The first try is refused; meanwhile another pull's end finds the claim held and asks on it.
+    const flaky = vi
+      .fn<() => Promise<void>>()
+      .mockImplementationOnce(async () => {
+        await lease.launch(NOW.getTime(), pullEnd);
+        throw new Error("HTTP 503");
+      })
+      .mockResolvedValueOnce(undefined);
+    expect(
+      await launchAfterPull(storesOf(cloud, live).stores, flaky, FIXTURE_TODAY, NOW, true, lease)
+    ).toEqual({ publish: true, behind: "nothing" });
+    expect(flaky).toHaveBeenCalledTimes(2);
+    // The job the second try started publishes for both.
+    expect(await lease.take(NOW.getTime(), "job-1")).toEqual({ taken: true, asked: pullEnd });
   });
 
   it("lets a failed launch's claim go, so the next check is not held off", async () => {

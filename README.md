@@ -4623,7 +4623,8 @@ rebuilds' own queue, which tells a check from a rebuild's task by its shape.
 - **The lease.** One publish runs at a time (`publishLease.ts`, `ops/boardsPublish`).
   A launcher, whether a pull's end or a check, claims the lease before it starts
   the job, so two that ask at once start one. The job takes the lease over when
-  it starts and lets it go when it ends. A launch that fails lets its claim go.
+  it starts and lets it go when it ends. A launch that fails is tried once more,
+  since other launchers may have asked on its claim, then lets the claim go.
   Any claim nobody lets go lapses: a launch's after five minutes, a job's after
   the job's half hour. A check that finds a publish under way asks again half a
   minute after the lease lapses, or after the settle at the latest, since that
