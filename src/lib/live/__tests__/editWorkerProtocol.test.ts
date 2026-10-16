@@ -30,6 +30,8 @@ const EDITED: EditRun = {
   inverse: { kind: "none" },
   changed: ["k"],
   startedAgain: false,
+  epoch: "e1",
+  savedAt: "2026-10-02T16:00:00.000Z",
   tries: 1,
   cold: false,
   fetched: 0,
