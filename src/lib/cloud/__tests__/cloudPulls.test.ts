@@ -3,11 +3,18 @@ import type { Called, RefreshStart } from "../../live/editClient";
 import {
   ASK_AGAIN_MS,
   askAgain,
+  currentPart,
   describeEnd,
+  describeListEnd,
+  describeListProgress,
   describeProgress,
   describePullUpdate,
   describeImportMetrics,
+  describeSplit,
   goneSilent,
+  listOver,
+  listsOf,
+  partsAfter,
   PULL_STALE_MS,
   resumable,
   STARTING_MS,
@@ -19,10 +26,20 @@ import {
   sendPull,
   sendRefresh,
   SENT_PULLS_KEY,
+  waitsOnEarlierPart,
   type PullSender,
   type SentPull,
+  type WatchedPull,
 } from "../cloudPulls";
-import { MAX_LIST_TEAMS, newRefreshJob, tooManyTeams, type PullJob } from "../pullJobs";
+import type { GcTeamListEntry } from "../../gameChangerApi";
+import {
+  MAX_LIST_TEAMS,
+  newPullJob,
+  newRefreshJob,
+  unpackJobList,
+  type PullJob,
+  type PullJobChain,
+} from "../pullJobs";
 
 const backing = new Map<string, string>();
 beforeEach(() => {
@@ -600,29 +617,443 @@ describe("a pull gone silent", () => {
   });
 });
 
-describe("a list longer than one pull takes", () => {
-  it("is refused before anything is uploaded or started, in plain words", async () => {
-    const cloud = cloudOf({ ok: true, value: { status: "queued" } });
-    const start = vi.spyOn(cloud.sender, "start");
-    const teams = MAX_LIST_TEAMS + 1;
-    const answer = await sendPull(
-      {
-        entries: Array.from({ length: teams }, (_, n) => ({
-          teamId: `gc${String(n).padStart(10, "0")}`,
-        })),
-        seasonYears: [],
-        device: "phone",
-        timeZone: "America/New_York",
-        now: NOW,
+/** A list of `count` made-up GameChanger ids, in order. */
+const madeUp = (count: number): GcTeamListEntry[] =>
+  Array.from({ length: count }, (_, n) => ({ teamId: `gc${String(n).padStart(10, "0")}` }));
+
+/**
+ * A cloud in memory that keeps what a list in parts is checked by: the order the jobs were
+ * written in, each one's pieces, every `next` that named a job not there yet when it was written,
+ * and every start, resume and stop asked.
+ */
+const partsCloud = () => {
+  const jobs = new Map<string, PullJob>();
+  const pieces = new Map<string, readonly Uint8Array[]>();
+  const written: string[] = [];
+  const dangling: string[] = [];
+  const started: string[] = [];
+  const resumed: string[] = [];
+  const stopped: string[] = [];
+  const sender: PullSender = {
+    jobs: {
+      put: async (jobId, job, list) => {
+        if (job.chain?.next && !jobs.has(job.chain.next)) dangling.push(jobId);
+        written.push(jobId);
+        jobs.set(jobId, job);
+        pieces.set(jobId, list);
       },
-      cloud.sender
+      read: async (jobId) => jobs.get(jobId) ?? null,
+      askStop: async (jobId) => {
+        stopped.push(jobId);
+        const job = jobs.get(jobId);
+        if (job) jobs.set(jobId, { ...job, stopAsked: true });
+      },
+    },
+    start: async (jobId) => {
+      started.push(jobId);
+      return { ok: true, value: { status: "queued" } };
+    },
+    resume: async (jobId) => {
+      resumed.push(jobId);
+      return { ok: true, value: { status: "queued" } };
+    },
+  };
+  /** The parts written, first to last, as their chains order them. */
+  const parts = () =>
+    [...jobs.entries()]
+      .filter(([, job]) => job.chain)
+      .sort(([, a], [, b]) => (a.chain?.part ?? 0) - (b.chain?.part ?? 0));
+  const set = (jobId: string, patch: Partial<PullJob>) =>
+    jobs.set(jobId, { ...jobs.get(jobId)!, ...patch });
+  return { jobs, pieces, written, dangling, started, resumed, stopped, sender, parts, set };
+};
+
+const sendList = (sender: PullSender, entries: readonly GcTeamListEntry[]) =>
+  sendPull(
+    { entries, seasonYears: [], device: "phone", timeZone: "America/New_York", now: NOW },
+    sender
+  );
+
+/*
+ * A list longer than one job takes (`MAX_LIST_TEAMS`): split by the page, in list order, into parts
+ * the cloud runs one after another, each a job naming the next (`PullJob.chain`).
+ */
+describe("a list longer than one pull takes", () => {
+  it("is sent as parts in list order, written last to first, with only the first started", async () => {
+    const cloud = partsCloud();
+    const entries = madeUp(100_001);
+    const answer = await sendList(cloud.sender, entries);
+    if (!answer.ok) throw new Error(answer.message);
+    const parts = cloud.parts();
+    expect(parts.map(([, job]) => job.list.teams)).toEqual([50_000, 50_000, 1]);
+    const ids = parts.map(([jobId]) => jobId);
+    // The first part names the whole list, on every part.
+    expect(ids[0]).toBe(answer.jobId);
+    expect(parts.map(([, job]) => job.chain)).toEqual([
+      { id: answer.jobId, part: 1, parts: 3, teams: 100_001, next: ids[1] },
+      { id: answer.jobId, part: 2, parts: 3, teams: 100_001, next: ids[2] },
+      { id: answer.jobId, part: 3, parts: 3, teams: 100_001 },
+    ]);
+    // Every next named a job already there when it was written: last first, the first last.
+    expect(cloud.written).toEqual([...ids].reverse());
+    expect(cloud.dangling).toEqual([]);
+    expect(cloud.started).toEqual([answer.jobId]);
+    // Each part holds its share of the list, in the list's order.
+    const unpacked: GcTeamListEntry[] = [];
+    for (const [jobId, job] of parts) {
+      unpacked.push(
+        ...(await unpackJobList(
+          job.list,
+          async (index) => cloud.pieces.get(jobId)?.[index] ?? null
+        ))
+      );
+    }
+    expect(unpacked).toEqual(entries);
+    expect(loadSentPulls().map(({ jobId, teams }) => [jobId, teams])).toEqual(
+      ids.map((jobId, index) => [jobId, [50_000, 50_000, 1][index]])
     );
-    expect(answer).toEqual({ ok: false, message: tooManyTeams(teams) });
-    expect(tooManyTeams(teams)).toBe(
-      "This list has 50,001 teams, and one pull takes at most 50,000. Split it into smaller lists and send them one at a time."
-    );
-    expect(cloud.jobs.size).toBe(0);
-    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("is one job, as it always was, at exactly fifty thousand", async () => {
+    const cloud = partsCloud();
+    const answer = await sendList(cloud.sender, madeUp(MAX_LIST_TEAMS));
+    expect(answer.ok).toBe(true);
+    expect(cloud.jobs.size).toBe(1);
+    expect([...cloud.jobs.values()][0]?.chain).toBeUndefined();
+    expect([...cloud.jobs.values()][0]?.list.teams).toBe(MAX_LIST_TEAMS);
+  });
+
+  it("sent again, finds its parts and acts on the first not done, sending none twice", async () => {
+    const cloud = partsCloud();
+    const entries = madeUp(100_001);
+    const first = await sendList(cloud.sender, entries);
+    if (!first.ok) throw new Error(first.message);
+    const [one, two, three] = cloud.parts().map(([jobId]) => jobId) as [string, string, string];
+    // Part 1 done, part 2 failed: Resume on part 2, which carries the list on.
+    cloud.set(one, { status: "done" });
+    cloud.set(two, { status: "failed" });
+    markTold(one);
+    expect(await sendList(cloud.sender, [...entries].reverse())).toEqual({
+      ok: true,
+      jobId: first.jobId,
+    });
+    expect(cloud.resumed).toEqual([two]);
+    // Part 2 queued, its turn come: started, as a list sent whole and queued is.
+    cloud.set(two, { status: "queued" });
+    await sendList(cloud.sender, entries);
+    expect(cloud.started).toEqual([one, two]);
+    // Under way: left to run.
+    cloud.set(two, { status: "running" });
+    await sendList(cloud.sender, entries);
+    // Every part done: said again, and nothing started.
+    for (const jobId of [two, three]) cloud.set(jobId, { status: "done" });
+    await sendList(cloud.sender, entries);
+    expect(cloud.started).toEqual([one, two]);
+    expect(cloud.resumed).toEqual([two]);
+    expect(cloud.jobs.size).toBe(3);
+    // Every part is watched again, the one told about included.
+    expect(loadSentPulls().map(({ jobId, told }) => [jobId, told])).toEqual([
+      [one, false],
+      [two, false],
+      [three, false],
+    ]);
+  });
+
+  it("sent again with a part gone from the cloud, is sent afresh as new parts", async () => {
+    const cloud = partsCloud();
+    const entries = madeUp(100_001);
+    await sendList(cloud.sender, entries);
+    const [, two] = cloud.parts().map(([jobId]) => jobId);
+    cloud.jobs.delete(two!);
+    const again = await sendList(cloud.sender, entries);
+    expect(again.ok).toBe(true);
+    expect(cloud.jobs.size).toBe(5);
+    expect(cloud.started).toHaveLength(2);
+  });
+
+  // A part ended because Team Rankings was started again says to send the list again; resumed, it
+  // would only end so again, its plan chosen from the copy that is gone.
+  it("sent again after Team Rankings was started again, is sent afresh, whole or in parts", async () => {
+    for (const teams of [3, 100_001]) {
+      backing.clear();
+      const cloud = partsCloud();
+      const entries = madeUp(teams);
+      const first = await sendList(cloud.sender, entries);
+      if (!first.ok) throw new Error(first.message);
+      cloud.set(first.jobId, { status: "failed", end: "copy-replaced" });
+      const again = await sendList(cloud.sender, entries);
+      if (!again.ok) throw new Error(again.message);
+      expect(again.jobId, String(teams)).not.toBe(first.jobId);
+      expect(cloud.resumed, String(teams)).toEqual([]);
+      expect(cloud.started, String(teams)).toEqual([first.jobId, again.jobId]);
+    }
+  });
+
+  it("sent again where an older page sent it whole, is sent as parts rather than resumed", async () => {
+    const cloud = partsCloud();
+    const entries = madeUp(100_001);
+    const first = await sendList(cloud.sender, entries);
+    if (!first.ok) throw new Error(first.message);
+    // As a page from before the split left it: one job, the whole list, refused by the cloud.
+    const whole = { ...cloud.jobs.get(first.jobId)!, status: "failed" as const };
+    delete whole.chain;
+    cloud.jobs.set(first.jobId, { ...whole, list: { ...whole.list, teams: 100_001 } });
+    const again = await sendList(cloud.sender, entries);
+    if (!again.ok) throw new Error(again.message);
+    expect(again.jobId).not.toBe(first.jobId);
+    expect(cloud.resumed).toEqual([]);
+    expect(cloud.started).toEqual([first.jobId, again.jobId]);
+  });
+
+  it("cancels the parts already written when one cannot be, and says so", async () => {
+    const cloud = partsCloud();
+    const put = cloud.sender.jobs.put;
+    let writes = 0;
+    cloud.sender.jobs.put = async (jobId, job, list) => {
+      writes += 1;
+      if (writes === 2) throw new Error("offline");
+      await put(jobId, job, list);
+    };
+    const answer = await sendList(cloud.sender, madeUp(100_001));
+    expect(answer).toEqual({
+      ok: false,
+      message: "The pull could not be sent to the cloud. Try again.",
+    });
+    // The last part, written first, asked to stop and asked about, which cancels it.
+    expect(cloud.written).toHaveLength(1);
+    expect(cloud.stopped).toEqual(cloud.written);
+    expect(cloud.started).toEqual(cloud.written);
     expect(loadSentPulls()).toEqual([]);
+  });
+
+  it("cancels the parts after the first when the cloud will not start it", async () => {
+    const cloud = partsCloud();
+    cloud.sender.start = async (jobId) => {
+      cloud.started.push(jobId);
+      return { ok: false, why: "failed", message: "No grant." };
+    };
+    const answer = await sendList(cloud.sender, madeUp(100_001));
+    expect(answer).toEqual({ ok: false, message: "The cloud would not start the pull: No grant." });
+    const [one, two, three] = cloud.parts().map(([jobId]) => jobId);
+    expect(cloud.stopped).toEqual([two, three]);
+    expect(cloud.started).toEqual([one, two, three]);
+    expect(loadSentPulls()).toEqual([]);
+  });
+});
+
+/** The parts of one list as this device watches them: `statuses` in part order. */
+const watchedParts = (
+  statuses: readonly PullJob["status"][],
+  patch: (part: number) => Partial<PullJob> = () => ({})
+): WatchedPull[] => {
+  const ids = statuses.map((_, index) => String(index + 1).repeat(32));
+  return statuses.map((status, index) => {
+    const next = ids[index + 1];
+    const chain: PullJobChain = {
+      id: ids[0]!,
+      part: index + 1,
+      parts: statuses.length,
+      teams: 100_001,
+      ...(next ? { next } : {}),
+    };
+    const teams = index + 1 < statuses.length ? 50_000 : 1;
+    const job: PullJob = {
+      ...newPullJob({
+        list: { hash: "a".repeat(64), teams, pieces: 1 },
+        seasonYears: [],
+        timeZone: "America/New_York",
+        device: "phone",
+        now: NOW,
+        chain,
+      }),
+      status,
+      ...patch(index + 1),
+    };
+    return { sent: { jobId: ids[index]!, sentAt: NOW, teams, told: false }, job };
+  });
+};
+
+describe("a list sent in parts, watched", () => {
+  const at = (minutes: number) => Date.parse(NOW) + minutes * 60_000;
+
+  it("is one list, in part order, among lists sent whole", () => {
+    const parts = watchedParts(["done", "running", "queued"]);
+    const whole = waitingPull();
+    const lists = listsOf([parts[2]!, whole, parts[0]!, parts[1]!]);
+    expect(lists.map((list) => list.map(({ sent }) => sent.jobId))).toEqual([
+      parts.map(({ sent }) => sent.jobId),
+      [whole.sent.jobId],
+    ]);
+    expect(currentPart(parts)?.sent.jobId).toBe(parts[1]?.sent.jobId);
+    expect(listOver(parts)).toBe(false);
+    expect(listOver(watchedParts(["done", "done", "done"]))).toBe(true);
+    // Halted at a part that failed or was stopped, whose end is said, with Resume.
+    expect(listOver(watchedParts(["done", "failed", "queued"]))).toBe(true);
+    expect(listOver(watchedParts(["cancelled", "cancelled", "cancelled"]))).toBe(true);
+    // A part done whose next this device has not read yet leaves the list under way.
+    expect(listOver(watchedParts(["done", "done", "queued"]).slice(0, 2))).toBe(false);
+  });
+
+  it("says the whole list, the part under way, and the parts done and waiting", () => {
+    const running = (part: number) =>
+      part === 2
+        ? {
+            pipeline: "staged-v1" as const,
+            stage: "fetching" as const,
+            legs: 5,
+            progress: { done: 4_000, total: 10_000, failed: 4 },
+          }
+        : {};
+    expect(describeListProgress(watchedParts(["done", "running", "queued"], running), at(1))).toBe(
+      "Pulling 100,001 teams in the cloud as 3 parts, one after another. Part 2 of 3 (50,000 teams): download batch 1 of 5, 3,996 downloaded, 4 skipped, 6,000 remaining in this batch. Part 1 is done; part 3 waits its turn."
+    );
+    expect(describeListProgress(watchedParts(["queued", "queued", "queued"]), at(0))).toBe(
+      "Pulling 100,001 teams in the cloud as 3 parts, one after another. Part 1 of 3 (50,000 teams): starting, sent just now. Parts 2 and 3 wait their turn."
+    );
+    expect(
+      describeListProgress(watchedParts(["done", "done", "done", "done", "queued"]), at(0))
+    ).toBe(
+      "Pulling 100,001 teams in the cloud as 5 parts, one after another. Part 5 of 5 (1 team): starting. Parts 1 to 4 are done."
+    );
+    // A later part's wait is from when its turn came, not from the sending hours before.
+    const turn = watchedParts(["done", "queued", "queued"]);
+    turn[1]!.sent.dueAt = new Date(at(180)).toISOString();
+    expect(describeListProgress(turn, at(185))).toContain(
+      "Part 2 of 3 (50,000 teams): waiting to start, its turn came 5 minutes ago."
+    );
+    // Or from when the cloud queued it, which touches it, where this device never asked.
+    const queued = watchedParts(["done", "queued", "queued"], (part) =>
+      part === 2 ? { updatedAt: new Date(at(181)).toISOString() } : {}
+    );
+    expect(describeListProgress(queued, at(185))).toContain(
+      "Part 2 of 3 (50,000 teams): waiting to start, its turn came 4 minutes ago."
+    );
+    // Stopping: the parts after it will not run.
+    expect(
+      describeListProgress(
+        watchedParts(["done", "running", "queued", "queued"], (part) =>
+          part > 1 ? { stopAsked: true } : {}
+        ),
+        at(1)
+      )
+    ).toBe(
+      "Pulling 100,001 teams in the cloud as 4 parts, one after another. Part 2 of 4 (50,000 teams): stopping. Part 1 is done; parts 3 and 4 will not run."
+    );
+    // Past a part done whose next is not read yet.
+    expect(describeListProgress(watchedParts(["done", "queued", "queued"]).slice(0, 1))).toBe(
+      "Pulling 100,001 teams in the cloud as 3 parts, one after another. Part 1 is done; parts 2 and 3 wait their turn."
+    );
+  });
+
+  it("says how the whole list ended, and where Resume carries it on from", () => {
+    const tally = (filed: number, failed: number) => ({
+      asked: filed + failed,
+      answered: filed,
+      failed,
+      filed,
+      gamesAdded: filed * 2,
+      gamesUpdated: 1,
+    });
+    const done = watchedParts(["done", "done", "done"], (part) => ({
+      tally: part === 3 ? tally(1, 0) : tally(49_990, 10),
+      skipped:
+        part === 1
+          ? { transient: 10, permanent: 0 }
+          : part === 2
+            ? { transient: 6, permanent: 4 }
+            : { transient: 0, permanent: 0 },
+    }));
+    expect(describeListEnd(done)).toBe(
+      "The pull of 100,001 teams in the cloud is done, in 3 parts: 99,981 of 100,001 teams filed, 199,962 games added and 3 updated; 20 skipped because their downloads failed: 16 for now (GameChanger throttled, timed out or dropped them; a later paste asks again) and 4 GameChanger answered with an error."
+    );
+    expect(
+      describeListEnd(
+        watchedParts(["done", "failed", "queued"], (part) =>
+          part === 2 ? { error: "The importer stopped without saying why" } : {}
+        )
+      )
+    ).toBe(
+      "The pull of 100,001 teams in the cloud stopped at part 2 of 3, which failed: The importer stopped without saying why. Resume carries the list on from part 2."
+    );
+    expect(
+      describeListEnd(
+        watchedParts(["done", "cancelled", "cancelled"], (part) => ({
+          tally: part === 1 ? tally(50_000, 0) : part === 2 ? tally(2_000, 0) : tally(0, 0),
+        }))
+      )
+    ).toBe(
+      "The pull of 100,001 teams in the cloud was stopped at part 2 of 3: 52,000 of 100,001 teams filed, 104,000 games added and 3 updated. Resume carries the list on from part 2."
+    );
+    // A list sent whole keeps its own words.
+    const whole = { ...waitingPull({ status: "failed", error: "No copy." }) };
+    expect(describeListEnd([whole])).toBe(describeEnd(whole));
+    expect(describeListProgress([waitingPull()], at(0))).toBe(
+      describeProgress(waitingPull(), at(0))
+    );
+  });
+
+  it("says before the sending that a long list runs as parts, and how many", () => {
+    expect(describeSplit(MAX_LIST_TEAMS)).toBe("");
+    expect(describeSplit(100_001)).toBe(
+      "This list will run in the cloud as 3 parts of up to 50,000 teams, one after another."
+    );
+    expect(describeSplit(448_645)).toBe(
+      "This list will run in the cloud as 9 parts of up to 50,000 teams, one after another."
+    );
+  });
+
+  it("asks about a later part only once the part before it is done, at once, then each minute", () => {
+    const parts = watchedParts(["running", "queued", "queued"]);
+    const [, second, third] = parts as [WatchedPull, WatchedPull, WatchedPull];
+    // Its turn has not come: asking would run two parts of one list at once.
+    expect(dueForAsking(second, at(600), parts)).toBe(false);
+    expect(dueForAsking(third, at(600), parts)).toBe(false);
+    // Nor where the part before it is not read on this device.
+    expect(dueForAsking(second, at(600), [second])).toBe(false);
+    const turn = watchedParts(["done", "queued", "queued"]);
+    const [, ready, after] = turn as [WatchedPull, WatchedPull, WatchedPull];
+    expect(dueForAsking(ready, at(0), turn)).toBe(true);
+    expect(dueForAsking(after, at(600), turn)).toBe(false);
+    ready.sent.askedAt = new Date(at(600)).toISOString();
+    expect(dueForAsking(ready, at(600.5), turn)).toBe(false);
+    expect(dueForAsking(ready, at(601), turn)).toBe(true);
+    // Touched by the cloud, it is being tried; asked to stop, the ask is what cancels it.
+    expect(dueForAsking({ ...ready, job: { ...ready.job, updatedAt: "x" } }, at(700), turn)).toBe(
+      false
+    );
+    expect(dueForAsking({ ...third, job: { ...third.job, stopAsked: true } }, at(1), parts)).toBe(
+      true
+    );
+  });
+
+  it("asks for a later part with its wait counted from when its turn came", async () => {
+    const turn = watchedParts(["done", "queued"]);
+    const ready = turn[1]!;
+    backing.set(SENT_PULLS_KEY, JSON.stringify(turn.map(({ sent }) => sent)));
+    const asks: Array<number | undefined> = [];
+    const sender = {
+      start: async (_jobId: string, waitedMs?: number) => {
+        asks.push(waitedMs);
+        return { ok: true as const, value: { status: "queued" } };
+      },
+    };
+    // Sent three hours before its turn: the first ask says no wait, and keeps when its turn came.
+    await askAgain(ready, sender, new Date(at(180)));
+    const kept = loadSentPulls().find(({ jobId }) => jobId === ready.sent.jobId);
+    expect(kept?.dueAt).toBe(new Date(at(180)).toISOString());
+    await askAgain(ready, sender, new Date(at(185)));
+    expect(asks).toEqual([undefined, 5 * 60_000]);
+  });
+
+  it("holds nothing off behind a part that failed, and stops the parts after the one under way", () => {
+    const halted = watchedParts(["failed", "queued", "queued"]);
+    expect(halted.map((part) => waitsOnEarlierPart(part, halted))).toEqual([false, true, true]);
+    const moving = watchedParts(["done", "running", "queued"]);
+    expect(moving.map((part) => waitsOnEarlierPart(part, moving))).toEqual([false, false, true]);
+    expect(partsAfter(moving[1]!, moving).map(({ sent }) => sent.jobId)).toEqual([
+      moving[2]!.sent.jobId,
+    ]);
+    expect(partsAfter(moving[2]!, moving)).toEqual([]);
+    expect(partsAfter(waitingPull(), moving)).toEqual([]);
   });
 });

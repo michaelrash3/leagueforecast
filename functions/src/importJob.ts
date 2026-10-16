@@ -5,9 +5,9 @@ import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
 import { importLease, IMPORT_LEASE_MS } from "../../src/lib/cloud/importLease";
-import { restJobDocs } from "../../src/lib/cloud/pullJobRunner";
+import { restJobDocs, startNextPart } from "../../src/lib/cloud/pullJobRunner";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
-import { restAccess, zoneOf } from "./pullAccess";
+import { enqueueLeg, restAccess, zoneOf } from "./pullAccess";
 
 const jobId = process.env.IMPORT_JOB_ID ?? "";
 if (!JOB_ID.test(jobId)) throw new Error("A valid IMPORT_JOB_ID is required.");
@@ -124,7 +124,26 @@ if (!claimed) {
       });
     });
     console.log(JSON.stringify({ event: "import-complete", jobId }));
-    if ((await jobs.read(jobId))?.status === "done") {
+    const finished = await jobs.read(jobId);
+    if (finished?.status === "done") {
+      // A list sent in parts carries on here, before the clean-up below, which can take minutes
+      // (`startNextPart`). A read that throws fails this try, and Cloud Run's retry, finding the
+      // import done, asks again; a start the cloud refuses has already ended that part with why.
+      const next = await startNextPart(jobId, { jobs, enqueue: enqueueLeg, now: () => new Date() });
+      if (next.kind !== "none") {
+        console.log(
+          JSON.stringify({
+            event: "import-next-part",
+            jobId,
+            part: next.part,
+            ...(next.kind === "started"
+              ? next.answer.ok
+                ? { status: next.answer.status }
+                : { refused: next.answer.refusal }
+              : { left: true }),
+          })
+        );
+      }
       const db = getFirestore(getApps().find((app) => app.name === "[DEFAULT]") ?? initializeApp());
       await db.recursiveDelete(db.collection(`pullJobs/${jobId}/artifacts`)).catch((error) => {
         console.error(

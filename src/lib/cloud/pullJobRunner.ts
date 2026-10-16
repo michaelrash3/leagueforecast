@@ -21,6 +21,7 @@ import {
   tooManyTeams,
   unpackJobList,
   type PullJob,
+  type PullJobChain,
   type PullJobRota,
   type PullJobStatus,
   type PullJobTally,
@@ -414,7 +415,13 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
       ...on,
       updatedAt: stamp(),
     });
-    if (over) return "done";
+    if (over) {
+      // The page writes every part of a list as a staged import, so this runner never ends one;
+      // were it to, the next part starts as after the importer. A start that fails here is no
+      // failure of this leg, whose job is done and saved: the page asks for the part itself.
+      await startNextPart(jobId, deps).catch(() => undefined);
+      return "done";
+    }
     await deps.enqueue({ jobId, leg: legsDone });
     return "next-queued";
   } catch (error) {
@@ -453,6 +460,26 @@ export const NEVER_STARTED_MS = 60 * 60 * 1000;
 /** What a job never reached by a leg in `NEVER_STARTED_MS` ends with, for the person who sent it. */
 export const NEVER_STARTED =
   'The cloud had this pull queued for an hour and never started it, so it was ended. Send it again; if it happens again, the cloud\'s pull account needs its one-time setup run again (README, "Pulls in the cloud: the one-time setup").';
+
+/**
+ * Whether the part of a list before `jobId` is done, found by following the list from its first
+ * part (`chain.id`) along each `next`: a part names the part after it, not the one before. False
+ * where the list does not lead to `jobId` as the part after a part done.
+ */
+const turnHasCome = async (
+  jobId: string,
+  chain: PullJobChain,
+  jobs: Pick<JobDocs, "read">
+): Promise<boolean> => {
+  let at = chain.id;
+  for (let part = 1; part < chain.part; part += 1) {
+    const job = await jobs.read(at);
+    if (!job?.chain?.next || job.chain.id !== chain.id || job.chain.part !== part) return false;
+    if (part === chain.part - 1) return job.chain.next === jobId && job.status === "done";
+    at = job.chain.next;
+  }
+  return false;
+};
 
 /** The words a failed read or queueing is ended with: the cloud's own, cut to a line's length. */
 const causeOf = (error: unknown): string => {
@@ -539,6 +566,25 @@ export const startPullJob = async (
     await end({ status: "failed", error: message });
     return { ok: false, refusal: "invalid-argument", message };
   }
+  /*
+   * A later part of a list sent in parts waits for the part before it to be done, which starts it
+   * (`startNextPart`). A tab still running a page from before lists were split takes each part for
+   * a list of its own waiting to start, and asks about it every minute: started then, it would run
+   * beside the part before it. Answered as queued, with nothing queued and nothing ended.
+   */
+  if (job.chain && job.chain.part > 1) {
+    let turn: boolean;
+    try {
+      turn = await turnHasCome(jobId, job.chain, deps.jobs);
+    } catch (error) {
+      return {
+        ok: false,
+        refusal: "unavailable",
+        message: `The cloud could not read this pull's list: ${causeOf(error)}`,
+      };
+    }
+    if (!turn) return { ok: true, status: job.status };
+  }
   let queued: void | "already";
   try {
     queued = await deps.enqueue({ jobId, leg: 0 });
@@ -563,6 +609,105 @@ export const startPullJob = async (
     return { ok: true, status: "failed" };
   }
   return { ok: true, status: job.status };
+};
+
+/** What `startNextPart` did about the part after a job, for the log. */
+export type NextPartOutcome =
+  /** The job is not done, or is no part of a list sent in parts, or is its last part. */
+  | { kind: "none" }
+  /**
+   * The next part is gone, not this list's next part, already under way or over, or asked to stop:
+   * left as it is. A part stopped with the list is the page's to cancel (`stop` in the card).
+   */
+  | { kind: "left"; part: number }
+  /** Started as `startPull` starts a list (`startPullJob`), with what that answered. */
+  | { kind: "started"; part: number; answer: Awaited<ReturnType<typeof startPullJob>> };
+
+/**
+ * Starts the part after `jobId` of a list sent in parts (`PullJob.chain`) once `jobId` is done:
+ * its first leg queued through `startPullJob`, as `startPull` queues a list's, so the part runs as
+ * any list the page started would. Only while that part is still queued and not asked to stop,
+ * and only when it is this list's next part, so neither a part stopped with the list nor one
+ * already started is started again. Asked with no wait, so the start never ends a part as one that
+ * waited an hour (`NEVER_STARTED`): a later part has waited for the parts before it, not for the
+ * cloud. A part that failed or was stopped starts nothing; Resume on it, once it is done, carries
+ * the list on, since this is asked again then.
+ *
+ * Asked by whatever ends a part done: the staged importer's supervisor once its execution has
+ * finished (`importJob.ts`), and the older runner's last leg (`runPullLeg`). There rather than in a
+ * Firestore trigger on `pullJobs/{id}`: the supervisor already reads the job once its worker ends,
+ * runs as the pulls' account, which queues tasks, and the rebuild job queues its tasks the same way
+ * from Cloud Run; whereas a trigger would wake for each of an import's writes, a heartbeat every
+ * ten seconds for hours, to act on one of them, and would need the pulls' account to receive
+ * Firestore's events, which only the rebuilds' setup grants. The page asks for a part whose turn
+ * has come and that nothing started (`dueForAsking`), so a supervisor lost between the two writes
+ * stalls nothing.
+ */
+export const startNextPart = async (
+  jobId: string,
+  deps: Pick<LegDeps, "enqueue"> & {
+    jobs: Pick<JobDocs, "read" | "updateIfUnchanged">;
+    now: () => Date;
+  }
+): Promise<NextPartOutcome> => {
+  const job = await deps.jobs.read(jobId);
+  const chain = job?.chain;
+  if (!job || job.status !== "done" || !chain?.next) return { kind: "none" };
+  const part = chain.part + 1;
+  const next = await deps.jobs.read(chain.next);
+  if (
+    !next ||
+    next.chain?.id !== chain.id ||
+    next.chain.part !== part ||
+    next.status !== "queued" ||
+    next.stopAsked
+  ) {
+    return { kind: "left", part };
+  }
+  const answer = await startPullJob(chain.next, deps);
+  /*
+   * Touched once queued, as a leg touches a job it runs: no device then asks about the part again
+   * (`dueForAsking`), nor can an ask end it as one nothing started in the hour. A tab still running
+   * a page from before lists were split times that hour from the sending, hours before the part's
+   * turn, and would otherwise end it in the minute before the importer first writes to it. Only
+   * while it is still as read; a write lost here costs only that.
+   */
+  if (answer.ok && answer.status === "queued") {
+    await deps.jobs
+      .updateIfUnchanged(chain.next, next, { updatedAt: deps.now().toISOString() })
+      .catch(() => false);
+  }
+  return { kind: "started", part, answer };
+};
+
+/**
+ * Puts back in the queue the parts after `job` of its list that were stopped with it, for Resume:
+ * Stop and Dismiss on the page cancel the parts after the one under way (`useWatchedPulls`), and a
+ * resumed list carries on through them, each started by `startNextPart` as the part
+ * before it is done. Only a part cancelled, or queued with a stop asked, and only while it is still
+ * as read; a part under way, done or failed is left alone. Followed along `next` no further than
+ * the list has parts, so a damaged chain cannot keep it going.
+ */
+const requeueLaterParts = async (
+  job: PullJob,
+  deps: { jobs: Pick<JobDocs, "read" | "updateIfUnchanged">; now: () => Date }
+): Promise<void> => {
+  const chain = job.chain;
+  let next = chain?.next;
+  for (let part = (chain?.part ?? 0) + 1; next && chain && part <= chain.parts; part += 1) {
+    const later = await deps.jobs.read(next);
+    if (!later || later.chain?.id !== chain.id || later.chain.part !== part) return;
+    if (later.status === "cancelled" || (later.status === "queued" && later.stopAsked)) {
+      await deps.jobs.updateIfUnchanged(next, later, {
+        status: "queued",
+        stopAsked: false,
+        stage: "waiting",
+        error: null,
+        updatedAt: deps.now().toISOString(),
+      });
+    }
+    next = later.chain.next;
+  }
 };
 
 /**
@@ -653,7 +798,9 @@ export type ResumeAnswer =
  * moved onto the staged importer, keeping what its legs filed (`priorTally`); and a staged import
  * still marked running but silent launched again, whose execution lease admits one worker. One
  * whose supervisor beat inside the last two minutes is left running. Refresh now is not a list's,
- * and a list longer than one pull takes (`MAX_LIST_TEAMS`) is not resumed either.
+ * and a job longer than one pull takes (`MAX_LIST_TEAMS`) is not resumed either. A part of a list
+ * sent in parts puts the parts after it that were stopped with it back in the queue as well
+ * (`requeueLaterParts`), so the list carries on from it once it is done.
  */
 export const resumePullJob = async (
   jobId: unknown,
@@ -699,6 +846,8 @@ export const resumePullJob = async (
       refusal: "invalid-argument",
       message: "Stop the earlier import before resuming it with the faster importer.",
     };
+  // Before the launch, so the part cannot be done before the part after it is queued again.
+  await requeueLaterParts(job, deps);
   // The execution lease admits one worker; repeated or unanswered starts are safe.
   await deps.launch(jobId);
   return { ok: true, status: "queued" };

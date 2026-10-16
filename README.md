@@ -3936,13 +3936,62 @@ filed in the season being played alone. Each pull sent is remembered on this
 device until its end has been said once, read again every 15 s while one is on
 its way, and can be asked to stop.
 
-One list holds at most 50,000 teams (`MAX_LIST_TEAMS`). On 12 and 13 October
-2026 lists of about 450,000 teams were pasted whole, and they overwhelmed the
-pulls: one, sent as eighteen parts, still said "part 9 of 18, stop asked" days
-later. A longer paste is refused on the page in plain words, with the button off,
-before anything is uploaded; `startPull` refuses to start or resume one as well,
-so a tab still running an older page cannot send one either. A nationwide export
-goes up as several lists, one after another.
+**A list in parts.** One job holds at most 50,000 teams (`MAX_LIST_TEAMS`). On
+12 and 13 October 2026 lists of about 450,000 teams were pasted whole, and they
+overwhelmed the pulls: one, sent as eighteen parts, still said "part 9 of 18,
+stop asked" days later, and the importer's final phase is one long step that
+cannot pick up where it left off. A longer paste is still pasted whole: before
+it is sent the card says it will run as so many parts of up to 50,000 teams,
+one after another, and the page then cuts it, in list order, into parts of
+50,000 and the rest (`listParts`; 100,001 teams are 50,000, 50,000 and 1). Each
+part is a job of its own carrying its place in the list (`PullJob.chain`: the
+first part's id, which names the whole list, the part, the parts, the whole
+list's teams, and the next part's job). The parts are written last to first, so
+every `next` names a job already there, and only the first is started. When a
+part is done, the cloud starts the next through the same start a device's ask
+goes through (`startNextPart`, then `startPullJob`), and only while that part is
+still queued and not asked to stop; the staged importer's supervisor asks once
+its execution has finished, before it clears the part's staging data, and the
+older runner's last leg would too. That is the finishing code rather than a
+Firestore trigger on `pullJobs/{id}`: the supervisor already reads the job when
+its worker ends and runs as the pulls' account, which queues tasks (the rebuild
+job queues its own from Cloud Run the same way), where a trigger would wake for
+every heartbeat of a running import to act on one write, and would need the
+pulls' account to receive Firestore's events. A part that fails or is stopped
+starts nothing after it. Whoever asks, `startPull` starts a later part only once
+the part before it is done, since a tab still running a page from before the
+split (a new version waits to be let in) takes each part for a list of its own
+and asks for it every minute; and the cloud touches the part it starts, so no
+device's ask ends it as one nothing started in the hour, which such a tab,
+timing the hour from the sending, would otherwise do in the minute before the
+importer first writes to it.
+
+The card shows a list in parts as one line: the whole list's teams, the part
+under way and how far it has got, the parts done and the parts waiting their
+turn; when its last part is done, one end line for the whole list, with what
+every part filed added up; and where a part failed or was stopped, which part,
+and that Resume carries the list on from it. Stop on the line asks every part
+not yet ended to stop, the parts after it first, and asks about each part that
+never started, which cancels it; Dismiss does the same for the parts after the
+one gone silent. Resume on a part puts the parts after it that were stopped
+with it back in the queue, so the list carries on once that part is done. OK
+tells of every part at once. A device asks the cloud to start a later part
+only once the part before it is done (at once, then each minute while nothing
+has touched it), so a supervisor lost between finishing one part and starting
+the next stalls nothing while a tab is open, and two parts of one list never
+run at once; its wait is counted from when its turn came, so a part that
+waited hours behind the parts before it is never ended as one the cloud left
+waiting. Refresh now does not wait on the parts of a list halted at a part that
+failed. Sending the same list again finds its parts by the whole list's
+fingerprint and acts on the first part not done, as on a list sent whole:
+started if queued, resumed if it failed or was stopped, left alone while under
+way; a list an older page sent whole, longer than one job takes, is sent afresh
+as parts, and so is a list whose part ended because Team Rankings was started
+again, since resuming that part would only end it so again. A start of Team
+Rankings asks every queued part to stop along with the rest
+(`stopPullsUnderWay`), so no later part of a list starts after it. `startPull` still refuses to start or resume a single job longer than
+50,000 teams, which only a tab running a page from before the split can send,
+so every part is held to the cap.
 
 **What the cloud pulls of a list** (`cloudRunner.ts`, `listIds`). Never a club
 refused for good or as another season's, nor one too young to rank. An id

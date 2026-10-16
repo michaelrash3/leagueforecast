@@ -34,20 +34,39 @@ export const IMPORT_BATCH_TEAMS = 10_000;
 export const IMPORT_CHECKPOINT_TEAMS = 2_000;
 
 /**
- * The most teams one list may carry. On 12 and 13 October 2026 lists of about 450,000 teams were
+ * The most teams one job may carry. On 12 and 13 October 2026 lists of about 450,000 teams were
  * pasted whole, and they overwhelmed the cloud's pulls: one of them, a 448,645-team list sent as
- * eighteen parts, still said "part 9 of 18, stop asked" days later. Fifty thousand is five of the
+ * eighteen parts, still said "part 9 of 18, stop asked" days later, and the staged importer's final
+ * phase is one long step that cannot pick up where it left off. Fifty thousand is five of the
  * importer's download batches (`IMPORT_BATCH_TEAMS`), under half an hour of downloading at the
  * two thousand teams a minute the client reckons its starting eight workers manage
- * (`PULL_CONCURRENCY`), so a nationwide export goes up as several lists, one after another. The
- * page refuses a longer list before uploading it (`sendPull`), and `startPull` refuses to start or
- * resume one, so a tab still running an older copy of the page cannot send one either.
+ * (`PULL_CONCURRENCY`).
+ *
+ * A longer list is not refused: the page splits it, in list order, into parts of at most this many
+ * (`listParts`), writes one job for each, linked by `chain`, and starts the first; the cloud starts
+ * each next part when the one before it is done (`startNextPart`), so the parts run one after
+ * another and no job is ever longer than this. `startPull` still refuses to start or resume a
+ * single job longer than this, which only a tab running a page from before the split can send.
  */
 export const MAX_LIST_TEAMS = 50_000;
 
-/** Why a list longer than `MAX_LIST_TEAMS` is refused, in the page's words and the server's. */
+/**
+ * Why `startPull` refuses a single job longer than `MAX_LIST_TEAMS`: one a tab still running a page
+ * from before lists were split sent whole. The page itself never sends one any more.
+ */
 export const tooManyTeams = (teams: number): string =>
-  `This list has ${teams.toLocaleString("en-US")} teams, and one pull takes at most ${MAX_LIST_TEAMS.toLocaleString("en-US")}. Split it into smaller lists and send them one at a time.`;
+  `This list has ${teams.toLocaleString("en-US")} teams, and one pull takes at most ${MAX_LIST_TEAMS.toLocaleString("en-US")}. Reload the page and send it again: the page now sends a longer list as parts of up to ${MAX_LIST_TEAMS.toLocaleString("en-US")} teams, one after another.`;
+
+/**
+ * A list cut, in its own order, into the parts its jobs carry: as many of `MAX_LIST_TEAMS` as it
+ * fills, then the rest, so 100,001 teams are 50,000, 50,000 and 1. One part for a list no longer
+ * than that, an empty one included, so a list that fits is sent as one job, as it always was.
+ */
+export const listParts = <T>(entries: readonly T[], most: number = MAX_LIST_TEAMS): T[][] => {
+  const parts: T[][] = [];
+  for (let at = 0; at < entries.length; at += most) parts.push(entries.slice(at, at + most));
+  return parts.length > 0 ? parts : [[]];
+};
 
 /** Where every pull's job is kept, by its id. */
 export const JOBS_COLLECTION = "pullJobs";
@@ -109,8 +128,25 @@ export type PullJobRota = {
   heldBack: number;
 };
 
+/**
+ * Where a job stands in a list sent in parts (`listParts`): the list's first part's job, which
+ * names the whole list on every device; this part's place, from 1, of how many; the whole list's
+ * teams; and the job of the part after this one, absent on the last. The page writes the parts last
+ * to first, so a `next` always names a job already there, and starts only the first; the cloud
+ * starts each next part once this one is done (`startNextPart`).
+ */
+export type PullJobChain = {
+  id: string;
+  part: number;
+  parts: number;
+  teams: number;
+  next?: string;
+};
+
 export type PullJob = {
   format: number;
+  /** Absent on a list sent whole, as every list that fits in one job is. */
+  chain?: PullJobChain;
   /** Absent on legacy pulls and budgeted refreshes, which retain their original leg sizing. */
   pipeline?: "staged-v1";
   heartbeatAt?: string;
@@ -259,6 +295,7 @@ export const newPullJob = ({
   now,
   legTeams = IMPORT_BATCH_TEAMS,
   refresh = false,
+  chain,
 }: {
   list: PullJob["list"];
   seasonYears: readonly number[];
@@ -267,8 +304,10 @@ export const newPullJob = ({
   now: string;
   legTeams?: number;
   refresh?: boolean;
+  chain?: PullJobChain;
 }): PullJob => ({
   format: JOB_FORMAT,
+  ...(chain ? { chain: { ...chain } } : {}),
   pipeline: "staged-v1",
   list,
   seasonYears: [...seasonYears],
@@ -367,6 +406,37 @@ const rotaOf = (raw: unknown): PullJobRota | null | undefined => {
   return { at: raw.at, ageLevels: raw.ageLevels, again: raw.again, heldBack: raw.heldBack };
 };
 
+/**
+ * A job's place in a list sent in parts as read, or null for one that is not one; undefined where
+ * there is none. A `next` on every part but the last and on no other, so a list is never read as
+ * ending early or running on past its last part.
+ */
+const chainOf = (raw: unknown): PullJobChain | null | undefined => {
+  if (raw === undefined) return undefined;
+  if (
+    !isRecord(raw) ||
+    !text(raw.id) ||
+    !JOB_ID.test(raw.id) ||
+    !whole(raw.part) ||
+    raw.part < 1 ||
+    !whole(raw.parts) ||
+    raw.part > raw.parts ||
+    !whole(raw.teams) ||
+    !(raw.next === undefined
+      ? raw.part === raw.parts
+      : text(raw.next) && JOB_ID.test(raw.next) && raw.part < raw.parts)
+  ) {
+    return null;
+  }
+  return {
+    id: raw.id,
+    part: raw.part,
+    parts: raw.parts,
+    teams: raw.teams,
+    ...(text(raw.next) ? { next: raw.next } : {}),
+  };
+};
+
 const STATUSES = new Set<string>(["queued", "running", "done", "failed", "cancelled"]);
 const STAGES = new Set<string>([
   "waiting",
@@ -401,7 +471,9 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
   const rota = rotaOf(raw.rota);
   const on = onOf(raw.on);
   const download = downloadOf(raw.download);
+  const chain = chainOf(raw.chain);
   if (
+    chain === null ||
     !(raw.pipeline === undefined || raw.pipeline === "staged-v1") ||
     !(raw.heartbeatAt === undefined || text(raw.heartbeatAt)) ||
     !(raw.progressAt === undefined || text(raw.progressAt)) ||
@@ -452,6 +524,7 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
   }
   return {
     format: JOB_FORMAT,
+    ...(chain ? { chain } : {}),
     ...(raw.pipeline === "staged-v1" ? { pipeline: "staged-v1" as const } : {}),
     ...(text(raw.heartbeatAt) ? { heartbeatAt: raw.heartbeatAt } : {}),
     ...(text(raw.progressAt) ? { progressAt: raw.progressAt } : {}),

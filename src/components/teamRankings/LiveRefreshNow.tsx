@@ -4,6 +4,7 @@ import {
   isOver,
   isRefresh,
   sendRefresh,
+  waitsOnEarlierPart,
   type PullSender,
   type WatchedPull,
 } from "../../lib/cloud/cloudPulls";
@@ -103,8 +104,14 @@ export default function LiveRefreshNow({
   // A list's pull gone silent holds nothing off: its worker is dead or restarting, and its line
   // offers Dismiss and Resume. Waiting on it was what kept Refresh now off behind a pull that
   // had been dead for days, in October 2026.
+  // Nor does a later part of a list waiting on a part before it that failed or was stopped: that
+  // list waits on Resume, and while the part before it runs, that part is what is on its way.
   const pulling = watched.some(
-    (pull) => !isRefresh(pull) && !isOver(pull.job) && !goneSilent(pull.job, watching.nowMs)
+    (pull) =>
+      !isRefresh(pull) &&
+      !isOver(pull.job) &&
+      !goneSilent(pull.job, watching.nowMs) &&
+      !waitsOnEarlierPart(pull, watched)
   );
   const reasonId = useId();
 

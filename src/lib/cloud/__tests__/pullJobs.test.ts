@@ -6,8 +6,10 @@ import {
   JOB_FORMAT,
   LEG_TEAMS,
   IMPORT_BATCH_TEAMS,
+  MAX_LIST_TEAMS,
   coercePullJob,
   legsFor,
+  listParts,
   newPullJob,
   newRefreshJob,
   packJobList,
@@ -164,6 +166,90 @@ describe("a pull's job", () => {
     expect(coercePullJob({ ...good, list: { hash: 1, teams: 1, pieces: 1 } })).toBeNull();
   });
 });
+
+/*
+ * A list longer than one job takes, sent as parts run one after another (`listParts`,
+ * `PullJob.chain`): cut in its own order, and each part's place in it read back exactly or not at
+ * all, so a part never claims to be the last while another follows, nor names a next when it is.
+ */
+describe("a list sent in parts", () => {
+  const ids = (count: number) => Array.from({ length: count }, (_, n) => n);
+
+  it("is cut in list order into parts of at most fifty thousand, the rest last", () => {
+    expect(MAX_LIST_TEAMS).toBe(50_000);
+    expect(listParts(ids(MAX_LIST_TEAMS)).map((part) => part.length)).toEqual([50_000]);
+    const cut = listParts(ids(100_001));
+    expect(cut.map((part) => part.length)).toEqual([50_000, 50_000, 1]);
+    expect(cut.flat()).toEqual(ids(100_001));
+    expect(cut[1]?.[0]).toBe(50_000);
+    expect(cut[2]).toEqual([100_000]);
+    expect(listParts(ids(448_645)).map((part) => part.length)).toEqual([
+      ...Array.from({ length: 8 }, () => 50_000),
+      48_645,
+    ]);
+    // A list that fits is one part, as it was always sent: an empty one too.
+    expect(listParts(ids(3))).toEqual([[0, 1, 2]]);
+    expect(listParts([])).toEqual([[]]);
+  });
+
+  const FIRST = "0123456789abcdef0123456789abcdef";
+  const SECOND = "fedcba9876543210fedcba9876543210";
+  const part = (chain: object) => ({
+    ...newPullJob({
+      list: { hash: "a".repeat(64), teams: 50_000, pieces: 3 },
+      seasonYears: [],
+      timeZone: "America/Chicago",
+      device: "phone",
+      now: "2026-10-16T12:00:00.000Z",
+    }),
+    chain,
+  });
+
+  it("keeps each part's place, read back from Firestore's typed fields as it was written", () => {
+    const first = newPullJob({
+      list: { hash: "a".repeat(64), teams: 50_000, pieces: 3 },
+      seasonYears: [],
+      timeZone: "America/Chicago",
+      device: "phone",
+      now: "2026-10-16T12:00:00.000Z",
+      chain: { id: FIRST, part: 1, parts: 2, teams: 50_001, next: SECOND },
+    });
+    expect(first.chain).toEqual({ id: FIRST, part: 1, parts: 2, teams: 50_001, next: SECOND });
+    expect(coercePullJob(fieldsOf(firestoreFieldsOf(first)))).toEqual(first);
+    const last = part({ id: FIRST, part: 2, parts: 2, teams: 50_001 });
+    expect(coercePullJob(fieldsOf(firestoreFieldsOf(last)))).toEqual(last);
+    // A list sent whole names no chain at all.
+    expect(job().chain).toBeUndefined();
+  });
+
+  it("is no job at all with its place spoiled", () => {
+    const good = { id: FIRST, part: 1, parts: 2, teams: 50_001, next: SECOND };
+    for (const spoiled of [
+      "part 1",
+      null,
+      { ...good, id: "not-a-job" },
+      { ...good, next: "not-a-job" },
+      { ...good, part: 0 },
+      { ...good, part: 3 },
+      { ...good, parts: 1.5 },
+      { ...good, teams: -1 },
+      // A next on the last part, and none on a part before it.
+      { ...good, part: 2 },
+      { id: FIRST, part: 1, parts: 2, teams: 50_001 },
+    ]) {
+      expect(coercePullJob(part(spoiled as object)), JSON.stringify(spoiled)).toBeNull();
+    }
+  });
+});
+
+const job = () =>
+  newPullJob({
+    list: { hash: "a".repeat(64), teams: 3, pieces: 1 },
+    seasonYears: [],
+    timeZone: "America/Chicago",
+    device: "phone",
+    now: "2026-09-29T12:00:00.000Z",
+  });
 
 describe("a Refresh now job", () => {
   const made = () =>
