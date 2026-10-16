@@ -4119,6 +4119,14 @@ about the job and stops showing it on this device; a staged import also offers
 Resume, which launches it again from its checkpoints; and Stop on a silent pull asks
 the cloud at once. Refresh now no longer waits on a list's pull gone silent. Resume
 says why when the cloud refuses it.
+
+That still waited on a device to ask, and the device that sent the 12 October list
+no longer showed it, so it said "running" on 16 October too. Now the cloud ends every
+dead pull on its own rounds (`reapSilentPulls`, `functions/src/deadPulls.ts`): every
+ask `startPull` gets, whatever it is about (a press of Refresh now among them), the
+end of every pull, and every check of the boards a save queues. Each is the same
+one-query read of the pulls that say they are running, waited on for a few seconds
+at most where its caller has a deadline. Its lines say only how many it ended.
 Failed or stopped legacy list imports can resume with the staged importer, preserving
 previously filed work. Budgeted refresh jobs retain their existing leg sizes and caps.
 

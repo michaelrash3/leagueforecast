@@ -742,8 +742,9 @@ export const LEGS_WENT_SILENT =
  * Ends the job `jobId` names when its worker has died without a word, so no device shows it
  * running for good: on 12 October 2026 a list's job said "running, loading; part 9 of 18; stop
  * asked" for days, with nothing left that would ever run or end it, its Stop doing nothing and
- * Refresh now held off behind it. Run by `startPull` before anything else it does with a job, so a
- * device's ask (Dismiss, Stop, Resume, or the start of a list sent again) is what ends it.
+ * Refresh now held off behind it. Run for every job that says it is running wherever the cloud
+ * makes its rounds (`reapSilentPulls`), `startPull` first among them, before anything else it does,
+ * so a device's ask (Dismiss, Stop, Resume, or the start of a list sent again) ends it at once.
  *
  * A staged import is dead once nothing has been heard from it in `IMPORT_SILENT_MS` and nothing
  * holds its execution lease: a supervisor still renewing the lease is alive, however late its
@@ -783,6 +784,31 @@ export const reapPullJob = async (
     updatedAt: deps.now().toISOString(),
   });
   return ended ? status : null;
+};
+
+/**
+ * Every pull that says it is running ended where its worker has died without a word
+ * (`reapPullJob`), and not only one a device asks about: the list of 12 October 2026 sat at "running,
+ * loading; part 9 of 18; stop asked" until 16 October and on, since the device that sent it no
+ * longer showed it, and nothing else would ever ask. Run by the cloud on its own rounds (`startPull`
+ * on any ask, the end of a pull, a save's check of the boards), so a dead pull is ended within the
+ * next of them after its silence is long enough. `running` lists the jobs' documents whose status is
+ * running; each is read again and ended only as `reapPullJob` would, and one that cannot be read or
+ * written is left to the next round rather than stopping the others. How many were found, and how
+ * many of them ended.
+ */
+export const reapSilentPulls = async (deps: {
+  running: () => Promise<ReadonlyArray<{ id: string }>>;
+  jobs: Pick<JobDocs, "read" | "updateIfUnchanged">;
+  leaseUntil: (jobId: string) => Promise<number>;
+  now: () => Date;
+}): Promise<{ running: number; ended: number }> => {
+  const listed = await deps.running();
+  let ended = 0;
+  for (const { id } of listed) {
+    if (await reapPullJob(id, deps).catch(() => null)) ended += 1;
+  }
+  return { running: listed.length, ended };
 };
 
 /** How recent a heartbeat says a staged import's supervisor is still at work. */

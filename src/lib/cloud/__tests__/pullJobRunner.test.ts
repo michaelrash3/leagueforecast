@@ -35,6 +35,7 @@ import {
   LEGS_WENT_SILENT,
   STOPPED_WENT_SILENT,
   reapPullJob,
+  reapSilentPulls,
   restJobDocs,
   resumePullJob,
   runPullLeg,
@@ -1405,7 +1406,9 @@ describe("starting a pull", () => {
  * or a leg of the older runner that never wrote again. One said "running, loading; part 9 of 18;
  * stop asked" for days from 12 October 2026, with nothing left that would ever end it, Stop doing
  * nothing and Refresh now held off behind it. `startPull` ends such a job when it is asked about
- * it (`reapPullJob`), as failed, or cancelled where a stop was asked.
+ * it (`reapPullJob`), as failed, or cancelled where a stop was asked; and the cloud ends every one
+ * it finds running on its own rounds (`reapSilentPulls`), since that list's device no longer showed
+ * it, and nothing else would ever ask.
  */
 describe("a pull nothing has been heard from", () => {
   const T = Date.parse("2026-10-14T12:00:00.000Z");
@@ -1521,6 +1524,55 @@ describe("a pull nothing has been heard from", () => {
     });
     expect(raced).toBeNull();
     expect(jobs.job().status).toBe("running");
+  });
+
+  it("ends every dead pull the cloud finds running, not only one a device asks about", async () => {
+    // The 12 October list's own case: stopped days ago, with no device left to ask about it.
+    const jobs = await legacy(minutes(4 * 24 * 60), { stopAsked: true });
+    const ALIVE = "1".repeat(32);
+    const DEAD = "2".repeat(32);
+    const ENDED = "3".repeat(32);
+    jobs.jobs.set(ALIVE, { ...jobs.job(), stopAsked: false, updatedAt: before(minutes(10)) });
+    jobs.jobs.set(DEAD, { ...jobs.job(), stopAsked: false, updatedAt: before(LEGS_SILENT_MS) });
+    // Ended between the query and its read: found running, and left as it now is.
+    jobs.jobs.set(ENDED, { ...jobs.job(), status: "done" });
+    const swept = await reapSilentPulls({
+      ...reaping(jobs).deps,
+      running: async () => [
+        { id: JOB },
+        { id: ALIVE },
+        { id: DEAD },
+        { id: ENDED },
+        { id: "f".repeat(32) },
+        { id: "not-a-job" },
+      ],
+    });
+    expect(swept).toEqual({ running: 6, ended: 2 });
+    expect(jobs.job()).toMatchObject({ status: "cancelled", error: LEGS_WENT_SILENT });
+    expect(jobs.jobs.get(DEAD)).toMatchObject({ status: "failed", error: LEGS_WENT_SILENT });
+    expect(jobs.jobs.get(ALIVE)?.status).toBe("running");
+    expect(jobs.jobs.get(ENDED)?.status).toBe("done");
+  });
+
+  it("goes on past a pull it could not read, leaving that one to its next round", async () => {
+    const jobs = await legacy(minutes(180));
+    const OTHER = "4".repeat(32);
+    jobs.jobs.set(OTHER, jobs.job());
+    const { deps } = reaping(jobs);
+    const swept = await reapSilentPulls({
+      ...deps,
+      jobs: {
+        ...jobs.docs,
+        read: async (jobId) => {
+          if (jobId === JOB) throw new Error("HTTP 503");
+          return jobs.docs.read(jobId);
+        },
+      },
+      running: async () => [{ id: JOB }, { id: OTHER }],
+    });
+    expect(swept).toEqual({ running: 2, ended: 1 });
+    expect(jobs.job().status).toBe("running");
+    expect(jobs.jobs.get(OTHER)?.status).toBe("failed");
   });
 });
 

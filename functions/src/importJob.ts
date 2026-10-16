@@ -8,6 +8,7 @@ import { importLease, IMPORT_LEASE_MS } from "../../src/lib/cloud/importLease";
 import { restJobDocs, startNextPart } from "../../src/lib/cloud/pullJobRunner";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { publishBoardsIfDue } from "./afterPullLaunch";
+import { endDeadPulls } from "./deadPulls";
 import { enqueueLeg, restAccess, zoneOf } from "./pullAccess";
 
 const jobId = process.env.IMPORT_JOB_ID ?? "";
@@ -181,5 +182,12 @@ if (!claimed) {
     ended &&
     (ended.status === "done" || ended.status === "failed" || ended.status === "cancelled")
   )
-    console.log(JSON.stringify({ event: "import-boards", jobId, ...(await publishBoardsIfDue()) }));
+    console.log(
+      JSON.stringify({
+        event: "import-boards",
+        jobId,
+        ...(await publishBoardsIfDue()),
+        ...(await endDeadPulls()),
+      })
+    );
 }
