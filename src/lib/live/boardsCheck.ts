@@ -21,32 +21,39 @@ export const BOARDS_SETTLE_MS = 3 * 60_000;
 /** The span of saves one check is queued for. */
 export const BOARDS_CHECK_WINDOW_MS = 60_000;
 
-/** What the queue carries: that it is a check of the boards, and when the save it was queued for was. */
-export type BoardsCheckTask = { check: "boards"; savedAt: string };
+/**
+ * What the queue carries: that it is a check of the boards, and when the save it was queued for
+ * was; and `noRebuild` where that save's own rebuild could not be queued, so no rebuild coming may
+ * be counted on to publish it, however the ledger reads (Codex, on #409).
+ */
+export type BoardsCheckTask = { check: "boards"; savedAt: string; noRebuild?: true };
 
 /** A check as the queue hands it back, or null for anything else (a rebuild's task). */
 export const coerceBoardsCheck = (raw: unknown): BoardsCheckTask | null => {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
-  const { check, savedAt } = raw as Record<string, unknown>;
+  const { check, savedAt, noRebuild } = raw as Record<string, unknown>;
   if (check !== "boards") return null;
   if (typeof savedAt !== "string" || Number.isNaN(Date.parse(savedAt))) return null;
-  return { check, savedAt };
+  return { check, savedAt, ...(noRebuild === true ? { noRebuild } : {}) };
 };
 
 /**
  * The check a save at `savedAt` (Firestore's commit time) queues: one per minute, named for it, and
  * run the settle after the minute ends, which is the settle after the minute's last save at least.
+ * A save whose rebuild could not be queued (`noRebuild`) queues one of its own name for the minute,
+ * so a check the minute already has, counting on a rebuild, does not stand in for it.
  */
 export const boardsCheckTask = async (
-  savedAt: string
+  savedAt: string,
+  noRebuild = false
 ): Promise<{ id: string; scheduleTime: Date; task: BoardsCheckTask }> => {
   const at = Date.parse(savedAt);
   if (Number.isNaN(at)) throw new Error(`A save at no time anyone can read: ${savedAt}`);
   const window = Math.floor(at / BOARDS_CHECK_WINDOW_MS);
   return {
-    id: (await hashValue(["bc", window])).slice(0, 40),
+    id: (await hashValue(noRebuild ? ["bc", window, "no-rebuild"] : ["bc", window])).slice(0, 40),
     scheduleTime: new Date((window + 1) * BOARDS_CHECK_WINDOW_MS + BOARDS_SETTLE_MS),
-    task: { check: "boards", savedAt },
+    task: { check: "boards", savedAt, ...(noRebuild ? { noRebuild: true as const } : {}) },
   };
 };
 

@@ -56,6 +56,28 @@ describe("the boards' check after a save", () => {
       expect(coerceBoardsCheck(other)).toBeNull();
   });
 
+  it("is a minute's own where its save's rebuild could not be queued, and says so", async () => {
+    // A check the minute already has counts on the rebuild; this one must not be lost to it.
+    const counting = await boardsCheckTask("2027-04-15T12:00:05.000Z");
+    const alone = await boardsCheckTask("2027-04-15T12:00:30.000Z", true);
+    expect(alone.id).not.toBe(counting.id);
+    expect(alone.scheduleTime).toEqual(counting.scheduleTime);
+    expect(alone.task).toEqual({
+      check: "boards",
+      savedAt: "2027-04-15T12:00:30.000Z",
+      noRebuild: true,
+    });
+    expect((await boardsCheckTask("2027-04-15T12:00:59.000Z", true)).id).toBe(alone.id);
+    // Carried through the queue and through a check asked again.
+    expect(coerceBoardsCheck(alone.task)).toEqual(alone.task);
+    // Anything but true there is a check that counts on the rebuild, as before.
+    expect(coerceBoardsCheck({ ...alone.task, noRebuild: "yes" })).toEqual({
+      check: "boards",
+      savedAt: "2027-04-15T12:00:30.000Z",
+    });
+    expect((await boardsCheckAgain(alone.task, 1_800_000_000_000)).task).toEqual(alone.task);
+  });
+
   it("refuses a save at no time", async () => {
     await expect(boardsCheckTask("whenever")).rejects.toThrow("no time");
   });

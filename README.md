@@ -4625,7 +4625,13 @@ rebuilds' own queue, which tells a check from a rebuild's task by its shape.
   Any claim nobody lets go lapses: a launch's after five minutes, a job's after
   the job's half hour. A check that finds a publish under way asks again half a
   minute after the lease lapses, or after the settle at the latest, since that
-  publish may have read the copy before its save.
+  publish may have read the copy before its save. The launch's claim carries what
+  its launcher asked, and the job asks the same when it asks again: an edit made
+  between a check and the job's start is left to its own check, not published
+  seconds old beside someone still editing.
+- **A rebuild that could not be queued.** A save whose rebuild the queue refused
+  queues a check of its own that counts on no rebuild, however much budget the
+  ledger has left, and its job counts on none either.
 
 The decision is otherwise the pull's end's (`afterPullDecision`): behind, nothing
 at work on the boards, and no rebuild coming. A pull's own saves queue checks

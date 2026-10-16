@@ -23,10 +23,13 @@ declare const LIVE_REBUILD: boolean;
 /**
  * `deadline`: when the caller's own time is up, in milliseconds since the epoch (`askInTime`).
  * `settleMs`: how long the copy and the seasons must have been still, none at a pull's end.
+ * `rebuilds`: whether a rebuild coming may be counted on, as it may wherever this build deployed
+ * them, but for a check whose save's rebuild could not be queued.
  */
 export const publishBoardsIfDue = async (
   deadline = Number.POSITIVE_INFINITY,
-  settleMs = 0
+  settleMs = 0,
+  rebuilds = LIVE_REBUILD
 ): Promise<Record<string, unknown>> => {
   try {
     const now = new Date();
@@ -38,7 +41,7 @@ export const publishBoardsIfDue = async (
           launchBoardsPublish,
           budgetDay(now),
           now,
-          LIVE_REBUILD,
+          rebuilds,
           publishLease(firestoreRestDocuments(access)),
           settleMs
         ),
@@ -58,14 +61,21 @@ export const publishBoardsIfDue = async (
 /**
  * After a save at `savedAt` (Firestore's commit time): its check of the boards queued, where no
  * rebuild is coming to publish it (`rebuildWillPublish`, as the decision itself asks), and nothing
- * where one is, which is the boards' way after any save while the rebuilds' budget lasts.
+ * where one is, which is the boards' way after any save while the rebuilds' budget lasts. A save
+ * whose own rebuild could not be queued (`rebuildQueued` false) has none coming, whatever the
+ * ledger would let start, and queues a check that counts on none (Codex, on #409).
  */
-export const queueBoardsCheck = async (savedAt: string): Promise<Record<string, unknown>> => {
+export const queueBoardsCheck = async (
+  savedAt: string,
+  rebuildQueued = true
+): Promise<Record<string, unknown>> => {
   try {
     const now = new Date();
-    const ledger = await restLedgerStore(firestoreRestDocuments(restAccess())).read();
-    if (rebuildWillPublish(ledger.raw, budgetDay(now), now)) return { check: "rebuild-coming" };
-    await enqueueBoardsCheck(await boardsCheckTask(savedAt));
+    if (rebuildQueued) {
+      const ledger = await restLedgerStore(firestoreRestDocuments(restAccess())).read();
+      if (rebuildWillPublish(ledger.raw, budgetDay(now), now)) return { check: "rebuild-coming" };
+    }
+    await enqueueBoardsCheck(await boardsCheckTask(savedAt, !rebuildQueued));
     return { check: "queued" };
   } catch (error) {
     return { check: "not-queued", error: failureWords(error) };

@@ -141,7 +141,7 @@ export const launchAfterPull = async (
 ): Promise<AfterPull> => {
   const decided = await afterPullDecision(stores, today, now, rebuilds, settleMs);
   if (!decided.publish) return decided;
-  const claimed = await lease.launch(now.getTime());
+  const claimed = await lease.launch(now.getTime(), { settleMs, rebuilds });
   if (!claimed.ok)
     return { publish: false, because: "publishing", behind: decided.behind, until: claimed.until };
   try {
@@ -195,7 +195,9 @@ export type AfterPullRun = { decided: AfterPull; result?: Republish };
  * ended and a rebuild or another pull's publish may have put the boards out meanwhile, and where
  * they still want it, published as the catch-up publishes them (`republishViews`): the copy loaded,
  * the boards built and published under the copy and version read, and tried again on the copy as it
- * then stands where a save moved it meanwhile, for as long as they are still behind it.
+ * then stands where a save moved it meanwhile, for as long as they are still behind it. Asked as
+ * its launcher asked (`LaunchAsk`, read off the lease it takes over): a save's check, after the
+ * settle, and a check whose save's rebuild was never queued, counting on no rebuild.
  */
 export const publishAfterPull = async (
   stores: AfterPullStores,
@@ -215,10 +217,14 @@ export const publishAfterPull = async (
     onViews?: (views: CopyPublish) => void;
   }
 ): Promise<AfterPullRun> => {
-  if (!(await deps.lease.take(deps.now().getTime(), deps.owner)))
-    return { decided: { publish: false, because: "publishing" } };
+  const held = await deps.lease.take(deps.now().getTime(), deps.owner);
+  if (!held.taken) return { decided: { publish: false, because: "publishing" } };
   try {
-    return await publishHeld(stores, deps);
+    return await publishHeld(stores, {
+      ...deps,
+      rebuilds: deps.rebuilds && (held.asked?.rebuilds ?? true),
+      settleMs: held.asked?.settleMs ?? 0,
+    });
   } finally {
     await deps.lease.release(deps.owner).catch(() => undefined);
   }
@@ -226,9 +232,15 @@ export const publishAfterPull = async (
 
 const publishHeld = async (
   stores: AfterPullStores,
-  deps: Parameters<typeof publishAfterPull>[1]
+  deps: Parameters<typeof publishAfterPull>[1] & { settleMs: number }
 ): Promise<AfterPullRun> => {
-  const decided = await afterPullDecision(stores, deps.today(), deps.now(), deps.rebuilds);
+  const decided = await afterPullDecision(
+    stores,
+    deps.today(),
+    deps.now(),
+    deps.rebuilds,
+    deps.settleMs
+  );
   if (!decided.publish) return { decided };
   const result = await republishViews({
     copyStore: stores.copy,

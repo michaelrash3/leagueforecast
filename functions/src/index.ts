@@ -527,7 +527,7 @@ export const onCopyWrite = !LIVE_REBUILD
         if (asksBoards(line))
           logger.info("boards-check", {
             savedAt: event.time,
-            ...(await queueBoardsCheck(event.time)),
+            ...(await queueBoardsCheck(event.time, line.queued !== false)),
           });
       }
     );
@@ -564,7 +564,7 @@ export const onLeagueWrite = !LIVE_REBUILD
         if (asksBoards(line))
           logger.info("boards-check", {
             savedAt: event.time,
-            ...(await queueBoardsCheck(event.time)),
+            ...(await queueBoardsCheck(event.time, line.queued !== false)),
           });
       }
     );
@@ -600,7 +600,11 @@ export const rebuild = !LIVE_REBUILD
         // a publish is under way, asked again once it should be over.
         const check = coerceBoardsCheck(request.data);
         if (check) {
-          const asked = await publishBoardsIfDue(started + 115_000, BOARDS_SETTLE_MS);
+          const asked = await publishBoardsIfDue(
+            started + 115_000,
+            BOARDS_SETTLE_MS,
+            LIVE_REBUILD && check.noRebuild !== true
+          );
           const until = asked.because === "publishing" ? asked.until : undefined;
           const again =
             typeof until === "number"

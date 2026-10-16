@@ -139,6 +139,8 @@ const leaseDocs = () => {
   };
 };
 const freeLease = () => publishLease(leaseDocs());
+/** What a pull's end asks of the job it starts: no settle, and a rebuild coming counted on. */
+const AT_ONCE = { settleMs: 0, rebuilds: true };
 
 /** The fixture's first League Standings season as its document, last written at `updatedAt`. */
 const seasonWrittenAt = (updatedAt: string): LeagueDocsList => {
@@ -476,7 +478,7 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     await expect(
       launchAfterPull(storesOf(cloud, live).stores, refused, FIXTURE_TODAY, NOW, true, lease)
     ).rejects.toThrow("HTTP 403");
-    expect(await lease.launch(NOW.getTime())).toEqual({ ok: true });
+    expect(await lease.launch(NOW.getTime(), AT_ONCE)).toEqual({ ok: true });
   });
 
   it("has the job publish nothing beside another job, and let its own lease go when done", async () => {
@@ -499,6 +501,69 @@ describe("a save's check of the boards, and the one publish at a time", () => {
     await lease.release("job-1");
     const run = await publishAfterPull(storesOf(cloud, live).stores, deps);
     expect(run.result).toMatchObject({ end: "published" });
-    expect(await lease.launch(NOW.getTime() + LAUNCH_HOLD_MS)).toEqual({ ok: true });
+    expect(await lease.launch(NOW.getTime() + LAUNCH_HOLD_MS, AT_ONCE)).toEqual({ ok: true });
+  });
+
+  it("has the job wait out the settle its check asked, so an edit made since is left to its own check", async () => {
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    // The check finds everything still for the settle, and starts the job.
+    const still = storesOf(cloud, live, { savedAt: ago(BOARDS_SETTLE_MS) }).stores;
+    const launch = vi.fn(() => Promise.resolve());
+    expect(
+      await launchAfterPull(still, launch, FIXTURE_TODAY, NOW, true, lease, BOARDS_SETTLE_MS)
+    ).toEqual({ publish: true, behind: "nothing" });
+    expect(launch).toHaveBeenCalledTimes(1);
+    // An edit lands before the job starts: the job, asking as the check asked, leaves it.
+    const edited = storesOf(cloud, live, { savedAt: ago(10_000) }).stores;
+    const job = {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease,
+      owner: "job-1",
+    };
+    expect(await publishAfterPull(edited, job)).toEqual({
+      decided: { publish: false, because: "settling", behind: "nothing" },
+    });
+    expect(live.meta()).toBeNull();
+    // A pull's end asks no settle: its job publishes the same copy at once.
+    expect(await launchAfterPull(edited, launch, FIXTURE_TODAY, NOW, true, lease)).toMatchObject({
+      publish: true,
+    });
+    const run = await publishAfterPull(edited, { ...job, owner: "job-2" });
+    expect(run.result).toMatchObject({ end: "published" });
+  });
+
+  it("has the job count on no rebuild where its check's save could not queue one", async () => {
+    // A ledger that would let a rebuild start: but the save's own rebuild was never queued.
+    const cloud = await copied();
+    const live = memoryLive();
+    const lease = freeLease();
+    const { stores } = storesOf(cloud, live, { ledger: { ...SPENT, monthVcpuS: 0 } });
+    const launch = vi.fn(() => Promise.resolve());
+    expect(await launchAfterPull(stores, launch, FIXTURE_TODAY, NOW, false, lease)).toEqual({
+      publish: true,
+      behind: "nothing",
+    });
+    // The job's build deployed the rebuilds, and the ledger has room; it publishes all the same.
+    const job = {
+      today: () => FIXTURE_TODAY,
+      now: () => NOW,
+      rebuilds: true,
+      locale: "en-US",
+      lease,
+      owner: "job-1",
+    };
+    expect((await publishAfterPull(stores, job)).result).toMatchObject({ end: "published" });
+    // One started by a check that counted on the rebuild leaves the boards to it.
+    const counting = freeLease();
+    await counting.launch(NOW.getTime(), AT_ONCE);
+    const again = storesOf(cloud, memoryLive(), { ledger: { ...SPENT, monthVcpuS: 0 } }).stores;
+    expect(await publishAfterPull(again, { ...job, lease: counting })).toEqual({
+      decided: { publish: false, because: "rebuild-coming", behind: "nothing" },
+    });
   });
 });

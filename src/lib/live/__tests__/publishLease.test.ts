@@ -29,26 +29,27 @@ const memoryDocs = () => {
 };
 
 const T = 1_000_000;
+const ASK = { settleMs: 0, rebuilds: true };
 
 describe("the boards' publish lease", () => {
   it("lets one of two launchers at once start the job, and tells the other until when", async () => {
     const { docs, paths } = memoryDocs();
     const lease = publishLease(docs);
-    const [a, b] = await Promise.all([lease.launch(T), lease.launch(T)]);
+    const [a, b] = await Promise.all([lease.launch(T, ASK), lease.launch(T, ASK)]);
     expect([a, b]).toEqual([{ ok: true }, { ok: false, until: T + LAUNCH_HOLD_MS }]);
-    expect(await lease.launch(T + 60_000)).toEqual({ ok: false, until: T + LAUNCH_HOLD_MS });
+    expect(await lease.launch(T + 60_000, ASK)).toEqual({ ok: false, until: T + LAUNCH_HOLD_MS });
     expect(new Set(paths)).toEqual(new Set([PUBLISH_LEASE_PATH]));
   });
 
   it("hands a launch over to the job it started, which holds it for its own time", async () => {
     const { docs, held } = memoryDocs();
     const lease = publishLease(docs);
-    await lease.launch(T);
-    expect(await lease.take(T + 30_000, "job-1")).toBe(true);
+    await lease.launch(T, ASK);
+    expect(await lease.take(T + 30_000, "job-1")).toEqual({ taken: true, asked: ASK });
     expect(held()).toEqual({ owner: "job-1", until: T + 30_000 + PUBLISH_HOLD_MS });
     // A second job, or a launch, waits on a job that holds it.
-    expect(await lease.take(T + 40_000, "job-2")).toBe(false);
-    expect(await lease.launch(T + 40_000)).toEqual({
+    expect(await lease.take(T + 40_000, "job-2")).toEqual({ taken: false });
+    expect(await lease.launch(T + 40_000, ASK)).toEqual({
       ok: false,
       until: T + 30_000 + PUBLISH_HOLD_MS,
     });
@@ -59,30 +60,53 @@ describe("the boards' publish lease", () => {
     const lease = publishLease(docs);
     await lease.take(T, "job-1");
     await lease.release("job-2");
-    expect(await lease.launch(T + 1)).toMatchObject({ ok: false });
+    expect(await lease.launch(T + 1, ASK)).toMatchObject({ ok: false });
     await lease.release("job-1");
-    expect(await lease.launch(T + 2)).toEqual({ ok: true });
+    expect(await lease.launch(T + 2, ASK)).toEqual({ ok: true });
   });
 
   it("is let go by a launch that failed, but never from under a job", async () => {
     const { docs } = memoryDocs();
     const lease = publishLease(docs);
-    await lease.launch(T);
+    await lease.launch(T, ASK);
     await lease.unlaunch();
-    expect(await lease.launch(T + 1)).toEqual({ ok: true });
+    expect(await lease.launch(T + 1, ASK)).toEqual({ ok: true });
     await lease.take(T + 2, "job-1");
     await lease.unlaunch();
-    expect(await lease.launch(T + 3)).toMatchObject({ ok: false });
+    expect(await lease.launch(T + 3, ASK)).toMatchObject({ ok: false });
+  });
+
+  it("hands the job what its launch asked: a check's settle, and a rebuild not to count on", async () => {
+    const { docs } = memoryDocs();
+    const lease = publishLease(docs);
+    const check = { settleMs: 180_000, rebuilds: false };
+    await lease.launch(T, check);
+    expect(await lease.take(T + 1, "job-1")).toEqual({ taken: true, asked: check });
+    // A job started by hand, with no launch before it, was asked nothing.
+    const bare = publishLease(memoryDocs().docs);
+    expect(await bare.take(T, "job-2")).toEqual({ taken: true, asked: null });
+    // Nor was one whose launch's claim says nothing this build can read.
+    for (const said of [
+      { settleMs: "soon", rebuilds: true },
+      { settleMs: -1, rebuilds: true },
+      { settleMs: 0 },
+      { settleMs: 0, rebuilds: "no" },
+    ]) {
+      const odd = memoryDocs();
+      await odd.docs.replace("x", { owner: "launch", until: T + 1, ...said }, null);
+      expect(await publishLease(odd.docs).take(T, "job-3")).toEqual({ taken: true, asked: null });
+    }
   });
 
   it("lapses at its time where nobody lets it go: a launch never answered, a job killed", async () => {
     const { docs } = memoryDocs();
     const lease = publishLease(docs);
-    await lease.launch(T);
-    expect(await lease.launch(T + LAUNCH_HOLD_MS)).toEqual({ ok: true });
+    await lease.launch(T, ASK);
+    expect(await lease.launch(T + LAUNCH_HOLD_MS, ASK)).toEqual({ ok: true });
     await lease.take(T + LAUNCH_HOLD_MS, "job-1");
     const lapsed = T + LAUNCH_HOLD_MS + PUBLISH_HOLD_MS;
-    expect(await lease.take(lapsed - 1, "job-2")).toBe(false);
-    expect(await lease.take(lapsed, "job-2")).toBe(true);
+    expect(await lease.take(lapsed - 1, "job-2")).toEqual({ taken: false });
+    // Taken from a job, not a launch: nothing was asked of it.
+    expect(await lease.take(lapsed, "job-2")).toEqual({ taken: true, asked: null });
   });
 });
