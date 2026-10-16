@@ -4318,12 +4318,26 @@ teams pulled overnight. It opens the copy with the Firebase key GitHub already
 keeps for deploys (`FIREBASE_SERVICE_ACCOUNT`), through Firestore's REST API
 (`firestoreRestStore`), which writes the same documents the app's SDK does and
 replaces the manifest only if it is still the document it read: the commit
-carries the read's update time as a precondition. A request Firestore turns away
-for load is asked again after 1, 2, 4, 8 and 16 s: too many requests (HTTP 429)
-for any request, since nothing was done, and unavailable (503) for all but the
-commit, which could have been done and would read its own first try as another
-save. The nightly of 5 October 2026 stopped on one 429 writing a piece of its
-first part, and lost the night. GameChanger is asked through
+carries the read's update time as a precondition. A request Firestore turns away,
+or the network fails, is asked again after 1, 2, 4, 8, 16 and 32 s
+(`RETRY_WAITS_MS`): too many requests (HTTP 429) for any request, since nothing
+was done; an internal error, a bad gateway, unavailable or a gateway's timeout
+(500, 502, 503, 504), a failure of the network, and an answer cut off before its
+end, for every request but the commit. Each of those can come after the commit
+was made, and asked again it would read its own first try as another save, so a
+commit is asked again only where the network failed it before it left (no
+address for Firestore's host, or no connection to it), and one whose answer was
+cut off after it said it was done is taken as done. A read, a piece's write and
+a delete do the same however often they are made: a piece goes up under an
+upload id nothing else writes under, and a second delete finds nothing. The
+nightly of 5 October 2026 stopped on one 429 writing a piece of its first part,
+and lost the night; that of 14 October stopped about nine minutes into
+publishing the views on a failure of the network, and its log said only "fetch
+failed". A request that still fails says what it was doing (writing a piece,
+reading a document, committing a write) and the network's code (`ECONNRESET`,
+`ENOTFOUND`), never which document (`FirestoreUnreachableError`), and every line
+the nightly and the republish print of an error carries the code
+(`failureWords`). GameChanger is asked through
 the proxy's own handler in the same process (`scripts/handlerFetch.ts`), so the
 run pays for nothing but GitHub's minutes. The day is the user's
 (`TZ=America/New_York`), which is what the rota and the day log are kept in, and
@@ -4422,6 +4436,80 @@ the night's colour alone, as do failed rebuilds: they are not the refresh's
 work. This is what tells whether a week of dry runs went well before `mode` is
 set to `live`.
 
+### Boards caught up on GitHub
+
+A save's rebuild ("Views a server publishes") puts an import or an edit on the
+boards within minutes, but only while the rebuilds run. Switched off, paused,
+failing, or deferred to a later month by their budget (as they were from 14
+October 2026, October's spent, until 1 November), a save reached the boards only
+with the nightly, which GitHub starts hours late. So every half hour one of
+GitHub's servers looks (`.github/workflows/catch-up.yml`, `scripts/catchUp.ts`,
+`npm run catch-up`), and publishes the boards where they are behind the copy and
+nothing else is about to. Its rules are `catchUp.ts`'s, kept out of the script so
+they are tested.
+
+It reads three things: the copy's manifest, with when Firestore last wrote it;
+the published meta; and the League Standings seasons' documents. The boards are
+behind (`boardsBehind`) where nothing is published, where an older build
+published them, where nothing vouches for what they were built from, where they
+are another copy's, where a season changed since, or where a key the boards read
+changed since (`boardInputsPrint`). A later version of the copy that moved nothing
+a board reads leaves them current, as it asks no rebuild, and so does a new day:
+yesterday's boards of what the copy still holds are the night's to build for
+today, and a run that took the day for a reason would publish every board each
+midnight. Boards a publish of this build would be refused over (a meta it cannot
+read, a newer build's or newer rules', a later day's) are left as they are, and
+so is a copy or a season a newer build saved. A run that finds the boards current
+says so in a line and is done in the time those reads take.
+
+Where they are behind, it reads what may be at work, and leaves the boards to the
+next run where anything is (`heldBy`):
+
+- **The nightly**, running on GitHub (the workflow asks GitHub for its runs not
+  yet completed; a GitHub that does not answer is not waited on), or holding the
+  refresh gate while it pulls. It publishes the boards itself.
+- **A pull or an import that may write the copy**, found by one query for the
+  pulls queued or running (`pullsUnderWay`) and counted while heard from within
+  the two hours a refresh may go quiet and be alive (`pullWritesCopy`). "Refresh
+  now", and a list sent before the staged importer, save the copy at the end of
+  every leg, so any stage of one counts; the staged importer writes the copy only
+  once its downloads are done, so its hours of downloading do not.
+- **A rebuild after a save** holding its control document (`ops/rebuildJob`),
+  launching or running, which publishes the boards itself; not one its budget
+  deferred, which nobody holds.
+- **A save less than ten minutes old** (`CATCH_UP_SETTLE_MS`), by Firestore's
+  clock. An edit's rebuild is asked for within two minutes of it and holds its
+  control document from its launch to its publish, so by then it has come or is
+  seen running; and a burst of edits is one publish after it, not one beside a
+  person still editing.
+
+Running beside any of them would harm nothing, since every publish is made over
+the meta as read and never puts back an older version; it would build the whole
+pool for boards about to be replaced, or published anyway.
+
+Otherwise it publishes as the republish after a deploy does (`republishViews`,
+"Views a server publishes"): the copy laid into memory as a pull lays it, the
+boards built and published under the copy and version read, held to that
+version, and tried again on the copy as it then stands when a save or a season
+moved it, three tries in all, asking before each whether the boards are still
+behind, since a rebuild or the nightly may have published them meanwhile. It
+sweeps as a rebuild does, only the retired pieces its own commit takes out, and
+leaves strays to the night's full sweep. It opens the copy on the nightly's key
+with only `live/` writable (`restServerStores`): it pulls nothing from
+GameChanger, tidies nothing and saves nothing of the copy. It runs under the
+nightly's day, collation, heap and Node (`workflowCatchUp.test.ts` holds the
+workflow to them), and its log is counts, sizes and timings.
+
+Its runs go one at a time, in a group of their own: a run waiting there is
+replaced by the next, which reads everything afresh. It does not join the
+nightly's group, where a run joining every half hour would cancel a night
+waiting behind one. A publish that fails as the nightly's would
+(`publishFailedRun`) turns the run red, which GitHub emails about; a copy or a
+season saved during the run does not, and the next run publishes. It raises no
+issue of its own ("When a run fails"): the next run tries again within the half
+hour, and a night that fails raises its own. A run by hand is **Actions → Boards
+catch-up → Run workflow**.
+
 ### When a run fails
 
 The nightly of 10 October 2026 failed at 03:52 UTC, and the owner learned of it
@@ -4465,6 +4553,10 @@ it leaves the run as its work left it (`continue-on-error`, held by
 `workflowAlarms.test.ts`): a night that saved stays green, and GitHub does not
 email that it failed for want of an issue, while a night whose refresh failed is
 red from that step already.
+
+The catch-up between nights ("Boards caught up on GitHub") raises no issue: a
+publish of its that fails turns its run red, and the next run, within the half
+hour, tries again.
 
 A run whose checkout failed raises nothing: the alarm is a script it checks out.
 Its work's step is then skipped, which the alarm would call "did not start", but
@@ -4581,8 +4673,11 @@ for members' devices to read rather than build. The nightly refresh publishes
 every board each night, once it has saved the copy (`src/lib/live/publishCopy.ts`
 on `viewStore.ts`; see "The nightly refresh on GitHub"), and once their setup is
 done ("Rebuilds after saves: the one-time setup"), a rebuild publishes them again
-a few minutes after any save that moved what a board reads. How a member's
-device reads them is "The live board on a member's device", below.
+a few minutes after any save that moved what a board reads. While the rebuilds do
+not run (off, paused, failing, or deferred by their budget), a run on GitHub every
+half hour publishes them once the copy has been still ten minutes ("Boards caught
+up on GitHub"). How a member's device reads them is "The live board on a member's
+device", below.
 
 - **`live/meta`** is one small document naming every view by its key
   (`board:{year}:{page}:{half}`, with `none` for a page with no year): the

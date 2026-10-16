@@ -22,6 +22,7 @@
  * Run under the nightly's time zone and collation (`TZ=America/New_York`, `LANG=en_US.UTF-8`), whose
  * day and order of tied rows the views are built in, and with its heap, since it holds the whole pool.
  */
+import { failureWords } from "../src/lib/cloud/firestoreRest.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { republishViews, REPUBLISH_TRIES } from "../src/lib/live/republish.ts";
 import { BOARD_SHAPE } from "../src/lib/live/views/boardShape.ts";
@@ -98,7 +99,7 @@ try {
   await main();
 } catch (error) {
   // The message only: nothing here quotes the key, and a stack adds nothing a public log needs.
-  console.log(`The republish stopped: ${error instanceof Error ? error.message : String(error)}`);
+  console.log(`The republish stopped: ${failureWords(error)}`);
   process.exitCode = 1;
 } finally {
   // The store opens a channel to other tabs that would keep the process alive.

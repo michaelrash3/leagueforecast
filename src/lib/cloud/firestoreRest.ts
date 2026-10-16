@@ -140,7 +140,9 @@ const manifestFields = (next: CloudManifest): Record<string, FirestoreValue> =>
     kept: next.kept.map((part) => ({ ...part })),
   });
 
-const MANIFEST = "copies/main";
+/** The copy's manifest, as a document. */
+export const MANIFEST_PATH = "copies/main";
+const MANIFEST = MANIFEST_PATH;
 const CHUNKS = "copies/main/chunks";
 const LIVE_META = "live/meta";
 const LIVE_CHUNKS = "live/meta/chunks";
@@ -180,6 +182,94 @@ const saidOf = (answer: unknown): string | undefined => {
 const refusalOf = async (response: Response, what: string): Promise<FirestoreError> =>
   new FirestoreError(response.status, what, saidOf(await response.json().catch(() => null)));
 
+/**
+ * The code a failure of the network carries, on the error or on what it was caused by: Node's fetch
+ * throws "fetch failed", which says nothing of why, and keeps the why on its `cause` (`ECONNRESET`,
+ * `ENOTFOUND`, `UND_ERR_SOCKET`). Undefined where there is none.
+ */
+export const networkCodeOf = (error: unknown): string | undefined => {
+  let at: unknown = error;
+  for (let depth = 0; depth < 4 && typeof at === "object" && at !== null; depth += 1) {
+    const code = (at as { code?: unknown }).code;
+    if (typeof code === "string" && /^[A-Z][A-Z0-9_]*$/.test(code)) return code;
+    at = (at as { cause?: unknown }).cause;
+  }
+  return undefined;
+};
+
+/**
+ * An error as a public log may say it: its message, with the network's code after it where the
+ * message does not already say it. "Publishing the views stopped: fetch failed" was all the nightly
+ * of 14 October 2026 said of why, about nine minutes into its publish.
+ */
+export const failureWords = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = networkCodeOf(error);
+  return code !== undefined && !message.includes(code) ? `${message} (${code})` : message;
+};
+
+/**
+ * What a request does, which decides whether it may be asked again once it failed, and is what a
+ * log names it by: never by its document's path or a piece's id.
+ * - `read`, `list`, `query`: reads, which asked again read again.
+ * - `write`: a document written whole, or the fields it names set (a `PATCH`), and `delete`: done
+ *   twice, either leaves Firestore as done once, and as a first try whose answer came late would.
+ *   A piece is written under an upload id nothing else writes under (`viewStore.ts`), and a second
+ *   delete finds nothing, which counts as deleted.
+ * - `commit`: a write made only where its precondition holds (the update time it was read at, or
+ *   that there is none). Asked again after the first was done, it is refused by the first's own
+ *   write, which its caller reads as another writer's save, so it is asked again only where the
+ *   first is known to have been done nothing with.
+ */
+export type RequestKind = "read" | "list" | "query" | "write" | "delete" | "commit";
+
+/**
+ * Thrown where the network failed a request, on its last try or on one that may not be asked again
+ * (`RequestKind`): what the request was doing, in words with no path or id in them, and the
+ * network's code, so the log says which and why. The error the network threw is its `cause`.
+ */
+export class FirestoreUnreachableError extends Error {
+  // Plain fields, as `FirestoreError`'s: Node runs the scripts that use this by stripping types.
+  readonly code: string | undefined;
+  readonly tries: number;
+  readonly cause: unknown;
+  constructor(what: string, cause: unknown, tries: number) {
+    const code = networkCodeOf(cause);
+    super(
+      `The network failed ${what} (${code ?? "it gave no code"})${tries > 1 ? `, the last of ${tries} tries` : ""}.`
+    );
+    this.name = "FirestoreUnreachableError";
+    this.code = code;
+    this.tries = tries;
+    this.cause = cause;
+  }
+}
+
+/**
+ * Whether an error is the network's rather than the code's: what `fetch` throws when it gets no
+ * answer, or an answer cut off, is a `TypeError` ("fetch failed", "terminated"), and Node's carries
+ * a code beside it.
+ */
+const isNetworkFailure = (error: unknown): boolean =>
+  error instanceof TypeError || networkCodeOf(error) !== undefined;
+
+/**
+ * Codes that say a request never left this machine: no address for Firestore's host, or no
+ * connection to it. A reset, a socket closed under it or no answer in time can each come after
+ * Firestore did the request, so none of them is here.
+ */
+const NEVER_SENT: ReadonlySet<string> = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+/** Statuses that answer no body (`new Response` refuses one for them). */
+const NO_BODY: ReadonlySet<number> = new Set([204, 205, 304]);
+
 export type RestAccess = {
   projectId: string;
   /** Asked for each request, so a job longer than a token's hour can hand a new one. */
@@ -187,26 +277,51 @@ export type RestAccess = {
   fetchImpl?: typeof fetch;
   /** Where Firestore answers: its own address, unless a test points this at the emulator. */
   origin?: string;
-  /** Waits before a request Firestore turned away is asked again; a test's need not wait. */
+  /** Waits before a request is asked again (`RETRY_WAITS_MS`); a test's need not wait. */
   pause?: (ms: number) => Promise<void>;
 };
 
 /**
- * How long to wait before asking again a request Firestore turned away for load, once per wait,
- * 31 s in all. The nightly of 5 Oct 2026 stopped on Firestore's HTTP 429 writing the fourth piece
- * of its first part (pieces go four at a time, `inBatches`), and lost the night's refresh: a
- * refusal for load, which the three nights after did not meet saving the same number of values.
+ * How long to wait before asking a request again, once per wait, 63 s in all. The nightly of 5 Oct
+ * 2026 stopped on Firestore's HTTP 429 writing the fourth piece of its first part (pieces go four
+ * at a time, `inBatches`), and lost the night's refresh: a refusal for load, which the three nights
+ * after did not meet saving the same number of values. The nightly of 14 Oct 2026 stopped on a
+ * failure of the network about nine minutes into publishing the views, and lost the night's boards;
+ * the last wait, 32 s, is for a failure that lasts a little longer than a moment, which 31 s of
+ * waits in all would have given up on.
  */
-export const BUSY_WAITS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000];
+export const RETRY_WAITS_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000];
 
 /**
- * Whether an answer is Firestore turned away for load, and asking again is safe: too many requests
- * (429) is refused before anything is done, so any request; unavailable (503) may come after a
- * write was done, so only a request that does the same thing however often it is made, never a
- * commit, whose second try would read its own first as another writer's save.
+ * Answers that say Firestore, or Google's front end before it, could not do a request just now:
+ * an internal error, a bad gateway, unavailable, and a gateway that timed out.
  */
-const askAgain = (status: number, method: string): boolean =>
-  status === 429 || (status === 503 && method !== "POST");
+const NOT_NOW: ReadonlySet<number> = new Set([500, 502, 503, 504]);
+
+/**
+ * Whether an answer may be asked again: too many requests (429) is refused before anything is done,
+ * so any request; the answers of `NOT_NOW` may come after a write was done, so only a request that
+ * does the same thing however often it is made, never a commit (`RequestKind`).
+ */
+const askAgain = (status: number, kind: RequestKind): boolean =>
+  status === 429 || (kind !== "commit" && NOT_NOW.has(status));
+
+/**
+ * Whether a request whose fetch threw may be asked again: a failure of the network, for any request
+ * but a commit, and for a commit only where it never left this machine (`NEVER_SENT`).
+ */
+const sendAgain = (error: unknown, kind: RequestKind): boolean =>
+  isNetworkFailure(error) && (kind !== "commit" || NEVER_SENT.has(networkCodeOf(error) ?? ""));
+
+/** What a request was doing, in the words its failure is said in. */
+const DOING: Record<RequestKind, string> = {
+  read: "reading a document",
+  list: "listing a collection",
+  query: "querying a collection",
+  write: "writing a document",
+  delete: "deleting a document",
+  commit: "committing a write",
+};
 
 const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
@@ -220,26 +335,80 @@ const restClient = ({
 }: RestAccess) => {
   const database = `projects/${projectId}/databases/(default)`;
   const documents = `${origin}/v1/${database}/documents`;
-  const call = async (url: string, init: RequestInit = {}): Promise<Response> => {
-    for (let tries = 0; ; tries += 1) {
-      const response = await fetchImpl(url, {
-        ...init,
-        headers: {
-          authorization: `Bearer ${await token()}`,
-          ...(init.body ? { "content-type": "application/json" } : {}),
-        },
-      });
-      const before = BUSY_WAITS_MS[tries];
-      if (before === undefined || !askAgain(response.status, init.method ?? "GET")) {
-        return response;
+  /**
+   * `url` asked, as `kind`, and its answer read to its end: asked again after each of
+   * `RETRY_WAITS_MS` where `askAgain` or `sendAgain` lets it, and where its answer is cut off
+   * before its end for any request but a commit. A sign-in the network failed is asked again
+   * whatever the request, since nothing was sent. The answer is handed back whole, so its caller
+   * reads it with nothing left to fail on the way.
+   */
+  const call = async (
+    url: string,
+    kind: RequestKind,
+    init: RequestInit = {},
+    doing: string = DOING[kind]
+  ): Promise<Response> => {
+    for (let tries = 1; ; tries += 1) {
+      const before = RETRY_WAITS_MS[tries - 1];
+      let bearer: string;
+      try {
+        bearer = await token();
+      } catch (error) {
+        if (!isNetworkFailure(error)) throw error;
+        if (before === undefined) {
+          throw new FirestoreUnreachableError("signing in to Google", error, tries);
+        }
+        await pause(before);
+        continue;
       }
-      // Read to its end, so the connection is free for the next try.
-      await response.arrayBuffer().catch(() => undefined);
-      await pause(before);
+      let response: Response;
+      try {
+        response = await fetchImpl(url, {
+          ...init,
+          headers: {
+            authorization: `Bearer ${bearer}`,
+            ...(init.body ? { "content-type": "application/json" } : {}),
+          },
+        });
+      } catch (error) {
+        if (!isNetworkFailure(error)) throw error;
+        if (before === undefined || !sendAgain(error, kind)) {
+          throw new FirestoreUnreachableError(doing, error, tries);
+        }
+        await pause(before);
+        continue;
+      }
+      if (before !== undefined && askAgain(response.status, kind)) {
+        // Read to its end, so the connection is free for the next try.
+        await response.arrayBuffer().catch(() => undefined);
+        await pause(before);
+        continue;
+      }
+      let body: ArrayBuffer;
+      try {
+        body = await response.arrayBuffer();
+      } catch (error) {
+        if (!isNetworkFailure(error)) throw error;
+        // A commit's status says whether it was done, which is all its caller reads of one that
+        // was; asked again, it would be refused by its own write.
+        if (kind === "commit" && response.ok) {
+          return new Response(null, { status: response.status, headers: response.headers });
+        }
+        if (before === undefined || kind === "commit") {
+          throw new FirestoreUnreachableError(doing, error, tries);
+        }
+        await pause(before);
+        continue;
+      }
+      return new Response(NO_BODY.has(response.status) ? null : body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     }
   };
-  const read = async (path: string): Promise<FirestoreDocument | null> => {
-    const response = await call(`${documents}/${path}`);
+  const read = async (path: string, doing = DOING.read): Promise<FirestoreDocument | null> => {
+    const response = await call(`${documents}/${path}`, "read", {}, doing);
     if (response.status === 404) return null;
     if (!response.ok) throw new FirestoreError(response.status, `reading ${path}`);
     return (await response.json()) as FirestoreDocument;
@@ -255,7 +424,7 @@ const restClient = ({
     precondition: { updateTime: string } | { exists: false },
     what: string
   ): Promise<boolean> => {
-    const response = await call(`${documents}:commit`, {
+    const response = await call(`${documents}:commit`, "commit", {
       method: "POST",
       body: JSON.stringify({
         writes: [
@@ -293,7 +462,12 @@ const namesAndTimes = async (
   do {
     const query = ["pageSize=300", "mask.fieldPaths=none"];
     if (page) query.push(`pageToken=${encodeURIComponent(page)}`);
-    const response = await call(`${documents}/${collection}?${query.join("&")}`);
+    const response = await call(
+      `${documents}/${collection}?${query.join("&")}`,
+      "list",
+      {},
+      `listing ${what}`
+    );
     if (!response.ok) throw new FirestoreError(response.status, `listing ${what}`);
     const answer = (await response.json()) as {
       documents?: FirestoreDocument[];
@@ -321,21 +495,31 @@ const pieceCalls = (
     putChunk: !writable
       ? refuseWrite
       : async (id: string, data: Uint8Array<ArrayBuffer>) => {
-          const response = await call(`${documents}/${piecePath(id)}`, {
-            method: "PATCH",
-            body: JSON.stringify({ fields: { data: { bytesValue: base64Of(data) } } }),
-          });
+          const response = await call(
+            `${documents}/${piecePath(id)}`,
+            "write",
+            {
+              method: "PATCH",
+              body: JSON.stringify({ fields: { data: { bytesValue: base64Of(data) } } }),
+            },
+            "writing a piece"
+          );
           if (!response.ok) throw await refusalOf(response, `writing piece ${id}`);
         },
     getChunk: async (id: string) => {
-      const found = await read(piecePath(id));
+      const found = await read(piecePath(id), "reading a piece");
       const data = found?.fields?.data;
       return data?.bytesValue !== undefined ? bytesOf(data.bytesValue) : null;
     },
     deleteChunk: !writable
       ? refuseWrite
       : async (id: string) => {
-          const response = await call(`${documents}/${piecePath(id)}`, { method: "DELETE" });
+          const response = await call(
+            `${documents}/${piecePath(id)}`,
+            "delete",
+            { method: "DELETE" },
+            "deleting a piece"
+          );
           if (!response.ok && response.status !== 404) {
             throw new FirestoreError(response.status, `deleting piece ${id}`);
           }
@@ -375,6 +559,18 @@ export type FirestoreRestDocuments = {
    */
   list: (collection: string) => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
   /**
+   * The documents of `collection` whose field `field` holds one of `values` (at most 30), with
+   * their ids and fields as plain values, in one query: the pulls still queued or running
+   * (`pullJobs`), which the catch-up between nights finds by their status rather than by listing
+   * every pull there has been (`catchUp.ts`). Firestore counts a read for each document found, and
+   * one where none is.
+   */
+  where: (
+    collection: string,
+    field: string,
+    values: readonly string[]
+  ) => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
+  /**
    * Writes `fields` as the whole document at `path`, made or replaced, whatever was there: a piece
    * of the list a "Refresh now" job works out (`pullJobRunner.ts`), which a first leg tried again
    * writes over whatever the try before it left.
@@ -408,7 +604,7 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
       do {
         const query = ["pageSize=100"];
         if (page) query.push(`pageToken=${encodeURIComponent(page)}`);
-        const response = await call(`${documents}/${collection}?${query.join("&")}`);
+        const response = await call(`${documents}/${collection}?${query.join("&")}`, "list");
         if (!response.ok) throw new FirestoreError(response.status, `listing ${collection}`);
         const answer = (await response.json()) as {
           documents?: FirestoreDocument[];
@@ -422,19 +618,47 @@ export const firestoreRestDocuments = (access: RestAccess): FirestoreRestDocumen
       } while (page);
       return found;
     },
+    where: async (collection, field, values) => {
+      // A query is asked of the collection's parent: the database's documents, or a document.
+      const cut = collection.lastIndexOf("/");
+      const parent = cut < 0 ? documents : `${documents}/${collection.slice(0, cut)}`;
+      const response = await call(`${parent}:runQuery`, "query", {
+        method: "POST",
+        body: JSON.stringify({
+          structuredQuery: {
+            from: [{ collectionId: collection.slice(cut + 1) }],
+            where: {
+              fieldFilter: {
+                field: { fieldPath: field },
+                op: "IN",
+                value: firestoreValueOf([...values]),
+              },
+            },
+          },
+        }),
+      });
+      if (!response.ok) throw await refusalOf(response, `querying ${collection}`);
+      // One answer for each document found, and one with no document where none was.
+      const answers = (await response.json()) as Array<{ document?: FirestoreDocument }>;
+      return answers.flatMap(({ document }) => {
+        const id = document?.name?.split("/").pop();
+        return id ? [{ id: decodeURIComponent(id), fields: fieldsOf(document?.fields ?? {}) }] : [];
+      });
+    },
     update: async (path, patch) => {
       const mask = Object.keys(patch)
         .filter((name) => patch[name] !== undefined)
         .map((name) => `updateMask.fieldPaths=${encodeURIComponent(name)}`);
       const response = await call(
         `${documents}/${path}?${[...mask, "currentDocument.exists=true"].join("&")}`,
+        "write",
         { method: "PATCH", body: JSON.stringify({ fields: firestoreFieldsOf(patch) }) }
       );
       if (!response.ok) throw await refusalOf(response, `updating ${path}`);
     },
     set: async (path, fields) => {
       // No mask and no precondition: the whole document, made or replaced, as a piece is written.
-      const response = await call(`${documents}/${path}`, {
+      const response = await call(`${documents}/${path}`, "write", {
         method: "PATCH",
         body: JSON.stringify({ fields: firestoreFieldsOf(fields) }),
       });
@@ -473,7 +697,9 @@ export const firestoreRestUploads = ({
           for (const piece of await namesAndTimes(client, uploadChunksPath(id), "an upload")) {
             await pieces.deleteChunk(piece.id);
           }
-          const response = await call(`${documents}/${uploadPath(id)}`, { method: "DELETE" });
+          const response = await call(`${documents}/${uploadPath(id)}`, "delete", {
+            method: "DELETE",
+          });
           if (!response.ok && response.status !== 404) {
             throw new FirestoreError(response.status, `deleting upload ${id}`);
           }

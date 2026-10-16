@@ -137,8 +137,11 @@ export const refreshUnderWay = (job: PullJob | null, now: Date): boolean =>
   (job.status === "queued" || job.status === "running") &&
   now.getTime() - Date.parse(job.updatedAt) < REFRESH_QUIET_MS;
 
-/** Whether the nightly said it is pulling, within the time a nightly can run. */
-const nightlyUnderWay = (gate: RefreshGate, now: Date): boolean =>
+/**
+ * Whether the nightly said it is pulling, within the time a nightly can run: a press is turned away
+ * meanwhile, and the catch-up between nights leaves the boards to it (`catchUp.ts`).
+ */
+export const nightlyUnderWay = (gate: RefreshGate, now: Date): boolean =>
   gate.nightlyAt !== null && now.getTime() - Date.parse(gate.nightlyAt) < NIGHTLY_HOLD_MS;
 
 /**

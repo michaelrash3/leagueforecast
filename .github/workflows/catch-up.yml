@@ -1,0 +1,70 @@
+# The boards caught up with the cloud copy between nights (README, "Boards caught up on GitHub"):
+# every half hour, one of GitHub's servers reads the copy's manifest, the published meta and the
+# League Standings seasons, and where the boards are behind the copy and nothing is at work that a
+# publish now would run beside, publishes them as the republish after a deploy does
+# (`scripts/catchUp.ts`, `catchUp.ts`). It is for the time a save's own rebuild does not come
+# (rebuilds off, paused, deferred by their budget, or failing), when an import or an edit otherwise
+# reached the boards only with the nightly, which GitHub starts hours late. It pulls nothing from
+# GameChanger, tidies nothing and saves nothing of the copy. It prints counts, sizes and timings
+# only: this repository is public, and so are its Actions logs.
+#
+# A run that finds nothing behind is done in the time it takes to read those few documents. A
+# publish that fails turns the run red, which GitHub emails whoever last changed the schedule
+# about; it raises no issue of its own, since the next run tries again within the half hour.
+name: Boards catch-up
+
+on:
+  # At 11 and 41 minutes past each hour, off the hour and the half, since GitHub starts a run late
+  # when every repository's is due at once.
+  schedule:
+    - cron: "11,41 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # To ask GitHub whether the nightly refresh is running, which publishes the boards itself.
+  actions: read
+
+# One at a time: a run waiting here is replaced by the next to come, which reads the copy and the
+# boards afresh and is as good. Not the nightly's group: a run waiting in a group is cancelled by
+# the next to join it, and a catch-up joining every half hour would cancel a night waiting behind
+# one. The nightly is asked after instead (below), and the two publishing at once is what the views'
+# store is built for (README, "Views a server publishes").
+concurrency:
+  group: boards-catch-up
+  cancel-in-progress: false
+
+jobs:
+  catch-up:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # How many of the nightly's runs are not yet completed (queued, waiting or in progress): one
+      # that is running publishes the boards itself, so this run leaves them to it. A GitHub that
+      # does not answer hands over nothing, and the nightly is not waited on.
+      - name: Ask whether the nightly is running
+        id: nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?per_page=20" \
+            --jq '[.workflow_runs[] | select(.status != "completed")] | length') || runs=""
+          echo "runs=$runs" >> "$GITHUB_OUTPUT"
+      # No install, as the nightly: the app's own files, run by Node as they are.
+      - name: Publish the boards where they are behind the copy
+        id: catch-up
+        # Short of the job's 60, as the republish's is.
+        timeout-minutes: 55
+        run: npm run catch-up
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          NIGHTLY_RUNS: ${{ steps.nightly.outputs.runs }}
+          # The nightly's day, collation and heap, since a publish builds every board from the whole
+          # pool (`nightly.yml`).
+          TZ: America/New_York
+          LANG: en_US.UTF-8
+          NODE_OPTIONS: --max-old-space-size=12288

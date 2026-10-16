@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { firestoreFieldsOf } from "../../cloud/firestoreRest";
+import { newPullJob } from "../../cloud/pullJobs";
 import { restServerStores } from "../serverStores";
 
 /*
@@ -99,6 +101,84 @@ describe("what a job on GitHub may write of the cloud", () => {
       live: [false, false, false],
       gate: [false],
     });
+  });
+
+  it("reads the copy's manifest at its update time, the rebuild job's control and the pulls under way, however it was opened", async () => {
+    const RUNNING = {
+      ...newPullJob({
+        list: { hash: "0".repeat(64), teams: 1, pieces: 1 },
+        seasonYears: [],
+        timeZone: "America/New_York",
+        device: "phone",
+        now: "2026-10-16T11:00:00.000Z",
+      }),
+      status: "running" as const,
+    };
+    for (const writable of [true, false, "live"] as const) {
+      const fetchImpl = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = String(input);
+        const answer = url.endsWith(":runQuery")
+          ? [
+              {
+                document: {
+                  name: `${url.split(":runQuery")[0]}/pullJobs/${"a".repeat(32)}`,
+                  fields: firestoreFieldsOf(RUNNING),
+                },
+              },
+              // A pull this build cannot read is left out, not taken for one under way.
+              {
+                document: {
+                  name: `${url.split(":runQuery")[0]}/pullJobs/${"b".repeat(32)}`,
+                  fields: firestoreFieldsOf({ format: 99, status: "running" }),
+                },
+              },
+            ]
+          : url.endsWith("/copies/main")
+            ? {
+                fields: { version: { integerValue: "7" } },
+                updateTime: "2026-10-16T11:50:00.123456Z",
+              }
+            : { fields: { owner: { nullValue: null }, until: { integerValue: "0" } } };
+        return new Response(JSON.stringify(answer), { status: 200 });
+      });
+      const stores = restServerStores(
+        {
+          projectId: "demo-league-forecast",
+          token: async () => "token",
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+          pause: async () => undefined,
+        },
+        writable
+      );
+      expect(await stores.readCopyAt()).toEqual({
+        manifest: { version: 7 },
+        savedAt: "2026-10-16T11:50:00.123456Z",
+      });
+      expect(await stores.readRebuildJob()).toEqual({ owner: null, until: 0 });
+      expect(await stores.pullsUnderWay()).toEqual([RUNNING]);
+      const asked = fetchImpl.mock.calls.map(([input]) => String(input));
+      expect(asked.map((url) => url.replace(/^.*\/documents/, ""))).toEqual([
+        "/copies/main",
+        "/ops/rebuildJob",
+        ":runQuery",
+      ]);
+      // The query asks for the pulls queued or running.
+      const query = JSON.parse(String(fetchImpl.mock.calls[2]?.[1]?.body)) as {
+        structuredQuery: unknown;
+      };
+      expect(query.structuredQuery).toEqual({
+        from: [{ collectionId: "pullJobs" }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: "status" },
+            op: "IN",
+            value: {
+              arrayValue: { values: [{ stringValue: "queued" }, { stringValue: "running" }] },
+            },
+          },
+        },
+      });
+    }
   });
 
   it("reads the refresh gate and a job however it was opened", async () => {

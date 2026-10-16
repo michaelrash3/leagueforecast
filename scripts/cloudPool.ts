@@ -106,7 +106,8 @@ export const openCloudStore = (keyJson: string, writable: boolean): CloudStore =
  * The cloud copy's store and the published views' (`live/`), for the key's project, on one
  * sign-in, with the seasons' documents, a read of the rebuilds' ledger and the owner's staged
  * uploads: read only unless `writable`, and with `"live"` only the views written, as the republish
- * after a deploy writes them (`restServerStores`, where which store writes for which is tested).
+ * after a deploy and the catch-up between nights write them (`restServerStores`, where which store
+ * writes for which is tested).
  */
 export const openStores = (keyJson: string, writable: boolean | "live"): ServerStores => {
   const account = accountOf(keyJson);

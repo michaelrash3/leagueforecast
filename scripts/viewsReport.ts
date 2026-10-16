@@ -2,8 +2,8 @@ import type { CopyPublish } from "../src/lib/live/publishCopy.ts";
 
 /*
  * What a server's publish of the members' views did, said in the log the same way by each script
- * that publishes them (`nightly.ts`, `republish.ts`): counts and sizes only, since this repository's
- * Actions logs are public.
+ * that publishes them (`nightly.ts`, `republish.ts`, `catchUp.ts`): counts and sizes only, since
+ * this repository's Actions logs are public.
  */
 
 /** Bytes as megabytes, to a tenth. */

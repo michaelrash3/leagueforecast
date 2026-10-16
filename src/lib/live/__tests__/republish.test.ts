@@ -387,6 +387,64 @@ describe("the republish after a deploy", { timeout: 30_000 }, () => {
     expect(live.meta()?.schema).toBe(LIVE_SCHEMA - 1);
   });
 
+  it("publishes while the caller says the views want it, and sweeps as the caller says", async () => {
+    const { cloud } = await copied();
+    const live = memoryLive();
+    await republish(cloud, live.store).run;
+    // Of this build's: not wanted by the republish's own rule...
+    expect(await republish(cloud, live.store).run).toMatchObject({ end: "not-needed" });
+    // ...but by the caller's, as the catch-up's boards behind the copy are, and swept as a rebuild
+    // sweeps: only what its own commit retires, with no listing of every piece.
+    let lists = 0;
+    const counting: LiveStore = {
+      ...live.store,
+      listChunks: async () => {
+        lists += 1;
+        return live.store.listChunks();
+      },
+    };
+    const asked: unknown[] = [];
+    const { run, views } = republish(cloud, counting, {
+      wanted: async (published) => {
+        asked.push(published);
+        return true;
+      },
+      sweep: "due",
+    });
+    expect(await run).toMatchObject({ end: "published", ok: true, tries: 1 });
+    expect(asked).toEqual([live.meta()]);
+    expect(views[0]).toMatchObject({ ok: true, sweep: { ok: true, strays: 0 } });
+    expect(lists).toBe(0);
+    // The full sweep unless the caller says, which lists them.
+    await republish(cloud, counting, { wanted: () => true }).run;
+    expect(lists).toBe(1);
+    // And nothing at all where the caller says they do not want it.
+    const reads = cloud.costs.reads;
+    expect(await republish(cloud, counting, { wanted: () => false }).run).toMatchObject({
+      end: "not-needed",
+      tries: 0,
+    });
+    expect(cloud.costs.reads).toBe(reads);
+  });
+
+  it("is done once the caller no longer wants the views, after a try that did not publish", async () => {
+    const { cloud } = await copied();
+    const live = memoryLive();
+    const saving = savingOnce(cloud, true);
+    let asks = 0;
+    const { run, views } = republish(cloud, onUpload(live.store, saving.hook), {
+      onLoaded: saving.onLoaded,
+      // Wanted when the run begins; published meanwhile by another, as a rebuild after the save.
+      wanted: () => {
+        asks += 1;
+        return asks === 1;
+      },
+    });
+    expect(await run).toMatchObject({ end: "published-since", ok: true, tries: 1 });
+    expect(views).toEqual([{ ok: false, reason: "copy-moved" }]);
+    expect(asks).toBe(2);
+  });
+
   it("is done once its views are out, though the sweep after them stopped", async () => {
     const { cloud } = await copied();
     const live = memoryLive();
