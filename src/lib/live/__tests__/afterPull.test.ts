@@ -16,7 +16,9 @@ import {
   saveScoutTeams,
 } from "../../teamRankingsStorage";
 import {
+  AFTER_PULL_ASK_MS,
   afterPullDecision,
+  askInTime,
   launchAfterPull,
   publishAfterPull,
   rebuildWillPublish,
@@ -247,5 +249,53 @@ describe("the boards when a pull ends", () => {
       because: "current",
     });
     expect(reads.ledger).toBe(0);
+  });
+});
+
+describe("the ask at a pull's end, against its caller's deadline", () => {
+  const T0 = 1_000_000;
+
+  it("runs where there is no deadline, as in the import job", async () => {
+    expect(await askInTime(() => Promise.resolve("asked"), Number.POSITIVE_INFINITY, T0)).toBe(
+      "asked"
+    );
+  });
+
+  it("is not asked at all where less time is left than it needs", async () => {
+    const ask = vi.fn(() => Promise.resolve("asked"));
+    expect(await askInTime(ask, T0 + AFTER_PULL_ASK_MS - 1, T0)).toBeNull();
+    expect(ask).not.toHaveBeenCalled();
+    expect(await askInTime(ask, T0 + AFTER_PULL_ASK_MS, T0)).toBe("asked");
+  });
+
+  it("gives up at the deadline on an ask that has not answered, and holds nothing after", async () => {
+    vi.useFakeTimers();
+    try {
+      const now = Date.now();
+      const answered = askInTime(() => new Promise<string>(() => undefined), now + 40_000, now);
+      await vi.advanceTimersByTimeAsync(39_999);
+      let settled = false;
+      void answered.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await answered).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers as soon as an ask in time does, with no timer left behind", async () => {
+    vi.useFakeTimers();
+    try {
+      const now = Date.now();
+      expect(await askInTime(() => Promise.resolve(7), now + 60_000, now)).toBe(7);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

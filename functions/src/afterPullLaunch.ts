@@ -8,19 +8,28 @@
  */
 import { failureWords } from "../../src/lib/cloud/firestoreRest";
 import { budgetDay } from "../../src/lib/cloud/refreshGate";
-import { launchAfterPull } from "../../src/lib/live/afterPull";
+import { askInTime, launchAfterPull } from "../../src/lib/live/afterPull";
 import { restServerStores } from "../../src/lib/live/serverStores";
 import { launchBoardsPublish, restAccess } from "./pullAccess";
 
-export const publishBoardsIfDue = async (): Promise<Record<string, unknown>> => {
+/** `deadline`: when the caller's own time is up, in milliseconds since the epoch (`askInTime`). */
+export const publishBoardsIfDue = async (
+  deadline = Number.POSITIVE_INFINITY
+): Promise<Record<string, unknown>> => {
   try {
     const now = new Date();
-    const decided = await launchAfterPull(
-      restServerStores(restAccess(), false),
-      launchBoardsPublish,
-      budgetDay(now),
-      now
+    const decided = await askInTime(
+      () =>
+        launchAfterPull(
+          restServerStores(restAccess(), false),
+          launchBoardsPublish,
+          budgetDay(now),
+          now
+        ),
+      deadline,
+      now.getTime()
     );
+    if (decided === null) return { boards: "not-asked", because: "no-time" };
     return decided.publish
       ? { boards: "publishing", behind: decided.behind }
       : { boards: "left", because: decided.because };

@@ -359,6 +359,9 @@ const legInWorker = (request: LegRequest, deadlineMs: number): Promise<LegAnswer
  */
 const LEGS_AT_ONCE = 3;
 
+/** A leg's task's time limit, which the ask after its pull keeps five seconds inside. */
+const LEG_TIMEOUT_S = 1800;
+
 /** How a leg that ended its job ends (`LegOutcome`): finished, stopped, or failed for good. */
 const PULL_ENDED: ReadonlySet<string> = new Set(["done", "cancelled", "failed"]);
 
@@ -376,7 +379,7 @@ export const runPull = !CLOUD_PULLS
         serviceAccount: PULL_RUNNER,
         memory: "8GiB",
         cpu: 2,
-        timeoutSeconds: 1800,
+        timeoutSeconds: LEG_TIMEOUT_S,
         maxInstances: LEGS_AT_ONCE,
         concurrency: 1,
         retryConfig: { maxAttempts: LEG_TRIES, minBackoffSeconds: 120 },
@@ -443,14 +446,20 @@ export const runPull = !CLOUD_PULLS
           }
           if (!lastTry) throw new Error(answer.error);
           // The job is failed now, and its earlier legs' saves may want publishing.
-          logger.info("boards-after-pull", { jobId: task.jobId, ...(await publishBoardsIfDue()) });
+          logger.info("boards-after-pull", {
+            jobId: task.jobId,
+            ...(await publishBoardsIfDue(started + LEG_TIMEOUT_S * 1000 - 5_000)),
+          });
           return;
         }
         logger.info(said(`${answer.outcome} in ${took}.`));
         // The leg that ended its job, however it ended: what its legs saved goes on the boards now,
         // where no rebuild is coming to (`afterPull.ts`).
         if (PULL_ENDED.has(answer.outcome)) {
-          logger.info("boards-after-pull", { jobId: task.jobId, ...(await publishBoardsIfDue()) });
+          logger.info("boards-after-pull", {
+            jobId: task.jobId,
+            ...(await publishBoardsIfDue(started + LEG_TIMEOUT_S * 1000 - 5_000)),
+          });
         }
       }
     );

@@ -124,6 +124,40 @@ export const launchAfterPull = async (
   return decided;
 };
 
+/**
+ * The least time the ask at a pull's end needs before its caller's deadline: a few reads, and the
+ * launch, whose request waits up to 25 s (`launchBoardsPublish`).
+ */
+export const AFTER_PULL_ASK_MS = 30_000;
+
+/**
+ * `ask`, where there is time for it before `deadline` (milliseconds since the epoch), and raced
+ * against that deadline, so a slow one never holds its caller past it; null where there is not, or
+ * it ran out. A leg of "Refresh now" may end with seconds of its task's half hour left, and the
+ * task cut off there would read as a leg that timed out, and run again: one so late leaves the
+ * boards to the catch-up and the nightly. The import job has no deadline (`Infinity`).
+ */
+export const askInTime = async <T>(
+  ask: () => Promise<T>,
+  deadline: number,
+  now = Date.now()
+): Promise<T | null> => {
+  const left = deadline - now;
+  if (!(left >= AFTER_PULL_ASK_MS)) return null;
+  if (left === Number.POSITIVE_INFINITY) return ask();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      ask(),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), left);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /** What the publish after a pull decided, and how its publish ended where it published. */
 export type AfterPullRun = { decided: AfterPull; result?: Republish };
 
