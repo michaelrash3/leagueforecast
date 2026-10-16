@@ -26,6 +26,7 @@ import {
   restJobDocs,
   resumePullJob,
   startPullJob,
+  stopPullsUnderWay,
   type LegTask,
 } from "../../src/lib/cloud/pullJobRunner";
 import { coerceRefreshAsk, startRefresh } from "../../src/lib/cloud/refreshGate";
@@ -723,6 +724,16 @@ const poolEndpoint = (queriesOnly = false) =>
             handled = await handleEdit({
               ...deps,
               ask: { command, ...(typeof copy === "string" ? { copy } : {}) },
+              // Once Team Rankings is started again, every pull under way is asked to stop.
+              stopPulls: () => {
+                const docs = firestoreRestDocuments(restAccess());
+                return stopPullsUnderWay({
+                  list: () => docs.list("pullJobs"),
+                  jobs: restJobDocs(docs),
+                  gate: docs,
+                  now: () => new Date(),
+                });
+              },
             });
           } catch (error) {
             // Nothing it hands back throws, so this is not an answer anyone made: the edit may be in.

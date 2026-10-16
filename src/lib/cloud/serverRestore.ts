@@ -30,7 +30,10 @@ export const restoreOnServer = async (
   if (reply.ok) return { ok: true };
   return {
     ok: false,
-    message: reply.why === "missing" ? NO_LONGER_KEPT : said.EDIT_REFUSED[reply.why],
+    message:
+      reply.why === "missing"
+        ? NO_LONGER_KEPT
+        : said.editRefused({ kind: "copy.restore", group }, reply.why),
   };
 };
 
@@ -62,6 +65,6 @@ export const restoreBackupOnServer = async (
         ? UPLOAD_GONE
         : reply.why === "refused"
           ? UPLOAD_UNREADABLE
-          : said.EDIT_REFUSED[reply.why],
+          : said.editRefused({ kind: "backup.restore", upload }, reply.why),
   };
 };

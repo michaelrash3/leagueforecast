@@ -5,11 +5,17 @@ import {
   EDIT_LOCKS,
   EDIT_REFUSED,
   editLock,
+  editRefused,
   myTeamShown,
+  NOTHING_TO_START,
   overlayCard,
   pendingOf,
   QUERY_REFUSED,
   settledBy,
+  STARTED_AGAIN_WAITING,
+  startedAgainNotice,
+  stoppedSaid,
+  unansweredSaid,
 } from "../liveEdits";
 import type { ClubCard } from "../views/clubShape";
 
@@ -55,6 +61,25 @@ describe("an edit the page draws over the views", () => {
     expect(settledBy(edit, { id: "c0ffee", version: 9 })).toBe(true);
     // Views of another copy, one started again since, will never show it.
     expect(settledBy(edit, { id: "f00d", version: 1 })).toBe(true);
+  });
+
+  it("says a start of Team Rankings is not on the boards until views of its version are out", () => {
+    const reset = pendingOf({ kind: "copy.reset" }, { ...REPLY, version: 8 });
+    const edit = pendingOf({ kind: "team.state", teamId: "S-1", state: "KY" }, REPLY);
+    if (!reset || !edit) throw new Error("not drawn");
+    expect(startedAgainNotice([])).toBeNull();
+    expect(startedAgainNotice([edit])).toBeNull();
+    expect(startedAgainNotice([edit, reset])).toBe(STARTED_AGAIN_WAITING["copy.reset"]);
+    expect(STARTED_AGAIN_WAITING["copy.reset"]).toMatch(/empty .*within half an hour/);
+    // The latest start says what it was: an Undo after Start again is a version brought back.
+    const undo = pendingOf({ kind: "copy.restore", group: "g1" }, { ...REPLY, version: 9 });
+    if (!undo) throw new Error("not drawn");
+    expect(startedAgainNotice([reset, undo])).toBe(STARTED_AGAIN_WAITING["copy.restore"]);
+    // Gone once the views reach its version, as the page's pending edits go (`settledBy`).
+    const published = { id: "c0ffee", version: 8 };
+    expect(startedAgainNotice([edit, reset].filter((one) => !settledBy(one, published)))).toBe(
+      null
+    );
   });
 
   it("is none for a save that changed nothing the views read, since no rebuild follows it", () => {
@@ -299,6 +324,45 @@ describe("what the person is told", () => {
           EDIT_LOCKS.unlinked
         );
       }
+  });
+
+  it("says a start of Team Rankings refused or unanswered in its own words, never a club's or the board's", () => {
+    // A second Start again finds nothing to take out: not a club or a game gone.
+    expect(editRefused({ kind: "copy.reset" }, "missing")).toBe(NOTHING_TO_START);
+    expect(editRefused({ kind: "copy.restore", group: "g1" }, "missing")).toMatch(/no longer kept/);
+    for (const command of [
+      { kind: "copy.reset" },
+      { kind: "copy.restore", group: "g1" },
+      { kind: "backup.restore", upload: "u1" },
+    ] satisfies PoolCommand[]) {
+      const unsure = editRefused(command, "unsure");
+      expect(unsure).toMatch(/may or may not/);
+      // The board shows the old pool until it is published again; Setup and the panel read the copy.
+      expect(unsure).not.toMatch(/board/);
+      expect(unsure).toMatch(/Setup's squad years/);
+      expect(unsure).toMatch(/Cloud panel/);
+      expect(unansweredSaid(command)).toBe(unsure);
+      // Every other refusal is any edit's.
+      expect(editRefused(command, "kept-moving")).toBe(EDIT_REFUSED["kept-moving"]);
+    }
+    const state = { kind: "team.state", teamId: "S-1", state: "KY" } as const;
+    expect(editRefused(state, "missing")).toBe(EDIT_REFUSED.missing);
+    expect(editRefused(state, "unsure")).toBe(EDIT_REFUSED.unsure);
+    expect(unansweredSaid(state)).toBeNull();
+  });
+
+  it("says what a start of Team Rankings stopped, and nothing where it stopped nothing", () => {
+    expect(stoppedSaid(undefined)).toBe("");
+    expect(stoppedSaid({ pulls: 0, nightly: false })).toBe("");
+    expect(stoppedSaid({ pulls: 1, nightly: false })).toBe(
+      "1 pull under way in the cloud was asked to stop, and files nothing more."
+    );
+    expect(stoppedSaid({ pulls: 3, nightly: true })).toBe(
+      "3 pulls under way in the cloud were asked to stop, and file nothing more. The nightly refresh pulling now files nothing it fetched."
+    );
+    expect(stoppedSaid({ pulls: 0, nightly: true })).toBe(
+      "The nightly refresh pulling now files nothing it fetched."
+    );
   });
 
   it("names every reason an edit or a question is refused, and never says a refused edit may have been made but the one that may", () => {

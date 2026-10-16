@@ -2,7 +2,14 @@ import { act, render, renderHook } from "@testing-library/react";
 import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { PoolCommand } from "../lib/live/commands";
-import { EDIT_LOCKS, EDIT_REFUSED, QUERY_REFUSED, WARM_AFTER_MS } from "../lib/live/liveEdits";
+import {
+  EDIT_LOCKS,
+  EDIT_REFUSED,
+  editRefused,
+  NOTHING_TO_START,
+  QUERY_REFUSED,
+  WARM_AFTER_MS,
+} from "../lib/live/liveEdits";
 
 vi.mock("../lib/cloud/cloudSession", () => ({ memberToken: async () => null }));
 
@@ -270,6 +277,48 @@ describe("an edit from the live page", () => {
       await two.result.current.edit(STATE, { done: "Set." });
     });
     expect(two.toasts).toEqual([["INTERNAL", { tone: "error" }]]);
+  });
+
+  it("says a start of Team Rankings refused or unanswered in its own words", async () => {
+    const RESET = { kind: "copy.reset" } as const;
+    // Pressed again on an emptied copy: nothing to start again, not a club or a game gone.
+    const nothing = hook(server({ body: { result: { ok: false, why: "missing" } } }));
+    await act(async () => {
+      await nothing.result.current.edit(RESET, { done: "Started again." });
+    });
+    expect(nothing.toasts).toEqual([[NOTHING_TO_START, { tone: "error" }]]);
+    // No answer that says whether it was made: where to see it, which is not the board.
+    const unsure = hook(server({ body: { result: { ok: false, why: "unsure" } } }));
+    await act(async () => {
+      await unsure.result.current.edit(RESET, { done: "Started again." });
+    });
+    expect(unsure.toasts).toEqual([[editRefused(RESET, "unsure"), { tone: "error" }]]);
+    const lost = hook(
+      server({ status: 500, body: { error: { status: "INTERNAL", message: "INTERNAL" } } })
+    );
+    await act(async () => {
+      await lost.result.current.edit(RESET, { done: "Started again." });
+    });
+    expect(lost.toasts).toEqual([[editRefused(RESET, "unsure"), { tone: "error" }]]);
+  });
+
+  it("says a start of Team Rankings made with the pulls it asked to stop after it", async () => {
+    const RESET = { kind: "copy.reset" } as const;
+    const started = made(5, ["league_forecast_scout_teams_v1"], { kind: "none" });
+    const stopped = hook(
+      server({
+        body: { result: { ...started.body.result, stopped: { pulls: 2, nightly: false } } },
+      })
+    );
+    await act(async () => {
+      await stopped.result.current.edit(RESET, { done: "Started again." });
+    });
+    expect(stopped.toasts).toEqual([
+      [
+        "Started again. 2 pulls under way in the cloud were asked to stop, and file nothing more.",
+        { tone: "success" },
+      ],
+    ]);
   });
 });
 

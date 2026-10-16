@@ -30,7 +30,7 @@ import { loadCloudState } from "../../lib/cloud/cloudState";
 import { todayIsoDay } from "../../lib/date";
 import { whereIsGcId } from "../../lib/gcIdWhereabouts";
 import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
-import { editLock, myTeamShown } from "../../lib/live/liveEdits";
+import { editLock, myTeamShown, startedAgainNotice } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
 import { poolGamesOfCard, teamsOfCard } from "../../lib/live/scoutingFromCards";
 import { boardKey, lastWeekOf, withMine } from "../../lib/live/views/boardShape";
@@ -759,6 +759,12 @@ function LiveBoard({
     missNotice !== null && (section === "games" ? live.source !== null : board !== null)
       ? statusCard(missNotice)
       : null;
+  /*
+   * A start of Team Rankings made from this page and not yet on the boards: the views are rebuilt
+   * by the server after it, not by the start itself, so until they are published the boards, Find
+   * a team and the club cards show the pool as it was, and the page says so on every area.
+   */
+  const startedAgain = startedAgainNotice(edits.pending);
 
   return (
     <div className="flex flex-col gap-6" data-testid="live-board">
@@ -782,6 +788,7 @@ function LiveBoard({
         onOpenSection={openSection}
       />
       {handedOver && <PoolStrip status={status} onSkip={onSkip} />}
+      {startedAgain !== null && statusCard(startedAgain)}
       <div
         id={SECTION_PANEL_ID}
         role="tabpanel"

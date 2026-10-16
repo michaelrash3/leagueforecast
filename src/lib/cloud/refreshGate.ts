@@ -171,10 +171,20 @@ export const coerceRefreshAsk = (raw: unknown): RefreshAsk | null => {
 /** The gate document through Firestore's REST API: read with its token, written only at it. */
 export type GateDocs = Pick<FirestoreRestDocuments, "readAt" | "replace">;
 
-const readGate = async (docs: GateDocs): Promise<{ gate: RefreshGate; token: string | null }> => {
+const readGate = async (
+  docs: Pick<GateDocs, "readAt">
+): Promise<{ gate: RefreshGate; token: string | null }> => {
   const held = await docs.readAt(REFRESH_GATE_PATH);
   return { gate: coerceRefreshGate(held?.fields ?? null), token: held?.token ?? null };
 };
+
+/**
+ * Whether the nightly says it is pulling now, read off the gate: for a start of Team Rankings to
+ * say so, since nothing a server does can stop it (it runs on GitHub), and what it fetched is
+ * filed nowhere once the start is saved (`CloudManifest.epoch`).
+ */
+export const nightlyPulling = async (docs: Pick<GateDocs, "readAt">, now: Date): Promise<boolean> =>
+  nightlyUnderWay((await readGate(docs)).gate, now);
 
 export const NIGHTLY_PULLING =
   "The nightly refresh is pulling in the cloud right now. What it brings shows here once it is done.";

@@ -29,6 +29,7 @@ const EDITED: EditRun = {
   version: 8,
   inverse: { kind: "none" },
   changed: ["k"],
+  startedAgain: false,
   tries: 1,
   cold: false,
   fetched: 0,

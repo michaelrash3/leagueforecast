@@ -1621,6 +1621,21 @@ export const isCopyCommand = (
 ): command is Extract<PoolCommand, { kind: "copy.reset" | "copy.restore" }> =>
   command.kind === "copy.reset" || command.kind === "copy.restore";
 
+/**
+ * The owner's commands that make Team Rankings another whole rather than change it: started again,
+ * an earlier version brought back, a backup restored. Each gives the copy a new epoch
+ * (`CloudManifest.epoch`), so a pull, an import or a publish that read the pool before files and
+ * publishes nothing of it afterwards, and the edit function asks every pull under way to stop once
+ * it is saved (`stopPullsUnderWay`).
+ */
+export const STARTS_AGAIN: ReadonlySet<PoolCommand["kind"]> = new Set([
+  "copy.reset",
+  "copy.restore",
+  "backup.restore",
+]);
+
+export const startsAgain = (command: PoolCommand): boolean => STARTS_AGAIN.has(command.kind);
+
 /** A kept version's group as a manifest names one (`randomId`), or any such short id. */
 const isGroupId = (value: unknown): value is string =>
   typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value);

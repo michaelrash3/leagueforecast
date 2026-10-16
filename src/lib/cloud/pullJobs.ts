@@ -1,4 +1,5 @@
 import type { GcTeamListEntry } from "../gameChangerApi";
+import type { CopyEpoch } from "./cloudManifest";
 import { hashJson, packHashed, unpackChunks } from "./cloudPack";
 import type { CloudPullEnd } from "./cloudRunner";
 
@@ -145,6 +146,14 @@ export type PullJob = {
    * the copy (`refreshNow`) and the legs then walk. Absent from a list.
    */
   rota?: PullJobRota;
+  /**
+   * The copy, and the start of its Team Rankings (`CloudManifest.epoch`), that the job's first leg
+   * read: a Refresh now's teams were worked out from it, and a list's first share filed into it.
+   * Every later leg is held to it (`CloudPullDeps.startedOn`), so a job under way when Team
+   * Rankings is started again files nothing more into the emptied copy. Written by the server once
+   * the first leg has read the copy; absent before, and on a job begun before it was kept.
+   */
+  on?: CopyEpoch;
   /**
    * The zone "today" is in for the importer and the day log, since the function runs in Google's,
    * which is not the user's: a list's is the device's that sent it, and "Refresh now"'s is always
@@ -335,6 +344,13 @@ const downloadOf = (raw: unknown): ImportDownloadStatus | null | undefined => {
   };
 };
 
+/** The copy and epoch a job's first leg read, or null for anything else; undefined where none. */
+const onOf = (raw: unknown): CopyEpoch | null | undefined => {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw) || !text(raw.copy) || raw.copy === "" || !text(raw.epoch)) return null;
+  return { copy: raw.copy, epoch: raw.epoch };
+};
+
 /** A job's refresh as read, or null for one that is not one; undefined where there is none. */
 const rotaOf = (raw: unknown): PullJobRota | null | undefined => {
   if (raw === undefined) return undefined;
@@ -383,6 +399,7 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
   const tally = tallyOf(raw.tally);
   const priorTally = raw.priorTally === undefined ? undefined : tallyOf(raw.priorTally);
   const rota = rotaOf(raw.rota);
+  const on = onOf(raw.on);
   const download = downloadOf(raw.download);
   if (
     !(raw.pipeline === undefined || raw.pipeline === "staged-v1") ||
@@ -401,6 +418,7 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     ) ||
     priorTally === null ||
     rota === null ||
+    on === null ||
     !isRecord(list) ||
     !text(list.hash) ||
     !whole(list.teams) ||
@@ -456,6 +474,7 @@ export const coercePullJob = (raw: unknown): PullJob | null => {
     seasonYears: raw.seasonYears,
     ...(raw.refresh === true ? { refresh: true as const } : {}),
     ...(rota ? { rota } : {}),
+    ...(on ? { on } : {}),
     timeZone: raw.timeZone,
     device: raw.device,
     createdAt: raw.createdAt,

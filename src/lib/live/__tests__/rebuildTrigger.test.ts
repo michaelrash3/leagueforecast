@@ -24,6 +24,7 @@ const manifest = (more: Partial<CloudManifest> = {}): CloudManifest => ({
   format: 2,
   schema: 1,
   copy: "c0ffee",
+  epoch: "",
   version: 4,
   save: "s",
   updatedAt: "2027-04-15T10:00:00.000Z",

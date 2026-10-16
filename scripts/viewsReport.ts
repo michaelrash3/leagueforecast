@@ -16,7 +16,8 @@ const REFUSED: Record<Extract<CopyPublish, { ok: false }>["reason"], string> = {
   "copy-moved": "a device saved the copy during the run, so the next run publishes its views",
   "league-moved":
     "a League Standings season changed during the run, and the rebuild it asked for publishes it",
-  "copy-replaced": "the copy was deleted and started again during the run, so these are not its",
+  "copy-replaced":
+    "the copy was deleted and started again, or its Team Rankings started again, during the run, so these are not its",
   unreadable: "the published meta is not one this build reads",
   "newer-schema": "the published views were made by a newer build",
   "kept-changing": "the published meta kept changing under it",

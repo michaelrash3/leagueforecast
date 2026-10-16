@@ -336,6 +336,21 @@ describe("a call to the edit function", () => {
     ).toMatchObject({ ok: false, why: "unanswered" });
   });
 
+  it("reads what a start of Team Rankings stopped, and leaves out words it cannot read", () => {
+    const stopped = { ...MADE, stopped: { pulls: 2, nightly: true } };
+    expect(coerceEditReply(stopped)).toEqual(stopped);
+    // Only the owner's words hang on it: a start that was made is never said to be unanswered.
+    for (const spoiled of [
+      { pulls: -1, nightly: false },
+      { pulls: 1.5, nightly: false },
+      { pulls: 1, nightly: "no" },
+      { pulls: 1 },
+      "two",
+    ]) {
+      expect(coerceEditReply({ ...MADE, stopped: spoiled }), JSON.stringify(spoiled)).toEqual(MADE);
+    }
+  });
+
   it("reads no answer this build does not know as one, an inverse that is not exactly a command least of all", async () => {
     const broken: unknown[] = [
       null,

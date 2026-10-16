@@ -30,7 +30,8 @@ import { DEFAULT_SETTINGS } from "../../types";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
 import type { SeasonReader } from "../allKnown";
 import { BOARD_FAMILY, builtFrom } from "../boardInputs";
-import { readCloudLeague, type LeagueDocsList } from "../cloudLeague";
+import { NO_LEAGUE_DOCS, readCloudLeague, type LeagueDocsList } from "../cloudLeague";
+import { runEdit, type EditRun } from "../editRun";
 import { LEAGUE_DOC_SCHEMA, seasonDocId, seasonToDoc } from "../leagueDocs";
 import {
   dryLiveStore,
@@ -548,6 +549,48 @@ describe("publishing the copy's boards", { timeout: 20_000 }, () => {
     });
     expect(result).toEqual({ ok: false, reason: "copy-replaced" });
     // Nothing named, nothing left behind: its uploads are taken back.
+    expect(live.meta()).toBeNull();
+    expect(live.chunks.size).toBe(0);
+  });
+
+  it("publishes nothing of a pool whose Team Rankings was started again while its boards went up", async () => {
+    const { cloud } = await copyWith(LEAGUE);
+    // The pool the boards are built from: one part of Team Rankings beside League Standings.
+    const saved = await commitChanges({
+      store: cloud.store,
+      base: cloud.manifest(),
+      changes: [{ key: "league_forecast_gc_apart_v1", value: [], at: 2 }],
+      device: "phone",
+      now: "2027-04-15T11:10:00.000Z",
+    });
+    if (!saved.ok) throw new Error("the pool was not saved");
+    const manifest = saved.manifest;
+    const live = memoryLive();
+    let starting: Promise<EditRun> | null = null;
+    // The owner starts Team Rankings again once the first piece is up: the copy keeps its id.
+    const uploading = {
+      ...live.store,
+      putChunk: async (id: string, data: Uint8Array<ArrayBuffer>) => {
+        starting ??= runEdit({
+          store: cloud.store,
+          leagueDocs: NO_LEAGUE_DOCS,
+          command: { kind: "copy.reset" },
+          now: () => "2027-04-15T11:20:00.000Z",
+        });
+        expect(await starting).toMatchObject({ ok: true });
+        await live.store.putChunk(id, data);
+      },
+    };
+    const result = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: uploading,
+      manifest,
+      today: FIXTURE_TODAY,
+      now: () => T,
+      locale: "en-US",
+    });
+    expect(cloud.manifest()).toMatchObject({ copy: manifest.copy, version: manifest.version + 1 });
+    expect(result).toEqual({ ok: false, reason: "copy-replaced" });
     expect(live.meta()).toBeNull();
     expect(live.chunks.size).toBe(0);
   });

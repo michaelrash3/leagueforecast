@@ -356,6 +356,45 @@ describe("an edit on the cloud copy", () => {
     expect(cloud.manifest()!.copy).toBe("started-again");
   });
 
+  it("refuses to make again, after a save landed first, an edit whose Team Rankings was started again", async () => {
+    const cloud = await copyOfPool();
+    const cache = editPool();
+    let started = false;
+    const store: CloudStore = {
+      ...cloud.store,
+      commitManifest: async (expected, next) => {
+        if (started) return cloud.store.commitManifest(expected, next);
+        started = true;
+        // The owner starts Team Rankings again first: the same copy, a new start of its pool.
+        const was = cloud.manifest() as CloudManifest;
+        cloud.setManifest({ ...was, epoch: "started-again", version: was.version + 1 });
+        return false;
+      },
+    };
+    expect(await edit(cache, store, { kind: "team.state", teamId: "B", state: "TN" })).toEqual({
+      ok: false,
+      why: "copy-replaced",
+      tries: 2,
+    });
+    expect(cloud.manifest()!.epoch).toBe("started-again");
+    // A save that only moved the copy on is built on, as before.
+    const moving = await copyOfPool();
+    let moved = false;
+    const saving: CloudStore = {
+      ...moving.store,
+      commitManifest: async (expected, next) => {
+        if (moved) return moving.store.commitManifest(expected, next);
+        moved = true;
+        const was = moving.manifest() as CloudManifest;
+        moving.setManifest({ ...was, version: was.version + 1 });
+        return false;
+      },
+    };
+    expect(
+      await edit(editPool(), saving, { kind: "team.state", teamId: "B", state: "TN" })
+    ).toMatchObject({ ok: true, tries: 2, startedAgain: false });
+  });
+
   it("refuses a copy it cannot vouch for before touching it", async () => {
     const cloud = memoryCloud();
     expect(
@@ -586,6 +625,42 @@ describe("Team Rankings started again or brought back by the copy's owner", () =
       }
     }
   );
+
+  it("gives Team Rankings a new start with each start and each bring-back, and nothing else does", async () => {
+    const cloud = await withLeague();
+    const before = cloud.manifest()!;
+    expect(before.epoch).toBe("");
+    const started = await runEdit({
+      store: cloud.store,
+      leagueDocs: NO_LEAGUE_DOCS,
+      command: { kind: "copy.reset" },
+      now: () => NOW,
+    });
+    if (!started.ok) throw new Error(started.why);
+    const reset = cloud.manifest()!;
+    expect(started.startedAgain).toBe(true);
+    expect(reset).toMatchObject({ copy: before.copy, version: before.version + 1 });
+    expect(reset.epoch).toMatch(/^[0-9a-f]{32}$/);
+    // Its Undo starts it again in turn: a job that read the emptied copy files nothing either.
+    const undone = await runEdit({
+      store: cloud.store,
+      leagueDocs: NO_LEAGUE_DOCS,
+      command: started.inverse,
+      now: () => NOW,
+    });
+    expect(undone).toMatchObject({ ok: true, startedAgain: true });
+    const back = cloud.manifest()!;
+    expect(back.epoch).not.toBe(reset.epoch);
+    expect(back.epoch).not.toBe(before.epoch);
+    // An edit of the pool keeps the start it was made on.
+    const edited = await edit(editPool(), cloud.store, {
+      kind: "team.state",
+      teamId: "B",
+      state: "KY",
+    });
+    expect(edited).toMatchObject({ ok: true, startedAgain: false });
+    expect(cloud.manifest()!.epoch).toBe(back.epoch);
+  });
 
   it("resets and restores by metadata even when the bulk pool cannot be downloaded", async () => {
     const cloud = await withLeague();
@@ -849,6 +924,9 @@ describe("Team Rankings restored from a backup by the copy's owner", () => {
     if (!done.ok) throw new Error(done.why);
     expect(done.inverse).toEqual({ kind: "none" });
     expect(done.changed).toEqual(expect.arrayContaining([TEAMS_KEY, YEAR_2027]));
+    // A start of Team Rankings like any other: whatever read the pool before files nothing now.
+    expect(done.startedAgain).toBe(true);
+    expect(cloud.manifest()!.epoch).not.toBe("");
     expect(uploads.held.size).toBe(0);
     // What it replaced, kept as one version the Cloud panel brings back.
     const after = cloud.manifest()!;
@@ -926,9 +1004,11 @@ describe("Team Rankings restored from a backup by the copy's owner", () => {
       uploads.store,
       await uploads.stage(backupOf(GAMES))
     );
-    expect(second).toMatchObject({ ok: true });
+    expect(second).toMatchObject({ ok: true, startedAgain: false });
     // The same version, and the same kept versions: a version that differs is not pushed out.
     expect(cloud.manifest()!.version).toBe(after.version);
+    // Nor a new start, which would end every pull under way for a restore that moved nothing.
+    expect(cloud.manifest()!.epoch).toBe(after.epoch);
     expect(cloud.manifest()!.kept).toEqual(after.kept);
   });
 

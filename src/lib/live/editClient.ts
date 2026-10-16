@@ -293,6 +293,20 @@ const isTime = (value: unknown): value is number =>
 const isOneOf = <K extends string>(names: Record<K, true>, value: unknown): value is K =>
   typeof value === "string" && Object.prototype.hasOwnProperty.call(names, value);
 
+/**
+ * What a start of Team Rankings stopped, as a reply says it (`EditReply.stopped`), or null for
+ * anything else. Only words for the owner hang on it, so one that does not read is left out
+ * rather than taken for a reply this build cannot read, which would call a start that was made
+ * one that may not have been.
+ */
+const stoppedOf = (raw: unknown): { pulls: number; nightly: boolean } | null =>
+  isRecord(raw) &&
+  isCount(raw.pulls) &&
+  Number.isInteger(raw.pulls) &&
+  typeof raw.nightly === "boolean"
+    ? { pulls: raw.pulls, nightly: raw.nightly }
+    : null;
+
 /** An edit's reply as the function makes one, or null for anything else. */
 export const coerceEditReply = (raw: unknown): EditReply | null => {
   if (!isRecord(raw)) return null;
@@ -300,6 +314,7 @@ export const coerceEditReply = (raw: unknown): EditReply | null => {
   if (raw.ok !== true) return null;
   const { copy, version, inverse, changed, ms } = raw;
   const command = coerceCommand(inverse);
+  const stopped = stoppedOf(raw.stopped);
   if (
     typeof copy !== "string" ||
     !isCount(version) ||
@@ -327,6 +342,7 @@ export const coerceEditReply = (raw: unknown): EditReply | null => {
       apply: Math.max(0, ms.apply),
       commit: Math.max(0, ms.commit),
     },
+    ...(stopped ? { stopped } : {}),
   };
 };
 

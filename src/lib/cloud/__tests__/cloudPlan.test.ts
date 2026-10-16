@@ -16,6 +16,7 @@ const manifest = (
   format: MANIFEST_FORMAT,
   schema: DATA_SCHEMA,
   copy,
+  epoch: "",
   version: 7,
   save: "s",
   updatedAt: "",

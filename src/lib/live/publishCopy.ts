@@ -1,6 +1,6 @@
 import { coerceBackup } from "../backup";
 import { fetchValues, type CloudStore } from "../cloud/cloudEngine";
-import type { CloudManifest } from "../cloud/cloudManifest";
+import { epochOf, sameEpoch, type CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
 import { latestImportedAt } from "../gameChangerImport";
 import {
@@ -135,7 +135,10 @@ export type CopyPublish =
        * because a device saved it during the run, so the pool held here is not the copy's and
        * nothing is published; the next run publishes. `copy-replaced`: the copy was deleted and
        * started again by the time the boards were to be committed, so they are another copy's;
-       * publishing them would replace the fresh copy's, since two copies have no order.
+       * publishing them would replace the fresh copy's, since two copies have no order. Or its
+       * Team Rankings was started again, brought back or restored (`CloudManifest.epoch`), so they
+       * are of a pool the copy no longer holds, and would put it back on every board until the
+       * start's own rebuild published over them.
        * `league-moved`: a season's document changed by the time the boards were to be committed,
        * so they would put older scores over boards a rebuild since may have published with the
        * new ones; that change asks for its own rebuild. `newer-league`, `league-unreadable`: a
@@ -320,10 +323,11 @@ export const publishCopyViews = async ({
     inline: { pages },
     collectDue: sweeping === "due",
     // Read again just before each commit, uploads and retries included: a copy started again
-    // while the boards were built or went up is not theirs, and nor are seasons changed since.
+    // while the boards were built or went up is not theirs, nor is one whose Team Rankings was
+    // started again (its epoch, since the copy keeps its id), and nor are seasons changed since.
     stillCurrent: async () => {
       const held = await copyStore.readManifest();
-      if (held?.copy !== manifest.copy) return false;
+      if (!held || !sameEpoch(held, epochOf(manifest))) return false;
       versionMoved = atVersion && held.version !== manifest.version;
       if (versionMoved) return false;
       const now = await readCloudLeague(leagueDocs);

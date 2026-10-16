@@ -2,6 +2,7 @@ import { unlinkGcTeam } from "../teamRankings";
 import { cleanTeamName, normalizeState } from "../teamRankings/names";
 import { isBoardInput } from "./boardInputs";
 import type { PoolCommand } from "./commands";
+import type { StoppedPulls } from "../cloud/pullJobRunner";
 import type { EditReply } from "./editHandle";
 import type { EditRefusal, QueryRefusal } from "./editRun";
 import type { ClubCard } from "./views/clubShape";
@@ -132,6 +133,107 @@ export const EDIT_REFUSED: Record<EditRefusal, string> = {
     "That would change too many clubs at once, so nothing was added. Add the games in smaller parts.",
   "store-refused":
     "The cloud would not answer just now, so nothing was changed. Try again in a minute.",
+};
+
+/** Said when the cloud's Team Rankings holds nothing a squad year is counted by. */
+export const NOTHING_TO_START =
+  "The cloud's Team Rankings has no pages, games or archived tables to start again from.";
+
+/** The owner's commands that make Team Rankings another whole, which their own words describe. */
+type StartAgain = "copy.reset" | "copy.restore" | "backup.restore";
+
+/**
+ * What an owner's start of Team Rankings is told where a pool edit's words would mislead. A
+ * second Start again finds nothing to take out (`copyOps.ts`, `missing`), which is not a club or a
+ * game gone; and one whose save went out unanswered cannot be checked on the board, which goes on
+ * showing the old pool until the views are published again: Setup's squad years read the copy,
+ * and so do the earlier versions in the Cloud panel.
+ */
+const START_AGAIN_REFUSED: Record<StartAgain, Partial<Record<EditRefusal, string>>> = {
+  "copy.reset": {
+    missing: NOTHING_TO_START,
+    unsure:
+      "Team Rankings may or may not have been started again. Setup's squad years say which, empty once it has been, as do the earlier versions in the Cloud panel; look there before pressing it again.",
+  },
+  "copy.restore": {
+    missing: "That earlier version is no longer kept, so nothing was brought back.",
+    unsure:
+      "That earlier version may or may not have been brought back. The earlier versions in the Cloud panel say which, as do Setup's squad years; look there before bringing it back again.",
+  },
+  "backup.restore": {
+    unsure:
+      "The backup may or may not have been restored. The earlier versions in the Cloud panel say which, as do Setup's squad years; look there before restoring it again.",
+  },
+};
+
+const startAgainOf = (command: PoolCommand): StartAgain | null =>
+  command.kind === "copy.reset" ||
+  command.kind === "copy.restore" ||
+  command.kind === "backup.restore"
+    ? command.kind
+    : null;
+
+/** What a person is told of `command` refused for `why`: its own words, or any edit's. */
+export const editRefused = (command: PoolCommand, why: EditRefusal): string => {
+  const kind = startAgainOf(command);
+  return (kind ? START_AGAIN_REFUSED[kind][why] : undefined) ?? EDIT_REFUSED[why];
+};
+
+/**
+ * What a person is told of `command` sent with no answer that says whether it was made
+ * (`unanswered`): a start of Team Rankings in its own words, which say where to look; null for
+ * any other edit, whose call already says it may or may not have been made.
+ */
+export const unansweredSaid = (command: PoolCommand): string | null => {
+  const kind = startAgainOf(command);
+  return kind ? (START_AGAIN_REFUSED[kind].unsure ?? null) : null;
+};
+
+/**
+ * What a start of Team Rankings adds to its toast about the pulls it stopped (`EditReply.stopped`):
+ * nothing where there were none, so a start with nothing under way says only that it was made.
+ */
+export const stoppedSaid = (stopped: StoppedPulls | undefined): string => {
+  if (!stopped) return "";
+  const said: string[] = [];
+  if (stopped.pulls > 0) {
+    const one = stopped.pulls === 1;
+    said.push(
+      `${stopped.pulls.toLocaleString()} ${one ? "pull" : "pulls"} under way in the cloud ${one ? "was" : "were"} asked to stop, and ${one ? "files" : "file"} nothing more.`
+    );
+  }
+  if (stopped.nightly) said.push("The nightly refresh pulling now files nothing it fetched.");
+  return said.join(" ");
+};
+
+/**
+ * What the live page says while a start of Team Rankings made from it is not yet on the boards:
+ * the boards, Find a team and the club cards are the views the server publishes, which a start
+ * does not build (`handleEdit`), so they show the pool as it was until a rebuild publishes the
+ * copy's version, and the page says so rather than look as though nothing happened. In October
+ * 2026 the month's rebuild budget held those rebuilds back for days; half an hour is the longest
+ * a save's views are to wait once a publish runs on GitHub when the rebuilds are held back.
+ */
+export const STARTED_AGAIN_WAITING: Record<StartAgain, string> = {
+  "copy.reset":
+    "Team Rankings was started again. The boards, Find a team and the club cards still show what it held, and empty once they are published again, within half an hour.",
+  "copy.restore":
+    "An earlier version of Team Rankings was brought back. The boards, Find a team and the club cards show it once they are published again, within half an hour.",
+  "backup.restore":
+    "Team Rankings was restored from a backup. The boards, Find a team and the club cards show it once they are published again, within half an hour.",
+};
+
+/**
+ * The notice for the latest start of Team Rankings among `pending`, the edits the published views
+ * do not show yet (`settledBy`), or null with none: it goes once views of the start's version, or
+ * a later one, are published.
+ */
+export const startedAgainNotice = (pending: readonly PendingEdit[]): string | null => {
+  for (let at = pending.length - 1; at >= 0; at -= 1) {
+    const kind = startAgainOf(pending[at]!.command);
+    if (kind) return STARTED_AGAIN_WAITING[kind];
+  }
+  return null;
 };
 
 /** What a person is told of a question the server would not answer. */

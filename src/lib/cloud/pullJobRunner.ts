@@ -1,5 +1,6 @@
 import type { GcTeamListEntry } from "../gameChangerApi";
 import type { CloudStore } from "./cloudEngine";
+import { epochOf } from "./cloudManifest";
 import type { FirestoreRestDocuments } from "./firestoreRest";
 import {
   runCloudPull,
@@ -24,7 +25,7 @@ import {
   type PullJobStatus,
   type PullJobTally,
 } from "./pullJobs";
-import { REFRESH_QUIET_MS } from "./refreshGate";
+import { nightlyPulling, REFRESH_QUIET_MS, type GateDocs } from "./refreshGate";
 
 /**
  * The Firebase function's side of a pull a device left for the cloud (`pullJobs.ts`): one leg at a
@@ -157,14 +158,14 @@ const NOT_RUNNABLE: Partial<Record<CloudPullResult["end"], string>> = {
   "newer-copy":
     "The cloud copy was saved by a newer version of the app than the one the cloud runs; the pull runs once the cloud has been updated.",
   "copy-replaced":
-    "The cloud copy was deleted and started again while this pull ran, so nothing it fetched was filed into the new one. Send the list again to pull it there.",
+    "The cloud's Team Rankings was started again, restored or brought back to an earlier version while this pull ran, so nothing more it fetched was filed. Send the list again to pull it into Team Rankings as it is now.",
 };
 
 /** Why a refresh cannot run, where it differs from a list's: there is no list to send again. */
 const REFRESH_NOT_RUNNABLE: Partial<Record<CloudPullResult["end"], string>> = {
   ...NOT_RUNNABLE,
   "copy-replaced":
-    "The cloud copy was deleted and started again while this refresh ran, so nothing it fetched was filed into the new one. Press Refresh now again to refresh the new one.",
+    "The cloud's Team Rankings was started again, restored or brought back to an earlier version while this refresh ran, so nothing more it fetched was filed. Press Refresh now again to refresh Team Rankings as it is now.",
 };
 
 /** Why a refresh of `legs` legs was not run: the day had fewer left than it takes. */
@@ -216,14 +217,16 @@ const workOutRota = async (jobId: string, job: PullJob, deps: LegDeps): Promise<
       legs,
       legsDone: legs,
       rota,
+      on: worked.on,
       end: "nothing-due",
       error: null,
       updatedAt: stamp(),
     });
     return { kind: "nothing" };
   }
-  await jobs.update(jobId, { list: packed.list, legs, rota, updatedAt: stamp() });
-  return { kind: "walk", job: { ...job, list: packed.list, legs, rota }, entries };
+  // The copy the teams were worked out from, which every leg's pull is held to, this one's too.
+  await jobs.update(jobId, { list: packed.list, legs, rota, on: worked.on, updatedAt: stamp() });
+  return { kind: "walk", job: { ...job, list: packed.list, legs, rota, on: worked.on }, entries };
 };
 
 /** Runs `task`'s leg of its job. Throws `TryLegAgain`, or anything else, for a leg to try again. */
@@ -352,6 +355,8 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
         // A refresh keeps what it replaces as an earlier version, as the nightly does, so Bring
         // back undoes a bad one; a pasted list's pull keeps nothing, as it never has.
         ...(pull.kind === "rota" ? { keep: true } : {}),
+        // Held to the copy the job's first leg read: a start of Team Rankings between legs ends it.
+        ...(walking.on ? { startedOn: walking.on } : {}),
         signal: stop.signal,
         onStage: (stage) => {
           latest =
@@ -378,6 +383,9 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
     const tally = added(job.tally, result);
     const version = result.version ?? job.version;
     const legsDone = leg + 1;
+    // A list's first leg keeps the copy it read for the legs after it (`PullJob.on`), as a
+    // refresh's keeps the one its teams were worked out from; a saved run's manifest is that copy.
+    const on = !walking.on && result.manifest ? { on: epochOf(result.manifest) } : {};
     if (result.end === "stopped") {
       await jobs.update(jobId, {
         status: "cancelled",
@@ -387,6 +395,7 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
         end: result.end,
         version,
         error: null,
+        ...on,
         updatedAt: stamp(),
       });
       return "cancelled";
@@ -402,6 +411,7 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
       end: result.end,
       version,
       error: null,
+      ...on,
       updatedAt: stamp(),
     });
     if (over) return "done";
@@ -692,4 +702,40 @@ export const resumePullJob = async (
   // The execution lease admits one worker; repeated or unanswered starts are safe.
   await deps.launch(jobId);
   return { ok: true, status: "queued" };
+};
+
+/** What a start of Team Rankings found pulling into the copy, and asked to stop. */
+export type StoppedPulls = {
+  /** Pulls a device left for the cloud, imports and Refresh now among them, asked to stop now. */
+  pulls: number;
+  /** Whether the nightly says it is pulling (`nightlyPulling`), which nothing here can stop. */
+  nightly: boolean;
+};
+
+/**
+ * Every pull a device left for the cloud that is queued or running, asked to stop, as its Stop
+ * button asks (`stopAsked` and nothing else, the stamp left as it was): run by the edit function
+ * once a start of Team Rankings is saved (`startsAgain`), so a pull that was under way neither goes
+ * on asking GameChanger for a pool that is gone nor races the start silently. Nothing it fetched is
+ * filed into the copy in any case, since every leg and import is held to the start of Team
+ * Rankings it read (`CloudManifest.epoch`); the stop ends it where it is rather than after its
+ * downloads, and the start says how many it stopped, and whether the nightly, which cannot be
+ * stopped from here, is pulling. A job already asked to stop is not asked again, nor counted.
+ */
+export const stopPullsUnderWay = async (deps: {
+  /** Every job's document (`pullJobs/`), as stored. */
+  list: () => Promise<Array<{ id: string; fields: Record<string, unknown> }>>;
+  jobs: Pick<JobDocs, "update">;
+  gate: Pick<GateDocs, "readAt">;
+  now: () => Date;
+}): Promise<StoppedPulls> => {
+  let pulls = 0;
+  for (const { id, fields } of await deps.list()) {
+    const job = coercePullJob(fields);
+    if (!JOB_ID.test(id) || !job || job.stopAsked) continue;
+    if (job.status !== "queued" && job.status !== "running") continue;
+    await deps.jobs.update(id, { stopAsked: true });
+    pulls += 1;
+  }
+  return { pulls, nightly: await nightlyPulling(deps.gate, deps.now()) };
 };

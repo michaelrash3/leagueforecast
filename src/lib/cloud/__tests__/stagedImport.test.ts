@@ -1,15 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GcTeamResponse } from "../../gameChangerApi";
 import type { FetchGcTeamsOptions } from "../../gameChangerClient";
-import { newPullJob } from "../pullJobs";
+import { newPullJob, packJobList } from "../pullJobs";
 import type { JobDocs } from "../pullJobRunner";
 import {
+  IMPORT_NOT_FILED,
   IMPORT_RETRIES,
   restImportArtifacts,
   runStagedImport,
   type ImportCheckpointSummary,
 } from "../stagedImport";
 import { finishStagedImport, selectImportTeams } from "../cloudRunner";
+import { DATA_SCHEMA, MANIFEST_FORMAT, type CloudManifest } from "../cloudManifest";
 import { memoryCloud } from "./memoryCloud";
 
 vi.mock("../cloudRunner", () => ({ selectImportTeams: vi.fn(), finishStagedImport: vi.fn() }));
@@ -24,6 +26,20 @@ const good = (id: string): GcTeamResponse => ({
     fetchedAt: NOW,
   },
 });
+/** The copy the plans below were chosen from: `copy-a`, never started again. */
+const COPY_A: CloudManifest = {
+  format: MANIFEST_FORMAT,
+  schema: DATA_SCHEMA,
+  copy: "copy-a",
+  epoch: "",
+  version: 7,
+  save: "s7",
+  updatedAt: NOW,
+  device: "phone",
+  parts: [],
+  kept: [],
+};
+
 const setup = (teams = 5001) => {
   let job = newPullJob({
     list: { hash: "", teams, pieces: 0 },
@@ -78,6 +94,8 @@ const setup = (teams = 5001) => {
       version: 8,
     };
   });
+  const cloud = memoryCloud();
+  cloud.setManifest(COPY_A);
   return {
     jobs,
     artifacts,
@@ -85,8 +103,9 @@ const setup = (teams = 5001) => {
     fetchTeams,
     fetched,
     filed,
+    cloud,
     job: () => job,
-    deps: { jobs, artifacts, fetchTeams, store: memoryCloud().store, now: () => new Date(NOW) },
+    deps: { jobs, artifacts, fetchTeams, store: cloud.store, now: () => new Date(NOW) },
   };
 };
 
@@ -688,7 +707,52 @@ describe("a staged CSV import", () => {
       replays: 0,
     });
     await runStagedImport(ID, test.deps);
-    expect(test.job()).toMatchObject({ status: "failed", end: "copy-replaced", version: null });
+    expect(test.job()).toMatchObject({
+      status: "failed",
+      end: "copy-replaced",
+      version: null,
+      error: IMPORT_NOT_FILED["copy-replaced"],
+    });
+    expect(test.job().error).toMatch(/started again.*Send the list again/);
+  });
+  it("holds the import it starts to the copy and the start of Team Rankings it chose from", async () => {
+    const test = setup(3);
+    test.values.delete("plan");
+    const packed = await packJobList([{ teamId: "gc0000000000" }]);
+    await test.jobs.update(ID, { list: packed.list });
+    vi.mocked(selectImportTeams).mockResolvedValueOnce({
+      copy: "copy-a",
+      epoch: "e2",
+      entries: [{ teamId: "gc0000000000" }],
+    });
+    const jobs = {
+      ...test.jobs,
+      piece: async (_: string, at: number) => packed.pieces[at] ?? null,
+    };
+    await runStagedImport(ID, { ...test.deps, jobs });
+    expect(test.values.get("plan")).toMatchObject({ copy: "copy-a", epoch: "e2" });
+    expect(vi.mocked(finishStagedImport).mock.calls[0]?.[2]).toEqual({
+      copy: "copy-a",
+      epoch: "e2",
+    });
+  });
+  it("fails a resumed import at once, downloading nothing, once Team Rankings is started again", async () => {
+    const test = setup(2001);
+    test.cloud.setManifest({ ...COPY_A, epoch: "started-again", version: 8 });
+    await runStagedImport(ID, test.deps);
+    expect(test.fetchTeams).not.toHaveBeenCalled();
+    expect(finishStagedImport).not.toHaveBeenCalled();
+    expect(test.job()).toMatchObject({
+      status: "failed",
+      end: "copy-replaced",
+      error: IMPORT_NOT_FILED["copy-replaced"],
+    });
+    // And with no copy at all, likewise, in its own words.
+    const gone = setup(2001);
+    gone.cloud.setManifest(null);
+    await runStagedImport(ID, gone.deps);
+    expect(gone.fetchTeams).not.toHaveBeenCalled();
+    expect(gone.job()).toMatchObject({ status: "failed", error: IMPORT_NOT_FILED["no-copy"] });
   });
   it("does nothing when replayed after completion", async () => {
     const test = setup(1);
