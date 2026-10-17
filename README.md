@@ -2917,6 +2917,79 @@ GameChanger's for none, counting once matched 9 and leaving out 14, and leaving
 out was the nearer for 21 clubs against 13. The team panel still lists the game,
 and says why it is not in the record.
 
+#### Where a rating starts
+
+The fit counts 1.5 virtual games for every club against an average opponent: the
+ridge that keeps a thin record from running away. Until board rules 7 those games
+were played at 0.0, and that has a consequence no table shows. Summed over a piece
+of the schedule that plays nobody outside it, the games cancel, so the piece's
+ratings average exactly 0.0, the pool's average, whatever the piece is worth. A rec
+league whose clubs only play each other then has an 8-0 club rated as high in its
+state as an 8-0 travel club. The games inside a league say who is best in it, not
+how good it is.
+
+So each club's virtual games are played at its league's starting level
+(`scheduleCommunities.ts`). A league is a community of the schedule, read off the
+fit's rated games and nothing else: each piece off the largest is one league, kept
+whole, and the largest piece is split by modularity (Louvain at resolution 20,
+weighed against the whole year's games). Every node is visited in the roster's
+order and every tie goes to the community a node is in, then to the lowest
+numbered, using sums of counts only, so the communities come out the same on every
+engine and whatever order the games are in. A league's outside games are its rated
+games with exactly one side in it, and it starts at −1.6 / (1 + outside / 10) runs:
+1.6 below average with none, 0.8 with ten, 0.15 with a hundred. A piece off the
+largest then averages exactly −1.6, and a club's own games move it from where it
+started as they always did. On the boards of 11 October 2026 the 2027 year held
+4,900 communities. Of its 48,096 ranked clubs, 9,209 were on islands, and on the
+largest piece 4,813 were in leagues with 1 to 10 outside games, 4,687 with 11 to 30
+and 29,387 with more.
+
+Measured on that backup (the 2027 year, 222,010 rated games), fitted on the boards
+of 1, 8 and 15 September and checked on the games after 22 September:
+
+- Against well-connected opponents, at equal shown rating, island clubs had done
+  1.54 runs worse than shown, and clubs whose league had 1 to 10 outside games 0.8
+  to 1.4 worse.
+- The starting level fitted on the early games was −1.60 ± 0.23 runs, and ten
+  outside games halving it fitted best of 2, 3, 5, 10, 20 and 40. Resolution 5
+  predicted the later games worse, and 50 no better than 20.
+- On the 59,405 later games it lowered the squared error by 0.095 ± 0.022 runs²
+  against the boards then published, and the Brier score of the win chance by
+  0.00034 ± 0.00007. On the 7,448 where a weakly connected club (an island, or 10
+  or fewer outside games) met an outsider, it lowered it by 0.72 ± 0.16 runs².
+- On the 11 October year boards 60 of the 548 state #1s changed. Island #1s went
+  from 156 to 126 and weakly connected ones from 217 to 181. The national top 25s
+  kept 215 of their 250 places, and clubs from leagues with 31 or more outside
+  games kept 184 of their 186; 13 of their 276 state #1s changed.
+
+What it cannot do:
+
+- A strong group that has truly played nobody else is shown 1.6 runs below where
+  its games alone would put it, as a weak one is. Only games against outsiders can
+  tell the two apart.
+- The effect grew through the autumn: refitted on the later games the level reads
+  −1.90 ± 0.20, so −1.6 is the cautious value, and after it the isolated clubs
+  still did 0.5 to 0.9 runs worse than shown against well-connected ones.
+- It was measured on years of 38,589 games and more. On a pool far smaller, such as
+  a few dozen clubs, the resolution finds no league at all: every club is a
+  community of its own, and its start reads its own game count instead, a second
+  discount for a thin record.
+- Few leagues have played so much outside themselves that they start right at 0.0,
+  so the average club on the largest piece now sits a little below it: the mean
+  rating of its ranked clubs went from +0.13 to −0.07.
+
+It replaced board rules 6's circular-schedule deduction, which measured as doing
+little: taken off alone it changed the later games' squared error by +0.010 ±
+0.009 runs², and with the starting level in, keeping it would have lowered it by
+another 0.014 ± 0.009, which is not significant. The communities take 1.2 to 1.3 s
+on that year (95,568 nodes, Node 24) and the deduction took 0.7 to 1.0 s, so a fit
+of the full year takes about half a second longer: 4.8 to 5.9 s against 4.4 to
+5.6 s, over five runs each. Each row says where its club started (`levelPrior`)
+and its league's outside games (`outsideGames`), which a device needs to rebuild
+the fit's rating from the club's games and the panel says in words (below). The
+what-if (Scouting report) stays exact: its three fits read the same schedule, so
+their starts agree.
+
 #### Game by game
 
 On the cloud's board a club's panel says, under each game it counted, what that game
@@ -2941,13 +3014,22 @@ rating is all from the club's games. Rounded as whole tenths instead, the line d
 from its row on 2,158 of the 88,106 clubs with lines on that backup, every one a "0.0"
 over a row's "+0.0" or "-0.0". The page's own club reads "your", any other "its".
 
+Where the club's league starts it a tenth of a run or more below average (**Where a
+rating starts**), a sentence follows, from the row's own `levelPrior` and
+`outsideGames`: "Its league has played 3 games outside itself, so its rating starts 1.2
+runs below average." The start is in the rating "from its games" already, since the fit
+played its virtual games there and its league's opponents started there too, so it is
+said beside the split rather than as a third part of it. A start that rounds to less than
+a tenth, a league with more than 310 games outside itself, goes unsaid.
+
 Under each counted W, L or T row are two figures, keyed once above the list. **Played
 like** is the rating that makes the score exactly what the fit expected: the opponent's
 rating, plus the margin counted, less the runs the age gap was worth. A club's fitted
-rating is the weighted mean of these over its games, with the ridge's 1.5 games at
-nought; on the 2027 year of 29 September 2026 that held for all 83,693 of its teams to
-5.6e-9, the solver's own tolerance, which is what lets a device rebuild the board's own
-row from them. **Moved** is the rating the board shows with the game, less the rating it
+rating is the weighted mean of these over its games, with the ridge's 1.5 games played
+at its starting level (**Where a rating starts**), which its row carries; on the 2027
+year of 29 September 2026, with those games then at nought, that held for all 83,693 of
+its teams to 5.6e-9, the solver's own tolerance, which is what lets a device rebuild the
+board's own row from them. **Moved** is the rating the board shows with the game, less the rating it
 would show without it, every other game weighed as it was and the fit's residual scale
 and middle held. It has two parts: the score's, what the margin did to the fit's rating,
 and the record's, what one more game on the record did to the discount, which is never
@@ -4911,11 +4993,18 @@ off every board ("Clubs removed for you"): the fixture holds one such club, 5's
 fingerprint is the boards without it, and the same fixture with its marks taken
 off still gives 4's.
 
-Board rules 6 apply a circular-schedule deduction capped at one rating point.
-The deduction reads the opponents' other games, uses the fit's recency weights,
-and leaves missing opponent schedules inconclusive. The historical pins for
-rules 5 and 4 are still checked by adding the deduction back. Details and the
-season-sample evaluation are in [the deduction notes](docs/circular-schedule-deduction.md).
+Board rules 6 applied a circular-schedule deduction capped at one rating point,
+and the pins of 5 and 4 were checked by adding it back. Board rules 7 replaced it
+with each club's starting level (Ratings, **Where a rating starts**). With every
+club started at average (the test turns the schedule's communities off), the
+boards are 5's to the millionth again, and 4's with the marked club put back;
+nothing rebuilds 6's boards any more, since its deduction is gone from the code.
+A row now says where its club started and carries no deduction, and a board of
+rules 6 still reads on a device of this build, its deduction left unread. The
+boards' fit went to version 3 (`BOARD_FIT_VERSION`), so a device on an older build
+leaves the new fits alone rather than rebuilding each rating without its start.
+The old deduction's notes are kept, marked superseded, in
+[the deduction notes](docs/circular-schedule-deduction.md).
 
 The pool these run on is `scripts/poolFixture.ts`: a seeded pool of the 26
 September 2026 pool's shape, with invented names. It has ten pages in two squad
@@ -5094,8 +5183,8 @@ board, for a write per changed board and a read per opened panel.
 
 A device draws a club's lines only where they add up to the board it came with: the
 fit's version is its own, the club's counted games are as many as its row says and
-average its row's margin, and its fitted and shown ratings, rebuilt from the lines and
-the fit, come within 1e-3 of the row's. Anything else draws no line, so a fit that
+average its row's margin, and its fitted and shown ratings, rebuilt from the lines, the
+row's starting level and the fit, come within 1e-3 of the row's. Anything else draws no line, so a fit that
 moves, goes or comes from a newer build leaves a panel as it was rather than drawing lines
 that do not add up to the board (The live board on a member's device, **What each game
 did**; Ratings, **Game by game**).
@@ -5824,8 +5913,8 @@ Every line is checked against the board before any is drawn, and where a check f
 the panel draws none and says nothing of it, looking as it did before lines were drawn
 at all: the fit is of this build's version (`BOARD_FIT_VERSION`); the card's counted
 games are as many as the row says the club played; their counted margins average to the
-row's `rawMargin` within 1e-9; the fit's rating and the shown one, rebuilt from the lines
-and the fit, are each within 1e-3 of the row's; no side was met more often than the
+row's `rawMargin` within 1e-9; the fit's rating and the shown one, rebuilt from the lines,
+the row's starting level (`levelPrior`) and the fit, are each within 1e-3 of the row's; no side was met more often than the
 board says it played; and every game's score part is well defined. A card and board from
 different publishes, a game the device counted that the fit did not or one it missed, or
 a constant the device has wrong each fail one. On the 29 September 2026 backup, every

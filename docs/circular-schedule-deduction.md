@@ -1,52 +1,26 @@
-# Circular-schedule deduction
+# Circular-schedule deduction (superseded)
 
-The ranked rating loses up to **one point** when opponents' other games mostly
-recycle the team's usual opponent circle. Teams stay in the same rankings.
-The fitted best guess remains available, and the full table and club explanation
-show the schedule deduction separately from the existing record-confidence adjustment.
+Board rules 6 took up to one rating point off a club whose opponents' other games mostly stayed
+inside the club's own circle of opponents. Board rules 7 removed it, on 17 October 2026, for a
+starting level per league of the schedule: README, Ratings, **Where a rating starts**, and
+`src/lib/scheduleCommunities.ts`.
 
-For a team A, inspect each opponent B's games against sides other than A. Compute
-the share of their recency weight against A's other opponents. Average that share
-over A's own recency-weighted games, then multiply by the one-point cap. Additional
-internal games do not open the circle. Outside games gradually reduce the deduction,
-including outside games played by B without A participating.
+Why it went, measured on the owner's backup of 11 October 2026 (the 2027 year, 222,010 rated
+games), fitted on the boards of 1, 8 and 15 September and checked on the 59,405 games after 22
+September:
 
-Require A to have six counted games against at least three distinct opponents.
-An opponent contributes evidence only with three other games against at least two
-sides. Opponents marked `nameOnly` or `placeholder` cannot establish a closed schedule;
-missing coverage contributes no deduction. This is an observed two-step overlap
-measure. It can miss larger isolated networks with little immediate overlap,
-and it does not infer official league membership.
+- It did nothing measurable. Taking it off alone changed the later games' squared error by
+  +0.010 ± 0.009 runs². Of the 2,885 appearances of weakly connected clubs against well-connected
+  ones, 2,540 carried no deduction: an opponent known only from someone else's schedule could
+  not close a circle, so a club among such opponents was never touched.
+- It could not reach the size of the error. Island clubs did 1.54 runs worse than shown against
+  well-connected opponents; the deduction was capped at one point and was mostly zero.
+- Its replacement lowered the later games' squared error by 0.095 ± 0.022 runs² and, with the
+  starting level in, keeping the deduction as well would have lowered it by only a further
+  0.014 ± 0.009, which is not significant.
 
-Both the direct rankings and the cached year fit use the same calculation. The
-completed-game selection and recency weights come from the existing fit. Board
-rules rise from 5 to 6 so an older publisher cannot overwrite the new rankings.
-The optional row field reads alongside older boards. Game-by-game explanations
-hold the schedule deduction fixed while describing score and record effects.
+What it did help a little: between clubs of two well-connected leagues, taking it off alone cost
+0.062 ± 0.027 runs² on 6,244 later games. With the starting level in, those games end 0.031 ±
+0.031 worse than under the deduction, an interval that includes no change.
 
-## Actual-season check
-
-The local audit fetched all 4,812 initially eligible Kentucky entries and 1,000
-hash-selected entries elsewhere from the supplied CSV: 5,812 schedules and 74,390
-normalized game rows. After import and tidy, the 2026 fit contains 35,104 eligible
-games and 2,044 ranked clubs. This is a limited cohort with incomplete opponent
-coverage, not the production national pool.
-
-The comparison uses identical chronological training sets and the app's displayed
-matchup probabilities, on same-age table teams in the same training component:
-
-| Training cut  | Decisive test games | Brier before | Brier after |
-| ------------- | ------------------: | -----------: | ----------: |
-| June 13, 2026 |               1,255 |     0.199525 |    0.199680 |
-| May 31, 2026  |               1,443 |     0.208845 |    0.208429 |
-| June 28, 2026 |                 813 |     0.191838 |    0.191582 |
-
-Lower Brier is better. Changes are small and mixed; this cohort does not establish
-a forecast-accuracy improvement. It checks that the modest ranking policy does
-not produce a large change in these predictions. The cuts overlap and their games
-are not independent samples. Identities come from the retrospectively reconciled
-season pool; no held-out scores enter the deduction.
-
-The full-cohort deduction calculation took approximately 55 ms in Node 24 on the
-cloud machine. Regression cases cover round-robin circles, broader schedules,
-gradual relief, recency, incomplete coverage, import ordering, and both rating paths.
+The first evaluation, on a 2026 cohort of 5,812 schedules, is in this file's history.

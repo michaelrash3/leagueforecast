@@ -202,15 +202,11 @@ describe("what each board carries of its fit", () => {
       expect(carried.middle).toBe(fit.middle);
       expect(carried.gapRuns).toBe(fit.adjusted.ageGapRuns);
       expect(carried.cap).toBe(fit.adjusted.cap);
-      // Record confidence from the fit, followed by the row's separately carried deduction.
+      // The discount from the fit's rating to the shown one, from these numbers alone.
       for (const row of board.rows) {
         const effective = fit.effective.get(row.teamId) ?? 0;
         const spread = carried.scale / Math.sqrt(Math.max(0, effective) + carried.shrink);
-        expect(
-          row.pointRating -
-            carried.errors * (spread - carried.middle) -
-            (row.scheduleDeduction ?? 0)
-        ).toBe(row.rating);
+        expect(row.pointRating - carried.errors * (spread - carried.middle)).toBe(row.rating);
       }
     }
   });

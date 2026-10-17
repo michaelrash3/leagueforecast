@@ -37,11 +37,15 @@ const ROW: BoardRow = {
   fromGameChanger: true,
 };
 
-it("reads both earlier boards and rows carrying a schedule deduction", () => {
+it("reads both earlier boards and rows saying where their club started", () => {
   expect(isBoardRow(ROW)).toBe(true);
-  const next = coerceBoardView({ rows: [{ ...ROW, scheduleDeduction: 0.5 }] });
-  expect(next?.rows[0]?.scheduleDeduction).toBe(0.5);
-  expect(isBoardRow({ ...ROW, scheduleDeduction: "0.5" })).toBe(false);
+  const next = coerceBoardView({ rows: [{ ...ROW, levelPrior: -0.8, outsideGames: 10 }] });
+  expect(next?.rows[0]?.levelPrior).toBe(-0.8);
+  expect(next?.rows[0]?.outsideGames).toBe(10);
+  expect(isBoardRow({ ...ROW, levelPrior: "-0.8" })).toBe(false);
+  expect(isBoardRow({ ...ROW, outsideGames: "10" })).toBe(false);
+  // A board of rules 6, published before this build, still reads: its deduction is left unread.
+  expect(coerceBoardView({ rows: [{ ...ROW, scheduleDeduction: 0.5 }] })?.rows).toHaveLength(1);
 });
 
 describe("a published board's row", () => {

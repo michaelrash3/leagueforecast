@@ -8,7 +8,16 @@ import {
   startingLevel,
   startingLevels,
 } from "../scheduleCommunities";
-import { scheduleComponents } from "../teamRankings";
+import {
+  buildTeamRankings,
+  fitScoutYear,
+  rowsOfYearFit,
+  scheduleComponents,
+} from "../teamRankings";
+import { gameBreakdown } from "../gameBreakdown";
+import { boardFitOf } from "../live/views/board";
+import { coerceBoardView } from "../live/views/boardShape";
+import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings/types";
 
 type Pair = [string, string];
 
@@ -140,5 +149,95 @@ describe("where a league starts", () => {
     ];
     const levels = startingLevels(communitiesOf(ids, pairs, 1));
     expect([...levels.values()]).toEqual(ids.map(() => startingLevel(1)));
+  });
+});
+
+describe("the starting level in the ranking paths", () => {
+  const group: AgeGroup = { id: "g", name: "12U 2026", ageLevel: 12, year: 2026, seasonIds: [] };
+  const clubs: ScoutTeam[] = [
+    ...["M1", "M2", "M3", "M4", "M5"].map((id) => ({ id, name: `Main ${id}` })),
+    ...["L1", "L2", "L3", "L4"].map((id) => ({ id, name: `Loop ${id}` })),
+  ];
+  let at = 0;
+  const played = (a: string, b: string, aScore: number, bScore: number): ScoutGame => ({
+    id: `g${(at += 1)}`,
+    teamAId: a,
+    teamBId: b,
+    ageGroupId: group.id,
+    date: "2026-05-01",
+    teamAScore: aScore,
+    teamBScore: bScore,
+  });
+  // Five clubs in the largest piece, with results; four in a loop of ties that plays nobody else.
+  const games: ScoutGame[] = [
+    ...roundRobin(["M1", "M2", "M3", "M4", "M5"], 1).map(([a, b], i) =>
+      played(a, b, 3 + (i % 4), 2)
+    ),
+    ...roundRobin(["L1", "L2", "L3", "L4"], 3).map(([a, b]) => played(a, b, 4, 4)),
+  ];
+  const rated = games.map((game) => ({ game, ageGap: 0 }));
+
+  it("starts a loop that plays nobody else 1.6 runs below average, and its ties keep it there", () => {
+    const fit = fitScoutYear(2026, clubs, games, rated, [group]);
+    const rows = rowsOfYearFit(fit, group.id, undefined, [group]);
+    const loop = rows.filter((row) => row.teamId.startsWith("L"));
+    expect(loop).toHaveLength(4);
+    for (const row of loop) {
+      expect(row.levelPrior).toBe(CLOSED_START_RUNS);
+      expect(row.outsideGames).toBe(0);
+      expect(row.pointRating).toBeCloseTo(CLOSED_START_RUNS, 12);
+      expect(row.comparable).toBe(false);
+      expect(row.record).toBe("0-0-9");
+    }
+    // The largest piece is held to the mean of its own clubs' starts, whatever the loop's are.
+    const main = rows.filter((row) => row.teamId.startsWith("M"));
+    const mean = (values: number[]) => values.reduce((sum, v) => sum + v, 0) / values.length;
+    expect(mean(main.map((row) => row.pointRating))).toBeCloseTo(
+      mean(main.map((row) => row.levelPrior!)),
+      12
+    );
+  });
+
+  it("agrees in the direct and cached-year ranking paths", () => {
+    const pooled = buildTeamRankings(group.id, clubs, games, undefined, [group]);
+    const direct = buildTeamRankings(group.id, clubs, games);
+    expect(pooled).toHaveLength(clubs.length);
+    for (const row of pooled) {
+      const same = direct.find((other) => other.teamId === row.teamId)!;
+      expect(row.levelPrior).toBe(same.levelPrior);
+      expect(row.outsideGames).toBe(same.outsideGames);
+      expect(row.pointRating).toBeCloseTo(same.pointRating, 12);
+      expect(row.rating).toBeCloseTo(same.rating, 12);
+    }
+  });
+
+  it("keeps game explanations available after the row is published and read back", () => {
+    const fit = fitScoutYear(2026, clubs, games, rated, [group]);
+    const rows = rowsOfYearFit(fit, group.id, undefined, [group]);
+    const board = coerceBoardView(
+      JSON.parse(
+        JSON.stringify({
+          rows: rows.map(({ isMine: _mine, ...row }) => row),
+          fit: boardFitOf(fit, rows, "2026-05-31"),
+        })
+      )
+    );
+    expect(board).not.toBeNull();
+    const breakdownOf = (teamId: string) =>
+      gameBreakdown({
+        teamId,
+        games: games.filter((game) => game.teamAId === teamId || game.teamBId === teamId),
+        pageId: group.id,
+        ageGroups: [group],
+        segment: undefined,
+        board: board!,
+      });
+    const loop = breakdownOf("L1");
+    expect(loop?.levelPrior).toBe(CLOSED_START_RUNS);
+    expect(loop?.outsideGames).toBe(0);
+    expect(loop?.lines.size).toBe(9);
+    const club = breakdownOf("M1");
+    expect(club?.levelPrior).toBe(startingLevel(club?.outsideGames ?? Number.NaN));
+    expect(club?.lines.size).toBe(4);
   });
 });

@@ -6,9 +6,15 @@ import {
 } from "../lib/teamRankings";
 import { ageStepRuns, ageStepsInWords } from "../lib/powerRating";
 import { ACTIVE_RECENCY_SCHEME } from "../lib/ratingRecency";
+import {
+  CLOSED_START_HALF_GAMES,
+  CLOSED_START_RUNS,
+  startingLevel,
+} from "../lib/scheduleCommunities";
 import { focusRing } from "../styles/tokens";
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
+const runsBelow = (value: number) => (-value).toFixed(1);
 
 /**
  * The question mark that opens the explanation, and the explanation itself.
@@ -133,6 +139,22 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
           rating only: the record, the games played and the strength of schedule are what the season
           was, and they do not move.
         </li>
+        <li>
+          <span className="font-bold text-slate-950 dark:text-white">
+            6. A league that keeps to itself starts lower.
+          </span>{" "}
+          Games inside a group of teams that plays nobody else can say who is best in the group, but
+          not how good the group is, and the fit used to put every such group at average. Measured
+          on this season&apos;s games, teams from such groups did about a run and a half worse than
+          shown when they met outsiders. So every team starts from a level set by how many games its
+          league has played against teams outside it: {runsBelow(CLOSED_START_RUNS)} runs below
+          average with none, {runsBelow(startingLevel(CLOSED_START_HALF_GAMES))} with{" "}
+          {CLOSED_START_HALF_GAMES} and {runsBelow(startingLevel(100))} with a hundred. Its own
+          games then move it from there. A league here is a group of teams that mostly play one
+          another, read off the schedule, not a league&apos;s own name. Few leagues have played so
+          much outside themselves that they start right at average, so the typical team now sits a
+          little below 0.0.
+        </li>
       </ol>
 
       <p className="mt-3">
@@ -162,12 +184,12 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
           A rating is only as wide as the games behind it.
         </span>{" "}
         It is a margin against the average of everyone a team&apos;s schedule can reach — opponents,
-        their opponents, and so on — so two teams that share nobody are measured against two
-        different sets of teams, and their difference is not a prediction. On a part-pulled pool
-        that is usually the pull rather than the schedule: a club that really does connect them sits
-        in the list as a name until it is pulled, and pulling it joins both. A matchup like that is
-        labelled <em>no shared opponents yet</em> rather than quietly stated, and Setup lists which
-        clubs are still only names.
+        their opponents, and so on — each started where its league starts (6.), so two teams that
+        share nobody are measured against two different sets of teams, and their difference is not a
+        prediction. On a part-pulled pool that is usually the pull rather than the schedule: a club
+        that really does connect them sits in the list as a name until it is pulled, and pulling it
+        joins both. A matchup like that is labelled <em>no shared opponents yet</em> rather than
+        quietly stated, and Setup lists which clubs are still only names.
       </p>
     </div>
   );

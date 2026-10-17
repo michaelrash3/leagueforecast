@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { formatRating as rowPrints } from "../../../components/teamRankings/RankingList";
 import type { Breakdown, GameLine } from "../../gameBreakdown";
 import { ratedMargin, scoreSeenBy, type ScoutGame } from "../../teamRankings";
-import { GAME_NOTES_KEY, gameClauses, gameNotesOf, ratingHeadline } from "../gameWords";
+import {
+  GAME_NOTES_KEY,
+  gameClauses,
+  gameNotesOf,
+  ratingHeadline,
+  startingSentence,
+} from "../gameWords";
 
 /*
  * What a club's panel says of each counted game (`gameWords`): every wording the panel can draw,
@@ -29,19 +35,45 @@ const its = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: fal
 const your = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: true, cap: CAP });
 
 describe("the line above a club's games", () => {
-  it("separates the schedule deduction from confidence in the record", () => {
-    const breakdown = { rating: 2.3, pointRating: 2.5, scheduleDeduction: 0.5, lines: new Map() };
+  it("says where a closed league started the club, after what its games and record give it", () => {
+    const breakdown = {
+      rating: 2.8,
+      pointRating: 2.5,
+      levelPrior: -1.6,
+      outsideGames: 0,
+      lines: new Map(),
+    };
     const notes = gameNotesOf(breakdown, { span: "Season", own: true, cap: CAP });
     expect(notes.headline).toBe(
-      "Season rating +2.3: +2.5 from your games, +0.3 because your record makes your rating surer than the average club's, -0.5 for a circular schedule."
+      "Season rating +2.8: +2.5 from your games, +0.3 because your record makes your rating surer than the average club's. Your league has played no games outside itself, so your rating starts 1.6 runs below average."
     );
-    expect(notes.key).toContain("Game effects hold the schedule deduction fixed.");
+    expect(notes.key).toBe(GAME_NOTES_KEY);
     expect(
       ratingHeadline(
-        { rating: 1.5, pointRating: 2.5, scheduleDeduction: 1 },
+        { rating: 1.5, pointRating: 1.5, levelPrior: -1.6 / 1.3, outsideGames: 3 },
         { span: "Season", own: false }
       )
-    ).toBe("Season rating +1.5: +2.5 from its games, -1.0 for a circular schedule.");
+    ).toBe(
+      "Season rating +1.5, all of it from its games. Its league has played 3 games outside itself, so its rating starts 1.2 runs below average."
+    );
+    expect(startingSentence({ levelPrior: -1.6 / 1.1, outsideGames: 1 }, { own: false })).toBe(
+      "Its league has played 1 game outside itself, so its rating starts 1.5 runs below average."
+    );
+    expect(startingSentence({ levelPrior: -1, outsideGames: 6 }, { own: false })).toContain(
+      "starts 1.0 run below"
+    );
+  });
+
+  it("says nothing of a start that rounds to less than a tenth, or that the board did not say", () => {
+    // 311 games outside: -1.6 / 32.1, which a tenth does not reach.
+    const near = { rating: 1.5, pointRating: 1.5, levelPrior: -1.6 / 32.1, outsideGames: 311 };
+    expect(ratingHeadline(near, { span: "Season", own: false })).toBe(
+      "Season rating +1.5, all of it from its games."
+    );
+    expect(startingSentence({ levelPrior: -1.6 / 32, outsideGames: 310 }, { own: false })).toBe(
+      "Its league has played 310 games outside itself, so its rating starts 0.1 runs below average."
+    );
+    expect(startingSentence({ levelPrior: -1.6 }, { own: false })).toBeNull();
   });
 
   it("splits the rating into its games and its record, surer or less sure than the average club's", () => {

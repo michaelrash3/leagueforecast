@@ -17,12 +17,13 @@ import { BOARD_FIT_VERSION, type BoardView } from "./live/views/boardShape";
  * lines cost no read, no write and no wait.
  *
  * The fit is a ridge-regularised least-squares fit over a nationwide pool, so a club's rating is
- * the weighted mean of what it "played like" in each game, with the ridge's virtual games at
- * nought: `pointRating = Σ w·P / (Σ w + shrink)`, where P is the opponent's rating plus the
- * margin counted, less the runs the age gap was worth. Measured on the 29 September 2026 backup's
- * 2027 year, that identity held for every one of its 83,693 teams to 5.6e-9, the solver's own
- * tolerance. It is what lets a device rebuild the board's own row from the card's lines, and draw
- * nothing unless they agree.
+ * the weighted mean of what it "played like" in each game, with the ridge's virtual games played
+ * at its starting level m (its row's `levelPrior`, `scheduleCommunities.ts`):
+ * `pointRating = (Σ w·P + shrink·m) / (Σ w + shrink)`, where P is the opponent's rating plus the
+ * margin counted, less the runs the age gap was worth. That is the club's own normal equation, so
+ * it holds to the solver's tolerance: measured on the 29 September 2026 backup's 2027 year, with
+ * the virtual games then at nought, for every one of its 83,693 teams to 5.6e-9. It is what lets a
+ * device rebuild the board's own row from the card's lines, and draw nothing unless they agree.
  */
 
 /** One counted game, from the club's side. */
@@ -63,8 +64,10 @@ export type GameLine = {
 export type Breakdown = {
   rating: number;
   pointRating: number;
-  /** Held fixed while describing each game's score and record effects. */
-  scheduleDeduction?: number;
+  /** Where the fit started the club (its row's `levelPrior`), in runs; left out where the row is. */
+  levelPrior?: number;
+  /** Its league's games outside itself (its row's `outsideGames`); left out where the row is. */
+  outsideGames?: number;
   lines: ReadonlyMap<string, GameLine>;
 };
 
@@ -244,16 +247,9 @@ export const gameBreakdown = ({
   }
   if (!(Math.abs(margins / picked.length - row.rawMargin) <= MARGIN_TOLERANCE)) return null;
   const discount = discountAbout(fit.middle, fit.scale, shrink, fit.errors);
-  const pointRating = weighed / (weight + shrink);
+  const pointRating = (weighed + shrink * (row.levelPrior ?? 0)) / (weight + shrink);
   if (!(Math.abs(pointRating - row.pointRating) <= RATING_TOLERANCE)) return null;
-  if (
-    !(
-      Math.abs(discount(pointRating, evidence) - (row.scheduleDeduction ?? 0) - row.rating) <=
-      RATING_TOLERANCE
-    )
-  ) {
-    return null;
-  }
+  if (!(Math.abs(discount(pointRating, evidence) - row.rating) <= RATING_TOLERANCE)) return null;
 
   // Each opponent's own total weight, read off its games as if each weighed what its meetings
   // with the club did, and the echo of the club's games back through its opponents.
@@ -301,7 +297,8 @@ export const gameBreakdown = ({
   return {
     rating: row.rating,
     pointRating: row.pointRating,
-    ...(row.scheduleDeduction === undefined ? {} : { scheduleDeduction: row.scheduleDeduction }),
+    ...(row.levelPrior === undefined ? {} : { levelPrior: row.levelPrior }),
+    ...(row.outsideGames === undefined ? {} : { outsideGames: row.outsideGames }),
     lines,
   };
 };

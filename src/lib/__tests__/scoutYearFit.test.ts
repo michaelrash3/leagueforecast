@@ -31,8 +31,8 @@ const isClub = (team: ScoutTeam) => !team.placeholder && !team.nameOnly;
 
 /** Two of the 10U ratings below to the last digit, by the V8 version that drew them. */
 const LAST_PLACE: Record<string, readonly [number, number]> = {
-  "12.4": [-0.24658990195162217, -2.2126987844870714],
-  "13.6": [-0.24658990195162195, -2.2126987844870696],
+  "12.4": [-2.112072401346121, -2.695849503596146],
+  "13.6": [-2.1120724013461216, -2.6958495035961456],
 };
 
 describe("a year's fit", () => {
@@ -53,18 +53,23 @@ describe("a year's fit", () => {
      * every engine: Node 22 and Node 24 round them apart in the last place or two (Bun matches Node
      * 24), so each is pinned by the V8 version that drew it, and held to thirteen places on any
      * other.
+     *
+     * Moved on purpose again on 17 October 2026, when each rating came to start at its league's
+     * level (board rules 7, `scheduleCommunities.ts`): the centre from 0.8627496838160694, since
+     * the fit's residual scale moved with its ratings, and the clubs of 1, 5 and 26 games from
+     * −0.2466, −1.6151 and −2.2127. Which two of them round apart on the two engines moved too.
      */
-    expect(fit.middle).toBe(0.8627496838160694);
+    expect(fit.middle).toBe(0.8628871983096924);
     const shown = (teamId: string) =>
       fit.confident(fit.adjusted.ratings.get(teamId) ?? 0, fit.effective.get(teamId) ?? 0);
-    expect(shown("S-10u_2027-0182")).toBe(-1.6151092779345277);
+    expect(shown("S-10u_2027-0245")).toBe(-0.8675258195274755);
     const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions
       ?.v8;
     const lastPlace = LAST_PLACE[(engine ?? "").split(".").slice(0, 2).join(".")];
-    expect(shown("S-10u_2027-0245")).toBeCloseTo(-0.246589901951622, 13);
-    expect(shown("S-10u_2027-0246")).toBeCloseTo(-2.21269878448707, 13);
+    expect(shown("S-10u_2027-0182")).toBeCloseTo(-2.11207240134612, 13);
+    expect(shown("S-10u_2027-0246")).toBeCloseTo(-2.69584950359615, 13);
     if (lastPlace) {
-      expect(shown("S-10u_2027-0245")).toBe(lastPlace[0]);
+      expect(shown("S-10u_2027-0182")).toBe(lastPlace[0]);
       expect(shown("S-10u_2027-0246")).toBe(lastPlace[1]);
     }
   });

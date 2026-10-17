@@ -129,39 +129,40 @@ describe("the what-if curve", () => {
     const curve = curveFor(fixture())!;
     /*
      * With `RATING_CAP` at 12 the curve runs to twelve either way. The rows from -8 to 8 and the
-     * rating at 3 first came from the cap at 8. Board rules 6 add the same circular-schedule
-     * deduction as a real re-fit, so this pin now records that ranking policy too.
+     * rating at 3 first came from the cap at 8. Board rules 6 added a circular-schedule deduction
+     * and board rules 7 took it off for each club's starting level (`scheduleCommunities.ts`),
+     * which a real re-fit reads the same way, so this pin records that rule too.
      */
     expect(curve.points.map((point) => [point.margin, point.rank])).toEqual([
-      [-12, 114],
+      [-12, 112],
       [-11, 110],
       [-10, 109],
-      [-9, 109],
-      [-8, 107],
-      [-7, 105],
+      [-9, 107],
+      [-8, 104],
+      [-7, 104],
       [-6, 101],
       [-5, 98],
-      [-4, 97],
-      [-3, 90],
-      [-2, 84],
-      [-1, 77],
-      [1, 63],
-      [2, 58],
-      [3, 50],
-      [4, 45],
+      [-4, 93],
+      [-3, 87],
+      [-2, 80],
+      [-1, 75],
+      [1, 59],
+      [2, 54],
+      [3, 48],
+      [4, 43],
       [5, 38],
-      [6, 35],
-      [7, 30],
-      [8, 23],
-      [9, 19],
+      [6, 31],
+      [7, 27],
+      [8, 21],
+      [9, 17],
       [10, 15],
-      [11, 13],
-      [12, 10],
+      [11, 12],
+      [12, 7],
     ]);
     expect(curve.winRecord).toBe("7-5");
     expect(curve.lossRecord).toBe("6-6");
     expect(curve.rankedCount).toBe(120);
-    expect(curve.points.find((point) => point.margin === 3)!.rating).toBeCloseTo(-0.1179, 4);
+    expect(curve.points.find((point) => point.margin === 3)!.rating).toBeCloseTo(-0.4514, 4);
   });
 
   /*
