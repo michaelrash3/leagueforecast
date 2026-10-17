@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ModelCheckCard } from "./ModelCheckCard";
@@ -304,6 +304,8 @@ describe("naming a better setting", () => {
   });
 
   it("says nothing of a weekly re-measure where none was kept", async () => {
+    let asked = 0;
+    const none = Promise.resolve(null);
     render(
       <ModelCheckCard
         ageGroupId={groupId}
@@ -311,10 +313,19 @@ describe("naming a better setting", () => {
         teams={pool.teams}
         games={pool.games}
         ageGroups={pool.ageGroups}
-        lastWeekly={() => Promise.resolve(null)}
+        lastWeekly={() => {
+          asked += 1;
+          return none;
+        }}
       />
     );
-    await Promise.resolve();
+    // The reader's own answer, and the render it sets off, before looking: a single tick passed
+    // before the card had drawn what it was handed, so a card showing a line anyway still passed.
+    await act(async () => {
+      await none;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(asked).toBe(1);
     expect(screen.queryByText(/Last weekly re-measure/)).toBeNull();
   });
 
