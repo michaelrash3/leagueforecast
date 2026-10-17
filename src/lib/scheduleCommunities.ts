@@ -266,7 +266,8 @@ const louvain = (graph: Graph, resolution: number, total: number): Int32Array =>
  * Louvain runs on the largest piece alone, against the total of every game the schedule holds,
  * islands' included, which is what the back-test measured its communities with: it only ever
  * moves a node to a neighbour's community, so no community crosses two pieces and leaving the
- * islands out changes nothing in the largest one but the time it takes. A game naming a side that
+ * islands out changes nothing in the largest one but the time it takes. Where it joins no two of
+ * the largest piece's clubs, that piece is kept whole as well (below). A game naming a side that
  * is not among `ids` is left out, as the fit leaves it out.
  */
 export const scheduleCommunities = (
@@ -332,13 +333,25 @@ export const scheduleCommunities = (
   );
   // Every game is a unit of degree at each of its two seats, a game against itself both at one.
   const top = louvain(graph, resolution, 2 * games);
+  /*
+   * A largest piece the resolution leaves a club apiece is kept whole, as an island is. That is a
+   * small pool: Louvain joins two clubs of k games each that met once only where the whole
+   * schedule holds more than 10·k² games, some 1,200 for clubs of eleven. Left a club apiece, each
+   * club's own games would count as its league's games outside itself, so a closed league that
+   * happened to be the largest piece started its clubs at −0.76 (eleven games each) beside an
+   * equally closed island at −1.6, and its rows said it had played eleven games outside itself
+   * when it had played none. On the 11 October 2026 year boards no club of the largest piece is a
+   * community on its own, so this never applies there.
+   */
+  const unsplit = top.every((c, at) => c === at);
 
   const keys = new Map<string, number>();
   const of = new Map<string, number>();
   const communityAt = new Int32Array(n).fill(-1);
   ids.forEach((id, i) => {
     if (index.get(id) !== i || !named[i]) return;
-    const key = onLargest[i]! >= 0 ? `c:${top[onLargest[i]!]}` : `p:${pieces.pieceOf(id)}`;
+    const key =
+      onLargest[i]! >= 0 && !unsplit ? `c:${top[onLargest[i]!]}` : `p:${pieces.pieceOf(id)}`;
     let c = keys.get(key);
     if (c === undefined) {
       c = keys.size;

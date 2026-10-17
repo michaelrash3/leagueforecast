@@ -2971,9 +2971,16 @@ What it cannot do:
   −1.90 ± 0.20, so −1.6 is the cautious value, and after it the isolated clubs
   still did 0.5 to 0.9 runs worse than shown against well-connected ones.
 - It was measured on years of 38,589 games and more. On a pool far smaller, such as
-  a few dozen clubs, the resolution finds no league at all: every club is a
-  community of its own, and its start reads its own game count instead, a second
-  discount for a thin record.
+  a few dozen clubs, the resolution finds no league at all: it joins two clubs of k
+  games each only once the schedule holds about 10·k² games, some 1,200 for clubs of
+  eleven. The largest piece is then kept whole, as an island is, so every piece
+  starts at −1.6, every rating is the old fit's 1.6 lower, and the order and every
+  margin between two clubs are as they were. Left a club apiece, each club's own
+  games would have counted as its league's games outside itself, and of two closed
+  leagues of twelve and eleven clubs the larger would have started 0.84 runs above
+  the other. Where the
+  resolution joins some of the largest piece's clubs and leaves others alone, those
+  others still start by their own game count, a second discount for a thin record.
 - Few leagues have played so much outside themselves that they start right at 0.0,
   so the average club on the largest piece now sits a little below it: the mean
   rating of its ranked clubs went from +0.13 to −0.07.

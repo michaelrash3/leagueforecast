@@ -91,10 +91,11 @@ describe("the schedule's communities", () => {
 
   it("reads its resolution against every game the schedule holds, the islands' too", () => {
     // As the back-test measured the starting levels: an island's games add to the total that a
-    // community's games are weighed against, so they can join clubs on the largest piece.
+    // community's games are weighed against, so they can join clubs on the largest piece. Alone,
+    // the two leagues' games join no two clubs, and the piece is kept whole, as an island is.
     const alone = communitiesOf([...A, ...B], main, 4);
     const besideIsland = communitiesOf([...A, ...B, ...I], [...main, ...roundRobin(I, 1)], 4);
-    expect(groupsOf(alone)).toHaveLength(8);
+    expect(groupsOf(alone)).toEqual([[...A, ...B]]);
     expect(groupsOf(besideIsland)).toContainEqual(["A3", "A4"]);
   });
 
@@ -122,6 +123,20 @@ describe("the schedule's communities", () => {
       seen = Math.max(seen, c);
     });
     expect(COMMUNITY_RESOLUTION).toBe(20);
+  });
+
+  it("keeps the largest piece whole where the resolution finds no league in it, as an island is", () => {
+    // Two closed leagues alike but for size, with too few games in the pool for resolution 20 to
+    // join any two clubs. Left a club apiece, the larger league's clubs would each count their own
+    // games as games outside their league and start at -0.76, while the smaller, an island, starts
+    // whole at -1.6: 0.84 runs apart for nothing but which of the two is the larger.
+    const big = Array.from({ length: 12 }, (_, i) => `A${i}`);
+    const small = Array.from({ length: 11 }, (_, i) => `B${i}`);
+    const pairs = [...roundRobin(big, 1), ...roundRobin(small, 1)];
+    const communities = communitiesOf([...big, ...small], pairs);
+    expect(groupsOf(communities)).toEqual([big, small]);
+    expect(communities.outside).toEqual([0, 0]);
+    expect(new Set(startingLevels(communities).values())).toEqual(new Set([CLOSED_START_RUNS]));
   });
 
   it("puts a club no game names in none, so it starts at average", () => {
@@ -196,6 +211,27 @@ describe("the starting level in the ranking paths", () => {
       mean(main.map((row) => row.levelPrior!)),
       12
     );
+  });
+
+  it("starts two closed leagues of a small pool alike, whichever is the larger", () => {
+    // Clubs 0 of each league win every game by a run; the rest tie. Both leagues are closed, so
+    // both start at the full level, say so on their rows, and average exactly that.
+    const big = Array.from({ length: 12 }, (_, i) => `A${i}`);
+    const small = Array.from({ length: 11 }, (_, i) => `B${i}`);
+    const teams: ScoutTeam[] = [...big, ...small].map((id) => ({ id, name: `Club ${id}` }));
+    const leagueGames = [...roundRobin(big, 1), ...roundRobin(small, 1)].map(([a, b]) =>
+      played(a, b, a === big[0] || a === small[0] ? 3 : 2, 2)
+    );
+    const rows = buildTeamRankings(group.id, teams, leagueGames);
+    const mean = (ids: string[]) =>
+      ids.reduce((sum, id) => sum + rows.find((row) => row.teamId === id)!.pointRating, 0) /
+      ids.length;
+    for (const row of rows) {
+      expect(row.levelPrior).toBe(CLOSED_START_RUNS);
+      expect(row.outsideGames).toBe(0);
+    }
+    expect(mean(big)).toBeCloseTo(CLOSED_START_RUNS, 12);
+    expect(mean(small)).toBeCloseTo(CLOSED_START_RUNS, 12);
   });
 
   it("agrees in the direct and cached-year ranking paths", () => {

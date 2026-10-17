@@ -72,6 +72,7 @@ import {
   gcRowId,
   recordOf,
 } from "../teamRankings";
+import { CLOSED_START_RUNS } from "../scheduleCommunities";
 
 const team = (id: string, name: string, isMine?: boolean): ScoutTeam => ({
   id,
@@ -788,10 +789,12 @@ describe("buildScoutingReport", () => {
 
   it("pins every preview's numbers to the digit", () => {
     // Taken before the per-opponent preview moved out to `previewMatchup`, which the comparison's
-    // forecast shares; the move must not change a digit. Moved on purpose on 17 October 2026, when
-    // each rating came to start at its league's level (`scheduleCommunities.ts`): Elks and Foxes,
-    // an island, start 1.6 runs below average, and the four others by their own games outside
-    // themselves, so every preview but Aces' moved.
+    // forecast shares; the move must not change a digit. Each rating now starts at its league's
+    // level (`scheduleCommunities.ts`), and this pool is too small for the resolution to split its
+    // largest piece, so that piece is kept whole like the Elks and Foxes island: every club starts
+    // 1.6 runs below average, which moves no margin between two of them, and these are the digits
+    // from before the starting levels. While the largest piece was left a club apiece, each of its
+    // four clubs started by its own game count, and every preview but Aces' moved.
     const teams = ["Aces", "Bears", "Cubs", "Dogs", "Elks", "Foxes"].map((name) =>
       team(name.charAt(0), name)
     );
@@ -815,12 +818,12 @@ describe("buildScoutingReport", () => {
       ])
     ).toEqual([
       ["A", "-5.333333333333", "0.216676456744", "Underdog", false],
-      ["E", "-2.280133186344", "0.365996736906", "Underdog", true],
-      ["D", "-0.816835648223", "0.450951281644", "Toss-up", false],
-      ["C", "-0.304629700801", "0.481657048843", "Toss-up", false],
-      ["F", "0.005581099370", "0.500336210755", "Toss-up", true],
-      ["E", "-2.280133186344", "0.365996736906", "Underdog", true],
-      ["D", "-0.816835648223", "0.450951281644", "Toss-up", false],
+      ["E", "-2.556341630501", "0.350694937421", "Underdog", true],
+      ["D", "-0.889343482595", "0.446629186830", "Toss-up", false],
+      ["C", "-0.289999688435", "0.482537244758", "Toss-up", false],
+      ["F", "-0.270627344787", "0.483702922810", "Toss-up", true],
+      ["E", "-2.556341630501", "0.350694937421", "Underdog", true],
+      ["D", "-0.889343482595", "0.446629186830", "Toss-up", false],
     ]);
   });
 
@@ -3244,8 +3247,10 @@ describe("buildTeamRankings without ageGroups", () => {
     expect(byId.get("A")!.fromGameChanger).toBe(false);
     expect(byId.get("B")!.fromGameChanger).toBe(true);
     expect(byId.get("A")!.ageLevel).toBeUndefined();
-    // Both start at the same level, a game each outside themselves, and sit either side of it.
-    expect(byId.get("A")!.outsideGames).toBe(1);
+    // Two clubs that only met each other are one closed league, too small to split: both start
+    // at the closed level, with no games outside it, and sit either side of it.
+    expect(byId.get("A")!.outsideGames).toBe(0);
+    expect(byId.get("A")!.levelPrior).toBe(CLOSED_START_RUNS);
     expect(byId.get("A")!.levelPrior).toBe(byId.get("B")!.levelPrior);
     expect(byId.get("A")!.rating - byId.get("A")!.levelPrior!).toBeCloseTo(
       -(byId.get("B")!.rating - byId.get("B")!.levelPrior!),
