@@ -283,6 +283,12 @@ gives the same verdict as this one on every one of the 147,114 distinct names in
   own team, or one a League Standings team links. Its schedule is pulled again whatever its name
   says, and another club's row of its name is filed as any name is rather than dropped; refused,
   a club the tidy keeps would stop updating, and the rows confirming its games would come off them.
+  The row is let through only where the club's own names, stored or on a link, carry the word the
+  row hit. A name is matched by its key, which drops a bracket, so "Tigers 12U (Scrimmage)" keys
+  as a plain vouched "Tigers 12U"; but the word is the row's, not the club's, and the row is
+  dropped as it would be against anybody. Let through, it went onto the club as a game more than
+  its schedule lists, on a day it played someone else, or onto a stand-in stored without the
+  bracket that the tidy then read as a plain name and kept.
 - **A game against one** on another club's schedule is dropped, as a game against a wiffle team
   is, where the word is a practice, scrimmage, test, demo, sample, fake, tryout, stats, stream or
   intrasquad: that result is not a game. Where it marks an old page (void, do not use, delete,

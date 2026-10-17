@@ -36,7 +36,7 @@ import {
   type GcTeamProfile,
   type GcTeamSchedule,
 } from "./gameChangerApi";
-import { notATeamWord } from "./teamNameRules";
+import { notATeamWord, type NotATeamWord } from "./teamNameRules";
 import {
   ageGroupLevel,
   ageGroupYear,
@@ -2207,6 +2207,19 @@ const withAgeReadIn = (schedule: GcTeamSchedule, squadYear: number): GcTeamSched
   return { ...schedule, profile: next };
 };
 
+/**
+ * Whether a club's own names carry the word a row's name hit: its stored name, or the GameChanger
+ * name on one of its links. A row is matched to a club by the name key, and the key drops what a
+ * bracket says, so "Tamberlane Tigers 12U (Scrimmage)" keys as plain "Tamberlane Tigers". The key
+ * alone cannot tell a club whose own name reads as a tryout ("Workout Warriors"), which every row
+ * of its name hits, from a row that adds a practice's word to a plain club's name; the club's own
+ * names can.
+ */
+const carriesWord = (team: ScoutTeam, word: NotATeamWord): boolean =>
+  [team.name, ...(team.gcTeams ?? []).map((link) => link.name)].some(
+    (name) => notATeamWord(name)?.word === word
+  );
+
 const importOne = (
   pulled: GcTeamSchedule,
   state: GcImportState,
@@ -2687,6 +2700,13 @@ const importOne = (
      * deletes as it deletes every one (`dropNotATeam`). An old page's word needs no such reading:
      * its slot gate already files the row onto the one pulled club of the name that played that day.
      * Read only for a name a rule hits, which is few.
+     *
+     * Only where the club's own names carry the word the row hit (`carriesWord`): the club whose
+     * name reads as a tryout. A row that puts the word in a bracket beside a plain club's name,
+     * "(Scrimmage)", keys as that club, but says the game was a scrimmage, and goes as one would
+     * against a club nobody vouched for. Let through, it went onto the club on a day it played, a
+     * game more than its schedule lists, or onto a stand-in stored without the bracket, which the
+     * tidy then read as a plain name and kept.
      */
     const namesVouched =
       word?.opponent === "drop" &&
@@ -2694,7 +2714,10 @@ const importOne = (
         index.teamIdsByPoolName.get(
           `${index.poolKeyOf(group.id)}\u0000${teamNameKey(game.opponentName)}`
         ) ?? []
-      ).some((id) => vouchedFor(index.teamsById.get(id)));
+      ).some((id) => {
+        const team = index.teamsById.get(id);
+        return team !== undefined && vouchedFor(team) && carriesWord(team, word.word);
+      });
     if (word?.opponent === "drop" && !namesVouched) {
       outcome.gamesIgnored += 1;
       continue;

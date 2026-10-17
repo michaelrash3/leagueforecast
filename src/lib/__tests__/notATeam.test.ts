@@ -242,6 +242,56 @@ describe("a club the owner vouched for, whose name reads as no team", () => {
     expect(unsaid.outcome).toMatchObject({ gamesAdded: 0, gamesIgnored: 1 });
     expect(holding(unsaid.state)).toBeUndefined();
   });
+
+  it("lets a row through only where the club's own names carry the word the row hit", () => {
+    const TAMB = "gcTAMBE00001";
+    const opts = { today: "2026-10-11", realClubs: new Set([TAMB]) };
+    // A plain club, playing somebody else that day, then not playing at all: the bracket is the
+    // row's own word, a scrimmage, though the row keys as the club.
+    const tigers = importGcSchedule(
+      schedule({ id: TAMB, name: "Tamberlane Tigers 12U" }, [
+        played("t1", "Brindlewood Badgers 12U"),
+      ]),
+      empty,
+      opts
+    ).state;
+    ["2026-09-12", "2026-09-19"].forEach((day) => {
+      const pulled = importGcSchedule(
+        schedule({}, [played("q1", "Tamberlane Tigers 12U (Scrimmage)", day)]),
+        tigers,
+        opts
+      );
+      expect(pulled.outcome).toMatchObject({
+        gamesAdded: 0,
+        gamesIgnored: 1,
+        opponentsCreated: 0,
+      });
+      expect(holding(pulled.state)).toBeUndefined();
+    });
+    // A club whose own GameChanger name has the bracket: the row names that very page.
+    const page = vouchedPool(TAMB, "Tamberlane Tigers 12U (Practice)");
+    const named = importGcSchedule(quails("Tamberlane Tigers 12U (Practice)"), page.state, opts);
+    expect(named.outcome.gamesIgnored).toBe(0);
+    const onPage = holding(named.state);
+    expect([onPage?.teamAId, onPage?.teamBId]).toContain(page.club);
+    // And a club whose links carry no name, by the name it is stored under.
+    const { state, club } = vouchedPool(WEX, "Wexcombe Workouts 12U");
+    const blank: GcImportState = {
+      ...state,
+      teams: state.teams.map((team) =>
+        team.id === club
+          ? { ...team, gcTeams: team.gcTeams!.map((link) => ({ ...link, name: "" })) }
+          : team
+      ),
+    };
+    const stored = importGcSchedule(quails("Wexcombe Workouts 12U"), blank, {
+      today: "2026-10-11",
+      realClubs: new Set([WEX]),
+    });
+    expect(stored.outcome.gamesIgnored).toBe(0);
+    const onClub = holding(stored.state);
+    expect([onClub?.teamAId, onClub?.teamBId]).toContain(club);
+  });
 });
 
 describe("a game against a page whose name says it is no team", () => {
