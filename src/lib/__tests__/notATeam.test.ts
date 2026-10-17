@@ -664,6 +664,57 @@ describe("a page whose name says it is no team, already in the pool", () => {
     ]);
   });
 
+  it("files a drop word only in a bracket the same whenever the schedule was first pulled", () => {
+    // Before the rule the row went onto a stand-in under its cleaned name, which has no word left
+    // for the tidy to read; only a pull of the schedule sees the row's own name again.
+    const pulled = schedule({}, [
+      played("q1", "Copperfield Cubs 12U", "2026-09-05"),
+      played("q2", "Rowanberry Rooks (Scrimmage)", "2026-09-06"),
+    ]);
+    const fresh = importGcSchedule(pulled, empty, { today: "2026-10-11" }).state;
+    const before: GcImportState = {
+      ...fresh,
+      teams: [...fresh.teams, { id: "S-ROWA", name: "Rowanberry Rooks", nameOnly: true }],
+      games: [
+        ...fresh.games,
+        {
+          id: "gc_gcQUILL00001_q2",
+          ageGroupId: fresh.ageGroups[0]!.id,
+          teamAId: fresh.teams.find((team) => team.gcTeams?.length)!.id,
+          teamBId: "S-ROWA",
+          teamAScore: 6,
+          teamBScore: 2,
+          date: "2026-09-06",
+          ageLevelA: 12,
+          season: "Fall 2026",
+          source: { kind: "gamechanger", teamId: "gcQUILL00001", gameId: "q2" },
+        },
+      ],
+    };
+    const read = (state: GcImportState) => {
+      const byId = new Map(state.teams.map((team) => [team.id, team]));
+      return state.games.map((game) => `${game.date} ${byId.get(game.teamBId)?.name}`).sort();
+    };
+    // The tidy alone keeps it: the stand-in's stored name says nothing.
+    const tidied = tidyPool(before).state;
+    expect(read(tidied)).toEqual(["2026-09-05 Copperfield Cubs", "2026-09-06 Rowanberry Rooks"]);
+    // The next pull turns the row away, so the game on it is withdrawn and the tidy takes it.
+    const again = importGcSchedule(pulled, tidied, { today: "2026-10-11" });
+    expect(again.outcome.gamesIgnored).toBe(1);
+    expect(again.state.games.find((game) => game.id === "gc_gcQUILL00001_q2")?.withdrawn).toBe(
+      true
+    );
+    expect(read(tidyPool(again.state).state)).toEqual(read(tidyPool(fresh).state));
+    expect(read(tidyPool(fresh).state)).toEqual(["2026-09-05 Copperfield Cubs"]);
+    // Unless the real list is known to be short (a cloud run that could not read League): the row
+    // is still turned away, but the game is left for a run that knows every club vouched for.
+    const short = importGcSchedule(pulled, tidied, { today: "2026-10-11", realClubsShort: true });
+    expect(short.outcome.gamesIgnored).toBe(1);
+    expect(short.state.games.find((game) => game.id === "gc_gcQUILL00001_q2")).not.toHaveProperty(
+      "withdrawn"
+    );
+  });
+
   it("keeps an old page's game another club's own schedule lists, against a slot", () => {
     const brind = club("brind", "Brindlewood Badgers");
     const hollow = club("hollow", "Hollowmere Hornets DNU");

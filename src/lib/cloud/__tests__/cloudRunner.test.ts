@@ -105,10 +105,13 @@ const BEARS = "gcBEARS00001";
 const AHEAD = "gcAHEAD00001";
 /** A squad whose GameChanger name reads as a tryout, which only the owner's word lets in. */
 const WORKOUTS = "gcWEXCO00001";
+/** A club whose schedule names that squad, by its GameChanger name. */
+const QUAILS = "gcQUILL00001";
 const schedules = new Map<string, GcTeamSchedule>([
   [ACES, schedule(ACES, "Aces", [game("a1", "Bears", 5, 3)])],
   [BEARS, schedule(BEARS, "Bears", [game("b1", "Aces", 3, 5)])],
   [WORKOUTS, schedule(WORKOUTS, "Wexcombe Workouts", [game("w1", "Bears", 4, 1)])],
+  [QUAILS, schedule(QUAILS, "Quillfeather Quails", [game("q1", "Wexcombe Workouts 9U", 6, 2)])],
   [
     AHEAD,
     schedule(AHEAD, "Ahead", [
@@ -865,6 +868,74 @@ describe("a pull run on the cloud copy", () => {
       expect(await stays({}, LEAGUE)).toBe(true);
       const newer = { id: "season_fall", fields: { schema: 999 } };
       expect(await stays({ leagueDocs: listing([newer]) })).toBe(true);
+    });
+
+    it("takes no game off a row naming a League pick in a run that could not read League", async () => {
+      // The Quails' row names the Workouts, whose name reads as a tryout and whom League picks,
+      // and a game stands on it already.
+      const link = (teamId: string, name: string) => [
+        { teamId, name, ageGroupId: "ag9", ageLevel: 9 },
+      ];
+      const workouts = {
+        id: "S-WEXC",
+        name: "Wexcombe Workouts",
+        state: "OH",
+        gcTeams: link(WORKOUTS, "Wexcombe Workouts 9U"),
+      };
+      const quails = {
+        id: "S-QUILL",
+        name: "Quillfeather Quails",
+        state: "OH",
+        gcTeams: link(QUAILS, "Quillfeather Quails 9U"),
+      };
+      const onRow = {
+        id: `gc_${QUAILS}_q1`,
+        teamAId: "S-QUILL",
+        teamBId: "S-WEXC",
+        teamAScore: 6,
+        teamBScore: 2,
+        ageGroupId: "ag9",
+        date: "2026-09-20",
+        source: { kind: "gamechanger" as const, teamId: QUAILS, gameId: "q1" },
+      };
+      // A game nobody here touches, so the year is never emptied.
+      const bystanders = [
+        { id: "S-OWLS", name: "Owls", nameOnly: true as const },
+        { id: "S-DOVES", name: "Doves", nameOnly: true as const },
+      ];
+      const apart = {
+        id: "apart",
+        teamAId: "S-OWLS",
+        teamBId: "S-DOVES",
+        teamAScore: 3,
+        teamBScore: 1,
+        ageGroupId: "ag9",
+        date: "2026-09-21",
+      };
+      /** Whether the game is in the copy after a pull of the Quails and its tidy. */
+      const kept = async (extra: Partial<CloudPullDeps>, part: unknown = { seasons: [] }) => {
+        const cloud = memoryCloud();
+        await seed(
+          cloud,
+          () => {
+            saveAgeGroups([ag9]);
+            saveScoutTeams([workouts, quails, ...bystanders]);
+            saveScoutGames([onRow, apart]);
+          },
+          part
+        );
+        const again = { kind: "list", entries: [{ teamId: QUAILS }], seasonYears: [2027] } as const;
+        await runCloudPull(again, deps(cloud, "2026-09-29T13:00:00.000Z", extra));
+        resetTeamRankingsStore();
+        await loadPoolFrom(cloud.store);
+        return loadScoutGames().some((entry) => entry.id === onRow.id);
+      };
+      const pick = season([{ id: "lt-wex", name: "Workouts", scoutTeamId: "S-WEXC" }]);
+      // Read, the pick lets the row through and the game stands; with no pick both go.
+      expect(await kept({ leagueDocs: listing(docsOf([pick])) })).toBe(true);
+      expect(await kept({ leagueDocs: listing(docsOf([nobody])) })).toBe(false);
+      // Not read, the row is turned away, but its game is left for a run that can see the pick.
+      expect(await kept({}, LEAGUE)).toBe(true);
     });
   });
 

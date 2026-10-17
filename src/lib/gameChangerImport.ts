@@ -2144,6 +2144,15 @@ export type GcImportOptions = {
    */
   realClubs?: ReadonlySet<string>;
   /**
+   * Whether `realClubs` is known to be short of clubs the owner vouched for: a cloud run that could
+   * not read League Standings has the real list alone. The gate still turns away a drop word's row
+   * then, as such a run files no page the rules refuse, but a game filed on the row before is left
+   * standing rather than withdrawn (`refused`). The row may name a club League links, and the tidy
+   * would take that club's game away for the night, where this run's tidy deletes no club for its
+   * name at all. The next run that reads League settles the row.
+   */
+  realClubsShort?: boolean;
+  /**
    * The day "you cannot score a game early" is judged against, as an ISO day.
    *
    * Only read to describe a team nobody could age, which is why it is here rather than threaded
@@ -2630,6 +2639,15 @@ const importOne = (
   const listed = new Map(
     schedule.games.filter(isFilable).map((game) => [gcGameId(profile.id, game.id), game])
   );
+  /*
+   * The listed rows the opponent gate turned away for a drop word in the name. Counted as listed,
+   * they kept a game filed on them before the rule from ever being withdrawn, and only the gate
+   * reads a row's own name. A stand-in is stored under the cleaned name, so "Rowanberry Rooks
+   * (Scrimmage)" stood against plain "Rowanberry Rooks", which the tidy reads as a plain name and
+   * keeps. Read as no longer listed (below), the game goes as a row a schedule drops goes, and the
+   * pool is the one a fresh pull of the schedule makes.
+   */
+  const refused = new Set<string>();
   for (const game of schedule.games) {
     if (!isFilable(game)) {
       outcome.gamesIgnored += 1;
@@ -2722,6 +2740,7 @@ const importOne = (
       });
     if (word?.opponent === "drop" && !namesVouched) {
       outcome.gamesIgnored += 1;
+      if (!options.realClubsShort) refused.add(gcGameId(profile.id, game.id));
       continue;
     }
 
@@ -3191,8 +3210,9 @@ const importOne = (
   const trusted = listed.size > 0;
 
   /*
-   * A game standing on a row this schedule no longer lists — deleted, cancelled, moved off the day
-   * — is marked for the tidy to take away, and one standing on a row listed again is unmarked
+   * A game standing on a row this schedule no longer lists — deleted, cancelled, moved off the day,
+   * or turned away by the opponent gate for a drop word in the name (`refused`, above) — is marked
+   * for the tidy to take away, and one standing on a row listed again is unmarked
    * (`ScoutGame.withdrawn`). Not a game holding another row of this schedule's that it still lists:
    * that is the game entered again, which its next pull stands on the new row under the old id (the
    * folded row above). Nor a game that holds another club's copy only as a schedule on record
@@ -3202,7 +3222,8 @@ const importOne = (
   if (trusted) {
     const stillListed = (teamId: string, gameId: string) =>
       teamId === profile.id &&
-      (listed.has(gcGameId(teamId, gameId)) || unread(gcGameId(teamId, gameId)));
+      ((listed.has(gcGameId(teamId, gameId)) && !refused.has(gcGameId(teamId, gameId))) ||
+        unread(gcGameId(teamId, gameId)));
     (index.gamesBySchedule.get(profile.id) ?? new Set<string>()).forEach((gameId) => {
       const game = index.gamesById.get(gameId);
       if (!game?.source || game.source.teamId !== profile.id) return;
@@ -6823,15 +6844,16 @@ const namedAfterSpared = (
  * it out. On the backup of 11 October 2026 this deletes 520 pulled clubs, 121 of them old pages;
  * 76 were on a board that day and 237 already off every board by the nightly sweep's marks.
  *
- * A stand-in is read too, because the import now drops a game against a drop word and files one
- * against an old page on a slot, but only for a row it files afresh: a row filed before the rule is
- * still listed, so never withdrawn, and never reaches the opponent gate again. Left, a practice
- * result filed then went on rating the club that played it, out of every table but in the fit,
- * while the same schedule pulled into a fresh pool had no such game. On that backup 130 drop-word
- * stand-ins go with their 166 games against pulled clubs (47 scored), and 56 old-page stand-ins'
- * 85 games (16 scored) move onto slots; a full tidy leaves no stand-in of these words, where it
- * left 175. A slot of the name is left: it names nobody, and is what the import files an old page
- * on.
+ * A stand-in is read too. The import drops a game against a drop word and files one against an old
+ * page on a slot, but an old page's row it already filed keeps its opponent, and a drop word's goes
+ * only when its schedule is next pulled (the gate's rows read as no longer listed, `refused` in
+ * `importOne`), which for a club pulled seldom is a long time. Left, a practice result filed then
+ * went on rating the club that played it, out of every table but in the fit, while the same
+ * schedule pulled into a fresh pool had no such game. A word only in a bracket is the pull's alone
+ * to find, since a stand-in is stored under the cleaned name. On that backup 130 drop-word
+ * stand-ins go with their 166 games against pulled clubs (47 scored), and 56 old-page stand-ins' 85
+ * games (16 scored) move onto slots; a full tidy leaves no stand-in of these words, where it left
+ * 175. A slot of the name is left: it names nobody, and is what the import files an old page on.
  *
  * Narrower than the wiffle pass in four ways, each because a wrongly deleted club leaves nothing
  * behind to notice it by:

@@ -556,6 +556,9 @@ const fileScheduleSource = async (
       ...loadRealClubs(),
       ...(seasons ? leagueLinkedClubsOf(pool, seasons) : []),
     ]),
+    // Where League could not be read, that the list is short: a row the gate turns away then takes
+    // no game already filed on it, as that night's tidy deletes no club for its name.
+    ...(seasons ? {} : { realClubsShort: true }),
     // The run's own day, which is the user's where the process runs in their time zone.
     today: todayIsoDay(now),
     ...(job.kind === "list" && job.seasonYears.length > 0
