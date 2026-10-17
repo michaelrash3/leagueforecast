@@ -221,6 +221,23 @@ export const leagueLinkedClubs = ({
 };
 
 /**
+ * `leagueLinkedClubs` of a whole pool held in memory, its games split by their pages' squad years:
+ * what the tidy and the import, on a device or in the cloud, are told to spare.
+ */
+export const leagueLinkedClubsOf = (
+  pool: { ageGroups: AgeGroup[]; teams: ScoutTeam[]; games: ScoutGame[] },
+  readSeason: SeasonReader
+): Set<string> => {
+  const yearOf = new Map(pool.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  return leagueLinkedClubs({
+    ageGroups: pool.ageGroups,
+    teams: pool.teams,
+    gamesOfYear: (year) => pool.games.filter((game) => yearOf.get(game.ageGroupId) === year),
+    readSeason,
+  });
+};
+
+/**
  * The clubs the marks would take off (`removedClubIds`) that a League Standings team links
  * (`leagueLinkedClubs`), and that therefore stay on their boards (`deriveAllKnown`'s guard): what
  * Pool health, which lists the whole pool rather than a year, says is kept rather than removed.

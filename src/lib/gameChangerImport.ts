@@ -951,14 +951,16 @@ const resolveAgeGroup = (
   profile: GcTeamProfile,
   state: GcImportState,
   /** The squad year the team plays in (`squadYearOfGcTeam`), where the caller has worked it out. */
-  squadYear?: number
+  squadYear: number | undefined,
+  /** Whether the owner vouched for the club (`vouchedFor`), whose name then refuses nothing. */
+  vouched: boolean
 ): { ageGroups: AgeGroup[]; group: AgeGroup; created: boolean } | null => {
   // A different game entirely. Checked before the age, because a wiffle team filed under 12U has
   // a perfectly good age level and that is exactly what makes it invisible.
   if (isNotBaseball(profile.name)) return null;
   // No team at all, a practice or an old page somebody marked do not use, and the same trap: a
   // "Practice 12U" has a perfectly good level, and filing it would rank a coach's practice account.
-  if (notATeamWord(profile.name)) return null;
+  if (!vouched && notATeamWord(profile.name)) return null;
   // A different season entirely, and the same trap: a varsity side whose age field reads 18U has
   // a perfectly good level, and filing it would put a closed cluster in the 18U table.
   if (isSchoolTeam(profile)) return null;
@@ -1044,7 +1046,11 @@ export type GcSkipReason =
 const isSchoolTeam = (profile: GcTeamProfile): boolean =>
   isSchoolName(profile.name) || isSchoolAgeLabel(profile.ageLabel);
 
-const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: string } => {
+const skipReason = (
+  profile: GcTeamProfile,
+  /** As `resolveAgeGroup` was asked it: a club the owner vouched for is not refused on a word. */
+  vouched: boolean
+): { code: GcSkipReason; message: string } => {
   if (isNotBaseball(profile.name)) {
     return {
       code: "not-baseball",
@@ -1054,7 +1060,7 @@ const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: stri
   }
   // Before the age readings, as `resolveAgeGroup` asks it: a good age does not make a practice
   // account a team. The word goes in the sentence, so a page refused on a word can be checked.
-  const notATeam = notATeamWord(profile.name);
+  const notATeam = vouched ? null : notATeamWord(profile.name);
   if (notATeam) {
     return {
       code: "not-a-team",
@@ -2129,6 +2135,15 @@ export type GcImportOptions = {
    */
   notThisTeam?: NotThisTeam;
   /**
+   * The clubs the owner has vouched for, by club id or any GameChanger id of theirs, beside the
+   * user's own club and a page's own team, which the pool itself says: those said to be real, and
+   * the clubs a League Standings team links (`leagueLinkedClubs`). The tidy deletes none of them for
+   * its name (`dropNotATeam`), so neither does the import refuse one's schedule on a word in it,
+   * nor drop another club's row of a name that is one of them: the club kept would stop updating,
+   * and the rows that confirm its games would come off them.
+   */
+  realClubs?: ReadonlySet<string>;
+  /**
    * The day "you cannot score a game early" is judged against, as an ISO day.
    *
    * Only read to describe a team nobody could age, which is why it is here rather than threaded
@@ -2201,6 +2216,14 @@ const importOne = (
   const deleted = options.deleted ?? NOTHING_DELETED;
   const droppedClubs = options.droppedClubs ?? NO_CLUBS;
   const tooYoung = options.tooYoung ?? NO_CLUBS;
+  const real = options.realClubs ?? NO_CLUBS;
+  /** A club the owner vouched for (`GcImportOptions.realClubs`), whose name refuses nothing. */
+  const vouchedFor = (team: ScoutTeam | undefined): boolean =>
+    team !== undefined &&
+    (team.isMine === true ||
+      real.has(team.id) ||
+      (team.gcTeams ?? []).some((link) => real.has(link.teamId)) ||
+      state.ageGroups.some((group) => group.myTeamId === team.id));
   /*
    * The squad year the team plays in, which is its season label's except for a winter's: that
    * names either year it straddles, and the team's own games say which (`squadYearOfGcTeam`). Read
@@ -2414,9 +2437,15 @@ const importOne = (
     };
   }
 
-  const resolved = resolveAgeGroup(profile, state, seasonYear);
+  /*
+   * The owner's word on a club beats a word in its name, at the door as in the tidy: a club on the
+   * real list, the user's own, a page's own team, or one League Standings links, whose GameChanger
+   * name happens to read as a practice or a tryout ("Workout Warriors"), is filed as any other.
+   */
+  const vouched = real.has(profile.id) || vouchedFor(index.teamByGcId.get(profile.id));
+  const resolved = resolveAgeGroup(profile, state, seasonYear, vouched);
   if (!resolved) {
-    const why = skipReason(profile);
+    const why = skipReason(profile, vouched);
     /*
      * A team nobody could age is filed nowhere and leaves no trace in the pool, so this outcome is
      * the only thing that ever escapes with what GameChanger said about it. Somebody has to look
@@ -2649,7 +2678,24 @@ const importOne = (
      * an old page's name (`OpponentGate`): that is a real team's old page, and its game is filed
      * against a slot of its own (`planOpponent`).
      */
-    if (notATeamWord(game.opponentName)?.opponent === "drop") {
+    const word = notATeamWord(game.opponentName);
+    /*
+     * ...unless the name is a club the owner vouched for in this pool, filed then as any name is:
+     * its games are real to them, and this row is the other side's word on one, which the club's
+     * games keep as it confirms them. Only the club's own game that day takes it, as any name-filed
+     * row; one its schedule does not bear out stands against a stand-in of the name, which the tidy
+     * deletes as it deletes every one (`dropNotATeam`). An old page's word needs no such reading:
+     * its slot gate already files the row onto the one pulled club of the name that played that day.
+     * Read only for a name a rule hits, which is few.
+     */
+    const namesVouched =
+      word?.opponent === "drop" &&
+      (
+        index.teamIdsByPoolName.get(
+          `${index.poolKeyOf(group.id)}\u0000${teamNameKey(game.opponentName)}`
+        ) ?? []
+      ).some((id) => vouchedFor(index.teamsById.get(id)));
+    if (word?.opponent === "drop" && !namesVouched) {
       outcome.gamesIgnored += 1;
       continue;
     }

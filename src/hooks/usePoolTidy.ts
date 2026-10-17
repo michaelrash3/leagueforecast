@@ -11,9 +11,8 @@ import {
   loadRealClubs,
 } from "../lib/teamRankingsStorage";
 import { autoRemovalsList } from "../lib/autoRemoved";
-import { leagueLinkedClubs } from "../lib/live/allKnown";
+import { leagueLinkedClubsOf } from "../lib/live/allKnown";
 import { readStoredSeason } from "../lib/storage";
-import { ageGroupYear } from "../lib/teamRankings";
 import type { MarksChange } from "../lib/removedForYou";
 import { todayIsoDay } from "../lib/date";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
@@ -264,17 +263,7 @@ export function usePoolTidy() {
          * the claim's `finally`, since it walks the pool and a pool it cannot read must not keep
          * the slot.
          */
-        const yearOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
-        const spared = new Set([
-          ...real,
-          ...leagueLinkedClubs({
-            ageGroups: state.ageGroups,
-            teams: state.teams,
-            gamesOfYear: (year) =>
-              state.games.filter((game) => yearOf.get(game.ageGroupId) === year),
-            readSeason: readStoredSeason,
-          }),
-        ]);
+        const spared = new Set([...real, ...leagueLinkedClubsOf(state, readStoredSeason)]);
         return await ask<TidyOutcome>(
           "tidy",
           (id) => ({

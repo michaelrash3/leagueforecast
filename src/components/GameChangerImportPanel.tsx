@@ -126,8 +126,11 @@ import {
   loadOrgMembership,
   saveOrgMembership,
   loadKeptApart,
+  loadRealClubs,
 } from "../lib/teamRankingsStorage";
 import { apartKey } from "../lib/keptApart";
+import { leagueLinkedClubsOf } from "../lib/live/allKnown";
+import { readStoredSeason } from "../lib/storage";
 import { runPoolCommand } from "../lib/live/runPoolCommand";
 import { settleRunLists } from "../lib/pullLists";
 import {
@@ -989,6 +992,12 @@ export function GameChangerImportPanel({
         namedAges,
         // The names the owner has said are not a club ("Not this team"), never filed onto it.
         notThisTeam: loadNotThisTeam(),
+        // The clubs the owner vouched for, whose name refuses nothing, as the tidy deletes none of
+        // them: the real list, and every club a League Standings team links.
+        realClubs: new Set([
+          ...loadRealClubs(),
+          ...leagueLinkedClubsOf(heldRef.current.state, readStoredSeason),
+        ]),
         // The run's own seasons, not the panel's: a resumed run files what it was started for.
         ...(progress.seasonYears ? { seasonYears: new Set(progress.seasonYears) } : {}),
       });

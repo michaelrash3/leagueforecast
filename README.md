@@ -274,6 +274,11 @@ gives the same verdict as this one on every one of the 147,114 distinct names in
   read, so "Practice 12U" with a perfectly good age is refused; the sentence names the word
   ("Its name says “Scrimmage”."), the list of teams not imported says "Not a team, by its name",
   and the members' report "not a team". A team waiting on an age leaves the list on its next ask.
+  A club the owner vouched for is the exception, as it is in the tidy below: one on the list of
+  clubs said to be real (by club id or any GameChanger id of it), the user's own club, a page's
+  own team, or one a League Standings team links. Its schedule is pulled again whatever its name
+  says, and another club's row of its name is filed as any name is rather than dropped; refused,
+  a club the tidy keeps would stop updating, and the rows confirming its games would come off them.
 - **A game against one** on another club's schedule is dropped, as a game against a wiffle team
   is, where the word is a practice, scrimmage, test, demo, sample, fake, tryout, stats, stream or
   intrasquad: that result is not a game. Where it marks an old page (void, do not use, delete,

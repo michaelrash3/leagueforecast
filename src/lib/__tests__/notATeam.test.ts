@@ -131,6 +131,119 @@ describe("a page whose name says it is no team, at the door", () => {
   });
 });
 
+describe("a club the owner vouched for, whose name reads as no team", () => {
+  // A squad whose GameChanger name happens to read as a tryout, kept by the owner's word on it.
+  const WEX = "gcWEXCO00001";
+  const workouts = (games: GcTeamSchedule["games"]) =>
+    schedule({ id: WEX, name: "Wexcombe Workouts 12U" }, games);
+  /** The club in the pool, pulled once with the owner's word given, and one game of it filed. */
+  const held = importGcSchedule(workouts([played("w1", "Brindlewood Badgers 12U")]), empty, {
+    today: "2026-10-11",
+    realClubs: new Set([WEX]),
+  }).state;
+  const again = workouts([
+    played("w1", "Brindlewood Badgers 12U"),
+    played("w2", "Copperfield Cubs 12U", "2026-09-13"),
+  ]);
+  const clubId = held.teams.find((team) => team.gcTeams?.length)!.id;
+
+  it("is refused at the door with no word given for it", () => {
+    const { outcome } = importGcSchedule(again, held, { today: "2026-10-11" });
+    expect(outcome.skip).toBe("not-a-team");
+  });
+
+  it("is pulled again when it is on the real list, by GameChanger id or club id", () => {
+    [WEX, clubId].forEach((id) => {
+      const { outcome } = importGcSchedule(again, held, {
+        today: "2026-10-11",
+        realClubs: new Set([id]),
+      });
+      expect(outcome.skip).toBeUndefined();
+      expect(outcome.gamesAdded).toBe(1);
+    });
+    // Or by another GameChanger id of the same club.
+    const twoLinks: GcImportState = {
+      ...held,
+      teams: held.teams.map((team) =>
+        team.id === clubId
+          ? {
+              ...team,
+              gcTeams: [...team.gcTeams!, { ...team.gcTeams![0]!, teamId: "gcWEXCO00002" }],
+            }
+          : team
+      ),
+    };
+    const byOther = importGcSchedule(again, twoLinks, {
+      today: "2026-10-11",
+      realClubs: new Set(["gcWEXCO00002"]),
+    });
+    expect(byOther.outcome.gamesAdded).toBe(1);
+    // And a GameChanger id the pool holds no club of yet, a pool started again since it was said.
+    const fresh = importGcSchedule(again, empty, {
+      today: "2026-10-11",
+      realClubs: new Set([WEX]),
+    });
+    expect(fresh.outcome.skip).toBeUndefined();
+  });
+
+  it("is refused for what else is wrong with it, not for its name", () => {
+    // No age anywhere: the word is no reason the owner's word leaves, so the age is the reason.
+    const { outcome } = importGcSchedule(
+      schedule({ id: WEX, name: "Wexcombe Workouts", ageLevel: undefined }, [
+        played("w3", "Nobody In Particular"),
+      ]),
+      held,
+      { today: "2026-10-11", realClubs: new Set([WEX]) }
+    );
+    expect(outcome.skip).toBe("no-age");
+  });
+
+  it("is pulled again as the user's own club or a page's own team", () => {
+    const mine = {
+      ...held,
+      teams: held.teams.map((t) => (t.id === clubId ? { ...t, isMine: true as const } : t)),
+    };
+    expect(importGcSchedule(again, mine, { today: "2026-10-11" }).outcome.gamesAdded).toBe(1);
+    const page = { ...held, ageGroups: held.ageGroups.map((g) => ({ ...g, myTeamId: clubId })) };
+    expect(importGcSchedule(again, page, { today: "2026-10-11" }).outcome.gamesAdded).toBe(1);
+  });
+
+  /** The game holding the Quails' own row `q1`, whether filed as its own or folded into a copy. */
+  const holding = (state: GcImportState) =>
+    state.games.find(
+      (game) =>
+        game.id === "gc_gcQUILL00001_q1" ||
+        (game.alsoRows ?? []).some((row) => row.teamId === "gcQUILL00001" && row.gameId === "q1")
+    );
+  /** `name`'s club pulled with the owner's word on it, its game that day against the Quails. */
+  const vouchedPool = (id: string, name: string) => {
+    const state = importGcSchedule(
+      schedule({ id, name }, [played("v1", "Quillfeather Quails 12U")]),
+      empty,
+      { today: "2026-10-11", realClubs: new Set([id]) }
+    ).state;
+    return { state, club: state.teams.find((team) => team.gcTeams?.length)!.id };
+  };
+  const quails = (opponent: string) => schedule({}, [played("q1", opponent)]);
+
+  it("is the club another schedule's row of its name is filed against, not a game dropped", () => {
+    const { state, club } = vouchedPool(WEX, "Wexcombe Workouts 12U");
+    const vouched = importGcSchedule(quails("Wexcombe Workouts 12U"), state, {
+      today: "2026-10-11",
+      realClubs: new Set([WEX]),
+    });
+    expect(vouched.outcome.gamesIgnored).toBe(0);
+    const game = holding(vouched.state);
+    expect([game?.teamAId, game?.teamBId]).toContain(club);
+    // With no word given, the row is a tryout's and goes.
+    const unsaid = importGcSchedule(quails("Wexcombe Workouts 12U"), state, {
+      today: "2026-10-11",
+    });
+    expect(unsaid.outcome).toMatchObject({ gamesAdded: 0, gamesIgnored: 1 });
+    expect(holding(unsaid.state)).toBeUndefined();
+  });
+});
+
 describe("a game against a page whose name says it is no team", () => {
   it("goes, where the name is a practice, a scrimmage or a squad playing itself", () => {
     const { state, outcome } = importGcSchedule(

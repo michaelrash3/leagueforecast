@@ -29,8 +29,8 @@ import { memoryIo } from "../poolMemoryIo";
 import { persistPool } from "../poolPersist";
 import { settleRunLists } from "../pullLists";
 import { refreshNow, storedRota, type RefreshNow } from "../storedRota";
-import { ageGroupYear, pulledGcTeamIds } from "../teamRankings";
-import { leagueLinkedClubs, type SeasonReader } from "../live/allKnown";
+import { pulledGcTeamIds } from "../teamRankings";
+import { leagueLinkedClubsOf, type SeasonReader } from "../live/allKnown";
 import { leagueSeasonsOf, NO_LEAGUE_DOCS, type LeagueDocsList } from "../live/cloudLeague";
 import type { SweepPool } from "../obviousFakes";
 import { sweepStored } from "../sweepStored";
@@ -515,16 +515,7 @@ const invalidIdsOf = (answers: ReadonlyMap<string, GcTeamResponse>): string[] =>
 const sparedByTidy = (pool: GcImportState, seasons: SeasonReader | null): Set<string> => {
   const real = loadRealClubs();
   if (!seasons) return new Set([...real, ...pool.teams.map((team) => team.id)]);
-  const yearOf = new Map(pool.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
-  return new Set([
-    ...real,
-    ...leagueLinkedClubs({
-      ageGroups: pool.ageGroups,
-      teams: pool.teams,
-      gamesOfYear: (year) => pool.games.filter((game) => yearOf.get(game.ageGroupId) === year),
-      readSeason: seasons,
-    }),
-  ]);
+  return new Set([...real, ...leagueLinkedClubsOf(pool, seasons)]);
 };
 
 const fileScheduleSource = async (
@@ -546,12 +537,24 @@ const fileScheduleSource = async (
   // The names the owner has said are not a club ("Not this team"), as a pull in the browser reads
   // them: neither the import nor the tidy after it files such a name onto that club again.
   const refused = loadNotThisTeam();
+  // League Standings, read once for the import and the tidy both (`sparedByTidy`).
+  const seasons = await league();
   const importer = createGcImporter(pool, {
     deleted: loadDeletedGames(),
     droppedClubs: loadDroppedClubs(),
     tooYoung: loadTooYoungClubs(),
     namedAges: loadNamedAges(),
     notThisTeam: refused,
+    /*
+     * And the clubs the owner vouched for, whose schedule no word in their name refuses, as the
+     * tidy deletes none of them: the real list, and what League Standings links where it could be
+     * read. Where it could not, the real list alone, so a night with no League files no page the
+     * rules refuse; its tidy then deletes nothing.
+     */
+    realClubs: new Set([
+      ...loadRealClubs(),
+      ...(seasons ? leagueLinkedClubsOf(pool, seasons) : []),
+    ]),
     // The run's own day, which is the user's where the process runs in their time zone.
     today: todayIsoDay(now),
     ...(job.kind === "list" && job.seasonYears.length > 0
@@ -614,7 +617,7 @@ const fileScheduleSource = async (
     if (unaged.size === before) break;
   }
   await onTidy?.();
-  const spared = sparedByTidy(importer.state, await league());
+  const spared = sparedByTidy(importer.state, seasons);
   const tidy = tidyPool(importer.state, watchTidy, loadKeptApart(), refused, spared);
   saveTidyStamp(poolSignature(tidy.state));
   const filed = tidyChangedAnything(tidy) ? tidy.state : importer.state;

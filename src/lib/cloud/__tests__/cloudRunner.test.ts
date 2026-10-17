@@ -103,9 +103,12 @@ const ACES = "gcACES000001";
 const BEARS = "gcBEARS00001";
 /** A schedule every result of which is on a day that has not happened: invented. */
 const AHEAD = "gcAHEAD00001";
+/** A squad whose GameChanger name reads as a tryout, which only the owner's word lets in. */
+const WORKOUTS = "gcWEXCO00001";
 const schedules = new Map<string, GcTeamSchedule>([
   [ACES, schedule(ACES, "Aces", [game("a1", "Bears", 5, 3)])],
   [BEARS, schedule(BEARS, "Bears", [game("b1", "Aces", 3, 5)])],
+  [WORKOUTS, schedule(WORKOUTS, "Wexcombe Workouts", [game("w1", "Bears", 4, 1)])],
   [
     AHEAD,
     schedule(AHEAD, "Ahead", [
@@ -818,6 +821,43 @@ describe("a pull run on the cloud copy", () => {
 
     it("keeps one a season in the copy's own part picks, where there are no documents", async () => {
       expect(await stays({}, { seasons: [picked] })).toBe(true);
+    });
+
+    it("pulls again a club the owner vouched for, by the real list or a League pick", async () => {
+      const workouts = {
+        id: "S-WEXC",
+        name: "Wexcombe Workouts",
+        state: "OH",
+        gcTeams: [
+          { teamId: WORKOUTS, name: "Wexcombe Workouts 9U", ageGroupId: "ag9", ageLevel: 9 },
+        ],
+      };
+      /** Whether its new game is in the copy after a pull of it alone. */
+      const filed = async (write: () => void, extra: Partial<CloudPullDeps> = {}) => {
+        const cloud = memoryCloud();
+        await seed(
+          cloud,
+          () => {
+            saveAgeGroups([ag9]);
+            saveScoutTeams([workouts]);
+            write();
+          },
+          { seasons: [] }
+        );
+        const again = {
+          kind: "list",
+          entries: [{ teamId: WORKOUTS }],
+          seasonYears: [2027],
+        } as const;
+        await runCloudPull(again, deps(cloud, "2026-09-29T13:00:00.000Z", extra));
+        resetTeamRankingsStore();
+        await loadPoolFrom(cloud.store);
+        return loadScoutGames().some((entry) => entry.id === `gc_${WORKOUTS}_w1`);
+      };
+      expect(await filed(() => undefined)).toBe(false);
+      expect(await filed(() => saveRealClubs(new Set([WORKOUTS])))).toBe(true);
+      const pick = season([{ id: "lt-wex", name: "Workouts", scoutTeamId: "S-WEXC" }]);
+      expect(await filed(() => undefined, { leagueDocs: listing(docsOf([pick])) })).toBe(true);
     });
 
     it("deletes nothing for its name in a run that could not read League Standings", async () => {
