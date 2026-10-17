@@ -4,7 +4,7 @@ import type { EditSaid, LiveEdits } from "../../hooks/useLiveEdits";
 import { apartKey } from "../../lib/keptApart";
 import { MAX_COMMAND_STEPS, type PoolCommand } from "../../lib/live/commands";
 import type { AnswerOf, PoolQuery, QueryKind, QueryOf } from "../../lib/live/queries";
-import { LivePoolHealthCard } from "./LivePoolHealthCard";
+import { LivePoolHealthCard, UNDOABLE_DELETES } from "./LivePoolHealthCard";
 
 /*
  * Pool health on the live page (`LivePoolHealthCard`): drawn from what the server's pool shows,
@@ -220,9 +220,11 @@ const editFunction = (
 };
 
 const confirmed: string[] = [];
+const confirmedSaying: string[] = [];
 let confirming = true;
-const confirm = async ({ title }: { title: string }) => {
+const confirm = async ({ title, message }: { title: string; message: string }) => {
   confirmed.push(title);
+  confirmedSaying.push(message);
   return confirming;
 };
 
@@ -243,6 +245,7 @@ const kinds = (asked: PoolQuery[]) => asked.map((query) => query.kind);
 
 afterEach(() => {
   confirmed.length = 0;
+  confirmedSaying.length = 0;
   confirming = true;
   vi.restoreAllMocks();
 });
@@ -528,6 +531,101 @@ describe("Pool health's buttons, sent as edits", () => {
       );
       await waitFor(() => expect(confirmed).toHaveLength(1));
       expect(call.sent).toEqual([]);
+    });
+
+    it("leaves out of a bulk delete a club just put back, before the lists are read again", async () => {
+      const both = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: [
+            ...TAKEN.summary.removed,
+            {
+              teamId: "S-7",
+              name: "Placeholder Other",
+              gcTeamIds: ["gc-7"],
+              on: "2027-04-14",
+              reasons: ["named 'demo'"],
+            },
+          ],
+        },
+      };
+      // The lists asked for again after the put back do not come until the end of the test.
+      let answer = () => undefined as void;
+      const later = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      const call = editFunction({ "health.summary": both }, { later });
+      show(call);
+      const list = await screen.findByRole("list", { name: "Removed for you" });
+      const kept = within(list).getByText("Placeholder Demo").closest("li");
+      if (!kept) throw new Error("no row");
+      fireEvent.click(within(kept).getByRole("button", { name: "Put back on the boards" }));
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      // Pressed while the old lists are still on screen: the club put back is not among them.
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Delete the 1 taken off on 2027-04-14 for good",
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(2));
+      expect(call.sent[1]?.command).toEqual({
+        kind: "batch",
+        commands: [{ kind: "club.drop", teamId: "S-7" }],
+      });
+      answer();
+    });
+
+    it("says first that more than it can take back at once cannot be undone, and offers no Undo", async () => {
+      const many = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: Array.from({ length: UNDOABLE_DELETES + 1 }, (_, at) => ({
+            teamId: `S-${at}`,
+            name: `Placeholder ${at}`,
+            gcTeamIds: [`gc-${at}`],
+            on: "2027-04-14",
+            reasons: ["named 'demo'"],
+          })),
+        },
+      };
+      const call = editFunction({ "health.summary": many });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: `Delete the ${UNDOABLE_DELETES + 1} taken off on 2027-04-14 for good`,
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      expect(confirmedSaying[0]).toMatch(/cannot be undone/);
+      expect(call.sent[0]?.said.undo).toBe(false);
+    });
+
+    it("offers Undo on as many as it can take back at once", async () => {
+      const many = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: Array.from({ length: UNDOABLE_DELETES }, (_, at) => ({
+            teamId: `S-${at}`,
+            name: `Placeholder ${at}`,
+            gcTeamIds: [`gc-${at}`],
+            on: "2027-04-14",
+            reasons: ["named 'demo'"],
+          })),
+        },
+      };
+      const call = editFunction({ "health.summary": many });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: `Delete the ${UNDOABLE_DELETES} taken off on 2027-04-14 for good`,
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      expect(confirmedSaying[0]).not.toMatch(/cannot be undone/);
+      expect(call.sent[0]?.said.undo).toBe(true);
     });
 
     it("sends a list longer than one edit takes as several, with no Undo", async () => {

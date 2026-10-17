@@ -300,7 +300,26 @@ export function PoolHealthView({
    * The clubs taken off as plainly made up, newest first (`autoRemoved.ts`): on no list above and
    * no board, each kept filed with its games so that putting it back is forgetting a mark.
    */
-  const removed = useMemo(() => summary.removed ?? [], [summary.removed]);
+  /*
+   * Clubs put back or deleted from here, until the next summary says so itself. On the live page a
+   * change lands before the summary is asked for again, so for that while the list still showed a
+   * club just put back, and a bulk delete pressed then would have sent it with the rest. Kept against
+   * the summary it was made on: a new one is the pool as it stands, and the set goes with the old.
+   */
+  const [settledRemoved, setSettledRemoved] = useState<{
+    of: readonly RemovedClub[] | undefined;
+    ids: ReadonlySet<string>;
+  }>(() => ({ of: undefined, ids: new Set() }));
+  const settledIds = settledRemoved.of === summary.removed ? settledRemoved.ids : null;
+  const settleRemoved = (on: readonly RemovedClub[] | undefined, clubs: readonly RemovedClub[]) =>
+    setSettledRemoved((was) => ({
+      of: on,
+      ids: new Set([...(was.of === on ? was.ids : []), ...clubs.map((club) => club.teamId)]),
+    }));
+  const removed = useMemo(
+    () => (summary.removed ?? []).filter((club) => !settledIds?.has(club.teamId)),
+    [summary.removed, settledIds]
+  );
   const [allRemoved, setAllRemoved] = useState(false);
   /** The clubs taken off, by the day that took them off, newest first: a night's sweep at once. */
   const removedDays = useMemo(() => {
@@ -427,10 +446,14 @@ export function PoolHealthView({
     void actions.answer("realClubs", [], [club.teamId, ...club.gcTeamIds]);
 
   /** Puts a club taken off back, or deletes it for good: one at a time, as the other buttons. */
-  const decideRemoved = async (club: RemovedClub, decide: (club: RemovedClub) => unknown) => {
+  const decideRemoved = async (
+    club: RemovedClub,
+    decide: (club: RemovedClub) => Promise<boolean> | boolean
+  ) => {
+    const on = summary.removed;
     setDropping(club.teamId);
     try {
-      await decide(club);
+      if ((await decide(club)) === true) settleRemoved(on, [club]);
     } finally {
       setDropping(null);
     }
@@ -438,9 +461,10 @@ export function PoolHealthView({
 
   /** Puts back every club one night took off, as one change. */
   const putBackDay = async (day: string, clubs: readonly RemovedClub[]) => {
+    const on = summary.removed;
     setDropping(day);
     try {
-      await actions.putBackDay(day, clubs);
+      if ((await actions.putBackDay(day, clubs)) === true) settleRemoved(on, clubs);
     } finally {
       setDropping(null);
     }
@@ -448,9 +472,10 @@ export function PoolHealthView({
 
   /** Deletes for good the clubs one night took off that are still listed, or every night's. */
   const deleteRemovedDay = async (day: string | null, clubs: readonly RemovedClub[]) => {
+    const on = summary.removed;
     setDropping(`delete:${day ?? "all"}`);
     try {
-      await actions.deleteRemovedDay(day, clubs);
+      if ((await actions.deleteRemovedDay(day, clubs)) === true) settleRemoved(on, clubs);
     } finally {
       setDropping(null);
     }

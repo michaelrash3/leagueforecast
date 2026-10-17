@@ -10,6 +10,16 @@ import { downloadCsv } from "../../lib/download";
 import { button, card } from "../../styles/tokens";
 import { PoolHealthView, type PoolHealthActions, type PoolHealthAnswers } from "./PoolHealthView";
 
+/**
+ * The most clubs a bulk delete sends as one edit with an Undo. The server keeps an edit's inverse
+ * only up to `MAX_COMMAND_STEPS` steps, and a club deleted takes 2 of them with no games, 4 with
+ * games in one squad year, one more for its sweep mark and one more for a second year (measured on
+ * `runPoolCommand`, 17 October 2026): 80 clubs at 6 is 480, inside it. A longer list is sent as
+ * edits of `MAX_COMMAND_STEPS` clubs, which the server takes but cannot take back, and the dialog
+ * says so before anything goes.
+ */
+export const UNDOABLE_DELETES = 80;
+
 const plural = (value: number, noun: string) =>
   `${value.toLocaleString()} ${noun}${value === 1 ? "" : "s"}`;
 
@@ -201,25 +211,29 @@ export function LivePoolHealthCard({
       change({ kind: "club.drop", teamId: club.teamId }, `Deleted ${club.name} for good.`, true),
     /*
      * The rest of a night's, or every night's, deleted as the device's card deletes them: asked
-     * first with the count, as many clubs at once. One edit takes at most `MAX_COMMAND_STEPS`
-     * clubs (a step a club; the server refuses a longer one whole), so a longer list goes as
-     * several, and only a list sent as one edit can be taken back as one, so only that one offers
-     * an Undo, as Approve all changes does.
+     * first with the count, as many clubs at once. Up to `UNDOABLE_DELETES` go as one edit with its
+     * Undo. A longer list goes as edits of `MAX_COMMAND_STEPS` clubs (a step a club; the server
+     * refuses a longer one whole), none of which can be taken back, which the dialog says first.
      */
     deleteRemovedDay: async (day, clubs) => {
       if (clubs.length === 0) return false;
       const when = day ? ` taken off on ${day}` : " taken off";
+      const undoable = clubs.length <= UNDOABLE_DELETES;
       const confirmed = await confirm({
         title: `Delete ${plural(clubs.length, "club")}${when} for good?`,
-        message:
-          "Each goes as Delete club takes one: the club, every game it is in, and its GameChanger ids, which a later pull refuses. A club a League Standings team links is not among them.",
+        message: `Each goes as Delete club takes one: the club, every game it is in, and its GameChanger ids, which a later pull refuses. A club a League Standings team links is not among them.${
+          undoable
+            ? ""
+            : ` More than ${UNDOABLE_DELETES} at once cannot be undone: once they are gone, only a backup brings them back.`
+        }`,
         confirmLabel: "Delete them",
       });
       if (!confirmed) return false;
-      const parts = Math.ceil(clubs.length / MAX_COMMAND_STEPS);
+      const size = undoable ? clubs.length : MAX_COMMAND_STEPS;
+      const parts = Math.ceil(clubs.length / size);
       let deleted = 0;
       for (let part = 0; part < parts; part += 1) {
-        const these = clubs.slice(part * MAX_COMMAND_STEPS, (part + 1) * MAX_COMMAND_STEPS);
+        const these = clubs.slice(part * size, (part + 1) * size);
         const done = await change(
           {
             kind: "batch",
@@ -231,7 +245,7 @@ export function LivePoolHealthCard({
           parts === 1
             ? `Deleted ${plural(clubs.length, "club")}${when} for good.`
             : `Deleted ${plural(deleted + these.length, "club")} of ${clubs.length.toLocaleString()}${when} for good.`,
-          parts === 1
+          undoable
         );
         if (!done) return deleted > 0;
         deleted += these.length;
