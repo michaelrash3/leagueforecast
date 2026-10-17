@@ -4,7 +4,7 @@ import { Worker } from "node:worker_threads";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
-import { importLease, IMPORT_LEASE_MS } from "../../src/lib/cloud/importLease";
+import { importBeat, importLease, IMPORT_STALLED } from "../../src/lib/cloud/importLease";
 import { restJobDocs, startNextPart } from "../../src/lib/cloud/pullJobRunner";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { publishBoardsIfDue } from "./afterPullLaunch";
@@ -29,6 +29,8 @@ if (!claimed) {
   let beat: ReturnType<typeof setInterval> | undefined;
   let ticking = false;
   let lastRenew = Date.now();
+  // When the worker last said anything: a try it goes quiet in for too long is ended as stuck.
+  let heardAt = Date.now();
   let latestDetail: { detail: string; progressAt: string } | null = null;
   /*
    * Cloud Run sends SIGTERM, and ten seconds later SIGKILL, when it ends an execution: a cancel, the
@@ -54,6 +56,7 @@ if (!claimed) {
       workerData: { jobId },
       resourceLimits: { maxOldGenerationSizeMb: 12_288 },
     });
+    heardAt = Date.now();
     const running = worker;
     let completed = false;
     let stopping = false;
@@ -65,12 +68,17 @@ if (!claimed) {
       terminated = fail;
       if (termination) fail(termination);
       beat = setInterval(() => {
-        if (Date.now() - lastRenew >= IMPORT_LEASE_MS - 20_000) {
+        const next = importBeat({ now: Date.now(), renewedAt: lastRenew, heardAt });
+        if (next === "lost-contact") {
           fail(
             new Error(
               "Lost contact with the import checkpoint store. The next execution will resume."
             )
           );
+          return;
+        }
+        if (next === "stalled") {
+          fail(new Error(IMPORT_STALLED));
           return;
         }
         if (ticking) return;
@@ -109,6 +117,7 @@ if (!claimed) {
       running.on(
         "message",
         (message: { done?: boolean; error?: string; progress?: boolean; detail?: string }) => {
+          heardAt = Date.now();
           if (message.detail) {
             latestDetail = { detail: message.detail, progressAt: new Date().toISOString() };
           }

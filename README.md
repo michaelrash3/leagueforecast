@@ -4108,6 +4108,14 @@ a partial pool unpublished. Resume continues the same job. Stop during the final
 waits for that commit. When Cloud Run ends an execution (a cancel, the task's time
 limit), its SIGTERM is taken as a failure of that try: the job is written back to
 waiting with the reason, failed on the last try, and the lease let go before it exits.
+A worker that hangs while its supervisor beats on looked alive for as long as Cloud Run let
+it run, the task's 24 hours and twice more on the retries, billed at 16 GiB throughout. Now
+a worker that says nothing for half an hour (`IMPORT_STALL_MS`, `importBeat`) has its try
+ended the same way, as stuck, and the next try or Resume carries on from the checkpoints.
+It speaks at every stage, every checkpoint of downloads, every batch it files and every
+step of the tidy, and GameChanger's holds are capped at a minute; a whole Refresh now leg of
+15,240 teams on 16 October 2026 took 416 s, so a hung import now costs at most an hour and a
+half over its three tries rather than three days.
 
 **A pull gone silent.** A worker can still die without a word, its container killed
 with it, and its job then said "running" for good: one of 12 October sat at "part 9
