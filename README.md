@@ -271,9 +271,19 @@ export (0.80%), 692 of them with no players at all, and a second implementation 
 gives the same verdict as this one on every one of the 147,114 distinct names in the pool.
 
 - **Out of a pasted list** before a request is spent: the row is marked with the word it hit, and
-  the pill reads "N practice, test or old team pages, skipped". The cloud's paste box leaves them
-  out the same way. Not remembered with the refusals that hold for good, since a coach can rename
-  a page: the name is read again on every export.
+  the pill reads "N practice, test or old team pages, skipped". Not remembered with the refusals
+  that hold for good, since a coach can rename a page: the name is read again on every export.
+  The row of a club the owner vouched for, as the import reads that below, is kept and goes on as
+  any row, on no pill (`vouchedByImport`): left out, the club could never be refreshed from a
+  paste that names it, though the import would file it, and only a bare id got through. The
+  device's panel reads it against the real list and League Standings as the run hands them to the
+  importer, and runs the League pass only for a marked row whose id is on the real list or carried
+  by a club in the pool, since nothing else can be one. The cloud's paste box cannot tell: the live
+  page holds neither the pool nor League, and the real list alone would miss the user's own club.
+  So it sends the marked rows, and the cloud, which holds both, leaves out before any request a
+  marked row whose id is on no real list and carried by no club in its pool (`listIds`), which the
+  import is sure to refuse; the import settles the rest with League read as it files. The real
+  list is read with the team index for that (`IMPORT_INDEX_KEYS`).
 - **At the import** the schedule is turned away with the reason `not-a-team`, before its age is
   read, so "Practice 12U" with a perfectly good age is refused; the sentence names the word
   ("Its name says “Scrimmage”."), the list of teams not imported says "Not a team, by its name",
@@ -4164,8 +4174,10 @@ how a pasted list is pulled at all.
 
 **On the page** (`LiveCloudPulls.tsx`, `src/lib/cloud/cloudPulls.ts`). The paste
 box reads a list or a spreadsheet export as the device's own pull panel does,
-leaving out wiffle ball and softball, high school squads, adult or college teams and
-pages whose name says they are no team, which cost no request. Before it is sent, it says how many of the ids do not have the shape
+leaving out wiffle ball and softball, high school squads and adult or college teams,
+which cost no request. A page whose name says it is no team is sent marked with the word it hit,
+and the cloud asks about one only where its id is on the real list or carried by a club in the
+pool, where it may be a club the owner vouched for; the import settles which. Before it is sent, it says how many of the ids do not have the shape
 every GameChanger team id seen so far has, twelve letters and digits
 (`isWellFormedGcTeamId`): slugs and names a list carries where an id should be,
 which GameChanger answers with HTTP 400; and how many lines named no team id at
@@ -4269,7 +4281,7 @@ accounts on the copy's list, as the copy is, checked as the proxy checks them
 
 **CSV imports.** New list imports run as the `team-import` Cloud Run Job. `runPull`
 launches it and returns immediately; the import is not tied to a 30-minute HTTP request.
-It reads only team identities and exclusion lists to select downloads, then keeps
+It reads only team identities, exclusion lists and the clubs said to be real to select downloads, then keeps
 hash-checked compressed checkpoints in `pullJobs/{jobId}/artifacts`. Download batches
 contain 10,000 teams. Every 2,000 completed answers is saved as a checkpoint while the
 rest of the batch continues downloading; downloads do not pause to wait for each save.

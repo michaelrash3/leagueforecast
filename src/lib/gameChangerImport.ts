@@ -2229,6 +2229,47 @@ const carriesWord = (team: ScoutTeam, word: NotATeamWord): boolean =>
     (name) => notATeamWord(name)?.word === word
   );
 
+/**
+ * Whether the owner vouched for a club the pool holds (`GcImportOptions.realClubs`): the user's own
+ * club, a page's own team, or one `real` names by its club id or any GameChanger id of it. No word
+ * in such a club's name refuses its schedule, nor drops another club's row of its name.
+ */
+const vouchedClub = (
+  team: ScoutTeam,
+  real: ReadonlySet<string>,
+  ageGroups: readonly AgeGroup[]
+): boolean =>
+  team.isMine === true ||
+  real.has(team.id) ||
+  (team.gcTeams ?? []).some((link) => real.has(link.teamId)) ||
+  ageGroups.some((group) => group.myTeamId === team.id);
+
+/**
+ * Whether the import would file a GameChanger id's schedule whatever its name says, as its gate
+ * asks it (`vouched` in `importOne`): the id is in `real`, or the club in `state` that carries it is
+ * one the owner vouched for (`vouchedClub`). `real` is what the import is handed as `realClubs`,
+ * the clubs League Standings links among them.
+ *
+ * For a pasted list, which reads a row's name before any request: a row whose name says it is no
+ * team is left out there, and one of a club vouched for has to be kept, or the import could never
+ * refresh that club from a paste although it would file the schedule.
+ */
+export const vouchedByImport = (
+  state: GcImportState,
+  real: ReadonlySet<string>
+): ((gcTeamId: string) => boolean) => {
+  // Each id's club as the import's index holds it (`indexTeam`): the last club carrying it.
+  const carrier = new Map<string, ScoutTeam>();
+  state.teams.forEach((team) =>
+    (team.gcTeams ?? []).forEach((link) => carrier.set(link.teamId, team))
+  );
+  return (gcTeamId) => {
+    if (real.has(gcTeamId)) return true;
+    const team = carrier.get(gcTeamId);
+    return team !== undefined && vouchedClub(team, real, state.ageGroups);
+  };
+};
+
 const importOne = (
   pulled: GcTeamSchedule,
   state: GcImportState,
@@ -2241,11 +2282,7 @@ const importOne = (
   const real = options.realClubs ?? NO_CLUBS;
   /** A club the owner vouched for (`GcImportOptions.realClubs`), whose name refuses nothing. */
   const vouchedFor = (team: ScoutTeam | undefined): boolean =>
-    team !== undefined &&
-    (team.isMine === true ||
-      real.has(team.id) ||
-      (team.gcTeams ?? []).some((link) => real.has(link.teamId)) ||
-      state.ageGroups.some((group) => group.myTeamId === team.id));
+    team !== undefined && vouchedClub(team, real, state.ageGroups);
   /*
    * The squad year the team plays in, which is its season label's except for a winter's: that
    * names either year it straddles, and the team's own games say which (`squadYearOfGcTeam`). Read

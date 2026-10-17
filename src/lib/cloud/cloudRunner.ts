@@ -317,18 +317,26 @@ export const loadPoolFrom = async (
  * filing after costing a request. Of a paste, only the teams the pool lacks; a handful pasted by
  * hand with none new is a refresh of those, which is how a schedule that changed today is read
  * before the rota comes round. A catch-up (`refresh`) pulls every one again.
+ *
+ * And no row the paste marked as no team by its name (`notATeam`) that the import is sure to
+ * refuse: one whose id is on no real list and carried by no club in the pool, which is all its gate
+ * reads (`vouchedByImport`). The live page's paste box sends those rows, since only here are the
+ * pool and League Standings known; a marked row this lets through is a club the import may file,
+ * and it settles which (`realClubs`), League read as it files.
  */
 const listIds = (job: Extract<CloudPullJob, { kind: "list" }>): string[] => {
   const refused = loadRefusedClubs();
   const tooYoung = loadTooYoungClubs();
+  const real = loadRealClubs();
+  const pulled = pulledGcTeamIds(loadScoutTeams());
   const kept = job.entries
+    .filter((entry) => !entry.notATeam || real.has(entry.teamId) || pulled.has(entry.teamId))
     .map((entry) => entry.teamId)
     .filter(
       (teamId) =>
         !isRefusedClub(refused, teamId, job.seasonYears) && !isTooYoungClub(tooYoung, teamId)
     );
   if (job.refresh === true) return kept;
-  const pulled = pulledGcTeamIds(loadScoutTeams());
   const fresh = kept.filter((teamId) => !pulled.has(teamId));
   return fresh.length > 0 ? fresh : kept.length <= PASTE_HANDFUL ? kept : [];
 };

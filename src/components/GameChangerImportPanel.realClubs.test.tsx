@@ -91,10 +91,8 @@ const held: GcImportState = importGcSchedule(
 ).state;
 const clubId = held.teams.find((team) => team.gcTeams?.length)!.id;
 
-/** Whether pulling the club again files its new game: a handful pasted by hand, none new. */
-const pullsAgain = async (pool: GcImportState = held): Promise<boolean> => {
-  const saved: GcImportState[] = [];
-  const user = userEvent.setup();
+/** The panel on `pool`, keeping every pool it saves in `saved`. */
+const panel = (pool: GcImportState, saved: GcImportState[]) =>
   render(
     <GameChangerImportPanel
       pool={pool}
@@ -114,12 +112,39 @@ const pullsAgain = async (pool: GcImportState = held): Promise<boolean> => {
       onRefreshLog={() => {}}
     />
   );
-  await user.type(screen.getByLabelText("Teams"), WEX);
-  // Held already, so the panel offers it as a refresh of the one club.
+
+/** Presses "Pull it again" and says whether the run filed the club's new game. */
+const pullItAgain = async (user: ReturnType<typeof userEvent.setup>, saved: GcImportState[]) => {
   await user.click(screen.getByRole("button", { name: "Pull it again" }));
   // To the run's end, since a refused schedule changes nothing and so saves nothing.
   await waitFor(() => expect(lastPullLog()?.endedAt).toBeDefined());
   return saved.some((pool) => pool.games.some((game) => game.id === `gc_${WEX}_w2`));
+};
+
+/** Whether pulling the club again files its new game: a handful pasted by hand, none new. */
+const pullsAgain = async (pool: GcImportState = held): Promise<boolean> => {
+  const saved: GcImportState[] = [];
+  const user = userEvent.setup();
+  panel(pool, saved);
+  await user.type(screen.getByLabelText("Teams"), WEX);
+  // Held already, so the panel offers it as a refresh of the one club.
+  return pullItAgain(user, saved);
+};
+
+/** The pool with its page playing in a League Standings season that picks the club. */
+const pickedByLeague = (): GcImportState => {
+  const season = createSeason("Fall 2026");
+  writeSeasonData(season.id, {
+    teams: [{ id: "lt-wex", name: "Workouts", scoutTeamId: clubId }],
+    matchups: [],
+    logs: {},
+    bracketLogs: {},
+    settings: loadSettingsForSeason(season.id),
+  });
+  return {
+    ...held,
+    ageGroups: held.ageGroups.map((group) => ({ ...group, seasonIds: [season.id] })),
+  };
 };
 
 describe("a pull in the browser, with the clubs the owner vouched for", () => {
@@ -133,18 +158,60 @@ describe("a pull in the browser, with the clubs the owner vouched for", () => {
   });
 
   it("pulls it again when a League Standings team picks it", async () => {
-    const season = createSeason("Fall 2026");
-    writeSeasonData(season.id, {
-      teams: [{ id: "lt-wex", name: "Workouts", scoutTeamId: clubId }],
-      matchups: [],
-      logs: {},
-      bracketLogs: {},
-      settings: loadSettingsForSeason(season.id),
-    });
-    const withLeague = {
-      ...held,
-      ageGroups: held.ageGroups.map((group) => ({ ...group, seasonIds: [season.id] })),
-    };
-    expect(await pullsAgain(withLeague)).toBe(true);
+    expect(await pullsAgain(pickedByLeague())).toBe(true);
+  });
+});
+
+/*
+ * The club pasted with its name, as an export lists it: the paste reads the name before any
+ * request and leaves out a page whose name says it is no team, so it has to keep the row of a club
+ * the import would pull, or a paste could never refresh that club. Beside it a practice page
+ * nobody vouched for, which goes on the pill as before.
+ */
+describe("a pasted export that names the club", () => {
+  const exported = () =>
+    new File(
+      [
+        [
+          "Team Name,Team ID,Age Group,Season",
+          `Wexcombe Workouts 12U,${WEX},12U,Fall 2026`,
+          "Thornbury Practice 12U,ThornTeam001,12U,Fall 2026",
+        ].join("\n"),
+      ],
+      "GC_Teams.csv",
+      { type: "text/csv" }
+    );
+  const paste = async (pool: GcImportState, saved: GcImportState[]) => {
+    const user = userEvent.setup();
+    panel(pool, saved);
+    await user.upload(screen.getByLabelText("Team list CSV"), exported());
+    return user;
+  };
+
+  it("skips it on its name, with the practice page, when nobody vouched for it", async () => {
+    await paste(held, []);
+    expect(
+      await screen.findByText("2 practice, test or old team pages, skipped")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pull it again" })).toBeNull();
+  });
+
+  it("keeps it, on no pill, and pulls it again when it is on the real list", async () => {
+    saveRealClubs(new Set([WEX]));
+    const saved: GcImportState[] = [];
+    const user = await paste(held, saved);
+    expect(
+      await screen.findByText("1 practice, test or old team page, skipped")
+    ).toBeInTheDocument();
+    expect(await pullItAgain(user, saved)).toBe(true);
+  });
+
+  it("keeps it and pulls it again when a League Standings team picks it", async () => {
+    const saved: GcImportState[] = [];
+    const user = await paste(pickedByLeague(), saved);
+    expect(
+      await screen.findByText("1 practice, test or old team page, skipped")
+    ).toBeInTheDocument();
+    expect(await pullItAgain(user, saved)).toBe(true);
   });
 });

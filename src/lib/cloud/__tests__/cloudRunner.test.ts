@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GcGame, GcTeamResponse, GcTeamSchedule } from "../../gameChangerApi";
+import {
+  parseGcTeamList,
+  type GcGame,
+  type GcTeamResponse,
+  type GcTeamSchedule,
+} from "../../gameChangerApi";
 import type { FetchGcTeamsOptions } from "../../gameChangerClient";
 import { localDayKey } from "../../gameChangerSchedule";
 import {
@@ -46,6 +51,7 @@ import { NO_LEAGUE_DOCS } from "../../live/cloudLeague";
 import { docsOf, listing } from "../../live/__tests__/leagueDocsFixture";
 import type { SeasonSnapshot } from "../../storage";
 import { DEFAULT_SETTINGS, type TeamBase } from "../../types";
+import type { ScoutTeam } from "../../teamRankings";
 import { runEdit } from "../../live/editRun";
 
 /*
@@ -861,6 +867,68 @@ describe("a pull run on the cloud copy", () => {
       expect(await filed(() => saveRealClubs(new Set([WORKOUTS])))).toBe(true);
       const pick = season([{ id: "lt-wex", name: "Workouts", scoutTeamId: "S-WEXC" }]);
       expect(await filed(() => undefined, { leagueDocs: listing(docsOf([pick])) })).toBe(true);
+    });
+
+    it("pulls it from a paste that names it, and asks nothing of a practice page", async () => {
+      const workouts = {
+        id: "S-WEXC",
+        name: "Wexcombe Workouts",
+        state: "OH",
+        gcTeams: [
+          { teamId: WORKOUTS, name: "Wexcombe Workouts 9U", ageGroupId: "ag9", ageLevel: 9 },
+        ],
+      };
+      // The rows as the live page's paste box sends them, each marked with the word its name hit.
+      const { entries } = parseGcTeamList(
+        [
+          "Team Name,Team ID,Age Group",
+          `Wexcombe Workouts 9U,${WORKOUTS},9U`,
+          "Thornbury Practice 9U,gcTHORN00001,9U",
+        ].join("\n")
+      );
+      expect(entries.map((entry) => entry.notATeam)).toEqual(["tryout", "practice"]);
+      const pasted = { kind: "list", entries, seasonYears: [2027] } as const;
+      /** What an import and a pull of the paste ask about, and whether the club's game is filed. */
+      const pull = async (teams: ScoutTeam[], write: () => void, extra: Partial<CloudPullDeps>) => {
+        const cloud = memoryCloud();
+        await seed(
+          cloud,
+          () => {
+            saveAgeGroups([ag9]);
+            saveScoutTeams(teams);
+            write();
+          },
+          { seasons: [] }
+        );
+        const selected = await selectImportTeams(cloud.store, pasted);
+        const fetchTeams = vi.fn(answering());
+        await runCloudPull(
+          pasted,
+          deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams, ...extra })
+        );
+        resetTeamRankingsStore();
+        await loadPoolFrom(cloud.store);
+        return {
+          selected: selected.entries.map((entry) => entry.teamId),
+          asked: fetchTeams.mock.calls.flatMap(([ids]) => ids),
+          filed: loadScoutGames().some((entry) => entry.id === `gc_${WORKOUTS}_w1`),
+        };
+      };
+      const again = { selected: [WORKOUTS], asked: [WORKOUTS], filed: true };
+      expect(await pull([workouts], () => saveRealClubs(new Set([WORKOUTS])), {})).toEqual(again);
+      const pick = season([{ id: "lt-wex", name: "Workouts", scoutTeamId: "S-WEXC" }]);
+      const byLeague = { leagueDocs: listing(docsOf([pick])) };
+      expect(await pull([workouts], () => undefined, byLeague)).toEqual(again);
+      // Carried by a club of the pool, the row is asked about, and the import refuses it unvouched.
+      expect(await pull([workouts], () => undefined, {})).toEqual({ ...again, filed: false });
+      // On the real list with no club of it yet, a pool started again since the word was given.
+      expect(await pull([], () => saveRealClubs(new Set([WORKOUTS])), {})).toEqual(again);
+      // On no list and carried by no club, it cannot be one the import files: no request at all.
+      expect(await pull([], () => undefined, {})).toEqual({
+        selected: [],
+        asked: [],
+        filed: false,
+      });
     });
 
     it("deletes nothing for its name in a run that could not read League Standings", async () => {

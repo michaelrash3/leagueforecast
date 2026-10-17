@@ -47,9 +47,17 @@ const STOP_FAILED = "The pull could not be asked to stop just now. Try again.";
 
 /**
  * A pasted list's teams worth sending, as the device's own pull panel leaves them: wiffle ball and
- * softball, high school squads, adult or college teams, and pages whose name says they are no team
- * (a practice, a test, an old page marked do not use) cost no request. What the pool already has, and
- * the clubs refused or too young to rank, the cloud leaves out as it pulls (`cloudRunner.ts`).
+ * softball, high school squads and adult or college teams cost no request. What the pool already
+ * has, and the clubs refused or too young to rank, the cloud leaves out as it pulls
+ * (`cloudRunner.ts`).
+ *
+ * A page whose name says it is no team (a practice, a test, an old page marked do not use) is sent,
+ * marked with the word it hit, for the cloud to settle. Such a page is pulled all the same where it
+ * is a club the owner vouched for (`vouchedByImport`): one on the real list, the user's own, a
+ * page's own team, or one a League Standings team links. Only the cloud holds what says so, the
+ * pool and League both, which this page never downloads; the real list alone, which it could read,
+ * would still leave out the user's own club. So the cloud leaves out a marked row that is on no
+ * list and carried by no club of its pool, before any request, and the import settles the rest.
  */
 export const pastedTeams = (text: string): GcTeamListEntry[] => readPaste(text).entries;
 
@@ -64,7 +72,7 @@ export const readPaste = (
 ): { entries: GcTeamListEntry[]; malformed: number; skipped: number } => {
   const parsed = parseGcTeamList(text);
   const entries = parsed.entries.filter(
-    (entry) => !entry.notBaseball && !entry.highSchool && !entry.notYouth && !entry.notATeam
+    (entry) => !entry.notBaseball && !entry.highSchool && !entry.notYouth
   );
   return {
     entries,

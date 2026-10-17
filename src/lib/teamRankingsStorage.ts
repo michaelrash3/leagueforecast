@@ -218,12 +218,17 @@ const GC_TOO_YOUNG_KEY = "league_forecast_gc_too_young_v1";
  * answers like the too-young list, and like it the largest thing here after the games.
  */
 const GC_REFUSED_KEY = "league_forecast_gc_refused_v1";
-/** Selection needs identities and exclusion lists, never games or the full rating pool. */
+/**
+ * Selection needs identities and exclusion lists, never games or the full rating pool; and the
+ * clubs said to be real, without which a pasted row whose name says it is no team cannot be told
+ * from one the import would pull (`listIds` in `cloudRunner.ts`).
+ */
 export const IMPORT_INDEX_KEYS: ReadonlySet<string> = new Set([
   TEAMS_KEY,
   GC_DROPPED_CLUBS_KEY,
   GC_TOO_YOUNG_KEY,
   GC_REFUSED_KEY,
+  GC_REAL_CLUBS_KEY,
 ]);
 /** The ages somebody named by hand for teams the app could not work out. */
 const GC_NAMED_AGES_KEY = "league_forecast_gc_named_ages_v1";
