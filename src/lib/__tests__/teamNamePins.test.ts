@@ -325,7 +325,7 @@ describe("the names pinned before the not-a-team rules", () => {
     expect(counts(tidy)).toMatchInlineSnapshot(`
       {
         "idle": 1,
-        "notATeam": 4,
+        "notATeam": 5,
         "notBaseball": 2,
         "passes": 2,
       }
@@ -336,7 +336,6 @@ describe("the names pinned before the not-a-team rules", () => {
           "2026-09-08 Fernhollow Falcons [pulled] 3-3 Quillfeather Quails [pulled]",
           "2026-09-09 Quillfeather Quails [pulled] 8-2 Hollowmere Hornets DNU [slot]",
           "2026-09-10 Brindlewood Badgers [pulled] 1-5 Hollowmere Hornets DNU [slot]",
-          "2026-09-12 Brindlewood Badgers [pulled] 7-5 Rowanberry Practice Squad [stand-in]",
           "2026-09-13 Brindlewood Badgers [pulled] 2-0 Practice [slot]",
           "2026-09-14 Quillfeather Quails [pulled] 3-1 Copperfield Test [pulled]",
           "2026-09-15 Duskwood Demo [pulled] 4-1 Brindlewood Badgers [pulled]",
@@ -353,7 +352,6 @@ describe("the names pinned before the not-a-team rules", () => {
           "Marrowdale Void [slot]",
           "Practice [slot]",
           "Quillfeather Quails [pulled]",
-          "Rowanberry Practice Squad [stand-in]",
           "Test Red Kestrelmoor [pulled]",
         ],
       }

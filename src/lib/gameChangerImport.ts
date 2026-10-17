@@ -6572,9 +6572,9 @@ export type PoolTidy = {
   highSchool: number;
   /**
    * Pulled clubs deleted because every GameChanger name they carry says the page is no team — a
-   * practice, a test, an old page marked do not use — with their results, bar an old page's games
-   * another club's own schedule lists, which stay on that club's record against a slot
-   * (`dropNotATeam`).
+   * practice, a test, an old page marked do not use — and stand-ins whose one name says so, with
+   * their results, bar an old page's games another club's own schedule lists, which stay on that
+   * club's record against a slot (`dropNotATeam`).
    */
   notATeam: number;
   /**
@@ -6672,25 +6672,35 @@ const NONE_REAL: ReadonlySet<string> = new Set<string>();
 /**
  * Deletes the pulled clubs whose every GameChanger name says the page is no team
  * (`notATeamWord`): a practice, a scrimmage, a test, a tryout, a scorekeeper's or a camera's
- * account, an old page marked void, do not use, delete, duplicate or placeholder.
+ * account, an old page marked void, do not use, delete, duplicate or placeholder; and the
+ * stand-ins whose one name says so.
  *
  * A tidy pass beside the import's refusal for the reason the wiffle pass is one: a page pulled
  * before the rule existed sits in its age's table with an ordinary record, and nothing else takes
  * it out. On the backup of 11 October 2026 this deletes 520 pulled clubs, 121 of them old pages;
  * 76 were on a board that day and 237 already off every board by the nightly sweep's marks.
  *
+ * A stand-in is read too, because the import now drops a game against a drop word and files one
+ * against an old page on a slot, but only for a row it files afresh: a row filed before the rule is
+ * still listed, so never withdrawn, and never reaches the opponent gate again. Left, a practice
+ * result filed then went on rating the club that played it, out of every table but in the fit,
+ * while the same schedule pulled into a fresh pool had no such game. On that backup 130 drop-word
+ * stand-ins go with their 166 games against pulled clubs (47 scored), and 56 old-page stand-ins'
+ * 85 games (16 scored) move onto slots; a full tidy leaves no stand-in of these words, where it
+ * left 175. A slot of the name is left: it names nobody, and is what the import files an old page
+ * on.
+ *
  * Narrower than the wiffle pass in four ways, each because a wrongly deleted club leaves nothing
  * behind to notice it by:
  *
- * - Pulled clubs only. A stand-in or a slot of the name is somebody else's schedule writing it
- *   down, and is already out of every table.
+ * - A pulled club or a stand-in, never a slot.
  * - Every one of the club's GameChanger names, as GameChanger gives them on its links, and the
  *   club's own name only for a link that carries none. A club holding one practice id and one real
  *   one is the real one, folded together; and the club's stored name has lost what a bracket said,
  *   "(Practice Squad)", which 33 of the 520 say only there. Two clubs whose stored name has a word
  *   none of their links has are left.
  * - Never the user's own club, a page's own team, or a club said to be real (`real`, by club id or
- *   any of its GameChanger ids).
+ *   any of its GameChanger ids), a stand-in included.
  * - An old page's games another club's own schedule lists are kept, with the old page's side
  *   turned into a slot of its own (`ScoutTeam.placeholder`), as the import now files a game against
  *   one: the result is real and the club that played it keeps it, its opponent out of every table
@@ -6712,8 +6722,16 @@ export const dropNotATeam = (
   const goingRows = new Set<string>();
   state.teams.forEach((team) => {
     const links = team.gcTeams ?? [];
-    if (links.length === 0) return;
     if (team.isMine || pageTeams.has(team.id) || real.has(team.id)) return;
+    if (links.length === 0) {
+      // A stand-in, by the one name it has; never a slot, which names nobody (see above).
+      if (team.placeholder || !team.nameOnly) return;
+      const hit = notATeamWord(team.name);
+      if (!hit) return;
+      going.add(team.id);
+      if (hit.opponent === "slot") oldPages.add(team.id);
+      return;
+    }
     if (links.some((link) => real.has(link.teamId))) return;
     let slot = false;
     for (const link of links) {

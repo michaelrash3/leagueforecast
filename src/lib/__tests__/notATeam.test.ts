@@ -288,21 +288,107 @@ describe("a page whose name says it is no team, already in the pool", () => {
     ]);
   });
 
-  it("never deletes a stand-in or a slot of the name, which hold other clubs' results", () => {
+  it("deletes a stand-in of a drop word with its games, as the import now refuses them", () => {
+    // Filed before the rule, it would otherwise rate the club that played it for good.
     const tidy = tidyPool(
       pool(
+        [{ id: "squad", name: "Rowanberry Practice Squad", nameOnly: true }],
+        [row("g1", "quill", "squad", [7, 5], "gcquill")]
+      )
+    );
+    expect(tidy.notATeam).toBe(1);
+    expect(tidy.state.teams.map((team) => team.id)).toEqual(["quill"]);
+    expect(tidy.state.games).toEqual([]);
+    // Unless the owner has said it is real, as a pulled club is kept.
+    const kept = pool(
+      [{ id: "squad", name: "Rowanberry Practice Squad", nameOnly: true }],
+      [row("g1", "quill", "squad", [7, 5], "gcquill")]
+    );
+    expect(dropNotATeam(kept, new Set(["squad"])).dropped).toBe(0);
+  });
+
+  it("keeps a stand-in of an old page's games on slots of their own, as the import files them", () => {
+    const { state, dropped } = dropNotATeam(
+      pool(
+        [{ id: "dnu", name: "Hollowmere Hornets DNU", nameOnly: true }],
         [
-          { id: "squad", name: "Rowanberry Practice Squad", nameOnly: true },
-          { id: "slot", name: "Practice", placeholder: true },
-        ],
-        [
-          row("g1", "quill", "squad", [7, 5], "gcquill"),
-          row("g2", "quill", "slot", [2, 0], "gcquill", { date: "2026-09-13" }),
+          row("g1", "quill", "dnu", [8, 2], "gcquill"),
+          row("g2", "quill", "dnu", [3, 1], "gcquill", { date: "2026-09-13" }),
         ]
       )
     );
+    expect(dropped).toBe(1);
+    const byId = new Map(state.teams.map((team) => [team.id, team]));
+    expect(byId.has("dnu")).toBe(false);
+    expect(state.games.map((game) => game.id)).toEqual(["g1", "g2"]);
+    state.games.forEach((game) => {
+      expect(game).toMatchObject({ teamAId: "quill" });
+      expect(byId.get(game.teamBId)).toMatchObject({
+        name: "Hollowmere Hornets DNU",
+        placeholder: true,
+      });
+    });
+    // A slot apiece, as the import makes one per game.
+    expect(state.games[0]!.teamBId).not.toBe(state.games[1]!.teamBId);
+  });
+
+  it("never deletes a slot of the name, which names nobody and is out of every table", () => {
+    const tidy = tidyPool(
+      pool(
+        [{ id: "slot", name: "Practice", placeholder: true }],
+        [row("g2", "quill", "slot", [2, 0], "gcquill", { date: "2026-09-13" })]
+      )
+    );
     expect(tidy.notATeam).toBe(0);
-    expect(tidy.state.games.map((game) => game.id).sort()).toEqual(["g1", "g2"]);
+    expect(tidy.state.games.map((game) => game.id)).toEqual(["g2"]);
+  });
+
+  it("files a stand-in's drop-word game the same whenever the schedule was first pulled", () => {
+    // Under the rule from the start, and before it then tidied and pulled again: one pool either way.
+    const pulled = schedule({}, [
+      played("q1", "Copperfield Cubs 12U", "2026-09-05"),
+      played("q2", "Rowanberry Practice Squad", "2026-09-06"),
+      played("q3", "Hollowmere Hornets DNU", "2026-09-07"),
+    ]);
+    const fresh = importGcSchedule(pulled, empty, { today: "2026-10-11" }).state;
+    const before: GcImportState = {
+      ...fresh,
+      teams: [
+        ...fresh.teams,
+        { id: "S-ROWA", name: "Rowanberry Practice Squad", nameOnly: true },
+        { id: "S-HOLL", name: "Hollowmere Hornets DNU", nameOnly: true },
+      ],
+      games: [
+        ...fresh.games.filter((game) => game.id !== "gc_gcQUILL00001_q3"),
+        ...["q2", "q3"].map((id, at) => ({
+          id: `gc_gcQUILL00001_${id}`,
+          ageGroupId: fresh.ageGroups[0]!.id,
+          teamAId: fresh.teams.find((team) => team.gcTeams?.length)!.id,
+          teamBId: at === 0 ? "S-ROWA" : "S-HOLL",
+          teamAScore: 6,
+          teamBScore: 2,
+          date: `2026-09-0${6 + at}`,
+          ageLevelA: 12,
+          season: "Fall 2026",
+          source: { kind: "gamechanger" as const, teamId: "gcQUILL00001", gameId: id },
+        })),
+      ],
+    };
+    const again = importGcSchedule(pulled, tidyPool(before).state, { today: "2026-10-11" }).state;
+    const read = (state: GcImportState) => {
+      const byId = new Map(state.teams.map((team) => [team.id, team]));
+      return state.games
+        .map((game) => {
+          const them = byId.get(game.teamBId);
+          return `${game.date} ${them?.name}${them?.placeholder ? " [slot]" : ""}`;
+        })
+        .sort();
+    };
+    expect(read(tidyPool(again).state)).toEqual(read(tidyPool(fresh).state));
+    expect(read(tidyPool(fresh).state)).toEqual([
+      "2026-09-05 Copperfield Cubs",
+      "2026-09-07 Hollowmere Hornets DNU [slot]",
+    ]);
   });
 
   it("keeps an old page's game another club's own schedule lists, against a slot", () => {
