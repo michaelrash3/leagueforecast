@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import firebaseWorkflow from "../../../.github/workflows/firebase.yml?raw";
 import nightlyWorkflow from "../../../.github/workflows/nightly.yml?raw";
+import alarmScript from "../../../scripts/alarm.ts?raw";
+import nightlyScript from "../../../scripts/nightly.ts?raw";
 
 /*
  * The alarm steps as the workflows run them (`scripts/alarm.ts`, README "When a run fails"). What an
@@ -75,4 +77,36 @@ describe("the alarm step in each workflow", () => {
       expect(alarm).toContain(`OUTCOME: \${{ steps.${flow.work}.outcome }}`);
     }
   );
+});
+
+/*
+ * The words the nightly hands the alarm (README, "When a run fails"): each is written by the
+ * refresh as a step output (`output("name", …)` in `scripts/nightly.ts`), passed on by the alarm
+ * step's env as `KEY: ${{ steps.refresh.outputs.name }}`, and read by `scripts/alarm.ts` as
+ * `env.KEY`. On GitHub a step output nobody wrote reads as empty, which leaves an alarm as it is,
+ * so a name changed on any one side would have stopped a "better" Monday ever opening its issue,
+ * and a "held" one ever closing it, with every test green.
+ */
+describe("the words the nightly hands its alarm step", () => {
+  const steps = jobsOf(nightlyWorkflow).get("refresh") ?? [];
+  const alarm = steps.find((step) => /npm run alarm\b/.test(step)) ?? "";
+  const handed = [
+    ...alarm.matchAll(/^ {10}([A-Z_]+): \$\{\{ steps\.refresh\.outputs\.(\w+) \}\}\s*$/gm),
+  ].map(([, key, name]) => ({ key: key ?? "", name: name ?? "" }));
+
+  it("hands over the rebuilds' word and the starting level's", () => {
+    expect(handed).toEqual([
+      { key: "REBUILDS", name: "rebuilds" },
+      { key: "CLOSED_LEVEL", name: "closedLevel" },
+    ]);
+  });
+
+  it.each([
+    { key: "REBUILDS", name: "rebuilds" },
+    { key: "CLOSED_LEVEL", name: "closedLevel" },
+  ])("writes $name in the refresh, and reads it as $key in the alarm", ({ key, name }) => {
+    expect(handed).toContainEqual({ key, name });
+    expect(nightlyScript).toContain(`output("${name}", `);
+    expect(alarmScript).toContain(`env.${key} `);
+  });
 });
