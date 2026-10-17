@@ -1,19 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { leagueUnread, sweepTidy } from "../../../scripts/sweepTidy";
+import { leagueUnread, readSweepFile, sweepTidy } from "../../../scripts/sweepTidy";
+import { BACKUP_APP, BACKUP_VERSION, type FullBackup } from "../backup";
 import type { GcTeamSchedule } from "../gameChangerApi";
 import { importGcSchedule, tidyPool, type GcImportState } from "../gameChangerImport";
 import {
   parseTeamRankingsJson,
+  teamRankingsCsvParts,
   teamRankingsJson,
   type BackupAnswers,
   type TeamRankingsBackup,
 } from "../teamRankingsBackup";
+import { DEFAULT_SETTINGS, STORAGE_VERSION, type TeamBase } from "../types";
 
 /*
- * The recency sweep's tidy (`scripts/sweepTidy.ts`) against the device's: a club the owner said is
- * real, whose GameChanger name reads as a tryout, stays with its games, as the device's tidy keeps
- * it, rather than being deleted for its name and its games rewritten under the back-test. Every
- * name is invented.
+ * The recency sweep's tidy (`scripts/sweepTidy.ts`) against the device's: a club the owner vouched
+ * for, by the real list or a League Standings team's pick, whose GameChanger name reads as a
+ * tryout, stays with its games, as the device's tidy keeps it, rather than being deleted for its
+ * name and its games rewritten under the back-test. Every name is invented.
  */
 
 const WEX = "gcWEXCO00001";
@@ -96,5 +99,82 @@ describe("the recency sweep's tidy", () => {
         ageGroups: linked.ageGroups.map((group) => ({ ...group, seasonIds: ["fall"] })),
       })
     ).toBe(true);
+  });
+});
+
+/*
+ * The League Standings half of what the device spares, which only the whole-browser backup can
+ * show: its seasons ride beside the pool, where a Team Rankings file holds only their ids.
+ */
+describe("the recency sweep's tidy, given League Standings", () => {
+  const SEASON = "season_fall";
+  const club = clubOf(pool)!.id;
+  /** The pool with its one page playing in the season. */
+  const inLeague: GcImportState = {
+    ...pool,
+    ageGroups: pool.ageGroups.map((group) => ({ ...group, seasonIds: [SEASON] })),
+  };
+  /** The whole-browser backup as Settings writes it, no real list, read as the sweep reads it. */
+  const whole = (teams: TeamBase[]) => {
+    const backup: FullBackup = {
+      app: BACKUP_APP,
+      backupVersion: BACKUP_VERSION,
+      storageVersion: STORAGE_VERSION,
+      exportedAt: "2026-10-11T12:00:00.000Z",
+      activeSeasonId: SEASON,
+      seasons: [
+        {
+          id: SEASON,
+          name: "Fall 2026",
+          createdAt: "2026-08-01T12:00:00.000Z",
+          teams,
+          matchups: [],
+          logs: {},
+          bracketLogs: {},
+          settings: DEFAULT_SETTINGS,
+        },
+      ],
+      teamRankings: { ...inLeague, answers: answers([]) },
+      preferences: {},
+    };
+    const read = readSweepFile(JSON.stringify(backup, null, 2));
+    if (!read) throw new Error("The whole-browser backup did not read back.");
+    return read;
+  };
+  const picked = [{ id: "lt-wex", name: "Workouts", scoutTeamId: club }];
+
+  it("keeps a club a League team picks, with its games, read from the whole-browser backup", () => {
+    const { pool: read, seasons } = whole(picked);
+    expect(seasons).not.toBeNull();
+    const { state, notATeam } = sweepTidy(read, seasons);
+    expect(notATeam).toBe(0);
+    expect(clubOf(state)).toBeDefined();
+    expect(state.games.map((game) => game.id).sort()).toEqual([`gc_${WEX}_w1`, `gc_${WEX}_w2`]);
+  });
+
+  it("deletes it from the same backup when no League team links it", () => {
+    const { pool: read, seasons } = whole([{ id: "lt-owls", name: "Owls" }]);
+    const { state, notATeam } = sweepTidy(read, seasons);
+    expect(notATeam).toBe(1);
+    expect(clubOf(state)).toBeUndefined();
+  });
+
+  it("deletes it from a Team Rankings file, which cannot show the pick, and says so", () => {
+    const file = readSweepFile(
+      teamRankingsJson({ ...inLeague, answers: answers([]) }, "2026-10-11T12:00:00.000Z")
+    );
+    expect(file?.seasons).toBeNull();
+    const { state, notATeam } = sweepTidy(file!.pool);
+    expect(notATeam).toBe(1);
+    expect(clubOf(state)).toBeUndefined();
+    expect(leagueUnread(file!.pool)).toBe(true);
+  });
+
+  it("reads the older CSV as a pool with no seasons, and refuses what is no backup", () => {
+    const csv = readSweepFile(teamRankingsCsvParts(inLeague).join(""));
+    expect(csv?.seasons).toBeNull();
+    expect(csv?.pool.teams.map((team) => team.id)).toEqual(inLeague.teams.map((team) => team.id));
+    expect(readSweepFile("{}")).toBeNull();
+    expect(readSweepFile("{ not json")).toBeNull();
   });
 });
