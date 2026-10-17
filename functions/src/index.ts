@@ -23,6 +23,7 @@ import { randomId } from "../../src/lib/cloud/cloudManifest";
 import { importLeaseUntil } from "../../src/lib/cloud/importLease";
 import { JOB_ID, JOBS_COLLECTION } from "../../src/lib/cloud/pullJobs";
 import {
+  legsLastHeard,
   reapPullJob,
   restJobDocs,
   resumePullJob,
@@ -78,6 +79,7 @@ import {
   zoneOf,
 } from "./pullAccess";
 import { publishBoardsIfDue, queueBoardsCheck } from "./afterPullLaunch";
+import { endDeadPulls } from "./deadPulls";
 import type { LegAnswer, LegRequest } from "./pullLeg";
 import { PULL_WORKER_TIMEOUT_MS, waitForPullWorker } from "../../src/lib/cloud/pullWorkerLifetime";
 
@@ -235,6 +237,33 @@ export const startPull = !CLOUD_PULLS
         const data = (request.data ?? null) as { jobId?: unknown; refresh?: unknown } | null;
         if ((data as { importReady?: unknown } | null)?.importReady === true)
           return { status: "staged-ready" };
+        // The job asked about is ended first, on its own and to the end, if its worker died without
+        // a word (`reapPullJob`), so Dismiss, Stop and Resume on a pull gone silent find it ended;
+        // then every other pull gone the same way (`reapSilentPulls`), a few seconds at most of the
+        // thirty a device waits, and never the job asked about, which a Resume may be launching
+        // meanwhile (Codex, on #410). Counts and words only.
+        const askedJob =
+          typeof data?.jobId === "string" && JOB_ID.test(data.jobId) ? data.jobId : null;
+        if (askedJob) {
+          const docs = firestoreRestDocuments(restAccess());
+          const jobs = restJobDocs(docs);
+          const now = () => new Date();
+          const ended = await reapPullJob(askedJob, {
+            jobs,
+            leaseUntil: (id) => importLeaseUntil(docs, id),
+            now,
+            // A job of the older runner waits behind other pulls' legs: ended only once none of
+            // them has been heard from either.
+            legsHeard: async () =>
+              legsLastHeard(await docs.where(JOBS_COLLECTION, "status", ["running"]), jobs, now),
+          }).catch((error: unknown) => {
+            logger.warn("startPull", { kind: "reap", failed: messageOf(error) });
+            return null;
+          });
+          if (ended) logger.info("startPull", { kind: "reap", ended });
+        }
+        const reaped = await endDeadPulls(5_000, askedJob ?? undefined);
+        if (Object.keys(reaped).length > 0) logger.info("startPull", { kind: "reap", ...reaped });
         if (data?.refresh !== undefined) {
           // One of the two, read exactly: a request naming a job beside a refresh is neither.
           const ask = data.jobId === undefined ? coerceRefreshAsk(data.refresh) : null;
@@ -265,19 +294,6 @@ export const startPull = !CLOUD_PULLS
         if (resume !== undefined && resume !== true)
           throw new HttpsError("invalid-argument", "Invalid resume request.");
         const docs = firestoreRestDocuments(restAccess());
-        // Any ask about a job ends it first if its worker died without a word (`reapPullJob`):
-        // Dismiss, Stop and Resume on a pull gone silent all come here. Counts and words only.
-        if (typeof jobId === "string" && JOB_ID.test(jobId)) {
-          const reaped = await reapPullJob(jobId, {
-            jobs: restJobDocs(docs),
-            leaseUntil: (id) => importLeaseUntil(docs, id),
-            now: () => new Date(),
-          }).catch((error: unknown) => {
-            logger.warn("startPull", { kind: "reap", failed: messageOf(error) });
-            return null;
-          });
-          if (reaped) logger.info("startPull", { kind: "reap", ended: reaped });
-        }
         if (resume === true) {
           const resumed = await resumePullJob(jobId, {
             jobs: restJobDocs(docs),
@@ -458,6 +474,10 @@ export const runPull = !CLOUD_PULLS
           // The job is failed now, and its earlier legs' saves may want publishing.
           logger.info("boards-after-pull", {
             jobId: task.jobId,
+            // Dead pulls ended first: one still taken for a writer would hold the boards back.
+            ...(await endDeadPulls(
+              Math.min(10_000, started + LEG_TIMEOUT_S * 1000 - 5_000 - Date.now())
+            )),
             ...(await publishBoardsIfDue(started + LEG_TIMEOUT_S * 1000 - 5_000)),
           });
           return;
@@ -468,6 +488,10 @@ export const runPull = !CLOUD_PULLS
         if (PULL_ENDED.has(answer.outcome)) {
           logger.info("boards-after-pull", {
             jobId: task.jobId,
+            // Dead pulls ended first: one still taken for a writer would hold the boards back.
+            ...(await endDeadPulls(
+              Math.min(10_000, started + LEG_TIMEOUT_S * 1000 - 5_000 - Date.now())
+            )),
             ...(await publishBoardsIfDue(started + LEG_TIMEOUT_S * 1000 - 5_000)),
           });
         }
@@ -608,6 +632,8 @@ export const rebuild = !LIVE_REBUILD
         // a publish is under way, asked again once it should be over.
         const check = coerceBoardsCheck(request.data);
         if (check) {
+          // Dead pulls ended first: one still taken for a writer would hold the boards back.
+          const reaped = await endDeadPulls(10_000);
           const asked = await publishBoardsIfDue(
             started + 115_000,
             BOARDS_SETTLE_MS,
@@ -625,6 +651,7 @@ export const rebuild = !LIVE_REBUILD
             savedAt: check.savedAt,
             ...asked,
             ...(again !== undefined ? { again } : {}),
+            ...reaped,
           });
           return;
         }

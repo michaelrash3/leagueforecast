@@ -34,7 +34,10 @@ import {
   LEGS_SILENT_MS,
   LEGS_WENT_SILENT,
   STOPPED_WENT_SILENT,
+  legsLastHeard,
   reapPullJob,
+  reapSilentPulls,
+  reapSilentPullsWithin,
   restJobDocs,
   resumePullJob,
   runPullLeg,
@@ -1405,7 +1408,9 @@ describe("starting a pull", () => {
  * or a leg of the older runner that never wrote again. One said "running, loading; part 9 of 18;
  * stop asked" for days from 12 October 2026, with nothing left that would ever end it, Stop doing
  * nothing and Refresh now held off behind it. `startPull` ends such a job when it is asked about
- * it (`reapPullJob`), as failed, or cancelled where a stop was asked.
+ * it (`reapPullJob`), as failed, or cancelled where a stop was asked; and the cloud ends every one
+ * it finds running on its own rounds (`reapSilentPulls`), since that list's device no longer showed
+ * it, and nothing else would ever ask.
  */
 describe("a pull nothing has been heard from", () => {
   const T = Date.parse("2026-10-14T12:00:00.000Z");
@@ -1521,6 +1526,216 @@ describe("a pull nothing has been heard from", () => {
     });
     expect(raced).toBeNull();
     expect(jobs.job().status).toBe("running");
+  });
+
+  it("ends every dead pull the cloud finds running, not only one a device asks about", async () => {
+    // The 12 October list's own case: stopped days ago, with no device left to ask about it.
+    const jobs = await legacy(minutes(4 * 24 * 60), { stopAsked: true });
+    const ALIVE = "1".repeat(32);
+    const DEAD = "2".repeat(32);
+    const ENDED = "3".repeat(32);
+    // A staged import at work: a job of the older runner heard from lately would hold the others
+    // (below).
+    jobs.jobs.set(ALIVE, {
+      ...jobs.job(),
+      pipeline: "staged-v1",
+      stopAsked: false,
+      heartbeatAt: before(minutes(1)),
+      updatedAt: before(minutes(10)),
+    });
+    jobs.jobs.set(DEAD, { ...jobs.job(), stopAsked: false, updatedAt: before(LEGS_SILENT_MS) });
+    // Ended between the query and its read: found running, and left as it now is.
+    jobs.jobs.set(ENDED, { ...jobs.job(), status: "done" });
+    const swept = await reapSilentPulls({
+      ...reaping(jobs).deps,
+      running: async () => [
+        { id: JOB },
+        { id: ALIVE },
+        { id: DEAD },
+        { id: ENDED },
+        { id: "f".repeat(32) },
+        { id: "not-a-job" },
+      ],
+    });
+    expect(swept).toEqual({ running: 6, ended: 2 });
+    expect(jobs.job()).toMatchObject({ status: "cancelled", error: LEGS_WENT_SILENT });
+    expect(jobs.jobs.get(DEAD)).toMatchObject({ status: "failed", error: LEGS_WENT_SILENT });
+    expect(jobs.jobs.get(ALIVE)?.status).toBe("running");
+    expect(jobs.jobs.get(ENDED)?.status).toBe("done");
+  });
+
+  it("leaves the job its caller acts on itself, and ends no more once told to stop", async () => {
+    const jobs = await legacy(minutes(180));
+    const OTHER = "4".repeat(32);
+    const THIRD = "5".repeat(32);
+    jobs.jobs.set(OTHER, jobs.job());
+    jobs.jobs.set(THIRD, jobs.job());
+    const { deps } = reaping(jobs);
+    // A Resume is launching JOB again: the round must not end it from under that.
+    const skipped = await reapSilentPulls({
+      ...deps,
+      skip: JOB,
+      running: async () => [{ id: JOB }, { id: OTHER }],
+    });
+    expect(skipped).toEqual({ running: 2, ended: 1 });
+    expect(jobs.job().status).toBe("running");
+    expect(jobs.jobs.get(OTHER)?.status).toBe("failed");
+    // Its caller's time ran out after the first: the rest are left to the next round.
+    let reads = 0;
+    const stopping = await reapSilentPulls({
+      ...deps,
+      jobs: {
+        ...jobs.docs,
+        read: async (jobId) => {
+          reads += 1;
+          return jobs.docs.read(jobId);
+        },
+      },
+      stopped: () => reads > 0,
+      running: async () => [{ id: JOB }, { id: THIRD }],
+    });
+    expect(stopping).toEqual({ running: 2, ended: 1 });
+    expect(jobs.job().status).toBe("failed");
+    expect(jobs.jobs.get(THIRD)?.status).toBe("running");
+  });
+
+  it("goes on past a pull it could not read, leaving that one to its next round", async () => {
+    const jobs = await legacy(minutes(180));
+    const OTHER = "4".repeat(32);
+    const IMPORT = "6".repeat(32);
+    jobs.jobs.set(OTHER, jobs.job());
+    jobs.jobs.set(IMPORT, {
+      ...jobs.job(),
+      pipeline: "staged-v1",
+      heartbeatAt: before(minutes(20)),
+      updatedAt: before(minutes(20)),
+    });
+    const { deps } = reaping(jobs);
+    const swept = await reapSilentPulls({
+      ...deps,
+      jobs: {
+        ...jobs.docs,
+        read: async (jobId) => {
+          if (jobId === JOB) throw new Error("HTTP 503");
+          return jobs.docs.read(jobId);
+        },
+      },
+      running: async () => [{ id: JOB }, { id: OTHER }, { id: IMPORT }],
+    });
+    expect(swept).toEqual({ running: 3, ended: 1 });
+    expect(jobs.job().status).toBe("running");
+    // The one unread may be the leg at work that the other waits behind: no job of the older
+    // runner is ended on a round that cannot tell. A dead import still is.
+    expect(jobs.jobs.get(OTHER)?.status).toBe("running");
+    expect(jobs.jobs.get(IMPORT)).toMatchObject({ status: "failed", error: IMPORT_WENT_SILENT });
+  });
+
+  it("leaves a job of the older runner waiting its turn behind other pulls' legs", async () => {
+    // Between legs for three hours, queued behind the legs of another list, written ten minutes ago.
+    const jobs = await legacy(minutes(180));
+    const BUSY = "7".repeat(32);
+    jobs.jobs.set(BUSY, { ...jobs.job(), updatedAt: before(minutes(10)) });
+    const { deps } = reaping(jobs);
+    const running = async () => [{ id: JOB }, { id: BUSY }];
+    expect(await reapSilentPulls({ ...deps, running })).toEqual({ running: 2, ended: 0 });
+    expect(jobs.job().status).toBe("running");
+    // Asked about on its own, as startPull asks, it is left the same.
+    const legsHeard = () => legsLastHeard([{ id: JOB }, { id: BUSY }], jobs.docs, deps.now);
+    expect(await reapPullJob(JOB, { ...deps, legsHeard })).toBeNull();
+    expect(await legsHeard()).toBe(T - minutes(10));
+    // Once the whole queue has been as quiet, both are taken for dead.
+    jobs.jobs.set(BUSY, { ...jobs.job(), updatedAt: before(LEGS_SILENT_MS) });
+    expect(await reapSilentPulls({ ...deps, running })).toEqual({ running: 2, ended: 2 });
+    expect(jobs.job().status).toBe("failed");
+    expect(jobs.jobs.get(BUSY)?.status).toBe("failed");
+  });
+
+  it("ends nothing once its time is up, waiting for a write already sent", async () => {
+    const jobs = await legacy(minutes(180));
+    const { deps } = reaping(jobs);
+    // In time: as a round with no limit.
+    expect(
+      await reapSilentPullsWithin({ ...deps, running: async () => [{ id: JOB }] }, 1_000)
+    ).toEqual({ ended: 1, late: false });
+
+    // The listing comes back after the time is up: nothing is ended behind the caller.
+    const slow = await legacy(minutes(180));
+    const slowDeps = reaping(slow).deps;
+    let listed = () => undefined as void;
+    const listing = new Promise<void>((resolve) => {
+      listed = resolve;
+    });
+    const late = await reapSilentPullsWithin(
+      {
+        ...slowDeps,
+        running: async () => {
+          await listing;
+          return [{ id: JOB }];
+        },
+      },
+      10
+    );
+    expect(late).toEqual({ ended: 0, late: true });
+    listed();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(slow.job().status).toBe("running");
+    expect(slow.updates).toEqual([]);
+
+    // Its read of the job comes back after the time is up: the write it would make is not sent.
+    const reading = await legacy(minutes(180));
+    const readingDeps = reaping(reading).deps;
+    const unsent = await reapSilentPullsWithin(
+      {
+        ...readingDeps,
+        jobs: {
+          ...reading.docs,
+          read: async (jobId) => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return reading.docs.read(jobId);
+          },
+        },
+        running: async () => [{ id: JOB }],
+      },
+      10
+    );
+    expect(unsent).toEqual({ ended: 0, late: true });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(reading.job().status).toBe("running");
+    expect(reading.updates).toEqual([]);
+
+    // A write sent before the time was up is waited for, and counted.
+    const sent = await legacy(minutes(180));
+    const sentDeps = reaping(sent).deps;
+    const writing = await reapSilentPullsWithin(
+      {
+        ...sentDeps,
+        jobs: {
+          ...sent.docs,
+          updateIfUnchanged: async (jobId, seen, patch) => {
+            await new Promise((resolve) => setTimeout(resolve, 40));
+            return sent.docs.updateIfUnchanged(jobId, seen, patch);
+          },
+        },
+        running: async () => [{ id: JOB }],
+      },
+      10
+    );
+    expect(writing).toEqual({ ended: 1, late: true });
+    expect(sent.job().status).toBe("failed");
+
+    // A listing that fails after the time is up is nobody's to hear: the race has handled it.
+    const failing = await reapSilentPullsWithin(
+      {
+        ...deps,
+        running: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          throw new Error("HTTP 503");
+        },
+      },
+      5
+    );
+    expect(failing).toEqual({ ended: 0, late: true });
+    await new Promise((resolve) => setTimeout(resolve, 30));
   });
 });
 
