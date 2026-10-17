@@ -28,6 +28,7 @@ import type { FirebaseWebConfig } from "./cloudConfig";
 import type { CloudStore } from "./cloudEngine";
 import { coercePullJob, jobPath, jobPiecePath, type PullJob } from "./pullJobs";
 import { firestoreLeague, type LeagueStore } from "../live/leagueStore";
+import { CLOSED_LEVEL_PATH } from "../live/closedLevelPath";
 import type { LiveReader, MetaWatch } from "../live/viewStore";
 import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
 import { restoreBackupOnServer, restoreOnServer, type RestoreAnswer } from "./serverRestore";
@@ -66,12 +67,6 @@ const MANIFEST = "copies/main";
 const CHUNKS = "copies/main/chunks";
 const LIVE_META = "live/meta";
 const LIVE_CHUNKS = "live/meta/chunks";
-/**
- * The last weekly re-measure of where a rating starts (`CLOSED_LEVEL_PATH`, `closedLevelRecord.ts`),
- * named here as the meta is rather than imported, so the cloud's chunk does not take in the model
- * code its record's words are made with.
- */
-const LIVE_CLOSED_LEVEL = "live/closedLevel";
 
 export type CloudAccount = { uid: string; email: string | null };
 
@@ -316,7 +311,8 @@ export const firestoreLive = (db: Firestore): LiveReader => ({
   },
   getChunk: (id) => bytesOf(db, LIVE_CHUNKS, id),
   readClosedLevel: async () => {
-    const snap = await getDoc(doc(db, LIVE_CLOSED_LEVEL));
+    // The last weekly re-measure of where a rating starts, where the nightly writes it.
+    const snap = await getDoc(doc(db, CLOSED_LEVEL_PATH));
     return snap.exists() ? snap.data() : null;
   },
 });

@@ -195,6 +195,7 @@ const firebaseFor = (account: CloudAccount | null): FirebaseCloud => {
     live: {
       readMeta: async () => ({ readAs: current?.uid ?? null }),
       getChunk: async (id) => new TextEncoder().encode(id),
+      readClosedLevel: async () => ({ weeklyReadAs: current?.uid ?? null }),
       watchMeta: (heard) => {
         heard.next({ heardAs: current?.uid ?? null }, true);
         return () => undefined;
@@ -485,6 +486,8 @@ describe("the published boards, as this browser reads them", () => {
     const reader = await session.liveReader();
     expect(await reader?.readMeta()).toEqual({ readAs: ME.uid });
     expect(await reader?.getChunk("abc-0")).toEqual(new TextEncoder().encode("abc-0"));
+    // The last weekly re-measure too, which the Model check card reads as it opens.
+    expect(await reader?.readClosedLevel?.()).toEqual({ weeklyReadAs: ME.uid });
     // And listened to as that account, with no time limit: a watch says itself when it is cut off.
     const heard: unknown[] = [];
     reader?.watchMeta?.({ next: (raw) => heard.push(raw), error: () => undefined })();

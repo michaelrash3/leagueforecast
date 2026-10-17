@@ -6,9 +6,10 @@ import type { LiveReader } from "./viewStore";
 /**
  * The last weekly re-measure of where a rating starts, as the nightly keeps it for the Model check
  * card (`closedLevelWeekly.ts`, README "Where a rating starts"): one small document beside the
- * views a server publishes, `live/closedLevel`, which the rules let the list read as they let it
- * read `live/meta` and which only the nightly's live run writes. The card reads it as it opens, so
- * the last Monday's answer is there without the check run again. It holds numbers and days only.
+ * views a server publishes, `live/closedLevel` (`closedLevelPath.ts`), which the rules let the list
+ * read as they let it read `live/meta` and which only the nightly's live run writes. The card reads
+ * it as it opens, so the last Monday's answer is there without the check run again. It holds
+ * numbers and days only.
  */
 
 /** The starting level's re-measure (`ClosedLevelCheck`): numbers and days, no name of anybody. */
@@ -30,9 +31,6 @@ export const CLOSED_LEVEL_CHECK: Shape = {
     better: "boolean",
   },
 };
-
-/** Where the record is kept. */
-export const CLOSED_LEVEL_PATH = "live/closedLevel";
 
 /** The layout of the record; a reader refuses any other. */
 export const CLOSED_LEVEL_FORMAT = 1;

@@ -121,6 +121,39 @@ describe("what a job on GitHub may write of the cloud", () => {
     });
   });
 
+  it("keeps the weekly record where members' devices read it, and reads it back from there", async () => {
+    // Where the browser's reader looks (`firestoreLive`), named once for both (`closedLevelPath`).
+    // Firestore as it answers when there is none yet: a read finds nothing, and the write lands.
+    const fetchImpl = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Response(init?.method === "POST" ? "{}" : '{"error":{"code":404}}', {
+          status: init?.method === "POST" ? 200 : 404,
+          headers: { "content-type": "application/json" },
+        })
+    );
+    const stores = restServerStores(
+      {
+        projectId: "demo-league-forecast",
+        token: async () => "token",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        pause: async () => undefined,
+      },
+      true
+    );
+    await stores.writeClosedLevel(CLOSED_LEVEL);
+    expect(await stores.readClosedLevel()).toBeNull();
+    const asked = fetchImpl.mock.calls.map(
+      ([input, init]) =>
+        `${init?.method ?? "GET"} ${String(input).replace(/^.*\/documents/, "")} ${String(init?.body ?? "")}`
+    );
+    // Its version read, the write over it, and the read back.
+    expect(asked).toHaveLength(3);
+    for (const request of asked) expect(request).toMatch(/\/live\/closedLevel\b/);
+    expect(asked[0]).toMatch(/^GET \/live\/closedLevel /);
+    expect(asked[1]).toMatch(/^POST :commit .*documents\/live\/closedLevel"/);
+    expect(asked[2]).toMatch(/^GET \/live\/closedLevel /);
+  });
+
   it("reads the copy's manifest at its update time, the rebuild job's control and the pulls under way, however it was opened", async () => {
     const RUNNING = {
       ...newPullJob({

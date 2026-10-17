@@ -14,7 +14,8 @@ import { LEAGUE_DELETED_PATH, leagueDeletedAt } from "./boardsCheck";
 import { restLeagueDocs, type LeagueDocsList } from "./cloudLeague";
 import { REBUILD_JOB_CONTROL } from "./rebuildJobControl";
 import { REBUILD_LEDGER_PATH } from "./rebuildLedger";
-import { CLOSED_LEVEL_PATH, type ClosedLevelRecord } from "./closedLevelRecord";
+import { CLOSED_LEVEL_PATH } from "./closedLevelPath";
+import type { ClosedLevelRecord } from "./closedLevelRecord";
 import type { LiveStore } from "./viewStore";
 
 /**
