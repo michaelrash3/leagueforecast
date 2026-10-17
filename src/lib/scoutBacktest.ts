@@ -887,8 +887,11 @@ const DAY = 24 * 60 * 60 * 1000;
  * would have been named clearly better on the harness's weeks (z 2.46 against a bar of 2.28) when
  * scored apart they are not (z 1.03). And on shown ratings, not point ratings, which the plain
  * backtest scores: the discount already lowers thin clubs, a closed club is often a thin one, and
- * on point ratings a deeper level falsely cleared the bar (squared error z 2.63 to 4.57). On those
- * four weeks it read 0.00010 ± 0.00013 runs a game worse than −1.6, so the held level stands.
+ * on point ratings a deeper level reads better than it does on the board. By this rule's absolute
+ * error with each week left out it read z 1.72 there against −0.77 on shown ratings, short of the
+ * bar, and it falsely cleared the bar in sample (z 3.59), on the last two weeks judged with the
+ * first two weeks' level (2.27), and by squared error even with each week left out (2.63). On
+ * those four weeks it read 0.00010 ± 0.00013 runs a game worse than −1.6, so the held level stands.
  *
  * A level clearly better here is a change ready to be made, not one made: the held level changes by
  * a commit that raises the boards' rules (`BOARD_RULES`), as the age table does.

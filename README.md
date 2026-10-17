@@ -3160,8 +3160,11 @@ residual scale.
   (z 2.46 against their bar of 2.28) when scored apart they are not (z 1.03).
 - **Never on point ratings**, which the plain backtest scores. The discount already
   lowers thin clubs, and a club whose league keeps to itself is often a thin one, so
-  on point ratings a deeper level falsely cleared the bar (squared error z 2.63 to
-  4.57).
+  on point ratings a deeper level reads better than it does on the board: by the
+  rule's own absolute error, with each week left out, z 1.72 against −0.77 on shown
+  ratings, short of the bar. It falsely cleared the bar there in sample (z 3.59) and
+  on the last two weeks judged with the first two weeks' level (2.27), and by squared
+  error even with each week left out (2.63).
 
 On the owner's backup of 11 October 2026, asked the Monday after:
 
