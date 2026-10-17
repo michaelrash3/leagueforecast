@@ -7,6 +7,7 @@ import {
   importTryStatus,
   IMPORT_LEASE_MS,
   IMPORT_STALL_MS,
+  type ImportWatch,
 } from "../importLease";
 
 it("admits one execution, renews ownership, and allows takeover only after expiry or release", async () => {
@@ -63,7 +64,7 @@ it("gives a try up as out of contact before its lease could lapse, first of all"
 
 it("counts every message from the worker as a word, a bare progress among them", () => {
   const start = Date.parse("2026-10-17T05:00:00.000Z");
-  let watch = { heardAt: start, latestDetail: null };
+  let watch: ImportWatch = { heardAt: start, latestDetail: null };
   // Most of what the worker says is a bare progress: every stage written, every checkpoint.
   watch = importHeard(watch, { progress: true }, start + IMPORT_STALL_MS - 1);
   expect(watch).toEqual({ heardAt: start + IMPORT_STALL_MS - 1, latestDetail: null });
