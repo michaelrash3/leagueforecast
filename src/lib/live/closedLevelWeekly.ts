@@ -1,26 +1,29 @@
+import { failureWords } from "../cloud/firestoreRest";
 import { closedLevelJudged } from "../closedLevelWords";
 import { dayInstant } from "../ratingRecency";
 import { CLOSED_LEVEL_WEEKS, compareClosedLevels, type ClosedLevelCheck } from "../scoutBacktest";
 import { ageGroupYear, rankingPoolGroupIds, scoutFitRanks } from "../teamRankings";
 import { deriveAllKnown, gamesOnPages } from "./allKnown";
 import { CLOSED_LEVEL_FORMAT, type ClosedLevelRecord } from "./closedLevelRecord";
+import type { CopyPublish } from "./publishCopy";
 import { asWorkerSees, ratingPools, type BuildInput } from "./views/board";
 
 /**
  * The weekly re-measure of where a rating starts (README, "Where a rating starts"), as the nightly
- * runs it: on the Monday's run only, on the pool it has just published the boards from, so it
- * reads nothing more of the cloud. It re-measures the squad year with the most games in the four
- * weeks before the day, on its pool as the boards fit it (`deriveAllKnown`, `asWorkerSees`), with
- * the very function the Model check runs (`compareClosedLevels`), and keeps the answer for the
- * card (`closedLevelRecord.ts`). Whether the level read is clearly better goes to the alarm step
- * as a word (`closedLevelWord`), which opens an issue saying a change is ready. The held level
- * changes only by a commit.
+ * runs it: on the Monday's run only, after the views are published, on the pool the boards were
+ * built from, the Team Rankings pool its store holds and the League Standings seasons the publish
+ * read for them (`CopyPublish.readSeason`), so it reads nothing more of the cloud. It re-measures
+ * the squad year with the most games in the four weeks before the day, on its pool as the boards
+ * fit it (`deriveAllKnown`, `asWorkerSees`), with the very function the Model check runs
+ * (`compareClosedLevels`), and keeps the answer for the card (`closedLevelRecord.ts`). Whether the
+ * level read is clearly better goes to the alarm step as a word (`closedLevelWord`), which opens an
+ * issue saying a change is ready. The held level changes only by a commit.
  *
  * Measured on the owner's backup of 11 October 2026, asked the Monday after: the re-measure alone
  * took 20 s and about 1 GB above the loaded pool (2.8 GB peak) in Node 24 on four 2.1 GHz cores,
  * one fit at a time. The nightly's runner has 16 GB and its step 85 minutes, and the night peaked
  * at about 4.3 GB on the pool of 29 September. Its own scheduled workflow would have read the
- * cloud copy again; folded in, it reads nothing it has not read.
+ * cloud copy again; folded in, it reads nothing the publish did not.
  */
 
 /** The day of the week it runs on, as `Date.getUTCDay` counts: Monday, the day after a week ends. */
@@ -154,4 +157,68 @@ export const describeWeekly = (weekly: WeeklyClosedLevel | null, seconds: number
       : "  No week could be scored with the other weeks' level, so nothing was judged and nothing is settled."
   );
   return lines;
+};
+
+/** What the nightly hands the re-measure once it has published the views (`remeasureAfterPublish`). */
+export type NightlyRemeasure = {
+  /** The publish just before it, or null where none ran or it threw. */
+  views: CopyPublish | null;
+  /** The members' day it re-measures as of: four weeks to the Sunday before it. */
+  today: string;
+  /** A live run keeps the answer and hands the alarm its word; a dry run only says it. */
+  live: boolean;
+  /** The pool its store holds, which the publish built the boards from, League aside. */
+  pool: () => Omit<BuildInput, "past" | "readSeason" | "today">;
+  /** Keeps the record for the card (`ServerStores.writeClosedLevel`). */
+  keep: (record: ClosedLevelRecord) => Promise<void>;
+  /** Hands the alarm step its word (`closedLevelWord`). */
+  handWord: (word: string) => void;
+  log: (line: string) => void;
+  /** The time, as an ISO string, the record is stamped with. */
+  now: () => string;
+  /** Milliseconds, for how long it took. */
+  clock?: () => number;
+};
+
+/**
+ * The nightly's re-measure, run once the views are out: on the boards' own pool, League as the
+ * publish read it, never read again, so a score a member saves after the publish's last look
+ * reaches neither. Where the views were not published (refused, as when League moved during the
+ * publish, or stopped), it does not re-measure: the pool would not be the one any board was built
+ * from. Never the night's failure: one that stops says so and leaves the alarm as it is. What it
+ * found, or null where it did not re-measure.
+ */
+export const remeasureAfterPublish = async ({
+  views,
+  today,
+  live,
+  pool,
+  keep,
+  handWord,
+  log,
+  now,
+  clock = Date.now,
+}: NightlyRemeasure): Promise<WeeklyClosedLevel | null> => {
+  if (!views?.ok) {
+    log(
+      "The views were not published, so the starting level was not re-measured on a pool no board was built from."
+    );
+    return null;
+  }
+  try {
+    const startedAt = clock();
+    const weekly = weeklyClosedLevel({ ...pool(), readSeason: views.readSeason, today });
+    for (const line of describeWeekly(weekly, Math.round((clock() - startedAt) / 1000))) {
+      log(line);
+    }
+    if (!weekly || !live) return weekly;
+    // The alarm's word first: a record that will not save still leaves the owner told.
+    handWord(closedLevelWord(weekly.check));
+    await keep(closedLevelRecordOf(weekly, today, now()));
+    log("  Kept for the Model check card.");
+    return weekly;
+  } catch (error) {
+    log(`The starting level's re-measure stopped: ${failureWords(error)}`);
+    return null;
+  }
 };

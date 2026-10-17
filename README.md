@@ -3184,9 +3184,13 @@ It took 20 s and about 1 GB above the loaded pool (2.8 GB at most) in Node 24 on
 
 - _Every Monday, in the nightly refresh on GitHub_, on the run whose members' day is
   a Monday, taken as the run starts, since the winter run starts at 23:17 on the
-  Monday. It reads the pool the night has just published the boards from, the squad
-  year with the most games in the four weeks, so it reads nothing more of the cloud
-  (`closedLevelWeekly.ts`). Its own scheduled workflow would have read the copy again.
+  Monday. It reads the pool the night has just built the boards from, the squad year
+  with the most games in the four weeks: the Team Rankings pool the run holds, and
+  the League Standings seasons as the publish read them, handed on rather than listed
+  again (`remeasureAfterPublish`, `closedLevelWeekly.ts`), so it reads nothing more of
+  the cloud and a score saved after the publish reaches neither. A night whose views
+  were not published does not re-measure. Its own scheduled workflow would have read
+  the copy again.
 - _The live run keeps the answer_ as one small document beside the views,
   `live/closedLevel` (`closedLevelRecord.ts`), which the Model check card reads as it
   opens and shows as one line, before anything is pressed: "Last weekly re-measure, 12
@@ -4886,8 +4890,10 @@ after the pull's own lines; a sweep that fails once the views are out says so
 under the counts of what was published, and turns it red too.
 
 On a Monday it then re-measures where a rating starts on the pool it has just
-published from, the squad year with the most games in the four weeks before the day
-("Where a rating starts", `closedLevelWeekly.ts`). The day is taken as the run starts,
+published from, the squad year with the most games in the four weeks before the day,
+with League Standings as the publish read it ("Where a rating starts",
+`closedLevelWeekly.ts`), and only once the views are out: a publish refused or
+stopped leaves no board built from any pool it could read. The day is taken as the run starts,
 so the winter run, which starts at 23:17 on the Monday, is still Monday's. It prints
 the level read, its spread, the games, the clusters and the paired reading against
 the level held, numbers only. A live run keeps the answer for the Model check card

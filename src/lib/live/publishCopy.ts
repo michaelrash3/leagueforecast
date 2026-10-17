@@ -109,6 +109,13 @@ export type CopyPublish =
       publish: Extract<PublishResult, { ok: true }>;
       /** The sweep after it, or why it stopped: the views are published either way. */
       sweep: { ok: true; deleted: number; strays: number } | { ok: false; why: string };
+      /**
+       * The League Standings seasons the boards were built with, as read for them, so a run that
+       * goes on to fit the same pool (the nightly's Monday re-measure, `closedLevelWeekly.ts`)
+       * reads League as the boards did rather than listing it again: a score saved since would
+       * otherwise reach the re-measure and not the boards.
+       */
+      readSeason: SeasonReader;
     }
   | {
       ok: false;
@@ -343,6 +350,7 @@ export const publishCopyViews = async ({
               why: `${publish.undeleted} retired pieces past their grace could not be deleted`,
             }
           : { ok: true, deleted: publish.deleted, strays: 0 },
+      readSeason,
     };
   }
   try {
@@ -361,5 +369,6 @@ export const publishCopyViews = async ({
     fits,
     publish,
     sweep,
+    readSeason,
   };
 };

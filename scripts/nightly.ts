@@ -18,8 +18,9 @@
  *
  * A dry run does everything but the saves, and says what the copy's and the views' would have been,
  * the views built from the copy the pull would have saved. On a Monday (the members' day the run
- * started on), it then re-measures where a rating starts on the pool it published from
- * (`closedLevelWeekly.ts`, README "Where a rating starts"), says what it found in numbers, keeps it
+ * started on), once the views are out, it then re-measures where a rating starts on the pool it
+ * published from, League as the publish read it (`remeasureAfterPublish`, README "Where a rating
+ * starts"), says what it found in numbers, keeps it
  * for the Model check card on a live run, and hands the alarm step a word for whether a change is
  * ready. Either way, and however the refresh
  * ended, it ends by saying how the rebuilds after saves have gone (`describeRebuilds`), read from
@@ -39,16 +40,14 @@ import {
 } from "../src/lib/cloud/refreshGate.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
-import { dryLiveStore, publishCopyViews, publishFailedRun } from "../src/lib/live/publishCopy.ts";
-import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
-import { leagueSeasonsOf } from "../src/lib/live/cloudLeague.ts";
 import {
-  closedLevelDue,
-  closedLevelRecordOf,
-  closedLevelWord,
-  describeWeekly,
-  weeklyClosedLevel,
-} from "../src/lib/live/closedLevelWeekly.ts";
+  dryLiveStore,
+  publishCopyViews,
+  publishFailedRun,
+  type CopyPublish,
+} from "../src/lib/live/publishCopy.ts";
+import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
+import { closedLevelDue, remeasureAfterPublish } from "../src/lib/live/closedLevelWeekly.ts";
 import {
   loadAgeGroups,
   loadAutoRemoved,
@@ -149,48 +148,6 @@ const tellRebuilds = async (): Promise<void> => {
     if (trouble) output("rebuilds", trouble);
   } catch (error) {
     console.log(`The rebuilds' ledger could not be read: ${failureWords(error)}`);
-  }
-};
-
-/**
- * The Monday re-measure of where a rating starts, on the pool the store holds, which is the copy
- * `manifest` names: said in numbers, kept for the card on a live run, and handed to the alarm step
- * as a word on a live run (`closedLevelWord`). Never the night's failure: the re-measure is not
- * the refresh, so one that stops says so and leaves the alarm as it is.
- */
-const remeasure = async (
-  stores: ReturnType<typeof openStores>,
-  copyStore: CloudStore,
-  manifest: CloudManifest,
-  day: string
-): Promise<void> => {
-  try {
-    const startedAt = Date.now();
-    const readSeason = await leagueSeasonsOf(copyStore, manifest, stores.leagueDocs);
-    if (!readSeason) {
-      console.log(
-        "The League Standings seasons could not be read, so the starting level was not re-measured."
-      );
-      return;
-    }
-    const weekly = weeklyClosedLevel({
-      ageGroups: loadAgeGroups(),
-      teams: loadScoutTeams(),
-      gamesOfYear: loadScoutGamesForYear,
-      readSeason,
-      autoRemoved: loadAutoRemoved(),
-      today: day,
-    });
-    for (const line of describeWeekly(weekly, Math.round((Date.now() - startedAt) / 1000))) {
-      console.log(line);
-    }
-    if (!weekly || !live) return;
-    // The alarm's word first: a record that will not save still leaves the owner told.
-    output("closedLevel", closedLevelWord(weekly.check));
-    await stores.writeClosedLevel(closedLevelRecordOf(weekly, day, new Date().toISOString()));
-    console.log("  Kept for the Model check card.");
-  } catch (error) {
-    console.log(`The starting level's re-measure stopped: ${failureWords(error)}`);
   }
 };
 
@@ -301,6 +258,7 @@ const main = async (): Promise<void> => {
     console.log("  Nothing in the copy changed, so nothing was saved.");
   }
   // Built from the copy the store now holds, and only when it holds one (`CloudPullResult.manifest`).
+  let published: CopyPublish | null = null;
   if (result.manifest) {
     try {
       const views = await publishCopyViews({
@@ -311,6 +269,7 @@ const main = async (): Promise<void> => {
         now: () => new Date().toISOString(),
         leagueDocs: opened.leagueDocs,
       });
+      published = views;
       tellViews(views, dry !== null);
       // A save during the run, and views a newer build published first (a deploy that landed
       // meanwhile), are no fault of the run's; anything else that stops is (`publishFailedRun`).
@@ -322,9 +281,24 @@ const main = async (): Promise<void> => {
       process.exitCode = 1;
     }
   }
-  // Each Monday, where a rating starts, re-measured on the pool just published.
+  // Each Monday, where a rating starts, re-measured on the pool the boards were just built from,
+  // League as the publish read it (`remeasureAfterPublish`).
   if (result.manifest && closedLevelDue(day)) {
-    await remeasure(opened, dry?.store ?? opened.copy, result.manifest, day);
+    await remeasureAfterPublish({
+      views: published,
+      today: day,
+      live,
+      pool: () => ({
+        ageGroups: loadAgeGroups(),
+        teams: loadScoutTeams(),
+        gamesOfYear: loadScoutGamesForYear,
+        autoRemoved: loadAutoRemoved(),
+      }),
+      keep: (record) => opened.writeClosedLevel(record),
+      handWord: (word) => output("closedLevel", word),
+      log: (line) => console.log(line),
+      now: () => new Date().toISOString(),
+    });
   }
   // Backups the owner staged for the server that nothing used within a day (`uploads.ts`).
   try {

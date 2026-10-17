@@ -808,6 +808,7 @@ describe("whether a server's run failed at publishing the views", () => {
       tries: 1,
     },
     sweep,
+    readSeason: () => EMPTY,
   });
 
   it("did not when the views went out and were swept", () => {
