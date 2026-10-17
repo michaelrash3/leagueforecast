@@ -4,7 +4,7 @@ import { usePoolTidy } from "./usePoolTidy";
 import { ageGroup, game, seasonDate, team } from "../test/teamRankingsHarness";
 import type { GcImportState } from "../lib/gameChangerImport";
 import { refusalOf } from "../lib/notThisTeam";
-import { resetTeamRankingsStore, saveNotThisTeam } from "../lib/teamRankingsStorage";
+import { resetTeamRankingsStore, saveNotThisTeam, saveRealClubs } from "../lib/teamRankingsStorage";
 import { createSeason, loadSettingsForSeason, writeSeasonData } from "../lib/storage";
 import type { TeamBase } from "../lib/types";
 import {
@@ -172,6 +172,38 @@ describe("what the tidy worker is told", () => {
     ]);
     unmount();
     await pending;
+  });
+
+  /*
+   * Nor can it read the clubs the owner said are real, so a list it is not handed is one it
+   * overrules: the step that deletes a page whose every name says it is no team would delete one.
+   */
+  it("hands it the clubs the owner has said are real, as stored", async () => {
+    saveRealClubs(new Set(["gcHOME", "S-AWAY"]));
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.tidy(withStandIn());
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({ kind: "tidy", realClubs: ["S-AWAY", "gcHOME"] }),
+    ]);
+    unmount();
+    await pending;
+  });
+
+  // jsdom has no Worker, so this tidy runs inline, and the list must reach that call too.
+  it("keeps a club said to be real when it tidies inline", async () => {
+    const pool = withStandIn();
+    const practice = {
+      ...pool.teams[0]!,
+      name: "Thornbury Practice",
+      gcTeams: [{ teamId: "gcHOME", name: "Thornbury Practice 10U", ageGroupId: "ag_10u_2027" }],
+    };
+    const state = { ...pool, teams: [practice, ...pool.teams.slice(1)] };
+    const { result } = renderHook(() => usePoolTidy());
+    expect((await result.current.tidy(state))?.tidy.notATeam).toBe(1);
+    saveRealClubs(new Set(["gcHOME"]));
+    expect((await result.current.tidy(state))?.tidy.notATeam).toBe(0);
   });
 
   // And its inspection, whose count of what a tidy would settle has to be the tidy's.

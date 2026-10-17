@@ -868,6 +868,32 @@ describe("a pull run on the cloud copy", () => {
     });
   });
 
+  it.each([
+    ["deletes", false],
+    ["keeps", true],
+  ])("%s a page whose every name says it is no team, by the real list", async (_, real) => {
+    const cloud = memoryCloud();
+    const ag9 = { id: "ag9", name: "9U 2027", seasonIds: [], ageLevel: 9, year: 2027 };
+    const gcTeams = [
+      { teamId: "gcTHORN00001", name: "Thornbury Practice 9U", ageGroupId: "ag9", ageLevel: 9 },
+    ];
+    // A League Standings part that reads, with no seasons, so the tidy's step runs at all.
+    await seed(
+      cloud,
+      () => {
+        saveAgeGroups([ag9]);
+        saveScoutTeams([{ id: "S-THORN", name: "Thornbury Practice", state: "OH", gcTeams }]);
+        if (real) saveRealClubs(new Set(["gcTHORN00001"]));
+      },
+      { seasons: [] }
+    );
+    const aces = { kind: "list", entries: [{ teamId: ACES }], seasonYears: [2027] } as const;
+    await runCloudPull(aces, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    expect(loadScoutTeams().some((entry) => entry.id === "S-THORN")).toBe(real);
+  });
+
   it("files a list in the squad years it was sent for and no other", async () => {
     const cloud = memoryCloud();
     await seed(cloud);
