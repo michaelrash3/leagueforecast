@@ -337,4 +337,58 @@ describe("the live board as it opens", () => {
     expect(opened.result.current.board).toBeNull();
     expect(opened.result.current.meta).toBeNull();
   });
+
+  it("draws nothing kept once the network refuses its board, though it read the meta", async () => {
+    const { io, kept } = keeping();
+    await visitOnce(live, io);
+    // Published since, so the network's board is not the one kept and is fetched.
+    await publishViews({
+      store: live.store,
+      views: [{ key: KEY, value: { rows: [row("S-2", 1), row("S-1", 2)] } }],
+      owns: [BOARD_FAMILY],
+      copy: { id: "c0ffee", version: 5 },
+      today: "2027-04-15",
+      now: T,
+      inline: { pages: { pulledAt: T, halves: { [PAGE]: { fall: 10, spring: 20 } } } },
+    });
+    // The kept board's bytes do not come off the disk until let go.
+    const keptViews = new Set([...kept.keys()].filter((key) => key.startsWith(VIEW_PREFIX)));
+    let letGo = () => undefined as void;
+    const gate = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const held: ViewCacheIo = {
+      ...io,
+      get: async (key) => {
+        if (keptViews.has(key)) await gate;
+        return io.get(key);
+      },
+    };
+    // Taken off the list between the meta's read and the board's.
+    const refused = readerOf(live, {
+      getChunk: () => Promise.reject({ code: "permission-denied" }),
+    });
+    const drawn: unknown[] = [];
+    const sources = sourcesOf(held, async () => refused);
+    const opened = renderHook(() => {
+      const state = useLiveBoard({
+        pageId: PAGE,
+        year: 2027,
+        routeSegment: "spring",
+        calendarSegment: "spring",
+        sources,
+      });
+      if (state.board) drawn.push(state.board.view);
+      return state;
+    });
+    // Said while what was kept is still coming off the disk, which is then never drawn.
+    await waitFor(() => expect(opened.result.current.metaMiss).toBe("refused"));
+    letGo();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(drawn).toEqual([]);
+    expect(opened.result.current.board).toBeNull();
+    expect(opened.result.current.meta).toBeNull();
+  });
 });
