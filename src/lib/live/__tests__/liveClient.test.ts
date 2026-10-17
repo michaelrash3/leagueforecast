@@ -258,6 +258,26 @@ describe("reading a board", () => {
     expect(counts.pieces).toBe(fetched);
   });
 
+  it("decodes a kept board once, however many reads ask for it at once, through any reader", async () => {
+    const { reader } = readerOf(live);
+    const { cache } = mapCache();
+    const meta = metaOf(await readLive(reader));
+    await readBoard({ reader, meta, key: KEY_A, cache });
+    forgetDecodedBoards();
+    // Another reader and another meta naming the same board, so neither read joins the other's,
+    // as the kept read and the network's do not on a warm open.
+    const second = readerOf(live);
+    const again = metaOf(await readLive(second.reader));
+    const [one, two] = await Promise.all([
+      readBoard({ reader, meta, key: KEY_A, cache }),
+      readBoard({ reader: second.reader, meta: again, key: KEY_A, cache }),
+    ]);
+    expect(one).toMatchObject({ ok: true, from: "cache" });
+    expect(two).toMatchObject({ ok: true, from: "memory" });
+    expect(one.ok && two.ok && one.view === two.view).toBe(true);
+    expect(second.counts.pieces).toBe(0);
+  });
+
   it("says a board the meta does not name is missing, without a read", async () => {
     const { reader, counts } = readerOf(live);
     const meta = metaOf(await readLive(reader));

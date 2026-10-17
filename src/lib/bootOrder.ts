@@ -1,6 +1,6 @@
 /**
  * The order the app starts in (`main.tsx`): the pool store and the saved board read off the
- * device, then the cloud session, then the first draw.
+ * device, then the first draw, with the cloud session started beside it.
  *
  * A device that keeps a cloud copy used to draw nothing until `bootCloud` had signed in and looked
  * at the copy for League Standings another device had saved, up to `STARTUP_WAIT_MS` and then
@@ -9,7 +9,10 @@
  * looking. A device that has met League's own documents (`leagueMetHere`) takes nothing from the
  * copy for League at all, since its seasons arrive live, so for it that wait bought nothing and
  * cost every open up to ten seconds of blank page. It now draws as soon as the device's own store
- * is read, and the session starts beside the page; any other device still waits as before.
+ * is read, and the session starts beside the page. Since 16 October 2026 no device waits: a device
+ * that keeps a cloud copy is a member's (`memberLive`, below), since a record is switched on only
+ * with the account it was signed in as, and one that keeps none has no cloud to wait for, so the
+ * wait, and its "Checking your cloud copy…" line, which nothing reached any more, were taken out.
  *
  * A member's device (`memberLive`: a cloud record for a member, signed in when last seen) opens on
  * the cloud's board and on League kept live, and neither reads the device's own store, which on a
@@ -27,7 +30,6 @@
 export const startApp = async ({
   fill,
   cloud,
-  leagueLive,
   memberLive = () => false,
   drawn = () => Promise.resolve(),
   mount,
@@ -37,9 +39,8 @@ export const startApp = async ({
    * before.
    */
   fill: (after?: Promise<void>) => Promise<unknown>;
-  /** Starts the cloud session; told whether the page is waiting on it, to say so while it does. */
-  cloud: (waitedOn: boolean) => Promise<void>;
-  leagueLive: () => boolean;
+  /** Starts the cloud session, beside a page already drawing. */
+  cloud: () => Promise<void>;
   /** Whether this is a member's device, which opens on the cloud's board and League kept live. */
   memberLive?: () => boolean;
   /** Settles once the page's first draw is done (`openingHold.ts`). */
@@ -49,15 +50,10 @@ export const startApp = async ({
   if (memberLive()) {
     void fill(drawn()).catch(() => undefined);
     mount();
-    await cloud(false).catch(() => undefined);
+    await cloud().catch(() => undefined);
     return;
   }
   await fill().catch(() => undefined);
-  if (leagueLive()) {
-    mount();
-    await cloud(false).catch(() => undefined);
-    return;
-  }
-  await cloud(true).catch(() => undefined);
   mount();
+  await cloud().catch(() => undefined);
 };

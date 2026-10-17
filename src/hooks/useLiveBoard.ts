@@ -322,6 +322,31 @@ export function useLiveBoard({
       setStanding(stands);
       setMeta({ meta: read.meta, pages: read.pages, from: "network" });
       setMetaMiss(null);
+      /*
+       * The board the page asks for next, its fetch started now rather than once the meta is drawn
+       * and what was kept has been read off the device, which held the fetch back on an open whose
+       * kept read was the slower: the page's own read of it (below) joins this one (`readView`).
+       * Refused (the account taken off the list since its meta was read), it is the meta's refusal,
+       * said now: the page's own read waits for what was kept, which would be drawn meanwhile.
+       */
+      const reader = readerRef.current;
+      const route = requested.current;
+      if (!reader || !route.pageId) return;
+      const half =
+        route.routeSegment ??
+        segmentWorthShowing(route.calendarSegment, read.pages.halves[route.pageId] ?? NO_GAMES);
+      void readBoard({
+        reader,
+        meta: read.meta,
+        key: boardKey(route.year, route.pageId, half ?? "year"),
+        cache,
+      })
+        .then((board) => {
+          if (!alive || board.ok || board.why !== "refused") return;
+          forgetAll();
+          setMetaMiss("refused");
+        })
+        .catch(() => undefined);
     };
     /*
      * What this account kept: its last meta, and the board the page opens on, read together and

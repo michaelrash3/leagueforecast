@@ -4,7 +4,7 @@ import { forgetDecodedBoards } from "../lib/live/liveClient";
 import { forgetLiveBoard } from "../lib/live/liveBoard";
 import { releaseOpening, resetOpeningHold } from "../lib/live/openingHold";
 import { openViewCache, type ViewCacheIo } from "../lib/live/viewCache";
-import { publishViews, type LiveReader } from "../lib/live/viewStore";
+import { coerceLiveMeta, publishViews, type LiveReader } from "../lib/live/viewStore";
 import { memoryLive, type MemoryLive } from "../lib/live/__tests__/memoryLive";
 import { BOARD_FAMILY } from "../lib/live/boardInputs";
 import type { BoardRow } from "../lib/live/views/boardShape";
@@ -21,6 +21,7 @@ const PAGE = "ag_12u_2027";
 const KEY = `board:2027:${PAGE}:spring`;
 const T = "2027-04-15T12:00:00.000Z";
 const VIEW_PREFIX = "league_forecast_live_view_v1:";
+const META_KEY = "league_forecast_live_meta_v1";
 
 const row = (teamId: string, rank: number): BoardRow => ({
   teamId,
@@ -181,6 +182,85 @@ describe("the live board as it opens", () => {
     await waitFor(() => expect(opened.result.current.meta?.from).toBe("network"));
   });
 
+  it("fetches the network's board while what was kept is still being read, and fetches it once", async () => {
+    const { io } = keeping();
+    await visitOnce(live, io);
+    // Published since: the network's meta names a board this device has not kept.
+    await publishViews({
+      store: live.store,
+      views: [{ key: KEY, value: { rows: [row("S-2", 1), row("S-1", 2)] } }],
+      owns: [BOARD_FAMILY],
+      copy: { id: "c0ffee", version: 5 },
+      today: "2027-04-15",
+      now: T,
+      inline: { pages: { pulledAt: T, halves: { [PAGE]: { fall: 10, spring: 20 } } } },
+    });
+    const entry = coerceLiveMeta((await live.store.readMeta())?.meta)?.views[KEY];
+    if (!entry) throw new Error("no board");
+    // The kept meta does not come off the disk until let go.
+    let letGo = () => undefined as void;
+    const gate = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const held: ViewCacheIo = {
+      ...io,
+      get: async (key) => {
+        if (key === META_KEY) await gate;
+        return io.get(key);
+      },
+    };
+    // Its pieces are asked for at once, and answered only when let go.
+    let answer = () => undefined as void;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    const getChunk = vi.fn(async (id: string) => {
+      await answered;
+      return live.store.getChunk(id);
+    });
+    const opened = openBoard(sourcesOf(held, async () => readerOf(live, { getChunk })));
+    const pieces = () => getChunk.mock.calls.filter(([id]) => id.startsWith(entry.id)).length;
+    await waitFor(() => expect(pieces()).toBe(entry.c));
+    expect(opened.result.current.board).toBeNull();
+    // What was kept comes off the disk and is drawn, and the page's own read of the network's
+    // board starts while the first is still out.
+    letGo();
+    await waitFor(() =>
+      expect(opened.result.current.board?.view.rows.map((one) => one.teamId)).toEqual([
+        "S-1",
+        "S-2",
+      ])
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    answer();
+    await waitFor(() => expect(opened.result.current.board?.checked).toBe(true));
+    expect(opened.result.current.board?.view.rows.map((one) => one.teamId)).toEqual(["S-2", "S-1"]);
+    // The page's own read joined the one started with the meta.
+    expect(pieces()).toBe(entry.c);
+  });
+
+  it("draws the very board it kept once the network vouches for it, decoded once", async () => {
+    const { io } = keeping();
+    await visitOnce(live, io);
+    const drawn: unknown[] = [];
+    const sources = sourcesOf(io, async () => readerOf(live));
+    const warm = renderHook(() => {
+      const state = useLiveBoard({
+        pageId: PAGE,
+        year: 2027,
+        routeSegment: "spring",
+        calendarSegment: "spring",
+        sources,
+      });
+      if (state.board && !drawn.includes(state.board.view)) drawn.push(state.board.view);
+      return state;
+    });
+    await waitFor(() => expect(warm.result.current.board?.checked).toBe(true));
+    expect(drawn).toHaveLength(1);
+  });
+
   it("draws a board fetched from the network before it is kept", async () => {
     const { io } = keeping();
     // Keeping a view's bytes never finishes.
@@ -254,6 +334,60 @@ describe("the live board as it opens", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
+    expect(opened.result.current.board).toBeNull();
+    expect(opened.result.current.meta).toBeNull();
+  });
+
+  it("draws nothing kept once the network refuses its board, though it read the meta", async () => {
+    const { io, kept } = keeping();
+    await visitOnce(live, io);
+    // Published since, so the network's board is not the one kept and is fetched.
+    await publishViews({
+      store: live.store,
+      views: [{ key: KEY, value: { rows: [row("S-2", 1), row("S-1", 2)] } }],
+      owns: [BOARD_FAMILY],
+      copy: { id: "c0ffee", version: 5 },
+      today: "2027-04-15",
+      now: T,
+      inline: { pages: { pulledAt: T, halves: { [PAGE]: { fall: 10, spring: 20 } } } },
+    });
+    // The kept board's bytes do not come off the disk until let go.
+    const keptViews = new Set([...kept.keys()].filter((key) => key.startsWith(VIEW_PREFIX)));
+    let letGo = () => undefined as void;
+    const gate = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const held: ViewCacheIo = {
+      ...io,
+      get: async (key) => {
+        if (keptViews.has(key)) await gate;
+        return io.get(key);
+      },
+    };
+    // Taken off the list between the meta's read and the board's.
+    const refused = readerOf(live, {
+      getChunk: () => Promise.reject({ code: "permission-denied" }),
+    });
+    const drawn: unknown[] = [];
+    const sources = sourcesOf(held, async () => refused);
+    const opened = renderHook(() => {
+      const state = useLiveBoard({
+        pageId: PAGE,
+        year: 2027,
+        routeSegment: "spring",
+        calendarSegment: "spring",
+        sources,
+      });
+      if (state.board) drawn.push(state.board.view);
+      return state;
+    });
+    // Said while what was kept is still coming off the disk, which is then never drawn.
+    await waitFor(() => expect(opened.result.current.metaMiss).toBe("refused"));
+    letGo();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(drawn).toEqual([]);
     expect(opened.result.current.board).toBeNull();
     expect(opened.result.current.meta).toBeNull();
   });

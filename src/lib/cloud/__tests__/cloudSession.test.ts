@@ -597,7 +597,7 @@ describe("a boot beside a page already mounting", () => {
     // A member's device, mounted before its session starts (`bootOrder.ts`), signing in before
     // the page's first effect has run (`startCloudSession`).
     runAs(phone);
-    await session.bootCloud(undefined, { mounting: true });
+    await session.bootCloud({ mounting: true });
     expect(logsOf(phone)).toEqual({});
     expect(session.cloudStatus()).toMatchObject({ kind: "saved", newer: ["league"] });
     // Offered rather than laid under the page: asked for, it comes.

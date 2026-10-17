@@ -3824,7 +3824,10 @@ rendered, and was free to write them back. Before 16 October 2026 such a browser
 seconds to reach the cloud (`STARTUP_WAIT_MS`) and six more for the seasons to
 arrive (`STARTUP_TAKE_MS`), behind "Checking your cloud copy…"; past either, the
 app opened on what it had and the panel offered the newer seasons (**Load them
-now**), as it still does. The pool, which can be tens of megabytes, is loaded
+now**), as it still does. No browser waits at all now: a record is switched on only
+with the account it was signed in as, so every browser that keeps a copy opens
+as a member's, and one that keeps none has nothing to wait for; the wait and its
+line, which nothing reached any more, were taken out (`bootOrder.ts`). The pool, which can be tens of megabytes, is loaded
 only when Team Rankings opens, before it draws, with **Show this device's copy now** for anyone who would
 rather not wait; whatever arrives after that waits to be asked for, rather than
 land under a view that has already read the pool. Once the app is open it looks again every ten minutes while
@@ -5569,8 +5572,11 @@ board then:
 
 - reads what the account kept, the meta and the board the page opens on, and puts
   them on screen together, so the board is decoded once; the network's reader and
-  meta are asked for at the same moment rather than after that, and a board read
-  for the same key waits for the kept one rather than decoding it again. A board
+  meta are asked for at the same moment rather than after that, and the board the
+  page opens on is fetched as soon as the network's meta is read, beside what was
+  kept rather than after it, with the page's own read of that board joining the
+  fetch (`readView`). A view's kept bytes are read off the device once at a time,
+  however many reads ask, so the kept board is still decoded once. A board
   or meta the network brings first stays; the kept one is drawn only while
   nothing is. With no reader it says so only once the kept board has been looked
   at, since with none drawn the page would hand over. A refusal heard first leaves

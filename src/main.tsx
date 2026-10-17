@@ -7,7 +7,6 @@ import { loadSavedBoard } from "./lib/savedBoard";
 import { bootCloud, memberBootsLive } from "./lib/cloud/cloudSession";
 import { startPoolFill } from "./lib/poolFill";
 import { afterOpening } from "./lib/live/openingHold";
-import { leagueMetHere } from "./lib/cloud/cloudState";
 import { startApp } from "./lib/bootOrder";
 import { listenForTakes } from "./lib/cloud/cloudTabs";
 import "./index.css";
@@ -38,19 +37,6 @@ const askToKeepStorage = (): void => {
   }
 };
 
-/**
- * A line of text in the empty page while the cloud copy is fetched, before the app is drawn over
- * it (React clears what the root holds as it mounts).
- */
-const showBootLine = (text: string): void => {
-  const root = document.getElementById("root");
-  if (!root) return;
-  const line = document.createElement("p");
-  line.className = "p-6 text-sm font-semibold text-slate-600";
-  line.textContent = text;
-  root.replaceChildren(line);
-};
-
 /*
  * Before anything reads storage, this tab starts listening for another tab taking a copy in from
  * the cloud: whether or not this one is signed in, it reloads then, rather than write what it read
@@ -59,12 +45,12 @@ const showBootLine = (text: string): void => {
 listenForTakes();
 
 /*
- * Then, for a browser that keeps a cloud copy and has not yet met League's own documents, that
- * copy's League Standings: another device's newer seasons are brought in before the app draws, so
- * it opens on the latest data rather than swapping it in under whoever is looking. A browser whose
- * League arrives live draws first (`bootOrder.ts`). `bootCloud` never throws and waits on the network for a
- * few seconds at most (`STARTUP_WAIT_MS`, `STARTUP_TAKE_MS`); a browser that has never signed in
- * never runs Firebase at all. Team Rankings' pool is brought in when Team Rankings opens.
+ * Then the first draw, with the cloud session started beside it (`bootOrder.ts`): a browser that
+ * keeps a cloud copy and has not yet met League's own documents is offered that copy's newer
+ * League Standings rather than having them laid under a page already drawn. `bootCloud` never
+ * throws and gives the network a few seconds at most (`STARTUP_WAIT_MS`, `STARTUP_TAKE_MS`); a
+ * browser that has never signed in never runs Firebase at all. Team Rankings' pool is brought in
+ * when Team Rankings opens.
  *
  * The board Team Rankings last showed is read beside the pool, from the same store, so the page
  * can open on it while its own fit runs (`savedBoard.ts`).
@@ -80,10 +66,9 @@ listenForTakes();
 void startApp({
   fill: (after) =>
     startPoolFill(() => Promise.all([initTeamRankingsStore(), loadSavedBoard()]), after),
-  // A device whose League arrives live draws first and signs in beside the page (`bootOrder.ts`).
-  // Not waited on, the page is already mounting, and nothing is taken in under it.
-  cloud: (waitedOn) => bootCloud(waitedOn ? showBootLine : undefined, { mounting: !waitedOn }),
-  leagueLive: leagueMetHere,
+  // Every device draws first and signs in beside the page (`bootOrder.ts`): the page is already
+  // mounting, so nothing is taken in under it.
+  cloud: () => bootCloud({ mounting: true }),
   // A member's device draws at once, its sign-in started beside the page, and its store read
   // once the board is drawn.
   memberLive: memberBootsLive,
