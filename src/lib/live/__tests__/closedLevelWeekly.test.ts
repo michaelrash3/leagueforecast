@@ -118,7 +118,11 @@ describe("the Monday re-measure on the pool the boards were built from", () => {
     expect(lines[0]).toMatch(
       /^Starting level re-measured on the 2027 squad year, 2027-03-15 to 2027-04-11: -?\d+\.\d\d \+\/- \d+\.\d\d on \d+ games in \d+ clusters \(weeks of \d+, \d+, \d+, \d+\), in 21 s\.$/
     );
-    expect(lines[1]).toMatch(/runs a game (better|worse) than the -1\.6 held, over \d+ games; /);
+    // The sign is only in the word, the size printed bare: on this fixture the other weeks' level
+    // did 0.00043 runs a game better than -1.6 (by +0.000434), not clearly so.
+    expect(lines[1]).toMatch(
+      /^ {2}Each week scored with the level the other weeks read: 0\.00043 \+\/- 0\.01259 runs a game better than the -1\.6 held, over 457 games; not clearly better, so the level held stands\.$/
+    );
     const said = lines.join("\n");
     for (const team of fixture.teams) expect(said).not.toContain(team.name);
     expect(describeWeekly(null, 3)).toEqual([
@@ -143,6 +147,22 @@ const better: ClosedLevelCheck = {
   paired: { by: 0.0012, standardError: 0.0004, samples: 79_981 },
   better: true,
 };
+
+describe("the log's word for the paired reading", () => {
+  it("says worse where the other weeks' level did worse than the one held", () => {
+    const worse = {
+      year: 2026,
+      check: {
+        ...better,
+        paired: { by: -0.0012, standardError: 0.0004, samples: 79_981 },
+        better: false,
+      },
+    };
+    expect(describeWeekly(worse, 1)[1]).toBe(
+      "  Each week scored with the level the other weeks read: 0.00120 +/- 0.00040 runs a game worse than the -1.6 held, over 79981 games; not clearly better, so the level held stands."
+    );
+  });
+});
 
 describe("the word the alarm step is handed", () => {
   it("is held where no level read clearly better, and settles the alarm on a live night", () => {
