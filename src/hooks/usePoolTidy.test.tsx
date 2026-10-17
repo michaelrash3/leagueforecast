@@ -5,6 +5,8 @@ import { ageGroup, game, seasonDate, team } from "../test/teamRankingsHarness";
 import type { GcImportState } from "../lib/gameChangerImport";
 import { refusalOf } from "../lib/notThisTeam";
 import { resetTeamRankingsStore, saveNotThisTeam } from "../lib/teamRankingsStorage";
+import { createSeason, loadSettingsForSeason, writeSeasonData } from "../lib/storage";
+import type { TeamBase } from "../lib/types";
 import {
   beginPull,
   beginTidy,
@@ -182,6 +184,80 @@ describe("what the tidy worker is told", () => {
     const pending = result.current.inspect(withStandIn(), "", new Set());
     expect(RecordingWorker.sent).toEqual([
       expect.objectContaining({ kind: "inspect", notThisTeam: [refused] }),
+    ]);
+    unmount();
+    await pending;
+  });
+});
+
+describe("what the tidy keeps for League Standings", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetPullSession();
+    resetTeamRankingsStore();
+    window.localStorage.clear();
+  });
+
+  /*
+   * The home club's one GameChanger page is named as an old page marked do not use, as a coach's
+   * abandoned page that still holds the league's games is, and a League Standings season on its
+   * page holds `leagueTeam`. The club's own name has no word, so only its link's name hits.
+   */
+  const withLeague = (leagueTeam: TeamBase | null): GcImportState => {
+    const pool = withStandIn();
+    const season = createSeason("Fall 2026");
+    writeSeasonData(season.id, {
+      teams: [...(leagueTeam ? [leagueTeam] : []), { id: "lt-owls", name: "Owls" }],
+      matchups: [],
+      logs: {},
+      bracketLogs: {},
+      settings: loadSettingsForSeason(season.id),
+    });
+    return {
+      ...pool,
+      ageGroups: pool.ageGroups.map((group) => ({ ...group, seasonIds: [season.id] })),
+      teams: pool.teams.map((club) =>
+        club.id === "S-HOME"
+          ? {
+              ...club,
+              name: "Hollowmere Hawks",
+              gcTeams: [
+                { teamId: "gcHOME", name: "Hollowmere Hawks 10U DNU", ageGroupId: "ag_10u_2027" },
+              ],
+            }
+          : club
+      ),
+    };
+  };
+
+  // jsdom has no Worker, so these tidy inline.
+  it("deletes the page when no League Standings team links it", async () => {
+    const { result } = renderHook(() => usePoolTidy());
+    expect((await result.current.tidy(withLeague(null)))?.tidy.notATeam).toBe(1);
+  });
+
+  it("keeps a club a League Standings team picks in Settings", async () => {
+    const state = withLeague({ id: "lt-hawks", name: "Hawks", scoutTeamId: "S-HOME" });
+    const { result } = renderHook(() => usePoolTidy());
+    const outcome = await result.current.tidy(state);
+    expect(outcome?.tidy.notATeam).toBe(0);
+    expect(outcome?.state.teams.some((club) => club.id === "S-HOME")).toBe(true);
+  });
+
+  it("keeps one a League Standings team reaches by its name alone", async () => {
+    const { result } = renderHook(() => usePoolTidy());
+    const state = withLeague({ id: "lt-hawks", name: "Hollowmere Hawks" });
+    expect((await result.current.tidy(state))?.tidy.notATeam).toBe(0);
+  });
+
+  it("tells the worker the clubs League Standings links, beside the clubs said to be real", async () => {
+    const state = withLeague({ id: "lt-hawks", name: "Hawks", scoutTeamId: "S-HOME" });
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.tidy(state);
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({ kind: "tidy", realClubs: ["S-HOME"] }),
     ]);
     unmount();
     await pending;

@@ -114,6 +114,8 @@ export type LegDeps = {
   chargeLegs?: (jobId: string, legs: number) => Promise<boolean>;
   /** How often to look for the device asking to stop, and to say how far the leg has got. */
   lookEveryMs?: number;
+  /** The League Standings seasons' documents, for the tidy (`CloudPullDeps.leagueDocs`). */
+  leagueDocs?: CloudPullDeps["leagueDocs"];
 };
 
 export type LegOutcome =
@@ -358,6 +360,8 @@ export const runPullLeg = async (task: LegTask, deps: LegDeps): Promise<LegOutco
         ...(pull.kind === "rota" ? { keep: true } : {}),
         // Held to the copy the job's first leg read: a start of Team Rankings between legs ends it.
         ...(walking.on ? { startedOn: walking.on } : {}),
+        // League as the boards read it, so the tidy keeps every club a League team links.
+        ...(deps.leagueDocs ? { leagueDocs: deps.leagueDocs } : {}),
         signal: stop.signal,
         onStage: (stage) => {
           latest =

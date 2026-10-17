@@ -302,6 +302,22 @@ const legDeps = (
 };
 
 describe("a pull the cloud runs a leg at a time", () => {
+  it("hands its tidy the League Standings documents it is given", async () => {
+    // So the tidy keeps every club a League Standings team links (`leagueSeasonsOf`).
+    const cloud = memoryCloud();
+    await seed(cloud);
+    const jobs = memoryJobs();
+    await jobs.put(LIST);
+    let listed = 0;
+    const leagueDocs = async () => {
+      listed += 1;
+      return [];
+    };
+    const { deps } = legDeps(cloud, jobs, { leagueDocs });
+    expect(await runPullLeg({ jobId: JOB, leg: 0 }, deps)).toBe("done");
+    expect(listed).toBeGreaterThan(0);
+  });
+
   it("files each leg's share of the list into the copy and queues the next", async () => {
     const cloud = memoryCloud();
     await seed(cloud);

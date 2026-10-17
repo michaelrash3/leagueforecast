@@ -54,9 +54,9 @@ export type TidyRequest = {
    */
   notThisTeam?: string[];
   /**
-   * The clubs the owner has said are real, by club id or GameChanger id, as stored: the step that
-   * deletes a page whose name says it is no team leaves every one of them, and the worker cannot
-   * read the list itself.
+   * The clubs the owner has said are real, by club id or GameChanger id, as stored, and every club
+   * a League Standings team links (`leagueLinkedClubs`): the step that deletes a page whose name
+   * says it is no team leaves every one of them, and the worker can read neither itself.
    */
   realClubs?: string[];
   /**

@@ -6699,8 +6699,11 @@ const NONE_REAL: ReadonlySet<string> = new Set<string>();
  *   one is the real one, folded together; and the club's stored name has lost what a bracket said,
  *   "(Practice Squad)", which 33 of the 520 say only there. Two clubs whose stored name has a word
  *   none of their links has are left.
- * - Never the user's own club, a page's own team, or a club said to be real (`real`, by club id or
- *   any of its GameChanger ids), a stand-in included.
+ * - Never the user's own club, a page's own team, or a club in `real` (by club id or any of its
+ *   GameChanger ids), a stand-in included: those said to be real, and every club a League
+ *   Standings team links, picked or carried onto by its name, which the callers add
+ *   (`leagueLinkedClubs`) because only the League pass sees the link. A pick left pointing at a
+ *   deleted club is a stale id, and the league's team goes to a namesake.
  * - An old page's games another club's own schedule lists are kept, with the old page's side
  *   turned into a slot of its own (`ScoutTeam.placeholder`), as the import now files a game against
  *   one: the result is real and the club that played it keeps it, its opponent out of every table
@@ -7415,7 +7418,9 @@ export const tidyPool = (
   refused: NotThisTeam = NO_REFUSALS,
   /**
    * The clubs the owner has said are real ("This club is real"), by club id or GameChanger id, so
-   * the step that deletes a page whose name says it is no team never deletes one of them.
+   * the step that deletes a page whose name says it is no team never deletes one of them; and every
+   * caller adds the clubs a League Standings team links (`leagueLinkedClubs`), which only the League
+   * pass can see.
    */
   real: ReadonlySet<string> = NONE_REAL
 ): PoolTidy => {

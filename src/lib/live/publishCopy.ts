@@ -1,4 +1,3 @@
-import { coerceBackup } from "../backup";
 import { fetchValues, type CloudStore } from "../cloud/cloudEngine";
 import { epochOf, sameEpoch, type CloudManifest } from "../cloud/cloudManifest";
 import { LEAGUE_PART } from "../cloud/cloudPlan";
@@ -14,13 +13,14 @@ import {
   loadScoutTeams,
   loadTooYoungClubs,
 } from "../teamRankingsStorage";
-import type { LeagueSeasonData, SeasonReader } from "./allKnown";
+import type { SeasonReader } from "./allKnown";
 import { removedDays } from "../removedClubs";
 import { BOARD_FAMILY, builtFrom } from "./boardInputs";
 import {
   leaguePrintOf,
   NO_LEAGUE_DOCS,
   readCloudLeague,
+  seasonReaderOf,
   type CloudLeague,
   type LeagueDocsList,
 } from "./cloudLeague";
@@ -47,26 +47,8 @@ import { publishViews, sweepViews, type LiveStore, type PublishResult } from "./
  * runs it; it is kept out of the script so it is tested.
  */
 
-const NOTHING: LeagueSeasonData = { teams: [], matchups: [], logs: {} };
-
-/**
- * The seasons a copy's `league` part holds, as a `SeasonReader`: each read the way a backup file
- * is (`coerceBackup`), which coerces teams, schedule and results as a browser's storage loaders do,
- * so a server and a browser holding the same copy hand the boards the same seasons. A copy with no
- * part, or one with no seasons, reads every id as empty, as a browser with no such season does.
- * Null for a part that holds something else, which a browser would refuse to take in.
- */
-export const seasonReaderOf = (league: unknown): SeasonReader | null => {
-  if (league === undefined || league === null) return () => NOTHING;
-  const record = league as { seasons?: unknown };
-  if (Array.isArray(record.seasons) && record.seasons.length === 0) return () => NOTHING;
-  const parsed = coerceBackup(league);
-  if (parsed?.kind !== "full") return null;
-  const seasons = new Map(
-    parsed.backup.seasons.map(({ id, teams, matchups, logs }) => [id, { teams, matchups, logs }])
-  );
-  return (seasonId) => seasons.get(seasonId) ?? NOTHING;
-};
+// Kept where it was first written for its readers here; it lives beside the League reading now.
+export { seasonReaderOf } from "./cloudLeague";
 
 /**
  * The boards that carry a fit, and the bytes of its JSON over them all and on the largest, for the

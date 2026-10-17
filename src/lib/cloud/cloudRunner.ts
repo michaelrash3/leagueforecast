@@ -19,6 +19,7 @@ import {
   tidyChangedAnything,
   tidyPool,
   type GcImportOutcome,
+  type GcImportState,
   type TidyWatcher,
 } from "../gameChangerImport";
 import { lastPulled, localDayKey, markRefreshed, type RefreshLog } from "../gameChangerSchedule";
@@ -28,7 +29,9 @@ import { memoryIo } from "../poolMemoryIo";
 import { persistPool } from "../poolPersist";
 import { settleRunLists } from "../pullLists";
 import { refreshNow, storedRota, type RefreshNow } from "../storedRota";
-import { pulledGcTeamIds } from "../teamRankings";
+import { ageGroupYear, pulledGcTeamIds } from "../teamRankings";
+import { leagueLinkedClubs, type SeasonReader } from "../live/allKnown";
+import { leagueSeasonsOf, NO_LEAGUE_DOCS, type LeagueDocsList } from "../live/cloudLeague";
 import type { SweepPool } from "../obviousFakes";
 import { sweepStored } from "../sweepStored";
 import { isTooYoungClub } from "../tooYoungClubs";
@@ -151,7 +154,16 @@ export type CloudPullDeps = {
    * to the copy and epoch it reads itself.
    */
   startedOn?: CopyEpoch;
+  /**
+   * The League Standings seasons' documents (`league/`), read as the boards read them
+   * (`leagueSeasonsOf`) so the tidy keeps every club a League Standings team links. None by default,
+   * which reads the copy's own `league` part, as League was kept before it had documents.
+   */
+  leagueDocs?: LeagueDocsList;
 };
+
+/** How a filing run reads League Standings, once it comes to tidy: null where it could not. */
+type LeagueRead = () => Promise<SeasonReader | null>;
 
 /** Age passes request only unresolved ids; older sources can ignore the optional selection. */
 export type ImportScheduleSource = (teamIds?: ReadonlySet<string>) => AsyncIterable<GcTeamSchedule>;
@@ -219,7 +231,10 @@ const MAX_TRIES = 3;
 /** The store in memory, empty until the cloud's values are laid in. */
 export { memoryIo };
 
-/** A key a pull never reads from the copy, never writes, and must never send. */
+/**
+ * A key a pull never loads into its pool, never writes, and must never send. League Standings is
+ * read apart, once a tidy asks for the clubs it links (`leagueSeasonsOf`), and never kept.
+ */
 const outOfReach = (key: string): boolean => key === LEAGUE_PART || key.includes("_archive_rows_");
 
 export type LoadedCopy = {
@@ -453,7 +468,8 @@ const fileAnswers = async (
   answers: ReadonlyMap<string, GcTeamResponse>,
   mark: Marking | null,
   complete: boolean,
-  now: Date
+  now: Date,
+  league: LeagueRead
 ): Promise<Filed> =>
   fileScheduleSource(
     job,
@@ -467,6 +483,7 @@ const fileAnswers = async (
     mark,
     complete,
     now,
+    league,
     undefined,
     undefined,
     false,
@@ -488,12 +505,35 @@ const invalidIdsOf = (answers: ReadonlyMap<string, GcTeamResponse>): string[] =>
       )
     : [];
 
+/**
+ * The clubs the tidy deletes none of for its name (`dropNotATeam`): those said to be real, and
+ * every club a League Standings team links (`leagueLinkedClubs`), which only the League pass sees,
+ * as the device's tidy is told them. Where League could not be read, every team in the pool, so the
+ * step deletes nothing that run rather than a club a season's pick leans on, which a deletion would
+ * leave pointing at nothing; the next run that reads League does what this one left.
+ */
+const sparedByTidy = (pool: GcImportState, seasons: SeasonReader | null): Set<string> => {
+  const real = loadRealClubs();
+  if (!seasons) return new Set([...real, ...pool.teams.map((team) => team.id)]);
+  const yearOf = new Map(pool.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  return new Set([
+    ...real,
+    ...leagueLinkedClubs({
+      ageGroups: pool.ageGroups,
+      teams: pool.teams,
+      gamesOfYear: (year) => pool.games.filter((game) => yearOf.get(game.ageGroupId) === year),
+      readSeason: seasons,
+    }),
+  ]);
+};
+
 const fileScheduleSource = async (
   job: CloudPullJob,
   schedules: ImportScheduleSource,
   mark: Marking | null,
   complete: boolean,
   now: Date,
+  league: LeagueRead,
   onTidy?: () => void | Promise<void>,
   watchTidy?: TidyWatcher,
   retryUnaged = false,
@@ -574,7 +614,8 @@ const fileScheduleSource = async (
     if (unaged.size === before) break;
   }
   await onTidy?.();
-  const tidy = tidyPool(importer.state, watchTidy, loadKeptApart(), refused, loadRealClubs());
+  const spared = sparedByTidy(importer.state, await league());
+  const tidy = tidyPool(importer.state, watchTidy, loadKeptApart(), refused, spared);
   saveTidyStamp(poolSignature(tidy.state));
   const filed = tidyChangedAnything(tidy) ? tidy.state : importer.state;
   const kept = persistPool(filed, undefined);
@@ -624,13 +665,14 @@ export const finishStagedImport = async (
   if (!copy) return { ...result, end: "no-copy" };
   if (!sameEpoch(copy.manifest, expected)) return { ...result, end: "copy-replaced" };
   if (copyTooNew(copy.manifest)) return { ...result, end: "newer-copy" };
-  return fileAndSave(result, copy, { ...deps, startedOn: expected }, (now) =>
+  return fileAndSave(result, copy, { ...deps, startedOn: expected }, (now, league) =>
     fileScheduleSource(
       job,
       source,
       null,
       true,
       now,
+      league,
       deps.beforeTidy,
       deps.watchTidy,
       true,
@@ -762,8 +804,8 @@ export const runCloudPull = async (
   if (stopped && result.answered === 0) {
     return { ...result, changed: [], version: copy.manifest.version, manifest: copy.manifest };
   }
-  return fileAndSave(result, copy, deps, (now) =>
-    fileAnswers(job, ids, answers, mark, complete, now)
+  return fileAndSave(result, copy, deps, (now, league) =>
+    fileAnswers(job, ids, answers, mark, complete, now, league)
   );
 };
 
@@ -775,7 +817,7 @@ const fileAndSave = async (
   result: CloudPullResult,
   read: LoadedCopy,
   deps: Omit<CloudPullDeps, "fetchTeams">,
-  file: (now: Date) => Promise<Filed>
+  file: (now: Date, league: LeagueRead) => Promise<Filed>
 ): Promise<CloudPullResult> => {
   let copy = read;
   /*
@@ -803,8 +845,12 @@ const fileAndSave = async (
     const touched = new Set<string>();
     onCloudPoolWrite((key) => touched.add(key));
     let filed: Filed;
+    // League as the boards read it for the copy this try files onto, asked only once a tidy is.
+    const onCopy = copy.manifest;
+    const league: LeagueRead = () =>
+      leagueSeasonsOf(deps.store, onCopy, deps.leagueDocs ?? NO_LEAGUE_DOCS);
     try {
-      filed = await file(deps.now());
+      filed = await file(deps.now(), league);
     } finally {
       onCloudPoolWrite(null);
     }

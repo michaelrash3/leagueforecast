@@ -12,6 +12,7 @@ import { firestoreRestDocuments, firestoreRestStore } from "../../src/lib/cloud/
 import { restJobDocs, runPullLeg, type LegTask } from "../../src/lib/cloud/pullJobRunner";
 import { chargeRefreshLegs } from "../../src/lib/cloud/refreshGate";
 import { fetchGcTeams } from "../../src/lib/gameChangerClient";
+import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
 import { resetTeamRankingsStore } from "../../src/lib/teamRankingsStorage";
 import { enqueueLeg, restAccess, zoneOf } from "./pullAccess";
 
@@ -30,6 +31,8 @@ try {
     chargeLegs: (jobId, legs) => chargeRefreshLegs(docs, jobId, legs, new Date()),
     fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
     now: () => new Date(),
+    // The tidy keeps every club a League Standings team links, read as the boards read League.
+    leagueDocs: restLeagueDocs(docs),
     enqueue: enqueueLeg,
     inTimeZone: (timeZone) => {
       // The parent set it; a leg filed in another zone's day would log the wrong day as pulled.

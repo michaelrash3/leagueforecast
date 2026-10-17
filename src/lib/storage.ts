@@ -2,6 +2,7 @@ import { STORAGE_VERSION, type GameLog, type Matchup, type Settings, type TeamBa
 import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./validate";
 import { mayWrite } from "./cloud/cloudGuard";
 import { forgetSeasons } from "./preferences";
+import type { SeasonReader } from "./live/allKnown";
 
 type DataKey = "teams" | "matchups" | "logs" | "bracketLogs" | "settings" | "undo";
 
@@ -252,6 +253,17 @@ export const loadMatchupsForSeason = (seasonId: string): Matchup[] => loadMatchu
 export const loadLogsForSeason = (seasonId: string): Record<string, GameLog> =>
   loadLogsFor(seasonId);
 export const loadSettingsForSeason = (seasonId: string): Settings => loadSettingsFor(seasonId);
+
+/**
+ * League Standings seasons as this browser stores them, as `deriveAllKnown` and the tidy read them
+ * (`SeasonReader`): one reader for both, so the clubs the boards keep for a League link are the
+ * clubs the tidy is told to keep.
+ */
+export const readStoredSeason: SeasonReader = (seasonId) => ({
+  teams: loadTeamsForSeason(seasonId),
+  matchups: loadMatchupsForSeason(seasonId),
+  logs: loadLogsForSeason(seasonId),
+});
 export const loadBracketLogsForSeason = (seasonId: string): Record<string, GameLog> =>
   coerceLogs(parseJson(safeGet(seasonKey(seasonId, "bracketLogs"))), []);
 
