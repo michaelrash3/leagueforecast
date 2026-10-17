@@ -85,6 +85,7 @@ type SetupSectionProps = {
     onPutBack: (club: RemovedClub) => boolean;
     onPutBackDay: (day: string, clubs: readonly RemovedClub[]) => boolean;
     onDeleteRemoved: (club: RemovedClub) => boolean;
+    onDeleteRemovedDay: (day: string | null, clubs: readonly RemovedClub[]) => Promise<boolean>;
   };
   /** The years that could be frozen or deleted, and the one the app is showing as current. */
   archive: {
@@ -170,6 +171,7 @@ export function SetupSection({
         onPutBack={poolHealth.onPutBack}
         onPutBackDay={poolHealth.onPutBackDay}
         onDeleteRemoved={poolHealth.onDeleteRemoved}
+        onDeleteRemovedDay={poolHealth.onDeleteRemovedDay}
       />
 
       <ModelCheckCard

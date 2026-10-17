@@ -199,6 +199,45 @@ export function LivePoolHealthCard({
     // Deleted as Delete club deletes one, its Undo offered: the inverse the edit sends back.
     deleteRemoved: (club) =>
       change({ kind: "club.drop", teamId: club.teamId }, `Deleted ${club.name} for good.`, true),
+    /*
+     * The rest of a night's, or every night's, deleted as the device's card deletes them: asked
+     * first with the count, as many clubs at once. One edit takes at most `MAX_COMMAND_STEPS`
+     * clubs (a step a club; the server refuses a longer one whole), so a longer list goes as
+     * several, and only a list sent as one edit can be taken back as one, so only that one offers
+     * an Undo, as Approve all changes does.
+     */
+    deleteRemovedDay: async (day, clubs) => {
+      if (clubs.length === 0) return false;
+      const when = day ? ` taken off on ${day}` : " taken off";
+      const confirmed = await confirm({
+        title: `Delete ${plural(clubs.length, "club")}${when} for good?`,
+        message:
+          "Each goes as Delete club takes one: the club, every game it is in, and its GameChanger ids, which a later pull refuses. A club a League Standings team links is not among them.",
+        confirmLabel: "Delete them",
+      });
+      if (!confirmed) return false;
+      const parts = Math.ceil(clubs.length / MAX_COMMAND_STEPS);
+      let deleted = 0;
+      for (let part = 0; part < parts; part += 1) {
+        const these = clubs.slice(part * MAX_COMMAND_STEPS, (part + 1) * MAX_COMMAND_STEPS);
+        const done = await change(
+          {
+            kind: "batch",
+            commands: these.map((club): PoolCommand => ({
+              kind: "club.drop",
+              teamId: club.teamId,
+            })),
+          },
+          parts === 1
+            ? `Deleted ${plural(clubs.length, "club")}${when} for good.`
+            : `Deleted ${plural(deleted + these.length, "club")} of ${clubs.length.toLocaleString()}${when} for good.`,
+          parts === 1
+        );
+        if (!done) return deleted > 0;
+        deleted += these.length;
+      }
+      return true;
+    },
     confirmScore: (game) =>
       change(
         { kind: "game.confirm", year: game.year, gameId: game.id },

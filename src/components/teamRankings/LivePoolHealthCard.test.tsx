@@ -441,6 +441,124 @@ describe("Pool health's buttons, sent as edits", () => {
       });
     });
 
+    it("deletes for good the rest of a night's, asked first, leaving a club League Standings links", async () => {
+      const both = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: [
+            ...TAKEN.summary.removed,
+            {
+              teamId: "S-8",
+              name: "Placeholder Linked",
+              gcTeamIds: ["gc-8"],
+              on: "2027-04-14",
+              reasons: ["named 'demo'"],
+              keptByLeague: true as const,
+            },
+          ],
+        },
+      };
+      const call = editFunction({ "health.summary": both });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Delete the 1 taken off on 2027-04-14 for good",
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      expect(confirmed).toEqual(["Delete 1 club taken off on 2027-04-14 for good?"]);
+      expect(call.sent[0]).toEqual({
+        command: { kind: "batch", commands: [{ kind: "club.drop", teamId: "S-9" }] },
+        said: {
+          done: "Deleted 1 club taken off on 2027-04-14 for good.",
+          undo: true,
+          afterUndo: expect.any(Function),
+        },
+      });
+    });
+
+    it("deletes every night's at once where there are several, leaving a club League Standings links", async () => {
+      const nights = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: [
+            ...TAKEN.summary.removed,
+            {
+              teamId: "S-7",
+              name: "Placeholder Earlier",
+              gcTeamIds: ["gc-7"],
+              on: "2027-04-13",
+              reasons: ["named 'demo'"],
+            },
+            {
+              teamId: "S-8",
+              name: "Placeholder Linked",
+              gcTeamIds: ["gc-8"],
+              on: "2027-04-13",
+              reasons: ["named 'demo'"],
+              keptByLeague: true as const,
+            },
+          ],
+        },
+      };
+      const call = editFunction({ "health.summary": nights });
+      show(call);
+      fireEvent.click(await screen.findByRole("button", { name: "Delete all 2 for good" }));
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      expect(confirmed).toEqual(["Delete 2 clubs taken off for good?"]);
+      expect(call.sent[0]?.command).toEqual({
+        kind: "batch",
+        commands: [
+          { kind: "club.drop", teamId: "S-9" },
+          { kind: "club.drop", teamId: "S-7" },
+        ],
+      });
+    });
+
+    it("sends nothing when the count it asks about is turned down", async () => {
+      confirming = false;
+      const call = editFunction({ "health.summary": TAKEN });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Delete the 1 taken off on 2027-04-14 for good",
+        })
+      );
+      await waitFor(() => expect(confirmed).toHaveLength(1));
+      expect(call.sent).toEqual([]);
+    });
+
+    it("sends a list longer than one edit takes as several, with no Undo", async () => {
+      const many = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: Array.from({ length: MAX_COMMAND_STEPS + 1 }, (_, at) => ({
+            teamId: `S-${at}`,
+            name: `Placeholder ${at}`,
+            gcTeamIds: [`gc-${at}`],
+            on: "2027-04-14",
+            reasons: ["named 'demo'"],
+          })),
+        },
+      };
+      const call = editFunction({ "health.summary": many });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: `Delete the ${(MAX_COMMAND_STEPS + 1).toLocaleString()} taken off on 2027-04-14 for good`,
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(2));
+      const sizes = call.sent.map((one) =>
+        one.command.kind === "batch" ? one.command.commands.length : 1
+      );
+      expect(sizes).toEqual([MAX_COMMAND_STEPS, 1]);
+      expect(call.sent.map((one) => one.said.undo)).toEqual([false, false]);
+    });
+
     it("says a club a League Standings team links is kept on its boards", async () => {
       const kept = {
         ...TAKEN,

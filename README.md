@@ -2418,7 +2418,13 @@ says it is real, so no later sweep takes it again; **Delete for good** deletes i
 does, which forgets its marks too; **Put back the N taken off on** a day forgets every mark of that
 night's sweep and says nothing of the clubs, which is how a sweep that went wrong is taken back as a
 whole once what made it go wrong is mended (the next sweep takes off again any club still showing
-its sign); each offers Undo. Find a team says of a pasted id taken off that it was removed, when,
+its sign); **Delete the N taken off on** a day **for good**, once the ones worth keeping are back,
+deletes the rest of that night's as **Delete for good** does each, and **Delete all N for good**,
+offered where several nights are listed, every night's; each offers Undo. The two bulk deletes say
+how many first, as many clubs at once cannot be checked by eye afterwards, and leave a club a League
+Standings team links, whose link a deletion would break. On the live page one edit takes at most
+500 clubs (`MAX_COMMAND_STEPS`), so a longer list goes as several, and only a list sent as one edit
+offers Undo, as Approve all changes does. Find a team says of a pasted id taken off that it was removed, when,
 and where to put it back. The thrown-out list is never written, so a re-paste or a re-pull refiles
 the club and its mark keeps it off; a fold keeps a club on the boards unless every id it carries is
 marked.

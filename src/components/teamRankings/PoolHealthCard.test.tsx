@@ -15,6 +15,7 @@ import {
   loadDroppedClubs,
   loadRealClubs,
   loadScoutGames,
+  loadScoutTeams,
   saveRealClubs,
 } from "../../lib/teamRankingsStorage";
 import type { AutoRemoval } from "../../lib/autoRemoved";
@@ -595,5 +596,83 @@ describe("the clubs removed for you", () => {
     expect([...loadAutoRemoved().keys()]).toEqual(["gcDEMO"]);
     expect([...loadDroppedClubs()]).toEqual([]);
     expect(loadScoutGames().map((one) => one.id)).toEqual(["ahead"]);
+  });
+
+  /** Two taken off the same night, so one can be put back and the rest deleted at once. */
+  const twoTaken = () => {
+    const base = pool();
+    return {
+      ...base,
+      teams: [
+        ...base.teams,
+        team("S-TWO", "Placeholder Two", {
+          gcTeams: [
+            { teamId: "gcTWO", name: "Placeholder Two", ageGroupId: "ag_10u_2027", ageLevel: 10 },
+          ],
+        }),
+      ],
+      autoRemoved: new Map([
+        demo("gcDEMO"),
+        [
+          "gcTWO",
+          {
+            gcTeamId: "gcTWO",
+            name: "Placeholder Two",
+            on: "2026-10-11",
+            signs: ["named"],
+            word: "demo",
+          },
+        ] as [string, AutoRemoval],
+      ]),
+    };
+  };
+
+  it("deletes for good the rest one night took off, once the ones to keep are back, with an Undo", async () => {
+    const user = userEvent.setup();
+    const shown = renderTeamRankings(twoTaken());
+    await openSetup(user);
+    const list = await screen.findByRole("list", { name: "Removed for you" });
+    // The one worth keeping is put back first; the bulk delete then takes only the other.
+    const kept = within(list).getByText("Demo Club").closest("li");
+    if (!kept) throw new Error("no row");
+    await user.click(within(kept).getByRole("button", { name: "Put back on the boards" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Delete the 1 taken off on 2026-10-11 for good",
+      })
+    );
+    expect(shown.requestConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Delete 1 club taken off on 2026-10-11 for good?" })
+    );
+    expect([...loadDroppedClubs()]).toEqual(["gcTWO"]);
+    expect(loadAutoRemoved().size).toBe(0);
+    expect(loadScoutTeams().map((one) => one.id)).not.toContain("S-TWO");
+    expect(loadScoutTeams().map((one) => one.id)).toContain("S-DEMO");
+    // The device's tidy may say its own piece after it; the delete's toast is the one to read.
+    const [, options] =
+      shown.showToast.mock.calls.find(
+        ([said]) => said === "Deleted 1 club taken off on 2026-10-11 for good."
+      ) ?? [];
+    expect(options).toMatchObject({ tone: "undo", actionLabel: "Undo" });
+    act(() => (options as { onAction: () => void }).onAction());
+    expect([...loadDroppedClubs()]).toEqual([]);
+    expect([...loadAutoRemoved().keys()]).toEqual(["gcTWO"]);
+  });
+
+  it("deletes nothing when the count it asks about is turned down", async () => {
+    const user = userEvent.setup();
+    const shown = renderTeamRankings(twoTaken());
+    shown.requestConfirmation.mockResolvedValue(false);
+    await openSetup(user);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Delete the 2 taken off on 2026-10-11 for good",
+      })
+    );
+    expect(shown.requestConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Delete 2 clubs taken off on 2026-10-11 for good?" })
+    );
+    expect([...loadDroppedClubs()]).toEqual([]);
+    expect([...loadAutoRemoved().keys()].sort()).toEqual(["gcDEMO", "gcTWO"]);
   });
 });
