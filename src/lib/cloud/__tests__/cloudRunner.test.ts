@@ -51,7 +51,7 @@ import { NO_LEAGUE_DOCS } from "../../live/cloudLeague";
 import { docsOf, listing } from "../../live/__tests__/leagueDocsFixture";
 import type { SeasonSnapshot } from "../../storage";
 import { DEFAULT_SETTINGS, type TeamBase } from "../../types";
-import type { ScoutTeam } from "../../teamRankings";
+import type { AgeGroup, ScoutTeam } from "../../teamRankings";
 import { runEdit } from "../../live/editRun";
 
 /*
@@ -965,10 +965,10 @@ describe("a pull run on the cloud copy", () => {
           },
         ],
       };
-      const page = {
+      const page: AgeGroup = {
         id: "ag9",
         name: "9U 2027",
-        seasonIds: [] as string[],
+        seasonIds: [],
         ageLevel: 9,
         year: 2027,
       };
@@ -985,7 +985,7 @@ describe("a pull run on the cloud copy", () => {
         return { kind: "list", entries, seasonYears: [2027] } as const;
       };
       /** What the staged import's selection and a pull of the paste ask about, and the end. */
-      const asks = async (teams: ScoutTeam[], group: typeof page) => {
+      const asks = async (teams: ScoutTeam[], group: AgeGroup) => {
         const cloud = memoryCloud();
         await seed(
           cloud,
