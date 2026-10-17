@@ -138,6 +138,23 @@ describe("the starting level's weekly re-measure", () => {
     expect(check.better).toBe(true);
   });
 
+  it("judges by one rival's bar, 2.00 standard errors, and not a stricter one", () => {
+    // Planted 4.5 runs down (seed 3), each week scored with the other weeks' level read
+    // 0.0620 ± 0.0284 runs a game better than −1.6 over 532 games, z 2.18, measured on
+    // 17 October 2026: past one rival's bar of 2.00 and short of two rivals' 2.28 or six
+    // rivals' 2.67, so judging it by any other number of rivals turns its answer over.
+    const { teams, games } = plantedPool(-4.5, 3);
+    const check = compareClosedLevels("ag_10", teams, games, tenU, MONDAY)!;
+    const paired = check.paired!;
+
+    expect(paired.by).toBeCloseTo(0.061976562097451574, 9);
+    expect(paired.standardError).toBeCloseTo(0.028411500226436927, 9);
+    expect(paired.samples).toBe(532);
+    expect(paired.by / paired.standardError).toBeGreaterThan(clearlyBetterBar(1));
+    expect(paired.by / paired.standardError).toBeLessThan(clearlyBetterBar(2));
+    expect(check.better).toBe(true);
+  });
+
   it("names none when the leagues are where the held level starts them", () => {
     // Planted at −1.6, the weeks read −1.54 ± 0.66, and scored apart 0.0025 ± 0.0029 runs worse.
     const { teams, games } = plantedPool(-1.6, 1);
