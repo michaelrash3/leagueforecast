@@ -379,6 +379,15 @@ export const scheduleCommunities = (
 export const startingLevel = (outsideGames: number): number =>
   CLOSED_START_RUNS / (1 + outsideGames / CLOSED_START_HALF_GAMES);
 
+/**
+ * The share of `CLOSED_START_RUNS` that `startingLevel` starts such a club at: 1 with no outside
+ * games, a half at `CLOSED_START_HALF_GAMES`. What the weekly re-measure of the level
+ * (`compareClosedLevels`) moves every start by, a run of level at a time. `startingLevel` keeps its
+ * own division rather than multiplying this, so the boards are what they were to the bit.
+ */
+export const startingShare = (outsideGames: number): number =>
+  1 / (1 + outsideGames / CLOSED_START_HALF_GAMES);
+
 /** A node's league's outside games, or undefined for a node in no community. */
 export const outsideGamesOf = (
   communities: ScheduleCommunities,

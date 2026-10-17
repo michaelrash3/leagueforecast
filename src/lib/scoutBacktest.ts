@@ -6,14 +6,22 @@ import {
 import {
   RATING_CAP,
   EVERY_DAY,
+  discountAbout,
+  discountMiddle,
+  fitScoutYear,
   ratedMargin,
+  scoutFitRanks,
+  scoutFitYear,
   scoutRatingGames,
+  yearFitGames,
   type AgeGroup,
   type ScoutGame,
   type ScoutTeam,
 } from "./teamRankings";
 import { clamp } from "./util";
+import { todayIsoDay } from "./date";
 import { dayInstant, RECENCY_SCHEMES, type RecencyScheme } from "./ratingRecency";
+import { CLOSED_START_RUNS, startingShare } from "./scheduleCommunities";
 
 /**
  * Does the rating model actually predict anything?
@@ -730,6 +738,380 @@ export const compareRunCaps = (
     .sort((a, b) => (a.meanAbsoluteError ?? Infinity) - (b.meanAbsoluteError ?? Infinity));
 
 /**
+ * How many weeks the starting level is re-measured over (`compareClosedLevels`), each a cut of its
+ * own: four, the weeks the measurement of 17 October 2026 judged one on (measure5).
+ */
+export const CLOSED_LEVEL_WEEKS = 4;
+
+/** One week of the re-measure: its days, its games, and the level it was scored with. */
+export type ClosedLevelWeek = {
+  /** Its first and last day, as ISO days: Monday to Sunday when the check runs on a Monday. */
+  from: string;
+  to: string;
+  /** Its games between two clubs the fit of every game before it had rated. */
+  games: number;
+  /** The level read off the other weeks, which this week's games were scored with. */
+  level: number | null;
+};
+
+/** What the re-measure of the starting level found (`compareClosedLevels`). */
+export type ClosedLevelCheck = {
+  /** The level the app holds, `CLOSED_START_RUNS`. */
+  held: number;
+  /**
+   * The level the weeks' games read, all of them together, and its standard error: what a commit
+   * would hold if the line says it is clearly better. Null where they could not say (no games, or
+   * none between leagues the start reaches differently).
+   */
+  level: number | null;
+  standardError: number | null;
+  /** The weeks' games, and the groups the standard error reads them in (week and league). */
+  games: number;
+  clusters: number;
+  weeks: ClosedLevelWeek[];
+  /**
+   * How much lower the shown ratings' error was, in runs a game, with each week scored by the
+   * level the other weeks read than with the held one, paired game by game as the age gap is
+   * (`pairedImprovement`, games that share a club read together). Null where no week was scored.
+   */
+  paired: PairedReading | null;
+  /** Whether that clears the bar a setting is named better by (`isClearlyBetter`), one rival. */
+  better: boolean;
+};
+
+/** A week's games as they are scored: what each side's shown rating is made of, and the result. */
+export type ClosedLevelCut = {
+  from: string;
+  to: string;
+  /** Each game's two sides: the held fit's point rating, its response, and its evidence. */
+  pointA: Float64Array;
+  pointB: Float64Array;
+  responseA: Float64Array;
+  responseB: Float64Array;
+  evidenceA: Float64Array;
+  evidenceB: Float64Array;
+  /** The margin, capped as the fit caps it, and what the age gap between the two is worth. */
+  margin: Float64Array;
+  gapRuns: Float64Array;
+  /** The game's error with the held level, as the board showed it. */
+  heldError: Float32Array;
+  /** The response's difference across the game, and its residual with no start at all. */
+  x: Float64Array;
+  y: Float64Array;
+  /** The week and the league of the more isolated side, which the standard error groups by. */
+  cluster: Float64Array;
+  /** The two clubs, numbered across every week, so one club's games in four weeks read together. */
+  sides: Uint32Array;
+  /**
+   * The residual scale's pieces over the games fitted on (`OpponentAdjustedRatings.residualScale`),
+   * in the held fit's residual e and the response's difference r: their weight, Σ w e², Σ w e r and
+   * Σ w r², so the scale at any level is read without walking the games again.
+   */
+  weight: number;
+  ee: number;
+  er: number;
+  rr: number;
+  /** The discount's centre at a residual scale of one run (`discountMiddle`): it scales with it. */
+  unitMiddle: number;
+};
+
+/** The residual scale of a cut's fit with every start moved `by` runs of level from the held. */
+const residualScaleAt = (cut: ClosedLevelCut, by: number): number =>
+  cut.weight > 0
+    ? Math.sqrt(Math.max(0, (cut.ee - 2 * by * cut.er + by * by * cut.rr) / cut.weight))
+    : 0;
+
+/** The shown rating's discount for a cut's fit with every start moved `by` runs of level. */
+const discountAt = (cut: ClosedLevelCut, by: number) => {
+  const scale = residualScaleAt(cut, by);
+  return discountAbout(scale * cut.unitMiddle, scale);
+};
+
+/**
+ * The level the games of `cuts` read, with its standard error: the no-start residual on the
+ * response's difference, by least squares with no intercept, the error clustered by week and league
+ * (CR1). What the measurement of 17 October 2026 fitted μ by (measure3a, measure5).
+ */
+const levelRead = (
+  cuts: readonly ClosedLevelCut[]
+): { level: number | null; standardError: number | null; games: number; clusters: number } => {
+  let xx = 0;
+  let xy = 0;
+  let games = 0;
+  for (const cut of cuts) {
+    for (let at = 0; at < cut.x.length; at += 1) {
+      xx += cut.x[at]! * cut.x[at]!;
+      xy += cut.x[at]! * cut.y[at]!;
+      games += 1;
+    }
+  }
+  if (!(xx > 0)) return { level: null, standardError: null, games, clusters: 0 };
+  const level = xy / xx;
+  const scores = new Map<number, number>();
+  for (const cut of cuts) {
+    for (let at = 0; at < cut.x.length; at += 1) {
+      const key = cut.cluster[at]!;
+      const score = cut.x[at]! * (cut.y[at]! - level * cut.x[at]!);
+      scores.set(key, (scores.get(key) ?? 0) + score);
+    }
+  }
+  let meat = 0;
+  scores.forEach((score) => (meat += score * score));
+  const clusters = scores.size;
+  const standardError =
+    clusters > 1 ? Math.sqrt((meat * (clusters / (clusters - 1))) / (xx * xx)) : null;
+  return { level, standardError, games, clusters };
+};
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Re-measures where a rating starts (`scheduleCommunities.ts`): the level a club whose league
+ * plays nobody outside itself starts at, held at `CLOSED_START_RUNS`, read again off the last four
+ * weeks of the page's squad year, and judged against the held level by the rule the age gap and
+ * the run cap are judged by. Null for a page too young to have a table.
+ *
+ * The weeks are the four before `today`, Monday to Sunday when it is a Monday. Each is a cut: the
+ * year fitted as the board would have fitted it the morning the week began (`fitScoutYear`, every
+ * rated game before it, the starts included), and the week's games, between two clubs that fit
+ * rated, scored on the ratings it showed. The fit is linear in its starts, which enter only as the
+ * ridge's virtual games, so one more solve per cut, every start at its share of a run
+ * (`startingShare`) and every game a draw with no age gap, is the response of every point rating to
+ * a run of level, and the fit at any level is the held fit plus that response times the distance.
+ * Each is scored as the board shows it, its evidence discount read again at its own residual scale.
+ *
+ * The level is read off the four weeks together, as measure5 read it: −1.74 ± 0.16 runs on the
+ * 79,981 games of 14 September to 11 October 2026 (10,590 week-and-league clusters), against the
+ * −1.6 held. It is judged one week at a time, each scored with the level the other three read, and
+ * never on the games it was read from: judged on those, the four bands' levels measured beside it
+ * would have been named clearly better on the harness's weeks (z 2.46 against a bar of 2.28) when
+ * scored apart they are not (z 1.03). And on shown ratings, not point ratings, which the plain
+ * backtest scores: the discount already lowers thin clubs, a closed club is often a thin one, and
+ * on point ratings a deeper level falsely cleared the bar (squared error z 2.63 to 4.57). On those
+ * four weeks it read 0.00010 ± 0.00013 runs a game worse than −1.6, so the held level stands.
+ *
+ * A level clearly better here is a change ready to be made, not one made: the held level changes by
+ * a commit that raises the boards' rules (`BOARD_RULES`), as the age table does.
+ */
+export const compareClosedLevels = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[],
+  today: string = todayIsoDay()
+): ClosedLevelCheck | null => {
+  const cuts = closedLevelCuts(ageGroupId, teams, games, ageGroups, today);
+  return cuts && judgeClosedLevels(cuts);
+};
+
+/**
+ * The weeks `compareClosedLevels` scores, each fitted and solved once: the costly half of it, about
+ * 20 s and 1 GB above the pool on the owner's backup of 11 October 2026 (four fits of 59,427 to
+ * 93,430 clubs, Node 24 on four 2.1 GHz cores). Null for a page too young to have a table, or a
+ * `today` that is not an ISO day.
+ */
+export const closedLevelCuts = (
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[],
+  today: string
+): ClosedLevelCut[] | null => {
+  if (!scoutFitRanks(ageGroupId, ageGroups)) return null;
+  const end = dayInstant(today);
+  if (!Number.isFinite(end)) return null;
+  const year = scoutFitYear(ageGroupId, ageGroups);
+  const held = CLOSED_START_RUNS;
+  // Rated as the board rates them on `today`; a game whose day cannot be read is in no week and in
+  // no fit, as the plain backtest drops one rather than guess which side of a cut it is on.
+  const rated = scoutRatingGames(ageGroupId, teams, games, ageGroups, undefined, today);
+  const playedAt = Float64Array.from(rated, ({ game }) => dayInstant(game.date));
+  const clubIndex = new Map<string, number>();
+  const clubOf = (id: string): number => {
+    const known = clubIndex.get(id);
+    if (known !== undefined) return known;
+    clubIndex.set(id, clubIndex.size);
+    return clubIndex.size - 1;
+  };
+
+  const cuts: ClosedLevelCut[] = [];
+  for (let week = 0; week < CLOSED_LEVEL_WEEKS; week += 1) {
+    const cutAt = end - (CLOSED_LEVEL_WEEKS - week) * 7 * DAY;
+    const nextAt = cutAt + 7 * DAY;
+    const train = rated.filter((_, at) => playedAt[at]! < cutAt);
+    const scored = rated.filter((_, at) => playedAt[at]! >= cutAt && playedAt[at]! < nextAt);
+
+    const fit = fitScoutYear(year, teams, games, train, ageGroups);
+    const ids = fit.nodes.map((team) => team.id);
+    const index = new Map(ids.map((id, at) => [id, at]));
+    const rows = yearFitGames(train);
+    // Every start at its share of one run of level, and every game a draw with no age gap: what is
+    // left of the normal equations' right-hand side is the starts alone.
+    const unit = new Map<string, number>();
+    fit.communities.of.forEach((community, id) =>
+      unit.set(id, startingShare(fit.communities.outside[community] ?? 0))
+    );
+    const responded = buildOpponentAdjustedRatings(
+      ids,
+      rows.map(({ ageGap: _gap, ...row }) => ({ ...row, homeMargin: 0 })),
+      { cap: RATING_CAP, priorCentre: unit }
+    ).ratings;
+    const point = Float64Array.from(ids, (id) => fit.adjusted.ratings.get(id) ?? 0);
+    const response = Float64Array.from(ids, (id) => responded.get(id) ?? 0);
+    const evidence = Float64Array.from(ids, (id) => fit.effective.get(id) ?? 0);
+    const { ageGapRuns, homeAdvantage } = fit.adjusted;
+
+    // The residual scale's pieces, over the rows the fit read, as the fit reads its own.
+    let weight = 0;
+    let ee = 0;
+    let er = 0;
+    let rr = 0;
+    for (const row of rows) {
+      const own = row.weight ?? 1;
+      if (!(own > 0)) continue;
+      const home = index.get(row.home)!;
+      const away = index.get(row.away)!;
+      const predicted =
+        point[home]! -
+        point[away]! +
+        (row.neutral ? 0 : homeAdvantage) +
+        (row.ageGap ?? 0) * ageGapRuns;
+      const e = clamp(row.homeMargin, -RATING_CAP, RATING_CAP) - predicted;
+      const r = response[home]! - response[away]!;
+      weight += own;
+      ee += own * e * e;
+      er += own * e * r;
+      rr += own * r * r;
+    }
+    // Over the year's clubs, as the fit centres its own discount (`fitScoutYear`).
+    const unitMiddle = discountMiddle(
+      { games: fit.effective, residualScale: 1 },
+      fit.nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
+    );
+
+    const kept = scored.filter(({ game }) => index.has(game.teamAId) && index.has(game.teamBId));
+    const size = kept.length;
+    const cut: ClosedLevelCut = {
+      from: new Date(cutAt).toISOString().slice(0, 10),
+      to: new Date(nextAt - DAY).toISOString().slice(0, 10),
+      pointA: new Float64Array(size),
+      pointB: new Float64Array(size),
+      responseA: new Float64Array(size),
+      responseB: new Float64Array(size),
+      evidenceA: new Float64Array(size),
+      evidenceB: new Float64Array(size),
+      margin: new Float64Array(size),
+      gapRuns: new Float64Array(size),
+      heldError: new Float32Array(size),
+      x: new Float64Array(size),
+      y: new Float64Array(size),
+      cluster: new Float64Array(size),
+      sides: new Uint32Array(size * 2),
+      weight,
+      ee,
+      er,
+      rr,
+      unitMiddle,
+    };
+    // With no start at all: the held fit less the held level's worth of response.
+    const unstarted = discountAt(cut, -held);
+    const communityOf = (at: number) => fit.communities.of.get(ids[at]!) ?? 0;
+    const outsideOf = (at: number) => fit.communities.outside[communityOf(at)] ?? 0;
+    kept.forEach(({ game, ageGap }, at) => {
+      const a = index.get(game.teamAId)!;
+      const b = index.get(game.teamBId)!;
+      const margin = clamp(ratedMargin(game)!, -RATING_CAP, RATING_CAP);
+      const gapRuns = ageGap * ageGapRuns;
+      cut.pointA[at] = point[a]!;
+      cut.pointB[at] = point[b]!;
+      cut.responseA[at] = response[a]!;
+      cut.responseB[at] = response[b]!;
+      cut.evidenceA[at] = evidence[a]!;
+      cut.evidenceB[at] = evidence[b]!;
+      cut.margin[at] = margin;
+      cut.gapRuns[at] = gapRuns;
+      cut.heldError[at] = Math.abs(
+        fit.confident(point[a]!, evidence[a]!) -
+          fit.confident(point[b]!, evidence[b]!) +
+          gapRuns -
+          margin
+      );
+      const shownA = unstarted(point[a]! - held * response[a]!, evidence[a]!);
+      const shownB = unstarted(point[b]! - held * response[b]!, evidence[b]!);
+      cut.x[at] = response[a]! - response[b]!;
+      cut.y[at] = margin - (shownA - shownB + gapRuns);
+      // The league of the side that has played less outside itself, the first side on a tie.
+      cut.cluster[at] = week * 2 ** 26 + communityOf(outsideOf(a) <= outsideOf(b) ? a : b);
+      cut.sides[at * 2] = clubOf(game.teamAId);
+      cut.sides[at * 2 + 1] = clubOf(game.teamBId);
+    });
+    cuts.push(cut);
+  }
+  return cuts;
+};
+
+/**
+ * A week's errors, game by game, as the board would have shown its ratings with every start at
+ * `level` rather than the held one: the held fit plus the response times the distance, its
+ * evidence discount read at that fit's own residual scale.
+ */
+export const closedLevelErrors = (cut: ClosedLevelCut, level: number): Float32Array => {
+  const by = level - CLOSED_START_RUNS;
+  const shown = discountAt(cut, by);
+  const errors = new Float32Array(cut.x.length);
+  for (let at = 0; at < cut.x.length; at += 1) {
+    const a = shown(cut.pointA[at]! + by * cut.responseA[at]!, cut.evidenceA[at]!);
+    const b = shown(cut.pointB[at]! + by * cut.responseB[at]!, cut.evidenceB[at]!);
+    errors[at] = Math.abs(a - b + cut.gapRuns[at]! - cut.margin[at]!);
+  }
+  return errors;
+};
+
+/**
+ * The level the weeks read, and whether scoring each week with the level the others read predicts
+ * its games clearly better than the held level does. Each week's own games never judge a level read
+ * from them.
+ */
+export const judgeClosedLevels = (cuts: readonly ClosedLevelCut[]): ClosedLevelCheck => {
+  const all = levelRead(cuts);
+  const levels = cuts.map((cut) => levelRead(cuts.filter((other) => other !== cut)).level);
+  const judged = cuts.flatMap((cut, at) => {
+    const level = levels[at];
+    return level === null || level === undefined || cut.x.length === 0 ? [] : [{ cut, level }];
+  });
+  const samples = judged.reduce((sum, { cut }) => sum + cut.x.length, 0);
+  const candidate = new Float32Array(samples);
+  const reference = new Float32Array(samples);
+  const sides = new Uint32Array(samples * 2);
+  let filled = 0;
+  for (const { cut, level } of judged) {
+    candidate.set(closedLevelErrors(cut, level), filled);
+    reference.set(cut.heldError, filled);
+    sides.set(cut.sides, filled * 2);
+    filled += cut.x.length;
+  }
+  const paired =
+    samples > 0
+      ? pairedImprovement({ errors: candidate }, { errors: reference, sides }, false)
+      : null;
+  return {
+    held: CLOSED_START_RUNS,
+    level: all.level,
+    standardError: all.standardError,
+    games: all.games,
+    clusters: all.clusters,
+    weeks: cuts.map((cut, at) => ({
+      from: cut.from,
+      to: cut.to,
+      games: cut.x.length,
+      level: levels[at] ?? null,
+    })),
+    paired,
+    better: isClearlyBetter(paired, 1),
+  };
+};
+
+/**
  * The same backtest under every weighting scheme, best first.
  *
  * The question it answers is not "does recency help" in the abstract but "does it help *here*" —
@@ -819,6 +1201,9 @@ export type ModelCheckAnswer = {
 
 /** Paired games below which no difference between two settings is called one. */
 export const MIN_PAIRED_GAMES = 30;
+
+/** How much lower one setting's error is than another's, a game at a time (`pairedImprovement`). */
+export type PairedReading = { by: number; standardError: number; samples: number };
 /** Standard errors a difference must clear to be called better rather than chance, one rival. */
 const CLEARLY_BETTER = 2;
 
@@ -881,10 +1266,10 @@ export const clearlyBetterBar = (rivals: number): number => {
  * thousands of clubs keep small; a handful of clubs' games would not.
  */
 export const pairedImprovement = (
-  candidate: ScoutBacktestResult,
-  reference: ScoutBacktestResult,
+  candidate: Pick<ScoutBacktestResult, "errors">,
+  reference: Pick<ScoutBacktestResult, "errors" | "ratedFlags" | "sides">,
   ratedOnly: boolean
-): { by: number; standardError: number; samples: number } | null => {
+): PairedReading | null => {
   const ours = candidate.errors;
   const theirs = reference.errors;
   const rated = reference.ratedFlags;
@@ -939,6 +1324,16 @@ export const pairedImprovement = (
 };
 
 /**
+ * Whether a paired reading names a setting better than the one in use, one of `rivals` tried
+ * against it: enough games, lower on average, and by more than the bar for that many rivals.
+ */
+export const isClearlyBetter = (paired: PairedReading | null, rivals: number): boolean =>
+  paired !== null &&
+  paired.samples >= MIN_PAIRED_GAMES &&
+  paired.by > 0 &&
+  paired.by > clearlyBetterBar(rivals) * paired.standardError;
+
+/**
  * The best of `sorted` (best first) that beats `reference` clearly, or null. Down the list rather
  * than only its head, since the lowest average can carry the widest spread and a runner-up with a
  * tighter one can be the only clear answer.
@@ -949,18 +1344,11 @@ const clearlyBetter = (
   value: (result: ScoutBacktestResult) => number,
   ratedOnly: boolean
 ): ModelCheckImprovement | null => {
-  const bar = clearlyBetterBar(sorted.filter((rival) => rival !== reference).length);
+  const rivals = sorted.filter((rival) => rival !== reference).length;
   for (const rival of sorted) {
     if (rival === reference) continue;
     const paired = pairedImprovement(rival, reference, ratedOnly);
-    if (
-      paired &&
-      paired.samples >= MIN_PAIRED_GAMES &&
-      paired.by > 0 &&
-      paired.by > bar * paired.standardError
-    ) {
-      return { value: value(rival), ...paired };
-    }
+    if (paired && isClearlyBetter(paired, rivals)) return { value: value(rival), ...paired };
   }
   return null;
 };

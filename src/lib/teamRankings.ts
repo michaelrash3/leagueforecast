@@ -6,6 +6,7 @@ import {
   bySchedule,
   DEFAULT_SHRINKAGE,
   type OpponentAdjustedRatings,
+  type RatingGame,
 } from "./powerRating";
 import { clamp, isFinal, parseNumber } from "./util";
 import { normalizeDateInput, todayIsoDay } from "./date";
@@ -3265,6 +3266,25 @@ export type ScoutYearFit = {
   pieces: ReturnType<typeof scheduleComponents>;
 };
 
+/**
+ * The rows `fitScoutYear` hands the solver for `rated`, in the same order: each game's margin, its
+ * age gap, and its recency weight, read over these games alone. Its own function so a second solve
+ * over the very rows a year was fitted on can be made without rebuilding them some other way: the
+ * starting level's re-measure (`compareClosedLevels`) solves each weekly cut once more.
+ */
+export const yearFitGames = (rated: readonly RatedScoutGame[]): RatingGame[] => {
+  const weights = recencyWeightsFor(rated.map(({ game }) => game));
+  return rated.map(({ game, ageGap }, at) => ({
+    home: game.teamAId,
+    away: game.teamBId,
+    homeMargin: ratedMargin(game)!,
+    // Team A is simply the side entered first, not the home team.
+    neutral: true,
+    ...(ageGap ? { ageGap } : {}),
+    ...(weights ? { weight: weights[at] ?? 1 } : {}),
+  }));
+};
+
 export const fitScoutYear = (
   year: number | undefined,
   teams: ScoutTeam[],
@@ -3301,20 +3321,10 @@ export const fitScoutYear = (
   const pieces = scheduleComponents(nodeIds, pairs);
   const communities = scheduleCommunities(nodeIds, pairs, pieces);
 
-  const weights = recencyWeightsFor(ratedGames);
-  const adjusted = buildOpponentAdjustedRatings(
-    nodeIds,
-    rated.map(({ game, ageGap }, at) => ({
-      home: game.teamAId,
-      away: game.teamBId,
-      homeMargin: ratedMargin(game)!,
-      // Team A is simply the side entered first, not the home team.
-      neutral: true,
-      ...(ageGap ? { ageGap } : {}),
-      ...(weights ? { weight: weights[at] ?? 1 } : {}),
-    })),
-    { cap: RATING_CAP, priorCentre: startingLevels(communities) }
-  );
+  const adjusted = buildOpponentAdjustedRatings(nodeIds, yearFitGames(rated), {
+    cap: RATING_CAP,
+    priorCentre: startingLevels(communities),
+  });
 
   /*
    * Over the whole year, not the half. A club's age level is a fact about the club for the season,
