@@ -144,8 +144,6 @@ export const IDLE_MS = 2 * 60_000;
 export const STARTUP_WAIT_MS = 4_000;
 /** And how much longer for League Standings to arrive, before it opens anyway. */
 export const STARTUP_TAKE_MS = 6_000;
-/** How long startup waits in silence before saying what it is waiting for. */
-const STARTUP_HINT_MS = 400;
 /** How long to wait for another tab's work on the copy before giving up for now. */
 const LOCK_WAIT_MS = 45_000;
 /** The longest a failing save or look waits before trying again. */
@@ -1069,19 +1067,19 @@ export const lookAgain = async ({ forced = false, arriving = false } = {}): Prom
 };
 
 /**
- * Brings this browser in step with its cloud copy before the app draws anything, when it keeps
- * one: League Standings, which every view reads. Never throws, and holds the app for at most
- * `STARTUP_WAIT_MS` to hear from the cloud and `STARTUP_TAKE_MS` more for the seasons to arrive;
- * past either the app opens on the data it has, and the newer seasons wait to be asked for. Another
- * tab already at work on the copy is left to it: this one opens at once.
+ * Brings this browser in step with its cloud copy as the app opens, when it keeps one: League
+ * Standings, for a device still to meet League's own documents. Never throws, and gives the cloud at
+ * most `STARTUP_WAIT_MS` to answer and `STARTUP_TAKE_MS` more for the seasons to arrive; past
+ * either, the newer seasons wait to be asked for. Nothing waits on it: every device draws first
+ * (`bootOrder.ts`). Another tab already at work on the copy is left to it.
  *
- * `onProgress` is for a line of text while nothing else is on screen. `mounting` says the app was
- * already told to draw when this started (`bootOrder.ts`), so nothing is to be taken in under it.
+ * `mounting` says the app was already told to draw when this started, so nothing is to be taken in
+ * under it, only offered. The app's own start always says so; a start that does not is Try
+ * again's, after the page drew, or a test's.
  */
-export const bootCloud = async (
-  onProgress?: (text: string) => void,
-  { mounting = false }: { mounting?: boolean } = {}
-): Promise<void> => {
+export const bootCloud = async ({
+  mounting = false,
+}: { mounting?: boolean } = {}): Promise<void> => {
   // Run again after the app drew (Try again, after a sign-in lapsed), a take still may not land
   // under it: only a first start, before the app draws, takes League Standings in silently. Nor
   // beside a page already mounting, which read its seasons as it first rendered: the page is drawn
@@ -1096,18 +1094,6 @@ export const bootCloud = async (
     return;
   }
   setStatus({ kind: "connecting" });
-  const unsubscribe = onProgress
-    ? subscribeCloud((next) => {
-        if (next.kind !== "working") return;
-        const [done, total] = next.progress ?? [0, 0];
-        onProgress(total > 0 ? `${next.label} ${done} of ${total}` : next.label);
-      })
-    : () => undefined;
-  const hint = onProgress
-    ? setTimeout(() => {
-        if (status.kind === "connecting") onProgress("Checking your cloud copy…");
-      }, STARTUP_HINT_MS)
-    : undefined;
   const answer = (async () => {
     const current = await loadSession();
     if (!current) return null;
@@ -1151,8 +1137,6 @@ export const bootCloud = async (
     failed(error);
   } finally {
     drawn = true;
-    if (hint) clearTimeout(hint);
-    unsubscribe();
     const account = signedIn();
     if (status.kind === "connecting" && account) setStatus(savedStatus(account));
   }

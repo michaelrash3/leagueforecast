@@ -180,14 +180,76 @@ const fetchPieces = async (reader: LiveReader, entry: ViewEntry): Promise<Uint8A
 };
 
 /**
+ * The reads of a view under way, by the reader and the very meta they were asked with, then by
+ * the view's key and fingerprint: a second read of the same view, through the same reader, from
+ * the same meta, while the first is still going, is the first. So a page may start the read of
+ * the board it is about to draw as soon as the meta is read (`useLiveBoard`), and its own read of
+ * that board, once the meta is drawn, fetches nothing again. Keyed by the meta itself, not by an
+ * equal one, since a read's answer names the meta it was read from.
+ */
+const reading = new WeakMap<LiveReader, WeakMap<LiveMeta, Map<string, Promise<unknown>>>>();
+
+/**
+ * The reads of a view's kept bytes under way, by fingerprint: one off the device at a time,
+ * however many reads ask for it, whatever their reader or meta. What this account kept is read
+ * (`useLiveBoard`'s kept read) beside the network's read of the same board, and the two met on a
+ * warm open, where the network's meta names the board that was kept: without this both read it
+ * off the device and decoded it.
+ */
+const keptReads = new WeakMap<ViewCache, Map<string, Promise<unknown>>>();
+
+const keptView = (cache: ViewCache, h: string): Promise<unknown> => {
+  let byView = keptReads.get(cache);
+  if (!byView) keptReads.set(cache, (byView = new Map()));
+  const under = byView.get(h);
+  if (under) return under;
+  const read = cache.view(h).catch(() => null);
+  const views = byView;
+  views.set(h, read);
+  void read.then(() => {
+    if (views.get(h) === read) views.delete(h);
+  });
+  return read;
+};
+
+/**
  * The view under `key` in `meta`: from those of its kind decoded this page load (`memory`), then
  * from `cache`, then from the network, every one checked against the fingerprint the meta names
  * and read as a view of its kind (`coerce`). A piece that is not there costs one read of the meta,
  * and the view is fetched again from whatever upload it names now; never more than one. A view
  * fetched is kept in `cache` by its fingerprint. The checker is the caller's, so a page that reads
- * one kind of view loads no other kind's.
+ * one kind of view loads no other kind's. A read of the same view already under way, through the
+ * same reader and from the same meta, is joined rather than made again (`reading`).
  */
-export const readView = async <T>({
+export const readView = <T>(asked: {
+  reader: LiveReader;
+  meta: LiveMeta;
+  key: string;
+  cache?: ViewCache | undefined;
+  coerce: (raw: unknown) => T | null;
+  memory: DecodedViews<T>;
+}): Promise<ViewRead<T>> => {
+  const { reader, meta, key } = asked;
+  const entry = meta.views[key];
+  if (!entry) return readViewOnce(asked);
+  let byMeta = reading.get(reader);
+  if (!byMeta) reading.set(reader, (byMeta = new WeakMap()));
+  let byView = byMeta.get(meta);
+  if (!byView) byMeta.set(meta, (byView = new Map()));
+  const id = `${key}\n${entry.h}`;
+  const under = byView.get(id) as Promise<ViewRead<T>> | undefined;
+  if (under) return under;
+  const read = readViewOnce(asked);
+  const views = byView;
+  views.set(id, read);
+  const done = () => {
+    if (views.get(id) === read) views.delete(id);
+  };
+  read.then(done, done);
+  return read;
+};
+
+const readViewOnce = async <T>({
   reader,
   meta,
   key,
@@ -216,7 +278,17 @@ export const readView = async <T>({
       from: "memory",
     };
 
-  const kept = cache ? await cache.view(entry.h).catch(() => null) : null;
+  const kept = cache ? await keptView(cache, entry.h) : null;
+  // Decoded meanwhile by a read that asked the same bytes off the device first.
+  const decoded = memory.get(entry.h);
+  if (decoded !== undefined)
+    return {
+      ok: true,
+      view: remember(memory, entry.h, decoded),
+      entry,
+      meta: current,
+      from: "memory",
+    };
   if (kept !== null) {
     const view = coerce(kept);
     if (view === null) return { ok: false, why: "damaged", meta: current };

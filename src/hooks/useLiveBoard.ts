@@ -322,6 +322,23 @@ export function useLiveBoard({
       setStanding(stands);
       setMeta({ meta: read.meta, pages: read.pages, from: "network" });
       setMetaMiss(null);
+      /*
+       * The board the page asks for next, its fetch started now rather than once the meta is drawn
+       * and what was kept has been read off the device, which held the fetch back on an open whose
+       * kept read was the slower: the page's own read of it (below) joins this one (`readView`).
+       */
+      const reader = readerRef.current;
+      const route = requested.current;
+      if (!reader || !route.pageId) return;
+      const half =
+        route.routeSegment ??
+        segmentWorthShowing(route.calendarSegment, read.pages.halves[route.pageId] ?? NO_GAMES);
+      void readBoard({
+        reader,
+        meta: read.meta,
+        key: boardKey(route.year, route.pageId, half ?? "year"),
+        cache,
+      }).catch(() => undefined);
     };
     /*
      * What this account kept: its last meta, and the board the page opens on, read together and
