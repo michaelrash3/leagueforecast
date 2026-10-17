@@ -3195,8 +3195,9 @@ It took 20 s and about 1 GB above the loaded pool (2.8 GB at most) in Node 24 on
   no club or league, and calls nothing closed.
 - _A level clearly better opens an issue_, "A new starting level is ready for leagues
   with few outside games" ("When a run fails"), with the level read, the gain and its
-  standard error, and that the change is a commit. A later Monday that finds none
-  clearly better closes it.
+  standard error, and that the change is a commit. A later Monday that judges the level
+  and finds none clearly better closes it; one with too few games to judge leaves it
+  open.
 - _The Model check runs the same re-measure_ when pressed, last of its runs, on the
   device's worker and on the server (`model.check`), and its card gives the same line
   for the page's year under "Where a rating starts".
@@ -5138,17 +5139,20 @@ the first run that is fine closes it with a comment.
   Monday nightly's re-measure of where a rating starts ("Where a rating starts")
   found a level clearly better than the one held. It says the level read, the level
   held, the paired gain and its standard error, the games, and that the level changes
-  only by a commit that raises `BOARD_RULES`. The first live Monday that finds none
-  clearly better closes it. A dry run, or a night that did not re-measure, leaves it
-  as it is.
+  only by a commit that raises `BOARD_RULES`. The first live Monday that judges the
+  level and finds none clearly better closes it. A dry run, a night that did not
+  re-measure, or a Monday too thin to judge leaves it as it is: one that read no level,
+  or scored fewer than 30 games with the other weeks' level, as between seasons or in
+  the first weeks of a squad year, before any fit has rated its clubs. It measured
+  nothing that could say a change ready is no longer ready.
 
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
 words are fixed in `runAlarms.ts`, which works out what to raise or settle from
 the run step's outcome and the words the nightly hands over: the rebuilds'
 (`rebuilds=paused`, `failing`, `none` or `off`), and on a Monday the starting
-level's (`closedLevel=held`, or `better` and five numbers, which it reads back as
-numbers and writes again in its own words). It is tested; the workflows
+level's (`closedLevel=held`, `unjudged`, or `better` and five numbers, which it reads
+back as numbers and writes again in its own words). It is tested; the workflows
 only run `npm run alarm -- nightly` or `-- republish` as their last step,
 whatever came before. It runs `gh` with the run's own token, which the workflow
 lets write issues and nothing more (`permissions: issues: write`). An alarm

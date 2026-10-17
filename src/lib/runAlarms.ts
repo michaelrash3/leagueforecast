@@ -54,8 +54,9 @@ const BETTER = new RegExp(`^better (${NUMBER}) (${NUMBER}) (\\d+\\.\\d+) (\\d+\\
 
 /**
  * The Monday re-measure's word as the nightly hands it over (`closedLevelWord`), as a verdict:
- * `held` settles the alarm, `better` and its numbers raise it, and anything else, the word of a
- * night that did not re-measure, leaves it as it is. The numbers are read back as numbers and
+ * `held` settles the alarm, `better` and its numbers raise it, and anything else leaves it as it
+ * is: no word, from a night that did not re-measure, and `unjudged`, from a Monday too thin to
+ * judge, which measured nothing that could say a change ready is no longer ready. The numbers are read back as numbers and
  * written again in fixed words, so nothing the run printed reaches the issue but those numbers.
  */
 const closedLevelVerdict = (word: string): Verdict | null => {

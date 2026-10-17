@@ -1,3 +1,4 @@
+import { closedLevelJudged } from "../closedLevelWords";
 import { dayInstant } from "../ratingRecency";
 import { CLOSED_LEVEL_WEEKS, compareClosedLevels, type ClosedLevelCheck } from "../scoutBacktest";
 import { ageGroupYear, rankingPoolGroupIds, scoutFitRanks } from "../teamRankings";
@@ -91,23 +92,34 @@ export const closedLevelRecordOf = (
   check: weekly.check,
 });
 
+/** The word for a re-measure that judged nothing (`closedLevelJudged`), which no alarm reads. */
+export const CLOSED_LEVEL_UNJUDGED = "unjudged";
+
 /**
- * The word the alarm step is handed (`nightlyVerdicts`'s `closedLevel`): `held` where no level
- * read clearly better, which settles the alarm, and otherwise `better`, then the level held, the
- * level read, how much lower the error was and its standard error, in runs a game, and the games,
- * which raise it. Numbers only, as everything an issue on this public repository says is.
+ * The word the alarm step is handed (`nightlyVerdicts`'s `closedLevel`): `unjudged` where the
+ * weeks were too thin to judge (`closedLevelJudged`), which leaves the alarm as it is, as a night
+ * that did not re-measure does; `held` where a level was judged and none read clearly better,
+ * which settles it; and otherwise `better`, then the level held, the level read, how much lower the
+ * error was and its standard error, in runs a game, and the games, which raise it. Numbers only, as
+ * everything an issue on this public repository says is.
+ *
+ * Before `unjudged`, a Monday too thin to judge said `held` and closed an open "a change is
+ * ready" issue as no longer finding one: the seeded fixture's 17 May 2027 scores 12 games, and the
+ * first Mondays of a squad year score none, since no earlier fit has rated their clubs.
  */
 export const closedLevelWord = (check: ClosedLevelCheck): string =>
-  check.better && check.level !== null && check.paired
-    ? [
-        "better",
-        String(check.held),
-        check.level.toFixed(2),
-        check.paired.by.toFixed(5),
-        check.paired.standardError.toFixed(5),
-        String(check.paired.samples),
-      ].join(" ")
-    : "held";
+  !closedLevelJudged(check)
+    ? CLOSED_LEVEL_UNJUDGED
+    : check.better && check.level !== null && check.paired
+      ? [
+          "better",
+          String(check.held),
+          check.level.toFixed(2),
+          check.paired.by.toFixed(5),
+          check.paired.standardError.toFixed(5),
+          String(check.paired.samples),
+        ].join(" ")
+      : "held";
 
 /** A level, or a reading, to `digits` places, or a dash for none. */
 const fixed = (value: number | null, digits: number): string =>
@@ -131,10 +143,15 @@ export const describeWeekly = (weekly: WeeklyClosedLevel | null, seconds: number
     `Starting level re-measured on the ${weekly.year ?? "undated"} squad year, ${span}: ${fixed(check.level, 2)} +/- ${fixed(check.standardError, 2)} on ${check.games} games in ${check.clusters} clusters (weeks of ${check.weeks.map((week) => week.games).join(", ")}), in ${seconds} s.`,
   ];
   const paired = check.paired;
+  const verdict = !closedLevelJudged(check)
+    ? "too few games to judge, so nothing is settled"
+    : check.better
+      ? "clearly better, so a change is ready"
+      : "not clearly better, so the level held stands";
   lines.push(
     paired
-      ? `  Each week scored with the level the other weeks read: ${Math.abs(paired.by).toFixed(5)} +/- ${paired.standardError.toFixed(5)} runs a game ${paired.by >= 0 ? "better" : "worse"} than the ${check.held} held, over ${paired.samples} games; ${check.better ? "clearly better, so a change is ready" : "not clearly better, so the level held stands"}.`
-      : "  No week could be scored with the other weeks' level, so the level held stands."
+      ? `  Each week scored with the level the other weeks read: ${Math.abs(paired.by).toFixed(5)} +/- ${paired.standardError.toFixed(5)} runs a game ${paired.by >= 0 ? "better" : "worse"} than the ${check.held} held, over ${paired.samples} games; ${verdict}.`
+      : "  No week could be scored with the other weeks' level, so nothing was judged and nothing is settled."
   );
   return lines;
 };

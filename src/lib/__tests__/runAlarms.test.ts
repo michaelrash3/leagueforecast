@@ -110,7 +110,7 @@ describe("which alarm the Monday re-measure of where a rating starts raises or s
     });
   });
 
-  it("leaves it as it is on a night that did not re-measure, a dry run, or a word it cannot read", () => {
+  it("leaves it as it is on a night that did not re-measure, a thin Monday, a dry run, or a word it cannot read", () => {
     const has = (verdicts: ReturnType<typeof nightlyVerdicts>) =>
       verdicts.some((verdict) => verdict.kind === "closedLevel");
     expect(has(nightlyVerdicts({ ...live, closedLevel: "" }))).toBe(false);
@@ -126,6 +126,9 @@ describe("which alarm the Monday re-measure of where a rating starts raises or s
         })
       )
     ).toBe(false);
+    // A Monday too thin to judge measured nothing that could close an issue saying a change is
+    // ready (`closedLevelWord`).
+    expect(has(nightlyVerdicts({ ...live, closedLevel: "unjudged" }))).toBe(false);
     for (const word of [
       "better",
       "better -1.6 x 0.1 0.1 9",

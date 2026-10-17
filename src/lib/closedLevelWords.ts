@@ -23,6 +23,17 @@ export const shortDay = (iso: string): string => {
   return month ? `${Number(iso.slice(8, 10))} ${month}` : iso;
 };
 
+/**
+ * Whether a re-measure judged the level at all: it read one, and scored at least
+ * `MIN_PAIRED_GAMES` games with the other weeks' level, as `isClearlyBetter` asks before it calls
+ * anything better. One that did not is a Monday between seasons, or at a year's edge where the
+ * weeks hold few games between clubs an earlier fit rated: the card says too few games, and the
+ * alarm step is handed a word that leaves its issue as it is (`closedLevelWord`), since nothing
+ * was measured that could say a change ready is no longer ready.
+ */
+export const closedLevelJudged = (check: ClosedLevelCheck): boolean =>
+  check.level !== null && check.paired !== null && check.paired.samples >= MIN_PAIRED_GAMES;
+
 /** The one line, as a re-measure found it. */
 export const closedLevelLine = (check: ClosedLevelCheck): string => {
   const head = `Starting level for leagues with few outside games: held at ${levelText(check.held, true)}`;
@@ -34,11 +45,10 @@ export const closedLevelLine = (check: ClosedLevelCheck): string => {
   const spread = check.standardError === null ? "" : ` ± ${check.standardError.toFixed(2)}`;
   const read = `${weeks} read ${levelText(check.level)}${spread} on ${check.games.toLocaleString("en-US")} games`;
   const paired = check.paired;
-  const verdict =
-    check.better && paired
+  const verdict = !closedLevelJudged(check)
+    ? "too few games to judge"
+    : check.better && paired
       ? `clearly better, by ${paired.by.toFixed(4)} runs a game, give or take ${paired.standardError.toFixed(4)}, so a change to ${levelText(check.level)} is ready`
-      : paired === null || paired.samples < MIN_PAIRED_GAMES
-        ? "too few games to judge"
-        : "not yet clearly better";
+      : "not yet clearly better";
   return `${head}; ${read}; ${verdict}.`;
 };

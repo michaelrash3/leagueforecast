@@ -3,7 +3,7 @@ import { poolFixture } from "../../../../scripts/poolFixture";
 import { memoryIo } from "../../cloud/cloudRunner";
 import { fieldsOf, firestoreFieldsOf } from "../../cloud/firestoreRest";
 import { nightlyVerdicts } from "../../runAlarms";
-import { compareClosedLevels, type ClosedLevelCheck } from "../../scoutBacktest";
+import { compareClosedLevels, MIN_PAIRED_GAMES, type ClosedLevelCheck } from "../../scoutBacktest";
 import { rankingPoolGroupIds, type AgeGroup } from "../../teamRankings";
 import {
   initTeamRankingsStore,
@@ -23,6 +23,7 @@ import {
   type ClosedLevelRecord,
 } from "../closedLevelRecord";
 import {
+  CLOSED_LEVEL_UNJUDGED,
   closedLevelDue,
   closedLevelRecordOf,
   closedLevelWord,
@@ -51,6 +52,7 @@ const SEASONS: SeasonReader = (seasonId) => {
 };
 /** A Monday a few days before the fixture's day, so its four weeks are full of games. */
 const MONDAY = "2027-04-12";
+const T = "2027-04-12T08:40:00.000Z";
 
 let ageGroups: AgeGroup[] = [];
 beforeAll(async () => {
@@ -188,6 +190,51 @@ describe("the word the alarm step is handed", () => {
     }).find((verdict) => verdict.kind === "closedLevel");
     expect(raised).toMatchObject({ failing: true });
     expect(raised?.failing && raised.said).toContain("clearly better at -1.92 than the -1.6 held");
+  });
+});
+
+describe("a Monday too thin to judge", () => {
+  const live = { outcome: "success", event: "schedule", mode: "live" };
+  const settles = (word: string) =>
+    nightlyVerdicts({ ...live, closedLevel: word }).filter(
+      (verdict) => verdict.kind === "closedLevel"
+    );
+
+  it("hands over a word that leaves the alarm as it is, on the fixture's thin weeks", () => {
+    // Late in the fixture's year the four weeks to 16 May 2027 hold 12 games, all scored with the
+    // other weeks' level: fewer than the 30 any verdict wants.
+    const weekly = weeklyClosedLevel(input("2027-05-17"))!;
+    expect(weekly.check.paired!.samples).toBe(12);
+    expect(weekly.check.better).toBe(false);
+    expect(closedLevelWord(weekly.check)).toBe(CLOSED_LEVEL_UNJUDGED);
+    expect(settles(closedLevelWord(weekly.check))).toEqual([]);
+    expect(lastClosedLevelLine(closedLevelRecordOf(weekly, "2027-05-17", T))).toMatch(
+      /; too few games to judge\.$/
+    );
+    expect(describeWeekly(weekly, 1)[1]).toMatch(
+      /; too few games to judge, so nothing is settled\.$/
+    );
+  });
+
+  it("is unjudged with no level read, no week scored, or fewer games than a verdict wants", () => {
+    const none = { ...better, level: null, standardError: null, games: 0, paired: null };
+    expect(closedLevelWord(none)).toBe(CLOSED_LEVEL_UNJUDGED);
+    expect(closedLevelWord({ ...better, paired: null, better: false })).toBe(CLOSED_LEVEL_UNJUDGED);
+    expect(closedLevelWord({ ...better, level: null, better: false })).toBe(CLOSED_LEVEL_UNJUDGED);
+    const thin = (samples: number) => ({
+      ...better,
+      paired: { by: 0.01, standardError: 0.02, samples },
+      better: false,
+    });
+    expect(closedLevelWord(thin(MIN_PAIRED_GAMES - 1))).toBe(CLOSED_LEVEL_UNJUDGED);
+    expect(describeWeekly({ year: 2026, check: none }, 1)[1]).toBe(
+      "  No week could be scored with the other weeks' level, so nothing was judged and nothing is settled."
+    );
+    // Judged, on enough games, and not clearly better: that still settles it.
+    expect(closedLevelWord(thin(MIN_PAIRED_GAMES))).toBe("held");
+    expect(settles(closedLevelWord(thin(MIN_PAIRED_GAMES)))).toEqual([
+      { kind: "closedLevel", failing: false },
+    ]);
   });
 });
 
