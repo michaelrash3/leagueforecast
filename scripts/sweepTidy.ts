@@ -9,11 +9,12 @@
  * deleted a vouched club and rewrote the games it played, and the back-test read a pool the app
  * never ranks.
  *
- * Every backup carries the first, as `answers.realClubs`. The second needs the League Standings
- * seasons themselves, which only the whole-browser backup (Settings, "Backup JSON") carries
- * beside its pool; a Team Rankings file, JSON or CSV, holds only the seasons' ids on its
+ * A JSON backup, of Team Rankings or of the whole browser, carries the first as
+ * `answers.realClubs`; the older CSV carries no answers at all. The second needs the League
+ * Standings seasons themselves, which only the whole-browser backup (Settings, "Backup JSON")
+ * carries beside its pool; a Team Rankings file, JSON or CSV, holds only the seasons' ids on its
  * pages. So the sweep spares what the device spares from a whole-browser backup, and from a Team
- * Rankings file spares the real list alone, saying when that could matter (`leagueUnread`).
+ * Rankings file spares its real list alone, saying when League could matter (`leagueUnread`).
  */
 import { coerceBackup } from "../src/lib/backup.ts";
 import { tidyPool, type GcImportState, type PoolTidy } from "../src/lib/gameChangerImport.ts";
