@@ -2697,7 +2697,9 @@ const importOne = (
      * its games are real to them, and this row is the other side's word on one, which the club's
      * games keep as it confirms them. Only the club's own game that day takes it, as any name-filed
      * row; one its schedule does not bear out stands against a stand-in of the name, which the tidy
-     * deletes as it deletes every one (`dropNotATeam`). An old page's word needs no such reading:
+     * keeps as it keeps the club (`namedAfterSpared`), for the refile and claim steps to settle as
+     * they settle any stand-in. Deleted, it took the game, and the next pull filed the row again
+     * with nothing to stop it, every night. An old page's word needs no such reading:
      * its slot gate already files the row onto the one pulled club of the name that played that day.
      * Read only for a name a rule hits, which is few.
      *
@@ -6739,6 +6741,78 @@ const dropSchoolTeams = (state: GcImportState): { state: GcImportState; dropped:
 const NONE_REAL: ReadonlySet<string> = new Set<string>();
 
 /**
+ * The ids of the stand-ins among `standIns` that are named, in a pool they play in, after a club
+ * the not-a-team tidy spares: the user's own club, a page's own team, or a club in `real` by its
+ * id or any of its GameChanger ids.
+ *
+ * The import files a row of such a club's name as it files any name (the opponent gate reads the
+ * club's own names, `carriesWord`). A row the club's own schedule does not bear out, on a day it
+ * has no game, goes onto a stand-in of the name, so that stand-in holds the club's rows, and the
+ * refile and claim steps settle it as they settle any other stand-in. Deleting it took the club's
+ * game, and since no row was marked deleted, the next pull filed the row again against a new
+ * stand-in, and the tidy deleted that too. That happened every night, and each night told the owner
+ * a practice page had gone.
+ *
+ * Read the way the gate reads it: by the pool and the name key. A pool holds the clubs its games
+ * name and the clubs whose links are filed there. The stand-in's own name is stored cleaned, with
+ * no bracket left, so a club of the same key carries the stand-in's word, as the gate requires.
+ */
+const namedAfterSpared = (
+  state: GcImportState,
+  standIns: readonly ScoutTeam[],
+  pageTeams: ReadonlySet<string>,
+  real: ReadonlySet<string>
+): Set<string> => {
+  const named = new Set<string>();
+  if (standIns.length === 0) return named;
+  const spared = (team: ScoutTeam): boolean =>
+    team.isMine === true ||
+    pageTeams.has(team.id) ||
+    real.has(team.id) ||
+    (team.gcTeams ?? []).some((link) => real.has(link.teamId));
+  const poolKeyOf = buildPoolKeyOf(state.ageGroups);
+  const byId = new Map(state.teams.map((team) => [team.id, team]));
+  const asked = new Set(standIns.map((team) => team.id));
+  const keys = new Map<string, string>();
+  const nameIn = (pool: string, team: ScoutTeam): string => {
+    let key = keys.get(team.id);
+    if (key === undefined) {
+      key = teamNameKey(team.name);
+      keys.set(team.id, key);
+    }
+    return `${pool}\u0000${key}`;
+  };
+  /** Each spared club by its pool and name key, as the gate's lookup holds it. */
+  const sparedNames = new Set<string>();
+  /** The pools each asked stand-in plays in. */
+  const poolsOf = new Map<string, Set<string>>();
+  state.games.forEach((game) => {
+    const pool = poolKeyOf(game.ageGroupId);
+    [game.teamAId, game.teamBId].forEach((id) => {
+      if (asked.has(id)) {
+        const pools = poolsOf.get(id);
+        if (pools) pools.add(pool);
+        else poolsOf.set(id, new Set([pool]));
+        return;
+      }
+      const team = byId.get(id);
+      if (team && spared(team)) sparedNames.add(nameIn(pool, team));
+    });
+  });
+  state.teams.forEach((team) => {
+    if (!spared(team)) return;
+    (team.gcTeams ?? []).forEach((link) =>
+      sparedNames.add(nameIn(poolKeyOf(link.ageGroupId), team))
+    );
+  });
+  standIns.forEach((team) => {
+    const pools = [...(poolsOf.get(team.id) ?? [])];
+    if (pools.some((pool) => sparedNames.has(nameIn(pool, team)))) named.add(team.id);
+  });
+  return named;
+};
+
+/**
  * Deletes the pulled clubs whose every GameChanger name says the page is no team
  * (`notATeamWord`): a practice, a scrimmage, a test, a tryout, a scorekeeper's or a camera's
  * account, an old page marked void, do not use, delete, duplicate or placeholder; and the
@@ -6772,7 +6846,10 @@ const NONE_REAL: ReadonlySet<string> = new Set<string>();
  *   GameChanger ids), a stand-in included: those said to be real, and every club a League
  *   Standings team links, picked or carried onto by its name, which the callers add
  *   (`leagueLinkedClubs`) because only the League pass sees the link. A pick left pointing at a
- *   deleted club is a stale id, and the league's team goes to a namesake.
+ *   deleted club is a stale id, and the league's team goes to a namesake. Nor a drop-word stand-in
+ *   named after one of those in a pool it plays in (`namedAfterSpared`): the import files a row of
+ *   that club's name against such a stand-in on a day the club played nobody, so the stand-in
+ *   holds the club's game. Deleted, it lost that game, and every pull filed the row again.
  * - An old page's games another club's own schedule lists are kept, with the old page's side
  *   turned into a slot of its own (`ScoutTeam.placeholder`), as the import now files a game against
  *   one: the result is real and the club that played it keeps it, its opponent out of every table
@@ -6792,6 +6869,8 @@ export const dropNotATeam = (
   const oldPages = new Set<string>();
   /** Every GameChanger id of a going club: the rows its own schedules gave, wherever they are. */
   const goingRows = new Set<string>();
+  /** The drop-word stand-ins, read against the spared clubs' names before any of them goes. */
+  const dropWords: ScoutTeam[] = [];
   state.teams.forEach((team) => {
     const links = team.gcTeams ?? [];
     if (team.isMine || pageTeams.has(team.id) || real.has(team.id)) return;
@@ -6800,8 +6879,12 @@ export const dropNotATeam = (
       if (team.placeholder || !team.nameOnly) return;
       const hit = notATeamWord(team.name);
       if (!hit) return;
+      if (hit.opponent === "drop") {
+        dropWords.push(team);
+        return;
+      }
       going.add(team.id);
-      if (hit.opponent === "slot") oldPages.add(team.id);
+      oldPages.add(team.id);
       return;
     }
     if (links.some((link) => real.has(link.teamId))) return;
@@ -6814,6 +6897,10 @@ export const dropNotATeam = (
     going.add(team.id);
     links.forEach((link) => goingRows.add(link.teamId));
     if (slot) oldPages.add(team.id);
+  });
+  const named = namedAfterSpared(state, dropWords, pageTeams, real);
+  dropWords.forEach((team) => {
+    if (!named.has(team.id)) going.add(team.id);
   });
   if (going.size === 0) return { state, dropped: 0 };
 

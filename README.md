@@ -305,18 +305,24 @@ gives the same verdict as this one on every one of the 147,114 distinct names in
   such game. Never a slot of the name, which names nobody; never the user's own club, a page's own
   team or a club said to be real; and never a club a League Standings team links, picked in
   Settings or carried onto by its name, which only the League pass can see (`leagueLinkedClubs`),
-  so the device's tidy and the cloud's read League first as the boards do. A cloud run that cannot
-  read League deletes no page by its name that night rather than one a season's pick leans on. An
-  old page's games that another club's own schedule lists are kept, its side turned into a slot; a
-  drop word's games go with it. On the backup of 11 October 2026 this deletes 520 pulled clubs,
-  121 of them old pages and 33 read only through the names on their links; 76 were on a board that
-  day, 237 were already off every board by that night's sweep, and none was on the list of clubs
-  said to be real. They held 434 games, 251 scored; 35 are kept (27 scored), 31 on slots and 4
-  stood back up against the stand-in the other club's row was filed against. Two clubs whose
-  stored name has a word none of their links has are left. Of the stand-ins, 130 of drop words go
-  with the 166 games they held against pulled clubs (47 scored), and 56 old pages' 85 games (16
-  scored) move onto slots; a full tidy leaves none of these names standing in, where it left 175.
-  A deletion here is undone only by a backup, where the nightly sweep's marks have **Put back**.
+  so the device's tidy and the cloud's read League first as the boards do. Nor a drop word's
+  stand-in named after one of those clubs in a pool it plays in, read as the import's gate reads
+  the name, by its pool and key (`namedAfterSpared`). The import files a row of a vouched club's
+  name against such a stand-in on a day the club played nobody, so the stand-in holds the club's
+  game, and the refile and claim steps settle it as any other. Deleted, the game went with it, and
+  the next pull filed the row again, every night, with a line each time saying a practice page had
+  gone. A cloud run that cannot read League deletes no page by its name that night rather than one
+  a season's pick leans on. An old page's games that another club's own schedule lists are kept,
+  its side turned into a slot; a drop word's games go with it. On the backup of 11 October 2026
+  this deletes 520 pulled clubs, 121 of them old pages and 33 read only through the names on their
+  links; 76 were on a board that day, 237 were already off every board by that night's sweep, and
+  none was on the list of clubs said to be real. They held 434 games, 251 scored; 35 are kept (27
+  scored), 31 on slots and 4 stood back up against the stand-in the other club's row was filed
+  against. Two clubs whose stored name has a word none of their links has are left. Of the
+  stand-ins, 130 of drop words go with the 166 games they held against pulled clubs (47 scored),
+  and 56 old pages' 85 games (16 scored) move onto slots; a full tidy leaves none of these names
+  standing in, where it left 175. A deletion here is undone only by a backup, where the nightly
+  sweep's marks have **Put back**.
 
 A team below the youngest level ranked here, or one GameChanger gives no age
 for, is skipped rather than filed: a nationwide list carries thousands of 6U and

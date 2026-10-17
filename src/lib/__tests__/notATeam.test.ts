@@ -243,6 +243,40 @@ describe("a club the owner vouched for, whose name reads as no team", () => {
     expect(holding(unsaid.state)).toBeUndefined();
   });
 
+  it("keeps the stand-in a row of its name stands against, so a pull files it once", () => {
+    // The club plays on the 5th; the Quails' row names it on the 12th, a day its own schedule has
+    // no game, so the row stands against a stand-in of the name.
+    const real = new Set([WEX]);
+    const opts = { today: "2026-10-11", realClubs: real };
+    let state = importGcSchedule(
+      workouts([played("w1", "Brindlewood Badgers 12U", "2026-09-05")]),
+      empty,
+      opts
+    ).state;
+    const nights = [1, 2, 3].map(() => {
+      const pulled = importGcSchedule(quails("Wexcombe Workouts 12U"), state, opts);
+      const tidy = tidyPool(pulled.state, undefined, undefined, undefined, real);
+      state = tidy.state;
+      return {
+        added: pulled.outcome.gamesAdded,
+        created: pulled.outcome.opponentsCreated,
+        notATeam: tidy.notATeam,
+        said: describeTidy(tidy).some((line) => line.includes("practice, test or old team")),
+      };
+    });
+    const once = { added: 1, created: 1, notATeam: 0, said: false };
+    const after = { added: 0, created: 0, notATeam: 0, said: false };
+    expect(nights).toEqual([once, after, after]);
+    const game = holding(state);
+    const quill = state.teams.find((team) =>
+      team.gcTeams?.some((link) => link.teamId === "gcQUILL00001")
+    )!.id;
+    const against = state.teams.find(
+      (team) => team.id === (game?.teamAId === quill ? game?.teamBId : game?.teamAId)
+    );
+    expect(against).toMatchObject({ name: "Wexcombe Workouts", nameOnly: true });
+  });
+
   it("lets a row through only where the club's own names carry the word the row hit", () => {
     const TAMB = "gcTAMBE00001";
     const opts = { today: "2026-10-11", realClubs: new Set([TAMB]) };
@@ -535,6 +569,51 @@ describe("a page whose name says it is no team, already in the pool", () => {
     const picked = { ...pool([squad], games), ageGroups: [{ ...page, myTeamId: "squad" }] };
     expect(dropNotATeam(picked).dropped).toBe(0);
     expect(dropNotATeam(pool([squad], games)).dropped).toBe(1);
+  });
+
+  it("keeps a drop-word stand-in named after a club spared here, in a pool it plays in", () => {
+    // The import files a row of a vouched club's name against one on a day the club played nobody.
+    const standIn: ScoutTeam = { id: "S-WEXC", name: "Wexcombe Workouts", nameOnly: true };
+    const filed = row("g1", "quill", "S-WEXC", [6, 2], "gcquill");
+    const wex = club("wex", "Wexcombe Workouts");
+    const later: AgeGroup = {
+      id: "p13",
+      name: "13U 2028",
+      ageLevel: 13,
+      year: 2028,
+      seasonIds: [],
+    };
+    const dropped = (
+      named: ScoutTeam,
+      real: ReadonlySet<string> = new Set(),
+      games: ScoutGame[] = [],
+      myTeamId?: string
+    ) =>
+      dropNotATeam(
+        {
+          ageGroups: [{ ...page, ...(myTeamId ? { myTeamId } : {}) }, later],
+          teams: [quill, named, standIn],
+          games: [filed, ...games],
+        },
+        real
+      ).dropped;
+    // Spared on the real list by club id, by GameChanger id, as the user's own, as a page's team.
+    expect(dropped(wex, new Set(["wex"]))).toBe(0);
+    expect(dropped(wex, new Set(["gcwex"]))).toBe(0);
+    expect(dropped({ ...wex, isMine: true })).toBe(0);
+    expect(dropped(wex, new Set(), [], "wex")).toBe(0);
+    // Spared nowhere, the club and the stand-in both go.
+    expect(dropped(wex)).toBe(2);
+    // A club of another name, or one only in another pool, leaves the stand-in to go.
+    expect(dropped(club("wex", "Wexcombe Warriors"), new Set(["wex"]))).toBe(1);
+    const elsewhere: ScoutTeam = {
+      ...wex,
+      gcTeams: [{ ...link("gcwex", "Wexcombe Workouts 13U"), ageGroupId: "p13", ageLevel: 13 }],
+    };
+    expect(dropped(elsewhere, new Set(["wex"]))).toBe(1);
+    // In the pool by a game of its own there, it is the stand-in's club again.
+    const own = row("g2", "wex", "quill", [3, 1], "gcwex", { date: "2026-09-13" });
+    expect(dropped(elsewhere, new Set(["wex"]), [own])).toBe(0);
   });
 
   it("files a stand-in's drop-word game the same whenever the schedule was first pulled", () => {
