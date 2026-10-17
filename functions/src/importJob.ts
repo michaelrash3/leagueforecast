@@ -4,7 +4,16 @@ import { Worker } from "node:worker_threads";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
-import { importBeat, importLease, IMPORT_STALLED } from "../../src/lib/cloud/importLease";
+import {
+  importBeat,
+  importHeard,
+  importLease,
+  importStopsNow,
+  importTryStatus,
+  IMPORT_STALLED,
+  type ImportWatch,
+  type ImportWorkerSaid,
+} from "../../src/lib/cloud/importLease";
 import { restJobDocs, startNextPart } from "../../src/lib/cloud/pullJobRunner";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { publishBoardsIfDue } from "./afterPullLaunch";
@@ -29,9 +38,9 @@ if (!claimed) {
   let beat: ReturnType<typeof setInterval> | undefined;
   let ticking = false;
   let lastRenew = Date.now();
-  // When the worker last said anything: a try it goes quiet in for too long is ended as stuck.
-  let heardAt = Date.now();
-  let latestDetail: { detail: string; progressAt: string } | null = null;
+  // When the worker last said anything, a try it goes quiet in for too long ended as stuck, and the
+  // detail it last gave.
+  let watch: ImportWatch = { heardAt: Date.now(), latestDetail: null };
   /*
    * Cloud Run sends SIGTERM, and ten seconds later SIGKILL, when it ends an execution: a cancel, the
    * task's time limit, the machine taken away. Ended without a word, the job said "running" until
@@ -56,7 +65,7 @@ if (!claimed) {
       workerData: { jobId },
       resourceLimits: { maxOldGenerationSizeMb: 12_288 },
     });
-    heardAt = Date.now();
+    watch = { ...watch, heardAt: Date.now() };
     const running = worker;
     let completed = false;
     let stopping = false;
@@ -68,7 +77,7 @@ if (!claimed) {
       terminated = fail;
       if (termination) fail(termination);
       beat = setInterval(() => {
-        const next = importBeat({ now: Date.now(), renewedAt: lastRenew, heardAt });
+        const next = importBeat({ now: Date.now(), renewedAt: lastRenew, heardAt: watch.heardAt });
         if (next === "lost-contact") {
           fail(
             new Error(
@@ -92,7 +101,7 @@ if (!claimed) {
             }
             lastRenew = Date.now();
             const current = await jobs.read(jobId);
-            if (current?.stopAsked && current.stage !== "saving") {
+            if (importStopsNow(current)) {
               stopping = true;
               await running.terminate();
               await jobs.update(jobId, {
@@ -105,8 +114,8 @@ if (!claimed) {
               resolve();
               return;
             }
-            const detail = latestDetail;
-            latestDetail = null;
+            const detail = watch.latestDetail;
+            watch = { ...watch, latestDetail: null };
             await jobs.update(jobId, { heartbeatAt: new Date().toISOString(), ...detail });
           })
           .catch(() => undefined)
@@ -114,20 +123,14 @@ if (!claimed) {
             ticking = false;
           });
       }, 10_000);
-      running.on(
-        "message",
-        (message: { done?: boolean; error?: string; progress?: boolean; detail?: string }) => {
-          heardAt = Date.now();
-          if (message.detail) {
-            latestDetail = { detail: message.detail, progressAt: new Date().toISOString() };
-          }
-          if (message.done) {
-            completed = true;
-            resolve();
-          }
-          if (message.error) reject(new Error(message.error));
+      running.on("message", (message: ImportWorkerSaid) => {
+        watch = importHeard(watch, message, Date.now());
+        if (message.done) {
+          completed = true;
+          resolve();
         }
-      );
+        if (message.error) reject(new Error(message.error));
+      });
       running.once("error", reject);
       running.once("exit", (code) => {
         if (!completed && !stopping)
@@ -167,9 +170,10 @@ if (!claimed) {
     const message = error instanceof Error ? error.message : String(error);
     const job = await jobs.read(jobId).catch(() => null);
     if (job && !["done", "failed", "cancelled"].includes(job.status)) {
+      const status = importTryStatus({ last, stopAsked: job.stopAsked });
       await jobs
         .update(jobId, {
-          ...(last ? { status: "failed" as const } : {}),
+          ...(status ? { status } : {}),
           stage: "waiting",
           error: message,
           updatedAt: new Date().toISOString(),

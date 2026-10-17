@@ -4105,7 +4105,11 @@ while its worker matches and tidies; progress timestamps and tidy-step details a
 separate. Cloud Run retries interrupted executions from checkpoints, without fetching
 teams that already have a success or failure recorded. Stop keeps checkpoints and leaves
 a partial pool unpublished. Resume continues the same job. Stop during the final commit
-waits for that commit. When Cloud Run ends an execution (a cancel, the task's time
+waits for that commit, and an import that then finishes stays finished (`importStopsNow`):
+until 17 October 2026 the stop was carried out after the save, the finished import written
+over as stopped and its downloads deleted as a finished one's are, so Resume downloaded the
+whole list again. A try that fails after Stop was pressed, a hung save among them, ends as
+stopped rather than failed (`importTryStatus`). When Cloud Run ends an execution (a cancel, the task's time
 limit), its SIGTERM is taken as a failure of that try: the job is written back to
 waiting with the reason, failed on the last try, and the lease let go before it exits.
 A worker that hangs while its supervisor beats on looked alive for as long as Cloud Run let
