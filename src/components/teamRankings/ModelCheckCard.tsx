@@ -291,16 +291,20 @@ export function ModelCheckCard({
                   Not enough held-back games here to tell the caps apart.
                 </p>
               )}
-              {closedLevels && (
-                <>
-                  <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Where a rating starts
-                  </h3>
-                  <p className="mt-1 text-slate-700 dark:text-slate-200">
-                    {closedLevelLine(closedLevels)}
-                  </p>
-                </>
-              )}
+            </>
+          )}
+          {/*
+           * Beside the backtest, not under it: its weekly cuts score games the backtest's own cut can
+           * leave none of, as when the 70% cut lands on the pool's last game day.
+           */}
+          {closedLevels && (
+            <>
+              <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Where a rating starts
+              </h3>
+              <p className="mt-1 text-slate-700 dark:text-slate-200">
+                {closedLevelLine(closedLevels)}
+              </p>
             </>
           )}
         </div>

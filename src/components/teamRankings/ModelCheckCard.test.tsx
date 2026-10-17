@@ -146,7 +146,7 @@ describe("naming a better setting", () => {
     caps: plain.caps.map((row) => ({ ...row, sampleSize: 400 })),
     ...changes,
   });
-  const show = async (shown: ModelCheckAnswer) => {
+  const show = async (shown: ModelCheckAnswer, ready: RegExp = /games predicted/i) => {
     const user = userEvent.setup();
     render(
       <ModelCheckCard
@@ -159,7 +159,7 @@ describe("naming a better setting", () => {
       />
     );
     await user.click(screen.getByRole("button", { name: "Check the model" }));
-    await screen.findByText(/games predicted/i);
+    await screen.findByText(ready);
   };
 
   it("names a held age gap that clearly did better, and by how much", async () => {
@@ -233,6 +233,20 @@ describe("naming a better setting", () => {
   it("says where a rating starts, and that the level held stands, in one line", async () => {
     await show(answer({ closedLevels: remeasured }));
 
+    expect(
+      screen.getByText(
+        "Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says where a rating starts where the backtest's own cut held back no game", async () => {
+    // The 70% cut on the pool's last game day trains on every game, while the weekly cuts still
+    // score theirs against earlier fits, so the line stands on its own.
+    await show(
+      answer({ result: { ...plain.result, sampleSize: 0 }, closedLevels: remeasured }),
+      /Not enough dated games here to hold any back/
+    );
     expect(
       screen.getByText(
         "Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better."
