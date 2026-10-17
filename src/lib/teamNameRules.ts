@@ -92,13 +92,14 @@ export type NameRule<Word extends string = string> = {
 
 /**
  * Practice. 336 export rows (69 with no players, 87 full); 104 GameChanger teams in the pool,
- * holding 97 games, 60 scored, one confirmed; 22 ranked clubs. Plural and "practising" because
- * those are the accounts the bare word missed, a fall's practices. The word boundary keeps out the
+ * holding 97 games, 60 scored, one confirmed; 22 ranked clubs. Plural and "practicing" because
+ * those are the accounts the bare word missed, a fall's practices; the British "practise",
+ * "practised" and "practising" with them, though neither data set has one. The word boundary keeps out the
  * 28 chiropractic sponsors in the export; a family-practice sponsor names three rec teams.
  */
 const PRACTICE: NameRule<"practice"> = {
   word: "practice",
-  pattern: /\bpractic(?:e|es|ing)\b|\bpractise[sd]?\b/i,
+  pattern: /\bpractic(?:e|es|ing)\b|\bpractis(?:e|es|ed|ing)\b/i,
   exempt: /\bfamily\s+practice\b/i,
   opponent: "drop",
 };

@@ -197,6 +197,17 @@ describe("the name rules", () => {
     ].forEach((name) => expect(firstRuleHit(name, NAME_RULES)).toBeNull());
   });
 
+  it("reads practice in every form a name writes it, the British spellings too", () => {
+    [
+      "Thornbury Practices",
+      "Thornbury Practicing 12U",
+      "Thornbury Practise",
+      "Thornbury Practises 11U",
+      "Thornbury Practised",
+      "Thornbury Practising 12U",
+    ].forEach((name) => expect(notATeamWord(name)?.word, name).toBe("practice"));
+  });
+
   it("names the first rule a name meets, with the words as the name writes them", () => {
     expect(notATeamWord("Hollowmere Scrimmage DNU")).toEqual({
       word: "scrimmage",
