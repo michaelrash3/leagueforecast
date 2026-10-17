@@ -63,6 +63,26 @@ describe("the connected pieces of a schedule", () => {
     expect(other.pieceOf("A")).toBe(other.largest);
   });
 
+  it("names the same largest of two pieces the same size, whatever order the games came in", () => {
+    // Which club ends up a piece's root follows the order of the games and which side is named
+    // first, so a tie broken by root moved with them; and the largest piece is the one split into
+    // leagues (`scheduleCommunities.ts`), so that moved ratings. Broken by each piece's smallest
+    // member, it is {A, D} either way.
+    const ids = ["A", "B", "C", "D"];
+    const one = scheduleComponents(ids, [
+      ["A", "D"],
+      ["B", "C"],
+    ]);
+    const other = scheduleComponents(ids, [
+      ["C", "B"],
+      ["D", "A"],
+    ]);
+    expect(one.sizeOf("A")).toBe(one.sizeOf("B"));
+    expect(one.pieceOf("A")).toBe(one.largest);
+    expect(other.pieceOf("A")).toBe(other.largest);
+    expect(one.pieceOf("B")).not.toBe(one.largest);
+  });
+
   it("has no largest piece when there is nothing in it", () => {
     const pieces = scheduleComponents([], []);
     expect(pieces.largest).toBeNull();

@@ -113,6 +113,40 @@ describe("the schedule's communities", () => {
     }
   });
 
+  it("start every club alike whatever order the games come in, when two pieces tie for largest", () => {
+    // Two pieces of eight clubs that never meet, each two leagues of four joined by one game, and
+    // thirty pairs of clubs that play each other twenty times, which give the schedule games
+    // enough for the resolution to find the leagues. Only the largest piece is split; the other
+    // is kept whole, so which of the two is named largest decides whether its clubs start at
+    // -1.45 (one game outside each league) or -1.6. The two pieces' ids are interleaved, so that
+    // neither piece's root sorts first whatever club it is: broken by root, the tie followed the
+    // games' order, and 19 of 40 of these shuffles named the other piece.
+    const piece = (odd: number) => {
+      const ids = Array.from({ length: 8 }, (_, i) => `c${2 * i + odd}`);
+      const pairs = [...roundRobin(ids.slice(0, 4), 2), ...roundRobin(ids.slice(4), 2)];
+      pairs.push([ids[0]!, ids[4]!]);
+      return { ids, pairs };
+    };
+    const odd = piece(1);
+    const even = piece(0);
+    const fillers = Array.from({ length: 30 }, (_, i) => [`f${i}x`, `f${i}y`] as const);
+    const ids = [...odd.ids, ...even.ids, ...fillers.flat()];
+    const pairs: Pair[] = [
+      ...odd.pairs,
+      ...even.pairs,
+      ...fillers.flatMap(([x, y]) => roundRobin([x, y], 20)),
+    ];
+    const once = startingLevels(communitiesOf(ids, pairs));
+    // The piece holding the smallest id, c0, is the one split.
+    expect(even.ids.map((id) => once.get(id))).toEqual(even.ids.map(() => startingLevel(1)));
+    expect(odd.ids.map((id) => once.get(id))).toEqual(odd.ids.map(() => CLOSED_START_RUNS));
+    let state = 5;
+    const next = () => (state = (Math.imul(state, 1103515245) + 12345) >>> 0) / 2 ** 32;
+    for (let round = 0; round < 12; round += 1) {
+      expect(startingLevels(communitiesOf(ids, shuffled(pairs, next)))).toEqual(once);
+    }
+  });
+
   it("are the same every time, numbered by first appearance in the order the nodes came", () => {
     const pool = leagues(11, 8, 30, 1200);
     const first = communitiesOf(pool.ids, pool.pairs);

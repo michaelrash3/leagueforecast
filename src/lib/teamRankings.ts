@@ -2879,17 +2879,30 @@ export const scheduleComponents = (
   });
 
   const sizes = new Map<string, number>();
+  const least = new Map<string, string>();
   ids.forEach((id) => {
     const root = find(id);
     sizes.set(root, (sizes.get(root) ?? 0) + 1);
+    const low = least.get(root);
+    if (low === undefined || id < low) least.set(root, id);
   });
   let largest: string | null = null;
   let biggest = 0;
+  let largestLeast = "";
   sizes.forEach((size, root) => {
-    // Ties broken by id so the answer does not depend on Map iteration order.
-    if (size > biggest || (size === biggest && largest !== null && root < largest)) {
+    /*
+     * Ties broken by each piece's smallest member, not by its root: which club ends up a root
+     * follows the order the games came in and which side each names first. The largest piece is
+     * the one split into leagues (`scheduleCommunities.ts`) while any other is kept whole, so a
+     * tie broken by root moved ratings with that order: of two pieces of eight clubs, each two
+     * leagues of four joined by a game, 19 of 40 shuffles of the same games split the other one,
+     * and started its clubs at −1.45 rather than −1.6.
+     */
+    const low = least.get(root) ?? root;
+    if (size > biggest || (size === biggest && largest !== null && low < largestLeast)) {
       biggest = size;
       largest = root;
+      largestLeast = low;
     }
   });
   return {
