@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildTeamRankings,
   effectiveGames,
@@ -12,6 +12,20 @@ import {
 } from "../teamRankings";
 import { buildOpponentAdjustedRatings } from "../powerRating";
 import { weightsForGames } from "../ratingRecency";
+
+/*
+ * Every club here starts at average, as before board rules 7 (`scheduleCommunities.ts`). These
+ * pools are two dozen clubs, too few for Louvain at the boards' resolution to find a league in, so
+ * the largest piece is kept whole and every club would start 1.6 runs below average. That moves
+ * every rating alike, which is not what this file is about, but the refits here made without
+ * starts would have to repeat it, and it parts two clubs tied to the last place (Club 0 and Club 1
+ * at 21 games each read -1.5148936170212766 and -1.5148936170212763). Where a club starts is
+ * tested on its own, in `scheduleCommunities.test.ts`.
+ */
+vi.mock("../scheduleCommunities", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../scheduleCommunities")>();
+  return { ...real, scheduleCommunities: () => ({ of: new Map(), outside: [] }) };
+});
 
 /** A fit's worth of the two things the discount needs: how noisy the pool is and who played how much. */
 const fit = (residualScale: number, games: Record<string, number>) => ({

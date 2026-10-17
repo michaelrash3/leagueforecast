@@ -1084,3 +1084,119 @@ describe("what a year of age is worth, level by level", () => {
     );
   });
 });
+
+describe("a prior centre: the level each rating starts from", () => {
+  it("leaves every number as it was with no centre, an empty one or a centre of 0 everywhere", () => {
+    for (const solver of ["dense", "sparse"] as const) {
+      const { ids: teamIds, games } = randomGraph(41, 200, 900, true);
+      const plain = buildOpponentAdjustedRatings(teamIds, games, { solver });
+      const empty = buildOpponentAdjustedRatings(teamIds, games, {
+        solver,
+        priorCentre: new Map(),
+      });
+      const zeros = buildOpponentAdjustedRatings(teamIds, games, {
+        solver,
+        priorCentre: new Map(teamIds.map((id) => [id, 0])),
+      });
+      expectBitIdentical(empty, plain);
+      expectBitIdentical(zeros, plain);
+      expect(Object.is(zeros.residualScale, plain.residualScale)).toBe(true);
+    }
+  });
+
+  it("takes a centre that is not a number, or one for a team not in the fit, as no centre", () => {
+    // One NaN centre left in would make every rating of its piece NaN through the solve.
+    for (const solver of ["dense", "sparse"] as const) {
+      const { ids: teamIds, games } = randomGraph(45, 60, 240, true);
+      const plain = buildOpponentAdjustedRatings(teamIds, games, { solver });
+      const junk = buildOpponentAdjustedRatings(teamIds, games, {
+        solver,
+        priorCentre: new Map([
+          [teamIds[0]!, Number.NaN],
+          [teamIds[1]!, Number.POSITIVE_INFINITY],
+          [teamIds[2]!, Number.NEGATIVE_INFINITY],
+          ["not in the fit", -1.6],
+        ]),
+      });
+      expectBitIdentical(junk, plain);
+      expect(Object.is(junk.residualScale, plain.residualScale)).toBe(true);
+    }
+  });
+
+  it("moves a piece that plays nobody else by exactly its centre, and nothing outside it", () => {
+    const loop: RatingGame[] = [
+      { home: "L1", away: "L2", homeMargin: 3, neutral: true },
+      { home: "L2", away: "L3", homeMargin: 1, neutral: true },
+      { home: "L3", away: "L1", homeMargin: -2, neutral: true },
+      { home: "L1", away: "L2", homeMargin: 5, neutral: true },
+    ];
+    const rest: RatingGame[] = [
+      { home: "A", away: "B", homeMargin: 4, neutral: true },
+      { home: "B", away: "C", homeMargin: -1, neutral: true },
+    ];
+    const teamIds = ["A", "B", "C", "L1", "L2", "L3"];
+    const centre = new Map(["L1", "L2", "L3"].map((id) => [id, -1.6]));
+    for (const solver of ["dense", "sparse"] as const) {
+      const plain = buildOpponentAdjustedRatings(teamIds, [...rest, ...loop], { solver });
+      const started = buildOpponentAdjustedRatings(teamIds, [...rest, ...loop], {
+        solver,
+        priorCentre: centre,
+      });
+      teamIds.forEach((id) => {
+        const moved = (started.ratings.get(id) ?? 0) - (plain.ratings.get(id) ?? 0);
+        expect(moved, id).toBeCloseTo(centre.get(id) ?? 0, 10);
+      });
+      // The fit's residuals do not change, so neither does its scale.
+      expect(started.residualScale).toBeCloseTo(plain.residualScale, 10);
+    }
+  });
+
+  it("rates a team with no games at its centre", () => {
+    const out = buildOpponentAdjustedRatings(
+      ["A", "B", "idle"],
+      [{ home: "A", away: "B", homeMargin: 2 }],
+      { priorCentre: new Map([["idle", -0.8]]) }
+    );
+    expect(out.ratings.get("idle")).toBeCloseTo(-0.8, 12);
+  });
+
+  it("is the fit of the margins less the centres' difference, so each rating is its own mean", () => {
+    const { ids: teamIds, games } = randomGraph(43, 180, 800, true);
+    const random = mulberry32(44);
+    const centre = new Map(teamIds.map((id) => [id, -2 * random()]));
+    const at = (id: string) => centre.get(id) ?? 0;
+    const options = { solver: "sparse" as const, cap: Number.POSITIVE_INFINITY };
+    const started = buildOpponentAdjustedRatings(teamIds, games, {
+      ...options,
+      priorCentre: centre,
+    });
+    // The ridge about m is the ridge about 0 of r − m: the margins shifted by m_home − m_away.
+    const shifted = buildOpponentAdjustedRatings(
+      teamIds,
+      games.map((game) => ({
+        ...game,
+        homeMargin: game.homeMargin - (at(game.home) - at(game.away)),
+      })),
+      options
+    );
+    teamIds.forEach((id) => {
+      expect(started.ratings.get(id)! - at(id)).toBeCloseTo(shifted.ratings.get(id)!, 7);
+    });
+    expect(started.homeAdvantage).toBeCloseTo(shifted.homeAdvantage, 7);
+    // A team's own normal equation: its rating is the weighted mean of what it played like, with
+    // the ridge's games played at its centre (the identity `gameBreakdown` rebuilds on a device).
+    const one = teamIds[0]!;
+    let weight = 0;
+    let weighed = 0;
+    for (const game of games) {
+      const side = game.home === one ? 1 : game.away === one ? -1 : 0;
+      if (side === 0) continue;
+      const opponent = started.ratings.get(side === 1 ? game.away : game.home)!;
+      const gap = game.ageGap ?? 0;
+      const hf = game.neutral ? 0 : started.homeAdvantage;
+      weight += 1;
+      weighed += opponent + side * (game.homeMargin - hf - gap * started.ageGapRuns);
+    }
+    expect(started.ratings.get(one)).toBeCloseTo((weighed + 1.5 * at(one)) / (weight + 1.5), 7);
+  });
+});

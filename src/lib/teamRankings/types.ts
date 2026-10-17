@@ -380,7 +380,7 @@ export type ScoutRankingRow = {
   /**
    * What the table ranks and shows: the opponent-adjusted expected margin vs an average team in
    * this pool, in runs, less one standard error for how little may stand behind it. See
-   * `confidentRating` and `EVIDENCE_STANDARD_ERRORS`, followed by the bounded schedule deduction.
+   * `confidentRating` and `EVIDENCE_STANDARD_ERRORS`.
    */
   rating: number;
   /**
@@ -391,8 +391,18 @@ export type ScoutRankingRow = {
    * not first in the nation, and without this the table could only assert the conclusion.
    */
   pointRating: number;
-  /** Run units deducted for opponents whose other games stay inside the same opponent circle. */
-  scheduleDeduction?: number;
+  /**
+   * Where the fit started this club, in runs: the level its ridge's virtual games were played at
+   * (`startingLevel`), below average by as much as its league keeps to itself. It is in
+   * `pointRating` already; it is here because a device rebuilding that rating from the club's
+   * games needs it (`gameBreakdown`). Left out for a club no rated game names, which starts at 0.
+   */
+  levelPrior?: number;
+  /**
+   * The rated games its league, its community of the schedule (`scheduleCommunities`), has played
+   * with exactly one side in it, which set `levelPrior`. Left out where that is.
+   */
+  outsideGames?: number;
   record: string;
   wins: number;
   losses: number;
@@ -410,9 +420,10 @@ export type ScoutRankingRow = {
    * through a chain of opponents.
    *
    * Not a measure of quality or of evidence. It is the size of the group this club's rating is
-   * measured *within*: the ridge pins every piece to average zero on its own, so a club in a piece
-   * of twelve has a rating relative to those twelve and no relation at all to one in the main
-   * piece. See `scheduleComponents`.
+   * measured *within*: the ridge holds every piece to the average of its clubs' starting levels on
+   * its own, so a club in a piece of twelve has a rating relative to those twelve, started below
+   * average because they play nobody else (`levelPrior`), and no measured relation to one in the
+   * main piece. See `scheduleComponents`.
    */
   componentSize: number;
   /**

@@ -41,8 +41,11 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * four runs from 9U to 10U, rather than two runs at every level. 5: a club removed automatically as
  * plainly made up, and every game naming it, are left off every board (`autoRemoved.ts`).
  * 6: a bounded one-run deduction for observed circular opponent schedules (`circularSchedule.ts`).
+ * 7: each club's rating starts at its league's level, below average by as much as the league keeps
+ * to itself (`scheduleCommunities.ts`), and 6's deduction is gone; a row says where it started
+ * (`levelPrior`, `outsideGames`) and carries no `scheduleDeduction`.
  */
-export const BOARD_RULES = 6;
+export const BOARD_RULES = 7;
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of
@@ -108,8 +111,12 @@ export type HistoryPoint = { asOf: string; rank: number | null };
  * 1: the fit as it first went out. 2: a game's age gap read through each level's step
  * (`ageGapYears`, `AGE_STEP_RUNS`) rather than the plain difference in levels, which a device of an
  * older build would work its games out with and find matching nothing (found by Codex on #379).
+ * 3: a club's virtual games played at its starting level (its row's `levelPrior`) rather than at
+ * nought (board rules 7), which a device of an older build would leave out of the rating it
+ * rebuilds, and then either find matching nothing or, for a club whose start is near average and
+ * whose record is long, draw lines a hair off the fit's.
  */
-export const BOARD_FIT_VERSION = 2;
+export const BOARD_FIT_VERSION = 3;
 
 /**
  * What the fit a board's rows were cut from read beyond the rows themselves (`boardFitOf`): the
@@ -189,7 +196,8 @@ const ROW_FIELDS: { [K in keyof ScoutRankingRow]-?: FieldKind } = {
   rank: "number",
   rating: "number",
   pointRating: "number",
-  scheduleDeduction: "number?",
+  levelPrior: "number?",
+  outsideGames: "number?",
   record: "string",
   wins: "number",
   losses: "number",

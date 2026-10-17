@@ -72,6 +72,7 @@ import {
   gcRowId,
   recordOf,
 } from "../teamRankings";
+import { CLOSED_START_RUNS } from "../scheduleCommunities";
 
 const team = (id: string, name: string, isMine?: boolean): ScoutTeam => ({
   id,
@@ -788,7 +789,12 @@ describe("buildScoutingReport", () => {
 
   it("pins every preview's numbers to the digit", () => {
     // Taken before the per-opponent preview moved out to `previewMatchup`, which the comparison's
-    // forecast shares; the move must not change a digit.
+    // forecast shares; the move must not change a digit. Each rating now starts at its league's
+    // level (`scheduleCommunities.ts`), and this pool is too small for the resolution to split its
+    // largest piece, so that piece is kept whole like the Elks and Foxes island: every club starts
+    // 1.6 runs below average, which moves no margin between two of them, and these are the digits
+    // from before the starting levels. While the largest piece was left a club apiece, each of its
+    // four clubs started by its own game count, and every preview but Aces' moved.
     const teams = ["Aces", "Bears", "Cubs", "Dogs", "Elks", "Foxes"].map((name) =>
       team(name.charAt(0), name)
     );
@@ -3154,8 +3160,9 @@ describe("buildTeamRankings with a season-year pool", () => {
      * about a cross-age game; `rating` is that belief less a standard error for how thin it is, and
      * a side with one game is discounted hard enough to swamp the effect being measured.
      */
-    // Losing by the expected margin is playing even, not losing.
-    expect(Math.abs(a.pointRating)).toBeLessThan(0.5);
+    // Losing by the expected margin is playing even, not losing: it is rated about level with the
+    // side it lost to, each from where it started.
+    expect(Math.abs(a.pointRating - ten.get("C")!.pointRating)).toBeLessThan(0.5);
     expect(a.strengthOfSchedule).toBeGreaterThan(1);
     expect(a.record).toBe("0-1");
     expect(a.sosRank).toBe(1);
@@ -3240,7 +3247,15 @@ describe("buildTeamRankings without ageGroups", () => {
     expect(byId.get("A")!.fromGameChanger).toBe(false);
     expect(byId.get("B")!.fromGameChanger).toBe(true);
     expect(byId.get("A")!.ageLevel).toBeUndefined();
-    expect(byId.get("A")!.rating).toBeCloseTo(-byId.get("B")!.rating, 10);
+    // Two clubs that only met each other are one closed league, too small to split: both start
+    // at the closed level, with no games outside it, and sit either side of it.
+    expect(byId.get("A")!.outsideGames).toBe(0);
+    expect(byId.get("A")!.levelPrior).toBe(CLOSED_START_RUNS);
+    expect(byId.get("A")!.levelPrior).toBe(byId.get("B")!.levelPrior);
+    expect(byId.get("A")!.rating - byId.get("A")!.levelPrior!).toBeCloseTo(
+      -(byId.get("B")!.rating - byId.get("B")!.levelPrior!),
+      10
+    );
   });
 });
 
@@ -3436,8 +3451,12 @@ describe("placeholders are slots, not teams", () => {
     const aces = rows.find((row) => row.teamName === "Aces")!;
     const bears = rows.find((row) => row.teamName === "Bears")!;
     // Each is judged on its own game, so neither has met the other even indirectly: their
-    // strengths of schedule are the mirror image rather than a chain through one shared opponent.
-    expect(aces.strengthOfSchedule).toBeCloseTo(-bears.strengthOfSchedule, 10);
+    // strengths of schedule are the mirror image rather than a chain through one shared opponent,
+    // each about where its own piece of the schedule started.
+    expect(aces.strengthOfSchedule - aces.levelPrior!).toBeCloseTo(
+      -(bears.strengthOfSchedule - bears.levelPrior!),
+      10
+    );
   });
 
   it("keeps a slot out of the names offered when logging a game", () => {

@@ -29,19 +29,23 @@ const its = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: fal
 const your = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: true, cap: CAP });
 
 describe("the line above a club's games", () => {
-  it("separates the schedule deduction from confidence in the record", () => {
-    const breakdown = { rating: 2.3, pointRating: 2.5, scheduleDeduction: 0.5, lines: new Map() };
-    const notes = gameNotesOf(breakdown, { span: "Season", own: true, cap: CAP });
-    expect(notes.headline).toBe(
-      "Season rating +2.3: +2.5 from your games, +0.3 because your record makes your rating surer than the average club's, -0.5 for a circular schedule."
-    );
-    expect(notes.key).toContain("Game effects hold the schedule deduction fixed.");
-    expect(
-      ratingHeadline(
-        { rating: 1.5, pointRating: 2.5, scheduleDeduction: 1 },
-        { span: "Season", own: false }
-      )
-    ).toBe("Season rating +1.5: +2.5 from its games, -1.0 for a circular schedule.");
+  it("never says where a club's league starts it, to the page's own club or any other", () => {
+    // An island club, started 1.6 below average: the owner chose that no panel say its league keeps
+    // to itself, a member's included. The start is inside the +2.5 from its games and goes unsaid.
+    const island = { rating: 2.8, pointRating: 2.5, levelPrior: -1.6, outsideGames: 0 };
+    [true, false].forEach((own) => {
+      const notes = gameNotesOf(
+        { ...island, lines: new Map([["g1", line()]]) },
+        { span: "Season", own, cap: CAP }
+      );
+      const whose = own ? "your" : "its";
+      expect(notes.headline).toBe(
+        `Season rating +2.8: +2.5 from ${whose} games, +0.3 because ${whose} record makes ${whose} rating surer than the average club's.`
+      );
+      expect(notes.key).toBe(GAME_NOTES_KEY);
+      const said = [notes.headline, notes.key, ...[...notes.byGame.values()].flat()].join(" ");
+      expect(said).not.toMatch(/league|outside|keeps to itself|starts|below average/i);
+    });
   });
 
   it("splits the rating into its games and its record, surer or less sure than the average club's", () => {
@@ -79,6 +83,11 @@ describe("the line above a club's games", () => {
     expect(
       ratingHeadline({ rating: -0.03, pointRating: 0.02 }, { span: "Season", own: false })
     ).toBe("Season rating -0.0, all of it from its games.");
+    // A start inside the figure from the games changes none of it.
+    const started = { rating: 0.02, pointRating: -0.03, levelPrior: -1.6 / 2.3, outsideGames: 13 };
+    expect(ratingHeadline(started, { span: "Season", own: false })).toBe(
+      "Season rating +0.0, all of it from its games."
+    );
     expect(
       ratingHeadline({ rating: -0.03, pointRating: 0.3 }, { span: "Fall 2026", own: false })
     ).toBe(

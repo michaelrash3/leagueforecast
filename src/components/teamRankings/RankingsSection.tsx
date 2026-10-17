@@ -431,14 +431,6 @@ export function RankingsSection({
                           <dt className="text-slate-500 dark:text-slate-400">Best guess</dt>
                           <dd>{formatRating(row.pointRating)}</dd>
                         </div>
-                        {(row.scheduleDeduction ?? 0) > 0 && (
-                          <div className="flex justify-between gap-2">
-                            <dt className="text-slate-500 dark:text-slate-400">
-                              Schedule deduction
-                            </dt>
-                            <dd>{formatRating(-row.scheduleDeduction!)}</dd>
-                          </div>
-                        )}
                         <div className="flex justify-between gap-2">
                           <dt className="text-slate-500 dark:text-slate-400">Games</dt>
                           <dd>{row.games}</dd>
@@ -533,17 +525,7 @@ export function RankingsSection({
                           )}
                         </td>
                         <td>{row.record}</td>
-                        <td>
-                          {formatRating(row.rating)}
-                          {(row.scheduleDeduction ?? 0) > 0 && (
-                            <span
-                              className="block text-xs text-slate-500 dark:text-slate-400"
-                              title="Opponents' other games mostly stay in the same circle. The deduction is capped at one rating point."
-                            >
-                              Schedule deduction {formatRating(-row.scheduleDeduction!)}
-                            </span>
-                          )}
-                        </td>
+                        <td>{formatRating(row.rating)}</td>
                         <td className="text-slate-500 dark:text-slate-400">
                           {formatRating(row.pointRating)}
                         </td>

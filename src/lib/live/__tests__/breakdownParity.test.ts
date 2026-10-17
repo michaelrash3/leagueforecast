@@ -302,11 +302,7 @@ describe("what each game did, worked out on a device", { timeout: 60_000 }, () =
           lessSure += 1;
           expect(spreadOf(row.teamId), at).toBeGreaterThan(average);
         } else {
-          expect(said, at).toMatch(
-            (row.scheduleDeduction ?? 0) > 0
-              ? /^Season rating [+-]\d+\.\d: [+-]\d+\.\d from its games, -\d+\.\d for a circular schedule\.$/
-              : /^Season rating [+-]\d+\.\d, all of it from its games\.$/
-          );
+          expect(said, at).toMatch(/^Season rating [+-]\d+\.\d, all of it from its games\.$/);
         }
         if (spreadOf(row.teamId) < average) gaining += 1;
       }

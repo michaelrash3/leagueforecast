@@ -12,7 +12,13 @@ import { normalizeDateInput, todayIsoDay } from "./date";
 import { weightsForGames } from "./ratingRecency";
 import { ageLevelFromName } from "./gameChangerApi";
 import { coachesOf } from "./gcStaff";
-import { circularScheduleDeductions } from "./circularSchedule";
+import {
+  outsideGamesOf,
+  scheduleCommunities,
+  startingLevel,
+  startingLevels,
+  type ScheduleCommunities,
+} from "./scheduleCommunities";
 
 /**
  * What has been split out so far, re-exported so nothing that imports from here had to change.
@@ -157,15 +163,16 @@ export const ratingSpread = (
  *
  * Built per fit rather than per team, because it needs one thing no team knows on its own: how much
  * evidence an *average* team in this pool has. The discount is centred on that, so the table still
- * means what it meant — the rating of a middling team stays near zero and "expected margin against
- * an average team" is still a fair reading of it — while a club with less than its share of
- * evidence loses ground and one with more gains a little.
+ * means what it meant — the rating of a middling team stays near where the fit put it, about its
+ * league's start (`scheduleCommunities.ts`), and "expected margin against an average team" is
+ * still a fair reading of it — while a club with less than its share of evidence loses ground and
+ * one with more gains a little.
  *
  * Centring is a single constant added to every rating, so it cannot change any order, and
  * `predictMatchup` takes a difference, so it cancels there too. What it buys is that a pool where
  * everybody has played the same amount is left *exactly* as the fit left it, to the last digit —
  * which is right, because when every club has equal evidence, evidence says nothing about which is
- * better. The per-component zero-sum property of the fit survives that untouched.
+ * better. Each piece's average, the mean of its clubs' starting levels, moves by the same constant.
  *
  * Centred over the clubs, and over all of them in the year rather than one page's rows. Not one
  * page's rows, because the pages of a year share a fit and a club's shown rating must not depend on
@@ -2829,11 +2836,13 @@ export const leagueStandIns = (
 /**
  * The connected pieces of a schedule: which clubs can be compared to which at all.
  *
- * A rating is a claim about a margin against the pool's average, and the ridge pins every
- * *connected* piece of the schedule to average zero independently. That is correct arithmetic and
- * it has a consequence nobody reads off the table: two clubs joined by no chain of opponents are
- * measured against two different zeros, so the difference between their ratings is not a
- * prediction about anything. It is two unrelated numbers subtracted.
+ * A rating is a claim about a margin against the pool's average, and the ridge holds every
+ * *connected* piece of the schedule independently to the average of its clubs' starting levels
+ * (`scheduleCommunities.ts`), which for a piece off the largest is the level measured for leagues
+ * that play nobody else, not for this one. That is the best the fit can do, and it has a
+ * consequence nobody reads off the table: two clubs joined by no chain of opponents are measured
+ * against two different levels, one of them a guess, so the difference between their ratings is
+ * not a measured prediction about anything.
  *
  * On the real pool this is not an edge case. 9U 2027's autumn holds 15,629 clubs in 2,107 pieces,
  * the largest with 28.4% of them, and on the board with the cap at 8, 39 of the national top 100
@@ -2870,17 +2879,30 @@ export const scheduleComponents = (
   });
 
   const sizes = new Map<string, number>();
+  const least = new Map<string, string>();
   ids.forEach((id) => {
     const root = find(id);
     sizes.set(root, (sizes.get(root) ?? 0) + 1);
+    const low = least.get(root);
+    if (low === undefined || id < low) least.set(root, id);
   });
   let largest: string | null = null;
   let biggest = 0;
+  let largestLeast = "";
   sizes.forEach((size, root) => {
-    // Ties broken by id so the answer does not depend on Map iteration order.
-    if (size > biggest || (size === biggest && largest !== null && root < largest)) {
+    /*
+     * Ties broken by each piece's smallest member, not by its root: which club ends up a root
+     * follows the order the games came in and which side each names first. The largest piece is
+     * the one split into leagues (`scheduleCommunities.ts`) while any other is kept whole, so a
+     * tie broken by root moved ratings with that order: of two pieces of eight clubs, each two
+     * leagues of four joined by a game, 19 of 40 shuffles of the same games split the other one,
+     * and started its clubs at −1.45 rather than −1.6.
+     */
+    const low = least.get(root) ?? root;
+    if (size > biggest || (size === biggest && largest !== null && low < largestLeast)) {
       biggest = size;
       largest = root;
+      largestLeast = low;
     }
   });
   return {
@@ -2888,6 +2910,22 @@ export const scheduleComponents = (
     sizeOf: (id) => (parent.has(id) ? (sizes.get(find(id)) ?? 0) : 0),
     largest,
   };
+};
+
+/**
+ * What a row says of where its club's rating started (`scheduleCommunities.ts`): the level its
+ * virtual games were played at, which a device needs to rebuild the fit's rating from the club's
+ * games (`gameBreakdown`), and its league's games outside itself, which the panel says it in.
+ * Nothing for a club no rated game names, which starts at average.
+ */
+const startOf = (
+  communities: ScheduleCommunities,
+  teamId: string
+): Pick<ScoutRankingRow, "levelPrior" | "outsideGames"> => {
+  const outsideGames = outsideGamesOf(communities, teamId);
+  return outsideGames === undefined
+    ? {}
+    : { levelPrior: startingLevel(outsideGames), outsideGames };
 };
 
 /** Sort by rating, number the ranks, and number strength of schedule among teams that played. */
@@ -2971,8 +3009,14 @@ export const buildTeamRankings = (
     (game) => game.ageGroupId === ageGroupId && countsTowardRating(game)
   );
   const weights = recencyWeightsFor(playedGames);
+  const teamIds = teams.map((team) => team.id);
+  const pairs = playedGames.map((game) => [game.teamAId, game.teamBId] as [string, string]);
+  // Before the fit, which starts each club at its league's level: the year fit's rule, read off
+  // the same games, so a one-group table and a page cut from a year fit agree on the same pool.
+  const pieces = scheduleComponents(teamIds, pairs);
+  const communities = scheduleCommunities(teamIds, pairs, pieces);
   const adjusted = buildOpponentAdjustedRatings(
-    teams.map((team) => team.id),
+    teamIds,
     playedGames.map((game, at) => ({
       home: game.teamAId,
       away: game.teamBId,
@@ -2981,14 +3025,10 @@ export const buildTeamRankings = (
       neutral: true,
       ...(weights ? { weight: weights[at] ?? 1 } : {}),
     })),
-    { cap: RATING_CAP }
+    { cap: RATING_CAP, priorCentre: startingLevels(communities) }
   );
 
   const records = recordsFor(playedGames);
-  const pieces = scheduleComponents(
-    teams.map((team) => team.id),
-    playedGames.map((game) => [game.teamAId, game.teamBId] as [string, string])
-  );
   const isClub = (team: ScoutTeam) => !team.placeholder && !team.nameOnly;
   const effective = effectiveGames(
     adjusted,
@@ -2997,14 +3037,6 @@ export const buildTeamRankings = (
   const confident = evidenceDiscount(
     { games: effective, residualScale: adjusted.residualScale },
     teams.filter(isClub).map((team) => team.id)
-  );
-  const scheduleDeductions = circularScheduleDeductions(
-    teams,
-    playedGames.map((game, at) => ({
-      a: game.teamAId,
-      b: game.teamBId,
-      weight: weights?.[at] ?? 1,
-    }))
   );
   const rows = teams
     /*
@@ -3016,17 +3048,14 @@ export const buildTeamRankings = (
     .map((team): ScoutRankingRow => {
       const { wins, losses, ties } = records.get(team.id) ?? NO_RECORD;
       const gamesPlayed = adjusted.games.get(team.id) ?? 0;
-      const scheduleDeduction = scheduleDeductions.get(team.id) ?? 0;
       return {
         teamId: team.id,
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating:
-          confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0) -
-          scheduleDeduction,
+        rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
         pointRating: adjusted.ratings.get(team.id) ?? 0,
-        ...(scheduleDeduction > 0 ? { scheduleDeduction } : {}),
+        ...startOf(communities, team.id),
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
         losses,
@@ -3211,8 +3240,11 @@ export type ScoutYearFit = {
   adjusted: OpponentAdjustedRatings;
   /** Each team's games weighed by its opponents' (`effectiveGames`): what the discount reads. */
   effective: Map<string, number>;
-  /** The bounded deduction for opponents whose other schedules recycle the same circle. */
-  scheduleDeductions: Map<string, number>;
+  /**
+   * The schedule's communities, which set where each node's rating started (`startingLevels`):
+   * read off the same games as the fit, before it.
+   */
+  communities: ScheduleCommunities;
   homeLevels: Map<string, number | undefined>;
   records: Map<string, WinLoss>;
   /** How many of each team's games crossed a level. */
@@ -3256,10 +3288,22 @@ export const fitScoutYear = (
     filed.add(game.teamBId);
   });
   const nodes = teams.filter((team) => active.has(team.id));
+  const nodeIds = nodes.map((team) => team.id);
+  const pairs = ratedGames.map((game) => [game.teamAId, game.teamBId] as [string, string]);
+
+  /*
+   * Over the same games the fit reads, so "the piece this club is in" means the piece the ridge
+   * holds to its own average. Nodes rather than rows: a club reaches the rest of the table through
+   * whatever it played, including sides listed on other pages and stand-ins, all of which are in
+   * the fit. Before the fit, since the communities they are split into decide where each rating
+   * starts (`scheduleCommunities.ts`); both read the schedule alone, never a rating.
+   */
+  const pieces = scheduleComponents(nodeIds, pairs);
+  const communities = scheduleCommunities(nodeIds, pairs, pieces);
 
   const weights = recencyWeightsFor(ratedGames);
   const adjusted = buildOpponentAdjustedRatings(
-    nodes.map((team) => team.id),
+    nodeIds,
     rated.map(({ game, ageGap }, at) => ({
       home: game.teamAId,
       away: game.teamBId,
@@ -3269,7 +3313,7 @@ export const fitScoutYear = (
       ...(ageGap ? { ageGap } : {}),
       ...(weights ? { weight: weights[at] ?? 1 } : {}),
     })),
-    { cap: RATING_CAP }
+    { cap: RATING_CAP, priorCentre: startingLevels(communities) }
   );
 
   /*
@@ -3301,30 +3345,12 @@ export const fitScoutYear = (
     nodes.filter((team) => !team.placeholder && !team.nameOnly).map((team) => team.id)
   );
   const confident = discountAbout(middle, adjusted.residualScale);
-  const scheduleDeductions = circularScheduleDeductions(
-    nodes,
-    ratedGames.map((game, at) => ({
-      a: game.teamAId,
-      b: game.teamBId,
-      weight: weights?.[at] ?? 1,
-    }))
-  );
-  /*
-   * Over the same games the fit read, so "the piece this club is in" means the piece the ridge
-   * pinned to zero on its own. Nodes rather than rows: a club reaches the rest of the table through
-   * whatever it played, including sides listed on other pages and stand-ins, all of which are in
-   * the fit.
-   */
-  const pieces = scheduleComponents(
-    nodes.map((team) => team.id),
-    ratedGames.map((game) => [game.teamAId, game.teamBId] as [string, string])
-  );
   return {
     nodes,
     filedByPage,
     adjusted,
     effective,
-    scheduleDeductions,
+    communities,
     homeLevels,
     records,
     crossAgeCounts,
@@ -3403,17 +3429,14 @@ export const rowsOfYearFit = (
       const crossAgeGames = crossAgeCounts.get(team.id) ?? 0;
       const ageLevel = homeLevels.get(team.id);
       const gamesPlayed = adjusted.games.get(team.id) ?? 0;
-      const scheduleDeduction = fit.scheduleDeductions.get(team.id) ?? 0;
       return {
         teamId: team.id,
         teamName: team.name,
         isMine: myTeamId ? team.id === myTeamId : Boolean(team.isMine),
         rank: 0,
-        rating:
-          confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0) -
-          scheduleDeduction,
+        rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
         pointRating: adjusted.ratings.get(team.id) ?? 0,
-        ...(scheduleDeduction > 0 ? { scheduleDeduction } : {}),
+        ...startOf(fit.communities, team.id),
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
         losses,
