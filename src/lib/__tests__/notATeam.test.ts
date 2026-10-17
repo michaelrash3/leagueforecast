@@ -454,6 +454,37 @@ describe("a page whose name says it is no team, already in the pool", () => {
     );
     expect(tidy.notATeam).toBe(0);
     expect(tidy.state.games.map((game) => game.id)).toEqual(["g2"]);
+    // Nor a stand-in since read as a slot (`markPlaceholders`), which carries both marks.
+    const both = dropNotATeam(
+      pool(
+        [{ id: "slot2", name: "Scrimmage", placeholder: true, nameOnly: true }],
+        [row("g3", "quill", "slot2", [4, 1], "gcquill")]
+      )
+    );
+    expect(both.dropped).toBe(0);
+    expect(both.state.games.map((game) => game.id)).toEqual(["g3"]);
+  });
+
+  it("never deletes a club added by hand, which is neither pulled nor a stand-in", () => {
+    // No link and no stand-in's mark: somebody typed it in, and nothing here outranks that.
+    const { state, dropped } = dropNotATeam(
+      pool(
+        [{ id: "hand", name: "Rowanberry Practice Squad" }],
+        [row("g1", "quill", "hand", [7, 5], "gcquill")]
+      )
+    );
+    expect(dropped).toBe(0);
+    expect(state.games.map((game) => game.id)).toEqual(["g1"]);
+  });
+
+  it("keeps a stand-in that is the user's own club or a page's own team", () => {
+    // Marked as theirs or picked as a page's team by its name alone, it is vouched for all the same.
+    const squad: ScoutTeam = { id: "squad", name: "Rowanberry Practice Squad", nameOnly: true };
+    const games = [row("g1", "quill", "squad", [7, 5], "gcquill")];
+    expect(dropNotATeam(pool([{ ...squad, isMine: true }], games)).dropped).toBe(0);
+    const picked = { ...pool([squad], games), ageGroups: [{ ...page, myTeamId: "squad" }] };
+    expect(dropNotATeam(picked).dropped).toBe(0);
+    expect(dropNotATeam(pool([squad], games)).dropped).toBe(1);
   });
 
   it("files a stand-in's drop-word game the same whenever the schedule was first pulled", () => {
