@@ -82,6 +82,14 @@ export const readLastClosedLevel = async (
   }
 };
 
-/** The card's line for the record: the day it was measured, then the line as the check says it. */
+/**
+ * The card's line for the record: the day it was measured and the squad year it was measured on,
+ * then the line as the check says it. The year, since the card draws the line on every page and the
+ * nightly re-measures only the busiest year: on a page of another year, beside that page's own
+ * "Where a rating starts" after a press, the two readings come from different pools, and on the
+ * seeded fixture they said opposite things of the same four weeks.
+ */
 export const lastClosedLevelLine = (record: ClosedLevelRecord): string =>
-  `Last weekly re-measure, ${shortDay(record.measuredOn)}. ${closedLevelLine(record.check)}`;
+  `Last weekly re-measure, ${shortDay(record.measuredOn)}, on ${
+    record.year === null ? "the pages with no squad year" : `the ${record.year} squad year`
+  }. ${closedLevelLine(record.check)}`;

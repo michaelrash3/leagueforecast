@@ -295,12 +295,40 @@ describe("naming a better setting", () => {
 
     expect(
       await screen.findByText(
-        "Last weekly re-measure, 12 Oct. Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better."
+        "Last weekly re-measure, 12 Oct, on the 2027 squad year. Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better."
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check the model" })).toBeInTheDocument();
     expect(screen.queryByText(/games predicted/i)).toBeNull();
     expect(asked).toBe(1);
+  });
+
+  it("names the squad year a weekly re-measure was of, on a page of another year", async () => {
+    // The nightly re-measures the busiest year only, and the card draws its line on every page:
+    // here the 2027 year's Monday reading on a 10U 2026 page, whose own press reads another pool.
+    const other = [ageGroup(10, 2026)];
+    render(
+      <ModelCheckCard
+        ageGroupId={other[0]!.id}
+        groupName="10U 2026"
+        teams={pool.teams}
+        games={pool.games}
+        ageGroups={other}
+        lastWeekly={() =>
+          Promise.resolve({
+            format: 1,
+            measuredOn: "2026-10-12",
+            measuredAt: "2026-10-12T04:40:00.000Z",
+            year: 2027,
+            check: remeasured,
+          })
+        }
+      />
+    );
+
+    expect(
+      await screen.findByText(/^Last weekly re-measure, 12 Oct, on the 2027 squad year\. /)
+    ).toBeInTheDocument();
   });
 
   it("says nothing of a weekly re-measure where none was kept", async () => {

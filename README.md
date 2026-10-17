@@ -3190,9 +3190,11 @@ It took 20 s and about 1 GB above the loaded pool (2.8 GB at most) in Node 24 on
 - _The live run keeps the answer_ as one small document beside the views,
   `live/closedLevel` (`closedLevelRecord.ts`), which the Model check card reads as it
   opens and shows as one line, before anything is pressed: "Last weekly re-measure, 12
-  Oct. Starting level for leagues with few outside games: held at −1.6; the four weeks
-  to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better." The line names
-  no club or league, and calls nothing closed.
+  Oct, on the 2027 squad year. Starting level for leagues with few outside games: held
+  at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly
+  better." It names the squad year, since the card shows it on every page and a page of
+  another year reads its own pool when pressed. The line names no club or league, and
+  calls nothing closed.
 - _A level clearly better opens an issue_, "A new starting level is ready for leagues
   with few outside games" ("When a run fails"), with the level read, the gain and its
   standard error, and that the change is a commit. A later Monday that judges the level

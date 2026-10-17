@@ -280,10 +280,13 @@ describe("the record kept for the card", () => {
     ).toBeNull();
   });
 
-  it("says on the card when it was measured, then the line", () => {
+  it("says on the card when it was measured and on which squad year, then the line", () => {
     const line = lastClosedLevelLine(record as ClosedLevelRecord);
     expect(line).toBe(
-      "Last weekly re-measure, 12 Oct. Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.92 ± 0.12 on 79,981 games; clearly better, by 0.0012 runs a game, give or take 0.0004, so a change to −1.92 is ready."
+      "Last weekly re-measure, 12 Oct, on the 2027 squad year. Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.92 ± 0.12 on 79,981 games; clearly better, by 0.0012 runs a game, give or take 0.0004, so a change to −1.92 is ready."
+    );
+    expect(lastClosedLevelLine({ ...record, year: null })).toMatch(
+      /^Last weekly re-measure, 12 Oct, on the pages with no squad year\. Starting level /
     );
   });
 });
