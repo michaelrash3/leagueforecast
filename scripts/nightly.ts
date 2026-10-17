@@ -208,7 +208,8 @@ const main = async (): Promise<void> => {
         device: "nightly",
         keep: true,
         onStage,
-        // The tidy keeps every club a League Standings team links, read as the boards read League.
+        // The import pulls again, and the tidy keeps, every club a League Standings team links,
+        // read as the boards read League.
         leagueDocs: opened.leagueDocs,
       }
     );

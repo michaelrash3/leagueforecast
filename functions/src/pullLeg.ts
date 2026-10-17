@@ -31,7 +31,8 @@ try {
     chargeLegs: (jobId, legs) => chargeRefreshLegs(docs, jobId, legs, new Date()),
     fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
     now: () => new Date(),
-    // The tidy keeps every club a League Standings team links, read as the boards read League.
+    // The import pulls again, and the tidy keeps, every club a League Standings team links, read
+    // as the boards read League.
     leagueDocs: restLeagueDocs(docs),
     enqueue: enqueueLeg,
     inTimeZone: (timeZone) => {

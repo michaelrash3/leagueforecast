@@ -303,7 +303,8 @@ const legDeps = (
 
 describe("a pull the cloud runs a leg at a time", () => {
   it("hands its tidy the League Standings documents it is given", async () => {
-    // So the tidy keeps every club a League Standings team links (`leagueSeasonsOf`).
+    // So the import pulls again, and the tidy keeps, every club a League Standings team links
+    // (`leagueSeasonsOf`).
     const cloud = memoryCloud();
     await seed(cloud);
     const jobs = memoryJobs();

@@ -768,7 +768,8 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
       now,
       device: `import-${jobId}`,
       ...(deps.signal ? { signal: deps.signal } : {}),
-      // League as the boards read it, so the final tidy keeps every club a League team links.
+      // League as the boards read it, so the import pulls again, and the final tidy keeps, every
+      // club a League team links.
       ...(deps.leagueDocs ? { leagueDocs: deps.leagueDocs } : {}),
       invalidIds,
       onOutcomes: async (outcomes) => {

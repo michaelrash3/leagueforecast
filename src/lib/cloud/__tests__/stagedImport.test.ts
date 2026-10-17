@@ -111,7 +111,8 @@ const setup = (teams = 5001) => {
 
 describe("a staged CSV import", () => {
   it("hands its final tidy the League Standings documents it is given", async () => {
-    // So the tidy keeps every club a League Standings team links (`leagueSeasonsOf`).
+    // So the import pulls again, and the tidy keeps, every club a League Standings team links
+    // (`leagueSeasonsOf`).
     const test = setup(3);
     const leagueDocs = async () => [];
     await runStagedImport(ID, { ...test.deps, leagueDocs });

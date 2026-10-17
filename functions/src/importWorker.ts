@@ -20,7 +20,8 @@ try {
     store: firestoreRestStore({ ...access, writable: true }),
     fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
     now: () => new Date(),
-    // The final tidy keeps every club a League Standings team links, read as the boards read it.
+    // The import pulls again, and the final tidy keeps, every club a League Standings team links,
+    // read as the boards read it.
     leagueDocs: restLeagueDocs(docs),
     onProgress: (detail) =>
       parentPort?.postMessage({ progress: true, ...(detail ? { detail } : {}) }),
