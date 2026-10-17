@@ -136,6 +136,17 @@ export type OpponentAdjustedOptions = {
    * SPARSE_SOLVER_THRESHOLD teams). Default "auto".
    */
   solver?: "dense" | "sparse" | "auto";
+  /**
+   * Where each team's rating starts, in runs: the level its `shrinkage` virtual games are played
+   * at, 0 (the league mean) for a team not in it. The fit then minimises the squared residuals
+   * plus `shrinkage · (r − centre)²` for each team, rather than `shrinkage · r²`, which is one
+   * term on the right-hand side of each of its normal equations and nothing else. A team with no
+   * games is rated exactly its centre, and a piece of the schedule that plays nobody else averages
+   * its teams' centres rather than 0. Team Rankings starts a club whose league keeps to itself
+   * below average (`scheduleCommunities.ts`). Left out, or 0 for every team, the fit is the one it
+   * always was, to the bit.
+   */
+  priorCentre?: ReadonlyMap<string, number>;
 };
 
 /**
@@ -560,8 +571,9 @@ export const buildOpponentAdjustedRatings = (
   });
 
   /*
-   * Ridge regularization: shrink team ratings toward 0 (league mean), the HFA toward 0, and the
-   * age-gap correction toward 0 — that is, the fitted runs per year toward the prior.
+   * Ridge regularization: shrink team ratings toward 0 (league mean), or toward each team's
+   * `priorCentre` where one is given, the HFA toward 0, and the age-gap correction toward 0 — that
+   * is, the fitted runs per year toward the prior.
    *
    * A plain constant, not scaled by anything the weights do. `shrinkage` is denominated in games —
    * "acts like this many virtual games against a league-average opponent" — and a game of weight 2
@@ -574,6 +586,17 @@ export const buildOpponentAdjustedRatings = (
    * schemes in `ratingRecency.ts` normalise to a mean weight of one, and the scale never moves.
    */
   for (let i = 0; i < n; i += 1) system.add(i, i, shrinkage);
+  /*
+   * The virtual games played at each team's centre rather than at 0: `shrinkage · centre` on the
+   * right-hand side of its own equation, beside the `shrinkage` on its diagonal. A centre of 0 adds
+   * nothing, so without centres the fit is the one it always was, to the bit. One that is not a
+   * number is taken as no centre, rather than left to make every rating in its piece not one.
+   */
+  options.priorCentre?.forEach((centre, id) => {
+    const i = index.get(id);
+    if (i === undefined || !Number.isFinite(centre)) return;
+    system.addRhs(i, shrinkage * centre);
+  });
   system.add(hfa, hfa, homeFieldShrinkage);
   system.add(delta, delta, fitsGap ? ageGapShrinkage : 1);
 
