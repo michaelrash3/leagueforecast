@@ -43,6 +43,9 @@ import {
 } from "../cloudRunner";
 import { memoryCloud, type MemoryCloud } from "./memoryCloud";
 import { NO_LEAGUE_DOCS } from "../../live/cloudLeague";
+import { docsOf, listing } from "../../live/__tests__/leagueDocsFixture";
+import type { SeasonSnapshot } from "../../storage";
+import { DEFAULT_SETTINGS, type TeamBase } from "../../types";
 import { runEdit } from "../../live/editRun";
 
 /*
@@ -100,9 +103,15 @@ const ACES = "gcACES000001";
 const BEARS = "gcBEARS00001";
 /** A schedule every result of which is on a day that has not happened: invented. */
 const AHEAD = "gcAHEAD00001";
+/** A squad whose GameChanger name reads as a tryout, which only the owner's word lets in. */
+const WORKOUTS = "gcWEXCO00001";
+/** A club whose schedule names that squad, by its GameChanger name. */
+const QUAILS = "gcQUILL00001";
 const schedules = new Map<string, GcTeamSchedule>([
   [ACES, schedule(ACES, "Aces", [game("a1", "Bears", 5, 3)])],
   [BEARS, schedule(BEARS, "Bears", [game("b1", "Aces", 3, 5)])],
+  [WORKOUTS, schedule(WORKOUTS, "Wexcombe Workouts", [game("w1", "Bears", 4, 1)])],
+  [QUAILS, schedule(QUAILS, "Quillfeather Quails", [game("q1", "Wexcombe Workouts 9U", 6, 2)])],
   [
     AHEAD,
     schedule(AHEAD, "Ahead", [
@@ -132,9 +141,13 @@ const LEAGUE = { seasons: ["the league's own"] };
 
 /**
  * A cloud copy saved by a phone: whatever `write` puts in its pool, and a League Standings part
- * nothing here may touch.
+ * nothing here may write (`league`, by default one no build reads as seasons).
  */
-const seed = async (cloud: MemoryCloud, write: () => void = () => undefined) => {
+const seed = async (
+  cloud: MemoryCloud,
+  write: () => void = () => undefined,
+  league: unknown = LEAGUE
+) => {
   resetTeamRankingsStore();
   await initTeamRankingsStore(memoryIo());
   saveKeptApart(new Set(["gcX|gcY"]));
@@ -143,7 +156,7 @@ const seed = async (cloud: MemoryCloud, write: () => void = () => undefined) => 
   const changes: Change[] = await Promise.all(
     cloudPoolKeys().map(async (key) => ({ key, value: await readCloudPoolValue(key), at: 1 }))
   );
-  changes.push({ key: LEAGUE_PART, value: LEAGUE, at: 1 });
+  changes.push({ key: LEAGUE_PART, value: league, at: 1 });
   const saved = await commitChanges({
     store: cloud.store,
     base: null,
@@ -757,6 +770,199 @@ describe("a pull run on the cloud copy", () => {
     expect(loadScoutGames().find((entry) => entry.id === "gc_gcPULLER0001_p1")?.teamBId).toBe(
       "S-CUBS"
     );
+  });
+
+  describe("deleting a page whose every name says it is no team", () => {
+    const ag9 = { id: "ag9", name: "9U 2027", seasonIds: ["fall"], ageLevel: 9, year: 2027 };
+    // Its own name has no word; its one GameChanger page is an old page marked do not use.
+    const hawks = {
+      id: "S-HAWKS",
+      name: "Hollowmere Hawks",
+      state: "OH",
+      gcTeams: [
+        { teamId: "gcHAWKS00001", name: "Hollowmere Hawks 9U DNU", ageGroupId: "ag9", ageLevel: 9 },
+      ],
+    };
+    const season = (teams: TeamBase[]): SeasonSnapshot => ({
+      id: "fall",
+      name: "Fall 2026",
+      createdAt: "2026-08-01T12:00:00.000Z",
+      teams,
+      matchups: [],
+      logs: {},
+      bracketLogs: {},
+      settings: DEFAULT_SETTINGS,
+    });
+    const picked = season([{ id: "lt-hawks", name: "Hawks", scoutTeamId: "S-HAWKS" }]);
+    const nobody = season([{ id: "lt-owls", name: "Owls" }]);
+    /** Whether the club is still in the copy after a pull of another club, and its tidy. */
+    const stays = async (extra: Partial<CloudPullDeps>, part: unknown = { seasons: [] }) => {
+      const cloud = memoryCloud();
+      await seed(
+        cloud,
+        () => {
+          saveAgeGroups([ag9]);
+          saveScoutTeams([hawks]);
+        },
+        part
+      );
+      const aces = { kind: "list", entries: [{ teamId: ACES }], seasonYears: [2027] } as const;
+      await runCloudPull(aces, deps(cloud, "2026-09-29T13:00:00.000Z", extra));
+      resetTeamRankingsStore();
+      await loadPoolFrom(cloud.store);
+      return loadScoutTeams().some((entry) => entry.id === "S-HAWKS");
+    };
+
+    it("deletes it when League Standings links nobody to it", async () => {
+      expect(await stays({ leagueDocs: listing(docsOf([nobody])) })).toBe(false);
+      expect(await stays({}, { seasons: [nobody] })).toBe(false);
+    });
+
+    it("keeps a club a League Standings team picks, in the seasons' documents", async () => {
+      expect(await stays({ leagueDocs: listing(docsOf([picked])) })).toBe(true);
+    });
+
+    it("keeps one a season in the copy's own part picks, where there are no documents", async () => {
+      expect(await stays({}, { seasons: [picked] })).toBe(true);
+    });
+
+    it("pulls again a club the owner vouched for, by the real list or a League pick", async () => {
+      const workouts = {
+        id: "S-WEXC",
+        name: "Wexcombe Workouts",
+        state: "OH",
+        gcTeams: [
+          { teamId: WORKOUTS, name: "Wexcombe Workouts 9U", ageGroupId: "ag9", ageLevel: 9 },
+        ],
+      };
+      /** Whether its new game is in the copy after a pull of it alone. */
+      const filed = async (write: () => void, extra: Partial<CloudPullDeps> = {}) => {
+        const cloud = memoryCloud();
+        await seed(
+          cloud,
+          () => {
+            saveAgeGroups([ag9]);
+            saveScoutTeams([workouts]);
+            write();
+          },
+          { seasons: [] }
+        );
+        const again = {
+          kind: "list",
+          entries: [{ teamId: WORKOUTS }],
+          seasonYears: [2027],
+        } as const;
+        await runCloudPull(again, deps(cloud, "2026-09-29T13:00:00.000Z", extra));
+        resetTeamRankingsStore();
+        await loadPoolFrom(cloud.store);
+        return loadScoutGames().some((entry) => entry.id === `gc_${WORKOUTS}_w1`);
+      };
+      expect(await filed(() => undefined)).toBe(false);
+      expect(await filed(() => saveRealClubs(new Set([WORKOUTS])))).toBe(true);
+      const pick = season([{ id: "lt-wex", name: "Workouts", scoutTeamId: "S-WEXC" }]);
+      expect(await filed(() => undefined, { leagueDocs: listing(docsOf([pick])) })).toBe(true);
+    });
+
+    it("deletes nothing for its name in a run that could not read League Standings", async () => {
+      // Read as no seasons, a pick it could not see would be deleted for good.
+      expect(await stays({}, LEAGUE)).toBe(true);
+      const newer = { id: "season_fall", fields: { schema: 999 } };
+      expect(await stays({ leagueDocs: listing([newer]) })).toBe(true);
+    });
+
+    it("takes no game off a row naming a League pick in a run that could not read League", async () => {
+      // The Quails' row names the Workouts, whose name reads as a tryout and whom League picks,
+      // and a game stands on it already.
+      const link = (teamId: string, name: string) => [
+        { teamId, name, ageGroupId: "ag9", ageLevel: 9 },
+      ];
+      const workouts = {
+        id: "S-WEXC",
+        name: "Wexcombe Workouts",
+        state: "OH",
+        gcTeams: link(WORKOUTS, "Wexcombe Workouts 9U"),
+      };
+      const quails = {
+        id: "S-QUILL",
+        name: "Quillfeather Quails",
+        state: "OH",
+        gcTeams: link(QUAILS, "Quillfeather Quails 9U"),
+      };
+      const onRow = {
+        id: `gc_${QUAILS}_q1`,
+        teamAId: "S-QUILL",
+        teamBId: "S-WEXC",
+        teamAScore: 6,
+        teamBScore: 2,
+        ageGroupId: "ag9",
+        date: "2026-09-20",
+        source: { kind: "gamechanger" as const, teamId: QUAILS, gameId: "q1" },
+      };
+      // A game nobody here touches, so the year is never emptied.
+      const bystanders = [
+        { id: "S-OWLS", name: "Owls", nameOnly: true as const },
+        { id: "S-DOVES", name: "Doves", nameOnly: true as const },
+      ];
+      const apart = {
+        id: "apart",
+        teamAId: "S-OWLS",
+        teamBId: "S-DOVES",
+        teamAScore: 3,
+        teamBScore: 1,
+        ageGroupId: "ag9",
+        date: "2026-09-21",
+      };
+      /** Whether the game is in the copy after a pull of the Quails and its tidy. */
+      const kept = async (extra: Partial<CloudPullDeps>, part: unknown = { seasons: [] }) => {
+        const cloud = memoryCloud();
+        await seed(
+          cloud,
+          () => {
+            saveAgeGroups([ag9]);
+            saveScoutTeams([workouts, quails, ...bystanders]);
+            saveScoutGames([onRow, apart]);
+          },
+          part
+        );
+        const again = { kind: "list", entries: [{ teamId: QUAILS }], seasonYears: [2027] } as const;
+        await runCloudPull(again, deps(cloud, "2026-09-29T13:00:00.000Z", extra));
+        resetTeamRankingsStore();
+        await loadPoolFrom(cloud.store);
+        return loadScoutGames().some((entry) => entry.id === onRow.id);
+      };
+      const pick = season([{ id: "lt-wex", name: "Workouts", scoutTeamId: "S-WEXC" }]);
+      // Read, the pick lets the row through and the game stands; with no pick both go.
+      expect(await kept({ leagueDocs: listing(docsOf([pick])) })).toBe(true);
+      expect(await kept({ leagueDocs: listing(docsOf([nobody])) })).toBe(false);
+      // Not read, the row is turned away, but its game is left for a run that can see the pick.
+      expect(await kept({}, LEAGUE)).toBe(true);
+    });
+  });
+
+  it.each([
+    ["deletes", false],
+    ["keeps", true],
+  ])("%s a page whose every name says it is no team, by the real list", async (_, real) => {
+    const cloud = memoryCloud();
+    const ag9 = { id: "ag9", name: "9U 2027", seasonIds: [], ageLevel: 9, year: 2027 };
+    const gcTeams = [
+      { teamId: "gcTHORN00001", name: "Thornbury Practice 9U", ageGroupId: "ag9", ageLevel: 9 },
+    ];
+    // A League Standings part that reads, with no seasons, so the tidy's step runs at all.
+    await seed(
+      cloud,
+      () => {
+        saveAgeGroups([ag9]);
+        saveScoutTeams([{ id: "S-THORN", name: "Thornbury Practice", state: "OH", gcTeams }]);
+        if (real) saveRealClubs(new Set(["gcTHORN00001"]));
+      },
+      { seasons: [] }
+    );
+    const aces = { kind: "list", entries: [{ teamId: ACES }], seasonYears: [2027] } as const;
+    await runCloudPull(aces, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    expect(loadScoutTeams().some((entry) => entry.id === "S-THORN")).toBe(real);
   });
 
   it("files a list in the squad years it was sent for and no other", async () => {

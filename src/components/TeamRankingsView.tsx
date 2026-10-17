@@ -53,13 +53,7 @@ import {
   latestImportedAt,
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
-import {
-  archivedFrom,
-  deriveAllKnown,
-  gamesOnPages,
-  leagueTeamIdsOn,
-  type SeasonReader,
-} from "../lib/live/allKnown";
+import { archivedFrom, deriveAllKnown, gamesOnPages, leagueTeamIdsOn } from "../lib/live/allKnown";
 import { countedByHalf } from "../lib/teamRankings/halves";
 import {
   defaultStateOf,
@@ -79,12 +73,7 @@ import {
   writtenTeams,
   type CommandRun,
 } from "../lib/live/runPoolCommand";
-import {
-  loadLogsForSeason,
-  loadMatchupsForSeason,
-  loadTeamsForSeason,
-  type SeasonMeta,
-} from "../lib/storage";
+import { readStoredSeason, type SeasonMeta } from "../lib/storage";
 import {
   clearPullProgress,
   loadAgeGroups,
@@ -263,13 +252,6 @@ const AUTOMATIC_INLINE_GAME_LIMIT = 20_000;
 /** What a section is called when a boundary has to say which one could not be drawn. */
 /** Referentially stable, so nothing memoised on "no games" re-runs every render. */
 const NO_STORED_GAMES: ScoutGame[] = [];
-
-/** League Standings seasons as this browser stores them, for `deriveAllKnown`. */
-const readStoredSeason: SeasonReader = (seasonId) => ({
-  teams: loadTeamsForSeason(seasonId),
-  matchups: loadMatchupsForSeason(seasonId),
-  logs: loadLogsForSeason(seasonId),
-});
 
 /**
  * What to say when a whole-pool save turned out not to hold the whole pool.

@@ -545,8 +545,9 @@ const WHOLE_ROUND =
  * — and a nationwide pull fetches them like any other. Filed on one, every undecided game in the
  * country joins one club: a Puerto Rico club's and an Ohio club's "TBD" sat on a Washington "Tbd".
  * On the backup of 26 September 2026 at 18:40 there were 31 of them, holding 35 rows other clubs'
- * schedules had filed on them. Their own schedules are left alone; a name like this only ever
- * names a slot on somebody else's.
+ * schedules had filed on them. Their own schedules are left alone here; a name like this only ever
+ * names a slot on somebody else's. A pulled "Practice" or "Scrimmage" is no team at all, and the
+ * tidy deletes it before this is asked (`dropNotATeam`), unless the owner keeps it.
  */
 export const namesNobody = (name: string): boolean => {
   const raw = name.trim();

@@ -11,6 +11,8 @@ import {
   loadRealClubs,
 } from "../lib/teamRankingsStorage";
 import { autoRemovalsList } from "../lib/autoRemoved";
+import { leagueLinkedClubsOf } from "../lib/live/allKnown";
+import { readStoredSeason } from "../lib/storage";
 import type { MarksChange } from "../lib/removedForYou";
 import { todayIsoDay } from "../lib/date";
 import { poolHealth, settleableNow, type PoolHealth } from "../lib/poolHealth";
@@ -239,18 +241,29 @@ export function usePoolTidy() {
       // And the names the owner has said are not a club, which the refile would otherwise file
       // straight back onto it ("Not this team", `notThisTeam.ts`).
       const refused = loadNotThisTeam();
+      // And the clubs the owner has said are real, which no tidy step deletes for its name.
+      const real = loadRealClubs();
       // What the sweep honours, read with the rest, and the marks it starts from.
       const sweep: SweepAsked | undefined =
         sweepOn === undefined
           ? undefined
           : {
               today: sweepOn,
-              realClubs: [...loadRealClubs()],
+              realClubs: [...real],
               keptApart: keptApartList(apart),
               namedAges: [...loadNamedAges().keys()],
               marks: autoRemovalsList(loadAutoRemoved()),
             };
       try {
+        /*
+         * Nor a club a League Standings team links, picked in Settings or carried onto by its name:
+         * only the League pass can see the link (`leagueLinkedClubs`), and a club deleted under a
+         * season's pick is gone for good, the pick left pointing at nothing. Told to the tidy only;
+         * the sweep reads League through the boards, which keep such a club on their own. Inside
+         * the claim's `finally`, since it walks the pool and a pool it cannot read must not keep
+         * the slot.
+         */
+        const spared = new Set([...real, ...leagueLinkedClubsOf(state, readStoredSeason)]);
         return await ask<TidyOutcome>(
           "tidy",
           (id) => ({
@@ -259,6 +272,7 @@ export function usePoolTidy() {
             state: packPool(state),
             apart: keptApartList(apart),
             notThisTeam: notThisTeamList(refused),
+            realClubs: [...spared].sort(),
             ...(sweep ? { sweep } : {}),
           }),
           // What came back is only what changed; the rest is the caller's own arrays, so the
@@ -277,7 +291,13 @@ export function usePoolTidy() {
              * running on the thread that would draw them — so they are collected and handed over
              * once. The reader still learns what the tidy did, just not while it is doing it.
              */
-            const { state: tidied, ...counts } = tidyPool(state, noteTidyStep, apart, refused);
+            const { state: tidied, ...counts } = tidyPool(
+              state,
+              noteTidyStep,
+              apart,
+              refused,
+              spared
+            );
             return {
               state: tidied,
               tidy: counts,

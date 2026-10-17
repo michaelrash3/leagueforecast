@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadSentPulls, SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
 import { MAX_LIST_TEAMS, newPullJob, type PullJob } from "../../lib/cloud/pullJobs";
-import LiveCloudPulls, { PULL_LOOK_MS, useWatchedPulls } from "./LiveCloudPulls";
+import LiveCloudPulls, { PULL_LOOK_MS, readPaste, useWatchedPulls } from "./LiveCloudPulls";
 import { downloadCsv } from "../../lib/download";
 vi.mock("../../lib/download", () => ({ downloadCsv: vi.fn() }));
 
@@ -384,6 +384,24 @@ describe("a pull gone silent", () => {
 });
 
 describe("a pasted list", () => {
+  /*
+   * What the device's own paste leaves out costs no request in the cloud either: the cloud's list
+   * leg reads no names, so a row sent is a row fetched, and the import refuses it there.
+   */
+  it("leaves out what the device's paste does, a page that is no team among them", () => {
+    const read = readPaste(
+      [
+        "Team Name,Team ID,Age Group",
+        "Quillfeather Quails 12U,gcQUILL00001,12U",
+        "Thornbury Practice 12U,gcTHORN00001,12U",
+        "Hollowmere Hornets DNU,gcHOLLO00001,12U",
+        "Gildersleeve Softball 12U,gcGILDE00001,12U",
+        "Kestrelmoor HS Varsity,gcKESTR00001,Varsity",
+      ].join("\n")
+    );
+    expect(read.entries.map((entry) => entry.teamId)).toEqual(["gcQUILL00001"]);
+  });
+
   const paste = async (text: string) => {
     await act(async () => {
       fireEvent.change(screen.getByRole("textbox", { name: "Teams to pull" }), {

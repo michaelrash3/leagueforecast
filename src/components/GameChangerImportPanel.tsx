@@ -126,8 +126,11 @@ import {
   loadOrgMembership,
   saveOrgMembership,
   loadKeptApart,
+  loadRealClubs,
 } from "../lib/teamRankingsStorage";
 import { apartKey } from "../lib/keptApart";
+import { leagueLinkedClubsOf } from "../lib/live/allKnown";
+import { readStoredSeason } from "../lib/storage";
 import { runPoolCommand } from "../lib/live/runPoolCommand";
 import { settleRunLists } from "../lib/pullLists";
 import {
@@ -479,7 +482,11 @@ export function GameChangerImportPanel({
     // terms again — refused before a request, counted apart — because a list of men's-league
     // teams vanishing silently is indistinguishable from a list that failed to parse.
     const youth = club.filter((entry) => !entry.notYouth);
-    const oldEnough = youth.filter(
+    // And a page whose name says it is no team at all — a practice, a test, an old page marked do
+    // not use — on the same terms, counted apart so the pill can say what it was. Read off the
+    // name on every paste rather than remembered, since a coach can rename the page.
+    const teams = youth.filter((entry) => !entry.notATeam);
+    const oldEnough = teams.filter(
       (entry) =>
         !isTooYoungClub(tooYoung, entry.teamId) &&
         (entry.ageLevel === undefined || entry.ageLevel >= MIN_AGE_LEVEL)
@@ -495,11 +502,12 @@ export function GameChangerImportPanel({
     return {
       ...read,
       entries,
-      tooYoung: youth.length - oldEnough.length,
+      tooYoung: teams.length - oldEnough.length,
       thrownOut: oldEnough.length - entries.length,
       notBaseball: read.entries.length - baseball.length,
       highSchool: baseball.length - club.length,
       notYouth: club.length - youth.length,
+      notATeam: youth.length - teams.length,
       // Counted here rather than again at run time: on a nationwide export this is a forty
       // megabyte split, and once is enough.
       lines: text ? text.split(/\r?\n/).length : 0,
@@ -939,6 +947,7 @@ export function GameChangerImportPanel({
               parsed.notBaseball +
               parsed.highSchool +
               parsed.notYouth +
+              parsed.notATeam +
               parsed.thrownOut +
               parsed.otherSeason +
               parsed.turnedAway.length,
@@ -983,6 +992,12 @@ export function GameChangerImportPanel({
         namedAges,
         // The names the owner has said are not a club ("Not this team"), never filed onto it.
         notThisTeam: loadNotThisTeam(),
+        // The clubs the owner vouched for, whose name refuses nothing, as the tidy deletes none of
+        // them: the real list, and every club a League Standings team links.
+        realClubs: new Set([
+          ...loadRealClubs(),
+          ...leagueLinkedClubsOf(heldRef.current.state, readStoredSeason),
+        ]),
         // The run's own seasons, not the panel's: a resumed run files what it was started for.
         ...(progress.seasonYears ? { seasonYears: new Set(progress.seasonYears) } : {}),
       });
@@ -2028,7 +2043,7 @@ export function GameChangerImportPanel({
                 )}
                 {parsed.notBaseball > 0 && (
                   <span className={pill("neutral")}>
-                    {parsed.notBaseball} wiffle ball or blitzball, skipped
+                    {parsed.notBaseball} wiffle ball, blitzball or softball, skipped
                   </span>
                 )}
                 {parsed.notYouth > 0 && (
@@ -2039,6 +2054,14 @@ export function GameChangerImportPanel({
                 {parsed.highSchool > 0 && (
                   <span className={pill("neutral")}>{parsed.highSchool} high school, skipped</span>
                 )}
+                {parsed.notATeam > 0 && (
+                  <span
+                    className={pill("neutral")}
+                    title="Pages whose name says they are no team: a practice, scrimmage, tryout or test page, or an old page marked void, do not use or delete. Read off the name on every paste, so a page renamed since is asked about again."
+                  >
+                    {`${parsed.notATeam} practice, test or old team ${parsed.notATeam === 1 ? "page" : "pages"}, skipped`}
+                  </span>
+                )}
                 {parsed.otherSeason > 0 && (
                   <span className={pill("neutral")}>
                     {parsed.otherSeason} from other seasons, skipped
@@ -2047,7 +2070,7 @@ export function GameChangerImportPanel({
                 {parsed.turnedAway.length > 0 && (
                   <span
                     className={pill("neutral")}
-                    title="Fetched by an earlier pull and turned away: high school, wiffle ball, adult or over-age teams for good, and teams from a season that is still not ticked."
+                    title="Fetched by an earlier pull and turned away: high school, wiffle ball or softball, adult or over-age teams for good, and teams from a season that is still not ticked."
                   >
                     {parsed.turnedAway.length} turned away before, skipped{" "}
                     <button

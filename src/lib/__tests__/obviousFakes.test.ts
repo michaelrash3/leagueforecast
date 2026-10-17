@@ -326,6 +326,31 @@ describe("sign N: a name with void, test or demo in it as a word of its own", ()
     expect(sweep({ teams: [club("F", 12, name)] }).size).toBe(0);
   });
 
+  /*
+   * Read by the import's own rules for the three words (`madeUpHit`): on the backup of 11 October
+   * 2026 the sign's own pattern marked every one of the Austin organisation called TEST's teams,
+   * written as "TEST Black" and "TEST Red", which play a season of confirmed games.
+   */
+  it.each([
+    "Test Black Kestrelmoor 12U",
+    "Test Red Kestrelmoor 12U",
+    "Test Blaze Kestrelmoor",
+    "Skiles Test Nettlefield 12U",
+    "Bramblecote Test Prep 12U",
+    "Gildersleeve Demo Dawgs 12U",
+  ])("leaves %s, which the rules for its word leave alone", (name) => {
+    expect(sweep({ teams: [club("F", 12, name)] }).size).toBe(0);
+  });
+
+  it.each([
+    ["Hollowmere Hornets DNU", "dnu"],
+    ["Copperfield Do Not Use", "do not use"],
+    ["zTestNettlefield", "test"],
+  ])("marks %s, for the word as the name writes it", (name, word) => {
+    const marks = sweep({ teams: [club("F", 12, name)] });
+    expect([...marks.values()].map((mark) => mark.word)).toEqual([word]);
+  });
+
   it("marks only the GameChanger team whose own name has the word, so the club stands", () => {
     const two: ScoutTeam = {
       id: "F",

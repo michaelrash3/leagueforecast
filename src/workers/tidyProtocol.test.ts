@@ -194,18 +194,21 @@ describe("what the tidy says while it runs", () => {
      * goes, and a run reported only on the way out shows nothing moving while a slow one runs.
      */
     expect(steps.length % (TIDY_STEPS.length * 2)).toBe(0);
-    expect(steps.slice(0, 4).map((r) => [r.step.step, r.step.done])).toEqual([
+    expect(steps.slice(0, 6).map((r) => [r.step.step, r.step.done])).toEqual([
       ["notBaseball", false],
       ["notBaseball", true],
       ["highSchool", false],
       ["highSchool", true],
+      ["notATeam", false],
+      ["notATeam", true],
     ]);
     const firstPass = steps.filter((r) => r.step.pass === 1 && r.step.done);
     expect(firstPass.map((r) => r.step.step)).toEqual([
       "notBaseball",
-      // Beside it: the two passes that delete a club that does not belong in the pool at all run
+      // Beside it: the three passes that delete a club that does not belong in the pool at all run
       // before anything levels, settles, folds or pairs it.
       "highSchool",
+      "notATeam",
       "releveled",
       "pruned",
       // Before anything settles a stand-in into a game its own schedule has taken away.
@@ -348,10 +351,16 @@ describe("saying a step has started, not only that it finished", () => {
    */
   it("sweeps the tidied pool when asked, and says nothing of marks when not", () => {
     const pool = withStandIn();
+    /*
+     * One GameChanger team of the club named for a demo and one not: the tidy keeps the club, since
+     * not every name it carries says it is no team (`dropNotATeam`), and the sweep marks the one id.
+     */
     const demo = {
       ...pool.teams[0]!,
-      name: "Demo Club",
-      gcTeams: [{ teamId: "gcHOME", name: "Demo Club 10U", ageGroupId: "ag_10u_2027" }],
+      gcTeams: [
+        { teamId: "gcHOME", name: "Demo Club 10U", ageGroupId: "ag_10u_2027" },
+        { teamId: "gcHOME2", name: "Home Club 10U", ageGroupId: "ag_10u_2027" },
+      ],
     };
     const state = packPool({ ...pool, teams: [demo, ...pool.teams.slice(1)] });
     const { handle, answersOf } = harness();
@@ -383,15 +392,37 @@ describe("saying a step has started, not only that it finished", () => {
       put: [
         {
           gcTeamId: "gcHOME",
-          name: "Demo Club",
+          name: "Home Club",
           on: "2026-10-11",
           signs: ["named"],
           word: "demo",
+          teamName: "Demo Club 10U",
         },
       ],
       forget: [],
     });
     // The user's word is told with it, and honoured.
     expect(real.marks).toBeNull();
+  });
+
+  /*
+   * The worker has no storage, so a club the owner said is real has to be told to it, or the step
+   * that deletes a page whose every name says it is no team would delete it behind their back.
+   */
+  it("keeps a club said to be real when it tidies away the pages that are no team", () => {
+    const pool = withStandIn();
+    const practice = {
+      ...pool.teams[0]!,
+      name: "Practice Club",
+      gcTeams: [{ teamId: "gcHOME", name: "Practice Club 10U", ageGroupId: "ag_10u_2027" }],
+    };
+    const state = packPool({ ...pool, teams: [practice, ...pool.teams.slice(1)] });
+    const { handle, answersOf } = harness();
+    handle({ kind: "tidy", id: 1, state });
+    handle({ kind: "tidy", id: 2, state, realClubs: ["gcHOME"] });
+    const [told, real] = answersOf("tidy");
+    if (told?.kind !== "tidy" || real?.kind !== "tidy") throw new Error("expected answers");
+    expect(told.tidy.notATeam).toBe(1);
+    expect(real.tidy.notATeam).toBe(0);
   });
 });

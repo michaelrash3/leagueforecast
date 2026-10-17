@@ -188,11 +188,60 @@ const leaguePass = (
 };
 
 /**
- * The clubs the marks would take off (`removedClubIds`) that a League Standings team links in any
- * squad year with a page holding a season, and that therefore stay on their boards
- * (`deriveAllKnown`'s guard): what Pool health, which lists the whole pool rather than a year,
- * says is kept rather than removed. Only the League Standings pass is run, a year at a time, and
- * none at all with no club to keep or no season on a page.
+ * Every club a League Standings team links in any squad year with a page holding a season (picked,
+ * by name, or carried onto), as the boards of each such year read it (`deriveAllKnown`): only the
+ * League Standings pass, a year at a time, and none at all with no season on a page.
+ *
+ * What a step that reads no League deletes a club by must leave alone too: only this pass can see a
+ * League team's link, so the tidy's not-a-team step is handed these with the clubs said to be real,
+ * and a club the league plays stays whatever its pages are called.
+ */
+export const leagueLinkedClubs = ({
+  ageGroups,
+  teams,
+  gamesOfYear,
+  readSeason,
+}: {
+  ageGroups: AgeGroup[];
+  teams: ScoutTeam[];
+  /** A squad year's stored games (`loadScoutGamesForYear`). */
+  gamesOfYear: (year: number | undefined) => ScoutGame[];
+  readSeason: SeasonReader;
+}): Set<string> => {
+  const linked = new Set<string>();
+  const years = new Set(
+    ageGroups.filter((group) => group.seasonIds.length > 0).map((group) => ageGroupYear(group))
+  );
+  years.forEach((year) => {
+    leaguePass(ageGroups, teams, gamesOfYear(year), readSeason).linked.forEach((id) =>
+      linked.add(id)
+    );
+  });
+  return linked;
+};
+
+/**
+ * `leagueLinkedClubs` of a whole pool held in memory, its games split by their pages' squad years:
+ * what the tidy and the import, on a device or in the cloud, are told to spare.
+ */
+export const leagueLinkedClubsOf = (
+  pool: { ageGroups: AgeGroup[]; teams: ScoutTeam[]; games: ScoutGame[] },
+  readSeason: SeasonReader
+): Set<string> => {
+  const yearOf = new Map(pool.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  return leagueLinkedClubs({
+    ageGroups: pool.ageGroups,
+    teams: pool.teams,
+    gamesOfYear: (year) => pool.games.filter((game) => yearOf.get(game.ageGroupId) === year),
+    readSeason,
+  });
+};
+
+/**
+ * The clubs the marks would take off (`removedClubIds`) that a League Standings team links
+ * (`leagueLinkedClubs`), and that therefore stay on their boards (`deriveAllKnown`'s guard): what
+ * Pool health, which lists the whole pool rather than a year, says is kept rather than removed.
+ * None at all, and no League pass, with no club to keep.
  */
 export const leagueKeptClubs = ({
   ageGroups,
@@ -208,18 +257,10 @@ export const leagueKeptClubs = ({
   readSeason: SeasonReader;
   autoRemoved: AutoRemovals;
 }): Set<string> => {
-  const kept = new Set<string>();
   const marked = removedClubIds(teams, ageGroups, autoRemoved);
-  if (marked.size === 0) return kept;
-  const years = new Set(
-    ageGroups.filter((group) => group.seasonIds.length > 0).map((group) => ageGroupYear(group))
-  );
-  years.forEach((year) => {
-    leaguePass(ageGroups, teams, gamesOfYear(year), readSeason).linked.forEach((id) => {
-      if (marked.has(id)) kept.add(id);
-    });
-  });
-  return kept;
+  if (marked.size === 0) return new Set<string>();
+  const linked = leagueLinkedClubs({ ageGroups, teams, gamesOfYear, readSeason });
+  return new Set([...linked].filter((id) => marked.has(id)));
 };
 
 /**

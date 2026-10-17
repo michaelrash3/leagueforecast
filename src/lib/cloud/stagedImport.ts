@@ -202,7 +202,7 @@ export type ImportDownloadReport = {
   skipped: number;
   reasons: Partial<Record<GcFetchErrorReason, number>>;
 };
-type StagedDeps = Pick<CloudPullDeps, "store" | "fetchTeams" | "now"> & {
+type StagedDeps = Pick<CloudPullDeps, "store" | "fetchTeams" | "now" | "leagueDocs"> & {
   jobs: JobDocs;
   artifacts: ImportArtifacts;
   signal?: AbortSignal;
@@ -768,6 +768,9 @@ export const runStagedImport = async (jobId: string, deps: StagedDeps): Promise<
       now,
       device: `import-${jobId}`,
       ...(deps.signal ? { signal: deps.signal } : {}),
+      // League as the boards read it, so the import pulls again, and the final tidy keeps, every
+      // club a League team links.
+      ...(deps.leagueDocs ? { leagueDocs: deps.leagueDocs } : {}),
       invalidIds,
       onOutcomes: async (outcomes) => {
         if (!deps.reports) return;

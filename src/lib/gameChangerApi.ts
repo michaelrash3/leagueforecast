@@ -13,6 +13,7 @@
  */
 
 import { GC_TEAM_FUNCTION_URL } from "./cloud/apiEndpoints";
+import { isNotBaseball, notATeamWord, type NotATeamWord } from "./teamNameRules";
 
 export type GcSeasonName = "fall" | "winter" | "spring" | "summer";
 
@@ -222,8 +223,20 @@ export const gcTeamFromBodies = (
 export type GcTeamListEntry = {
   teamId: string;
   name?: string;
-  /** A wiffle ball or blitzball team, which is a different game. Never fetched and never filed. */
+  /**
+   * A wiffle ball, blitzball or softball team, which is a different game. Never fetched and never
+   * filed.
+   */
   notBaseball?: true;
+  /**
+   * A page whose name says it is no team (`notATeamWord`): a practice, a scrimmage, a test, an old
+   * page marked do not use. Holds the word group the name hit. Never fetched and never filed.
+   *
+   * Not remembered with the refusals that hold for good (`refusedClubs.ts`): a coach can rename the
+   * page, and the name is read again on every export, so an id named this way today is asked about
+   * as soon as a list no longer calls it that.
+   */
+  notATeam?: NotATeamWord;
   /** A high school squad, which plays its own season. Never fetched and never filed. */
   highSchool?: true;
   /**
@@ -322,35 +335,12 @@ export const GC_FETCH_ERROR_REASONS: readonly GcFetchErrorReason[] = [
 export const isGcFetchErrorReason = (value: unknown): value is GcFetchErrorReason =>
   typeof value === "string" && (GC_FETCH_ERROR_REASONS as readonly string[]).includes(value);
 
-/**
- * A name that says the team is not playing baseball.
- *
- * Wiffle ball is a different game — a plastic ball, a plastic bat, and scores that say nothing
- * about how a baseball team would fare. Nine such teams were in a 48,035-team export, filed under
- * ordinary age groups (10U to 16U) in five states, and nothing in the GameChanger record marks
- * them apart: it is a baseball platform and reports them as baseball. The name is the only signal
- * there is.
- *
- * Both spellings, because the export carries eight "Wiffle" to one "Whiffle", and the compound
- * with them — "Wiffleball", "Whiffleball". No baseball word contains the sequence, so matching it
- * anywhere in the name costs nothing in false positives.
- *
- * Blitzball is the same kind of game, a plastic ball thrown to curve, and it arrives the same way.
- * The desktop crawl's team export of 24 September 2026 carried 93 names with "blitz" joined to
- * "ball" among 266,350 teams, against 46 baseball clubs that are simply called Blitz — "Mid Ohio
- * Blitz 13U", "Blitz Baseball 11U" — so the word is only read joined to "ball". Run together it is
- * always the game, "Blitzballers" included; written apart it has to end at "ball", because "Blitz
- * Ballers" is as likely to be a baseball team's pun as the game, and refusing a real club leaves
- * nothing behind to notice it by. That reads 91 of the 93, and none of the 46.
- *
- * Here rather than beside the pool's other name rules because both sides need it: the list parse,
- * which drops these before a request is ever spent on one, and the import, which refuses a
- * schedule and deletes a team already filed.
+/*
+ * A name that says the team is not playing baseball — wiffle ball, blitzball, softball — or that the
+ * page is no team at all, is read in `teamNameRules.ts`, where every word a name is refused on
+ * lives, and re-exported here for the callers that have always asked this file for it.
  */
-const NOT_BASEBALL = /wh?iffle|blitzball|blitz[\s_-]+ball(?![a-z])/i;
-
-export const isNotBaseball = (name: unknown): boolean =>
-  typeof name === "string" && NOT_BASEBALL.test(name);
+export { isNotBaseball };
 
 /**
  * The sanctioning bodies off a profile's `ngb` field.
@@ -1791,6 +1781,9 @@ const entryFromRow = (teamId: string, cells: string[], columns: ListColumns): Gc
   if (name) entry.name = name;
   // Marked here rather than filtered, so the panel can say how many were left out and why.
   if (isNotBaseball(name)) entry.notBaseball = true;
+  // And a page that is no team, by the same reading the import refuses one on.
+  const notATeam = notATeamWord(name);
+  if (notATeam) entry.notATeam = notATeam.word;
   const season = parseGcSeasonLabel(cellAt(cells, columns.season));
   if (season) entry.season = season;
   const squadYear = season ? squadYearForGcSeason(season) : undefined;

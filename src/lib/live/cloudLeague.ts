@@ -1,4 +1,8 @@
+import { coerceBackup } from "../backup";
+import { fetchValues, type CloudStore } from "../cloud/cloudEngine";
+import type { CloudManifest } from "../cloud/cloudManifest";
 import { hashValue } from "../cloud/cloudPack";
+import { LEAGUE_PART } from "../cloud/cloudPlan";
 import type { FirestoreRestDocuments } from "../cloud/firestoreRest";
 import type { LeagueSeasonData, SeasonReader } from "./allKnown";
 import { docToSeason, LEAGUE_COLLECTION } from "./leagueDocs";
@@ -84,3 +88,47 @@ export const readCloudLeague = async (list: LeagueDocsList): Promise<CloudLeague
 /** The fingerprint a board's record carries for `league`: none when League is the copy's part. */
 export const leaguePrintOf = (league: Extract<CloudLeague, { ok: true }>): string =>
   league.from === "docs" ? league.print : "";
+
+/**
+ * The seasons a copy's `league` part holds, as a `SeasonReader`: each read the way a backup file
+ * is (`coerceBackup`), which coerces teams, schedule and results as a browser's storage loaders do,
+ * so a server and a browser holding the same copy hand the boards the same seasons. A copy with no
+ * part, or one with no seasons, reads every id as empty, as a browser with no such season does.
+ * Null for a part that holds something else, which a browser would refuse to take in.
+ */
+export const seasonReaderOf = (league: unknown): SeasonReader | null => {
+  if (league === undefined || league === null) return () => NOTHING;
+  const record = league as { seasons?: unknown };
+  if (Array.isArray(record.seasons) && record.seasons.length === 0) return () => NOTHING;
+  const parsed = coerceBackup(league);
+  if (parsed?.kind !== "full") return null;
+  const seasons = new Map(
+    parsed.backup.seasons.map(({ id, teams, matchups, logs }) => [id, { teams, matchups, logs }])
+  );
+  return (seasonId) => seasons.get(seasonId) ?? NOTHING;
+};
+
+/**
+ * The League Standings seasons as the boards read them for `manifest` (`publishCopyViews`): their
+ * documents once there are any, and until then the copy's own part, read apart from the pool,
+ * which a pull loads without it. Null where they cannot be read: a document of a newer layout or
+ * none at all, the part missing, damaged or of something else, or the store not answering. A
+ * caller that guards on what League links has to know it could not look, not be handed nobody.
+ */
+export const leagueSeasonsOf = async (
+  store: CloudStore,
+  manifest: CloudManifest,
+  leagueDocs: LeagueDocsList
+): Promise<SeasonReader | null> => {
+  try {
+    const league = await readCloudLeague(leagueDocs);
+    if (!league.ok) return null;
+    if (league.from === "docs") return league.readSeason;
+    const part = manifest.parts.find((one) => one.key === LEAGUE_PART);
+    if (!part) return seasonReaderOf(undefined);
+    const fetched = await fetchValues({ store, parts: [part] });
+    return fetched.ok ? seasonReaderOf(fetched.values.get(LEAGUE_PART)) : null;
+  } catch {
+    return null;
+  }
+};

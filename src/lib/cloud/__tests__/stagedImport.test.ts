@@ -110,6 +110,15 @@ const setup = (teams = 5001) => {
 };
 
 describe("a staged CSV import", () => {
+  it("hands its final tidy the League Standings documents it is given", async () => {
+    // So the import pulls again, and the tidy keeps, every club a League Standings team links
+    // (`leagueSeasonsOf`).
+    const test = setup(3);
+    const leagueDocs = async () => [];
+    await runStagedImport(ID, { ...test.deps, leagueDocs });
+    expect(vi.mocked(finishStagedImport).mock.calls[0]?.[4]).toMatchObject({ leagueDocs });
+  });
+
   it("downloads bounded batches without a pool reload or tidy, then finalizes the whole import once", async () => {
     const test = setup();
     await runStagedImport(ID, test.deps);

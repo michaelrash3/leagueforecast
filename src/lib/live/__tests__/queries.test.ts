@@ -1070,10 +1070,11 @@ describe("what Pool health asks of the server's pool", () => {
     pulled("BULL", "Placeholder Bulldogs"),
     pulled("HAWK", "Placeholder Hawks"),
     // Known only from the Hawks' schedule, and six more from the Ambush's: more to pull than drawn.
-    { id: "S-OWLS", name: "Placeholder Owls", nameOnly: true },
+    // Not called "Placeholder", a word that says a page is no team and keeps one off the list.
+    { id: "S-OWLS", name: "Fernhollow Owls", nameOnly: true },
     ...[1, 2, 3, 4, 5, 6].map((at): ScoutTeam => ({
       id: `S-${at}`,
-      name: `Placeholder ${at}`,
+      name: `Fernhollow ${at}`,
       nameOnly: true,
     })),
     // One roster listed twice in a season by the same coaches, one entry with no schedule.

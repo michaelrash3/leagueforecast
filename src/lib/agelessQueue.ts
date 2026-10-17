@@ -31,6 +31,7 @@ import { AGELESS_RULES } from "./agelessTriage";
 import { rosterStanding } from "./gcRoster";
 import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
+import { notATeamWord } from "./teamNameRules";
 import type { DeletedClubs } from "./deletedGames";
 import type { NamedAges } from "./namedAges";
 
@@ -134,14 +135,18 @@ export const shortRoster = (entry: AgeUnknownTeam): boolean =>
 
 /**
  * Names nobody gives a team that plays: a test, a practice or scrimmage account, one marked for
- * deletion or as a copy, a placeholder. Over the 13,958 teams waiting on 27 September 2026 this
- * reads 113 names, and every one is that kind of account: "Test", "Practice GC", "Delete Me!!",
- * "Duplicate Team->Leave Team", "Placeholder" with 233 players, "2026 NJBO Minor Fall Ball
- * Practice Schedule". "Unknown" was tried and found nothing; "fresh" is not here because it is a
- * word in real names ("Surcheros Fresh Mex SuperStars").
+ * deletion or as a copy, a placeholder. Over the 13,958 teams waiting on 27 September 2026 the
+ * words this list began with read 113 names, and every one is that kind of account: "Test",
+ * "Practice GC", "Delete Me!!", "Duplicate Team->Leave Team", "Placeholder" with 233 players, "2026
+ * NJBO Minor Fall Ball Practice Schedule". "Unknown" was tried and found nothing; "fresh" is not
+ * here because it is a word in real names ("Surcheros Fresh Mex SuperStars").
+ *
+ * The words are the import's own now (`notATeamWord`), which refuses such a page outright, so a
+ * team waiting from before that rule reads here as the import would read it: tryouts, scorekeeping
+ * and camera accounts and pages marked do not use beside the words above, the Austin organisation
+ * called TEST left alone. Two phrases the import does not refuse on stay here, where they only sort.
  */
-const JUNK_NAME =
-  /\b(?:test(?:ing)?|demo|sample|example|dummy|fake|practice|scrimmage|delete[ds]?|duplicate|dupe|copy\s+of|old\s+team|not\s+(?:a\s+)?real|placeholder)\b/i;
+const STILL_JUNK = /\b(?:old\s+team|not\s+(?:a\s+)?real)\b/i;
 
 /** "Team", "Team 1", "My Team": a name nobody chose. Eight in that list. */
 const GENERIC_NAME = /^\s*(?:my|new|the|our)?\s*team\s*#?\s*(?:\d{1,3}|[a-z])?\s*$/i;
@@ -153,7 +158,9 @@ const GENERIC_NAME = /^\s*(?:my|new|the|our)?\s*team\s*#?\s*(?:\d{1,3}|[a-z])?\s
 const junkName = (name: string): string | undefined => {
   const trimmed = name.trim();
   if (!trimmed) return undefined;
-  if (JUNK_NAME.test(trimmed)) return "the name reads as a test, practice or placeholder account";
+  if (notATeamWord(trimmed) || STILL_JUNK.test(trimmed)) {
+    return "the name reads as a test, practice or placeholder account";
+  }
   if (GENERIC_NAME.test(trimmed)) return "the name is only “Team” and a number";
   // Any script's letters: "統一獅隊" is a club in Taipei, "12345" and "***" are nobody.
   if (!/\p{L}/u.test(trimmed)) return "the name has no letters in it";

@@ -5,6 +5,7 @@ import { restJobDocs } from "../../src/lib/cloud/pullJobRunner";
 import { restImportArtifacts, runStagedImport } from "../../src/lib/cloud/stagedImport";
 import { restImportReports } from "../../src/lib/cloud/importReports";
 import { fetchGcTeams } from "../../src/lib/gameChangerClient";
+import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
 import { resetTeamRankingsStore } from "../../src/lib/teamRankingsStorage";
 import { restAccess } from "./pullAccess";
 
@@ -19,6 +20,9 @@ try {
     store: firestoreRestStore({ ...access, writable: true }),
     fetchTeams: (ids, options) => fetchGcTeams(ids, { ...options, fetchImpl: handlerFetch() }),
     now: () => new Date(),
+    // The import pulls again, and the final tidy keeps, every club a League Standings team links,
+    // read as the boards read it.
+    leagueDocs: restLeagueDocs(docs),
     onProgress: (detail) =>
       parentPort?.postMessage({ progress: true, ...(detail ? { detail } : {}) }),
     // Counts and reasons alone (`ImportDownloadReport`): the public pull-status workflow reads

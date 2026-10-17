@@ -4,7 +4,9 @@ import { usePoolTidy } from "./usePoolTidy";
 import { ageGroup, game, seasonDate, team } from "../test/teamRankingsHarness";
 import type { GcImportState } from "../lib/gameChangerImport";
 import { refusalOf } from "../lib/notThisTeam";
-import { resetTeamRankingsStore, saveNotThisTeam } from "../lib/teamRankingsStorage";
+import { resetTeamRankingsStore, saveNotThisTeam, saveRealClubs } from "../lib/teamRankingsStorage";
+import { createSeason, loadSettingsForSeason, writeSeasonData } from "../lib/storage";
+import type { TeamBase } from "../lib/types";
 import {
   beginPull,
   beginTidy,
@@ -172,6 +174,38 @@ describe("what the tidy worker is told", () => {
     await pending;
   });
 
+  /*
+   * Nor can it read the clubs the owner said are real, so a list it is not handed is one it
+   * overrules: the step that deletes a page whose every name says it is no team would delete one.
+   */
+  it("hands it the clubs the owner has said are real, as stored", async () => {
+    saveRealClubs(new Set(["gcHOME", "S-AWAY"]));
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.tidy(withStandIn());
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({ kind: "tidy", realClubs: ["S-AWAY", "gcHOME"] }),
+    ]);
+    unmount();
+    await pending;
+  });
+
+  // jsdom has no Worker, so this tidy runs inline, and the list must reach that call too.
+  it("keeps a club said to be real when it tidies inline", async () => {
+    const pool = withStandIn();
+    const practice = {
+      ...pool.teams[0]!,
+      name: "Thornbury Practice",
+      gcTeams: [{ teamId: "gcHOME", name: "Thornbury Practice 10U", ageGroupId: "ag_10u_2027" }],
+    };
+    const state = { ...pool, teams: [practice, ...pool.teams.slice(1)] };
+    const { result } = renderHook(() => usePoolTidy());
+    expect((await result.current.tidy(state))?.tidy.notATeam).toBe(1);
+    saveRealClubs(new Set(["gcHOME"]));
+    expect((await result.current.tidy(state))?.tidy.notATeam).toBe(0);
+  });
+
   // And its inspection, whose count of what a tidy would settle has to be the tidy's.
   it("hands the inspection the same names, as stored", async () => {
     const refused = refusalOf("gcAWAY", "Home Club", "gcHOME");
@@ -182,6 +216,80 @@ describe("what the tidy worker is told", () => {
     const pending = result.current.inspect(withStandIn(), "", new Set());
     expect(RecordingWorker.sent).toEqual([
       expect.objectContaining({ kind: "inspect", notThisTeam: [refused] }),
+    ]);
+    unmount();
+    await pending;
+  });
+});
+
+describe("what the tidy keeps for League Standings", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetPullSession();
+    resetTeamRankingsStore();
+    window.localStorage.clear();
+  });
+
+  /*
+   * The home club's one GameChanger page is named as an old page marked do not use, as a coach's
+   * abandoned page that still holds the league's games is, and a League Standings season on its
+   * page holds `leagueTeam`. The club's own name has no word, so only its link's name hits.
+   */
+  const withLeague = (leagueTeam: TeamBase | null): GcImportState => {
+    const pool = withStandIn();
+    const season = createSeason("Fall 2026");
+    writeSeasonData(season.id, {
+      teams: [...(leagueTeam ? [leagueTeam] : []), { id: "lt-owls", name: "Owls" }],
+      matchups: [],
+      logs: {},
+      bracketLogs: {},
+      settings: loadSettingsForSeason(season.id),
+    });
+    return {
+      ...pool,
+      ageGroups: pool.ageGroups.map((group) => ({ ...group, seasonIds: [season.id] })),
+      teams: pool.teams.map((club) =>
+        club.id === "S-HOME"
+          ? {
+              ...club,
+              name: "Hollowmere Hawks",
+              gcTeams: [
+                { teamId: "gcHOME", name: "Hollowmere Hawks 10U DNU", ageGroupId: "ag_10u_2027" },
+              ],
+            }
+          : club
+      ),
+    };
+  };
+
+  // jsdom has no Worker, so these tidy inline.
+  it("deletes the page when no League Standings team links it", async () => {
+    const { result } = renderHook(() => usePoolTidy());
+    expect((await result.current.tidy(withLeague(null)))?.tidy.notATeam).toBe(1);
+  });
+
+  it("keeps a club a League Standings team picks in Settings", async () => {
+    const state = withLeague({ id: "lt-hawks", name: "Hawks", scoutTeamId: "S-HOME" });
+    const { result } = renderHook(() => usePoolTidy());
+    const outcome = await result.current.tidy(state);
+    expect(outcome?.tidy.notATeam).toBe(0);
+    expect(outcome?.state.teams.some((club) => club.id === "S-HOME")).toBe(true);
+  });
+
+  it("keeps one a League Standings team reaches by its name alone", async () => {
+    const { result } = renderHook(() => usePoolTidy());
+    const state = withLeague({ id: "lt-hawks", name: "Hollowmere Hawks" });
+    expect((await result.current.tidy(state))?.tidy.notATeam).toBe(0);
+  });
+
+  it("tells the worker the clubs League Standings links, beside the clubs said to be real", async () => {
+    const state = withLeague({ id: "lt-hawks", name: "Hawks", scoutTeamId: "S-HOME" });
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.tidy(state);
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({ kind: "tidy", realClubs: ["S-HOME"] }),
     ]);
     unmount();
     await pending;

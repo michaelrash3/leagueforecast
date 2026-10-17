@@ -212,7 +212,7 @@ nothing else. Filing one at 18U would put that cluster in the 18U table next to
 travel clubs and invite exactly the comparison the data cannot carry. So the whole
 category is refused.
 
-Refused on the name, the way wiffle ball and blitzball are, which means the same
+Refused on the name, the way wiffle ball, blitzball and softball are, which means the same
 three things: the rows never cost a request out of a pasted list, the import turns
 the schedule away with the reason `high-school`, and a tidy pass deletes any that
 reached the pool before the rule existed. Nothing has to remember an id — the name
@@ -241,6 +241,94 @@ played the local varsity loses that result. It goes because the other half of it
 a club the pool refuses, and a game with one side missing is a dangling row rather
 than a result. Carrying the handful that cross the line would mean carrying the
 cluster they lead into, which is the thing this rule exists to avoid.
+
+#### Softball, and pages that are no team, are left out
+
+The not-baseball refusal reads softball, fastpitch, slowpitch and kickball beside wiffle ball and
+blitzball, on the same three terms. A name that says baseball as well is a programme fielding
+both and is kept, though "Wiffle Baseball" is still wiffle ball. On the desktop crawl's export of
+24 September 2026 the softball words read 132 rows (62 of them full rosters, real softball sides);
+in the backup of 11 October they read 27 teams, 13 of them pulled and 13 stand-ins, holding 99
+games, 12 scored. Ten are softball against softball: 3 between two sides the rule reads, and 7 a
+softball club's against stand-ins only softball schedules name. The other 2 are on a baseball
+club's own schedule too, the slow-pitch squad's game against a club named only by colour and age
+and a fastpitch side's against a club whose name says baseball, and they go with the rest: a game
+against a softball side is not a baseball result, so each of those two clubs loses one scored
+game. The panel's pill, the reason and the tidy's line say "wiffle ball, blitzball or softball".
+
+A page whose name says it is no team at all is refused too (`notATeamWord`, `teamNameRules.ts`):
+a practice, a scrimmage, a test, a demo, a sample, a fake, a tryout or evaluation, a stats or
+scorekeeping account, a live stream or camera, an intrasquad, and a real team's old page marked
+delete, placeholder, duplicate or copy of, void, do not use or DNU. Fifteen word groups in all,
+softball the fifteenth, each a whole word read against the name as written and against the name
+with its joins split apart (a word run into a number or a capital is read on its own there, and a
+word somebody capitalised mid-way only as written), each with the exemptions the measurement
+asked for: a family-practice
+sponsor, the Austin organisation called TEST ("TEST Black", "TEST Red", "Test Blaze"), Skiles Test
+and a test-prep sponsor, a demolition sponsor and the Demo Dawgs, a "Fake and Bake" squad, "All
+Stats" for All Stars, a squad "with streaming". Together the fifteen read 2,138 rows of that
+export (0.80%), 692 of them with no players at all, and a second implementation of the patterns
+gives the same verdict as this one on every one of the 147,114 distinct names in the pool.
+
+- **Out of a pasted list** before a request is spent: the row is marked with the word it hit, and
+  the pill reads "N practice, test or old team pages, skipped". The cloud's paste box leaves them
+  out the same way. Not remembered with the refusals that hold for good, since a coach can rename
+  a page: the name is read again on every export.
+- **At the import** the schedule is turned away with the reason `not-a-team`, before its age is
+  read, so "Practice 12U" with a perfectly good age is refused; the sentence names the word
+  ("Its name says “Scrimmage”."), the list of teams not imported says "Not a team, by its name",
+  and the members' report "not a team". A team waiting on an age leaves the list on its next ask.
+  A club the owner vouched for is the exception, as it is in the tidy below: one on the list of
+  clubs said to be real (by club id or any GameChanger id of it), the user's own club, a page's
+  own team, or one a League Standings team links. Its schedule is pulled again whatever its name
+  says, and another club's row of its name is filed as any name is rather than dropped; refused,
+  a club the tidy keeps would stop updating, and the rows confirming its games would come off them.
+  The row is let through only where the club's own names, stored or on a link, carry the word the
+  row hit. A name is matched by its key, which drops a bracket, so "Tigers 12U (Scrimmage)" keys
+  as a plain vouched "Tigers 12U"; but the word is the row's, not the club's, and the row is
+  dropped as it would be against anybody. Let through, it went onto the club as a game more than
+  its schedule lists, on a day it played someone else, or onto a stand-in stored without the
+  bracket that the tidy then read as a plain name and kept.
+- **A game against one** on another club's schedule is dropped, as a game against a wiffle team
+  is, where the word is a practice, scrimmage, test, demo, sample, fake, tryout, stats, stream or
+  intrasquad: that result is not a game. Where it marks an old page (void, do not use, delete,
+  duplicate, placeholder) the game is filed against a slot of its own, as "TBD" is, because those
+  are real teams' abandoned pages and the result is real: 14 of the 45 games filed against the
+  void and do-not-use pages in the backup are listed by the other club's own schedule too.
+- **Already in the pool**, a tidy pass deletes a pulled club every one of whose GameChanger names
+  says it is no team, read off its links (the club's own name only for a link that carries none),
+  after the high school pass and before anything is levelled or settled; and a stand-in whose one
+  name says so. The stand-ins are read because a game filed against one before the rule stays until
+  its schedule is pulled again, and a club pulled seldom may not be for a long time. Left, a
+  practice result filed then went on rating the club that played it, in the fit though out of every
+  table, while the same schedule pulled into a fresh pool had no such game. A pull reads the row's
+  own name, which a stand-in does not keep: a row the opponent gate now turns away counts as no
+  longer listed, so the game filed on it before is withdrawn and goes at the next tidy, as a fresh
+  pull would never have filed it. That is what takes a word only in a bracket, "Rowanberry Rooks
+  (Scrimmage)", whose stand-in was stored as plain "Rowanberry Rooks" and which the tidy reads as a
+  plain name; 30 of the 1,486 drop-word names in the export of 24 September say the word only in
+  round brackets. A cloud run that could not read League leaves such a game standing
+  (`realClubsShort`), since the row may name a club League picks. Never a slot of the name, which
+  names nobody; never the user's own club, a page's own team or a club said to be real; and never a
+  club a League Standings team links, picked in Settings or carried onto by its name, which only the
+  League pass can see (`leagueLinkedClubs`), so the device's tidy and the cloud's read League first
+  as the boards do. Nor a drop word's stand-in named after one of those clubs in a pool it plays in,
+  read as the import's gate reads the name, by its pool and key (`namedAfterSpared`). The import
+  files a row of a vouched club's name against such a stand-in on a day the club played nobody, so
+  the stand-in holds the club's game, and the refile and claim steps settle it as any other.
+  Deleted, the game went with it, and the next pull filed the row again, every night, with a line
+  each time saying a practice page had gone. A cloud run that cannot read League deletes no page by
+  its name that night rather than one a season's pick leans on. An old page's games that another
+  club's own schedule lists are kept, its side turned into a slot; a drop word's games go with it.
+  On the backup of 11 October 2026 this deletes 520 pulled clubs, 121 of them old pages and 33 read
+  only through the names on their links; 76 were on a board that day, 237 were already off every
+  board by that night's sweep, and none was on the list of clubs said to be real. They held 434
+  games, 251 scored; 35 are kept (27 scored), 31 on slots and 4 stood back up against the stand-in
+  the other club's row was filed against. Two clubs whose stored name has a word none of their links
+  has are left. Of the stand-ins, 130 of drop words go with the 166 games they held against pulled
+  clubs (47 scored), and 56 old pages' 85 games (16 scored) move onto slots; a full tidy leaves none
+  of these names standing in, where it left 175. A deletion here is undone only by a backup, where
+  the nightly sweep's marks have **Put back**.
 
 A team below the youngest level ranked here, or one GameChanger gives no age
 for, is skipped rather than filed: a nationwide list carries thousands of 6U and
@@ -681,7 +769,9 @@ that looks similar.
 
 A slot is not a club even when GameChanger has a club of that name. Coaches make
 teams called "Tbd", "Practice", "Scrimmage" or "14U" to hold a date, and a
-nationwide pull fetches them like any other; filed on one, every undecided game in
+nationwide pull fetches them like any other (the import now refuses a "Practice" or a
+"Scrimmage" outright, and the tidy deletes one already pulled; **Softball, and pages that are no
+team, are left out**); filed on one, every undecided game in
 the country joined it, so a Puerto Rico club's "TBD" and an Ohio club's sat on one
 Washington "Tbd". A name that could be nothing but a slot — the whole of it a slot
 word, a round, an age, or "TBD" and when — is filed as a slot whoever carries the
@@ -1693,8 +1783,8 @@ rota keeps to the season being played as well; see the next section.
 Season column, and pasting it again on 26 September 2026 sent 220,103 ids, about
 22,000 calls, most of them teams an earlier pull had already refused as another
 season's. Each finished run now keeps what it turned away (`refusedClubs.ts`): for
-good when it is about what the team is (wiffle ball, high school, adult, over the
-oldest age), and against its squad year when it was another season's, so it is left
+good when it is about what the team is (wiffle ball or softball, high school, adult, over the
+oldest age; not a page whose name says it is no team, since a coach can rename one), and against its squad year when it was another season's, so it is left
 out of a paste only while that year is unticked. A pill says how many were left out,
 and **Ask again** forgets them. It is a cache of GameChanger's answers, like the
 too-young list beside it, and stays out of backups.
@@ -2244,9 +2334,9 @@ reached a schedule.
 
 The teams least likely to be real come first, then the ones that read as high school
 sides, then everyone else — the user's order, since working this list is mostly clearing
-it. **Unlikely to be real** is a name nobody gives a team that plays (test, practice,
-scrimmage, demo, delete, duplicate, placeholder; "Team 1"; no letters in any script; two
-characters or fewer), a triage rule that says so (named void or do-not-use, every game
+it. **Unlikely to be real** is a name nobody gives a team that plays (the words the import refuses
+a page on, `notATeamWord`, and "old team" and "not a real"; "Team 1"; no letters in any script;
+two characters or fewer), a triage rule that says so (named void or do-not-use, every game
 scored on a day that has not happened), or `looksInvented` at half a point or more — the
 score counts games carrying scores on days that have not happened, shutout blowouts, a
 record claiming far more games than the schedule lists, a roster under nine. Half a point
@@ -2257,7 +2347,9 @@ freshman side), never for a side GameChanger bands under thirteen. Within each g
 least likely real goes first, an empty schedule a little ahead of one with games; then one
 carrying a lead; then the stalest. Over the 13,958 waiting on 26 September that is 144
 unlikely (113 of them test and practice accounts), 100 high school, and the rest; the first
-thirty rows are all "Test", "Practice" and "Delete Me". It ran the other way for a while,
+thirty rows are all "Test", "Practice" and "Delete Me". Read with the import's words from 17
+October, the 13,169 waiting in the backup of 11 October hold 49 unlikely by name where the old list
+read 23, none lost; 57 of them are refused by name on their next ask and leave. It ran the other way for a while,
 likeliest real first, on the argument that the real decisions are what a sitting should
 reach.
 
@@ -2365,9 +2457,14 @@ signs and nothing keeps it:
   was marked afresh, on a day after that game, so that game could never lift it again. On the five
   backups of 25 September to 11 October it changes no mark.
 - **A name nobody plays under** (N): its name, or the name of a GameChanger team filed under it,
-  has void, voided, test, testing or demo as a word of its own, in any case ("Contest", "Avoid",
-  "Demons" and "Testudo" do not). It is marked by GameChanger team, so a club with one such team
-  among others stands.
+  has void, test or demo as a word of its own, in any case ("Contest", "Avoid", "Demons" and
+  "Testudo" do not), read by the import's own rules for those three words (`madeUpHit`): so
+  voided, testing, do not use and DNU, and a word run into another, but not the Austin organisation
+  called TEST, Skiles Test or a test-prep sponsor. On the backup of 11 October 2026 the sign's own
+  pattern of before read 249 pulled clubs by name, all ten of that organisation's teams among them;
+  the rules read 300, those ten fewer and 61 more. It is marked by GameChanger team, so a club with
+  one such team among others stands. Since the tidy now deletes a pulled club every one of whose
+  names says it is no team, N mostly marks what the tidy leaves: one such team among others.
 
 What keeps a club: any of its GameChanger ids, or its club id, said to be real (**It's real**);
 being any page's own team; the user's word on it, a pair kept apart, an age named or a score
@@ -4037,8 +4134,13 @@ field order aside: the same age group made by the importer and read back
 through storage lists its fields in two orders, and compared by the stored
 fingerprint alone, a pull that changed nothing sent the age groups again and
 every device took a copy that was not new. League Standings and archived
-seasons are neither read nor written. A copy saved by a newer build, or tidied
-by newer rules, is left alone.
+seasons are never written, nor loaded into the pool. League is read once, as the
+boards read it (its seasons' documents, or until there are any the copy's own
+part), only for the import and the tidy to spare every club a League Standings
+team links; a run that cannot read it deletes no page by its name rather than one
+a season's pick leans on, and takes no game off a row its import turns away for a
+word in the name (`realClubsShort`), since the row may name such a club. A copy
+saved by a newer build, or tidied by newer rules, is left alone.
 
 GameChanger is asked once. Where another device saved while the answers were
 coming in, the copy is read again and the same answers filed onto it, so the
@@ -4062,8 +4164,8 @@ how a pasted list is pulled at all.
 
 **On the page** (`LiveCloudPulls.tsx`, `src/lib/cloud/cloudPulls.ts`). The paste
 box reads a list or a spreadsheet export as the device's own pull panel does,
-leaving out wiffle ball, high school squads and adult or college teams, which cost
-no request. Before it is sent, it says how many of the ids do not have the shape
+leaving out wiffle ball and softball, high school squads, adult or college teams and
+pages whose name says they are no team, which cost no request. Before it is sent, it says how many of the ids do not have the shape
 every GameChanger team id seen so far has, twelve letters and digits
 (`isWellFormedGcTeamId`): slugs and names a list carries where an id should be,
 which GameChanger answers with HTTP 400; and how many lines named no team id at

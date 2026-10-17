@@ -21,12 +21,12 @@ const u9 = ageGroup(9, 2027);
 const pool = (): Pool => ({
   ageGroups: [u8, u9],
   teams: [
-    team("S-HIVE", "Example Hive *Fall Ball*", {
+    team("S-HIVE", "Nettlefield Hive *Fall Ball*", {
       state: "OH",
       gcTeams: [
         {
           teamId: "gcHIVEFALL26",
-          name: "Example Hive *Fall Ball*",
+          name: "Nettlefield Hive *Fall Ball*",
           ageGroupId: u8.id,
           season: "fall",
           seasonYear: 2026,
@@ -90,9 +90,9 @@ const openHive = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.type(box, "hive");
   const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
   await user.click(
-    within(within(list).getByRole("option", { name: /Example Hive/ })).getByRole("button")
+    within(within(list).getByRole("option", { name: /Nettlefield Hive/ })).getByRole("button")
   );
-  return screen.getByRole("region", { name: "Example Hive *Fall Ball*" });
+  return screen.getByRole("region", { name: "Nettlefield Hive *Fall Ball*" });
 };
 
 describe("setting a club's age on its panel", () => {
@@ -109,7 +109,7 @@ describe("setting a club's age on its panel", () => {
     await user.click(within(panel).getByRole("button", { name: "Set age" }));
 
     expect(harness.toasts()).toContain(
-      "Example Hive *Fall Ball* is 9U now: 2 of its games moved to 9U 2027."
+      "Nettlefield Hive *Fall Ball* is 9U now: 2 of its games moved to 9U 2027."
     );
     expect(hive()?.gcTeams?.[0]).toMatchObject({ ageGroupId: u9.id, ageLevel: 9 });
     expect([pageOf("g1"), pageOf("g2"), pageOf("g3")]).toEqual([u9.id, u9.id, u9.id]);
@@ -144,7 +144,7 @@ describe("setting a club's age on its panel", () => {
     await user.click(within(panel).getByRole("button", { name: "Let the app decide" }));
 
     expect(harness.toasts()).toContain(
-      "Example Hive *Fall Ball* is back at 8U, where the app had it."
+      "Nettlefield Hive *Fall Ball* is back at 8U, where the app had it."
     );
     expect(loadNamedAges().has("gcHIVEFALL26")).toBe(false);
     expect(hive()?.gcTeams?.[0]).toMatchObject({ ageGroupId: u8.id, ageLevel: 8 });
@@ -162,7 +162,9 @@ describe("setting a club's age on its panel", () => {
     await user.click(screen.getByRole("button", { name: "9U" }));
     await user.click(screen.getByRole("button", { name: /show all \d+ teams/i }));
     expect(
-      within(screen.getByRole("table")).getByRole("button", { name: "Example Hive *Fall Ball*" })
+      within(screen.getByRole("table")).getByRole("button", {
+        name: "Nettlefield Hive *Fall Ball*",
+      })
     ).toBeInTheDocument();
   });
 });
@@ -181,7 +183,7 @@ describe("finding a club by its GameChanger link", () => {
       within(list())
         .getAllByRole("option")
         .map((one) => one.textContent)
-    ).toEqual([expect.stringContaining("Example Hive *Fall Ball*")]);
+    ).toEqual([expect.stringContaining("Nettlefield Hive *Fall Ball*")]);
 
     await user.clear(box);
     await user.type(box, "https://web.gc.com/teams/gcNOBODY0000");
@@ -195,12 +197,12 @@ describe("finding a club by its GameChanger link", () => {
       ...base,
       teams: [
         ...base.teams,
-        team("S-GALE", "Example Gales", {
+        team("S-GALE", "Nettlefield Gales", {
           state: "OH",
           gcTeams: [
             {
               teamId: "gcGALEFALL26",
-              name: "Example Gales",
+              name: "Nettlefield Gales",
               ageGroupId: u9.id,
               season: "fall",
               seasonYear: 2026,
@@ -214,10 +216,10 @@ describe("finding a club by its GameChanger link", () => {
     await user.click(box);
     await user.type(box, "gcGALEFALL26");
     const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
-    const option = within(list).getByRole("option", { name: /Example Gales/ });
+    const option = within(list).getByRole("option", { name: /Nettlefield Gales/ });
     expect(option).toHaveTextContent("9U 2027");
     await user.click(within(option).getByRole("button"));
-    expect(screen.getByRole("region", { name: "Example Gales" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Nettlefield Gales" })).toBeInTheDocument();
   });
 
   it("says where an id is that no club carries", async () => {
@@ -226,7 +228,7 @@ describe("finding a club by its GameChanger link", () => {
     saveAgeUnknown([
       {
         teamId: "gcGUSTWAIT26",
-        name: "Example Gusts",
+        name: "Nettlefield Gusts",
         firstSeen: "2026-09-20",
         lastTried: "2026-09-27",
         tries: 1,
@@ -236,7 +238,7 @@ describe("finding a club by its GameChanger link", () => {
     await user.click(box);
     await user.type(box, "gcGUSTWAIT26");
     const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
-    expect(list).toHaveTextContent("Example Gusts is waiting on an age");
+    expect(list).toHaveTextContent("Nettlefield Gusts is waiting on an age");
   });
 });
 
@@ -286,7 +288,7 @@ describe("finding a club known only from other clubs' schedules", () => {
     const base = pool();
     renderTeamRankings({
       ...base,
-      teams: [...base.teams, team("S-WASPS", "Example Wasps", { nameOnly: true })],
+      teams: [...base.teams, team("S-WASPS", "Nettlefield Wasps", { nameOnly: true })],
       games: [
         ...base.games,
         game("g4", u9.id, "S-OWLS", "S-WASPS", 7, 5, {
@@ -300,10 +302,10 @@ describe("finding a club known only from other clubs' schedules", () => {
     await user.click(box);
     await user.type(box, "wasps");
     const list = document.getElementById(box.getAttribute("aria-controls") ?? "") as HTMLElement;
-    const option = within(list).getByRole("option", { name: /Example Wasps/ });
+    const option = within(list).getByRole("option", { name: /Nettlefield Wasps/ });
     expect(option).toHaveTextContent("9U 2027");
     await user.click(within(option).getByRole("button"));
-    expect(screen.getByRole("region", { name: "Example Wasps" })).toHaveTextContent("Owls");
+    expect(screen.getByRole("region", { name: "Nettlefield Wasps" })).toHaveTextContent("Owls");
   });
 });
 
@@ -321,7 +323,7 @@ describe("an age set on a club whose ids were filed apart", () => {
                 ...(one.gcTeams ?? []),
                 {
                   teamId: "gcHIVESPRG27",
-                  name: "Example Hive 9U",
+                  name: "Nettlefield Hive 9U",
                   ageGroupId: u9.id,
                   season: "spring" as const,
                   seasonYear: 2027,
@@ -350,7 +352,7 @@ describe("an age set on a club whose ids were filed apart", () => {
     await user.click(within(panel).getByRole("button", { name: "Let the app decide" }));
 
     expect(harness.toasts()).toContain(
-      "Example Hive *Fall Ball* is back where the app had it: 8U and 9U."
+      "Nettlefield Hive *Fall Ball* is back where the app had it: 8U and 9U."
     );
     const links = hive()?.gcTeams ?? [];
     expect(links.find((link) => link.teamId === "gcHIVEFALL26")).toMatchObject({
@@ -382,7 +384,7 @@ describe("the age choice on a panel left open", () => {
                 ...(one.gcTeams ?? []),
                 {
                   teamId: "gcHIVEFALL25",
-                  name: "Example Hive",
+                  name: "Nettlefield Hive",
                   ageGroupId: u10last.id,
                   season: "fall" as const,
                   seasonYear: 2025,
@@ -406,7 +408,7 @@ describe("the age choice on a panel left open", () => {
 
     await user.selectOptions(screen.getByLabelText("Season"), "2026");
 
-    const still = screen.getByRole("region", { name: "Example Hive *Fall Ball*" });
+    const still = screen.getByRole("region", { name: "Nettlefield Hive *Fall Ball*" });
     expect(within(still).getByLabelText("Age")).toHaveValue("10");
   });
 });

@@ -211,7 +211,9 @@ describe("importGcSchedule", () => {
    * filling in its own page.
    */
   it("files an ageless team under the age its league names", () => {
-    const ageless = schedule({ name: "Example Multi-Event Team", ageLevel: undefined }, [game()]);
+    const ageless = schedule({ name: "Nettlefield Multi-Event Team", ageLevel: undefined }, [
+      game(),
+    ]);
     const { state, outcome } = importGcSchedule({ ...ageless, listed: { ageLevel: 11 } }, empty);
     expect(outcome.issue).toBeUndefined();
     expect(outcome.ageGroupName).toBe("11U 2027");
@@ -223,7 +225,7 @@ describe("importGcSchedule", () => {
     // GameChanger filed the team "Under 13" and an organization's name said 16U: the band is
     // GameChanger's word about the team, and a list that contradicts it is wrong about the team.
     const under13 = schedule(
-      { name: "Example Multi-Event Team", ageLevel: undefined, ageLabel: "Under 13" },
+      { name: "Nettlefield Multi-Event Team", ageLevel: undefined, ageLabel: "Under 13" },
       [game()]
     );
     expect(importGcSchedule({ ...under13, listed: { ageLevel: 16 } }, empty).outcome.skip).toBe(
@@ -250,7 +252,9 @@ describe("importGcSchedule", () => {
    */
   it("is beaten by an age somebody named by hand", () => {
     // The name has to say nothing either, or GameChanger has spoken and the named age is dropped.
-    const ageless = schedule({ name: "Example Multi-Event Team", ageLevel: undefined }, [game()]);
+    const ageless = schedule({ name: "Nettlefield Multi-Event Team", ageLevel: undefined }, [
+      game(),
+    ]);
     const { outcome } = importGcSchedule({ ...ageless, listed: { ageLevel: 11 } }, empty, {
       namedAges: new Map([
         [
@@ -4063,10 +4067,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r21|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r22|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r21|0|0|0|");
+    expect(poolSignature(empty)).toBe("r22|0|0|0|");
   });
 
   /*
@@ -5281,7 +5285,7 @@ describe("teams that are not playing baseball", () => {
       games: [],
     });
     expect(describeTidy(tidy)).toContain(
-      "1 wiffle ball or blitzball team deleted, and their results with them."
+      "1 wiffle ball, blitzball or softball team deleted, and their results with them."
     );
   });
 
@@ -5961,6 +5965,7 @@ describe("whether a tidy changed anything", () => {
     releveled: 0,
     notBaseball: 0,
     highSchool: 0,
+    notATeam: 0,
     idle: 0,
     passes: 1,
   };
@@ -6146,7 +6151,7 @@ describe("a pull asked for particular seasons", () => {
     const later = createGcImporter(empty, { today: "2026-09-23" }).add({
       profile: {
         id: "bKpjvY5AVqOV",
-        name: "Placeholder Warriors",
+        name: "Nettlefield Warriors",
         season: { season: "spring", year: 2027 },
       },
       games: [],
@@ -6173,7 +6178,7 @@ describe("where a pulled club's age came from", () => {
   it("says GameChanger's age field when that is what answered, with the field verbatim", () => {
     const link = linkOf(
       importGcSchedule(
-        schedule({ name: "Example Hive", ageLevel: 8, ageLabel: "8U" }, [game()]),
+        schedule({ name: "Nettlefield Hive", ageLevel: 8, ageLabel: "8U" }, [game()]),
         empty
       )
     );
@@ -6181,7 +6186,9 @@ describe("where a pulled club's age came from", () => {
   });
 
   it("says the name when the name answered, the field saying nothing", () => {
-    const link = linkOf(importGcSchedule(schedule({ name: "Example Hive 9U" }, [game()]), empty));
+    const link = linkOf(
+      importGcSchedule(schedule({ name: "Nettlefield Hive 9U" }, [game()]), empty)
+    );
     expect(link).toMatchObject({ ageLevel: 9, ageFrom: "name" });
     expect(link?.ageLabel).toBeUndefined();
   });
@@ -6189,7 +6196,7 @@ describe("where a pulled club's age came from", () => {
   it("says the name when a bracket in it outranked the field", () => {
     const link = linkOf(
       importGcSchedule(
-        schedule({ name: "Example Hive 9U/10U", ageLevel: 10, ageLabel: "9U" }, [game()]),
+        schedule({ name: "Nettlefield Hive 9U/10U", ageLevel: 10, ageLabel: "9U" }, [game()]),
         empty
       )
     );
@@ -6197,13 +6204,13 @@ describe("where a pulled club's age came from", () => {
   });
 
   it("says the list when a league on it answered", () => {
-    const ageless = schedule({ name: "Example Hive", ageLevel: undefined }, [game()]);
+    const ageless = schedule({ name: "Nettlefield Hive", ageLevel: undefined }, [game()]);
     const link = linkOf(importGcSchedule({ ...ageless, listed: { ageLevel: 8 } }, empty));
     expect(link).toMatchObject({ ageLevel: 8, ageFrom: "list" });
   });
 
   it("says the opponents when their names answered", () => {
-    const ageless = schedule({ name: "Example Hive", ageLevel: undefined }, [
+    const ageless = schedule({ name: "Nettlefield Hive", ageLevel: undefined }, [
       game({ id: "o1", opponentName: "Owls 9U" }),
       game({ id: "o2", opponentName: "Foxes 9U" }),
       game({ id: "o3", opponentName: "Bears 9U" }),
@@ -6215,7 +6222,7 @@ describe("where a pulled club's age came from", () => {
   it("says you when somebody named it", () => {
     const link = linkOf(
       importGcSchedule(
-        schedule({ name: "Example Hive", ageLevel: 8, ageLabel: "8U" }, [game()]),
+        schedule({ name: "Nettlefield Hive", ageLevel: 8, ageLabel: "8U" }, [game()]),
         empty,
         {
           namedAges: new Map([

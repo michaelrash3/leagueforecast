@@ -12,6 +12,7 @@ import {
   archivedFrom,
   deriveAllKnown,
   leagueKeptClubs,
+  leagueLinkedClubs,
   gamesOnPages,
   type LeagueSeasonData,
   type SeasonReader,
@@ -283,6 +284,19 @@ describe("a club taken off as plainly made up", () => {
     expect([...ask(league({ id: "t", name: "Club F" }))]).toEqual(["F"]);
     expect(ask(league({ id: "t", name: "Club R" })).size).toBe(0);
     expect(ask(league({ id: "t", name: "Club F" }), NO_REMOVALS).size).toBe(0);
+    // And every club the league links, marked or not, which the tidy's not-a-team step keeps.
+    const linked = (seasons: Record<string, LeagueSeasonData>, onPages = groups) =>
+      leagueLinkedClubs({
+        ageGroups: onPages,
+        teams,
+        gamesOfYear: () => yearGames,
+        readSeason: readerOf(seasons),
+      });
+    expect(linked(league({ id: "t", name: "Foxes", scoutTeamId: "F" })).has("F")).toBe(true);
+    expect(linked(league({ id: "t", name: "Club R" })).has("R")).toBe(true);
+    expect(linked(league({ id: "t", name: "Club R" })).has("F")).toBe(false);
+    // None with no season on a page, whatever the seasons hold.
+    expect(linked(league({ id: "t", name: "Foxes", scoutTeamId: "F" }), [page]).size).toBe(0);
   });
 
   it("is left out of a year's archive as the board leaves it out", () => {
