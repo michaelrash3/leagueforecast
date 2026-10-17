@@ -44,9 +44,9 @@ import { RECENCY_SCHEMES, type RecencyScheme } from "../src/lib/ratingRecency.ts
 import {
   describeTidy,
   proposeSeasonPairings,
-  tidyPool,
   type GcImportState,
 } from "../src/lib/gameChangerImport.ts";
+import { leagueUnread, sweepTidy } from "./sweepTidy.ts";
 import { poolHealth, settleableNow } from "../src/lib/poolHealth.ts";
 import {
   ageGroupLevel,
@@ -129,7 +129,9 @@ const IN_SEASON_EMBARGO_DAYS = 14;
  * every one of those passes moves games across the timeline or changes who a team is — which is
  * exactly what this sweep is trying to measure.
  *
- * The tidy is the app's own, not a second copy of its rules, so the two cannot drift apart.
+ * The tidy is the app's own, not a second copy of its rules, so the two cannot drift apart; and it
+ * is told, as the device's is, which clubs were said to be real, so it deletes none of them for a
+ * name that says it is no team (`sweepTidy`).
  */
 const read = (path: string): TeamRankingsBackup => {
   // Either backup the app has ever written. The older CSV is read the same way the app reads it,
@@ -147,7 +149,7 @@ const read = (path: string): TeamRankingsBackup => {
     games: pool.games,
   };
   const health = poolHealth(before, "");
-  const { state, ...counts } = tidyPool(before);
+  const { state, ...counts } = sweepTidy(pool);
   const notes = describeTidy({ state, ...counts });
 
   console.log(
@@ -163,6 +165,13 @@ const read = (path: string): TeamRankingsBackup => {
   } else {
     console.log("  Tidy changed the pool before any of this was fitted:");
     notes.forEach((note) => console.log(`    ${note}`));
+  }
+  if (counts.notATeam > 0 && leagueUnread(pool)) {
+    console.log(
+      "  ! Pages here play in League Standings seasons this file does not carry, so a club only a" +
+        " League team links was not spared: where every name of one says it is no team, this tidy" +
+        " deleted it and the app keeps it."
+    );
   }
   const pairings = proposeSeasonPairings(state.teams, state.games);
   if (pairings.length > 0) {

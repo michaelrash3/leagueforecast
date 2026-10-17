@@ -90,6 +90,7 @@ server/
 scripts/
   poolFixture.ts        # a seeded pool of a real pool's shape, for the live views' tests and timings
   recencySweep.ts       # research: which recency scheme predicts best on a real pool
+  sweepTidy.ts          # the pool it fits: a backup through the device's tidy, real clubs spared
   verify-gc-pull.ts     # the one check that talks to GameChanger for real
 src/
   App.tsx               # League Standings: state, handlers and every view it renders
@@ -2901,7 +2902,13 @@ regressed further toward the mean than it was before. The weights depend only on
 the gaps between games, never on the clock, so a rating is a pure function of
 the pool and two readings a week apart agree.
 
-**What the evidence is.** `scripts/recencySweep.ts` was run against a
+**What the evidence is.** `scripts/recencySweep.ts` fits a backup as the app
+ranks it, after the app's own tidy, told the clubs the backup says are real as
+the device's tidy is (`scripts/sweepTidy.ts`), so no page of theirs is deleted
+for a name that reads as no team. The file carries no League Standings seasons,
+only their ids on its pages, so a club only a League team links is not spared,
+and the sweep warns of that whenever its tidy deleted a page for its name from
+a pool whose pages play in League seasons. It was run against a
 nationwide pool seven weeks into a squad year, the only backup small enough to
 export. It could not put the cross-winter question, because that pool had no
 winter in it. In season, at four nested cuts, the day-based schemes beat
