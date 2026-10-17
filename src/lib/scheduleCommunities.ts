@@ -19,15 +19,19 @@
  *
  * Measured on the owner's backup of 11 October 2026 (the 2027 squad year, 222,010 rated games),
  * fitted on the boards of 1, 8 and 15 September and checked on games after 22 September:
- * - against well-connected opponents, at equal shown rating, island clubs did 1.54 runs worse than
- *   shown, and clubs whose community had 1 to 10 outside games 0.8 to 1.4 worse;
+ * - against well-connected opponents, at equal shown rating, island clubs did 1.66 ± 0.22 runs
+ *   worse than shown on the boards as published (1,108 appearances), and clubs whose community had
+ *   1 to 10 outside games 1.15 to 1.63 worse (901);
  * - the level fitted on the early games was −1.5996 ± 0.2304 runs (36,028 games, 7,067 clusters),
  *   with ten outside games halving it the best of 2, 3, 5, 10, 20 and 40;
  * - on the 59,405 later games it lowered the squared error by 0.095 ± 0.022 runs² against the
- *   boards as published, and the Brier score of the win chance by 0.00034 ± 0.00007; between a
- *   weakly connected club and a well-connected one, by 0.72 ± 0.16 runs²;
- * - on the 11 October boards it kept 215 of the 250 national top-25 places and changed 13 of the
- *   276 state #1s held by well-connected clubs.
+ *   boards as published, and the Brier score of the win chance by 0.00034 ± 0.00007; where a
+ *   weakly connected club met an outsider (7,448 games), by 0.72 ± 0.16 runs², and where it met a
+ *   well-connected one (2,247), by 1.76 ± 0.40;
+ * - on the 11 October boards, with the circular deduction removed as well, it kept 215 of the 250
+ *   national top-25 places and changed 13 of the 276 state #1s held by well-connected clubs; 10 of
+ *   those 13 change with only the deduction removed, and the level with the deduction kept (and
+ *   fitted with it, at −1.65) would have changed 5.
  * A strong group that has truly played nobody else is shown 1.6 runs further below its level than
  * the ridge already shows it, by construction: the rule cannot tell such a group from a weak one,
  * and only games against outsiders can.

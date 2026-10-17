@@ -2948,8 +2948,10 @@ Measured on that backup (the 2027 year, 222,010 rated games), fitted on the boar
 of 1, 8 and 15 September and checked on the games after 22 September:
 
 - Against well-connected opponents, at equal shown rating, island clubs had done
-  1.54 runs worse than shown, and clubs whose league had 1 to 10 outside games 0.8
-  to 1.4 worse.
+  1.66 ± 0.22 runs worse than shown on the boards then published (1,108
+  appearances), and clubs whose league had 1 to 10 outside games 1.15 to 1.63 worse
+  (901). Over all six weekly windows from 1 September the same comparison reads 1.54
+  for islands (1,624) and 0.8 to 1.4 for the rest (1,261).
 - The starting level fitted on the early games was −1.60 ± 0.23 runs, and ten
   outside games halving it fitted best of 2, 3, 5, 10, 20 and 40. Resolution 5
   predicted the later games worse, and 50 no better than 20.
@@ -2960,7 +2962,9 @@ of 1, 8 and 15 September and checked on the games after 22 September:
 - On the 11 October year boards 60 of the 548 state #1s changed. Island #1s went
   from 156 to 126 and weakly connected ones from 217 to 181. The national top 25s
   kept 215 of their 250 places, and clubs from leagues with 31 or more outside
-  games kept 184 of their 186; 13 of their 276 state #1s changed.
+  games kept 184 of their 186; 13 of their 276 state #1s changed. 10 of those 13
+  also change with only the old deduction taken off (below), and the starting level
+  with the deduction kept, fitted with it at −1.65, would have changed 5.
 
 What it cannot do:
 
@@ -2986,9 +2990,14 @@ What it cannot do:
   rating of its ranked clubs went from +0.13 to −0.07.
 
 It replaced board rules 6's circular-schedule deduction, which measured as doing
-little: taken off alone it changed the later games' squared error by +0.010 ±
-0.009 runs², and with the starting level in, keeping it would have lowered it by
-another 0.014 ± 0.009, which is not significant. The communities take 1.2 to 1.3 s
+little on the later games as a whole: taken off alone it changed their squared
+error by +0.010 ± 0.009 runs², and with the starting level in, keeping it would
+have lowered it by another 0.014 ± 0.009, which is not significant. It was not
+nothing, though. Between clubs of two well-connected leagues, taking it off alone
+cost 0.062 ± 0.027 runs² on 6,244 later games, and on the 11 October year boards it
+changed 26 of the 548 state #1s, 16 of them well-connected clubs', and left
+well-connected clubs 177 of their 186 national top-25 places. The starting level
+wins most of that back: 184 of the 186 places, and 13 of those #1s changed. The communities take 1.2 to 1.3 s
 on that year (95,568 nodes, Node 24) and the deduction took 0.7 to 1.0 s, so a fit
 of the full year takes about half a second longer: 4.8 to 5.9 s against 4.4 to
 5.6 s, over five runs each. Each row says where its club started (`levelPrior`)
@@ -3073,8 +3082,12 @@ A game against a side seen once, a stand-in or a club known only from this one s
 reads nearer the club's own rating than its score would, and moves it little. With
 nothing else to go on, the fit lets that side's rating take most of the result: for a
 game of average weight, with the ridge at 1.5, played like comes out two-fifths the
-club's rating and three-fifths the margin counted. The game says more about the stand-in
-than about the club, which is also why the discount counts it as 0.6 of a game.
+club's rating, three-fifths the margin counted and three-fifths that side's start
+(**Where a rating starts**). A side met once almost always falls in the club's own league,
+since joining it gains a game and costs next to nothing, so that start is the club's:
+for an island club such a line reads 0.96 runs below what the club's rating and the
+margin alone would give. The game says more about the stand-in than about the club,
+which is also why the discount counts it as 0.6 of a game.
 
 Played like is exact, but for the 4 places a side with no row on the board carries its
 rating to (within 5e-5), and so is the record's part. The score's part is worked out as
