@@ -146,6 +146,31 @@ describe("an edit from the live page", () => {
     expect(toasts[1]).toEqual(["Undone.", { tone: "success" }]);
   });
 
+  it("says why it offers no Undo where one was asked for and the server sent none back", async () => {
+    const call = server(made(5, undefined, { kind: "none" }));
+    const { result, toasts } = hook(call);
+    await act(async () => {
+      await result.current.edit(STATE, {
+        done: "Deleted 300 clubs.",
+        undo: true,
+        noUndo: "There were too many to take back at once.",
+      });
+    });
+    expect(toasts).toEqual([
+      ["Deleted 300 clubs. There were too many to take back at once.", { tone: "success" }],
+    ]);
+  });
+
+  it("says nothing of an Undo kept, nor of one not asked for", async () => {
+    const call = server(made(5), made(6, undefined, { kind: "none" }));
+    const { result, toasts } = hook(call);
+    await act(async () => {
+      await result.current.edit(STATE, { done: "Kept.", undo: true, noUndo: "Not kept." });
+      await result.current.edit(STATE, { done: "Plain.", noUndo: "Not kept." });
+    });
+    expect(toasts.map(([message]) => message)).toEqual(["Kept.", "Plain."]);
+  });
+
   it("offers no Undo for an edit the server sent nothing to take it back by", async () => {
     const call = server(made(5, undefined, { kind: "none" }));
     const { result, toasts } = hook(call);

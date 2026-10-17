@@ -90,6 +90,18 @@ export type PoolHealthActions = {
   /** Deletes a club taken off for good, as Delete club does (`club.drop`), with Undo. */
   deleteRemoved: (club: RemovedClub) => Promise<boolean> | boolean;
   /**
+   * Deletes for good, as Delete club does each, the clubs one day's sweep took off that are still
+   * listed (every day's where `day` is null): those not put back, once the ones worth keeping have
+   * been. Asks first, saying how many, and offers Undo. The card leaves out a club a League
+   * Standings team links, whose link a deletion would break. Gives back the clubs it deleted:
+   * none where it was turned down or failed, and those of the edits that went where a list too
+   * long for one went as several and a later one failed, so only those leave the list.
+   */
+  deleteRemovedDay: (
+    day: string | null,
+    clubs: readonly RemovedClub[]
+  ) => Promise<readonly RemovedClub[]> | readonly RemovedClub[];
+  /**
    * Says a game won by more than `IMPLAUSIBLE_MARGIN` runs really was played that way, so it counts
    * and leaves the list (`ScoutGame.scoreConfirmed`).
    */
@@ -290,7 +302,26 @@ export function PoolHealthView({
    * The clubs taken off as plainly made up, newest first (`autoRemoved.ts`): on no list above and
    * no board, each kept filed with its games so that putting it back is forgetting a mark.
    */
-  const removed = useMemo(() => summary.removed ?? [], [summary.removed]);
+  /*
+   * Clubs put back or deleted from here, until the next summary says so itself. On the live page a
+   * change lands before the summary is asked for again, so for that while the list still showed a
+   * club just put back, and a bulk delete pressed then would have sent it with the rest. Kept against
+   * the summary it was made on: a new one is the pool as it stands, and the set goes with the old.
+   */
+  const [settledRemoved, setSettledRemoved] = useState<{
+    of: readonly RemovedClub[] | undefined;
+    ids: ReadonlySet<string>;
+  }>(() => ({ of: undefined, ids: new Set() }));
+  const settledIds = settledRemoved.of === summary.removed ? settledRemoved.ids : null;
+  const settleRemoved = (on: readonly RemovedClub[] | undefined, clubs: readonly RemovedClub[]) =>
+    setSettledRemoved((was) => ({
+      of: on,
+      ids: new Set([...(was.of === on ? was.ids : []), ...clubs.map((club) => club.teamId)]),
+    }));
+  const removed = useMemo(
+    () => (summary.removed ?? []).filter((club) => !settledIds?.has(club.teamId)),
+    [summary.removed, settledIds]
+  );
   const [allRemoved, setAllRemoved] = useState(false);
   /** The clubs taken off, by the day that took them off, newest first: a night's sweep at once. */
   const removedDays = useMemo(() => {
@@ -298,6 +329,19 @@ export function PoolHealthView({
     removed.forEach((club) => byDay.set(club.on, [...(byDay.get(club.on) ?? []), club]));
     return [...byDay];
   }, [removed]);
+  /**
+   * What a bulk delete may take, every day's and each day's: the clubs still listed but those a
+   * League Standings team links, which stay on their boards and whose link a deletion would break.
+   */
+  const deletable = useMemo(() => removed.filter((club) => !club.keptByLeague), [removed]);
+  const deletableDays = useMemo(
+    () =>
+      removedDays.flatMap(([day, clubs]): [string, RemovedClub[]][] => {
+        const left = clubs.filter((club) => !club.keptByLeague);
+        return left.length > 0 ? [[day, left]] : [];
+      }),
+    [removedDays]
+  );
 
   /**
    * Games won by more than `IMPLAUSIBLE_MARGIN` runs, the widest first: none of them counts, and
@@ -404,10 +448,14 @@ export function PoolHealthView({
     void actions.answer("realClubs", [], [club.teamId, ...club.gcTeamIds]);
 
   /** Puts a club taken off back, or deletes it for good: one at a time, as the other buttons. */
-  const decideRemoved = async (club: RemovedClub, decide: (club: RemovedClub) => unknown) => {
+  const decideRemoved = async (
+    club: RemovedClub,
+    decide: (club: RemovedClub) => Promise<boolean> | boolean
+  ) => {
+    const on = summary.removed;
     setDropping(club.teamId);
     try {
-      await decide(club);
+      if ((await decide(club)) === true) settleRemoved(on, [club]);
     } finally {
       setDropping(null);
     }
@@ -415,9 +463,22 @@ export function PoolHealthView({
 
   /** Puts back every club one night took off, as one change. */
   const putBackDay = async (day: string, clubs: readonly RemovedClub[]) => {
+    const on = summary.removed;
     setDropping(day);
     try {
-      await actions.putBackDay(day, clubs);
+      if ((await actions.putBackDay(day, clubs)) === true) settleRemoved(on, clubs);
+    } finally {
+      setDropping(null);
+    }
+  };
+
+  /** Deletes for good the clubs one night took off that are still listed, or every night's. */
+  const deleteRemovedDay = async (day: string | null, clubs: readonly RemovedClub[]) => {
+    const on = summary.removed;
+    setDropping(`delete:${day ?? "all"}`);
+    try {
+      const deleted = await actions.deleteRemovedDay(day, clubs);
+      if (deleted.length > 0) settleRemoved(on, deleted);
     } finally {
       setDropping(null);
     }
@@ -946,6 +1007,38 @@ export function PoolHealthView({
               </button>
             ))}
           </p>
+          {deletableDays.length > 0 && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Or, once the ones worth keeping are back, delete for good the rest one night took off,
+              each as <strong>Delete for good</strong> does, after saying how many. A club a League
+              Standings team links is left, as it stays on its boards.{" "}
+              {deletableDays.map(([day, clubs]) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => void deleteRemovedDay(day, clubs)}
+                  disabled={dropping !== null || held}
+                  className={`${button.ghost} mr-1 text-xs`}
+                >
+                  {dropping === `delete:${day}`
+                    ? "Working…"
+                    : `Delete the ${count(clubs.length)} taken off on ${day} for good`}
+                </button>
+              ))}
+              {deletableDays.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => void deleteRemovedDay(null, deletable)}
+                  disabled={dropping !== null || held}
+                  className={`${button.ghost} mr-1 text-xs`}
+                >
+                  {dropping === "delete:all"
+                    ? "Working…"
+                    : `Delete all ${count(deletable.length)} for good`}
+                </button>
+              )}
+            </p>
+          )}
         </div>
       )}
 

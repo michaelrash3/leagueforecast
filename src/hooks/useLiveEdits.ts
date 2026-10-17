@@ -33,9 +33,18 @@ export type ShowToast = (
  * What the person is told once an edit is made, whether its toast offers to take it back, and what
  * the screen does once it has been taken back (asks again for what the undo changed). `same`, when
  * given, is said instead where the copy already held the edit, so nothing changed and there is
- * nothing to take back: an Organizations file with nothing new in it.
+ * nothing to take back: an Organizations file with nothing new in it. `noUndo`, when given, is said
+ * after `done` where an Undo was asked for and the server sent nothing to take the edit back by, as
+ * it does for an edit whose inverse is too big to send (`editHandle.ts`), so a toast without its
+ * Undo says why rather than leaving it out without a word.
  */
-export type EditSaid = { done: string; undo?: boolean; afterUndo?: () => void; same?: string };
+export type EditSaid = {
+  done: string;
+  undo?: boolean;
+  afterUndo?: () => void;
+  same?: string;
+  noUndo?: string;
+};
 
 export type LiveEdits = {
   /** Structural saves invalidate Setup's lists before the next board publication. */
@@ -178,8 +187,10 @@ export function useLiveEdits({
         }
         // A start of Team Rankings says too what it found pulling into the copy, and stopped.
         const stopped = stoppedSaid(reply.stopped);
+        const unkept =
+          said.undo && reply.inverse.kind === "none" && said.noUndo ? ` ${said.noUndo}` : "";
         showToast(
-          stopped ? `${said.done} ${stopped}` : said.done,
+          `${stopped ? `${said.done} ${stopped}` : said.done}${unkept}`,
           // An edit with nothing to take it back by (none, or too big to send back) offers none.
           said.undo && reply.inverse.kind !== "none"
             ? {

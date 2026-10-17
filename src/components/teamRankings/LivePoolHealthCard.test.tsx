@@ -159,11 +159,14 @@ const editFunction = (
   {
     locked = null,
     makes = true,
+    failsFrom,
     later,
     plans,
   }: {
     locked?: string | null;
     makes?: boolean;
+    /** The edit, counted from 1, from which every one sent fails, as a server gone away would. */
+    failsFrom?: number;
     /** What every summary after the first waits on. */
     later?: Promise<void>;
     /** The server's plans in the order it makes them, in place of the one in `answers`. */
@@ -186,12 +189,13 @@ const editFunction = (
     edit: async (command, said) => {
       sent.push({ command, said });
       askedBySend.push(asked.length);
-      if (makes && command.kind === "answers" && command.list in kept) {
+      const made = makes && (failsFrom === undefined || sent.length < failsFrom);
+      if (made && command.kind === "answers" && command.list in kept) {
         const list = kept[command.list as keyof typeof kept];
         command.add.forEach((id) => list.add(id));
         command.remove.forEach((id) => list.delete(id));
       }
-      return makes;
+      return made;
     },
     ask: async <K extends QueryKind>(query: QueryOf<K>) => {
       asked.push(query);
@@ -220,9 +224,11 @@ const editFunction = (
 };
 
 const confirmed: string[] = [];
+const confirmedSaying: string[] = [];
 let confirming = true;
-const confirm = async ({ title }: { title: string }) => {
+const confirm = async ({ title, message }: { title: string; message: string }) => {
   confirmed.push(title);
+  confirmedSaying.push(message);
   return confirming;
 };
 
@@ -243,6 +249,7 @@ const kinds = (asked: PoolQuery[]) => asked.map((query) => query.kind);
 
 afterEach(() => {
   confirmed.length = 0;
+  confirmedSaying.length = 0;
   confirming = true;
   vi.restoreAllMocks();
 });
@@ -439,6 +446,212 @@ describe("Pool health's buttons, sent as edits", () => {
           afterUndo: expect.any(Function),
         },
       });
+    });
+
+    it("deletes for good the rest of a night's, asked first, leaving a club League Standings links", async () => {
+      const both = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: [
+            ...TAKEN.summary.removed,
+            {
+              teamId: "S-8",
+              name: "Placeholder Linked",
+              gcTeamIds: ["gc-8"],
+              on: "2027-04-14",
+              reasons: ["named 'demo'"],
+              keptByLeague: true as const,
+            },
+          ],
+        },
+      };
+      const call = editFunction({ "health.summary": both });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Delete the 1 taken off on 2027-04-14 for good",
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      expect(confirmed).toEqual(["Delete 1 club taken off on 2027-04-14 for good?"]);
+      // One edit, which asks for its Undo: nothing is said beforehand of one it cannot keep.
+      expect(confirmedSaying[0]).not.toMatch(/cannot be undone/);
+      expect(call.sent[0]).toEqual({
+        command: { kind: "batch", commands: [{ kind: "club.drop", teamId: "S-9" }] },
+        said: {
+          done: "Deleted 1 club taken off on 2027-04-14 for good.",
+          undo: true,
+          afterUndo: expect.any(Function),
+          // Said where the server sends no inverse back, as it does for one too big to send.
+          noUndo: "There were too many to take back at once, so this cannot be undone.",
+        },
+      });
+    });
+
+    it("deletes every night's at once where there are several, leaving a club League Standings links", async () => {
+      const nights = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: [
+            ...TAKEN.summary.removed,
+            {
+              teamId: "S-7",
+              name: "Placeholder Earlier",
+              gcTeamIds: ["gc-7"],
+              on: "2027-04-13",
+              reasons: ["named 'demo'"],
+            },
+            {
+              teamId: "S-8",
+              name: "Placeholder Linked",
+              gcTeamIds: ["gc-8"],
+              on: "2027-04-13",
+              reasons: ["named 'demo'"],
+              keptByLeague: true as const,
+            },
+          ],
+        },
+      };
+      const call = editFunction({ "health.summary": nights });
+      show(call);
+      fireEvent.click(await screen.findByRole("button", { name: "Delete all 2 for good" }));
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      expect(confirmed).toEqual(["Delete 2 clubs taken off for good?"]);
+      expect(call.sent[0]?.command).toEqual({
+        kind: "batch",
+        commands: [
+          { kind: "club.drop", teamId: "S-9" },
+          { kind: "club.drop", teamId: "S-7" },
+        ],
+      });
+    });
+
+    it("sends nothing when the count it asks about is turned down", async () => {
+      confirming = false;
+      const call = editFunction({ "health.summary": TAKEN });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Delete the 1 taken off on 2027-04-14 for good",
+        })
+      );
+      await waitFor(() => expect(confirmed).toHaveLength(1));
+      expect(call.sent).toEqual([]);
+    });
+
+    it("leaves out of a bulk delete a club just put back, before the lists are read again", async () => {
+      const both = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: [
+            ...TAKEN.summary.removed,
+            {
+              teamId: "S-7",
+              name: "Placeholder Other",
+              gcTeamIds: ["gc-7"],
+              on: "2027-04-14",
+              reasons: ["named 'demo'"],
+            },
+          ],
+        },
+      };
+      // The lists asked for again after the put back do not come until the end of the test.
+      let answer = () => undefined as void;
+      const later = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      const call = editFunction({ "health.summary": both }, { later });
+      show(call);
+      const list = await screen.findByRole("list", { name: "Removed for you" });
+      const kept = within(list).getByText("Placeholder Demo").closest("li");
+      if (!kept) throw new Error("no row");
+      fireEvent.click(within(kept).getByRole("button", { name: "Put back on the boards" }));
+      await waitFor(() => expect(call.sent).toHaveLength(1));
+      // Pressed while the old lists are still on screen: the club put back is not among them.
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Delete the 1 taken off on 2027-04-14 for good",
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(2));
+      expect(call.sent[1]?.command).toEqual({
+        kind: "batch",
+        commands: [{ kind: "club.drop", teamId: "S-7" }],
+      });
+      answer();
+    });
+
+    it("sends a list longer than one edit takes as several, with no Undo", async () => {
+      const many = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: Array.from({ length: MAX_COMMAND_STEPS + 1 }, (_, at) => ({
+            teamId: `S-${at}`,
+            name: `Placeholder ${at}`,
+            gcTeamIds: [`gc-${at}`],
+            on: "2027-04-14",
+            reasons: ["named 'demo'"],
+          })),
+        },
+      };
+      const call = editFunction({ "health.summary": many });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: `Delete the ${(MAX_COMMAND_STEPS + 1).toLocaleString()} taken off on 2027-04-14 for good`,
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(2));
+      const sizes = call.sent.map((one) =>
+        one.command.kind === "batch" ? one.command.commands.length : 1
+      );
+      expect(sizes).toEqual([MAX_COMMAND_STEPS, 1]);
+      expect(call.sent.map((one) => one.said.undo)).toEqual([false, false]);
+      // Said before anything goes, as several changes cannot be taken back as the whole.
+      expect(confirmedSaying[0]).toMatch(/cannot be undone/);
+    });
+
+    it("keeps listed the clubs of an edit that failed, where a long list went as several", async () => {
+      const many = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: Array.from({ length: MAX_COMMAND_STEPS + 1 }, (_, at) => ({
+            teamId: `S-${at}`,
+            name: `Placeholder ${at}`,
+            gcTeamIds: [`gc-${at}`],
+            on: "2027-04-14",
+            reasons: ["named 'demo'"],
+          })),
+        },
+      };
+      // The lists asked for again after the first edit do not come until the end of the test.
+      let answer = () => undefined as void;
+      const later = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      const call = editFunction({ "health.summary": many }, { failsFrom: 2, later });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: `Delete the ${(MAX_COMMAND_STEPS + 1).toLocaleString()} taken off on 2027-04-14 for good`,
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(2));
+      // The first edit's clubs are gone from the list; the one whose edit failed is still there.
+      expect(
+        await screen.findByRole("button", {
+          name: "Delete the 1 taken off on 2027-04-14 for good",
+        })
+      ).toBeTruthy();
+      const list = screen.getByRole("list", { name: "Removed for you" });
+      expect(within(list).getByText("Placeholder 500")).toBeTruthy();
+      expect(within(list).queryByText("Placeholder 0")).toBeNull();
+      answer();
     });
 
     it("says a club a League Standings team links is kept on its boards", async () => {

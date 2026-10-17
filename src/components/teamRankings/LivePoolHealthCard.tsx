@@ -89,8 +89,18 @@ export function LivePoolHealthCard({
   const askAgain = () => setAsked((times) => times + 1);
 
   /** An edit that changes the pool, after which (and after its Undo) the lists are asked for. */
-  const change = async (command: PoolCommand, done: string, undo = false): Promise<boolean> => {
-    const made = await edit(command, { done, undo, ...(undo ? { afterUndo: askAgain } : {}) });
+  const change = async (
+    command: PoolCommand,
+    done: string,
+    undo = false,
+    noUndo?: string
+  ): Promise<boolean> => {
+    const made = await edit(command, {
+      done,
+      undo,
+      ...(undo ? { afterUndo: askAgain } : {}),
+      ...(noUndo ? { noUndo } : {}),
+    });
     if (made) askAgain();
     return made;
   };
@@ -199,6 +209,55 @@ export function LivePoolHealthCard({
     // Deleted as Delete club deletes one, its Undo offered: the inverse the edit sends back.
     deleteRemoved: (club) =>
       change({ kind: "club.drop", teamId: club.teamId }, `Deleted ${club.name} for good.`, true),
+    /*
+     * The rest of a night's, or every night's, deleted as the device's card deletes them: asked
+     * first with the count, as many clubs at once. One edit takes at most `MAX_COMMAND_STEPS`
+     * clubs (a step a club; the server refuses a longer one whole), so a longer list goes as
+     * several, none of which can be taken back as the whole, which the dialog says first. One
+     * edit asks for its Undo, and the server keeps it only while the inverse fits the same cap: a
+     * club deleted takes 2 steps with no games and one more for each squad year its games are in,
+     * more than a count of clubs can bound, so where the server sends none back the toast says so.
+     * Where a later edit fails, the clubs of those that went are what it gives back as deleted.
+     */
+    deleteRemovedDay: async (day, clubs) => {
+      if (clubs.length === 0) return [];
+      const when = day ? ` taken off on ${day}` : " taken off";
+      const parts = Math.ceil(clubs.length / MAX_COMMAND_STEPS);
+      const confirmed = await confirm({
+        title: `Delete ${plural(clubs.length, "club")}${when} for good?`,
+        message: `Each goes as Delete club takes one: the club, every game it is in, and its GameChanger ids, which a later pull refuses. A club a League Standings team links is not among them.${
+          parts === 1
+            ? ""
+            : ` More than ${MAX_COMMAND_STEPS.toLocaleString()} at once go as several changes and cannot be undone: once they are gone, only a backup brings them back.`
+        }`,
+        confirmLabel: "Delete them",
+      });
+      if (!confirmed) return [];
+      const size = MAX_COMMAND_STEPS;
+      let deleted = 0;
+      for (let part = 0; part < parts; part += 1) {
+        const these = clubs.slice(part * size, (part + 1) * size);
+        const done = await change(
+          {
+            kind: "batch",
+            commands: these.map((club): PoolCommand => ({
+              kind: "club.drop",
+              teamId: club.teamId,
+            })),
+          },
+          parts === 1
+            ? `Deleted ${plural(clubs.length, "club")}${when} for good.`
+            : `Deleted ${plural(deleted + these.length, "club")} of ${clubs.length.toLocaleString()}${when} for good.`,
+          parts === 1,
+          parts === 1
+            ? "There were too many to take back at once, so this cannot be undone."
+            : undefined
+        );
+        if (!done) return clubs.slice(0, deleted);
+        deleted += these.length;
+      }
+      return clubs;
+    },
     confirmScore: (game) =>
       change(
         { kind: "game.confirm", year: game.year, gameId: game.id },

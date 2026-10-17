@@ -1805,6 +1805,40 @@ export function TeamRankingsView({
     return true;
   };
 
+  /**
+   * Deletes for good the clubs a sweep took off that are still listed, one night's or every
+   * night's, as Delete club does each: once the ones worth keeping are put back, the rest in one
+   * change, with Undo on the toast. Asks first, unlike the one-at-a-time delete, because this is
+   * many clubs at once and nobody can check them by eye afterwards; the dialog says how many.
+   * Gives back the clubs deleted, all or none, as one change.
+   */
+  const deleteRemovedOn = async (
+    day: string | null,
+    clubs: readonly RemovedClub[]
+  ): Promise<readonly RemovedClub[]> => {
+    if (clubs.length === 0) return [];
+    const many = clubs.length === 1 ? "1 club" : `${clubs.length.toLocaleString()} clubs`;
+    const when = day ? ` taken off on ${day}` : " taken off";
+    const confirmed = await requestConfirmation({
+      title: `Delete ${many}${when} for good?`,
+      message:
+        "Each goes as Delete club takes one: the club, every game it is in, and its GameChanger ids, which a later pull refuses. A club a League Standings team links is not among them.",
+      confirmLabel: "Delete them",
+    });
+    if (!confirmed) return [];
+    const run = runCommand({
+      kind: "batch",
+      commands: clubs.map((club): PoolCommand => ({ kind: "club.drop", teamId: club.teamId })),
+    });
+    if (!run.ok) return [];
+    showToast(`Deleted ${many}${when} for good.`, {
+      tone: "undo",
+      actionLabel: "Undo",
+      onAction: () => runCommand(run.inverse),
+    });
+    return clubs;
+  };
+
   /** The clubs of a pair League Standings made that the roster does not hold, to join it. */
   const unheldOf = (...ids: string[]): ScoutTeam[] =>
     ids.flatMap((id) =>
@@ -2632,6 +2666,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 onPutBack: putBackRemoved,
                 onPutBackDay: putBackRemovedOn,
                 onDeleteRemoved: deleteRemoved,
+                onDeleteRemovedDay: deleteRemovedOn,
               }}
               /*
               The whole known pool, not just this page's rows: the fit is over the season year, so
