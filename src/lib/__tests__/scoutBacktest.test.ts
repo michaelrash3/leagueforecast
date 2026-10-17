@@ -15,6 +15,7 @@ import {
   pairedImprovement,
   clearlyBetterBar,
   RUN_CAPS_TO_TRY,
+  type ModelCheckRunResult,
   type ScoutBacktestOptions,
   type ScoutBacktestResult,
 } from "../scoutBacktest";
@@ -911,12 +912,14 @@ describe("naming a better setting only when it clearly wins", () => {
     changed: { gaps?: Map<number, number[]>; caps?: Map<number, number[]> }
   ) =>
     modelCheckAnswer(
-      MODEL_CHECK_RUNS.map((options) => {
+      MODEL_CHECK_RUNS.map((check): ModelCheckRunResult => {
+        if (check.kind !== "backtest") return { kind: check.kind, result: null };
+        const { options } = check;
         const errors =
           (options.cap === undefined
             ? changed.gaps?.get(options.ageGapPrior!)
             : changed.caps?.get(options.cap)) ?? reference;
-        return run(options, errors, rated);
+        return { kind: "backtest", result: run(options, errors, rated) };
       })
     );
   // Two hundred held-back games with errors between two and four runs, every other one rated.

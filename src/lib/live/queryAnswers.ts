@@ -176,6 +176,25 @@ const IMPROVEMENT: Shape = {
     record: { value: UNBOUNDED, by: "number", standardError: "number", samples: "count" },
   },
 };
+/** The starting level's re-measure (`ClosedLevelCheck`): numbers and days, no name of anybody. */
+export const CLOSED_LEVEL_CHECK: Shape = {
+  record: {
+    held: "number",
+    level: { nullable: "number" },
+    standardError: { nullable: "number" },
+    games: "count",
+    clusters: "count",
+    weeks: {
+      list: {
+        record: { from: "string", to: "string", games: "count", level: { nullable: "number" } },
+      },
+    },
+    paired: {
+      nullable: { record: { by: "number", standardError: "number", samples: "count" } },
+    },
+    better: "boolean",
+  },
+};
 const MODEL_CHECK: Shape = {
   record: {
     answer: {
@@ -186,6 +205,8 @@ const MODEL_CHECK: Shape = {
           caps: { list: BACKTEST_RESULT },
           betterGap: IMPROVEMENT,
           betterCap: IMPROVEMENT,
+          // Optional: a server that predates the re-measure sends none, which reads as null.
+          closedLevels: { optional: { nullable: CLOSED_LEVEL_CHECK } },
         },
       },
     },
@@ -221,6 +242,7 @@ const modelCheckOf = (raw: Record<string, unknown>): AnswerOf<"model.check"> | n
       caps: sent.caps.map((one) => run(one as Wire<ScoutBacktestResult>)),
       betterGap: better(sent.betterGap),
       betterCap: better(sent.betterCap),
+      closedLevels: sent.closedLevels ?? null,
     },
   };
 };

@@ -7,6 +7,7 @@ import {
   type ModelCheckImprovement,
 } from "../../lib/scoutBacktest";
 import { RATING_CAP } from "../../lib/teamRankings";
+import { closedLevelLine } from "../../lib/closedLevelWords";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { AGE_GAP_RUNS_PER_YEAR, ageStepsInWords } from "../../lib/powerRating";
 import { button, card, pill } from "../../styles/tokens";
@@ -73,9 +74,10 @@ export function ModelCheckCard({
   const [interrupted, setInterrupted] = useState(false);
 
   /*
-   * Never in the click handler. The check is twelve fits of the page's year, and run there, when it
-   * was eleven, it froze the tab for 18 s on the 18:40 pool and 89 s at a phone's speed. The press
-   * paints "Working it out" first, and the fits run in the rankings worker when there is one.
+   * Never in the click handler. The check is twelve fits of the page's year and the starting
+   * level's re-measure, four more and a solve after each, and run there, when it was eleven fits,
+   * it froze the tab for 18 s on the 18:40 pool and 89 s at a phone's speed. The press paints
+   * "Working it out" first, and the fits run in the rankings worker when there is one.
    */
   const run = () => {
     const forGroup = ageGroupId;
@@ -98,6 +100,7 @@ export function ModelCheckCard({
   const result = shown?.result ?? null;
   const gaps = shown?.gaps ?? null;
   const caps = shown?.caps ?? null;
+  const closedLevels = shown?.closedLevels ?? null;
 
   const beat = result ? beatsTheBaseline(result) : null;
   const bestGap = gaps?.[0];
@@ -263,6 +266,16 @@ export function ModelCheckCard({
                 <p className="mt-1 text-slate-500 dark:text-slate-400">
                   Not enough held-back games here to tell the caps apart.
                 </p>
+              )}
+              {closedLevels && (
+                <>
+                  <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Where a rating starts
+                  </h3>
+                  <p className="mt-1 text-slate-700 dark:text-slate-200">
+                    {closedLevelLine(closedLevels)}
+                  </p>
+                </>
               )}
             </>
           )}

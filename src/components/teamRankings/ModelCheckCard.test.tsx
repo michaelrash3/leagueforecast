@@ -213,6 +213,69 @@ describe("naming a better setting", () => {
     expect(bold[0]!.closest("tr")).toHaveTextContent(/^No cap/);
   });
 
+  /** The re-measure as the owner's backup of 11 October 2026 gave it, asked the Monday after. */
+  const remeasured: NonNullable<ModelCheckAnswer["closedLevels"]> = {
+    held: -1.6,
+    level: -1.7417,
+    standardError: 0.1628,
+    games: 79_981,
+    clusters: 10_590,
+    weeks: [
+      { from: "2026-09-14", to: "2026-09-20", games: 19_710, level: -1.8923 },
+      { from: "2026-09-21", to: "2026-09-27", games: 25_909, level: -1.6357 },
+      { from: "2026-09-28", to: "2026-10-04", games: 27_834, level: -1.6999 },
+      { from: "2026-10-05", to: "2026-10-11", games: 6_528, level: -1.7444 },
+    ],
+    paired: { by: -0.000102, standardError: 0.000133, samples: 79_981 },
+    better: false,
+  };
+
+  it("says where a rating starts, and that the level held stands, in one line", async () => {
+    await show(answer({ closedLevels: remeasured }));
+
+    expect(
+      screen.getByText(
+        "Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says a change is ready when the level the weeks read is clearly better", async () => {
+    await show(
+      answer({
+        closedLevels: {
+          ...remeasured,
+          level: -1.9234,
+          paired: { by: 0.0012, standardError: 0.0004, samples: 79_981 },
+          better: true,
+        },
+      })
+    );
+
+    expect(
+      screen.getByText(
+        /; clearly better, by 0\.0012 runs a game, give or take 0\.0004, so a change to −1\.92 is ready\.$/
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("marks no club or league as closed", async () => {
+    await show(answer({ closedLevels: remeasured }));
+
+    const card = screen.getByRole("heading", {
+      name: "Does the model predict anything?",
+    }).parentElement!;
+    expect(card).toHaveTextContent(/Where a rating starts/);
+    expect(card.textContent).not.toMatch(/closed/i);
+    pool.teams.forEach((club) => expect(card.textContent).not.toContain(club.name));
+  });
+
+  it("leaves the line out for a page with no table", async () => {
+    await show(answer({ closedLevels: null }));
+
+    expect(screen.queryByText(/Where a rating starts/)).toBeNull();
+  });
+
   it("keeps the cap in use when no other did better beyond chance", async () => {
     await show(answer({ betterCap: null }));
 

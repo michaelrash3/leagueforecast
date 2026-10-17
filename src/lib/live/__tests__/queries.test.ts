@@ -770,10 +770,27 @@ describe("a model check as the server and a device read it", () => {
     caps: [{ ...RUN, cap: Infinity }, RUN],
     betterGap: null,
     betterCap: { value: Infinity, by: 0.05, standardError: 0.01, samples: 40 },
+    closedLevels: {
+      held: -1.6,
+      level: -1.74,
+      standardError: 0.16,
+      games: 80,
+      clusters: 12,
+      weeks: [
+        { from: "2027-03-01", to: "2027-03-07", games: 30, level: -1.9 },
+        { from: "2027-03-08", to: "2027-03-14", games: 0, level: null },
+      ],
+      paired: { by: -0.0001, standardError: 0.0001, samples: 80 },
+      better: false,
+    },
   };
   const sent = () =>
     JSON.parse(JSON.stringify({ kind: "model.check", answer: ANSWER })) as {
-      answer: { result: Record<string, unknown>; betterCap: Record<string, unknown> };
+      answer: {
+        result: Record<string, unknown>;
+        betterCap: Record<string, unknown>;
+        closedLevels?: Record<string, unknown>;
+      };
     };
 
   it("is asked of a page, and of nothing else", () => {
@@ -811,6 +828,22 @@ describe("a model check as the server and a device read it", () => {
     ).toEqual({ kind: "model.check", answer: gapBetter });
   });
 
+  it("reads an answer from a server that predates the starting level's re-measure", () => {
+    const wire = sent();
+    delete wire.answer.closedLevels;
+    expect(coerceQueryAnswer(wire, "model.check")).toEqual({
+      kind: "model.check",
+      answer: { ...ANSWER, closedLevels: null },
+    });
+    const none = { ...ANSWER, closedLevels: null };
+    expect(
+      coerceQueryAnswer(
+        JSON.parse(JSON.stringify({ kind: "model.check", answer: none })),
+        "model.check"
+      )
+    ).toEqual({ kind: "model.check", answer: none });
+  });
+
   it("is refused with any part of it spoiled", () => {
     const spoiled = (spoil: (wire: ReturnType<typeof sent>) => void) => {
       const wire = sent();
@@ -823,6 +856,9 @@ describe("a model check as the server and a device read it", () => {
     expect(spoiled((wire) => (wire.answer.result.span = { trainFrom: "x" }))).toBeNull();
     expect(spoiled((wire) => (wire.answer.betterCap.by = null))).toBeNull();
     expect(spoiled((wire) => delete (wire.answer as Record<string, unknown>).gaps)).toBeNull();
+    expect(spoiled((wire) => (wire.answer.closedLevels!.games = -1))).toBeNull();
+    expect(spoiled((wire) => (wire.answer.closedLevels!.better = "no"))).toBeNull();
+    expect(spoiled((wire) => (wire.answer.closedLevels!.weeks = [{ from: "x" }]))).toBeNull();
     expect(coerceQueryAnswer({ kind: "model.check" }, "model.check")).toBeNull();
   });
 });

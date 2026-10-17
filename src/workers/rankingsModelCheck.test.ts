@@ -6,7 +6,7 @@ import {
   checkTheModel,
   MODEL_CHECK_RUNS,
   modelCheckAnswer,
-  type ScoutBacktestResult,
+  type ModelCheckRunResult,
 } from "../lib/scoutBacktest";
 
 /*
@@ -40,6 +40,8 @@ teams.forEach((a, i) =>
     });
   })
 );
+/** The day the check is asked on: the 66 days of games from 1 September end on 5 November. */
+const TODAY = "2026-11-02";
 const shipment = (revision: number) => ({
   revision,
   teams: encodeScoutTeams(teams),
@@ -58,7 +60,7 @@ const harness = () => {
 describe("the model check in the rankings worker", () => {
   it("answers run by run what the card worked out in one go", () => {
     const { posted, handle } = harness();
-    const results: ScoutBacktestResult[] = [];
+    const results: ModelCheckRunResult[] = [];
     MODEL_CHECK_RUNS.forEach((run, index) => {
       handle({
         kind: "model-check",
@@ -66,6 +68,7 @@ describe("the model check in the rankings worker", () => {
         ageGroupId: "u9",
         ageGroups: groups,
         run,
+        today: TODAY,
         pool: index === 0 ? shipment(1) : { revision: 1 },
       });
       const answer = posted[posted.length - 1];
@@ -74,9 +77,11 @@ describe("the model check in the rankings worker", () => {
       results.push(answer.result);
     });
     const answer = modelCheckAnswer(results);
-    expect(answer).toEqual(checkTheModel("u9", teams, games, groups));
-    // The fixture is worth something: the check found games to hold back.
+    expect(answer).toEqual(checkTheModel("u9", teams, games, groups, TODAY));
+    // The fixture is worth something: the check found games to hold back, and games in the four
+    // weeks before the day to re-measure where a rating starts on.
     expect(answer.result.sampleSize).toBeGreaterThan(0);
+    expect(answer.closedLevels!.games).toBeGreaterThan(0);
   });
 
   it("asks for the pool when it does not hold the revision named", () => {
@@ -87,6 +92,7 @@ describe("the model check in the rankings worker", () => {
       ageGroupId: "u9",
       ageGroups: groups,
       run: MODEL_CHECK_RUNS[0]!,
+      today: TODAY,
       pool: { revision: 3 },
     });
     expect(posted).toEqual([{ kind: "pool-needed", id: 7, revision: 3 }]);
@@ -101,6 +107,7 @@ describe("the model check in the rankings worker", () => {
         ageGroupId: "u9",
         ageGroups: groups,
         run: MODEL_CHECK_RUNS[id - 1]!,
+        today: TODAY,
         pool,
       });
     check(1, shipment(1));

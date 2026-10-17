@@ -106,9 +106,10 @@ export default function LiveSetup({
 
   /*
    * The whole check in one question: twelve fits of the page's year, 15.1 s on 12U of 29
-   * September (`npm run live:bench`), on the server's pool with the copy's League Standings
-   * seasons in it, as the boards were fitted. Nothing else is edited on the server meanwhile, as
-   * with a what-if.
+   * September (`npm run live:bench`), and the starting level's re-measure, four more fits and a
+   * solve after each, 20 s more in Node on the owner's backup of 11 October (not timed on the
+   * server), on the server's pool with the copy's League Standings seasons in it, as the boards
+   * were fitted. Nothing else is edited on the server meanwhile, as with a what-if.
    */
   const checkModel = async () => {
     const asked = await ask({ kind: "model.check", page: pageId });

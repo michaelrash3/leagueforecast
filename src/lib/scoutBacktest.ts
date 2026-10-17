@@ -1165,18 +1165,63 @@ export const beatsTheBaseline = (result: ScoutBacktestResult): boolean | null =>
     : result.meanAbsoluteError < result.baselineError;
 
 /**
+ * One run of the Model check: a backtest of the page under `options`, or the starting level's
+ * re-measure over the page's squad year (`compareClosedLevels`).
+ */
+export type ModelCheckRun =
+  { kind: "backtest"; options: ScoutBacktestOptions } | { kind: "closed-levels" };
+
+/** What one run hands back, of its kind. */
+export type ModelCheckRunResult =
+  | { kind: "backtest"; result: ScoutBacktestResult }
+  | { kind: "closed-levels"; result: ClosedLevelCheck | null };
+
+/**
  * Every run the Model check card makes, in order: each held age gap (`compareAgeGaps`), then each
- * run cap graded on the margin as played (`compareRunCaps`). The plain backtest is the run at the
- * default gap, which is one of those held, so it is not fitted a second time.
+ * run cap graded on the margin as played (`compareRunCaps`), then the starting level re-measured
+ * (`compareClosedLevels`). The plain backtest is the run at the default gap, which is one of those
+ * held, so it is not fitted a second time.
  *
  * Listed rather than run in one go so the rankings worker can take them one request at a time: a
  * board refit asked for in the middle then waits for one run, about two seconds on a nationwide
- * year, rather than for all twelve.
+ * year, rather than for all of them. The re-measure is the one long run, four fits of the year and
+ * a solve after each, 20 s on the owner's backup of 11 October 2026 in Node, and comes last, so a
+ * refit asked for while the backtests run waits only for those.
  */
-export const MODEL_CHECK_RUNS: readonly ScoutBacktestOptions[] = [
-  ...AGE_GAPS_TO_TRY.map((ageGapPrior) => ({ ageGapPrior, keepErrors: true })),
-  ...RUN_CAPS_TO_TRY.map((cap) => ({ cap, scoreCap: Infinity, keepErrors: true })),
+export const MODEL_CHECK_RUNS: readonly ModelCheckRun[] = [
+  ...AGE_GAPS_TO_TRY.map((ageGapPrior): ModelCheckRun => ({
+    kind: "backtest",
+    options: { ageGapPrior, keepErrors: true },
+  })),
+  ...RUN_CAPS_TO_TRY.map((cap): ModelCheckRun => ({
+    kind: "backtest",
+    options: { cap, scoreCap: Infinity, keepErrors: true },
+  })),
+  { kind: "closed-levels" },
 ];
+
+/**
+ * One run of the check on a page's pool, as of `today`. `ordered` is `backtestGames` for the page,
+ * when the caller holds it: the backtests share it, and the re-measure reads the year its own way.
+ */
+export const runModelCheck = (
+  run: ModelCheckRun,
+  ageGroupId: string,
+  teams: ScoutTeam[],
+  games: ScoutGame[],
+  ageGroups: AgeGroup[],
+  today: string,
+  ordered?: BacktestGames
+): ModelCheckRunResult =>
+  run.kind === "backtest"
+    ? {
+        kind: "backtest",
+        result: backtestScoutRatings(ageGroupId, teams, games, ageGroups, run.options, ordered),
+      }
+    : {
+        kind: "closed-levels",
+        result: compareClosedLevels(ageGroupId, teams, games, ageGroups, today),
+      };
 
 /** A setting that predicted the held-back games better than the one in use, and by how much. */
 export type ModelCheckImprovement = {
@@ -1197,6 +1242,11 @@ export type ModelCheckAnswer = {
   betterGap: ModelCheckImprovement | null;
   /** The cap that predicted the held-back games clearly better than the one in use, if one did. */
   betterCap: ModelCheckImprovement | null;
+  /**
+   * The starting level re-measured on the last four weeks (`compareClosedLevels`), or null for a
+   * page with no table. Left out by a server that predates it, which a device reads as null.
+   */
+  closedLevels: ClosedLevelCheck | null;
 };
 
 /** Paired games below which no difference between two settings is called one. */
@@ -1363,9 +1413,11 @@ const bestFirst = (a: ScoutBacktestResult, b: ScoutBacktestResult) =>
   (a.meanAbsoluteError ?? Infinity) - (b.meanAbsoluteError ?? Infinity);
 
 /** The card's answer from the results of `MODEL_CHECK_RUNS`, in the same order. */
-export const modelCheckAnswer = (results: readonly ScoutBacktestResult[]): ModelCheckAnswer => {
-  const gaps = results.slice(0, AGE_GAPS_TO_TRY.length);
-  const caps = results.slice(AGE_GAPS_TO_TRY.length);
+export const modelCheckAnswer = (results: readonly ModelCheckRunResult[]): ModelCheckAnswer => {
+  const backtests = results.flatMap((one) => (one.kind === "backtest" ? [one.result] : []));
+  const gaps = backtests.slice(0, AGE_GAPS_TO_TRY.length);
+  const caps = backtests.slice(AGE_GAPS_TO_TRY.length);
+  const closed = results.find((one) => one.kind === "closed-levels");
   const plain = gaps[AGE_GAPS_TO_TRY.indexOf(AGE_GAP_RUNS_PER_YEAR)];
   if (!plain) throw new Error("The gaps tried must include the default one.");
   const gapsBest = [...gaps].sort(bestRatedFirst);
@@ -1377,6 +1429,7 @@ export const modelCheckAnswer = (results: readonly ScoutBacktestResult[]): Model
     caps: capsBest.map(withoutErrors),
     betterGap: clearlyBetter(gapsBest, plain, (result) => result.ageGapPrior, true),
     betterCap: inUse ? clearlyBetter(capsBest, inUse, (result) => result.cap, false) : null,
+    closedLevels: closed?.kind === "closed-levels" ? closed.result : null,
   };
 };
 
@@ -1385,12 +1438,13 @@ export const checkTheModel = (
   ageGroupId: string,
   teams: ScoutTeam[],
   games: ScoutGame[],
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  today: string = todayIsoDay()
 ): ModelCheckAnswer => {
   const ordered = backtestGames(ageGroupId, teams, games, ageGroups);
   return modelCheckAnswer(
-    MODEL_CHECK_RUNS.map((options) =>
-      backtestScoutRatings(ageGroupId, teams, games, ageGroups, options, ordered)
+    MODEL_CHECK_RUNS.map((run) =>
+      runModelCheck(run, ageGroupId, teams, games, ageGroups, today, ordered)
     )
   );
 };

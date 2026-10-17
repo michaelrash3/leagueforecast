@@ -550,11 +550,13 @@ const main = async () => {
             ...(asked.answer.kind === "scouting.whatIf"
               ? { drawn: asked.answer.curve !== null }
               : {}),
-            // And a model check with games to hold back, which is what the card draws from.
+            // And a model check with games to hold back, which is what the card draws from, and
+            // the games the starting level was re-measured on.
             ...(asked.answer.kind === "model.check"
               ? {
                   checked: asked.answer.answer !== null,
                   heldBack: asked.answer.answer?.result.sampleSize ?? 0,
+                  remeasured: asked.answer.answer?.closedLevels?.games ?? 0,
                 }
               : {}),
           }
