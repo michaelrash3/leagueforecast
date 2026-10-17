@@ -1,4 +1,5 @@
 import { isDatedAhead } from "./deletedGames";
+import { madeUpHit } from "./teamNameRules";
 import { isImplausibleScore, ratedMargin, scoreSeenBy } from "./teamRankings/games";
 import { segmentOn, squadYearForGcSeason, SEASON_SEGMENT_ORDER } from "./teamRankings/seasons";
 import type { AgeGroup, GcTeamLink, ScoutGame, ScoutTeam } from "./teamRankings/types";
@@ -47,8 +48,13 @@ import {
  *   whose mark one real game lifted showed the sign again the same night, short of the guard's
  *   three or half, and was marked afresh on that day, which the next real game, dated before it,
  *   could never lift. Measured on the five backups, it changes no mark.
- * - N: its name, or the name of a GameChanger team filed under it, has void, voided, test,
- *   testing or demo as a word of its own, in any case ("Contest" and "Demons" are not). Marked per
+ * - N: its name, or the name of a GameChanger team filed under it, has void, test or demo as a word
+ *   of its own, in any case ("Contest" and "Demons" are not), read by the import's own rules for
+ *   those words (`madeUpHit`, `teamNameRules.ts`): so "voided", "testing", "do not use" and "DNU"
+ *   too, and a word run into another, but not the Austin organisation called TEST,
+ *   whose squads are "TEST Black" and "TEST Red", nor Skiles Test or a test-prep sponsor: on the
+ *   backup of 11 October 2026 that reads 300 pulled clubs where the sign's own pattern read 249,
+ *   the 10 it no longer reads all that organisation's (`madeUpHit`). Marked per
  *   GameChanger id: when only one of its teams has the word and the club's own name does not,
  *   only that one, so the club stands unless every one of its ids is marked.
  *
@@ -95,12 +101,12 @@ export const AHEAD_FEWEST_PLAYED = 3;
 /** Games real opponents' schedules list that make a club plainly real, whatever its share. */
 export const PLAINLY_REAL_GAMES = 3;
 
-/** The words a team plays under nowhere, each as a word of its own: the user's list. */
-const MADE_UP_WORD = /\b(void|voided|test|testing|demo)\b/i;
-
-/** The word of `MADE_UP_WORD` a name has, lower case, or undefined. */
+/**
+ * The word a team plays under nowhere that a name has, as the name writes it but lower case, or
+ * undefined: the user's list of void, test and demo, read by the import's rules for them.
+ */
 export const madeUpWord = (name: string | undefined): string | undefined =>
-  name === undefined ? undefined : MADE_UP_WORD.exec(name)?.[1]?.toLowerCase();
+  madeUpHit(name)?.text.toLowerCase();
 
 export type SweepPool = {
   teams: readonly ScoutTeam[];

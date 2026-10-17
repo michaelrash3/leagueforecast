@@ -36,6 +36,7 @@ import {
   type GcTeamProfile,
   type GcTeamSchedule,
 } from "./gameChangerApi";
+import { notATeamWord } from "./teamNameRules";
 import {
   ageGroupLevel,
   ageGroupYear,
@@ -955,6 +956,9 @@ const resolveAgeGroup = (
   // A different game entirely. Checked before the age, because a wiffle team filed under 12U has
   // a perfectly good age level and that is exactly what makes it invisible.
   if (isNotBaseball(profile.name)) return null;
+  // No team at all, a practice or an old page somebody marked do not use, and the same trap: a
+  // "Practice 12U" has a perfectly good level, and filing it would rank a coach's practice account.
+  if (notATeamWord(profile.name)) return null;
   // A different season entirely, and the same trap: a varsity side whose age field reads 18U has
   // a perfectly good level, and filing it would put a closed cluster in the 18U table.
   if (isSchoolTeam(profile)) return null;
@@ -999,8 +1003,16 @@ export type GcSkipReason =
   | "below-min-age"
   | "above-max-age"
   | "no-season"
-  /** A wiffle ball or blitzball team. A different game, so its results belong to no baseball ranking. */
+  /**
+   * A wiffle ball, blitzball or softball team. A different game, so its results belong to no
+   * baseball ranking.
+   */
   | "not-baseball"
+  /**
+   * A page whose name says it is no team (`notATeamWord`): a practice, a scrimmage, a test, an old
+   * page marked do not use. Not remembered for good, since a coach can rename the page.
+   */
+  | "not-a-team"
   /** A high school squad. A different season, played against a pool this app does not hold. */
   | "high-school"
   /** Grown men or a college side. There is no youth age to find, so it is never asked about. */
@@ -1037,7 +1049,18 @@ const skipReason = (profile: GcTeamProfile): { code: GcSkipReason; message: stri
     return {
       code: "not-baseball",
       message:
-        "This is a wiffle ball or blitzball team, which is a different game, so it was left out.",
+        "This is a wiffle ball, blitzball or softball team, which is a different game, so it was left out.",
+    };
+  }
+  // Before the age readings, as `resolveAgeGroup` asks it: a good age does not make a practice
+  // account a team. The word goes in the sentence, so a page refused on a word can be checked.
+  const notATeam = notATeamWord(profile.name);
+  if (notATeam) {
+    return {
+      code: "not-a-team",
+      message:
+        "This page's name says it is not a real team (a practice, scrimmage, test or placeholder " +
+        `page, or one marked do not use), so it was left out. Its name says “${notATeam.text}”.`,
     };
   }
   /*
@@ -1671,7 +1694,15 @@ const planOpponent = (
   const named = [...atLevel, ...pulledAtPage];
   const sameName = named.filter(allowed);
 
-  if (isPlaceholderName(game.opponentName)) {
+  /*
+   * A name that marks a real team's old page — void, do not use, delete, duplicate, placeholder —
+   * names nobody this pool can rank, and is filed the way "TBD" is: a slot of its own, so the result
+   * stays on the record of the club that played it (`OpponentGate`).
+   */
+  if (
+    isPlaceholderName(game.opponentName) ||
+    notATeamWord(game.opponentName)?.opponent === "slot"
+  ) {
     /*
      * ...unless a club somebody pulled by id is called this. A schedule that writes the weekend in
      * the opponent column — "USSSA Cactus Classic" — names nobody, but a club really can call its
@@ -2607,6 +2638,18 @@ const importOne = (
      * ever having been pulled.
      */
     if (isNotBaseball(game.opponentName)) {
+      outcome.gamesIgnored += 1;
+      continue;
+    }
+
+    /*
+     * An opponent whose name says it is no team takes the game with it, on the same terms: a
+     * practice, a scrimmage, a tryout or a squad playing itself is not a result for the club that
+     * played it, and keeping it would mint the page in the pool off somebody else's schedule. Not
+     * an old page's name (`OpponentGate`): that is a real team's old page, and its game is filed
+     * against a slot of its own (`planOpponent`).
+     */
+    if (notATeamWord(game.opponentName)?.opponent === "drop") {
       outcome.gamesIgnored += 1;
       continue;
     }
@@ -6107,9 +6150,10 @@ export const resettleOffLevel = (
     const level = typed ?? levelOf.get(game.ageGroupId);
     const moverId = namedId === game.teamAId ? game.teamBId : game.teamAId;
     /*
-     * A pulled club called "Tbd", "Practice" or "14U" holds a date on its coach's schedule, and a
-     * row filed on it by name is some other club's undecided game (`namesNobody`). It goes to a slot
-     * of its own, as the import now files one, and out of every rating.
+     * A pulled club called "Tbd" or "14U" holds a date on its coach's schedule, and a row filed on
+     * it by name is some other club's undecided game (`namesNobody`). It goes to a slot of its own,
+     * as the import now files one, and out of every rating. One called "Practice" or "Scrimmage" is
+     * deleted before this (`dropNotATeam`), unless the owner keeps it, and is then read here too.
      */
     if (namesNobody(named.name)) {
       const slot = buildScoutTeam(named.name, used, { placeholder: true });
@@ -6519,10 +6563,20 @@ export type PoolTidy = {
   claimed: number;
   /** Levels read out of a name that had one all along, under rules that came later. */
   releveled: number;
-  /** Teams deleted for playing a different game — wiffle ball or blitzball — along with their results. */
+  /**
+   * Teams deleted for playing a different game — wiffle ball, blitzball or softball — along with
+   * their results.
+   */
   notBaseball: number;
   /** Teams deleted for playing a high school season, along with their results. */
   highSchool: number;
+  /**
+   * Pulled clubs deleted because every GameChanger name they carry says the page is no team — a
+   * practice, a test, an old page marked do not use — with their results, bar an old page's games
+   * another club's own schedule lists, which stay on that club's record against a slot
+   * (`dropNotATeam`).
+   */
+  notATeam: number;
   /**
    * Stand-ins nothing stands on any more — in no game, with no claimed row to go back to them —
    * taken out of the roster once the passes are done (`idleStandIns`).
@@ -6612,6 +6666,175 @@ const without = (
 const dropSchoolTeams = (state: GcImportState): { state: GcImportState; dropped: number } =>
   without(state, new Set(state.teams.filter((team) => isSchoolName(team.name)).map((t) => t.id)));
 
+/** No club said to be real: the tidy's default, for a caller with no answers to give it. */
+const NONE_REAL: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Deletes the pulled clubs whose every GameChanger name says the page is no team
+ * (`notATeamWord`): a practice, a scrimmage, a test, a tryout, a scorekeeper's or a camera's
+ * account, an old page marked void, do not use, delete, duplicate or placeholder.
+ *
+ * A tidy pass beside the import's refusal for the reason the wiffle pass is one: a page pulled
+ * before the rule existed sits in its age's table with an ordinary record, and nothing else takes
+ * it out. On the backup of 11 October 2026 this deletes 520 pulled clubs, 121 of them old pages;
+ * 76 were on a board that day and 237 already off every board by the nightly sweep's marks.
+ *
+ * Narrower than the wiffle pass in four ways, each because a wrongly deleted club leaves nothing
+ * behind to notice it by:
+ *
+ * - Pulled clubs only. A stand-in or a slot of the name is somebody else's schedule writing it
+ *   down, and is already out of every table.
+ * - Every one of the club's GameChanger names, as GameChanger gives them on its links, and the
+ *   club's own name only for a link that carries none. A club holding one practice id and one real
+ *   one is the real one, folded together; and the club's stored name has lost what a bracket said,
+ *   "(Practice Squad)", which 33 of the 520 say only there. Two clubs whose stored name has a word
+ *   none of their links has are left.
+ * - Never the user's own club, a page's own team, or a club said to be real (`real`, by club id or
+ *   any of its GameChanger ids).
+ * - An old page's games another club's own schedule lists are kept, with the old page's side
+ *   turned into a slot of its own (`ScoutTeam.placeholder`), as the import now files a game against
+ *   one: the result is real and the club that played it keeps it, its opponent out of every table
+ *   as every slot is. A drop word's games go with it, as a wiffle team's do: a practice's result is
+ *   not a game, on either side. On that backup the 520 clubs held 434 games, 251 scored; 35 are
+ *   kept (27 scored), 31 on slots and 4 stood back up against the stand-in their own row named.
+ */
+export const dropNotATeam = (
+  state: GcImportState,
+  real: ReadonlySet<string> = NONE_REAL
+): { state: GcImportState; dropped: number } => {
+  const pageTeams = new Set(
+    state.ageGroups.flatMap((group) => (group.myTeamId ? [group.myTeamId] : []))
+  );
+  const going = new Set<string>();
+  /** The going clubs whose names mark an old page, whose games another schedule lists are kept. */
+  const oldPages = new Set<string>();
+  /** Every GameChanger id of a going club: the rows its own schedules gave, wherever they are. */
+  const goingRows = new Set<string>();
+  state.teams.forEach((team) => {
+    const links = team.gcTeams ?? [];
+    if (links.length === 0) return;
+    if (team.isMine || pageTeams.has(team.id) || real.has(team.id)) return;
+    if (links.some((link) => real.has(link.teamId))) return;
+    let slot = false;
+    for (const link of links) {
+      const hit = notATeamWord(link.name.trim() || team.name);
+      if (!hit) return;
+      if (hit.opponent === "slot") slot = true;
+    }
+    going.add(team.id);
+    links.forEach((link) => goingRows.add(link.teamId));
+    if (slot) oldPages.add(team.id);
+  });
+  if (going.size === 0) return { state, dropped: 0 };
+
+  const nameOf = new Map(state.teams.map((team) => [team.id, team.name]));
+  const used = new Set(state.teams.map((team) => team.id));
+  const slots: ScoutTeam[] = [];
+  /** A slot of its own for each game kept off an old page, as the import makes one per game. */
+  const slotFor = (clubId: string): string => {
+    const slot = buildScoutTeam(nameOf.get(clubId) ?? "", used, { placeholder: true });
+    used.add(slot.id);
+    slots.push(slot);
+    return slot.id;
+  };
+  const ownPage = ownPageFor(state.ageGroups);
+  /** A row of a going club's own schedule, or one claimed for a copy and filed against one. */
+  const goes = (record: FoldedRow) =>
+    goingRows.has(record.teamId) ||
+    (record.filedAgainst !== undefined && going.has(record.filedAgainst));
+  /** `game` without anything a going club's schedule said of it, and the picture naming one. */
+  const unsaid = (game: ScoutGame): ScoutGame => {
+    const dropped = (game.alsoRows ?? []).filter(goes).reduce(releaseClaim, game);
+    const {
+      alsoFrom,
+      namedByAvatar,
+      reportedByB,
+      scoreFromB,
+      teamAScore,
+      teamBScore,
+      alsoRows,
+      ...rest
+    } = dropped;
+    const from = (alsoFrom ?? []).filter((schedule) => !goingRows.has(schedule));
+    // Side B's own report, and a score lent by it, were the old page's word where it is side B.
+    const sideBGoes = going.has(dropped.teamBId);
+    const rows = (alsoRows ?? []).map((record) =>
+      record.namedByAvatar !== undefined && going.has(record.namedByAvatar)
+        ? (({ namedByAvatar: _gone, ...kept }) => kept)(record)
+        : record
+    );
+    return {
+      ...rest,
+      ...(scoreFromB && sideBGoes
+        ? {}
+        : {
+            ...(teamAScore === undefined ? {} : { teamAScore }),
+            ...(teamBScore === undefined ? {} : { teamBScore }),
+            ...(scoreFromB ? { scoreFromB } : {}),
+          }),
+      ...(reportedByB && !sideBGoes ? { reportedByB } : {}),
+      ...(namedByAvatar !== undefined && !going.has(namedByAvatar) ? { namedByAvatar } : {}),
+      ...(from.length > 0 ? { alsoFrom: from } : {}),
+      ...(rows.length > 0 ? { alsoRows: rows } : {}),
+    };
+  };
+  /** `game` with each going side, an old page, on a slot of its own. */
+  const onSlots = (game: ScoutGame): ScoutGame => ({
+    ...game,
+    ...(going.has(game.teamAId) ? { teamAId: slotFor(game.teamAId) } : {}),
+    ...(going.has(game.teamBId) ? { teamBId: slotFor(game.teamBId) } : {}),
+  });
+
+  const games = state.games.flatMap((game): ScoutGame[] => {
+    const a = going.has(game.teamAId);
+    const b = going.has(game.teamBId);
+    if (!a && !b) {
+      // A row claimed for this copy that its own schedule filed against a going club, as `without`.
+      const claimed = (game.alsoRows ?? []).filter(
+        (record) => record.filedAgainst !== undefined && going.has(record.filedAgainst)
+      );
+      return [claimed.reduce(releaseClaim, game)];
+    }
+    const page = a ? game.teamAId : game.teamBId;
+    if ((a && b) || !oldPages.has(page)) return [];
+    // The other club's own row is the game: what the old page said of it comes off.
+    if (game.source === undefined || !goingRows.has(game.source.teamId)) {
+      return [onSlots(unsaid(game))];
+    }
+    /*
+     * The old page's own row is the game: it goes, as a row its schedule no longer lists does, and
+     * every other schedule's row folded into it stands up as a game of its own, as
+     * `standUpWithdrawn` stands one up, facing a slot where it faced an old page. A row claimed
+     * here that its own schedule filed against the old page by name is one of them: it stands up
+     * against the team it was filed against, the old page, and so on a slot. One that stands up
+     * against a page no team at all goes, as every game against one does.
+     */
+    return (game.alsoRows ?? []).flatMap((record): ScoutGame[] => {
+      if (goingRows.has(record.teamId)) return [];
+      const stood = ownPage(filedRowOf(game, record));
+      const faced = [stood.teamAId, stood.teamBId].filter((id) => going.has(id));
+      if (faced.some((id) => !oldPages.has(id))) return [];
+      const { namedByAvatar, ...rest } = stood;
+      return [
+        onSlots({
+          ...rest,
+          ...(namedByAvatar !== undefined && !going.has(namedByAvatar) ? { namedByAvatar } : {}),
+          ...(game.excluded ? { excluded: true } : {}),
+          ...(game.event ? { event: game.event } : {}),
+        }),
+      ];
+    });
+  });
+  return {
+    state: {
+      ...state,
+      teams: [...state.teams.filter((team) => !going.has(team.id)), ...slots],
+      games,
+    },
+    dropped: going.size,
+  };
+};
+
 /**
  * Levels worked out for what is already in the pool, under the rules as they now stand.
  *
@@ -6692,12 +6915,13 @@ const relevelFromNames = (state: GcImportState): { state: GcImportState; relevel
 };
 
 /**
- * The nine things a tidy pass does, in the order it does them. The order is load-bearing and the
+ * The things a tidy pass does, in the order it does them. The order is load-bearing and the
  * comments below say why; this is the same list, named, so a watcher can be told where it is.
  */
 export const TIDY_STEPS = [
   "notBaseball",
   "highSchool",
+  "notATeam",
   "releveled",
   "pruned",
   "withdrawn",
@@ -7016,7 +7240,8 @@ const tidyOnce = (
   pass: number,
   watch?: TidyWatcher,
   apart?: KeptApart,
-  refused: NotThisTeam = NO_REFUSALS
+  refused: NotThisTeam = NO_REFUSALS,
+  real: ReadonlySet<string> = NONE_REAL
 ): Omit<PoolTidy, "passes" | "idle"> => {
   /*
    * Reported from here rather than from the passes themselves: each one is a pure function of a
@@ -7046,10 +7271,14 @@ const tidyOnce = (
   starting("highSchool", kept.state);
   const school = dropSchoolTeams(kept.state);
   finished("highSchool", school.dropped, school.state);
+  // And a page that is no team, for the same reason again.
+  starting("notATeam", school.state);
+  const pages = dropNotATeam(school.state, real);
+  finished("notATeam", pages.dropped, pages.state);
   // Then levels, because every pass after it compares them: a side whose level is about to be
   // worked out should be worked out before anything decides whether two rows mean one game.
-  starting("releveled", school.state);
-  const levels = relevelFromNames(school.state);
+  starting("releveled", pages.state);
+  const levels = relevelFromNames(pages.state);
   finished("releveled", levels.releveled, levels.state);
   starting("pruned", levels.state);
   const season = pruneOutOfSeason(levels.state);
@@ -7146,6 +7375,7 @@ const tidyOnce = (
     releveled: levels.releveled,
     notBaseball: kept.dropped,
     highSchool: school.dropped,
+    notATeam: pages.dropped,
   };
 };
 
@@ -7164,7 +7394,12 @@ export const tidyPool = (
    * row of one onto the club by the name, and the step that takes a name's rows off a club takes
    * them off it; the club's own schedule listing a game still makes it the club's.
    */
-  refused: NotThisTeam = NO_REFUSALS
+  refused: NotThisTeam = NO_REFUSALS,
+  /**
+   * The clubs the owner has said are real ("This club is real"), by club id or GameChanger id, so
+   * the step that deletes a page whose name says it is no team never deletes one of them.
+   */
+  real: ReadonlySet<string> = NONE_REAL
 ): PoolTidy => {
   const total: PoolTidy = {
     state,
@@ -7184,11 +7419,12 @@ export const tidyPool = (
     releveled: 0,
     notBaseball: 0,
     highSchool: 0,
+    notATeam: 0,
     idle: 0,
     passes: 0,
   };
   for (let pass = 0; pass < TIDY_MAX_PASSES; pass += 1) {
-    const step = tidyOnce(total.state, pass + 1, watch, apart, refused);
+    const step = tidyOnce(total.state, pass + 1, watch, apart, refused, real);
     total.passes += 1;
     total.state = step.state;
     total.named += step.named;
@@ -7207,6 +7443,7 @@ export const tidyPool = (
     total.releveled += step.releveled;
     total.notBaseball += step.notBaseball;
     total.highSchool += step.highSchool;
+    total.notATeam += step.notATeam;
     const changed =
       step.named +
       step.joined +
@@ -7223,7 +7460,8 @@ export const tidyPool = (
       step.claimed +
       step.releveled +
       step.notBaseball +
-      step.highSchool;
+      step.highSchool +
+      step.notATeam;
     if (changed === 0) break;
   }
   /*
@@ -7324,8 +7562,12 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  21 — a stand-in filed onto the one pulled club a name no other club carries can mean, in the
  *       namer's state or next door, though its own schedules have no game that day, and such a
  *       row left on it
+ *  22 — deleting the pulled clubs every one of whose GameChanger names says the page is no team, a
+ *       practice, a test or an old page marked do not use, an old page's games another club's own
+ *       schedule lists kept on a slot; and softball, fastpitch, slowpitch and kickball read as not
+ *       baseball
  */
-const TIDY_RULES_VERSION = 21;
+const TIDY_RULES_VERSION = 22;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -7430,12 +7672,17 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
       : []),
     ...(tidy.notBaseball > 0
       ? [
-          `${plural(tidy.notBaseball, "wiffle ball or blitzball team", "wiffle ball or blitzball teams")} deleted, and their results with them.`,
+          `${plural(tidy.notBaseball, "wiffle ball, blitzball or softball team", "wiffle ball, blitzball or softball teams")} deleted, and their results with them.`,
         ]
       : []),
     ...(tidy.highSchool > 0
       ? [
           `${plural(tidy.highSchool, "high school squad", "high school squads")} deleted, and their results with them.`,
+        ]
+      : []),
+    ...(tidy.notATeam > 0
+      ? [
+          `${plural(tidy.notATeam, "practice, test or old team page", "practice, test or old team pages")} deleted, and their results with them.`,
         ]
       : []),
     ...(tidy.idle > 0

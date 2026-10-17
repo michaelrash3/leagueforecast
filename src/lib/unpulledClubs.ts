@@ -7,6 +7,7 @@ import {
   type ScoutGame,
 } from "./teamRankings";
 import { isNotBaseball, isSchoolName, type GcTeamListEntry } from "./gameChangerApi";
+import { notATeamWord } from "./teamNameRules";
 import { csvEscape } from "./csv";
 
 /**
@@ -62,8 +63,11 @@ export const unpulledClubs = (state: GcImportState): UnpulledClub[] => {
    * And only one the import would accept if it were fetched. This is a to-do list, so a name on
    * it that the importer refuses on sight sends somebody off to find a GameChanger id for a team
    * that can never be filed. High school squads are the ones it really happens to: a varsity side
-   * turns up as an opponent on a travel club's schedule and becomes a stand-in, where a wiffle
-   * team never could, because a wiffle game is dropped before an opponent is ever resolved.
+   * turned up as an opponent on a travel club's schedule and became a stand-in before the import
+   * dropped such games, where a wiffle team never could, because a wiffle game is dropped before an
+   * opponent is ever resolved. A name that says the page is no team (`notATeamWord`) is refused
+   * the same way, and its stand-ins from before the rule, a practice squad or an old page somebody
+   * named, stay off the list with it.
    */
   const wanted = new Set(
     state.teams
@@ -72,7 +76,8 @@ export const unpulledClubs = (state: GcImportState): UnpulledClub[] => {
           team.nameOnly &&
           !team.placeholder &&
           !isNotBaseball(team.name) &&
-          !isSchoolName(team.name)
+          !isSchoolName(team.name) &&
+          !notATeamWord(team.name)
       )
       .map((team) => team.id)
   );

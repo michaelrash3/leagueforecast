@@ -43,6 +43,7 @@ import {
   loadNamedAges,
   loadNotThisTeam,
   loadOrgMembership,
+  loadRealClubs,
   loadRefreshLog,
   loadScoutGames,
   loadScoutTeams,
@@ -573,7 +574,7 @@ const fileScheduleSource = async (
     if (unaged.size === before) break;
   }
   await onTidy?.();
-  const tidy = tidyPool(importer.state, watchTidy, loadKeptApart(), refused);
+  const tidy = tidyPool(importer.state, watchTidy, loadKeptApart(), refused, loadRealClubs());
   saveTidyStamp(poolSignature(tidy.state));
   const filed = tidyChangedAnything(tidy) ? tidy.state : importer.state;
   const kept = persistPool(filed, undefined);

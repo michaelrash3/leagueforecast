@@ -7,10 +7,12 @@ import type { GcImportState } from "../lib/gameChangerImport";
 import type { MarksChange } from "../lib/removedForYou";
 
 /*
- * Two clubs answer, each with a game of its own against a club nobody pulled: one named as a demo,
- * which the sweep for clubs plainly made up takes off (`obviousFakes.ts`), and one that is not.
+ * Two clubs answer, each with a game of its own against a club nobody pulled: one that won by
+ * eighty runs, which the sweep for clubs plainly made up takes off (`obviousFakes.ts`), and one
+ * that did not. Not a club named as a demo, as this was: the import now refuses a page whose name
+ * says it is no team before the sweep could see it (`notATeamWord`).
  */
-const DEMO = "DemoClub0001";
+const ROUT = "RoutClub0001";
 const REAL = "RealClub0002";
 vi.mock("../lib/gameChangerClient", async () => {
   const actual = await vi.importActual<typeof import("../lib/gameChangerClient")>(
@@ -32,13 +34,13 @@ vi.mock("../lib/gameChangerClient", async () => {
       ) => {
         const out = new Map<string, GcTeamResponse>();
         ids.forEach((teamId, index) => {
-          const demo = teamId === DEMO;
+          const rout = teamId === ROUT;
           const result: GcTeamResponse = {
             ok: true,
             schedule: {
               profile: {
                 id: teamId,
-                name: demo ? "Demo Squad 12U" : "Real Club 12U",
+                name: rout ? "Wexcombe Wreckers 12U" : "Real Club 12U",
                 ageLevel: 12,
                 season: { season: "fall", year: 2026 },
               },
@@ -46,9 +48,9 @@ vi.mock("../lib/gameChangerClient", async () => {
                 {
                   id: "g1",
                   date: "2026-09-20",
-                  opponentName: demo ? "Nobody 12U" : "Somebody 12U",
-                  teamScore: 5,
-                  opponentScore: 3,
+                  opponentName: rout ? "Nobody 12U" : "Somebody 12U",
+                  teamScore: rout ? 80 : 5,
+                  opponentScore: rout ? 0 : 3,
                   status: "completed",
                 },
               ],
@@ -103,14 +105,12 @@ describe("a run's end", () => {
       />
     );
 
-    await user.type(screen.getByLabelText("Teams"), `${DEMO}\n${REAL}`);
+    await user.type(screen.getByLabelText("Teams"), `${ROUT}\n${REAL}`);
     await user.click(screen.getByRole("button", { name: /^Pull \d+ schedules?$/ }));
 
     await waitFor(() => expect(onSwept).toHaveBeenCalledTimes(1));
     const change = onSwept.mock.calls[0]?.[0];
     expect(change?.forget).toEqual([]);
-    expect(change?.put.map((mark) => [mark.gcTeamId, mark.signs, mark.word])).toEqual([
-      [DEMO, ["named"], "demo"],
-    ]);
+    expect(change?.put.map((mark) => [mark.gcTeamId, mark.signs])).toEqual([[ROUT, ["rout"]]]);
   });
 });

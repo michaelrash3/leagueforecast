@@ -193,7 +193,8 @@ describe("a club that has been thrown out", () => {
   const schedule: GcTeamSchedule = {
     profile: {
       id: "WpYo8bR3Smwp",
-      name: "Test team 11U",
+      // Not "Test team", whose name the import now refuses on sight (`notATeamWord`).
+      name: "Wexcombe Wanderers 11U",
       ageLevel: 11,
       season: { season: "winter", year: 2026 },
       state: "FL",

@@ -147,43 +147,29 @@ describe("the names pinned before the not-a-team rules", () => {
       )
     ).toMatchInlineSnapshot(`
       [
-        "Quillfeather Quails 12U: filed, +8, ignored 0, made 8",
-        "Thornbury Practice 12U: filed, +1, ignored 0, made 0",
-        "Gildersleeve Softball 12U: filed, +1, ignored 0, made 1",
-        "Test Red Kestrelmoor 12U: filed, +1, ignored 0, made 0",
-        "Wexcombe Wrens Tryouts 12U: filed, +1, ignored 0, made 0",
+        "Quillfeather Quails 12U: filed, +4, ignored 4, made 4",
+        "Thornbury Practice 12U: not-a-team, +0, ignored 0, made 0",
+        "Gildersleeve Softball 12U: not-baseball, +0, ignored 0, made 0",
+        "Test Red Kestrelmoor 12U: filed, +1, ignored 0, made 1",
+        "Wexcombe Wrens Tryouts 12U: not-a-team, +0, ignored 0, made 0",
       ]
     `);
     expect(describePool(state)).toMatchInlineSnapshot(`
       {
         "games": [
           "2026-09-05 Quillfeather Quails [pulled] 6-2 Brindlewood Badgers [stand-in]",
-          "2026-09-06 Quillfeather Quails [pulled] 3-1 Practice [slot]",
-          "2026-09-07 Quillfeather Quails [pulled] 5-4 Thornbury Practice Squad [stand-in]",
-          "2026-09-08 Quillfeather Quails [pulled] 7-0 Hollowmere Hornets DNU [stand-in]",
-          "2026-09-09 Quillfeather Quails [pulled] 8-1 Elmstead Fastpitch [stand-in]",
+          "2026-09-08 Quillfeather Quails [pulled] 7-0 Hollowmere Hornets DNU [slot]",
           "2026-09-10 Quillfeather Quails [pulled] 4-4 Test Red Kestrelmoor [pulled]",
-          "2026-09-11 Quillfeather Quails [pulled] 2-9 Copperfield Scrimmage [stand-in]",
-          "2026-09-12 Quillfeather Quails [pulled] 3-0 Copy of Duskwood Drakes [stand-in]",
-          "2026-09-13 Thornbury Practice [pulled] 1-5 Quillfeather Quails [pulled]",
-          "2026-09-14 Gildersleeve Softball [pulled] 2-3 Quillfeather Quails [stand-in]",
+          "2026-09-12 Quillfeather Quails [pulled] 3-0 Copy of Duskwood Drakes [slot]",
           "2026-09-15 Test Red Kestrelmoor [pulled] 6-5 Quillfeather Quails [stand-in]",
-          "2026-09-16 Wexcombe Wrens Tryouts [pulled] 0-2 Quillfeather Quails [stand-in]",
         ],
         "teams": [
           "Brindlewood Badgers [stand-in]",
-          "Copperfield Scrimmage [stand-in]",
-          "Copy of Duskwood Drakes [stand-in]",
-          "Elmstead Fastpitch [stand-in]",
-          "Gildersleeve Softball [pulled]",
-          "Hollowmere Hornets DNU [stand-in]",
-          "Practice [slot]",
+          "Copy of Duskwood Drakes [slot]",
+          "Hollowmere Hornets DNU [slot]",
           "Quillfeather Quails [pulled]",
           "Quillfeather Quails [stand-in]",
           "Test Red Kestrelmoor [pulled]",
-          "Thornbury Practice Squad [stand-in]",
-          "Thornbury Practice [pulled]",
-          "Wexcombe Wrens Tryouts [pulled]",
         ],
       }
     `);
@@ -212,18 +198,22 @@ describe("the names pinned before the not-a-team rules", () => {
         {
           "ageLevel": 12,
           "name": "Thornbury Practice 12U",
+          "notATeam": "practice",
         },
         {
           "ageLevel": 12,
           "name": "Copperfield Scrimmage 12U",
+          "notATeam": "scrimmage",
         },
         {
           "ageLevel": 12,
           "name": "Hollowmere Hornets DNU",
+          "notATeam": "void",
         },
         {
           "ageLevel": 12,
           "name": "Gildersleeve Softball 12U",
+          "notBaseball": true,
         },
         {
           "ageLevel": 12,
@@ -334,45 +324,37 @@ describe("the names pinned before the not-a-team rules", () => {
     const tidy = tidyPool(pool);
     expect(counts(tidy)).toMatchInlineSnapshot(`
       {
-        "passes": 1,
+        "idle": 1,
+        "notATeam": 4,
+        "notBaseball": 2,
+        "passes": 2,
       }
     `);
     expect(describePool(tidy.state)).toMatchInlineSnapshot(`
       {
         "games": [
-          "2026-09-05 Quillfeather Quails [pulled] 9-3 Thornbury Practice [pulled]",
-          "2026-09-06 Thornbury Practice [pulled] 4-2 Pimbleton Pikes [stand-in]",
-          "2026-09-07 Ashgrove Aces [pulled] 1-6 Brindlewood Badgers [pulled]",
           "2026-09-08 Fernhollow Falcons [pulled] 3-3 Quillfeather Quails [pulled]",
-          "2026-09-09 Quillfeather Quails [pulled] 8-2 Hollowmere Hornets DNU [pulled] +1 folded",
-          "2026-09-10 Hollowmere Hornets DNU [pulled] 5-1 Brindlewood Badgers [pulled] +1 folded",
-          "2026-09-11 Hollowmere Hornets DNU [pulled] 6-0 Pimbleton Pikes [stand-in]",
+          "2026-09-09 Quillfeather Quails [pulled] 8-2 Hollowmere Hornets DNU [slot]",
+          "2026-09-10 Brindlewood Badgers [pulled] 1-5 Hollowmere Hornets DNU [slot]",
           "2026-09-12 Brindlewood Badgers [pulled] 7-5 Rowanberry Practice Squad [stand-in]",
           "2026-09-13 Brindlewood Badgers [pulled] 2-0 Practice [slot]",
           "2026-09-14 Quillfeather Quails [pulled] 3-1 Copperfield Test [pulled]",
           "2026-09-15 Duskwood Demo [pulled] 4-1 Brindlewood Badgers [pulled]",
           "2026-09-16 Test Red Kestrelmoor [pulled] 2-5 Quillfeather Quails [pulled]",
-          "2026-09-17 Gildersleeve Softball [pulled] 1-10 Quillfeather Quails [pulled]",
-          "2026-09-18 Brindlewood Badgers [pulled] 6-6 Elmstead Fastpitch [stand-in]",
-          "2026-09-19 Marrowdale Void [pulled] 0-4 Quillfeather Quails [pulled]",
-          "2026-09-20 Quillfeather Quails [pulled] 5-0 Marrowdale Void [pulled]",
+          "2026-09-20 Quillfeather Quails [pulled] 5-0 Marrowdale Void [slot]",
         ],
         "teams": [
-          "Ashgrove Aces [pulled]",
           "Brindlewood Badgers [pulled]",
           "Copperfield Test [pulled]",
           "Duskwood Demo [pulled]",
-          "Elmstead Fastpitch [stand-in]",
           "Fernhollow Falcons [pulled]",
-          "Gildersleeve Softball [pulled]",
-          "Hollowmere Hornets DNU [pulled]",
-          "Marrowdale Void [pulled]",
-          "Pimbleton Pikes [stand-in]",
+          "Hollowmere Hornets DNU [slot]",
+          "Hollowmere Hornets DNU [slot]",
+          "Marrowdale Void [slot]",
           "Practice [slot]",
           "Quillfeather Quails [pulled]",
           "Rowanberry Practice Squad [stand-in]",
           "Test Red Kestrelmoor [pulled]",
-          "Thornbury Practice [pulled]",
         ],
       }
     `);
@@ -402,16 +384,14 @@ describe("the names pinned before the not-a-team rules", () => {
     );
     expect([...marks.values()].map((mark) => `${mark.name}: ${mark.word ?? "-"}`).sort())
       .toMatchInlineSnapshot(`
-      [
-        "Bramblecote Test Prep 12U: test",
-        "Duskwood Demo 12U: demo",
-        "Elmstead Voided 12U: voided",
-        "Gildersleeve Demo Dawgs 12U: demo",
-        "Skiles Test Nettlefield 12U: test",
-        "Test Red Kestrelmoor 12U: test",
-        "Thornbury Test 12U: test",
-      ]
-    `);
+        [
+          "Copperfield Do Not Use: do not use",
+          "Duskwood Demo 12U: demo",
+          "Elmstead Voided 12U: voided",
+          "Hollowmere Hornets DNU: dnu",
+          "Thornbury Test 12U: test",
+        ]
+      `);
   });
 
   it("sorts the waiting list's unlikely names as it did", () => {
@@ -443,10 +423,10 @@ describe("the names pinned before the not-a-team rules", () => {
         "Quillfeather Quails: -",
         "Thornbury Practice: the name reads as a test, practice or placeholder account",
         "Copperfield Scrimmage: the name reads as a test, practice or placeholder account",
-        "Test Red Kestrelmoor: the name reads as a test, practice or placeholder account",
-        "Hollowmere Hornets DNU: -",
-        "Duskwood Tryouts: -",
-        "Elmstead Stats: -",
+        "Test Red Kestrelmoor: -",
+        "Hollowmere Hornets DNU: the name reads as a test, practice or placeholder account",
+        "Duskwood Tryouts: the name reads as a test, practice or placeholder account",
+        "Elmstead Stats: the name reads as a test, practice or placeholder account",
         "Wexcombe Old Team: the name reads as a test, practice or placeholder account",
         "Team 1: the name is only “Team” and a number",
         "Gildersleeve Fastpitch: -",

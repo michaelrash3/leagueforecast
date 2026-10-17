@@ -119,7 +119,12 @@ export const collectGcImportProblems = (
       teamId: outcome.gcTeamId,
       ...(teamName ? { teamName } : {}),
       kind: "not-filed",
-      reason: mismatch ? mismatch.reason : "Nowhere to file it",
+      // A page refused for what its name says it is has somewhere it could go; it is no team.
+      reason: mismatch
+        ? mismatch.reason
+        : outcome.skip === "not-a-team"
+          ? "Not a team, by its name"
+          : "Nowhere to file it",
       detail: mismatch
         ? `${outcome.issue} ${mismatch.detail} Its id may be the wrong one.`
         : outcome.issue,

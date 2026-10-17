@@ -46,8 +46,9 @@ export const PULLS_SIGNED_OUT = "Sign in to the cloud to pull teams there.";
 const STOP_FAILED = "The pull could not be asked to stop just now. Try again.";
 
 /**
- * A pasted list's teams worth sending, as the device's own pull panel leaves them: wiffle ball,
- * high school squads and adult or college teams cost no request. What the pool already has, and
+ * A pasted list's teams worth sending, as the device's own pull panel leaves them: wiffle ball and
+ * softball, high school squads, adult or college teams, and pages whose name says they are no team
+ * (a practice, a test, an old page marked do not use) cost no request. What the pool already has, and
  * the clubs refused or too young to rank, the cloud leaves out as it pulls (`cloudRunner.ts`).
  */
 export const pastedTeams = (text: string): GcTeamListEntry[] => readPaste(text).entries;
@@ -63,7 +64,7 @@ export const readPaste = (
 ): { entries: GcTeamListEntry[]; malformed: number; skipped: number } => {
   const parsed = parseGcTeamList(text);
   const entries = parsed.entries.filter(
-    (entry) => !entry.notBaseball && !entry.highSchool && !entry.notYouth
+    (entry) => !entry.notBaseball && !entry.highSchool && !entry.notYouth && !entry.notATeam
   );
   return {
     entries,

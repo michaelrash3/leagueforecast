@@ -24,6 +24,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
     short: "High school",
     full: "High school squads, which play their own season, removed",
   },
+  notATeam: {
+    short: "Not a team",
+    full: "Practice, test and old team pages, which are no team at all, removed",
+  },
   releveled: { short: "Level", full: "Age level worked out from the team's name" },
   pruned: { short: "Prune", full: "Games dated outside the squad year they are filed under" },
   withdrawn: {

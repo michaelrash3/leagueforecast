@@ -36,7 +36,8 @@ const schedule = (id: string, ageLabel: string, games: GcGame[]): GcTeamSchedule
 /** "Test team", 68 of 68: every game a 20-0 result on a day still to come. */
 const testTeam = (ageLabel: string) =>
   schedule(
-    "test",
+    // Not "test", which would name it "Club test", a page the import now refuses on its name.
+    "made",
     ageLabel,
     Array.from({ length: 68 }, (_, i) =>
       played(`g${i}`, `2026-10-${String((i % 28) + 1).padStart(2, "0")}`)
@@ -118,7 +119,7 @@ describe("refusing an invented schedule at the door", () => {
       today: "2026-12-01",
       droppedClubs: forgetClubs(
         new Set(),
-        inventedFromOutcomes([{ gcTeamId: "test", skip: "invented" }])
+        inventedFromOutcomes([{ gcTeamId: "made", skip: "invented" }])
       ),
     });
     expect(remembered.add(testTeam("9U")).skip).toBe("deleted");

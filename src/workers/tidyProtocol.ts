@@ -54,6 +54,12 @@ export type TidyRequest = {
    */
   notThisTeam?: string[];
   /**
+   * The clubs the owner has said are real, by club id or GameChanger id, as stored: the step that
+   * deletes a page whose name says it is no team leaves every one of them, and the worker cannot
+   * read the list itself.
+   */
+  realClubs?: string[];
+  /**
    * The sweep for clubs plainly made up to run on the tidied pool, as the nightly runs it on the
    * cloud copy after its tidy (`obviousFakes.ts`): asked at the end of a pull, where it walks every
    * game of the pool, 1.5 s on the pool of 26 September 2026 at 18:40 and 2.5 s on 11 October's
@@ -207,7 +213,8 @@ export const createTidyHandler =
       state,
       (step) => post({ kind: "tidy-progress", id: request.id, step, ms: performance.now() - from }),
       coerceKeptApart(request.apart),
-      coerceNotThisTeam(request.notThisTeam)
+      coerceNotThisTeam(request.notThisTeam),
+      new Set((request.realClubs ?? []).filter((id): id is string => typeof id === "string"))
     );
     // Identity against the pool as decoded here: a pass that changes nothing hands back the array
     // it was given, and that is the whole test.
