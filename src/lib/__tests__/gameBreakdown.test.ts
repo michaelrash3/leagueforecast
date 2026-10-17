@@ -541,6 +541,10 @@ describe("no lines", () => {
     // Published by a build from before each level's year had its own worth, which read a game's age
     // gap as the plain difference in levels.
     ["a fit from before the age table", () => ({ ...board, fit: { ...fit, v: 1 } })],
+    // Published by a build from before each club's starting level, which played a club's virtual
+    // games at nought rather than at its row's levelPrior: a club with a long record and a start
+    // near nought would rebuild within the tolerance and draw lines a hair off the fit's.
+    ["a fit from before the starting levels", () => ({ ...board, fit: { ...fit, v: 2 } })],
     [
       "the row's rating from its games a hundredth off",
       () => withRow({ pointRating: rowA.pointRating + 0.01 }),

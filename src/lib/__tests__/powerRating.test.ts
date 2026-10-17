@@ -1104,6 +1104,25 @@ describe("a prior centre: the level each rating starts from", () => {
     }
   });
 
+  it("takes a centre that is not a number, or one for a team not in the fit, as no centre", () => {
+    // One NaN centre left in would make every rating of its piece NaN through the solve.
+    for (const solver of ["dense", "sparse"] as const) {
+      const { ids: teamIds, games } = randomGraph(45, 60, 240, true);
+      const plain = buildOpponentAdjustedRatings(teamIds, games, { solver });
+      const junk = buildOpponentAdjustedRatings(teamIds, games, {
+        solver,
+        priorCentre: new Map([
+          [teamIds[0]!, Number.NaN],
+          [teamIds[1]!, Number.POSITIVE_INFINITY],
+          [teamIds[2]!, Number.NEGATIVE_INFINITY],
+          ["not in the fit", -1.6],
+        ]),
+      });
+      expectBitIdentical(junk, plain);
+      expect(Object.is(junk.residualScale, plain.residualScale)).toBe(true);
+    }
+  });
+
   it("moves a piece that plays nobody else by exactly its centre, and nothing outside it", () => {
     const loop: RatingGame[] = [
       { home: "L1", away: "L2", homeMargin: 3, neutral: true },
