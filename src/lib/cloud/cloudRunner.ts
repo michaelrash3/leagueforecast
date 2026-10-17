@@ -156,13 +156,14 @@ export type CloudPullDeps = {
   startedOn?: CopyEpoch;
   /**
    * The League Standings seasons' documents (`league/`), read as the boards read them
-   * (`leagueSeasonsOf`) so the tidy keeps every club a League Standings team links. None by default,
-   * which reads the copy's own `league` part, as League was kept before it had documents.
+   * (`leagueSeasonsOf`) so the import and the tidy spare every club a League Standings team links.
+   * None by default, which reads the copy's own `league` part, as League was kept before it had
+   * documents.
    */
   leagueDocs?: LeagueDocsList;
 };
 
-/** How a filing run reads League Standings, once it comes to tidy: null where it could not. */
+/** How a filing run reads League Standings, once as it starts to file: null where it could not. */
 type LeagueRead = () => Promise<SeasonReader | null>;
 
 /** Age passes request only unresolved ids; older sources can ignore the optional selection. */
@@ -233,7 +234,7 @@ export { memoryIo };
 
 /**
  * A key a pull never loads into its pool, never writes, and must never send. League Standings is
- * read apart, once a tidy asks for the clubs it links (`leagueSeasonsOf`), and never kept.
+ * read apart, once a filing asks for the clubs it links (`leagueSeasonsOf`), and never kept.
  */
 const outOfReach = (key: string): boolean => key === LEAGUE_PART || key.includes("_archive_rows_");
 
@@ -848,7 +849,7 @@ const fileAndSave = async (
     const touched = new Set<string>();
     onCloudPoolWrite((key) => touched.add(key));
     let filed: Filed;
-    // League as the boards read it for the copy this try files onto, asked only once a tidy is.
+    // League as the boards read it for the copy this try files onto, asked only by a filing.
     const onCopy = copy.manifest;
     const league: LeagueRead = () =>
       leagueSeasonsOf(deps.store, onCopy, deps.leagueDocs ?? NO_LEAGUE_DOCS);

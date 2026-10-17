@@ -4118,9 +4118,9 @@ fingerprint alone, a pull that changed nothing sent the age groups again and
 every device took a copy that was not new. League Standings and archived
 seasons are never written, nor loaded into the pool. League is read once, as the
 boards read it (its seasons' documents, or until there are any the copy's own
-part), only for the tidy to keep every club a League Standings team links; a run
-that cannot read it deletes no page by its name rather than one a season's pick
-leans on. A copy saved by a newer build, or tidied by newer rules, is left alone.
+part), only for the import and the tidy to spare every club a League Standings
+team links; a run that cannot read it deletes no page by its name rather than one
+a season's pick leans on. A copy saved by a newer build, or tidied by newer rules, is left alone.
 
 GameChanger is asked once. Where another device saved while the answers were
 coming in, the copy is read again and the same answers filed onto it, so the
