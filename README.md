@@ -90,6 +90,7 @@ server/
 scripts/
   poolFixture.ts        # a seeded pool of a real pool's shape, for the live views' tests and timings
   recencySweep.ts       # research: which recency scheme predicts best on a real pool
+  sweepTidy.ts          # the pool it fits: a backup through the device's tidy, vouched clubs spared
   verify-gc-pull.ts     # the one check that talks to GameChanger for real
 src/
   App.tsx               # League Standings: state, handlers and every view it renders
@@ -271,9 +272,26 @@ export (0.80%), 692 of them with no players at all, and a second implementation 
 gives the same verdict as this one on every one of the 147,114 distinct names in the pool.
 
 - **Out of a pasted list** before a request is spent: the row is marked with the word it hit, and
-  the pill reads "N practice, test or old team pages, skipped". The cloud's paste box leaves them
-  out the same way. Not remembered with the refusals that hold for good, since a coach can rename
-  a page: the name is read again on every export.
+  the pill reads "N practice, test or old team pages, skipped". Not remembered with the refusals
+  that hold for good, since a coach can rename a page: the name is read again on every export.
+  The row of a club the owner vouched for, as the import reads that below, is kept and goes on as
+  any row, on no pill (`vouchedByImport`): left out, the club could never be refreshed from a
+  paste that names it, though the import would file it, and only a bare id got through. The
+  device's panel reads it against the real list and League Standings as the run hands them to the
+  importer, and runs the League pass only for a marked row whose id is on the real list or carried
+  by a club in the pool, since nothing else can be one. The cloud's paste box cannot tell: the live
+  page holds neither the pool nor League, and the real list alone would miss the user's own club.
+  So it sends the marked rows, and the cloud settles them as it chooses what to ask (`listIds`). A
+  row the import's gate passes without League (its id on the real list, or the club carrying it
+  the user's own, a page's own team or on the real list) goes on as any row. League it does not
+  read there: a staged import chooses from the team index alone, without the games League links a
+  club by its name from. So a marked row carried by a club only League could vouch for is sent
+  beside the rest, for the import to settle with League read as it files, and counts toward no
+  handful; counted, a club's practice page kept beside its clean one tipped 25 held rows pasted by
+  hand over the line, and the refresh asked about nothing where the device pulled the 25. It costs
+  a request the import may refuse, and only where a page plays in a League season at all. Every
+  other marked row is left out before any request, since the import is sure to refuse it. The real
+  list and the pages are read with the team index for that (`IMPORT_INDEX_KEYS`).
 - **At the import** the schedule is turned away with the reason `not-a-team`, before its age is
   read, so "Practice 12U" with a perfectly good age is refused; the sentence names the word
   ("Its name says “Scrimmage”."), the list of teams not imported says "Not a team, by its name",
@@ -2891,7 +2909,16 @@ regressed further toward the mean than it was before. The weights depend only on
 the gaps between games, never on the clock, so a rating is a pure function of
 the pool and two readings a week apart agree.
 
-**What the evidence is.** `scripts/recencySweep.ts` was run against a
+**What the evidence is.** `scripts/recencySweep.ts` fits a backup as the app
+ranks it, after the app's own tidy, told the clubs the owner vouched for as the
+device's tidy is (`scripts/sweepTidy.ts`), so no page of theirs is deleted for
+a name that reads as no team: the clubs the backup says are real, and, from the
+whole-browser backup (Settings, "Backup JSON"), every club a League Standings
+team links, read off the seasons it carries beside the pool. A Team Rankings
+file, JSON or CSV, carries no seasons, only their ids on its pages, so from one
+a club only a League team links is not spared, and the sweep warns of that
+whenever its tidy deleted a page for its name from a pool whose pages play in
+League seasons. It was run against a
 nationwide pool seven weeks into a squad year, the only backup small enough to
 export. It could not put the cross-winter question, because that pool had no
 winter in it. In season, at four nested cuts, the day-based schemes beat
@@ -4164,8 +4191,12 @@ how a pasted list is pulled at all.
 
 **On the page** (`LiveCloudPulls.tsx`, `src/lib/cloud/cloudPulls.ts`). The paste
 box reads a list or a spreadsheet export as the device's own pull panel does,
-leaving out wiffle ball and softball, high school squads, adult or college teams and
-pages whose name says they are no team, which cost no request. Before it is sent, it says how many of the ids do not have the shape
+leaving out wiffle ball and softball, high school squads and adult or college teams,
+which cost no request. A page whose name says it is no team is sent marked with the word it hit,
+and the cloud asks about one only where it may be a club the owner vouched for: one the real list,
+the user's own club or a page's own team vouches for, counted as any row, or one carried by a club
+of the pool that only League Standings could vouch for, where a page plays in a League season,
+sent uncounted for the import to settle (`listIds`). Before it is sent, it says how many of the ids do not have the shape
 every GameChanger team id seen so far has, twelve letters and digits
 (`isWellFormedGcTeamId`): slugs and names a list carries where an id should be,
 which GameChanger answers with HTTP 400; and how many lines named no team id at
@@ -4269,7 +4300,7 @@ accounts on the copy's list, as the copy is, checked as the proxy checks them
 
 **CSV imports.** New list imports run as the `team-import` Cloud Run Job. `runPull`
 launches it and returns immediately; the import is not tied to a 30-minute HTTP request.
-It reads only team identities and exclusion lists to select downloads, then keeps
+It reads only team identities, the pages, exclusion lists and the clubs said to be real to select downloads, then keeps
 hash-checked compressed checkpoints in `pullJobs/{jobId}/artifacts`. Download batches
 contain 10,000 teams. Every 2,000 completed answers is saved as a checkpoint while the
 rest of the batch continues downloading; downloads do not pause to wait for each save.

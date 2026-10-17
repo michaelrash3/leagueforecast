@@ -4,8 +4,10 @@
  * A research tool rather than a feature: the question it answers — how fast does a rating go off,
  * and does weighting old games down predict better — is asked once, against seasons that have
  * already happened, and the answer becomes a constant in the app. It lives in `scripts/` for that
- * reason, and it reads the same JSON backup the Setup page writes so there is no second export
- * format to keep true.
+ * reason, and it reads the backups the app already writes so there is no second export format to
+ * keep true: the Team Rankings JSON or older CSV, or the whole-browser backup (Settings, "Backup
+ * JSON"), which alone carries the League Standings seasons the tidy needs to spare every club the
+ * device spares (`sweepTidy.ts`).
  *
  *   npm run recency:sweep -- <backup.json>
  *
@@ -29,12 +31,7 @@
  * against mean, and anything that cannot be measured says so instead of being ranked.
  */
 import { readFileSync } from "node:fs";
-import {
-  looksLikeJsonBackup,
-  parseTeamRankingsCsv,
-  parseTeamRankingsJson,
-  type TeamRankingsBackup,
-} from "../src/lib/teamRankingsBackup.ts";
+import type { TeamRankingsBackup } from "../src/lib/teamRankingsBackup.ts";
 import {
   compareRecencySchemes,
   type ScoutBacktestResult,
@@ -44,9 +41,9 @@ import { RECENCY_SCHEMES, type RecencyScheme } from "../src/lib/ratingRecency.ts
 import {
   describeTidy,
   proposeSeasonPairings,
-  tidyPool,
   type GcImportState,
 } from "../src/lib/gameChangerImport.ts";
+import { leagueUnread, readSweepFile, sweepTidy } from "./sweepTidy.ts";
 import { poolHealth, settleableNow } from "../src/lib/poolHealth.ts";
 import {
   ageGroupLevel,
@@ -129,25 +126,30 @@ const IN_SEASON_EMBARGO_DAYS = 14;
  * every one of those passes moves games across the timeline or changes who a team is — which is
  * exactly what this sweep is trying to measure.
  *
- * The tidy is the app's own, not a second copy of its rules, so the two cannot drift apart.
+ * The tidy is the app's own, not a second copy of its rules, so the two cannot drift apart; and it
+ * is told, as the device's is, which clubs were said to be real and, from a whole-browser backup,
+ * which a League Standings team links, so it deletes none of them for a name that says it is no
+ * team (`sweepTidy`).
  */
 const read = (path: string): TeamRankingsBackup => {
-  // Either backup the app has ever written. The older CSV is read the same way the app reads it,
-  // so a file kept from before the JSON export existed is still a pool this can sweep.
-  const raw = readFileSync(path, "utf8");
-  const pool = looksLikeJsonBackup(raw) ? parseTeamRankingsJson(raw) : parseTeamRankingsCsv(raw);
-  if (!pool) {
+  // Any backup the app has written that holds a pool. The older CSV is read the same way the app
+  // reads it, so a file kept from before the JSON export existed is still a pool this can sweep.
+  const file = readSweepFile(readFileSync(path, "utf8"));
+  if (!file) {
     throw new Error(
-      `${path} is not a Team Rankings backup. Export one from Setup — either the JSON or the older CSV.`
+      `${path} is not a backup that holds a Team Rankings pool. Export one: the Team Rankings` +
+        " JSON or the older CSV from Setup, or the whole-browser backup from Settings" +
+        ' ("Backup JSON").'
     );
   }
+  const { pool, seasons } = file;
   const before: GcImportState = {
     ageGroups: pool.ageGroups,
     teams: pool.teams,
     games: pool.games,
   };
   const health = poolHealth(before, "");
-  const { state, ...counts } = tidyPool(before);
+  const { state, ...counts } = sweepTidy(pool, seasons);
   const notes = describeTidy({ state, ...counts });
 
   console.log(
@@ -158,11 +160,25 @@ const read = (path: string): TeamRankingsBackup => {
     `  stand-ins: ${health.placeholders} bracket slot(s), ${health.nameOnly} known only by name,` +
       ` in ${health.standInGames} game(s) of which ${health.standInPlayed} have a result.`
   );
+  if (seasons) {
+    console.log(
+      "  League Standings: read from the whole-browser backup, so the tidy spares every club a" +
+        " League team links, as the app's does."
+    );
+  }
   if (notes.length === 0) {
     console.log("  Tidy: nothing to do — the file was exported in the state the app ranks.");
   } else {
     console.log("  Tidy changed the pool before any of this was fitted:");
     notes.forEach((note) => console.log(`    ${note}`));
+  }
+  if (counts.notATeam > 0 && !seasons && leagueUnread(pool)) {
+    console.log(
+      "  ! Pages here play in League Standings seasons this file does not carry, so a club only a" +
+        " League team links was not spared: where every name of one says it is no team, this tidy" +
+        ' deleted it and the app keeps it. Sweep the whole-browser backup (Settings, "Backup' +
+        ' JSON"), which carries the seasons, to spare them as the app does.'
+    );
   }
   const pairings = proposeSeasonPairings(state.teams, state.games);
   if (pairings.length > 0) {
@@ -947,6 +963,9 @@ const main = (): void => {
   if (!path) {
     console.error(
       "usage: npm run recency:sweep -- <backup.json|backup.csv> [--page=NAME] [--all] [--permutations=N]\n" +
+        "  backup           a Team Rankings JSON or CSV from Setup, or the whole-browser\n" +
+        '                   backup from Settings ("Backup JSON"), whose League Standings\n' +
+        "                   seasons the tidy reads too\n" +
         '  --page           only pages whose name contains this, as in --page="9U 2026"\n' +
         "  --all            look at all thirteen schemes rather than the five pre-registered ones\n" +
         "  --permutations   shuffles of the training calendar per cut (default " +

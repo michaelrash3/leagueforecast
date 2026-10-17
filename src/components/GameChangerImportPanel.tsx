@@ -60,6 +60,7 @@ import {
   type GcPairingSide,
   type GcSeasonPairing,
   type PoolTidy,
+  vouchedByImport,
 } from "../lib/gameChangerImport";
 import {
   describePull,
@@ -315,6 +316,8 @@ const downloadProblems = (problems: GcImportProblem[]) => {
 const PROBLEMS_SHOWN = 200;
 /** Pairings drawn before "Show all" is pressed. A cap on the drawing, never on the deciding. */
 const PAIRS_DRAWN = 100;
+/** No row of a paste vouched for, one set for every paste, so the list read waits on a real change. */
+const NONE_VOUCHED: ReadonlySet<string> = new Set<string>();
 
 /**
  * Whether a pairing answers to what was typed in the search box.
@@ -468,8 +471,35 @@ export function GameChangerImportPanel({
   // The ids earlier pulls turned away, which a paste leaves out (`refusedClubs.ts`).
   const [refused, setRefused] = useState<RefusedClubs>(() => loadRefusedClubs());
 
+  // Split once a paste, apart from what it is held against, so a pool saved while the panel is open
+  // reads its rows again without splitting a forty megabyte export again.
+  const read = useMemo(() => parseGcTeamList(text), [text]);
+  /**
+   * The rows whose name says they are no team that the import would pull all the same: a club the
+   * owner vouched for (`vouchedByImport`), against the real list and League Standings as the run
+   * hands them to the importer. Left out with the rest, such a club could never be refreshed from a
+   * paste, though the import files it.
+   *
+   * Only a row whose id is on the real list or carried by a club in the pool can be one, since
+   * that is all the import's gate reads; so the League pass, a walk of the pool's games, is run only
+   * when a paste holds such a row, not for every paste with a practice page somewhere in it.
+   */
+  const vouched = useMemo(() => {
+    const named = read.entries.filter((entry) => entry.notATeam);
+    if (named.length === 0) return NONE_VOUCHED;
+    const real = loadRealClubs();
+    const pulled = pulledGcTeamIds(pool.teams);
+    const held = named.filter((entry) => real.has(entry.teamId) || pulled.has(entry.teamId));
+    if (held.length === 0) return NONE_VOUCHED;
+    const isVouched = vouchedByImport(
+      pool,
+      new Set([...real, ...leagueLinkedClubsOf(pool, readStoredSeason)])
+    );
+    const ids = held.filter((entry) => isVouched(entry.teamId)).map((entry) => entry.teamId);
+    return ids.length === 0 ? NONE_VOUCHED : new Set(ids);
+  }, [read, pool]);
+
   const listRead = useMemo(() => {
-    const read = parseGcTeamList(text);
     // Wiffle ball is a different game, so those rows never cost a request. Counted separately from
     // the too-young ones because they are a different kind of "not for us" and the panel says so.
     const baseball = read.entries.filter((entry) => !entry.notBaseball);
@@ -484,8 +514,9 @@ export function GameChangerImportPanel({
     const youth = club.filter((entry) => !entry.notYouth);
     // And a page whose name says it is no team at all — a practice, a test, an old page marked do
     // not use — on the same terms, counted apart so the pill can say what it was. Read off the
-    // name on every paste rather than remembered, since a coach can rename the page.
-    const teams = youth.filter((entry) => !entry.notATeam);
+    // name on every paste rather than remembered, since a coach can rename the page. A club the
+    // owner vouched for is kept, as the import keeps it, and goes on as any row: on no pill.
+    const teams = youth.filter((entry) => !entry.notATeam || vouched.has(entry.teamId));
     const oldEnough = teams.filter(
       (entry) =>
         !isTooYoungClub(tooYoung, entry.teamId) &&
@@ -512,7 +543,7 @@ export function GameChangerImportPanel({
       // megabyte split, and once is enough.
       lines: text ? text.split(/\r?\n/).length : 0,
     };
-  }, [text, tooYoung, droppedClubs]);
+  }, [read, text, tooYoung, droppedClubs, vouched]);
 
   /**
    * The seasons a pull files: the one being played, unless somebody ticks another.
@@ -2057,7 +2088,7 @@ export function GameChangerImportPanel({
                 {parsed.notATeam > 0 && (
                   <span
                     className={pill("neutral")}
-                    title="Pages whose name says they are no team: a practice, scrimmage, tryout or test page, or an old page marked void, do not use or delete. Read off the name on every paste, so a page renamed since is asked about again."
+                    title="Pages whose name says they are no team: a practice, scrimmage, tryout or test page, or an old page marked void, do not use or delete. Read off the name on every paste, so a page renamed since is asked about again. A club you vouched for is pulled whatever its name says."
                   >
                     {`${parsed.notATeam} practice, test or old team ${parsed.notATeam === 1 ? "page" : "pages"}, skipped`}
                   </span>

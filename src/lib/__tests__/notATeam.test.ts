@@ -6,6 +6,7 @@ import {
   importGcSchedule,
   TIDY_STEPS,
   tidyPool,
+  vouchedByImport,
   type GcImportState,
 } from "../gameChangerImport";
 import { collectGcImportProblems } from "../gameChangerReport";
@@ -184,6 +185,37 @@ describe("a club the owner vouched for, whose name reads as no team", () => {
       realClubs: new Set([WEX]),
     });
     expect(fresh.outcome.skip).toBeUndefined();
+  });
+
+  it("is vouched for, as a paste reads it, exactly where the import's gate lets it in", () => {
+    const own = (patch: (team: ScoutTeam) => ScoutTeam): GcImportState => ({
+      ...held,
+      teams: held.teams.map((team) => (team.id === clubId ? patch(team) : team)),
+    });
+    const asks: [string, GcImportState, ReadonlySet<string>, boolean][] = [
+      ["nobody's word", held, new Set(), false],
+      ["its GameChanger id on the real list", held, new Set([WEX]), true],
+      ["its club id on the real list", held, new Set([clubId]), true],
+      ["another club's id on the real list", held, new Set(["S-ELSE"]), false],
+      ["the user's own club", own((team) => ({ ...team, isMine: true })), new Set(), true],
+      [
+        "a page's own team",
+        {
+          ...held,
+          ageGroups: held.ageGroups.map((group) => ({ ...group, myTeamId: clubId })),
+        },
+        new Set(),
+        true,
+      ],
+      // A GameChanger id the pool holds no club of: only the list itself can vouch for it.
+      ["no club, on the real list", empty, new Set([WEX]), true],
+      ["no club, a club id on the list", empty, new Set([clubId]), false],
+    ];
+    asks.forEach(([why, state, real, vouched]) => {
+      const { outcome } = importGcSchedule(again, state, { today: "2026-10-11", realClubs: real });
+      expect([why, outcome.skip !== "not-a-team"]).toEqual([why, vouched]);
+      expect([why, vouchedByImport(state, real)(WEX)]).toEqual([why, vouched]);
+    });
   });
 
   it("is refused for what else is wrong with it, not for its name", () => {

@@ -385,21 +385,29 @@ describe("a pull gone silent", () => {
 
 describe("a pasted list", () => {
   /*
-   * What the device's own paste leaves out costs no request in the cloud either: the cloud's list
-   * leg reads no names, so a row sent is a row fetched, and the import refuses it there.
+   * What the device's own paste leaves out by what the team is costs no request in the cloud
+   * either. A page whose name says it is no team is sent, marked: it may be a club the owner
+   * vouched for, which only the cloud can tell, and the cloud leaves out the rest before a request
+   * (`listIds`).
    */
-  it("leaves out what the device's paste does, a page that is no team among them", () => {
+  it("leaves out softball and high school, and sends a page that is no team marked", () => {
     const read = readPaste(
       [
         "Team Name,Team ID,Age Group",
         "Quillfeather Quails 12U,gcQUILL00001,12U",
         "Thornbury Practice 12U,gcTHORN00001,12U",
         "Hollowmere Hornets DNU,gcHOLLO00001,12U",
+        "Wexcombe Workouts 12U,gcWEXCO00001,12U",
         "Gildersleeve Softball 12U,gcGILDE00001,12U",
         "Kestrelmoor HS Varsity,gcKESTR00001,Varsity",
       ].join("\n")
     );
-    expect(read.entries.map((entry) => entry.teamId)).toEqual(["gcQUILL00001"]);
+    expect(read.entries.map((entry) => [entry.teamId, entry.notATeam ?? null])).toEqual([
+      ["gcQUILL00001", null],
+      ["gcTHORN00001", "practice"],
+      ["gcHOLLO00001", "void"],
+      ["gcWEXCO00001", "tryout"],
+    ]);
   });
 
   const paste = async (text: string) => {
