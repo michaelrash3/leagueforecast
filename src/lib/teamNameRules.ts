@@ -142,7 +142,7 @@ const DEMO: NameRule<"demo"> = {
 
 /**
  * Sample, dummy, example. 20 rows (3 empty, one full); 2 pool teams, no games. Singular only: the
- * plural "Samples" is a coach's surname on two real teams and "Dummies" a team's name.
+ * plural "Samples" is in two real teams' names and "Dummies" is a team's name.
  */
 const SAMPLE: NameRule<"sample"> = {
   word: "sample",
@@ -271,10 +271,12 @@ export const NOT_A_TEAM_RULES: readonly NameRule<NotATeamWord>[] = [
 
 /**
  * Softball, fastpitch, slowpitch, kickball: another game. 132 rows (17 empty, 62 full); 13 pool
- * teams, 87 games, 11 scored, every one against another softball side; 3 ranked clubs, one of them
- * a "Slow Pitch" squad that is a judgement call. A name that says baseball as well is a programme
- * fielding both, a 6U side written "Baseball/Softball" or a baseball and softball league: 7 rows,
- * left alone. Read as `isNotBaseball` reads wiffle ball, not as a page that is no team.
+ * teams pulled from GameChanger, 87 games, 11 scored: 10 against other softball sides, and 1 that
+ * a baseball club's own schedule lists too, which goes from that club's record, since a game
+ * against a softball side is not a baseball result. 3 ranked clubs, one of them a "Slow Pitch"
+ * squad that is a judgement call. A name that says baseball as well is a programme fielding both,
+ * a 6U side written "Baseball/Softball" or a baseball and softball league: 7 rows, left alone. Read
+ * as `isNotBaseball` reads wiffle ball, not as a page that is no team.
  */
 const SOFTBALL: NameRule<"softball"> = {
   word: "softball",

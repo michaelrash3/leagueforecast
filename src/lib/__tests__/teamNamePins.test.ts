@@ -186,7 +186,7 @@ describe("the names pinned before the not-a-team rules", () => {
         "Gildersleeve Softball 12U,gcGILDE00001,12U",
         "Kestrelmoor Baseball and Softball 12U,gcKESTR00001,12U",
         "Test Red Kestrelmoor 12U,gcTESTB00001,12U",
-        "Wiffle Kings 12U,gcWIFFL00001,12U",
+        "Marrowby Wiffle 12U,gcMARRO00001,12U",
       ].join("\n")
     );
     expect(list.entries.map(({ teamId: _id, ...rest }) => rest)).toMatchInlineSnapshot(`
@@ -225,7 +225,7 @@ describe("the names pinned before the not-a-team rules", () => {
         },
         {
           "ageLevel": 12,
-          "name": "Wiffle Kings 12U",
+          "name": "Marrowby Wiffle 12U",
           "notBaseball": true,
         },
       ]

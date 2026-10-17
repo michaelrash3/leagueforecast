@@ -248,9 +248,13 @@ The not-baseball refusal reads softball, fastpitch, slowpitch and kickball besid
 blitzball, on the same three terms. A name that says baseball as well is a programme fielding
 both and is kept, though "Wiffle Baseball" is still wiffle ball. On the desktop crawl's export of
 24 September 2026 the softball words read 132 rows (62 of them full rosters, real softball sides);
-in the backup of 11 October they read 27 teams, 13 of them pulled, holding 99 games, 12 scored,
-every scored one against another softball side. The panel's pill, the reason and the tidy's line
-say "wiffle ball, blitzball or softball".
+in the backup of 11 October they read 27 teams, 13 of them pulled and 13 stand-ins, holding 99
+games, 12 scored. Ten are softball against softball: 3 between two sides the rule reads, and 7 a
+softball club's against stand-ins only softball schedules name. The other 2 are on a baseball
+club's own schedule too, the slow-pitch squad's game against a club named only by colour and age
+and a fastpitch side's against a club whose name says baseball, and they go with the rest: a game
+against a softball side is not a baseball result, so each of those two clubs loses one scored
+game. The panel's pill, the reason and the tidy's line say "wiffle ball, blitzball or softball".
 
 A page whose name says it is no team at all is refused too (`notATeamWord`, `teamNameRules.ts`):
 a practice, a scrimmage, a test, a demo, a sample, a fake, a tryout or evaluation, a stats or
