@@ -4,7 +4,7 @@ import type { EditSaid, LiveEdits } from "../../hooks/useLiveEdits";
 import { apartKey } from "../../lib/keptApart";
 import { MAX_COMMAND_STEPS, type PoolCommand } from "../../lib/live/commands";
 import type { AnswerOf, PoolQuery, QueryKind, QueryOf } from "../../lib/live/queries";
-import { LivePoolHealthCard, UNDOABLE_DELETES } from "./LivePoolHealthCard";
+import { LivePoolHealthCard } from "./LivePoolHealthCard";
 
 /*
  * Pool health on the live page (`LivePoolHealthCard`): drawn from what the server's pool shows,
@@ -471,12 +471,16 @@ describe("Pool health's buttons, sent as edits", () => {
       );
       await waitFor(() => expect(call.sent).toHaveLength(1));
       expect(confirmed).toEqual(["Delete 1 club taken off on 2027-04-14 for good?"]);
+      // One edit, which asks for its Undo: nothing is said beforehand of one it cannot keep.
+      expect(confirmedSaying[0]).not.toMatch(/cannot be undone/);
       expect(call.sent[0]).toEqual({
         command: { kind: "batch", commands: [{ kind: "club.drop", teamId: "S-9" }] },
         said: {
           done: "Deleted 1 club taken off on 2027-04-14 for good.",
           undo: true,
           afterUndo: expect.any(Function),
+          // Said where the server sends no inverse back, as it does for one too big to send.
+          noUndo: "There were too many to take back at once, so this cannot be undone.",
         },
       });
     });
@@ -576,58 +580,6 @@ describe("Pool health's buttons, sent as edits", () => {
       answer();
     });
 
-    it("says first that more than it can take back at once cannot be undone, and offers no Undo", async () => {
-      const many = {
-        ...TAKEN,
-        summary: {
-          ...TAKEN.summary,
-          removed: Array.from({ length: UNDOABLE_DELETES + 1 }, (_, at) => ({
-            teamId: `S-${at}`,
-            name: `Placeholder ${at}`,
-            gcTeamIds: [`gc-${at}`],
-            on: "2027-04-14",
-            reasons: ["named 'demo'"],
-          })),
-        },
-      };
-      const call = editFunction({ "health.summary": many });
-      show(call);
-      fireEvent.click(
-        await screen.findByRole("button", {
-          name: `Delete the ${UNDOABLE_DELETES + 1} taken off on 2027-04-14 for good`,
-        })
-      );
-      await waitFor(() => expect(call.sent).toHaveLength(1));
-      expect(confirmedSaying[0]).toMatch(/cannot be undone/);
-      expect(call.sent[0]?.said.undo).toBe(false);
-    });
-
-    it("offers Undo on as many as it can take back at once", async () => {
-      const many = {
-        ...TAKEN,
-        summary: {
-          ...TAKEN.summary,
-          removed: Array.from({ length: UNDOABLE_DELETES }, (_, at) => ({
-            teamId: `S-${at}`,
-            name: `Placeholder ${at}`,
-            gcTeamIds: [`gc-${at}`],
-            on: "2027-04-14",
-            reasons: ["named 'demo'"],
-          })),
-        },
-      };
-      const call = editFunction({ "health.summary": many });
-      show(call);
-      fireEvent.click(
-        await screen.findByRole("button", {
-          name: `Delete the ${UNDOABLE_DELETES} taken off on 2027-04-14 for good`,
-        })
-      );
-      await waitFor(() => expect(call.sent).toHaveLength(1));
-      expect(confirmedSaying[0]).not.toMatch(/cannot be undone/);
-      expect(call.sent[0]?.said.undo).toBe(true);
-    });
-
     it("sends a list longer than one edit takes as several, with no Undo", async () => {
       const many = {
         ...TAKEN,
@@ -655,6 +607,8 @@ describe("Pool health's buttons, sent as edits", () => {
       );
       expect(sizes).toEqual([MAX_COMMAND_STEPS, 1]);
       expect(call.sent.map((one) => one.said.undo)).toEqual([false, false]);
+      // Said before anything goes, as several changes cannot be taken back as the whole.
+      expect(confirmedSaying[0]).toMatch(/cannot be undone/);
     });
 
     it("says a club a League Standings team links is kept on its boards", async () => {

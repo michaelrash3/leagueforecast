@@ -10,16 +10,6 @@ import { downloadCsv } from "../../lib/download";
 import { button, card } from "../../styles/tokens";
 import { PoolHealthView, type PoolHealthActions, type PoolHealthAnswers } from "./PoolHealthView";
 
-/**
- * The most clubs a bulk delete sends as one edit with an Undo. The server keeps an edit's inverse
- * only up to `MAX_COMMAND_STEPS` steps, and a club deleted takes 2 of them with no games, 4 with
- * games in one squad year, one more for its sweep mark and one more for a second year (measured on
- * `runPoolCommand`, 17 October 2026): 80 clubs at 6 is 480, inside it. A longer list is sent as
- * edits of `MAX_COMMAND_STEPS` clubs, which the server takes but cannot take back, and the dialog
- * says so before anything goes.
- */
-export const UNDOABLE_DELETES = 80;
-
 const plural = (value: number, noun: string) =>
   `${value.toLocaleString()} ${noun}${value === 1 ? "" : "s"}`;
 
@@ -99,8 +89,18 @@ export function LivePoolHealthCard({
   const askAgain = () => setAsked((times) => times + 1);
 
   /** An edit that changes the pool, after which (and after its Undo) the lists are asked for. */
-  const change = async (command: PoolCommand, done: string, undo = false): Promise<boolean> => {
-    const made = await edit(command, { done, undo, ...(undo ? { afterUndo: askAgain } : {}) });
+  const change = async (
+    command: PoolCommand,
+    done: string,
+    undo = false,
+    noUndo?: string
+  ): Promise<boolean> => {
+    const made = await edit(command, {
+      done,
+      undo,
+      ...(undo ? { afterUndo: askAgain } : {}),
+      ...(noUndo ? { noUndo } : {}),
+    });
     if (made) askAgain();
     return made;
   };
@@ -211,26 +211,28 @@ export function LivePoolHealthCard({
       change({ kind: "club.drop", teamId: club.teamId }, `Deleted ${club.name} for good.`, true),
     /*
      * The rest of a night's, or every night's, deleted as the device's card deletes them: asked
-     * first with the count, as many clubs at once. Up to `UNDOABLE_DELETES` go as one edit with its
-     * Undo. A longer list goes as edits of `MAX_COMMAND_STEPS` clubs (a step a club; the server
-     * refuses a longer one whole), none of which can be taken back, which the dialog says first.
+     * first with the count, as many clubs at once. One edit takes at most `MAX_COMMAND_STEPS`
+     * clubs (a step a club; the server refuses a longer one whole), so a longer list goes as
+     * several, none of which can be taken back as the whole, which the dialog says first. One
+     * edit asks for its Undo, and the server keeps it only while the inverse fits the same cap: a
+     * club deleted takes 2 steps with no games and one more for each squad year its games are in,
+     * more than a count of clubs can bound, so where the server sends none back the toast says so.
      */
     deleteRemovedDay: async (day, clubs) => {
       if (clubs.length === 0) return false;
       const when = day ? ` taken off on ${day}` : " taken off";
-      const undoable = clubs.length <= UNDOABLE_DELETES;
+      const parts = Math.ceil(clubs.length / MAX_COMMAND_STEPS);
       const confirmed = await confirm({
         title: `Delete ${plural(clubs.length, "club")}${when} for good?`,
         message: `Each goes as Delete club takes one: the club, every game it is in, and its GameChanger ids, which a later pull refuses. A club a League Standings team links is not among them.${
-          undoable
+          parts === 1
             ? ""
-            : ` More than ${UNDOABLE_DELETES} at once cannot be undone: once they are gone, only a backup brings them back.`
+            : ` More than ${MAX_COMMAND_STEPS.toLocaleString()} at once go as several changes and cannot be undone: once they are gone, only a backup brings them back.`
         }`,
         confirmLabel: "Delete them",
       });
       if (!confirmed) return false;
-      const size = undoable ? clubs.length : MAX_COMMAND_STEPS;
-      const parts = Math.ceil(clubs.length / size);
+      const size = MAX_COMMAND_STEPS;
       let deleted = 0;
       for (let part = 0; part < parts; part += 1) {
         const these = clubs.slice(part * size, (part + 1) * size);
@@ -245,7 +247,10 @@ export function LivePoolHealthCard({
           parts === 1
             ? `Deleted ${plural(clubs.length, "club")}${when} for good.`
             : `Deleted ${plural(deleted + these.length, "club")} of ${clubs.length.toLocaleString()}${when} for good.`,
-          undoable
+          parts === 1,
+          parts === 1
+            ? "There were too many to take back at once, so this cannot be undone."
+            : undefined
         );
         if (!done) return deleted > 0;
         deleted += these.length;

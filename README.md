@@ -2424,10 +2424,12 @@ offered where several nights are listed, every night's; each offers Undo. The tw
 how many first, as many clubs at once cannot be checked by eye afterwards, and leave a club a League
 Standings team links, whose link a deletion would break. A club put back or deleted from the card
 leaves its list at once, before the lists are read again, so a bulk delete pressed in between never
-takes a club just put back. On the live page the server keeps an edit's Undo only up to 500 steps
-(`MAX_COMMAND_STEPS`), and a club deleted takes 2 to 6 of them, so up to 80 clubs go as one edit with
-Undo (`UNDOABLE_DELETES`); a longer list goes as edits of 500, and the dialog says first that it
-cannot be undone. Find a team says of a pasted id taken off that it was removed, when,
+takes a club just put back. On the live page one edit takes at most 500 clubs
+(`MAX_COMMAND_STEPS`), so a longer list goes as several, and the dialog says first that it cannot be
+undone. One edit asks for its Undo, but the server keeps an edit's Undo only up to 500 steps too, and
+a club deleted takes 2 with no games and one more for each squad year its games are in, more than a
+count of clubs can bound: where the server sends none back, the toast says there were too many to
+take back at once (`EditSaid.noUndo`), rather than leaving its Undo out without a word. Find a team says of a pasted id taken off that it was removed, when,
 and where to put it back. The thrown-out list is never written, so a re-paste or a re-pull refiles
 the club and its mark keeps it off; a fold keeps a club on the boards unless every id it carries is
 marked.
