@@ -3097,7 +3097,8 @@ What it cannot do:
   tell the two apart.
 - The effect grew through the autumn: refitted on the later games the level reads
   −1.90 ± 0.20, so −1.6 is the cautious value, and after it the isolated clubs
-  still did 0.5 to 0.9 runs worse than shown against well-connected ones.
+  still did 0.5 to 0.9 runs worse than shown against well-connected ones. It is
+  re-measured every week for that reason (below).
 - It was measured on years of 38,589 games and more. On a pool far smaller, such as
   a few dozen clubs, the resolution finds no league at all: it joins two clubs of k
   games each only once the schedule holds about 10·k² games, some 1,200 for clubs of
@@ -3129,6 +3130,87 @@ and its league's outside games (`outsideGames`), which a device needs to rebuild
 the fit's rating from the club's games and the panel says in words (below). The
 what-if (Scouting report) stays exact: its three fits read the same schedule, so
 their starts agree.
+
+##### How the level is re-measured, and when it moves
+
+The −1.6 is held in code (`CLOSED_START_RUNS`), as the age table is, not refitted
+with each board. It is read again every week and judged by the rule the age gap and
+the run cap are judged by, and it changes only by a commit that raises the boards'
+rules (`BOARD_RULES`, with the boards pinned first).
+
+The re-measure is `compareClosedLevels` (`scoutBacktest.ts`). It reads the four weeks
+before the day it is asked on, Monday to Sunday when that is a Monday. Each week is a
+cut: the year fitted as the board would have fitted it the morning the week began
+(`fitScoutYear`, every rated game before it, the starts included), and the week's
+games between two clubs that fit rated, scored on the ratings it showed. The fit is
+linear in its starts, so one more solve per cut is enough: every start at its share
+of a run of level (`startingShare`), every game a draw with no age gap. That solve is
+the response of each rating to a run of level, and the fit at any level is the held
+fit plus the response times the distance, its evidence discount read again at its own
+residual scale.
+
+- **The level** is read off the four weeks together, by least squares of each game's
+  residual with no start on the response across it, clustered by week and by the
+  league of the side that has played less outside itself.
+- **The judgement** takes a week at a time, each scored with the level the other three
+  read. It uses `pairedImprovement` on the shown ratings' absolute error, one rival, so
+  a bar of 2.00 standard errors, and at least 30 games.
+- **Never in sample.** On the games it was read from, the four age bands' levels
+  measured beside it (below) were named clearly better on the measurement's weeks
+  (z 2.46 against their bar of 2.28) when scored apart they are not (z 1.03).
+- **Never on point ratings**, which the plain backtest scores. The discount already
+  lowers thin clubs, and a club whose league keeps to itself is often a thin one, so
+  on point ratings a deeper level falsely cleared the bar (squared error z 2.63 to
+  4.57).
+
+On the owner's backup of 11 October 2026, asked the Monday after:
+
+- the four weeks from 14 September held 79,981 games (10,590 week-and-league
+  clusters), and read −1.74 ± 0.16;
+- the weeks of 19,710, 25,909, 27,834 and 6,528 games were scored with −1.89, −1.64,
+  −1.70 and −1.74;
+- each week's games were 0.00010 ± 0.00013 runs a game worse than with −1.6 (z
+  −0.77), not clearly better, so the held level stands;
+- the start as held still earned 0.103 ± 0.018 runs² of squared error on those weeks,
+  against no start at all.
+
+It took 20 s and about 1 GB above the loaded pool (2.8 GB at most) in Node 24 on four
+2.1 GHz cores, four fits of 59,427 to 93,430 nodes and a solve after each.
+
+**Where it runs.**
+
+- _Every Monday, in the nightly refresh on GitHub_, on the run whose members' day is
+  a Monday, taken as the run starts, since the winter run starts at 23:17 on the
+  Monday. It reads the pool the night has just published the boards from, the squad
+  year with the most games in the four weeks, so it reads nothing more of the cloud
+  (`closedLevelWeekly.ts`). Its own scheduled workflow would have read the copy again.
+- _The live run keeps the answer_ as one small document beside the views,
+  `live/closedLevel` (`closedLevelRecord.ts`), which the Model check card reads as it
+  opens and shows as one line, before anything is pressed: "Last weekly re-measure, 12
+  Oct. Starting level for leagues with few outside games: held at −1.6; the four weeks
+  to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better." The line names
+  no club or league, and calls nothing closed.
+- _A level clearly better opens an issue_, "A new starting level is ready for leagues
+  with few outside games" ("When a run fails"), with the level read, the gain and its
+  standard error, and that the change is a commit. A later Monday that finds none
+  clearly better closes it.
+- _The Model check runs the same re-measure_ when pressed, last of its runs, on the
+  device's worker and on the server (`model.check`), and its card gives the same line
+  for the page's year under "Where a rating starts".
+
+**One level per age band was measured and not shipped.** Bands of 9-10U, 11-12U,
+13-14U and 15-18U were fitted on the weeks of 1 to 21 September. On the 59,405 later
+games they were 0.0045 ± 0.0025 runs² worse than the single −1.6, where they needed
+to be two standard errors better. The bands did not keep their values through the
+season: 9-10U read −1.30 ± 0.38 early and −2.68 ± 0.37 later, and 15-18U −1.59 ± 0.49
+and −0.59 ± 0.39. Re-measured on the last four weeks and scored a week at a time, they
+beat −1.6 by nothing (z +0.32).
+
+The band to watch is 15-18U. On the later games −1.6 over-corrects there: its island
+clubs did 0.72 ± 0.57 runs better than shown against well-connected opponents (168
+appearances), and its weakly connected clubs 0.55 ± 0.40 (341). Over the last four
+weeks the start cost 15-18U 0.055 ± 0.050 runs² (10,111 games). None of it reaches two
+standard errors yet.
 
 #### Game by game
 
@@ -4797,6 +4879,18 @@ once. A publish that fails says why on its own line and turns the night red,
 after the pull's own lines; a sweep that fails once the views are out says so
 under the counts of what was published, and turns it red too.
 
+On a Monday it then re-measures where a rating starts on the pool it has just
+published from, the squad year with the most games in the four weeks before the day
+("Where a rating starts", `closedLevelWeekly.ts`). The day is taken as the run starts,
+so the winter run, which starts at 23:17 on the Monday, is still Monday's. It prints
+the level read, its spread, the games, the clusters and the paired reading against
+the level held, numbers only. A live run keeps the answer for the Model check card
+(`live/closedLevel`) and hands the alarm step a word for whether a change is ready. A
+dry run prints and keeps nothing. A re-measure that stops says so on its own line and
+leaves the night's colour alone, since it is not the refresh's work. On the owner's
+11 October backup it took 20 s and about 1 GB above the loaded pool, measured off the
+runner.
+
 On 3 October 2026 a dry run of 50 teams on the real copy built its 60 boards (20
 pages, three halves each) in 5 s, after a 95 s pull. Their first publish would
 have been 30 uploads, 3.2 MB gzipped, and a 13.1 KB meta, and the run, pull and
@@ -5037,12 +5131,21 @@ the first run that is fine closes it with a comment.
   open over those would be commented on every night until the console was
   edited. A ledger the nightly could not read, or did not reach, leaves it as it
   is.
+- **A new starting level is ready for leagues with few outside games**: a live
+  Monday nightly's re-measure of where a rating starts ("Where a rating starts")
+  found a level clearly better than the one held. It says the level read, the level
+  held, the paired gain and its standard error, the games, and that the level changes
+  only by a commit that raises `BOARD_RULES`. The first live Monday that finds none
+  clearly better closes it. A dry run, or a night that did not re-measure, leaves it
+  as it is.
 
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
 words are fixed in `runAlarms.ts`, which works out what to raise or settle from
-the run step's outcome and the word the nightly hands over of the rebuilds
-(`rebuilds=paused`, `failing`, `none` or `off`), and is tested; the workflows
+the run step's outcome and the words the nightly hands over: the rebuilds'
+(`rebuilds=paused`, `failing`, `none` or `off`), and on a Monday the starting
+level's (`closedLevel=held`, or `better` and five numbers, which it reads back as
+numbers and writes again in its own words). It is tested; the workflows
 only run `npm run alarm -- nightly` or `-- republish` as their last step,
 whatever came before. It runs `gh` with the run's own token, which the workflow
 lets write issues and nothing more (`permissions: issues: write`). An alarm
@@ -5185,7 +5288,10 @@ a few minutes after any save that moved what a board reads. While the rebuilds d
 not run (off, paused, failing, or deferred by their budget), a run on GitHub every
 half hour publishes them once the copy has been still ten minutes ("Boards caught
 up on GitHub"). How a member's device reads them is "The live board on a member's
-device", below.
+device", below. Beside them, the Monday nightly keeps its re-measure of where a
+rating starts as one small document, `live/closedLevel`, numbers and days only,
+which the rules let members read as they read the meta and which no publish of the
+views touches ("Where a rating starts").
 
 - **`live/meta`** is one small document naming every view by its key
   (`board:{year}:{page}:{half}`, with `none` for a page with no year): the
@@ -6345,7 +6451,10 @@ question rather than one a run, as the device's worker takes them: the runs are 
 game by game, so each run's errors are kept until all are in, and on 12U of the 29 Sep
 copy those came to 2.3 MB a run, against 16 KB for the answer the card draws. There the
 check took 15.1 s, 38,631 games held back, the process at 2.2 GB at most, during which the
-edit function's other calls wait, as they do on a what-if. JSON has no
+edit function's other calls wait, as they do on a what-if. Since the starting level's
+re-measure joined its runs ("Where a rating starts") it fits the year four times more,
+which took 20 s and about 1 GB more in Node on the owner's 11 October backup; it has not
+been timed on the server. JSON has no
 `Infinity`, which the uncapped run's cap, each result's last bucket and a better cap that
 is no cap all are, so it sends them as null and the device's reader makes each its own
 again. A check that comes back with no answer says why in a toast, as every question
