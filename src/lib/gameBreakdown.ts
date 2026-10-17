@@ -35,7 +35,11 @@ export type GameLine = {
   playedLike: number;
   /** The change the game made to the rating the board shows: `scorePart` plus `recordPart`. */
   moved: number;
-  /** What the game's score did to the fit's rating (`pointRating`), with the weights held. */
+  /**
+   * What the game's score did to the fit's rating (`pointRating`), with the weights and every
+   * club's starting level (`levelPrior`) held: a refit without one of a league's outside games
+   * would also start that league lower, which this leaves out, as the panel's key says.
+   */
   scorePart: number;
   /**
    * What one more game on the record did to the discount from the fit's rating to the one shown,
@@ -163,8 +167,9 @@ type Counted = {
  * a = W + shrink − (echo − w_o² / (Ŵ_o + shrink)), b = Ŵ_o + shrink, and
  * Δ = w·(P − r)·(b − w_o) / (a·b − w_o² − w·(a + b − 2·w_o)), which for a single meeting is
  * w·(P − r) / (a − w). It is exact for a one-game club, whose rating is all its game's, and on a
- * schedule whose opponents meet nobody else. Against exact leave-one-out with the weights held,
- * on 414 games of 60 clubs drawn from the 29 September 2026 backup's 2027 year, its error was
+ * schedule whose opponents meet nobody else. Against exact leave-one-out with the weights and
+ * every club's start held, on 414 games of 60 clubs drawn from the 29 September 2026 backup's 2027
+ * year (when every start was nought), its error was
  * 0.0064 in the middle, 0.061 at the 95th percentile and 0.268 at most; it gave the same tenth on
  * 355 of the 414 and never the wrong sign. Taking the game alone against the club's other games
  * (the one-node form) was off by 0.207 at the 95th percentile and gave the same tenth on 238.

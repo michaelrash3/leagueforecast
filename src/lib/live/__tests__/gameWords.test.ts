@@ -44,20 +44,32 @@ describe("the line above a club's games", () => {
       lines: new Map(),
     };
     const notes = gameNotesOf(breakdown, { span: "Season", own: true, cap: CAP });
+    // The +2.5 from the games is counted from the start, not beside it, and the line says so: a
+    // reader who took the start as a third part of the split would make the rating +1.2.
     expect(notes.headline).toBe(
-      "Season rating +2.8: +2.5 from your games, +0.3 because your record makes your rating surer than the average club's. Your league has played no games outside itself, so your rating starts 1.6 runs below average."
+      "Season rating +2.8: +2.5 from your games, +0.3 because your record makes your rating surer than the average club's. Your league has played no games outside itself, so your rating starts 1.6 runs below average, and your games take it from there to +2.5."
     );
-    expect(notes.key).toBe(GAME_NOTES_KEY);
+    // What each game moved holds the start where it is, though without one of the league's few
+    // outside games it would start lower.
+    expect(notes.key).toBe(`${GAME_NOTES_KEY} Game effects hold each league's start fixed.`);
     expect(
       ratingHeadline(
         { rating: 1.5, pointRating: 1.5, levelPrior: -1.6 / 1.3, outsideGames: 3 },
         { span: "Season", own: false }
       )
     ).toBe(
-      "Season rating +1.5, all of it from its games. Its league has played 3 games outside itself, so its rating starts 1.2 runs below average."
+      "Season rating +1.5, all of it from its games. Its league has played 3 games outside itself, so its rating starts 1.2 runs below average, and its games take it from there to +1.5."
     );
     expect(startingSentence({ levelPrior: -1.6 / 1.1, outsideGames: 1 }, { own: false })).toBe(
       "Its league has played 1 game outside itself, so its rating starts 1.5 runs below average."
+    );
+    expect(
+      startingSentence(
+        { levelPrior: -1.6 / 1.1, outsideGames: 1 },
+        { own: false, fromGames: "-0.3" }
+      )
+    ).toBe(
+      "Its league has played 1 game outside itself, so its rating starts 1.5 runs below average, and its games take it from there to -0.3."
     );
     expect(startingSentence({ levelPrior: -1, outsideGames: 6 }, { own: false })).toContain(
       "starts 1.0 run below"
@@ -70,6 +82,11 @@ describe("the line above a club's games", () => {
     expect(ratingHeadline(near, { span: "Season", own: false })).toBe(
       "Season rating +1.5, all of it from its games."
     );
+    const notes = gameNotesOf(
+      { ...near, lines: new Map() },
+      { span: "Season", own: false, cap: CAP }
+    );
+    expect(notes.key).toBe(GAME_NOTES_KEY);
     expect(startingSentence({ levelPrior: -1.6 / 32, outsideGames: 310 }, { own: false })).toBe(
       "Its league has played 310 games outside itself, so its rating starts 0.1 runs below average."
     );
@@ -111,6 +128,16 @@ describe("the line above a club's games", () => {
     expect(
       ratingHeadline({ rating: -0.03, pointRating: 0.02 }, { span: "Season", own: false })
     ).toBe("Season rating -0.0, all of it from its games.");
+    // Where all of it is from the games, the start's sentence ends on the figure the line gave
+    // the games, the rating shown, not on the fit's own printed the other side of nought.
+    expect(
+      ratingHeadline(
+        { rating: 0.02, pointRating: -0.03, levelPrior: -1.6 / 2.3, outsideGames: 13 },
+        { span: "Season", own: false }
+      )
+    ).toBe(
+      "Season rating +0.0, all of it from its games. Its league has played 13 games outside itself, so its rating starts 0.7 runs below average, and its games take it from there to +0.0."
+    );
     expect(
       ratingHeadline({ rating: -0.03, pointRating: 0.3 }, { span: "Fall 2026", own: false })
     ).toBe(

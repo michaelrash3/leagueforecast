@@ -3024,10 +3024,16 @@ over a row's "+0.0" or "-0.0". The page's own club reads "your", any other "its"
 Where the club's league starts it a tenth of a run or more below average (**Where a
 rating starts**), a sentence follows, from the row's own `levelPrior` and
 `outsideGames`: "Its league has played 3 games outside itself, so its rating starts 1.2
-runs below average." The start is in the rating "from its games" already, since the fit
-played its virtual games there and its league's opponents started there too, so it is
-said beside the split rather than as a third part of it. A start that rounds to less than
-a tenth, a league with more than 310 games outside itself, goes unsaid.
+runs below average, and its games take it from there to +1.5." The start is in the rating
+"from its games" already, since the fit played its virtual games there and its league's
+opponents started there too, so the sentence ends on that figure again rather than adding
+a third part to the split. Said without it, the start read as a part the split had left
+out, or one never applied: on the 11 October 2026 year boards the strongest unbeaten
+island club read "+8.6 from its games, +0.3 because its record…" for a rating of +8.9, and
+then that it "starts 1.6 runs below average", with the 1.6 already in the +8.6. A start
+that rounds to less than a tenth, a league with more than 310 games outside itself, goes
+unsaid. Where the start is said, the key below adds "Game effects hold each league's
+start fixed."
 
 Under each counted W, L or T row are two figures, keyed once above the list. **Played
 like** is the rating that makes the score exactly what the fit expected: the opponent's
@@ -3037,8 +3043,10 @@ at its starting level (**Where a rating starts**), which its row carries; on the
 year of 29 September 2026, with those games then at nought, that held for all 83,693 of
 its teams to 5.6e-9, the solver's own tolerance, which is what lets a device rebuild the
 board's own row from them. **Moved** is the rating the board shows with the game, less the rating it
-would show without it, every other game weighed as it was and the fit's residual scale
-and middle held. It has two parts: the score's, what the margin did to the fit's rating,
+would show without it, every other game weighed as it was, every club's starting level
+(**Where a rating starts**) and the fit's residual scale and middle held. A refit without
+one of a league's few outside games would also start the league lower, from −1.45 to −1.60
+for a league with one and from −1.23 to −1.33 for one with three, which Moved leaves out. It has two parts: the score's, what the margin did to the fit's rating,
 and the record's, what one more game on the record did to the discount, which is never
 below nought. When the score's part reads as a fall of a tenth or more and the whole
 does not, both are said, rounded so they add up: "moved your rating +0.1 (score -0.1,
@@ -3072,7 +3080,7 @@ Played like is exact, but for the 4 places a side with no row on the board carri
 rating to (within 5e-5), and so is the record's part. The score's part is worked out as
 if the club's opponents met nobody else in common (the star estimate), since the exact
 answer is the year's pool fitted again without the game, which no phone does as a panel
-opens. Against those exact refits, the weights held, on 414 games of 60 clubs drawn from
+opens. Against those exact refits, the weights and starts held, on 414 games of 60 clubs drawn from
 the 29 September 2026 backup's 2027 year, it was off by 0.006 in the middle, 0.061 at the
 95th percentile and 0.268 at most, gave the same tenth on 355 of the 414 and never the
 wrong sign. A short record is the least exact: at the 95th percentile, 0.061 for clubs
