@@ -59,10 +59,12 @@ const keptMondayOf = (raw: unknown): string | null => {
  * re-measures for the Monday its week began on, unless the record kept (`readKept`) was measured on
  * that Monday or after, so whichever night of the week runs first re-measures it, once. The day is
  * the one the run started on, and from 1 November the cron's 04:17 UTC is 23:17 the evening before
- * in Eastern time, while GitHub has started this run hours late: on the start's weekday alone, a
- * Sunday run ten minutes late and a Monday run seven hours late re-measured no week, and the two the
- * other way round re-measured one twice. A record that cannot be read leaves the rule at Mondays
- * only. A dry run keeps no record, so it re-measures on a Monday and on no other day.
+ * in Eastern time, while GitHub has started this run 4 h 15 min to 7 h 38 min late (11 to 17
+ * October 2026): by the start's weekday alone, a Sunday run ten minutes late and a Monday run seven
+ * hours late would re-measure no week, and the two the other way round one week twice. It has not
+ * happened yet, since no start has come near the 43 minutes that move the day. A record that
+ * cannot be read leaves the rule at Mondays only. A dry run keeps no record, so it re-measures on a
+ * Monday and on no other day.
  */
 export const closedLevelMondayDue = async ({
   day,
