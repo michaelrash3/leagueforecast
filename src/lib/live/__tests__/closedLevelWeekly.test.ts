@@ -25,9 +25,11 @@ import {
 import {
   CLOSED_LEVEL_UNJUDGED,
   closedLevelDue,
+  closedLevelMondayDue,
   closedLevelRecordOf,
   closedLevelWord,
   describeWeekly,
+  weekMondayOf,
   weeklyClosedLevel,
 } from "../closedLevelWeekly";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../../validate";
@@ -82,6 +84,82 @@ describe("when the nightly re-measures", () => {
       expect(closedLevelDue(day)).toBe(false);
     }
     expect(closedLevelDue("12 October")).toBe(false);
+  });
+});
+
+describe("which night of the week re-measures", () => {
+  /** The members' day a run started at `iso` counts as, in Eastern winter time (UTC-5). */
+  const easternWinterDay = (iso: string) =>
+    new Date(Date.parse(iso) - 5 * 3_600_000).toISOString().slice(0, 10);
+  /** A record kept as of Monday `on`, its numbers no matter here. */
+  const kept = (on: string) => async () => ({ format: 1, measuredOn: on });
+
+  it("is the week's Monday, Monday to Sunday", () => {
+    expect(weekMondayOf("2026-11-02")).toBe("2026-11-02");
+    expect(weekMondayOf("2026-11-03")).toBe("2026-11-02");
+    expect(weekMondayOf("2026-11-08")).toBe("2026-11-02");
+    expect(weekMondayOf("2026-11-01")).toBe("2026-10-26");
+    expect(weekMondayOf("12 October")).toBeNull();
+  });
+
+  it("re-measures a Monday on time as it did, live or dry", async () => {
+    expect(
+      await closedLevelMondayDue({ day: "2026-10-12", live: true, readKept: kept("2026-10-05") })
+    ).toBe("2026-10-12");
+    expect(
+      await closedLevelMondayDue({ day: "2026-10-12", live: true, readKept: async () => null })
+    ).toBe("2026-10-12");
+    expect(
+      await closedLevelMondayDue({ day: "2026-10-12", live: false, readKept: kept("2026-10-12") })
+    ).toBe("2026-10-12");
+    expect(
+      await closedLevelMondayDue({ day: "2026-10-13", live: false, readKept: async () => null })
+    ).toBeNull();
+  });
+
+  it("runs once in a winter week when a Sunday run starts on time and the Monday one hours late", async () => {
+    // The cron's 04:17 UTC is 23:17 the evening before from 1 November. Started 10 minutes late,
+    // Sunday night's run is still Sunday's; started 7 hours late, Monday night's is Tuesday's.
+    const sunday = easternWinterDay("2026-11-02T04:27:00Z");
+    const monday = easternWinterDay("2026-11-03T11:17:00Z");
+    expect([sunday, monday]).toEqual(["2026-11-01", "2026-11-03"]);
+    expect(
+      await closedLevelMondayDue({ day: sunday, live: true, readKept: kept("2026-10-26") })
+    ).toBeNull();
+    expect(
+      await closedLevelMondayDue({ day: monday, live: true, readKept: kept("2026-10-26") })
+    ).toBe("2026-11-02");
+  });
+
+  it("runs once in a winter week when a Sunday run starts hours late and the Monday one on time", async () => {
+    // Both start on Monday 2 November, Eastern: the first re-measures, the second finds it made.
+    const first = easternWinterDay("2026-11-02T11:17:00Z");
+    const second = easternWinterDay("2026-11-03T04:27:00Z");
+    expect([first, second]).toEqual(["2026-11-02", "2026-11-02"]);
+    expect(
+      await closedLevelMondayDue({ day: first, live: true, readKept: kept("2026-10-26") })
+    ).toBe("2026-11-02");
+    expect(
+      await closedLevelMondayDue({ day: second, live: true, readKept: kept("2026-11-02") })
+    ).toBeNull();
+  });
+
+  it("falls back to Mondays only where the record kept cannot be read", async () => {
+    const unread = () => Promise.reject(new Error("unavailable"));
+    expect(await closedLevelMondayDue({ day: "2026-11-02", live: true, readKept: unread })).toBe(
+      "2026-11-02"
+    );
+    expect(
+      await closedLevelMondayDue({ day: "2026-11-03", live: true, readKept: unread })
+    ).toBeNull();
+    // A record of another layout still says when it was measured.
+    expect(
+      await closedLevelMondayDue({
+        day: "2026-11-04",
+        live: true,
+        readKept: async () => ({ format: 2, measuredOn: "2026-11-02" }),
+      })
+    ).toBeNull();
   });
 });
 

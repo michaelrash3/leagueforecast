@@ -7,8 +7,9 @@
 # the next live night that succeeds closes it; the rebuilds after saves get one of their own while
 # their ledger shows failures in a row or a pause (`scripts/alarm.ts`, README "When a run fails").
 #
-# On a Monday (the members' day the run starts on) the run also re-measures where a rating starts,
-# on the pool it has just published from, and keeps the answer for the Model check card. A level
+# Once a week, as of its Monday, the first run of the week (by the members' day it starts on) that
+# finds it not yet made also re-measures where a rating starts, on the pool it has just published
+# from, and keeps the answer for the Model check card. A level
 # clearly better than the one held opens an issue of its own saying a change is ready; the level
 # changes only by a commit (README, "Where a rating starts"). It prints numbers only. On the
 # owner's backup of 11 October 2026 it took 20 s and about 1 GB above the loaded pool, measured
@@ -84,7 +85,7 @@ jobs:
           LIMIT: ${{ inputs.limit }}
       # However the refresh ended: what is raised or settled, and every word of it, is the script's
       # (`runAlarms.ts`), from the step's outcome and the words the refresh handed over: the
-      # rebuilds', and on a Monday the starting level's re-measure.
+      # rebuilds', and once a week the starting level's re-measure.
       # Allowed to fail on its own (gh refused, say) without failing the run: a night that saved
       # stays green, and GitHub does not email that it failed, for want of an issue; a night whose
       # refresh failed is red from that step already.

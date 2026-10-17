@@ -17,12 +17,13 @@
  *   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run nightly -- --live
  *
  * A dry run does everything but the saves, and says what the copy's and the views' would have been,
- * the views built from the copy the pull would have saved. On a Monday (the members' day the run
- * started on), once the views are out, it then re-measures where a rating starts on the pool it
- * published from, League as the publish read it (`remeasureAfterPublish`, README "Where a rating
- * starts"), says what it found in numbers, keeps it
- * for the Model check card on a live run, and hands the alarm step a word for whether a change is
- * ready. Either way, and however the refresh
+ * the views built from the copy the pull would have saved. Once a week, on the first live run of
+ * the week (Monday to Sunday) that finds it not yet made, and on a dry run only on a Monday, once
+ * the views are out it then re-measures where a rating starts as of that week's Monday, on the pool
+ * it published from, League as the publish read it (`remeasureAfterPublish`, README "Where a
+ * rating starts"), says what it found in numbers, keeps it for the Model check card on a live
+ * run, and hands the alarm step a word for whether a change is ready. Either way, and however the
+ * refresh
  * ended, it ends by saying how the rebuilds after saves have gone (`describeRebuilds`), read from
  * their ledger. `--limit N`
  * pulls only the first N teams due, and leaves the day unlogged. It prints counts, sizes and
@@ -47,7 +48,7 @@ import {
   type CopyPublish,
 } from "../src/lib/live/publishCopy.ts";
 import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
-import { closedLevelDue, remeasureAfterPublish } from "../src/lib/live/closedLevelWeekly.ts";
+import { remeasureAfterPublish } from "../src/lib/live/closedLevelWeekly.ts";
 import {
   loadAgeGroups,
   loadAutoRemoved,
@@ -152,8 +153,9 @@ const tellRebuilds = async (): Promise<void> => {
 };
 
 const main = async (): Promise<void> => {
-  // The members' day the run started on, which decides whether this is the Monday re-measure's
-  // night: the winter run starts at 23:17 on the Monday and pulls past midnight.
+  // The members' day the run started on, which names the week whose re-measure may be due: the
+  // first run of a week that finds it not yet made makes it, as of the week's Monday, however late
+  // GitHub starts the run (`closedLevelMondayDue`).
   const day = todayIsoDay();
   const key = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!key) {
@@ -281,13 +283,14 @@ const main = async (): Promise<void> => {
       process.exitCode = 1;
     }
   }
-  // Each Monday, where a rating starts, re-measured on the pool the boards were just built from,
-  // League as the publish read it (`remeasureAfterPublish`).
-  if (result.manifest && closedLevelDue(day)) {
+  // Once a week, as of its Monday, where a rating starts, re-measured on the pool the boards were
+  // just built from, League as the publish read it (`remeasureAfterPublish`).
+  if (result.manifest) {
     await remeasureAfterPublish({
       views: published,
-      today: day,
+      day,
       live,
+      readKept: () => opened.readClosedLevel(),
       pool: () => ({
         ageGroups: loadAgeGroups(),
         teams: loadScoutTeams(),

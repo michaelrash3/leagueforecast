@@ -111,15 +111,19 @@ const pool = () => ({
   autoRemoved: loadAutoRemoved(),
 });
 
-/** The re-measure as the nightly runs it, live, with what it keeps, hands over and says. */
-const remeasure = async (views: NightlyRemeasure["views"]) => {
+/**
+ * The re-measure as the nightly runs it, live, on members' day `day` with `held` the record kept,
+ * and what it keeps, hands over and says.
+ */
+const remeasure = async (views: NightlyRemeasure["views"], day = MONDAY, held: unknown = null) => {
   const kept: ClosedLevelRecord[] = [];
   const words: string[] = [];
   const lines: string[] = [];
   const weekly = await remeasureAfterPublish({
     views,
-    today: MONDAY,
+    day,
     live: true,
+    readKept: async () => held,
     pool,
     keep: async (record) => {
       kept.push(record);
@@ -200,5 +204,39 @@ describe("the Monday re-measure after the night's publish", () => {
     ]);
     // Nor where the publish threw and handed over nothing.
     expect((await remeasure(null)).weekly).toBeNull();
+  });
+});
+
+describe("the week's re-measure, whichever night of the week runs it", () => {
+  /** One night's publish, and the re-measure as of Monday 12 April on its League. */
+  let views: NightlyRemeasure["views"] = null;
+  let asOf: Awaited<ReturnType<typeof weeklyOn>> = null;
+  beforeAll(async () => {
+    views = await publishCopyViews({
+      copyStore: cloud.store,
+      liveStore: memoryLive().store,
+      manifest,
+      today: "2027-04-14",
+      now: () => T,
+      locale: "en-US",
+      leagueDocs: async () => DOCS,
+    });
+    asOf = await weeklyOn(DOCS);
+  });
+  /** The record a run kept as of Monday `measuredOn`. */
+  const keptOn = (measuredOn: string) => closedLevelRecordOf(asOf!, measuredOn, T);
+
+  it("catches up on a later night a Monday no run re-measured, as of that Monday", async () => {
+    // Wednesday 14 April, last kept the Monday before: the week of 12 April was missed.
+    const { weekly, kept } = await remeasure(views, "2027-04-14", keptOn("2027-04-05"));
+    expect(weekly).toEqual(asOf);
+    expect(kept.map((record) => record.measuredOn)).toEqual([MONDAY]);
+    expect(weekly?.check.weeks[3]?.to).toBe("2027-04-11");
+  });
+
+  it("re-measures a week once: a later night of the same week finds it made", async () => {
+    const { weekly, kept, words, lines } = await remeasure(views, "2027-04-13", keptOn(MONDAY));
+    expect(weekly).toBeNull();
+    expect([kept, words, lines]).toEqual([[], [], []]);
   });
 });

@@ -31,10 +31,59 @@ export const CLOSED_LEVEL_WEEKDAY = 1;
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** Whether the nightly of members' day `today` re-measures: only on a Monday. */
+/** Whether members' day `today` is a Monday, the day a week's re-measure is made as of. */
 export const closedLevelDue = (today: string): boolean => {
   const at = dayInstant(today);
   return Number.isFinite(at) && new Date(at).getUTCDay() === CLOSED_LEVEL_WEEKDAY;
+};
+
+/** The Monday that began the week of members' day `day`, weeks Monday to Sunday, or null. */
+export const weekMondayOf = (day: string): string | null => {
+  const at = dayInstant(day);
+  if (!Number.isFinite(at)) return null;
+  const back = (new Date(at).getUTCDay() - CLOSED_LEVEL_WEEKDAY + 7) % 7;
+  return new Date(at - back * DAY).toISOString().slice(0, 10);
+};
+
+/**
+ * The members' day a kept record says it was measured on, whatever its layout, or null where none
+ * is kept or it says none: a newer build's record still counts as this week's.
+ */
+const keptMondayOf = (raw: unknown): string | null => {
+  const on = (raw as { measuredOn?: unknown } | null)?.measuredOn;
+  return typeof on === "string" && Number.isFinite(dayInstant(on)) ? on : null;
+};
+
+/**
+ * The Monday the nightly of members' day `day` re-measures as of, or null for none. A live run
+ * re-measures for the Monday its week began on, unless the record kept (`readKept`) was measured on
+ * that Monday or after, so whichever night of the week runs first re-measures it, once. The day is
+ * the one the run started on, and from 1 November the cron's 04:17 UTC is 23:17 the evening before
+ * in Eastern time, while GitHub has started this run hours late: on the start's weekday alone, a
+ * Sunday run ten minutes late and a Monday run seven hours late re-measured no week, and the two the
+ * other way round re-measured one twice. A record that cannot be read leaves the rule at Mondays
+ * only. A dry run keeps no record, so it re-measures on a Monday and on no other day.
+ */
+export const closedLevelMondayDue = async ({
+  day,
+  live,
+  readKept,
+}: {
+  day: string;
+  live: boolean;
+  readKept: () => Promise<unknown>;
+}): Promise<string | null> => {
+  const monday = weekMondayOf(day);
+  if (!monday) return null;
+  const mondayOnly = closedLevelDue(day) ? day : null;
+  if (!live) return mondayOnly;
+  let kept: string | null;
+  try {
+    kept = keptMondayOf(await readKept());
+  } catch {
+    return mondayOnly;
+  }
+  return kept !== null && kept >= monday ? null : monday;
 };
 
 /** What a weekly re-measure found, and of which squad year. */
@@ -163,10 +212,12 @@ export const describeWeekly = (weekly: WeeklyClosedLevel | null, seconds: number
 export type NightlyRemeasure = {
   /** The publish just before it, or null where none ran or it threw. */
   views: CopyPublish | null;
-  /** The members' day it re-measures as of: four weeks to the Sunday before it. */
-  today: string;
+  /** The members' day the run started on (`closedLevelMondayDue`). */
+  day: string;
   /** A live run keeps the answer and hands the alarm its word; a dry run only says it. */
   live: boolean;
+  /** The record kept, as stored, or null for none (`ServerStores.readClosedLevel`). */
+  readKept: () => Promise<unknown>;
   /** The pool its store holds, which the publish built the boards from, League aside. */
   pool: () => Omit<BuildInput, "past" | "readSeason" | "today">;
   /** Keeps the record for the card (`ServerStores.writeClosedLevel`). */
@@ -181,17 +232,20 @@ export type NightlyRemeasure = {
 };
 
 /**
- * The nightly's re-measure, run once the views are out: on the boards' own pool, League as the
- * publish read it, never read again, so a score a member saves after the publish's last look
- * reaches neither. Where the views were not published (refused, as when League moved during the
- * publish, or stopped), it does not re-measure: the pool would not be the one any board was built
- * from. Never the night's failure: one that stops says so and leaves the alarm as it is. What it
- * found, or null where it did not re-measure.
+ * The nightly's re-measure, run once the views are out, on the night the week's re-measure is due
+ * (`closedLevelMondayDue`), as of that week's Monday: four weeks to the Sunday before it, whichever
+ * night runs it. On the boards' own pool, League as the publish read it, never read again, so a
+ * score a member saves after the publish's last look reaches neither. Where the views were not
+ * published (refused, as when League moved during the publish, or stopped), it does not
+ * re-measure: the pool would not be the one any board was built from, and the next night of the
+ * week tries again. Never the night's failure: one that stops says so and leaves the alarm as it
+ * is. What it found, or null where it did not re-measure.
  */
 export const remeasureAfterPublish = async ({
   views,
-  today,
+  day,
   live,
+  readKept,
   pool,
   keep,
   handWord,
@@ -199,6 +253,8 @@ export const remeasureAfterPublish = async ({
   now,
   clock = Date.now,
 }: NightlyRemeasure): Promise<WeeklyClosedLevel | null> => {
+  const today = await closedLevelMondayDue({ day, live, readKept });
+  if (!today) return null;
   if (!views?.ok) {
     log(
       "The views were not published, so the starting level was not re-measured on a pool no board was built from."

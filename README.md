@@ -3182,15 +3182,22 @@ It took 20 s and about 1 GB above the loaded pool (2.8 GB at most) in Node 24 on
 
 **Where it runs.**
 
-- _Every Monday, in the nightly refresh on GitHub_, on the run whose members' day is
-  a Monday, taken as the run starts, since the winter run starts at 23:17 on the
-  Monday. It reads the pool the night has just built the boards from, the squad year
-  with the most games in the four weeks: the Team Rankings pool the run holds, and
-  the League Standings seasons as the publish read them, handed on rather than listed
-  again (`remeasureAfterPublish`, `closedLevelWeekly.ts`), so it reads nothing more of
-  the cloud and a score saved after the publish reaches neither. A night whose views
-  were not published does not re-measure. Its own scheduled workflow would have read
-  the copy again.
+- _Once a week, in the nightly refresh on GitHub_, as of the week's Monday: the first
+  live run of the week (Monday to Sunday, by the members' day the run starts on) that
+  finds the record kept older than that Monday makes it, so it is made once a week
+  however late GitHub starts the run (`closedLevelMondayDue`). From 1 November the
+  cron's 04:17 UTC is 23:17 the evening before, Eastern, and the seven scheduled runs
+  of 11 to 17 October 2026 started 4 h 15 min to 7 h 38 min late, so the start's
+  weekday alone would have skipped a week whenever a Sunday run started under 43
+  minutes late and the Monday one later, and made one twice the other way round. A
+  dry run re-measures on a Monday only. It reads the pool the night has just built
+  the boards from, the squad year with the most games in the four weeks: the Team
+  Rankings pool the run holds, and the League Standings seasons as the publish read
+  them, handed on rather than listed again (`remeasureAfterPublish`,
+  `closedLevelWeekly.ts`), so it reads nothing more of the cloud and a score saved
+  after the publish reaches neither. A night whose views were not published does not
+  re-measure, and a later night of the week tries again. Its own scheduled workflow
+  would have read the copy again.
 - _The live run keeps the answer_ as one small document beside the views,
   `live/closedLevel` (`closedLevelRecord.ts`), which the Model check card reads as it
   opens and shows as one line, before anything is pressed: "Last weekly re-measure, 12
@@ -4889,12 +4896,15 @@ once. A publish that fails says why on its own line and turns the night red,
 after the pull's own lines; a sweep that fails once the views are out says so
 under the counts of what was published, and turns it red too.
 
-On a Monday it then re-measures where a rating starts on the pool it has just
-published from, the squad year with the most games in the four weeks before the day,
-with League Standings as the publish read it ("Where a rating starts",
-`closedLevelWeekly.ts`), and only once the views are out: a publish refused or
-stopped leaves no board built from any pool it could read. The day is taken as the run starts,
-so the winter run, which starts at 23:17 on the Monday, is still Monday's. It prints
+Once a week it then re-measures where a rating starts on the pool it has just
+published from, the squad year with the most games in the four weeks before the
+week's Monday, with League Standings as the publish read it ("Where a rating
+starts", `closedLevelWeekly.ts`), and only once the views are out: a publish refused
+or stopped leaves no board built from any pool it could read. A live run re-measures
+on the first night of the week (Monday to Sunday, the members' day the run started
+on) that finds `live/closedLevel` older than the week's Monday, as of that Monday, so
+neither a late start nor a failed night skips or doubles a week; a record it cannot
+read leaves it to Mondays alone, and a dry run re-measures on a Monday only. It prints
 the level read, its spread, the games, the clusters and the paired reading against
 the level held, numbers only. A live run keeps the answer for the Model check card
 (`live/closedLevel`) and hands the alarm step a word for whether a change is ready. A

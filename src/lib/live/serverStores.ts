@@ -60,6 +60,11 @@ export type ServerStores = {
    * are, so refused by a store opened to read.
    */
   writeClosedLevel: (record: ClosedLevelRecord) => Promise<void>;
+  /**
+   * The weekly record as stored, its fields or null where none is, read whatever the stores were
+   * opened for: the nightly reads it to re-measure once a week (`closedLevelMondayDue`).
+   */
+  readClosedLevel: () => Promise<unknown>;
 };
 
 const refuseWrite = () => Promise.reject(new Error("This store was opened to read, not to write."));
@@ -108,6 +113,7 @@ export const restServerStores = (access: RestAccess, writable: boolean | "live")
             }
             throw new Error("The starting level's record kept changing while it was written.");
           },
+    readClosedLevel: () => docs.read(CLOSED_LEVEL_PATH),
     pullsUnderWay: async () =>
       (await docs.where(JOBS_COLLECTION, "status", ["queued", "running"])).flatMap(
         ({ fields }) => coercePullJob(fields) ?? []
