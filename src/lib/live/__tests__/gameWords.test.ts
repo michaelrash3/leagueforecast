@@ -2,13 +2,7 @@ import { describe, expect, it } from "vitest";
 import { formatRating as rowPrints } from "../../../components/teamRankings/RankingList";
 import type { Breakdown, GameLine } from "../../gameBreakdown";
 import { ratedMargin, scoreSeenBy, type ScoutGame } from "../../teamRankings";
-import {
-  GAME_NOTES_KEY,
-  gameClauses,
-  gameNotesOf,
-  ratingHeadline,
-  startingSentence,
-} from "../gameWords";
+import { GAME_NOTES_KEY, gameClauses, gameNotesOf, ratingHeadline } from "../gameWords";
 
 /*
  * What a club's panel says of each counted game (`gameWords`): every wording the panel can draw,
@@ -35,62 +29,23 @@ const its = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: fal
 const your = (more: Partial<GameLine> = {}) => gameClauses(line(more), { own: true, cap: CAP });
 
 describe("the line above a club's games", () => {
-  it("says where a closed league started the club, after what its games and record give it", () => {
-    const breakdown = {
-      rating: 2.8,
-      pointRating: 2.5,
-      levelPrior: -1.6,
-      outsideGames: 0,
-      lines: new Map(),
-    };
-    const notes = gameNotesOf(breakdown, { span: "Season", own: true, cap: CAP });
-    // The +2.5 from the games is counted from the start, not beside it, and the line says so: a
-    // reader who took the start as a third part of the split would make the rating +1.2.
-    expect(notes.headline).toBe(
-      "Season rating +2.8: +2.5 from your games, +0.3 because your record makes your rating surer than the average club's. Your league has played no games outside itself, so your rating starts 1.6 runs below average, and your games take it from there to +2.5."
-    );
-    // What each game moved holds the start where it is, though without one of the league's few
-    // outside games it would start lower.
-    expect(notes.key).toBe(`${GAME_NOTES_KEY} Game effects hold each league's start fixed.`);
-    expect(
-      ratingHeadline(
-        { rating: 1.5, pointRating: 1.5, levelPrior: -1.6 / 1.3, outsideGames: 3 },
-        { span: "Season", own: false }
-      )
-    ).toBe(
-      "Season rating +1.5, all of it from its games. Its league has played 3 games outside itself, so its rating starts 1.2 runs below average, and its games take it from there to +1.5."
-    );
-    expect(startingSentence({ levelPrior: -1.6 / 1.1, outsideGames: 1 }, { own: false })).toBe(
-      "Its league has played 1 game outside itself, so its rating starts 1.5 runs below average."
-    );
-    expect(
-      startingSentence(
-        { levelPrior: -1.6 / 1.1, outsideGames: 1 },
-        { own: false, fromGames: "-0.3" }
-      )
-    ).toBe(
-      "Its league has played 1 game outside itself, so its rating starts 1.5 runs below average, and its games take it from there to -0.3."
-    );
-    expect(startingSentence({ levelPrior: -1, outsideGames: 6 }, { own: false })).toContain(
-      "starts 1.0 run below"
-    );
-  });
-
-  it("says nothing of a start that rounds to less than a tenth, or that the board did not say", () => {
-    // 311 games outside: -1.6 / 32.1, which a tenth does not reach.
-    const near = { rating: 1.5, pointRating: 1.5, levelPrior: -1.6 / 32.1, outsideGames: 311 };
-    expect(ratingHeadline(near, { span: "Season", own: false })).toBe(
-      "Season rating +1.5, all of it from its games."
-    );
-    const notes = gameNotesOf(
-      { ...near, lines: new Map() },
-      { span: "Season", own: false, cap: CAP }
-    );
-    expect(notes.key).toBe(GAME_NOTES_KEY);
-    expect(startingSentence({ levelPrior: -1.6 / 32, outsideGames: 310 }, { own: false })).toBe(
-      "Its league has played 310 games outside itself, so its rating starts 0.1 runs below average."
-    );
-    expect(startingSentence({ levelPrior: -1.6 }, { own: false })).toBeNull();
+  it("never says where a club's league starts it, to the page's own club or any other", () => {
+    // An island club, started 1.6 below average: the owner chose that no panel say its league keeps
+    // to itself, a member's included. The start is inside the +2.5 from its games and goes unsaid.
+    const island = { rating: 2.8, pointRating: 2.5, levelPrior: -1.6, outsideGames: 0 };
+    [true, false].forEach((own) => {
+      const notes = gameNotesOf(
+        { ...island, lines: new Map([["g1", line()]]) },
+        { span: "Season", own, cap: CAP }
+      );
+      const whose = own ? "your" : "its";
+      expect(notes.headline).toBe(
+        `Season rating +2.8: +2.5 from ${whose} games, +0.3 because ${whose} record makes ${whose} rating surer than the average club's.`
+      );
+      expect(notes.key).toBe(GAME_NOTES_KEY);
+      const said = [notes.headline, notes.key, ...[...notes.byGame.values()].flat()].join(" ");
+      expect(said).not.toMatch(/league|outside|keeps to itself|starts|below average/i);
+    });
   });
 
   it("splits the rating into its games and its record, surer or less sure than the average club's", () => {
@@ -128,15 +83,10 @@ describe("the line above a club's games", () => {
     expect(
       ratingHeadline({ rating: -0.03, pointRating: 0.02 }, { span: "Season", own: false })
     ).toBe("Season rating -0.0, all of it from its games.");
-    // Where all of it is from the games, the start's sentence ends on the figure the line gave
-    // the games, the rating shown, not on the fit's own printed the other side of nought.
-    expect(
-      ratingHeadline(
-        { rating: 0.02, pointRating: -0.03, levelPrior: -1.6 / 2.3, outsideGames: 13 },
-        { span: "Season", own: false }
-      )
-    ).toBe(
-      "Season rating +0.0, all of it from its games. Its league has played 13 games outside itself, so its rating starts 0.7 runs below average, and its games take it from there to +0.0."
+    // A start inside the figure from the games changes none of it.
+    const started = { rating: 0.02, pointRating: -0.03, levelPrior: -1.6 / 2.3, outsideGames: 13 };
+    expect(ratingHeadline(started, { span: "Season", own: false })).toBe(
+      "Season rating +0.0, all of it from its games."
     );
     expect(
       ratingHeadline({ rating: -0.03, pointRating: 0.3 }, { span: "Fall 2026", own: false })

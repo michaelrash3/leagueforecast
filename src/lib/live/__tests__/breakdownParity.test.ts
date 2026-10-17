@@ -302,9 +302,7 @@ describe("what each game did, worked out on a device", { timeout: 60_000 }, () =
           lessSure += 1;
           expect(spreadOf(row.teamId), at).toBeGreaterThan(average);
         } else {
-          expect(said, at).toMatch(
-            /^Season rating ([+-]\d+\.\d), all of it from its games\.( Its league has played (no games|1 game|\d+ games) outside itself, so its rating starts \d+\.\d runs? below average, and its games take it from there to \1\.)?$/
-          );
+          expect(said, at).toMatch(/^Season rating [+-]\d+\.\d, all of it from its games\.$/);
         }
         if (spreadOf(row.teamId) < average) gaining += 1;
       }

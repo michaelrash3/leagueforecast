@@ -3030,19 +3030,12 @@ rating is all from the club's games. Rounded as whole tenths instead, the line d
 from its row on 2,158 of the 88,106 clubs with lines on that backup, every one a "0.0"
 over a row's "+0.0" or "-0.0". The page's own club reads "your", any other "its".
 
-Where the club's league starts it a tenth of a run or more below average (**Where a
-rating starts**), a sentence follows, from the row's own `levelPrior` and
-`outsideGames`: "Its league has played 3 games outside itself, so its rating starts 1.2
-runs below average, and its games take it from there to +1.5." The start is in the rating
-"from its games" already, since the fit played its virtual games there and its league's
-opponents started there too, so the sentence ends on that figure again rather than adding
-a third part to the split. Said without it, the start read as a part the split had left
-out, or one never applied: on the 11 October 2026 year boards the strongest unbeaten
-island club read "+8.6 from its games, +0.3 because its record…" for a rating of +8.9, and
-then that it "starts 1.6 runs below average", with the 1.6 already in the +8.6. A start
-that rounds to less than a tenth, a league with more than 310 games outside itself, goes
-unsaid. Where the start is said, the key below adds "Game effects hold each league's
-start fixed."
+Where the fit started the club (**Where a rating starts**) is not said. The start is in
+the rating "from its games" already, since the fit played its virtual games there and its
+league's opponents started there too, and the owner chose that no club's panel say its
+league keeps to itself, on any device and to a member as much as anyone, so the line stays
+the two-part split above and a test holds that it never names a league, its outside games
+or a start.
 
 Under each counted W, L or T row are two figures, keyed once above the list. **Played
 like** is the rating that makes the score exactly what the fit expected: the opponent's

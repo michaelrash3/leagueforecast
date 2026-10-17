@@ -61,18 +61,13 @@ const tenthsPrinted = (printed: string): number => Math.round(Number(printed) * 
  * a half the other way from the row. The record's part is what those two printed figures differ
  * by, so the three add up on screen to the rating shown, as a reader will check.
  *
- * Then, where the club's league starts it a tenth of a run or more below average
- * (`startingSentence`), a sentence saying so, which ends on the figure from its games again. The
- * start is inside that figure, not beside it: the fit plays the ridge's virtual games at the
- * league's level, and an opponent from the same league started there as well. Said only as
- * "starts 1.6 runs below average" after a split that already adds up, it read as a third part
- * the split had left out, or as a start never applied: on the 11 October 2026 year boards the
- * strongest unbeaten island club read "+8.6 from its games, +0.3 because its record..." for a
- * Season rating of +8.9, and then "starts 1.6 runs below average", with the 1.6 already in the
- * +8.6. So the sentence says the games take the rating from the start to that figure.
+ * Where the fit started the club, its league's level (`levelPrior`, `scheduleCommunities.ts`), is
+ * inside the figure from its games and is not said: the owner chose that no club's panel say its
+ * league keeps to itself, members' included, so the line splits the rating into the games and the
+ * record alone, and the start shows only as the rating the games reach from it.
  */
 export const ratingHeadline = (
-  breakdown: Pick<Breakdown, "rating" | "pointRating" | "levelPrior" | "outsideGames">,
+  breakdown: Pick<Breakdown, "rating" | "pointRating">,
   { span, own }: { span: string; own: boolean }
 ): string => {
   const whose = own ? "your" : "its";
@@ -80,42 +75,10 @@ export const ratingHeadline = (
   const fromGames = formatBoardRating(breakdown.pointRating);
   const record = tenthsPrinted(shown) - tenthsPrinted(fromGames);
   const lead = `${span} rating ${shown}`;
-  // The figure the line gives the games: the rating shown where all of it is theirs, which may
-  // print the other side of nought from the fit's own ("+0.0" over "-0.0").
-  const start = startingSentence(breakdown, { own, fromGames: record === 0 ? shown : fromGames });
-  const after = start === null ? "" : ` ${start}`;
-  if (record === 0) return `${lead}, all of it from ${whose} games.${after}`;
+  if (record === 0) return `${lead}, all of it from ${whose} games.`;
   return `${lead}: ${fromGames} from ${whose} games, ${tenths(record)} because ${whose} record makes ${whose} rating ${
     record > 0 ? "surer" : "less sure"
-  } than the average club's.${after}`;
-};
-
-/**
- * Where the fit started the club, in plain words: how many games its league, its community of
- * the schedule (`scheduleCommunities.ts`), has played outside itself, and so how far below average
- * its rating starts (`levelPrior`), to a tenth; and, given the rating from its games as the line
- * above prints it (`fromGames`), that its games take it from there to that figure. Null where the
- * start rounds to less than a tenth, which is a league with more than 310 games outside itself and
- * says nothing a reader could weigh, and where the board did not say (a row from before board
- * rules 7).
- */
-export const startingSentence = (
-  breakdown: Pick<Breakdown, "levelPrior" | "outsideGames">,
-  { own, fromGames }: { own: boolean; fromGames?: string }
-): string | null => {
-  const { levelPrior, outsideGames } = breakdown;
-  if (levelPrior === undefined || outsideGames === undefined) return null;
-  const below = tenthsOf(-levelPrior);
-  if (below < 1) return null;
-  const whose = own ? "your" : "its";
-  const games =
-    outsideGames === 0 ? "no games" : `${outsideGames} ${outsideGames === 1 ? "game" : "games"}`;
-  const amount = (below / 10).toFixed(1);
-  const reach =
-    fromGames === undefined ? "" : `, and ${whose} games take it from there to ${fromGames}`;
-  return `${own ? "Your" : "Its"} league has played ${games} outside itself, so ${whose} rating starts ${amount} ${
-    amount === "1.0" ? "run" : "runs"
-  } below average${reach}.`;
+  } than the average club's.`;
 };
 
 /**
@@ -185,25 +148,13 @@ export const gameClauses = (
   return clauses;
 };
 
-/**
- * What the key adds where the line above says the club's start (`startingSentence`): what each
- * game moved is read with every club's start held where it is (`GameLine.scorePart`), as the
- * exact refit it stands for holds it, though a refit without one of a league's few outside games
- * would start the league lower: from −1.45 to −1.60 for a league with one, from −1.23 to −1.33
- * for one with three. Board rules 6's key said the same of its schedule deduction.
- */
-export const START_HELD_NOTE = "Game effects hold each league's start fixed.";
-
 /** Everything the panel says of a club's games on a board, from its breakdown there. */
 export const gameNotesOf = (
   breakdown: Breakdown,
   { span, own, cap }: { span: string; own: boolean; cap: number }
 ): GameNotes => ({
   headline: ratingHeadline(breakdown, { span, own }),
-  key:
-    startingSentence(breakdown, { own }) === null
-      ? GAME_NOTES_KEY
-      : `${GAME_NOTES_KEY} ${START_HELD_NOTE}`,
+  key: GAME_NOTES_KEY,
   byGame: new Map(
     [...breakdown.lines].map(([gameId, line]) => [gameId, gameClauses(line, { own, cap })])
   ),
