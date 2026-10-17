@@ -85,7 +85,10 @@ type SetupSectionProps = {
     onPutBack: (club: RemovedClub) => boolean;
     onPutBackDay: (day: string, clubs: readonly RemovedClub[]) => boolean;
     onDeleteRemoved: (club: RemovedClub) => boolean;
-    onDeleteRemovedDay: (day: string | null, clubs: readonly RemovedClub[]) => Promise<boolean>;
+    onDeleteRemovedDay: (
+      day: string | null,
+      clubs: readonly RemovedClub[]
+    ) => Promise<readonly RemovedClub[]>;
   };
   /** The years that could be frozen or deleted, and the one the app is showing as current. */
   archive: {

@@ -83,7 +83,10 @@ type PoolHealthCardProps = {
   onPutBackDay: (day: string, clubs: readonly RemovedClub[]) => boolean;
   /** Deletes a club taken off for good, as Delete club does, offering Undo. */
   onDeleteRemoved: (club: RemovedClub) => boolean;
-  onDeleteRemovedDay: (day: string | null, clubs: readonly RemovedClub[]) => Promise<boolean>;
+  onDeleteRemovedDay: (
+    day: string | null,
+    clubs: readonly RemovedClub[]
+  ) => Promise<readonly RemovedClub[]>;
 };
 
 /** The answers as this browser has them stored. */

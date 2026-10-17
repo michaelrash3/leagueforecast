@@ -217,9 +217,10 @@ export function LivePoolHealthCard({
      * edit asks for its Undo, and the server keeps it only while the inverse fits the same cap: a
      * club deleted takes 2 steps with no games and one more for each squad year its games are in,
      * more than a count of clubs can bound, so where the server sends none back the toast says so.
+     * Where a later edit fails, the clubs of those that went are what it gives back as deleted.
      */
     deleteRemovedDay: async (day, clubs) => {
-      if (clubs.length === 0) return false;
+      if (clubs.length === 0) return [];
       const when = day ? ` taken off on ${day}` : " taken off";
       const parts = Math.ceil(clubs.length / MAX_COMMAND_STEPS);
       const confirmed = await confirm({
@@ -231,7 +232,7 @@ export function LivePoolHealthCard({
         }`,
         confirmLabel: "Delete them",
       });
-      if (!confirmed) return false;
+      if (!confirmed) return [];
       const size = MAX_COMMAND_STEPS;
       let deleted = 0;
       for (let part = 0; part < parts; part += 1) {
@@ -252,10 +253,10 @@ export function LivePoolHealthCard({
             ? "There were too many to take back at once, so this cannot be undone."
             : undefined
         );
-        if (!done) return deleted > 0;
+        if (!done) return clubs.slice(0, deleted);
         deleted += these.length;
       }
-      return true;
+      return clubs;
     },
     confirmScore: (game) =>
       change(

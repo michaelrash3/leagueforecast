@@ -93,12 +93,14 @@ export type PoolHealthActions = {
    * Deletes for good, as Delete club does each, the clubs one day's sweep took off that are still
    * listed (every day's where `day` is null): those not put back, once the ones worth keeping have
    * been. Asks first, saying how many, and offers Undo. The card leaves out a club a League
-   * Standings team links, whose link a deletion would break.
+   * Standings team links, whose link a deletion would break. Gives back the clubs it deleted:
+   * none where it was turned down or failed, and those of the edits that went where a list too
+   * long for one went as several and a later one failed, so only those leave the list.
    */
   deleteRemovedDay: (
     day: string | null,
     clubs: readonly RemovedClub[]
-  ) => Promise<boolean> | boolean;
+  ) => Promise<readonly RemovedClub[]> | readonly RemovedClub[];
   /**
    * Says a game won by more than `IMPLAUSIBLE_MARGIN` runs really was played that way, so it counts
    * and leaves the list (`ScoutGame.scoreConfirmed`).
@@ -475,7 +477,8 @@ export function PoolHealthView({
     const on = summary.removed;
     setDropping(`delete:${day ?? "all"}`);
     try {
-      if ((await actions.deleteRemovedDay(day, clubs)) === true) settleRemoved(on, clubs);
+      const deleted = await actions.deleteRemovedDay(day, clubs);
+      if (deleted.length > 0) settleRemoved(on, deleted);
     } finally {
       setDropping(null);
     }

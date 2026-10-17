@@ -2426,7 +2426,7 @@ Standings team links, whose link a deletion would break. A club put back or dele
 leaves its list at once, before the lists are read again, so a bulk delete pressed in between never
 takes a club just put back. On the live page one edit takes at most 500 clubs
 (`MAX_COMMAND_STEPS`), so a longer list goes as several, and the dialog says first that it cannot be
-undone. One edit asks for its Undo, but the server keeps an edit's Undo only up to 500 steps too, and
+undone; where a later one fails, only the clubs of those that went leave the list. One edit asks for its Undo, but the server keeps an edit's Undo only up to 500 steps too, and
 a club deleted takes 2 with no games and one more for each squad year its games are in, more than a
 count of clubs can bound: where the server sends none back, the toast says there were too many to
 take back at once (`EditSaid.noUndo`), rather than leaving its Undo out without a word. Find a team says of a pasted id taken off that it was removed, when,

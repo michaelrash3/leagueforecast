@@ -159,11 +159,14 @@ const editFunction = (
   {
     locked = null,
     makes = true,
+    failsFrom,
     later,
     plans,
   }: {
     locked?: string | null;
     makes?: boolean;
+    /** The edit, counted from 1, from which every one sent fails, as a server gone away would. */
+    failsFrom?: number;
     /** What every summary after the first waits on. */
     later?: Promise<void>;
     /** The server's plans in the order it makes them, in place of the one in `answers`. */
@@ -186,12 +189,13 @@ const editFunction = (
     edit: async (command, said) => {
       sent.push({ command, said });
       askedBySend.push(asked.length);
-      if (makes && command.kind === "answers" && command.list in kept) {
+      const made = makes && (failsFrom === undefined || sent.length < failsFrom);
+      if (made && command.kind === "answers" && command.list in kept) {
         const list = kept[command.list as keyof typeof kept];
         command.add.forEach((id) => list.add(id));
         command.remove.forEach((id) => list.delete(id));
       }
-      return makes;
+      return made;
     },
     ask: async <K extends QueryKind>(query: QueryOf<K>) => {
       asked.push(query);
@@ -609,6 +613,45 @@ describe("Pool health's buttons, sent as edits", () => {
       expect(call.sent.map((one) => one.said.undo)).toEqual([false, false]);
       // Said before anything goes, as several changes cannot be taken back as the whole.
       expect(confirmedSaying[0]).toMatch(/cannot be undone/);
+    });
+
+    it("keeps listed the clubs of an edit that failed, where a long list went as several", async () => {
+      const many = {
+        ...TAKEN,
+        summary: {
+          ...TAKEN.summary,
+          removed: Array.from({ length: MAX_COMMAND_STEPS + 1 }, (_, at) => ({
+            teamId: `S-${at}`,
+            name: `Placeholder ${at}`,
+            gcTeamIds: [`gc-${at}`],
+            on: "2027-04-14",
+            reasons: ["named 'demo'"],
+          })),
+        },
+      };
+      // The lists asked for again after the first edit do not come until the end of the test.
+      let answer = () => undefined as void;
+      const later = new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      const call = editFunction({ "health.summary": many }, { failsFrom: 2, later });
+      show(call);
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: `Delete the ${(MAX_COMMAND_STEPS + 1).toLocaleString()} taken off on 2027-04-14 for good`,
+        })
+      );
+      await waitFor(() => expect(call.sent).toHaveLength(2));
+      // The first edit's clubs are gone from the list; the one whose edit failed is still there.
+      expect(
+        await screen.findByRole("button", {
+          name: "Delete the 1 taken off on 2027-04-14 for good",
+        })
+      ).toBeTruthy();
+      const list = screen.getByRole("list", { name: "Removed for you" });
+      expect(within(list).getByText("Placeholder 500")).toBeTruthy();
+      expect(within(list).queryByText("Placeholder 0")).toBeNull();
+      answer();
     });
 
     it("says a club a League Standings team links is kept on its boards", async () => {
