@@ -162,6 +162,15 @@ describe("the name rules", () => {
     });
   });
 
+  it("keeps a name its exemption reads only once its joins are split", () => {
+    // Every exemption above is written with spaces, so the name as written already escapes; these
+    // escape only split, and a check of the raw form alone would refuse them.
+    ["Bramblecote FamilyPractice 10U", "TestRed Kestrelmoor 12U"].forEach((name) => {
+      expect(NAME_RULES.some((rule) => rule.exempt?.test(name))).toBe(false);
+      expect(firstRuleHit(name, NAME_RULES)).toBeNull();
+    });
+  });
+
   it("splits a name at its joins and nowhere else", () => {
     expect(splitName("NettlefieldGC")).toBe("Nettlefield GC");
     expect(splitName("ABCDont")).toBe("ABC Dont");
