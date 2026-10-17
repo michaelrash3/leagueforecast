@@ -162,6 +162,8 @@ import { GamesSection, EMPTY_ADD_GAME_DRAFT, type AddGameDraft } from "./teamRan
 import type { NamedChecker } from "./ScheduleImportPanel";
 import { checkNamedGames, type NamedGame } from "../lib/teamRankings/namedGames";
 import { addOfNamed } from "../lib/live/namedAdd";
+import { readLastClosedLevel } from "../lib/live/closedLevelRecord";
+import { liveReader } from "../lib/cloud/cloudSession";
 import { gamesWindowFor, listedTeamNames, loggedGamesOn } from "../lib/teamRankings/gamesWindow";
 import {
   NATIONAL_TOP,
@@ -265,6 +267,13 @@ const sparedYears = (years: (number | undefined)[]): string =>
   `Saved, but ${years.map((year) => year ?? "the undated games").join(", ")} ${
     years.length === 1 ? "was" : "were"
   } left as stored — that save did not hold ${years.length === 1 ? "it" : "them"}. Reload before changing anything else.`;
+
+/**
+ * The last weekly re-measure of where a rating starts, read through this browser's member's reader
+ * of `live/` (`readLastClosedLevel`): none for a browser that keeps no cloud copy, which never
+ * loads Firebase to find that out. One function for the life of the page, so the card reads once.
+ */
+const lastWeeklyFromCloud = () => readLastClosedLevel(liveReader);
 
 const sectionLabel = (section: RankingsSection): string =>
   ({
@@ -2663,6 +2672,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 // The same answer from the pool the worker already holds: the check selects the
                 // year's games, which is exactly what that pool is.
                 check: checkModel,
+                lastWeekly: lastWeeklyFromCloud,
               }}
               onReset={() => void resetEverything()}
               archive={{

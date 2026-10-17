@@ -270,6 +270,54 @@ describe("naming a better setting", () => {
     pool.teams.forEach((club) => expect(card.textContent).not.toContain(club.name));
   });
 
+  it("shows the last Monday's re-measure as it opens, before anything is run", async () => {
+    let asked = 0;
+    render(
+      <ModelCheckCard
+        ageGroupId={groupId}
+        groupName="10U 2027"
+        teams={pool.teams}
+        games={pool.games}
+        ageGroups={pool.ageGroups}
+        check={() => Promise.resolve(answer({}))}
+        lastWeekly={() => {
+          asked += 1;
+          return Promise.resolve({
+            format: 1,
+            measuredOn: "2026-10-12",
+            measuredAt: "2026-10-12T04:40:00.000Z",
+            year: 2027,
+            check: remeasured,
+          });
+        }}
+      />
+    );
+
+    expect(
+      await screen.findByText(
+        "Last weekly re-measure, 12 Oct. Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check the model" })).toBeInTheDocument();
+    expect(screen.queryByText(/games predicted/i)).toBeNull();
+    expect(asked).toBe(1);
+  });
+
+  it("says nothing of a weekly re-measure where none was kept", async () => {
+    render(
+      <ModelCheckCard
+        ageGroupId={groupId}
+        groupName="10U 2027"
+        teams={pool.teams}
+        games={pool.games}
+        ageGroups={pool.ageGroups}
+        lastWeekly={() => Promise.resolve(null)}
+      />
+    );
+    await Promise.resolve();
+    expect(screen.queryByText(/Last weekly re-measure/)).toBeNull();
+  });
+
   it("leaves the line out for a page with no table", async () => {
     await show(answer({ closedLevels: null }));
 

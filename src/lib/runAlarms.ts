@@ -1,7 +1,9 @@
 /**
  * The alarms GitHub's runs raise on this repository (README, "When a run fails"): an issue opened
- * when the nightly refresh fails, when the republish after a deploy fails, and when the nightly
- * finds the rebuilds after saves failing in their ledger. Each alarm keeps one issue: a run that
+ * when the nightly refresh fails, when the republish after a deploy fails, when the nightly
+ * finds the rebuilds after saves failing in their ledger, and when the Monday nightly's re-measure
+ * of where a rating starts finds a level clearly better than the one held, which is a change ready
+ * to be made (README, "Where a rating starts"). Each alarm keeps one issue: a run that
  * fails again comments on the one open, and the first run that is fine closes it with a comment.
  * The nightly of 10 October 2026 failed at 03:52 UTC and the owner learned of it from a board
  * nobody looks at; an issue is what GitHub tells the owner of, by email and on the phone.
@@ -12,13 +14,14 @@
  * this names, and the workflows only call it.
  */
 
-export type AlarmKind = "nightly" | "republish" | "rebuilds";
+export type AlarmKind = "nightly" | "republish" | "rebuilds" | "closedLevel";
 
 /** The title each alarm's issue is found again by, among the issues the workflows opened. */
 export const ALARM_TITLES: Record<AlarmKind, string> = {
   nightly: "The nightly refresh failed",
   republish: "Publishing the views after a deploy failed",
   rebuilds: "The rebuilds after saves are failing",
+  closedLevel: "A new starting level is ready for leagues with few outside games",
 };
 
 /**
@@ -45,23 +48,55 @@ const FAILED_AS: Record<string, string> = {
 /** The rebuilds' trouble as the nightly hands it over (`rebuildsTrouble`), in words. */
 const REBUILDS_AS: Record<string, string> = { paused: "paused", failing: "failing in a row" };
 
+const NUMBER = "-?\\d+(?:\\.\\d+)?";
+/** `better`, the level held, the level read, how much lower, its standard error, the games. */
+const BETTER = new RegExp(`^better (${NUMBER}) (${NUMBER}) (\\d+\\.\\d+) (\\d+\\.\\d+) (\\d+)$`);
+
+/**
+ * The Monday re-measure's word as the nightly hands it over (`closedLevelWord`), as a verdict:
+ * `held` settles the alarm, `better` and its numbers raise it, and anything else, the word of a
+ * night that did not re-measure, leaves it as it is. The numbers are read back as numbers and
+ * written again in fixed words, so nothing the run printed reaches the issue but those numbers.
+ */
+const closedLevelVerdict = (word: string): Verdict | null => {
+  if (word === "held") return { kind: "closedLevel", failing: false };
+  const read = BETTER.exec(word);
+  if (!read) return null;
+  const [held, level, by, standardError, games] = read.slice(1).map(Number) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+  return {
+    kind: "closedLevel",
+    failing: true,
+    said: `the starting level for leagues with few outside games clearly better at ${level.toFixed(2)} than the ${held} held: each of the last four weeks scored with the level the other three read, ${by.toFixed(5)} runs a game lower, give or take ${standardError.toFixed(5)}, over ${games.toLocaleString("en-US")} games. The level changes only by a commit that raises BOARD_RULES (README, "Where a rating starts")`,
+  };
+};
+
 /**
  * The alarms a nightly raises or settles: its own from how its refresh step ended, and the
  * rebuilds' from their ledger as it read it (`rebuilds`: `paused` or `failing` raise it, `none` or
  * `off` settle it, and anything else, a ledger not read, leaves it as it is). Its own is settled only by a live run that
  * succeeded: a dry run saves nothing, so its success says nothing of a night that failed saving,
- * as the night of 10 October did.
+ * as the night of 10 October did. The starting level's from the Monday re-measure
+ * (`closedLevel`, `closedLevelVerdict`), and only a live run's, as only a live run keeps the
+ * re-measure for the card: a dry run's measures a pool that was never saved.
  */
 export const nightlyVerdicts = ({
   outcome,
   event,
   mode,
   rebuilds = "",
+  closedLevel = "",
 }: {
   outcome: string;
   event: string;
   mode: string;
   rebuilds?: string;
+  closedLevel?: string;
 }): Verdict[] => {
   const live = mode === "live";
   const how = event === "schedule" ? "scheduled" : live ? "by hand, live" : "by hand, dry run";
@@ -73,6 +108,8 @@ export const nightlyVerdicts = ({
   if (trouble !== undefined) verdicts.push({ kind: "rebuilds", failing: true, said: trouble });
   else if (rebuilds === "none") verdicts.push({ kind: "rebuilds", failing: false });
   else if (rebuilds === "off") verdicts.push({ kind: "rebuilds", failing: false, said: "off" });
+  const level = live ? closedLevelVerdict(closedLevel) : null;
+  if (level) verdicts.push(level);
   return verdicts;
 };
 
@@ -110,6 +147,12 @@ const WORDS: Record<
         : "The nightly found no failures in a row and no pause in the rebuilds' ledger",
     closes:
       "Each nightly that finds them so again comments here, and the first to find no failures in a row and no pause, or them switched off,",
+  },
+  closedLevel: {
+    failed: (said) => `the weekly re-measure found ${said}`,
+    fine: () =>
+      "The weekly re-measure no longer finds a starting level clearly better than the one held",
+    closes: "Each Monday that finds one so again comments here, and the first that does not",
   },
 };
 

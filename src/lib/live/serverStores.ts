@@ -14,6 +14,7 @@ import { LEAGUE_DELETED_PATH, leagueDeletedAt } from "./boardsCheck";
 import { restLeagueDocs, type LeagueDocsList } from "./cloudLeague";
 import { REBUILD_JOB_CONTROL } from "./rebuildJobControl";
 import { REBUILD_LEDGER_PATH } from "./rebuildLedger";
+import { CLOSED_LEVEL_PATH, type ClosedLevelRecord } from "./closedLevelRecord";
 import type { LiveStore } from "./viewStore";
 
 /**
@@ -53,13 +54,20 @@ export type ServerStores = {
    * where none is: the settle counts it as a save (`afterPullDecision`).
    */
   leagueDeletedAt?: () => Promise<string | undefined>;
+  /**
+   * Keeps the weekly re-measure of where a rating starts for the Model check card
+   * (`closedLevelRecord.ts`), beside the views, in place of the last one: written as the views
+   * are, so refused by a store opened to read.
+   */
+  writeClosedLevel: (record: ClosedLevelRecord) => Promise<void>;
 };
 
 const refuseWrite = () => Promise.reject(new Error("This store was opened to read, not to write."));
 
 /**
  * Those stores, read only unless `writable`: `true` for the nightly's live run, which saves the
- * copy, publishes the views, deletes staged uploads and takes its turn at the refresh gate; `false`
+ * copy, publishes the views and keeps the starting level's weekly record beside them, deletes staged
+ * uploads and takes its turn at the refresh gate; `false`
  * for its dry run, which writes nothing; and `"live"` for the republish after a deploy and the
  * catch-up between nights, which write the views and nothing else, so a slip in either cannot touch
  * the copy it builds them from. The seasons, the ledger, the jobs and the rebuild job's control are
@@ -88,6 +96,18 @@ export const restServerStores = (access: RestAccess, writable: boolean | "live")
       return at ? { manifest: at.fields, savedAt: at.token } : null;
     },
     leagueDeletedAt: async () => leagueDeletedAt(await docs.read(LEAGUE_DELETED_PATH)),
+    writeClosedLevel:
+      writable === false
+        ? refuseWrite
+        : async (record) => {
+            // In place of whatever is there: read its version, and write over that version only,
+            // a few times over should another write land between the two.
+            for (let tries = 0; tries < 3; tries += 1) {
+              const kept = await docs.readAt(CLOSED_LEVEL_PATH);
+              if (await docs.replace(CLOSED_LEVEL_PATH, record, kept?.token ?? null)) return;
+            }
+            throw new Error("The starting level's record kept changing while it was written.");
+          },
     pullsUnderWay: async () =>
       (await docs.where(JOBS_COLLECTION, "status", ["queued", "running"])).flatMap(
         ({ fields }) => coercePullJob(fields) ?? []

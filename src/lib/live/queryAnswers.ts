@@ -2,6 +2,7 @@ import { GC_PAIRING_EVIDENCE_LABEL } from "../gcPairingEvidence";
 import type { AgelessAside } from "../agelessQueue";
 import type { AgelessGroup } from "../agelessSitting";
 import type { ModelCheckAnswer, ScoutBacktestResult } from "../scoutBacktest";
+import { CLOSED_LEVEL_CHECK } from "./closedLevelRecord";
 import { coerceNamedCheck } from "../teamRankings/namedGames";
 import { coerceCommand, everyOne, oneAgeless } from "./commands";
 import type { AgelessSearchAnswer, AnswerOf, FoldCounts, QueryAnswer, QueryKind } from "./queries";
@@ -174,25 +175,6 @@ const BACKTEST_RESULT: Shape = {
 const IMPROVEMENT: Shape = {
   nullable: {
     record: { value: UNBOUNDED, by: "number", standardError: "number", samples: "count" },
-  },
-};
-/** The starting level's re-measure (`ClosedLevelCheck`): numbers and days, no name of anybody. */
-export const CLOSED_LEVEL_CHECK: Shape = {
-  record: {
-    held: "number",
-    level: { nullable: "number" },
-    standardError: { nullable: "number" },
-    games: "count",
-    clusters: "count",
-    weeks: {
-      list: {
-        record: { from: "string", to: "string", games: "count", level: { nullable: "number" } },
-      },
-    },
-    paired: {
-      nullable: { record: { by: "number", standardError: "number", samples: "count" } },
-    },
-    better: "boolean",
   },
 };
 const MODEL_CHECK: Shape = {

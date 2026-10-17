@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   beatsTheBaseline,
   checkTheModel,
@@ -8,6 +8,7 @@ import {
 } from "../../lib/scoutBacktest";
 import { RATING_CAP } from "../../lib/teamRankings";
 import { closedLevelLine } from "../../lib/closedLevelWords";
+import { lastClosedLevelLine, type ClosedLevelRecord } from "../../lib/live/closedLevelRecord";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { AGE_GAP_RUNS_PER_YEAR, ageStepsInWords } from "../../lib/powerRating";
 import { button, card, pill } from "../../styles/tokens";
@@ -28,6 +29,12 @@ type ModelCheckCardProps = {
    * page's check is a question to the server, and a toast has already said why it went unanswered.
    */
   unanswered?: string;
+  /**
+   * The last Monday's re-measure of where a rating starts, as the nightly kept it
+   * (`readLastClosedLevel`), read once as the card opens so it is there without a press. None
+   * given, or none kept, and the card says nothing of it until the check is run.
+   */
+  lastWeekly?: () => Promise<ClosedLevelRecord | null>;
 };
 
 const runs = (value: number | null): string => (value === null ? "—" : `${value.toFixed(2)} runs`);
@@ -65,6 +72,7 @@ export function ModelCheckCard({
   ageGroups,
   check,
   unanswered,
+  lastWeekly,
 }: ModelCheckCardProps) {
   /** The answer, and the page it was worked out for: one for 9U is not one for 10U. */
   const [answered, setAnswered] = useState<{ ageGroupId: string; answer: ModelCheckAnswer } | null>(
@@ -72,6 +80,17 @@ export function ModelCheckCard({
   );
   const [working, setWorking] = useState(false);
   const [interrupted, setInterrupted] = useState(false);
+  const [weekly, setWeekly] = useState<ClosedLevelRecord | null>(null);
+  useEffect(() => {
+    if (!lastWeekly) return;
+    let open = true;
+    void lastWeekly().then((record) => {
+      if (open) setWeekly(record);
+    });
+    return () => {
+      open = false;
+    };
+  }, [lastWeekly]);
 
   /*
    * Never in the click handler. The check is twelve fits of the page's year and the starting
@@ -139,6 +158,11 @@ export function ModelCheckCard({
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400" role="status">
             {unanswered ??
               "The pool changed while this ran, so its answer would be about games that are not there any more. Run it again."}
+          </p>
+        )}
+        {weekly && (
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+            {lastClosedLevelLine(weekly)}
           </p>
         )}
       </div>

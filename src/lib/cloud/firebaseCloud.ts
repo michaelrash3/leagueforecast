@@ -66,6 +66,12 @@ const MANIFEST = "copies/main";
 const CHUNKS = "copies/main/chunks";
 const LIVE_META = "live/meta";
 const LIVE_CHUNKS = "live/meta/chunks";
+/**
+ * The last weekly re-measure of where a rating starts (`CLOSED_LEVEL_PATH`, `closedLevelRecord.ts`),
+ * named here as the meta is rather than imported, so the cloud's chunk does not take in the model
+ * code its record's words are made with.
+ */
+const LIVE_CLOSED_LEVEL = "live/closedLevel";
 
 export type CloudAccount = { uid: string; email: string | null };
 
@@ -309,6 +315,10 @@ export const firestoreLive = (db: Firestore): LiveReader => ({
     return snap.exists() ? snap.data() : null;
   },
   getChunk: (id) => bytesOf(db, LIVE_CHUNKS, id),
+  readClosedLevel: async () => {
+    const snap = await getDoc(doc(db, LIVE_CLOSED_LEVEL));
+    return snap.exists() ? snap.data() : null;
+  },
 });
 
 /** The full Firestore SDK, and its client of an app. */

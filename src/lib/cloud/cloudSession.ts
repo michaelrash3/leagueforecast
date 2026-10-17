@@ -499,9 +499,16 @@ export const liveReader = async (): Promise<LiveReader | null> => {
   const account = await current.cloud.account();
   if (!account || account.uid !== state.uid) return null;
   const { live } = current.cloud;
+  const readClosedLevel = live.readClosedLevel;
   return {
     readMeta: () => timed(live.readMeta(), LIVE_LIMITS.meta, "reading the published boards"),
     getChunk: (id) => timed(live.getChunk(id), LIVE_LIMITS.chunk, "fetching a published board"),
+    ...(readClosedLevel
+      ? {
+          readClosedLevel: () =>
+            timed(readClosedLevel(), LIVE_LIMITS.meta, "reading the last weekly re-measure"),
+        }
+      : {}),
     // A watch has no limit: it says itself when the connection drops.
     ...(live.watchMeta ? { watchMeta: live.watchMeta } : {}),
   };

@@ -183,6 +183,11 @@ export type LiveReader = {
   readMeta: () => Promise<unknown>;
   getChunk: (id: string) => Promise<Uint8Array | null>;
   watchMeta?: MetaWatch;
+  /**
+   * The last weekly re-measure of where a rating starts, `live/closedLevel`, as stored, or null
+   * where there is none (`closedLevelRecord.ts`). A reader without it has none to give.
+   */
+  readClosedLevel?: () => Promise<unknown>;
 };
 
 /** A view to publish under `key`, which a member's device asks for by name. */

@@ -91,6 +91,53 @@ describe("which alarms a nightly raises or settles", () => {
   });
 });
 
+describe("which alarm the Monday re-measure of where a rating starts raises or settles", () => {
+  const live = { outcome: "success", event: "schedule", mode: "live" };
+  const BETTER = "better -1.6 -1.92 0.00120 0.00040 79981";
+
+  it("raises it for a level read clearly better, and settles it for one held", () => {
+    expect(nightlyVerdicts({ ...live, closedLevel: BETTER })).toEqual([
+      { kind: "nightly", failing: false, how: "scheduled" },
+      {
+        kind: "closedLevel",
+        failing: true,
+        said: 'the starting level for leagues with few outside games clearly better at -1.92 than the -1.6 held: each of the last four weeks scored with the level the other three read, 0.00120 runs a game lower, give or take 0.00040, over 79,981 games. The level changes only by a commit that raises BOARD_RULES (README, "Where a rating starts")',
+      },
+    ]);
+    expect(nightlyVerdicts({ ...live, closedLevel: "held" })).toContainEqual({
+      kind: "closedLevel",
+      failing: false,
+    });
+  });
+
+  it("leaves it as it is on a night that did not re-measure, a dry run, or a word it cannot read", () => {
+    const has = (verdicts: ReturnType<typeof nightlyVerdicts>) =>
+      verdicts.some((verdict) => verdict.kind === "closedLevel");
+    expect(has(nightlyVerdicts({ ...live, closedLevel: "" }))).toBe(false);
+    expect(has(nightlyVerdicts(live))).toBe(false);
+    // A dry run measures a pool that was never saved.
+    expect(
+      has(
+        nightlyVerdicts({
+          outcome: "success",
+          event: "workflow_dispatch",
+          mode: "dry-run",
+          closedLevel: BETTER,
+        })
+      )
+    ).toBe(false);
+    for (const word of [
+      "better",
+      "better -1.6 x 0.1 0.1 9",
+      `${BETTER} Team`,
+      "Held",
+      "better -1.6 -1.92 0.0012 0.0004 7.5",
+    ]) {
+      expect(has(nightlyVerdicts({ ...live, closedLevel: word }))).toBe(false);
+    }
+  });
+});
+
 describe("which alarm a republish raises or settles", () => {
   it("raises it for a republish that failed, stopped or never started, and settles it after one that did not", () => {
     expect(republishVerdicts({ outcome: "failure" })).toEqual([
@@ -212,6 +259,36 @@ describe("the one issue an alarm keeps", () => {
     });
   });
 
+  it("says a change to where a rating starts is ready in its own words, and closes once it is not", () => {
+    const [, raised] = nightlyVerdicts({
+      outcome: "success",
+      event: "schedule",
+      mode: "live",
+      closedLevel: "better -1.6 -1.92 0.00120 0.00040 79981",
+    });
+    expect(alarmStep(raised!, [], RUN)).toMatchObject({
+      do: "open",
+      title: ALARM_TITLES.closedLevel,
+      body: expect.stringMatching(
+        /^The weekly re-measure found the starting level for leagues with few outside games clearly better at -1\.92 than the -1\.6 held: .* over 79,981 games\. The level changes only by a commit that raises BOARD_RULES \(README, "Where a rating starts"\)\.\n\nWhen: 2026-10-10 03:52 UTC\nRun: \S+\n\nEach Monday that finds one so again comments here, and the first that does not closes this issue\.$/
+      ),
+    });
+    expect(alarmStep(raised!, [issue(41, ALARM_TITLES.closedLevel)], RUN)).toMatchObject({
+      do: "comment",
+      issue: 41,
+      body: expect.stringMatching(/^Again: the weekly re-measure found /),
+    });
+    expect(
+      alarmStep({ kind: "closedLevel", failing: false }, [issue(41, ALARM_TITLES.closedLevel)], RUN)
+    ).toMatchObject({
+      do: "close",
+      issue: 41,
+      body: expect.stringMatching(
+        /^The weekly re-measure no longer finds a starting level clearly better than the one held, so this is closed\.\n/
+      ),
+    });
+  });
+
   it("says no link rather than a made-up one where the run gave none", () => {
     expect(alarmStep(failed, [], { ...RUN, link: null })).toMatchObject({
       body: expect.stringContaining("\nRun: not known\n"),
@@ -219,7 +296,7 @@ describe("the one issue an alarm keeps", () => {
   });
 
   it("has a distinct title for each alarm", () => {
-    expect(new Set(Object.values(ALARM_TITLES)).size).toBe(3);
+    expect(new Set(Object.values(ALARM_TITLES)).size).toBe(4);
   });
 });
 

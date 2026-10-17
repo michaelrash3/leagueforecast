@@ -17,7 +17,11 @@
  *   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run nightly -- --live
  *
  * A dry run does everything but the saves, and says what the copy's and the views' would have been,
- * the views built from the copy the pull would have saved. Either way, and however the refresh
+ * the views built from the copy the pull would have saved. On a Monday (the members' day the run
+ * started on), it then re-measures where a rating starts on the pool it published from
+ * (`closedLevelWeekly.ts`, README "Where a rating starts"), says what it found in numbers, keeps it
+ * for the Model check card on a live run, and hands the alarm step a word for whether a change is
+ * ready. Either way, and however the refresh
  * ended, it ends by saying how the rebuilds after saves have gone (`describeRebuilds`), read from
  * their ledger. `--limit N`
  * pulls only the first N teams due, and leaves the day unlogged. It prints counts, sizes and
@@ -37,7 +41,21 @@ import { todayIsoDay } from "../src/lib/date.ts";
 import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
 import { dryLiveStore, publishCopyViews, publishFailedRun } from "../src/lib/live/publishCopy.ts";
 import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
-import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
+import { leagueSeasonsOf } from "../src/lib/live/cloudLeague.ts";
+import {
+  closedLevelDue,
+  closedLevelRecordOf,
+  closedLevelWord,
+  describeWeekly,
+  weeklyClosedLevel,
+} from "../src/lib/live/closedLevelWeekly.ts";
+import {
+  loadAgeGroups,
+  loadAutoRemoved,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+  resetTeamRankingsStore,
+} from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
 import { sweepStaleUploads } from "../src/lib/cloud/uploads.ts";
 import { handlerFetch } from "./handlerFetch.ts";
@@ -134,7 +152,52 @@ const tellRebuilds = async (): Promise<void> => {
   }
 };
 
+/**
+ * The Monday re-measure of where a rating starts, on the pool the store holds, which is the copy
+ * `manifest` names: said in numbers, kept for the card on a live run, and handed to the alarm step
+ * as a word on a live run (`closedLevelWord`). Never the night's failure: the re-measure is not
+ * the refresh, so one that stops says so and leaves the alarm as it is.
+ */
+const remeasure = async (
+  stores: ReturnType<typeof openStores>,
+  copyStore: CloudStore,
+  manifest: CloudManifest,
+  day: string
+): Promise<void> => {
+  try {
+    const startedAt = Date.now();
+    const readSeason = await leagueSeasonsOf(copyStore, manifest, stores.leagueDocs);
+    if (!readSeason) {
+      console.log(
+        "The League Standings seasons could not be read, so the starting level was not re-measured."
+      );
+      return;
+    }
+    const weekly = weeklyClosedLevel({
+      ageGroups: loadAgeGroups(),
+      teams: loadScoutTeams(),
+      gamesOfYear: loadScoutGamesForYear,
+      readSeason,
+      autoRemoved: loadAutoRemoved(),
+      today: day,
+    });
+    for (const line of describeWeekly(weekly, Math.round((Date.now() - startedAt) / 1000))) {
+      console.log(line);
+    }
+    if (!weekly || !live) return;
+    // The alarm's word first: a record that will not save still leaves the owner told.
+    output("closedLevel", closedLevelWord(weekly.check));
+    await stores.writeClosedLevel(closedLevelRecordOf(weekly, day, new Date().toISOString()));
+    console.log("  Kept for the Model check card.");
+  } catch (error) {
+    console.log(`The starting level's re-measure stopped: ${failureWords(error)}`);
+  }
+};
+
 const main = async (): Promise<void> => {
+  // The members' day the run started on, which decides whether this is the Monday re-measure's
+  // night: the winter run starts at 23:17 on the Monday and pulls past midnight.
+  const day = todayIsoDay();
   const key = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!key) {
     console.log("No FIREBASE_SERVICE_ACCOUNT here, so there is no cloud copy to refresh.");
@@ -258,6 +321,10 @@ const main = async (): Promise<void> => {
       console.log(`Publishing the views stopped: ${failureWords(error)}`);
       process.exitCode = 1;
     }
+  }
+  // Each Monday, where a rating starts, re-measured on the pool just published.
+  if (result.manifest && closedLevelDue(day)) {
+    await remeasure(opened, dry?.store ?? opened.copy, result.manifest, day);
   }
   // Backups the owner staged for the server that nothing used within a day (`uploads.ts`).
   try {
