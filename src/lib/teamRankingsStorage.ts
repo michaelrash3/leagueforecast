@@ -219,12 +219,14 @@ const GC_TOO_YOUNG_KEY = "league_forecast_gc_too_young_v1";
  */
 const GC_REFUSED_KEY = "league_forecast_gc_refused_v1";
 /**
- * Selection needs identities and exclusion lists, never games or the full rating pool; and the
- * clubs said to be real, without which a pasted row whose name says it is no team cannot be told
- * from one the import would pull (`listIds` in `cloudRunner.ts`).
+ * Selection needs identities and exclusion lists, never games or the full rating pool; and what
+ * says a pasted row whose name says it is no team is one the import would pull all the same
+ * (`listIds` in `cloudRunner.ts`): the clubs said to be real, and the pages, which name each one's
+ * own team and the League Standings seasons it plays in.
  */
 export const IMPORT_INDEX_KEYS: ReadonlySet<string> = new Set([
   TEAMS_KEY,
+  AGE_GROUPS_KEY,
   GC_DROPPED_CLUBS_KEY,
   GC_TOO_YOUNG_KEY,
   GC_REFUSED_KEY,

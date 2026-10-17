@@ -56,8 +56,9 @@ const STOP_FAILED = "The pull could not be asked to stop just now. Try again.";
  * is a club the owner vouched for (`vouchedByImport`): one on the real list, the user's own, a
  * page's own team, or one a League Standings team links. Only the cloud holds what says so, the
  * pool and League both, which this page never downloads; the real list alone, which it could read,
- * would still leave out the user's own club. So the cloud leaves out a marked row that is on no
- * list and carried by no club of its pool, before any request, and the import settles the rest.
+ * would still leave out the user's own club. So the cloud settles a marked row before any request
+ * (`listIds`): one the real list or a page vouches for goes on as any row, one only League could
+ * vouch for is sent uncounted for the import to settle, and the rest are left out.
  */
 export const pastedTeams = (text: string): GcTeamListEntry[] => readPaste(text).entries;
 

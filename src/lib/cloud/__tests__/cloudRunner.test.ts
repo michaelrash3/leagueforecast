@@ -919,7 +919,8 @@ describe("a pull run on the cloud copy", () => {
       const pick = season([{ id: "lt-wex", name: "Workouts", scoutTeamId: "S-WEXC" }]);
       const byLeague = { leagueDocs: listing(docsOf([pick])) };
       expect(await pull([workouts], () => undefined, byLeague)).toEqual(again);
-      // Carried by a club of the pool, the row is asked about, and the import refuses it unvouched.
+      // Carried by a club of a page that plays in a League season, the row is asked about, since
+      // only League could vouch for it, and the import, reading League, refuses it unvouched.
       expect(await pull([workouts], () => undefined, {})).toEqual({ ...again, filed: false });
       // On the real list with no club of it yet, a pool started again since the word was given.
       expect(await pull([], () => saveRealClubs(new Set([WORKOUTS])), {})).toEqual(again);
@@ -928,6 +929,121 @@ describe("a pull run on the cloud copy", () => {
         selected: [],
         asked: [],
         filed: false,
+      });
+    });
+
+    /*
+     * A handful pasted by hand, every club of it held, with a club's practice page among them: the
+     * Thrashers, whom the tidy keeps for their one clean page while the practice page stays linked.
+     * The device's panel leaves that row out unless somebody vouched for the club, and pulls the
+     * rest again; the cloud must not count it toward the handful and so refresh nothing.
+     */
+    describe("a handful with a held club's practice page in it", () => {
+      const held: ScoutTeam[] = Array.from({ length: 24 }, (_, n) => {
+        const name = `Ashbury Club ${n + 1}`;
+        const teamId = `gcASHB${String(n + 1).padStart(6, "0")}`;
+        return {
+          id: `S-ASHB${n + 1}`,
+          name,
+          state: "OH",
+          gcTeams: [{ teamId, name: `${name} 9U`, ageGroupId: "ag9", ageLevel: 9 }],
+        };
+      });
+      const THRASHERS = "gcTHORN00001";
+      const PRACTICE = "gcTHORP00001";
+      const thrashers: ScoutTeam = {
+        id: "S-THORN",
+        name: "Thornbury Thrashers",
+        state: "OH",
+        gcTeams: [
+          { teamId: THRASHERS, name: "Thornbury Thrashers 9U", ageGroupId: "ag9", ageLevel: 9 },
+          {
+            teamId: PRACTICE,
+            name: "Thornbury Thrashers 9U Practice",
+            ageGroupId: "ag9",
+            ageLevel: 9,
+          },
+        ],
+      };
+      const page = {
+        id: "ag9",
+        name: "9U 2027",
+        seasonIds: [] as string[],
+        ageLevel: 9,
+        year: 2027,
+      };
+      /** Every page of `teams` as an export lists it. */
+      const pasted = (teams: ScoutTeam[]) => {
+        const { entries } = parseGcTeamList(
+          [
+            "Team Name,Team ID,Age Group",
+            ...teams.flatMap((team) =>
+              (team.gcTeams ?? []).map((link) => `${link.name},${link.teamId},9U`)
+            ),
+          ].join("\n")
+        );
+        return { kind: "list", entries, seasonYears: [2027] } as const;
+      };
+      /** What the staged import's selection and a pull of the paste ask about, and the end. */
+      const asks = async (teams: ScoutTeam[], group: typeof page) => {
+        const cloud = memoryCloud();
+        await seed(
+          cloud,
+          () => {
+            saveAgeGroups([group]);
+            saveScoutTeams(teams);
+          },
+          { seasons: [] }
+        );
+        const job = pasted(teams);
+        const selected = await selectImportTeams(cloud.store, job);
+        const fetchTeams = vi.fn(answering());
+        const result = await runCloudPull(
+          job,
+          deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams })
+        );
+        return {
+          selected: selected.entries.map((entry) => entry.teamId).sort(),
+          asked: fetchTeams.mock.calls.flatMap(([ids]) => ids).sort(),
+          end: result.end,
+        };
+      };
+      const clean = (teams: ScoutTeam[]) => teams.map((team) => team.gcTeams![0]!.teamId).sort();
+
+      it("reads the practice page as no team", () => {
+        const { entries } = pasted([thrashers]);
+        expect(entries.map((entry) => entry.notATeam ?? null)).toEqual([null, "practice"]);
+      });
+
+      it("pulls the 25 again and asks nothing of the practice page when nothing can vouch for it", async () => {
+        const ids = clean([...held, thrashers]);
+        expect(ids).toHaveLength(25);
+        expect(await asks([...held, thrashers], page)).toEqual({
+          selected: ids,
+          asked: ids,
+          end: "finished",
+        });
+      });
+
+      it("pulls the 25 again where a page plays League, the page sent uncounted to be settled", async () => {
+        // League might link the Thrashers, which only the import, reading it, can tell.
+        const withPractice = [...clean([...held, thrashers]), PRACTICE].sort();
+        expect(await asks([...held, thrashers], { ...page, seasonIds: ["fall"] })).toEqual({
+          selected: withPractice,
+          asked: withPractice,
+          end: "finished",
+        });
+      });
+
+      it("asks about the practice page of a page's own team, counted, as the device does", async () => {
+        const teams = [...held.slice(1), thrashers];
+        const all = [...clean(teams), PRACTICE].sort();
+        expect(all).toHaveLength(25);
+        expect(await asks(teams, { ...page, myTeamId: "S-THORN" })).toEqual({
+          selected: all,
+          asked: all,
+          end: "finished",
+        });
       });
     });
 

@@ -18,6 +18,7 @@ import {
   stampFromNewerRules,
   tidyChangedAnything,
   tidyPool,
+  vouchedByImport,
   type GcImportOutcome,
   type GcImportState,
   type TidyWatcher,
@@ -318,30 +319,46 @@ export const loadPoolFrom = async (
  * hand with none new is a refresh of those, which is how a schedule that changed today is read
  * before the rota comes round. A catch-up (`refresh`) pulls every one again.
  *
- * And no row the paste marked as no team by its name (`notATeam`) that the import is sure to
- * refuse: one whose id is on no real list and carried by no club in the pool, which is all its gate
- * reads (`vouchedByImport`). The live page's paste box sends those rows, since only here are the
- * pool and League Standings known; a marked row this lets through is a club the import may file,
- * and it settles which (`realClubs`), League read as it files.
+ * A row the paste marked as no team by its name (`notATeam`), which the live page's paste box
+ * sends for this to settle, goes on as any row where the import's gate would pass it without
+ * League Standings (`vouchedByImport`): its id on the real list, or the club carrying it the
+ * user's own, a page's own team or on the real list, which is how the device's panel keeps it.
+ *
+ * League is the one voucher not read here. A staged import chooses its teams from the team index
+ * alone, never the games (`selectImportTeams`), and League links a club by its name off the games
+ * of a season's pages, so which clubs it vouches for cannot be worked out until the import files.
+ * A marked row carried by a club only League could vouch for is therefore sent beside the rest,
+ * for the import to settle with League read, but counts toward no handful: counted, a club's
+ * practice link kept beside its clean one, or a page renamed since its last pull, tipped a
+ * handful of 25 over the line and the refresh asked about nothing, where the device, which reads
+ * League, left out such a row nobody vouched for and pulled the 25. It costs a request the import
+ * may then refuse, and only where a page plays in a League season at all: with none, League
+ * vouches for nobody, and the row is left out with every marked row the import is sure to refuse.
  */
 const listIds = (job: Extract<CloudPullJob, { kind: "list" }>): string[] => {
   const refused = loadRefusedClubs();
   const tooYoung = loadTooYoungClubs();
-  const real = loadRealClubs();
-  const pulled = pulledGcTeamIds(loadScoutTeams());
-  const kept = job.entries
-    .filter((entry) => !entry.notATeam || real.has(entry.teamId) || pulled.has(entry.teamId))
-    .map((entry) => entry.teamId)
-    .filter(
-      (teamId) =>
-        !isRefusedClub(refused, teamId, job.seasonYears) && !isTooYoungClub(tooYoung, teamId)
-    );
-  if (job.refresh === true) return kept;
+  const teams = loadScoutTeams();
+  const ageGroups = loadAgeGroups();
+  const pulled = pulledGcTeamIds(teams);
+  const vouched = vouchedByImport({ ageGroups, teams, games: [] }, loadRealClubs());
+  const leagueMay = ageGroups.some((group) => group.seasonIds.length > 0);
+  const sent = job.entries.flatMap(({ teamId, notATeam }) => {
+    if (isRefusedClub(refused, teamId, job.seasonYears) || isTooYoungClub(tooYoung, teamId)) {
+      return [];
+    }
+    if (!notATeam || vouched(teamId)) return [{ teamId, counted: true }];
+    return leagueMay && pulled.has(teamId) ? [{ teamId, counted: false }] : [];
+  });
+  const ids = sent.map((row) => row.teamId);
+  if (job.refresh === true) return ids;
+  const kept = sent.filter((row) => row.counted).map((row) => row.teamId);
+  // A row League may vouch for is a pool club's, so never fresh: it rides with a handful alone.
   const fresh = kept.filter((teamId) => !pulled.has(teamId));
-  return fresh.length > 0 ? fresh : kept.length <= PASTE_HANDFUL ? kept : [];
+  return fresh.length > 0 ? fresh : kept.length <= PASTE_HANDFUL ? ids : [];
 };
 
-/** Download selection reads just the team index and exclusions, once per whole import. */
+/** Download selection reads just the team index, the pages and exclusions, once per whole import. */
 export const selectImportTeams = async (
   store: CloudStore,
   job: Extract<CloudPullJob, { kind: "list" }>,

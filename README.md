@@ -281,10 +281,17 @@ gives the same verdict as this one on every one of the 147,114 distinct names in
   importer, and runs the League pass only for a marked row whose id is on the real list or carried
   by a club in the pool, since nothing else can be one. The cloud's paste box cannot tell: the live
   page holds neither the pool nor League, and the real list alone would miss the user's own club.
-  So it sends the marked rows, and the cloud, which holds both, leaves out before any request a
-  marked row whose id is on no real list and carried by no club in its pool (`listIds`), which the
-  import is sure to refuse; the import settles the rest with League read as it files. The real
-  list is read with the team index for that (`IMPORT_INDEX_KEYS`).
+  So it sends the marked rows, and the cloud settles them as it chooses what to ask (`listIds`). A
+  row the import's gate passes without League (its id on the real list, or the club carrying it
+  the user's own, a page's own team or on the real list) goes on as any row. League it does not
+  read there: a staged import chooses from the team index alone, without the games League links a
+  club by its name from. So a marked row carried by a club only League could vouch for is sent
+  beside the rest, for the import to settle with League read as it files, and counts toward no
+  handful; counted, a club's practice page kept beside its clean one tipped 25 held rows pasted by
+  hand over the line, and the refresh asked about nothing where the device pulled the 25. It costs
+  a request the import may refuse, and only where a page plays in a League season at all. Every
+  other marked row is left out before any request, since the import is sure to refuse it. The real
+  list and the pages are read with the team index for that (`IMPORT_INDEX_KEYS`).
 - **At the import** the schedule is turned away with the reason `not-a-team`, before its age is
   read, so "Practice 12U" with a perfectly good age is refused; the sentence names the word
   ("Its name says “Scrimmage”."), the list of teams not imported says "Not a team, by its name",
@@ -4183,8 +4190,10 @@ how a pasted list is pulled at all.
 box reads a list or a spreadsheet export as the device's own pull panel does,
 leaving out wiffle ball and softball, high school squads and adult or college teams,
 which cost no request. A page whose name says it is no team is sent marked with the word it hit,
-and the cloud asks about one only where its id is on the real list or carried by a club in the
-pool, where it may be a club the owner vouched for; the import settles which. Before it is sent, it says how many of the ids do not have the shape
+and the cloud asks about one only where it may be a club the owner vouched for: one the real list,
+the user's own club or a page's own team vouches for, counted as any row, or one carried by a club
+of the pool that only League Standings could vouch for, where a page plays in a League season,
+sent uncounted for the import to settle (`listIds`). Before it is sent, it says how many of the ids do not have the shape
 every GameChanger team id seen so far has, twelve letters and digits
 (`isWellFormedGcTeamId`): slugs and names a list carries where an id should be,
 which GameChanger answers with HTTP 400; and how many lines named no team id at
@@ -4288,7 +4297,7 @@ accounts on the copy's list, as the copy is, checked as the proxy checks them
 
 **CSV imports.** New list imports run as the `team-import` Cloud Run Job. `runPull`
 launches it and returns immediately; the import is not tied to a 30-minute HTTP request.
-It reads only team identities, exclusion lists and the clubs said to be real to select downloads, then keeps
+It reads only team identities, the pages, exclusion lists and the clubs said to be real to select downloads, then keeps
 hash-checked compressed checkpoints in `pullJobs/{jobId}/artifacts`. Download batches
 contain 10,000 teams. Every 2,000 completed answers is saved as a checkpoint while the
 rest of the batch continues downloading; downloads do not pause to wait for each save.
