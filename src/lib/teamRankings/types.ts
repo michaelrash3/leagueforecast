@@ -292,6 +292,19 @@ export type ScoutGame = {
    */
   scoreConfirmed?: number;
   /**
+   * The stand-in this game's own row (`source`) was filed against by name, where the namesake join
+   * (`joinNamesakeHalves`) put the club of that very name on side B in its place: that club's own
+   * row of the game, filed against a stand-in or a slot for this one, is held here as a claim
+   * (`FoldedRow.filedAgainst`). Kept so the join can be taken back the way a claim is. Every tidy
+   * reads the two rows again as their schedules filed them, and one the schedules no longer bear
+   * out puts this row back against this team, at `joinedFromLevel`, and the claimed row back
+   * against the team it names. A stand-in it names stays in the roster while it does
+   * (`filedTeamIds`), and follows a merge (`withFiledRepointed`).
+   */
+  joinedFrom?: string;
+  /** The level the row's name gave that stand-in, where it gave one (`ScoutGame.ageLevelB`). */
+  joinedFromLevel?: number;
+  /**
    * The club the row this game stands on (`source`) named by its GameChanger picture, rather than
    * by the name its coach typed: an identity, where a name is a guess. Set by the import that files
    * the row that way, by a later pull of a row already here whose picture names the club it is

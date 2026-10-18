@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { poolFixture } from "../../../../scripts/poolFixture";
 import { memoryCloud, type MemoryCloud } from "../../cloud/__tests__/memoryCloud";
 import { commitChanges, fetchValues, type CloudStore } from "../../cloud/cloudEngine";
-import type { CloudManifest } from "../../cloud/cloudManifest";
+import { DATA_SCHEMA, type CloudManifest } from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { loadPoolFrom, memoryIo } from "../../cloud/cloudRunner";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../teamRankings";
@@ -706,7 +706,7 @@ describe("Team Rankings started again or brought back by the copy's owner", () =
         now: () => NOW,
       })
     ).toMatchObject({ ok: false, why: "copy-replaced" });
-    cloud.setManifest({ ...before!, schema: 2 });
+    cloud.setManifest({ ...before!, schema: DATA_SCHEMA + 1 });
     expect(
       await runEdit({
         store: cloud.store,

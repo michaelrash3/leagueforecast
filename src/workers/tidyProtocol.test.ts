@@ -252,6 +252,8 @@ describe("what the tidy says while it runs", () => {
       "withdrawn",
       "named",
       "joined",
+      // After the crossed halves, before the steps that read a copy as a pulled club's.
+      "namesakeJoined",
       "reclaimed",
       "resettled",
       "refiled",

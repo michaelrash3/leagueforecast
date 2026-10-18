@@ -740,6 +740,8 @@ export const pullSummaryCsv = (log: PullRunLog, settled: readonly string[]): str
       ? [
           pair("Tidy: placeholders named", log.tidy.named),
           pair("Tidy: halves joined", log.tidy.joined),
+          // A log written before the namesake join has none, which is nothing joined that way.
+          pair("Tidy: namesake halves joined", log.tidy.namesakeJoined ?? 0),
           pair("Tidy: teams folded", log.tidy.folded),
           pair("Tidy: squads paired", log.tidy.paired),
           pair("Tidy: rows collapsed", log.tidy.collapsed),

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { tidyPool, type GcImportState } from "../gameChangerImport";
-import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
+import { createGcImporter, describeTidy, tidyPool, type GcImportState } from "../gameChangerImport";
+import type { GcTeamSchedule } from "../gameChangerApi";
+import { refusalOf } from "../notThisTeam";
+import {
+  filedTeamIds,
+  gcRowId,
+  withFiledRepointed,
+  type AgeGroup,
+  type ScoutGame,
+  type ScoutTeam,
+} from "../teamRankings";
+import { countsTowardRating, scoreSeenBy } from "../teamRankings/games";
 
 /*
  * One game held twice because both pulled clubs filed their copy against a stand-in. Club A's own
@@ -247,38 +257,36 @@ const threeLevelsApart = () =>
     ]
   );
 
-describe("the tidy before the namesake join, pinned", () => {
+describe("the tidy with the namesake join, against the pin from before it", () => {
   /*
-   * What the tidy did with each of these pools before the join existed: both copies stand, each
-   * counted for its own club. The shapes the join reads as one game are pinned here as they were,
-   * so the change shows as the edit it is; the decoys must read the same after it, to the line.
+   * The pin from before the join, each shape's line by line: both copies stood, each counted for
+   * its own club. The three shapes the join reads as one game now hold one game between the two
+   * clubs, on A's row and A's page, at B's own level, with B's row held as a claim against the team
+   * it named; the decoys read as they did, to the line.
    */
-  it("holds the stand-in each side shape twice", () => {
+  it("holds the stand-in each side shape once, where it held it twice", () => {
     expect(tidied(standInEachSide())).toEqual({
-      counts: {},
+      counts: { namesakeJoined: 1 },
       lines: [
-        "2026-10-03 14:00 ag12 12/- North Ridge Bombers 4-11 Lakeshore Hustle (stand-in)",
-        "2026-10-03 14:00 ag13 13/- Lakeshore Hustle 11-4 NR - Ridge Bombers (stand-in)",
+        "2026-10-03 14:00 ag12 12/13 North Ridge Bombers 4-11 Lakeshore Hustle [holds gcHUSTLE:h1 filed against NR - Ridge Bombers (stand-in)]",
       ],
     });
   });
 
-  it("holds the slot on B's side twice", () => {
+  it("holds the slot on B's side once, where it held it twice", () => {
     expect(tidied(slotOnB())).toEqual({
-      counts: {},
+      counts: { namesakeJoined: 1 },
       lines: [
-        "2026-09-11 22:00 ag12 12/- Hudson Stars 3-8 TBD- 09/11/26, 6:00 PM (slot)",
-        "2026-09-11 22:00 ag12 12/- Valley Warriors 8-3 Hudson Stars (stand-in)",
+        "2026-09-11 22:00 ag12 12/12 Valley Warriors 8-3 Hudson Stars [holds gcSTARS:s1 filed against TBD- 09/11/26, 6:00 PM (slot)]",
       ],
     });
   });
 
-  it("holds the slot an hour off twice", () => {
+  it("holds the slot an hour off once, where it held it twice", () => {
     expect(tidied(slotAnHourOff())).toEqual({
-      counts: {},
+      counts: { namesakeJoined: 1 },
       lines: [
-        "2026-10-03 22:00 ag15 15/- Lakeview Tigers 5-8 Prairie Heat-Ortiz (stand-in)",
-        "2026-10-03 23:00 ag14 14/- Prairie Heat - Ortiz 8-5 TBD- 10/03/26, 6:00 PM (slot)",
+        "2026-10-03 22:00 ag15 15/14 Lakeview Tigers 5-8 Prairie Heat - Ortiz [holds gcHEAT:p1 filed against TBD- 10/03/26, 6:00 PM (slot)]",
       ],
     });
   });
@@ -344,5 +352,397 @@ describe("the tidy before the namesake join, pinned", () => {
     ],
   ])("leaves %s as it was", (_, build, lines) => {
     expect(tidied(build())).toEqual({ counts: {}, lines });
+  });
+});
+
+/** A club's record as its page reads it: wins, losses and ties, each game once. */
+const recordOf = (state: GcImportState, clubId: string) => {
+  const tally = [0, 0, 0];
+  state.games.forEach((game) => {
+    if (game.teamAId !== clubId && game.teamBId !== clubId) return;
+    if (!countsTowardRating(game, "2026-10-11")) return;
+    const seen = scoreSeenBy(game, clubId);
+    if (!seen) return;
+    tally[seen.own > seen.opponent ? 0 : seen.own < seen.opponent ? 1 : 2]! += 1;
+  });
+  return tally.join("-");
+};
+
+/** A tidy, and a second over its result that finds nothing: the pool the join converges on. */
+const settled = (state: GcImportState) => {
+  const first = tidyPool(state);
+  const again = tidyPool(first.state);
+  expect(again.passes).toBe(1);
+  expect(again.state.games).toBe(first.state.games);
+  return first.state;
+};
+
+/** Every game holding the row, standing on it or folded in. */
+const holdersOf = (state: GcImportState, rowId: string) =>
+  state.games.filter(
+    (game) =>
+      (game.source && gcRowId(game.source.teamId, game.source.gameId) === rowId) ||
+      game.alsoRows?.some((record) => gcRowId(record.teamId, record.gameId) === rowId)
+  );
+
+const RIDGE_ROW = gcRowId("gcRIDGE", "r1");
+const HUSTLE_ROW = gcRowId("gcHUSTLE", "h1");
+
+/** `state` with the game standing on `rowId` changed by `change`. */
+const withGame = (
+  state: GcImportState,
+  rowId: string,
+  change: (game: ScoutGame) => ScoutGame
+): GcImportState => ({
+  ...state,
+  games: state.games.map((game) => (game.id === rowId ? change(game) : game)),
+});
+
+type Played = GcTeamSchedule["games"][number];
+const played = (
+  id: string,
+  opponentName: string,
+  start: string,
+  score?: [number, number]
+): Played => ({
+  id,
+  date: start.slice(0, 10),
+  opponentName,
+  status: score ? "completed" : "scheduled",
+  ...(score ? { teamScore: score[0], opponentScore: score[1] } : {}),
+  startTs: `${start}:00.000Z`,
+});
+const schedule = (club: ScoutTeam, level: number, games: Played[]): GcTeamSchedule => ({
+  profile: {
+    id: club.gcTeams![0]!.teamId,
+    name: club.name,
+    ageLevel: level,
+    season: { season: "fall", year: 2026 },
+    state: club.state!,
+  },
+  games,
+  fetchedAt: "2026-10-11T12:00:00.000Z",
+});
+/** The schedules pulled again into `state`, as a refresh files them. */
+const repulled = (state: GcImportState, schedules: GcTeamSchedule[]): GcImportState => {
+  const importer = createGcImporter(state, { today: "2026-10-11" });
+  schedules.forEach((pulledAgain) => importer.add(pulledAgain));
+  return importer.state;
+};
+const ridgeAgain = (score: [number, number] = [4, 11]) =>
+  schedule(ridge, 12, [played("r1", "Lakeshore Hustle", `${DAY}T14:00`, score)]);
+const hustleAgain = (
+  rows: Played[] = [played("h1", "NR - Ridge Bombers", `${DAY}T14:00`, [11, 4])]
+) => schedule(hustle, 13, rows);
+
+describe("the namesake join", () => {
+  it("keeps the game on A's row and page, puts B in at B's own level, and holds B's row as a claim", () => {
+    const after = settled(standInEachSide());
+    expect(after.games).toHaveLength(1);
+    const [game] = after.games as [ScoutGame];
+    expect(game).toMatchObject({
+      id: RIDGE_ROW,
+      teamAId: "RIDGE",
+      teamBId: "HUSTLE",
+      teamAScore: 4,
+      teamBScore: 11,
+      ageGroupId: "ag12",
+      ageLevelA: 12,
+      // B's own row says 13U; read at A's page it would be 12U.
+      ageLevelB: 13,
+      joinedFrom: "S-HUSTLE",
+      reportedByB: { teamAScore: 4, teamBScore: 11 },
+      alsoFrom: ["gcHUSTLE"],
+      alsoRows: [
+        {
+          teamId: "gcHUSTLE",
+          gameId: "h1",
+          startTs: `${DAY}T14:00:00.000Z`,
+          ownScore: 11,
+          opponentScore: 4,
+          onSideB: true,
+          filedAgainst: "S-RIDGE",
+        },
+      ],
+    });
+    // The name the row gave carried no age, so there is no level to put back.
+    expect(game.joinedFromLevel).toBeUndefined();
+    expect(recordOf(after, "RIDGE")).toBe("0-1-0");
+    expect(recordOf(after, "HUSTLE")).toBe("1-0-0");
+    // Both stand-ins stay in the roster, as where the two rows go back to.
+    expect(after.teams.map((team) => team.id).sort()).toEqual(
+      ["HUSTLE", "RIDGE", "S-HUSTLE", "S-RIDGE"].sort()
+    );
+    expect([...filedTeamIds(after.games)].sort()).toEqual(["S-HUSTLE", "S-RIDGE"]);
+  });
+
+  it("says what it did, in the tidy's summary", () => {
+    expect(describeTidy(tidyPool(standInEachSide()))).toContain(
+      "1 game one club filed under the other's very name and the other against a stand-in, now one game between them, or put back apart."
+    );
+  });
+
+  it("counts each club once, where both counted the game before", () => {
+    expect(recordOf(standInEachSide(), "RIDGE")).toBe("0-1-0");
+    expect(recordOf(standInEachSide(), "HUSTLE")).toBe("1-0-0");
+    const pool = standInEachSide();
+    expect(pool.games.filter((game) => countsTowardRating(game, "2026-10-11"))).toHaveLength(2);
+    expect(
+      settled(pool).games.filter((game) => countsTowardRating(game, "2026-10-11"))
+    ).toHaveLength(1);
+  });
+
+  it("joins a slot on B's side, and one an hour off at B's own level", () => {
+    const slot = settled(slotOnB());
+    expect(slot.games).toHaveLength(1);
+    expect(slot.games[0]).toMatchObject({
+      teamAId: "WAR",
+      teamBId: "STARS",
+      joinedFrom: "S-STARS",
+    });
+    const hour = settled(slotAnHourOff());
+    expect(hour.games).toHaveLength(1);
+    expect(hour.games[0]).toMatchObject({ teamBId: "HEAT", ageLevelB: 14, ageGroupId: "ag15" });
+  });
+
+  it("keeps the level the name gave, to put back", () => {
+    const typed = withGame(standInEachSide(), RIDGE_ROW, (game) => ({ ...game, ageLevelB: 13 }));
+    expect(settled(typed).games[0]).toMatchObject({ joinedFrom: "S-HUSTLE", joinedFromLevel: 13 });
+  });
+
+  it("joins where one coach typed an age a level off and the other's fits", () => {
+    // A class year read a year out, or the event's age, on A's side; B typed A's own.
+    const typed = withGame(
+      withGame(standInEachSide(), RIDGE_ROW, (game) => ({ ...game, ageLevelB: 12 })),
+      HUSTLE_ROW,
+      (game) => ({ ...game, ageLevelB: 12 })
+    );
+    const [game] = settled(typed).games as [ScoutGame];
+    expect(game).toMatchObject({ teamBId: "HUSTLE", ageLevelB: 13, joinedFromLevel: 12 });
+    expect(game.alsoRows?.[0]).toMatchObject({ filedAgainst: "S-RIDGE", filedLevel: 12 });
+  });
+
+  describe("leaves a pair alone", () => {
+    it("where both coaches typed an age and neither is the other club's own", () => {
+      // Sibling squads: each coach typed its own squad's age for the other club's.
+      const siblings = withGame(
+        withGame(standInEachSide(), RIDGE_ROW, (game) => ({ ...game, ageLevelB: 12 })),
+        HUSTLE_ROW,
+        (game) => ({ ...game, ageLevelB: 13 })
+      );
+      expect(tidied(siblings).counts).toEqual({});
+    });
+
+    it("where B's stand-in is a team A's own schedule has played", () => {
+      const pool = standInEachSide();
+      const met = row("RIDGE", "r0", "S-RIDGE", "ag12", "2026-09-27T15:00", [6, 2]);
+      expect(tidied({ ...pool, games: [...pool.games, met] }).counts).toEqual({});
+    });
+
+    it("where the user has thrown either row out", () => {
+      const thrownA = withGame(standInEachSide(), RIDGE_ROW, (game) => ({
+        ...game,
+        excluded: true,
+      }));
+      const thrownB = withGame(standInEachSide(), HUSTLE_ROW, (game) => ({
+        ...game,
+        excluded: true,
+      }));
+      expect(tidied(thrownA).counts).toEqual({});
+      expect(tidied(thrownB).counts).toEqual({});
+    });
+
+    it("where the owner has said A's name for B is not B", () => {
+      const refused = new Set([refusalOf("gcRIDGE", "Lakeshore Hustle", "gcHUSTLE")]);
+      const out = tidyPool(standInEachSide(), undefined, undefined, refused);
+      expect(out.namesakeJoined).toBe(0);
+      expect(out.state.games).toHaveLength(2);
+    });
+  });
+
+  describe("a pull after the join", () => {
+    const joined = () => settled(standInEachSide());
+
+    it("finds both rows by their ids and neither splits the game nor files it again", () => {
+      const before = joined();
+      const importer = createGcImporter(before, { today: "2026-10-11" });
+      // Nothing either schedule says is new: the level the join wrote is not read as a change.
+      expect(importer.add(ridgeAgain())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
+      expect(importer.add(hustleAgain())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
+      expect(importer.state.games).toEqual(before.games);
+      const pulled = repulled(before, [ridgeAgain(), hustleAgain()]);
+      expect(holdersOf(pulled, RIDGE_ROW)).toHaveLength(1);
+      expect(holdersOf(pulled, HUSTLE_ROW)).toHaveLength(1);
+      const out = tidyPool(pulled);
+      expect(out.namesakeJoined).toBe(0);
+      expect(out.state.games).toHaveLength(1);
+      expect(out.state.games[0]).toMatchObject({
+        teamBId: "HUSTLE",
+        joinedFrom: "S-HUSTLE",
+        alsoRows: [{ gameId: "h1", filedAgainst: "S-RIDGE" }],
+      });
+      expect(recordOf(out.state, "HUSTLE")).toBe("1-0-0");
+    });
+
+    it("folds a refresh's second copy of B's row back into the game, newest word and all", () => {
+      // A refresh of B's own page cannot see the game on A's, and files the row again.
+      const before = joined();
+      const again = row("HUSTLE", "h1", "S-RIDGE", "ag13", `${DAY}T14:05`, [11, 4]);
+      const after = settled({ ...before, games: [...before.games, again] });
+      expect(after.games).toHaveLength(1);
+      expect(after.games[0]!.alsoRows?.[0]).toMatchObject({
+        gameId: "h1",
+        startTs: `${DAY}T14:05:00.000Z`,
+        filedAgainst: "S-RIDGE",
+      });
+    });
+  });
+
+  describe("taken back, as a claim is", () => {
+    const joined = () => settled(standInEachSide());
+    const asFiled = [
+      "2026-10-03 14:00 ag12 12/- North Ridge Bombers 4-11 Lakeshore Hustle (stand-in)",
+      "2026-10-03 14:00 ag13 13/- Lakeshore Hustle 11-4 NR - Ridge Bombers (stand-in)",
+    ];
+
+    it("puts both rows back where B's schedule has since moved its row a week", () => {
+      const moved = repulled(joined(), [
+        hustleAgain([played("h1", "NR - Ridge Bombers", "2026-10-10T14:00", [11, 4])]),
+      ]);
+      const out = settled(moved);
+      expect(linesOf(out)).toEqual([
+        asFiled[0],
+        "2026-10-10 14:00 ag13 13/- Lakeshore Hustle 11-4 NR - Ridge Bombers (stand-in)",
+      ]);
+      expect(recordOf(out, "HUSTLE")).toBe("1-0-0");
+    });
+
+    it("puts both rows back where A's score no longer mirrors B's", () => {
+      const out = settled(repulled(joined(), [ridgeAgain([5, 11])]));
+      expect(linesOf(out)).toEqual([
+        "2026-10-03 14:00 ag12 12/- North Ridge Bombers 5-11 Lakeshore Hustle (stand-in)",
+        asFiled[1],
+      ]);
+    });
+
+    it("puts A's row back where B's schedule no longer lists its row", () => {
+      const gone = repulled(joined(), [
+        hustleAgain([played("h9", "Saginaw Comets", "2026-09-27T16:00", [4, 4])]),
+      ]);
+      const out = settled(gone);
+      expect(holdersOf(out, HUSTLE_ROW)).toEqual([]);
+      expect(linesOf(out).filter((line) => line.includes("North Ridge Bombers"))).toEqual([
+        asFiled[0],
+      ]);
+    });
+
+    it("puts both rows back once the owner refuses A's name for B", () => {
+      const refused = new Set([refusalOf("gcRIDGE", "Lakeshore Hustle", "gcHUSTLE")]);
+      const out = tidyPool(joined(), undefined, undefined, refused);
+      expect(out.namesakeJoined).toBe(1);
+      expect(linesOf(out.state)).toEqual(asFiled);
+    });
+
+    it("puts both rows back where a second club of B's name has a row that fits", () => {
+      const pool = joined();
+      const second = club("HUSTLE2", "Lakeshore Hustle", "OH", "ag11");
+      const out = settled({
+        ...pool,
+        teams: [...pool.teams, second, slot("TBD-9", "TBD")],
+        games: [...pool.games, row("HUSTLE2", "o1", "TBD-9", "ag11", `${DAY}T14:10`, [11, 4])],
+      });
+      expect(linesOf(out)).toEqual([
+        asFiled[0],
+        asFiled[1],
+        "2026-10-03 14:10 ag11 11/- Lakeshore Hustle 11-4 TBD (slot)",
+      ]);
+    });
+
+    it("keeps the join as a plain claim once the stand-in it named has gone from the roster", () => {
+      // Nothing is left to put A's row back against, so the mark goes and the claim step reads
+      // B's row as any claim from then on.
+      const pool = joined();
+      const out = tidyPool({ ...pool, teams: pool.teams.filter((team) => team.id !== "S-HUSTLE") });
+      expect(out.namesakeJoined).toBe(1);
+      expect(out.state.games).toHaveLength(1);
+      expect(out.state.games[0]!.joinedFrom).toBeUndefined();
+      expect(out.state.games[0]).toMatchObject({
+        teamBId: "HUSTLE",
+        alsoRows: [{ gameId: "h1", filedAgainst: "S-RIDGE" }],
+      });
+      expect(tidyPool(out.state).state.games).toBe(out.state.games);
+    });
+
+    it("leaves a game the user has thrown out as the user left it", () => {
+      const thrown = withGame(joined(), RIDGE_ROW, (game) => ({
+        ...game,
+        excluded: true,
+        teamAScore: 4,
+      }));
+      const out = tidyPool(thrown);
+      expect(out.namesakeJoined).toBe(0);
+      expect(out.state.games).toHaveLength(1);
+      expect(out.state.games[0]).toMatchObject({ teamBId: "HUSTLE", joinedFrom: "S-HUSTLE" });
+    });
+  });
+
+  describe("read as B's own row by the steps after it", () => {
+    it("is not given back by the claim step", () => {
+      // Read as an ordinary claim, the copy holding it was not one B's rows could go into, and the
+      // claim step gave it back every pass for the join to make again.
+      const out = tidyPool(standInEachSide());
+      expect(out.passes).toBe(2);
+      expect(out.claimed).toBe(0);
+    });
+
+    it("takes no second row of B's into the game", () => {
+      // B's 14:30 game against another North Ridge shorthand, a run off: its own game, not a copy.
+      const pool = standInEachSide();
+      const other = row("HUSTLE", "h2", "S-NR", "ag13", `${DAY}T14:30`, [12, 4]);
+      const after = settled({
+        ...pool,
+        teams: [...pool.teams, standIn("S-NR", "N Ridge")],
+        games: [...pool.games, other],
+      });
+      expect(holdersOf(after, gcRowId("gcHUSTLE", "h2"))).toEqual([
+        expect.objectContaining({ id: gcRowId("gcHUSTLE", "h2"), teamBId: "S-NR" }),
+      ]);
+      expect(recordOf(after, "HUSTLE")).toBe("2-0-0");
+    });
+
+    it("keeps B's other game against A that day apart from it", () => {
+      // B's 7-3 against A at six, filed by A's name, which A's own schedule does not list: the
+      // regroup used to give it to the one copy of A's that day read as holding none of B's rows.
+      const pool = standInEachSide();
+      const named = row("HUSTLE", "h3", "RIDGE", "ag13", `${DAY}T18:00`, [7, 3]);
+      const after = settled({ ...pool, games: [...pool.games, named] });
+      expect(holdersOf(after, gcRowId("gcHUSTLE", "h3"))).toHaveLength(1);
+      expect(recordOf(after, "HUSTLE")).toBe("2-0-0");
+      expect(recordOf(after, "RIDGE")).toBe("0-2-0");
+    });
+
+    it("is not moved to another club of B's name whose own row has the game at its start", () => {
+      // An Ohio club of B's name pulled after the join, its own row naming A at the very start with
+      // the result mirrored: the reclaim moves a copy whose named club's schedule holds nothing of
+      // it to such a club, and the joined game holds B's own row.
+      const pool = settled(standInEachSide());
+      const second = club("HUSTLE2", "Lakeshore Hustle", "OH", "ag13");
+      const theirs = row("HUSTLE2", "o1", "RIDGE", "ag13", `${DAY}T14:00`, [11, 4]);
+      const out = tidyPool({
+        ...pool,
+        teams: [...pool.teams, second],
+        games: [...pool.games, theirs],
+      });
+      expect(out.reclaimed).toBe(0);
+      const game = out.state.games.find((each) => each.id === RIDGE_ROW);
+      expect(game).toMatchObject({ teamBId: "HUSTLE", joinedFrom: "S-HUSTLE" });
+    });
+  });
+
+  it("follows a stand-in it would put the row back against into the team it is merged with", () => {
+    const [game] = settled(standInEachSide()).games as [ScoutGame];
+    const merged = withFiledRepointed(game, (id) => (id === "S-HUSTLE" ? "S-MERGED" : id));
+    expect(merged.joinedFrom).toBe("S-MERGED");
+    expect(filedTeamIds([merged]).has("S-MERGED")).toBe(true);
   });
 });

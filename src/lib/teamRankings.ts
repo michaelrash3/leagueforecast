@@ -1075,6 +1075,25 @@ export const isSettledClaim = (holder: ScoutGame, record: FoldedRow): boolean =>
   record.filedAgainst !== undefined &&
   record.filedAgainst === (record.onSideB ? holder.teamAId : holder.teamBId);
 
+/**
+ * Whether `record` is the claim the namesake join made (`ScoutGame.joinedFrom`): the side B club's
+ * own row of a game whose own row named that club, held as a claim so it can go back. Every step
+ * but the join reads it as that club's own row of the game, as it reads a settled claim: the claim
+ * step leaves it to the join, the regroup keeps its schedule on record, and the steps that move a
+ * copy to a namesake read the club's own schedule as holding it. Read as an ordinary claim, the
+ * claim step weighed it by its own rules and could give it back while the join held the row named,
+ * and the two would take turns with it.
+ */
+export const isJoinedClaim = (holder: ScoutGame, record: FoldedRow): boolean =>
+  holder.joinedFrom !== undefined && record.filedAgainst !== undefined && record.onSideB === true;
+
+/**
+ * A claim the rest of the tidy reads as the club's own row in the copy: settled on the club it
+ * faces (`isSettledClaim`), or the namesake join's (`isJoinedClaim`).
+ */
+export const isHeldAsOwn = (holder: ScoutGame, record: FoldedRow): boolean =>
+  isSettledClaim(holder, record) || isJoinedClaim(holder, record);
+
 /** `row`, a claimed record stood up against its holder, put back against the team it named. */
 const asFiled = (row: ScoutGame, record: FoldedRow): ScoutGame => {
   if (record.filedAgainst === undefined || record.filedAgainst === row.teamAId) return row;
@@ -2064,9 +2083,11 @@ const sameGameGroups = (bucket: ScoutGame[]): DayReading => {
  * regroup gave it the club's other game against the same club that day, a 7-3 lost into a 2-4.
  */
 const bareRow = (game: ScoutGame): ScoutGame => {
+  // The namesake join's claim too (`isJoinedClaim`): read as no row of that club's, the game took
+  // the club's other game against the same club that day, as a settled claim once did.
   const named = new Set(
     (game.alsoRows ?? [])
-      .filter((record) => !isSettledClaim(game, record))
+      .filter((record) => !isHeldAsOwn(game, record))
       .map((record) => record.teamId)
   );
   const unnamed = (game.alsoFrom ?? []).filter((source) => !named.has(source));
@@ -4556,12 +4577,19 @@ export const ownPageFor = (ageGroups: AgeGroup[]): ((row: ScoutGame) => ScoutGam
  * game when nothing moves.
  */
 export const withFiledRepointed = (game: ScoutGame, to: (teamId: string) => string): ScoutGame => {
-  // The club the row's picture named goes where the club goes (`ScoutGame.namedByAvatar`).
+  // The club the row's picture named goes where the club goes (`ScoutGame.namedByAvatar`), and so
+  // does the stand-in a namesake join would put the game's own row back against
+  // (`ScoutGame.joinedFrom`).
   const avatar = game.namedByAvatar === undefined ? undefined : to(game.namedByAvatar);
+  const joinedFrom = game.joinedFrom === undefined ? undefined : to(game.joinedFrom);
   const withAvatar =
-    avatar === game.namedByAvatar
+    avatar === game.namedByAvatar && joinedFrom === game.joinedFrom
       ? game
-      : { ...game, ...(avatar ? { namedByAvatar: avatar } : {}) };
+      : {
+          ...game,
+          ...(avatar ? { namedByAvatar: avatar } : {}),
+          ...(joinedFrom ? { joinedFrom } : {}),
+        };
   if (
     !withAvatar.alsoRows?.some(
       (record) => record.filedAgainst !== undefined || record.namedByAvatar !== undefined
@@ -4586,16 +4614,19 @@ export const withFiledRepointed = (game: ScoutGame, to: (teamId: string) => stri
 };
 
 /**
- * Every team a claimed row was filed against (`FoldedRow.filedAgainst`). A stand-in with no game of
- * its own left is still the team such a row goes back to, so it stays in the roster while one does.
+ * Every team a claimed row was filed against (`FoldedRow.filedAgainst`), and every stand-in a game
+ * a namesake join made would put its own row back against (`ScoutGame.joinedFrom`). A stand-in with
+ * no game of its own left is still the team such a row goes back to, so it stays in the roster while
+ * one does.
  */
 export const filedTeamIds = (games: readonly ScoutGame[]): Set<string> => {
   const ids = new Set<string>();
-  games.forEach((game) =>
+  games.forEach((game) => {
+    if (game.joinedFrom !== undefined) ids.add(game.joinedFrom);
     game.alsoRows?.forEach((record) => {
       if (record.filedAgainst !== undefined) ids.add(record.filedAgainst);
-    })
-  );
+    });
+  });
   return ids;
 };
 

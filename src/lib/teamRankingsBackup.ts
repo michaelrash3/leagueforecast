@@ -216,6 +216,12 @@ const GAME_HEADERS = [
    * still reads it; see `isImplausibleScore`.
    */
   "Margin Confirmed Real",
+  /**
+   * The stand-in the row the game stands on named, where the namesake join put Team B in its place,
+   * and the level that name gave: what the row goes back against if the join stops fitting.
+   */
+  "Joined From",
+  "Joined From Age",
 ];
 
 /**
@@ -482,6 +488,8 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       yesNo(game.withdrawn),
       game.namedByAvatar ?? "",
       game.scoreConfirmed ?? "",
+      game.joinedFrom ?? "",
+      game.joinedFromLevel ?? "",
     ]
       .map(csvEscape)
       .join(",")
@@ -878,6 +886,8 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
     const reported = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(cell("Team B Reported").trim());
     const namedByAvatar = cell("Named By Picture");
     const confirmed = parseScore(cell("Margin Confirmed Real"));
+    const joinedFrom = cell("Joined From");
+    const joinedFromLevel = parseLevel(cell("Joined From Age"));
     return [
       {
         id,
@@ -910,6 +920,9 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
           ? { source: { kind: "gamechanger" as const, teamId: sourceTeamId, gameId: sourceGameId } }
           : {}),
         ...(namedByAvatar ? { namedByAvatar } : {}),
+        ...(joinedFrom
+          ? { joinedFrom, ...(joinedFromLevel === undefined ? {} : { joinedFromLevel }) }
+          : {}),
       },
     ];
   });

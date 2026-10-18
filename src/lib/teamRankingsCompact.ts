@@ -232,6 +232,10 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       game.namedByAvatar === undefined ? null : teams.index(game.namedByAvatar),
       // The margin the user vouched for in a game won by more than thirty runs.
       game.scoreConfirmed ?? null,
+      // The stand-in the game's own row named before the namesake join put a club in its place, and
+      // the level that name gave: what the join puts the row back against if it stops fitting.
+      game.joinedFrom === undefined ? null : teams.index(game.joinedFrom),
+      game.joinedFromLevel ?? null,
     ]);
   });
 
@@ -350,6 +354,12 @@ const decodeRow = (row: unknown, pool: CompactPool, fallbackIndex: number): Scou
   if (namedByAvatar) game.namedByAvatar = namedByAvatar;
   const scoreConfirmed = num(row[20]);
   if (scoreConfirmed !== undefined) game.scoreConfirmed = scoreConfirmed;
+  const joinedFrom = at(pool.t, row[21]);
+  if (joinedFrom) {
+    game.joinedFrom = joinedFrom;
+    const joinedFromLevel = num(row[22]);
+    if (joinedFromLevel !== undefined) game.joinedFromLevel = joinedFromLevel;
+  }
 
   if (sourceTeam && sourceGame) {
     game.source = { kind: "gamechanger", teamId: sourceTeam, gameId: sourceGame };
@@ -767,6 +777,14 @@ export const coerceScoutGames = (raw: unknown): ScoutGame[] => {
         ...(entry.withdrawn === true ? { withdrawn: true } : {}),
         ...(isNumber(entry.scoreConfirmed) ? { scoreConfirmed: entry.scoreConfirmed } : {}),
         ...(isString(entry.namedByAvatar) ? { namedByAvatar: entry.namedByAvatar } : {}),
+        ...(isFilledString(entry.joinedFrom)
+          ? {
+              joinedFrom: entry.joinedFrom,
+              ...(isNumber(entry.joinedFromLevel)
+                ? { joinedFromLevel: entry.joinedFromLevel }
+                : {}),
+            }
+          : {}),
         ...(isNumber(entry.ageLevelA) ? { ageLevelA: entry.ageLevelA } : {}),
         ...(isNumber(entry.ageLevelB) ? { ageLevelB: entry.ageLevelB } : {}),
         ...(isString(entry.season) ? { season: entry.season } : {}),
