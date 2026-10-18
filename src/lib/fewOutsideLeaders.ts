@@ -72,8 +72,8 @@ const bySide = (a: FewOutsideSide, b: FewOutsideSide): number =>
   b.rated - a.rated || byText(a.name, b.name) || byText(a.teamId, b.teamId);
 
 /**
- * Whether a board row leads its group's way onto the list: in its state's top ten or the national
- * top twenty-five, and in a community short of outside games or off the largest piece. A row that
+ * Whether a board row puts its club on the list: in its state's top ten or the national top
+ * twenty-five, and in a community short of outside games or off the largest piece. A row that
  * says nothing of its community (a board from before rules 7) is listed only when it is off the
  * largest piece; one from this fit always says.
  */
