@@ -667,6 +667,30 @@ describe("the namesake join", () => {
   describe("a pull after the join", () => {
     const joined = () => settled(standInEachSide());
 
+    /*
+     * A's schedule later typing another age for B, or none: the change was read, but the row kept
+     * the old one, so every pull after counted the game updated again and a join taken back put
+     * A's row back at the age it no longer says.
+     */
+    it("keeps the age A's schedule types for B now, and reads it as no change the pull after", () => {
+      const typed = settled(
+        withGame(standInEachSide(), RIDGE_ROW, (game) => ({ ...game, ageLevelB: 13 }))
+      );
+      expect(typed.games[0]).toMatchObject({ joinedFrom: "S-HUSTLE", joinedFromLevel: 13 });
+      const retyped = () =>
+        schedule(ridge, 12, [played("r1", "Lakeshore Hustle 14U", `${DAY}T14:00`, [4, 11])]);
+      const importer = createGcImporter(typed, { today: "2026-10-11" });
+      expect(importer.add(retyped())).toMatchObject({ gamesUpdated: 1 });
+      expect(importer.state.games[0]).toMatchObject({ joinedFromLevel: 14, ageLevelB: 13 });
+      expect(importer.add(retyped())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
+
+      const untyped = createGcImporter(importer.state, { today: "2026-10-11" });
+      expect(untyped.add(ridgeAgain())).toMatchObject({ gamesUpdated: 1 });
+      expect(untyped.state.games[0]?.joinedFromLevel).toBeUndefined();
+      expect(untyped.state.games[0]).toMatchObject({ joinedFrom: "S-HUSTLE", ageLevelB: 13 });
+      expect(untyped.add(ridgeAgain())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
+    });
+
     it("finds both rows by their ids and neither splits the game nor files it again", () => {
       const before = joined();
       const importer = createGcImporter(before, { today: "2026-10-11" });
