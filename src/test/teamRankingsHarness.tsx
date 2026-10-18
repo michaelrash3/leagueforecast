@@ -23,7 +23,7 @@ import {
 import type { AgeUnknownList } from "../lib/ageUnknown";
 import type { AutoRemovals } from "../lib/autoRemoved";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../lib/types";
-import { writeDefaultAge, type DefaultAge } from "../lib/preferences";
+import { writeDefaultAge, writeDefaultState, type DefaultAge } from "../lib/preferences";
 
 /**
  * Renders Team Rankings over a pool you describe, the way a browser would find it.
@@ -67,6 +67,8 @@ export type Pool = {
   >;
   /** The default age this device kept from an earlier visit (`readDefaultAge`). */
   defaultAge?: DefaultAge;
+  /** The state the State top 10 opens on, as this device kept it (`readDefaultState`). */
+  defaultState?: string;
 };
 
 export type Harness = RenderResult & {
@@ -138,6 +140,7 @@ export const renderTeamRankings = (pool: Pool): Harness => {
   window.localStorage.clear();
   window.history.replaceState(null, "", `/${pool.search ?? ""}`);
   if (pool.defaultAge) writeDefaultAge(pool.defaultAge);
+  if (pool.defaultState) writeDefaultState(pool.defaultState);
 
   saveAgeGroups(pool.ageGroups);
   saveScoutTeams(pool.teams);

@@ -400,11 +400,21 @@ wins, and choosing another tab during a visit is unchanged; the default only
 decides where an open lands.
 
 A page leads with a **national top 25** and a **state top 10**, the state being
-yours where it is known and otherwise whichever has the most teams there. The
-place shown in each is the place in _that_ list: a state top ten is ten teams
-rated against the whole country and then listed together, so the second-best team
-in the state is #2. The full table is behind a toggle, for finding one particular
-team in a pool of thousands.
+the default state below where one is kept, then yours where it is known, and
+otherwise whichever has the most teams there. The place shown in each is the
+place in _that_ list: a state top ten is ten teams rated against the whole country
+and then listed together, so the second-best team in the state is #2. The full
+table is behind a toggle, for finding one particular team in a pool of thousands.
+
+**A default state.** Beside the state top 10's picker, "Make OH my default"
+keeps the state on screen as the one the card opens on, on this device, as the
+default age is kept; on that state the card says "Opens on OH" with a Clear. It
+opens there on every page with a ranked club from that state, and on a page with
+none it opens as it did before, the default kept for the next page that has one
+(`defaultStateOf`). Both boards read it, the cloud's and this device's. Picking
+another state during a visit is unchanged and keeps nothing, and neither keeping
+nor clearing a default moves the card under the reader: it decides where the next
+open lands.
 
 **Which half a page opens on.** The fall and the spring are two tables, and with no
 half in the link a page opens on the one the calendar is in, unless that half holds

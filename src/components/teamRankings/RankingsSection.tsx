@@ -11,7 +11,7 @@ import type { MyTeamGlance } from "../../lib/myTeamGlance";
 import type { Movement } from "../../lib/rankMovement";
 import { MyTeamCard } from "./MyTeamCard";
 import type { RankHistoryPoint } from "../../hooks/useRankingsWorker";
-import { card, pill } from "../../styles/tokens";
+import { card, focusRing, pill, textRole } from "../../styles/tokens";
 
 /** How many teams a page leads with, nationally and within one state. */
 export const NATIONAL_TOP = 25;
@@ -48,6 +48,10 @@ type RankingsSectionProps = {
   availableStates: string[];
   shownState: string;
   onShownStateChange: (state: string) => void;
+  /** The state this device opens the card on where the page has a club there (`useStateTop`). */
+  keptState: string | null;
+  /** Keeps a state as that default, or forgets it for `null`. */
+  onKeepState: (state: string | null) => void;
   unknownStateCount: number;
   stateFilter: string;
   onStateFilterChange: (state: string) => void;
@@ -123,6 +127,8 @@ export function RankingsSection({
   availableStates,
   shownState,
   onShownStateChange,
+  keptState,
+  onKeepState,
   unknownStateCount,
   stateFilter,
   onStateFilterChange,
@@ -272,18 +278,42 @@ export function RankingsSection({
                   State top {STATE_TOP}
                 </h2>
                 {availableStates.length > 0 && (
-                  <select
-                    aria-label="State"
-                    value={shownState}
-                    onChange={(event) => onShownStateChange(event.target.value)}
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                  >
-                    {availableStates.map((state) => (
-                      <option key={state} value={state}>
-                        {state}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="flex flex-wrap items-center gap-2">
+                    <select
+                      aria-label="State"
+                      value={shownState}
+                      onChange={(event) => onShownStateChange(event.target.value)}
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                    >
+                      {availableStates.map((state) => (
+                        <option key={state} value={state}>
+                          {state}
+                        </option>
+                      ))}
+                    </select>
+                    {/*
+                      Offered only for a state with clubs on this page, the only kind the card can
+                      open on. One button whether or not the state shown is the default, so the
+                      keyboard's focus stays on it as its words change instead of going with it.
+                    */}
+                    {availableStates.includes(shownState) && (
+                      <span className={`flex items-center gap-2 ${textRole.meta}`}>
+                        {shownState === keptState && <span>Opens on {shownState}</span>}
+                        <button
+                          type="button"
+                          onClick={() => onKeepState(shownState === keptState ? null : shownState)}
+                          aria-label={
+                            shownState === keptState
+                              ? `Clear ${shownState} as the default state`
+                              : `Make ${shownState} my default state`
+                          }
+                          className={`rounded-sm font-bold text-blue-600 hover:underline dark:text-blue-400 ${focusRing}`}
+                        >
+                          {shownState === keptState ? "Clear" : `Make ${shownState} my default`}
+                        </button>
+                      </span>
+                    )}
+                  </span>
                 )}
               </div>
               {stateTopRows.length === 0 ? (

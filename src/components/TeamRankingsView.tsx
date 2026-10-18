@@ -56,7 +56,6 @@ import { remainingIds } from "../lib/gameChangerPull";
 import { archivedFrom, deriveAllKnown, gamesOnPages, leagueTeamIdsOn } from "../lib/live/allKnown";
 import { countedByHalf, segmentWorthShowing } from "../lib/teamRankings/halves";
 import {
-  defaultStateOf,
   placesOf,
   unknownStateCountOf,
   unrankedLevelNoteFor,
@@ -182,6 +181,7 @@ import { clubSearchGames } from "../lib/clubSearch";
 import { coachesOf } from "../lib/gcStaff";
 import { useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
+import { useStateTop } from "../hooks/useStateTop";
 import type { ToastTone } from "../hooks/useToast";
 
 type ConfirmOptions = {
@@ -463,8 +463,6 @@ export function TeamRankingsView({
   const [refreshLog, setRefreshLog] = useState(() => loadRefreshLog());
   const [openTeamId, setOpenTeamId] = useState<string | null>(handover?.openTeamId ?? null);
   const [stateFilter, setStateFilter] = useState(handover?.stateFilter ?? "");
-  /** Which state the top ten shows; `null` means the one picked for you. */
-  const [stateTop, setStateTop] = useState<string | null>(handover?.stateTop ?? null);
   const [showAll, setShowAll] = useState(handover?.showAll ?? false);
   // Somebody went to search on the live board: the search they asked for, now it has its list.
   const focusSearch = handover?.focusSearch === true;
@@ -841,13 +839,12 @@ export function TeamRankingsView({
    */
   const nationalTop = useMemo(() => rankings.slice(0, NATIONAL_TOP), [rankings]);
 
-  /** Which state the top ten is for (`defaultStateOf`), shared with the live board. */
-  const defaultState = useMemo(
-    () => defaultStateOf(rankedTeams, myTeamId),
-    [rankedTeams, myTeamId]
+  /** Which state the top ten is for (`useStateTop`), shared with the live board. */
+  const { shownState, pickState, keptState, keepState } = useStateTop(
+    rankedTeams,
+    myTeamId,
+    handover?.stateTop ?? null
   );
-
-  const shownState = stateTop === null ? defaultState : stateTop;
 
   /** "Prosper, TX" for each club on the page (`placesOf`), shared with the live board. */
   const placeById = useMemo(() => placesOf(rankedTeams), [rankedTeams]);
@@ -2468,7 +2465,9 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               visibleRankings={visibleRankings}
               availableStates={availableStates}
               shownState={shownState}
-              onShownStateChange={setStateTop}
+              onShownStateChange={pickState}
+              keptState={keptState}
+              onKeepState={keepState}
               unknownStateCount={unknownStateCount}
               stateFilter={stateFilter}
               onStateFilterChange={setStateFilter}
