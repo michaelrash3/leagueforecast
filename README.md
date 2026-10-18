@@ -1581,6 +1581,40 @@ GameChanger ids (`loadAgeRightClubs`), and backed up with the real clubs, so it 
 Under the list a line says how many clubs it is keeping off on that answer; **Show them** names
 them, and **Put it back** forgets the answer, and the club is listed again.
 
+**Leaders with few outside games.** **Check the pool** also lists every club in a state's top 10
+or the nation's top 25 on its page's year board whose group of the schedule, its community as the
+rating's start reads it (**Where a rating starts**), has played fewer than 3 rated games outside
+itself, or that is off the largest piece of the schedule altogether (`fewOutside.ts`,
+`fewOutsideLeaders.ts`). Its rating starts at its group's level, and nothing the group plays inside
+itself can say whether that level is right: a club of a league that plays only itself can go 8-0
+and lead its state, and its board cannot say whether the league is strong or weak. Only games
+against teams outside the group settle it, and GameChanger names those opponents on a schedule
+but gives them no id, so they have to be found by hand and pasted into a pull. The list says
+which. It goes by state rank, a club with no
+state after every club with one, then by national rank; each club says its page and place, its
+group once (how many entries, pulled, known only by name, entered by hand and TBD, and its games
+outside it), and the opponents it played that are known only by name, with their games against it
+and in all, under "Pull these opponents to connect its group"; where it played none of its own, its
+group's; where its group holds none, that every team in it is already pulled. Each list of names
+copies one a line, ready to search GameChanger for, and each club opens its own panel. It reads the
+boards' own year rows and the fit they were cut from, built as the boards are built, on the device
+by the tidy worker and on the server in the look's answer (`health.inspect`), so the two cards show
+one list; nothing on a board, a club's panel or any other page changes, and no club or group is
+called anything on it but what it holds.
+
+On the owner's backup of 11 October 2026 it held 1,160 clubs in 652 groups: 1,020 off the largest
+piece and 140 in it with 1 or 2 outside games, 141 of them state #1s and 8 in a national top 25.
+Between them they had played 1,900 distinct opponents known only by name over 2,928 games; 422 had
+played none of their own, and 192 of those are in groups where every side is pulled already, with
+no one left to find. On 25, 26 and 29 September it held 1,557, 1,581 and 1,413, each the measured
+list club for club. It comes with the look rather than as the card opens because it is a fit of
+every year: 9.5 s on the 11 October copy in Node 24, against 1.1 s for all the card shows as it
+opens. Pulling the opponents does not always join a group to the rest: of the clubs listed in
+September and still ranked on 11 October, 653 were in groups whose sides had played 3 or more new
+games across the old edge and still had fewer than 3 more outside games, having met other thin
+groups. So a club stays on the list until its group has played 3 games outside itself, however
+many of its opponents were pulled.
+
 ### Names
 
 Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South
@@ -3094,7 +3128,9 @@ What it cannot do:
 
 - A strong group that has truly played nobody else is shown 1.6 runs below where
   its games alone would put it, as a weak one is. Only games against outsiders can
-  tell the two apart.
+  tell the two apart, and Pool health's look lists the leaders of groups with fewer
+  than 3 of them, with the opponents to find and pull (**Leaders with few outside
+  games**, under **What a pull left behind**).
 - The effect grew through the autumn: refitted on the later games the level reads
   −1.90 ± 0.20, so −1.6 is the cautious value, and after it the isolated clubs
   still did 0.5 to 0.9 runs worse than shown against well-connected ones. It is
@@ -7201,6 +7237,10 @@ pulling the card draws, and how many there are: on the 29 September pool the 51,
 (`shapes.ts`): the type said once as data, every field it names checked as the device reads it, and
 a field it does not name let through for a newer server to say. On that pool, in memory, the
 summary took 0.33 s (130 KB), the look 6.2 s and the file 0.5 s, and each answer read back whole.
+The look also carries the leaders with few outside games (**What a pull left behind**), worked out
+with League Standings' seasons as the boards are: on the 11 October 2026 copy, 9.5 s and 606 KB of
+JSON beside a look of 8 to 12 s. It is optional in the reader's shape, so a server from before it
+is read as sending no list, and a device from before it lets it through unread.
 
 The card of teams waiting on an age asks four more: the card at a sitting (`ageless.queue`,
 `agelessSitting`), a search of the whole list (`ageless.search`), the file of every team waiting
