@@ -412,11 +412,10 @@ default age is kept; on that state the card says "Opens on OH" with a Clear. It
 opens there on every page with a ranked club from that state, and on a page with
 none it opens as it did before, the default kept for the next page that has one
 (`defaultStateOf`). Both boards read it, the cloud's and this device's. Picking
-another state during a visit is unchanged and keeps nothing, and neither keeping
-nor clearing a default moves the card under the reader: it decides where the next
-open lands. Either button lets go of a state picked in the select, and holds the
-card only on the page it was pressed on: the next page or half opens as the
-default says, or as it would with none after Clear.
+another state during a visit is unchanged and keeps nothing. Either button lets
+go of a state picked in the select, so the default places the card from then on:
+making one leaves the card where it is, and Clear opens it as it would with no
+default, on this page and the next.
 
 **Which half a page opens on.** The fall and the spring are two tables, and with no
 half in the link a page opens on the one the calendar is in, unless that half holds

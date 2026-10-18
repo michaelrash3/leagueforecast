@@ -16,32 +16,25 @@ export function useStateTop(
 ) {
   /** The state picked during this visit; `null` while the card is on the one it opened on. */
   const [stateTop, setStateTop] = useState<string | null>(picked);
-  /**
-   * Where Clear left the card, and the page's clubs it was pressed over. Not a pick: a pick lasts
-   * the visit, and on a page with nobody from the cleared state it would leave an empty card that
-   * the select, naming another state, cannot be used to leave. A new page's clubs are a new array,
-   * so the hold ends on the next page or half and the card opens there as it would have.
-   */
-  const [held, setHeld] = useState<{ state: string; clubs: readonly BoardClub[] } | null>(null);
   const [keptState, setKeptState] = useState(() => readDefaultState());
   const opening = useMemo(
     () => defaultStateOf(clubs, myTeamId, keptState),
     [clubs, myTeamId, keptState]
   );
-  const shownState = stateTop ?? (held !== null && held.clubs === clubs ? held.state : opening);
+  const shownState = stateTop ?? opening;
 
   /**
-   * Keeps `state` as the default, or forgets it for `null`. Neither moves the card: making a
-   * default is done from the state on screen, and clearing one holds the card where it is on this
-   * page, since a card that jumped to another state under the reader's finger would look like the
-   * click had picked it. The default decides where the next open lands.
+   * Keeps `state` as the default, or forgets it for `null`, and lets go of a state picked in the
+   * select either way, so the card is the default's to place from here: kept, it stays where it is,
+   * since it is made from the state on screen; cleared, it opens as it would with no default.
    *
-   * Either lets go of a state picked in the select, holding it on this page only: left as the
-   * visit's pick, a state made the default and then cleared, or made the default and carried to a
-   * page with nobody from it, showed an empty card there under a select naming another state.
+   * Left as the visit's pick, a state made the default and then cleared, or made the default and
+   * carried to a page with nobody from it, showed an empty card there under a select naming another
+   * state. Holding the cleared state on its page instead was tried and dropped: a refit or a newly
+   * published board on that same page ended the hold, and a handover from the cloud's board to this
+   * device's lost it, so the card jumped later rather than at the click.
    */
   const keepState = (state: string | null) => {
-    setHeld({ state: shownState, clubs });
     setStateTop(null);
     writeDefaultState(state);
     setKeptState(state);

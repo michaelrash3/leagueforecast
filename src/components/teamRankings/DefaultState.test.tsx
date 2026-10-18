@@ -77,27 +77,27 @@ describe("a default state for the State top 10", () => {
     expect(screen.queryByRole("button", { name: /default state/ })).toBeNull();
   });
 
-  it("is forgotten by Clear, which leaves the card where it is until the next open", async () => {
+  it("is forgotten by Clear, and the card opens as it would with none", async () => {
     const user = userEvent.setup();
     const first = renderTeamRankings(pool({ defaultState: "KY" }));
     expect(topState()).toBe("KY");
 
     await user.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
     expect(readDefaultState()).toBeNull();
-    expect(topState()).toBe("KY");
-    expect(screen.getByRole("button", { name: "Make KY my default state" })).toHaveFocus();
+    expect(topState()).toBe("OH");
+    expect(screen.getByRole("button", { name: "Make OH my default state" })).toHaveFocus();
     first.unmount();
 
     renderTeamRankings(pool());
     expect(topState()).toBe("OH");
   });
 
-  it("holds the card after Clear only on the page it was pressed on", async () => {
-    // 9U has nobody from Kentucky, so held there the card would be empty: it opens on 9U's own.
+  it("opens the next page on its own state after Clear", async () => {
+    // 9U has nobody from Kentucky, so a card left on it there would be empty.
     const user = userEvent.setup();
     renderTeamRankings(pool({ defaultState: "KY" }));
     await user.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
-    expect(topState()).toBe("KY");
+    expect(topState()).toBe("OH");
 
     const ageNav = screen.getByRole("navigation", { name: "Age level" });
     await user.click(within(ageNav).getByRole("button", { name: "9U" }));
@@ -119,7 +119,7 @@ describe("a default state for the State top 10", () => {
     await user.selectOptions(screen.getAllByRole("combobox", { name: "State" })[0]!, "KY");
     await user.click(screen.getByRole("button", { name: "Make KY my default state" }));
     await user.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
-    expect(topState()).toBe("KY");
+    expect(topState()).toBe("OH");
 
     const ageNav = screen.getByRole("navigation", { name: "Age level" });
     await user.click(within(ageNav).getByRole("button", { name: "9U" }));
@@ -147,6 +147,7 @@ describe("a default state for the State top 10", () => {
     const user = userEvent.setup();
     renderTeamRankings(pool({ defaultState: "KY" }));
     await user.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
+    await user.selectOptions(screen.getAllByRole("combobox", { name: "State" })[0]!, "KY");
     await user.click(screen.getByRole("button", { name: "Make KY my default state" }));
     expect(readDefaultState()).toBe("KY");
 

@@ -5136,14 +5136,14 @@ describe("a default state on the cloud's board", () => {
     expect(readDefaultState()).toBe("TX");
   });
 
-  it("is forgotten by Clear, which leaves the card where it is until the next open", async () => {
+  it("is forgotten by Clear, and the card opens as it would with none", async () => {
     writeDefaultState("KY");
     const first = open(sourcesOf(live));
     expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
     expect(topState()).toBe("KY");
     fireEvent.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
     expect(readDefaultState()).toBeNull();
-    expect(topState()).toBe("KY");
+    expect(topState()).toBe("OH");
     first.unmount();
 
     open(sourcesOf(live));
@@ -5151,13 +5151,13 @@ describe("a default state on the cloud's board", () => {
     expect(topState()).toBe("OH");
   });
 
-  it("holds the card after Clear only on the half it was pressed on", async () => {
-    // The fall board has nobody from Kentucky, so held there the card would be empty.
+  it("opens the other half on its own state after Clear", async () => {
+    // The fall board has nobody from Kentucky, so a card left on it there would be empty.
     writeDefaultState("KY");
     open(sourcesOf(live));
     expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
-    expect(topState()).toBe("KY");
+    expect(topState()).toBe("OH");
 
     fireEvent.click(screen.getByRole("button", { name: /^Fall 2026/ }));
     expect(await screen.findAllByText("Placeholder S-F")).not.toHaveLength(0);
