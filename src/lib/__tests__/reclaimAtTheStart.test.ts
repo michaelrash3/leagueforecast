@@ -239,14 +239,15 @@ describe("a copy holding its club's own row as a claim", () => {
   ];
   const row = own("OTTER", "o1", "CATS1", [9, 2]);
   /** The copy, holding the first club's own row filed against `against` at `clock`. */
-  const holding = (against = "S-OTTER", clock = "23:00"): ScoutGame => ({
+  const holding = (against = "S-OTTER", clock = "23:00", day = DAY): ScoutGame => ({
     ...row,
     alsoFrom: ["gcCATS1"],
     alsoRows: [
       {
         teamId: "gcCATS1",
         gameId: "c1",
-        startTs: `${DAY}T${clock}:00.000Z`,
+        startTs: `${day}T${clock}:00.000Z`,
+        ...(day === DAY ? {} : { date: day }),
         ownScore: 2,
         opponentScore: 9,
         onSideB: true,
@@ -292,5 +293,19 @@ describe("a copy holding its club's own row as a claim", () => {
       games: [holding("TBD1"), own("CATS2", "d1", "S-OTTER2", [2, 9])],
     };
     expect(reclaimMisfiled(state).reclaimed).toBe(0);
+  });
+
+  it("but not a claim its schedule filed on another day", () => {
+    // A claim folded in from a day apart (`FoldedRow.date`) is no row of the game's day, which is
+    // all a standing row of the club's is read as holding: it does not keep the copy from the
+    // namesake whose own row that day stands against a stand-in of the name at its start.
+    const state: GcImportState = {
+      ageGroups,
+      teams,
+      games: [holding("S-OTTER", "23:00", "2026-09-21"), own("CATS2", "d1", "S-OTTER2", [2, 9])],
+    };
+    const moved = reclaimMisfiled(state);
+    expect(moved.reclaimed).toBe(1);
+    expect(sidesOf(moved.state, row.id)).toEqual(["OTTER", "CATS2"]);
   });
 });

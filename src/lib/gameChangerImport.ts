@@ -6295,13 +6295,16 @@ export const reclaimMisfiled = (
      * of the name took the copy, the claim then stood back up and held the game again, and the two
      * clubs took turns with it on every pass: on the backup of 11 October 2026 four copies did, and
      * every tidy ran to its six-pass limit. Where the claim holds the game, only a namesake whose
-     * own row stands against the puller itself has better evidence.
+     * own row stands against the puller itself has better evidence. Only a claim of the game's day
+     * counts, as only a standing row of that day does (`ownByDay`): a claim folded in from a day
+     * apart (`FoldedRow.date`) would otherwise keep the copy from a namesake whose own row that day
+     * holds it.
      */
-    const claimed = (game.alsoRows ?? []).flatMap((record) =>
-      record.filedAgainst !== undefined && ownIds.get(namedId)?.has(record.teamId)
-        ? [filedRowOf(game, record)]
-        : []
-    );
+    const claimed = (game.alsoRows ?? []).flatMap((record) => {
+      if (record.filedAgainst === undefined || !ownIds.get(namedId)?.has(record.teamId)) return [];
+      const own = filedRowOf(game, record);
+      return own.date === game.date ? [own] : [];
+    });
     const heldByClaim = claimed.some(
       (own) => holdsAs(namedId, pullerId, game, own) || atItsStart(game, pullerId, own)
     );
