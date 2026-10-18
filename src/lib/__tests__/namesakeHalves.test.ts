@@ -691,6 +691,17 @@ describe("the namesake join", () => {
       expect(untyped.add(ridgeAgain())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
     });
 
+    it("keeps the club's own age its schedule gives now, and reads it as no change the pull after", () => {
+      // The club moved down a level on GameChanger: read as a change, never written, so every
+      // pull after counted the game updated again.
+      const importer = createGcImporter(joined(), { today: "2026-10-11" });
+      const moved = () =>
+        schedule(ridge, 11, [played("r1", "Lakeshore Hustle", `${DAY}T14:00`, [4, 11])]);
+      expect(importer.add(moved())).toMatchObject({ gamesUpdated: 1 });
+      expect(importer.state.games[0]).toMatchObject({ ageLevelA: 11, joinedFrom: "S-HUSTLE" });
+      expect(importer.add(moved())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
+    });
+
     it("finds both rows by their ids and neither splits the game nor files it again", () => {
       const before = joined();
       const importer = createGcImporter(before, { today: "2026-10-11" });
@@ -1078,5 +1089,24 @@ describe("the namesake join", () => {
     const merged = withFiledRepointed(game, (id) => (id === "S-HUSTLE" ? "S-MERGED" : id));
     expect(merged.joinedFrom).toBe("S-MERGED");
     expect(filedTeamIds([merged]).has("S-MERGED")).toBe(true);
+  });
+});
+
+describe("a pull of a game nothing joined", () => {
+  /*
+   * A schedule typing another age for its opponent on a row of its own: the change was read and
+   * never written, so every pull after counted the game updated again.
+   */
+  it("keeps the age the schedule types for its opponent now, and reads it as no change after", () => {
+    const lone = pool(
+      [ridge, standIn("S-HUSTLE", "Lakeshore Hustle")],
+      [row("RIDGE", "r1", "S-HUSTLE", "ag12", `${DAY}T14:00`, [4, 11])]
+    );
+    const importer = createGcImporter(lone, { today: "2026-10-11" });
+    const retyped = () =>
+      schedule(ridge, 12, [played("r1", "Lakeshore Hustle 14U", `${DAY}T14:00`, [4, 11])]);
+    expect(importer.add(retyped())).toMatchObject({ gamesUpdated: 1 });
+    expect(importer.state.games[0]).toMatchObject({ ageLevelB: 14 });
+    expect(importer.add(retyped())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
   });
 });

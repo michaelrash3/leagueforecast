@@ -3155,14 +3155,33 @@ const importOne = (
      */
     const kept = ownAtLast ? unborrowed : recorded;
     const { joinedFromLevel: _typed, ...untyped } = kept;
-    const base =
-      existing === known && existing.joinedFrom !== undefined
-        ? candidate.ageLevelB === undefined
-          ? untyped
-          : { ...kept, joinedFromLevel: candidate.ageLevelB }
-        : kept;
+    const joined = existing === known && existing.joinedFrom !== undefined;
+    const base = joined
+      ? candidate.ageLevelB === undefined
+        ? untyped
+        : { ...kept, joinedFromLevel: candidate.ageLevelB }
+      : kept;
+    /*
+     * The levels `differs` reads, as this schedule gives them now, on its own row the way round it
+     * was filed: the club's own, and its opponent's where nothing joined the game (a joined game's
+     * side B keeps its own club's level, put back through `joinedFromLevel` above). Left as they
+     * were, a club GameChanger moved a level or a coach who retyped an opponent's age had the
+     * change read on every pull and never written, so each pull counted the game updated again.
+     */
+    const levels =
+      existing === known && existing.teamAId === candidate.teamAId
+        ? (() => {
+            const { ageLevelA: _own, ageLevelB: _theirs, ...rest } = base;
+            const ageLevelB = joined ? base.ageLevelB : candidate.ageLevelB;
+            return {
+              ...rest,
+              ...(candidate.ageLevelA === undefined ? {} : { ageLevelA: candidate.ageLevelA }),
+              ...(ageLevelB === undefined ? {} : { ageLevelB }),
+            };
+          })()
+        : base;
     const merged: ScoutGame = {
-      ...base,
+      ...levels,
       ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
       ...(candidate.season ? { season: candidate.season } : {}),
       ...(displaced ? { note: withNote(existing.note, displaced) } : {}),
