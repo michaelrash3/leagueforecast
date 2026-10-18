@@ -304,6 +304,62 @@ describe("Pool health from the server's pool", () => {
     expect(screen.queryByRole("button", { name: /^Settle/ })).toBeNull();
   });
 
+  it("draws the leaders with few outside games the server found, each opening its panel", async () => {
+    const opened: Array<[string, number | undefined]> = [];
+    const call = editFunction({
+      "health.summary": OPENED,
+      "health.inspect": {
+        ...LOOKED,
+        fewOutside: {
+          leaders: [
+            {
+              teamId: "L-1",
+              name: "Placeholder Legends",
+              pageId: "ag_14u_2027",
+              page: "14U 2027",
+              year: 2027,
+              state: "OH",
+              stateRank: 1,
+              rank: 26,
+              record: "12-0",
+              group: 0,
+              opponents: [{ teamId: "N-9", name: "Placeholder Comets", games: 1, rated: 3 }],
+            },
+          ],
+          groups: [
+            {
+              sides: 24,
+              pulled: 11,
+              byHand: 0,
+              nameOnly: 10,
+              slots: 3,
+              outside: 0,
+              toFind: [{ teamId: "N-9", name: "Placeholder Comets", rated: 3 }],
+            },
+          ],
+        },
+      },
+    });
+    show(call, (teamId, year) => opened.push([teamId, year]));
+    expect(screen.queryByTestId("pool-few-outside")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    const section = await screen.findByTestId("pool-few-outside");
+    expect(within(section).getByText("#1 in OH")).toBeTruthy();
+    expect(
+      within(section).getByText(/Placeholder Comets \(1 game against it, 3 in all\)/)
+    ).toBeTruthy();
+    fireEvent.click(within(section).getByRole("button", { name: "Placeholder Legends" }));
+    expect(opened).toEqual([["L-1", 2027]]);
+  });
+
+  it("draws no leaders with few outside games from a server that says nothing of them", async () => {
+    const call = editFunction({ "health.summary": OPENED, "health.inspect": LOOKED });
+    show(call);
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    expect(await screen.findByText("Results against a stand-in")).toBeTruthy();
+    expect(screen.queryByTestId("pool-few-outside")).toBeNull();
+  });
+
   it("downloads every club worth pulling from the server's own file", async () => {
     const created: Blob[] = [];
     vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {

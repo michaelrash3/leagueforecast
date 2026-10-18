@@ -9,6 +9,7 @@ import {
   type PoolHealthSummary,
 } from "../../lib/poolHealthSummary";
 import { TO_PULL_DRAWN, type PoolLists } from "../../lib/poolLists";
+import type { FewOutsideList } from "../../lib/fewOutside";
 import { IMPLAUSIBLE_MARGIN, segmentOn } from "../../lib/teamRankings";
 import { apartKey, isKeptApart, type KeptApart } from "../../lib/keptApart";
 import type { WrongAgeClub } from "../../lib/wrongAge";
@@ -19,6 +20,7 @@ import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { countedTwiceCsv, countedTwiceCsvFilename } from "../../lib/countedTwice";
 import { button, card, pill } from "../../styles/tokens";
+import { FewOutsideSection } from "./FewOutsideSection";
 
 /**
  * Pool health as it is drawn, from what it is told rather than from a pool it holds: what the pool
@@ -53,6 +55,11 @@ export type PoolHealthInspection = {
    * as the server sends them; absent where they hold every one.
    */
   toPullCount?: number;
+  /**
+   * The leaders with few outside games (`fewOutside.ts`); absent from a server from before them,
+   * which draws no list.
+   */
+  fewOutside?: FewOutsideList;
 };
 
 /** A club as a question about it names it. */
@@ -1390,6 +1397,13 @@ export function PoolHealthView({
             </ul>
           )}
         </div>
+      )}
+
+      {inspection?.fewOutside && (
+        <FewOutsideSection
+          list={inspection.fewOutside}
+          {...(actions.openTeam ? { openTeam: actions.openTeam } : {})}
+        />
       )}
 
       {toPull && toPullCount > 0 && (
