@@ -257,6 +257,34 @@ const threeLevelsApart = () =>
     ]
   );
 
+/**
+ * A's own row against a stand-in of A's very name, and A's own row at the same hour, mirrored,
+ * against a slot: no club is its own namesake.
+ */
+const ownName = () =>
+  pool(
+    [ridge, hustle, standIn("S-SELF", "North Ridge Bombers"), slot("TBD-s", "TBD")],
+    [
+      row("RIDGE", "r1", "S-SELF", "ag12", `${DAY}T14:00`, [4, 11]),
+      row("RIDGE", "r2", "TBD-s", "ag12", `${DAY}T14:00`, [11, 4]),
+    ]
+  );
+
+/** B's stand-in shares only a word of two letters with A's name. */
+const twoLetterWord = () =>
+  pool(
+    [
+      club("OZ", "Ozark NW Bombers", "MO", "ag12"),
+      club("LH", "Lakeshore Hustle", "MO", "ag13"),
+      standIn("S-LH", "Lakeshore Hustle"),
+      standIn("S-NW", "NW Hawks"),
+    ],
+    [
+      row("OZ", "z1", "S-LH", "ag12", `${DAY}T14:00`, [4, 11]),
+      row("LH", "l1", "S-NW", "ag13", `${DAY}T14:00`, [11, 4]),
+    ]
+  );
+
 /** Each stand-in carries the other club's very name; B's coach typed A a level below its own. */
 const exactNames = () =>
   pool(
@@ -363,6 +391,23 @@ describe("the tidy with the namesake join, against the pin from before it", () =
       [
         "2026-10-03 14:00 ag11 11/- North Ridge Bombers 4-11 Lakeshore Hustle (stand-in)",
         "2026-10-03 14:00 ag14 14/- Lakeshore Hustle 11-4 TBD (slot)",
+      ],
+    ],
+    // Not in the pin, and read here as the tidy before the join reads them.
+    [
+      "A's own name",
+      ownName,
+      [
+        "2026-10-03 14:00 ag12 12/- North Ridge Bombers 11-4 TBD (slot)",
+        "2026-10-03 14:00 ag12 12/- North Ridge Bombers 4-11 North Ridge Bombers (stand-in)",
+      ],
+    ],
+    [
+      "a shared word of two letters",
+      twoLetterWord,
+      [
+        "2026-10-03 14:00 ag12 12/- Ozark NW Bombers 4-11 Lakeshore Hustle (stand-in)",
+        "2026-10-03 14:00 ag13 13/- Lakeshore Hustle 11-4 NW Hawks (stand-in)",
       ],
     ],
   ])("leaves %s as it was", (_, build, lines) => {
@@ -567,6 +612,35 @@ describe("the namesake join", () => {
       expect(tidied(thrownB).counts).toEqual({});
     });
 
+    it("where B's stand-in is a team A's own schedule has played on its side B", () => {
+      // The stand-in's own row, as a hand merge or a typed-in game leaves one, with A on side B.
+      const pool = standInEachSide();
+      const met: ScoutGame = {
+        ...row("RIDGE", "r0", "S-RIDGE", "ag12", "2026-09-27T15:00", [6, 2]),
+        teamAId: "S-RIDGE",
+        teamBId: "RIDGE",
+        teamAScore: 2,
+        teamBScore: 6,
+      };
+      expect(tidied({ ...pool, games: [...pool.games, met] }).counts).toEqual({});
+    });
+
+    it("where B's row took its score from the other side's report", () => {
+      const borrowed = withGame(standInEachSide(), HUSTLE_ROW, (game) => ({
+        ...game,
+        scoreFromB: true,
+      }));
+      const out = tidyPool(borrowed);
+      expect(out.namesakeJoined).toBe(0);
+      expect(out.state.games).toHaveLength(2);
+    });
+
+    it("where the only club of the stand-in's name is A itself", () => {
+      const out = tidyPool(ownName());
+      expect(out.namesakeJoined).toBe(0);
+      expect(out.state.games.some((game) => game.teamAId === game.teamBId)).toBe(false);
+    });
+
     it("where the owner has said A's name for B is not B", () => {
       const refused = new Set([refusalOf("gcRIDGE", "Lakeshore Hustle", "gcHUSTLE")]);
       const out = tidyPool(standInEachSide(), undefined, undefined, refused);
@@ -684,6 +758,53 @@ describe("the namesake join", () => {
         expect(linesOf(out.state)).toEqual(linesOf(exactNames()));
       }
     );
+
+    it("gives A's row back the level its name gave", () => {
+      const typed = withGame(standInEachSide(), RIDGE_ROW, (game) => ({ ...game, ageLevelB: 13 }));
+      const refused = new Set([refusalOf("gcRIDGE", "Lakeshore Hustle", "gcHUSTLE")]);
+      const out = tidyPool(settled(typed), undefined, undefined, refused);
+      expect(out.namesakeJoined).toBe(1);
+      expect(linesOf(out.state)).toEqual([
+        "2026-10-03 14:00 ag12 12/13 North Ridge Bombers 4-11 Lakeshore Hustle (stand-in)",
+        asFiled[1],
+      ]);
+    });
+
+    it("keeps the rows of A's other schedules folded into A's row", () => {
+      // A's second GameChanger team lists the game too, and its row folds into A's own.
+      const base = standInEachSide();
+      const twoLinks: ScoutTeam = {
+        ...ridge,
+        gcTeams: [
+          ...ridge.gcTeams!,
+          { teamId: "gcRIDGE2", name: ridge.name, ageGroupId: "ag12", ageLevel: 12 },
+        ],
+      };
+      const second: ScoutGame = {
+        ...row("RIDGE", "x1", "S-HUSTLE", "ag12", `${DAY}T14:00`, [4, 11]),
+        id: gcRowId("gcRIDGE2", "x1"),
+        source: { kind: "gamechanger", teamId: "gcRIDGE2", gameId: "x1" },
+      };
+      const pool = {
+        ...base,
+        teams: base.teams.map((team) => (team.id === "RIDGE" ? twoLinks : team)),
+        games: [...base.games, second],
+      };
+      const first = tidyPool(pool);
+      expect(first.namesakeJoined).toBe(1);
+      expect(first.collapsed).toBe(1);
+      const refused = new Set([refusalOf("gcRIDGE", "Lakeshore Hustle", "gcHUSTLE")]);
+      const out = tidyPool(settled(pool), undefined, undefined, refused);
+      expect(out.namesakeJoined).toBe(1);
+      const own = holdersOf(out.state, gcRowId("gcRIDGE2", "x1"));
+      expect(own).toHaveLength(1);
+      expect(own[0]).toMatchObject({ id: RIDGE_ROW, teamBId: "S-HUSTLE" });
+      expect(own[0]!.alsoRows).toEqual([
+        expect.objectContaining({ teamId: "gcRIDGE2", gameId: "x1" }),
+      ]);
+      expect(holdersOf(out.state, RIDGE_ROW)).toHaveLength(1);
+      expect(holdersOf(out.state, HUSTLE_ROW)).toHaveLength(1);
+    });
 
     it("puts both rows back where a second club of B's name has a row that fits", () => {
       const pool = joined();
