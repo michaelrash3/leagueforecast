@@ -221,7 +221,7 @@ refuses it again every export, including ids never seen before.
 
 | In the name or the age field                      | Read as                                                             |
 | ------------------------------------------------- | ------------------------------------------------------------------- |
-| `Varsity`, `JV`, `Junior Varsity`                 | high school, always                                                 |
+| `Varsity`, `JV` or `J.V.`, `Junior Varsity`       | high school, always                                                 |
 | A lone capital `V` in the name — "Alder Comets V" | high school, as `Varsity` is: the owner's ruling, below             |
 | `JV/V`                                            | high school — both words say it                                     |
 | `HS`, `High School`, with no age label            | high school                                                         |
@@ -238,36 +238,52 @@ wrongly refused club leaves nothing behind to notice it by — no row, no count 
 its name, nothing — so the rule errs towards keeping whenever the age contradicts it.
 
 **A lone V is varsity.** The owner, 18 October 2026: "A lone V means Varsity. period." A capital V
-with no letter against it on either side reads exactly as the word does, its floor with it: "Alder
-Comets V", "V Gorsefield Gulls" and "Wrenhaven V-Rays" are school squads, "Brackenfield Owls 12U V"
-a travel club; a lowercase v between two names is versus, and a V run into other letters ("VA",
-"MVP", "IV") is no squad word. Until then a lone V refused nothing: it put its row on the waiting
-list ahead of the rows nothing else separated it from, with a line saying what to look for (**Teams
-waiting on an age**, below). On the desktop crawl's export of 24 September 2026 it reads 76 rows no
-other school word did, 59 of them with nine players or more and 13 with none, none with anything in
-the age column, so a pasted export marks 10,526 rows high school where it marked 10,450. A second
-writing of the rule gives the app's verdict on all 362,078 distinct names in that export, the backup
-of 11 October and its waiting list. In the backup it reads 59 teams by the name the pool stores, 29
-pulled clubs and 30 stand-ins, none of them anyone's own team, a page's own team or on the owner's
-list of real clubs, and none of the 13,169 rows waiting on an age.
+standing alone reads exactly as the word does, its floor with it: "Alder Comets V", "Alder Comets
+V.", "V Gorsefield Gulls", "Tamberly (V)" and "Wrenhaven V-Rays" are school squads, "Brackenfield
+Owls 12U V" a travel club. Alone is the ruling's word, and a V something joins to a word is not
+alone: a letter in any script against it ("VA", "MVP", "IV", "Válcor"), a digit ("V8", "5V5",
+"12V"), or a dot or an apostrophe with a letter or a digit beyond it ("N.V.B.A.", "Q.V", "V’rons").
+A lowercase v between two names is versus. "J.V." is read as the `JV` it spells. Until then a lone
+V refused nothing: it put its row on the waiting list ahead of the rows nothing else separated it
+from, with a line saying what to look for (**Teams waiting on an age**, below).
+
+The first reading of the ruling counted anything outside A to Z as no letter, and so refused V8,
+N.V.B.A. and Válcor as varsity, and deleted the clubs. Over the 362,078 distinct names in the
+desktop crawl's export of 24 September 2026, the backup of 11 October and its waiting list, it read
+121 names as school that no other school word did; reading a V as alone reads 88, and the 33 it
+gives back have every V joined to a word, by a dot (16), a digit (13), an accented letter (3) or an
+apostrophe (1). A second writing of the rule, scanning characters rather than matching one pattern,
+gives the app's verdict on every one of those names. On the export it reads 58 rows no other school
+word did, where the first reading read 76: 50 of them with nine players or more and 6 with none,
+none with anything in the age column, so a pasted export marks 10,508 rows high school where it
+marked 10,450. In the backup it reads 35 teams by the name the pool stores, 11 pulled clubs and 24
+stand-ins, where the first reading read 59, none of them anyone's own team, a page's own team or on
+the owner's list of real clubs, and none of the 13,169 rows waiting on an age.
 
 **The tidy reads the name the import read.** A pool stores a club under its name with the age taken
 off (`cleanTeamName`), so "Brackenfield Owls 12U V" is held as "Brackenfield Owls V", which reads as
 varsity where the name GameChanger gives it does not. Read off the stored name, the tidy deleted a
 club the import files and the next pull filed it again. So a pulled club goes when every name
 GameChanger gives it reads as a school's, as the not-a-team pass reads one, and a stand-in, which
-has only the stored name, stays when a row named it at an age under fourteen, the level a row's name
-gives a side being kept on the row (`schoolNamedTravelStandIns`); the clubs worth pulling read a
-stand-in the same way. In the backup 12 of the 29 pulled clubs go, every one filed with an age, at
-14U to 18U but for one GameChanger files at 9U whose name states none, and 10 of them on a board
-built from that backup, the best 90th. The other 17 stay: the names GameChanger gives 16 of them
-state 9U to 13U, and one carries no lone V at all. Of the 30 stand-ins 27 go, and 3 stay, every row
-naming them at an age under fourteen, 5 games. The tidy deletes 39 clubs as high school squads where
-it deleted none, and prunes 10 stand-ins and slots left holding nothing; 129 games go, 91 of them
-scored, 105 of them (74 scored) off the records of 66 pulled clubs that stay, and one game left
-standing has a claim released. It keeps nothing it deleted before. The tidy rules go from 24 to 25,
-so every pool is tidied once more under the ruling. The board parity pins do not move, so
-`BOARD_RULES` stays at 7.
+has only the stored name, stays when a row named it at an age under fourteen read off an age label,
+the level a row's name gives a side being kept on the row (`schoolNamedTravelStandIns`); the clubs
+worth pulling read a stand-in the same way. Off a label, because a class year excuses no squad word:
+the import reads an opponent's level from a label or, failing one, from its class year, but it
+refuses "Quillmoor V 2033" on a 2027 page although the class of 2033 is 12U. The year stays on the
+stored name, so a row at the very age the name's class year gives on its page is read as the year's
+and excuses nothing. No row in the backup names such a stand-in at the age its class year gives.
+
+In the backup 4 of the 11 pulled clubs go, every one filed at 14U or above (14U twice, 17U, and
+18U for one whose name states no age), 3 of them on a board built from that backup, the best 650th.
+The other 7 stay: the names GameChanger gives 6 of them state an age under 14U, and one carries no
+lone V at all. Of the 24 stand-ins 22 go, and 2 stay, every row naming them at an age under
+fourteen, 3 games. The tidy deletes 26 clubs as high school squads where it deleted none, and
+prunes 2 stand-ins left holding nothing; 51 games go, 37 of them scored, 49 of them (35 scored) off
+the records of 28 pulled clubs that stay. No game left standing changes, and it keeps nothing it
+deleted before. Against the first reading, which deleted 39 clubs as high school squads and 129
+games, 8 pulled clubs, 10 stand-ins and 3 slots come back with 78 games, and nothing the first
+reading kept goes. The tidy rules go from 24 to 25, so every pool is tidied once more under the
+ruling. The board parity pins do not move, so `BOARD_RULES` stays at 7.
 
 Their games go with them, and one of those losses is real: a travel side that
 played the local varsity loses that result. It goes because the other half of it is
@@ -2307,6 +2323,8 @@ what to look for, for somebody to settle by opening the page. The owner ruled it
 name: "A lone V means Varsity. period." So it reads as `Varsity` does (**High school squads are left
 out**, above), the import refuses the page at its next ask, the row is set aside as a high school
 squad with no age offered, and the line and the lead it gave the row in the queue's order are gone.
+A V a digit, a dotted initial, an apostrophe or an accented letter joins to a word ("V8",
+"N.V.B.A.", "Válcor") is not standing alone, and its row waits like any other.
 None of the 13,169 rows waiting in the backup of 11 October 2026 has such a name; the queue holds
 the same 1,760 it did, the rule that reads who a team plays now counting a lone-V opponent as a
 school side and moving none of them. The card still carries a **High school** button beside **Not a

@@ -1102,3 +1102,271 @@ describe("the lone-V names pinned before the owner's ruling", () => {
     `);
   });
 });
+
+/*
+ * The same paths over names whose capital V something joins to a word, pinned on the first
+ * reading of the owner's ruling, which took every one of them for a lone V: a digit against it
+ * ("V8", "5V5"), dotted initials ("Q.V.Z."), an apostrophe ("V’rons") and a letter outside A to Z
+ * ("Válcor"). Beside them, a V a dot follows and nothing joins, a "J.V.", and two stand-ins
+ * carrying a class year whose rows name them under fourteen, one at the age the year gives and one
+ * at another. The names are invented; none is a club in the export or the pool.
+ */
+describe("the joined-V names pinned before a lone V was told from a joined one", () => {
+  const JOINED_V = [
+    "V8 Thistlewick",
+    "Marrowdale V2",
+    "Marrowdale 12V",
+    "Corvelin 5V5",
+    "Q.V.Z. Larkspire 16U",
+    "Q.V Larkspire",
+    "V.Q.Z. Larkspire",
+    "Ondarra Válcor 15U",
+    "Thistlewick V’rons",
+  ];
+  const STILL_SCHOOL = ["Alder Comets V.", "Brezal - V", "Alder Comets J.V."];
+  const NAMES = [...JOINED_V, ...STILL_SCHOOL];
+
+  it("files a schedule list as it did", () => {
+    const schedule = (id: string, name: string, games: GcTeamSchedule["games"]) => ({
+      profile: { id, name, ageLevel: 12, season: { season: "fall" as const, year: 2026 } },
+      games,
+      fetchedAt: "2026-10-01T12:00:00.000Z",
+    });
+    const played = (id: string, date: string, opponentName: string, runs: [number, number]) => ({
+      id,
+      date,
+      opponentName,
+      teamScore: runs[0],
+      opponentScore: runs[1],
+      status: "completed" as const,
+    });
+    const { state, outcomes } = importGcSchedules(
+      [
+        schedule(
+          "gcQUILL00001",
+          "Quillfeather Quails 12U",
+          NAMES.map((name, at) => played(`q${at}`, `2026-09-${10 + at}`, name, [6, 2]))
+        ),
+        ...NAMES.map((name, at) =>
+          schedule(`gcJOINV${String(at).padStart(5, "0")}`, name, [
+            played(`v${at}`, `2026-08-${10 + at}`, "Quillfeather Quails 12U", [1, 5]),
+          ])
+        ),
+      ],
+      { ageGroups: [], teams: [], games: [] },
+      { today: "2026-10-11" }
+    );
+    expect(
+      outcomes.map(
+        (outcome) =>
+          `${outcome.teamName}: ${outcome.skip ?? "filed"}, +${outcome.gamesAdded}, ignored ${
+            outcome.gamesIgnored
+          }`
+      )
+    ).toMatchInlineSnapshot(`
+      [
+        "Quillfeather Quails 12U: filed, +9, ignored 3",
+        "V8 Thistlewick: filed, +1, ignored 0",
+        "Marrowdale V2: filed, +1, ignored 0",
+        "Marrowdale 12V: filed, +1, ignored 0",
+        "Corvelin 5V5: filed, +1, ignored 0",
+        "Q.V.Z. Larkspire 16U: filed, +1, ignored 0",
+        "Q.V Larkspire: filed, +1, ignored 0",
+        "V.Q.Z. Larkspire: filed, +1, ignored 0",
+        "Ondarra Válcor 15U: filed, +1, ignored 0",
+        "Thistlewick V’rons: filed, +1, ignored 0",
+        "Alder Comets V.: high-school, +0, ignored 0",
+        "Brezal - V: high-school, +0, ignored 0",
+        "Alder Comets J.V.: high-school, +0, ignored 0",
+      ]
+    `);
+    expect(describePool(state)).toMatchInlineSnapshot(`
+      {
+        "games": [
+          "2026-08-10 V8 Thistlewick [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-08-11 Marrowdale V2 [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-08-12 Marrowdale 12V [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-08-13 Corvelin 5V5 [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-08-14 Q.V.Z. Larkspire [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-08-15 Q.V Larkspire [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-08-16 V.Q.Z. Larkspire [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-08-17 Ondarra Válcor [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-08-18 Thistlewick V’rons [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-09-10 Quillfeather Quails [pulled] 6-2 V8 Thistlewick [pulled]",
+          "2026-09-11 Quillfeather Quails [pulled] 6-2 Marrowdale V2 [pulled]",
+          "2026-09-12 Quillfeather Quails [pulled] 6-2 Marrowdale 12V [pulled]",
+          "2026-09-13 Quillfeather Quails [pulled] 6-2 Corvelin 5V5 [pulled]",
+          "2026-09-14 Quillfeather Quails [pulled] 6-2 Q.V.Z. Larkspire [stand-in]",
+          "2026-09-15 Quillfeather Quails [pulled] 6-2 Q.V Larkspire [pulled]",
+          "2026-09-16 Quillfeather Quails [pulled] 6-2 V.Q.Z. Larkspire [pulled]",
+          "2026-09-17 Quillfeather Quails [pulled] 6-2 Ondarra Válcor [stand-in]",
+          "2026-09-18 Quillfeather Quails [pulled] 6-2 Thistlewick V’rons [pulled]",
+        ],
+        "teams": [
+          "Corvelin 5V5 [pulled]",
+          "Marrowdale 12V [pulled]",
+          "Marrowdale V2 [pulled]",
+          "Ondarra Válcor [pulled]",
+          "Ondarra Válcor [stand-in]",
+          "Q.V Larkspire [pulled]",
+          "Q.V.Z. Larkspire [pulled]",
+          "Q.V.Z. Larkspire [stand-in]",
+          "Quillfeather Quails [pulled]",
+          "Quillfeather Quails [stand-in]",
+          "Thistlewick V’rons [pulled]",
+          "V.Q.Z. Larkspire [pulled]",
+          "V8 Thistlewick [pulled]",
+        ],
+      }
+    `);
+  });
+
+  it("marks a pasted list as it did", () => {
+    const list = parseGcTeamList(
+      [
+        "Team Name,Team ID,Age Group",
+        ...NAMES.map((name, at) => `${name},gcJLIST${String(at).padStart(5, "0")},`),
+      ].join("\n")
+    );
+    expect(
+      list.entries.map(({ name, highSchool }) => `${name}: ${highSchool ? "high school" : "-"}`)
+    ).toMatchInlineSnapshot(`
+      [
+        "V8 Thistlewick: -",
+        "Marrowdale V2: -",
+        "Marrowdale 12V: -",
+        "Corvelin 5V5: -",
+        "Q.V.Z. Larkspire 16U: -",
+        "Q.V Larkspire: -",
+        "V.Q.Z. Larkspire: -",
+        "Ondarra Válcor 15U: -",
+        "Thistlewick V’rons: -",
+        "Alder Comets V.: high school",
+        "Brezal - V: high school",
+        "Alder Comets J.V.: high school",
+      ]
+    `);
+  });
+
+  const pool = (): GcImportState => ({
+    ageGroups: [page],
+    teams: [
+      club("quill", "Quillfeather Quails", [["gcQUILL00001", "Quillfeather Quails 12U"]]),
+      club("v8", "V8 Thistlewick", [["gcJOINV00000", "V8 Thistlewick"]]),
+      club("qvz", "Q.V.Z. Larkspire", [["gcJOINV00004", "Q.V.Z. Larkspire 16U"]]),
+      club("valcor", "Ondarra Válcor", [["gcJOINV00007", "Ondarra Válcor 15U"]]),
+      club("alder", "Alder Comets V.", [["gcJOINV00009", "Alder Comets V."]]),
+      { id: "marrow", name: "Marrowdale V2", nameOnly: true },
+      { id: "corvelin", name: "Corvelin 5V5", nameOnly: true },
+      { id: "rons", name: "Thistlewick V’rons", nameOnly: true },
+      { id: "jv", name: "Alder Comets J.V.", nameOnly: true },
+      // The class of 2033 is 12U in 2027: the row's age is the one its class year gives.
+      { id: "year", name: "Quillmoor V 2033", nameOnly: true },
+      // The class of 2031 is 14U in 2027: the row's 12 came from an age label the name lost.
+      { id: "label", name: "Brezal V 2031", nameOnly: true },
+    ],
+    games: [
+      row("gA", "v8", "quill", [1, 5], "2026-09-05", "gcJOINV00000", { namedByAvatar: "quill" }),
+      row("gB", "qvz", "quill", [2, 5], "2026-09-06", "gcJOINV00004", { namedByAvatar: "quill" }),
+      row("gC", "valcor", "quill", [3, 5], "2026-09-07", "gcJOINV00007", {
+        namedByAvatar: "quill",
+      }),
+      row("gD", "alder", "quill", [4, 5], "2026-09-08", "gcJOINV00009", { namedByAvatar: "quill" }),
+      row("gE", "quill", "marrow", [6, 1], "2026-09-09", "gcQUILL00001"),
+      row("gF", "quill", "corvelin", [6, 2], "2026-09-10", "gcQUILL00001"),
+      row("gG", "quill", "rons", [6, 3], "2026-09-11", "gcQUILL00001"),
+      row("gH", "quill", "jv", [6, 4], "2026-09-12", "gcQUILL00001"),
+      row("gI", "quill", "year", [7, 1], "2026-09-13", "gcQUILL00001", { ageLevelB: 12 }),
+      row("gJ", "quill", "label", [7, 2], "2026-09-14", "gcQUILL00001", { ageLevelB: 12 }),
+    ],
+  });
+
+  it("tidies a pool as it did", () => {
+    const tidy = tidyPool(pool());
+    expect(counts(tidy)).toMatchInlineSnapshot(`
+      {
+        "highSchool": 3,
+        "passes": 2,
+      }
+    `);
+    expect(describePool(tidy.state)).toMatchInlineSnapshot(`
+      {
+        "games": [
+          "2026-09-05 V8 Thistlewick [pulled] 1-5 Quillfeather Quails [pulled]",
+          "2026-09-06 Q.V.Z. Larkspire [pulled] 2-5 Quillfeather Quails [pulled]",
+          "2026-09-07 Ondarra Válcor [pulled] 3-5 Quillfeather Quails [pulled]",
+          "2026-09-09 Quillfeather Quails [pulled] 6-1 Marrowdale V2 [stand-in]",
+          "2026-09-10 Quillfeather Quails [pulled] 6-2 Corvelin 5V5 [stand-in]",
+          "2026-09-11 Quillfeather Quails [pulled] 6-3 Thistlewick V’rons [stand-in]",
+          "2026-09-14 Quillfeather Quails [pulled] 7-2 Brezal V 2031 [stand-in]",
+        ],
+        "teams": [
+          "Brezal V 2031 [stand-in]",
+          "Corvelin 5V5 [stand-in]",
+          "Marrowdale V2 [stand-in]",
+          "Ondarra Válcor [pulled]",
+          "Q.V.Z. Larkspire [pulled]",
+          "Quillfeather Quails [pulled]",
+          "Thistlewick V’rons [stand-in]",
+          "V8 Thistlewick [pulled]",
+        ],
+      }
+    `);
+  });
+
+  it("lists the clubs worth pulling as it did", () => {
+    expect(unpulledClubs(pool()).map((entry) => entry.name)).toMatchInlineSnapshot(`
+      [
+        "Brezal V 2031",
+        "Corvelin 5V5",
+        "Marrowdale V2",
+        "Thistlewick V’rons",
+      ]
+    `);
+  });
+
+  it("reads the waiting list's names as it did", () => {
+    const evidence: AgelessEvidence = {
+      games: 4,
+      scored: 4,
+      aheadOfToday: 0,
+      shutoutBlowouts: 0,
+      opponents: 4,
+      namedAnAge: 1,
+      tally: [[16, 1]],
+      sampleOpponents: [],
+    };
+    const rows: AgeUnknownTeam[] = NAMES.map((name) => ({
+      teamId: name,
+      name,
+      firstSeen: "2026-09-01T00:00:00.000Z",
+      lastTried: "2026-09-10T00:00:00.000Z",
+      tries: 1,
+      evidence,
+    }));
+    const now = new Date("2026-09-20T12:00:00.000Z");
+    expect(
+      rows.map((entry) => {
+        const hit = agelessSearch([entry], new Map(), new Set(), now, entry.teamId).hits[0]!;
+        return `${entry.name}: ${hit.aside ?? "on the queue"}; ${
+          refusedAsSchool(entry) ? "refused as a school" : "not refused"
+        }`;
+      })
+    ).toMatchInlineSnapshot(`
+      [
+        "V8 Thistlewick: on the queue; not refused",
+        "Marrowdale V2: on the queue; not refused",
+        "Marrowdale 12V: on the queue; not refused",
+        "Corvelin 5V5: on the queue; not refused",
+        "Q.V.Z. Larkspire 16U: on the queue; not refused",
+        "Q.V Larkspire: on the queue; not refused",
+        "V.Q.Z. Larkspire: on the queue; not refused",
+        "Ondarra Válcor 15U: on the queue; not refused",
+        "Thistlewick V’rons: on the queue; not refused",
+        "Alder Comets V.: high-school; refused as a school",
+        "Brezal - V: high-school; refused as a school",
+        "Alder Comets J.V.: high-school; refused as a school",
+      ]
+    `);
+  });
+});

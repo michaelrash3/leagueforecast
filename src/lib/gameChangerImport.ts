@@ -7234,10 +7234,11 @@ const without = (
  * import files, and the next pull filed it again. A pulled club goes when every name GameChanger
  * gives it reads as a school's (the club's own name standing in for a link that carries none), as
  * the not-a-team pass reads one; a stand-in, which has only the stored name, unless a row named it
- * at an age under fourteen (`schoolNamedTravelStandIns`). That mattered from the owner's ruling of
- * 18 October 2026 that a lone V is varsity: on the backup of 11 October the stored names of 29
- * pulled clubs read so, and the names GameChanger gives 17 of them do not, 16 stating 9U to 13U
- * and one carrying no lone V at all. A slot, or a club added by hand, is read by its name.
+ * at an age under fourteen off an age label (`schoolNamedTravelStandIns`). That mattered from the
+ * owner's ruling of 18 October 2026 that a lone V is varsity: on the backup of 11 October the
+ * stored names of 11 pulled clubs read so, and the names GameChanger gives 7 of them do not, 6
+ * stating an age under 14U and one carrying no lone V at all. A slot, or a club added by hand, is
+ * read by its name.
  */
 const dropSchoolTeams = (state: GcImportState): { state: GcImportState; dropped: number } => {
   const travel = schoolNamedTravelStandIns(state);
@@ -7251,30 +7252,46 @@ const dropSchoolTeams = (state: GcImportState): { state: GcImportState; dropped:
 
 /**
  * The stand-ins whose stored name reads as a school squad's (`isSchoolName`) that some row named at
- * an age under the youngest a freshman is (`MIN_HIGH_SCHOOL_AGE`): a travel club's, as the import
- * read that row, and kept by the tidy's school pass and on the clubs worth pulling.
+ * an age under the youngest a freshman is (`MIN_HIGH_SCHOOL_AGE`) read off an age label: a travel
+ * club's, as the import read that row, and kept by the tidy's school pass and on the clubs worth
+ * pulling.
  *
  * A stand-in is stored under the name a schedule wrote with its age taken off (`cleanTeamName`),
  * and the age stays on the row, as the level the name gave its side (`ScoutGame.ageLevelB`, or A
  * on a row filed the other way round). The import drops a row whose opponent's name reads as a
- * school's, so a row naming a stand-in so without an age came before the rule that drops it. On
- * the backup of 11 October 2026, 3 of the 30 stand-ins a lone V reads had every row name them at
- * an age under fourteen, 5 games in all, and none had rows of both kinds.
+ * school's, so a row naming a stand-in so without an age came before the rule that drops it.
+ *
+ * Off an age label, because that is the only age the school rule excuses. The import reads a side's
+ * level from a label or, failing one, from a class year read against the page's squad year, and
+ * `relevelFromNames` reads the stored name the same way; but `isSchoolName` reads no year, so the
+ * import refuses "Quillmoor V 2033" on a 2027 page, the class of 2033 being 12U. The year stays on
+ * the stored name, so a row at the very age the name's class year gives on that row's page is read
+ * as the year's: the stand-in goes, where kept it stood on the clubs worth pulling while every pull
+ * refused it. A label and the year it agrees with cannot be told apart from the year alone once
+ * the label is off, and are read as the year. On the backup of 11 October 2026 no row naming such a
+ * stand-in carries the age its class year gives, and 2 of the 24 stand-ins a lone V reads had every
+ * row name them at an age under fourteen, 3 games in all, none with rows of both kinds.
  */
 export const schoolNamedTravelStandIns = (
-  state: Pick<GcImportState, "teams" | "games">
+  state: Pick<GcImportState, "ageGroups" | "teams" | "games">
 ): ReadonlySet<string> => {
-  const school = new Set(
+  const school = new Map(
     state.teams
       .filter((team) => team.nameOnly && !team.placeholder && isSchoolName(team.name))
-      .map((team) => team.id)
+      .map((team) => [team.id, team.name])
   );
   const travel = new Set<string>();
   if (school.size === 0) return travel;
-  const young = (level: number | undefined) => level !== undefined && level < MIN_HIGH_SCHOOL_AGE;
+  const squadYear = new Map(state.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  const labelled = (teamId: string, level: number | undefined, ageGroupId: string) => {
+    const name = school.get(teamId);
+    if (name === undefined || level === undefined || level >= MIN_HIGH_SCHOOL_AGE) return false;
+    const year = squadYear.get(ageGroupId);
+    return year === undefined || ageFromGradYearInName(name, year) !== level;
+  };
   state.games.forEach((game) => {
-    if (school.has(game.teamAId) && young(game.ageLevelA)) travel.add(game.teamAId);
-    if (school.has(game.teamBId) && young(game.ageLevelB)) travel.add(game.teamBId);
+    if (labelled(game.teamAId, game.ageLevelA, game.ageGroupId)) travel.add(game.teamAId);
+    if (labelled(game.teamBId, game.ageLevelB, game.ageGroupId)) travel.add(game.teamBId);
   });
   return travel;
 };
@@ -8313,10 +8330,11 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  24 — a name that is only "Team", with nothing more than a number, a letter or an age, read as
  *       a page that is no team: such a pulled club deleted where the pool calls it so too, and
  *       such a stand-in's games kept on slots of their own
- *  25 — a lone capital V read as varsity, the owner's ruling of 18 October 2026, so such a club
- *       deleted as a high school squad; and the school pass reading a pulled club by the names
- *       GameChanger gives it and keeping a stand-in a row named at an age under fourteen, so it
- *       deletes no club the import files
+ *  25 — a lone capital V, one nothing joins to a word, read as varsity, the owner's ruling of 18
+ *       October 2026, and "J.V." as JV, so such a club deleted as a high school squad; and the
+ *       school pass reading a pulled club by the names GameChanger gives it and keeping a stand-in
+ *       a row named at an age under fourteen off an age label, so it deletes no club the import
+ *       files
  */
 const TIDY_RULES_VERSION = 25;
 

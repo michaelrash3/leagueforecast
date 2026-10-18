@@ -5531,6 +5531,69 @@ describe("a lone V, which means varsity", () => {
     expect(isSchoolName("Tamberly IV")).toBe(false);
   });
 
+  /*
+   * Standing alone is the ruling's own word, and a V something joins to a word does not stand
+   * alone: a digit against it ("V8", "5V5", "12V"), dotted initials ("Q.V.Z.", "Q.V"), an
+   * apostrophe ("V’rons") or a letter outside A to Z, precomposed or a combining mark ("Válcor").
+   * The first reading of the ruling counted anything but A to Z as no letter, so it refused these
+   * as varsity, and on the backup of 11 October 2026 the tidy deleted pulled 9U to 18U clubs for
+   * them.
+   */
+  it("reads no V that a digit, a dotted initial, an apostrophe or an accent joins to a word", () => {
+    for (const name of [
+      "V8 Thistlewick",
+      "Marrowdale V2",
+      "Marrowdale 12V",
+      "Corvelin 5V5",
+      "Q.V.Z. Larkspire 16U",
+      "Q.V Larkspire",
+      "V.Q.Z. Larkspire",
+      "Larkspire Q.V.",
+      "Ondarra Válcor 15U",
+      "Ondarra Ávo V\u0301lcor",
+      "Thistlewick V’rons",
+      "Thistlewick O'V",
+    ]) {
+      expect(isSchoolName(name), name).toBe(false);
+    }
+  });
+
+  it("still reads a V nothing joins to a word, a dot after it or not, and J.V. as JV", () => {
+    expect(isSchoolName("Alder Comets V.")).toBe(true);
+    expect(isSchoolName("V. Brezal")).toBe(true);
+    expect(isSchoolName("Brezal - V")).toBe(true);
+    expect(isSchoolName("Brezal/V")).toBe(true);
+    expect(isSchoolName("Brezal 'V'")).toBe(true);
+    expect(isSchoolName("Brezal V's")).toBe(false);
+    // J.V. is the JV it spells, a squad word, under the same floor.
+    expect(isSchoolName("Alder Comets J.V.")).toBe(true);
+    expect(isSchoolName("Alder Comets J.V")).toBe(true);
+    expect(isSchoolName("Alder Comets J.V. 12U")).toBe(false);
+  });
+
+  it("files a page, and a game against a side, whose V is joined to a word", () => {
+    const pages: [string, number][] = [
+      ["V8 Thistlewick", 9],
+      ["Q.V.Z. Larkspire 16U", 16],
+      ["Ondarra Válcor 15U", 15],
+    ];
+    for (const [name, ageLevel] of pages) {
+      const { outcome } = importGcSchedule(
+        schedule({ name, ageLevel }, [game({ opponentName: "Quillfeather Quails 9U" })]),
+        empty
+      );
+      expect(outcome.skip, name).toBeUndefined();
+    }
+    const filed = importGcSchedule(
+      schedule({ name: "Quillfeather Quails 9U" }, [
+        game({ id: "joined", opponentName: "Marrowdale V2" }),
+      ]),
+      empty
+    );
+    expect(filed.outcome.gamesIgnored).toBe(0);
+    expect(filed.state.games.map((g) => g.id)).toEqual(["gc_gcAAAAAAAAAA_joined"]);
+  });
+
   it("refuses the page, and drops a game against one rather than minting it", () => {
     const { state, outcome } = importGcSchedule(
       schedule({ name: "Alder Comets V", ageLevel: 16 }, [game()]),
@@ -5663,6 +5726,90 @@ describe("a lone V, which means varsity", () => {
     expect(tidy.highSchool).toBe(2);
     expect(tidy.state.teams.map((team) => team.id).sort()).toEqual(["real", "travel", "turned"]);
     expect(tidy.state.games.map((g) => g.id)).toEqual(["g1", "g4"]);
+  });
+
+  it("keeps a pulled club and a stand-in whose V is joined to a word", () => {
+    const page: AgeGroup = { id: "ag", name: "16U 2027", ageLevel: 16, year: 2027, seasonIds: [] };
+    const tidy = tidyPool({
+      ageGroups: [page],
+      teams: [
+        { id: "real", name: "Quillfeather Quails" },
+        {
+          id: "dotted",
+          name: "Q.V.Z. Larkspire",
+          gcTeams: [
+            {
+              teamId: "gcBBBBBBBBBB",
+              name: "Q.V.Z. Larkspire 16U",
+              ageGroupId: page.id,
+              ageLevel: 16,
+              season: "fall",
+              seasonYear: 2026,
+            },
+          ],
+        },
+        { id: "digit", name: "Marrowdale V2", nameOnly: true },
+      ],
+      games: [
+        { id: "g1", ageGroupId: page.id, teamAId: "dotted", teamBId: "real", date: "2026-09-12" },
+        { id: "g2", ageGroupId: page.id, teamAId: "real", teamBId: "digit", date: "2026-09-13" },
+      ],
+    });
+    expect(tidy.highSchool).toBe(0);
+    expect(tidy.state.teams.map((team) => team.id).sort()).toEqual(["digit", "dotted", "real"]);
+  });
+
+  /*
+   * The import reads an opponent's age off its name from an age label or, failing one, from a class
+   * year, and keeps it on the row; but only the label excuses a school word (`isSchoolName` reads
+   * no year), so an opponent "Quillmoor V 2033" on a 2027 page is refused, the class of 2033 being
+   * 12U, where "Quillmoor Xyz 2033" is filed at 12. A row from before the ruling naming such a
+   * stand-in at the age its own class year gives says nothing about a label, and the stand-in goes;
+   * one naming it at an age its year does not give had a label the stored name lost, and stays.
+   */
+  it("deletes a stand-in whose row's travel age is its class year's, as the import refuses it", () => {
+    const pulled = importGcSchedule(
+      schedule({ name: "Quillfeather Quails 9U" }, [
+        game({ id: "year", opponentName: "Quillmoor V 2033" }),
+        game({ id: "plain", date: "2026-08-23", opponentName: "Quillmoor Xyz 2033" }),
+      ]),
+      empty
+    );
+    expect(pulled.outcome.gamesIgnored).toBe(1);
+    expect(pulled.state.games.map((g) => [g.id, g.ageLevelB])).toEqual([
+      ["gc_gcAAAAAAAAAA_plain", 12],
+    ]);
+    const page: AgeGroup = { id: "ag", name: "9U 2027", ageLevel: 9, year: 2027, seasonIds: [] };
+    const tidy = tidyPool({
+      ageGroups: [page],
+      teams: [
+        { id: "real", name: "Quillfeather Quails" },
+        { id: "year", name: "Quillmoor V 2033", nameOnly: true },
+        // The class of 2031 is 14U in 2027, so the row's 12 came from a label: "Brezal V 12U 2031".
+        { id: "label", name: "Brezal V 2031", nameOnly: true },
+      ],
+      games: [
+        {
+          id: "g1",
+          ageGroupId: page.id,
+          teamAId: "real",
+          teamBId: "year",
+          date: "2026-09-12",
+          ageLevelB: 12,
+        },
+        {
+          id: "g2",
+          ageGroupId: page.id,
+          teamAId: "real",
+          teamBId: "label",
+          date: "2026-09-13",
+          ageLevelB: 12,
+        },
+      ],
+    });
+    expect(tidy.highSchool).toBe(1);
+    expect(tidy.state.teams.map((team) => team.id).sort()).toEqual(["label", "real"]);
+    expect(tidy.state.games.map((g) => g.id)).toEqual(["g2"]);
   });
 });
 

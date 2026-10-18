@@ -103,6 +103,29 @@ describe("the clubs worth pulling next", () => {
     expect(clubs.map((club) => club.name)).toEqual(["Gorsefield Gulls V"]);
   });
 
+  it("leaves out a lone-V stand-in whose row's travel age is its class year's", () => {
+    /*
+     * The import refuses an opponent "Quillmoor V 2033" on a 2027 page: the class of 2033 is 12U,
+     * but a class year excuses no school word, only an age label does. So a row from before the
+     * ruling that named it at 12 says nothing about a travel club, and it is not worth pulling. The
+     * class of 2031 is 14U, so a row naming that stand-in at 11 read a label the stored name lost.
+     */
+    const clubs = unpulledClubs(
+      pool(
+        [
+          pulled("S-HOME", "Home Club", "KY"),
+          heard("S-YEAR", "Quillmoor V 2033"),
+          heard("S-LABEL", "Brezal V 2031"),
+        ],
+        [
+          game("g1", "ag_12_2027", "S-HOME", "S-YEAR", { ageLevelB: 12 }),
+          game("g2", "ag_11_2027", "S-HOME", "S-LABEL", { ageLevelB: 11 }),
+        ]
+      )
+    );
+    expect(clubs.map((club) => club.name)).toEqual(["Brezal V 2031"]);
+  });
+
   it("puts the one holding the most results first", () => {
     // A stand-in holding two results costs two games; one holding one costs one.
     const [first] = unpulledClubs(state());

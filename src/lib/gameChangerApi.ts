@@ -752,9 +752,9 @@ export const ageLevelFromName = (name: string): number | undefined => {
  * Four ways a name says it, and one it does not:
  *
  * - **"Varsity", "JV", "Junior Varsity"** name a school-season squad and nothing else does. The
- *   long form needs no separate pattern: it contains "Varsity". Refused whatever else the name
- *   carries, because a side calling itself varsity is playing the school season even if it also
- *   writes an age.
+ *   long form needs no separate pattern: it contains "Varsity", and "J.V." is the JV it spells.
+ *   Refused whatever else the name carries, because a side calling itself varsity is playing the
+ *   school season even if it also writes an age.
  * - **A lone capital "V"** is the word Varsity, read exactly as the word is (`LONE_V`): "Alder
  *   Comets V", "Quillmoor V Fall", "Wrenhaven V-Rays". That is the owner's ruling of 18 October
  *   2026, in his words: "A lone V means Varsity. period."
@@ -771,22 +771,36 @@ export const ageLevelFromName = (name: string): number | undefined => {
  * otherwise. Without this the rule quietly deleted them, and a wrongly refused club leaves nothing
  * behind to notice it by.
  */
-const SCHOOL_SQUAD = /\b(?:varsity|jv)\b/i;
+const SCHOOL_SQUAD = /\b(?:varsity|jv|j\.v)\b/i;
 const HIGH_SCHOOL = /\b(?:hs|high\s+school)\b/i;
 
 /**
- * A capital "V" with no letter against it on either side: the varsity squad, at the owner's word
- * of 18 October 2026 ("A lone V means Varsity. period."), so a squad word like the one it stands
- * for, under the same age floor. Until then a lone V refused nothing and only sent its row to a
- * person on the waiting list, with a hint to open the page; the owner ruled that there is nothing
- * for the person to settle.
+ * A capital "V" standing alone: the varsity squad, at the owner's word of 18 October 2026 ("A lone V
+ * means Varsity. period."), so a squad word like the one it stands for, under the same age floor.
+ * Until then a lone V refused nothing and only sent its row to a person on the waiting list, with a
+ * hint to open the page; the owner ruled that there is nothing for the person to settle.
  *
- * Uppercase only, because a lone lowercase "v" between two names is "versus", and a letter run
- * into others ("VA", "MVP", "IV") is not one standing alone. Written without a lookbehind so it
- * runs wherever the app does. Measured on the backup of 11 October 2026 it read 59 teams no other
- * squad word did, and 76 rows of the desktop crawl's export of 24 September.
+ * Alone is the ruling's word, and a V something joins to a word is not alone: a letter in any
+ * script against it ("VA", "MVP", "IV", "Válcor", or a combining accent on the V itself), a digit
+ * ("V8", "5V5", "12V"), or a dot or an apostrophe with a letter or a digit beyond it ("N.V.B.A.",
+ * "Q.V", "V’rons"), which make the V an initial or part of a word. A dot that ends the name or meets
+ * a space leaves it alone ("Alder Comets V.", "V. Brezal"), and so does any other mark: a space, a
+ * bracket, a hyphen, a slash ("Wrenhaven V-Rays", "Tamberly (V)", "JV/V"). "J.V.", its V joined to
+ * the J by a dot, is read as the squad word it spells (`SCHOOL_SQUAD`).
+ *
+ * The first reading of the ruling counted anything but A to Z as no letter, and so refused V8,
+ * N.V.B.A. and Válcor as varsity. Measured over the 362,078 distinct names in the backup of 11
+ * October 2026, its waiting list and the desktop crawl's export of 24 September, it read 121 names
+ * as school that no other school word did, and reading a V as alone reads 88: the 33 it gives back
+ * have every V joined to a word, by a dot (16), a digit (13), an accented letter (3) or an
+ * apostrophe (1). Three of the 88 are a "J.V.", which the first reading took for a lone V.
+ *
+ * Uppercase only, because a lone lowercase "v" between two names is "versus". Written without a
+ * lookbehind so it runs wherever the app does: what stands before the V is matched rather than
+ * looked behind at, and what stands after it is looked ahead at.
  */
-const LONE_V = /(?:^|[^A-Za-z])V(?:[^A-Za-z]|$)/;
+const LONE_V =
+  /(?:^|[^\p{L}\p{M}\p{N}.'\u2018\u2019]|(?:^|[^\p{L}\p{M}\p{N}])[.'\u2018\u2019])V(?![\p{L}\p{M}\p{N}]|[.'\u2018\u2019][\p{L}\p{M}\p{N}])/u;
 
 /** The youngest a freshman is, and so the youngest a name can say and still mean high school. */
 export const MIN_HIGH_SCHOOL_AGE = 14;
