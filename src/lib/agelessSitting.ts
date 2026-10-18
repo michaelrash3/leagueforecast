@@ -31,7 +31,7 @@ export type AgelessSitting = {
   groups: AgelessGroup[];
   /**
    * How many rows each rule kept off the queue (`RULE_ASIDES`): what the card says under the ten,
-   * since a queue that went from 10,102 rows to 1,873 on the backup of 11 October 2026 owes the
+   * since a queue that went from 10,102 rows to 1,760 on the backup of 11 October 2026 owes the
    * reader where the rest went. Read off the rows, so it is never out of step with them.
    */
   setAside: AgelessSetAside;

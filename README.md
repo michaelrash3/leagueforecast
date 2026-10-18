@@ -272,33 +272,45 @@ export (0.80%), 692 of them with no players at all, and a second implementation 
 gives the same verdict as this one on every one of the 147,114 distinct names in the pool.
 
 A sixteenth group joined them on 18 October 2026, at the owner's word ("Team number teams should
-be blocked"): a name that is **only "Team" and a number or a letter**, "Team 7", "Team #4", "Team
-B", "My Team" and the word alone, with my, new, the or our in front and a "#" anywhere between,
-and nothing else in the name. It is what a page is called when nobody named it and how a schedule
-writes an opponent it could not name; the waiting list had sorted these to its top on the same
-pattern since 27 September. A place or a club's name after the word, an age ("Team 12U", 32 rows of
-the export, which the age reader files), a second word after the number, four digits, or a number
+be blocked"): a name that is **only "Team", with nothing more than a number, a letter or an age**,
+"Team 7", "Team #4", "Team B", "My Team", the word alone, "Team 7 12U", "12U Team 7" and "Team
+12U", with my, new, the or our in front and a "#" anywhere between. It is what a page is called
+when nobody named it and how a schedule writes an opponent it could not name; the waiting list had
+sorted the shape without an age to its top since 27 September. The age counts for nothing because
+the import takes it off a stored name (`cleanTeamName`): a page GameChanger calls "Team 7 12U" is
+stored and shown on every board as "Team 7", and "Team 12U" as "Team". A place or a club's name
+after the word, a second word after the number, four digits, a bracket of two ages, or a number
 run into a name ("Team7" and a name splits to "Team 7" and the name) is a team somebody named, and
-is left alone. On the export it reads 28 rows, 9 of them empty and 11 full rosters, none of them
-read by another group: the sixteen read 2,166 rows (0.81%), 701 empty, and a pasted export now
-marks 2,034 rows as no team where it marked 2,006. In the backup of 11 October it reads one pulled
-club, a club of its own, unranked, holding no games and on nobody's list of real clubs, and 49
-stand-ins holding 72 games, 43 scored, none listed by a second schedule. Those 72 sit on the
-schedules of 29 pulled clubs, on 67 of their days, with two such opponents on one day only once,
-none under an event, and a median margin of five runs: real games against an opponent the
-schedule could not name, not a squad playing itself. So a game against one is kept on a slot of
-its own, as an old page's is, and the result stays on the record of the club that played it. The
-tidy deletes the one pulled club and turns the 49 stand-ins' 72 games onto 72 slots of their own,
-not a result lost; it deletes a club GameChanger calls "Team 7" only where the pool calls it so
-too, since the import has nothing to clean off such a name, and a club the pool holds under
-another name was renamed by hand or merged into one by somebody. The tidy rules go from 23 to 24,
-so every pool is tidied once more under the word. The nightly sweep's name sign reads void, test
-and demo alone (`madeUpHit`) and does not move; the clubs worth pulling leave such stand-ins out,
-as they leave out the other words'; the waiting list says "the name is only “Team” and a number"
-for one, as it did. The board parity pins do not move, so `BOARD_RULES` stays at 7.
+is left alone; so is a letter run straight onto the word, "Teams" being a plural and "TEAMB" a
+word in capitals, where "TeamB" splits to "Team B" and is read.
+
+On the export it reads 75 rows, 47 of them with an age, 28 empty and 21 full rosters, none of them
+read by another group: the sixteen read 2,213 rows (0.83%), 720 empty, and a pasted export now
+marks 2,081 rows as no team where it marked 2,006. A second implementation of the pattern gives the
+same verdict on all 155,641 distinct names in the backup of 11 October and its waiting list (54
+read) and all 237,305 in the export (54 read). In that backup it reads 31 pulled clubs, each of
+one GameChanger team and on nobody's list of real clubs: one with no age in its name, unranked
+and holding no games, and 30 of the "Team 7 12U" kind, in 13 states, holding 66 games, 29 scored,
+34 of them between two such clubs, 10 of the 30 on a board built from that backup, the best of
+them 914th. It reads 49 stand-ins too, holding 72 games, 43 scored, none listed by a second
+schedule. Those 72 sit on the schedules of 29 pulled clubs, on 67 of their days, with two such
+opponents on one day only once, none under an event, and a median margin of five runs: real games
+against an opponent the schedule could not name, not a squad playing itself. So a game against
+one is kept on a slot of its own, as an old page's is, and the result stays on the record of the
+club that played it. The tidy deletes the 31 pulled clubs and turns the 49 stand-ins' 72 games
+onto 72 slots of their own, not a result lost; of the 30 aged clubs' 66 games, 17 stay on the
+record of a club whose own schedule lists them and 49 go with the pages, 21 of them scored. On that
+backup the not-a-team pass deletes 786 pages where it deleted 756 without the age. It deletes a
+club GameChanger calls "Team 7" only where the pool calls it so too, since the import has nothing
+but an age to clean off such a name, and a club the pool holds under another name was renamed by
+hand or merged into one by somebody. The tidy rules go from 23 to 24, so every pool is tidied once
+more under the word. The nightly sweep's name sign reads void, test and demo alone (`madeUpHit`)
+and does not move; the clubs worth pulling leave such stand-ins out, as they leave out the other
+words'; the waiting list says "the name is only “Team”, with nothing more than a number, a letter
+or an age" for one. The board parity pins do not move, so `BOARD_RULES` stays at 7.
 
 - **Out of a pasted list** before a request is spent: the row is marked with the word it hit, and
-  the pill reads "N practice, test or old team pages, skipped". Not remembered with the refusals
+  the pill reads "N practice, test, old or unnamed team pages, skipped". Not remembered with the refusals
   that hold for good, since a coach can rename a page: the name is read again on every export.
   The row of a club the owner vouched for, as the import reads that below, is kept and goes on as
   any row, on no pill (`vouchedByImport`): left out, the club could never be refreshed from a
@@ -339,7 +351,8 @@ for one, as it did. The board parity pins do not move, so `BOARD_RULES` stays at
   duplicate, placeholder) the game is filed against a slot of its own, as "TBD" is, because those
   are real teams' abandoned pages and the result is real: 14 of the 45 games filed against the
   void and do-not-use pages in the backup are listed by the other club's own schedule too. A name
-  that is only "Team" and a number is filed the same way, for the reason above.
+  that is only "Team" with a number, a letter or an age is filed the same way, for the reason
+  above.
 - **Already in the pool**, a tidy pass deletes a pulled club every one of whose GameChanger names
   says it is no team, read off its links (the club's own name only for a link that carries none),
   after the high school pass and before anything is levelled or settled; and a stand-in whose one
@@ -2178,34 +2191,56 @@ settled in a second; no games at all is a blank schedule.
 "No single person can search through 11,000 teams." So the ten are drawn only from teams with
 something on the row to answer from, and every other row is set aside, for one of five reasons
 read off the row (`setAsideByRule`, `agelessQueue.ts`): the name says it is no team (a word the
-import refuses a page on, "old team" or "not a real", only "Team" and a number, no letters, two
-characters or fewer); the schedule reads as made up (named void or do not use, every game scored
-on a day that has not happened, or `looksInvented` at half a point or more); it reads as a high
-school side (GameChanger's school label, a side that plays varsity and JV teams, a school's name
-or initials the refusal at the door does not take); it has no games yet, or nothing was kept to
-say it has any; or it has games and not one opponent writes an age, which no reading of its
-opponents can ever age. A roster short of nine is set aside as before. Set aside is worked out
-afresh from the row each time and never stored, so nothing is deleted: the rota goes on asking
-about every such team inside its budget (`ageUnknownDue` and `ageUnknownAsking` never read the
-queue), each ask writes a new row with what the schedule says now, and a team whose new row no
-longer reads so is back among the ten by itself. The search still reads the whole list and says
-of each why it is aside, the queue's reason under the note where there is one ("The name is only
-“Team” and a number."), and an age can still be named for any of them but a squad the import
-refuses as a school's by its name or its field. The groups under **Settled by rule**, and the pass
-that clears them, read every row still being asked about, the set-aside rows among them, as they
-read before; the downloaded file holds the queue's rows. Under "Showing 10 of N" the card says in
-one line how many each rule set aside, that each comes back on its own once a later check finds
-that changed, and that Find a team still finds every one; the live page's card says the same,
-from the counts the server's `ageless.queue` now carries.
+import refuses a page on, "old team" or "not a real", only "Team" with a number, a letter or an
+age, no letters, two characters or fewer); the schedule reads as made up (named void or do not
+use, every game scored on a day that has not happened, or `looksInvented` at half a point or
+more); it reads as a high school side (GameChanger's school label, a side that plays varsity and
+JV teams, a school's name or initials the refusal at the door does not take); it has no games yet,
+or nothing was kept to say it has any; or it has games and not one opponent writes an age of 8U to
+18U, which no reading of its opponents can ever age (`writesARankedAge`: an opponent writing 6U or
+19U is counted as writing an age, and the tally read back from storage keeps only the ages this app
+ranks, so such a row read "Its opponents do not agree: ." over nothing at all, and its line now
+says that none of the ages written is one this app ranks). A roster short of nine is set aside as
+before. Set aside is worked out afresh from the row each time and never stored, so nothing is
+deleted: the rota goes on asking about every such team inside its budget (`ageUnknownDue` and
+`ageUnknownAsking` never read the queue), each ask writes a new row with what the schedule says
+now, and a team whose new row no longer reads so is back among the ten by itself.
+
+The search still reads the whole list and says of each why it is aside, and under the note the
+reading that set it aside and no other (`asideBecause`): a school's name with a practice word in
+it is aside as a school, by its name, and says so, not that it reads as a practice account. A side
+the import would refuse as a school's, by its name or GameChanger's field, is "left out of the
+rankings and off this queue"; one only read as a school's, by who it plays or initials in its
+name, is "kept off this queue", and an age named for it files and ranks it as any team's does.
+
+An age can be named for any row but one the import refuses before it reads an age
+(`refusedByName`, `refusedAsSchool`): a thrown-out club, a squad refused as a school's, and a page
+whose name says it is no team ("Team 7", a practice) or another game, whose age the next ask would
+throw away with the row. A page refused by its name keeps the throw-out, which lands at once, and
+its note says its next check takes it off the list unless the club has renamed it by then; a squad
+refused as a school's keeps no buttons, as before. A name with no letters, or of two characters,
+the import files, and an age named for one lands. An age named before for a page the import now
+refuses says so ("the next refresh leaves it out rather than filing it"), with its Undo.
+
+The groups under **Settled by rule**, and the pass that clears them, read every row still being
+asked about, the set-aside rows among them, as they read before; the downloaded file holds the
+queue's rows. Under "Showing 10 of N" the card says in one line how many each rule set aside, that
+each comes back on its own once a later check finds that changed, and that Find a team still
+finds every one; the live page's card says the same, from the counts the server's `ageless.queue`
+now carries. The card's opening line says what is left: teams with opponents who write an age,
+too few of them to file the team by or not agreeing on one. On the backup below, 1,361 of the
+queue have one such opponent, 181 two and 218 three or more.
 
 Measured on the backup of 11 October 2026, read on 18 October: of the 13,169 listed, 3,067 were
-off the queue for a short roster and 10,102 on it. With the rule, 1,873 are on it, the teams at
-least one of whose opponents writes an age; set aside are 6,600 that play nobody who writes an
-age (2,873 of them with six opponents or more), 1,618 with no games, 3,067 with fewer than nine
-players, 10 whose name says no team and one high school side, and none for a made-up schedule,
-the import refusing those at the door now. The first sitting over the list (`agelessSitting`)
-took 150 ms where it took 163, and the next, with every row's reading cached, 12 ms where it took
-28 (medians of seven, Node 24).
+off the queue for a short roster and 10,102 on it. With the rule, 1,760 are on it, the teams at
+least one of whose opponents writes an age of 8U to 18U; set aside are 6,713 that play nobody who
+writes one (2,873 of them with six opponents or more, and 113 whose opponents write only an age
+out of that range), 1,618 with no games, 3,067 with fewer than nine players, 10 whose name says no
+team and one high school side, and none for a made-up schedule, the import refusing those at the
+door now. Searching each of the 13,169 by its id gives the same reasons in the same numbers. The
+first sitting over the list (`agelessSitting`) took 138 ms where it took 187, and the next, with
+every row's reading cached, 14 ms where it took 36 (medians of seven, Node 24, the two builds read
+in one session).
 
 **Two opponents agreeing are enough.** Three agreeing is the old bar and still the one a
 split is judged by, but two opponents naming one age with nobody naming another now
@@ -7437,8 +7472,14 @@ The card of teams waiting on an age asks four more: the card at a sitting (`agel
 (`ageless.file`) and what a pass over the rules ticked would clear (`ageless.clearPlan`). The
 sitting carries how many rows each rule set aside (`setAside`); a device reads an answer from a
 server before the counts as none set aside, leaves out a reason a newer server counts that it has
-no words for, and a device from before them never reads the field. A device from before the five
-new reasons refuses a search answer that carries one, until it loads the new build. Each
+no words for, and a device from before them never reads the field. A search's hit carries one of
+the five reasons every build since the search reads in `aside`, and any later one in `setAsideBy`
+(`FIRST_ASIDES`, `hitAside`): a build before 18 October reads `aside` strictly and refuses the
+whole answer for a reason it has no words for, and the live page waits for its update to be
+taken, so a phone can run such a build for days, and on the backup of 11 October 8,341 of the
+13,169 rows carry a later reason. There such a row shows with no note, as on the queue; this
+build reads both fields, an older server's answers among them, and reads a reason it has no words
+for, in either, as none rather than refusing the search. Each
 team is sent as the entry storage keeps and read back as storage reads one (`oneAgeless`), every
 line of its row worked out on the device from it. The 29 September copy's list held 13,338 teams
 (5.9 MB), 10,509 of them waiting: the sitting took 0.19 s (5 KB), a search 59 ms (12 KB), the file

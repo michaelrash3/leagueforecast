@@ -74,6 +74,7 @@ import {
 import { answerStart, START_CLUBS_MAX } from "../../leagueStart";
 import { notThisTeamList, refusalOf } from "../../notThisTeam";
 import { coerceQueryAnswer } from "../queryAnswers";
+import { FIRST_ASIDES, hitAside } from "../agelessSearchHit";
 import { fewOutsideOfPool } from "../../fewOutsideLeaders";
 import type { GameSeen } from "../views/gamesShape";
 import { callableEncode } from "./callableEncode";
@@ -1752,7 +1753,14 @@ describe("what the card of teams waiting on an age asks of the server's pool", (
     expect(answer).toEqual({
       kind: "ageless.search",
       total: found.total,
-      hits: found.hits.map(({ row, aside }) => ({ entry: row.entry, ...(aside ? { aside } : {}) })),
+      hits: found.hits.map(({ row, aside }) => ({
+        entry: row.entry,
+        ...(aside === undefined
+          ? {}
+          : FIRST_ASIDES.some((first) => first === aside)
+            ? { aside }
+            : { setAsideBy: aside }),
+      })),
     });
     expect(answer.total).toBeGreaterThan(answer.hits.length);
     const named = asked({ kind: "ageless.search", today: TODAY, query: "alder comets named" });
@@ -1828,7 +1836,8 @@ describe("what the card of teams waiting on an age asks of the server's pool", (
         { ...queue, groups: [{ rule: { id: "void-name" }, count: 1, examples: [] }] },
         "ageless.queue",
       ],
-      [{ ...search, hits: [{ entry, aside: "elsewhere" }] }, "ageless.search"],
+      [{ ...search, hits: [{ entry, aside: 3 }] }, "ageless.search"],
+      [{ ...search, hits: [{ entry, setAsideBy: ["no-games"] }] }, "ageless.search"],
       [{ ...search, total: 0 }, "ageless.search"],
       [{ ...file, csv: null }, "ageless.file"],
       [{ ...plan, teamIds: [""] }, "ageless.clearPlan"],
@@ -1862,8 +1871,80 @@ describe("what the card of teams waiting on an age asks of the server's pool", (
   it("finds a team the queue sets aside, and says why", () => {
     const answer = asked({ kind: "ageless.search", today: TODAY, query: "alder comets void" });
     expect(answer.hits).toEqual([
-      { entry: LIST.find((one) => one.teamId === "gcVOID"), aside: "no-team-name" },
+      { entry: LIST.find((one) => one.teamId === "gcVOID"), setAsideBy: "no-team-name" },
     ]);
-    expect(coerceQueryAnswer(JSON.parse(JSON.stringify(answer)), "ageless.search")).toEqual(answer);
+    const read = coerceQueryAnswer(JSON.parse(JSON.stringify(answer)), "ageless.search");
+    expect(read).toEqual(answer);
+    expect(read?.hits.map(hitAside)).toEqual(["no-team-name"]);
+  });
+
+  /*
+   * The reader of a search on the build before 18 October 2026, as origin/main has it
+   * (`agelessHit`, `agelessSearchOf` in queryAnswers.ts): a hit with an aside it has no words for
+   * is refused, and one refused hit refuses the whole answer. The live page asks for its update
+   * (`registerType: "prompt"`), so a phone can run that build for days after the server moves on,
+   * and on the backup of 11 October 2026 8,341 of the 13,169 rows carry a new reason.
+   */
+  const OLDER_ASIDES = new Set(["dropped", "named", "high-school", "short-roster", "left-alone"]);
+  const olderSearchOf = (raw: unknown) => {
+    if (typeof raw !== "object" || raw === null) return null;
+    const { hits, total } = raw as { hits?: unknown; total?: unknown };
+    if (!Array.isArray(hits) || typeof total !== "number") return null;
+    const read = hits.map((hit: unknown) => {
+      if (typeof hit !== "object" || hit === null) return null;
+      const { entry, aside } = hit as { entry?: unknown; aside?: unknown };
+      if (typeof entry !== "object" || entry === null) return null;
+      if (aside === undefined) return { entry };
+      return typeof aside === "string" && OLDER_ASIDES.has(aside) ? { entry, aside } : null;
+    });
+    return read.every((hit) => hit !== null) ? { total, hits: read } : null;
+  };
+
+  it("is read whole by a build from before the new reasons, which shows those rows with no note", () => {
+    const says = ["named", "dropped", "void", "q0", "q3"].map((word) => {
+      const answer = asked({ kind: "ageless.search", today: TODAY, query: `alder comets ${word}` });
+      const sent = JSON.parse(JSON.stringify(answer)) as unknown;
+      const older = olderSearchOf(sent);
+      const read = coerceQueryAnswer(sent, "ageless.search");
+      const hit = older?.hits[0];
+      return [
+        word,
+        older === null ? "refused" : hit && "aside" in hit ? hit.aside : null,
+        read?.hits[0] ? (hitAside(read.hits[0]) ?? null) : "refused",
+      ];
+    });
+    // The answers the owner gave still say so on the older build; a rule's row reads there as a
+    // row on the queue. This build reads every reason, whichever field it came in.
+    expect(says).toEqual([
+      ["named", "named", "named"],
+      ["dropped", "dropped", "dropped"],
+      ["void", null, "no-team-name"],
+      ["q0", null, "no-games"],
+      ["q3", null, null],
+    ]);
+  });
+
+  it("reads an older server's search, every reason in the one field, as it was sent", () => {
+    const entry = LIST.find((one) => one.teamId === "gcNAMED")!;
+    const older = { kind: "ageless.search", total: 1, hits: [{ entry, aside: "named" }] };
+    const read = coerceQueryAnswer(JSON.parse(JSON.stringify(older)), "ageless.search");
+    expect(read?.hits.map(hitAside)).toEqual(["named"]);
+  });
+
+  it("reads a reason it has no words for as none, in either field, rather than refusing the search", () => {
+    const entry = LIST.find((one) => one.teamId === "gcQ3")!;
+    const newer = {
+      kind: "ageless.search",
+      total: 2,
+      hits: [
+        { entry, setAsideBy: "a-reason-to-come" },
+        { entry, aside: "a-reason-to-come" },
+      ],
+    };
+    expect(coerceQueryAnswer(JSON.parse(JSON.stringify(newer)), "ageless.search")).toEqual({
+      kind: "ageless.search",
+      total: 2,
+      hits: [{ entry }, { entry }],
+    });
   });
 });

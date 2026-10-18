@@ -4,10 +4,10 @@ import {
   agelessQueue,
   agelessSearch,
   agelessWaiting,
-  type AgelessAside,
   type AgelessSetAside,
 } from "../agelessQueue";
 import { agelessClearPlan, agelessSitting, type AgelessGroup } from "../agelessSitting";
+import { searchHit, type AgelessSearchHit } from "./agelessSearchHit";
 import { agelessClearable, CLEARABLE_RULES } from "../agelessTriage";
 import type { AgeUnknownTeam } from "../ageUnknown";
 import type { GcImportState } from "../gameChangerImport";
@@ -151,7 +151,8 @@ const NO_SEASONS: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
  *   makes rows of as its own card does (`agelessRowFor`), since every line of a row is worked out
  *   from its entry; and how many rows each of the queue's rules set aside.
  * - `ageless.search`: the teams on that list answering to `query`, whatever stands between each and
- *   the queue (`agelessSearch`), as entries.
+ *   the queue (`agelessSearch`), as entries: one of the first five reasons in `aside`, any other in
+ *   `setAsideBy` (`agelessSearchHit.ts`).
  * - `ageless.file`: the card's file of every team still waiting (`agelessCsvParts`).
  * - `ageless.clearPlan`: what clearing the rows of the rules ticked takes off the list
  *   (`agelessClearPlan`), over the rows the card's groups count, for the device to ask about and
@@ -317,10 +318,7 @@ export type AgelessQueueAnswer = {
   setAside: AgelessSetAside;
 };
 
-export type AgelessSearchAnswer = {
-  total: number;
-  hits: { entry: AgeUnknownTeam; aside?: AgelessAside }[];
-};
+export type AgelessSearchAnswer = { total: number; hits: AgelessSearchHit[] };
 
 export type AgelessClearPlanAnswer = ReturnType<typeof agelessClearPlan>;
 
@@ -604,10 +602,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
       return {
         kind: "ageless.search",
         total: found.total,
-        hits: found.hits.map(({ row, aside }) => ({
-          entry: row.entry,
-          ...(aside ? { aside } : {}),
-        })),
+        hits: found.hits.map(({ row, aside }) => searchHit(row.entry, aside)),
       };
     }
     case "ageless.file":

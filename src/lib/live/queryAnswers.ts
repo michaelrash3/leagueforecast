@@ -1,11 +1,13 @@
 import { GC_PAIRING_EVIDENCE_LABEL } from "../gcPairingEvidence";
-import { RULE_ASIDES, type AgelessAside, type AgelessSetAside } from "../agelessQueue";
+import { RULE_ASIDES, type AgelessSetAside } from "../agelessAsides";
+import type { AgelessAside } from "../agelessQueue";
 import type { AgelessGroup } from "../agelessSitting";
 import type { ModelCheckAnswer, ScoutBacktestResult } from "../scoutBacktest";
 import { CLOSED_LEVEL_CHECK } from "./closedLevelRecord";
 import { coerceNamedCheck } from "../teamRankings/namedGames";
 import { SEASON_SEGMENT_ORDER } from "../teamRankings/seasons";
 import { coerceCommand, everyOne, oneAgeless } from "./commands";
+import { FIRST_ASIDES } from "./agelessSearchHit";
 import type { AgelessSearchAnswer, AnswerOf, FoldCounts, QueryAnswer, QueryKind } from "./queries";
 import { clubOptionsOf, fillPlanOf, leagueBridgeAnswerOf, startAnswerOf } from "./leagueAnswers";
 import { fits, type Shape } from "./shapes";
@@ -537,15 +539,24 @@ const agelessQueueOf = (raw: Record<string, unknown>): AnswerOf<"ageless.queue">
   };
 };
 
+/**
+ * A hit of a search, its reason read from either field (`FIRST_ASIDES`). A reason this build has no
+ * words for, in either, reads as none: the row is drawn with no note, as an older build draws the
+ * later reasons, and the next reason a server adds cannot refuse every search on this one.
+ */
 const agelessHit = (raw: unknown): AgelessSearchAnswer["hits"][number] | null => {
   if (!isRecord(raw)) return null;
   const entry = oneAgeless(raw.entry);
-  const aside = raw.aside;
   if (!entry) return null;
-  if (aside === undefined) return { entry };
-  return typeof aside === "string" && Object.prototype.hasOwnProperty.call(ASIDES, aside)
-    ? { entry, aside: aside as AgelessAside }
-    : null;
+  const { aside, setAsideBy } = raw;
+  if (aside !== undefined && typeof aside !== "string") return null;
+  if (setAsideBy !== undefined && typeof setAsideBy !== "string") return null;
+  const first = FIRST_ASIDES.find((known) => known === aside);
+  const later =
+    typeof setAsideBy === "string" && Object.prototype.hasOwnProperty.call(ASIDES, setAsideBy)
+      ? (setAsideBy as AgelessAside)
+      : undefined;
+  return { entry, ...(first ? { aside: first } : {}), ...(later ? { setAsideBy: later } : {}) };
 };
 
 const agelessSearchOf = (raw: Record<string, unknown>): AnswerOf<"ageless.search"> | null => {

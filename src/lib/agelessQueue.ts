@@ -26,11 +26,11 @@
  * inside its budget (`ageUnknownDue` and `ageUnknownAsking` never read this file), every ask writes
  * a new row, and a row whose new schedule no longer reads so is back on the queue by itself. The
  * search still finds every one and says why it is aside, and the card counts each reason
- * (`agelessQueue`). On the backup of 11 October 2026 this took the queue from 10,102 to 1,873, the
- * teams at least one of whose opponents writes an age.
+ * (`agelessQueue`). On the backup of 11 October 2026 this took the queue from 10,102 to 1,760, the
+ * teams at least one of whose opponents writes an age this app ranks.
  */
 
-import { looksInvented, whyNoAge, type AgelessEvidence } from "./agelessEvidence";
+import { looksInvented, whyNoAge, writesARankedAge, type AgelessEvidence } from "./agelessEvidence";
 import {
   ageBandFromLabel,
   isSchoolAgeLabel,
@@ -41,9 +41,12 @@ import { AGELESS_RULES } from "./agelessTriage";
 import { rosterStanding } from "./gcRoster";
 import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
-import { notATeamWord } from "./teamNameRules";
+import { isNotBaseball, notATeamWord } from "./teamNameRules";
+import { RULE_ASIDES, type AgelessRuleAside, type AgelessSetAside } from "./agelessAsides";
 import type { DeletedClubs } from "./deletedGames";
 import type { NamedAges } from "./namedAges";
+
+export { RULE_ASIDES, type AgelessRuleAside, type AgelessSetAside };
 
 /** How many are put in front of somebody at once. More than this is not a sitting, it is a wall. */
 export const AGELESS_BATCH = 10;
@@ -161,13 +164,16 @@ const STILL_JUNK = /\b(?:old\s+team|not\s+(?:a\s+)?real)\b/i;
  *
  * "Team", "Team 1", "My Team" is a name nobody chose, eight of them in that list. This file read
  * it with a pattern of its own until 18 October 2026, when it became a word group of the import's
- * (`notATeamWord`, "team"), so it says so in its own words rather than the test account's.
+ * (`notATeamWord`, "team"), which takes an age on either end too, so it says so in words that fit
+ * every name the group reads rather than the test account's.
  */
 const junkName = (name: string): string | undefined => {
   const trimmed = name.trim();
   if (!trimmed) return undefined;
   const word = notATeamWord(trimmed);
-  if (word?.word === "team") return "the name is only “Team” and a number";
+  if (word?.word === "team") {
+    return "the name is only “Team”, with nothing more than a number, a letter or an age";
+  }
   if (word || STILL_JUNK.test(trimmed)) {
     return "the name reads as a test, practice or placeholder account";
   }
@@ -316,25 +322,6 @@ const byQueueOrder = (rows: AgelessRow[]): AgelessRow[] =>
       (a.entry.lastTried < b.entry.lastTried ? -1 : a.entry.lastTried > b.entry.lastTried ? 1 : 0)
   );
 
-/**
- * The asides a rule makes, the queue's own reading of a row (`setAsideByRule`) and a roster short
- * of nine, in the order the card counts them. A team the owner answered, and one the rota has
- * stopped asking about, are not among them: neither comes back by itself.
- */
-export const RULE_ASIDES = [
-  "no-age-named",
-  "no-games",
-  "short-roster",
-  "no-team-name",
-  "made-up",
-  "high-school",
-] as const satisfies readonly AgelessAside[];
-
-export type AgelessRuleAside = (typeof RULE_ASIDES)[number];
-
-/** How many rows of the list each rule set aside, in `RULE_ASIDES` order, none that set none. */
-export type AgelessSetAside = { aside: AgelessRuleAside; count: number }[];
-
 const isRuleAside = (aside: AgelessAside): aside is AgelessRuleAside =>
   (RULE_ASIDES as readonly AgelessAside[]).includes(aside);
 
@@ -347,8 +334,8 @@ const isRuleAside = (aside: AgelessAside): aside is AgelessRuleAside =>
  * One pass because the card wants all three and each is a reading of every row. The reading is the
  * queue's cached one (`stand`), so a list pays for each row once, and only the queue's rows are made
  * into rows to sort: on the backup of 11 October 2026, 13,169 rows, the first sitting
- * (`agelessSitting`) took 150 ms where it took 163, and the next, every row's reading cached, 12 ms
- * where it took 28 (medians of seven, Node 24).
+ * (`agelessSitting`) took 138 ms where it took 187, and the next, every row's reading cached, 14 ms
+ * where it took 36 (medians of seven, Node 24, both builds timed in one session).
  */
 export const agelessQueue = (
   list: AgeUnknownList,
@@ -478,8 +465,12 @@ const settledAside = (
  * it gave (`stand`): the name says it is no team, the schedule reads as made up, or it reads as a
  * high school side. The last two are what a person would have to go and find out with nothing on
  * the row to go on: a team with no games yet, and one whose every opponent writes no age, which no
- * reading of its opponents can age. On the backup of 11 October 2026 those two were 1,618 and
- * 6,600 of the 10,102 waiting, 2,873 of the second with six opponents or more.
+ * reading of its opponents can age. "Writes an age" is an age this app ranks (`writesARankedAge`):
+ * an opponent that writes 6U or 19U writes none that could file a team here, and a row whose only
+ * such opponents were those read "Its opponents do not agree: ." on the queue with nothing on it
+ * to answer from. On the backup of 11 October 2026 those two were 1,618 and 6,713 of the 10,102
+ * waiting, 2,873 of the second with six opponents or more and 113 with an opponent writing only an
+ * age out of the range.
  *
  * Each comes back by itself: the rota asks again inside the team's budget, the ask writes a new
  * row with what the schedule says now, and this reads the new row.
@@ -489,7 +480,7 @@ const setAsideByRule = (entry: AgeUnknownTeam): AgelessRuleAside | undefined => 
   if (readsAs) return readsAs;
   const evidence = entry.evidence;
   if (!evidence || evidence.games === 0) return "no-games";
-  if (evidence.namedAnAge === 0) return "no-age-named";
+  if (!writesARankedAge(evidence)) return "no-age-named";
   return undefined;
 };
 
@@ -509,6 +500,44 @@ const asideFor = (
  */
 export const refusedAsSchool = (entry: AgeUnknownTeam): boolean =>
   isSchoolName(entry.name ?? "") || isSchoolAgeLabel(entry.evidence?.ageLabel);
+
+/**
+ * Whether the import refuses this team by its name before it reads an age (`resolveAgeGroup`): a
+ * word that says the page is no team (`notATeamWord`, "Team 7" among them), or another game
+ * (`isNotBaseball`). An age named for one is thrown away: the next ask refuses the page, and the
+ * refusal takes the row, and the answer with it, off the list.
+ *
+ * The import lets such a name through for a club the owner vouched for, on the list of clubs that
+ * are real or linked from League Standings, and this cannot see that list. None of the 565
+ * GameChanger teams the words read in the backup of 11 October 2026 was on it, nor any of the 59
+ * rows of its waiting list they read, so the card errs the safe way: no age offered, and the
+ * throw-out still there.
+ */
+export const refusedByName = (entry: AgeUnknownTeam): boolean => {
+  const name = entry.name ?? "";
+  return notATeamWord(name) !== null || isNotBaseball(name);
+};
+
+/**
+ * What the search says under the note of a row set aside, from the reading that set it aside, or
+ * nothing for a reason the note says whole.
+ *
+ * A row can read two ways at once, and only the one that set it aside is worth saying: a school's
+ * name with a practice word in it is aside as a school, by the name, and "the name reads as a
+ * test, practice or placeholder account" under "it reads as a high school squad" contradicts it.
+ */
+export const asideBecause = (row: AgelessRow, aside: AgelessAside): string | undefined => {
+  // By the name, as `settledAside` sets a school's name aside whatever the queue's reading says.
+  if (aside === "high-school" && isSchoolName(row.entry.name ?? "")) {
+    return "the name reads as a high school squad";
+  }
+  // Otherwise only the queue's own reading sets these three aside (`setAsideByRule`), a school's
+  // by GameChanger's field, who it plays or its initials, so that reading is what to say.
+  if (aside === "high-school" || aside === "no-team-name" || aside === "made-up") {
+    return row.standing?.because;
+  }
+  return undefined;
+};
 
 /**
  * What a team can be recognised by.

@@ -6,8 +6,10 @@ import {
   agelessRowFor,
   agelessSearch,
   agelessWaiting,
+  asideBecause,
   batchIds,
   refusedAsSchool,
+  refusedByName,
 } from "../agelessQueue";
 import {
   ageUnknownAsking,
@@ -121,7 +123,9 @@ describe("the queue of teams waiting on an answer", () => {
     const why = (query: string) =>
       agelessSearch(list, new Map(), new Set(), NOW, query).hits[0]?.row.standing?.because;
     expect(why("practice gc")).toBe("the name reads as a test, practice or placeholder account");
-    expect(why("default")).toBe("the name is only “Team” and a number");
+    expect(why("default")).toBe(
+      "the name is only “Team”, with nothing more than a number, a letter or an age"
+    );
   });
 
   it("sets aside the high school sides, by label, by who they play, and by name", () => {
@@ -132,14 +136,14 @@ describe("the queue of teams waiting on an answer", () => {
         evidence: evidence({ ageLabel: "high_varsity" }),
       }),
       team("initials", {
-        name: "LCHS Fall Ball 2026",
+        name: "PXHS Fall Ball 2026",
         evidence: evidence({ ageLabel: "Between 13 - 18" }),
       }),
       team("hyphen", { name: "Tigers High-school", evidence: evidence() }),
       team("freshman", { name: "Waunakee Freshman Fall Ball", evidence: evidence() }),
       // Nobody it plays writes an age, and two of them are school sides: it reads as one.
       team("plays", {
-        name: "Hendrickson Fall Ball",
+        name: "Quillmoor Fall Ball",
         evidence: unnamed({ sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"] }),
       }),
     ];
@@ -152,7 +156,7 @@ describe("the queue of teams waiting on an answer", () => {
       plays: "high-school",
     });
     expect(
-      agelessSearch(list, new Map(), new Set(), NOW, "hendrickson").hits[0]?.row.standing
+      agelessSearch(list, new Map(), new Set(), NOW, "quillmoor").hits[0]?.row.standing
     ).toEqual({ group: "school", because: "it plays varsity and JV sides" });
   });
 
@@ -504,10 +508,10 @@ describe("the queue's order, pinned", () => {
       evidence: { ...named(1), ageLabel: "high_varsity" },
     }),
     team("plays-schools", {
-      name: "Hendrickson Fall Ball",
+      name: "Quillmoor Fall Ball",
       evidence: unnamed({ sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"] }),
     }),
-    team("school-initials", { name: "LCHS Fall Ball 2026", evidence: named(1) }),
+    team("school-initials", { name: "PXHS Fall Ball 2026", evidence: named(1) }),
     team("short", { name: "Pimbleton 10 - 2026", evidence: { ...named(1), playerCount: 6 } }),
   ];
 
@@ -701,12 +705,97 @@ describe("the rows the queue sets aside by rule", () => {
       }),
       team("name", { name: "Pimbleton HS Varsity" }),
       team("plays", {
-        name: "Hendrickson Fall Ball",
+        name: "Quillmoor Fall Ball",
         evidence: unnamed({ sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"] }),
       }),
     ];
     expect(refusedAsSchool(label)).toBe(true);
     expect(refusedAsSchool(team("name", { name: "Pimbleton HS Varsity" }))).toBe(true);
     expect(refusedAsSchool(plays)).toBe(false);
+  });
+});
+
+/*
+ * What the card can say and offer for a row set aside, read off the row as the queue reads it: the
+ * reason that set it aside and no other, and an age only where the import would file one.
+ */
+describe("a row set aside, as the card draws it", () => {
+  it("sets aside a team whose opponents write only ages this app does not rank", () => {
+    const list: AgeUnknownList = [
+      team("open", { name: "Pimbleton 1 - 2026", evidence: evidence() }),
+      // Read back from storage: the 6U opponent counted, the tally emptied of it.
+      team("stored", {
+        name: "Pimbleton 2 - 2026",
+        evidence: evidence({ namedAnAge: 1, tally: [] }),
+      }),
+      // Fresh from a pull, the 6U still in the tally.
+      team("fresh", {
+        name: "Pimbleton 3 - 2026",
+        evidence: evidence({ namedAnAge: 1, tally: [[6, 1]] }),
+      }),
+    ];
+    const { waiting, setAside } = agelessQueue(list, new Map(), new Set(), NOW);
+    expect(batchIds(waiting)).toEqual(["open"]);
+    expect(setAside).toEqual([{ aside: "no-age-named", count: 2 }]);
+    expect(asidesOf(list, ["stored", "fresh"])).toEqual({
+      stored: "no-age-named",
+      fresh: "no-age-named",
+    });
+  });
+
+  it("knows the pages the import refuses by their name, whatever age is named for them", () => {
+    const refused = (name?: string) => refusedByName(team("x", name === undefined ? {} : { name }));
+    expect(
+      ["Team 7", "Team 7 12U", "My Team", "Alder Comets Practice", "Alder Comets Wiffle"].map(
+        refused
+      )
+    ).toEqual([true, true, true, true, true]);
+    // No letters, two characters, "old team": set aside by the queue, and still filed by the
+    // import, so an age named for one lands.
+    expect(
+      ["12345", "AB", "Alder Comets Old Team", "Pimbleton 1 - 2026", undefined].map(refused)
+    ).toEqual([false, false, false, false, false]);
+  });
+
+  it("says under a row what set it aside, and nothing it was not set aside by", () => {
+    const list: AgeUnknownList = [
+      // A school's name with a practice word in it: aside as a school, by the name.
+      team("school-practice", { name: "Pimbleton High School Practice", evidence: evidence() }),
+      // A school's name on a schedule scored ahead of today: aside as a school, by the name.
+      team("school-ahead", {
+        name: "Quillfern HS",
+        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4 }),
+      }),
+      team("plays", {
+        name: "Quillmoor Fall Ball",
+        evidence: unnamed({ sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"] }),
+      }),
+      team("label", {
+        name: "Pimbleton 9 - 2026",
+        evidence: evidence({ ageLabel: "high_varsity" }),
+      }),
+      team("number", { name: "Team 6", evidence: evidence() }),
+      team("ahead", {
+        name: "Pimbleton 0 - 2026",
+        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4 }),
+      }),
+      team("unnamed", { name: "Pimbleton 5 - 2026", evidence: unnamed() }),
+    ];
+    const because = (id: string) => {
+      const hit = agelessSearch(list, new Map(), new Set(), NOW, id).hits[0]!;
+      return [hit.aside, hit.aside && asideBecause(hit.row, hit.aside)];
+    };
+    expect(Object.fromEntries(list.map(({ teamId }) => [teamId, because(teamId)]))).toEqual({
+      "school-practice": ["high-school", "the name reads as a high school squad"],
+      "school-ahead": ["high-school", "the name reads as a high school squad"],
+      plays: ["high-school", "it plays varsity and JV sides"],
+      label: ["high-school", "GameChanger files it as a school team"],
+      number: [
+        "no-team-name",
+        "the name is only “Team”, with nothing more than a number, a letter or an age",
+      ],
+      ahead: ["made-up", "you cannot score a game early"],
+      unnamed: ["no-age-named", undefined],
+    });
   });
 });

@@ -4,6 +4,7 @@ import {
   coerceAgelessEvidence,
   looksInvented,
   whyNoAge,
+  writesARankedAge,
 } from "../agelessEvidence";
 import type { GcGame, GcTeamProfile, GcTeamSchedule } from "../gameChangerApi";
 import { createGcImporter, type GcImportState } from "../gameChangerImport";
@@ -15,6 +16,8 @@ const profile = (extra: Partial<GcTeamProfile> = {}): GcTeamProfile => ({
   name: "Warriors Spring 2027",
   ...extra,
 });
+
+const blankOf = () => agelessEvidence(profile(), [], TODAY);
 
 const game = (opponentName: string, extra: Partial<GcGame> = {}): GcGame => ({
   id: `g${opponentName}`,
@@ -65,6 +68,32 @@ describe("what was known about a team nobody could age", () => {
     const blank = agelessEvidence(profile(), [], TODAY);
     expect(blank.games).toBe(0);
     expect(whyNoAge(blank, 3)).toBe("GameChanger lists no games for this team at all.");
+  });
+
+  /*
+   * A 6U or a 19U opponent is counted as writing an age, and the tally read back from storage keeps
+   * only the ages this app ranks, so the line said "Its opponents do not agree: ." over nothing at
+   * all for 113 of the 1,873 rows the queue held on the backup of 11 October 2026.
+   */
+  it("says when the only ages its opponents write are ones this app does not rank", () => {
+    const young = agelessEvidence(profile(), [game("Alder Comets 6U"), game("Birch Owls")], TODAY);
+    const stored = coerceAgelessEvidence(JSON.parse(JSON.stringify(young)));
+    expect([young.namedAnAge, stored.namedAnAge, stored.tally]).toEqual([1, 1, []]);
+    const said =
+      "1 of its opponents writes an age, but not one of 8U to 18U, the ages this app ranks.";
+    expect([whyNoAge(young, 3), whyNoAge(stored, 3)]).toEqual([said, said]);
+    expect([writesARankedAge(young), writesARankedAge(stored)]).toEqual([false, false]);
+    expect(whyNoAge({ ...stored, namedAnAge: 2 }, 3)).toBe(
+      "2 of its opponents write an age, but not one of 8U to 18U, the ages this app ranks."
+    );
+    // One that does write a ranked age is read as before.
+    const near = agelessEvidence(
+      profile(),
+      [game("Alder Comets 6U"), game("Birch Owls 10U")],
+      TODAY
+    );
+    expect(writesARankedAge(near)).toBe(true);
+    expect(writesARankedAge(blankOf())).toBe(false);
   });
 
   it("counts an opponent once however many times it is played", () => {

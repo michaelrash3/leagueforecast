@@ -191,7 +191,7 @@ describe("a pasted export that names the club", () => {
   it("skips it on its name, with the practice page, when nobody vouched for it", async () => {
     await paste(held, []);
     expect(
-      await screen.findByText("2 practice, test or old team pages, skipped")
+      await screen.findByText("2 practice, test, old or unnamed team pages, skipped")
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pull it again" })).toBeNull();
   });
@@ -201,7 +201,7 @@ describe("a pasted export that names the club", () => {
     const saved: GcImportState[] = [];
     const user = await paste(held, saved);
     expect(
-      await screen.findByText("1 practice, test or old team page, skipped")
+      await screen.findByText("1 practice, test, old or unnamed team page, skipped")
     ).toBeInTheDocument();
     expect(await pullItAgain(user, saved)).toBe(true);
   });
@@ -210,7 +210,7 @@ describe("a pasted export that names the club", () => {
     const saved: GcImportState[] = [];
     const user = await paste(pickedByLeague(), saved);
     expect(
-      await screen.findByText("1 practice, test or old team page, skipped")
+      await screen.findByText("1 practice, test, old or unnamed team page, skipped")
     ).toBeInTheDocument();
     expect(await pullItAgain(user, saved)).toBe(true);
   });

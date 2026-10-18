@@ -20,11 +20,12 @@
  * all of them. The fifteen word groups together read 2,138 rows of the export (0.80%), 692 of them
  * with no players at all, and 534 GameChanger teams in the pool, in 533 clubs; 79 of those clubs
  * were ranked, and none was on the owner's list of clubs that are real. The sixteenth, a name that
- * is only "Team" and a number, joined them on 18 October 2026 and reads 28 more rows of the export,
- * 9 of them empty, and one more GameChanger team in a club of its own, unranked: sixteen groups,
- * 2,166 rows (0.81%), 701 empty, 535 teams in 534 clubs, 79 ranked. A second implementation of
- * it gives the same verdict on all 155,641 distinct names in that backup, its waiting list's
- * among them (30 read), and on all 237,305 distinct names of the export (12 read).
+ * is only "Team" with nothing more than a number, a letter or an age, joined them on 18 October
+ * 2026 and reads 75 more rows of the export, 28 of them empty, and 31 more GameChanger teams in 31
+ * clubs of their own, 10 of them on a board: sixteen groups, 2,213 rows (0.83%), 720 empty, 565
+ * teams in 564 clubs, still none on that list. A second implementation of it gives the same
+ * verdict on all 155,641 distinct names in that backup, its waiting list's among them (54 read),
+ * and on all 237,305 distinct names of the export (54 read).
  */
 
 /**
@@ -259,32 +260,49 @@ const INTRASQUAD: NameRule<"intrasquad"> = {
 };
 
 /**
- * Team and a number. A name that is only the word and a number of up to three digits or one
- * letter, with my, new, the or our in front and a "#" anywhere between: "Team 7", "Team #4",
- * "Team B", "My Team", and the word alone. Nobody chose it: it is what a page is called when nobody
- * named it, and how a schedule writes an opponent it could not name. The waiting list had sorted
- * these to its top on this very pattern since 27 September 2026, and the owner asked on 18 October
- * for them to be refused outright, with six of them in the first ten there.
+ * An age as a name writes it, "12U", "12u", "12 U", "11UAA" or "U12", the shape the cleaner takes
+ * off a stored name (`cleanTeamName`), so "Team 7 12U" is stored and shown as "Team 7".
+ */
+const AGE_LABEL = String.raw`(?:\d{1,2}\s*u[a-d]{0,3}|u\s*\d{1,2})`;
+
+/**
+ * Team and a number. A name that is only the word, with nothing more than a number of up to three
+ * digits, a letter standing apart from it, or an age at either end, with my, new, the or our in
+ * front and a "#" anywhere between: "Team 7", "Team #4", "Team B", "My Team", the word alone, and
+ * "Team 7 12U", "12U Team 7" or "Team 12U". Nobody chose it: it is what a page is called when nobody
+ * named it, and how a schedule writes an opponent it could not name. The age is no name either,
+ * since the import takes it off a stored name (`cleanTeamName`): "Team 7 12U" is stored and shown
+ * on every board as "Team 7", and "Team 12U" as "Team". The waiting list had sorted the shape
+ * without an age to its top since 27 September 2026, and the owner asked on 18 October for these
+ * to be refused outright ("Team number teams should be blocked"), with six in the first ten there.
  *
- * 28 export rows (9 empty, 11 full: squads that play, with no name to tell them apart by or age
- * them from); one GameChanger team in the pool, in a club of its own, unranked, holding no games
- * and on nobody's list of real clubs; 49 stand-ins holding 72 games, 43 scored, none confirmed.
- * Those 72 sit on the schedules of 29 pulled clubs, on 67 of their days, two such opponents on one
- * day only once, none under an event, with a median margin of five runs: a real game against an
- * opponent the schedule wrote only as a number, not a squad playing itself.
- * So a game against one is kept on a slot of its own, as a game against "TBD" is, and the result
- * stays on the record of the club that played it.
+ * 75 export rows, 47 of them with an age (28 empty, 21 full: squads that play, with no name to tell
+ * them apart by). In the pool, 31 GameChanger teams, each the one link of a club of its own, none
+ * on anybody's list of real clubs: one with no age in its name, unranked and holding no games, and
+ * 30 of the "Team 7 12U" kind, in 13 states, holding 66 games, 29 scored, 34 of them between two
+ * such clubs, 10 of the 30 on a board built from that backup, the best of them 914th. And 49
+ * stand-ins holding 72 games, 43 scored, none confirmed. Those 72 sit on the schedules of 29 pulled
+ * clubs, on 67 of their days, two such opponents on one day only once, none under an event, with a
+ * median margin of five runs: a real game against an opponent the schedule wrote only as a number,
+ * not a squad playing itself. So a game against one is kept on a slot of its own, as a game against
+ * "TBD" is, and the result stays on the record of the club that played it.
  *
- * The whole name has to be the word and its number, so it is anchored at both ends and meets none
- * of the words above. A place or a club's name after the word, an age ("Team 12U", which 32 export
- * rows are and the age reader files), a second word after the number, a year of four digits, or a
- * number run into a name, which splits to "Team 7" and the name, is a team somebody named. The
- * split form is read for an underscore, "TEAM_9"; the name as written for a capital somebody put
- * mid-word, "TEam 7", which the split breaks in two.
+ * The whole name has to be the word, its number or letter and its age, so it is anchored at both
+ * ends and meets none of the words above. A place or a club's name after the word, a second word
+ * after the number, a year of four digits, a bracket of two ages, or a number run into a name,
+ * which splits to "Team 7" and the name, is a team somebody named. A letter has to stand apart,
+ * after a space or a "#": "Teams" is a plural, not "Team S", and "TEAMB" a word in capitals, where
+ * "TeamB" splits to "Team B" and is read. The split form is read for an underscore, "TEAM_9"; the
+ * name as written for a capital somebody put mid-word, "TEam 7", which the split breaks in two.
  */
 const TEAM_NUMBER: NameRule<"team"> = {
   word: "team",
-  pattern: /^\s*(?:my|new|the|our)?\s*team\s*#?\s*(?:\d{1,3}|[a-z])?\s*$/i,
+  pattern: new RegExp(
+    String.raw`^\s*(?:${AGE_LABEL}\s*[-–]?\s*)?(?:my|new|the|our)?\s*team` +
+      String.raw`(?:\s*#?\s*\d{1,3}|(?:\s+|\s*#\s*)[a-z])?` +
+      String.raw`(?:\s*[-–(]?\s*${AGE_LABEL}\s*\)?)?\s*$`,
+    "i"
+  ),
   opponent: "slot",
 };
 

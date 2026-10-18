@@ -6,6 +6,7 @@ import { agelessRowFor, type AgelessHit } from "../../lib/agelessQueue";
 import type { AgelessSitting } from "../../lib/agelessSitting";
 import { downloadCsv, fileDay } from "../../lib/download";
 import type { PoolCommand } from "../../lib/live/commands";
+import { hitAside } from "../../lib/live/agelessSearchHit";
 import type { AgelessQueueAnswer } from "../../lib/live/queries";
 import { button, card } from "../../styles/tokens";
 import { AgelessReviewView } from "./AgelessReviewView";
@@ -90,10 +91,10 @@ export function LiveAgelessCard({
               revision: poolRevision,
               found: {
                 total: answer.total,
-                hits: answer.hits.map(({ entry, aside }) => ({
-                  row: agelessRowFor(entry),
-                  ...(aside ? { aside } : {}),
-                })),
+                hits: answer.hits.map((hit) => {
+                  const aside = hitAside(hit);
+                  return { row: agelessRowFor(hit.entry), ...(aside ? { aside } : {}) };
+                }),
               },
             });
         }

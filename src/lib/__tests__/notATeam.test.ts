@@ -293,7 +293,9 @@ describe("a club the owner vouched for, whose name reads as no team", () => {
         added: pulled.outcome.gamesAdded,
         created: pulled.outcome.opponentsCreated,
         notATeam: tidy.notATeam,
-        said: describeTidy(tidy).some((line) => line.includes("practice, test or old team")),
+        said: describeTidy(tidy).some((line) =>
+          line.includes("practice, test, old or unnamed team")
+        ),
       };
     });
     const once = { added: 1, created: 1, notATeam: 0, said: false };
@@ -467,7 +469,7 @@ describe("a page whose name says it is no team, already in the pool", () => {
     // A stand-in only it played goes too, once nothing names it.
     expect(tidy.idle).toBe(1);
     expect(describeTidy(tidy)).toContain(
-      "1 practice, test or old team page deleted, and their results with them."
+      "1 practice, test, old or unnamed team page deleted, and their results with them."
     );
   });
 
@@ -942,10 +944,26 @@ describe("a page named only Team and a number", () => {
     );
     expect(outcome.skip).toBe("not-a-team");
     expect(outcome.issue).toBe(
-      "This page's name is only “Team” and a number, the name a page has when nobody named " +
-        "it, so it was left out. Its name says “Team 7”."
+      "This page is named only “Team”, with nothing more than a number, a letter or an age: the " +
+        "name a page has when nobody named it, so it was left out. Its name says “Team 7”."
     );
     expect(state).toBe(empty);
+  });
+
+  it("says so in words that fit a name with no number, and one with an age", () => {
+    const issue = (name: string) =>
+      importGcSchedule(schedule({ id: "gcTEAM700001", name, ageLevel: 12 }, []), empty, {
+        today: "2026-10-11",
+      }).outcome;
+    expect(issue("My Team")).toMatchObject({
+      skip: "not-a-team",
+      issue:
+        "This page is named only “Team”, with nothing more than a number, a letter or an age: " +
+        "the name a page has when nobody named it, so it was left out. Its name says “My Team”.",
+    });
+    // GameChanger's age in the name is no name either: the pool would show it as "Team 7".
+    expect(issue("Team 7 12U")).toMatchObject({ skip: "not-a-team" });
+    expect(issue("Team 7 12U").issue).toMatch(/Its name says “Team 7 12U”\.$/);
   });
 
   it("leaves the waiting list on its next ask, refused rather than asked about again", () => {
@@ -1002,6 +1020,34 @@ describe("a page named only Team and a number", () => {
     expect(state.games.every((one) => one.teamAId === "quill" && slots.has(one.teamBId))).toBe(
       true
     );
+  });
+
+  it("is deleted where GameChanger's name carries an age the pool's name lost", () => {
+    // "Team 7 12U" is stored as "Team 7", and "Team 12U" as the bare word: both show on a board
+    // as no name at all. A plural is somebody's name, and stays.
+    const aged: ScoutTeam = {
+      id: "t7",
+      name: "Team 7",
+      gcTeams: [link("gcTEAM712U01", "Team 7 12U")],
+    };
+    const bare: ScoutTeam = { id: "tx", name: "Team", gcTeams: [link("gcTEAM12U001", "Team 12U")] };
+    const plural: ScoutTeam = { id: "ts", name: "Teams", gcTeams: [link("gcTEAMS00001", "Teams")] };
+    const { state, dropped } = dropNotATeam({
+      ageGroups: [page],
+      teams: [quill, aged, bare, plural],
+      games: [
+        game("g1", "quill", "t7", "gcquill"),
+        game("g2", "tx", "quill", "gcTEAM12U001"),
+        game("g3", "ts", "quill", "gcTEAMS00001"),
+      ],
+    });
+    expect(dropped).toBe(2);
+    expect(state.teams.filter((team) => !team.placeholder).map((team) => team.id)).toEqual([
+      "quill",
+      "ts",
+    ]);
+    // Quillfeather's result off its own schedule stands on a slot; the plural's game is untouched.
+    expect(state.games.map((one) => one.id).sort()).toEqual(["g1", "g3"]);
   });
 
   it("is kept where the pool holds it under a name somebody gave it", () => {

@@ -263,11 +263,34 @@ describe("the name rules", () => {
     ].forEach((name) => expect(notATeamWord(name)?.word, name).toBe("team"));
   });
 
+  it("reads one with an age on either end too, the age the stored name loses", () => {
+    /*
+     * The import takes the age off a stored name (`cleanTeamName`), so a page GameChanger calls
+     * "Team 7 12U" is shown on every board as "Team 7", and "Team 12U" as "Team".
+     */
+    [
+      "Team 7 12U",
+      "Team 12U",
+      "Team12U",
+      "Team 7U",
+      "Team B 10U",
+      "Team #3 (10U)",
+      "Team 4 - 11U",
+      "Team 7 12UAA",
+      "Team 7 U12",
+      "12U Team 7",
+      "12U - Team 7",
+      "U12 Team",
+      "My Team 12U",
+    ].forEach((name) => expect(notATeamWord(name)?.word, name).toBe("team"));
+  });
+
   it("leaves a name that opens with Team and goes on to say who the team is", () => {
     /*
-     * The whole name has to be the word and its number: a place, a club's name, an age, a year or
-     * a second word after the number is a team somebody named. A number run into a name splits to
-     * "Team 7 Larkspire" and is still a name.
+     * The whole name has to be the word and its number, and an age: a place, a club's name, a
+     * year or a second word after the number is a team somebody named. A number run into a name
+     * splits to "Team 7 Larkspire" and is still a name. A letter has to stand apart from the word,
+     * so a plural, or a letter run straight on in capitals, is not the word and a letter.
      */
     [
       "Team Wrenfield 12U",
@@ -278,8 +301,13 @@ describe("the name rules", () => {
       "Team7Larkspire",
       "Team 7 Larkspire",
       "Larkspire Team 7",
-      "Team 12U",
-      "Team12U",
+      "Team 7 12U Larkspire",
+      "Team 12U 2026",
+      "Teams",
+      "TEAMS",
+      "teams",
+      "TEAMB",
+      "Steam 12U",
       "Team 2026",
       "Team 1234",
       "Team 1A",

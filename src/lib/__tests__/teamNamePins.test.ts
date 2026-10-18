@@ -426,7 +426,7 @@ describe("the names pinned before the not-a-team rules", () => {
         "Duskwood Tryouts: the name reads as a test, practice or placeholder account",
         "Elmstead Stats: the name reads as a test, practice or placeholder account",
         "Wexcombe Old Team: the name reads as a test, practice or placeholder account",
-        "Team 1: the name is only “Team” and a number",
+        "Team 1: the name is only “Team”, with nothing more than a number, a letter or an age",
         "Gildersleeve Fastpitch: -",
       ]
     `);
@@ -436,7 +436,8 @@ describe("the names pinned before the not-a-team rules", () => {
 /*
  * The same paths over names that are only "Team" and a number or a letter, pinned before that
  * shape joined the not-a-team rules, beside names that open with "Team" and go on to say who the
- * team is, which the shape has to leave alone. The Team-number names are the shape itself and name
+ * team is, which the shape has to leave alone: all but "Team 12U", which it reads since it took an
+ * age on either end (the block after this one). The Team-number names are the shape itself and name
  * nobody; the others are invented.
  */
 describe("the Team-number names pinned before the rule", () => {
@@ -552,7 +553,7 @@ describe("the Team-number names pinned before the rule", () => {
           "Team 1 Alderbrook Academy: -",
           "Team QXR 12U: -",
           "Team7Larkspire: -",
-          "Team 12U: -",
+          "Team 12U: team",
         ]
       `);
   });
@@ -654,19 +655,198 @@ describe("the Team-number names pinned before the rule", () => {
       })
     ).toMatchInlineSnapshot(`
       [
-        "Team 7: the name is only “Team” and a number",
-        "Team #4: the name is only “Team” and a number",
-        "team 04: the name is only “Team” and a number",
-        "Team B: the name is only “Team” and a number",
-        "My Team: the name is only “Team” and a number",
-        "The Team: the name is only “Team” and a number",
-        "TEAM_9: the name is only “Team” and a number",
+        "Team 7: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "Team #4: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "team 04: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "Team B: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "My Team: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "The Team: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "TEAM_9: the name is only “Team”, with nothing more than a number, a letter or an age",
         "Team Wrenfield 12U: -",
         "Team Elite Larkspire 12U: -",
         "Team 1 Alderbrook Academy: -",
         "Team QXR 12U: -",
         "Team7Larkspire: -",
-        "Team 12U: -",
+        "Team 12U: the name is only “Team”, with nothing more than a number, a letter or an age",
+      ]
+    `);
+  });
+});
+
+/*
+ * The same paths again, pinned before the Team-number shape took a name with an age on either end
+ * ("Team 7 12U", "12U Team 7", "Team 12U"), which the import stores as "Team 7" or "Team", and
+ * before it stopped reading a letter run straight onto the word ("Teams", "TEAMB"). The names are
+ * the shape itself, or a plural nobody's club is called; none is in the export or the pool.
+ */
+describe("the Team-number names with an age, and the plural, pinned before the rule took them", () => {
+  const WITH_AGE = ["Team 7 12U", "Team B 10U", "12U Team 7", "Team 12U", "Team 4 - 11U"];
+  const RUN_ON = ["Teams", "TEAMS", "TEAMB"];
+
+  it("files a schedule list as it did", () => {
+    const schedule = (id: string, name: string, games: GcTeamSchedule["games"]) => ({
+      profile: { id, name, ageLevel: 12, season: { season: "fall" as const, year: 2026 } },
+      games,
+      fetchedAt: "2026-10-01T12:00:00.000Z",
+    });
+    const played = (id: string, date: string, opponentName: string, runs: [number, number]) => ({
+      id,
+      date,
+      opponentName,
+      teamScore: runs[0],
+      opponentScore: runs[1],
+      status: "completed" as const,
+    });
+    const { state, outcomes } = importGcSchedules(
+      [
+        schedule("gcQUILL00001", "Quillfeather Quails 12U", [
+          played("q1", "2026-09-05", "Team 7 12U", [6, 2]),
+          played("q2", "2026-09-06", "Team 12U", [3, 1]),
+          played("q3", "2026-09-07", "Teams", [5, 4]),
+        ]),
+        ...[...WITH_AGE, ...RUN_ON].map((name, at) =>
+          schedule(`gcAGEN00000${at}`, name, [
+            played(`a${at}`, `2026-09-1${at}`, "Quillfeather Quails 12U", [1, 5]),
+          ])
+        ),
+      ],
+      { ageGroups: [], teams: [], games: [] },
+      { today: "2026-10-11" }
+    );
+    expect(
+      outcomes.map(
+        (outcome) =>
+          `${outcome.teamName}: ${outcome.skip ?? "filed"}, +${outcome.gamesAdded}, made ${
+            outcome.opponentsCreated
+          }`
+      )
+    ).toMatchInlineSnapshot(`
+      [
+        "Quillfeather Quails 12U: filed, +3, made 3",
+        "Team 7 12U: not-a-team, +0, made 0",
+        "Team B 10U: not-a-team, +0, made 0",
+        "12U Team 7: not-a-team, +0, made 0",
+        "Team 12U: not-a-team, +0, made 0",
+        "Team 4 - 11U: not-a-team, +0, made 0",
+        "Teams: filed, +1, made 1",
+        "TEAMS: filed, +1, made 0",
+        "TEAMB: filed, +1, made 0",
+      ]
+    `);
+    expect(describePool(state)).toMatchInlineSnapshot(`
+      {
+        "games": [
+          "2026-09-05 Quillfeather Quails [pulled] 6-2 Team 7 [slot]",
+          "2026-09-06 Quillfeather Quails [pulled] 3-1 Team [slot]",
+          "2026-09-07 Quillfeather Quails [pulled] 5-4 Teams [pulled]",
+          "2026-09-15 Teams [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-09-16 TEAMS [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-09-17 TEAMB [pulled] 1-5 Quillfeather Quails [stand-in]",
+        ],
+        "teams": [
+          "Quillfeather Quails [pulled]",
+          "Quillfeather Quails [stand-in]",
+          "TEAMB [pulled]",
+          "TEAMS [pulled]",
+          "Team 7 [slot]",
+          "Team [slot]",
+          "Teams [pulled]",
+        ],
+      }
+    `);
+  });
+
+  it("marks a pasted list as it did", () => {
+    const list = parseGcTeamList(
+      [
+        "Team Name,Team ID,Age Group",
+        ...[...WITH_AGE, ...RUN_ON].map(
+          (name, at) => `${name},gcAGEL${String(at).padStart(6, "0")},12U`
+        ),
+      ].join("\n")
+    );
+    expect(list.entries.map(({ name, notATeam }) => `${name}: ${notATeam ?? "-"}`))
+      .toMatchInlineSnapshot(`
+        [
+          "Team 7 12U: team",
+          "Team B 10U: team",
+          "12U Team 7: team",
+          "Team 12U: team",
+          "Team 4 - 11U: team",
+          "Teams: -",
+          "TEAMS: -",
+          "TEAMB: -",
+        ]
+      `);
+  });
+
+  it("tidies a pool as it did", () => {
+    const quill = club("quill", "Quillfeather Quails", [
+      ["gcQUILL00001", "Quillfeather Quails 12U"],
+    ]);
+    const pool: GcImportState = {
+      ageGroups: [page],
+      teams: [
+        quill,
+        // Stored as the import stores them, the age taken off the name GameChanger gives.
+        club("t7", "Team 7", [["gcTEAM700001", "Team 7 12U"]]),
+        club("bare", "Team", [["gcTEAMX00001", "Team 12U"]]),
+        club("plural", "Teams", [["gcTEAMS00001", "Teams"]]),
+      ],
+      games: [
+        row("gA", "quill", "t7", [9, 3], "2026-09-05", "gcQUILL00001", { namedByAvatar: "t7" }),
+        row("gB", "bare", "quill", [4, 2], "2026-09-06", "gcTEAMX00001", {
+          namedByAvatar: "quill",
+        }),
+        row("gC", "plural", "quill", [3, 1], "2026-09-07", "gcTEAMS00001", {
+          namedByAvatar: "quill",
+        }),
+      ],
+    };
+    const tidy = tidyPool(pool);
+    expect(counts(tidy)).toMatchInlineSnapshot(`
+      {
+        "notATeam": 2,
+        "passes": 2,
+      }
+    `);
+    expect(describePool(tidy.state)).toMatchInlineSnapshot(`
+      {
+        "games": [
+          "2026-09-05 Quillfeather Quails [pulled] 9-3 Team 7 [slot]",
+          "2026-09-07 Teams [pulled] 3-1 Quillfeather Quails [pulled]",
+        ],
+        "teams": [
+          "Quillfeather Quails [pulled]",
+          "Team 7 [slot]",
+          "Teams [pulled]",
+        ],
+      }
+    `);
+  });
+
+  it("sorts the waiting list's names as it did", () => {
+    expect(
+      [...WITH_AGE, ...RUN_ON].map((name) => {
+        const row = agelessRowFor({
+          teamId: name,
+          name,
+          firstSeen: "2026-09-01T00:00:00.000Z",
+          lastTried: "2026-09-10T00:00:00.000Z",
+          tries: 1,
+        });
+        return `${name}: ${row.standing?.because ?? "-"}`;
+      })
+    ).toMatchInlineSnapshot(`
+      [
+        "Team 7 12U: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "Team B 10U: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "12U Team 7: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "Team 12U: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "Team 4 - 11U: the name is only “Team”, with nothing more than a number, a letter or an age",
+        "Teams: -",
+        "TEAMS: -",
+        "TEAMB: -",
       ]
     `);
   });

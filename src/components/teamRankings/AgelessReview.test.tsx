@@ -179,7 +179,7 @@ describe("the review card for teams waiting on an age", () => {
     expect(screen.getByText(/Showing 1 of 1\./)).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Set aside: 2 that play nobody who writes an age, 1 with no games yet, 1 with fewer " +
+        "Set aside: 2 that play nobody who writes an age of 8U to 18U, 1 with no games yet, 1 with fewer " +
           "than nine players, 2 with a name that says it is no team, 1 high school side. Each " +
           "comes back here on its own once a later check finds that changed, and Find a team " +
           "still finds every one."
@@ -187,6 +187,8 @@ describe("the review card for teams waiting on an age", () => {
     ).toBeInTheDocument();
     // The card says what the ten are, and none of the words the owner has ruled off the screen.
     expect(screen.getByText(/a person can\s+settle/)).toBeInTheDocument();
+    // Too few of them, or ones that do not agree: the queue holds both, and the card says both.
+    expect(screen.getByText(/are too few to file them by, or do not agree\./)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/closed|isolated|island/i);
   });
 
@@ -203,7 +205,11 @@ describe("the review card for teams waiting on an age", () => {
     const box = screen.getByRole("searchbox", { name: /Find a team/ });
     await user.type(box, "Team 6");
     expect(screen.getByText(/the name says it is no team/)).toBeInTheDocument();
-    expect(screen.getByText("The name is only “Team” and a number.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The name is only “Team”, with nothing more than a number, a letter or an age."
+      )
+    ).toBeInTheDocument();
     await user.clear(box);
     await user.type(box, "Larkspire");
     expect(screen.getByText(/its schedule reads as made up/)).toBeInTheDocument();
@@ -212,7 +218,9 @@ describe("the review card for teams waiting on an age", () => {
     expect(screen.getByRole("combobox", { name: /Age for Larkspire Nines/ })).toBeInTheDocument();
     await user.clear(box);
     await user.type(box, "Fallowmere");
-    expect(screen.getByText(/nobody it plays writes an age in their name/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/nobody it plays writes an age of 8U to 18U in their name/)
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Up (first|next)/)).toBeNull();
   });
 
@@ -220,7 +228,7 @@ describe("the review card for teams waiting on an age", () => {
     const user = userEvent.setup();
     show([
       ...twelve(),
-      team("plays", "Hendrickson Fall Ball", {
+      team("plays", "Quillmoor Fall Ball", {
         evidence: evidence({
           namedAnAge: 0,
           tally: [],
@@ -230,14 +238,129 @@ describe("the review card for teams waiting on an age", () => {
       team("label", "Brindlewood Badgers", { evidence: evidence({ ageLabel: "high_varsity" }) }),
     ]);
     const box = screen.getByRole("searchbox", { name: /Find a team/ });
-    await user.type(box, "Hendrickson");
-    expect(screen.getByText(/It reads as a high school squad/)).toBeInTheDocument();
+    await user.type(box, "Quillmoor");
+    // An age named for it files and ranks it, so the note does not say it is left out of them.
+    expect(
+      screen.getByText(/It reads as a high school side, so it is kept off this queue\./)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/left out of the rankings/)).toBeNull();
     expect(screen.getByText("It plays varsity and JV sides.")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: /Age for Hendrickson/ })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /Age for Quillmoor/ })).toBeInTheDocument();
     await user.clear(box);
     await user.type(box, "Brindlewood");
+    expect(
+      screen.getByText(
+        /It reads as a high school squad, so it is left out of the rankings and off this queue\./
+      )
+    ).toBeInTheDocument();
     expect(screen.getByText("GameChanger files it as a school team.")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: /Age for/ })).not.toBeInTheDocument();
+  });
+
+  /*
+   * The import refuses a page by its name before it reads an age, and a named age does not vouch
+   * for a club, so an age named for "Team 7" is thrown away at the next ask, the row with it.
+   */
+  it("offers no age for a page the import refuses by its name, and keeps the throw-out", async () => {
+    const user = userEvent.setup();
+    const { onThrowOut, onNameAge } = show([
+      ...twelve(),
+      team("seven", "Team 7"),
+      team("practice", "Alder Comets Practice"),
+      team("digits", "12345"),
+    ]);
+    const box = screen.getByRole("searchbox", { name: /Find a team/ });
+    await user.type(box, "Team 7");
+    expect(
+      screen.getByText(
+        "Kept off this queue: the name says it is no team, and its next check takes it off this " +
+          "list unless the club has renamed it by then."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /Age for Team 7/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Not a real team" }));
+    expect(onThrowOut).toHaveBeenCalledWith("seven", "Team 7");
+    await user.clear(box);
+    await user.type(box, "Alder Comets Practice");
+    expect(screen.queryByRole("combobox", { name: /Age for Alder Comets Practice/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Not a real team" })).toBeInTheDocument();
+    // A name with no letters is set aside and still filed by the import: an age lands.
+    await user.clear(box);
+    await user.type(box, "12345");
+    expect(
+      screen.getByText(/If the club renames it, it comes back on its own/)
+    ).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: /Age for 12345/ }), "10");
+    expect(onNameAge).toHaveBeenCalledWith("digits", "12345", 10);
+  });
+
+  it("does not promise to file an age named for a page its name refuses", async () => {
+    const user = userEvent.setup();
+    show([...twelve(), team("seven", "Team 7")], {
+      named: new Map([["seven", { teamId: "seven", level: 12, namedAt: NOW.toISOString() }]]),
+    });
+    await user.type(screen.getByRole("searchbox", { name: /Find a team/ }), "Team 7");
+    expect(
+      screen.getByText(
+        "You named an age for it, but its name says it is no team, so the next refresh leaves it " +
+          "out rather than filing it."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/It is filed on the next refresh/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Undo that" })).toBeInTheDocument();
+  });
+
+  it("does not promise to file an age named for a squad refused as a school's", async () => {
+    const user = userEvent.setup();
+    show([...twelve(), team("varsity", "Pimbleton HS Varsity")], {
+      named: new Map([["varsity", { teamId: "varsity", level: 15, namedAt: NOW.toISOString() }]]),
+    });
+    await user.type(screen.getByRole("searchbox", { name: /Find a team/ }), "Pimbleton HS");
+    expect(
+      screen.getByText(
+        "You named an age for it, but it reads as a high school squad, so the next refresh " +
+          "leaves it out rather than filing it."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("does not offer the way back by an age for a page left alone that its name refuses", async () => {
+    const user = userEvent.setup();
+    show([
+      ...twelve(),
+      team("seven", "Team 7", { tries: 99, firstSeen: daysBefore(400), lastTried: daysBefore(30) }),
+    ]);
+    await user.type(screen.getByRole("searchbox", { name: /Find a team/ }), "Team 7");
+    expect(
+      screen.getByText(
+        "Left alone: it had its asks and its weeks and nobody could ever age it, and its name " +
+          "says it is no team, so no age named for it would be filed."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/puts it back in the queue/)).toBeNull();
+    expect(screen.queryByRole("combobox", { name: /Age for Team 7/ })).toBeNull();
+  });
+
+  it("says under a school's name only what made it a school's", async () => {
+    const user = userEvent.setup();
+    show([
+      ...twelve(),
+      team("practice", "Pimbleton High School Practice"),
+      team("ahead", "Quillfern HS", {
+        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 12 }),
+      }),
+    ]);
+    const box = screen.getByRole("searchbox", { name: /Find a team/ });
+    await user.type(box, "Pimbleton High");
+    expect(
+      screen.getByText(/It reads as a high school squad, so it is left out/)
+    ).toBeInTheDocument();
+    expect(screen.getByText("The name reads as a high school squad.")).toBeInTheDocument();
+    expect(screen.queryByText(/test, practice or placeholder/)).toBeNull();
+    await user.clear(box);
+    await user.type(box, "Quillfern");
+    expect(screen.getByText("The name reads as a high school squad.")).toBeInTheDocument();
+    expect(screen.queryByText("You cannot score a game early.")).toBeNull();
   });
 
   it("says nothing was set aside when nothing was", () => {

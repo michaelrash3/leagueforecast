@@ -2088,9 +2088,9 @@ export function GameChangerImportPanel({
                 {parsed.notATeam > 0 && (
                   <span
                     className={pill("neutral")}
-                    title="Pages whose name says they are no team: a practice, scrimmage, tryout or test page, or an old page marked void, do not use or delete. Read off the name on every paste, so a page renamed since is asked about again. A club you vouched for is pulled whatever its name says."
+                    title="Pages whose name says they are no team: a practice, scrimmage, tryout or test page, an old page marked void, do not use or delete, or a page called only Team and a number, a letter or an age. Read off the name on every paste, so a page renamed since is asked about again. A club you vouched for is pulled whatever its name says."
                   >
-                    {`${parsed.notATeam} practice, test or old team ${parsed.notATeam === 1 ? "page" : "pages"}, skipped`}
+                    {`${parsed.notATeam} practice, test, old or unnamed team ${parsed.notATeam === 1 ? "page" : "pages"}, skipped`}
                   </span>
                 )}
                 {parsed.otherSeason > 0 && (
