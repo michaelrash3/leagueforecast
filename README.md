@@ -219,14 +219,14 @@ the schedule away with the reason `high-school`, and a tidy pass deletes any tha
 reached the pool before the rule existed. Nothing has to remember an id — the name
 refuses it again every export, including ids never seen before.
 
-| In the name or the age field                     | Read as                                                             |
-| ------------------------------------------------ | ------------------------------------------------------------------- |
-| `Varsity`, `JV`, `Junior Varsity`                | high school, always                                                 |
-| `JV/V`                                           | high school — the JV says the lone `V` beside it is varsity         |
-| `HS`, `High School`, with no age label           | high school                                                         |
-| `HS` with an age label — "Lincoln HS 16U"        | **kept**: a summer squad playing an age bracket against travel ball |
-| A lone `V` on its own — "Madison V"              | neither; it goes to the review card, below                          |
-| Any of the above under 14U — "Varsity Elite 12U" | **kept**: a travel club that likes the word                         |
+| In the name or the age field                      | Read as                                                             |
+| ------------------------------------------------- | ------------------------------------------------------------------- |
+| `Varsity`, `JV`, `Junior Varsity`                 | high school, always                                                 |
+| A lone capital `V` in the name — "Alder Comets V" | high school, as `Varsity` is: the owner's ruling, below             |
+| `JV/V`                                            | high school — both words say it                                     |
+| `HS`, `High School`, with no age label            | high school                                                         |
+| `HS` with an age label — "Lincoln HS 16U"         | **kept**: a summer squad playing an age bracket against travel ball |
+| Any of the above under 14U — "Varsity Elite 12U"  | **kept**: a travel club that likes the word                         |
 
 Three edges are deliberate. A squad word wins over an age label, because a side
 calling itself varsity is playing the school season whatever else it writes; the
@@ -236,6 +236,38 @@ A freshman is fourteen at the youngest, so "Varsity Elite 12U" and "JV Sluggers 
 are travel clubs that like the words. That floor matters more than it looks: a
 wrongly refused club leaves nothing behind to notice it by — no row, no count against
 its name, nothing — so the rule errs towards keeping whenever the age contradicts it.
+
+**A lone V is varsity.** The owner, 18 October 2026: "A lone V means Varsity. period." A capital V
+with no letter against it on either side reads exactly as the word does, its floor with it: "Alder
+Comets V", "V Gorsefield Gulls" and "Wrenhaven V-Rays" are school squads, "Brackenfield Owls 12U V"
+a travel club; a lowercase v between two names is versus, and a V run into other letters ("VA",
+"MVP", "IV") is no squad word. Until then a lone V refused nothing: it put its row on the waiting
+list ahead of the rows nothing else separated it from, with a line saying what to look for (**Teams
+waiting on an age**, below). On the desktop crawl's export of 24 September 2026 it reads 76 rows no
+other school word did, 59 of them with nine players or more and 13 with none, none with anything in
+the age column, so a pasted export marks 10,526 rows high school where it marked 10,450. A second
+writing of the rule gives the app's verdict on all 362,078 distinct names in that export, the backup
+of 11 October and its waiting list. In the backup it reads 59 teams by the name the pool stores, 29
+pulled clubs and 30 stand-ins, none of them anyone's own team, a page's own team or on the owner's
+list of real clubs, and none of the 13,169 rows waiting on an age.
+
+**The tidy reads the name the import read.** A pool stores a club under its name with the age taken
+off (`cleanTeamName`), so "Brackenfield Owls 12U V" is held as "Brackenfield Owls V", which reads as
+varsity where the name GameChanger gives it does not. Read off the stored name, the tidy deleted a
+club the import files and the next pull filed it again. So a pulled club goes when every name
+GameChanger gives it reads as a school's, as the not-a-team pass reads one, and a stand-in, which
+has only the stored name, stays when a row named it at an age under fourteen, the level a row's name
+gives a side being kept on the row (`schoolNamedTravelStandIns`); the clubs worth pulling read a
+stand-in the same way. In the backup 12 of the 29 pulled clubs go, every one filed with an age, at
+14U to 18U but for one GameChanger files at 9U whose name states none, and 10 of them on a board
+built from that backup, the best 90th. The other 17 stay: the names GameChanger gives 16 of them
+state 9U to 13U, and one carries no lone V at all. Of the 30 stand-ins 27 go, and 3 stay, every row
+naming them at an age under fourteen, 5 games. The tidy deletes 39 clubs as high school squads where
+it deleted none, and prunes 10 stand-ins and slots left holding nothing; 129 games go, 91 of them
+scored, 105 of them (74 scored) off the records of 66 pulled clubs that stay, and one game left
+standing has a claim released. It keeps nothing it deleted before. The tidy rules go from 24 to 25,
+so every pool is tidied once more under the ruling. The board parity pins do not move, so
+`BOARD_RULES` stays at 7.
 
 Their games go with them, and one of those losses is real: a travel side that
 played the local varsity loses that result. It goes because the other half of it is
@@ -2268,13 +2300,19 @@ it has asks left, and each ask replaces what was known — so a squad still bein
 comes back on its own once a check finds nine. A team nobody gave a count for stays on the
 card, and the search still finds a short one and says why it is off the queue.
 
-A lone `V` is the opposite case and stays. "Madison V" is the varsity side on a school
-schedule and is equally a squad number, a colour or a coach's initial, and one letter
-is too thin to refuse a real club on. So it comes to the **top** of the queue, with
-the reason written out — it is the one row here anybody can settle by opening a single
-page — and the card carries a **High school** button beside **Not a real team**, since
-a varsity side is a real team that simply plays a season this app does not rank. Both
-buttons do the same thing to storage: thrown out at once, and never brought back.
+A lone `V` is one of those names now. Until 18 October 2026 it was the opposite case and stayed: a
+capital V standing alone was read as maybe the varsity side and maybe a squad number, a colour or a
+coach's initial, so it went ahead of the rows nothing else separated it from, with a line saying
+what to look for, for somebody to settle by opening the page. The owner ruled it settled by the
+name: "A lone V means Varsity. period." So it reads as `Varsity` does (**High school squads are left
+out**, above), the import refuses the page at its next ask, the row is set aside as a high school
+squad with no age offered, and the line and the lead it gave the row in the queue's order are gone.
+None of the 13,169 rows waiting in the backup of 11 October 2026 has such a name; the queue holds
+the same 1,760 it did, the rule that reads who a team plays now counting a lone-V opponent as a
+school side and moving none of them. The card still carries a **High school** button beside **Not a
+real team**, for a side a person reads as a school's that no rule does, since a varsity side is a
+real team that simply plays a season this app does not rank. Both buttons do the same thing to
+storage: thrown out at once, and never brought back.
 
 **Finding one team.** The card carries a search box, and it reads the **whole list** rather than
 the queue. It matches the name, the GameChanger id, the town and state, and the opponents the card
@@ -2602,8 +2640,10 @@ reached a schedule.
 From 27 September to 18 October 2026 the teams least likely to be real came first, then the
 ones that read as high school sides, then everyone else — the user's order, since working this
 list was mostly clearing it. Those two groups are the rows now set aside (above), so what is left
-on the queue keeps the order it had among itself: least likely real first, one carrying a lead,
-then the stalest. **Unlikely to be real** is a name nobody gives a team that plays (the words the import refuses
+on the queue keeps the order it had among itself: least likely real first, then the stalest. A row
+carrying a lead went ahead of the stalest until the same day, and the only lead was a lone V, which
+the owner's ruling sets aside (above). **Unlikely to be real** is a name nobody gives a team that
+plays (the words the import refuses
 a page on, `notATeamWord`, and "old team" and "not a real"; "Team 1"; no letters in any script;
 two characters or fewer), a triage rule that says so (named void or do-not-use, every game
 scored on a day that has not happened), or `looksInvented` at half a point or more — the

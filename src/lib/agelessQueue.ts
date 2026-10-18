@@ -31,12 +31,7 @@
  */
 
 import { looksInvented, whyNoAge, writesARankedAge, type AgelessEvidence } from "./agelessEvidence";
-import {
-  ageBandFromLabel,
-  isSchoolAgeLabel,
-  isSchoolName,
-  maybeSchoolTeam,
-} from "./gameChangerApi";
+import { ageBandFromLabel, isSchoolAgeLabel, isSchoolName } from "./gameChangerApi";
 import { AGELESS_RULES } from "./agelessTriage";
 import { rosterStanding } from "./gcRoster";
 import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
@@ -67,22 +62,8 @@ export type AgelessRow = {
   standing?: AgelessStanding;
   /** Why the age could not be read, in a sentence. */
   why: string;
-  /** A lead the name carries, when it carries one. Present only when there is one. */
-  hint?: string;
   evidence?: AgelessEvidence;
 };
-
-/**
- * What a lone "V" is worth saying.
- *
- * Every other row on this card is a question the name cannot answer. This one is a question the
- * name half answers, and the half it gives is the half a person can finish in a second by opening
- * the page — which is why it comes to the top and why it says what to look for.
- */
-const LONE_V_HINT =
-  'The name carries a lone "V" with no letter against it. On a school schedule that is the ' +
-  "varsity side, and high school squads are left out of the rankings — but a single letter is " +
-  "also a squad number, a colour or an initial, so this is worth opening rather than guessing.";
 
 const NO_EVIDENCE: AgelessEvidence = {
   games: 0,
@@ -111,8 +92,10 @@ const NO_EVIDENCE: AgelessEvidence = {
  * abandoned entry and not something this rule introduced — but the row is hidden from here
  * rather than deleted, and saying otherwise would be a claim this file cannot keep.
  *
- * A lone "V" is deliberately NOT caught here. That one really is a question for a person, and it
- * gets a hint instead — see `LONE_V_HINT`.
+ * A lone capital "V" is caught here too, since the owner's ruling of 18 October 2026 ("A lone V
+ * means Varsity. period."): the school rule reads it as the word (`isSchoolName`). It was kept on
+ * the queue until then, sorted ahead of the rows nothing else separated it from, with a hint to
+ * open the page and see whether it was the varsity side; the ruling settles that by the name.
  *
  * Nor is a team whose roster is short of nine (`shortRoster`), which the user ruled off this list
  * on 28 September 2026, nor one the queue sets aside by rule (`setAsideByRule`), as the owner asked
@@ -299,7 +282,6 @@ export const agelessRowFor = (entry: AgeUnknownTeam): AgelessRow => {
     why: evidence
       ? whyNoAge(evidence, MIN_OPPONENT_AGE_EVIDENCE)
       : "Nothing was kept about this one — the next refresh will say why.",
-    ...(maybeSchoolTeam(entry.name ?? "") ? { hint: LONE_V_HINT } : {}),
     ...(evidence ? { evidence } : {}),
   };
 };
@@ -315,9 +297,6 @@ const byQueueOrder = (rows: AgelessRow[]): AgelessRow[] =>
   rows.sort(
     (a, b) =>
       b.unlikely - a.unlikely ||
-      // Among rows nothing separates, one carrying a lead goes ahead — it is answerable at a
-      // glance, so it costs the sitting least.
-      Number(Boolean(b.hint)) - Number(Boolean(a.hint)) ||
       // Then the stalest, so a tie does not park the same rows at the top for ever.
       (a.entry.lastTried < b.entry.lastTried ? -1 : a.entry.lastTried > b.entry.lastTried ? 1 : 0)
   );

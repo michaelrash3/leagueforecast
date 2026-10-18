@@ -9,7 +9,11 @@ import {
 import type { AgeGroup, GcTeamLink, ScoutGame, ScoutTeam } from "../teamRankings";
 import { NO_REMOVALS } from "../autoRemoved";
 import { sweepMarks } from "../obviousFakes";
-import { agelessRowFor } from "../agelessQueue";
+import { agelessRowFor, agelessSearch, refusedAsSchool } from "../agelessQueue";
+import { AGELESS_RULES } from "../agelessTriage";
+import type { AgelessEvidence } from "../agelessEvidence";
+import type { AgeUnknownTeam } from "../ageUnknown";
+import { unpulledClubs } from "../unpulledClubs";
 
 /*
  * What the import, the tidy, the nightly sweep's name sign and the waiting list make of names that
@@ -847,6 +851,253 @@ describe("the Team-number names with an age, and the plural, pinned before the r
         "Teams: -",
         "TEAMS: -",
         "TEAMB: -",
+      ]
+    `);
+  });
+});
+
+/*
+ * The same paths over names carrying a lone uppercase "V", pinned before the owner's ruling of 18
+ * October 2026 that a lone V means varsity, beside names whose V is no squad word: a lowercase "v"
+ * between two names, a V run into letters, and a JV/V the school rule read already. Two state an
+ * age, one under the youngest a freshman is and one over it. The names are invented; none is a
+ * club in the export or the pool.
+ */
+describe("the lone-V names pinned before the owner's ruling", () => {
+  const LONE_V = [
+    "Alder Comets V",
+    "Quillmoor V Fall",
+    "V Gorsefield Gulls",
+    "Wrenhaven V-Rays",
+    "Larkspire 16U V",
+    "Brackenfield Owls 12U V",
+  ];
+  const NO_LONE_V = [
+    "Fernhollow v Brindlewood",
+    "Pimbleton VA Stars",
+    "Tamberly Vipers",
+    "Gorsefield JV/V",
+  ];
+
+  it("files a schedule list as it did", () => {
+    const schedule = (id: string, name: string, games: GcTeamSchedule["games"]) => ({
+      profile: { id, name, ageLevel: 12, season: { season: "fall" as const, year: 2026 } },
+      games,
+      fetchedAt: "2026-10-01T12:00:00.000Z",
+    });
+    const played = (id: string, date: string, opponentName: string, runs: [number, number]) => ({
+      id,
+      date,
+      opponentName,
+      teamScore: runs[0],
+      opponentScore: runs[1],
+      status: "completed" as const,
+    });
+    const { state, outcomes } = importGcSchedules(
+      [
+        schedule("gcQUILL00001", "Quillfeather Quails 12U", [
+          played("q1", "2026-09-05", "Alder Comets V", [6, 2]),
+          played("q2", "2026-09-06", "Brackenfield Owls 12U V", [3, 1]),
+          played("q3", "2026-09-07", "Larkspire 16U V", [5, 4]),
+          played("q4", "2026-09-08", "Fernhollow v Brindlewood", [7, 0]),
+          played("q5", "2026-09-09", "Pimbleton VA Stars", [8, 1]),
+        ]),
+        ...[...LONE_V, ...NO_LONE_V].map((name, at) =>
+          schedule(`gcLONEV0000${at}`, name, [
+            played(`v${at}`, `2026-09-1${at}`, "Quillfeather Quails 12U", [1, 5]),
+          ])
+        ),
+      ],
+      { ageGroups: [], teams: [], games: [] },
+      { today: "2026-10-11" }
+    );
+    expect(
+      outcomes.map(
+        (outcome) =>
+          `${outcome.teamName}: ${outcome.skip ?? "filed"}, +${outcome.gamesAdded}, ignored ${
+            outcome.gamesIgnored
+          }, made ${outcome.opponentsCreated}`
+      )
+    ).toMatchInlineSnapshot(`
+      [
+        "Quillfeather Quails 12U: filed, +3, ignored 2, made 3",
+        "Alder Comets V: high-school, +0, ignored 0, made 0",
+        "Quillmoor V Fall: high-school, +0, ignored 0, made 0",
+        "V Gorsefield Gulls: high-school, +0, ignored 0, made 0",
+        "Wrenhaven V-Rays: high-school, +0, ignored 0, made 0",
+        "Larkspire 16U V: high-school, +0, ignored 0, made 0",
+        "Brackenfield Owls 12U V: filed, +1, ignored 0, made 1",
+        "Fernhollow v Brindlewood: filed, +1, ignored 0, made 0",
+        "Pimbleton VA Stars: filed, +1, ignored 0, made 0",
+        "Tamberly Vipers: filed, +1, ignored 0, made 0",
+        "Gorsefield JV/V: high-school, +0, ignored 0, made 0",
+      ]
+    `);
+    expect(describePool(state)).toMatchInlineSnapshot(`
+      {
+        "games": [
+          "2026-09-06 Quillfeather Quails [pulled] 3-1 Brackenfield Owls V [pulled]",
+          "2026-09-08 Quillfeather Quails [pulled] 7-0 Fernhollow v Brindlewood [pulled]",
+          "2026-09-09 Quillfeather Quails [pulled] 8-1 Pimbleton VA Stars [pulled]",
+          "2026-09-15 Brackenfield Owls V [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-09-16 Fernhollow v Brindlewood [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-09-17 Pimbleton VA Stars [pulled] 1-5 Quillfeather Quails [stand-in]",
+          "2026-09-18 Tamberly Vipers [pulled] 1-5 Quillfeather Quails [stand-in]",
+        ],
+        "teams": [
+          "Brackenfield Owls V [pulled]",
+          "Fernhollow v Brindlewood [pulled]",
+          "Pimbleton VA Stars [pulled]",
+          "Quillfeather Quails [pulled]",
+          "Quillfeather Quails [stand-in]",
+          "Tamberly Vipers [pulled]",
+        ],
+      }
+    `);
+  });
+
+  it("marks a pasted list as it did", () => {
+    const list = parseGcTeamList(
+      [
+        "Team Name,Team ID,Age Group",
+        ...[...LONE_V, ...NO_LONE_V].map(
+          (name, at) => `${name},gcVLIST${String(at).padStart(5, "0")},`
+        ),
+      ].join("\n")
+    );
+    expect(
+      list.entries.map(({ name, highSchool }) => `${name}: ${highSchool ? "high school" : "-"}`)
+    ).toMatchInlineSnapshot(`
+      [
+        "Alder Comets V: high school",
+        "Quillmoor V Fall: high school",
+        "V Gorsefield Gulls: high school",
+        "Wrenhaven V-Rays: high school",
+        "Larkspire 16U V: high school",
+        "Brackenfield Owls 12U V: -",
+        "Fernhollow v Brindlewood: -",
+        "Pimbleton VA Stars: -",
+        "Tamberly Vipers: -",
+        "Gorsefield JV/V: high school",
+      ]
+    `);
+  });
+
+  /*
+   * Stored as the import stores a club, the age taken off the name GameChanger gives it: what the
+   * tidy has to go on is the stored name, the link's name and the level a row named a stand-in at.
+   */
+  const pool = (): GcImportState => ({
+    ageGroups: [page],
+    teams: [
+      club("quill", "Quillfeather Quails", [["gcQUILL00001", "Quillfeather Quails 12U"]]),
+      club("alder", "Alder Comets V", [["gcALDER00001", "Alder Comets V"]]),
+      club("lark", "Larkspire V", [["gcLARKS00001", "Larkspire 16U V"]]),
+      club("brack", "Brackenfield Owls V", [["gcBRACK00001", "Brackenfield Owls 12U V"]]),
+      club("fern", "Fernhollow v Brindlewood", [["gcFERNH00001", "Fernhollow v Brindlewood"]]),
+      { id: "quillv", name: "Quillmoor V Fall", nameOnly: true },
+      { id: "gorse", name: "Gorsefield Gulls V", nameOnly: true },
+      { id: "wren", name: "Wrenhaven V-Rays", nameOnly: true },
+      { id: "pimble", name: "Pimbleton VA Stars", nameOnly: true },
+    ],
+    games: [
+      row("gA", "quill", "alder", [9, 3], "2026-09-05", "gcQUILL00001", { namedByAvatar: "alder" }),
+      row("gB", "lark", "quill", [4, 2], "2026-09-06", "gcLARKS00001", { namedByAvatar: "quill" }),
+      row("gC", "brack", "quill", [3, 1], "2026-09-07", "gcBRACK00001", { namedByAvatar: "quill" }),
+      row("gD", "fern", "quill", [2, 5], "2026-09-08", "gcFERNH00001", { namedByAvatar: "quill" }),
+      row("gE", "quill", "quillv", [8, 2], "2026-09-09", "gcQUILL00001"),
+      // The row named it "Gorsefield Gulls 12U V", whose age the stored name lost.
+      row("gF", "quill", "gorse", [5, 1], "2026-09-10", "gcQUILL00001", { ageLevelB: 12 }),
+      row("gG", "quill", "wren", [6, 0], "2026-09-11", "gcQUILL00001", { ageLevelB: 15 }),
+      row("gH", "quill", "pimble", [7, 3], "2026-09-12", "gcQUILL00001"),
+    ],
+  });
+
+  it("tidies a pool as it did", () => {
+    const tidy = tidyPool(pool());
+    expect(counts(tidy)).toMatchInlineSnapshot(`
+      {
+        "highSchool": 4,
+        "passes": 2,
+      }
+    `);
+    expect(describePool(tidy.state)).toMatchInlineSnapshot(`
+      {
+        "games": [
+          "2026-09-07 Brackenfield Owls V [pulled] 3-1 Quillfeather Quails [pulled]",
+          "2026-09-08 Fernhollow v Brindlewood [pulled] 2-5 Quillfeather Quails [pulled]",
+          "2026-09-10 Quillfeather Quails [pulled] 5-1 Gorsefield Gulls V [stand-in]",
+          "2026-09-12 Quillfeather Quails [pulled] 7-3 Pimbleton VA Stars [stand-in]",
+        ],
+        "teams": [
+          "Brackenfield Owls V [pulled]",
+          "Fernhollow v Brindlewood [pulled]",
+          "Gorsefield Gulls V [stand-in]",
+          "Pimbleton VA Stars [stand-in]",
+          "Quillfeather Quails [pulled]",
+        ],
+      }
+    `);
+  });
+
+  it("lists the clubs worth pulling as it did", () => {
+    expect(unpulledClubs(pool()).map((entry) => entry.name)).toMatchInlineSnapshot(`
+      [
+        "Gorsefield Gulls V",
+        "Pimbleton VA Stars",
+      ]
+    `);
+  });
+
+  it("reads the waiting list's names as it did", () => {
+    const evidence = (sampleOpponents: string[] = []): AgelessEvidence => ({
+      games: 4,
+      scored: 4,
+      aheadOfToday: 0,
+      shutoutBlowouts: 0,
+      opponents: 4,
+      namedAnAge: sampleOpponents.length > 0 ? 0 : 1,
+      tally: sampleOpponents.length > 0 ? [] : [[16, 1]],
+      sampleOpponents,
+    });
+    const rows: AgeUnknownTeam[] = [
+      ...[...LONE_V, ...NO_LONE_V].map((name) => ({ name, evidence: evidence() })),
+      // A side whose schedule is lone-V sides and nobody writing an age.
+      { name: "Quillfeather Quails", evidence: evidence(["Alder Comets V", "Quillmoor V Fall"]) },
+    ].map(({ name, evidence: kept }) => ({
+      teamId: name,
+      name,
+      firstSeen: "2026-09-01T00:00:00.000Z",
+      lastTried: "2026-09-10T00:00:00.000Z",
+      tries: 1,
+      evidence: kept,
+    }));
+    const now = new Date("2026-09-20T12:00:00.000Z");
+    expect(
+      rows.map((entry) => {
+        const hit = agelessSearch([entry], new Map(), new Set(), now, entry.teamId).hits[0]!;
+        const school = AGELESS_RULES.filter(
+          (rule) => rule.id.startsWith("school-") && rule.read(entry) !== undefined
+        ).map((rule) => rule.id);
+        return `${entry.name}: ${hit.aside ?? "on the queue"}; ${
+          hit.row.standing?.because ?? "-"
+        }; ${"hint" in hit.row ? "a hint" : "no hint"}; ${
+          refusedAsSchool(entry) ? "refused as a school" : "not refused"
+        }; ${school.join(" ") || "no school rule"}`;
+      })
+    ).toMatchInlineSnapshot(`
+      [
+        "Alder Comets V: high-school; -; no hint; refused as a school; school-name",
+        "Quillmoor V Fall: high-school; -; no hint; refused as a school; school-name",
+        "V Gorsefield Gulls: high-school; -; no hint; refused as a school; school-name",
+        "Wrenhaven V-Rays: high-school; -; no hint; refused as a school; school-name",
+        "Larkspire 16U V: high-school; -; no hint; refused as a school; school-name",
+        "Brackenfield Owls 12U V: on the queue; -; no hint; not refused; no school rule",
+        "Fernhollow v Brindlewood: on the queue; -; no hint; not refused; no school rule",
+        "Pimbleton VA Stars: on the queue; -; no hint; not refused; no school rule",
+        "Tamberly Vipers: on the queue; -; no hint; not refused; no school rule",
+        "Gorsefield JV/V: high-school; -; no hint; refused as a school; school-name",
+        "Quillfeather Quails: high-school; it plays varsity and JV sides; no hint; not refused; school-by-evidence",
       ]
     `);
   });

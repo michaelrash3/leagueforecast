@@ -4067,10 +4067,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r24|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r25|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r24|0|0|0|");
+    expect(poolSignature(empty)).toBe("r25|0|0|0|");
   });
 
   /*
@@ -5322,7 +5322,7 @@ describe("high school squads", () => {
     expect(isSchoolName("Eastview Junior Varsity Baseball")).toBe(true);
     expect(isSchoolName("Northside High School")).toBe(true);
     expect(isSchoolName("Centerville HS")).toBe(true);
-    // "JV/V" is a programme listing both squads; the JV is what says the lone V is varsity.
+    // "JV/V" is a programme listing both squads, and both words say it (a lone V alone, below).
     expect(isSchoolName("Madison JV/V")).toBe(true);
   });
 
@@ -5497,6 +5497,172 @@ describe("high school squads", () => {
     // Caught by the age column alone, with nothing in the name to give it away.
     expect(list.entries.find((e) => e.teamId === "gcCCCCCCCCCC")?.highSchool).toBe(true);
     expect(list.entries.find((e) => e.teamId === "gcAAAAAAAAAA")?.highSchool).toBeUndefined();
+  });
+});
+
+/*
+ * The owner, 18 October 2026: "A lone V means Varsity. period." A capital V with no letter against
+ * it on either side is read exactly as the word is, its one exception with it: a name stating an
+ * age under fourteen is a travel club, whatever squad word it carries. The names are invented.
+ */
+describe("a lone V, which means varsity", () => {
+  it("reads a capital V standing alone as the word Varsity, wherever it stands", () => {
+    expect(isSchoolName("Alder Comets V")).toBe(true);
+    expect(isSchoolName("Quillmoor V Fall")).toBe(true);
+    expect(isSchoolName("V Gorsefield Gulls")).toBe(true);
+    expect(isSchoolName("Wrenhaven V-Rays")).toBe(true);
+    expect(isSchoolName("Tamberly (V)")).toBe(true);
+    expect(isSchoolName("V")).toBe(true);
+  });
+
+  it("keeps the word's exception for it: an age under fourteen is a travel club", () => {
+    expect(isSchoolName("Brackenfield Owls 12U V")).toBe(false);
+    expect(isSchoolName("Brackenfield Owls V 13u")).toBe(false);
+    // At fourteen and up a lone V is taken at its word, as Varsity is, and an HS age label too.
+    expect(isSchoolName("Brackenfield Owls V 14U")).toBe(true);
+    expect(isSchoolName("Larkspire HS 16U V")).toBe(true);
+  });
+
+  it("reads no V that is not standing alone, nor a lowercase v, which is versus", () => {
+    expect(isSchoolName("Fernhollow v Brindlewood")).toBe(false);
+    expect(isSchoolName("Pimbleton VA Stars")).toBe(false);
+    expect(isSchoolName("Tamberly Vipers")).toBe(false);
+    expect(isSchoolName("Tamberly MVP 12U")).toBe(false);
+    expect(isSchoolName("Tamberly IV")).toBe(false);
+  });
+
+  it("refuses the page, and drops a game against one rather than minting it", () => {
+    const { state, outcome } = importGcSchedule(
+      schedule({ name: "Alder Comets V", ageLevel: 16 }, [game()]),
+      empty
+    );
+    expect(outcome.skip).toBe("high-school");
+    expect(state).toBe(empty);
+    const filed = importGcSchedule(
+      schedule({}, [
+        game({ id: "school", opponentName: "Quillmoor V Fall" }),
+        game({ id: "travel", opponentName: "Brackenfield Owls 9U V" }),
+      ]),
+      empty
+    );
+    expect(filed.outcome.gamesIgnored).toBe(1);
+    expect(filed.state.games.map((g) => g.id)).toEqual(["gc_gcAAAAAAAAAA_travel"]);
+  });
+
+  it("files a page whose name states a travel age beside its V", () => {
+    const { outcome } = importGcSchedule(
+      schedule({ name: "Brackenfield Owls 12U V", ageLevel: 12 }, [game()]),
+      empty
+    );
+    expect(outcome.skip).toBeUndefined();
+  });
+
+  it("marks a pasted row, so no request is spent on one", () => {
+    const list = parseGcTeamList(
+      [
+        "Team Name,Team ID,Age Group",
+        "Alder Comets V,gcAAAAAAAAAA,",
+        "Brackenfield Owls 12U V,gcBBBBBBBBBB,12U",
+        "Fernhollow v Brindlewood,gcCCCCCCCCCC,12U",
+      ].join("\n")
+    );
+    expect(list.entries.map((entry) => entry.highSchool ?? false)).toEqual([true, false, false]);
+  });
+
+  /*
+   * A pool stores a club under its name with the age taken off (`cleanTeamName`), so "Brackenfield
+   * Owls 12U V" is held as "Brackenfield Owls V", which reads as varsity where the name GameChanger
+   * gives it does not. Read off the stored name, the tidy deleted a club the import files, and the
+   * next pull filed it again: so a pulled club is read by its GameChanger names, as the import
+   * reads it, and a stand-in, which has no such name, by the age a row named it at.
+   */
+  it("deletes a pulled club by the names GameChanger gives it, as the import reads it", () => {
+    const page: AgeGroup = { id: "ag", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] };
+    const link = (teamId: string, name: string) => ({
+      teamId,
+      name,
+      ageGroupId: page.id,
+      ageLevel: 12,
+      season: "fall" as const,
+      seasonYear: 2026,
+    });
+    const tidy = tidyPool({
+      ageGroups: [page],
+      teams: [
+        {
+          id: "real",
+          name: "Lexington Legends",
+          gcTeams: [link("gcAAAAAAAAAA", "Lexington Legends 12U")],
+        },
+        { id: "school", name: "Alder Comets V", gcTeams: [link("gcBBBBBBBBBB", "Alder Comets V")] },
+        {
+          id: "travel",
+          name: "Brackenfield Owls V",
+          gcTeams: [link("gcCCCCCCCCCC", "Brackenfield Owls 12U V")],
+        },
+        // One of its GameChanger teams states a travel age: the import files that one, so it stays.
+        {
+          id: "both",
+          name: "Quillmoor V",
+          gcTeams: [link("gcDDDDDDDDDD", "Quillmoor V"), link("gcEEEEEEEEEE", "Quillmoor 11U V")],
+        },
+      ],
+      games: [
+        { id: "g1", ageGroupId: page.id, teamAId: "real", teamBId: "school", date: "2026-09-12" },
+        { id: "g2", ageGroupId: page.id, teamAId: "real", teamBId: "travel", date: "2026-09-13" },
+        { id: "g3", ageGroupId: page.id, teamAId: "both", teamBId: "real", date: "2026-09-14" },
+      ],
+    });
+    expect(tidy.highSchool).toBe(1);
+    expect(tidy.state.teams.map((team) => team.id).sort()).toEqual(["both", "real", "travel"]);
+    expect(tidy.state.games.map((g) => g.id)).toEqual(["g2", "g3"]);
+  });
+
+  it("keeps a stand-in a row named at a travel age, and deletes one no row did", () => {
+    const page: AgeGroup = { id: "ag", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] };
+    const tidy = tidyPool({
+      ageGroups: [page],
+      teams: [
+        { id: "real", name: "Lexington Legends 12U" },
+        // "Gorsefield Gulls 12U V" on the row, the age cleaned off the stored name.
+        { id: "travel", name: "Gorsefield Gulls V", nameOnly: true },
+        { id: "school", name: "Quillmoor V Fall", nameOnly: true },
+        // Fourteen is a freshman's age, so a row naming it so names a school side.
+        { id: "older", name: "Wrenhaven V", nameOnly: true },
+        // On side A of the row that named it, as a row filed the other way round has it.
+        { id: "turned", name: "Tamberly V", nameOnly: true },
+      ],
+      games: [
+        {
+          id: "g1",
+          ageGroupId: page.id,
+          teamAId: "real",
+          teamBId: "travel",
+          date: "2026-09-12",
+          ageLevelB: 12,
+        },
+        { id: "g2", ageGroupId: page.id, teamAId: "real", teamBId: "school", date: "2026-09-13" },
+        {
+          id: "g3",
+          ageGroupId: page.id,
+          teamAId: "real",
+          teamBId: "older",
+          date: "2026-09-14",
+          ageLevelB: 14,
+        },
+        {
+          id: "g4",
+          ageGroupId: page.id,
+          teamAId: "turned",
+          teamBId: "real",
+          date: "2026-09-15",
+          ageLevelA: 13,
+        },
+      ],
+    });
+    expect(tidy.highSchool).toBe(2);
+    expect(tidy.state.teams.map((team) => team.id).sort()).toEqual(["real", "travel", "turned"]);
+    expect(tidy.state.games.map((g) => g.id)).toEqual(["g1", "g4"]);
   });
 });
 

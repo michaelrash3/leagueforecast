@@ -80,6 +80,29 @@ describe("the clubs worth pulling next", () => {
     expect(clubs.map((club) => club.name)).toEqual(["Heard Of Only"]);
   });
 
+  it("leaves out a lone-V squad as varsity, and keeps one a row named at a travel age", () => {
+    /*
+     * The owner, 18 October 2026: "A lone V means Varsity. period." A stand-in is stored with the
+     * age its row wrote taken off ("Gorsefield Gulls 12U V" as "Gorsefield Gulls V"), and the age
+     * stays on the row: an age under fourteen says a travel club, which the import files and the
+     * tidy keeps, so it is worth pulling as any club is.
+     */
+    const clubs = unpulledClubs(
+      pool(
+        [
+          pulled("S-HOME", "Home Club", "KY"),
+          heard("S-SCHOOL", "Quillmoor V Fall"),
+          heard("S-TRAVEL", "Gorsefield Gulls V"),
+        ],
+        [
+          game("g1", "ag_11_2027", "S-HOME", "S-SCHOOL", { teamAScore: 6, teamBScore: 2 }),
+          game("g2", "ag_11_2027", "S-HOME", "S-TRAVEL", { ageLevelB: 11 }),
+        ]
+      )
+    );
+    expect(clubs.map((club) => club.name)).toEqual(["Gorsefield Gulls V"]);
+  });
+
   it("puts the one holding the most results first", () => {
     // A stand-in holding two results costs two games; one holding one costs one.
     const [first] = unpulledClubs(state());

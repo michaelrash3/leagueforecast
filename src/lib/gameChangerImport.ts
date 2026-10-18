@@ -31,6 +31,7 @@ import {
   isAdultAgeLabel,
   isSchoolAgeLabel,
   isSchoolName,
+  MIN_HIGH_SCHOOL_AGE,
   squadYearOfGcTeam,
   type GcGame,
   type GcTeamProfile,
@@ -7223,13 +7224,60 @@ const without = (
  * handful of real results that cross the line is the price of not carrying the cluster they lead
  * into, which is a trade this pool makes knowingly.
  *
- * The name only, not the age field: what is in the pool is a `ScoutTeam`, and GameChanger's own
- * age label is not kept on one — the level is. A squad whose name said nothing and whose age
- * field said "Varsity" was never filed in the first place, because the import refuses it on the
- * way in, so there is nothing here for this pass to find.
+ * The name only, not the age field: a squad whose name said nothing and whose age field said
+ * "Varsity" was never filed in the first place, because the import refuses it on the way in, so
+ * there is nothing here for this pass to find.
+ *
+ * And the name the import read, not the one the pool stores, which has the age taken off
+ * (`cleanTeamName`): "Brackenfield Owls 12U V" is held as "Brackenfield Owls V", and the age is
+ * the one thing that says a travel club, so read off the stored name the pass deleted a club the
+ * import files, and the next pull filed it again. A pulled club goes when every name GameChanger
+ * gives it reads as a school's (the club's own name standing in for a link that carries none), as
+ * the not-a-team pass reads one; a stand-in, which has only the stored name, unless a row named it
+ * at an age under fourteen (`schoolNamedTravelStandIns`). That mattered from the owner's ruling of
+ * 18 October 2026 that a lone V is varsity: on the backup of 11 October the stored names of 29
+ * pulled clubs read so, and the names GameChanger gives 17 of them do not, 16 stating 9U to 13U
+ * and one carrying no lone V at all. A slot, or a club added by hand, is read by its name.
  */
-const dropSchoolTeams = (state: GcImportState): { state: GcImportState; dropped: number } =>
-  without(state, new Set(state.teams.filter((team) => isSchoolName(team.name)).map((t) => t.id)));
+const dropSchoolTeams = (state: GcImportState): { state: GcImportState; dropped: number } => {
+  const travel = schoolNamedTravelStandIns(state);
+  const going = state.teams.filter((team) => {
+    const links = team.gcTeams ?? [];
+    if (links.length > 0) return links.every((link) => isSchoolName(link.name.trim() || team.name));
+    return isSchoolName(team.name) && !travel.has(team.id);
+  });
+  return without(state, new Set(going.map((team) => team.id)));
+};
+
+/**
+ * The stand-ins whose stored name reads as a school squad's (`isSchoolName`) that some row named at
+ * an age under the youngest a freshman is (`MIN_HIGH_SCHOOL_AGE`): a travel club's, as the import
+ * read that row, and kept by the tidy's school pass and on the clubs worth pulling.
+ *
+ * A stand-in is stored under the name a schedule wrote with its age taken off (`cleanTeamName`),
+ * and the age stays on the row, as the level the name gave its side (`ScoutGame.ageLevelB`, or A
+ * on a row filed the other way round). The import drops a row whose opponent's name reads as a
+ * school's, so a row naming a stand-in so without an age came before the rule that drops it. On
+ * the backup of 11 October 2026, 3 of the 30 stand-ins a lone V reads had every row name them at
+ * an age under fourteen, 5 games in all, and none had rows of both kinds.
+ */
+export const schoolNamedTravelStandIns = (
+  state: Pick<GcImportState, "teams" | "games">
+): ReadonlySet<string> => {
+  const school = new Set(
+    state.teams
+      .filter((team) => team.nameOnly && !team.placeholder && isSchoolName(team.name))
+      .map((team) => team.id)
+  );
+  const travel = new Set<string>();
+  if (school.size === 0) return travel;
+  const young = (level: number | undefined) => level !== undefined && level < MIN_HIGH_SCHOOL_AGE;
+  state.games.forEach((game) => {
+    if (school.has(game.teamAId) && young(game.ageLevelA)) travel.add(game.teamAId);
+    if (school.has(game.teamBId) && young(game.ageLevelB)) travel.add(game.teamBId);
+  });
+  return travel;
+};
 
 /** No club said to be real: the tidy's default, for a caller with no answers to give it. */
 const NONE_REAL: ReadonlySet<string> = new Set<string>();
@@ -8265,8 +8313,12 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  24 — a name that is only "Team", with nothing more than a number, a letter or an age, read as
  *       a page that is no team: such a pulled club deleted where the pool calls it so too, and
  *       such a stand-in's games kept on slots of their own
+ *  25 — a lone capital V read as varsity, the owner's ruling of 18 October 2026, so such a club
+ *       deleted as a high school squad; and the school pass reading a pulled club by the names
+ *       GameChanger gives it and keeping a stand-in a row named at an age under fourteen, so it
+ *       deletes no club the import files
  */
-const TIDY_RULES_VERSION = 24;
+const TIDY_RULES_VERSION = 25;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

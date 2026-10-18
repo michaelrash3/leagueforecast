@@ -1,4 +1,4 @@
-import type { GcImportState } from "./gameChangerImport";
+import { schoolNamedTravelStandIns, type GcImportState } from "./gameChangerImport";
 import {
   ageGroupLevel,
   ageGroupYear,
@@ -68,7 +68,12 @@ export const unpulledClubs = (state: GcImportState): UnpulledClub[] => {
    * opponent is ever resolved. A name that says the page is no team (`notATeamWord`) is refused
    * the same way, and its stand-ins from before the rule, a practice squad or an old page somebody
    * named, stay off the list with it.
+   *
+   * A school's name the tidy keeps is on it: a stand-in stored with its age taken off, which a row
+   * named at an age under fourteen ("Gorsefield Gulls 12U V", held as "Gorsefield Gulls V"), is a
+   * travel club, and the import files it (`schoolNamedTravelStandIns`).
    */
+  const travel = schoolNamedTravelStandIns(state);
   const wanted = new Set(
     state.teams
       .filter(
@@ -76,7 +81,7 @@ export const unpulledClubs = (state: GcImportState): UnpulledClub[] => {
           team.nameOnly &&
           !team.placeholder &&
           !isNotBaseball(team.name) &&
-          !isSchoolName(team.name) &&
+          (!isSchoolName(team.name) || travel.has(team.id)) &&
           !notATeamWord(team.name)
       )
       .map((team) => team.id)

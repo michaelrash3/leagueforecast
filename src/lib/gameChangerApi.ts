@@ -749,14 +749,16 @@ export const ageLevelFromName = (name: string): number | undefined => {
  * so these are dropped before a request is spent on one, and every later export drops them again
  * without anything having to remember an id.
  *
- * Three ways a name says it, and one that only half says it:
+ * Four ways a name says it, and one it does not:
  *
  * - **"Varsity", "JV", "Junior Varsity"** name a school-season squad and nothing else does. The
  *   long form needs no separate pattern: it contains "Varsity". Refused whatever else the name
  *   carries, because a side calling itself varsity is playing the school season even if it also
  *   writes an age.
- * - **"JV/V"** is a programme listing both its squads, and falls out of the same rule — the JV is
- *   what says the lone "V" beside it is varsity.
+ * - **A lone capital "V"** is the word Varsity, read exactly as the word is (`LONE_V`): "Alder
+ *   Comets V", "Quillmoor V Fall", "Wrenhaven V-Rays". That is the owner's ruling of 18 October
+ *   2026, in his words: "A lone V means Varsity. period."
+ * - **"JV/V"** is a programme listing both its squads, and both words say it.
  * - **"HS" or "High School" with no age label** is the school's own team. "Lincoln HS" on a
  *   schedule means Lincoln's side, not a club named after a building.
  * - **"HS" with an age label** — "Lincoln HS 16U" — is deliberately left alone. That is a summer
@@ -764,14 +766,27 @@ export const ageLevelFromName = (name: string): number | undefined => {
  *   in it. The age label is the thing that says so.
  *
  * And one thing outranks all of it: an age nobody in high school could be playing at. A freshman
- * is fourteen at the youngest, so "Varsity Elite 12U" and "JV Sluggers 10U" are travel clubs that
- * like the words, not school sides, and no squad word can make them otherwise. Without this the
- * rule quietly deleted them, and a wrongly refused club leaves nothing behind to notice it by.
- *
- * A lone "V" with no JV beside it is not enough on its own: see `maybeSchoolTeam`.
+ * is fourteen at the youngest, so "Varsity Elite 12U", "JV Sluggers 10U" and "Brackenfield Owls
+ * 12U V" are travel clubs that like the words, not school sides, and no squad word can make them
+ * otherwise. Without this the rule quietly deleted them, and a wrongly refused club leaves nothing
+ * behind to notice it by.
  */
 const SCHOOL_SQUAD = /\b(?:varsity|jv)\b/i;
 const HIGH_SCHOOL = /\b(?:hs|high\s+school)\b/i;
+
+/**
+ * A capital "V" with no letter against it on either side: the varsity squad, at the owner's word
+ * of 18 October 2026 ("A lone V means Varsity. period."), so a squad word like the one it stands
+ * for, under the same age floor. Until then a lone V refused nothing and only sent its row to a
+ * person on the waiting list, with a hint to open the page; the owner ruled that there is nothing
+ * for the person to settle.
+ *
+ * Uppercase only, because a lone lowercase "v" between two names is "versus", and a letter run
+ * into others ("VA", "MVP", "IV") is not one standing alone. Written without a lookbehind so it
+ * runs wherever the app does. Measured on the backup of 11 October 2026 it read 59 teams no other
+ * squad word did, and 76 rows of the desktop crawl's export of 24 September.
+ */
+const LONE_V = /(?:^|[^A-Za-z])V(?:[^A-Za-z]|$)/;
 
 /** The youngest a freshman is, and so the youngest a name can say and still mean high school. */
 export const MIN_HIGH_SCHOOL_AGE = 14;
@@ -780,7 +795,7 @@ export const isSchoolName = (name: unknown): boolean => {
   if (typeof name !== "string") return false;
   const stated = ageLevelFromName(name);
   if (stated !== undefined && stated < MIN_HIGH_SCHOOL_AGE) return false;
-  if (SCHOOL_SQUAD.test(name)) return true;
+  if (SCHOOL_SQUAD.test(name) || LONE_V.test(name)) return true;
   if (!HIGH_SCHOOL.test(name)) return false;
   return stated === undefined;
 };
@@ -901,26 +916,6 @@ export const ageFitsBand = (level: number, label: unknown): boolean => {
   if (band.low !== undefined && level < band.low) return false;
   return !(band.high !== undefined && level > band.high);
 };
-
-/**
- * A lone "V", with no letter against it on either side, and nothing else saying what it means.
- *
- * On a school schedule that is the varsity side. It is also how a club writes a second squad, a
- * colour, a coach's initial or a division, and the name gives no way to tell which. One letter is
- * too thin to refuse a team on — a wrong refusal loses a real club silently, with nothing left
- * behind to notice it by — so this never refuses anything. It only marks the row as worth a look,
- * so the question in front of a person is "is this the varsity side?" rather than "who is this?".
- *
- * Uppercase only, because a lone lowercase "v" between two names is "versus". Written without a
- * lookbehind so it runs wherever the app does.
- */
-const LONE_V = /(?:^|[^A-Za-z])V(?:[^A-Za-z]|$)/;
-
-export const maybeSchoolTeam = (name: unknown): boolean =>
-  typeof name === "string" &&
-  !isSchoolName(name) &&
-  ageLevelFromName(name) === undefined &&
-  LONE_V.test(name);
 
 /**
  * Reading a graduation year as an age.

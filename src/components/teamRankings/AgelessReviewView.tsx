@@ -258,9 +258,6 @@ function Row({
         </p>
       )}
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{row.why}</p>
-      {row.hint && (
-        <p className="mt-1 text-xs font-semibold text-slate-700 dark:text-slate-200">{row.hint}</p>
-      )}
       <Evidence row={row} />
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {canName && (

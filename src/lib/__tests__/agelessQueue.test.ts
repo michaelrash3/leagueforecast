@@ -195,27 +195,41 @@ describe("the queue of teams waiting on an answer", () => {
     expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["real"]);
   });
 
-  it("puts a lone V ahead of a row nothing else separates it from, and says what to look for", () => {
+  it("sets a lone V aside as a high school squad, the import refusing one by its name", () => {
     /*
-     * The opposite case to the one above, and the reason it is not folded into it. A lone "V"
-     * really is a question a person has to settle: on a school schedule it is the varsity side,
-     * and it is equally a squad number, a colour or an initial. So it stays on the queue and
-     * carries the reason — and among rows that look equally real it goes first, because opening
-     * one page settles it.
-     *
-     * The plain row here is the staler of the two, so only the lead can put the V in front.
+     * The owner, 18 October 2026: "A lone V means Varsity. period." It was a question for a person
+     * here, sorted up with a hint to open the page; it is the name settling it now, as "Varsity"
+     * does, and nothing is left on the row to answer. A V beside an age under fourteen is a travel
+     * club's, as the word is, and stays.
      */
     const list: AgeUnknownList = [
-      team("plain", { name: "Madison Reds", lastTried: daysBefore(40), evidence: evidence() }),
-      team("loneV", { name: "Madison V", lastTried: daysBefore(1), evidence: evidence() }),
+      team("plain", { name: "Quillmoor Reds", lastTried: daysBefore(40), evidence: evidence() }),
+      team("loneV", { name: "Quillmoor V", lastTried: daysBefore(1), evidence: evidence() }),
+      team("young", { name: "Quillmoor 12U V", lastTried: daysBefore(20), evidence: evidence() }),
     ];
-    const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
-    expect(batchIds(waiting)).toEqual(["loneV", "plain"]);
-    expect(waiting[0]?.hint).toContain("varsity");
-    expect(waiting[1]?.hint).toBeUndefined();
+    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["plain", "young"]);
+    expect(asidesOf(list, ["loneV"])).toEqual({ loneV: "high-school" });
+    const hit = agelessSearch(list, new Map(), new Set(), NOW, "loneV").hits[0]!;
+    expect(refusedAsSchool(hit.row.entry)).toBe(true);
+    expect(asideBecause(hit.row, "high-school")).toBe("the name reads as a high school squad");
+    expect(refusedAsSchool(list[2]!)).toBe(false);
   });
 
-  it("does not call a JV/V a question, because the JV says what the V is", () => {
+  it("reads a side whose opponents are lone-V squads as one that plays school sides", () => {
+    const list: AgeUnknownList = [
+      team("plays", {
+        name: "Brackenfield Fall Ball",
+        evidence: unnamed({ sampleOpponents: ["Alder Comets V", "Quillmoor V Fall"] }),
+      }),
+    ];
+    expect(asidesOf(list, ["plays"])).toEqual({ plays: "high-school" });
+    expect(agelessSearch(list, new Map(), new Set(), NOW, "plays").hits[0]?.row.standing).toEqual({
+      group: "school",
+      because: "it plays varsity and JV sides",
+    });
+  });
+
+  it("does not call a JV/V a question, the name saying a school squad twice over", () => {
     const list: AgeUnknownList = [team("pair", { name: "Madison JV/V", evidence: evidence() })];
     expect(agelessWaiting(list, new Map(), new Set(), NOW)).toEqual([]);
   });
@@ -571,7 +585,6 @@ describe("the queue's order, pinned", () => {
     ).toMatchInlineSnapshot(`
       [
         "iffy-ahead: -",
-        "lone-v: -",
         "plain-stale: -",
         "plain-named: -",
         "iffy: -",
