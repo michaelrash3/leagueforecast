@@ -46,6 +46,7 @@ export default function LiveSetup({
   edits,
   confirm,
   today,
+  boardDay,
   pageId,
   groupName,
   groups,
@@ -59,6 +60,8 @@ export default function LiveSetup({
   edits: LiveEdits;
   confirm: Confirmation["request"];
   today: string;
+  /** The members' day the boards on screen were published for, where a meta says it. */
+  boardDay?: string;
   /** The page open on the board, which the model check is of. */
   pageId: string;
   groupName: string;
@@ -66,8 +69,11 @@ export default function LiveSetup({
   groups: readonly AgeGroup[];
   /** League Standings' seasons, which the league seasons card asks about. */
   seasons: SeasonMeta[];
-  /** Opens a club's panel, in the squad year its row is of where it says one. */
-  onOpenTeam: (teamId: string, year?: number) => void;
+  /**
+   * Opens a club's panel, in the squad year its row is of where it says one, and on the page whose
+   * board names it where the row knows that.
+   */
+  onOpenTeam: (teamId: string, year?: number, pageId?: string) => void;
   /** The cloud's copy as this member may read it, which a backup is made of. */
   copy: LiveSources["copy"];
   /**
@@ -149,7 +155,13 @@ export default function LiveSetup({
         </div>
       )}
       <LiveAgelessCard edits={edits} confirm={confirm} today={today} />
-      <LivePoolHealthCard edits={edits} confirm={confirm} today={today} onOpenTeam={onOpenTeam} />
+      <LivePoolHealthCard
+        edits={edits}
+        confirm={confirm}
+        today={today}
+        {...(boardDay ? { boardDay } : {})}
+        onOpenTeam={onOpenTeam}
+      />
       {/* The pool is the server's, so the card is given none of its own to check on the page. */}
       <ModelCheckCard
         ageGroupId={pageId}

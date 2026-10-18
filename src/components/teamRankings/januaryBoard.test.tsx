@@ -4,7 +4,7 @@ import { ageGroup, game, renderTeamRankings, team } from "../../test/teamRanking
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import userEvent from "@testing-library/user-event";
 import { leagueClubRankFor } from "../../lib/leagueClubRanks";
-import { HALF_WORTH_SHOWING, segmentWorthShowing } from "../../hooks/useRankingsPages";
+import { HALF_WORTH_SHOWING, segmentWorthShowing } from "../../lib/teamRankings/halves";
 
 /*
  * Which half Team Rankings opens on in January, when the calendar has moved to the spring and the

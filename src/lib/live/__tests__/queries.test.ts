@@ -74,6 +74,7 @@ import {
 import { answerStart, START_CLUBS_MAX } from "../../leagueStart";
 import { notThisTeamList, refusalOf } from "../../notThisTeam";
 import { coerceQueryAnswer } from "../queryAnswers";
+import { fewOutsideOfPool } from "../../fewOutsideLeaders";
 import type { GameSeen } from "../views/gamesShape";
 import { callableEncode } from "./callableEncode";
 
@@ -1325,6 +1326,154 @@ describe("what Pool health asks of the server's pool", () => {
     expect([answer.lists.toPull.length, answer.toPullCount]).toEqual([TO_PULL_DRAWN, 7]);
   });
 
+  /*
+   * The leaders with few outside games come with the look, off the boards as built with League
+   * Standings' seasons: the server's answer is the tidy worker's for the same pool, sent the seasons
+   * and marks the page holds, and it reads back whole. This pool's games are too few for its largest
+   * piece to split, so it is kept whole and has played no game outside itself: all its leaders are
+   * on the list, and so are the Larks and the two 10U clubs they played, a piece of their own.
+   */
+  it("lists the leaders with few outside games as the device's worker does, read back whole", () => {
+    const seasons: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
+    const answer = answerQuery({ kind: "health.inspect", today: TODAY }, seasons);
+    if (answer.kind !== "health.inspect") throw new Error("no look");
+    const posted: WorkerResponse[] = [];
+    createTidyHandler((response) => posted.push(response))({
+      kind: "inspect",
+      id: 1,
+      state: packPool(POOL),
+      stamp: "",
+      today: TODAY,
+      boards: { seasons: [], marks: [] },
+    });
+    const worker = posted[0];
+    if (worker?.kind !== "inspect") throw new Error("no inspection");
+    expect(answer.fewOutside).toEqual(worker.fewOutside);
+    expect(
+      answer.fewOutside?.leaders.map(({ name, page, stateRank, group, opponents }) => [
+        name,
+        page,
+        stateRank,
+        group,
+        opponents.length,
+      ])
+    ).toEqual([
+      ["Placeholder Ambush 9U", "9U 2027", 1, 0, 6],
+      ["Placeholder Y", "10U 2027", 1, 1, 0],
+      ["Placeholder Bulldogs", "9U 2027", 2, 0, 0],
+      ["Placeholder X", "10U 2027", 2, 1, 0],
+      ["Placeholder Cubs", "9U 2027", 3, 0, 0],
+      ["Placeholder Green", "9U 2027", 4, 0, 0],
+      ["Placeholder Larks 10U", "9U 2027", 5, 1, 0],
+      ["Placeholder Hawks", "9U 2027", 6, 0, 1],
+    ]);
+    expect(
+      answer.fewOutside?.groups.map(({ sides, pulled, nameOnly, outside, toFind }) => [
+        sides,
+        pulled,
+        nameOnly,
+        outside,
+        toFind.length,
+      ])
+    ).toEqual([
+      [12, 5, 7, 0, 7],
+      [3, 3, 0, 0, 0],
+    ]);
+    // Read back as the callable sends it, and from a server that said nothing of the list.
+    const sent = asJson(answer);
+    expect(coerceQueryAnswer(callableEncode(sent), "health.inspect")).toEqual(sent);
+    const { fewOutside: _list, ...older } = sent;
+    expect(coerceQueryAnswer(callableEncode(older), "health.inspect")).toEqual(older);
+    // A leader whose group the list does not hold is a list no card can draw: refused whole.
+    const few = sent.fewOutside!;
+    const astray = {
+      ...sent,
+      fewOutside: {
+        ...few,
+        leaders: few.leaders.map((leader, at) =>
+          at === 0 ? { ...leader, group: few.groups.length } : leader
+        ),
+      },
+    };
+    expect(coerceQueryAnswer(callableEncode(astray), "health.inspect")).toBeNull();
+    /*
+     * And a list as real pools send one: a club with no state, so no state's place, on a page with
+     * no year, so no year and no half (two of the four backups held a stateless leader). A reader
+     * that took any of these for a value would refuse the whole look.
+     */
+    const { state: _state, ...stateless } = few.leaders[0]!;
+    const loose = asJson({
+      ...sent,
+      fewOutside: {
+        ...few,
+        leaders: [
+          { ...stateless, stateRank: null, year: null, segment: null },
+          ...few.leaders.slice(1),
+        ],
+      },
+    });
+    expect(coerceQueryAnswer(callableEncode(loose), "health.inspect")).toEqual(loose);
+    // A half the boards do not have is a list no card can draw.
+    const unhalved = {
+      ...sent,
+      fewOutside: {
+        ...few,
+        leaders: [{ ...few.leaders[0]!, segment: "winter" }, ...few.leaders.slice(1)],
+      },
+    };
+    expect(coerceQueryAnswer(callableEncode(unhalved), "health.inspect")).toBeNull();
+    // Nor one whose group names a club entered by hand without saying how many games it played.
+    const uncounted = {
+      ...sent,
+      fewOutside: {
+        ...few,
+        groups: [
+          { ...few.groups[0]!, byHandSides: [{ teamId: "S-X", name: "Placeholder X" }] },
+          ...few.groups.slice(1),
+        ],
+      },
+    };
+    expect(coerceQueryAnswer(callableEncode(uncounted), "health.inspect")).toBeNull();
+    // Asked without the seasons the boards are built with, the look lists none.
+    expect(asked({ kind: "health.inspect", today: TODAY }).fewOutside).toBeUndefined();
+  });
+
+  /*
+   * The live page shows the boards published for the members' day, which runs behind the device's
+   * from midnight to the night's rebuild, and all day when a rebuild is held. The list's places are
+   * the boards', so the look is fitted for the boards' day when the device says it. The Hawks' win
+   * over the Bulldogs is scored for 3 October: counted on that day and not before, it moves the
+   * list. The rest of the look stays on the reader's day.
+   */
+  it("lists the leaders for the day the boards on screen were published for", () => {
+    const seasons: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
+    const later = "2026-10-03";
+    const look = (query: Extract<PoolQuery, { kind: "health.inspect" }>) => {
+      const answer = answerQuery(query, seasons);
+      if (answer.kind !== "health.inspect") throw new Error("no look");
+      return answer;
+    };
+    const onBoardsDay = look({ kind: "health.inspect", today: TODAY });
+    const onReadersDay = look({ kind: "health.inspect", today: later });
+    // The day is worth something here: a day later the list is another.
+    expect(onReadersDay.fewOutside).not.toEqual(onBoardsDay.fewOutside);
+    const behind = look({ kind: "health.inspect", today: later, boardDay: TODAY });
+    expect(behind.fewOutside).toEqual(onBoardsDay.fewOutside);
+    expect(behind.fewOutside).toEqual(
+      fewOutsideOfPool({
+        ageGroups: PAGES,
+        teams: CLUBS,
+        gamesOfYear: loadScoutGamesForYear,
+        readSeason: seasons,
+        autoRemoved: new Map(),
+        today: TODAY,
+      })
+    );
+    const { fewOutside: _behind, ...rest } = behind;
+    const { fewOutside: _reader, ...reader } = onReadersDay;
+    expect(rest).toEqual(reader);
+  });
+
   it("lists nothing of a club the boards leave out as plainly made up", () => {
     // The Cubs post the Greens' games; taken off, they are no twin to offer for a fold.
     expect(asked({ kind: "health.inspect", today: TODAY }).lists.twins).toHaveLength(1);
@@ -1396,6 +1545,8 @@ describe("what Pool health asks of the server's pool", () => {
       for (const query of [
         { kind: "health.summary", today: TODAY },
         { kind: "health.inspect", today: "2028-02-29" },
+        // The day the boards on screen were published for, where it is not the device's.
+        { kind: "health.inspect", today: "2026-09-28", boardDay: TODAY },
         {
           kind: "ages.plan",
           clubs: [{ teamId: "LARK", level: 10, year: 2027 }],
@@ -1423,6 +1574,11 @@ describe("what Pool health asks of the server's pool", () => {
         { kind: "health.inspect", today: "2026-13-01" },
         { kind: "health.inspect", today: 20260927 },
         { kind: "health.inspect", today: TODAY, apart: [] },
+        { kind: "health.inspect", today: TODAY, boardDay: "2026-02-30" },
+        { kind: "health.inspect", today: TODAY, boardDay: 20260927 },
+        { kind: "health.inspect", today: TODAY, boardDay: null },
+        // Only the look fits the boards; the summary is the reader's day alone.
+        { kind: "health.summary", today: TODAY, boardDay: TODAY },
         { kind: "health.toPull", today: TODAY },
         { ...plan, clubs: [{ teamId: "LARK", level: 10.5, year: 2027 }] },
         { ...plan, clubs: [{ teamId: "LARK", level: 10 }] },

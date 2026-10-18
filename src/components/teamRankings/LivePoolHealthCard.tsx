@@ -42,13 +42,20 @@ export function LivePoolHealthCard({
   edits,
   confirm,
   today,
+  boardDay,
   onOpenTeam,
 }: {
   edits: LiveEdits;
   confirm: Confirmation["request"];
   /** The device's day, which "a day that has not happened" is judged by. */
   today: string;
-  onOpenTeam?: (teamId: string, year?: number) => void;
+  /**
+   * The members' day the boards on screen were published for (the meta's `today`), which the
+   * leaders with few outside games are fitted for so their places are the boards'. Between
+   * midnight and the night's rebuild, or while a rebuild is held, it is a day behind the device's.
+   */
+  boardDay?: string;
+  onOpenTeam?: (teamId: string, year?: number, pageId?: string) => void;
 }) {
   const { locked, edit, ask, say, poolRevision } = edits;
   const [opened, setOpened] = useState<HealthSummaryAnswer | null>(null);
@@ -107,7 +114,16 @@ export function LivePoolHealthCard({
 
   const look = async () => {
     setLooking(true);
-    const found = await ask({ kind: "health.inspect", today });
+    /*
+     * The boards' day only where it is not the device's: a server reads a question whole or not
+     * at all (`coerceQuery`), so one from before the field would refuse every look that carried
+     * it, and on the same day the answer is the same without it.
+     */
+    const found = await ask({
+      kind: "health.inspect",
+      today,
+      ...(boardDay && boardDay !== today ? { boardDay } : {}),
+    });
     setLooking(false);
     if (found) {
       setInspection(found);

@@ -40,7 +40,7 @@ import {
   type LivePages,
 } from "../lib/live/views/boardShape";
 import type { SeasonSegment } from "../lib/teamRankings";
-import { segmentWorthShowing } from "./useRankingsPages";
+import { segmentWorthShowing } from "../lib/teamRankings/halves";
 
 /** Where the live board comes from: the browser's own, or stand-ins for a test. */
 export type LiveSources = {

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import type { GcSeasonPairing, GcTwinSquad } from "../../lib/gameChangerImport";
 import { GC_PAIRING_EVIDENCE_LABEL } from "../../lib/gcPairingEvidence";
 import type { PoolHealth } from "../../lib/poolHealth";
@@ -9,6 +9,7 @@ import {
   type PoolHealthSummary,
 } from "../../lib/poolHealthSummary";
 import { TO_PULL_DRAWN, type PoolLists } from "../../lib/poolLists";
+import type { FewOutsideList } from "../../lib/fewOutside";
 import { IMPLAUSIBLE_MARGIN, segmentOn } from "../../lib/teamRankings";
 import { apartKey, isKeptApart, type KeptApart } from "../../lib/keptApart";
 import type { WrongAgeClub } from "../../lib/wrongAge";
@@ -19,6 +20,17 @@ import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { countedTwiceCsv, countedTwiceCsvFilename } from "../../lib/countedTwice";
 import { button, card, pill } from "../../styles/tokens";
+import { LoadingPanel } from "../LoadingPanel";
+
+/**
+ * The leaders with few outside games are drawn only once a look has listed some, and a look takes
+ * seconds, so their section is fetched then rather than with the tab. Opening Team Rankings
+ * measured 154.9 KB gzipped with it in Setup's cards, against 151.8 KB before the list, and the
+ * section is 1.6 KB of that.
+ */
+const FewOutsideSection = lazy(() =>
+  import("./FewOutsideSection").then((module) => ({ default: module.FewOutsideSection }))
+);
 
 /**
  * Pool health as it is drawn, from what it is told rather than from a pool it holds: what the pool
@@ -53,6 +65,11 @@ export type PoolHealthInspection = {
    * as the server sends them; absent where they hold every one.
    */
   toPullCount?: number;
+  /**
+   * The leaders with few outside games (`fewOutside.ts`); absent from a server from before them,
+   * which draws no list.
+   */
+  fewOutside?: FewOutsideList;
 };
 
 /** A club as a question about it names it. */
@@ -118,9 +135,10 @@ export type PoolHealthActions = {
   /**
    * Opens a club's own panel, for a list that names clubs to look at, with the squad year its row
    * is of where the row says one: the live page reads a club's card by year, and opened a club of
-   * another year on the board's, which has no card of it.
+   * another year on the board's, which has no card of it. And with the page whose board names it,
+   * where the row knows one: opened on the page on screen, the panel spoke of that page's games.
    */
-  openTeam?: (teamId: string, year?: number) => void;
+  openTeam?: (teamId: string, year?: number, pageId?: string) => void;
   /** Downloads every club worth pulling, as a file. */
   downloadToPull: () => void;
 };
@@ -1390,6 +1408,15 @@ export function PoolHealthView({
             </ul>
           )}
         </div>
+      )}
+
+      {inspection?.fewOutside && (
+        <Suspense fallback={<LoadingPanel area="the leaders with few outside games" />}>
+          <FewOutsideSection
+            list={inspection.fewOutside}
+            {...(actions.openTeam ? { openTeam: actions.openTeam } : {})}
+          />
+        </Suspense>
       )}
 
       {toPull && toPullCount > 0 && (

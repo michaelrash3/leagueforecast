@@ -1581,6 +1581,54 @@ GameChanger ids (`loadAgeRightClubs`), and backed up with the real clubs, so it 
 Under the list a line says how many clubs it is keeping off on that answer; **Show them** names
 them, and **Put it back** forgets the answer, and the club is listed again.
 
+**Leaders with few outside games.** **Check the pool** also lists every club in a state's top 10 or
+the nation's top 25 on the board its page opens on whose group of the schedule, its community as the
+rating's start reads it (**Where a rating starts**), has played fewer than 3 rated games outside
+itself, or that is off the largest piece of the schedule altogether (`fewOutside.ts`,
+`fewOutsideLeaders.ts`). The board a page opens on is the one it shows where the address names no
+half: the calendar's half of its year, unless that half holds under a tenth of the other's counted
+games, and the whole year for a page with no year; so the list follows the fall boards through the
+autumn and the spring's once the spring is under way, as the owner reads them. Its rating starts at
+its group's level, and nothing the group plays inside itself can say whether that level is right: a
+club of a league that plays only itself can go 8-0 and lead its state, and its board cannot say
+whether the league is strong or weak. Only games against teams outside the group settle it, and
+GameChanger names those opponents on a schedule but gives them no id, so they have to be found by
+hand and pasted into a pull. The list says which. It goes by state rank, a club with no state after
+every club with one, then by national rank; each club says its page, the half its board is of, and
+its places, its group once (how many entries, pulled, known only by name, entered by hand and TBD,
+and its games outside it), and the opponents it played that are known only by name, with their games
+against it and in all, under "Pull these opponents to connect its group"; where it played none of
+its own, its group's, those known only by name and then the clubs in it entered by hand (a League
+Standings team no pulled club stands for, or an opponent typed in), which no pull has linked to
+GameChanger either and are found the same way; and only where its group holds neither, that every
+team in it is already pulled. Each list of names copies one a line, ready to search GameChanger for,
+and each club opens its own panel on the page whose board it leads. It reads the boards' own rows
+and the fit they were cut from, built as the boards are built, on the device by the tidy worker and
+on the server in the look's answer (`health.inspect`), so the two cards show one list. The live
+page's look says the day the boards on screen were published for where it is not the device's
+(between midnight and the night's rebuild, or all day while a rebuild is held), and the server fits
+the list for that day, so its places are the boards'; the rest of the look stays on the device's
+day. Nothing on a board, a club's panel or any other page changes, and no club or group is called
+anything on it but what it holds.
+
+On the owner's backup of 11 October 2026, read off the fall boards its pages open on (which held all
+222,010 of the 2027 year's rated games, so they are its year boards to the digit), it held 1,160
+clubs in 652 groups: 1,020 off the largest piece and 140 in it with 1 or 2 outside games, 141 of
+them state #1s and 8 in a national top 25. Between them they had played 1,900 distinct opponents
+known only by name over 2,928 games; 422 had played none of their own, and 192 of those are in
+groups where every side is pulled already, with no one left to find; none of the four backups'
+listed groups holds a club entered by hand, since they carry no League Standings season. On 25, 26
+and 29 September it held 1,557, 1,581 and 1,413, each the measured list club for club, and on all
+four the list off the boards the pages open on is the list off the year boards exactly. On the
+seeded pool read on its April day, every page with a year opens on its spring board, and 12 of its
+19 leaders lead a spring board without being listed off the year's. It comes with the look rather
+than as the card opens because it is a fit of every year: 9.5 s on the 11 October copy in Node 24,
+against 1.1 s for all the card shows as it opens. Pulling the opponents does not always join a group
+to the rest: of the clubs listed in September and still ranked on 11 October, 653 were in groups
+whose sides had played 3 or more new games across the old edge and still had fewer than 3 more
+outside games, having met other thin groups. So a club stays on the list until its group has played
+3 games outside itself, however many of its opponents were pulled.
+
 ### Names
 
 Age levels are stripped everywhere: "South Lexington Red 9u" is stored as "South
@@ -3094,7 +3142,9 @@ What it cannot do:
 
 - A strong group that has truly played nobody else is shown 1.6 runs below where
   its games alone would put it, as a weak one is. Only games against outsiders can
-  tell the two apart.
+  tell the two apart, and Pool health's look lists the leaders of groups with fewer
+  than 3 of them, with the opponents to find and pull (**Leaders with few outside
+  games**, under **What a pull left behind**).
 - The effect grew through the autumn: refitted on the later games the level reads
   −1.90 ± 0.20, so −1.6 is the cautious value, and after it the isolated clubs
   still did 0.5 to 0.9 runs worse than shown against well-connected ones. It is
@@ -7201,6 +7251,15 @@ pulling the card draws, and how many there are: on the 29 September pool the 51,
 (`shapes.ts`): the type said once as data, every field it names checked as the device reads it, and
 a field it does not name let through for a newer server to say. On that pool, in memory, the
 summary took 0.33 s (130 KB), the look 6.2 s and the file 0.5 s, and each answer read back whole.
+The look also carries the leaders with few outside games (**What a pull left behind**), worked out
+with League Standings' seasons as the boards are: on the 11 October 2026 copy, 9.5 s and 606 KB of
+JSON beside a look of 8 to 12 s. It is optional in the reader's shape, so a server from before it
+is read as sending no list, and a device from before it lets it through unread. The look is fitted
+for `boardDay`, the day the boards on screen were published for, where the device sends it, which
+it does only when that day is not its own: a server reads a question whole or not at all, so one
+from before the field would refuse every look that carried it. On the 11 October copy, fitted a
+day later, the list of 1,160 drops 4 leaders, adds 1 and moves 2 state places; it moves 220
+national places too, every one past 25, which the card never draws.
 
 The card of teams waiting on an age asks four more: the card at a sitting (`ageless.queue`,
 `agelessSitting`), a search of the whole list (`ageless.search`), the file of every team waiting

@@ -8,6 +8,11 @@ import { resetTeamRankingsStore, saveNotThisTeam, saveRealClubs } from "../lib/t
 import { createSeason, loadSettingsForSeason, writeSeasonData } from "../lib/storage";
 import type { TeamBase } from "../lib/types";
 import {
+  createTidyHandler,
+  type WorkerRequest,
+  type WorkerResponse,
+} from "../workers/tidyProtocol";
+import {
   beginPull,
   beginTidy,
   forceReleasePool,
@@ -137,6 +142,28 @@ describe("a tidy whose panel goes away", () => {
   });
 });
 
+/**
+ * A worker that answers as the real one does: the protocol's own handler (`createTidyHandler`)
+ * runs on each message, and its replies come back as message events, a turn later, as a worker's
+ * do. jsdom has no Worker, so without one the hook only ever takes the inline path.
+ */
+class ReplyingWorker {
+  private listeners = new Set<(event: { data: WorkerResponse }) => void>();
+  private handle = createTidyHandler((response) =>
+    queueMicrotask(() => this.listeners.forEach((listener) => listener({ data: response })))
+  );
+  addEventListener(kind: string, listener: (event: { data: WorkerResponse }) => void) {
+    if (kind === "message") this.listeners.add(listener);
+  }
+  removeEventListener(kind: string, listener: (event: { data: WorkerResponse }) => void) {
+    if (kind === "message") this.listeners.delete(listener);
+  }
+  postMessage(message: WorkerRequest) {
+    this.handle(message);
+  }
+  terminate() {}
+}
+
 /** A worker that keeps what it was sent and never answers. */
 class RecordingWorker {
   static sent: unknown[] = [];
@@ -219,6 +246,92 @@ describe("what the tidy worker is told", () => {
     ]);
     unmount();
     await pending;
+  });
+
+  /*
+   * The leaders with few outside games read the boards, and the worker reads no storage: the look
+   * hands it every page's League Standings season once, as the page reads it, and the marks.
+   */
+  it("hands the inspection what the boards read, each season once, when asked for the leaders", async () => {
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const pool = withStandIn();
+    const paged = {
+      ...pool,
+      ageGroups: [
+        { ...pool.ageGroups[0]!, seasonIds: ["s1", "s2"] },
+        { ...ageGroup(11, 2027), seasonIds: ["s1"] },
+      ],
+    };
+    const read: string[] = [];
+    const readSeason = (seasonId: string) => {
+      read.push(seasonId);
+      return { teams: [{ id: `t-${seasonId}`, name: `Lea ${seasonId}` }], matchups: [], logs: {} };
+    };
+    const marks = new Map([
+      [
+        "gcX",
+        {
+          gcTeamId: "gcX",
+          name: "Made Up",
+          on: "2026-09-18",
+          signs: ["named" as const],
+          word: "test",
+        },
+      ],
+    ]);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.inspect(paged, "", new Set(), {
+      readSeason,
+      autoRemoved: marks,
+    });
+    expect(read).toEqual(["s1", "s2"]);
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({
+        kind: "inspect",
+        boards: {
+          seasons: [
+            ["s1", readSeason("s1")],
+            ["s2", readSeason("s2")],
+          ],
+          marks: [...marks.values()],
+        },
+      }),
+    ]);
+    unmount();
+    await pending;
+  });
+
+  /*
+   * In a browser the look's answer comes from the worker, through the hook's reading of its reply:
+   * the list is the worker's, carried over whole, and none where the look was asked without what
+   * the boards read.
+   */
+  it("hands on the worker's leaders with few outside games from its reply", async () => {
+    vi.stubGlobal("Worker", ReplyingWorker);
+    const pool = withStandIn();
+    const { result } = renderHook(() => usePoolTidy());
+    const plain = await result.current.inspect(pool, "", new Set());
+    expect(plain?.health).toBeDefined();
+    expect(plain?.fewOutside).toBeUndefined();
+    const looked = await result.current.inspect(pool, "", new Set(), {
+      readSeason: () => ({ teams: [], matchups: [], logs: {} }),
+      autoRemoved: new Map(),
+    });
+    expect(looked?.fewOutside?.leaders.map(({ name }) => name)).toEqual(["Home Club", "Away Club"]);
+  });
+
+  // jsdom has no Worker, so this looks inline.
+  it("lists the leaders inline as the worker would, where there is no worker", async () => {
+    const { result } = renderHook(() => usePoolTidy());
+    const pool = withStandIn();
+    const plain = await result.current.inspect(pool, "", new Set());
+    expect(plain?.fewOutside).toBeUndefined();
+    const looked = await result.current.inspect(pool, "", new Set(), {
+      readSeason: () => ({ teams: [], matchups: [], logs: {} }),
+      autoRemoved: new Map(),
+    });
+    expect(looked?.fewOutside?.leaders.map(({ name }) => name)).toEqual(["Home Club", "Away Club"]);
   });
 });
 

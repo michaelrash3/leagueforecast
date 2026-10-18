@@ -8,6 +8,8 @@ import { todayIsoDay } from "../date";
 import { rosterWatchOf } from "../gcRoster";
 import { dueSummary, type DueSummary } from "../gameChangerSchedule";
 import { orgAgesByTeam } from "../orgMembership";
+import type { FewOutsideList } from "../fewOutside";
+import { fewOutsideOfPool } from "../fewOutsideLeaders";
 import { poolHealth, settleableNow, type PoolHealth } from "../poolHealth";
 import { poolHealthSummary, type PoolHealthSummary } from "../poolHealthSummary";
 import { poolLists, TO_PULL_DRAWN, type PoolLists } from "../poolLists";
@@ -130,7 +132,10 @@ const NO_SEASONS: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
  *   (`poolHealthSummary`), and the answers already given that its lists leave out.
  * - `health.inspect`: what it shows once asked to look harder, as the tidy worker answers it
  *   (`poolHealth`, `settleableNow`, `poolLists`), against the copy's own tidy stamp; of the clubs
- *   worth pulling, only the ones the card draws, and how many there are.
+ *   worth pulling, only the ones the card draws, and how many there are; and the leaders with few
+ *   outside games (`fewOutsideOfPool`), off the boards the pages open on as they are built with
+ *   League Standings' seasons, for the day those boards were published for (`boardDay`) where the
+ *   device says it, and the device's otherwise.
  * - `health.toPull`: every club worth pulling, as the file the card downloads (`unpulledClubsCsv`).
  * - `ages.plan`: Pool health's suggested ages, approved together, as the commands that file them
  *   (`planClubAges`), with page ids from `base`, for the device to send as one edit.
@@ -148,7 +153,12 @@ export type PoolQuery =
   | { kind: "merge.preview"; fromId: string; intoId: string; adopt: ScoutTeam[] }
   | { kind: "rename.preview"; teamId: string; name: string }
   | { kind: "health.summary"; today: string }
-  | { kind: "health.inspect"; today: string }
+  /**
+   * `boardDay` is the members' day the boards on screen were published for, where it is not the
+   * reader's: the leaders with few outside games are fitted for it, so their places are the
+   * boards'.
+   */
+  | { kind: "health.inspect"; today: string; boardDay?: string }
   | { kind: "health.toPull" }
   | { kind: "ages.plan"; clubs: AgeAsked[]; at: string; base: string }
   | { kind: "ageless.queue"; today: string; pinned: string[] }
@@ -271,6 +281,14 @@ export type HealthInspectAnswer = {
   settleable: number;
   lists: PoolLists;
   toPullCount: number;
+  /**
+   * The leaders with few outside games (`fewOutside.ts`). Here rather than in what the card shows
+   * as it opens, because it is a fit of every year: on the copy of 11 October 2026 it took 9.5 s
+   * (Node 24), against 1.1 s for the whole of `health.summary` and 8 to 12 s for this answer
+   * without it. Absent from a server from before the list, and from an answer worked out without
+   * League Standings' seasons, which the boards are built with; either is the same as no list.
+   */
+  fewOutside?: FewOutsideList;
 };
 
 /** The file of every club worth pulling, as the card downloads it. */
@@ -616,6 +634,20 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         settleable: health.standInPlayed === 0 ? 0 : settleableNow(state, loadNotThisTeam()),
         lists: { ...lists, toPull: lists.toPull.slice(0, TO_PULL_DRAWN) },
         toPullCount: lists.toPull.length,
+        // Off the boards as the rebuild builds them: each year's stored games, read a year at a time.
+        ...(seasons
+          ? {
+              fewOutside: fewOutsideOfPool({
+                ageGroups: state.ageGroups,
+                teams: state.teams,
+                gamesOfYear: loadScoutGamesForYear,
+                readSeason: seasons,
+                autoRemoved: marks,
+                // The boards' day, not the reader's: the list's places are the ones on the boards.
+                today: query.boardDay ?? query.today,
+              }),
+            }
+          : {}),
       };
     }
     case "health.toPull":
@@ -879,8 +911,16 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
         query = { kind: "rename.preview", teamId: raw.teamId, name: raw.name };
       break;
     case "health.summary":
-    case "health.inspect":
       if (isDay(raw.today)) query = { kind: raw.kind, today: raw.today };
+      break;
+    case "health.inspect":
+      // The boards' day only from a device that sends it, and as a day.
+      if (isDay(raw.today) && (raw.boardDay === undefined || isDay(raw.boardDay)))
+        query = {
+          kind: "health.inspect",
+          today: raw.today,
+          ...(raw.boardDay === undefined ? {} : { boardDay: raw.boardDay }),
+        };
       break;
     case "health.toPull":
       query = { kind: "health.toPull" };

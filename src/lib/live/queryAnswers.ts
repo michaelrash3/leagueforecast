@@ -4,6 +4,7 @@ import type { AgelessGroup } from "../agelessSitting";
 import type { ModelCheckAnswer, ScoutBacktestResult } from "../scoutBacktest";
 import { CLOSED_LEVEL_CHECK } from "./closedLevelRecord";
 import { coerceNamedCheck } from "../teamRankings/namedGames";
+import { SEASON_SEGMENT_ORDER } from "../teamRankings/seasons";
 import { coerceCommand, everyOne, oneAgeless } from "./commands";
 import type { AgelessSearchAnswer, AnswerOf, FoldCounts, QueryAnswer, QueryKind } from "./queries";
 import { clubOptionsOf, fillPlanOf, leagueBridgeAnswerOf, startAnswerOf } from "./leagueAnswers";
@@ -287,6 +288,47 @@ const HEALTH_SUMMARY: Shape = {
 
 const GC_RECORD: Shape = { record: { win: "count", loss: "count", tie: "count" } };
 
+/** A side known only by name, as the leaders with few outside games name one (`FewOutsideSide`). */
+const FEW_OUTSIDE_SIDE = { teamId: "id", name: "string", rated: "count" } as const;
+
+/** The leaders with few outside games and their groups (`FewOutsideList`). */
+const FEW_OUTSIDE: Shape = {
+  record: {
+    leaders: {
+      list: {
+        record: {
+          teamId: "id",
+          name: "string",
+          pageId: "id",
+          page: "string",
+          year: { nullable: "count" },
+          segment: { nullable: { oneOf: SEASON_SEGMENT_ORDER } },
+          state: { optional: "string" },
+          stateRank: { nullable: "count" },
+          rank: "count",
+          record: "string",
+          group: "count",
+          opponents: { list: { record: { ...FEW_OUTSIDE_SIDE, games: "count" } } },
+        },
+      },
+    },
+    groups: {
+      list: {
+        record: {
+          sides: "count",
+          pulled: "count",
+          byHand: "count",
+          nameOnly: "count",
+          slots: "count",
+          outside: "count",
+          toFind: { list: { record: FEW_OUTSIDE_SIDE } },
+          byHandSides: { list: { record: FEW_OUTSIDE_SIDE } },
+        },
+      },
+    },
+  },
+};
+
 /** What Pool health shows once asked to look harder: its numbers and its lists. */
 const HEALTH_INSPECT: Shape = {
   record: {
@@ -307,6 +349,8 @@ const HEALTH_INSPECT: Shape = {
     },
     settleable: "count",
     toPullCount: "count",
+    // Optional: a server from before the list says nothing of it, and the card draws none.
+    fewOutside: { optional: FEW_OUTSIDE },
     lists: {
       record: {
         toPull: {
@@ -420,6 +464,16 @@ const HEALTH_INSPECT: Shape = {
 const ofShape = <K extends QueryKind>(raw: Record<string, unknown>, shape: Shape) =>
   fits(raw, shape) ? (raw as unknown as AnswerOf<K>) : null;
 
+/**
+ * Pool health's look, of its shape, and with every leader's group one the list holds: a leader
+ * pointing past them is a list the card could not draw, and is refused whole.
+ */
+const inspectOf = (raw: Record<string, unknown>): AnswerOf<"health.inspect"> | null => {
+  const read = ofShape<"health.inspect">(raw, HEALTH_INSPECT);
+  const few = read?.fewOutside;
+  return few && few.leaders.some(({ group }) => group >= few.groups.length) ? null : read;
+};
+
 /** What may stand between a team found by search and the queue (`AgelessAside`), every one. */
 const ASIDES: Record<AgelessAside, true> = {
   dropped: true,
@@ -527,7 +581,7 @@ export const coerceQueryAnswer = <K extends QueryKind>(
     case "health.summary":
       return ofShape<K>(raw, HEALTH_SUMMARY);
     case "health.inspect":
-      return ofShape<K>(raw, HEALTH_INSPECT);
+      return inspectOf(raw) as AnswerOf<K> | null;
     case "health.toPull":
     case "ageless.file":
       return ofShape<K>(raw, { record: { csv: "string" } });

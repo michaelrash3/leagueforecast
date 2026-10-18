@@ -54,7 +54,7 @@ import {
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
 import { archivedFrom, deriveAllKnown, gamesOnPages, leagueTeamIdsOn } from "../lib/live/allKnown";
-import { countedByHalf } from "../lib/teamRankings/halves";
+import { countedByHalf, segmentWorthShowing } from "../lib/teamRankings/halves";
 import {
   defaultStateOf,
   placesOf,
@@ -180,7 +180,7 @@ import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useClubSearch } from "../hooks/useClubSearch";
 import { clubSearchGames } from "../lib/clubSearch";
 import { coachesOf } from "../lib/gcStaff";
-import { segmentWorthShowing, useRankingsPages } from "../hooks/useRankingsPages";
+import { useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import type { ToastTone } from "../hooks/useToast";
 
@@ -1945,13 +1945,19 @@ export function TeamRankingsView({
    * The same, from a list further up the page, Pool health's: the panel opens below everything,
    * out of sight of the list, so it is brought into view once it is there.
    */
-  const openListedTeam = (teamId: string) => {
+  const openListedTeam = (teamId: string, _year?: number, pageId?: string) => {
     /*
-     * The search's page index is not built in Setup, where these lists are, so the page is the one
-     * a GameChanger id of the club's own is filed under, the latest year's: opened on another page,
-     * the panel showed none of the games the list had named.
+     * The page the row names, where it names one: a leader with few outside games is listed off one
+     * page's board, and a club entered by hand has no GameChanger id to find a page by. Otherwise,
+     * since the search's page index is not built in Setup, where these lists are, the page is the
+     * one a GameChanger id of the club's own is filed under, the latest year's: opened on another
+     * page, the panel showed none of the games the list had named. A page holds its year, so the
+     * row's year says nothing more here.
      */
     const page =
+      (pageId !== undefined && ageGroups.some((group) => group.id === pageId)
+        ? pageId
+        : undefined) ??
       pageOf(teamId)?.ageGroupId ??
       allKnown.teams
         .find((known) => known.id === teamId)

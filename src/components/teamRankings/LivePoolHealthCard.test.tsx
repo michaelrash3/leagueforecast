@@ -234,13 +234,15 @@ const confirm = async ({ title, message }: { title: string; message: string }) =
 
 const show = (
   call: ReturnType<typeof editFunction>,
-  onOpenTeam?: (teamId: string, year?: number) => void
+  onOpenTeam?: (teamId: string, year?: number, pageId?: string) => void,
+  boardDay?: string
 ) =>
   render(
     <LivePoolHealthCard
       edits={call.edits}
       confirm={confirm}
       today={TODAY}
+      {...(boardDay ? { boardDay } : {})}
       {...(onOpenTeam ? { onOpenTeam } : {})}
     />
   );
@@ -302,6 +304,112 @@ describe("Pool health from the server's pool", () => {
     // Nothing settles here: the nightly refresh tidies.
     expect(screen.getByText(/The nightly refresh settles them/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Settle/ })).toBeNull();
+  });
+
+  it("draws the leaders with few outside games the server found, each opening its panel", async () => {
+    const opened: Array<[string, number | undefined, string | undefined]> = [];
+    const call = editFunction({
+      "health.summary": OPENED,
+      "health.inspect": {
+        ...LOOKED,
+        fewOutside: {
+          leaders: [
+            {
+              teamId: "L-1",
+              name: "Placeholder Legends",
+              pageId: "ag_12u_2027",
+              page: "12U 2027",
+              year: 2027,
+              segment: "fall",
+              state: "KS",
+              stateRank: 1,
+              rank: 26,
+              record: "9-0",
+              group: 0,
+              opponents: [{ teamId: "N-9", name: "Placeholder Comets", games: 1, rated: 3 }],
+            },
+            // No state, on a page with no year, as the server sends one: no state's place, no half.
+            {
+              teamId: "L-2",
+              name: "Placeholder Pioneers",
+              pageId: "ag_showcase",
+              page: "Showcase",
+              year: null,
+              segment: null,
+              stateRank: null,
+              rank: 4,
+              record: "3-0",
+              group: 0,
+              opponents: [],
+            },
+          ],
+          groups: [
+            {
+              sides: 17,
+              pulled: 6,
+              byHand: 0,
+              nameOnly: 8,
+              slots: 3,
+              outside: 0,
+              toFind: [{ teamId: "N-9", name: "Placeholder Comets", rated: 3 }],
+              byHandSides: [],
+            },
+          ],
+        },
+      },
+    });
+    show(call, (teamId, year, pageId) => opened.push([teamId, year, pageId]));
+    expect(screen.queryByTestId("pool-few-outside")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    const section = await screen.findByTestId("pool-few-outside");
+    expect(within(section).getByText("#1 in KS")).toBeTruthy();
+    expect(within(section).getByText(/12U 2027, Fall 2026/)).toBeTruthy();
+    expect(
+      within(section).getByText(/Placeholder Comets \(1 game against it, 3 in all\)/)
+    ).toBeTruthy();
+    const pioneers = within(
+      within(section).getByRole("button", { name: "Placeholder Pioneers" }).closest("li")!
+    );
+    expect(pioneers.getByText(/Showcase · #4 nationally/)).toBeTruthy();
+    expect(pioneers.queryByText(/^#\d+ in /)).toBeNull();
+    fireEvent.click(within(section).getByRole("button", { name: "Placeholder Legends" }));
+    fireEvent.click(within(section).getByRole("button", { name: "Placeholder Pioneers" }));
+    // Each on the page whose board it leads, which the live page opens.
+    expect(opened).toEqual([
+      ["L-1", 2027, "ag_12u_2027"],
+      ["L-2", undefined, "ag_showcase"],
+    ]);
+  });
+
+  /*
+   * The boards on screen are published for the members' day, which runs behind the device's from
+   * midnight to the night's rebuild, and all day while a rebuild is held. The list's places are
+   * the boards', so the look says which day those are for, and only when it is not the device's.
+   */
+  it("asks for the leaders on the day the boards on screen were published for", async () => {
+    const behind = editFunction({ "health.summary": OPENED, "health.inspect": LOOKED });
+    const { unmount } = show(behind, undefined, "2027-04-14");
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    await screen.findByText("Results against a stand-in");
+    expect(behind.asked.filter((query) => query.kind === "health.inspect")).toEqual([
+      { kind: "health.inspect", today: TODAY, boardDay: "2027-04-14" },
+    ]);
+    unmount();
+    const same = editFunction({ "health.summary": OPENED, "health.inspect": LOOKED });
+    show(same, undefined, TODAY);
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    await screen.findByText("Results against a stand-in");
+    expect(same.asked.filter((query) => query.kind === "health.inspect")).toEqual([
+      { kind: "health.inspect", today: TODAY },
+    ]);
+  });
+
+  it("draws no leaders with few outside games from a server that says nothing of them", async () => {
+    const call = editFunction({ "health.summary": OPENED, "health.inspect": LOOKED });
+    show(call);
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    expect(await screen.findByText("Results against a stand-in")).toBeTruthy();
+    expect(screen.queryByTestId("pool-few-outside")).toBeNull();
   });
 
   it("downloads every club worth pulling from the server's own file", async () => {

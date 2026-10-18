@@ -11,7 +11,10 @@ import { poolLists, type PoolLists } from "../lib/poolLists";
 import { sweepMarks } from "../lib/obviousFakes";
 import { coerceAutoRemovals, type AutoRemoval } from "../lib/autoRemoved";
 import { marksChange, type MarksChange } from "../lib/removedForYou";
-import type { AgeGroup } from "../lib/teamRankings";
+import type { FewOutsideList } from "../lib/fewOutside";
+import { fewOutsideOfPool } from "../lib/fewOutsideLeaders";
+import type { LeagueSeasonData } from "../lib/live/allKnown";
+import { ageGroupYear, type AgeGroup, type ScoutGame } from "../lib/teamRankings";
 import {
   decodePoolGames,
   decodePoolTeams,
@@ -96,8 +99,18 @@ export type InspectRequest = {
    * put its games back on the boards unsaid.
    */
   leftOut?: string[];
+  /** What the boards are built with beyond the pool, for the leaders with few outside games. */
+  boards?: BoardsAsked;
 };
 export type WorkerRequest = TidyRequest | InspectRequest;
+
+/**
+ * What the boards are built with that the pool does not hold, as stored when the look was asked:
+ * every page's League Standings season by id (`readSeason`'s answers), and the marks of the clubs
+ * taken off as plainly made up. The worker can read neither, and the boards read both, so the
+ * leaders with few outside games are worked out only where the page sends them.
+ */
+export type BoardsAsked = { seasons: Array<[string, LeagueSeasonData]>; marks: AutoRemoval[] };
 
 export type TidyResponse = {
   kind: "tidy";
@@ -133,6 +146,8 @@ export type InspectResponse = {
   health: PoolHealth;
   settleable: number;
   lists: PoolLists;
+  /** The leaders with few outside games, where the look was asked with `boards`. */
+  fewOutside?: FewOutsideList;
 };
 
 export type WorkerResponse = TidyResponse | InspectResponse | TidyProgressResponse;
@@ -183,6 +198,36 @@ export const sweepAsked = (state: GcImportState, asked: SweepAsked): MarksChange
   return marksChange(before, after);
 };
 
+/**
+ * The leaders with few outside games of a pool that crossed the port (`fewOutsideOfPool`): each
+ * year's games as storage files them (`saveScoutGames`), by the year of the page each is filed on,
+ * in the pool's order, which is a shard's; a season the page sent nothing for, empty, as storage
+ * reads one. The worker runs it on a look, and the page inline where it has no worker.
+ */
+export const fewOutsideAsked = (
+  state: GcImportState,
+  asked: BoardsAsked,
+  today: string
+): FewOutsideList => {
+  const seasons = new Map(asked.seasons);
+  const yearOf = new Map(state.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  const games = new Map<number | undefined, ScoutGame[]>();
+  state.games.forEach((game) => {
+    const year = yearOf.get(game.ageGroupId);
+    const held = games.get(year);
+    if (held) held.push(game);
+    else games.set(year, [game]);
+  });
+  return fewOutsideOfPool({
+    ageGroups: state.ageGroups,
+    teams: state.teams,
+    gamesOfYear: (year) => games.get(year) ?? [],
+    readSeason: (seasonId) => seasons.get(seasonId) ?? { teams: [], matchups: [], logs: {} },
+    autoRemoved: coerceAutoRemovals(asked.marks),
+    today,
+  });
+};
+
 /** The worker's side of the conversation, as a function of each message it receives. */
 export const createTidyHandler =
   (post: (response: WorkerResponse) => void) =>
@@ -205,6 +250,9 @@ export const createTidyHandler =
           request.today,
           new Set(request.leftOut ?? [])
         ),
+        ...(request.boards
+          ? { fewOutside: fewOutsideAsked(state, request.boards, request.today) }
+          : {}),
       });
       return;
     }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyTidied, createTidyHandler, type WorkerResponse } from "./tidyProtocol";
+import {
+  applyTidied,
+  createTidyHandler,
+  fewOutsideAsked,
+  type WorkerResponse,
+} from "./tidyProtocol";
+import { fewOutsideOfPool } from "../lib/fewOutsideLeaders";
 import { packPool } from "./tidyProtocol";
 import { TIDY_STEPS, type GcImportState } from "../lib/gameChangerImport";
 import type { ScoutGame } from "../lib/teamRankings";
@@ -156,6 +162,37 @@ describe("the tidy worker's side of the protocol", () => {
     const [told, refused] = answersOf("inspect");
     if (told?.kind !== "inspect" || refused?.kind !== "inspect") throw new Error("no answers");
     expect([told.settleable, refused.settleable]).toEqual([1, 0]);
+  });
+
+  /*
+   * The leaders with few outside games read the boards, which are built with League
+   * Standings' seasons and the marks of the clubs taken off; the worker reads neither from storage,
+   * so it lists them only when the page sends both, and then as the boards' own walk lists them.
+   */
+  it("lists the leaders with few outside games only when sent what the boards read", () => {
+    const { handle, answersOf } = harness();
+    const pool = withStandIn();
+    const ask = { kind: "inspect", state: packPool(pool), stamp: "", today: "2026-09-18" } as const;
+    handle({ ...ask, id: 1 });
+    handle({ ...ask, id: 2, boards: { seasons: [], marks: [] } });
+    const [plain, asked] = answersOf("inspect");
+    if (plain?.kind !== "inspect" || asked?.kind !== "inspect") throw new Error("no answers");
+    expect(plain.fewOutside).toBeUndefined();
+    const expected = fewOutsideOfPool({
+      ageGroups: pool.ageGroups,
+      teams: pool.teams,
+      gamesOfYear: (year) => (year === 2027 ? pool.games : []),
+      readSeason: () => ({ teams: [], matchups: [], logs: {} }),
+      autoRemoved: new Map(),
+      today: "2026-09-18",
+    });
+    expect(asked.fewOutside).toEqual(expected);
+    // Two clubs that played only each other, the one ahead first in Kentucky.
+    expect(expected.leaders.map(({ name, stateRank }) => [name, stateRank])).toEqual([
+      ["Home Club", 1],
+      ["Away Club", 2],
+    ]);
+    expect(fewOutsideAsked(pool, { seasons: [], marks: [] }, "2026-09-18")).toEqual(expected);
   });
 
   it("inspects the pool it was shipped without tidying it", () => {

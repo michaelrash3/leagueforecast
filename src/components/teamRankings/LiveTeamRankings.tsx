@@ -722,9 +722,14 @@ function LiveBoard({
       document.getElementById(TEAM_PANEL_ID)?.scrollIntoView?.({ block: "start" })
     );
   };
-  // A club named in Setup, in the squad year its row is of: its card is that year's.
-  const openTeamIn = (teamId: string, year?: number) => {
-    if (year !== undefined && year !== selectedYear) openYear(year);
+  /*
+   * A club named in Setup, in the squad year its row is of: its card is that year's. On the page
+   * whose board names it, where the row knows one, as a club found by search opens: the year alone
+   * kept the level on screen, and the panel spoke of that page's games.
+   */
+  const openTeamIn = (teamId: string, year?: number, pageId?: string) => {
+    if (pageId !== undefined && ageGroups.some((one) => one.id === pageId)) openPage(pageId);
+    else if (year !== undefined && year !== selectedYear) openYear(year);
     openTeam(teamId);
   };
   const closeClub = useCallback(() => setOpenClub(null), []);
@@ -894,6 +899,7 @@ function LiveBoard({
               edits={edits}
               confirm={confirm}
               today={today}
+              {...(meta ? { boardDay: meta.today } : {})}
               pageId={selectedAgeGroupId}
               groupName={group?.name ?? ""}
               groups={cloudGroups}

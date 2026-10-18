@@ -38,6 +38,11 @@ const DIST = "dist";
  * team panel and comparison failing alone with Close 0.3, the phone bar's More and focus 0.2,
  * letting go of a deleted season's state 0.2, the held scenario link 0.1 and the Range caption
  * 0.1. Each corrects what the shell already did, so none is a chunk of its own to split off.
+ * Team Rankings to 156.0 KB on 18 Oct 2026 for Pool health's leaders with few outside games, 153.7
+ * KB against 151.8 KB before. Their section is fetched only once a look lists some; what is left
+ * is the reader of the server's answer and the device's own sum for a page with no worker. Fetched
+ * apart, that sum split shared storage code out of the first download and made it 0.7 KB heavier,
+ * so it stays.
  */
 const BUDGET = {
   firstDownload: 252_000,
@@ -52,7 +57,7 @@ const BUDGET = {
     Forecast: 18_300,
     "Data Quality": 3_500,
     Settings: 12_600,
-    "Team Rankings": 153_000,
+    "Team Rankings": 156_000,
   },
 };
 

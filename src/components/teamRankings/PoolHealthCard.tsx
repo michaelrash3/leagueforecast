@@ -59,8 +59,11 @@ type PoolHealthCardProps = {
    * and leaves the list (`ScoutGame.scoreConfirmed`).
    */
   onConfirmScore: (gameId: string) => Promise<boolean>;
-  /** Opens a club's own panel, for a list that names clubs to look at. */
-  onOpenTeam?: (teamId: string) => void;
+  /**
+   * Opens a club's own panel, for a list that names clubs to look at, in the squad year and on the
+   * page of its row where the row says one (`PoolHealthActions.openTeam`).
+   */
+  onOpenTeam?: (teamId: string, year?: number, pageId?: string) => void;
   /**
    * Files a club at another level in a squad year and holds it there, as its own panel does
    * (`setClubAge`, pinned). Answers whether it happened, so the list can drop the club.
@@ -178,8 +181,11 @@ export function PoolHealthCard({
     setInspection(found);
   };
 
+  /** What the boards read beyond the pool, so the look can list the leaders with few outside games. */
+  const boards = { readSeason, autoRemoved };
+
   const look = async () => {
-    const found = await inspect(pool, tidyStamp, leftOutOf(pool));
+    const found = await inspect(pool, tidyStamp, leftOutOf(pool), boards);
     // Null means the panel went away mid-look, so there is nobody left to show it to.
     if (!found) return;
     setLastTidy(null);
@@ -193,7 +199,7 @@ export function PoolHealthCard({
     if (!outcome) return;
     onTidied(outcome);
     setLastTidy(describeTidy({ ...outcome.tidy, state: outcome.state }));
-    const found = await inspect(outcome.state, "", leftOutOf(outcome.state));
+    const found = await inspect(outcome.state, "", leftOutOf(outcome.state), boards);
     if (!found) return;
     show(found);
   };
