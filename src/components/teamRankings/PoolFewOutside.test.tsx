@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -364,6 +364,36 @@ describe("the leaders with few outside games on the device's own card", () => {
     expect(section.textContent).not.toMatch(/already pulled/);
     expect(section.textContent).toMatch(/2 of its group's entries were entered by hand/);
     expect(section.textContent).not.toMatch(UNSAID);
+  });
+
+  /*
+   * A club with no GameChanger id of its own carries no page to open on but the row's: the device
+   * card handed only the club on, and its panel opened on the page already on screen, which holds
+   * none of the games the list had named.
+   */
+  it("open a club on the page whose board it leads, from another page", async () => {
+    const user = userEvent.setup();
+    const eleven = twoClubs();
+    renderTeamRankings({
+      ageGroups: [ageGroup(10, 2027), ageGroup(11, 2027)],
+      teams: [
+        ...eleven.teams,
+        team("S-ELEVEN-A", "Larch Eleven", { state: "OH" }),
+        team("S-ELEVEN-B", "Sorrel Eleven", { state: "OH" }),
+      ],
+      games: [
+        ...eleven.games,
+        game("eleven", "ag_11u_2027", "S-ELEVEN-A", "S-ELEVEN-B", 7, 3, {
+          date: seasonDate(2027),
+        }),
+      ],
+    });
+    await user.click(screen.getByRole("tab", { name: "Setup" }));
+    expect(window.location.search).not.toContain("age=11");
+    await user.click(screen.getByRole("button", { name: /check the pool/i }));
+    const section = await screen.findByTestId("pool-few-outside");
+    await user.click(within(section).getByRole("button", { name: "Larch Eleven" }));
+    await waitFor(() => expect(window.location.search).toContain("age=11"));
   });
 
   /*

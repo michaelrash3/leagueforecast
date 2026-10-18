@@ -59,8 +59,11 @@ type PoolHealthCardProps = {
    * and leaves the list (`ScoutGame.scoreConfirmed`).
    */
   onConfirmScore: (gameId: string) => Promise<boolean>;
-  /** Opens a club's own panel, for a list that names clubs to look at. */
-  onOpenTeam?: (teamId: string) => void;
+  /**
+   * Opens a club's own panel, for a list that names clubs to look at, in the squad year and on the
+   * page of its row where the row says one (`PoolHealthActions.openTeam`).
+   */
+  onOpenTeam?: (teamId: string, year?: number, pageId?: string) => void;
   /**
    * Files a club at another level in a squad year and holds it there, as its own panel does
    * (`setClubAge`, pinned). Answers whether it happened, so the list can drop the club.
