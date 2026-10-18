@@ -11,7 +11,7 @@ import {
   type FewOutsideOpponent,
   type FewOutsideSide,
 } from "../../lib/fewOutside";
-import { segmentLabel } from "../../lib/teamRankings";
+import { segmentLabel, type SeasonSegment } from "../../lib/teamRankings";
 import { button, pill } from "../../styles/tokens";
 
 /**
@@ -91,7 +91,7 @@ export function FewOutsideSection({
 }: {
   list: FewOutsideList;
   /** Opens a club's own panel, with the squad year of its row and the page whose board it leads. */
-  openTeam?: (teamId: string, year?: number, pageId?: string) => void;
+  openTeam?: (teamId: string, year?: number, pageId?: string, segment?: SeasonSegment) => void;
 }) {
   const [all, setAll] = useState(false);
   const leaders = list.leaders;
@@ -147,7 +147,14 @@ export function FewOutsideSection({
               {openTeam ? (
                 <button
                   type="button"
-                  onClick={() => openTeam(leader.teamId, leader.year ?? undefined, leader.pageId)}
+                  onClick={() =>
+                    openTeam(
+                      leader.teamId,
+                      leader.year ?? undefined,
+                      leader.pageId,
+                      leader.segment ?? undefined
+                    )
+                  }
                   className="text-left font-bold text-blue-600 hover:underline dark:text-blue-400"
                 >
                   {leader.name}

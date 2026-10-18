@@ -17,7 +17,7 @@ import { todayIsoDay } from "../../lib/date";
 import { type AutoRemovals } from "../../lib/autoRemoved";
 import { removedClubIds } from "../../lib/removedClubs";
 import { leagueKeptClubs, type SeasonReader } from "../../lib/live/allKnown";
-import { ageGroupYear } from "../../lib/teamRankings";
+import { ageGroupYear, type SeasonSegment } from "../../lib/teamRankings";
 import type { RemovedClub } from "../../lib/removedForYou";
 import { unpulledClubsCsv } from "../../lib/unpulledClubs";
 import { poolNamesCsvFilename, poolNamesCsvParts } from "../../lib/poolNamesCsv";
@@ -63,7 +63,7 @@ type PoolHealthCardProps = {
    * Opens a club's own panel, for a list that names clubs to look at, in the squad year and on the
    * page of its row where the row says one (`PoolHealthActions.openTeam`).
    */
-  onOpenTeam?: (teamId: string, year?: number, pageId?: string) => void;
+  onOpenTeam?: (teamId: string, year?: number, pageId?: string, segment?: SeasonSegment) => void;
   /**
    * Files a club at another level in a squad year and holds it there, as its own panel does
    * (`setClubAge`, pinned). Answers whether it happened, so the list can drop the club.

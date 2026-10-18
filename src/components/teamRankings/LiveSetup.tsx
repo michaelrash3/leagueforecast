@@ -6,7 +6,13 @@ import { readLastClosedLevel } from "../../lib/live/closedLevelRecord";
 import type { PoolCommand } from "../../lib/live/commands";
 import { overlayGroups, seasonAssignedSaid } from "../../lib/live/groupsOverlay";
 import type { SeasonMeta } from "../../lib/storage";
-import type { AgeGroup, AgeGroupSeason, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
+import type {
+  AgeGroup,
+  AgeGroupSeason,
+  ScoutGame,
+  ScoutTeam,
+  SeasonSegment,
+} from "../../lib/teamRankings";
 import { ageGroupYear, createAgeGroupId, seasonYearOptions } from "../../lib/teamRankings/seasons";
 import { card } from "../../styles/tokens";
 
@@ -73,7 +79,7 @@ export default function LiveSetup({
    * Opens a club's panel, in the squad year its row is of where it says one, and on the page whose
    * board names it where the row knows that.
    */
-  onOpenTeam: (teamId: string, year?: number, pageId?: string) => void;
+  onOpenTeam: (teamId: string, year?: number, pageId?: string, segment?: SeasonSegment) => void;
   /** The cloud's copy as this member may read it, which a backup is made of. */
   copy: LiveSources["copy"];
   /**

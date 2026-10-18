@@ -170,8 +170,15 @@ export function useRankingsPages(ageGroups: AgeGroup[], today: string) {
     section,
   };
 
-  const openPage = (groupId: string) => {
-    if (!groupId || groupId === selectedAgeGroupId) return;
+  /**
+   * `half` is the half of the board a list read a club off, where it says one. It is written in
+   * only over a half the URL pins otherwise: with none pinned the page opens on the half the list
+   * was cut from, and writing that in would pin the app's guess in a link the reader shares. Kept
+   * on a pinned other half, the club opened against a board it may not be on.
+   */
+  const openPage = (groupId: string, half?: SeasonSegment) => {
+    const segment = half !== undefined && route.segment !== undefined ? half : route.segment;
+    if (!groupId || (groupId === selectedAgeGroupId && segment === route.segment)) return;
     setPickedGroupId(groupId);
     const group = ageGroups.find((entry) => entry.id === groupId);
     // Pushed, not replaced: this is a page the user asked for, so Back should return to the last.
@@ -185,7 +192,7 @@ export function useRankingsPages(ageGroups: AgeGroup[], today: string) {
        * would write the app's guess into a link the reader then shares, and pin it there against a
        * year where a different half is the sensible one.
        */
-      ...(route.segment ? { segment: route.segment } : {}),
+      ...(segment ? { segment } : {}),
       section,
     });
   };

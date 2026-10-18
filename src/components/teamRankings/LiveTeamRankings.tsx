@@ -48,6 +48,7 @@ import {
   buildUpcomingSchedule,
   rankingPoolGroupIds,
   type ScoutRankingRow,
+  type SeasonSegment,
 } from "../../lib/teamRankings";
 import { ageGroupLevel, ageGroupYear, segmentLabel } from "../../lib/teamRankings/seasons";
 import {
@@ -724,10 +725,12 @@ function LiveBoard({
   /*
    * A club named in Setup, in the squad year its row is of: its card is that year's. On the page
    * whose board names it, where the row knows one, as a club found by search opens: the year alone
-   * kept the level on screen, and the panel spoke of that page's games.
+   * kept the level on screen, and the panel spoke of that page's games. On the half its row was
+   * read off too, where the URL pins the other (`openPage`).
    */
-  const openTeamIn = (teamId: string, year?: number, pageId?: string) => {
-    if (pageId !== undefined && ageGroups.some((one) => one.id === pageId)) openPage(pageId);
+  const openTeamIn = (teamId: string, year?: number, pageId?: string, segment?: SeasonSegment) => {
+    if (pageId !== undefined && ageGroups.some((one) => one.id === pageId))
+      openPage(pageId, segment);
     else if (year !== undefined && year !== selectedYear) openYear(year);
     openTeam(teamId);
   };
