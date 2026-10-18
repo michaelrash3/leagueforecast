@@ -6159,12 +6159,18 @@ export const reclaimMisfiled = (
    * 2026, 35 rows sat at one instant with results that differed, against 3 in the same search a
    * week either side.
    */
-  const holds = (clubId: string, pullerId: string, row: ScoutGame): boolean => {
+  const holdsAs = (
+    clubId: string,
+    pullerId: string,
+    row: ScoutGame,
+    own: ScoutGame,
+    exact = false
+  ): boolean => {
     // The side of `row` that is not the puller: what the club being asked about would stand in.
     const rowClub = score(row, row.teamAId === pullerId ? row.teamBId : row.teamAId);
     const rowPuller = score(row, pullerId);
     const puller = teamById.get(pullerId);
-    return (ownByDay.get(`${clubId}\u0000${row.date}`) ?? []).some((own) => {
+    {
       const other = own.teamAId === clubId ? own.teamBId : own.teamAId;
       const ownClub = score(own, clubId);
       const ownPuller = score(own, other);
@@ -6173,6 +6179,7 @@ export const reclaimMisfiled = (
         if (rowClub === undefined || rowPuller === undefined) return true;
         return ownClub === rowClub && ownPuller === rowPuller;
       }
+      if (exact) return false;
       const stand = teamById.get(other);
       if (!puller || !stand?.nameOnly || !fits(stand.name, puller.name)) return false;
       if (!inOneRegion(puller.state, teamById.get(clubId)?.state)) return false;
@@ -6181,8 +6188,12 @@ export const reclaimMisfiled = (
       if (sameStart(own.startTs, row.startTs)) return true;
       const scored = [ownClub, ownPuller, rowClub, rowPuller].every((value) => value !== undefined);
       return scored && ownClub === rowClub && ownPuller === rowPuller;
-    });
+    }
   };
+  const holds = (clubId: string, pullerId: string, row: ScoutGame, exact = false): boolean =>
+    (ownByDay.get(`${clubId}\u0000${row.date}`) ?? []).some((own) =>
+      holdsAs(clubId, pullerId, row, own, exact)
+    );
 
   /*
    * Each pulled club's own scored rows, by start minute and the result from the club's own seat:
@@ -6209,7 +6220,7 @@ export const reclaimMisfiled = (
    * start, with this score. The puller's own row is among them where the game was a tie against a
    * club of its own name, and is never a holder (below).
    */
-  const atTheStart = (row: ScoutGame, pullerId: string): Set<string> => {
+  const atTheStart = (row: ScoutGame, pullerId: string, exact = false): Set<string> => {
     const minute = startMinuteOf(row.startTs);
     const rowClub = score(row, row.teamAId === pullerId ? row.teamBId : row.teamAId);
     const rowPuller = score(row, pullerId);
@@ -6219,19 +6230,40 @@ export const reclaimMisfiled = (
     }
     const found = new Set<string>();
     (ownAtStart.get(atStartKey(minute, rowClub, rowPuller)) ?? []).forEach(({ clubId, own }) => {
-      const other = own.teamBId;
-      const vs = teamById.get(other);
-      const standsFor =
-        other === pullerId ||
-        vs?.placeholder === true ||
-        vs?.nameOnly === true ||
-        (vs !== undefined &&
-          Boolean(vs.gcTeams?.length) &&
-          (teamNameKey(vs.name) === teamNameKey(puller.name) || fits(vs.name, puller.name)) &&
-          !filedInto(own, ownIds.get(other)));
-      if (standsFor) found.add(clubId);
+      if (exact ? own.teamBId === pullerId : standsForPuller(own, pullerId, puller)) {
+        found.add(clubId);
+      }
     });
     return found;
+  };
+  /** Whether the other side of a club's own row could be the puller by another name. */
+  const standsForPuller = (own: ScoutGame, pullerId: string, puller: ScoutTeam): boolean => {
+    const other = own.teamBId;
+    const vs = teamById.get(other);
+    return (
+      other === pullerId ||
+      vs?.placeholder === true ||
+      vs?.nameOnly === true ||
+      (vs !== undefined &&
+        Boolean(vs.gcTeams?.length) &&
+        (teamNameKey(vs.name) === teamNameKey(puller.name) || fits(vs.name, puller.name)) &&
+        !filedInto(own, ownIds.get(other)))
+    );
+  };
+  /** `atTheStart` asked of one row of the club's own: the very start, the result mirrored. */
+  const atItsStart = (row: ScoutGame, pullerId: string, own: ScoutGame): boolean => {
+    const puller = teamById.get(pullerId);
+    const minute = startMinuteOf(row.startTs);
+    return (
+      puller !== undefined &&
+      minute !== undefined &&
+      isScored(row) &&
+      isScored(own) &&
+      startMinuteOf(own.startTs) === minute &&
+      own.teamAScore === score(row, row.teamAId === pullerId ? row.teamBId : row.teamAId) &&
+      own.teamBScore === score(row, pullerId) &&
+      standsForPuller(own, pullerId, puller)
+    );
   };
 
   let reclaimed = 0;
@@ -6256,6 +6288,26 @@ export const reclaimMisfiled = (
     // very tidy that joined it.
     const alsoFiled = filedInto(game, ownIds.get(namedId));
     if (isOwnRow(game, namedId) || alsoFiled || holds(namedId, pullerId, game)) return game;
+    /*
+     * The club it sits on may hold the game all the same: its own row of it folded in as a claim,
+     * filed against a stand-in or a slot (`FoldedRow.filedAgainst`), is out of `ownByDay` and so
+     * out of `holds`. Read as no evidence, a namesake whose own row stood against another stand-in
+     * of the name took the copy, the claim then stood back up and held the game again, and the two
+     * clubs took turns with it on every pass: on the backup of 11 October 2026 four copies did, and
+     * every tidy ran to its six-pass limit. Where the claim holds the game, only a namesake whose
+     * own row stands against the puller itself has better evidence. Only a claim of the game's day
+     * counts, as only a standing row of that day does (`ownByDay`): a claim folded in from a day
+     * apart (`FoldedRow.date`) would otherwise keep the copy from a namesake whose own row that day
+     * holds it.
+     */
+    const claimed = (game.alsoRows ?? []).flatMap((record) => {
+      if (record.filedAgainst === undefined || !ownIds.get(namedId)?.has(record.teamId)) return [];
+      const own = filedRowOf(game, record);
+      return own.date === game.date ? [own] : [];
+    });
+    const heldByClaim = claimed.some(
+      (own) => holdsAs(namedId, pullerId, game, own) || atItsStart(game, pullerId, own)
+    );
     const atStart = atTheStart(game, pullerId);
     if (atStart.has(namedId)) return game;
     const pool = poolKeyOf(game.ageGroupId);
@@ -6276,7 +6328,7 @@ export const reclaimMisfiled = (
       levelFits(levels.get(clubId), level);
     const holders = new Set(
       (namesakes.get(teamNameKey(named.name)) ?? []).filter(
-        (clubId) => placed(clubId) && holds(clubId, pullerId, game)
+        (clubId) => placed(clubId) && holds(clubId, pullerId, game, heldByClaim)
       )
     );
     /*
@@ -6285,7 +6337,7 @@ export const reclaimMisfiled = (
      * one Texas rec league, pulled several of each, were filed crossed: each club's own row of one
      * 5-9 went to the other club's namesake, and neither namesake's schedule listed the game.
      */
-    atStart.forEach((clubId) => {
+    (heldByClaim ? atTheStart(game, pullerId, true) : atStart).forEach((clubId) => {
       const club = teamById.get(clubId);
       if (!club || !placed(clubId)) return;
       const sameName = teamNameKey(club.name) === teamNameKey(named.name);
@@ -8337,8 +8389,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       school pass reading a pulled club by the names GameChanger gives it and keeping a stand-in
  *       a row named at an age under fourteen off an age label, so it deletes no club the import
  *       files
+ *  26 — a copy holding its club's own row of the game as a claim left on that club unless a
+ *       namesake's own row stands against the puller itself, so two namesakes stop taking turns
  */
-const TIDY_RULES_VERSION = 25;
+const TIDY_RULES_VERSION = 26;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

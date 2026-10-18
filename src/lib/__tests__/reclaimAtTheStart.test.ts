@@ -222,3 +222,90 @@ describe("a copy left where it is", () => {
     expect(sidesOf(played, tie.id)).toEqual(["TT10", "TT11"]);
   });
 });
+
+describe("a copy holding its club's own row as a claim", () => {
+  // The Quillfen Otters' 9-2 was filed by name on one of two Marrowby Cats, and that club's own row
+  // of the game, against a stand-in called "Quillfen Otters", was folded into it as a claim. The
+  // other Marrowby Cats' own row that night stood against a second stand-in of the name. With its
+  // own row folded away, the first club no longer held the game by its schedule, the second did,
+  // and the copy moved; the claim then stood back up, held the game again, and the two took turns
+  // with it on every pass of every tidy.
+  const teams = [
+    club("OTTER", "Quillfen Otters", "OH"),
+    club("CATS1", "Marrowby Cats", "OH"),
+    club("CATS2", "Marrowby Cats", "OH"),
+    standIn("S-OTTER", "Quillfen Otters"),
+    standIn("S-OTTER2", "Quillfen Otters"),
+  ];
+  const row = own("OTTER", "o1", "CATS1", [9, 2]);
+  /** The copy, holding the first club's own row filed against `against` at `clock`. */
+  const holding = (against = "S-OTTER", clock = "23:00", day = DAY): ScoutGame => ({
+    ...row,
+    alsoFrom: ["gcCATS1"],
+    alsoRows: [
+      {
+        teamId: "gcCATS1",
+        gameId: "c1",
+        startTs: `${day}T${clock}:00.000Z`,
+        ...(day === DAY ? {} : { date: day }),
+        ownScore: 2,
+        opponentScore: 9,
+        onSideB: true,
+        filedAgainst: against,
+      },
+    ],
+  });
+  const held = holding();
+
+  it("stays on that club when the namesake's row stands only against a stand-in", () => {
+    const state: GcImportState = {
+      ageGroups,
+      teams,
+      games: [held, own("CATS2", "d1", "S-OTTER2", [2, 9])],
+    };
+    expect(reclaimMisfiled(state).reclaimed).toBe(0);
+  });
+
+  it("but goes to the namesake whose own row stands against the puller itself", () => {
+    const state: GcImportState = {
+      ageGroups,
+      teams,
+      games: [held, own("CATS2", "d1", "OTTER", [2, 9])],
+    };
+    const moved = reclaimMisfiled(state);
+    expect(moved.reclaimed).toBe(1);
+    expect(sidesOf(moved.state, row.id)).toEqual(["OTTER", "CATS2"]);
+  });
+
+  it("whether the claim was filed at another start with the result mirrored", () => {
+    const state: GcImportState = {
+      ageGroups,
+      teams,
+      games: [holding("S-OTTER", "20:00"), own("CATS2", "d1", "S-OTTER2", [2, 9])],
+    };
+    expect(reclaimMisfiled(state).reclaimed).toBe(0);
+  });
+
+  it("or against a slot at the very start", () => {
+    const state: GcImportState = {
+      ageGroups,
+      teams: [...teams, slot("TBD1")],
+      games: [holding("TBD1"), own("CATS2", "d1", "S-OTTER2", [2, 9])],
+    };
+    expect(reclaimMisfiled(state).reclaimed).toBe(0);
+  });
+
+  it("but not a claim its schedule filed on another day", () => {
+    // A claim folded in from a day apart (`FoldedRow.date`) is no row of the game's day, which is
+    // all a standing row of the club's is read as holding: it does not keep the copy from the
+    // namesake whose own row that day stands against a stand-in of the name at its start.
+    const state: GcImportState = {
+      ageGroups,
+      teams,
+      games: [holding("S-OTTER", "23:00", "2026-09-21"), own("CATS2", "d1", "S-OTTER2", [2, 9])],
+    };
+    const moved = reclaimMisfiled(state);
+    expect(moved.reclaimed).toBe(1);
+    expect(sidesOf(moved.state, row.id)).toEqual(["OTTER", "CATS2"]);
+  });
+});
