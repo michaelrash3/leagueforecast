@@ -414,7 +414,8 @@ none it opens as it did before, the default kept for the next page that has one
 (`defaultStateOf`). Both boards read it, the cloud's and this device's. Picking
 another state during a visit is unchanged and keeps nothing, and neither keeping
 nor clearing a default moves the card under the reader: it decides where the next
-open lands.
+open lands. Clear holds the card only on the page it was pressed on; the next page
+or half opens as it would with no default.
 
 **Which half a page opens on.** The fall and the spring are two tables, and with no
 half in the link a page opens on the one the calendar is in, unless that half holds

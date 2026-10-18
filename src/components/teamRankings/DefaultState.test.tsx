@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { readDefaultState } from "../../lib/preferences";
@@ -90,5 +90,34 @@ describe("a default state for the State top 10", () => {
 
     renderTeamRankings(pool());
     expect(topState()).toBe("OH");
+  });
+
+  it("holds the card after Clear only on the page it was pressed on", async () => {
+    // 9U has nobody from Kentucky, so held there the card would be empty: it opens on 9U's own.
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ defaultState: "KY" }));
+    await user.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
+    expect(topState()).toBe("KY");
+
+    const ageNav = screen.getByRole("navigation", { name: "Age level" });
+    await user.click(within(ageNav).getByRole("button", { name: "9U" }));
+    expect(await screen.findAllByText("Drifters")).not.toHaveLength(0);
+    expect(topState()).toBe("TX");
+    expect(screen.queryByText("No ranked teams in KY yet.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Make TX my default state" })).toBeInTheDocument();
+  });
+
+  it("falls back on a page with nobody from it after Clear and Make again", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ defaultState: "KY" }));
+    await user.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
+    await user.click(screen.getByRole("button", { name: "Make KY my default state" }));
+    expect(readDefaultState()).toBe("KY");
+
+    const ageNav = screen.getByRole("navigation", { name: "Age level" });
+    await user.click(within(ageNav).getByRole("button", { name: "9U" }));
+    expect(await screen.findAllByText("Drifters")).not.toHaveLength(0);
+    expect(topState()).toBe("TX");
+    expect(screen.queryByText("No ranked teams in KY yet.")).toBeNull();
   });
 });

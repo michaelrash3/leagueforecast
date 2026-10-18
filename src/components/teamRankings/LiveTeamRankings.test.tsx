@@ -5150,4 +5150,19 @@ describe("a default state on the cloud's board", () => {
     expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
     expect(topState()).toBe("OH");
   });
+
+  it("holds the card after Clear only on the half it was pressed on", async () => {
+    // The fall board has nobody from Kentucky, so held there the card would be empty.
+    writeDefaultState("KY");
+    open(sourcesOf(live));
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
+    expect(topState()).toBe("KY");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Fall 2026/ }));
+    expect(await screen.findAllByText("Placeholder S-F")).not.toHaveLength(0);
+    expect(topState()).toBe("TX");
+    expect(screen.queryByText("No ranked teams in KY yet.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Make TX my default state" })).toBeTruthy();
+  });
 });
