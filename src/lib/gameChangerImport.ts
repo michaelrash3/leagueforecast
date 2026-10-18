@@ -2112,11 +2112,20 @@ const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
    */
   const namedLevel =
     existing.joinedFrom !== undefined ? existing.joinedFromLevel : existing.ageLevelB;
+  /*
+   * A schedule that types no age for its opponent says nothing about one the row already holds
+   * from elsewhere: the crossed-halves join puts in side B's level off B's own schedule, with no
+   * mark to say so. Read as a change, every pull wrote the level away and the fit lost the gap.
+   */
+  const levelB =
+    existing.joinedFrom === undefined && candidate.ageLevelB === undefined
+      ? false
+      : namedLevel !== candidate.ageLevelB;
   return (
     scoreChanged ||
     existing.season !== candidate.season ||
     existing.ageLevelA !== candidate.ageLevelA ||
-    namedLevel !== candidate.ageLevelB
+    levelB
   );
 };
 
@@ -3172,7 +3181,9 @@ const importOne = (
       existing === known && existing.teamAId === candidate.teamAId
         ? (() => {
             const { ageLevelA: _own, ageLevelB: _theirs, ...rest } = base;
-            const ageLevelB = joined ? base.ageLevelB : candidate.ageLevelB;
+            // A level the schedule no longer types stays: it may be side B's own, put in by the
+            // crossed-halves join from B's schedule (see `differs`).
+            const ageLevelB = joined ? base.ageLevelB : (candidate.ageLevelB ?? base.ageLevelB);
             return {
               ...rest,
               ...(candidate.ageLevelA === undefined ? {} : { ageLevelA: candidate.ageLevelA }),

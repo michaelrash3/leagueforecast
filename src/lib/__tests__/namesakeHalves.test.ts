@@ -1110,3 +1110,19 @@ describe("a pull of a game nothing joined", () => {
     expect(importer.add(retyped())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
   });
 });
+
+describe("a pull typing no age for an opponent whose level the row already holds", () => {
+  // The crossed-halves join puts side B's own level in from B's schedule with no mark to say so;
+  // A's schedule typing no age for B must neither wipe it nor read as a change.
+  it("keeps the level and reads the pull as no change", () => {
+    const held = pool(
+      [ridge, standIn("S-HUSTLE", "Lakeshore Hustle")],
+      [{ ...row("RIDGE", "r1", "S-HUSTLE", "ag12", `${DAY}T14:00`, [4, 11]), ageLevelB: 13 }]
+    );
+    const importer = createGcImporter(held, { today: "2026-10-11" });
+    const untyped = () =>
+      schedule(ridge, 12, [played("r1", "Lakeshore Hustle", `${DAY}T14:00`, [4, 11])]);
+    expect(importer.add(untyped())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
+    expect(importer.state.games[0]).toMatchObject({ ageLevelB: 13 });
+  });
+});
