@@ -3191,7 +3191,8 @@ It took 20 s and about 1 GB above the loaded pool (2.8 GB at most) in Node 24 on
   weekday alone would have skipped a week whenever a Sunday run started under 43
   minutes late and the Monday one later, and made one twice the other way round. A
   dry run re-measures on a Monday only. It reads the pool the night has just built
-  the boards from, the squad year with the most games in the four weeks: the Team
+  the boards from, the squad year whose boards hold the most games in the four weeks,
+  League Standings' games counted with the stored ones: the Team
   Rankings pool the run holds, and the League Standings seasons as the publish read
   them, handed on rather than listed again (`remeasureAfterPublish`,
   `closedLevelWeekly.ts`), so it reads nothing more of the cloud and a score saved
@@ -4897,8 +4898,9 @@ after the pull's own lines; a sweep that fails once the views are out says so
 under the counts of what was published, and turns it red too.
 
 Once a week it then re-measures where a rating starts on the pool it has just
-published from, the squad year with the most games in the four weeks before the
-week's Monday, with League Standings as the publish read it ("Where a rating
+published from, the squad year whose boards hold the most games in the four weeks
+before the week's Monday, League Standings' games counted with the stored ones, with
+League Standings as the publish read it ("Where a rating
 starts", `closedLevelWeekly.ts`), and only once the views are out: a publish refused
 or stopped leaves no board built from any pool it could read. A live run re-measures
 on the first night of the week (Monday to Sunday, the members' day the run started

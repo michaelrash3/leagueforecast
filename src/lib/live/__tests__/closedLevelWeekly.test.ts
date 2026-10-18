@@ -187,6 +187,18 @@ describe("the Monday re-measure on the pool the boards were built from", () => {
     );
   });
 
+  it("counts a year's League Standings games in choosing it, as its boards hold them", () => {
+    // This year's stored games held back, so its four weeks are only League's scores: its
+    // boards still hold them, and it is still the year in play over last year's empty weeks.
+    const leagueOnly = {
+      ...input(MONDAY),
+      gamesOfYear: (year: number | undefined) => (year === 2027 ? [] : loadScoutGamesForYear(year)),
+    };
+    const weekly = weeklyClosedLevel(leagueOnly);
+    expect(weekly?.year).toBe(2027);
+    expect(weekly?.check.games).toBeGreaterThan(0);
+  });
+
   it("has nothing to re-measure when no year with a table has games in the four weeks", () => {
     expect(weeklyClosedLevel(input("2030-01-07"))).toBeNull();
     expect(weeklyClosedLevel(input("not a day"))).toBeNull();

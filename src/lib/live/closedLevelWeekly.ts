@@ -92,14 +92,32 @@ export const closedLevelMondayDue = async ({
 export type WeeklyClosedLevel = { year: number | null; check: ClosedLevelCheck };
 
 /**
- * The re-measure on the pool `input` holds, as of `input.today`: of the squad year whose pages'
- * stored games fall in the four weeks the most often, or null where none with a table has any.
+ * The re-measure on the pool `input` holds, as of `input.today`: of the squad year whose boards'
+ * pools hold the most games in the four weeks, or null where none with a table has any. Counted on
+ * each year's pool as the boards fit it (`deriveAllKnown`), League Standings' games with the stored
+ * ones: a year whose recent games came in mostly through League scores is the year in play, though
+ * its stored games alone would have scored it nothing or lost it to an older year.
  */
 export const weeklyClosedLevel = (input: Omit<BuildInput, "past">): WeeklyClosedLevel | null => {
   const { ageGroups, teams, gamesOfYear, readSeason, autoRemoved, today } = input;
   const end = dayInstant(today);
   if (!Number.isFinite(end)) return null;
   const from = end - CLOSED_LEVEL_WEEKS * 7 * DAY;
+  // The pool as the boards fit it, the year as its pages know it, derived once a year.
+  const knownOf = new Map<number | undefined, ReturnType<typeof deriveAllKnown>>();
+  const knownIn = (year: number | undefined) => {
+    const held = knownOf.get(year);
+    if (held) return held;
+    const known = deriveAllKnown({
+      ageGroups,
+      teams,
+      yearGames: gamesOfYear(year),
+      readSeason,
+      autoRemoved,
+    });
+    knownOf.set(year, known);
+    return known;
+  };
   let busiest: {
     pageId: string;
     year: number | undefined;
@@ -111,23 +129,15 @@ export const weeklyClosedLevel = (input: Omit<BuildInput, "past">): WeeklyClosed
     if (!pageId) continue;
     const year = ageGroupYear(ageGroups.find((group) => group.id === pageId));
     const poolIds = rankingPoolGroupIds(pageId, ageGroups);
-    const onPool = new Set(poolIds);
-    const games = gamesOfYear(year).filter((game) => {
-      if (!onPool.has(game.ageGroupId)) return false;
+    const games = gamesOnPages(knownIn(year).games, poolIds).filter((game) => {
       const at = dayInstant(game.date);
       return at >= from && at < end;
     }).length;
     if (games > (busiest?.games ?? 0)) busiest = { pageId, year, poolIds, games };
   }
   if (!busiest) return null;
-  // The pool as the boards fit it: the year as its pages know it, after the worker's codec.
-  const known = deriveAllKnown({
-    ageGroups,
-    teams,
-    yearGames: gamesOfYear(busiest.year),
-    readSeason,
-    autoRemoved,
-  });
+  // After the worker's codec, as the boards' fit sees it.
+  const known = knownIn(busiest.year);
   const pool = asWorkerSees(known.teams, gamesOnPages(known.games, busiest.poolIds));
   const check = compareClosedLevels(busiest.pageId, pool.teams, pool.games, ageGroups, today);
   return check && { year: busiest.year ?? null, check };
