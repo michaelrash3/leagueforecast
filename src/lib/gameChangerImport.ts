@@ -2110,19 +2110,16 @@ const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
    * row's name gave (`ScoutGame.joinedFromLevel`), which is what the schedule says again. Read
    * against side B's own, every pull of the club rewrote the game and counted it updated.
    *
-   * Side B's level on a game nothing joined is not this schedule's to change, and so not news: the
-   * crossed-halves join puts in B's own level off B's schedule with no mark to say so, and a coach's
-   * typed age, or none, would overwrite the stronger reading or wipe it. Read as a change and never
-   * written, it counted the game updated on every pull.
+   * No other level is news, because the update writes no other level: the club's own stays as it
+   * was filed (rewritten in place it would leave the import's index, `levelsByTeam` and the name
+   * lookup by level, on the old one for the rest of the batch), and side B's on a game nothing
+   * joined may be B's own, put in by the crossed-halves join from B's schedule with no mark to say
+   * so. Read as changes and never written, a club GameChanger moved a level, or a coach's retyped
+   * age for an opponent, counted the game updated on every pull.
    */
   const levelB =
     existing.joinedFrom !== undefined && existing.joinedFromLevel !== candidate.ageLevelB;
-  return (
-    scoreChanged ||
-    existing.season !== candidate.season ||
-    existing.ageLevelA !== candidate.ageLevelA ||
-    levelB
-  );
+  return scoreChanged || existing.season !== candidate.season || levelB;
 };
 
 /**
@@ -3166,23 +3163,8 @@ const importOne = (
         ? untyped
         : { ...kept, joinedFromLevel: candidate.ageLevelB }
       : kept;
-    /*
-     * The club's own level, as this schedule gives it now, on its own row the way round it was
-     * filed. Read by `differs` and never written, a club GameChanger moved a level had the change
-     * read on every pull, so each pull counted the game updated again. Side B's level stays as it
-     * is (see `differs`); a joined game's is put back through `joinedFromLevel` above.
-     */
-    const levels =
-      existing === known && existing.teamAId === candidate.teamAId
-        ? (() => {
-            const { ageLevelA: _own, ...rest } = base;
-            return candidate.ageLevelA === undefined
-              ? rest
-              : { ...rest, ageLevelA: candidate.ageLevelA };
-          })()
-        : base;
     const merged: ScoutGame = {
-      ...levels,
+      ...base,
       ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
       ...(candidate.season ? { season: candidate.season } : {}),
       ...(displaced ? { note: withNote(existing.note, displaced) } : {}),

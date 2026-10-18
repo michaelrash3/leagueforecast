@@ -691,14 +691,14 @@ describe("the namesake join", () => {
       expect(untyped.add(ridgeAgain())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
     });
 
-    it("keeps the club's own age its schedule gives now, and reads it as no change the pull after", () => {
-      // The club moved down a level on GameChanger: read as a change, never written, so every
+    it("reads the club's own level moving as no change, and leaves the game as filed", () => {
+      // The club moved down a level on GameChanger: read as a change and never written, so every
       // pull after counted the game updated again.
       const importer = createGcImporter(joined(), { today: "2026-10-11" });
       const moved = () =>
         schedule(ridge, 11, [played("r1", "Lakeshore Hustle", `${DAY}T14:00`, [4, 11])]);
-      expect(importer.add(moved())).toMatchObject({ gamesUpdated: 1 });
-      expect(importer.state.games[0]).toMatchObject({ ageLevelA: 11, joinedFrom: "S-HUSTLE" });
+      expect(importer.add(moved())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
+      expect(importer.state.games[0]).toMatchObject({ ageLevelA: 12, joinedFrom: "S-HUSTLE" });
       expect(importer.add(moved())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
     });
 
