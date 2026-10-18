@@ -35,9 +35,14 @@ export function useStateTop(
    * default is done from the state on screen, and clearing one holds the card where it is on this
    * page, since a card that jumped to another state under the reader's finger would look like the
    * click had picked it. The default decides where the next open lands.
+   *
+   * Either lets go of a state picked in the select, holding it on this page only: left as the
+   * visit's pick, a state made the default and then cleared, or made the default and carried to a
+   * page with nobody from it, showed an empty card there under a select naming another state.
    */
   const keepState = (state: string | null) => {
-    if (state === null) setHeld({ state: shownState, clubs });
+    setHeld({ state: shownState, clubs });
+    setStateTop(null);
     writeDefaultState(state);
     setKeptState(state);
   };

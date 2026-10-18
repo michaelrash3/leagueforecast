@@ -107,6 +107,42 @@ describe("a default state for the State top 10", () => {
     expect(screen.getByRole("button", { name: "Make TX my default state" })).toBeInTheDocument();
   });
 
+  /*
+   * A state picked in the select is a pick for the visit. Made the default and then cleared, it
+   * stayed the pick, so the next page with nobody from it showed an empty card under a select
+   * naming another state.
+   */
+  it("lets go of a picked state once it is made the default and cleared", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    expect(topState()).toBe("OH");
+    await user.selectOptions(screen.getAllByRole("combobox", { name: "State" })[0]!, "KY");
+    await user.click(screen.getByRole("button", { name: "Make KY my default state" }));
+    await user.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
+    expect(topState()).toBe("KY");
+
+    const ageNav = screen.getByRole("navigation", { name: "Age level" });
+    await user.click(within(ageNav).getByRole("button", { name: "9U" }));
+    expect(await screen.findAllByText("Drifters")).not.toHaveLength(0);
+    expect(topState()).toBe("TX");
+    expect(screen.queryByText("No ranked teams in KY yet.")).toBeNull();
+  });
+
+  // Made the default, a picked state is the default's to place: a page with nobody from it falls back.
+  it("lets go of a picked state once it is made the default", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await user.selectOptions(screen.getAllByRole("combobox", { name: "State" })[0]!, "KY");
+    await user.click(screen.getByRole("button", { name: "Make KY my default state" }));
+    expect(topState()).toBe("KY");
+
+    const ageNav = screen.getByRole("navigation", { name: "Age level" });
+    await user.click(within(ageNav).getByRole("button", { name: "9U" }));
+    expect(await screen.findAllByText("Drifters")).not.toHaveLength(0);
+    expect(topState()).toBe("TX");
+    expect(screen.queryByText("No ranked teams in KY yet.")).toBeNull();
+  });
+
   it("falls back on a page with nobody from it after Clear and Make again", async () => {
     const user = userEvent.setup();
     renderTeamRankings(pool({ defaultState: "KY" }));
