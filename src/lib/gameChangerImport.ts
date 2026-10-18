@@ -2109,15 +2109,17 @@ const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
    * A game the namesake join made carries side B's own level, and keeps beside it the level the
    * row's name gave (`ScoutGame.joinedFromLevel`), which is what the schedule says again. Read
    * against side B's own, every pull of the club rewrote the game and counted it updated.
+   *
+   * No other level is news, because the update writes no other level: the club's own stays as it
+   * was filed (rewritten in place it would leave the import's index, `levelsByTeam` and the name
+   * lookup by level, on the old one for the rest of the batch), and side B's on a game nothing
+   * joined may be B's own, put in by the crossed-halves join from B's schedule with no mark to say
+   * so. Read as changes and never written, a club GameChanger moved a level, or a coach's retyped
+   * age for an opponent, counted the game updated on every pull.
    */
-  const namedLevel =
-    existing.joinedFrom !== undefined ? existing.joinedFromLevel : existing.ageLevelB;
-  return (
-    scoreChanged ||
-    existing.season !== candidate.season ||
-    existing.ageLevelA !== candidate.ageLevelA ||
-    namedLevel !== candidate.ageLevelB
-  );
+  const levelB =
+    existing.joinedFrom !== undefined && existing.joinedFromLevel !== candidate.ageLevelB;
+  return scoreChanged || existing.season !== candidate.season || levelB;
 };
 
 /**
@@ -3155,12 +3157,12 @@ const importOne = (
      */
     const kept = ownAtLast ? unborrowed : recorded;
     const { joinedFromLevel: _typed, ...untyped } = kept;
-    const base =
-      existing === known && existing.joinedFrom !== undefined
-        ? candidate.ageLevelB === undefined
-          ? untyped
-          : { ...kept, joinedFromLevel: candidate.ageLevelB }
-        : kept;
+    const joined = existing === known && existing.joinedFrom !== undefined;
+    const base = joined
+      ? candidate.ageLevelB === undefined
+        ? untyped
+        : { ...kept, joinedFromLevel: candidate.ageLevelB }
+      : kept;
     const merged: ScoutGame = {
       ...base,
       ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
