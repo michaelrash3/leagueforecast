@@ -142,7 +142,11 @@ const weeklyOn = async (docs: typeof DOCS) => {
   return weeklyClosedLevel({ ...pool(), readSeason: league.readSeason, today: MONDAY });
 };
 
-describe("the Monday re-measure after the night's publish", () => {
+/*
+ * Each case publishes the fixture's boards first, which publishCopy.test.ts runs under the same
+ * allowance: 1.5 to 3.0 s here, and past the default 5 s on GitHub's runner under coverage.
+ */
+describe("the Monday re-measure after the night's publish", { timeout: 20_000 }, () => {
   it("fits League as the boards read it, and lists the seasons no more", async () => {
     let published = false;
     const { seen, list } = counted(() => published);
