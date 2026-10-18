@@ -1325,6 +1325,80 @@ describe("what Pool health asks of the server's pool", () => {
     expect([answer.lists.toPull.length, answer.toPullCount]).toEqual([TO_PULL_DRAWN, 7]);
   });
 
+  /*
+   * The leaders with few outside games come with the look, off the year boards as built with League
+   * Standings' seasons: the server's answer is the tidy worker's for the same pool, sent the seasons
+   * and marks the page holds, and it reads back whole. This pool's games are too few for its largest
+   * piece to split, so it is kept whole and has played no game outside itself: all its leaders are
+   * on the list, and so are the Larks and the two 10U clubs they played, a piece of their own.
+   */
+  it("lists the leaders with few outside games as the device's worker does, read back whole", () => {
+    const seasons: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
+    const answer = answerQuery({ kind: "health.inspect", today: TODAY }, seasons);
+    if (answer.kind !== "health.inspect") throw new Error("no look");
+    const posted: WorkerResponse[] = [];
+    createTidyHandler((response) => posted.push(response))({
+      kind: "inspect",
+      id: 1,
+      state: packPool(POOL),
+      stamp: "",
+      today: TODAY,
+      boards: { seasons: [], marks: [] },
+    });
+    const worker = posted[0];
+    if (worker?.kind !== "inspect") throw new Error("no inspection");
+    expect(answer.fewOutside).toEqual(worker.fewOutside);
+    expect(
+      answer.fewOutside?.leaders.map(({ name, page, stateRank, group, opponents }) => [
+        name,
+        page,
+        stateRank,
+        group,
+        opponents.length,
+      ])
+    ).toEqual([
+      ["Placeholder Ambush 9U", "9U 2027", 1, 0, 6],
+      ["Placeholder Y", "10U 2027", 1, 1, 0],
+      ["Placeholder Bulldogs", "9U 2027", 2, 0, 0],
+      ["Placeholder X", "10U 2027", 2, 1, 0],
+      ["Placeholder Cubs", "9U 2027", 3, 0, 0],
+      ["Placeholder Green", "9U 2027", 4, 0, 0],
+      ["Placeholder Larks 10U", "9U 2027", 5, 1, 0],
+      ["Placeholder Hawks", "9U 2027", 6, 0, 1],
+    ]);
+    expect(
+      answer.fewOutside?.groups.map(({ sides, pulled, nameOnly, outside, toFind }) => [
+        sides,
+        pulled,
+        nameOnly,
+        outside,
+        toFind.length,
+      ])
+    ).toEqual([
+      [12, 5, 7, 0, 7],
+      [3, 3, 0, 0, 0],
+    ]);
+    // Read back as the callable sends it, and from a server that said nothing of the list.
+    const sent = asJson(answer);
+    expect(coerceQueryAnswer(callableEncode(sent), "health.inspect")).toEqual(sent);
+    const { fewOutside: _list, ...older } = sent;
+    expect(coerceQueryAnswer(callableEncode(older), "health.inspect")).toEqual(older);
+    // A leader whose group the list does not hold is a list no card can draw: refused whole.
+    const few = sent.fewOutside!;
+    const astray = {
+      ...sent,
+      fewOutside: {
+        ...few,
+        leaders: few.leaders.map((leader, at) =>
+          at === 0 ? { ...leader, group: few.groups.length } : leader
+        ),
+      },
+    };
+    expect(coerceQueryAnswer(callableEncode(astray), "health.inspect")).toBeNull();
+    // Asked without the seasons the boards are built with, the look lists none.
+    expect(asked({ kind: "health.inspect", today: TODAY }).fewOutside).toBeUndefined();
+  });
+
   it("lists nothing of a club the boards leave out as plainly made up", () => {
     // The Cubs post the Greens' games; taken off, they are no twin to offer for a fold.
     expect(asked({ kind: "health.inspect", today: TODAY }).lists.twins).toHaveLength(1);

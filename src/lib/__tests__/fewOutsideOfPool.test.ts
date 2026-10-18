@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { FIXTURE_TODAY, madeUpClub, poolFixture } from "../../../scripts/poolFixture";
 import { ageGroupYear, type AgeGroup, type ScoutGame, type ScoutTeam } from "../teamRankings";
 import { coerceLogs, coerceMatchups, coerceTeams } from "../validate";
@@ -11,6 +11,21 @@ import {
   type YearBoardPage,
 } from "../fewOutsideLeaders";
 import { FEW_OUTSIDE_GAMES } from "../fewOutside";
+import { autoRemovalsList } from "../autoRemoved";
+import { memoryIo } from "../cloud/cloudRunner";
+import { answerQuery } from "../live/queries";
+import {
+  initTeamRankingsStore,
+  loadAgeGroups,
+  loadScoutGames,
+  loadScoutTeams,
+  resetTeamRankingsStore,
+  saveAgeGroups,
+  saveAutoRemoved,
+  saveScoutGames,
+  saveScoutTeams,
+} from "../teamRankingsStorage";
+import { createTidyHandler, packPool, type WorkerResponse } from "../../workers/tidyProtocol";
 
 /*
  * The list read off the boards' own year rows, on the seeded pool the board parity tests draw
@@ -184,4 +199,41 @@ describe("the leaders with few outside games of a stored pool", BUILDS_EVERY_BOA
       expect(!row?.comparable || (row.outsideGames ?? 0) < FEW_OUTSIDE_GAMES).toBe(true);
     }
   });
+
+  /*
+   * The two cards' lists: the server's answer to the look, off each year's stored games read a year
+   * at a time, and the device's tidy worker, sent the whole stored pool, the seasons and the marks.
+   * Both read the pool back from the storage layer, as each holds it.
+   */
+  it("are the same from the device's worker as from the server's answer, over the stored pool", async () => {
+    resetTeamRankingsStore();
+    await initTeamRankingsStore(memoryIo());
+    saveAgeGroups(fixture.ageGroups);
+    saveScoutTeams(fixture.teams);
+    saveScoutGames(fixture.games);
+    saveAutoRemoved(INPUT.autoRemoved);
+    const server = answerQuery({ kind: "health.inspect", today: FIXTURE_TODAY }, readSeason);
+    if (server.kind !== "health.inspect") throw new Error("no look");
+    const ageGroups = loadAgeGroups();
+    const posted: WorkerResponse[] = [];
+    createTidyHandler((response) => posted.push(response))({
+      kind: "inspect",
+      id: 1,
+      state: packPool({ ageGroups, teams: loadScoutTeams(), games: loadScoutGames() }),
+      stamp: "",
+      today: FIXTURE_TODAY,
+      boards: {
+        seasons: [...new Set(ageGroups.flatMap((group) => group.seasonIds))].map(
+          (seasonId): [string, ReturnType<SeasonReader>] => [seasonId, readSeason(seasonId)]
+        ),
+        marks: autoRemovalsList(INPUT.autoRemoved),
+      },
+    });
+    const worker = posted.find((response) => response.kind === "inspect");
+    if (worker?.kind !== "inspect") throw new Error("no inspection");
+    expect(worker.fewOutside).toEqual(server.fewOutside);
+    expect(server.fewOutside).toEqual(fewOutsideOfPool(INPUT));
+  });
 });
+
+afterAll(() => resetTeamRankingsStore());

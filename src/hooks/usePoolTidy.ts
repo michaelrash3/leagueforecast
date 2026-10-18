@@ -10,8 +10,9 @@ import {
   loadNotThisTeam,
   loadRealClubs,
 } from "../lib/teamRankingsStorage";
-import { autoRemovalsList } from "../lib/autoRemoved";
-import { leagueLinkedClubsOf } from "../lib/live/allKnown";
+import { autoRemovalsList, type AutoRemovals } from "../lib/autoRemoved";
+import { leagueLinkedClubsOf, type SeasonReader } from "../lib/live/allKnown";
+import type { FewOutsideList } from "../lib/fewOutside";
 import { readStoredSeason } from "../lib/storage";
 import type { MarksChange } from "../lib/removedForYou";
 import { todayIsoDay } from "../lib/date";
@@ -27,8 +28,10 @@ import {
 } from "../lib/pullSession";
 import {
   applyTidied,
+  fewOutsideAsked,
   packPool,
   sweepAsked,
+  type BoardsAsked,
   type SweepAsked,
   type WorkerRequest,
   type WorkerResponse,
@@ -59,7 +62,16 @@ import { createWorker } from "./createWorker";
  */
 export type TidyReach = { workerOnly?: boolean };
 
-export type PoolInspection = { health: PoolHealth; settleable: number; lists: PoolLists };
+export type PoolInspection = {
+  health: PoolHealth;
+  settleable: number;
+  lists: PoolLists;
+  /** The leaders with few outside games, where the look was asked with what the boards read. */
+  fewOutside?: FewOutsideList;
+};
+
+/** What the boards read beyond the pool, as the page holds it: League's seasons and the marks. */
+export type BoardsRead = { readSeason: SeasonReader; autoRemoved: AutoRemovals };
 export type TidyOutcome = {
   state: GcImportState;
   tidy: Omit<PoolTidy, "state">;
@@ -174,7 +186,12 @@ export function usePoolTidy() {
       state: GcImportState,
       stamp: string,
       /** The clubs the boards leave out as plainly made up, which the lists leave out too. */
-      leftOut: ReadonlySet<string>
+      leftOut: ReadonlySet<string>,
+      /**
+       * What the boards are built with beyond the pool, for the leaders with few outside games:
+       * without it the look lists none.
+       */
+      boards?: BoardsRead
     ): Promise<PoolInspection | null> => {
       // Read once, as the tidy does: the worker has no storage, and the inline path must be handed
       // the same answers.
@@ -182,6 +199,13 @@ export function usePoolTidy() {
       // And the names the owner has said are not a club, which the settle count reads as the tidy.
       const refused = loadNotThisTeam();
       const today = todayIsoDay();
+      // Every page's seasons, each once, read here: the worker has no storage to read them from.
+      const asked: BoardsAsked | undefined = boards && {
+        seasons: [...new Set(state.ageGroups.flatMap((group) => group.seasonIds))].map(
+          (seasonId): [string, ReturnType<SeasonReader>] => [seasonId, boards.readSeason(seasonId)]
+        ),
+        marks: autoRemovalsList(boards.autoRemoved),
+      };
       return ask<PoolInspection>(
         "inspect",
         (id) => ({
@@ -193,10 +217,16 @@ export function usePoolTidy() {
           apart: keptApartList(apart),
           notThisTeam: notThisTeamList(refused),
           leftOut: [...leftOut],
+          ...(asked ? { boards: asked } : {}),
         }),
         (response, id) =>
           response.kind === "inspect" && response.id === id
-            ? { health: response.health, settleable: response.settleable, lists: response.lists }
+            ? {
+                health: response.health,
+                settleable: response.settleable,
+                lists: response.lists,
+                ...(response.fewOutside ? { fewOutside: response.fewOutside } : {}),
+              }
             : null,
         () => {
           const health = poolHealth(state, stamp, today);
@@ -204,6 +234,7 @@ export function usePoolTidy() {
             health,
             settleable: health.standInPlayed === 0 ? 0 : settleableNow(state, refused),
             lists: poolLists(state, apart, today, leftOut),
+            ...(asked ? { fewOutside: fewOutsideAsked(state, asked, today) } : {}),
           };
         }
       );

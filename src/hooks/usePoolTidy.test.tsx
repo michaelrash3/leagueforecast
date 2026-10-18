@@ -220,6 +220,73 @@ describe("what the tidy worker is told", () => {
     unmount();
     await pending;
   });
+
+  /*
+   * The leaders with few outside games read the boards, and the worker reads no storage: the look
+   * hands it every page's League Standings season once, as the page reads it, and the marks.
+   */
+  it("hands the inspection what the boards read, each season once, when asked for the leaders", async () => {
+    RecordingWorker.sent = [];
+    vi.stubGlobal("Worker", RecordingWorker);
+    const pool = withStandIn();
+    const paged = {
+      ...pool,
+      ageGroups: [
+        { ...pool.ageGroups[0]!, seasonIds: ["s1", "s2"] },
+        { ...ageGroup(11, 2027), seasonIds: ["s1"] },
+      ],
+    };
+    const read: string[] = [];
+    const readSeason = (seasonId: string) => {
+      read.push(seasonId);
+      return { teams: [{ id: `t-${seasonId}`, name: `Lea ${seasonId}` }], matchups: [], logs: {} };
+    };
+    const marks = new Map([
+      [
+        "gcX",
+        {
+          gcTeamId: "gcX",
+          name: "Made Up",
+          on: "2026-09-18",
+          signs: ["named" as const],
+          word: "test",
+        },
+      ],
+    ]);
+    const { result, unmount } = renderHook(() => usePoolTidy());
+    const pending = result.current.inspect(paged, "", new Set(), {
+      readSeason,
+      autoRemoved: marks,
+    });
+    expect(read).toEqual(["s1", "s2"]);
+    expect(RecordingWorker.sent).toEqual([
+      expect.objectContaining({
+        kind: "inspect",
+        boards: {
+          seasons: [
+            ["s1", readSeason("s1")],
+            ["s2", readSeason("s2")],
+          ],
+          marks: [...marks.values()],
+        },
+      }),
+    ]);
+    unmount();
+    await pending;
+  });
+
+  // jsdom has no Worker, so this looks inline.
+  it("lists the leaders inline as the worker would, where there is no worker", async () => {
+    const { result } = renderHook(() => usePoolTidy());
+    const pool = withStandIn();
+    const plain = await result.current.inspect(pool, "", new Set());
+    expect(plain?.fewOutside).toBeUndefined();
+    const looked = await result.current.inspect(pool, "", new Set(), {
+      readSeason: () => ({ teams: [], matchups: [], logs: {} }),
+      autoRemoved: new Map(),
+    });
+    expect(looked?.fewOutside?.leaders.map(({ name }) => name)).toEqual(["Home Club", "Away Club"]);
+  });
 });
 
 describe("what the tidy keeps for League Standings", () => {
