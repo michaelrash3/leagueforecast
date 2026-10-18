@@ -1095,18 +1095,19 @@ describe("the namesake join", () => {
 describe("a pull of a game nothing joined", () => {
   /*
    * A schedule typing another age for its opponent on a row of its own: the change was read and
-   * never written, so every pull after counted the game updated again.
+   * never written, so every pull after counted the game updated again. Side B's level is not the
+   * schedule's to change (the crossed-halves join may have put in B's own), so it is not news.
    */
-  it("keeps the age the schedule types for its opponent now, and reads it as no change after", () => {
+  it("leaves the opponent's level as it is, and reads a retyped age as no change", () => {
     const lone = pool(
       [ridge, standIn("S-HUSTLE", "Lakeshore Hustle")],
-      [row("RIDGE", "r1", "S-HUSTLE", "ag12", `${DAY}T14:00`, [4, 11])]
+      [{ ...row("RIDGE", "r1", "S-HUSTLE", "ag12", `${DAY}T14:00`, [4, 11]), ageLevelB: 13 }]
     );
     const importer = createGcImporter(lone, { today: "2026-10-11" });
     const retyped = () =>
       schedule(ridge, 12, [played("r1", "Lakeshore Hustle 14U", `${DAY}T14:00`, [4, 11])]);
-    expect(importer.add(retyped())).toMatchObject({ gamesUpdated: 1 });
-    expect(importer.state.games[0]).toMatchObject({ ageLevelB: 14 });
+    expect(importer.add(retyped())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
+    expect(importer.state.games[0]).toMatchObject({ ageLevelB: 13 });
     expect(importer.add(retyped())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
   });
 });

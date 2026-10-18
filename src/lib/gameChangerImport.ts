@@ -2109,18 +2109,14 @@ const differs = (existing: ScoutGame, candidate: ScoutGame): boolean => {
    * A game the namesake join made carries side B's own level, and keeps beside it the level the
    * row's name gave (`ScoutGame.joinedFromLevel`), which is what the schedule says again. Read
    * against side B's own, every pull of the club rewrote the game and counted it updated.
-   */
-  const namedLevel =
-    existing.joinedFrom !== undefined ? existing.joinedFromLevel : existing.ageLevelB;
-  /*
-   * A schedule that types no age for its opponent says nothing about one the row already holds
-   * from elsewhere: the crossed-halves join puts in side B's level off B's own schedule, with no
-   * mark to say so. Read as a change, every pull wrote the level away and the fit lost the gap.
+   *
+   * Side B's level on a game nothing joined is not this schedule's to change, and so not news: the
+   * crossed-halves join puts in B's own level off B's schedule with no mark to say so, and a coach's
+   * typed age, or none, would overwrite the stronger reading or wipe it. Read as a change and never
+   * written, it counted the game updated on every pull.
    */
   const levelB =
-    existing.joinedFrom === undefined && candidate.ageLevelB === undefined
-      ? false
-      : namedLevel !== candidate.ageLevelB;
+    existing.joinedFrom !== undefined && existing.joinedFromLevel !== candidate.ageLevelB;
   return (
     scoreChanged ||
     existing.season !== candidate.season ||
@@ -3171,24 +3167,18 @@ const importOne = (
         : { ...kept, joinedFromLevel: candidate.ageLevelB }
       : kept;
     /*
-     * The levels `differs` reads, as this schedule gives them now, on its own row the way round it
-     * was filed: the club's own, and its opponent's where nothing joined the game (a joined game's
-     * side B keeps its own club's level, put back through `joinedFromLevel` above). Left as they
-     * were, a club GameChanger moved a level or a coach who retyped an opponent's age had the
-     * change read on every pull and never written, so each pull counted the game updated again.
+     * The club's own level, as this schedule gives it now, on its own row the way round it was
+     * filed. Read by `differs` and never written, a club GameChanger moved a level had the change
+     * read on every pull, so each pull counted the game updated again. Side B's level stays as it
+     * is (see `differs`); a joined game's is put back through `joinedFromLevel` above.
      */
     const levels =
       existing === known && existing.teamAId === candidate.teamAId
         ? (() => {
-            const { ageLevelA: _own, ageLevelB: _theirs, ...rest } = base;
-            // A level the schedule no longer types stays: it may be side B's own, put in by the
-            // crossed-halves join from B's schedule (see `differs`).
-            const ageLevelB = joined ? base.ageLevelB : (candidate.ageLevelB ?? base.ageLevelB);
-            return {
-              ...rest,
-              ...(candidate.ageLevelA === undefined ? {} : { ageLevelA: candidate.ageLevelA }),
-              ...(ageLevelB === undefined ? {} : { ageLevelB }),
-            };
+            const { ageLevelA: _own, ...rest } = base;
+            return candidate.ageLevelA === undefined
+              ? rest
+              : { ...rest, ageLevelA: candidate.ageLevelA };
           })()
         : base;
     const merged: ScoutGame = {
