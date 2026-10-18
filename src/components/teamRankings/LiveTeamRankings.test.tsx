@@ -69,6 +69,7 @@ import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { NAMED_GAMES_MAX } from "../../lib/teamRankings/namedGames";
 import type { SeasonMeta } from "../../lib/storage";
 import { readLeagueClubRanks } from "../../lib/leagueClubRanks";
+import { readDefaultState, writeDefaultState } from "../../lib/preferences";
 import {
   initTeamRankingsStore,
   resetTeamRankingsStore,
@@ -5095,5 +5096,73 @@ describe("what waits for the board's first draw", () => {
     letGo();
     expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
     expect(screen.queryByText(LIVE_NOTICES.noPages)).toBeNull();
+  });
+});
+
+/*
+ * The state the State top 10 opens on, kept on this device. The spring board's own club is from
+ * Ohio, so it opens on Ohio by itself, and Kentucky has a club on it; Texas has one only on the
+ * fall board.
+ */
+describe("a default state on the cloud's board", () => {
+  const topState = () =>
+    (screen.getByRole("combobox", { name: "State" }) as HTMLSelectElement).value;
+
+  it("is kept when made, and opens there the next time", async () => {
+    const first = open(sourcesOf(live));
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    expect(topState()).toBe("OH");
+    // A pick during the visit is only that.
+    fireEvent.change(screen.getByRole("combobox", { name: "State" }), { target: { value: "KY" } });
+    expect(topState()).toBe("KY");
+    expect(readDefaultState()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Make KY my default state" }));
+    expect(readDefaultState()).toBe("KY");
+    expect(screen.getByText("Opens on KY")).toBeTruthy();
+    first.unmount();
+
+    open(sourcesOf(live));
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    expect(topState()).toBe("KY");
+    expect(screen.getByRole("button", { name: "Clear KY as the default state" })).toBeTruthy();
+  });
+
+  it("opens on the page's own club's state where the board has no club from the kept one", async () => {
+    writeDefaultState("TX");
+    open(sourcesOf(live));
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    expect(topState()).toBe("OH");
+    expect(screen.getByRole("button", { name: "Make OH my default state" })).toBeTruthy();
+    expect(readDefaultState()).toBe("TX");
+  });
+
+  it("is forgotten by Clear, and the card opens as it would with none", async () => {
+    writeDefaultState("KY");
+    const first = open(sourcesOf(live));
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    expect(topState()).toBe("KY");
+    fireEvent.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
+    expect(readDefaultState()).toBeNull();
+    expect(topState()).toBe("OH");
+    first.unmount();
+
+    open(sourcesOf(live));
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    expect(topState()).toBe("OH");
+  });
+
+  it("opens the other half on its own state after Clear", async () => {
+    // The fall board has nobody from Kentucky, so a card left on it there would be empty.
+    writeDefaultState("KY");
+    open(sourcesOf(live));
+    expect(await screen.findAllByText("Placeholder S-1")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
+    expect(topState()).toBe("OH");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Fall 2026/ }));
+    expect(await screen.findAllByText("Placeholder S-F")).not.toHaveLength(0);
+    expect(topState()).toBe("TX");
+    expect(screen.queryByText("No ranked teams in KY yet.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Make TX my default state" })).toBeTruthy();
   });
 });

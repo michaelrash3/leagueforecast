@@ -20,6 +20,7 @@ import { useLiveEdits, type ShowToast } from "../../hooks/useLiveEdits";
 import { useLiveSearch } from "../../hooks/useLiveSearch";
 import { useOpeningReleased, usePoolFilled } from "../../hooks/useOpeningHold";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
+import { useStateTop } from "../../hooks/useStateTop";
 import {
   copyReader,
   liveReader,
@@ -51,7 +52,6 @@ import {
 import { ageGroupLevel, ageGroupYear, segmentLabel } from "../../lib/teamRankings/seasons";
 import {
   clubsOfBoard,
-  defaultStateOf,
   placesOf,
   unknownStateCountOf,
   unrankedLevelNoteFor,
@@ -308,7 +308,6 @@ function LiveBoard({
     [metaGroups, ageGroups]
   );
 
-  const [stateTop, setStateTop] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState("");
   const [showAll, setShowAll] = useState(false);
   /*
@@ -385,6 +384,9 @@ function LiveBoard({
   );
   const board = live.board;
   const rows = useMemo(() => (board ? withMine(board.view.rows, myTeamId) : []), [board, myTeamId]);
+  const clubs = useMemo(() => clubsOfBoard(rows), [rows]);
+  /** Which state the top ten is for (`useStateTop`), shared with the page on this device. */
+  const { stateTop, shownState, pickState, keptState, keepState } = useStateTop(clubs, myTeamId);
   // The page's clubs as its board lists them: the names the Games tab's form and import offer.
   const boardTeams = useMemo(
     () => rows.map((row) => ({ id: row.teamId, name: row.teamName })),
@@ -532,12 +534,9 @@ function LiveBoard({
   );
   const followFold = useCallback((intoId: string) => setOpenClub(intoId), []);
 
-  const clubs = useMemo(() => clubsOfBoard(rows), [rows]);
   const places = useMemo(() => placesOf(clubs), [clubs]);
   const placeOfClub = useCallback((teamId: string) => places.get(teamId), [places]);
   const availableStates = useMemo(() => statesInUse(clubs), [clubs]);
-  const defaultState = useMemo(() => defaultStateOf(clubs, myTeamId), [clubs, myTeamId]);
-  const shownState = stateTop === null ? defaultState : stateTop;
   const stateTopRows = useMemo(
     () => (shownState ? filterRankingsByState(rows, clubs, shownState).slice(0, STATE_TOP) : []),
     [rows, clubs, shownState]
@@ -957,7 +956,9 @@ function LiveBoard({
             visibleRankings={visibleRankings}
             availableStates={availableStates}
             shownState={shownState}
-            onShownStateChange={setStateTop}
+            onShownStateChange={pickState}
+            keptState={keptState}
+            onKeepState={keepState}
             unknownStateCount={unknownStateCountOf(clubs)}
             stateFilter={stateFilter}
             onStateFilterChange={setStateFilter}

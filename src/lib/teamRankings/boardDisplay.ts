@@ -28,13 +28,19 @@ export const placesOf = (clubs: readonly BoardClub[]): Map<string, string | unde
 };
 
 /**
- * Which state the top ten is for. Yours if we know it, otherwise whichever state has the most
- * teams on this page — the one most likely to be the reason you are here.
+ * Which state the top ten is for. The one this device keeps as its default (`readDefaultState`),
+ * since that is a choice somebody made; then yours if we know it, otherwise whichever state has
+ * the most teams on this page — the one most likely to be the reason you are here.
+ *
+ * The kept state only where one of the page's clubs is in it: a page with nobody from there would
+ * open on an empty card, and the next page, or next season's, may well have somebody.
  */
 export const defaultStateOf = (
   clubs: readonly BoardClub[],
-  myTeamId: string | undefined
+  myTeamId: string | undefined,
+  kept: string | null = null
 ): string => {
+  if (kept !== null && clubs.some((club) => club.state === kept)) return kept;
   const mine = clubs.find((club) => club.id === myTeamId)?.state;
   if (mine) return mine;
   const counts = new Map<string, number>();

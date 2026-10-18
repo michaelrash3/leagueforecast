@@ -209,6 +209,38 @@ export const writeDefaultAge = (pick: DefaultAge | null): boolean => {
 export const defaultLevelIn = (pick: DefaultAge, year: number): number =>
   year - (pick.year - pick.level);
 
+const DEFAULT_STATE_KEY = "lf_rankings_default_state_v1";
+
+/*
+ * Two capital letters, as every club's state is stored (`normalizeState`), and so the only thing
+ * the State top 10's picker can offer; " oh" was never written here. Written out rather than
+ * imported: importing it split the module that holds it into a chunk of its own, and the first
+ * download measured 251,121 bytes gzipped that way against 250,657 with the rule written out.
+ */
+const isStateCode = (value: string | null): value is string =>
+  value !== null && /^[A-Z]{2}$/.test(value);
+
+/**
+ * The state Team Rankings' State top 10 opens on, kept on this device as the default age is, and
+ * for the same reason: which state a reader follows is theirs, not the pool's. Anything stored here
+ * that is not a state reads as no default, so a bad value opens the card as it opened before.
+ */
+export const readDefaultState = (): string | null => {
+  const raw = safeGet(DEFAULT_STATE_KEY);
+  return isStateCode(raw) ? raw : null;
+};
+
+/** Keeps `state` as the default state, or forgets it for `null`; refuses what no club could have. */
+export const writeDefaultState = (state: string | null): boolean => {
+  if (state !== null) return isStateCode(state) && safeSet(DEFAULT_STATE_KEY, state);
+  try {
+    localStorage.removeItem(DEFAULT_STATE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** Listeners told when this device first meets the cloud's League documents (`noteLeagueMet`). */
 const leagueMetListeners = new Set<() => void>();
 
