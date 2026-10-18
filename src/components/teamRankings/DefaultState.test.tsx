@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readDefaultState } from "../../lib/preferences";
 import {
   ageGroup,
@@ -40,6 +40,40 @@ const topState = () =>
   (screen.getAllByRole("combobox", { name: "State" })[0] as HTMLSelectElement).value;
 
 describe("a default state for the State top 10", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /*
+   * Storage that is full or blocked refuses the write. The card kept the new default in memory
+   * anyway, saying "Opens on KY" of a state the next open would not land on.
+   */
+  it("changes nothing when the device will not keep it", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool());
+    await user.selectOptions(screen.getAllByRole("combobox", { name: "State" })[0]!, "KY");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    await user.click(screen.getByRole("button", { name: "Make KY my default state" }));
+    expect(readDefaultState()).toBeNull();
+    expect(screen.queryByText("Opens on KY")).toBeNull();
+    expect(screen.getByRole("button", { name: "Make KY my default state" })).toBeInTheDocument();
+    expect(topState()).toBe("KY");
+  });
+
+  it("keeps the default when the device will not forget it", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings(pool({ defaultState: "KY" }));
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    await user.click(screen.getByRole("button", { name: "Clear KY as the default state" }));
+    expect(readDefaultState()).toBe("KY");
+    expect(screen.getByText("Opens on KY")).toBeInTheDocument();
+    expect(topState()).toBe("KY");
+  });
+
   it("is kept when made, and opens there the next time", async () => {
     const user = userEvent.setup();
     const first = renderTeamRankings(pool());

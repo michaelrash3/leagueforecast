@@ -35,8 +35,10 @@ export function useStateTop(
    * device's lost it, so the card jumped later rather than at the click.
    */
   const keepState = (state: string | null) => {
+    // A device that will not store it, full or blocked, keeps what it had: said kept in memory
+    // only, the card would promise an open the next visit does not make.
+    if (!writeDefaultState(state)) return;
     setStateTop(null);
-    writeDefaultState(state);
     setKeptState(state);
   };
 
