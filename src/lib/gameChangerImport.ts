@@ -7339,8 +7339,9 @@ const namedAfterSpared = (
  *   none of their links has are left. A name that is only "Team" and a number is the exception: the
  *   import keeps it as it is, having nothing but an age to clean off it, so a club GameChanger calls
  *   "Team 7" or "Team 7 12U" that the pool holds under another name than "Team 7" was named by
- *   somebody, renamed by hand or merged into a club with a name, and keeps that name. On the backup
- *   of 11 October 2026 each of the 31 pulled clubs GameChanger calls so is called so in the pool.
+ *   somebody, renamed by hand or merged into a club with a name, and keeps that name, unless that
+ *   name says no team too ("Practice", "Team 7 Practice"), which spares nothing. On the backup of
+ *   11 October 2026 each of the 31 pulled clubs GameChanger calls so is called so in the pool.
  * - Never the user's own club, a page's own team, or a club in `real` (by club id or any of its
  *   GameChanger ids), a stand-in included: those said to be real, and every club a League
  *   Standings team links, picked or carried onto by its name, which the callers add
@@ -7392,8 +7393,9 @@ export const dropNotATeam = (
       const hit = notATeamWord(link.name.trim() || team.name);
       if (!hit) return;
       // GameChanger calls it only "Team 7", and the pool calls it something else: somebody named
-      // it, by hand or by a merge, and it is that name's club (see above).
-      if (hit.word === "team" && notATeamWord(team.name)?.word !== "team") return;
+      // it, by hand or by a merge, and it is that name's club (see above), unless the name they
+      // gave it says no team as well.
+      if (hit.word === "team" && !notATeamWord(team.name)) return;
       if (hit.opponent === "slot") slot = true;
     }
     going.add(team.id);

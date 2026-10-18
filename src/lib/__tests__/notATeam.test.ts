@@ -1065,6 +1065,33 @@ describe("a page named only Team and a number", () => {
     expect(dropNotATeam(before)).toEqual({ state: before, dropped: 0 });
   });
 
+  it("is deleted where the name the pool gave it says no team as well", () => {
+    // Renamed, but to a practice's name or a Team-number name with a practice's word: both names
+    // say the page is no team, so nothing spares it.
+    const practice: ScoutTeam = {
+      id: "prac",
+      name: "Practice",
+      gcTeams: [link("gcTEAM7PRAC1", "Team 7")],
+    };
+    const both: ScoutTeam = {
+      id: "both",
+      name: "Team 7 Practice",
+      gcTeams: [link("gcTEAM7BOTH1", "Team 7")],
+    };
+    const { state, dropped } = dropNotATeam({
+      ageGroups: [page],
+      teams: [quill, practice, both],
+      games: [
+        game("g1", "prac", "quill", "gcTEAM7PRAC1"),
+        game("g2", "both", "quill", "gcTEAM7BOTH1"),
+      ],
+    });
+    expect(dropped).toBe(2);
+    expect(state.teams.filter((team) => !team.placeholder).map((team) => team.id)).toEqual([
+      "quill",
+    ]);
+  });
+
   it("is marked on a pasted list, and never asked for as a club to pull", () => {
     const list = parseGcTeamList(
       [
