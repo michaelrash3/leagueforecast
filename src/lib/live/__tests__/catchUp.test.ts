@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { MANIFEST_FORMAT, type CloudManifest, type ManifestPart } from "../../cloud/cloudManifest";
+import {
+  DATA_SCHEMA,
+  MANIFEST_FORMAT,
+  type CloudManifest,
+  type ManifestPart,
+} from "../../cloud/cloudManifest";
 import { LEAGUE_PART } from "../../cloud/cloudPlan";
 import { newPullJob, newRefreshJob, type PullJob } from "../../cloud/pullJobs";
 import { NIGHTLY_HOLD_MS, REFRESH_QUIET_MS } from "../../cloud/refreshGate";
@@ -338,7 +343,7 @@ describe("whether the catch-up publishes", () => {
       because: "unreadable-copy",
     });
     for (const copy of [
-      { ...GAMES_SAVED, schema: 2 },
+      { ...GAMES_SAVED, schema: DATA_SCHEMA + 1 },
       copyAt(5, [...GAMES_SAVED.parts, part("league_forecast_from_the_future_v1", h(8))]),
     ]) {
       expect(await decide(meta, {}, { copy }).decided).toEqual({
@@ -368,7 +373,7 @@ describe("whether the boards are still behind, as the publish asks again", () =>
     ).toBe(false);
     expect(await ask(COPY)).toBe(false);
     expect(await ask(null)).toBe(false);
-    expect(await ask({ ...GAMES_SAVED, schema: 2 })).toBe(false);
+    expect(await ask({ ...GAMES_SAVED, schema: DATA_SCHEMA + 1 })).toBe(false);
     expect(await ask(GAMES_SAVED, { ok: false, reason: "newer-league" })).toBe(false);
   });
 });

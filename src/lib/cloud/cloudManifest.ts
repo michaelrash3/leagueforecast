@@ -38,8 +38,12 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * A build older than a copy's schema refuses to take it or save onto it, and says to update: it
  * would otherwise read the copy, drop the fields it does not know, and save the loss to every
  * device with its next edit. The tripwire is `cloudSchema.test.ts`.
+ *
+ * 2: a game the namesake join made keeps the stand-in its own row named and the level that name
+ * gave (`ScoutGame.joinedFrom`, `joinedFromLevel`); dropped by an older build, the join could no
+ * longer be taken back.
  */
-export const DATA_SCHEMA = 1;
+export const DATA_SCHEMA = 2;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

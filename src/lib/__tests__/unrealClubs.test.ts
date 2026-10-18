@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { unrealClubs, withoutClub, withoutClubs } from "../unrealClubs";
+import { unjoinsWithout, unrealClubs, withoutClub, withoutClubs } from "../unrealClubs";
 import { forgetClubs, isDeletedClub, restoreClubs } from "../deletedGames";
-import { createGcImporter, type GcImportState } from "../gameChangerImport";
+import { createGcImporter, tidyPool, type GcImportState } from "../gameChangerImport";
 import type { GcTeamSchedule } from "../gameChangerApi";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
@@ -360,5 +360,130 @@ describe("deleting a club that is not one", () => {
     const several = withoutClubs(new Set(["S-ACES"]), teams, pool, [group]);
     expect(naming(several.games)).toEqual([]);
     expect(several).toEqual(one);
+  });
+});
+
+/*
+ * The namesake join (`joinNamesakeHalves`) puts club B in for the stand-in club A's own row named,
+ * and holds B's own row as a claim. A's row is in B's game only because the tidy read it so, and
+ * the game keeps the stand-in to put it back against (`ScoutGame.joinedFrom`): deleting B puts it
+ * back there, as the tidy would, rather than take A's own row of the game with a club it never
+ * named. Invented clubs.
+ */
+describe("deleting a club a namesake join put in for a stand-in", () => {
+  const pages: AgeGroup[] = [
+    { id: "ag12", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] },
+    { id: "ag13", name: "13U 2027", ageLevel: 13, year: 2027, seasonIds: [] },
+  ];
+  const pulledClub = (id: string, name: string, page: string, level: number): ScoutTeam => ({
+    id,
+    name,
+    state: "IN",
+    gcTeams: [{ teamId: `gc${id}`, name, ageGroupId: page, ageLevel: level }],
+  });
+  const own = (
+    clubId: string,
+    gameId: string,
+    against: string,
+    page: string,
+    level: number,
+    score: [number, number]
+  ): ScoutGame => ({
+    id: `gc_gc${clubId}_${gameId}`,
+    teamAId: clubId,
+    teamBId: against,
+    teamAScore: score[0],
+    teamBScore: score[1],
+    ageGroupId: page,
+    date: "2026-10-03",
+    ageLevelA: level,
+    season: "Fall 2026",
+    startTs: "2026-10-03T14:00:00.000Z",
+    source: { kind: "gamechanger", teamId: `gc${clubId}`, gameId },
+  });
+  const joined = () => {
+    const out = tidyPool({
+      ageGroups: pages,
+      teams: [
+        pulledClub("RIDGE", "North Ridge Bombers", "ag12", 12),
+        pulledClub("HUSTLE", "Lakeshore Hustle", "ag13", 13),
+        { id: "S-HUSTLE", name: "Lakeshore Hustle", nameOnly: true },
+        { id: "S-RIDGE", name: "NR - Ridge Bombers", nameOnly: true },
+      ],
+      games: [
+        own("RIDGE", "r1", "S-HUSTLE", "ag12", 12, [4, 11]),
+        own("HUSTLE", "h1", "S-RIDGE", "ag13", 13, [11, 4]),
+      ],
+    });
+    expect(out.namesakeJoined).toBe(1);
+    return out.state;
+  };
+  const naming = (state: GcImportState, clubId: string) =>
+    state.games
+      .filter((one) => one.teamAId === clubId || one.teamBId === clubId)
+      .map((one) => one.id);
+  const asFiled = own("RIDGE", "r1", "S-HUSTLE", "ag12", 12, [4, 11]);
+
+  it("stands A's own row back up against the stand-in it named when B goes", () => {
+    const state = joined();
+    const left = withoutClub(
+      { teamId: "HUSTLE", gameIds: naming(state, "HUSTLE") },
+      state.teams,
+      state.games,
+      pages
+    );
+    expect(left.games).toEqual([asFiled]);
+    expect(left.teams.map((team) => team.id)).toEqual(["RIDGE", "S-HUSTLE", "S-RIDGE"]);
+    // The boards leave a club taken off for the user out the same way.
+    expect(withoutClubs(new Set(["HUSTLE"]), state.teams, state.games, pages)).toEqual(left);
+  });
+
+  it("stands B's own row back up against the team it named when A goes, as any claim", () => {
+    const state = joined();
+    const left = withoutClub(
+      { teamId: "RIDGE", gameIds: naming(state, "RIDGE") },
+      state.teams,
+      state.games,
+      pages
+    );
+    expect(left.games).toEqual([
+      expect.objectContaining({
+        id: "gc_gcHUSTLE_h1",
+        teamAId: "HUSTLE",
+        teamBId: "S-RIDGE",
+        ageGroupId: "ag13",
+      }),
+    ]);
+    expect(withoutClubs(new Set(["RIDGE"]), state.teams, state.games, pages)).toEqual(left);
+  });
+
+  it("reads a joined game as going back only where its side B goes and its side A stays", () => {
+    const [game] = joined().games as [ScoutGame];
+    const inRoster = () => true;
+    expect(unjoinsWithout(game, (id) => id === "HUSTLE", inRoster)).toBe(true);
+    expect(unjoinsWithout(game, (id) => id === "RIDGE", inRoster)).toBe(false);
+    expect(unjoinsWithout(game, () => false, inRoster)).toBe(false);
+    expect(
+      unjoinsWithout(
+        game,
+        (id) => id === "HUSTLE",
+        () => false
+      )
+    ).toBe(false);
+  });
+
+  it("takes the game with them when both clubs go, or the stand-in has gone already", () => {
+    const state = joined();
+    expect(
+      withoutClubs(new Set(["RIDGE", "HUSTLE"]), state.teams, state.games, pages).games
+    ).toEqual([]);
+    const teams = state.teams.filter((team) => team.id !== "S-HUSTLE");
+    const left = withoutClub(
+      { teamId: "HUSTLE", gameIds: naming(state, "HUSTLE") },
+      teams,
+      state.games,
+      pages
+    );
+    expect(left.games).toEqual([]);
   });
 });

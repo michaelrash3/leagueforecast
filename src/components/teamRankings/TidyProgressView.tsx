@@ -39,6 +39,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
     short: "Join",
     full: "Games each club filed against a stand-in for the other, made one game between them",
   },
+  namesakeJoined: {
+    short: "Name join",
+    full: "Games one club filed under the other's very name and the other against a stand-in, made one game between them",
+  },
   reclaimed: { short: "Reclaim", full: "Games moved to the namesake whose schedule holds them" },
   resettled: {
     short: "Far off",

@@ -6,6 +6,7 @@ import {
   isImplausibleScore,
   ownPageFor,
   ratedMargin,
+  unjoinedRow,
   type AgeGroup,
   type FoldedRow,
   type ScoutGame,
@@ -160,6 +161,26 @@ const ownSideOf = (holder: ScoutGame, record: FoldedRow): string =>
   record.onSideB ? holder.teamBId : holder.teamAId;
 
 /**
+ * Whether `game` is one the namesake join made (`ScoutGame.joinedFrom`) whose side B is going while
+ * its own row's club stays, with the stand-in that row named still in the roster to go back to. Its
+ * own row then stands back up against that stand-in (`unjoinedRow`) rather than go with a club its
+ * schedule never named: the row is in that club's game only because the tidy read it so, which is
+ * what the join keeps the stand-in for, as a claim keeps the team it was filed against. Deleted with
+ * the club, the row went, and the deletion's record of it kept its club's next pull from filing it
+ * again. The club's own row in the game goes with the club, as any claim of its own does.
+ */
+export const unjoinsWithout = (
+  game: ScoutGame,
+  going: (teamId: string) => boolean,
+  inRoster: (teamId: string) => boolean
+): boolean =>
+  game.joinedFrom !== undefined &&
+  going(game.teamBId) &&
+  !going(game.teamAId) &&
+  !going(game.joinedFrom) &&
+  inRoster(game.joinedFrom);
+
+/**
  * The pool without `club`: every game it is in, and the club itself — but not another club's own
  * row that one of those games held as a claim (`FoldedRow.filedAgainst`), nor the club where such a
  * row elsewhere was filed against it. The club's own row held as a claim goes with it: stood up, it
@@ -169,7 +190,8 @@ const ownSideOf = (holder: ScoutGame, record: FoldedRow): string =>
  * club's copy of it by the clock: it stands back up against the team it was filed against rather
  * than go with a club that did not play it, as it does when the copy holding it is withdrawn. And a
  * club a claimed row was filed against is where that row goes back, so it stays as a name only
- * (`nameOnly`), without the GameChanger ids the deletion refuses.
+ * (`nameOnly`), without the GameChanger ids the deletion refuses. So does a game the namesake join
+ * made with the club in for a stand-in: its own row goes back to the stand-in (`unjoinsWithout`).
  */
 export const withoutClub = (
   club: Pick<UnrealClub, "teamId" | "gameIds">,
@@ -179,9 +201,16 @@ export const withoutClub = (
 ): { teams: ScoutTeam[]; games: ScoutGame[] } => {
   const drop = new Set(club.gameIds);
   const ownPage = ownPageFor(ageGroups);
+  const roster = new Set(teams.map((team) => team.id));
+  const going = (teamId: string) => teamId === club.teamId;
+  const inRoster = (teamId: string) => roster.has(teamId);
   const stood: ScoutGame[] = [];
   const kept = games.filter((game) => {
     if (!drop.has(game.id)) return true;
+    if (unjoinsWithout(game, going, inRoster)) {
+      stood.push(unjoinedRow(game));
+      return false;
+    }
     game.alsoRows?.forEach((record) => {
       if (record.filedAgainst === undefined || record.filedAgainst === club.teamId) return;
       if (ownSideOf(game, record) === club.teamId) return;
@@ -213,7 +242,9 @@ export const withoutClub = (
  * taking them out one at a time would do or not by the order they were taken in, and so does a
  * claimed row that is one of the clubs' own: the usual claim is just that, the club's schedule
  * filing a game against a stand-in by name and the other club's copy claiming it, and stood up it
- * would be a game naming a club that is gone. The pool itself, the same arrays, when there are none.
+ * would be a game naming a club that is gone. A game the namesake join made with one of them in for
+ * a stand-in has its own row stood back up against the stand-in, unless that row's club goes too
+ * (`unjoinsWithout`). The pool itself, the same arrays, when there are none.
  *
  * It is how the boards leave out the clubs taken off as plainly made up (`deriveAllKnown`), so
  * they leave a club out exactly as Delete club takes it out, in one walk of the games rather than
@@ -227,9 +258,16 @@ export const withoutClubs = (
 ): { teams: ScoutTeam[]; games: ScoutGame[] } => {
   if (clubIds.size === 0) return { teams, games };
   const ownPage = ownPageFor(ageGroups);
+  const roster = new Set(teams.map((team) => team.id));
+  const going = (teamId: string) => clubIds.has(teamId);
+  const inRoster = (teamId: string) => roster.has(teamId);
   const stood: ScoutGame[] = [];
   const kept = games.filter((game) => {
     if (!clubIds.has(game.teamAId) && !clubIds.has(game.teamBId)) return true;
+    if (unjoinsWithout(game, going, inRoster)) {
+      stood.push(unjoinedRow(game));
+      return false;
+    }
     game.alsoRows?.forEach((record) => {
       if (record.filedAgainst === undefined || clubIds.has(record.filedAgainst)) return;
       if (clubIds.has(ownSideOf(game, record))) return;

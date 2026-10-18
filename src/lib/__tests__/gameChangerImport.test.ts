@@ -4067,10 +4067,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r22|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r23|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r22|0|0|0|");
+    expect(poolSignature(empty)).toBe("r23|0|0|0|");
   });
 
   /*
@@ -5951,6 +5951,7 @@ describe("whether a tidy changed anything", () => {
     state: { ageGroups: [], teams: [], games: [] },
     named: 0,
     joined: 0,
+    namesakeJoined: 0,
     folded: 0,
     paired: 0,
     collapsed: 0,

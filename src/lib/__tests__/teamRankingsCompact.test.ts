@@ -159,6 +159,49 @@ describe("games round-trip", () => {
     expect(decodeScoutGames(JSON.parse(JSON.stringify(games)), coerceScoutGames)).toEqual(games);
   });
 
+  // What a namesake join puts its game's own row back against if the join stops fitting: lost on a
+  // save, the join could never be taken back.
+  it("keeps the stand-in a joined game's own row named, and the level the name gave", () => {
+    const games: ScoutGame[] = [
+      {
+        id: "gc_gcRIDGE_r1",
+        teamAId: "RIDGE",
+        teamBId: "HUSTLE",
+        teamAScore: 4,
+        teamBScore: 11,
+        ageGroupId: "ag_1",
+        date: "2026-10-03",
+        ageLevelB: 13,
+        reportedByB: { teamAScore: 4, teamBScore: 11 },
+        alsoFrom: ["gcHUSTLE"],
+        alsoRows: [
+          {
+            teamId: "gcHUSTLE",
+            gameId: "h1",
+            ownScore: 11,
+            opponentScore: 4,
+            onSideB: true,
+            filedAgainst: "S-RIDGE",
+          },
+        ],
+        source: { kind: "gamechanger", teamId: "gcRIDGE", gameId: "r1" },
+        joinedFrom: "S-HUSTLE",
+        joinedFromLevel: 13,
+      },
+      // And one whose name gave no level.
+      {
+        id: "gc_gcRIDGE_r2",
+        teamAId: "RIDGE",
+        teamBId: "HUSTLE",
+        ageGroupId: "ag_1",
+        date: "2026-10-05",
+        joinedFrom: "S-HUSTLE",
+      },
+    ];
+    expect(roundTripGames(games)).toEqual(games);
+    expect(decodeScoutGames(JSON.parse(JSON.stringify(games)), coerceScoutGames)).toEqual(games);
+  });
+
   it("keeps the club a row's picture named", () => {
     const games: ScoutGame[] = [
       {

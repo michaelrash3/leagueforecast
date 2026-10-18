@@ -1409,6 +1409,97 @@ page reads 9-0, one game against the Hit Dogs. Against the tidy before it, 2,484
 rated in 2027 have another record: a club loses a game it had counted twice, or the games its
 opponents filed against it by name that another of its GameChanger teams, or another club, played.
 
+**A stand-in carrying the other club's very name.** Both clubs can file their copy of one game
+against a stand-in, one of them under the other club's very name. One club's coach types the other
+club's name as GameChanger lists it, and the other club files the same game, at the same minute
+with the result mirrored, against a shorthand of the first club's name. A name goes onto a pulled
+club only where the import can say which one, and the named club can be a level up, on another
+page, so each row stands against a stand-in and both clubs count the game. The crossed halves want
+each stand-in's name to fit the other club and the two clubs to be neighbours; the slot settle and
+the claim step want one of the rows to name the other club already. On the backup of 11 October
+2026 an audit found 714 scored rows this way, on 633 stand-ins: the namesake a level off (294), out
+of the namer's region (241), one of several of the name in its state (78), or named from no state
+(65).
+
+So the tidy joins them (`joinNamesakeHalves`): club A's own row against a stand-in whose name is
+pulled club B's (`teamNameKey`, in the squad year, at any level, from any state), and B's own row
+of the game against a stand-in or a slot, starting within the hour with the result mirrored, the
+only such match for either row. A false pair needs a second club of B's name, or a second club
+naming B, to have played that hour to that score. Two more things are asked of the pair, each
+measured against the same search with B's row a week or a fortnight either side, where the game is
+not:
+
+- B's opponent is a slot, or a stand-in sharing a word of three letters or more with A's name,
+  filler words off (`nameFitWords`). Over the backups of 25, 26 and 29 September and 11 October
+  2026 a stand-in sharing no word made a false pair 5.0% of the time (374 pairs), against 0.80%
+  for one that shares a word and 0.28% for a slot.
+- The two clubs' own levels for the game are at most two apart (`PLAYS_UP_TO`): three or more
+  apart was false 11.9% of the time (88 pairs).
+
+And where both coaches typed an age, one of the two is the other club's own, since two clubs'
+sibling squads can mirror a score at one instant; one age a level off on its own is let through,
+since refusing every typed age that was not the other club's turned away 173 of the 500 pairs on
+the backup of 11 October 2026 and found the same 7 pairs a shift off with it and without. A
+stand-in A's own schedule has played as a team of its own is no name for A, a row the user threw
+out stays out, and a name the owner refused (**Not this team**) files nothing onto the club it was
+refused for, whichever row wrote it: A's name for B, or B's name for A. Asked of A's name alone, a
+pair whose stand-ins each carried the other club's very name was joined the other way round, on B's
+row with A's as the claim, though the owner had said A's name was not B. A row with no result waits
+for one: on the four backups, rows blank on both sides at the same minute paired as often a week
+off as on the day (1,796 pairs, against 1,809 a shift off).
+
+Nor is a pair the only match beside a copy of the game already standing between either club and
+another pulled club, within the hour and with a result no further from the club's own row's than
+two scorekeepers' are (`CLOSE_DISPUTE_RUNS`), as the claim step reads a row against a stand-in
+beside a copy. Such a copy is one more reading of the game, and the pairs above were counted
+without it: a second club of B's name pulled after the join, its own row naming A as GameChanger
+lists it, went onto A by that name beside the joined game, since A's row no longer stood against
+the stand-in the import would have folded it into, and A counted the game twice through every tidy
+after, where the tidy before the join counted it once. So did B, where a club pulled after the join
+named B. Beside such a copy the join comes apart, and the claim step, or the refile and the
+collapse, put each club's row into the copy that names it, as they do where every schedule is in
+at the first tidy. No pair joined on the four backups has such a copy beside it, and the tidy of
+each is the same to the byte with the question and without; a week or a fortnight off, it turned
+away one candidate a backup, each one the word test turned away too, so the 7 pairs a shift stand.
+
+Built, with those guards, the tidy joins 220, 211, 301 and 486 games on the backups of 25, 26 and
+29 September and 11 October 2026, 1,218 in all where the rule alone found 1,244, and the same
+search a week or a fortnight off finds 7 pairs a shift: under 0.6%. A second tidy joins nothing
+more and takes nothing apart. Of the 486 on the backup of 11 October, 310 have a stand-in on B's
+side and 176 a slot, and 233 are on one page, 229 a level apart and 24 two. The squad year's fit
+rates 221,233 games there where it rated 221,719, and no club's record changes, since each page
+reads its own schedule's rows; of the 47,971 pulled clubs on the 2027 pages, 2,407 move by more
+than 0.1, 390 by more than 0.5 and 97 by more than 1, the most by 4.3. The tidy of that backup
+took 161 to 172 seconds over three runs, against 148 to 154 without the step, which takes 1.3
+seconds a pass and runs six passes there.
+
+The game stays on A's row, the one that named B, on A's page. B goes in for the stand-in at the
+level B's own row gives it, since read at A's page level, as a side with no typed age is, 122 of
+the 253 joined games across two pages on the backup of 11 October 2026 would have rated B a level
+or two from its own; and B's row goes into the game as a claim filed against the team it named
+(`claimInto`), as the claim step holds the rows it claims. The game counts once, in the squad
+year's one fit, for both clubs, and each club's page reads its own schedule's score.
+
+Nothing joined is final, as a claim is not. The game keeps the stand-in its own row named and the
+level that name gave (`ScoutGame.joinedFrom`), in the stored pool, every backup and the cloud copy,
+whose data schema went to 2 for it, since an older build would drop it and the join could no longer
+be taken back. Every tidy reads the two rows again as their schedules filed them, and a join they no
+longer bear out puts each row back where it was: a result or a start since posted that does not fit,
+a second club of the name with a row that does, a copy of the game naming either club itself, the
+owner refusing either name, B's row gone from its schedule. Until then every other step reads B's
+row as B's own row of the game, as it reads a claim a merge settled (`isJoinedClaim`): the claim
+step leaves it to the join, which it would otherwise give back each pass for the join to make again;
+the regroup keeps B's schedule on record, so B's other game against A that day is not read as this
+one; and the reclaim does not move the game to another club of B's name. A pull of either schedule
+finds its row by id and changes nothing, and a refresh of B's page that cannot see the game on A's
+files the row again, which the tidy folds back in (**One row, one place**). A game the user has
+thrown out stays as the user left it, and one whose stand-in has since gone from the roster keeps
+the join as a plain claim. Deleting B, or B taken off the boards for the user (**Clubs removed for
+you**), puts A's row back against the stand-in it named (`unjoinedRow`, `unjoinsWithout`) and keeps
+it off the rows remembered as deleted, rather than take A's own row of the game with a club its
+schedule never named, which A's next pull would then never have filed again; B's own row goes with
+B, as any claim of B's does.
+
 A row filed by name on a pulled club that plays nowhere near the age it was played at is not that
 club's (`resettleOffLevel`): more than two levels off, it goes to the one namesake that plays near
 it, or to a stand-in. Two levels off is inside what a squad plays up or down, and still somebody
@@ -1888,7 +1979,9 @@ for the other club's — "Stix" for "Cincy Stix Navy" — with no age a coach ty
 another squad and no two different squad numbers; the two clubs in one state or two that share a
 border, unless the two results mirror within the hour, as a tournament's travel has them — 93
 games on the pool of 26 September 2026, where the same search a week off finds none; and no other
-pair that fits as well); a
+pair that fits as well); so is a game one club filed against a stand-in of the other club's very
+name and the other against a stand-in or a slot, mirrored within the hour and the only match each
+way (**A stand-in carrying the other club's very name**); a
 game sitting by name on
 one club moves to the namesake whose own schedule holds it, even where that schedule wrote the
 puller down in shorthand or scored the game differently at the same start time, and where it has the
@@ -2563,8 +2656,11 @@ leaves out a club every one of whose ids is marked, with every game naming it, t
 would take it out (`withoutClubs`), so the boards, the club cards, Find a team and the ratings all
 go without it. A claimed row in one of its games that is another club's own stands back up against
 the team it was filed against; one that is the removed club's own goes with it (Delete club now
-does the same), which on 11 October left 4 games naming a removed club and now leaves none. A
-year's archive is frozen from the same pool (`archivedFrom`), so its tables are the boards on
+does the same), which on 11 October left 4 games naming a removed club and now leaves none. A game
+the namesake join made with the removed club in for a stand-in is the other club's own row, which
+goes back against that stand-in, as Delete club puts it back (**A stand-in carrying the other
+club's very name**), rather than go with a club its own schedule never named.
+A year's archive is frozen from the same pool (`archivedFrom`), so its tables are the boards on
 screen. The Games tab still lists a removed club's stored games, which a mark leaves filed, with
 the club named "(removed for you)" rather than a bare "?". A mark stays until something lifts it,
 so a club whose results dated ahead have merely been reached stays off: any guard lifts it; A and
