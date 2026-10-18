@@ -1441,9 +1441,12 @@ sibling squads can mirror a score at one instant; one age a level off on its own
 since refusing every typed age that was not the other club's turned away 173 of the 500 pairs on
 the backup of 11 October 2026 and found the same 7 pairs a shift off with it and without. A
 stand-in A's own schedule has played as a team of its own is no name for A, a row the user threw
-out stays out, and a name the owner refused for B (**Not this team**) files nothing onto it. A row
-with no result waits for one: on the four backups, rows blank on both sides at the same minute
-paired as often a week off as on the day (1,796 pairs, against 1,809 a shift off).
+out stays out, and a name the owner refused (**Not this team**) files nothing onto the club it was
+refused for, whichever row wrote it: A's name for B, or B's name for A. Asked of A's name alone, a
+pair whose stand-ins each carried the other club's very name was joined the other way round, on B's
+row with A's as the claim, though the owner had said A's name was not B. A row with no result waits
+for one: on the four backups, rows blank on both sides at the same minute paired as often a week
+off as on the day (1,796 pairs, against 1,809 a shift off).
 
 Nor is a pair the only match beside a copy of the game already standing between either club and
 another pulled club, within the hour and with a result no further from the club's own row's than
@@ -1483,15 +1486,15 @@ whose data schema went to 2 for it, since an older build would drop it and the j
 be taken back. Every tidy reads the two rows again as their schedules filed them, and a join they no
 longer bear out puts each row back where it was: a result or a start since posted that does not fit,
 a second club of the name with a row that does, a copy of the game naming either club itself, the
-owner refusing the name, B's row gone from its schedule. Until then every other step reads B's row
-as B's own row of the game, as it reads a claim a merge settled (`isJoinedClaim`): the claim step
-leaves it to the join, which it would otherwise give back each pass for the join to make again; the
-regroup keeps B's schedule on record, so B's other game against A that day is not read as this one;
-and the reclaim does not move the game to another club of B's name. A pull of either schedule finds
-its row by id and changes nothing, and a refresh of B's page that cannot see the game on A's files
-the row again, which the tidy folds back in (**One row, one place**). A game the user has thrown out
-stays as the user left it, and one whose stand-in has since gone from the roster keeps the join as a
-plain claim.
+owner refusing either name, B's row gone from its schedule. Until then every other step reads B's
+row as B's own row of the game, as it reads a claim a merge settled (`isJoinedClaim`): the claim
+step leaves it to the join, which it would otherwise give back each pass for the join to make again;
+the regroup keeps B's schedule on record, so B's other game against A that day is not read as this
+one; and the reclaim does not move the game to another club of B's name. A pull of either schedule
+finds its row by id and changes nothing, and a refresh of B's page that cannot see the game on A's
+files the row again, which the tidy folds back in (**One row, one place**). A game the user has
+thrown out stays as the user left it, and one whose stand-in has since gone from the roster keeps
+the join as a plain claim.
 
 A row filed by name on a pulled club that plays nowhere near the age it was played at is not that
 club's (`resettleOffLevel`): more than two levels off, it goes to the one namesake that plays near

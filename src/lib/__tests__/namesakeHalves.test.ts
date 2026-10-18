@@ -257,6 +257,21 @@ const threeLevelsApart = () =>
     ]
   );
 
+/** Each stand-in carries the other club's very name; B's coach typed A a level below its own. */
+const exactNames = () =>
+  pool(
+    [
+      ridge,
+      hustle,
+      standIn("S-HUSTLE", "Lakeshore Hustle"),
+      standIn("S-NRB", "North Ridge Bombers"),
+    ],
+    [
+      row("RIDGE", "r1", "S-HUSTLE", "ag12", `${DAY}T14:00`, [4, 11]),
+      { ...row("HUSTLE", "h1", "S-NRB", "ag13", `${DAY}T14:00`, [11, 4]), ageLevelB: 11 },
+    ]
+  );
+
 describe("the tidy with the namesake join, against the pin from before it", () => {
   /*
    * The pin from before the join, each shape's line by line: both copies stood, each counted for
@@ -558,6 +573,21 @@ describe("the namesake join", () => {
       expect(out.namesakeJoined).toBe(0);
       expect(out.state.games).toHaveLength(2);
     });
+
+    /*
+     * Each stand-in carries the other club's very name, so the pair reads both ways round, and B's
+     * coach typed A a level off, so the crossed halves pass it by. A refusal of either name stops
+     * the join either way round: asked of A's name alone, the pair was joined on B's row.
+     */
+    it.each([
+      ["A's name for B", refusalOf("gcRIDGE", "Lakeshore Hustle", "gcHUSTLE")],
+      ["B's name for A", refusalOf("gcHUSTLE", "North Ridge Bombers", "gcRIDGE")],
+    ])("where the owner has refused %s and each names the other exactly", (_, refusal) => {
+      expect(tidyPool(exactNames()).namesakeJoined).toBe(1);
+      const out = tidyPool(exactNames(), undefined, undefined, new Set([refusal]));
+      expect(out.namesakeJoined).toBe(0);
+      expect(linesOf(out.state)).toEqual(linesOf(exactNames()));
+    });
   });
 
   describe("a pull after the join", () => {
@@ -642,6 +672,18 @@ describe("the namesake join", () => {
       expect(out.namesakeJoined).toBe(1);
       expect(linesOf(out.state)).toEqual(asFiled);
     });
+
+    it.each([
+      ["A's name for B", refusalOf("gcRIDGE", "Lakeshore Hustle", "gcHUSTLE")],
+      ["B's name for A", refusalOf("gcHUSTLE", "North Ridge Bombers", "gcRIDGE")],
+    ])(
+      "puts both rows back once the owner refuses %s, each naming the other exactly",
+      (_, refusal) => {
+        const out = tidyPool(settled(exactNames()), undefined, undefined, new Set([refusal]));
+        expect(out.namesakeJoined).toBe(1);
+        expect(linesOf(out.state)).toEqual(linesOf(exactNames()));
+      }
+    );
 
     it("puts both rows back where a second club of B's name has a row that fits", () => {
       const pool = joined();

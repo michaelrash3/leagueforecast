@@ -4736,7 +4736,7 @@ export const joinCrossedHalves = (
  * game's own row keeps the stand-in it named and the level the name gave (`ScoutGame.joinedFrom`),
  * every tidy reads the two rows again as their schedules filed them, and a join the schedules no
  * longer bear out — a score or a start since posted that no longer fits, a second club of the name
- * with a row that does, a copy of the game naming either club itself, the owner's refusal of the
+ * with a row that does, a copy of the game naming either club itself, the owner's refusal of either
  * name, the other club's row gone — puts each row back as it was.
  */
 export const joinNamesakeHalves = (
@@ -5035,11 +5035,27 @@ export const joinNamesakeHalves = (
       return false;
     }
     if (isStandIn(opponent) && hasPlayed(a.club, b.other)) return false;
-    return !refusesName(
-      refused,
-      a.game.source!.teamId,
-      teamById.get(a.other)?.name,
-      teamById.get(b.club)
+    /*
+     * A name the owner refused files nothing onto the club it was refused for, whichever row wrote
+     * it: A's name for B, and B's name for A. Asked of A's alone, a pair where each stand-in carried
+     * the other club's very name was joined the other way round, on B's row with A's row as the
+     * claim, though the owner had said A's name for B is not B. A refusal is kept under the
+     * club's exact name key, so the second question finds one only where B's stand-in carries a
+     * name the owner turned away for A, A's very name for one.
+     */
+    return (
+      !refusesName(
+        refused,
+        a.game.source!.teamId,
+        teamById.get(a.other)?.name,
+        teamById.get(b.club)
+      ) &&
+      !refusesName(
+        refused,
+        b.game.source!.teamId,
+        teamById.get(b.other)?.name,
+        teamById.get(a.club)
+      )
     );
   };
   /** The pairs read as one game, by A's row: each the reading that holds, the earlier A by id. */
