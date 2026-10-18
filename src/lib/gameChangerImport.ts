@@ -4736,8 +4736,8 @@ export const joinCrossedHalves = (
  * game's own row keeps the stand-in it named and the level the name gave (`ScoutGame.joinedFrom`),
  * every tidy reads the two rows again as their schedules filed them, and a join the schedules no
  * longer bear out — a score or a start since posted that no longer fits, a second club of the name
- * with a row that does, the owner's refusal of the name, the other club's row gone — puts each row
- * back as it was.
+ * with a row that does, a copy of the game naming either club itself, the owner's refusal of the
+ * name, the other club's row gone — puts each row back as it was.
  */
 export const joinNamesakeHalves = (
   state: GcImportState,
@@ -4939,10 +4939,45 @@ export const joinNamesakeHalves = (
     })
   );
   const played = new Set<string>();
-  if (asked.size > 0) {
+  /*
+   * And a copy of the game already standing between either club and another pulled club, within
+   * the hour with a result no further from the club's own row's than two scorekeepers' are
+   * (`CLOSE_DISPUTE_RUNS`), as the claim step reads a row against a stand-in beside a copy, is one
+   * more reading of the game: a pair read beside it is not the only one, so it is noted as a second
+   * pair for that club's row. read() leaves such copies out, as no end of a pair, and so the join
+   * once never saw them: a second club of B's name pulled after the join, its own row naming A,
+   * went onto A by that name beside the joined game, since A's row no longer stood against the
+   * stand-in the import would have folded it into, and A counted the game twice, through every
+   * tidy after, where the tidy before the join counted it once; so did B, where a club pulled after
+   * the join named B. Read beside the copy, the join comes apart, and the steps after it settle the
+   * row into the copy, as they do where every schedule is in at the first tidy. Asked only of the
+   * clubs the pairs name, in the same reading of the rows. No pair joined on the backups of 25, 26
+   * and 29 September and 11 October 2026 has such a copy beside it, and the tidy of each is the
+   * same to the byte with the question and without: it is there for the order schedules come in.
+   */
+  const halvesOf = new Map<string, Half[]>();
+  const seen = new Set<string>();
+  readingsOf.forEach((readings) =>
+    readings.forEach(({ a, b }) =>
+      [a, b].forEach((half) => {
+        if (seen.has(half.game.id)) return;
+        seen.add(half.game.id);
+        push(halvesOf, half.club, half);
+      })
+    )
+  );
+  if (asked.size > 0 || halvesOf.size > 0) {
     const plays = (club: string | undefined, team: string) => {
       if (club !== undefined && asked.get(club)?.has(team)) played.add(`${club}\u0000${team}`);
     };
+    /** `game` from `club`'s seat, set against the halves of that club at its hour. */
+    const rivals = (game: ScoutGame, club: string, own: number, theirs: number) =>
+      halvesOf.get(club)?.forEach((half) => {
+        if (Math.abs(half.own - own) + Math.abs(half.theirs - theirs) > CLOSE_DISPUTE_RUNS) return;
+        if (half.pool !== poolKeyOf(game.ageGroupId)) return;
+        if (!startsWithinTheHour(half.game.startTs, game.startTs)) return;
+        note(half.game.id, `\u0001${game.id}`);
+      });
     const of = (game: ScoutGame) => {
       const club = game.source ? clubOfSchedule.get(game.source.teamId) : undefined;
       if (club === game.teamAId) plays(club, game.teamBId);
@@ -4953,6 +4988,11 @@ export const joinNamesakeHalves = (
           record.filedAgainst ?? (record.onSideB ? game.teamAId : game.teamBId)
         )
       );
+      if (game.excluded || game.withdrawn || !game.startTs || !isScored(game)) return;
+      if (!halvesOf.has(game.teamAId) && !halvesOf.has(game.teamBId)) return;
+      if (!pulled(teamById.get(game.teamAId)) || !pulled(teamById.get(game.teamBId))) return;
+      rivals(game, game.teamAId, game.teamAScore!, game.teamBScore!);
+      rivals(game, game.teamBId, game.teamBScore!, game.teamAScore!);
     };
     state.games.forEach((game) => {
       const taken = apart.get(game.id);

@@ -723,20 +723,167 @@ describe("the namesake join", () => {
 
     it("is not moved to another club of B's name whose own row has the game at its start", () => {
       // An Ohio club of B's name pulled after the join, its own row naming A at the very start with
-      // the result mirrored: the reclaim moves a copy whose named club's schedule holds nothing of
-      // it to such a club, and the joined game holds B's own row.
+      // no result yet: the reclaim moves a copy whose named club's schedule holds nothing of it to
+      // such a club, and the joined game holds B's own row. With a result, the row is a second
+      // copy of the game, which takes the join apart (below).
       const pool = settled(standInEachSide());
       const second = club("HUSTLE2", "Lakeshore Hustle", "OH", "ag13");
-      const theirs = row("HUSTLE2", "o1", "RIDGE", "ag13", `${DAY}T14:00`, [11, 4]);
+      const theirs = row("HUSTLE2", "o1", "RIDGE", "ag13", `${DAY}T14:00`);
       const out = tidyPool({
         ...pool,
         teams: [...pool.teams, second],
         games: [...pool.games, theirs],
       });
       expect(out.reclaimed).toBe(0);
+      expect(out.namesakeJoined).toBe(0);
       const game = out.state.games.find((each) => each.id === RIDGE_ROW);
       expect(game).toMatchObject({ teamBId: "HUSTLE", joinedFrom: "S-HUSTLE" });
+      expect(recordOf(out.state, "RIDGE")).toBe("0-1-0");
     });
+  });
+
+  /*
+   * A copy of the game standing between either club and another pulled club, within the hour with
+   * the result mirrored or within four runs of it, is a second reading of the game: beside it the
+   * pair is not the only one. Read past it, a club pulled after the join whose own row named A or B
+   * went onto that club by name beside the joined game, and the club counted the game twice
+   * through every tidy after, where the tidy before the join counted it once.
+   */
+  describe("beside a copy naming either club itself", () => {
+    const named = (theirs: [number, number]) => {
+      const pool = settled(standInEachSide());
+      return {
+        ...pool,
+        teams: [...pool.teams, club("HUSTLE2", "Lakeshore Hustle", "OH", "ag13")],
+        games: [...pool.games, row("HUSTLE2", "o1", "RIDGE", "ag13", `${DAY}T14:00`, theirs)],
+      };
+    };
+
+    it.each([
+      ["mirrored", [11, 4] as [number, number]],
+      ["a run off", [12, 4] as [number, number]],
+    ])("comes apart where another club of B's name has its own row naming A, %s", (_, theirs) => {
+      const out = tidyPool(named(theirs));
+      expect(out.namesakeJoined).toBe(1);
+      expect(recordOf(out.state, "RIDGE")).toBe("0-1-0");
+      expect(recordOf(out.state, "HUSTLE")).toBe("1-0-0");
+      expect(recordOf(out.state, "HUSTLE2")).toBe("1-0-0");
+      // A's row goes into the copy that names A, and B's row back against the team it named.
+      expect(holdersOf(out.state, RIDGE_ROW)).toEqual([
+        expect.objectContaining({ id: gcRowId("gcHUSTLE2", "o1"), teamBId: "RIDGE" }),
+      ]);
+      expect(out.state.games.find((game) => game.id === HUSTLE_ROW)).toMatchObject({
+        teamBId: "S-RIDGE",
+      });
+      expect(out.state.games.some((game) => game.joinedFrom !== undefined)).toBe(false);
+      settled(out.state);
+    });
+
+    it("comes apart where A's own other team has the game against another club of B's name", () => {
+      // A's second GameChanger team typed B's name, and the import put it on the club of that
+      // name in reach: A's two rows of the game, the copy with A on its side A.
+      const pool = settled(standInEachSide());
+      const twoLinks: ScoutTeam = {
+        ...ridge,
+        gcTeams: [
+          ...ridge.gcTeams!,
+          { teamId: "gcRIDGE2", name: ridge.name, ageGroupId: "ag12", ageLevel: 12 },
+        ],
+      };
+      const other: ScoutGame = {
+        ...row("RIDGE", "x1", "HUSTLE2", "ag12", `${DAY}T14:00`, [4, 11]),
+        id: gcRowId("gcRIDGE2", "x1"),
+        source: { kind: "gamechanger", teamId: "gcRIDGE2", gameId: "x1" },
+      };
+      const out = tidyPool({
+        ...pool,
+        teams: [
+          ...pool.teams.map((team) => (team.id === "RIDGE" ? twoLinks : team)),
+          club("HUSTLE2", "Lakeshore Hustle", "IN", "ag12"),
+        ],
+        games: [...pool.games, other],
+      });
+      expect(out.namesakeJoined).toBe(1);
+      expect(recordOf(out.state, "RIDGE")).toBe("0-1-0");
+      expect(recordOf(out.state, "HUSTLE")).toBe("1-0-0");
+      settled(out.state);
+    });
+
+    it("stays joined beside one more than an hour off, another game that day", () => {
+      const pool = settled(standInEachSide());
+      const out = tidyPool({
+        ...pool,
+        teams: [...pool.teams, club("HUSTLE2", "Lakeshore Hustle", "OH", "ag13")],
+        games: [...pool.games, row("HUSTLE2", "o1", "RIDGE", "ag13", `${DAY}T16:30`, [11, 4])],
+      });
+      expect(out.namesakeJoined).toBe(0);
+      expect(out.state.games.find((game) => game.id === RIDGE_ROW)).toMatchObject({
+        teamBId: "HUSTLE",
+        joinedFrom: "S-HUSTLE",
+      });
+    });
+
+    it("stays joined beside one scored further apart than two scorekeepers are", () => {
+      // 3-15 against 4-11 at the same start is two results, which the claim step leaves apart too.
+      const out = tidyPool(named([15, 3]));
+      expect(out.namesakeJoined).toBe(0);
+      expect(out.state.games.find((game) => game.id === RIDGE_ROW)).toMatchObject({
+        teamBId: "HUSTLE",
+        joinedFrom: "S-HUSTLE",
+      });
+    });
+
+    /** A pool built only by pulls, schedule by schedule, as a device's import files them. */
+    const pulledInOrder = (...rounds: GcTeamSchedule[][]) =>
+      rounds.reduce<GcImportState>((state, schedules) => repulled(state, schedules), pool([], []));
+    /** A club's record as its page reads it, found by the GameChanger id the pull filed it under. */
+    const recordOfGc = (state: GcImportState, gcId: string) =>
+      recordOf(
+        state,
+        state.teams.find((team) => team.gcTeams?.some((link) => link.teamId === gcId))?.id ?? gcId
+      );
+    // A, and B out of A's reach in Texas, so the import files each row against a stand-in.
+    const farHustle = club("HUSTLE", "Lakeshore Hustle", "TX", "ag13");
+    const ridgeRows = () =>
+      schedule(ridge, 12, [played("r1", "Lakeshore Hustle", `${DAY}T14:00`, [4, 11])]);
+    const hustleRows = () =>
+      schedule(farHustle, 13, [played("h1", "NR - Ridge Bombers", `${DAY}T14:00`, [11, 4])]);
+
+    it.each([
+      [
+        "a second club of B's name whose own row names A",
+        () =>
+          schedule(club("LAKE12", "Lakeshore Hustle", "IN", "ag12"), 12, [
+            played("m1", "North Ridge Bombers", `${DAY}T14:00`, [11, 4]),
+          ]),
+        ["gcRIDGE", "gcHUSTLE", "gcLAKE12"],
+        ["0-1-0", "1-0-0", "1-0-0"],
+      ],
+      [
+        "a club whose own row names B",
+        () =>
+          schedule(club("NRB", "NR - Ridge Bombers", "TX", "ag13"), 13, [
+            played("d1", "Lakeshore Hustle", `${DAY}T14:00`, [4, 11]),
+          ]),
+        ["gcRIDGE", "gcHUSTLE", "gcNRB"],
+        ["0-1-0", "1-0-0", "0-1-0"],
+      ],
+    ])(
+      "counts the game once where %s is pulled after the join, as pulled all at once",
+      (_, later, ids, records) => {
+        const first = tidyPool(pulledInOrder([ridgeRows()], [hustleRows()]));
+        expect(first.namesakeJoined).toBe(1);
+        // The import files the later row straight onto the club it names, beside the joined game.
+        const afterwards = tidyPool(repulled(first.state, [later()]));
+        expect(ids.map((id) => recordOfGc(afterwards.state, id))).toEqual(records);
+        const atOnce = tidyPool(pulledInOrder([ridgeRows(), hustleRows(), later()]));
+        expect(linesOf(afterwards.state)).toEqual(linesOf(atOnce.state));
+        // A refresh of all three changes nothing more.
+        const again = tidyPool(repulled(afterwards.state, [ridgeRows(), hustleRows(), later()]));
+        expect(linesOf(again.state)).toEqual(linesOf(afterwards.state));
+        expect(ids.map((id) => recordOfGc(again.state, id))).toEqual(records);
+      }
+    );
   });
 
   it("follows a stand-in it would put the row back against into the team it is merged with", () => {

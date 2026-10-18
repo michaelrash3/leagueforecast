@@ -1445,6 +1445,20 @@ out stays out, and a name the owner refused for B (**Not this team**) files noth
 with no result waits for one: on the four backups, rows blank on both sides at the same minute
 paired as often a week off as on the day (1,796 pairs, against 1,809 a shift off).
 
+Nor is a pair the only match beside a copy of the game already standing between either club and
+another pulled club, within the hour and with a result no further from the club's own row's than
+two scorekeepers' are (`CLOSE_DISPUTE_RUNS`), as the claim step reads a row against a stand-in
+beside a copy. Such a copy is one more reading of the game, and the pairs above were counted
+without it: a second club of B's name pulled after the join, its own row naming A as GameChanger
+lists it, went onto A by that name beside the joined game, since A's row no longer stood against
+the stand-in the import would have folded it into, and A counted the game twice through every tidy
+after, where the tidy before the join counted it once. So did B, where a club pulled after the join
+named B. Beside such a copy the join comes apart, and the claim step, or the refile and the
+collapse, put each club's row into the copy that names it, as they do where every schedule is in
+at the first tidy. No pair joined on the four backups has such a copy beside it, and the tidy of
+each is the same to the byte with the question and without; a week or a fortnight off, it turned
+away one candidate a backup, each one the word test turned away too, so the 7 pairs a shift stand.
+
 Built, with those guards, the tidy joins 220, 211, 301 and 486 games on the backups of 25, 26 and
 29 September and 11 October 2026, 1,218 in all where the rule alone found 1,244, and the same
 search a week or a fortnight off finds 7 pairs a shift: under 0.6%. A second tidy joins nothing
@@ -1467,16 +1481,17 @@ Nothing joined is final, as a claim is not. The game keeps the stand-in its own 
 level that name gave (`ScoutGame.joinedFrom`), in the stored pool, every backup and the cloud copy,
 whose data schema went to 2 for it, since an older build would drop it and the join could no longer
 be taken back. Every tidy reads the two rows again as their schedules filed them, and a join they no
-longer bear out puts each row back where it was: a result or a start since posted that does not
-fit, a second club of the name with a row that does, the owner refusing the name, B's row gone from
-its schedule. Until then every other step reads B's row as B's own row of the game, as it reads a
-claim a merge settled (`isJoinedClaim`): the claim step leaves it to the join, which it would
-otherwise give back each pass for the join to make again; the regroup keeps B's schedule on record,
-so B's other game against A that day is not read as this one; and the reclaim does not move the
-game to another club of B's name. A pull of either schedule finds its row by id and changes nothing,
-and a refresh of B's page that cannot see the game on A's files the row again, which the tidy folds
-back in (**One row, one place**). A game the user has thrown out stays as the user left it, and one
-whose stand-in has since gone from the roster keeps the join as a plain claim.
+longer bear out puts each row back where it was: a result or a start since posted that does not fit,
+a second club of the name with a row that does, a copy of the game naming either club itself, the
+owner refusing the name, B's row gone from its schedule. Until then every other step reads B's row
+as B's own row of the game, as it reads a claim a merge settled (`isJoinedClaim`): the claim step
+leaves it to the join, which it would otherwise give back each pass for the join to make again; the
+regroup keeps B's schedule on record, so B's other game against A that day is not read as this one;
+and the reclaim does not move the game to another club of B's name. A pull of either schedule finds
+its row by id and changes nothing, and a refresh of B's page that cannot see the game on A's files
+the row again, which the tidy folds back in (**One row, one place**). A game the user has thrown out
+stays as the user left it, and one whose stand-in has since gone from the roster keeps the join as a
+plain claim.
 
 A row filed by name on a pulled club that plays nowhere near the age it was played at is not that
 club's (`resettleOffLevel`): more than two levels off, it goes to the one namesake that plays near
