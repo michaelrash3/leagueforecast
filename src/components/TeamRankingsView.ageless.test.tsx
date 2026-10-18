@@ -12,6 +12,16 @@ const ageless: AgeUnknownList = [
     firstSeen: "2026-09-01T00:00:00.000Z",
     lastTried: "2026-09-10T00:00:00.000Z",
     tries: 1,
+    // A team a person can answer, so on the queue: one opponent writes an age, too few to file by.
+    evidence: {
+      games: 4,
+      scored: 4,
+      aheadOfToday: 0,
+      shutoutBlowouts: 0,
+      opponents: 4,
+      namedAnAge: 1,
+      tally: [[10, 1]],
+    },
   },
 ];
 

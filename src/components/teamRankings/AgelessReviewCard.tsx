@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { agelessBatch, agelessSearch, agelessWaiting } from "../../lib/agelessQueue";
+import { agelessBatch, agelessQueue, agelessSearch } from "../../lib/agelessQueue";
 import type { AgeUnknownList } from "../../lib/ageUnknown";
 import type { NamedAges } from "../../lib/namedAges";
 import type { DeletedClubs } from "../../lib/deletedGames";
@@ -36,8 +36,9 @@ export function AgelessReviewCard({
   onClearRows,
   now,
 }: AgelessReviewCardProps) {
-  const waiting = useMemo(
-    () => agelessWaiting(ageless, named, dropped, now),
+  /** The queue, the rows still asked about, and how many each rule set aside, in one pass. */
+  const { waiting, open, setAside } = useMemo(
+    () => agelessQueue(ageless, named, dropped, now),
     [ageless, named, dropped, now]
   );
   /**
@@ -50,10 +51,11 @@ export function AgelessReviewCard({
   const [pinned, setPinned] = useState<string[]>([]);
 
   /**
-   * The rows a rule has settled, over the whole waiting list and memoised on it alone: one pass of
-   * the rules over the stored rows, not the per-row work `agelessWaiting` does.
+   * The rows a rule has settled, over every row still asked about, the rows set aside among them,
+   * as the server counts them (`agelessSitting`), and memoised on those alone: one pass of the
+   * rules over the stored rows, not the per-row work the queue does.
    */
-  const clearable = useMemo(() => agelessClearable(waiting.map((row) => row.entry)), [waiting]);
+  const clearable = useMemo(() => agelessClearable(open), [open]);
   const groups = useMemo(() => clearGroups(clearable), [clearable]);
   const sitting = useMemo(
     (): AgelessSitting => ({
@@ -61,8 +63,9 @@ export function AgelessReviewCard({
       waiting: waiting.length,
       batch: agelessBatch(waiting, pinned),
       groups,
+      setAside,
     }),
-    [ageless.length, waiting, pinned, groups]
+    [ageless.length, waiting, pinned, groups, setAside]
   );
 
   /**

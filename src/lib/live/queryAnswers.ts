@@ -1,4 +1,5 @@
 import { GC_PAIRING_EVIDENCE_LABEL } from "../gcPairingEvidence";
+import { RULE_ASIDES, type AgelessSetAside } from "../agelessAsides";
 import type { AgelessAside } from "../agelessQueue";
 import type { AgelessGroup } from "../agelessSitting";
 import type { ModelCheckAnswer, ScoutBacktestResult } from "../scoutBacktest";
@@ -6,6 +7,7 @@ import { CLOSED_LEVEL_CHECK } from "./closedLevelRecord";
 import { coerceNamedCheck } from "../teamRankings/namedGames";
 import { SEASON_SEGMENT_ORDER } from "../teamRankings/seasons";
 import { coerceCommand, everyOne, oneAgeless } from "./commands";
+import { FIRST_ASIDES } from "./agelessSearchHit";
 import type { AgelessSearchAnswer, AnswerOf, FoldCounts, QueryAnswer, QueryKind } from "./queries";
 import { clubOptionsOf, fillPlanOf, leagueBridgeAnswerOf, startAnswerOf } from "./leagueAnswers";
 import { fits, type Shape } from "./shapes";
@@ -481,6 +483,10 @@ const ASIDES: Record<AgelessAside, true> = {
   "high-school": true,
   "short-roster": true,
   "left-alone": true,
+  "no-team-name": true,
+  "made-up": true,
+  "no-games": true,
+  "no-age-named": true,
 };
 
 const AGELESS_GROUPS: Shape = {
@@ -493,10 +499,35 @@ const AGELESS_GROUPS: Shape = {
   },
 };
 
+/**
+ * How many rows each of the queue's rules set aside (`AgelessSetAside`), or null for a list that
+ * is not one. A server from before the counts sends none, which is read as none set aside. A reason
+ * this build has no words for, a newer server's, is left out rather than the card refused: the
+ * count it carries is about rows this build would show on the queue anyway.
+ */
+const setAsideOf = (raw: unknown): AgelessSetAside | null => {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return null;
+  const read: AgelessSetAside = [];
+  for (const one of raw) {
+    if (!isRecord(one) || typeof one.aside !== "string" || !isCount(one.count)) return null;
+    const aside = RULE_ASIDES.find((known) => known === one.aside);
+    if (aside) read.push({ aside, count: one.count });
+  }
+  return read;
+};
+
 /** The card at a sitting, every entry read back exactly as storage keeps one (`oneAgeless`). */
 const agelessQueueOf = (raw: Record<string, unknown>): AnswerOf<"ageless.queue"> | null => {
   const batch = everyOne(raw.batch, oneAgeless);
-  if (!batch || !isCount(raw.listed) || !isCount(raw.waiting) || !fits(raw.groups, AGELESS_GROUPS))
+  const setAside = setAsideOf(raw.setAside);
+  if (
+    !batch ||
+    !setAside ||
+    !isCount(raw.listed) ||
+    !isCount(raw.waiting) ||
+    !fits(raw.groups, AGELESS_GROUPS)
+  )
     return null;
   return {
     kind: "ageless.queue",
@@ -504,18 +535,28 @@ const agelessQueueOf = (raw: Record<string, unknown>): AnswerOf<"ageless.queue">
     waiting: raw.waiting,
     batch,
     groups: raw.groups as AgelessGroup[],
+    setAside,
   };
 };
 
+/**
+ * A hit of a search, its reason read from either field (`FIRST_ASIDES`). A reason this build has no
+ * words for, in either, reads as none: the row is drawn with no note, as an older build draws the
+ * later reasons, and the next reason a server adds cannot refuse every search on this one.
+ */
 const agelessHit = (raw: unknown): AgelessSearchAnswer["hits"][number] | null => {
   if (!isRecord(raw)) return null;
   const entry = oneAgeless(raw.entry);
-  const aside = raw.aside;
   if (!entry) return null;
-  if (aside === undefined) return { entry };
-  return typeof aside === "string" && Object.prototype.hasOwnProperty.call(ASIDES, aside)
-    ? { entry, aside: aside as AgelessAside }
-    : null;
+  const { aside, setAsideBy } = raw;
+  if (aside !== undefined && typeof aside !== "string") return null;
+  if (setAsideBy !== undefined && typeof setAsideBy !== "string") return null;
+  const first = FIRST_ASIDES.find((known) => known === aside);
+  const later =
+    typeof setAsideBy === "string" && Object.prototype.hasOwnProperty.call(ASIDES, setAsideBy)
+      ? (setAsideBy as AgelessAside)
+      : undefined;
+  return { entry, ...(first ? { aside: first } : {}), ...(later ? { setAsideBy: later } : {}) };
 };
 
 const agelessSearchOf = (raw: Record<string, unknown>): AnswerOf<"ageless.search"> | null => {

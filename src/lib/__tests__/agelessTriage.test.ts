@@ -277,6 +277,19 @@ describe("the rules that read the evidence rather than the name", () => {
     expect(verdictFrom(plays, "school-by-evidence")).toEqual({ kind: "high-school" });
   });
 
+  /*
+   * The owner, 18 October 2026: "A lone V means Varsity. period." The name rule reads it as the
+   * word, and an opponent named so is a school side to the rule reading the company a team keeps.
+   */
+  it("reads a lone V as the name rule reads Varsity, and an opponent named so as a school", () => {
+    expect(verdictFrom(row("Alder Comets V"), "school-name")).toEqual({ kind: "high-school" });
+    expect(fired(row("Brackenfield Owls 12U V"))).not.toContain("school-name");
+    const plays = row("Brackenfield Fall Ball", {
+      evidence: evidence({ sampleOpponents: ["Quillmoor V Fall"], namedAnAge: 0 }),
+    });
+    expect(verdictFrom(plays, "school-by-evidence")).toEqual({ kind: "high-school" });
+  });
+
   it("will not call a travel club a school on the word Academy alone", () => {
     const academy = row("Reb Sports Academy Grinders", {
       evidence: evidence({ sampleOpponents: ["Elite 12U", "Team Georgia"], namedAnAge: 2 }),

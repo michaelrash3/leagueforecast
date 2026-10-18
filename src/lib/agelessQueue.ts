@@ -10,30 +10,38 @@
  * cannot disagree with them. Closing the tab half way through a batch loses the batch's identity
  * and nothing else: the next sitting starts a fresh ten off the top of whatever is still waiting.
  *
- * The teams least likely to be real come first, then the ones that read as high school squads,
- * then everyone else, least likely real first throughout. That is the user's call, made on 27
- * September 2026, and it reverses the order this queue had for a while: likeliest real first, on
- * the argument that the real decisions are the ones a sitting should reach. Working the list is
- * clearing it, and a sitting that opens on "Test", "Practice GC" and a fantasy league's forty games
- * dated after today clears the most for the least reading. Each row sorted up says why
- * (`AgelessRow.standing`), and being sorted up is never the app throwing a team out: nothing here
- * is applied without somebody pressing the button on that row.
+ * From 27 September 2026, the user's call, the teams least likely to be real came first, then the
+ * ones that read as high school squads, then everyone else, least likely real first throughout:
+ * working the list is clearing it, and a sitting that opens on "Test", "Practice GC" and a fantasy
+ * league's forty games dated after today clears the most for the least reading. Each row sorted up
+ * says why (`AgelessRow.standing`), and being sorted up is never the app throwing a team out:
+ * nothing here is applied without somebody pressing the button on that row.
+ *
+ * Since 18 October 2026 the queue holds only the teams a person can answer, at the owner's word:
+ * eleven thousand rows, most of them nothing anybody could settle by reading, is a list nobody can
+ * work. A team whose name says it is no team, whose schedule reads as made up, that reads as a
+ * high school side, that has no games yet, or that plays nobody who writes an age is set aside
+ * (`AgelessAside`): the rows that were sorted up are exactly the first three. Set aside is read off
+ * the row each time and never stored, so nothing is deleted: the rota goes on asking about each
+ * inside its budget (`ageUnknownDue` and `ageUnknownAsking` never read this file), every ask writes
+ * a new row, and a row whose new schedule no longer reads so is back on the queue by itself. The
+ * search still finds every one and says why it is aside, and the card counts each reason
+ * (`agelessQueue`). On the backup of 11 October 2026 this took the queue from 10,102 to 1,760, the
+ * teams at least one of whose opponents writes an age this app ranks.
  */
 
-import { looksInvented, whyNoAge, type AgelessEvidence } from "./agelessEvidence";
-import {
-  ageBandFromLabel,
-  isSchoolAgeLabel,
-  isSchoolName,
-  maybeSchoolTeam,
-} from "./gameChangerApi";
+import { looksInvented, whyNoAge, writesARankedAge, type AgelessEvidence } from "./agelessEvidence";
+import { ageBandFromLabel, isSchoolAgeLabel, isSchoolName } from "./gameChangerApi";
 import { AGELESS_RULES } from "./agelessTriage";
 import { rosterStanding } from "./gcRoster";
 import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
 import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
-import { notATeamWord } from "./teamNameRules";
+import { isNotBaseball, notATeamWord } from "./teamNameRules";
+import { RULE_ASIDES, type AgelessRuleAside, type AgelessSetAside } from "./agelessAsides";
 import type { DeletedClubs } from "./deletedGames";
 import type { NamedAges } from "./namedAges";
+
+export { RULE_ASIDES, type AgelessRuleAside, type AgelessSetAside };
 
 /** How many are put in front of somebody at once. More than this is not a sitting, it is a wall. */
 export const AGELESS_BATCH = 10;
@@ -54,22 +62,8 @@ export type AgelessRow = {
   standing?: AgelessStanding;
   /** Why the age could not be read, in a sentence. */
   why: string;
-  /** A lead the name carries, when it carries one. Present only when there is one. */
-  hint?: string;
   evidence?: AgelessEvidence;
 };
-
-/**
- * What a lone "V" is worth saying.
- *
- * Every other row on this card is a question the name cannot answer. This one is a question the
- * name half answers, and the half it gives is the half a person can finish in a second by opening
- * the page — which is why it comes to the top and why it says what to look for.
- */
-const LONE_V_HINT =
-  'The name carries a lone "V" with no letter against it. On a school schedule that is the ' +
-  "varsity side, and high school squads are left out of the rankings — but a single letter is " +
-  "also a squad number, a colour or an initial, so this is worth opening rather than guessing.";
 
 const NO_EVIDENCE: AgelessEvidence = {
   games: 0,
@@ -98,23 +92,22 @@ const NO_EVIDENCE: AgelessEvidence = {
  * abandoned entry and not something this rule introduced — but the row is hidden from here
  * rather than deleted, and saying otherwise would be a claim this file cannot keep.
  *
- * A lone "V" is deliberately NOT caught here. That one really is a question for a person, and it
- * gets a hint instead — see `LONE_V_HINT`.
+ * A lone capital "V" is caught here too, since the owner's ruling of 18 October 2026 ("A lone V
+ * means Varsity. period."): the school rule reads it as the word (`isSchoolName`). It was kept on
+ * the queue until then, sorted ahead of the rows nothing else separated it from, with a hint to
+ * open the page and see whether it was the varsity side; the ruling settles that by the name.
  *
  * Nor is a team whose roster is short of nine (`shortRoster`), which the user ruled off this list
- * on 28 September 2026.
+ * on 28 September 2026, nor one the queue sets aside by rule (`setAsideByRule`), as the owner asked
+ * on 18 October 2026. It is whatever has nothing standing between it and the queue (`asideFor`),
+ * so the queue and the search's word on a team cannot disagree.
  */
 export const awaitingAnswer = (
   entry: AgeUnknownTeam,
   named: NamedAges,
   dropped: DeletedClubs,
   now: Date
-): boolean =>
-  stillWorthAsking(entry, now) &&
-  !named.has(entry.teamId) &&
-  !dropped.has(entry.teamId) &&
-  !isSchoolName(entry.name ?? "") &&
-  !shortRoster(entry);
+): boolean => asideFor(entry, named, dropped, now) === undefined;
 
 /**
  * A team GameChanger lists with fewer than nine players: not a side yet, and off the queue.
@@ -148,20 +141,25 @@ export const shortRoster = (entry: AgeUnknownTeam): boolean =>
  */
 const STILL_JUNK = /\b(?:old\s+team|not\s+(?:a\s+)?real)\b/i;
 
-/** "Team", "Team 1", "My Team": a name nobody chose. Eight in that list. */
-const GENERIC_NAME = /^\s*(?:my|new|the|our)?\s*team\s*#?\s*(?:\d{1,3}|[a-z])?\s*$/i;
-
 /**
  * What the name alone says against a team, or nothing. A name that was never recorded says
  * nothing: that is a list kept before names were, not a team without one.
+ *
+ * "Team", "Team 1", "My Team" is a name nobody chose, eight of them in that list. This file read
+ * it with a pattern of its own until 18 October 2026, when it became a word group of the import's
+ * (`notATeamWord`, "team"), which takes an age on either end too, so it says so in words that fit
+ * every name the group reads rather than the test account's.
  */
 const junkName = (name: string): string | undefined => {
   const trimmed = name.trim();
   if (!trimmed) return undefined;
-  if (notATeamWord(trimmed) || STILL_JUNK.test(trimmed)) {
+  const word = notATeamWord(trimmed);
+  if (word?.word === "team") {
+    return "the name is only “Team”, with nothing more than a number, a letter or an age";
+  }
+  if (word || STILL_JUNK.test(trimmed)) {
     return "the name reads as a test, practice or placeholder account";
   }
-  if (GENERIC_NAME.test(trimmed)) return "the name is only “Team” and a number";
   // Any script's letters: "統一獅隊" is a club in Taipei, "12345" and "***" are nobody.
   if (!/\p{L}/u.test(trimmed)) return "the name has no letters in it";
   if (trimmed.length <= 2) return "the name is two characters or fewer";
@@ -200,10 +198,20 @@ const NOT_REAL_RULES = AGELESS_RULES.filter(
 );
 const PLAYS_SCHOOLS = AGELESS_RULES.filter((rule) => rule.id === "school-by-evidence");
 
-/** Why a row goes to the top, worked out once per entry: a re-ask writes a new entry object. */
-const standingOf = new WeakMap<AgeUnknownTeam, { unlikely: number; standing?: AgelessStanding }>();
+/**
+ * Why a row goes to the top, and the aside it reads as for that (`setAsideByRule`): the name, the
+ * schedule, or a school.
+ */
+type Stood = {
+  unlikely: number;
+  standing?: AgelessStanding;
+  readsAs?: "no-team-name" | "made-up" | "high-school";
+};
 
-const stand = (entry: AgeUnknownTeam): { unlikely: number; standing?: AgelessStanding } => {
+/** Worked out once per entry: a re-ask writes a new entry object. */
+const standingOf = new WeakMap<AgeUnknownTeam, Stood>();
+
+const stand = (entry: AgeUnknownTeam): Stood => {
   const had = standingOf.get(entry);
   if (had) return had;
   const evidence = entry.evidence ?? NO_EVIDENCE;
@@ -216,9 +224,15 @@ const stand = (entry: AgeUnknownTeam): { unlikely: number; standing?: AgelessSta
     invented + (junk ? 1 : 0) + (notReal ? 1 : 0) + (evidence.games === 0 ? 0.05 : 0);
 
   let standing: AgelessStanding | undefined;
-  if (junk) standing = { group: "unlikely", because: junk };
-  else if (notReal) standing = { group: "unlikely", because: notReal.because };
-  else if (invented >= INVENTED_CUT) {
+  let readsAs: Stood["readsAs"];
+  if (junk) {
+    standing = { group: "unlikely", because: junk };
+    readsAs = "no-team-name";
+  } else if (notReal) {
+    standing = { group: "unlikely", because: notReal.because };
+    readsAs = "made-up";
+  } else if (invented >= INVENTED_CUT) {
+    readsAs = "made-up";
     standing = {
       group: "unlikely",
       because:
@@ -240,7 +254,12 @@ const stand = (entry: AgeUnknownTeam): { unlikely: number; standing?: AgelessSta
       }
     }
   }
-  const found = { unlikely, ...(standing ? { standing } : {}) };
+  if (standing?.group === "school") readsAs = "high-school";
+  const found: Stood = {
+    unlikely,
+    ...(standing ? { standing } : {}),
+    ...(readsAs ? { readsAs } : {}),
+  };
   standingOf.set(entry, found);
   return found;
 };
@@ -254,46 +273,82 @@ const stand = (entry: AgeUnknownTeam): { unlikely: number; standing?: AgelessSta
  */
 export const agelessRowFor = (entry: AgeUnknownTeam): AgelessRow => {
   const evidence = entry.evidence;
+  const { unlikely, standing } = stand(entry);
   return {
     entry,
     invented: looksInvented(evidence ?? NO_EVIDENCE),
-    ...stand(entry),
+    unlikely,
+    ...(standing ? { standing } : {}),
     why: evidence
       ? whyNoAge(evidence, MIN_OPPONENT_AGE_EVIDENCE)
       : "Nothing was kept about this one — the next refresh will say why.",
-    ...(maybeSchoolTeam(entry.name ?? "") ? { hint: LONE_V_HINT } : {}),
     ...(evidence ? { evidence } : {}),
   };
 };
 
-/** The unlikely-to-be-real first, then the high school sides, then everyone else. */
-const GROUP_ORDER: Record<AgelessStanding["group"] | "rest", number> = {
-  unlikely: 0,
-  school: 1,
-  rest: 2,
+/**
+ * The queue's order: least likely to be real first.
+ *
+ * It sorted the unlikely and the high school sides into groups of their own ahead of the rest
+ * until 18 October 2026; those are the rows set aside now (`setAsideByRule`), so no row on the
+ * queue stands in a group, and the rest keep the order they had among themselves.
+ */
+const byQueueOrder = (rows: AgelessRow[]): AgelessRow[] =>
+  rows.sort(
+    (a, b) =>
+      b.unlikely - a.unlikely ||
+      // Then the stalest, so a tie does not park the same rows at the top for ever.
+      (a.entry.lastTried < b.entry.lastTried ? -1 : a.entry.lastTried > b.entry.lastTried ? 1 : 0)
+  );
+
+const isRuleAside = (aside: AgelessAside): aside is AgelessRuleAside =>
+  (RULE_ASIDES as readonly AgelessAside[]).includes(aside);
+
+/**
+ * The whole list sorted out in one pass: the queue, in its order; every row nobody has answered and
+ * the rota still asks about, the queue among them (`open`), which is what a pass of the rules may
+ * clear (`agelessClearable`), as it read before the queue set any row aside by rule; and how many
+ * rows each rule set aside.
+ *
+ * One pass because the card wants all three and each is a reading of every row. The reading is the
+ * queue's cached one (`stand`), so a list pays for each row once, and only the queue's rows are made
+ * into rows to sort: on the backup of 11 October 2026, 13,169 rows, the first sitting
+ * (`agelessSitting`) took 138 ms where it took 187, and the next, every row's reading cached, 14 ms
+ * where it took 36 (medians of seven, Node 24, both builds timed in one session).
+ */
+export const agelessQueue = (
+  list: AgeUnknownList,
+  named: NamedAges,
+  dropped: DeletedClubs,
+  now: Date
+): { waiting: AgelessRow[]; open: AgeUnknownTeam[]; setAside: AgelessSetAside } => {
+  const waiting: AgelessRow[] = [];
+  const open: AgeUnknownTeam[] = [];
+  const counts = new Map<AgelessRuleAside, number>();
+  list.forEach((entry) => {
+    const settled = settledAside(entry, named, dropped, now);
+    const aside = settled ?? setAsideByRule(entry);
+    if (settled === undefined) open.push(entry);
+    if (aside === undefined) waiting.push(agelessRowFor(entry));
+    else if (isRuleAside(aside)) counts.set(aside, (counts.get(aside) ?? 0) + 1);
+  });
+  return {
+    waiting: byQueueOrder(waiting),
+    open,
+    setAside: RULE_ASIDES.flatMap((aside) => {
+      const count = counts.get(aside) ?? 0;
+      return count > 0 ? [{ aside, count }] : [];
+    }),
+  };
 };
 
-/** Everyone still waiting on a person: least likely to be real first, then high school sides. */
+/** Everyone still waiting on a person, in the queue's order (`agelessQueue`). */
 export const agelessWaiting = (
   list: AgeUnknownList,
   named: NamedAges,
   dropped: DeletedClubs,
   now: Date
-): AgelessRow[] =>
-  list
-    .filter((entry) => awaitingAnswer(entry, named, dropped, now))
-    .map(agelessRowFor)
-    .sort(
-      (a, b) =>
-        GROUP_ORDER[a.standing?.group ?? "rest"] - GROUP_ORDER[b.standing?.group ?? "rest"] ||
-        // Least likely to be real first, within each group as across them.
-        b.unlikely - a.unlikely ||
-        // Among rows nothing separates, one carrying a lead goes ahead — it is answerable at a
-        // glance, so it costs the sitting least.
-        Number(Boolean(b.hint)) - Number(Boolean(a.hint)) ||
-        // Then the stalest, so a tie does not park the same rows at the top for ever.
-        (a.entry.lastTried < b.entry.lastTried ? -1 : a.entry.lastTried > b.entry.lastTried ? 1 : 0)
-    );
+): AgelessRow[] => agelessQueue(list, named, dropped, now).waiting;
 
 /**
  * The batch to show, given the one already on screen.
@@ -328,7 +383,20 @@ export const batchIds = (rows: readonly AgelessRow[]): string[] =>
  * the worst possible answer to "I know this club is in here" — so the search reads the whole
  * list and says which of them it is.
  */
-export type AgelessAside = "dropped" | "named" | "high-school" | "short-roster" | "left-alone";
+export type AgelessAside =
+  | "dropped"
+  | "named"
+  | "high-school"
+  | "short-roster"
+  | "left-alone"
+  /** The name says it is no team: a word of the import's, or no letters, or two characters. */
+  | "no-team-name"
+  /** The schedule reads as made up: void or do not use, scored ahead, or invented past the cut. */
+  | "made-up"
+  /** No games yet, or nothing kept about it to say it has any. */
+  | "no-games"
+  /** It has games, and not one opponent writes an age in its name. */
+  | "no-age-named";
 
 /** A team the search found, and whether anything is standing between it and the queue. */
 export type AgelessHit = {
@@ -347,12 +415,13 @@ export type AgelessHit = {
 export const AGELESS_HITS = 25;
 
 /**
- * What stands between this team and the queue, if anything.
+ * What stands between this team and the queue that the queue does not read off the team itself:
+ * an answer, a school's name, the rota's budget, a short roster.
  *
  * The user's own decisions come first because they are the ones worth being told about: "you
  * threw this out in March" ends the search, where "left alone" invites them to answer it now.
  */
-const asideFor = (
+const settledAside = (
   entry: AgeUnknownTeam,
   named: NamedAges,
   dropped: DeletedClubs,
@@ -361,9 +430,91 @@ const asideFor = (
   if (dropped.has(entry.teamId)) return "dropped";
   if (named.has(entry.teamId)) return "named";
   if (recognise(entry).school) return "high-school";
-  // Before the roster: a team nothing will ask about again cannot come back when its roster fills.
+  // Before the roster and the rules: a team nothing will ask about again cannot come back when
+  // its roster fills or its schedule changes.
   if (!stillWorthAsking(entry, now)) return "left-alone";
   if (shortRoster(entry)) return "short-roster";
+  return undefined;
+};
+
+/**
+ * Why a team still being asked about is not one a person can answer, read off the row alone.
+ *
+ * The first three are the rows the queue sorted to its top until 18 October 2026, for the reason
+ * it gave (`stand`): the name says it is no team, the schedule reads as made up, or it reads as a
+ * high school side. The last two are what a person would have to go and find out with nothing on
+ * the row to go on: a team with no games yet, and one whose every opponent writes no age, which no
+ * reading of its opponents can age. "Writes an age" is an age this app ranks (`writesARankedAge`):
+ * an opponent that writes 6U or 19U writes none that could file a team here, and a row whose only
+ * such opponents were those read "Its opponents do not agree: ." on the queue with nothing on it
+ * to answer from. On the backup of 11 October 2026 those two were 1,618 and 6,713 of the 10,102
+ * waiting, 2,873 of the second with six opponents or more and 113 with an opponent writing only an
+ * age out of the range.
+ *
+ * Each comes back by itself: the rota asks again inside the team's budget, the ask writes a new
+ * row with what the schedule says now, and this reads the new row.
+ */
+const setAsideByRule = (entry: AgeUnknownTeam): AgelessRuleAside | undefined => {
+  const { readsAs } = stand(entry);
+  if (readsAs) return readsAs;
+  const evidence = entry.evidence;
+  if (!evidence || evidence.games === 0) return "no-games";
+  if (!writesARankedAge(evidence)) return "no-age-named";
+  return undefined;
+};
+
+/** What stands between this team and the queue, if anything. */
+const asideFor = (
+  entry: AgeUnknownTeam,
+  named: NamedAges,
+  dropped: DeletedClubs,
+  now: Date
+): AgelessAside | undefined => settledAside(entry, named, dropped, now) ?? setAsideByRule(entry);
+
+/**
+ * Whether the import refuses this team as a high school squad before it reads an age: by its name
+ * or by GameChanger's own field (`isSchoolTeam`). An age named for it could never land, where one
+ * named for a side the queue only reads as a school, by who it plays or initials in its name, is
+ * filed as any age is.
+ */
+export const refusedAsSchool = (entry: AgeUnknownTeam): boolean =>
+  isSchoolName(entry.name ?? "") || isSchoolAgeLabel(entry.evidence?.ageLabel);
+
+/**
+ * Whether the import refuses this team by its name before it reads an age (`resolveAgeGroup`): a
+ * word that says the page is no team (`notATeamWord`, "Team 7" among them), or another game
+ * (`isNotBaseball`). An age named for one is thrown away: the next ask refuses the page, and the
+ * refusal takes the row, and the answer with it, off the list.
+ *
+ * The import lets such a name through for a club the owner vouched for, on the list of clubs that
+ * are real or linked from League Standings, and this cannot see that list. None of the 565
+ * GameChanger teams the words read in the backup of 11 October 2026 was on it, nor any of the 59
+ * rows of its waiting list they read, so the card errs the safe way: no age offered, and the
+ * throw-out still there.
+ */
+export const refusedByName = (entry: AgeUnknownTeam): boolean => {
+  const name = entry.name ?? "";
+  return notATeamWord(name) !== null || isNotBaseball(name);
+};
+
+/**
+ * What the search says under the note of a row set aside, from the reading that set it aside, or
+ * nothing for a reason the note says whole.
+ *
+ * A row can read two ways at once, and only the one that set it aside is worth saying: a school's
+ * name with a practice word in it is aside as a school, by the name, and "the name reads as a
+ * test, practice or placeholder account" under "it reads as a high school squad" contradicts it.
+ */
+export const asideBecause = (row: AgelessRow, aside: AgelessAside): string | undefined => {
+  // By the name, as `settledAside` sets a school's name aside whatever the queue's reading says.
+  if (aside === "high-school" && isSchoolName(row.entry.name ?? "")) {
+    return "the name reads as a high school squad";
+  }
+  // Otherwise only the queue's own reading sets these three aside (`setAsideByRule`), a school's
+  // by GameChanger's field, who it plays or its initials, so that reading is what to say.
+  if (aside === "high-school" || aside === "no-team-name" || aside === "made-up") {
+    return row.standing?.because;
+  }
   return undefined;
 };
 
@@ -490,8 +641,12 @@ export const agelessSearch = (
   });
   found.sort(
     (a, b) =>
-      // What somebody can act on, then how well it answers, then alphabetically — which is the
-      // one order a person scanning a list can predict.
+      // The team whose whole name or id was typed, whatever stands between it and the queue: most
+      // of the list is set aside since 18 October 2026, so "Team 7" typed in full would otherwise
+      // sit behind every looser match the queue can act on and fall outside the cut. Then what
+      // somebody can act on, then how well it answers, then alphabetically — which is the one
+      // order a person scanning a list can predict.
+      Number(b.well === 3) - Number(a.well === 3) ||
       Number(Boolean(a.aside)) - Number(Boolean(b.aside)) ||
       b.well - a.well ||
       byName(a.entry, b.entry)

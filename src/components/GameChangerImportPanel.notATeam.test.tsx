@@ -107,7 +107,7 @@ describe("a pasted list holding pages that are no team", () => {
       ])
     );
 
-    const pill = await screen.findByText("2 practice, test or old team pages, skipped");
+    const pill = await screen.findByText("2 practice, test, old or unnamed team pages, skipped");
     expect(pill.getAttribute("title")).toMatch(/^Pages whose name says they are no team/);
     expect(screen.getByText("1 wiffle ball, blitzball or softball, skipped")).toBeInTheDocument();
 
@@ -130,7 +130,7 @@ describe("a pasted list holding pages that are no team", () => {
       ])
     );
     expect(
-      await screen.findByText("1 practice, test or old team page, skipped")
+      await screen.findByText("1 practice, test, old or unnamed team page, skipped")
     ).toBeInTheDocument();
   });
 });

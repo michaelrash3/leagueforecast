@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createTidyHandler, packPool, type WorkerResponse } from "../../../workers/tidyProtocol";
 import { memoryIo } from "../../cloud/cloudRunner";
 import { agelessCsvParts } from "../../agelessCsv";
-import { agelessSearch, agelessWaiting } from "../../agelessQueue";
+import { agelessQueue, agelessSearch, agelessWaiting } from "../../agelessQueue";
 import { agelessClearPlan, agelessSitting } from "../../agelessSitting";
 import { agelessClearable } from "../../agelessTriage";
 import type { AgeUnknownTeam } from "../../ageUnknown";
@@ -74,6 +74,7 @@ import {
 import { answerStart, START_CLUBS_MAX } from "../../leagueStart";
 import { notThisTeamList, refusalOf } from "../../notThisTeam";
 import { coerceQueryAnswer } from "../queryAnswers";
+import { FIRST_ASIDES, hitAside } from "../agelessSearchHit";
 import { fewOutsideOfPool } from "../../fewOutsideLeaders";
 import type { GameSeen } from "../views/gamesShape";
 import { callableEncode } from "./callableEncode";
@@ -1691,17 +1692,18 @@ describe("what the card of teams waiting on an age asks of the server's pool", (
       aheadOfToday: 0,
       shutoutBlowouts: 0,
       opponents: games,
-      namedAnAge: 0,
-      tally: [],
+      // One opponent writing an age, too few to file by: a team a person can answer.
+      namedAnAge: 1,
+      tally: [[10, 1]],
       state: "OH",
     },
   });
   const LIST: AgeUnknownTeam[] = [
-    waiting("gcVOID", "Placeholder VOID do not use"),
+    waiting("gcVOID", "Alder Comets VOID do not use"),
     // More than the search shows at once (`AGELESS_HITS`).
-    ...Array.from({ length: 26 }, (_, at) => waiting(`gcQ${at}`, `Placeholder Q${at}`, at)),
-    waiting("gcNAMED", "Placeholder Named"),
-    waiting("gcDROPPED", "Placeholder Dropped"),
+    ...Array.from({ length: 26 }, (_, at) => waiting(`gcQ${at}`, `Alder Comets Q${at}`, at)),
+    waiting("gcNAMED", "Alder Comets Named"),
+    waiting("gcDROPPED", "Alder Comets Dropped"),
   ];
   const NAMED = new Map([
     ["gcNAMED", { teamId: "gcNAMED", level: 10, namedAt: "2026-09-20T00:00:00.000Z" }],
@@ -1730,25 +1732,38 @@ describe("what the card of teams waiting on an age asks of the server's pool", (
       waiting: sitting.waiting,
       batch: sitting.batch.map((row) => row.entry),
       groups: sitting.groups,
+      setAside: sitting.setAside,
     });
-    // Worth something: a full ten from more waiting than that, and a rule's rows to clear.
-    expect([answer.batch.length, answer.waiting]).toEqual([10, 27]);
+    // Worth something: a full ten from more waiting than that, and a rule's rows to clear, among
+    // them one the queue sets aside, whose name says it is no team.
+    expect([answer.batch.length, answer.waiting]).toEqual([10, 25]);
     expect(answer.groups.map(({ rule, count }) => [rule.id, count])).toEqual([["void-name", 1]]);
+    expect(answer.setAside).toEqual([
+      { aside: "no-games", count: 1 },
+      { aside: "no-team-name", count: 1 },
+    ]);
     // The ten the device holds stay in front of the person, less the ones answered.
     const pinned = asked({ kind: "ageless.queue", today: TODAY, pinned: ["gcQ3", "gcNAMED"] });
     expect(pinned.batch.map((entry) => entry.teamId)).toEqual(["gcQ3"]);
   });
 
   it("finds a team on the whole list by name, and says what stands between it and the queue", () => {
-    const answer = asked({ kind: "ageless.search", today: TODAY, query: "placeholder" });
-    const found = agelessSearch(LIST, NAMED, DROPPED, now, "placeholder");
+    const answer = asked({ kind: "ageless.search", today: TODAY, query: "alder comets" });
+    const found = agelessSearch(LIST, NAMED, DROPPED, now, "alder comets");
     expect(answer).toEqual({
       kind: "ageless.search",
       total: found.total,
-      hits: found.hits.map(({ row, aside }) => ({ entry: row.entry, ...(aside ? { aside } : {}) })),
+      hits: found.hits.map(({ row, aside }) => ({
+        entry: row.entry,
+        ...(aside === undefined
+          ? {}
+          : FIRST_ASIDES.some((first) => first === aside)
+            ? { aside }
+            : { setAsideBy: aside }),
+      })),
     });
     expect(answer.total).toBeGreaterThan(answer.hits.length);
-    const named = asked({ kind: "ageless.search", today: TODAY, query: "placeholder named" });
+    const named = asked({ kind: "ageless.search", today: TODAY, query: "alder comets named" });
     expect(named.hits).toEqual([
       { entry: LIST.find((one) => one.teamId === "gcNAMED"), aside: "named" },
     ]);
@@ -1760,11 +1775,17 @@ describe("what the card of teams waiting on an age asks of the server's pool", (
       kind: "ageless.file",
       csv: agelessCsvParts(rows).join(""),
     });
+    // The pass reads every row still asked about, as the card's groups count them: the void page
+    // is set aside from the queue and still a rule's to clear.
     const plan = asked({ kind: "ageless.clearPlan", today: TODAY, rules: ["void-name"] });
     expect(plan).toEqual({
       kind: "ageless.clearPlan",
-      ...agelessClearPlan(agelessClearable(rows), new Set(["void-name"])),
+      ...agelessClearPlan(
+        agelessClearable(agelessQueue(LIST, NAMED, DROPPED, now).open),
+        new Set(["void-name"])
+      ),
     });
+    expect(rows.map((row) => row.teamId)).not.toContain("gcVOID");
     expect(plan.teamIds).toEqual(["gcVOID"]);
     expect(asked({ kind: "ageless.clearPlan", today: TODAY, rules: ["tee-ball"] })).toMatchObject({
       teamIds: [],
@@ -1797,7 +1818,7 @@ describe("what the card of teams waiting on an age asks of the server's pool", (
     const sent = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
     const queue = asked({ kind: "ageless.queue", today: TODAY, pinned: [] });
     expect(coerceQueryAnswer(sent(queue), "ageless.queue")).toEqual(queue);
-    const search = asked({ kind: "ageless.search", today: TODAY, query: "placeholder" });
+    const search = asked({ kind: "ageless.search", today: TODAY, query: "alder comets" });
     expect(coerceQueryAnswer(sent(search), "ageless.search")).toEqual(search);
     const file = asked({ kind: "ageless.file", today: TODAY });
     expect(coerceQueryAnswer(sent(file), "ageless.file")).toEqual(file);
@@ -1808,11 +1829,15 @@ describe("what the card of teams waiting on an age asks of the server's pool", (
       [{ ...queue, batch: [{ ...entry, tries: "1" }] }, "ageless.queue"],
       [{ ...queue, batch: [{ ...entry, mood: 1 }] }, "ageless.queue"],
       [{ ...queue, waiting: -1 }, "ageless.queue"],
+      [{ ...queue, setAside: [{ aside: "no-games", count: -1 }] }, "ageless.queue"],
+      [{ ...queue, setAside: [{ aside: 3, count: 1 }] }, "ageless.queue"],
+      [{ ...queue, setAside: { "no-games": 1 } }, "ageless.queue"],
       [
         { ...queue, groups: [{ rule: { id: "void-name" }, count: 1, examples: [] }] },
         "ageless.queue",
       ],
-      [{ ...search, hits: [{ entry, aside: "elsewhere" }] }, "ageless.search"],
+      [{ ...search, hits: [{ entry, aside: 3 }] }, "ageless.search"],
+      [{ ...search, hits: [{ entry, setAsideBy: ["no-games"] }] }, "ageless.search"],
       [{ ...search, total: 0 }, "ageless.search"],
       [{ ...file, csv: null }, "ageless.file"],
       [{ ...plan, teamIds: [""] }, "ageless.clearPlan"],
@@ -1821,5 +1846,105 @@ describe("what the card of teams waiting on an age asks of the server's pool", (
     ] as const) {
       expect([raw, coerceQueryAnswer(raw, kind)]).toEqual([raw, null]);
     }
+  });
+
+  it("reads an older server's card, which counts nothing set aside, as none set aside", () => {
+    const sent = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
+    const { setAside: _counts, ...older } = asked({
+      kind: "ageless.queue",
+      today: TODAY,
+      pinned: [],
+    });
+    expect(coerceQueryAnswer(sent(older), "ageless.queue")).toEqual({ ...older, setAside: [] });
+  });
+
+  it("leaves out a reason a newer server set rows aside for that this build has no words for", () => {
+    const queue = asked({ kind: "ageless.queue", today: TODAY, pinned: [] });
+    const newer = {
+      ...queue,
+      setAside: [...queue.setAside, { aside: "a-reason-to-come", count: 4 }],
+      somethingNewer: true,
+    };
+    expect(coerceQueryAnswer(JSON.parse(JSON.stringify(newer)), "ageless.queue")).toEqual(queue);
+  });
+
+  it("finds a team the queue sets aside, and says why", () => {
+    const answer = asked({ kind: "ageless.search", today: TODAY, query: "alder comets void" });
+    expect(answer.hits).toEqual([
+      { entry: LIST.find((one) => one.teamId === "gcVOID"), setAsideBy: "no-team-name" },
+    ]);
+    const read = coerceQueryAnswer(JSON.parse(JSON.stringify(answer)), "ageless.search");
+    expect(read).toEqual(answer);
+    expect(read?.hits.map(hitAside)).toEqual(["no-team-name"]);
+  });
+
+  /*
+   * The reader of a search on the build before 18 October 2026, as origin/main has it
+   * (`agelessHit`, `agelessSearchOf` in queryAnswers.ts): a hit with an aside it has no words for
+   * is refused, and one refused hit refuses the whole answer. The live page asks for its update
+   * (`registerType: "prompt"`), so a phone can run that build for days after the server moves on,
+   * and on the backup of 11 October 2026 8,341 of the 13,169 rows carry a new reason.
+   */
+  const OLDER_ASIDES = new Set(["dropped", "named", "high-school", "short-roster", "left-alone"]);
+  const olderSearchOf = (raw: unknown) => {
+    if (typeof raw !== "object" || raw === null) return null;
+    const { hits, total } = raw as { hits?: unknown; total?: unknown };
+    if (!Array.isArray(hits) || typeof total !== "number") return null;
+    const read = hits.map((hit: unknown) => {
+      if (typeof hit !== "object" || hit === null) return null;
+      const { entry, aside } = hit as { entry?: unknown; aside?: unknown };
+      if (typeof entry !== "object" || entry === null) return null;
+      if (aside === undefined) return { entry };
+      return typeof aside === "string" && OLDER_ASIDES.has(aside) ? { entry, aside } : null;
+    });
+    return read.every((hit) => hit !== null) ? { total, hits: read } : null;
+  };
+
+  it("is read whole by a build from before the new reasons, which shows those rows with no note", () => {
+    const says = ["named", "dropped", "void", "q0", "q3"].map((word) => {
+      const answer = asked({ kind: "ageless.search", today: TODAY, query: `alder comets ${word}` });
+      const sent = JSON.parse(JSON.stringify(answer)) as unknown;
+      const older = olderSearchOf(sent);
+      const read = coerceQueryAnswer(sent, "ageless.search");
+      const hit = older?.hits[0];
+      return [
+        word,
+        older === null ? "refused" : hit && "aside" in hit ? hit.aside : null,
+        read?.hits[0] ? (hitAside(read.hits[0]) ?? null) : "refused",
+      ];
+    });
+    // The answers the owner gave still say so on the older build; a rule's row reads there as a
+    // row on the queue. This build reads every reason, whichever field it came in.
+    expect(says).toEqual([
+      ["named", "named", "named"],
+      ["dropped", "dropped", "dropped"],
+      ["void", null, "no-team-name"],
+      ["q0", null, "no-games"],
+      ["q3", null, null],
+    ]);
+  });
+
+  it("reads an older server's search, every reason in the one field, as it was sent", () => {
+    const entry = LIST.find((one) => one.teamId === "gcNAMED")!;
+    const older = { kind: "ageless.search", total: 1, hits: [{ entry, aside: "named" }] };
+    const read = coerceQueryAnswer(JSON.parse(JSON.stringify(older)), "ageless.search");
+    expect(read?.hits.map(hitAside)).toEqual(["named"]);
+  });
+
+  it("reads a reason it has no words for as none, in either field, rather than refusing the search", () => {
+    const entry = LIST.find((one) => one.teamId === "gcQ3")!;
+    const newer = {
+      kind: "ageless.search",
+      total: 2,
+      hits: [
+        { entry, setAsideBy: "a-reason-to-come" },
+        { entry, aside: "a-reason-to-come" },
+      ],
+    };
+    expect(coerceQueryAnswer(JSON.parse(JSON.stringify(newer)), "ageless.search")).toEqual({
+      kind: "ageless.search",
+      total: 2,
+      hits: [{ entry }, { entry }],
+    });
   });
 });

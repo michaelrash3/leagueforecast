@@ -241,6 +241,19 @@ export const coerceAgelessEvidence = (raw: unknown): AgelessEvidence => {
 };
 
 /**
+ * Whether any opponent writes an age this app ranks (`MIN_AGE_LEVEL` to `MAX_AGE_LEVEL`) in its
+ * name. `namedAnAge` counts every opponent that writes one, a 6U or a 19U among them, and the
+ * tally read back from storage keeps only the ranked ages, so a row can count an opponent writing
+ * an age and tally none: 113 of the 1,873 rows the queue held on the backup of 11 October 2026
+ * before this was read, each saying "Its opponents do not agree: ." over nothing at all.
+ * Read off the tally's ages rather than its length, so a row fresh from a pull, whose tally still
+ * holds the 6U, reads as the same row read back.
+ */
+export const writesARankedAge = (evidence: AgelessEvidence): boolean =>
+  evidence.namedAnAge > 0 &&
+  evidence.tally.some(([level]) => level >= MIN_AGE_LEVEL && level <= MAX_AGE_LEVEL);
+
+/**
  * Why the age could not be read, in a sentence a person can act on.
  *
  * The four refusals `ageFromOpponentNames` collapses into one `undefined` are different problems
@@ -250,6 +263,8 @@ export const whyNoAge = (evidence: AgelessEvidence, needed: number): string => {
   if (evidence.games === 0) return "GameChanger lists no games for this team at all.";
   if (evidence.namedAnAge === 0)
     return `None of its ${evidence.opponents} opponent${evidence.opponents === 1 ? "" : "s"} writes an age in its name either.`;
+  if (!writesARankedAge(evidence))
+    return `${evidence.namedAnAge} of its opponents ${evidence.namedAnAge === 1 ? "writes an age" : "write an age"}, but not one of ${MIN_AGE_LEVEL}U to ${MAX_AGE_LEVEL}U, the ages this app ranks.`;
   const top = evidence.tally[0];
   if (top && evidence.tally.length === 1 && top[1] === 1)
     return `1 of its opponents says ${top[0]}U — it needs two to agree.`;

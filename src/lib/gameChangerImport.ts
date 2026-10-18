@@ -31,6 +31,7 @@ import {
   isAdultAgeLabel,
   isSchoolAgeLabel,
   isSchoolName,
+  MIN_HIGH_SCHOOL_AGE,
   squadYearOfGcTeam,
   type GcGame,
   type GcTeamProfile,
@@ -1063,6 +1064,15 @@ const skipReason = (
   // Before the age readings, as `resolveAgeGroup` asks it: a good age does not make a practice
   // account a team. The word goes in the sentence, so a page refused on a word can be checked.
   const notATeam = vouched ? null : notATeamWord(profile.name);
+  if (notATeam?.word === "team") {
+    return {
+      code: "not-a-team",
+      message:
+        "This page is named only “Team”, with nothing more than a number, a letter or an age: " +
+        "the name a page has when nobody named it, so it was left out. Its name says " +
+        `“${notATeam.text}”.`,
+    };
+  }
   if (notATeam) {
     return {
       code: "not-a-team",
@@ -7214,13 +7224,77 @@ const without = (
  * handful of real results that cross the line is the price of not carrying the cluster they lead
  * into, which is a trade this pool makes knowingly.
  *
- * The name only, not the age field: what is in the pool is a `ScoutTeam`, and GameChanger's own
- * age label is not kept on one — the level is. A squad whose name said nothing and whose age
- * field said "Varsity" was never filed in the first place, because the import refuses it on the
- * way in, so there is nothing here for this pass to find.
+ * The name only, not the age field: a squad whose name said nothing and whose age field said
+ * "Varsity" was never filed in the first place, because the import refuses it on the way in, so
+ * there is nothing here for this pass to find.
+ *
+ * And the name the import read, not the one the pool stores, which has the age taken off
+ * (`cleanTeamName`): "Brackenfield Owls 12U V" is held as "Brackenfield Owls V", and the age is
+ * the one thing that says a travel club, so read off the stored name the pass deleted a club the
+ * import files, and the next pull filed it again. A pulled club goes when every name GameChanger
+ * gives it reads as a school's (the club's own name standing in for a link that carries none), as
+ * the not-a-team pass reads one; a stand-in, which has only the stored name, unless a row named it
+ * at an age under fourteen off an age label (`schoolNamedTravelStandIns`). That mattered from the
+ * owner's ruling of 18 October 2026 that a lone V is varsity: on the backup of 11 October the
+ * stored names of 11 pulled clubs read so, and the names GameChanger gives 7 of them do not, 6
+ * stating an age under 14U and one carrying no lone V at all. A slot, or a club added by hand, is
+ * read by its name.
  */
-const dropSchoolTeams = (state: GcImportState): { state: GcImportState; dropped: number } =>
-  without(state, new Set(state.teams.filter((team) => isSchoolName(team.name)).map((t) => t.id)));
+const dropSchoolTeams = (state: GcImportState): { state: GcImportState; dropped: number } => {
+  const travel = schoolNamedTravelStandIns(state);
+  const going = state.teams.filter((team) => {
+    const links = team.gcTeams ?? [];
+    if (links.length > 0) return links.every((link) => isSchoolName(link.name.trim() || team.name));
+    return isSchoolName(team.name) && !travel.has(team.id);
+  });
+  return without(state, new Set(going.map((team) => team.id)));
+};
+
+/**
+ * The stand-ins whose stored name reads as a school squad's (`isSchoolName`) that some row named at
+ * an age under the youngest a freshman is (`MIN_HIGH_SCHOOL_AGE`) read off an age label: a travel
+ * club's, as the import read that row, and kept by the tidy's school pass and on the clubs worth
+ * pulling.
+ *
+ * A stand-in is stored under the name a schedule wrote with its age taken off (`cleanTeamName`),
+ * and the age stays on the row, as the level the name gave its side (`ScoutGame.ageLevelB`, or A
+ * on a row filed the other way round). The import drops a row whose opponent's name reads as a
+ * school's, so a row naming a stand-in so without an age came before the rule that drops it.
+ *
+ * Off an age label, because that is the only age the school rule excuses. The import reads a side's
+ * level from a label or, failing one, from a class year read against the page's squad year, and
+ * `relevelFromNames` reads the stored name the same way; but `isSchoolName` reads no year, so the
+ * import refuses "Quillmoor V 2033" on a 2027 page, the class of 2033 being 12U. The year stays on
+ * the stored name, so a row at the very age the name's class year gives on that row's page is read
+ * as the year's: the stand-in goes, where kept it stood on the clubs worth pulling while every pull
+ * refused it. A label and the year it agrees with cannot be told apart from the year alone once
+ * the label is off, and are read as the year. On the backup of 11 October 2026 no row naming such a
+ * stand-in carries the age its class year gives, and 2 of the 24 stand-ins a lone V reads had every
+ * row name them at an age under fourteen, 3 games in all, none with rows of both kinds.
+ */
+export const schoolNamedTravelStandIns = (
+  state: Pick<GcImportState, "ageGroups" | "teams" | "games">
+): ReadonlySet<string> => {
+  const school = new Map(
+    state.teams
+      .filter((team) => team.nameOnly && !team.placeholder && isSchoolName(team.name))
+      .map((team) => [team.id, team.name])
+  );
+  const travel = new Set<string>();
+  if (school.size === 0) return travel;
+  const squadYear = new Map(state.ageGroups.map((group) => [group.id, ageGroupYear(group)]));
+  const labelled = (teamId: string, level: number | undefined, ageGroupId: string) => {
+    const name = school.get(teamId);
+    if (name === undefined || level === undefined || level >= MIN_HIGH_SCHOOL_AGE) return false;
+    const year = squadYear.get(ageGroupId);
+    return year === undefined || ageFromGradYearInName(name, year) !== level;
+  };
+  state.games.forEach((game) => {
+    if (labelled(game.teamAId, game.ageLevelA, game.ageGroupId)) travel.add(game.teamAId);
+    if (labelled(game.teamBId, game.ageLevelB, game.ageGroupId)) travel.add(game.teamBId);
+  });
+  return travel;
+};
 
 /** No club said to be real: the tidy's default, for a caller with no answers to give it. */
 const NONE_REAL: ReadonlySet<string> = new Set<string>();
@@ -7327,7 +7401,12 @@ const namedAfterSpared = (
  *   club's own name only for a link that carries none. A club holding one practice id and one real
  *   one is the real one, folded together; and the club's stored name has lost what a bracket said,
  *   "(Practice Squad)", which 33 of the 520 say only there. Two clubs whose stored name has a word
- *   none of their links has are left.
+ *   none of their links has are left. A name that is only "Team" and a number is the exception: the
+ *   import keeps it as it is, having nothing but an age to clean off it, so a club GameChanger calls
+ *   "Team 7" or "Team 7 12U" that the pool holds under another name than "Team 7" was named by
+ *   somebody, renamed by hand or merged into a club with a name, and keeps that name, unless that
+ *   name says no team too ("Practice", "Team 7 Practice"), which spares nothing. On the backup of
+ *   11 October 2026 each of the 31 pulled clubs GameChanger calls so is called so in the pool.
  * - Never the user's own club, a page's own team, or a club in `real` (by club id or any of its
  *   GameChanger ids), a stand-in included: those said to be real, and every club a League
  *   Standings team links, picked or carried onto by its name, which the callers add
@@ -7378,6 +7457,10 @@ export const dropNotATeam = (
     for (const link of links) {
       const hit = notATeamWord(link.name.trim() || team.name);
       if (!hit) return;
+      // GameChanger calls it only "Team 7", and the pool calls it something else: somebody named
+      // it, by hand or by a merge, and it is that name's club (see above), unless the name they
+      // gave it says no team as well.
+      if (hit.word === "team" && !notATeamWord(team.name)) return;
       if (hit.opponent === "slot") slot = true;
     }
     going.add(team.id);
@@ -8244,8 +8327,16 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       baseball
  *  23 — joining a game one club filed against a stand-in of the other's very name and the other
  *       against a stand-in or a slot, mirrored within the hour and the only match each way
+ *  24 — a name that is only "Team", with nothing more than a number, a letter or an age, read as
+ *       a page that is no team: such a pulled club deleted where the pool calls it so too, and
+ *       such a stand-in's games kept on slots of their own
+ *  25 — a lone capital V, one nothing joins to a word, read as varsity, the owner's ruling of 18
+ *       October 2026, and "J.V." as JV, so such a club deleted as a high school squad; and the
+ *       school pass reading a pulled club by the names GameChanger gives it and keeping a stand-in
+ *       a row named at an age under fourteen off an age label, so it deletes no club the import
+ *       files
  */
-const TIDY_RULES_VERSION = 23;
+const TIDY_RULES_VERSION = 25;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -8365,7 +8456,7 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
       : []),
     ...(tidy.notATeam > 0
       ? [
-          `${plural(tidy.notATeam, "practice, test or old team page", "practice, test or old team pages")} deleted, and their results with them.`,
+          `${plural(tidy.notATeam, "practice, test, old or unnamed team page", "practice, test, old or unnamed team pages")} deleted, and their results with them.`,
         ]
       : []),
     ...(tidy.idle > 0

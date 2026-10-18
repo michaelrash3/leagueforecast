@@ -42,7 +42,14 @@ const DIST = "dist";
  * KB against 151.8 KB before. Their section is fetched only once a look lists some; what is left
  * is the reader of the server's answer and the device's own sum for a page with no worker. Fetched
  * apart, that sum split shared storage code out of the first download and made it 0.7 KB heavier,
- * so it stays.
+ * so it stays. Team Rankings to 157.5 KB the same day for the card of teams waiting on an age
+ * showing only the teams a person can answer, 156.7 KB against 155.7 KB on main: the queue's five
+ * reasons for setting a row aside, the counts and the line under the ten, and the notes, checks and
+ * reasons a found row is drawn with. The reader of the server's answers takes the rule asides and
+ * the search's fields from modules of their own, which keeps the queue and the import it reads in
+ * Setup's chunk; read from the queue, they split that chunk in two and made it 0.3 KB heavier.
+ * Fetched apart, the card split shared storage code out of the first download, 0.9 KB heavier and
+ * past that limit, so it stays.
  */
 const BUDGET = {
   firstDownload: 252_000,
@@ -57,7 +64,7 @@ const BUDGET = {
     Forecast: 18_300,
     "Data Quality": 3_500,
     Settings: 12_600,
-    "Team Rankings": 156_000,
+    "Team Rankings": 157_500,
   },
 };
 
