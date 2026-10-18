@@ -3656,7 +3656,11 @@ describe("Setup on the cloud's board", () => {
    * day, which runs behind the device's from midnight to the night's rebuild: the look asks for the
    * list on the boards' day, so its places are theirs.
    */
-  it("opens a leader with few outside games on its own page, the list asked for the boards' day", async () => {
+  /**
+   * A leader listed off 11U's spring board, opened from Setup on the 12U page the URL names: the
+   * look is asked for the boards' day, and the click lands on 11U 2027.
+   */
+  const openLeaderFrom = async (search: string) => {
     const ELEVEN = "ag_11u_2027";
     const card: ClubCard = {
       team: { id: "L-11", name: "Placeholder Elevens", state: "OH" },
@@ -3759,7 +3763,7 @@ describe("Setup on the cloud's board", () => {
     };
     // The day after the boards' day, before the night's rebuild has published the next.
     vi.setSystemTime(new Date("2027-04-16T00:30:00"));
-    onSetup();
+    window.history.replaceState(null, "", search);
     pool.wants = false;
     const server = editFunction((data) => {
       const query = data.query as { kind?: string } | undefined;
@@ -3778,6 +3782,18 @@ describe("Setup on the cloud's board", () => {
     expect(window.location.search).toContain("year=2027");
     const panel = await screen.findByRole("region", { name: "Placeholder Elevens" });
     await waitFor(() => expect(panel).toHaveTextContent(/in 11U 2027/));
+  };
+
+  it("opens a leader with few outside games on its own page, the list asked for the boards' day", async () => {
+    await openLeaderFrom("/?view=rankings&age=12&year=2027&section=setup");
+    // The page opened on the half the list was read off, so none is written in.
+    expect(window.location.search).not.toContain("half=");
+  });
+
+  // Over a URL pinned to the other half, the club would open against a board it was not listed from.
+  it("opens a leader on the half its row was read off, over a half the URL pins", async () => {
+    await openLeaderFrom("/?view=rankings&age=12&year=2027&half=fall&section=setup");
+    expect(window.location.search).toContain("half=spring");
   });
 
   it("draws Pool health from the server's pool, and stays the page", async () => {

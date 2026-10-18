@@ -41,6 +41,7 @@ import {
   type ScoutGame,
   type ScoutRankingRow,
   type ScoutTeam,
+  type SeasonSegment,
 } from "../lib/teamRankings";
 import { buildTeamRankExplanationRequest } from "../lib/teamRankingsSummaryClient";
 import {
@@ -1942,14 +1943,19 @@ export function TeamRankingsView({
    * The same, from a list further up the page, Pool health's: the panel opens below everything,
    * out of sight of the list, so it is brought into view once it is there.
    */
-  const openListedTeam = (teamId: string, _year?: number, pageId?: string) => {
+  const openListedTeam = (
+    teamId: string,
+    _year?: number,
+    pageId?: string,
+    segment?: SeasonSegment
+  ) => {
     /*
      * The page the row names, where it names one: a leader with few outside games is listed off one
      * page's board, and a club entered by hand has no GameChanger id to find a page by. Otherwise,
      * since the search's page index is not built in Setup, where these lists are, the page is the
      * one a GameChanger id of the club's own is filed under, the latest year's: opened on another
      * page, the panel showed none of the games the list had named. A page holds its year, so the
-     * row's year says nothing more here.
+     * row's year says nothing more here. The row's half goes with its page only (`openPage`).
      */
     const page =
       (pageId !== undefined && ageGroups.some((group) => group.id === pageId)
@@ -1961,7 +1967,7 @@ export function TeamRankingsView({
         ?.gcTeams?.map((link) => ageGroups.find((group) => group.id === link.ageGroupId))
         .filter((group): group is AgeGroup => group !== undefined)
         .sort((a, b) => (ageGroupYear(b) ?? 0) - (ageGroupYear(a) ?? 0))[0]?.id;
-    if (page) openPage(page);
+    if (page) openPage(page, page === pageId ? segment : undefined);
     setOpenTeamId(teamId);
     window.requestAnimationFrame(() =>
       document.getElementById(TEAM_PANEL_ID)?.scrollIntoView?.({ block: "start" })

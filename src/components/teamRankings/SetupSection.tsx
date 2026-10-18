@@ -3,6 +3,7 @@ import {
   type AgeGroupSeason,
   type ScoutGame,
   type ScoutTeam,
+  type SeasonSegment,
 } from "../../lib/teamRankings";
 import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
@@ -71,7 +72,7 @@ type SetupSectionProps = {
     /** Throws a club out: the team, its rows, and its GameChanger ids. */
     onDropClub: (club: UnrealClub) => Promise<boolean>;
     /** Opens a club's own panel from a list the card shows, on its row's page where it says one. */
-    onOpenTeam: (teamId: string, year?: number, pageId?: string) => void;
+    onOpenTeam: (teamId: string, year?: number, pageId?: string, segment?: SeasonSegment) => void;
     /** Files a club at another level in a squad year and holds it there; whether it happened. */
     onSetAge?: (teamId: string, level: number, year: number) => boolean;
     onSetAges?: (

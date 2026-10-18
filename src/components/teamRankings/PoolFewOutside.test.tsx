@@ -246,20 +246,20 @@ describe("the leaders with few outside games, as the card draws them", () => {
     expect(jays.getByText(/#5 nationally/)).toBeVisible();
   });
 
-  it("opens a club's own panel, in the squad year of its row and on the page it leads", async () => {
+  it("opens a club's own panel, in the squad year, page and half of its row", async () => {
     const user = userEvent.setup();
-    const opened: Array<[string, number | undefined, string | undefined]> = [];
+    const opened: unknown[][] = [];
     render(
       <FewOutsideSection
         list={LIST}
-        openTeam={(teamId, year, pageId) => opened.push([teamId, year, pageId])}
+        openTeam={(teamId, year, pageId, segment) => opened.push([teamId, year, pageId, segment])}
       />
     );
     await user.click(screen.getByRole("button", { name: "Juniper Jays" }));
     await user.click(screen.getByRole("button", { name: "Dovecote Juniors" }));
     expect(opened).toEqual([
-      ["JAYS", 2027, "ag_10u_2027"],
-      ["DOVE", undefined, "ag_showcase"],
+      ["JAYS", 2027, "ag_10u_2027", "fall"],
+      ["DOVE", undefined, "ag_showcase", undefined],
     ]);
   });
 
@@ -394,6 +394,48 @@ describe("the leaders with few outside games on the device's own card", () => {
     const section = await screen.findByTestId("pool-few-outside");
     await user.click(within(section).getByRole("button", { name: "Larch Eleven" }));
     await waitFor(() => expect(window.location.search).toContain("age=11"));
+  });
+
+  /*
+   * The list is read off the half each page opens on, so a URL that pins the other half would
+   * open the club against a board it was not listed from, and may not be on.
+   */
+  it("open a club on the half its row was read off, over a half the URL pins", async () => {
+    const user = userEvent.setup();
+    renderTeamRankings({
+      ...twoClubs(),
+      search: "?view=rankings&age=10&year=2027&half=spring&section=setup",
+    });
+    await user.click(await screen.findByRole("button", { name: /check the pool/i }));
+    const section = await screen.findByTestId("pool-few-outside");
+    expect(window.location.search).toContain("half=spring");
+    await user.click(within(section).getByRole("button", { name: "Home Club" }));
+    await waitFor(() => expect(window.location.search).toContain("half=fall"));
+    expect(window.location.search).toContain("age=10");
+  });
+
+  // With no half in the URL the page already opens on the list's, so none is written in.
+  it("write no half into a URL that named none", async () => {
+    const user = userEvent.setup();
+    const eleven = twoClubs();
+    renderTeamRankings({
+      ageGroups: [ageGroup(10, 2027), ageGroup(11, 2027)],
+      teams: [
+        ...eleven.teams,
+        team("S-ELEVEN-A", "Larch Eleven", { state: "OH" }),
+        team("S-ELEVEN-B", "Sorrel Eleven", { state: "OH" }),
+      ],
+      games: [
+        ...eleven.games,
+        game("eleven", "ag_11u_2027", "S-ELEVEN-A", "S-ELEVEN-B", 7, 3, { date: seasonDate(2027) }),
+      ],
+    });
+    await user.click(screen.getByRole("tab", { name: "Setup" }));
+    await user.click(screen.getByRole("button", { name: /check the pool/i }));
+    const section = await screen.findByTestId("pool-few-outside");
+    await user.click(within(section).getByRole("button", { name: "Larch Eleven" }));
+    await waitFor(() => expect(window.location.search).toContain("age=11"));
+    expect(window.location.search).not.toContain("half=");
   });
 
   /*

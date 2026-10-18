@@ -4,7 +4,7 @@ import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { MAX_COMMAND_STEPS, type PoolCommand } from "../../lib/live/commands";
 import type { HealthInspectAnswer, HealthSummaryAnswer } from "../../lib/live/queries";
 import { clubOf } from "../../lib/poolHealthSummary";
-import { IMPLAUSIBLE_MARGIN } from "../../lib/teamRankings";
+import { IMPLAUSIBLE_MARGIN, type SeasonSegment } from "../../lib/teamRankings";
 import { createAgeGroupId } from "../../lib/teamRankings/seasons";
 import { downloadCsv } from "../../lib/download";
 import { button, card } from "../../styles/tokens";
@@ -55,7 +55,7 @@ export function LivePoolHealthCard({
    * midnight and the night's rebuild, or while a rebuild is held, it is a day behind the device's.
    */
   boardDay?: string;
-  onOpenTeam?: (teamId: string, year?: number, pageId?: string) => void;
+  onOpenTeam?: (teamId: string, year?: number, pageId?: string, segment?: SeasonSegment) => void;
 }) {
   const { locked, edit, ask, say, poolRevision } = edits;
   const [opened, setOpened] = useState<HealthSummaryAnswer | null>(null);
