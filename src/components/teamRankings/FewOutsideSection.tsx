@@ -11,7 +11,7 @@ import {
   type FewOutsideOpponent,
   type FewOutsideSide,
 } from "../../lib/fewOutside";
-import { segmentLabel } from "../../lib/teamRankings/seasons";
+import { segmentLabel } from "../../lib/teamRankings";
 import { button, pill } from "../../styles/tokens";
 
 /**

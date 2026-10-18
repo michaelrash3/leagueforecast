@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import type { GcSeasonPairing, GcTwinSquad } from "../../lib/gameChangerImport";
 import { GC_PAIRING_EVIDENCE_LABEL } from "../../lib/gcPairingEvidence";
 import type { PoolHealth } from "../../lib/poolHealth";
@@ -20,7 +20,17 @@ import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { countedTwiceCsv, countedTwiceCsvFilename } from "../../lib/countedTwice";
 import { button, card, pill } from "../../styles/tokens";
-import { FewOutsideSection } from "./FewOutsideSection";
+import { LoadingPanel } from "../LoadingPanel";
+
+/**
+ * The leaders with few outside games are drawn only once a look has listed some, and a look takes
+ * seconds, so their section is fetched then rather than with the tab. Opening Team Rankings
+ * measured 154.9 KB gzipped with it in Setup's cards, against 151.8 KB before the list, and the
+ * section is 1.6 KB of that.
+ */
+const FewOutsideSection = lazy(() =>
+  import("./FewOutsideSection").then((module) => ({ default: module.FewOutsideSection }))
+);
 
 /**
  * Pool health as it is drawn, from what it is told rather than from a pool it holds: what the pool
@@ -1401,10 +1411,12 @@ export function PoolHealthView({
       )}
 
       {inspection?.fewOutside && (
-        <FewOutsideSection
-          list={inspection.fewOutside}
-          {...(actions.openTeam ? { openTeam: actions.openTeam } : {})}
-        />
+        <Suspense fallback={<LoadingPanel area="the leaders with few outside games" />}>
+          <FewOutsideSection
+            list={inspection.fewOutside}
+            {...(actions.openTeam ? { openTeam: actions.openTeam } : {})}
+          />
+        </Suspense>
       )}
 
       {toPull && toPullCount > 0 && (
