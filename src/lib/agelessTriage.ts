@@ -357,7 +357,8 @@ export const AGELESS_RULES: readonly AgelessRule[] = [
   },
   {
     id: "rec-sanctioned",
-    label: "A Little League, Cal Ripken or PONY team in a closed league",
+    // On screen, in the owner's words: the league is one where nobody writes an age.
+    label: "A Little League, Cal Ripken or PONY team nobody it plays ages",
     tier: "review",
     because:
       "GameChanger says it plays under a rec body, and nobody it plays writes an age, so nothing will ever age it or join it to travel ball",
@@ -366,7 +367,7 @@ export const AGELESS_RULES: readonly AgelessRule[] = [
   },
   {
     id: "rec-division",
-    label: "A rec division in a closed league",
+    label: "A rec division where nobody writes an age",
     tier: "review",
     because:
       "it or a team it plays is named for a rec division or league — Majors, AAA, Farm, Coach Pitch, NCLL — and nobody it plays writes an age",

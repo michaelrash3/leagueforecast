@@ -56,6 +56,10 @@ const QUEUE: AnswerOf<"ageless.queue"> = {
       examples: ["Placeholder Tee 1", "Placeholder Tee 2"],
     },
   ],
+  setAside: [
+    { aside: "no-age-named", count: 3 },
+    { aside: "no-team-name", count: 1 },
+  ],
 };
 
 type Answers = { [K in QueryKind]?: AnswerOf<K> | null };
@@ -109,10 +113,27 @@ describe("the teams waiting on an age, from the server's list", () => {
     show(call);
     expect(await screen.findByText("Placeholder Alpha")).toBeTruthy();
     expect(screen.getByText("Placeholder Bravo")).toBeTruthy();
-    expect(screen.getByText(/37 teams nobody could age/)).toBeTruthy();
+    expect(screen.getByText(/37 teams a person can\s+settle/)).toBeTruthy();
     expect(screen.getByText(/Showing 2 of 37; 35 behind these/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Clear the 5 ticked" })).toBeTruthy();
     expect(call.asked).toEqual([{ kind: "ageless.queue", today: TODAY, pinned: [] }]);
+  });
+
+  it("says under the ten how many each rule set aside, as the device's card does", async () => {
+    show(editFunction({ "ageless.queue": QUEUE }));
+    expect(
+      await screen.findByText(
+        "Set aside: 3 that play nobody who writes an age, 1 with a name that says it is no " +
+          "team. Each comes back here on its own once a later check finds that changed, and " +
+          "Find a team still finds every one."
+      )
+    ).toBeTruthy();
+  });
+
+  it("says nothing of rows set aside where the server counted none", async () => {
+    show(editFunction({ "ageless.queue": { ...QUEUE, setAside: [] } }));
+    expect(await screen.findByText("Placeholder Alpha")).toBeTruthy();
+    expect(screen.queryByText(/^Set aside:/)).toBeNull();
   });
 
   it("asks nothing while edits are off, and says why rather than drawing nothing", async () => {

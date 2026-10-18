@@ -1,5 +1,5 @@
 import { isClearedReason } from "./agelessCleared";
-import { agelessBatch, agelessWaiting, type AgelessRow } from "./agelessQueue";
+import { agelessBatch, agelessQueue, type AgelessRow, type AgelessSetAside } from "./agelessQueue";
 import { agelessClearable, CLEARABLE_RULES, type AgelessAnswered } from "./agelessTriage";
 import type { AgeUnknownList } from "./ageUnknown";
 import type { DeletedClubs } from "./deletedGames";
@@ -8,8 +8,9 @@ import type { NamedAges } from "./namedAges";
 /**
  * What the card of teams waiting on an age shows at a sitting (`AgelessReviewView`), worked out the
  * same way from a device's list and from the server's (`ageless.queue`, `queries.ts`): how many the
- * list holds and how many wait on a person, the ten in front of them, and the rows each rule has
- * settled, counted under the rule that claimed them.
+ * list holds and how many wait on a person, the ten in front of them, the rows each rule has
+ * settled, counted under the rule that claimed them, and how many rows each of the queue's own
+ * rules set aside.
  */
 
 /** A rule's rows the card can clear, as the card draws them: how many, and a few by name. */
@@ -28,6 +29,12 @@ export type AgelessSitting = {
   /** The ones in front of the person: the ten pinned (`agelessBatch`), less any answered since. */
   batch: AgelessRow[];
   groups: AgelessGroup[];
+  /**
+   * How many rows each rule kept off the queue (`RULE_ASIDES`): what the card says under the ten,
+   * since a queue that went from 10,102 rows to 1,873 on the backup of 11 October 2026 owes the
+   * reader where the rest went. Read off the rows, so it is never out of step with them.
+   */
+  setAside: AgelessSetAside;
 };
 
 /**
@@ -63,12 +70,15 @@ export const agelessSitting = (
   now: Date,
   pinned: readonly string[]
 ): AgelessSitting => {
-  const waiting = agelessWaiting(list, named, dropped, now);
+  const { waiting, open, setAside } = agelessQueue(list, named, dropped, now);
   return {
     listed: list.length,
     waiting: waiting.length,
     batch: agelessBatch(waiting, pinned),
-    groups: clearGroups(agelessClearable(waiting.map((row) => row.entry))),
+    // Over every row still asked about, as before rows were set aside by rule: a rule's call on
+    // what a team is holds whether or not a person could answer it.
+    groups: clearGroups(agelessClearable(open)),
+    setAside,
   };
 };
 

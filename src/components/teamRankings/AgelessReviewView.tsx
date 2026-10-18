@@ -1,6 +1,12 @@
 import { useMemo, useState } from "react";
-import { AGELESS_BATCH, batchIds } from "../../lib/agelessQueue";
-import type { AgelessAside, AgelessHit, AgelessRow } from "../../lib/agelessQueue";
+import { AGELESS_BATCH, batchIds, refusedAsSchool } from "../../lib/agelessQueue";
+import type {
+  AgelessAside,
+  AgelessHit,
+  AgelessRow,
+  AgelessRuleAside,
+  AgelessSetAside,
+} from "../../lib/agelessQueue";
 import { nameableAgeLevels } from "../../lib/agelessEvidence";
 import type { AgelessSitting } from "../../lib/agelessSitting";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
@@ -72,26 +78,64 @@ function Evidence({ row }: { row: AgelessRow }) {
  * the two things somebody needs to go and look the team up — with a link straight to its page, and
  * whatever was kept about it at the moment it was refused.
  *
- * Nothing here is coloured by how unlikely a team looks. That orders the queue — the least likely
- * to be real first, then the high school sides, as the user asked — and a row sorted up says why
- * in a line of plain text, and that is all: an empty schedule is a club somebody made this morning
- * as often as it is a fiction. A roster short of nine is the one thing that keeps a team off the
- * queue by count alone (`shortRoster`), and only until a check finds nine: a roster of six in
- * September is twelve in October.
+ * Nothing here is coloured by how unlikely a team looks. That orders the queue, the least likely
+ * to be real first, and that is all: an empty schedule is a club somebody made this morning as
+ * often as it is a fiction. The queue holds only what a person can answer (`setAsideByRule`); a
+ * team a rule set aside, a roster short of nine among them, is kept off it only until a later
+ * check finds otherwise, since a roster of six in September is twelve in October, and the card
+ * says how many each rule set aside and that the search finds them.
  */
 /** What stands between a team somebody found and the queue, said plainly. */
 const ASIDE_NOTE: Record<AgelessAside, string> = {
   dropped: "You threw this one out. It is never fetched, filed or asked about again.",
   named: "You have already said what age this is. It is filed on the next refresh.",
   "high-school":
-    "The name reads as a high school squad, so it is left out of the rankings and off this queue.",
+    "It reads as a high school squad, so it is left out of the rankings and off this queue.",
   "short-roster":
     "GameChanger lists fewer than nine players on it, so it is not a side yet and is kept off " +
     "this queue. It comes back on its own if a later check finds nine.",
   "left-alone":
     "Left alone: it had its asks and its weeks and nobody could ever age it. Saying what age it " +
     "is puts it back in the queue.",
+  "no-team-name":
+    "Kept off this queue: the name says it is no team. If the club renames it, it comes back on " +
+    "its own at the next check.",
+  "made-up":
+    "Kept off this queue: its schedule reads as made up. It comes back on its own if a later " +
+    "check finds a schedule that does not.",
+  "no-games":
+    "Kept off this queue: it has no games yet, so nothing on its schedule can say its age. It " +
+    "comes back on its own once a later check finds games.",
+  "no-age-named":
+    "Kept off this queue: nobody it plays writes an age in their name, so its schedule cannot say " +
+    "one. It comes back on its own once it plays somebody who does.",
 };
+
+/** The asides whose row says, under the note, what the queue read it by (`AgelessRow.standing`). */
+const SAYS_WHY: ReadonlySet<AgelessAside> = new Set(["no-team-name", "made-up", "high-school"]);
+
+/** How the line under the ten counts each rule's rows: "6,600 that play nobody who writes an age". */
+const SET_ASIDE_AS: Record<AgelessRuleAside, (count: number) => string> = {
+  "no-age-named": (count) =>
+    `${count.toLocaleString()} that play${count === 1 ? "s" : ""} nobody who writes an age`,
+  "no-games": (count) => `${count.toLocaleString()} with no games yet`,
+  "short-roster": (count) => `${count.toLocaleString()} with fewer than nine players`,
+  "no-team-name": (count) => `${count.toLocaleString()} with a name that says it is no team`,
+  "made-up": (count) => `${count.toLocaleString()} with a schedule that reads as made up`,
+  "high-school": (count) => `${count.toLocaleString()} high school side${count === 1 ? "" : "s"}`,
+};
+
+/** The one line under the ten saying what each rule kept off the queue, or nothing when none did. */
+const setAsideLine = (setAside: AgelessSetAside): string =>
+  setAside.length === 0
+    ? ""
+    : `Set aside: ${setAside.map(({ aside, count }) => SET_ASIDE_AS[aside](count)).join(", ")}. ` +
+      "Each comes back here on its own once a later check finds that changed, and Find a team " +
+      "still finds every one.";
+
+/** "you cannot score a game early" as a sentence of its own. */
+const sentence = (because: string): string =>
+  `${because.charAt(0).toUpperCase()}${because.slice(1)}.`;
 
 /**
  * One team, and the three things somebody can say about it.
@@ -125,9 +169,11 @@ function Row({
    * both refused by the import before an age is ever read, so naming one would be worse than
    * useless: the row is revived, the pull refuses it, and `updateAgeUnknown` drops the row for
    * any outcome that is not "no age" — taking the team, and the undo, off this card for good.
-   * The way back from those two is the undo, not an age.
+   * The way back from those two is the undo, not an age. A side set aside only as probably a
+   * school's, by who it plays or initials in its name, is not refused, and can be answered.
    */
-  const answerable = aside !== "dropped" && aside !== "high-school";
+  const answerable =
+    aside !== "dropped" && !(aside === "high-school" && refusedAsSchool(row.entry));
   return (
     <li className="border-t border-slate-100 pt-3 dark:border-slate-800">
       <p className="font-bold text-slate-950 dark:text-white">
@@ -148,15 +194,9 @@ function Row({
       {aside && (
         <p className="mt-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
           {ASIDE_NOTE[aside]}
-        </p>
-      )}
-      {/* A place in the queue is only for a row on it: a search finds the ones off it too. */}
-      {!aside && row.standing && (
-        <p className="mt-1 text-xs font-semibold text-slate-700 dark:text-slate-200">
-          {row.standing.group === "unlikely"
-            ? "Up first, as unlikely to be a real team: "
-            : "Up next, as probably a high school side: "}
-          {row.standing.because}.
+          {SAYS_WHY.has(aside) && row.standing && (
+            <span className="block font-normal">{sentence(row.standing.because)}</span>
+          )}
         </p>
       )}
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{row.why}</p>
@@ -294,12 +334,11 @@ export function AgelessReviewView({
         </button>
       </div>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        {sitting.waiting.toLocaleString()} team{sitting.waiting === 1 ? "" : "s"} nobody could age.
-        GameChanger gave no age group, the name does not say one, and too few of their opponents
-        write one in theirs. Nothing automatic will settle these — the club has to fix its own page,
-        or the team has to play somebody who names an age — so they are here, {AGELESS_BATCH} at a
-        time: the least likely to be a real team first, then the ones that look like a high school
-        side, then the rest. The next {AGELESS_BATCH} come up once these are done.
+        {sitting.waiting.toLocaleString()} team{sitting.waiting === 1 ? "" : "s"} a person can
+        settle. GameChanger gave no age group and the name does not say one, but some of their
+        opponents write an age in theirs, too few to file them by. Nothing automatic has settled
+        these, so they are here, {AGELESS_BATCH} at a time, the least likely to be a real team
+        first. The next {AGELESS_BATCH} come up once these are done.
       </p>
       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
         {sitting.waiting.toLocaleString()} of them is not a queue anybody works {AGELESS_BATCH} at a
@@ -407,6 +446,11 @@ export function AgelessReviewView({
           could age is never kept. Throwing one out takes effect at once and is remembered, so no
           later pull brings it back — which is what both buttons do, one for a club that is not real
           and one for a high school squad, which is real and plays a season this app does not rank.
+        </p>
+      )}
+      {!searching && sitting.setAside.length > 0 && (
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          {setAsideLine(sitting.setAside)}
         </p>
       )}
     </div>

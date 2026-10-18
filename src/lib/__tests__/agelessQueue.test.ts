@@ -2,11 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   AGELESS_BATCH,
   agelessBatch,
+  agelessQueue,
+  agelessRowFor,
   agelessSearch,
   agelessWaiting,
   batchIds,
+  refusedAsSchool,
 } from "../agelessQueue";
-import type { AgeUnknownList } from "../ageUnknown";
+import {
+  ageUnknownAsking,
+  ageUnknownDue,
+  updateAgeUnknown,
+  type AgeUnknownList,
+} from "../ageUnknown";
 import { nameAge } from "../namedAges";
 import { forgetClubs } from "../deletedGames";
 import type { AgelessEvidence } from "../agelessEvidence";
@@ -15,16 +23,31 @@ const NOW = new Date("2026-09-20T12:00:00.000Z");
 const DAY = 86_400_000;
 const daysBefore = (n: number) => new Date(NOW.getTime() - n * DAY).toISOString();
 
+/**
+ * A schedule a person can work from: four games, one opponent writing an age, too few to file it
+ * by. A row with no opponent writing one is set aside since 18 October 2026, so a row meant to be
+ * on the queue says so here, and a row meant to be off it says what keeps it off.
+ */
 const evidence = (extra: Partial<AgelessEvidence> = {}): AgelessEvidence => ({
   games: 4,
   scored: 4,
   aheadOfToday: 0,
   shutoutBlowouts: 0,
   opponents: 4,
-  namedAnAge: 0,
-  tally: [],
+  namedAnAge: 1,
+  tally: [[10, 1]],
   ...extra,
 });
+
+/** The same four games with nobody writing an age: set aside as "no-age-named". */
+const unnamed = (extra: Partial<AgelessEvidence> = {}): AgelessEvidence =>
+  evidence({ namedAnAge: 0, tally: [], ...extra });
+
+/** What the search says stands between each of `ids` and the queue. */
+const asidesOf = (list: AgeUnknownList, ids: string[]) =>
+  Object.fromEntries(
+    ids.map((id) => [id, agelessSearch(list, new Map(), new Set(), NOW, id).hits[0]?.aside ?? null])
+  );
 
 const team = (id: string, extra: Partial<AgeUnknownList[number]> = {}) => ({
   teamId: id,
@@ -46,11 +69,11 @@ describe("the queue of teams waiting on an answer", () => {
   });
 
   /**
-   * The user's order, from 27 September 2026: the teams least likely to be real first, then the
-   * high school sides, then everyone else, least likely real first throughout. Working the list is
-   * clearing it, and the junk clears fastest.
+   * The user's order, from 27 September 2026: the teams least likely to be real first. Since 18
+   * October 2026 the ones past the cut are not on the queue at all, being nothing a person can
+   * answer, and what is left keeps that order.
    */
-  it("puts the teams least likely to be real first", () => {
+  it("puts the teams least likely to be real first, and sets aside one whose schedule is made up", () => {
     const list: AgeUnknownList = [
       team("honest", { evidence: evidence(), lastTried: daysBefore(11) }),
       // Half its games on days that have not happened: less likely than honest, not past the cut.
@@ -61,15 +84,16 @@ describe("the queue of teams waiting on an answer", () => {
       }),
     ];
     const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
-    expect(batchIds(waiting)).toEqual(["invented", "iffy", "honest"]);
-    expect(waiting[0]!.standing).toEqual({
-      group: "unlikely",
-      because: "you cannot score a game early",
-    });
-    expect(waiting[1]!.standing).toBeUndefined();
+    expect(batchIds(waiting)).toEqual(["iffy", "honest"]);
+    expect(waiting[0]!.standing).toBeUndefined();
+    expect(asidesOf(list, ["invented"])).toEqual({ invented: "made-up" });
+    // And the search's row says why, as the queue's would have.
+    expect(
+      agelessSearch(list, new Map(), new Set(), NOW, "invented").hits[0]?.row.standing
+    ).toEqual({ group: "unlikely", because: "you cannot score a game early" });
   });
 
-  it("puts a name nobody gives a team that plays first, and says so", () => {
+  it("sets aside a name nobody gives a team that plays, and the search says why", () => {
     const list: AgeUnknownList = [
       team("real", { name: "Mears 1 - 2026", evidence: evidence() }),
       team("test", { name: "Test", evidence: evidence({ games: 0, scored: 0 }) }),
@@ -77,47 +101,59 @@ describe("the queue of teams waiting on an answer", () => {
       team("default", { name: "Team 1", evidence: evidence() }),
       team("digits", { name: "12345", evidence: evidence() }),
       team("delete", { name: "Delete Me!!", evidence: evidence() }),
+      team("short-name", { name: "AB", evidence: evidence() }),
       // Letters of any script: a club in Taipei is a club.
       team("taipei", { name: "統一獅隊 2025", evidence: evidence() }),
     ];
     const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
-    const unlikely = waiting.filter((row) => row.standing?.group === "unlikely");
 
-    expect(unlikely.map((row) => row.entry.teamId).sort()).toEqual(
-      ["default", "delete", "digits", "practice", "test"].sort()
-    );
-    expect(batchIds(waiting).slice(-2).sort()).toEqual(["real", "taipei"]);
-    expect(waiting.find((row) => row.entry.teamId === "practice")!.standing!.because).toBe(
-      "the name reads as a test, practice or placeholder account"
-    );
+    expect(batchIds(waiting).sort()).toEqual(["real", "taipei"]);
+    expect(
+      asidesOf(list, ["test", "practice", "default", "digits", "delete", "short-name"])
+    ).toEqual({
+      test: "no-team-name",
+      practice: "no-team-name",
+      default: "no-team-name",
+      digits: "no-team-name",
+      delete: "no-team-name",
+      "short-name": "no-team-name",
+    });
+    const why = (query: string) =>
+      agelessSearch(list, new Map(), new Set(), NOW, query).hits[0]?.row.standing?.because;
+    expect(why("practice gc")).toBe("the name reads as a test, practice or placeholder account");
+    expect(why("default")).toBe("the name is only “Team” and a number");
   });
 
-  it("puts the high school sides next, before everyone else", () => {
+  it("sets aside the high school sides, by label, by who they play, and by name", () => {
     const list: AgeUnknownList = [
       team("real", { name: "Mears 1 - 2026", evidence: evidence() }),
+      team("label", {
+        name: "Pimbleton 2 - 2026",
+        evidence: evidence({ ageLabel: "high_varsity" }),
+      }),
       team("initials", {
         name: "LCHS Fall Ball 2026",
         evidence: evidence({ ageLabel: "Between 13 - 18" }),
       }),
       team("hyphen", { name: "Tigers High-school", evidence: evidence() }),
       team("freshman", { name: "Waunakee Freshman Fall Ball", evidence: evidence() }),
+      // Nobody it plays writes an age, and two of them are school sides: it reads as one.
       team("plays", {
         name: "Hendrickson Fall Ball",
-        evidence: evidence({ sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"] }),
+        evidence: unnamed({ sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"] }),
       }),
-      team("test", { name: "Test", evidence: evidence() }),
     ];
-    const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
-
-    expect(batchIds(waiting)[0]).toBe("test");
-    expect(batchIds(waiting).slice(1, 5).sort()).toEqual(
-      ["freshman", "hyphen", "initials", "plays"].sort()
-    );
-    expect(batchIds(waiting)[5]).toBe("real");
-    expect(waiting.find((row) => row.entry.teamId === "plays")!.standing).toEqual({
-      group: "school",
-      because: "it plays varsity and JV sides",
+    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["real"]);
+    expect(asidesOf(list, ["label", "initials", "hyphen", "freshman", "plays"])).toEqual({
+      label: "high-school",
+      initials: "high-school",
+      hyphen: "high-school",
+      freshman: "high-school",
+      plays: "high-school",
     });
+    expect(
+      agelessSearch(list, new Map(), new Set(), NOW, "hendrickson").hits[0]?.row.standing
+    ).toEqual({ group: "school", because: "it plays varsity and JV sides" });
   });
 
   it("does not call a side GameChanger bands under thirteen a high school one", () => {
@@ -127,21 +163,19 @@ describe("the queue of teams waiting on an answer", () => {
     expect(agelessWaiting(list, new Map(), new Set(), NOW)[0]!.standing).toBeUndefined();
   });
 
-  it("keeps the groups in order whatever the evidence says within them", () => {
-    const list: AgeUnknownList = [
-      // More against it than the school side, but not enough to be sorted with the junk.
-      team("iffy", { name: "Mears 1 - 2026", evidence: evidence({ aheadOfToday: 3 }) }),
-      team("school", { name: "Tigers High-school", evidence: evidence() }),
-    ];
-    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["school", "iffy"]);
-  });
-
-  it("puts an empty schedule ahead of a team with games, other things equal", () => {
+  it("sets aside a team with no games yet, one nothing was kept for, and one nobody it plays ages", () => {
     const list: AgeUnknownList = [
       team("played", { name: "Mears 1 - 2026", evidence: evidence() }),
       team("empty", { name: "Mears 2 - 2026", evidence: evidence({ games: 0, scored: 0 }) }),
+      team("bare", { name: "Pimbleton 3 - 2026" }),
+      team("unnamed", { name: "Pimbleton 4 - 2026", evidence: unnamed() }),
     ];
-    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["empty", "played"]);
+    expect(batchIds(agelessWaiting(list, new Map(), new Set(), NOW))).toEqual(["played"]);
+    expect(asidesOf(list, ["empty", "bare", "unnamed"])).toEqual({
+      empty: "no-games",
+      bare: "no-games",
+      unnamed: "no-age-named",
+    });
   });
 
   it("stops asking a person about a team whose name says a high school squad", () => {
@@ -247,9 +281,9 @@ describe("the queue of teams waiting on an answer", () => {
   });
 
   it("says something honest about a team nothing was kept for", () => {
-    const [row] = agelessWaiting([team("bare")], new Map(), new Set(), NOW);
-    expect(row?.why).toMatch(/Nothing was kept about this one/);
-    expect(row?.invented).toBe(0);
+    const row = agelessRowFor(team("bare"));
+    expect(row.why).toMatch(/Nothing was kept about this one/);
+    expect(row.invented).toBe(0);
   });
 });
 
@@ -297,7 +331,13 @@ describe("finding one team by name or id", () => {
       team("no-evidence"),
     ];
     const waiting = agelessWaiting(list, new Map(), new Set(), NOW);
-    expect(batchIds(waiting).sort()).toEqual(["nine", "no-evidence", "uncounted"]);
+    expect(batchIds(waiting).sort()).toEqual(["nine", "uncounted"]);
+    // A row nothing was kept for is no short roster: it is aside for having no games to show.
+    expect(asidesOf(list, ["eight", "nobody", "no-evidence"])).toEqual({
+      eight: "short-roster",
+      nobody: "short-roster",
+      "no-evidence": "no-games",
+    });
   });
 
   it("still finds a short-roster team by name, and says why it is off the queue", () => {
@@ -423,5 +463,250 @@ describe("matching the way a person types", () => {
       (hit) => hit.row.entry.teamId
     );
     expect(order).toEqual(["ID-EXACT", "ID-LOOSE"]);
+  });
+});
+
+/*
+ * The whole queue's order over one row of every kind, pinned before the queue set rows aside by
+ * rule, so the change can be seen to take rows off it and to leave the order of the rest alone.
+ */
+describe("the queue's order, pinned", () => {
+  const named = (n: number, tally: AgelessEvidence["tally"] = [[10, n]]) =>
+    evidence({ namedAnAge: n, tally });
+  const LIST: AgeUnknownList = [
+    team("plain-named", { name: "Pimbleton 1 - 2026", evidence: named(1) }),
+    team("plain-stale", {
+      name: "Pimbleton 2 - 2026",
+      lastTried: daysBefore(30),
+      evidence: named(1),
+    }),
+    team("iffy", {
+      name: "Pimbleton 3 - 2026",
+      evidence: named(2, [
+        [10, 1],
+        [11, 1],
+      ]),
+    }),
+    team("iffy-ahead", { name: "Pimbleton 4 - 2026", evidence: { ...named(1), aheadOfToday: 2 } }),
+    team("lone-v", { name: "Pimbleton V", evidence: named(1) }),
+    team("no-age-named", { name: "Pimbleton 5 - 2026", evidence: unnamed() }),
+    team("no-games", { name: "Pimbleton 6 - 2026", evidence: unnamed({ games: 0, scored: 0 }) }),
+    team("bare", { name: "Pimbleton 7 - 2026" }),
+    team("test", { name: "Test", evidence: named(1) }),
+    team("team-number", { name: "Team 6", evidence: named(1) }),
+    team("digits", { name: "12345", evidence: named(1) }),
+    team("scored-ahead", {
+      name: "Pimbleton 8 - 2026",
+      evidence: { ...named(1), aheadOfToday: 4, shutoutBlowouts: 4 },
+    }),
+    team("school-label", {
+      name: "Pimbleton 9 - 2026",
+      evidence: { ...named(1), ageLabel: "high_varsity" },
+    }),
+    team("plays-schools", {
+      name: "Hendrickson Fall Ball",
+      evidence: unnamed({ sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"] }),
+    }),
+    team("school-initials", { name: "LCHS Fall Ball 2026", evidence: named(1) }),
+    team("short", { name: "Pimbleton 10 - 2026", evidence: { ...named(1), playerCount: 6 } }),
+  ];
+
+  /** The order this list was worked in before rows were set aside by rule, as pinned then. */
+  const ORDER_BEFORE = [
+    "scored-ahead",
+    "test",
+    "team-number",
+    "digits",
+    "school-label",
+    "plays-schools",
+    "school-initials",
+    "iffy-ahead",
+    "no-games",
+    "bare",
+    "lone-v",
+    "plain-stale",
+    "plain-named",
+    "iffy",
+    "no-age-named",
+  ];
+
+  it("takes off only what it sets aside, and leaves the rest in the order they had", () => {
+    const kept = batchIds(agelessWaiting(LIST, new Map(), new Set(), NOW));
+    const aside = asidesOf(
+      LIST,
+      LIST.map((entry) => entry.teamId)
+    );
+    expect(kept).toEqual(ORDER_BEFORE.filter((id) => aside[id] === null));
+    expect(Object.values(aside).filter((one) => one !== null)).toHaveLength(
+      LIST.length - kept.length
+    );
+  });
+
+  it("lists every row on the queue in the order it is worked, the rest in the order they had", () => {
+    expect(
+      agelessWaiting(LIST, new Map(), new Set(), NOW).map(
+        (row) => `${row.entry.teamId}: ${row.standing?.because ?? "-"}`
+      )
+    ).toMatchInlineSnapshot(`
+      [
+        "iffy-ahead: -",
+        "lone-v: -",
+        "plain-stale: -",
+        "plain-named: -",
+        "iffy: -",
+      ]
+    `);
+  });
+});
+
+/*
+ * Set aside by rule, the owner's word of 18 October 2026: only a team a person can answer is on the
+ * queue. Read off the row each time and never stored, so the rota still asks, a re-ask that brings
+ * new evidence puts the row back, and the search finds every one.
+ */
+describe("the rows the queue sets aside by rule", () => {
+  const list = (): AgeUnknownList => [
+    team("open-1", { name: "Pimbleton 1 - 2026", evidence: evidence() }),
+    team("open-2", { name: "Pimbleton 2 - 2026", evidence: evidence() }),
+    team("unnamed-1", { name: "Pimbleton 3 - 2026", evidence: unnamed() }),
+    team("unnamed-2", { name: "Pimbleton 4 - 2026", evidence: unnamed() }),
+    team("unnamed-3", { name: "Pimbleton 5 - 2026", evidence: unnamed() }),
+    team("empty", { name: "Pimbleton 6 - 2026", evidence: evidence({ games: 0, scored: 0 }) }),
+    team("short", { name: "Pimbleton 7 - 2026", evidence: evidence({ playerCount: 6 }) }),
+    team("team-number", { name: "Team 6", evidence: evidence() }),
+    team("ahead", { name: "Pimbleton 0 - 2026", evidence: evidence({ aheadOfToday: 4 }) }),
+    team("school", {
+      name: "Pimbleton 8 - 2026",
+      evidence: evidence({ ageLabel: "high_varsity" }),
+    }),
+    team("school-name", { name: "Pimbleton HS Varsity", evidence: evidence() }),
+    // Answered, or no longer asked about: none of these is a rule's, and none is counted.
+    team("named"),
+    team("dropped"),
+    team("spent", { tries: 99, firstSeen: daysBefore(400), evidence: unnamed() }),
+  ];
+  const NAMED = nameAge(new Map(), { teamId: "named", level: 9, namedAt: NOW.toISOString() });
+  const DROPPED = forgetClubs(new Set<string>(), ["dropped"]);
+
+  it("counts how many each rule set aside, in the card's order, leaving out the answered", () => {
+    const { waiting, setAside } = agelessQueue(list(), NAMED, DROPPED, NOW);
+    expect(batchIds(waiting).sort()).toEqual(["open-1", "open-2"]);
+    expect(setAside).toEqual([
+      { aside: "no-age-named", count: 3 },
+      { aside: "no-games", count: 1 },
+      { aside: "short-roster", count: 1 },
+      { aside: "no-team-name", count: 1 },
+      { aside: "made-up", count: 1 },
+      { aside: "high-school", count: 2 },
+    ]);
+  });
+
+  it("counts nothing for a list it sets nothing aside from", () => {
+    expect(agelessQueue(list().slice(0, 2), new Map(), new Set(), NOW).setAside).toEqual([]);
+  });
+
+  it("still finds every one by search, and says why each is aside", () => {
+    const found = agelessSearch(list(), NAMED, DROPPED, NOW, "pimbleton");
+    expect(
+      Object.fromEntries(found.hits.map((hit) => [hit.row.entry.teamId, hit.aside ?? null]))
+    ).toEqual({
+      "open-1": null,
+      "open-2": null,
+      "unnamed-1": "no-age-named",
+      "unnamed-2": "no-age-named",
+      "unnamed-3": "no-age-named",
+      empty: "no-games",
+      short: "short-roster",
+      ahead: "made-up",
+      school: "high-school",
+      "school-name": "high-school",
+    });
+    // What a person can act on comes first.
+    expect(found.hits.slice(0, 2).map((hit) => hit.row.entry.teamId)).toEqual(["open-1", "open-2"]);
+  });
+
+  it("says first what the owner answered, and the rota's budget, over what a rule reads", () => {
+    // Two have no games kept, which alone would set them aside, and the spent one has nobody it
+    // plays writing an age; the answer and the spent budget are what is worth being told, and what
+    // no later check undoes by itself.
+    expect(asidesOf(list(), ["named", "dropped"])).toEqual({
+      named: "no-games",
+      dropped: "no-games",
+    });
+    const say = (id: string) => agelessSearch(list(), NAMED, DROPPED, NOW, id).hits[0]?.aside;
+    expect([say("named"), say("dropped"), say("spent")]).toEqual([
+      "named",
+      "dropped",
+      "left-alone",
+    ]);
+  });
+
+  /*
+   * The rota is the other half of "comes back by itself": a row set aside has to go on being asked
+   * about, or a team whose next game is against somebody who writes an age would never be asked
+   * the question that settles it.
+   */
+  it("goes on being asked about by the rota, which never reads the queue", () => {
+    const all = list();
+    const asked = ageUnknownDue(all, 100, NOW, NAMED, DROPPED);
+    expect(asked).toEqual(
+      expect.arrayContaining(["unnamed-1", "empty", "short", "team-number", "ahead", "school"])
+    );
+    expect(asked).not.toContain("spent");
+    // Every row but the one thrown out and the one past its budget, as before.
+    expect(ageUnknownAsking(all, NOW, NAMED, DROPPED)).toBe(all.length - 2);
+  });
+
+  it("comes back to the queue by itself when a re-ask brings an opponent who writes an age", () => {
+    const before = list();
+    expect(batchIds(agelessWaiting(before, new Map(), new Set(), NOW))).not.toContain("unnamed-1");
+    const after = updateAgeUnknown(
+      before,
+      [
+        {
+          gcTeamId: "unnamed-1",
+          teamName: "Pimbleton 3 - 2026",
+          skip: "no-age",
+          noAgeEvidence: evidence({ games: 5, scored: 5, opponents: 5 }),
+        } as Parameters<typeof updateAgeUnknown>[1][number],
+      ],
+      NOW.toISOString()
+    );
+    expect(batchIds(agelessWaiting(after, new Map(), new Set(), NOW))).toContain("unnamed-1");
+  });
+
+  it("keeps the rows it sets aside among those a pass of the rules may clear", () => {
+    // The groups the card offers to clear read every row still asked about, as before.
+    const { open } = agelessQueue(list(), NAMED, DROPPED, NOW);
+    expect(open.map((entry) => entry.teamId).sort()).toEqual(
+      [
+        "open-1",
+        "open-2",
+        "unnamed-1",
+        "unnamed-2",
+        "unnamed-3",
+        "empty",
+        "team-number",
+        "ahead",
+        "school",
+      ].sort()
+    );
+  });
+
+  it("refuses an age as a school's only where the import would refuse it", () => {
+    const [label, , plays] = [
+      team("label", {
+        name: "Pimbleton 9 - 2026",
+        evidence: evidence({ ageLabel: "high_varsity" }),
+      }),
+      team("name", { name: "Pimbleton HS Varsity" }),
+      team("plays", {
+        name: "Hendrickson Fall Ball",
+        evidence: unnamed({ sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"] }),
+      }),
+    ];
+    expect(refusedAsSchool(label)).toBe(true);
+    expect(refusedAsSchool(team("name", { name: "Pimbleton HS Varsity" }))).toBe(true);
+    expect(refusedAsSchool(plays)).toBe(false);
   });
 });

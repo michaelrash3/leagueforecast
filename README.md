@@ -2174,6 +2174,39 @@ for all of them, so the counts are kept and say which. "None of its four opponen
 writes an age" is a rec league and will never come good; "two of its three say 9U" is
 settled in a second; no games at all is a blank schedule.
 
+**Only the teams a person can answer.** The owner, 18 October 2026, with 11,489 on the live list:
+"No single person can search through 11,000 teams." So the ten are drawn only from teams with
+something on the row to answer from, and every other row is set aside, for one of five reasons
+read off the row (`setAsideByRule`, `agelessQueue.ts`): the name says it is no team (a word the
+import refuses a page on, "old team" or "not a real", only "Team" and a number, no letters, two
+characters or fewer); the schedule reads as made up (named void or do not use, every game scored
+on a day that has not happened, or `looksInvented` at half a point or more); it reads as a high
+school side (GameChanger's school label, a side that plays varsity and JV teams, a school's name
+or initials the refusal at the door does not take); it has no games yet, or nothing was kept to
+say it has any; or it has games and not one opponent writes an age, which no reading of its
+opponents can ever age. A roster short of nine is set aside as before. Set aside is worked out
+afresh from the row each time and never stored, so nothing is deleted: the rota goes on asking
+about every such team inside its budget (`ageUnknownDue` and `ageUnknownAsking` never read the
+queue), each ask writes a new row with what the schedule says now, and a team whose new row no
+longer reads so is back among the ten by itself. The search still reads the whole list and says
+of each why it is aside, the queue's reason under the note where there is one ("The name is only
+“Team” and a number."), and an age can still be named for any of them but a squad the import
+refuses as a school's by its name or its field. The groups under **Settled by rule**, and the pass
+that clears them, read every row still being asked about, the set-aside rows among them, as they
+read before; the downloaded file holds the queue's rows. Under "Showing 10 of N" the card says in
+one line how many each rule set aside, that each comes back on its own once a later check finds
+that changed, and that Find a team still finds every one; the live page's card says the same,
+from the counts the server's `ageless.queue` now carries.
+
+Measured on the backup of 11 October 2026, read on 18 October: of the 13,169 listed, 3,067 were
+off the queue for a short roster and 10,102 on it. With the rule, 1,873 are on it, the teams at
+least one of whose opponents writes an age; set aside are 6,600 that play nobody who writes an
+age (2,873 of them with six opponents or more), 1,618 with no games, 3,067 with fewer than nine
+players, 10 whose name says no team and one high school side, and none for a made-up schedule,
+the import refusing those at the door now. The first sitting over the list (`agelessSitting`)
+took 150 ms where it took 163, and the next, with every row's reading cached, 12 ms where it took
+28 (medians of seven, Node 24).
+
 **Two opponents agreeing are enough.** Three agreeing is the old bar and still the one a
 split is judged by, but two opponents naming one age with nobody naming another now
 settle a team too (`ageFromTwoOpponents`), held to GameChanger's own band. It was
@@ -2217,8 +2250,9 @@ Best match first — the whole name, then the start of it, then anywhere — bec
 by how invented a page looks puts the wanted team past the cut. That is the point of it: the queue is the small end, ten at a time out of tens of
 thousands, so "I know this club is in here" is very often a team the queue is deliberately not
 showing. A match that is off the queue is shown with the reason — you threw it out, you already
-named its age, the name reads as a high school squad, or it was left alone after its asks ran out
-— and for the two of those that are your own answers, an **Undo that** button takes it back.
+named its age, it reads as a high school squad, it was left alone after its asks ran out, or one
+of the rules that set a row aside — and for the two of those that are your own answers, an **Undo
+that** button takes it back.
 Before this there was no way to undo either one anywhere in the app.
 
 **An age from the organization a team sits under.** The very bottom of the ladder. An
@@ -2530,9 +2564,11 @@ person answering is a third thing that can change the answer and the only one th
 does not know about. Without that, an age typed against an abandoned team sat in storage and never
 reached a schedule.
 
-The teams least likely to be real come first, then the ones that read as high school
-sides, then everyone else — the user's order, since working this list is mostly clearing
-it. **Unlikely to be real** is a name nobody gives a team that plays (the words the import refuses
+From 27 September to 18 October 2026 the teams least likely to be real came first, then the
+ones that read as high school sides, then everyone else — the user's order, since working this
+list was mostly clearing it. Those two groups are the rows now set aside (above), so what is left
+on the queue keeps the order it had among itself: least likely real first, one carrying a lead,
+then the stalest. **Unlikely to be real** is a name nobody gives a team that plays (the words the import refuses
 a page on, `notATeamWord`, and "old team" and "not a real"; "Team 1"; no letters in any script;
 two characters or fewer), a triage rule that says so (named void or do-not-use, every game
 scored on a day that has not happened), or `looksInvented` at half a point or more — the
@@ -7398,7 +7434,11 @@ national places too, every one past 25, which the card never draws.
 
 The card of teams waiting on an age asks four more: the card at a sitting (`ageless.queue`,
 `agelessSitting`), a search of the whole list (`ageless.search`), the file of every team waiting
-(`ageless.file`) and what a pass over the rules ticked would clear (`ageless.clearPlan`). Each
+(`ageless.file`) and what a pass over the rules ticked would clear (`ageless.clearPlan`). The
+sitting carries how many rows each rule set aside (`setAside`); a device reads an answer from a
+server before the counts as none set aside, leaves out a reason a newer server counts that it has
+no words for, and a device from before them never reads the field. A device from before the five
+new reasons refuses a search answer that carries one, until it loads the new build. Each
 team is sent as the entry storage keeps and read back as storage reads one (`oneAgeless`), every
 line of its row worked out on the device from it. The 29 September copy's list held 13,338 teams
 (5.9 MB), 10,509 of them waiting: the sitting took 0.19 s (5 KB), a search 59 ms (12 KB), the file

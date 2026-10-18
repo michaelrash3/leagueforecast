@@ -1,5 +1,12 @@
 import { agelessCsvParts } from "../agelessCsv";
-import { AGELESS_BATCH, agelessSearch, agelessWaiting, type AgelessAside } from "../agelessQueue";
+import {
+  AGELESS_BATCH,
+  agelessQueue,
+  agelessSearch,
+  agelessWaiting,
+  type AgelessAside,
+  type AgelessSetAside,
+} from "../agelessQueue";
 import { agelessClearPlan, agelessSitting, type AgelessGroup } from "../agelessSitting";
 import { agelessClearable, CLEARABLE_RULES } from "../agelessTriage";
 import type { AgeUnknownTeam } from "../ageUnknown";
@@ -142,12 +149,13 @@ const NO_SEASONS: SeasonReader = () => ({ teams: [], matchups: [], logs: {} });
  * - `ageless.queue`: the card of teams waiting on an age at a sitting, on the device's day
  *   (`agelessSitting`), with the ten the device holds pinned: the entries alone, which the device
  *   makes rows of as its own card does (`agelessRowFor`), since every line of a row is worked out
- *   from its entry.
+ *   from its entry; and how many rows each of the queue's rules set aside.
  * - `ageless.search`: the teams on that list answering to `query`, whatever stands between each and
  *   the queue (`agelessSearch`), as entries.
  * - `ageless.file`: the card's file of every team still waiting (`agelessCsvParts`).
  * - `ageless.clearPlan`: what clearing the rows of the rules ticked takes off the list
- *   (`agelessClearPlan`), for the device to ask about and send as one edit.
+ *   (`agelessClearPlan`), over the rows the card's groups count, for the device to ask about and
+ *   send as one edit.
  */
 export type PoolQuery =
   | { kind: "merge.preview"; fromId: string; intoId: string; adopt: ScoutTeam[] }
@@ -301,6 +309,12 @@ export type AgelessQueueAnswer = {
   waiting: number;
   batch: AgeUnknownTeam[];
   groups: AgelessGroup[];
+  /**
+   * How many rows each of the queue's rules set aside (`agelessSitting`). A device reads an answer
+   * from a server before the counts as none set aside, and a device from before them never reads
+   * the field.
+   */
+  setAside: AgelessSetAside;
 };
 
 export type AgelessSearchAnswer = {
@@ -401,6 +415,13 @@ const waitingOn = (today: string) =>
   agelessWaiting(loadAgeUnknown(), loadNamedAges(), loadDroppedClubs(), new Date(today)).map(
     (row) => row.entry
   );
+
+/**
+ * The rows a pass of the rules may clear, on `today`: every row nobody has answered and the rota
+ * still asks about, as the card's groups are counted over (`agelessSitting`).
+ */
+const clearableOn = (today: string) =>
+  agelessQueue(loadAgeUnknown(), loadNamedAges(), loadDroppedClubs(), new Date(today)).open;
 
 /**
  * The game a club's card showed as `shown`, whose id is its place on the card, in the club's games
@@ -569,6 +590,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
         waiting: sitting.waiting,
         batch: sitting.batch.map((row) => row.entry),
         groups: sitting.groups,
+        setAside: sitting.setAside,
       };
     }
     case "ageless.search": {
@@ -593,7 +615,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
     case "ageless.clearPlan":
       return {
         kind: "ageless.clearPlan",
-        ...agelessClearPlan(agelessClearable(waitingOn(query.today)), new Set(query.rules)),
+        ...agelessClearPlan(agelessClearable(clearableOn(query.today)), new Set(query.rules)),
       };
     case "health.summary": {
       const state = storedState();

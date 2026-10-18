@@ -114,6 +114,7 @@ export function LiveAgelessCard({
             waiting: queue.waiting,
             batch: queue.batch.map(agelessRowFor),
             groups: queue.groups,
+            setAside: queue.setAside,
           }
         : null,
     [queue, queueAt, poolRevision]

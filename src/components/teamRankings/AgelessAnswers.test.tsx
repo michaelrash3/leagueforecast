@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { markTaken, resetCloudGuard } from "../../lib/cloud/cloudGuard";
 import { loadAgeUnknown, loadDroppedClubs } from "../../lib/teamRankingsStorage";
 import { ageGroup, renderTeamRankings, team } from "../../test/teamRankingsHarness";
+import type { AgeUnknownList } from "../../lib/ageUnknown";
 
 /*
  * Throwing out a team nobody could age, as the page does it: the id goes on the list a pull
@@ -11,7 +12,7 @@ import { ageGroup, renderTeamRankings, team } from "../../test/teamRankingsHarne
  */
 afterEach(() => resetCloudGuard());
 
-const waiting = [
+const waiting: AgeUnknownList = [
   {
     teamId: "gcWAITING01",
     name: "Waiting Club",
@@ -24,8 +25,9 @@ const waiting = [
       aheadOfToday: 0,
       shutoutBlowouts: 0,
       opponents: 4,
-      namedAnAge: 0,
-      tally: [],
+      // One opponent writing an age, too few to file by: on the queue, for a person to answer.
+      namedAnAge: 1,
+      tally: [[10, 1]],
     },
   },
 ];

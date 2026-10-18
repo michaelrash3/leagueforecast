@@ -9,14 +9,18 @@ import type { AgelessEvidence } from "../../lib/agelessEvidence";
 const NOW = new Date("2026-09-20T12:00:00.000Z");
 const daysBefore = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
 
+/**
+ * Four games and one opponent writing an age, too few to file by: a team a person can answer, so
+ * on the queue. One with no opponent writing an age is set aside, and says so where that is meant.
+ */
 const evidence = (extra: Partial<AgelessEvidence> = {}): AgelessEvidence => ({
   games: 4,
   scored: 4,
   aheadOfToday: 0,
   shutoutBlowouts: 0,
   opponents: 4,
-  namedAnAge: 0,
-  tally: [],
+  namedAnAge: 1,
+  tally: [[10, 1]],
   ...extra,
 });
 
@@ -152,35 +156,93 @@ describe("the review card for teams waiting on an age", () => {
     expect(screen.getByText(/lists fewer than nine players on it/)).toBeInTheDocument();
   });
 
-  /* The user's order: the least likely to be real first, then the high school sides. */
-  it("puts the teams least likely to be real at the top, and says why", () => {
+  /*
+   * The owner's word of 18 October 2026: the ten are teams a person can answer. What used to be
+   * sorted to the top, the names that say no team and the high school sides, is set aside, with
+   * the rows nobody it plays ages and the empty schedules, and the card says how many went where.
+   */
+  it("shows only teams a person can answer, and says how many each rule set aside", () => {
     show([
       team("honest", "An Honest Club"),
       team("school", "Tigers High-school"),
       team("fake", "Test team", {
         evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 12 }),
       }),
+      team("number", "Team 6"),
+      team("unnamed1", "Alder Comets 1", { evidence: evidence({ namedAnAge: 0, tally: [] }) }),
+      team("unnamed2", "Alder Comets 2", { evidence: evidence({ namedAnAge: 0, tally: [] }) }),
+      team("empty", "Alder Comets 3", { evidence: evidence({ games: 0, scored: 0 }) }),
+      team("short", "Alder Comets 4", { evidence: evidence({ playerCount: 5 }) }),
     ]);
-    expect(within(rows()[0]!).getByText("Test team")).toBeInTheDocument();
+    expect(rows()).toHaveLength(1);
+    expect(within(rows()[0]!).getByText("An Honest Club")).toBeInTheDocument();
+    expect(screen.getByText(/Showing 1 of 1\./)).toBeInTheDocument();
     expect(
-      within(rows()[0]!).getByText(
-        "Up first, as unlikely to be a real team: the name reads as a test, practice or placeholder account."
+      screen.getByText(
+        "Set aside: 2 that play nobody who writes an age, 1 with no games yet, 1 with fewer " +
+          "than nine players, 2 with a name that says it is no team, 1 high school side. Each " +
+          "comes back here on its own once a later check finds that changed, and Find a team " +
+          "still finds every one."
       )
     ).toBeInTheDocument();
-    expect(
-      within(rows()[0]!).getByText(/4 scored on a day that has not happened/)
-    ).toBeInTheDocument();
-    expect(within(rows()[1]!).getByText("Tigers High-school")).toBeInTheDocument();
-    expect(
-      within(rows()[1]!).getByText(/Up next, as probably a high school side/)
-    ).toBeInTheDocument();
-    expect(within(rows()[2]!).getByText("An Honest Club")).toBeInTheDocument();
-    expect(within(rows()[2]!).queryByText(/Up (first|next)/)).toBeNull();
-    // And the card says the order it is in, not the one it had.
-    expect(
-      screen.getByText(/the least likely to be a real team first, then the ones that look like/)
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/likeliest real first/)).toBeNull();
+    // The card says what the ten are, and none of the words the owner has ruled off the screen.
+    expect(screen.getByText(/a person can\s+settle/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/closed|isolated|island/i);
+  });
+
+  it("finds a team it set aside, says why, and what the queue read it by", async () => {
+    const user = userEvent.setup();
+    show([
+      ...twelve(),
+      team("number", "Team 6"),
+      team("fake", "Larkspire Nines", {
+        evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 12 }),
+      }),
+      team("unnamed", "Fallowmere Reds", { evidence: evidence({ namedAnAge: 0, tally: [] }) }),
+    ]);
+    const box = screen.getByRole("searchbox", { name: /Find a team/ });
+    await user.type(box, "Team 6");
+    expect(screen.getByText(/the name says it is no team/)).toBeInTheDocument();
+    expect(screen.getByText("The name is only “Team” and a number.")).toBeInTheDocument();
+    await user.clear(box);
+    await user.type(box, "Larkspire");
+    expect(screen.getByText(/its schedule reads as made up/)).toBeInTheDocument();
+    expect(screen.getByText("You cannot score a game early.")).toBeInTheDocument();
+    // An age can still be named for it: nothing refuses a page for being unlikely.
+    expect(screen.getByRole("combobox", { name: /Age for Larkspire Nines/ })).toBeInTheDocument();
+    await user.clear(box);
+    await user.type(box, "Fallowmere");
+    expect(screen.getByText(/nobody it plays writes an age in their name/)).toBeInTheDocument();
+    expect(screen.queryByText(/Up (first|next)/)).toBeNull();
+  });
+
+  it("offers an age for a side set aside as probably a school's, and none where the import refuses it", async () => {
+    const user = userEvent.setup();
+    show([
+      ...twelve(),
+      team("plays", "Hendrickson Fall Ball", {
+        evidence: evidence({
+          namedAnAge: 0,
+          tally: [],
+          sampleOpponents: ["Lincoln HS Varsity", "Round Rock JV"],
+        }),
+      }),
+      team("label", "Brindlewood Badgers", { evidence: evidence({ ageLabel: "high_varsity" }) }),
+    ]);
+    const box = screen.getByRole("searchbox", { name: /Find a team/ });
+    await user.type(box, "Hendrickson");
+    expect(screen.getByText(/It reads as a high school squad/)).toBeInTheDocument();
+    expect(screen.getByText("It plays varsity and JV sides.")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /Age for Hendrickson/ })).toBeInTheDocument();
+    await user.clear(box);
+    await user.type(box, "Brindlewood");
+    expect(screen.getByText("GameChanger files it as a school team.")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /Age for/ })).not.toBeInTheDocument();
+  });
+
+  it("says nothing was set aside when nothing was", () => {
+    show(twelve());
+    expect(screen.queryByText(/^Set aside:/)).toBeNull();
   });
 
   it("gives no place in the queue to a team a search finds off it", async () => {
@@ -206,12 +268,16 @@ describe("the review card for teams waiting on an age", () => {
    * The signal is an ordering and nothing more — an empty schedule is a club somebody made this
    * morning as often as it is a fiction — so the row must not be dressed as a verdict.
    */
-  it("does not colour a row by how invented it looks", () => {
+  it("does not colour a row by how invented it looks", async () => {
+    // Off the queue as made up, and found by search, which draws it as the queue would have.
+    const user = userEvent.setup();
     show([
       team("fake", "Test team", {
         evidence: evidence({ aheadOfToday: 4, shutoutBlowouts: 4, playerCount: 12 }),
       }),
     ]);
+    await user.type(screen.getByRole("searchbox", { name: /Find a team/ }), "Test team");
+    expect(screen.getByText("Looks invented")).toBeInTheDocument();
     expect(rows()[0]!.innerHTML).not.toMatch(/text-red|bg-red|text-emerald|bg-emerald/);
   });
 
@@ -425,7 +491,10 @@ describe("clearing the rows a rule has settled", () => {
     labelled("ADULT2", "MCC Wolves", "college"),
     labelled("SCHOOL1", "Flaming Bulldogs", "high_varsity"),
     labelled("TEEBALL", "MTAA TBall White", "Under 13"),
-    team("REC1", "Fire Chiefs", { evidence: evidence({ ngb: ["little_league"] }) }),
+    // Nobody it plays writes an age: set aside from the queue, and still the rule's to clear.
+    team("REC1", "Fire Chiefs", {
+      evidence: evidence({ ngb: ["little_league"], namedAnAge: 0, tally: [] }),
+    }),
     team("VOID1", "VOID - DO NOT USE"),
     team("PLAIN", "Some Club"),
     team("MUSTANG", "Fillmore Mustangs"),
