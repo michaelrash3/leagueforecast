@@ -11,6 +11,7 @@ import {
   type FewOutsideOpponent,
   type FewOutsideSide,
 } from "../../lib/fewOutside";
+import { segmentLabel } from "../../lib/teamRankings/seasons";
 import { button, pill } from "../../styles/tokens";
 
 /**
@@ -28,13 +29,33 @@ const NAMES_DRAWN = 12;
 const count = (value: number) => value.toLocaleString();
 const plural = (value: number, noun: string) => `${count(value)} ${noun}${value === 1 ? "" : "s"}`;
 
-/** "Glendale Knights (2 games against it, 6 in all)", or "(2 games)" where those are all it has. */
+/** "Alder Comets (1 game against it, 3 in all)", or "(2 games)" where those are all it has. */
 const opponentText = ({ name, games, rated }: FewOutsideOpponent) =>
   rated > games
     ? `${name} (${plural(games, "game")} against it, ${count(rated)} in all)`
     : `${name} (${plural(games, "game")})`;
 
 const sideText = ({ name, rated }: FewOutsideSide) => `${name} (${plural(rated, "game")})`;
+
+/** A group's names as a row draws them: the first twelve, and how many more the copy holds. */
+const sidesText = (sides: readonly FewOutsideSide[]) =>
+  `${sides.slice(0, NAMES_DRAWN).map(sideText).join(" · ")}${
+    sides.length > NAMES_DRAWN ? `, and ${count(sides.length - NAMES_DRAWN)} more in the copy` : ""
+  }`;
+
+/**
+ * Its group's clubs entered by hand, said for what they are: no pull has linked them to
+ * GameChanger, so they are teams to find as much as the ones known only by name. `also` where the
+ * row has named those first.
+ */
+const enteredText = (entered: readonly FewOutsideSide[], also: boolean) => {
+  const one = entered.length === 1;
+  return `${count(entered.length)} of its group's entries ${one ? "was" : "were"} entered by hand and ${
+    one ? "has" : "have"
+  } no GameChanger link; find ${one ? "it" : "them"} on GameChanger and pull ${one ? "it" : "them"}${
+    also ? " too" : " to connect its group"
+  }: ${sidesText(entered)}`;
+};
 
 /** What its group holds, kind by kind, and its games outside itself. */
 const groupText = (group: FewOutsideGroup) =>
@@ -69,8 +90,8 @@ export function FewOutsideSection({
   openTeam,
 }: {
   list: FewOutsideList;
-  /** Opens a club's own panel, with the squad year its row is of. */
-  openTeam?: (teamId: string, year?: number) => void;
+  /** Opens a club's own panel, with the squad year of its row and the page whose board it leads. */
+  openTeam?: (teamId: string, year?: number, pageId?: string) => void;
 }) {
   const [all, setAll] = useState(false);
   const leaders = list.leaders;
@@ -100,11 +121,12 @@ export function FewOutsideSection({
         {leaders.length === 1 ? "plays" : "play"} in{" "}
         {list.groups.length === 1 ? "a group" : `${count(list.groups.length)} groups`} of teams that{" "}
         {list.groups.length === 1 ? "has" : "have"} played fewer than {FEW_OUTSIDE_GAMES} games
-        outside {list.groups.length === 1 ? "itself" : "themselves"}. A club&apos;s rating starts at
-        its group&apos;s level, and the group&apos;s own games cannot say whether that level is
-        right; only games against teams outside it can. GameChanger names those opponents on a
-        schedule but gives them no id, so they are found by hand: copy the names, search for each on
-        GameChanger, and paste its id into the next pull.
+        outside {list.groups.length === 1 ? "itself" : "themselves"}. Each club&apos;s places are
+        those of the board its page opens on. A club&apos;s rating starts at its group&apos;s level,
+        and the group&apos;s own games cannot say whether that level is right; only games against
+        teams outside it can. GameChanger names those opponents on a schedule but gives them no id,
+        so they are found by hand: copy the names, search for each on GameChanger, and paste its id
+        into the next pull.
       </p>
       <ul className="mt-2 space-y-2" aria-label="Leaders with few outside games">
         {shown.map((leader) => {
@@ -113,6 +135,8 @@ export function FewOutsideSection({
           const first = firstIn.get(leader.group);
           if (!first) firstIn.set(leader.group, leader);
           const own = leader.opponents;
+          const named = group.toFind;
+          const entered = group.byHandSides;
           const shownWith = own.length === 0 ? namesWith.get(leader.group) : undefined;
           if (own.length === 0 && !shownWith) namesWith.set(leader.group, leader);
           return (
@@ -123,7 +147,7 @@ export function FewOutsideSection({
               {openTeam ? (
                 <button
                   type="button"
-                  onClick={() => openTeam(leader.teamId, leader.year ?? undefined)}
+                  onClick={() => openTeam(leader.teamId, leader.year ?? undefined, leader.pageId)}
                   className="text-left font-bold text-blue-600 hover:underline dark:text-blue-400"
                 >
                   {leader.name}
@@ -137,6 +161,9 @@ export function FewOutsideSection({
                 </span>
               ) : null}{" "}
               {leader.page}
+              {leader.segment && leader.year !== null
+                ? `, ${segmentLabel(leader.year, leader.segment)}`
+                : ""}
               {leader.rank <= FEW_OUTSIDE_NATIONAL_TOP ? ` · #${leader.rank} nationally` : ""}
               {" · "}
               <span className="whitespace-nowrap">{leader.record}</span>
@@ -148,7 +175,7 @@ export function FewOutsideSection({
                   Pull these opponents to connect its group: {own.map(opponentText).join(" · ")}{" "}
                   <CopyNames sides={own} label="Copy the names" />
                 </p>
-              ) : group.toFind.length === 0 ? (
+              ) : named.length === 0 && entered.length === 0 ? (
                 <p className="mt-0.5">
                   Every team in its group is already pulled
                   {group.slots > 0 ? ", and a TBD names nobody" : ""}, so there is no one in it to
@@ -161,13 +188,12 @@ export function FewOutsideSection({
                 </p>
               ) : (
                 <p className="mt-0.5">
-                  It played no opponent known only by name. Pull these opponents to connect its
-                  group, the ones the rest of its group played:{" "}
-                  {group.toFind.slice(0, NAMES_DRAWN).map(sideText).join(" · ")}
-                  {group.toFind.length > NAMES_DRAWN
-                    ? `, and ${count(group.toFind.length - NAMES_DRAWN)} more in the copy`
-                    : ""}{" "}
-                  <CopyNames sides={group.toFind} label="Copy the names" />
+                  It played no opponent known only by name
+                  {named.length > 0
+                    ? `. Pull these opponents to connect its group, the ones the rest of its group played: ${sidesText(named)}`
+                    : ", and no team in its group is known only by name"}
+                  {entered.length > 0 ? `. ${enteredText(entered, named.length > 0)}` : ""}{" "}
+                  <CopyNames sides={teamsToFind(list, leader)} label="Copy the names" />
                 </p>
               )}
             </li>

@@ -3648,6 +3648,137 @@ describe("Setup on the cloud's board", () => {
     expect(window.location.search).toContain("section=setup");
   });
 
+  /*
+   * The leaders with few outside games cover every page of the year, so most lead a board other
+   * than the one on screen: each opens on the page whose board it leads, as a club found by search
+   * does, and its panel speaks of that page's games. And the boards on screen are for the members'
+   * day, which runs behind the device's from midnight to the night's rebuild: the look asks for the
+   * list on the boards' day, so its places are theirs.
+   */
+  it("opens a leader with few outside games on its own page, the list asked for the boards' day", async () => {
+    const ELEVEN = "ag_11u_2027";
+    const card: ClubCard = {
+      team: { id: "L-11", name: "Placeholder Elevens", state: "OH" },
+      games: [
+        {
+          id: "e1",
+          teamAId: "L-11",
+          teamBId: "E-2",
+          ageGroupId: ELEVEN,
+          teamAScore: 5,
+          teamBScore: 1,
+          date: "2027-03-20",
+        },
+        {
+          id: "e2",
+          teamAId: "E-2",
+          teamBId: "L-11",
+          ageGroupId: ELEVEN,
+          teamAScore: 0,
+          teamBScore: 4,
+          date: "2027-03-27",
+        },
+      ],
+      names: { "E-2": "Placeholder E-2" },
+      age: { level: 11 },
+    };
+    const board = {
+      rows: [
+        row("L-11", 1, { state: "OH", teamName: "Placeholder Elevens", record: "2-0" }),
+        row("E-2", 2, { state: "OH" }),
+      ],
+    };
+    await publish(
+      live,
+      [
+        { key: `board:2027:${PAGE}:spring`, value: SPRING },
+        { key: `board:2027:${PAGE}:fall`, value: FALL },
+        { key: `board:2027:${PAGE}:year`, value: SPRING },
+        { key: `board:2027:${ELEVEN}:spring`, value: board },
+        { key: `board:2027:${ELEVEN}:fall`, value: board },
+        { key: `board:2027:${ELEVEN}:year`, value: board },
+        {
+          key: clubKey(2027, clubBucketOf("L-11")),
+          value: { clubs: { "L-11": encodeClubCard(card) } },
+        },
+      ],
+      {
+        pulledAt: T,
+        halves: { [PAGE]: { fall: 10, spring: 20 }, [ELEVEN]: { fall: 10, spring: 20 } },
+      }
+    );
+    const LOOKED = {
+      kind: "health.inspect",
+      health: {
+        games: 9,
+        played: 9,
+        teams: 3,
+        clubs: 3,
+        nameOnly: 0,
+        placeholders: 0,
+        standInGames: 0,
+        standInPlayed: 0,
+        undated: 0,
+        futureDated: 0,
+        tidied: true,
+      },
+      settleable: 0,
+      lists: { toPull: [], duplicates: [], twins: [], twice: [], wrongAge: [] },
+      toPullCount: 0,
+      fewOutside: {
+        leaders: [
+          {
+            teamId: "L-11",
+            name: "Placeholder Elevens",
+            pageId: ELEVEN,
+            page: "11U 2027",
+            year: 2027,
+            segment: "spring",
+            state: "OH",
+            stateRank: 1,
+            rank: 1,
+            record: "2-0",
+            group: 0,
+            opponents: [],
+          },
+        ],
+        groups: [
+          {
+            sides: 2,
+            pulled: 2,
+            byHand: 0,
+            nameOnly: 0,
+            slots: 0,
+            outside: 0,
+            toFind: [],
+            byHandSides: [],
+          },
+        ],
+      },
+    };
+    // The day after the boards' day, before the night's rebuild has published the next.
+    vi.setSystemTime(new Date("2027-04-16T00:30:00"));
+    onSetup();
+    pool.wants = false;
+    const server = editFunction((data) => {
+      const query = data.query as { kind?: string } | undefined;
+      if (query?.kind === "health.inspect") return answered(LOOKED);
+      return setupAnswers(data);
+    });
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    const listed = await screen.findByRole("list", { name: "Leaders with few outside games" });
+    expect(server.sent).toContainEqual({
+      query: { kind: "health.inspect", today: "2027-04-16", boardDay: TODAY },
+      copy: MANIFEST.copy,
+    });
+    fireEvent.click(within(listed).getByRole("button", { name: "Placeholder Elevens" }));
+    await waitFor(() => expect(window.location.search).toContain("age=11"));
+    expect(window.location.search).toContain("year=2027");
+    const panel = await screen.findByRole("region", { name: "Placeholder Elevens" });
+    await waitFor(() => expect(panel).toHaveTextContent(/in 11U 2027/));
+  });
+
   it("draws Pool health from the server's pool, and stays the page", async () => {
     onSetup();
     pool.wants = false;

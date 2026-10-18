@@ -54,7 +54,7 @@ import {
 } from "../lib/gameChangerImport";
 import { remainingIds } from "../lib/gameChangerPull";
 import { archivedFrom, deriveAllKnown, gamesOnPages, leagueTeamIdsOn } from "../lib/live/allKnown";
-import { countedByHalf } from "../lib/teamRankings/halves";
+import { countedByHalf, segmentWorthShowing } from "../lib/teamRankings/halves";
 import {
   defaultStateOf,
   placesOf,
@@ -180,7 +180,7 @@ import { useLeagueSummary } from "../hooks/useLeagueSummary";
 import { useClubSearch } from "../hooks/useClubSearch";
 import { clubSearchGames } from "../lib/clubSearch";
 import { coachesOf } from "../lib/gcStaff";
-import { segmentWorthShowing, useRankingsPages } from "../hooks/useRankingsPages";
+import { useRankingsPages } from "../hooks/useRankingsPages";
 import { useRankingsWorker } from "../hooks/useRankingsWorker";
 import type { ToastTone } from "../hooks/useToast";
 

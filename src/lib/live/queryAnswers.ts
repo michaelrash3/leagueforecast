@@ -4,6 +4,7 @@ import type { AgelessGroup } from "../agelessSitting";
 import type { ModelCheckAnswer, ScoutBacktestResult } from "../scoutBacktest";
 import { CLOSED_LEVEL_CHECK } from "./closedLevelRecord";
 import { coerceNamedCheck } from "../teamRankings/namedGames";
+import { SEASON_SEGMENT_ORDER } from "../teamRankings/seasons";
 import { coerceCommand, everyOne, oneAgeless } from "./commands";
 import type { AgelessSearchAnswer, AnswerOf, FoldCounts, QueryAnswer, QueryKind } from "./queries";
 import { clubOptionsOf, fillPlanOf, leagueBridgeAnswerOf, startAnswerOf } from "./leagueAnswers";
@@ -301,6 +302,7 @@ const FEW_OUTSIDE: Shape = {
           pageId: "id",
           page: "string",
           year: { nullable: "count" },
+          segment: { nullable: { oneOf: SEASON_SEGMENT_ORDER } },
           state: { optional: "string" },
           stateRank: { nullable: "count" },
           rank: "count",
@@ -320,6 +322,7 @@ const FEW_OUTSIDE: Shape = {
           slots: "count",
           outside: "count",
           toFind: { list: { record: FEW_OUTSIDE_SIDE } },
+          byHandSides: { list: { record: FEW_OUTSIDE_SIDE } },
         },
       },
     },

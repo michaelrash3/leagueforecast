@@ -11,6 +11,7 @@ import {
 } from "./fewOutside";
 import { deriveAllKnown, gamesOnPages, type AllKnown, type SeasonReader } from "./live/allKnown";
 import { asWorkerSees, ratingPools } from "./live/views/board";
+import { countedByHalf, defaultSegmentFor, segmentWorthShowing } from "./teamRankings/halves";
 import {
   ageGroupYear,
   fitScoutYearFor,
@@ -23,24 +24,27 @@ import {
   type ScoutRankingRow,
   type ScoutTeam,
   type ScoutYearFit,
+  type SeasonSegment,
 } from "./teamRankings";
 
 /**
- * Pool health's leaders with few outside games (`fewOutside.ts`), worked out from the year boards
- * and the fit they were cut from: the boards say who leads (their order, each club's state, and
- * whether it is in the largest piece and how many games its community has played outside itself);
- * the fit says what each club's community is made of and whom it played (`nodes`, `communities`,
- * `rated`). Pure, and read by the server's answer to Pool health's look (`health.inspect`) and by
- * the device's tidy worker (`tidyProtocol.ts`) alike, through `fewOutsideOfPool`, which builds the
- * year boards from a stored pool as the boards are built.
+ * Pool health's leaders with few outside games (`fewOutside.ts`), worked out from the boards the
+ * pages open on and the fit they were cut from: the boards say who leads (their order, each club's
+ * state, and whether it is in the largest piece and how many games its community has played
+ * outside itself); the fit says what each club's community is made of and whom it played
+ * (`nodes`, `communities`, `rated`). Pure, and read by the server's answer to Pool health's look
+ * (`health.inspect`) and by the device's tidy worker (`tidyProtocol.ts`) alike, through
+ * `fewOutsideOfPool`, which builds those boards from a stored pool as the boards are built.
  */
 
-/** One page's year board, as the list reads it. */
-export type YearBoardPage = {
+/** One page's board, the one it opens on, as the list reads it. */
+export type BoardPage = {
   pageId: string;
   /** The page's name, as its tab shows it. */
   page: string;
   year: number | null;
+  /** The half the board is of; null for the whole year's, a page with no year's only board. */
+  segment: SeasonSegment | null;
   /** Its rows in the board's order: a row's place is its national rank. */
   rows: ReadonlyArray<
     Pick<ScoutRankingRow, "teamId" | "teamName" | "record" | "comparable" | "outsideGames">
@@ -49,10 +53,10 @@ export type YearBoardPage = {
   stateOf: (teamId: string) => string | undefined;
 };
 
-/** One year fit and the pages' year boards cut from it. */
-export type YearBoards = {
+/** One fit, of a year or of a half, and the pages' boards cut from it. */
+export type FitBoards = {
   fit: Pick<ScoutYearFit, "nodes" | "communities" | "rated">;
-  pages: readonly YearBoardPage[];
+  pages: readonly BoardPage[];
 };
 
 type Kind = "pulled" | "byHand" | "nameOnly" | "slot";
@@ -89,12 +93,12 @@ const listed = (
 type Found = Omit<FewOutsideLeader, "group"> & { key: string; order: number };
 
 /**
- * The list from every year's boards, each year's fit let go as the next is read, so a caller that
- * hands over a generator holds one fit at a time. Leaders are sorted by state rank, a club with no
+ * The list from every fit's boards, each fit let go as the next is read, so a caller that hands
+ * over a generator holds one fit at a time. Leaders are sorted by state rank, a club with no
  * state after every club with one, then by national rank, then by the order their pages came in,
  * then by id; groups are numbered by the leader that comes first in them.
  */
-export const fewOutsideLeaders = (years: Iterable<YearBoards>): FewOutsideList => {
+export const fewOutsideLeaders = (years: Iterable<FitBoards>): FewOutsideList => {
   const found: Found[] = [];
   const groupsByKey = new Map<string, FewOutsideGroup>();
   let year = 0;
@@ -127,6 +131,7 @@ export const fewOutsideLeaders = (years: Iterable<YearBoards>): FewOutsideList =
             pageId: page.pageId,
             page: page.page,
             year: page.year,
+            segment: page.segment,
             ...(state ? { state } : {}),
             stateRank,
             rank,
@@ -185,6 +190,10 @@ export const fewOutsideLeaders = (years: Iterable<YearBoards>): FewOutsideList =
             .filter((at) => kinds[at] === "nameOnly")
             .map(sideOf)
             .sort(bySide),
+          byHandSides: held
+            .filter((at) => kinds[at] === "byHand")
+            .map(sideOf)
+            .sort(bySide),
         });
       });
 
@@ -233,14 +242,22 @@ export type FewOutsideInput = {
 };
 
 /**
- * Every year board of a stored pool with the fit it was cut from, built as `buildBoardsAndFacts`
- * builds the year's boards (`board.ts`): the pages' rating pools in their order, each page's year
- * known once for its year (`deriveAllKnown`) and its pool after the worker's codec
- * (`asWorkerSees`), one fit for the pages of a pool that share a fit year, with no half and no past
- * weeks, and each club's state off its year's roster, the last of a repeated id winning, as the
- * boards' facts read it. A pool's fits are handed over before the next pool is fitted.
+ * The board each page of a stored pool opens on, with the fit it was cut from, built as
+ * `buildBoardsAndFacts` builds that half's boards (`board.ts`): the pages' rating pools in their
+ * order, each page's year known once for its year (`deriveAllKnown`) and its pool after the
+ * worker's codec (`asWorkerSees`), one fit for the pages of a pool that share a half and a fit
+ * year, with no past weeks, and each club's state off its year's roster, the last of a repeated id
+ * winning, as the boards' facts read it. A pool's fits are handed over before the next pool is
+ * fitted.
+ *
+ * The half is the one a page opens on where its address names none, on the device and the live
+ * page alike: the calendar's for the page's year, unless that half holds under a tenth of the
+ * other's counted games (`segmentWorthShowing`, over `countedByHalf` of the games its boards are
+ * fitted from, the counts the boards publish as `PageFacts.halves`), and the whole year for a page
+ * with no year. Pages of one pool share their games and year, so they share a half, and the list
+ * fits no more than the boards do.
  */
-export function* yearBoardsOf(input: FewOutsideInput): Generator<YearBoards> {
+export function* openedBoardsOf(input: FewOutsideInput): Generator<FitBoards> {
   const { ageGroups, teams, gamesOfYear, readSeason, autoRemoved, today } = input;
   const byId = new Map<string, AgeGroup>();
   ageGroups.forEach((group) => {
@@ -268,8 +285,11 @@ export function* yearBoardsOf(input: FewOutsideInput): Generator<YearBoards> {
   };
 
   for (const pageIds of ratingPools(ageGroups)) {
-    const shipped = new Map<string, { teams: ScoutTeam[]; games: ScoutGame[] }>();
-    const fits = new Map<string, { fit: ScoutYearFit; pages: YearBoardPage[] }>();
+    const shipped = new Map<
+      string,
+      { teams: ScoutTeam[]; games: ScoutGame[]; segment: SeasonSegment | undefined }
+    >();
+    const fits = new Map<string, { fit: ScoutYearFit; pages: BoardPage[] }>();
     for (const pageId of pageIds) {
       const page = byId.get(pageId);
       const year = ageGroupYear(page);
@@ -278,13 +298,25 @@ export function* yearBoardsOf(input: FewOutsideInput): Generator<YearBoards> {
       const { all, states } = knownFor(year);
       let pool = shipped.get(poolKey);
       if (!pool) {
-        pool = asWorkerSees(all.teams, gamesOnPages(all.games, poolIds));
+        const games = gamesOnPages(all.games, poolIds);
+        pool = {
+          ...asWorkerSees(all.teams, games),
+          segment: segmentWorthShowing(
+            defaultSegmentFor(year, today),
+            countedByHalf(games, year, today)
+          ),
+        };
         shipped.set(poolKey, pool);
       }
-      const fitKey = JSON.stringify([poolKey, scoutFitYear(pageId, ageGroups) ?? null]);
+      const { segment } = pool;
+      const fitKey = JSON.stringify([
+        poolKey,
+        segment ?? null,
+        scoutFitYear(pageId, ageGroups) ?? null,
+      ]);
       let held = fits.get(fitKey);
       if (!held) {
-        const fit = fitScoutYearFor(pageId, pool.teams, pool.games, ageGroups, undefined, today);
+        const fit = fitScoutYearFor(pageId, pool.teams, pool.games, ageGroups, segment, today);
         if (!fit) continue;
         held = { fit, pages: [] };
         fits.set(fitKey, held);
@@ -295,6 +327,7 @@ export function* yearBoardsOf(input: FewOutsideInput): Generator<YearBoards> {
         pageId,
         page: page?.name ?? pageId,
         year: year ?? null,
+        segment: segment ?? null,
         rows,
         stateOf: (teamId) => states.get(teamId),
       });
@@ -303,6 +336,6 @@ export function* yearBoardsOf(input: FewOutsideInput): Generator<YearBoards> {
   }
 }
 
-/** The list of a stored pool (`fewOutsideLeaders` over `yearBoardsOf`). */
+/** The list of a stored pool (`fewOutsideLeaders` over `openedBoardsOf`). */
 export const fewOutsideOfPool = (input: FewOutsideInput): FewOutsideList =>
-  fewOutsideLeaders(yearBoardsOf(input));
+  fewOutsideLeaders(openedBoardsOf(input));

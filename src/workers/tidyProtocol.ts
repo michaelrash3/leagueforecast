@@ -99,7 +99,7 @@ export type InspectRequest = {
    * put its games back on the boards unsaid.
    */
   leftOut?: string[];
-  /** What the year boards are built with beyond the pool, for the leaders with few outside games. */
+  /** What the boards are built with beyond the pool, for the leaders with few outside games. */
   boards?: BoardsAsked;
 };
 export type WorkerRequest = TidyRequest | InspectRequest;

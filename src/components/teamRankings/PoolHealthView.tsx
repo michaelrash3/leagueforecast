@@ -125,9 +125,10 @@ export type PoolHealthActions = {
   /**
    * Opens a club's own panel, for a list that names clubs to look at, with the squad year its row
    * is of where the row says one: the live page reads a club's card by year, and opened a club of
-   * another year on the board's, which has no card of it.
+   * another year on the board's, which has no card of it. And with the page whose board names it,
+   * where the row knows one: opened on the page on screen, the panel spoke of that page's games.
    */
-  openTeam?: (teamId: string, year?: number) => void;
+  openTeam?: (teamId: string, year?: number, pageId?: string) => void;
   /** Downloads every club worth pulling, as a file. */
   downloadToPull: () => void;
 };

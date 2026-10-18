@@ -1,22 +1,27 @@
+import type { SeasonSegment } from "./teamRankings/seasons";
+
 /**
  * Pool health's list of the leaders whose schedules reach least far beyond their own group: every
- * club in a state's top ten or the nation's top twenty-five on its page's year board whose
- * community of the schedule (`scheduleCommunities.ts`) has played fewer than `FEW_OUTSIDE_GAMES`
- * rated games outside itself, or that is off the largest piece altogether (`comparable` false).
+ * club in a state's top ten or the nation's top twenty-five on the board its page opens on (the
+ * calendar's half where it holds enough of the play, as the page picks it, and the whole year for
+ * a page with no year) whose community of the schedule (`scheduleCommunities.ts`) has played fewer
+ * than `FEW_OUTSIDE_GAMES` rated games outside itself, or that is off the largest piece altogether
+ * (`comparable` false).
  *
  * Such a club's rating starts at its group's level, and only games against teams outside the group
  * can say whether that level is right. GameChanger names an opponent on a schedule but gives it no
  * id, so the owner has to find those opponents and paste them into a pull. The list says which:
  * each club's opponents known only by name, with their games, and where it played none, its
- * group's. It is worked out from the boards' own rows and fit (`fewOutsideLeaders.ts`), by the
+ * group's, and the clubs in its group entered by hand, which no pull has linked to GameChanger
+ * either. It is worked out from the boards' own rows and fit (`fewOutsideLeaders.ts`), by the
  * device's worker and the server alike, so the two cards show one list; this module is what the
  * card reads it with, and pulls in nothing of the fit.
  *
- * Measured on the owner's backup of 11 October 2026 (the 2027 squad year's year boards, 222,010
- * rated games): 1,160 clubs in 652 groups, 1,020 of them off the largest piece and 140 in it with 1
- * or 2 outside games, between them 1,900 distinct opponents known only by name over 2,928 games;
- * 422 clubs played none of their own, and 192 of those sit in groups where every side is pulled
- * already, with nothing left to find.
+ * Measured on the owner's backup of 11 October 2026 (the 2027 squad year's fall boards, which its
+ * pages open on and which held all 222,010 of its rated games): 1,160 clubs in 652 groups, 1,020 of
+ * them off the largest piece and 140 in it with 1 or 2 outside games, between them 1,900 distinct
+ * opponents known only by name over 2,928 games; 422 clubs played none of their own, and 192 of
+ * those sit in groups where every side is pulled already, with nothing left to find.
  */
 
 /** A community with fewer rated games than this outside itself puts its leaders on the list. */
@@ -52,6 +57,12 @@ export type FewOutsideGroup = {
   outside: number;
   /** Its sides known only by name, the most rated games first: the teams to find for it. */
   toFind: FewOutsideSide[];
+  /**
+   * Its clubs entered by hand, the most rated games first: a League Standings team no pulled club
+   * stands for, or an opponent typed in. No pull has linked them to GameChanger, so they are found
+   * by hand too.
+   */
+  byHandSides: FewOutsideSide[];
 };
 
 export type FewOutsideLeader = {
@@ -61,6 +72,11 @@ export type FewOutsideLeader = {
   pageId: string;
   page: string;
   year: number | null;
+  /**
+   * The half of the year its board is of, the one its page opens on; null for a page with no year,
+   * whose one board is the whole of it.
+   */
+  segment: SeasonSegment | null;
   state?: string;
   /** Its place on its state's board of the page; null for a club with no state. */
   stateRank: number | null;
@@ -81,13 +97,17 @@ export type FewOutsideList = { leaders: FewOutsideLeader[]; groups: FewOutsideGr
 
 /**
  * The teams to find for a leader: the ones it played, or where it played none known only by name,
- * the ones its group did. Pulling them is what can join its group to the rest of the schedule.
+ * its group's, those known only by name and then those entered by hand. Pulling them is what can
+ * join its group to the rest of the schedule.
  */
 export const teamsToFind = (
   list: Pick<FewOutsideList, "groups">,
   leader: Pick<FewOutsideLeader, "group" | "opponents">
-): readonly FewOutsideSide[] =>
-  leader.opponents.length > 0 ? leader.opponents : (list.groups[leader.group]?.toFind ?? []);
+): readonly FewOutsideSide[] => {
+  if (leader.opponents.length > 0) return leader.opponents;
+  const group = list.groups[leader.group];
+  return group ? [...group.toFind, ...group.byHandSides] : [];
+};
 
 /** Names as the copy button hands them over: one a line, each once, ready to search for. */
 export const namesText = (sides: readonly Pick<FewOutsideSide, "name">[]): string =>

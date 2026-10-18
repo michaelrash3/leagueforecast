@@ -165,7 +165,7 @@ describe("the tidy worker's side of the protocol", () => {
   });
 
   /*
-   * The leaders with few outside games read the year boards, which the boards build with League
+   * The leaders with few outside games read the boards, which are built with League
    * Standings' seasons and the marks of the clubs taken off; the worker reads neither from storage,
    * so it lists them only when the page sends both, and then as the boards' own walk lists them.
    */

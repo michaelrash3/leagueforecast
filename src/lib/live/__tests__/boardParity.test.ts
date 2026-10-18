@@ -62,6 +62,7 @@ import {
 import { coerceLivePages } from "../views/boardShape";
 import { NO_REMOVALS, type AutoRemovals } from "../../autoRemoved";
 import type * as Communities from "../../scheduleCommunities";
+import { REPEAT_CASES, REPEAT_TEAMS, type RepeatCase } from "./repeatedPageIds";
 
 /**
  * The boards as the rules before 7 built them, every club starting at average, for the pins of
@@ -835,114 +836,10 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * level and year the last (`indexGroups`). Each page's board must still be the worker's
      * answer to the page's request, and come out once.
      */
-    const teams: ScoutTeam[] = ["A", "B", "C", "D"].map((id) => ({ id, name: `Club ${id}` }));
-    const played = (id: string, ageGroupId: string, pair: string, date: string): ScoutGame => ({
-      id,
-      ageGroupId,
-      teamAId: pair[0] ?? "",
-      teamBId: pair[1] ?? "",
-      teamAScore: 7,
-      teamBScore: 4,
-      date,
-    });
-    const page = (id: string, ageLevel: number, year: number, more: Partial<AgeGroup> = {}) => ({
-      id,
-      name: `${ageLevel}U ${year}`,
-      ageLevel,
-      year,
-      seasonIds: [],
-      ...more,
-    });
-    const thisYear = [
-      played("a", "d9", "AB", "2027-03-07"),
-      played("b", "d9", "BC", "2027-03-07"),
-      played("c", "d10", "CA", "2027-03-07"),
-      played("d", "d10", "DA", "2027-03-14"),
-    ];
-    it.each<[string, AgeGroup[], ScoutGame[], string[]]>([
-      [
-        "with a club of its own, which the page's first copy does not name",
-        [page("d9", 9, 2027), page("d10", 10, 2027), page("d9", 9, 2027, { myTeamId: "B" })],
-        thisYear,
-        ["d9", "d10"],
-      ],
-      [
-        "too young to rank, after the copy that is not",
-        [page("d9", 9, 2027), page("d10", 10, 2027), page("d9", 8, 2027)],
-        thisYear,
-        ["d10"],
-      ],
-      [
-        "old enough to rank, after the copy that is not",
-        [page("d9", 8, 2027), page("d9", 9, 2027), page("d10", 10, 2027)],
-        thisYear,
-        ["d9", "d10"],
-      ],
-      [
-        // The fit reads the repeat's year, so the first copy's games fall outside it: no rows,
-        // from the worker as from the builder.
-        "in another squad year",
-        [page("d10", 10, 2027), page("e10", 10, 2026), page("d10", 10, 2026)],
-        [
-          played("a", "d10", "AB", "2027-03-07"),
-          played("b", "d10", "BC", "2027-03-07"),
-          played("c", "e10", "CD", "2026-03-07"),
-          played("d", "e10", "DA", "2026-03-14"),
-        ],
-        ["e10"],
-      ],
-      [
-        // Listed in last year's rating pool, which names the repeat, but asked with its own.
-        "in another squad year, whose pool names it first",
-        [page("e10", 10, 2026), page("d10", 10, 2027), page("d10", 10, 2026)],
-        [
-          played("a", "d10", "AB", "2027-03-07"),
-          played("b", "d10", "BC", "2027-03-07"),
-          played("c", "e10", "CD", "2026-03-07"),
-          played("d", "e10", "DA", "2026-03-14"),
-        ],
-        ["e10"],
-      ],
-      [
-        // One pool, two fits: the repeat's year for its own page, this year for the other.
-        "in another squad year, beside a page of its first copy's year",
-        [page("d9", 9, 2027), page("d10", 10, 2027), page("d9", 9, 2026)],
-        thisYear,
-        ["d9", "d10"],
-      ],
-      [
-        // One pool's pages under the same ids, read from two different years' games.
-        "with another page, each repeated in the other's year",
-        [page("d9", 9, 2026), page("d10", 10, 2027), page("d9", 9, 2027), page("d10", 10, 2026)],
-        [
-          played("a", "d9", "AB", "2027-03-07"),
-          played("b", "d9", "BC", "2027-03-07"),
-          played("c", "d10", "CD", "2026-03-07"),
-          played("d", "d10", "DA", "2026-03-14"),
-        ],
-        ["d9", "d10"],
-      ],
-      [
-        // Two pages with no year, listed in this year's pool by their repeats, each its own pool.
-        "with no year, beside another, both repeated in this year",
-        [
-          page("d10", 10, 2027),
-          { id: "u9", name: "Rec 9U", seasonIds: [] },
-          { id: "u11", name: "Rec 11U", seasonIds: [] },
-          page("u9", 9, 2027),
-          page("u11", 11, 2027),
-        ],
-        [
-          played("a", "u9", "AB", "2027-03-07"),
-          played("b", "u11", "CD", "2027-03-07"),
-          played("c", "d10", "DA", "2027-03-14"),
-        ],
-        ["d10", "u9", "u11"],
-      ],
-    ])("%s", (_case, groups, games, ranked) => {
+    it.each<RepeatCase>(REPEAT_CASES)("%s", (_case, groups, games, ranked) => {
       const built = expectParity({
         ageGroups: groups,
-        teams,
+        teams: REPEAT_TEAMS,
         gamesOfYear: byYear(groups, games),
         readSeason,
         autoRemoved: NO_REMOVALS,
