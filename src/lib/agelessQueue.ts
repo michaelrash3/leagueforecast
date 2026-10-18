@@ -662,8 +662,12 @@ export const agelessSearch = (
   });
   found.sort(
     (a, b) =>
-      // What somebody can act on, then how well it answers, then alphabetically — which is the
-      // one order a person scanning a list can predict.
+      // The team whose whole name or id was typed, whatever stands between it and the queue: most
+      // of the list is set aside since 18 October 2026, so "Team 7" typed in full would otherwise
+      // sit behind every looser match the queue can act on and fall outside the cut. Then what
+      // somebody can act on, then how well it answers, then alphabetically — which is the one
+      // order a person scanning a list can predict.
+      Number(b.well === 3) - Number(a.well === 3) ||
       Number(Boolean(a.aside)) - Number(Boolean(b.aside)) ||
       b.well - a.well ||
       byName(a.entry, b.entry)

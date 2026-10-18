@@ -408,6 +408,23 @@ describe("finding one team by name or id", () => {
     expect(found.total).toBe(40);
     expect(found.hits).toHaveLength(25);
   });
+
+  it("keeps a team whose whole name was typed in the answer, set aside or not", () => {
+    // Thirty loose matches the queue can act on would otherwise fill the 25 ahead of it, and the
+    // card would say to type more of a name typed in full.
+    const crowd: AgeUnknownList = [
+      ...Array.from({ length: 30 }, (_, i) =>
+        team(`open${i}`, { name: `Alder Team 7 Comets ${i}`, evidence: evidence() })
+      ),
+      team("target", { name: "Team 7", evidence: evidence() }),
+    ];
+    const found = agelessSearch(crowd, new Map(), new Set(), NOW, "team 7", 25);
+    expect(found.total).toBe(31);
+    expect(found.hits[0]?.row.entry.teamId).toBe("target");
+    expect(found.hits[0]?.aside).toBe("no-team-name");
+    // Below the whole name, what somebody can act on still comes first.
+    expect(found.hits.slice(1).every((hit) => hit.aside === undefined)).toBe(true);
+  });
 });
 
 /**
