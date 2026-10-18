@@ -1487,6 +1487,13 @@ no mark, and nothing in the pool tells its fold from the first version's, so the
 the merged name again as a stand-in for such a row; the game still counts once while the copy
 holds it.
 
+A claim the club's own row makes in the copy it sits on counts for the reclaim too. With its own
+row folded away, the club no longer held the game by its schedule, so a namesake whose own row
+stood against another stand-in of the name took the copy; the claim then stood back up, held the
+game again, and the two clubs took turns with it on every pass. On the backup of 11 October 2026
+four copies did, and every tidy ran to its six-pass limit. Where the claim holds the game, only a
+namesake whose own row stands against the puller itself takes the copy.
+
 On that pool the tidy claims 2,997 rows: 1,782 filed against a pulled club, 939 against a named
 stand-in and 276 slots, in three passes; a second tidy after a storage round trip changes nothing,
 no row is held twice, the tidy takes out only the 28 rows it took out before, and 883 stand-ins
