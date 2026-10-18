@@ -1491,7 +1491,8 @@ row as B's own row of the game, as it reads a claim a merge settled (`isJoinedCl
 step leaves it to the join, which it would otherwise give back each pass for the join to make again;
 the regroup keeps B's schedule on record, so B's other game against A that day is not read as this
 one; and the reclaim does not move the game to another club of B's name. A pull of either schedule
-finds its row by id and changes nothing, and a refresh of B's page that cannot see the game on A's
+finds its row by id and changes nothing, unless A's schedule now types another age for B, or none,
+which the game keeps as the level to put back; and a refresh of B's page that cannot see the game on A's
 files the row again, which the tidy folds back in (**One row, one place**). A game the user has
 thrown out stays as the user left it, and one whose stand-in has since gone from the roster keeps
 the join as a plain claim. Deleting B, or B taken off the boards for the user (**Clubs removed for

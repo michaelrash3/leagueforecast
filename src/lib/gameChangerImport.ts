@@ -3137,8 +3137,22 @@ const importOne = (
         ? `Also reported ${existing.teamAScore}-${existing.teamBScore}.`
         : undefined;
     const { scoreFromB: _borrowed, scoreFromTwin: _twin, ...unborrowed } = recorded;
+    /*
+     * A game the namesake join made, on its own schedule's pull: the age that schedule types for
+     * side B now is the one to put back (`joinedFromLevel`), as `differs` reads it. Kept at the age
+     * typed when it was joined, every pull after counted the game updated again, and a join taken
+     * back put the row back at an age its schedule no longer says. Side B's own level stays.
+     */
+    const kept = ownAtLast ? unborrowed : recorded;
+    const { joinedFromLevel: _typed, ...untyped } = kept;
+    const base =
+      existing === known && existing.joinedFrom !== undefined
+        ? candidate.ageLevelB === undefined
+          ? untyped
+          : { ...kept, joinedFromLevel: candidate.ageLevelB }
+        : kept;
     const merged: ScoutGame = {
-      ...(ownAtLast ? unborrowed : recorded),
+      ...base,
       ...(isScored(candidate) ? { teamAScore: scores.a, teamBScore: scores.b } : {}),
       ...(candidate.season ? { season: candidate.season } : {}),
       ...(displaced ? { note: withNote(existing.note, displaced) } : {}),
