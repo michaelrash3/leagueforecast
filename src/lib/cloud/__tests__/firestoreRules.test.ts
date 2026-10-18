@@ -43,6 +43,8 @@ import {
 import { stageUploadIn } from "../firebaseCloud";
 import { packUpload, readUpload, uploadChunksPath, uploadPath } from "../uploads";
 import { coerceLedger, REBUILD_LEDGER_PATH, restLedgerStore } from "../../live/rebuildLedger";
+import { coerceClosedLevelRecord, readLastClosedLevel } from "../../live/closedLevelRecord";
+import { restServerStores } from "../../live/serverStores";
 import { unpackChunks } from "../cloudPack";
 import { docToSeason, LEAGUE_COLLECTION, seasonDocId, seasonToDoc } from "../../live/leagueDocs";
 import { unsaved, writesFor } from "../../live/leagueLive";
@@ -634,6 +636,37 @@ describe.skipIf(!HOST)("the views a server publishes, on the Firestore emulator"
     if (!entry) throw new Error("no entry");
     return entry;
   };
+
+  it("keep the weekly re-measure where the list reads it, and nobody else", async () => {
+    // Written as the nightly's live run writes it, read as the Model check card reads it.
+    const record = {
+      format: 1,
+      measuredOn: "2027-04-12",
+      measuredAt: "2027-04-12T08:40:00.000Z",
+      year: 2027,
+      check: {
+        held: -1.6,
+        level: -1.74,
+        standardError: 0.16,
+        games: 457,
+        clusters: 300,
+        weeks: [{ from: "2027-04-05", to: "2027-04-11", games: 120, level: -1.7 }],
+        paired: { by: -0.0001, standardError: 0.0001, samples: 457 },
+        better: false,
+      },
+    };
+    const stores = restServerStores(
+      { projectId: PROJECT, token: async () => "owner", origin: `http://${HOST}` },
+      true
+    );
+    await stores.writeClosedLevel(record);
+    expect(coerceClosedLevelRecord(await stores.readClosedLevel())).toEqual(record);
+    for (const account of [OWNER, LAPTOP]) {
+      expect(await readLastClosedLevel(async () => firestoreLive(as(account)))).toEqual(record);
+    }
+    await expect(firestoreLive(as(STRANGER)).readClosedLevel?.()).rejects.toMatchObject(REFUSED);
+    expect(await readLastClosedLevel(async () => firestoreLive(as(STRANGER)))).toBeNull();
+  });
 
   it("are read by the accounts on the list, the meta and every piece it names", async () => {
     const entry = await published();

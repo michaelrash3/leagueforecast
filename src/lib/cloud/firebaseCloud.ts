@@ -28,6 +28,7 @@ import type { FirebaseWebConfig } from "./cloudConfig";
 import type { CloudStore } from "./cloudEngine";
 import { coercePullJob, jobPath, jobPiecePath, type PullJob } from "./pullJobs";
 import { firestoreLeague, type LeagueStore } from "../live/leagueStore";
+import { CLOSED_LEVEL_PATH } from "../live/closedLevelPath";
 import type { LiveReader, MetaWatch } from "../live/viewStore";
 import { coerceManifest, UnreadableCopyError } from "./cloudManifest";
 import { restoreBackupOnServer, restoreOnServer, type RestoreAnswer } from "./serverRestore";
@@ -309,6 +310,11 @@ export const firestoreLive = (db: Firestore): LiveReader => ({
     return snap.exists() ? snap.data() : null;
   },
   getChunk: (id) => bytesOf(db, LIVE_CHUNKS, id),
+  readClosedLevel: async () => {
+    // The last weekly re-measure of where a rating starts, where the nightly writes it.
+    const snap = await getDoc(doc(db, CLOSED_LEVEL_PATH));
+    return snap.exists() ? snap.data() : null;
+  },
 });
 
 /** The full Firestore SDK, and its client of an app. */

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ModelCheckCard } from "./ModelCheckCard";
@@ -146,7 +146,7 @@ describe("naming a better setting", () => {
     caps: plain.caps.map((row) => ({ ...row, sampleSize: 400 })),
     ...changes,
   });
-  const show = async (shown: ModelCheckAnswer) => {
+  const show = async (shown: ModelCheckAnswer, ready: RegExp = /games predicted/i) => {
     const user = userEvent.setup();
     render(
       <ModelCheckCard
@@ -159,7 +159,7 @@ describe("naming a better setting", () => {
       />
     );
     await user.click(screen.getByRole("button", { name: "Check the model" }));
-    await screen.findByText(/games predicted/i);
+    await screen.findByText(ready);
   };
 
   it("names a held age gap that clearly did better, and by how much", async () => {
@@ -211,6 +211,170 @@ describe("naming a better setting", () => {
       .filter((cell) => cell.className.includes("font-bold"));
     expect(bold).toHaveLength(1);
     expect(bold[0]!.closest("tr")).toHaveTextContent(/^No cap/);
+  });
+
+  /** The re-measure as the owner's backup of 11 October 2026 gave it, asked the Monday after. */
+  const remeasured: NonNullable<ModelCheckAnswer["closedLevels"]> = {
+    held: -1.6,
+    level: -1.7417,
+    standardError: 0.1628,
+    games: 79_981,
+    clusters: 10_590,
+    weeks: [
+      { from: "2026-09-14", to: "2026-09-20", games: 19_710, level: -1.8923 },
+      { from: "2026-09-21", to: "2026-09-27", games: 25_909, level: -1.6357 },
+      { from: "2026-09-28", to: "2026-10-04", games: 27_834, level: -1.6999 },
+      { from: "2026-10-05", to: "2026-10-11", games: 6_528, level: -1.7444 },
+    ],
+    paired: { by: -0.000102, standardError: 0.000133, samples: 79_981 },
+    better: false,
+  };
+
+  it("says where a rating starts, and that the level held stands, in one line", async () => {
+    await show(answer({ closedLevels: remeasured }));
+
+    expect(
+      screen.getByText(
+        "Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says where a rating starts where the backtest's own cut held back no game", async () => {
+    // The 70% cut on the pool's last game day trains on every game, while the weekly cuts still
+    // score theirs against earlier fits, so the line stands on its own.
+    await show(
+      answer({ result: { ...plain.result, sampleSize: 0 }, closedLevels: remeasured }),
+      /Not enough dated games here to hold any back/
+    );
+    expect(
+      screen.getByText(
+        "Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says a change is ready when the level the weeks read is clearly better", async () => {
+    await show(
+      answer({
+        closedLevels: {
+          ...remeasured,
+          level: -1.9234,
+          paired: { by: 0.0012, standardError: 0.0004, samples: 79_981 },
+          better: true,
+        },
+      })
+    );
+
+    expect(
+      screen.getByText(
+        /; clearly better, by 0\.0012 runs a game, give or take 0\.0004, so a change to −1\.92 is ready\.$/
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("marks no club or league as closed", async () => {
+    await show(answer({ closedLevels: remeasured }));
+
+    const card = screen.getByRole("heading", {
+      name: "Does the model predict anything?",
+    }).parentElement!;
+    expect(card).toHaveTextContent(/Where a rating starts/);
+    expect(card.textContent).not.toMatch(/closed/i);
+    pool.teams.forEach((club) => expect(card.textContent).not.toContain(club.name));
+  });
+
+  it("shows the last Monday's re-measure as it opens, before anything is run", async () => {
+    let asked = 0;
+    render(
+      <ModelCheckCard
+        ageGroupId={groupId}
+        groupName="10U 2027"
+        teams={pool.teams}
+        games={pool.games}
+        ageGroups={pool.ageGroups}
+        check={() => Promise.resolve(answer({}))}
+        lastWeekly={() => {
+          asked += 1;
+          return Promise.resolve({
+            format: 1,
+            measuredOn: "2026-10-12",
+            measuredAt: "2026-10-12T04:40:00.000Z",
+            year: 2027,
+            check: remeasured,
+          });
+        }}
+      />
+    );
+
+    expect(
+      await screen.findByText(
+        "Last weekly re-measure, 12 Oct, on the 2027 squad year. Starting level for leagues with few outside games: held at −1.6; the four weeks to 11 Oct read −1.74 ± 0.16 on 79,981 games; not yet clearly better."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check the model" })).toBeInTheDocument();
+    expect(screen.queryByText(/games predicted/i)).toBeNull();
+    expect(asked).toBe(1);
+  });
+
+  it("names the squad year a weekly re-measure was of, on a page of another year", async () => {
+    // The nightly re-measures the busiest year only, and the card draws its line on every page:
+    // here the 2027 year's Monday reading on a 10U 2026 page, whose own press reads another pool.
+    const other = [ageGroup(10, 2026)];
+    render(
+      <ModelCheckCard
+        ageGroupId={other[0]!.id}
+        groupName="10U 2026"
+        teams={pool.teams}
+        games={pool.games}
+        ageGroups={other}
+        lastWeekly={() =>
+          Promise.resolve({
+            format: 1,
+            measuredOn: "2026-10-12",
+            measuredAt: "2026-10-12T04:40:00.000Z",
+            year: 2027,
+            check: remeasured,
+          })
+        }
+      />
+    );
+
+    expect(
+      await screen.findByText(/^Last weekly re-measure, 12 Oct, on the 2027 squad year\. /)
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing of a weekly re-measure where none was kept", async () => {
+    let asked = 0;
+    const none = Promise.resolve(null);
+    render(
+      <ModelCheckCard
+        ageGroupId={groupId}
+        groupName="10U 2027"
+        teams={pool.teams}
+        games={pool.games}
+        ageGroups={pool.ageGroups}
+        lastWeekly={() => {
+          asked += 1;
+          return none;
+        }}
+      />
+    );
+    // The reader's own answer, and the render it sets off, before looking: a single tick passed
+    // before the card had drawn what it was handed, so a card showing a line anyway still passed.
+    await act(async () => {
+      await none;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(asked).toBe(1);
+    expect(screen.queryByText(/Last weekly re-measure/)).toBeNull();
+  });
+
+  it("leaves the line out for a page with no table", async () => {
+    await show(answer({ closedLevels: null }));
+
+    expect(screen.queryByText(/Where a rating starts/)).toBeNull();
   });
 
   it("keeps the cap in use when no other did better beyond chance", async () => {

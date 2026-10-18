@@ -7,6 +7,7 @@ import {
 import type { SeasonMeta } from "../../lib/storage";
 import { LeagueSeasonsCard } from "./LeagueSeasonsCard";
 import type { ModelCheckAnswer } from "../../lib/scoutBacktest";
+import type { ClosedLevelRecord } from "../../lib/live/closedLevelRecord";
 import { ModelCheckCard } from "./ModelCheckCard";
 import { PoolHealthCard } from "./PoolHealthCard";
 import type { BulkAgeResult, GamesDropped } from "./PoolHealthView";
@@ -106,6 +107,8 @@ type SetupSectionProps = {
     games: ScoutGame[];
     /** The check in the rankings worker; see `ModelCheckCard`. */
     check?: () => Promise<ModelCheckAnswer | null>;
+    /** The last weekly re-measure of where a rating starts, as the nightly kept it. */
+    lastWeekly?: () => Promise<ClosedLevelRecord | null>;
   };
 };
 
@@ -184,6 +187,7 @@ export function SetupSection({
         games={modelCheck.games}
         ageGroups={ageGroups}
         {...(modelCheck.check ? { check: modelCheck.check } : {})}
+        {...(modelCheck.lastWeekly ? { lastWeekly: modelCheck.lastWeekly } : {})}
       />
 
       <DiagnosticsCard />

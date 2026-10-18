@@ -16,8 +16,8 @@ import {
   MODEL_CHECK_RUNS,
   modelCheckAnswer,
   type ModelCheckAnswer,
-  type ScoutBacktestOptions,
-  type ScoutBacktestResult,
+  type ModelCheckRun,
+  type ModelCheckRunResult,
 } from "../lib/scoutBacktest";
 import type { PoolShipment, WorkerRequest, WorkerResponse } from "../workers/rankingsProtocol";
 import { daysBefore, rankLineStep, ranksAsOf } from "../lib/rankMovement";
@@ -700,12 +700,21 @@ export function useRankingsWorker(input: RankingsInput): {
    */
   const checkModel = useCallback((): Promise<ModelCheckAnswer | null> => {
     const started = snapshot;
+    // One day for every run, so the starting level's four weeks are the same whichever run ends
+    // after midnight.
+    const today = todayIsoDay();
     const inline = () =>
       new Promise<ModelCheckAnswer>((resolve) =>
         window.setTimeout(
           () =>
             resolve(
-              checkTheModel(started.ageGroupId, started.teams, started.games, started.ageGroups)
+              checkTheModel(
+                started.ageGroupId,
+                started.teams,
+                started.games,
+                started.ageGroups,
+                today
+              )
             ),
           0
         )
@@ -723,8 +732,8 @@ export function useRankingsWorker(input: RankingsInput): {
     if (!worker) return inline();
 
     /** One run in the worker; null if the worker failed on the way. */
-    const runOne = (run: ScoutBacktestOptions) =>
-      new Promise<ScoutBacktestResult | null>((resolve) => {
+    const runOne = (run: ModelCheckRun) =>
+      new Promise<ModelCheckRunResult | null>((resolve) => {
         const id = nextIdRef.current + 1;
         nextIdRef.current = id;
         const request = (pool: PoolShipment): WorkerRequest => ({
@@ -733,6 +742,7 @@ export function useRankingsWorker(input: RankingsInput): {
           ageGroupId: started.ageGroupId,
           ageGroups: started.ageGroups,
           run,
+          today,
           pool,
         });
         const onMessage = (event: MessageEvent<WorkerResponse>) => {
@@ -759,7 +769,7 @@ export function useRankingsWorker(input: RankingsInput): {
       });
 
     return (async () => {
-      const results: ScoutBacktestResult[] = [];
+      const results: ModelCheckRunResult[] = [];
       for (const run of MODEL_CHECK_RUNS) {
         // Between runs, not only at the end: shipping this pool to the worker again after the
         // page has moved on would put the old pool back under the board's feet.

@@ -17,7 +17,13 @@
  *   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run nightly -- --live
  *
  * A dry run does everything but the saves, and says what the copy's and the views' would have been,
- * the views built from the copy the pull would have saved. Either way, and however the refresh
+ * the views built from the copy the pull would have saved. Once a week, on the first live run of
+ * the week (Monday to Sunday) that finds it not yet made, and on a dry run only on a Monday, once
+ * the views are out it then re-measures where a rating starts as of that week's Monday, on the pool
+ * it published from, League as the publish read it (`remeasureAfterPublish`, README "Where a
+ * rating starts"), says what it found in numbers, keeps it for the Model check card on a live
+ * run, and hands the alarm step a word for whether a change is ready. Either way, and however the
+ * refresh
  * ended, it ends by saying how the rebuilds after saves have gone (`describeRebuilds`), read from
  * their ledger. `--limit N`
  * pulls only the first N teams due, and leaves the day unlogged. It prints counts, sizes and
@@ -35,9 +41,21 @@ import {
 } from "../src/lib/cloud/refreshGate.ts";
 import { todayIsoDay } from "../src/lib/date.ts";
 import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
-import { dryLiveStore, publishCopyViews, publishFailedRun } from "../src/lib/live/publishCopy.ts";
+import {
+  dryLiveStore,
+  publishCopyViews,
+  publishFailedRun,
+  type CopyPublish,
+} from "../src/lib/live/publishCopy.ts";
 import { describeRebuilds, rebuildsTrouble } from "../src/lib/live/rebuildReport.ts";
-import { resetTeamRankingsStore } from "../src/lib/teamRankingsStorage.ts";
+import { remeasureAfterPublish } from "../src/lib/live/closedLevelWeekly.ts";
+import {
+  loadAgeGroups,
+  loadAutoRemoved,
+  loadScoutGamesForYear,
+  loadScoutTeams,
+  resetTeamRankingsStore,
+} from "../src/lib/teamRankingsStorage.ts";
 import { openStores } from "./cloudPool.ts";
 import { sweepStaleUploads } from "../src/lib/cloud/uploads.ts";
 import { handlerFetch } from "./handlerFetch.ts";
@@ -135,6 +153,10 @@ const tellRebuilds = async (): Promise<void> => {
 };
 
 const main = async (): Promise<void> => {
+  // The members' day the run started on, which names the week whose re-measure may be due: the
+  // first run of a week that finds it not yet made makes it, as of the week's Monday, however late
+  // GitHub starts the run (`closedLevelMondayDue`).
+  const day = todayIsoDay();
   const key = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!key) {
     console.log("No FIREBASE_SERVICE_ACCOUNT here, so there is no cloud copy to refresh.");
@@ -238,6 +260,7 @@ const main = async (): Promise<void> => {
     console.log("  Nothing in the copy changed, so nothing was saved.");
   }
   // Built from the copy the store now holds, and only when it holds one (`CloudPullResult.manifest`).
+  let published: CopyPublish | null = null;
   if (result.manifest) {
     try {
       const views = await publishCopyViews({
@@ -248,6 +271,7 @@ const main = async (): Promise<void> => {
         now: () => new Date().toISOString(),
         leagueDocs: opened.leagueDocs,
       });
+      published = views;
       tellViews(views, dry !== null);
       // A save during the run, and views a newer build published first (a deploy that landed
       // meanwhile), are no fault of the run's; anything else that stops is (`publishFailedRun`).
@@ -258,6 +282,26 @@ const main = async (): Promise<void> => {
       console.log(`Publishing the views stopped: ${failureWords(error)}`);
       process.exitCode = 1;
     }
+  }
+  // Once a week, as of its Monday, where a rating starts, re-measured on the pool the boards were
+  // just built from, League as the publish read it (`remeasureAfterPublish`).
+  if (result.manifest) {
+    await remeasureAfterPublish({
+      views: published,
+      day,
+      live,
+      readKept: () => opened.readClosedLevel(),
+      pool: () => ({
+        ageGroups: loadAgeGroups(),
+        teams: loadScoutTeams(),
+        gamesOfYear: loadScoutGamesForYear,
+        autoRemoved: loadAutoRemoved(),
+      }),
+      keep: (record) => opened.writeClosedLevel(record),
+      handWord: (word) => output("closedLevel", word),
+      log: (line) => console.log(line),
+      now: () => new Date().toISOString(),
+    });
   }
   // Backups the owner staged for the server that nothing used within a day (`uploads.ts`).
   try {

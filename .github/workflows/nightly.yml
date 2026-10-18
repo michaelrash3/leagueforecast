@@ -6,6 +6,14 @@
 # A night that fails opens an issue on this repository, or comments on the one already open, and
 # the next live night that succeeds closes it; the rebuilds after saves get one of their own while
 # their ledger shows failures in a row or a pause (`scripts/alarm.ts`, README "When a run fails").
+#
+# Once a week, as of its Monday, the first run of the week (by the members' day it starts on) that
+# finds it not yet made also re-measures where a rating starts, on the pool it has just published
+# from, and keeps the answer for the Model check card. A level
+# clearly better than the one held opens an issue of its own saying a change is ready; the level
+# changes only by a commit (README, "Where a rating starts"). It prints numbers only. On the
+# owner's backup of 11 October 2026 it took 20 s and about 1 GB above the loaded pool, measured
+# off this runner.
 name: Nightly refresh
 
 on:
@@ -71,11 +79,13 @@ jobs:
           # empty LANG the root one), and the publish refuses under any other (`publishCopy.ts`).
           LANG: en_US.UTF-8
           # The whole pool is held at once; measured at about 4.3 GB on the pool of 29 September
-          # 2026, on a runner with 16 GB.
+          # 2026, on a runner with 16 GB. Monday's re-measure of where a rating starts adds about
+          # 1 GB above the loaded pool (the owner's backup of 11 October, not measured here).
           NODE_OPTIONS: --max-old-space-size=12288
           LIMIT: ${{ inputs.limit }}
       # However the refresh ended: what is raised or settled, and every word of it, is the script's
-      # (`runAlarms.ts`), from the step's outcome and the rebuilds' word the refresh handed over.
+      # (`runAlarms.ts`), from the step's outcome and the words the refresh handed over: the
+      # rebuilds', and once a week the starting level's re-measure.
       # Allowed to fail on its own (gh refused, say) without failing the run: a night that saved
       # stays green, and GitHub does not email that it failed, for want of an issue; a night whose
       # refresh failed is red from that step already.
@@ -87,3 +97,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OUTCOME: ${{ steps.refresh.outcome }}
           REBUILDS: ${{ steps.refresh.outputs.rebuilds }}
+          CLOSED_LEVEL: ${{ steps.refresh.outputs.closedLevel }}

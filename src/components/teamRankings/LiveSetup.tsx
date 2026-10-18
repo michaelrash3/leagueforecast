@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { Confirmation } from "../../hooks/useConfirmation";
 import type { LiveEdits, ShowToast } from "../../hooks/useLiveEdits";
 import type { LiveSources } from "../../hooks/useLiveBoard";
+import { readLastClosedLevel } from "../../lib/live/closedLevelRecord";
 import type { PoolCommand } from "../../lib/live/commands";
 import { overlayGroups, seasonAssignedSaid } from "../../lib/live/groupsOverlay";
 import type { SeasonMeta } from "../../lib/storage";
@@ -51,6 +52,7 @@ export default function LiveSetup({
   seasons,
   onOpenTeam,
   copy,
+  reader,
   showToast,
   pagesKnown = true,
 }: {
@@ -68,6 +70,11 @@ export default function LiveSetup({
   onOpenTeam: (teamId: string, year?: number) => void;
   /** The cloud's copy as this member may read it, which a backup is made of. */
   copy: LiveSources["copy"];
+  /**
+   * The member's reader of `live/`, which the model check reads the last weekly re-measure of
+   * where a rating starts off (`readLastClosedLevel`); none, and the card says nothing of it.
+   */
+  reader?: LiveSources["reader"];
   showToast: ShowToast;
   /**
    * Whether the page holds a meta this build can draw, which is where the cloud's pages come from.
@@ -106,10 +113,16 @@ export default function LiveSetup({
 
   /*
    * The whole check in one question: twelve fits of the page's year, 15.1 s on 12U of 29
-   * September (`npm run live:bench`), on the server's pool with the copy's League Standings
-   * seasons in it, as the boards were fitted. Nothing else is edited on the server meanwhile, as
-   * with a what-if.
+   * September (`npm run live:bench`), and the starting level's re-measure, four more fits and a
+   * solve after each, 20 s more in Node on the owner's backup of 11 October (not timed on the
+   * server), on the server's pool with the copy's League Standings seasons in it, as the boards
+   * were fitted. Nothing else is edited on the server meanwhile, as with a what-if.
    */
+  const lastWeekly = useCallback(
+    () => (reader ? readLastClosedLevel(reader) : Promise.resolve(null)),
+    [reader]
+  );
+
   const checkModel = async () => {
     const asked = await ask({ kind: "model.check", page: pageId });
     if (!asked) return null;
@@ -146,6 +159,7 @@ export default function LiveSetup({
         ageGroups={NO_GROUPS}
         check={checkModel}
         unanswered={CHECK_UNANSWERED}
+        lastWeekly={lastWeekly}
       />
       <LiveArchiveCard
         edits={edits}

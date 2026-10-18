@@ -28,6 +28,23 @@ const opened = (writable: boolean | "live") => {
 };
 
 const PIECE = new Uint8Array([1, 2, 3]);
+/** A weekly re-measure's record, its numbers no matter here. */
+const CLOSED_LEVEL = {
+  format: 1,
+  measuredOn: "2026-10-12",
+  measuredAt: "2026-10-12T04:40:00.000Z",
+  year: 2027,
+  check: {
+    held: -1.6,
+    level: null,
+    standardError: null,
+    games: 0,
+    clusters: 0,
+    weeks: [],
+    paired: null,
+    better: false,
+  },
+};
 const META = { format: 1 } as unknown as Parameters<
   ReturnType<typeof restServerStores>["live"]["commitMeta"]
 >[1];
@@ -59,6 +76,7 @@ const WRITES = {
     (s: ReturnType<typeof restServerStores>) => s.live.putChunk("piece-0", PIECE),
     (s: ReturnType<typeof restServerStores>) => s.live.deleteChunk("piece-0"),
     (s: ReturnType<typeof restServerStores>) => s.live.commitMeta(null, META),
+    (s: ReturnType<typeof restServerStores>) => s.writeClosedLevel(CLOSED_LEVEL),
   ],
   gate: [
     (s: ReturnType<typeof restServerStores>) =>
@@ -80,7 +98,7 @@ describe("what a job on GitHub may write of the cloud", () => {
     expect(await writesOf("live")).toEqual({
       copy: [false, false, false],
       uploads: [false],
-      live: [true, true, true],
+      live: [true, true, true, true],
       gate: [false],
     });
   });
@@ -89,7 +107,7 @@ describe("what a job on GitHub may write of the cloud", () => {
     expect(await writesOf(true)).toEqual({
       copy: [true, true, true],
       uploads: [true],
-      live: [true, true, true],
+      live: [true, true, true, true],
       gate: [true],
     });
   });
@@ -98,9 +116,42 @@ describe("what a job on GitHub may write of the cloud", () => {
     expect(await writesOf(false)).toEqual({
       copy: [false, false, false],
       uploads: [false],
-      live: [false, false, false],
+      live: [false, false, false, false],
       gate: [false],
     });
+  });
+
+  it("keeps the weekly record where members' devices read it, and reads it back from there", async () => {
+    // Where the browser's reader looks (`firestoreLive`), named once for both (`closedLevelPath`).
+    // Firestore as it answers when there is none yet: a read finds nothing, and the write lands.
+    const fetchImpl = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Response(init?.method === "POST" ? "{}" : '{"error":{"code":404}}', {
+          status: init?.method === "POST" ? 200 : 404,
+          headers: { "content-type": "application/json" },
+        })
+    );
+    const stores = restServerStores(
+      {
+        projectId: "demo-league-forecast",
+        token: async () => "token",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        pause: async () => undefined,
+      },
+      true
+    );
+    await stores.writeClosedLevel(CLOSED_LEVEL);
+    expect(await stores.readClosedLevel()).toBeNull();
+    const asked = fetchImpl.mock.calls.map(
+      ([input, init]) =>
+        `${init?.method ?? "GET"} ${String(input).replace(/^.*\/documents/, "")} ${String(init?.body ?? "")}`
+    );
+    // Its version read, the write over it, and the read back.
+    expect(asked).toHaveLength(3);
+    for (const request of asked) expect(request).toMatch(/\/live\/closedLevel\b/);
+    expect(asked[0]).toMatch(/^GET \/live\/closedLevel /);
+    expect(asked[1]).toMatch(/^POST :commit .*documents\/live\/closedLevel"/);
+    expect(asked[2]).toMatch(/^GET \/live\/closedLevel /);
   });
 
   it("reads the copy's manifest at its update time, the rebuild job's control and the pulls under way, however it was opened", async () => {

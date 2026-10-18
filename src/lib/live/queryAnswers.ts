@@ -2,6 +2,7 @@ import { GC_PAIRING_EVIDENCE_LABEL } from "../gcPairingEvidence";
 import type { AgelessAside } from "../agelessQueue";
 import type { AgelessGroup } from "../agelessSitting";
 import type { ModelCheckAnswer, ScoutBacktestResult } from "../scoutBacktest";
+import { CLOSED_LEVEL_CHECK } from "./closedLevelRecord";
 import { coerceNamedCheck } from "../teamRankings/namedGames";
 import { coerceCommand, everyOne, oneAgeless } from "./commands";
 import type { AgelessSearchAnswer, AnswerOf, FoldCounts, QueryAnswer, QueryKind } from "./queries";
@@ -186,6 +187,8 @@ const MODEL_CHECK: Shape = {
           caps: { list: BACKTEST_RESULT },
           betterGap: IMPROVEMENT,
           betterCap: IMPROVEMENT,
+          // Optional: a server that predates the re-measure sends none, which reads as null.
+          closedLevels: { optional: { nullable: CLOSED_LEVEL_CHECK } },
         },
       },
     },
@@ -221,6 +224,7 @@ const modelCheckOf = (raw: Record<string, unknown>): AnswerOf<"model.check"> | n
       caps: sent.caps.map((one) => run(one as Wire<ScoutBacktestResult>)),
       betterGap: better(sent.betterGap),
       betterCap: better(sent.betterCap),
+      closedLevels: sent.closedLevels ?? null,
     },
   };
 };

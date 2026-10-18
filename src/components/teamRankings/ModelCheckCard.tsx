@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   beatsTheBaseline,
   checkTheModel,
@@ -7,6 +7,8 @@ import {
   type ModelCheckImprovement,
 } from "../../lib/scoutBacktest";
 import { RATING_CAP } from "../../lib/teamRankings";
+import { closedLevelLine } from "../../lib/closedLevelWords";
+import { lastClosedLevelLine, type ClosedLevelRecord } from "../../lib/live/closedLevelRecord";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../../lib/teamRankings";
 import { AGE_GAP_RUNS_PER_YEAR, ageStepsInWords } from "../../lib/powerRating";
 import { button, card, pill } from "../../styles/tokens";
@@ -27,6 +29,12 @@ type ModelCheckCardProps = {
    * page's check is a question to the server, and a toast has already said why it went unanswered.
    */
   unanswered?: string;
+  /**
+   * The last Monday's re-measure of where a rating starts, as the nightly kept it
+   * (`readLastClosedLevel`), read once as the card opens so it is there without a press. None
+   * given, or none kept, and the card says nothing of it until the check is run.
+   */
+  lastWeekly?: () => Promise<ClosedLevelRecord | null>;
 };
 
 const runs = (value: number | null): string => (value === null ? "—" : `${value.toFixed(2)} runs`);
@@ -64,6 +72,7 @@ export function ModelCheckCard({
   ageGroups,
   check,
   unanswered,
+  lastWeekly,
 }: ModelCheckCardProps) {
   /** The answer, and the page it was worked out for: one for 9U is not one for 10U. */
   const [answered, setAnswered] = useState<{ ageGroupId: string; answer: ModelCheckAnswer } | null>(
@@ -71,11 +80,23 @@ export function ModelCheckCard({
   );
   const [working, setWorking] = useState(false);
   const [interrupted, setInterrupted] = useState(false);
+  const [weekly, setWeekly] = useState<ClosedLevelRecord | null>(null);
+  useEffect(() => {
+    if (!lastWeekly) return;
+    let open = true;
+    void lastWeekly().then((record) => {
+      if (open) setWeekly(record);
+    });
+    return () => {
+      open = false;
+    };
+  }, [lastWeekly]);
 
   /*
-   * Never in the click handler. The check is twelve fits of the page's year, and run there, when it
-   * was eleven, it froze the tab for 18 s on the 18:40 pool and 89 s at a phone's speed. The press
-   * paints "Working it out" first, and the fits run in the rankings worker when there is one.
+   * Never in the click handler. The check is twelve fits of the page's year and the starting
+   * level's re-measure, four more and a solve after each, and run there, when it was eleven fits,
+   * it froze the tab for 18 s on the 18:40 pool and 89 s at a phone's speed. The press paints
+   * "Working it out" first, and the fits run in the rankings worker when there is one.
    */
   const run = () => {
     const forGroup = ageGroupId;
@@ -98,6 +119,7 @@ export function ModelCheckCard({
   const result = shown?.result ?? null;
   const gaps = shown?.gaps ?? null;
   const caps = shown?.caps ?? null;
+  const closedLevels = shown?.closedLevels ?? null;
 
   const beat = result ? beatsTheBaseline(result) : null;
   const bestGap = gaps?.[0];
@@ -136,6 +158,11 @@ export function ModelCheckCard({
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400" role="status">
             {unanswered ??
               "The pool changed while this ran, so its answer would be about games that are not there any more. Run it again."}
+          </p>
+        )}
+        {weekly && (
+          <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+            {lastClosedLevelLine(weekly)}
           </p>
         )}
       </div>
@@ -264,6 +291,20 @@ export function ModelCheckCard({
                   Not enough held-back games here to tell the caps apart.
                 </p>
               )}
+            </>
+          )}
+          {/*
+           * Beside the backtest, not under it: its weekly cuts score games the backtest's own cut can
+           * leave none of, as when the 70% cut lands on the pool's last game day.
+           */}
+          {closedLevels && (
+            <>
+              <h3 className="mt-5 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Where a rating starts
+              </h3>
+              <p className="mt-1 text-slate-700 dark:text-slate-200">
+                {closedLevelLine(closedLevels)}
+              </p>
             </>
           )}
         </div>

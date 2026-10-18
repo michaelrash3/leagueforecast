@@ -22,6 +22,7 @@ import { useOpeningReleased, usePoolFilled } from "../../hooks/useOpeningHold";
 import { useRankingsPages } from "../../hooks/useRankingsPages";
 import {
   copyReader,
+  liveReader,
   poolOnScreen,
   poolWantsCloud,
   preparePool,
@@ -899,6 +900,7 @@ function LiveBoard({
               seasons={seasons}
               onOpenTeam={openTeamIn}
               copy={sources ? sources.copy : copyReader}
+              reader={sources ? sources.reader : liveReader}
               showToast={showToast}
               pagesKnown={pagesKnown}
             />

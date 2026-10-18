@@ -2,12 +2,13 @@
  * Raises or settles the alarms a run on GitHub keeps as issues on this repository (`runAlarms.ts`,
  * README "When a run fails"), run by the workflows as the run's last step, whatever came before:
  *
- *   npm run alarm -- nightly      after the nightly refresh (OUTCOME, MODE and REBUILDS set)
+ *   npm run alarm -- nightly      after the nightly refresh (OUTCOME, MODE, REBUILDS and
+ *                                 CLOSED_LEVEL set)
  *   npm run alarm -- republish    after the republish that follows a deploy (OUTCOME set)
  *
  * What to raise or settle, and every word an issue says, is worked out in `runAlarms.ts`, from the
- * outcome of the run's own step, the rebuilds' trouble the nightly handed over, the time and the
- * run's link; this lists the open issues and runs the `gh` commands it names, with the workflow's
+ * outcome of the run's own step, the rebuilds' trouble and the Monday re-measure's word the
+ * nightly handed over, the time and the run's link; this lists the open issues and runs the `gh` commands it names, with the workflow's
  * own token (`GH_TOKEN`). Nothing from the run's log is read. What it prints is which issue it
  * opened, commented on or closed, by number.
  */
@@ -38,6 +39,7 @@ const verdicts: Verdict[] | null =
         event: env.GITHUB_EVENT_NAME ?? "",
         mode: env.MODE ?? "",
         rebuilds: env.REBUILDS ?? "",
+        closedLevel: env.CLOSED_LEVEL ?? "",
       })
     : which === "republish"
       ? republishVerdicts({ outcome: env.OUTCOME ?? "" })

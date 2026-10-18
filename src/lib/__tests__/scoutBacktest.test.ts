@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fingerprint, poolFixture } from "../../../scripts/poolFixture";
 import {
   AGE_GAPS_TO_TRY,
   backtestGames,
@@ -14,6 +15,7 @@ import {
   pairedImprovement,
   clearlyBetterBar,
   RUN_CAPS_TO_TRY,
+  type ModelCheckRunResult,
   type ScoutBacktestOptions,
   type ScoutBacktestResult,
 } from "../scoutBacktest";
@@ -910,12 +912,14 @@ describe("naming a better setting only when it clearly wins", () => {
     changed: { gaps?: Map<number, number[]>; caps?: Map<number, number[]> }
   ) =>
     modelCheckAnswer(
-      MODEL_CHECK_RUNS.map((options) => {
+      MODEL_CHECK_RUNS.map((check): ModelCheckRunResult => {
+        if (check.kind !== "backtest") return { kind: check.kind, result: null };
+        const { options } = check;
         const errors =
           (options.cap === undefined
             ? changed.gaps?.get(options.ageGapPrior!)
             : changed.caps?.get(options.cap)) ?? reference;
-        return run(options, errors, rated);
+        return { kind: "backtest", result: run(options, errors, rated) };
       })
     );
   // Two hundred held-back games with errors between two and four runs, every other one rated.
@@ -1045,5 +1049,42 @@ describe("naming a better setting only when it clearly wins", () => {
     expect(paired.by / paired.standardError).toBeGreaterThan(2);
     expect(paired.by / paired.standardError).toBeLessThan(clearlyBetterBar(4));
     expect(answerFrom(reference, everyOther, { gaps: new Map([[3, shade]]) }).betterGap).toBeNull();
+  });
+});
+
+/*
+ * The model check's answer on the seeded fixture (`scripts/poolFixture.ts`), pinned on 17 October
+ * 2026 before the starting level's re-measure joined its runs, so the runs it already made are seen
+ * to come out as they did once they are listed beside it. To the last digit on the engine that drew
+ * it (Node 24's V8), and to the billionth on any other, where a number's last place or two may round
+ * apart.
+ */
+describe("the model check's answer, pinned", () => {
+  const fixture = poolFixture({ seed: 7, clubsPerPage: 300 });
+  const EXACT: Record<string, string> = { "13.6": "7810acf7" };
+  const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions?.v8;
+  const exact = EXACT[(engine ?? "").split(".").slice(0, 2).join(".")];
+  const steady = (value: unknown): unknown =>
+    JSON.parse(
+      JSON.stringify(value, (_key, held: unknown) =>
+        typeof held === "number" && !Number.isInteger(held) ? Math.round(held * 1e9) / 1e9 : held
+      )
+    );
+
+  it("is the plain run, the two sweeps and what they named, as before", () => {
+    const { result, gaps, caps, betterGap, betterCap } = checkTheModel(
+      "ag_10u_2027",
+      fixture.teams,
+      fixture.games,
+      fixture.ageGroups
+    );
+    const answer = { result, gaps, caps, betterGap, betterCap };
+    expect(fingerprint(steady(answer))).toBe("19c14673");
+    if (exact) expect(fingerprint(answer)).toBe(exact);
+    // What the fixture says, so the pin is seen to be of something: a year of age held at half the
+    // table reads clearly better on its 890 games between rated clubs, and no cap does.
+    expect(result.sampleSize).toBe(1130);
+    expect(betterGap).toMatchObject({ value: 1, samples: 890 });
+    expect(betterCap).toBeNull();
   });
 });

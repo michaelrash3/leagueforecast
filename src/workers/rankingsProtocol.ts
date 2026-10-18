@@ -15,10 +15,10 @@ import { todayIsoDay } from "../lib/date";
 import { whatIfCurve, type WhatIfCurve } from "../lib/scoutWhatIf";
 import {
   backtestGames,
-  backtestScoutRatings,
+  runModelCheck,
   type BacktestGames,
-  type ScoutBacktestOptions,
-  type ScoutBacktestResult,
+  type ModelCheckRun,
+  type ModelCheckRunResult,
 } from "../lib/scoutBacktest";
 import { decodePoolGames, decodePoolTeams } from "../lib/teamRankingsCompact";
 import { RANK_HISTORY_WEEKS, ranksAsOf } from "../lib/rankMovement";
@@ -95,13 +95,18 @@ export type WhatIfRequest = {
  * for while the whole check ran waited for all of it, about 15 s on a nationwide year. Asked a run
  * at a time, the refit waits for one. The page's rated games in order are the same for every run
  * and are kept between them.
+ *
+ * `today` is the page's, as a what-if's is, and the same for every run of one check: the starting
+ * level's re-measure reads the four weeks before it, which a check run across midnight on the
+ * worker's own clock would split between two sets of weeks.
  */
 export type ModelCheckRequest = {
   kind: "model-check";
   id: number;
   ageGroupId: string;
   ageGroups: AgeGroup[];
-  run: ScoutBacktestOptions;
+  run: ModelCheckRun;
+  today: string;
   pool: PoolShipment;
 };
 
@@ -154,7 +159,7 @@ export type WhatIfResponse = {
 export type ModelCheckResponse = {
   kind: "model-check";
   id: number;
-  result: ScoutBacktestResult;
+  result: ModelCheckRunResult;
   elapsedMs: number;
 };
 
@@ -284,20 +289,22 @@ export const createRankingsHandler = (
         rankingPoolGroupIds(request.ageGroupId, request.ageGroups),
         request.ageGroups,
       ]);
-      if (checked?.key !== key) {
+      // The page's games in order are for the backtests; the re-measure reads the year itself.
+      if (request.run.kind === "backtest" && checked?.key !== key) {
         checked = null;
         checked = {
           key,
           games: backtestGames(request.ageGroupId, held.teams, held.games, request.ageGroups),
         };
       }
-      const result = backtestScoutRatings(
+      const result = runModelCheck(
+        request.run,
         request.ageGroupId,
         held.teams,
         held.games,
         request.ageGroups,
-        request.run,
-        checked.games
+        request.today,
+        checked?.key === key ? checked.games : undefined
       );
       if (!canceled.has(request.id)) {
         post({ kind: "model-check", id: request.id, result, elapsedMs: now() - start });

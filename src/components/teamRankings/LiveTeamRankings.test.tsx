@@ -3877,6 +3877,41 @@ describe("Setup on the cloud's board", () => {
     expect(handedOver()).toBeNull();
   });
 
+  it("shows the weekly re-measure the cloud keeps on the Model check card, before any press", async () => {
+    onSetup();
+    pool.wants = false;
+    const server = editFunction(setupAnswers);
+    // The member's reader of live/, with the record the nightly kept beside the views.
+    const weekly = {
+      format: 1,
+      measuredOn: "2026-10-12",
+      measuredAt: "2026-10-12T08:40:00.000Z",
+      year: 2027,
+      check: {
+        held: -1.6,
+        level: -1.7417,
+        standardError: 0.1628,
+        games: 79_981,
+        clusters: 10_590,
+        weeks: [{ from: "2026-10-05", to: "2026-10-11", games: 6_528, level: -1.7444 }],
+        paired: { by: -0.000102, standardError: 0.000133, samples: 79_981 },
+        better: false,
+      },
+    };
+    open(
+      sourcesOf(live, {
+        call: server.call,
+        reader: async () => ({ ...readerOf(live), readClosedLevel: async () => weekly }),
+      })
+    );
+    expect(
+      await screen.findByText(
+        /^Last weekly re-measure, 12 Oct, on the 2027 squad year\. Starting level for leagues with few outside games: held at −1\.6; the four weeks to 11 Oct read −1\.74/
+      )
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Check the model" })).toBeTruthy();
+  });
+
   it("says why a model check went unanswered, and not that the pool changed", async () => {
     onSetup();
     pool.wants = false;
