@@ -123,6 +123,12 @@ const CASES: {
     rawOnly: "Wexcombe INTRAsquad",
   },
   {
+    word: "team",
+    match: "Team 7",
+    splitOnly: "TEAM_9",
+    rawOnly: "TEam 7",
+  },
+  {
     word: "softball",
     match: "Gildersleeve Softball 12U",
     exempt: "Kestrelmoor Baseball and Softball 12U",
@@ -132,7 +138,7 @@ const CASES: {
 ];
 
 describe("the name rules", () => {
-  it("are fifteen, in the order they were measured", () => {
+  it("are sixteen, in the order they were measured", () => {
     expect(NAME_RULES.map((rule) => rule.word)).toEqual(CASES.map((entry) => entry.word));
   });
 
@@ -229,7 +235,63 @@ describe("the name rules", () => {
       "placeholder",
       "duplicate",
       "void",
+      "team",
     ]);
+  });
+
+  it("reads a name that is only Team and a number or a letter, however it is written", () => {
+    [
+      "Team 7",
+      "Team 04",
+      "Team 250",
+      "team 5",
+      "TEAM 12",
+      "Team #4",
+      "Team # 4",
+      "Team#4",
+      "Team7",
+      "Team B",
+      "TeamB",
+      "Team",
+      "  Team 6  ",
+      "My Team",
+      "MyTeam",
+      "New Team 3",
+      "The Team",
+      "Our Team A",
+      "TEAM_9",
+    ].forEach((name) => expect(notATeamWord(name)?.word, name).toBe("team"));
+  });
+
+  it("leaves a name that opens with Team and goes on to say who the team is", () => {
+    /*
+     * The whole name has to be the word and its number: a place, a club's name, an age, a year or
+     * a second word after the number is a team somebody named. A number run into a name splits to
+     * "Team 7 Larkspire" and is still a name.
+     */
+    [
+      "Team Wrenfield 12U",
+      "Team Elite Larkspire 12U",
+      "Team 1 Alderbrook Academy",
+      "Team QXR",
+      "Team QXR 12U",
+      "Team7Larkspire",
+      "Team 7 Larkspire",
+      "Larkspire Team 7",
+      "Team 12U",
+      "Team12U",
+      "Team 2026",
+      "Team 1234",
+      "Team 1A",
+      "Team - 5",
+      "Teamwork Larkspire",
+      "My Team Larkspire",
+    ].forEach((name) => expect(firstRuleHit(name, NAME_RULES), name).toBeNull());
+  });
+
+  it("says the whole name is what a Team-number name hit, and files a game against one on a slot", () => {
+    expect(notATeamWord("Team #4")).toEqual({ word: "team", text: "Team #4", opponent: "slot" });
+    expect(notATeamWord("TEAM_9")?.text).toBe("TEAM 9");
   });
 
   it("reads nothing into a name that is not a string", () => {
@@ -274,5 +336,10 @@ describe("the nightly sweep's words", () => {
   it("are not the practice or scrimmage words, which only the import and the tidy read", () => {
     expect(madeUpHit("Thornbury Practice 12U")).toBeNull();
     expect(madeUpHit("Nettlefield Scrimmage")).toBeNull();
+  });
+
+  it("are not the Team-number names either, which the sweep's sign has never read", () => {
+    expect(madeUpHit("Team 7")).toBeNull();
+    expect(madeUpHit("My Team")).toBeNull();
   });
 });

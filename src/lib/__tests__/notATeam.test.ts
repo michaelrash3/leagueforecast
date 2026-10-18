@@ -901,3 +901,142 @@ describe("the clubs worth pulling next", () => {
     expect(unpulledClubs(state).map((entry) => entry.name)).toEqual(["Brindlewood Badgers"]);
   });
 });
+
+/*
+ * A page whose name is only "Team" and a number or a letter, the owner's rule of 18 October 2026:
+ * refused at the door, a game against one kept on a slot, deleted from the pool where the pool
+ * calls it so too, marked on a pasted list and never asked for. "Team 7" and its kind name nobody;
+ * the clubs beside them are invented.
+ */
+describe("a page named only Team and a number", () => {
+  const page: AgeGroup = { id: "p12", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] };
+  const link = (teamId: string, name: string): GcTeamLink => ({
+    teamId,
+    name,
+    ageGroupId: page.id,
+    ageLevel: 12,
+    season: "fall",
+    seasonYear: 2026,
+  });
+  const quill: ScoutTeam = {
+    id: "quill",
+    name: "Quillfeather Quails",
+    gcTeams: [link("gcquill", "Quillfeather Quails 12U")],
+  };
+  const game = (id: string, a: string, b: string, gcId: string): ScoutGame => ({
+    id,
+    ageGroupId: page.id,
+    teamAId: a,
+    teamBId: b,
+    teamAScore: 7,
+    teamBScore: 3,
+    date: "2026-09-12",
+    source: { kind: "gamechanger", teamId: gcId, gameId: id },
+  });
+
+  it("is refused at the door whatever its age, and the sentence says so", () => {
+    const { state, outcome } = importGcSchedule(
+      schedule({ id: "gcTEAM700001", name: "Team 7", ageLevel: 12 }, [played("t1", "Elm")]),
+      empty,
+      { today: "2026-10-11" }
+    );
+    expect(outcome.skip).toBe("not-a-team");
+    expect(outcome.issue).toBe(
+      "This page's name is only “Team” and a number, the name a page has when nobody named " +
+        "it, so it was left out. Its name says “Team 7”."
+    );
+    expect(state).toBe(empty);
+  });
+
+  it("leaves the waiting list on its next ask, refused rather than asked about again", () => {
+    const { outcome } = importGcSchedule(
+      schedule({ id: "gcTEAM700001", name: "Team 7", ageLevel: undefined }, []),
+      empty,
+      { today: "2026-10-11" }
+    );
+    const waiting = [
+      { teamId: "gcTEAM700001", name: "Team 7", firstSeen: "", lastTried: "", tries: 1 },
+    ];
+    expect(updateAgeUnknown(waiting, [outcome], "2026-10-11T00:00:00.000Z")).toEqual([]);
+  });
+
+  it("keeps a game against one on a slot of its own, the result on the club that played it", () => {
+    const { state, outcome } = importGcSchedule(
+      schedule({}, [
+        played("q1", "Team 4", "2026-09-05"),
+        played("q2", "Team #4", "2026-09-06"),
+        played("q3", "Team Wrenfield 12U", "2026-09-07"),
+      ]),
+      empty,
+      { today: "2026-10-11" }
+    );
+    expect([outcome.gamesAdded, outcome.gamesIgnored]).toEqual([3, 0]);
+    expect(state.teams.filter((team) => team.placeholder).map((team) => team.name)).toEqual([
+      "Team 4",
+      "Team #4",
+    ]);
+    // A team somebody named, which opens with the word, is a stand-in as any name is.
+    expect(state.teams.filter((team) => team.nameOnly).map((team) => team.name)).toEqual([
+      "Team Wrenfield",
+    ]);
+  });
+
+  it("is deleted from the pool where the pool calls it so too, its games kept on slots", () => {
+    const team3: ScoutTeam = {
+      id: "t3",
+      name: "Team 3",
+      gcTeams: [link("gcTEAM300001", "Team 3")],
+    };
+    const { state, dropped } = dropNotATeam({
+      ageGroups: [page],
+      teams: [quill, team3, { id: "nine", name: "Team 9", nameOnly: true }],
+      games: [game("g1", "quill", "t3", "gcquill"), game("g2", "quill", "nine", "gcquill")],
+    });
+    expect(dropped).toBe(2);
+    expect(state.teams.filter((team) => !team.placeholder).map((team) => team.id)).toEqual([
+      "quill",
+    ]);
+    // Quillfeather's own two results stand, each against a slot of its own.
+    expect(state.games).toHaveLength(2);
+    const slots = new Set(state.teams.filter((team) => team.placeholder).map((team) => team.id));
+    expect(state.games.every((one) => one.teamAId === "quill" && slots.has(one.teamBId))).toBe(
+      true
+    );
+  });
+
+  it("is kept where the pool holds it under a name somebody gave it", () => {
+    // GameChanger still calls the page "Team B"; the owner renamed it, so it is that name's club.
+    const renamed: ScoutTeam = {
+      id: "brind",
+      name: "Brindlewood Badgers",
+      gcTeams: [link("gcTEAMB00001", "Team B")],
+    };
+    const before: GcImportState = {
+      ageGroups: [page],
+      teams: [quill, renamed],
+      games: [game("g1", "brind", "quill", "gcTEAMB00001")],
+    };
+    expect(dropNotATeam(before)).toEqual({ state: before, dropped: 0 });
+  });
+
+  it("is marked on a pasted list, and never asked for as a club to pull", () => {
+    const list = parseGcTeamList(
+      [
+        "Team Name,Team ID,Age Group",
+        "Team 7,gcTEAM700001,12U",
+        "Team 1 Alderbrook,gcALDER01,12U",
+      ].join("\n")
+    );
+    expect(list.entries.map((entry) => entry.notATeam ?? null)).toEqual(["team", null]);
+    const state: GcImportState = {
+      ageGroups: [page],
+      teams: [
+        { ...quill, state: "KY" },
+        { id: "heard", name: "Brindlewood Badgers", nameOnly: true },
+        { id: "nine", name: "Team 9", nameOnly: true },
+      ],
+      games: [game("g1", "quill", "heard", "gcquill"), game("g2", "quill", "nine", "gcquill")],
+    };
+    expect(unpulledClubs(state).map((entry) => entry.name)).toEqual(["Brindlewood Badgers"]);
+  });
+});

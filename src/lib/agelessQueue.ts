@@ -148,20 +148,22 @@ export const shortRoster = (entry: AgeUnknownTeam): boolean =>
  */
 const STILL_JUNK = /\b(?:old\s+team|not\s+(?:a\s+)?real)\b/i;
 
-/** "Team", "Team 1", "My Team": a name nobody chose. Eight in that list. */
-const GENERIC_NAME = /^\s*(?:my|new|the|our)?\s*team\s*#?\s*(?:\d{1,3}|[a-z])?\s*$/i;
-
 /**
  * What the name alone says against a team, or nothing. A name that was never recorded says
  * nothing: that is a list kept before names were, not a team without one.
+ *
+ * "Team", "Team 1", "My Team" is a name nobody chose, eight of them in that list. This file read
+ * it with a pattern of its own until 18 October 2026, when it became a word group of the import's
+ * (`notATeamWord`, "team"), so it says so in its own words rather than the test account's.
  */
 const junkName = (name: string): string | undefined => {
   const trimmed = name.trim();
   if (!trimmed) return undefined;
-  if (notATeamWord(trimmed) || STILL_JUNK.test(trimmed)) {
+  const word = notATeamWord(trimmed);
+  if (word?.word === "team") return "the name is only “Team” and a number";
+  if (word || STILL_JUNK.test(trimmed)) {
     return "the name reads as a test, practice or placeholder account";
   }
-  if (GENERIC_NAME.test(trimmed)) return "the name is only “Team” and a number";
   // Any script's letters: "統一獅隊" is a club in Taipei, "12345" and "***" are nobody.
   if (!/\p{L}/u.test(trimmed)) return "the name has no letters in it";
   if (trimmed.length <= 2) return "the name is two characters or fewer";

@@ -271,6 +271,32 @@ Stats" for All Stars, a squad "with streaming". Together the fifteen read 2,138 
 export (0.80%), 692 of them with no players at all, and a second implementation of the patterns
 gives the same verdict as this one on every one of the 147,114 distinct names in the pool.
 
+A sixteenth group joined them on 18 October 2026, at the owner's word ("Team number teams should
+be blocked"): a name that is **only "Team" and a number or a letter**, "Team 7", "Team #4", "Team
+B", "My Team" and the word alone, with my, new, the or our in front and a "#" anywhere between,
+and nothing else in the name. It is what a page is called when nobody named it and how a schedule
+writes an opponent it could not name; the waiting list had sorted these to its top on the same
+pattern since 27 September. A place or a club's name after the word, an age ("Team 12U", 32 rows of
+the export, which the age reader files), a second word after the number, four digits, or a number
+run into a name ("Team7" and a name splits to "Team 7" and the name) is a team somebody named, and
+is left alone. On the export it reads 28 rows, 9 of them empty and 11 full rosters, none of them
+read by another group: the sixteen read 2,166 rows (0.81%), 701 empty, and a pasted export now
+marks 2,034 rows as no team where it marked 2,006. In the backup of 11 October it reads one pulled
+club, a club of its own, unranked, holding no games and on nobody's list of real clubs, and 49
+stand-ins holding 72 games, 43 scored, none listed by a second schedule. Those 72 sit on the
+schedules of 29 pulled clubs, on 67 of their days, with two such opponents on one day only once,
+none under an event, and a median margin of five runs: real games against an opponent the
+schedule could not name, not a squad playing itself. So a game against one is kept on a slot of
+its own, as an old page's is, and the result stays on the record of the club that played it. The
+tidy deletes the one pulled club and turns the 49 stand-ins' 72 games onto 72 slots of their own,
+not a result lost; it deletes a club GameChanger calls "Team 7" only where the pool calls it so
+too, since the import has nothing to clean off such a name, and a club the pool holds under
+another name was renamed by hand or merged into one by somebody. The tidy rules go from 23 to 24,
+so every pool is tidied once more under the word. The nightly sweep's name sign reads void, test
+and demo alone (`madeUpHit`) and does not move; the clubs worth pulling leave such stand-ins out,
+as they leave out the other words'; the waiting list says "the name is only “Team” and a number"
+for one, as it did. The board parity pins do not move, so `BOARD_RULES` stays at 7.
+
 - **Out of a pasted list** before a request is spent: the row is marked with the word it hit, and
   the pill reads "N practice, test or old team pages, skipped". Not remembered with the refusals
   that hold for good, since a coach can rename a page: the name is read again on every export.
@@ -312,7 +338,8 @@ gives the same verdict as this one on every one of the 147,114 distinct names in
   intrasquad: that result is not a game. Where it marks an old page (void, do not use, delete,
   duplicate, placeholder) the game is filed against a slot of its own, as "TBD" is, because those
   are real teams' abandoned pages and the result is real: 14 of the 45 games filed against the
-  void and do-not-use pages in the backup are listed by the other club's own schedule too.
+  void and do-not-use pages in the backup are listed by the other club's own schedule too. A name
+  that is only "Team" and a number is filed the same way, for the reason above.
 - **Already in the pool**, a tidy pass deletes a pulled club every one of whose GameChanger names
   says it is no team, read off its links (the club's own name only for a link that carries none),
   after the high school pass and before anything is levelled or settled; and a stand-in whose one

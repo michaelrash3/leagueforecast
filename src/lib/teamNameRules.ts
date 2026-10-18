@@ -15,11 +15,16 @@
  * everywhere at once.
  *
  * Measured on the desktop crawl's team export of 24 September 2026 (266,350 rows) and the Team
- * Rankings backup of 11 October 2026, every pattern below checked against every distinct name in
- * the pool (147,114) by a second implementation, which gave the same verdict on all of them. The
- * fifteen word groups together read 2,138 rows of the export (0.80%), 692 of them with no players
- * at all, and 534 GameChanger teams in the pool, in 533 clubs; 79 of those clubs were ranked, and
- * none was on the owner's list of clubs that are real.
+ * Rankings backup of 11 October 2026, the first fifteen patterns below checked against every
+ * distinct name in the pool (147,114) by a second implementation, which gave the same verdict on
+ * all of them. The fifteen word groups together read 2,138 rows of the export (0.80%), 692 of them
+ * with no players at all, and 534 GameChanger teams in the pool, in 533 clubs; 79 of those clubs
+ * were ranked, and none was on the owner's list of clubs that are real. The sixteenth, a name that
+ * is only "Team" and a number, joined them on 18 October 2026 and reads 28 more rows of the export,
+ * 9 of them empty, and one more GameChanger team in a club of its own, unranked: sixteen groups,
+ * 2,166 rows (0.81%), 701 empty, 535 teams in 534 clubs, 79 ranked. A second implementation of
+ * it gives the same verdict on all 155,641 distinct names in that backup, its waiting list's
+ * among them (30 read), and on all 237,305 distinct names of the export (12 read).
  */
 
 /**
@@ -55,7 +60,8 @@ export type NotATeamWord =
   | "tryout"
   | "stats"
   | "stream"
-  | "intrasquad";
+  | "intrasquad"
+  | "team";
 
 /**
  * What the import does with a game whose opponent is so named, on another club's schedule.
@@ -252,6 +258,36 @@ const INTRASQUAD: NameRule<"intrasquad"> = {
   opponent: "drop",
 };
 
+/**
+ * Team and a number. A name that is only the word and a number of up to three digits or one
+ * letter, with my, new, the or our in front and a "#" anywhere between: "Team 7", "Team #4",
+ * "Team B", "My Team", and the word alone. Nobody chose it: it is what a page is called when nobody
+ * named it, and how a schedule writes an opponent it could not name. The waiting list had sorted
+ * these to its top on this very pattern since 27 September 2026, and the owner asked on 18 October
+ * for them to be refused outright, with six of them in the first ten there.
+ *
+ * 28 export rows (9 empty, 11 full: squads that play, with no name to tell them apart by or age
+ * them from); one GameChanger team in the pool, in a club of its own, unranked, holding no games
+ * and on nobody's list of real clubs; 49 stand-ins holding 72 games, 43 scored, none confirmed.
+ * Those 72 sit on the schedules of 29 pulled clubs, on 67 of their days, two such opponents on one
+ * day only once, none under an event, with a median margin of five runs: a real game against an
+ * opponent the schedule wrote only as a number, not a squad playing itself.
+ * So a game against one is kept on a slot of its own, as a game against "TBD" is, and the result
+ * stays on the record of the club that played it.
+ *
+ * The whole name has to be the word and its number, so it is anchored at both ends and meets none
+ * of the words above. A place or a club's name after the word, an age ("Team 12U", which 32 export
+ * rows are and the age reader files), a second word after the number, a year of four digits, or a
+ * number run into a name, which splits to "Team 7" and the name, is a team somebody named. The
+ * split form is read for an underscore, "TEAM_9"; the name as written for a capital somebody put
+ * mid-word, "TEam 7", which the split breaks in two.
+ */
+const TEAM_NUMBER: NameRule<"team"> = {
+  word: "team",
+  pattern: /^\s*(?:my|new|the|our)?\s*team\s*#?\s*(?:\d{1,3}|[a-z])?\s*$/i,
+  opponent: "slot",
+};
+
 /** The word groups that say a page is not a team, in the order a name is read against them. */
 export const NOT_A_TEAM_RULES: readonly NameRule<NotATeamWord>[] = [
   PRACTICE,
@@ -268,6 +304,7 @@ export const NOT_A_TEAM_RULES: readonly NameRule<NotATeamWord>[] = [
   STATS,
   STREAM,
   INTRASQUAD,
+  TEAM_NUMBER,
 ];
 
 /**
@@ -286,7 +323,7 @@ const SOFTBALL: NameRule<"softball"> = {
   opponent: "drop",
 };
 
-/** All fifteen, in the order they were measured: what a second implementation is checked against. */
+/** All sixteen, in the order they were measured: what a second implementation is checked against. */
 export const NAME_RULES: readonly NameRule[] = [...NOT_A_TEAM_RULES, SOFTBALL];
 
 /** The rule a name hit, the words of the name it hit on as the name writes them, and the gate. */

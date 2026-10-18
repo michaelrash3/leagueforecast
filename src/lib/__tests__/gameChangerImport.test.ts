@@ -4067,10 +4067,10 @@ describe("poolSignature", () => {
     // r8 since the tidy learned to file a stand-in onto a lone namesake in a bordering state.
     // This digit is meant to move on exactly that kind of change: it is what makes a pool nobody
     // has touched read as unseen, once, so the new rule reaches what is already filed.
-    expect(before).toBe(`r23|1|2|1|2026-09-15T12:00:00.000Z`);
+    expect(before).toBe(`r24|1|2|1|2026-09-15T12:00:00.000Z`);
     expect(poolSignature({ ...state, games: [...state.games] })).toBe(before);
     expect(poolSignature({ ...state, games: [] })).not.toBe(before);
-    expect(poolSignature(empty)).toBe("r23|0|0|0|");
+    expect(poolSignature(empty)).toBe("r24|0|0|0|");
   });
 
   /*
@@ -6008,15 +6008,17 @@ describe("whether a tidy changed anything", () => {
  *
  * This is the rung that reaches the backlog's worst population. `ageFromOpponentNames` reads an
  * age out of an opponent's *name*, so it can never settle a team in a closed league where nobody
- * writes an age in anything — "Team 4" playing "Team 2" and "Team 5". Measured over a real 36,194
- * row backlog, 10,709 rows are exactly that shape. This settles one the moment any of those
- * opponents has been filed by some other route.
+ * writes an age in anything — "Larkspire 4" playing "Larkspire 2" and "Larkspire 5". Measured over
+ * a real 36,194 row backlog, 10,709 rows are exactly that shape. This settles one the moment any of
+ * those opponents has been filed by some other route. (The same league written "Team 4" and "Team
+ * 2" is refused at the door since 18 October 2026, as a name nobody chose, so these are numbered
+ * under an invented town's name instead.)
  */
 describe("an age from the company the pool already knows", () => {
   /** A closed league: four teams whose names say nothing, three of them already filed at 10U. */
   const filed = (): GcImportState => {
     let state = empty;
-    ["Team 2", "Team 3", "Team 5"].forEach((name, i) => {
+    ["Larkspire 2", "Larkspire 3", "Larkspire 5"].forEach((name, i) => {
       const built = importGcSchedule(
         schedule({ id: `gcFILED0000${i}`, name, ageLevel: 10, avatarKey: `av-${i}` }, [
           game({ id: `f${i}`, opponentName: "Somebody 10U" }),
@@ -6029,9 +6031,9 @@ describe("an age from the company the pool already knows", () => {
   };
 
   const closedLeague = (avatars: string[]) =>
-    schedule({ id: "gcTEAM400001", name: "Team 4", ageLevel: undefined }, [
+    schedule({ id: "gcTEAM400001", name: "Larkspire 4", ageLevel: undefined }, [
       ...avatars.map((key, i) =>
-        game({ id: `c${i}`, opponentName: `Team ${i + 2}`, opponentAvatarKey: key })
+        game({ id: `c${i}`, opponentName: `Larkspire ${i + 2}`, opponentAvatarKey: key })
       ),
     ]);
 
@@ -6053,7 +6055,7 @@ describe("an age from the company the pool already knows", () => {
 
   /*
    * By identity, never by name. A pool holding tens of thousands of teams has a great many
-   * "Team 4"s, and matching one by name would collect a stranger from the other side of the
+   * "Larkspire 4"s, and matching one by name would collect a stranger from the other side of the
    * country and file this club at their age.
    */
   it("says nothing about an opponent it cannot identify by picture", () => {
@@ -6076,10 +6078,10 @@ describe("an age from the company the pool already knows", () => {
   });
 
   it("leaves a team that already has an age exactly where it was", () => {
-    const own = schedule({ id: "gcOWN0000001", name: "Team 4", ageLevel: 12 }, [
-      game({ id: "o1", opponentName: "Team 2", opponentAvatarKey: "av-0" }),
-      game({ id: "o2", opponentName: "Team 3", opponentAvatarKey: "av-1" }),
-      game({ id: "o3", opponentName: "Team 5", opponentAvatarKey: "av-2" }),
+    const own = schedule({ id: "gcOWN0000001", name: "Larkspire 4", ageLevel: 12 }, [
+      game({ id: "o1", opponentName: "Larkspire 2", opponentAvatarKey: "av-0" }),
+      game({ id: "o2", opponentName: "Larkspire 3", opponentAvatarKey: "av-1" }),
+      game({ id: "o3", opponentName: "Larkspire 5", opponentAvatarKey: "av-2" }),
     ]);
     expect(importGcSchedule(own, filed()).outcome.ageGroupName).toContain("12U");
   });

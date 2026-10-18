@@ -1063,6 +1063,14 @@ const skipReason = (
   // Before the age readings, as `resolveAgeGroup` asks it: a good age does not make a practice
   // account a team. The word goes in the sentence, so a page refused on a word can be checked.
   const notATeam = vouched ? null : notATeamWord(profile.name);
+  if (notATeam?.word === "team") {
+    return {
+      code: "not-a-team",
+      message:
+        "This page's name is only “Team” and a number, the name a page has when nobody named " +
+        `it, so it was left out. Its name says “${notATeam.text}”.`,
+    };
+  }
   if (notATeam) {
     return {
       code: "not-a-team",
@@ -7327,7 +7335,11 @@ const namedAfterSpared = (
  *   club's own name only for a link that carries none. A club holding one practice id and one real
  *   one is the real one, folded together; and the club's stored name has lost what a bracket said,
  *   "(Practice Squad)", which 33 of the 520 say only there. Two clubs whose stored name has a word
- *   none of their links has are left.
+ *   none of their links has are left. A name that is only "Team" and a number is the exception: the
+ *   import keeps it as it is, having nothing to clean off it, so a club GameChanger calls "Team 7"
+ *   that the pool holds under another name was named by somebody, renamed by hand or merged into a
+ *   club with a name, and keeps that name. On the backup of 11 October 2026 the one pulled club
+ *   GameChanger calls so is called so in the pool too.
  * - Never the user's own club, a page's own team, or a club in `real` (by club id or any of its
  *   GameChanger ids), a stand-in included: those said to be real, and every club a League
  *   Standings team links, picked or carried onto by its name, which the callers add
@@ -7378,6 +7390,9 @@ export const dropNotATeam = (
     for (const link of links) {
       const hit = notATeamWord(link.name.trim() || team.name);
       if (!hit) return;
+      // GameChanger calls it only "Team 7", and the pool calls it something else: somebody named
+      // it, by hand or by a merge, and it is that name's club (see above).
+      if (hit.word === "team" && notATeamWord(team.name)?.word !== "team") return;
       if (hit.opponent === "slot") slot = true;
     }
     going.add(team.id);
@@ -8244,8 +8259,11 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       baseball
  *  23 — joining a game one club filed against a stand-in of the other's very name and the other
  *       against a stand-in or a slot, mirrored within the hour and the only match each way
+ *  24 — a name that is only "Team" and a number or a letter read as a page that is no team: such a
+ *       pulled club deleted where the pool calls it so too, and such a stand-in's games kept on
+ *       slots of their own
  */
-const TIDY_RULES_VERSION = 23;
+const TIDY_RULES_VERSION = 24;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
