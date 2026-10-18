@@ -72,6 +72,7 @@ import {
   isHeldAsOwn,
   isJoinedClaim,
   ownPageFor,
+  unjoinedRow,
   type FoldedRow,
   scoreSeenBy,
   mayTakeRow,
@@ -4737,7 +4738,7 @@ export const joinCrossedHalves = (
  * every tidy reads the two rows again as their schedules filed them, and a join the schedules no
  * longer bear out — a score or a start since posted that no longer fits, a second club of the name
  * with a row that does, a copy of the game naming either club itself, the owner's refusal of either
- * name, the other club's row gone — puts each row back as it was.
+ * name, the other club's row gone — puts each row back as it was (`unjoinedRow`).
  */
 export const joinNamesakeHalves = (
   state: GcImportState,
@@ -4780,35 +4781,13 @@ export const joinNamesakeHalves = (
   state.games.forEach((game) => {
     // A game the user has thrown out keeps what it holds, as it keeps a claim (`claimFiledRows`).
     if (game.joinedFrom === undefined || game.excluded) return;
-    const { joinedFrom, joinedFromLevel, ...unmarked } = game;
-    if (!teamById.has(joinedFrom)) {
+    if (!teamById.has(game.joinedFrom)) {
+      const { joinedFrom: _from, joinedFromLevel: _level, ...unmarked } = game;
       apart.set(game.id, { row: unmarked, back: [], key: undefined });
       return;
     }
     const theirs = (game.alsoRows ?? []).filter((record) => record.onSideB === true);
-    const theirSchedules = new Set(theirs.map((record) => record.teamId));
-    const ours = (game.alsoRows ?? []).filter((record) => record.onSideB !== true);
-    const onRecord = (game.alsoFrom ?? []).filter((schedule) => !theirSchedules.has(schedule));
-    const {
-      alsoRows: _rows,
-      alsoFrom: _from,
-      reportedByB: _reported,
-      scoreFromB,
-      teamAScore,
-      teamBScore,
-      ageLevelB: _level,
-      ...rest
-    } = unmarked;
-    const row: ScoutGame = {
-      ...rest,
-      teamBId: joinedFrom,
-      ...(scoreFromB || teamAScore === undefined || teamBScore === undefined
-        ? {}
-        : { teamAScore, teamBScore }),
-      ...(joinedFromLevel === undefined ? {} : { ageLevelB: joinedFromLevel }),
-      ...(ours.length > 0 ? { alsoRows: ours } : {}),
-      ...(onRecord.length > 0 ? { alsoFrom: onRecord } : {}),
-    };
+    const row = unjoinedRow(game);
     const claim = theirs.find((record) => isJoinedClaim(game, record));
     apart.set(game.id, {
       row,

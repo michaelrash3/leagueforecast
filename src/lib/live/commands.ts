@@ -16,7 +16,7 @@ import {
   type NamedAge,
   type NamedAges,
 } from "../namedAges";
-import { withoutClub } from "../unrealClubs";
+import { unjoinsWithout, withoutClub } from "../unrealClubs";
 import {
   coerceAutoRemovals,
   marksOfRealClubs,
@@ -1389,9 +1389,30 @@ const apply = (read: PoolRead, command: PoolCommand): CommandResult => {
       // clubs off the games) goes with its games, and has no GameChanger ids to refuse.
       if (!club && gameIds.length === 0) return { ok: false, why: "missing" };
       const gcTeamIds = (club?.gcTeams ?? []).map((link) => link.teamId);
+      // A game the namesake join made with the club in for a stand-in is another club's own row,
+      // which goes back to that stand-in (`unjoinsWithout`): remembered as deleted, that club's
+      // next pull would never file its own row again.
+      const roster = new Set(read.teams().map((team) => team.id));
+      const goesBack = new Set(
+        all
+          .filter((game) =>
+            unjoinsWithout(
+              game,
+              (teamId) => teamId === command.teamId,
+              (teamId) => roster.has(teamId)
+            )
+          )
+          .map((game) => game.id)
+      );
       return applySteps(read, [
         remember("droppedClubs", gcTeamIds),
-        remember("deletedGames", rowsOfGames(all, gameIds)),
+        remember(
+          "deletedGames",
+          rowsOfGames(
+            all,
+            gameIds.filter((id) => !goesBack.has(id))
+          )
+        ),
         // Thrown out for good, it is no longer a club taken off for the user to put back.
         (pool) => apply(pool, { kind: "autoRemoved", put: [], forget: gcTeamIds }),
         (pool) => {

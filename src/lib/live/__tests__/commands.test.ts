@@ -22,6 +22,7 @@ import {
 import { refusalOf } from "../../notThisTeam";
 import { autoRemovalsList, type AutoRemoval } from "../../autoRemoved";
 import { unlinkGcTeam } from "../../teamRankings";
+import { tidyPool } from "../../gameChangerImport";
 
 /*
  * Team Rankings' edits as commands (`commands.ts`): each makes its change to the part it touches
@@ -499,6 +500,72 @@ describe("the clean-up commands", () => {
       ok: false,
       why: "missing",
     });
+  });
+
+  /*
+   * The namesake join puts club B in for the stand-in club A's own row named, holding B's own row
+   * as a claim. Thrown out, B takes its own row with it, and A's row goes back against the stand-in
+   * (`unjoinsWithout`), not into the rows remembered as deleted: there, A's next pull would never
+   * file its own row of the game again. Invented clubs.
+   */
+  it("throws out a club a namesake join put in, standing the other club's own row back up", () => {
+    const groups: AgeGroup[] = [
+      { id: "ag12", name: "12U 2027", ageLevel: 12, year: 2027, seasonIds: [] },
+      { id: "ag13", name: "13U 2027", ageLevel: 13, year: 2027, seasonIds: [] },
+    ];
+    const pulledClub = (id: string, name: string, page: string): ScoutTeam => ({
+      id,
+      name,
+      state: "IN",
+      gcTeams: [{ teamId: `gc${id}`, name, ageGroupId: page, ageLevel: Number(page.slice(2)) }],
+    });
+    const own = (
+      clubId: string,
+      gameId: string,
+      against: string,
+      page: string,
+      score: number[]
+    ) => ({
+      id: `gc_gc${clubId}_${gameId}`,
+      teamAId: clubId,
+      teamBId: against,
+      teamAScore: score[0]!,
+      teamBScore: score[1]!,
+      ageGroupId: page,
+      date: "2026-10-03",
+      ageLevelA: Number(page.slice(2)),
+      season: "Fall 2026",
+      startTs: "2026-10-03T14:00:00.000Z",
+      source: { kind: "gamechanger" as const, teamId: `gc${clubId}`, gameId },
+    });
+    const tidied = tidyPool({
+      ageGroups: groups,
+      teams: [
+        pulledClub("RIDGE", "North Ridge Bombers", "ag12"),
+        pulledClub("HUSTLE", "Lakeshore Hustle", "ag13"),
+        { id: "S-HUSTLE", name: "Lakeshore Hustle", nameOnly: true },
+        { id: "S-RIDGE", name: "NR - Ridge Bombers", nameOnly: true },
+      ],
+      games: [
+        own("RIDGE", "r1", "S-HUSTLE", "ag12", [4, 11]),
+        own("HUSTLE", "h1", "S-RIDGE", "ag13", [11, 4]),
+      ],
+    });
+    expect(tidied.namesakeJoined).toBe(1);
+    const parts = POOL();
+    parts.teams = tidied.state.teams;
+    parts.groups = groups;
+    parts.games = new Map([[2027, tidied.state.games]]);
+    parts.marks = new Map();
+    const pool = memory(parts);
+    const before = stored(pool.parts);
+    const dropped = pool.run({ kind: "club.drop", teamId: "HUSTLE" });
+    expect(pool.parts.games.get(2027)).toEqual([own("RIDGE", "r1", "S-HUSTLE", "ag12", [4, 11])]);
+    expect([...(pool.parts.answers.get("deletedGames") ?? [])]).toEqual([]);
+    expect([...(pool.parts.answers.get("droppedClubs") ?? [])]).toEqual(["gcHUSTLE"]);
+    expect(pool.parts.teams.map((team) => team.id)).toEqual(["RIDGE", "S-HUSTLE", "S-RIDGE"]);
+    pool.run(dropped.inverse);
+    expect(stored(pool.parts)).toEqual(before);
   });
 
   it("forgets a club's marks as it throws it out, and its undo makes them again", () => {

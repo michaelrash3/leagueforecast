@@ -1094,6 +1094,44 @@ export const isJoinedClaim = (holder: ScoutGame, record: FoldedRow): boolean =>
 export const isHeldAsOwn = (holder: ScoutGame, record: FoldedRow): boolean =>
   isSettledClaim(holder, record) || isJoinedClaim(holder, record);
 
+/**
+ * A game the namesake join made (`ScoutGame.joinedFrom`), as its own row's schedule filed it: back
+ * against the stand-in the row named, at the level the name gave (`joinedFromLevel`), with the
+ * other club's rows, its schedule on record, its score beside this one's and any score it lent
+ * taken out, and this club's own other rows kept. What the join puts back when the schedules stop
+ * bearing it out, and what deleting the other club leaves (`withoutClub`): the row is in the other
+ * club's game only because the join read it so, and its own schedule never named that club. The
+ * same game when no join made it.
+ */
+export const unjoinedRow = (game: ScoutGame): ScoutGame => {
+  if (game.joinedFrom === undefined) return game;
+  const { joinedFrom, joinedFromLevel, ...unmarked } = game;
+  const theirs = (game.alsoRows ?? []).filter((record) => record.onSideB === true);
+  const theirSchedules = new Set(theirs.map((record) => record.teamId));
+  const ours = (game.alsoRows ?? []).filter((record) => record.onSideB !== true);
+  const onRecord = (game.alsoFrom ?? []).filter((schedule) => !theirSchedules.has(schedule));
+  const {
+    alsoRows: _rows,
+    alsoFrom: _from,
+    reportedByB: _reported,
+    scoreFromB,
+    teamAScore,
+    teamBScore,
+    ageLevelB: _level,
+    ...rest
+  } = unmarked;
+  return {
+    ...rest,
+    teamBId: joinedFrom,
+    ...(scoreFromB || teamAScore === undefined || teamBScore === undefined
+      ? {}
+      : { teamAScore, teamBScore }),
+    ...(joinedFromLevel === undefined ? {} : { ageLevelB: joinedFromLevel }),
+    ...(ours.length > 0 ? { alsoRows: ours } : {}),
+    ...(onRecord.length > 0 ? { alsoFrom: onRecord } : {}),
+  };
+};
+
 /** `row`, a claimed record stood up against its holder, put back against the team it named. */
 const asFiled = (row: ScoutGame, record: FoldedRow): ScoutGame => {
   if (record.filedAgainst === undefined || record.filedAgainst === row.teamAId) return row;

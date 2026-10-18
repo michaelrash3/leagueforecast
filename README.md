@@ -1494,7 +1494,11 @@ one; and the reclaim does not move the game to another club of B's name. A pull 
 finds its row by id and changes nothing, and a refresh of B's page that cannot see the game on A's
 files the row again, which the tidy folds back in (**One row, one place**). A game the user has
 thrown out stays as the user left it, and one whose stand-in has since gone from the roster keeps
-the join as a plain claim.
+the join as a plain claim. Deleting B, or B taken off the boards for the user (**Clubs removed for
+you**), puts A's row back against the stand-in it named (`unjoinedRow`, `unjoinsWithout`) and keeps
+it off the rows remembered as deleted, rather than take A's own row of the game with a club its
+schedule never named, which A's next pull would then never have filed again; B's own row goes with
+B, as any claim of B's does.
 
 A row filed by name on a pulled club that plays nowhere near the age it was played at is not that
 club's (`resettleOffLevel`): more than two levels off, it goes to the one namesake that plays near
@@ -2652,8 +2656,11 @@ leaves out a club every one of whose ids is marked, with every game naming it, t
 would take it out (`withoutClubs`), so the boards, the club cards, Find a team and the ratings all
 go without it. A claimed row in one of its games that is another club's own stands back up against
 the team it was filed against; one that is the removed club's own goes with it (Delete club now
-does the same), which on 11 October left 4 games naming a removed club and now leaves none. A
-year's archive is frozen from the same pool (`archivedFrom`), so its tables are the boards on
+does the same), which on 11 October left 4 games naming a removed club and now leaves none. A game
+the namesake join made with the removed club in for a stand-in is the other club's own row, which
+goes back against that stand-in, as Delete club puts it back (**A stand-in carrying the other
+club's very name**), rather than go with a club its own schedule never named.
+A year's archive is frozen from the same pool (`archivedFrom`), so its tables are the boards on
 screen. The Games tab still lists a removed club's stored games, which a mark leaves filed, with
 the club named "(removed for you)" rather than a bare "?". A mark stays until something lifts it,
 so a club whose results dated ahead have merely been reached stays off: any guard lifts it; A and
