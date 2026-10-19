@@ -4970,17 +4970,14 @@ export const joinNamesakeHalves = (
   let listedAs: Map<string, string[]> | undefined;
   const clubsListedAs = (pool: string, key: string): string[] => {
     if (!listedAs) {
-      const made = new Map<string, string[]>();
-      state.teams.forEach((team) => {
-        if (!team.gcTeams?.length) return;
-        const keys = new Set(
-          [team.name, ...team.gcTeams.map((link) => link.name)].map(teamNameKey)
-        );
-        new Set(team.gcTeams.map((link) => poolKeyOf(link.ageGroupId))).forEach((at) =>
-          keys.forEach((name) => push(made, `${at}\u0000${name}`, team.id))
-        );
-      });
-      listedAs = made;
+      listedAs = new Map();
+      state.teams.forEach((team) =>
+        team.gcTeams?.forEach((link) =>
+          [team.name, link.name].forEach((name) =>
+            push(listedAs!, `${poolKeyOf(link.ageGroupId)}\u0000${teamNameKey(name)}`, team.id)
+          )
+        )
+      );
     }
     return listedAs.get(`${pool}\u0000${key}`) ?? [];
   };
