@@ -232,15 +232,43 @@ const unscored = () =>
     ]
   );
 
-/** B's stand-in shares no word with A's name. */
-const noWordShared = () =>
-  pool(
-    [ridge, hustle, standIn("S-HUSTLE", "Lakeshore Hustle"), standIn("S-COMETS", "Saginaw Comets")],
+/**
+ * B's stand-in shares no word with A's name. Joined only where B is in A's state or next door, in
+ * another town, a level from A at most, the game not won by ten, and the stand-in no other pulled
+ * club's name; as built, B is in A's state, a level up, and won by seven.
+ */
+const unworded = ({
+  aState = "IN" as string | null,
+  bState = "IN",
+  page = "ag13",
+  score = [4, 11] as [number, number],
+  towns = [] as string[],
+  others = [] as ScoutTeam[],
+} = {}) => {
+  const { state: _state, ...stateless } = ridge;
+  return pool(
     [
-      row("RIDGE", "r1", "S-HUSTLE", "ag12", `${DAY}T14:00`, [4, 11]),
-      row("HUSTLE", "h1", "S-COMETS", "ag13", `${DAY}T14:00`, [11, 4]),
+      {
+        ...stateless,
+        ...(aState ? { state: aState } : {}),
+        ...(towns[0] ? { city: towns[0] } : {}),
+      },
+      {
+        ...club("HUSTLE", "Lakeshore Hustle", bState, page),
+        ...(towns[1] ? { city: towns[1] } : {}),
+      },
+      standIn("S-HUSTLE", "Lakeshore Hustle"),
+      standIn("S-COMETS", "Saginaw Comets"),
+      ...others,
+    ],
+    [
+      row("RIDGE", "r1", "S-HUSTLE", "ag12", `${DAY}T14:00`, score),
+      row("HUSTLE", "h1", "S-COMETS", page, `${DAY}T14:00`, [score[1], score[0]]),
     ]
   );
+};
+/** B's stand-in shares no word with A's name, and B is two states off. */
+const noWordShared = () => unworded({ bState: "TX" });
 
 /** B's page three levels from A's. */
 const threeLevelsApart = () =>
@@ -270,12 +298,12 @@ const ownName = () =>
     ]
   );
 
-/** B's stand-in shares only a word of two letters with A's name. */
+/** B's stand-in shares only a word of two letters with A's name, and B is two states off. */
 const twoLetterWord = () =>
   pool(
     [
       club("OZ", "Ozark NW Bombers", "MO", "ag12"),
-      club("LH", "Lakeshore Hustle", "MO", "ag13"),
+      club("LH", "Lakeshore Hustle", "OR", "ag13"),
       standIn("S-LH", "Lakeshore Hustle"),
       standIn("S-NW", "NW Hawks"),
     ],
@@ -378,7 +406,7 @@ describe("the tidy with the namesake join, against the pin from before it", () =
       ],
     ],
     [
-      "no word shared",
+      "no word shared, from two states off",
       noWordShared,
       [
         "2026-10-03 14:00 ag12 12/- North Ridge Bombers 4-11 Lakeshore Hustle (stand-in)",
@@ -1125,5 +1153,47 @@ describe("a pull typing no age for an opponent whose level the row already holds
       schedule(ridge, 12, [played("r1", "Lakeshore Hustle", `${DAY}T14:00`, [4, 11])]);
     expect(importer.add(untyped())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
     expect(importer.state.games[0]).toMatchObject({ ageLevelB: 13 });
+  });
+});
+
+describe("B's stand-in sharing no word with A's name", () => {
+  /*
+   * A coach typing a shorthand nobody else uses for a club near enough to play: "Saginaw Comets"
+   * for the North Ridge Bombers. Joined where everything else about the game says it is one.
+   */
+  const joined = (levels: string, score = "4-11") => ({
+    counts: { namesakeJoined: 1 },
+    lines: [
+      `2026-10-03 14:00 ag12 ${levels} North Ridge Bombers ${score} Lakeshore Hustle [holds gcHUSTLE:h1 filed against Saginaw Comets (stand-in)]`,
+    ],
+  });
+
+  it("joins where B is in A's state, a level up, and the game was won by seven", () => {
+    expect(tidied(unworded())).toEqual(joined("12/13"));
+  });
+
+  it("joins where B is next door, in another town, a level down, and the game was won by nine", () => {
+    // At A's own level, the one club of the name next door takes the stand-in itself (`refiled`).
+    const nextDoor = unworded({
+      bState: "OH",
+      page: "ag11",
+      score: [3, 12],
+      towns: ["Ashwick", "Tarnfield"],
+    });
+    expect(tidied(nextDoor)).toEqual(joined("12/11", "3-12"));
+  });
+
+  it.each([
+    ["B is two states off", { bState: "TX" }],
+    ["A has no state", { aState: null }],
+    ["the two clubs are of one town", { towns: ["Ashwick", "ashwick "] }],
+    ["B is two levels up", { page: "ag14" }],
+    ["the game was won by ten", { score: [2, 12] as [number, number] }],
+    [
+      "the stand-in carries another pulled club's name",
+      { others: [club("COMETS", "Saginaw Comets", "OR", "ag13")] },
+    ],
+  ])("leaves the pair alone where %s", (_, options) => {
+    expect(tidied(unworded(options)).counts).toEqual({});
   });
 });
