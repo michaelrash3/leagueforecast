@@ -4960,9 +4960,29 @@ export const joinNamesakeHalves = (
       return false;
     }
     if (Math.abs(a.own - a.theirs) >= UNWORDED_MARGIN) return false;
-    return !(clubsByName.get(`${a.pool}\u0000${nameKeyOf(opponent)}`) ?? []).some(
-      (id) => id !== a.club && id !== b.club
-    );
+    return !clubsListedAs(a.pool, nameKeyOf(opponent)).some((id) => id !== a.club && id !== b.club);
+  };
+  /*
+   * The pulled clubs by every name they are listed under: their own, and each of their GameChanger
+   * teams' as GameChanger has it, which a merged or renamed club keeps beside a name of its own.
+   * Built the first time a pair asks, since most passes ask nothing of it.
+   */
+  let listedAs: Map<string, string[]> | undefined;
+  const clubsListedAs = (pool: string, key: string): string[] => {
+    if (!listedAs) {
+      const made = new Map<string, string[]>();
+      state.teams.forEach((team) => {
+        if (!team.gcTeams?.length) return;
+        const keys = new Set(
+          [team.name, ...team.gcTeams.map((link) => link.name)].map(teamNameKey)
+        );
+        new Set(team.gcTeams.map((link) => poolKeyOf(link.ageGroupId))).forEach((at) =>
+          keys.forEach((name) => push(made, `${at}\u0000${name}`, team.id))
+        );
+      });
+      listedAs = made;
+    }
+    return listedAs.get(`${pool}\u0000${key}`) ?? [];
   };
   /*
    * Whether a club's own schedules have played a stand-in as a team of its own, read off the rows

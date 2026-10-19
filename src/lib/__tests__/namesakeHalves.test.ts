@@ -1193,6 +1193,19 @@ describe("B's stand-in sharing no word with A's name", () => {
       "the stand-in carries another pulled club's name",
       { others: [club("COMETS", "Saginaw Comets", "OR", "ag13")] },
     ],
+    [
+      "the stand-in carries the name another pulled club's own team is listed under",
+      {
+        others: [
+          {
+            ...club("COMETS", "Brackwell Comets", "OR", "ag13"),
+            gcTeams: [
+              { teamId: "gcCOMETS", name: "Saginaw Comets", ageGroupId: "ag13", ageLevel: 13 },
+            ],
+          },
+        ],
+      },
+    ],
   ])("leaves the pair alone where %s", (_, options) => {
     expect(tidied(unworded(options)).counts).toEqual({});
   });
