@@ -108,6 +108,7 @@ import { todayIsoDay } from "./date";
 import { borderingStates, farApart, inOneRegion } from "./stateBorders";
 import { namedAgeFor, type NamedAges } from "./namedAges";
 import { GC_PAIRING_EVIDENCE_LABEL, type GcPairingEvidence } from "./gcPairingEvidence";
+import { fillMissingStates } from "./clubStates";
 
 /**
  * The lookups an import does, precomputed.
@@ -7183,6 +7184,8 @@ export type PoolTidy = {
   claimed: number;
   /** Levels read out of a name that had one all along, under rules that came later. */
   releveled: number;
+  /** Pulled clubs GameChanger gave no state, given the one their club's other teams are in. */
+  stateFilled: number;
   /**
    * Teams deleted for playing a different game — wiffle ball, blitzball or softball — along with
    * their results.
@@ -7723,6 +7726,7 @@ export const TIDY_STEPS = [
   "highSchool",
   "notATeam",
   "releveled",
+  "stateFilled",
   "pruned",
   "withdrawn",
   "named",
@@ -8081,8 +8085,13 @@ const tidyOnce = (
   starting("releveled", pages.state);
   const levels = relevelFromNames(pages.state);
   finished("releveled", levels.releveled, levels.state);
-  starting("pruned", levels.state);
-  const season = pruneOutOfSeason(levels.state);
+  // Then where each club is, before every step that reads a namer's state to file what it named.
+  starting("stateFilled", levels.state);
+  const located = fillMissingStates(levels.state.teams);
+  const placedAt = located.filled === 0 ? levels.state : { ...levels.state, teams: located.teams };
+  finished("stateFilled", located.filled, placedAt);
+  starting("pruned", placedAt);
+  const season = pruneOutOfSeason(placedAt);
   finished("pruned", season.pruned, season.state);
   // Before anything settles a stand-in into it or folds a row into it: the game is going.
   starting("withdrawn", season.state);
@@ -8181,6 +8190,7 @@ const tidyOnce = (
     merged: doubled.merged,
     claimed: claims.claimed,
     releveled: levels.releveled,
+    stateFilled: located.filled,
     notBaseball: kept.dropped,
     highSchool: school.dropped,
     notATeam: pages.dropped,
@@ -8228,6 +8238,7 @@ export const tidyPool = (
     merged: 0,
     claimed: 0,
     releveled: 0,
+    stateFilled: 0,
     notBaseball: 0,
     highSchool: 0,
     notATeam: 0,
@@ -8253,6 +8264,7 @@ export const tidyPool = (
     total.merged += step.merged;
     total.claimed += step.claimed;
     total.releveled += step.releveled;
+    total.stateFilled += step.stateFilled;
     total.notBaseball += step.notBaseball;
     total.highSchool += step.highSchool;
     total.notATeam += step.notATeam;
@@ -8272,6 +8284,7 @@ export const tidyPool = (
       step.merged +
       step.claimed +
       step.releveled +
+      step.stateFilled +
       step.notBaseball +
       step.highSchool +
       step.notATeam;
@@ -8391,8 +8404,9 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       files
  *  26 — a copy holding its club's own row of the game as a claim left on that club unless a
  *       namesake's own row stands against the puller itself, so two namesakes stop taking turns
+ *  27 — a pulled club GameChanger gave no state given the one its club's other teams are in
  */
-const TIDY_RULES_VERSION = 26;
+const TIDY_RULES_VERSION = 27;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -8498,6 +8512,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.releveled > 0
       ? [
           `${plural(tidy.releveled, "age level", "age levels")} worked out from a name that said one all along.`,
+        ]
+      : []),
+    ...(tidy.stateFilled > 0
+      ? [
+          `${plural(tidy.stateFilled, "club's state", "clubs' states")} filled in from the same club's other teams.`,
         ]
       : []),
     ...(tidy.notBaseball > 0
