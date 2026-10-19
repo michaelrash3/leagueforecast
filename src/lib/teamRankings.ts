@@ -4776,7 +4776,8 @@ export const mergeScoutTeams = (
     ...(removed.gcTeams ?? []).filter((link) => !linkedIds.has(link.teamId)),
   ];
   const fillName = !survivor.name.trim() && removed.name.trim();
-  const fillState = !survivor.state && removed.state;
+  // A state the owner cleared stays clear (`ScoutTeam.stateCleared`).
+  const fillState = !survivor.state && !survivor.stateCleared && removed.state;
   const fillCity = !survivor.city && removed.city;
   // "Our team" is a fact about the club, so it survives whichever half carried it.
   const fillMine = !survivor.isMine && removed.isMine;

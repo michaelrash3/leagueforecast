@@ -1026,6 +1026,58 @@ describe("one squad holding several GameChanger ids", () => {
   const fall = { season: "fall" as const, year: 2026 };
   const spring = { season: "spring" as const, year: 2027 };
 
+  it("leaves a state the owner cleared clear when it folds two ids", () => {
+    let pool = importGcSchedule(
+      sched(
+        "gcYEAGFALL00",
+        "Yeager Davis 11U",
+        [played("f1", "Raptors 11U", "2026-09-11", 8, 2)],
+        fall
+      ),
+      empty
+    ).state;
+    pool = importGcSchedule(
+      sched(
+        "gcYEAGSPRG00",
+        "Yeager Davis 11U",
+        [played("s1", "Raptors 11U", "2026-09-11", 8, 2)],
+        spring
+      ),
+      pool
+    ).state;
+    // Each half cleared in turn, the other in Kentucky: whichever survives keeps the clear.
+    const yeagers = pool.teams.filter((team) => team.name === "Yeager Davis");
+    yeagers.forEach((cleared) => {
+      const teams = pool.teams.map((team) =>
+        team.name !== "Yeager Davis"
+          ? team
+          : team.id === cleared.id
+            ? { ...team, stateCleared: true as const }
+            : { ...team, state: "KY" }
+      );
+      const settled = mergeSameSquadIds({ ...pool, teams });
+      const [survivor] = settled.state.teams.filter((team) => team.name === "Yeager Davis");
+      if (survivor?.id === cleared.id) expect(survivor).not.toHaveProperty("state");
+      else expect(survivor?.state).toBe("KY");
+    });
+    // And so does a merge by hand.
+    const [kept, gone] = yeagers as [ScoutTeam, ScoutTeam];
+    const merged = mergeScoutTeams(
+      gone.id,
+      kept.id,
+      pool.teams.map((team) =>
+        team.id === kept.id
+          ? { ...team, stateCleared: true as const }
+          : team.id === gone.id
+            ? { ...team, state: "KY" }
+            : team
+      ),
+      pool.games,
+      pool.ageGroups
+    );
+    expect(merged.teams.find((team) => team.id === kept.id)).not.toHaveProperty("state");
+  });
+
   it("folds two ids that filed the same game", () => {
     let pool = importGcSchedule(
       sched(

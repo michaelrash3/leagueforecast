@@ -6040,7 +6040,10 @@ const applyFolds = (foldInto: ReadonlyMap<string, string>, state: GcImportState)
         gcTeams.push(link);
       });
       if (!merged.name.trim() && from.name.trim()) merged = { ...merged, name: from.name };
-      if (!merged.state && from.state) merged = { ...merged, state: from.state };
+      // A state the owner cleared stays clear (`ScoutTeam.stateCleared`).
+      if (!merged.state && !merged.stateCleared && from.state) {
+        merged = { ...merged, state: from.state };
+      }
       if (!merged.city && from.city) merged = { ...merged, city: from.city };
       // "Our team" is a fact about the club, so it survives whichever half carried it.
       if (!merged.isMine && from.isMine) merged = { ...merged, isMine: true };
