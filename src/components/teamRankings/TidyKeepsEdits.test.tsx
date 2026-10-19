@@ -39,6 +39,7 @@ vi.mock("../../hooks/usePoolTidy", () => ({
               refiled: 0,
               claimed: 0,
               releveled: 0,
+              stateFilled: 0,
             },
           });
       }),

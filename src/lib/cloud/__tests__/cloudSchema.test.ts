@@ -156,6 +156,7 @@ const SHAPES_NOW = {
       "name",
       "isMine",
       "state",
+      "stateCleared",
       "city",
       "placeholder",
       "nameOnly",
@@ -321,6 +322,8 @@ const SHAPES: readonly { schema: number; fingerprint: string }[] = [
   { schema: 1, fingerprint: "aad50a5fa3c1b71ca12186e0e0704018561382cc742945645604a5e4e6dcb26b" },
   // A game the namesake join made keeps the stand-in its row named (`ScoutGame.joinedFrom`).
   { schema: 2, fingerprint: "97eb75495bdb29f341e62bea4c6c7f36f4eb238c0830215e7f129149ca94c68f" },
+  // A pulled club whose state the owner cleared says so (`ScoutTeam.stateCleared`).
+  { schema: 3, fingerprint: "db106b32c05252c2f85bde9cd7d08dde6514879efa3b13fb8271c8d6edbdbfde" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new shape. */

@@ -42,8 +42,10 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * 2: a game the namesake join made keeps the stand-in its own row named and the level that name
  * gave (`ScoutGame.joinedFrom`, `joinedFromLevel`); dropped by an older build, the join could no
  * longer be taken back.
+ * 3: a pulled club whose state the owner cleared says so (`ScoutTeam.stateCleared`); dropped by an
+ * older build, the next tidy would fill in the state the owner took off.
  */
-export const DATA_SCHEMA = 2;
+export const DATA_SCHEMA = 3;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

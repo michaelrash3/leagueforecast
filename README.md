@@ -2092,7 +2092,16 @@ are filed onto the one club of that name in the puller's state (two in the state
 the one in the puller's own town; none in the state: the one in a bordering state, if exactly one
 is — on the stand-in fixtures export of 22 September 2026 that was the club the game itself named
 1,174 times in 1,240), and only where that club's own schedule has a game that day or the day
-either side, or the name is one no other club carries (**A name no other club carries**); a row a
+either side, or the name is one no other club carries (**A name no other club carries**). A
+puller GameChanger gave no state is first given the one its club's other teams are in
+(`fillMissingStates`): the pulled clubs sharing two or more coaches with it, the clubs of its name
+in its town, or three or more of its name all in one state, and none where the coaches or the town
+answer two states or two answers disagree; a name spread over several states says nothing either
+way. On the backup of 11 October 2026, 3,033 of 68,919 pulled clubs had no
+state, so none of the 4,316 rows on stand-ins they named could be filed; tried on the clubs that
+had one, the rule was right 25,498 times in 25,715, and it gave 372 of the 3,033 a state. A state
+the owner clears on a club's panel stays clear: the club is marked so (`ScoutTeam.stateCleared`, in
+the data schema from 3), or the next tidy would fill it back in. A row a
 name filed onto a pulled club whose own schedule has none is taken off it onto
 a stand-in of the name, as **A name is checked against the club's own schedule** sets out; two ids are one
 squad only when their _own_ schedules filed the same fixture, at one level, in
