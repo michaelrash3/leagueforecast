@@ -16,8 +16,12 @@ const townKey = (city: string | undefined): string | undefined =>
 /**
  * Fills in the state of a pulled club GameChanger gave none, from the club's other teams: the
  * pulled clubs sharing two or more coaches with it (`gcStaff.ts`), the clubs of its name in its
- * own town, and failing those the clubs of its name, three or more, all in one state. Any of the
- * three answering two states, or two of them answering differently, leaves it without one.
+ * own town, and failing those the clubs of its name, three or more, all in one state. The coaches
+ * or the town answering two states, or two of the three answering differently, leaves it without
+ * one. A name whose clubs are in several states says nothing either way, as a common name is: where
+ * the coaches or the town answered and three or more clubs of the name were spread over two states
+ * or more, the answer was right 2,675 times in 2,697 on the clubs that had a state, as often as
+ * anywhere else.
  *
  * A club's 9U page often says nothing of where it is while its 14U page does, and the tidy reads
  * a club with no state as being nowhere: a stand-in it named is filed onto a club only where that

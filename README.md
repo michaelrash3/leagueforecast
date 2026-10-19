@@ -2095,8 +2095,9 @@ is — on the stand-in fixtures export of 22 September 2026 that was the club th
 either side, or the name is one no other club carries (**A name no other club carries**). A
 puller GameChanger gave no state is first given the one its club's other teams are in
 (`fillMissingStates`): the pulled clubs sharing two or more coaches with it, the clubs of its name
-in its town, or three or more of its name all in one state, and none where any of them answers two
-states or they disagree. On the backup of 11 October 2026, 3,033 of 68,919 pulled clubs had no
+in its town, or three or more of its name all in one state, and none where the coaches or the town
+answer two states or two answers disagree; a name spread over several states says nothing either
+way. On the backup of 11 October 2026, 3,033 of 68,919 pulled clubs had no
 state, so none of the 4,316 rows on stand-ins they named could be filed; tried on the clubs that
 had one, the rule was right 25,498 times in 25,715, and it gave 372 of the 3,033 a state. A row a
 name filed onto a pulled club whose own schedule has none is taken off it onto

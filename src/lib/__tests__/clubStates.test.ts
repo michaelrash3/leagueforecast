@@ -102,6 +102,18 @@ describe("a pulled club with no state", () => {
     expect(fillMissingStates(teams).filled).toBe(0);
   });
 
+  it("but takes its coaches' state where the clubs of its name are spread over several", () => {
+    // A common name is in many states, which says nothing against what the coaches say.
+    const teams = [
+      club("CUBS9", "Brackwell County Cubs", undefined, { staff: COACHES }),
+      club("MATE", "Marrowby Cubs", "KY", { level: 14, staff: COACHES }),
+      club("CUBS10", "Brackwell County Cubs", "KY", { level: 10 }),
+      club("CUBS11", "Brackwell County Cubs", "TN", { level: 11 }),
+      club("CUBS12", "Brackwell County Cubs", "OH", { level: 12 }),
+    ];
+    expect(stateOf(fillMissingStates(teams).teams, "CUBS9")).toBe("KY");
+  });
+
   it("nor where its coaches and its town say two states", () => {
     const teams = [
       club("CUBS9", "Brackwell County Cubs", undefined, { staff: COACHES, city: "Ashwick" }),
