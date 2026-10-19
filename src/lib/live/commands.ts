@@ -376,9 +376,14 @@ const lastPerPart = (writes: readonly PoolWrite[]): PoolWrite[] => {
 const replaceTeam = (teams: readonly ScoutTeam[], teamId: string, next: ScoutTeam): ScoutTeam[] =>
   teams.map((team) => (team.id === teamId ? next : team));
 
+/**
+ * A club with `state`, or with none. A pulled club whose state the owner clears is marked so, or the
+ * next tidy would fill the state they took off straight back in (`fillMissingStates`).
+ */
 const withState = (team: ScoutTeam, state: string | undefined): ScoutTeam => {
-  const { state: _was, ...rest } = team;
-  return state ? { ...rest, state } : rest;
+  const { state: _was, stateCleared: _cleared, ...rest } = team;
+  if (state) return { ...rest, state };
+  return team.gcTeams?.length ? { ...rest, stateCleared: true } : rest;
 };
 
 /** Changes one game of a year, in its place, and says how to put it back. */

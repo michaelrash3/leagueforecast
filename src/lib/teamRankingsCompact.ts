@@ -454,6 +454,8 @@ const MINE = 1;
 const PLACEHOLDER = 2;
 /** Known only from somebody else's schedule: in the fit as an opponent, never in a table. */
 const NAME_ONLY = 4;
+/** The owner cleared the club's state, and the tidy leaves it so (`ScoutTeam.stateCleared`). */
+const STATE_CLEARED = 8;
 
 export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
   const groups = interner();
@@ -490,7 +492,8 @@ export const encodeScoutTeams = (teams: ScoutTeam[]): CompactTeams => {
       team.name,
       (team.isMine ? MINE : 0) |
         (team.placeholder ? PLACEHOLDER : 0) |
-        (team.nameOnly ? NAME_ONLY : 0),
+        (team.nameOnly ? NAME_ONLY : 0) |
+        (team.stateCleared ? STATE_CLEARED : 0),
       team.state ?? null,
       team.city ?? null,
       links.length ? links : null,
@@ -588,6 +591,7 @@ export const decodeScoutTeams = (
     if (flags & MINE) team.isMine = true;
     if (flags & PLACEHOLDER) team.placeholder = true;
     if (flags & NAME_ONLY) team.nameOnly = true;
+    if (flags & STATE_CLEARED) team.stateCleared = true;
     const state = str(row[3]);
     if (state) team.state = state;
     const city = str(row[4]);
@@ -700,6 +704,7 @@ export const coerceScoutTeams = (raw: unknown): ScoutTeam[] => {
         name: entry.name as string,
         ...(entry.isMine === true ? { isMine: true } : {}),
         ...(isString(entry.state) ? { state: entry.state } : {}),
+        ...(entry.stateCleared === true ? { stateCleared: true as const } : {}),
         ...(isString(entry.city) ? { city: entry.city } : {}),
         ...(entry.placeholder === true ? { placeholder: true as const } : {}),
         /*

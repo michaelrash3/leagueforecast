@@ -54,6 +54,11 @@ export type ScoutTeam = {
    * team you simply have not told, not a team from nowhere.
    */
   state?: string;
+  /**
+   * The owner cleared this pulled club's state, so the tidy does not fill it in again from the
+   * club's other teams (`fillMissingStates`). Setting a state lifts it.
+   */
+  stateCleared?: true;
   /** City, when a source gave one. Display only, like `state`; it never reaches the maths. */
   city?: string;
   /**

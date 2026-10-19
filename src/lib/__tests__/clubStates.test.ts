@@ -123,6 +123,17 @@ describe("a pulled club with no state", () => {
     expect(fillMissingStates(teams).filled).toBe(0);
   });
 
+  it("nor one whose state the owner cleared", () => {
+    const teams = [
+      {
+        ...club("CUBS9", "Brackwell County Cubs", undefined, { staff: COACHES }),
+        stateCleared: true as const,
+      },
+      club("CUBS14", "Brackwell County Cubs 14U", "KY", { level: 14, staff: COACHES }),
+    ];
+    expect(fillMissingStates(teams).filled).toBe(0);
+  });
+
   it("and never a club that has a state, nor a stand-in", () => {
     const standIn: ScoutTeam = { id: "S-CUBS", name: "Brackwell County Cubs", nameOnly: true };
     const teams = [

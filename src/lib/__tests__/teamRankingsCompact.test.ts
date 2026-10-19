@@ -331,6 +331,18 @@ describe("teams round-trip", () => {
     expect(roundTripTeams(teams)).toEqual(teams);
   });
 
+  it("keeps a pulled club's mark that the owner cleared its state", () => {
+    const teams: ScoutTeam[] = [
+      {
+        id: "S-CUBS",
+        name: "Brackwell County Cubs",
+        stateCleared: true,
+        gcTeams: [{ teamId: "gcCUBS00001", name: "Brackwell County Cubs", ageGroupId: "ag_1" }],
+      },
+    ];
+    expect(roundTripTeams(teams)).toEqual(teams);
+  });
+
   it("keeps everything a pulled team carries", () => {
     const teams: ScoutTeam[] = [
       {

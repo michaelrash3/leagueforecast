@@ -255,6 +255,18 @@ describe("a command's change", () => {
     expect(pool.parts.teams[2]?.state).toBe("KY");
     pool.run({ kind: "team.state", teamId: "C", state: null });
     expect(pool.parts.teams[2]).not.toHaveProperty("state");
+    expect(pool.parts.teams[2]).not.toHaveProperty("stateCleared");
+  });
+
+  it("marks a pulled club whose state is cleared, so the tidy does not fill it back in", () => {
+    const pool = memory(POOL());
+    pool.run({ kind: "team.state", teamId: "A", state: null });
+    expect(pool.parts.teams[0]).not.toHaveProperty("state");
+    expect(pool.parts.teams[0]?.stateCleared).toBe(true);
+    // A state set again lifts the mark.
+    pool.run({ kind: "team.state", teamId: "A", state: "ky" });
+    expect(pool.parts.teams[0]?.state).toBe("KY");
+    expect(pool.parts.teams[0]).not.toHaveProperty("stateCleared");
   });
 
   it("adds a club League Standings made only when it is given a state, and only that club", () => {

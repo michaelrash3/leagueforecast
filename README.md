@@ -2099,7 +2099,9 @@ in its town, or three or more of its name all in one state, and none where the c
 answer two states or two answers disagree; a name spread over several states says nothing either
 way. On the backup of 11 October 2026, 3,033 of 68,919 pulled clubs had no
 state, so none of the 4,316 rows on stand-ins they named could be filed; tried on the clubs that
-had one, the rule was right 25,498 times in 25,715, and it gave 372 of the 3,033 a state. A row a
+had one, the rule was right 25,498 times in 25,715, and it gave 372 of the 3,033 a state. A state
+the owner clears on a club's panel stays clear: the club is marked so (`ScoutTeam.stateCleared`, in
+the data schema from 3), or the next tidy would fill it back in. A row a
 name filed onto a pulled club whose own schedule has none is taken off it onto
 a stand-in of the name, as **A name is checked against the club's own schedule** sets out; two ids are one
 squad only when their _own_ schedules filed the same fixture, at one level, in

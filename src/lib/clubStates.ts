@@ -32,7 +32,8 @@ const townKey = (city: string | undefined): string | undefined =>
  * name and town 99.7%. It gave 372 of the 3,033 a state.
  *
  * A pull never writes the state of a club already in the pool, so a state filled here stands
- * until the owner changes it, as one GameChanger gave would.
+ * until the owner changes it, as one GameChanger gave would; and a state the owner clears stays
+ * clear (`ScoutTeam.stateCleared`), or the next tidy would put back what they took off.
  */
 export const fillMissingStates = (teams: ScoutTeam[]): { teams: ScoutTeam[]; filled: number } => {
   const pulled = teams.filter((team) => team.gcTeams?.length);
@@ -96,7 +97,7 @@ export const fillMissingStates = (teams: ScoutTeam[]): { teams: ScoutTeam[]; fil
 
   let filled = 0;
   const next = teams.map((team) => {
-    if (team.state || !team.gcTeams?.length) return team;
+    if (team.state || team.stateCleared || !team.gcTeams?.length) return team;
     const state = stateOf(team);
     if (!state) return team;
     filled += 1;
