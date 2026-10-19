@@ -4718,6 +4718,13 @@ export const joinCrossedHalves = (
 };
 
 /**
+ * A result this wide or wider is no sign of one game on a stand-in sharing no word with the namer's
+ * name (`joinNamesakeHalves`): a game won by ten is often one the run rule called, and the same
+ * score turns up week after week.
+ */
+const UNWORDED_MARGIN = 10;
+
+/**
  * Joins one game held twice because both pulled clubs filed it against a stand-in, where one of the
  * two stand-ins carries the other club's very name.
  *
@@ -4743,7 +4750,14 @@ export const joinCrossedHalves = (
  * - B's opponent is a slot, or a stand-in sharing a word of three letters or more with A's name,
  *   filler words off (`nameFitWords`). Over the backups of 25, 26 and 29 September and 11 October
  *   2026, a stand-in sharing no word made a false pair 5.0% of the time (374 pairs), against 0.80%
- *   for one that shared a word and 0.28% for a slot.
+ *   for one that shared a word and 0.28% for a slot. One sharing no word is read as A all the same
+ *   where everything else about the game agrees (`nearAndPlain`): B in A's state or next door, the
+ *   clubs not of one town, their levels at most one apart, the game not won by ten or more, and the
+ *   stand-in's name no other pulled club's. With A's row one to four weeks either side, on those
+ *   four backups after a tidy, that joins 15, 15, 19 and 28 more pairs, 77 in all, against 0.25 a
+ *   shift off (0.32%); with B in A's state or next door alone it found 134 on 25 and 29 September
+ *   and 11 October against 5.25 a shift off (3.9%), the false ones on a stand-in of another pulled
+ *   club's name, between clubs of one town, two levels apart or in games won by ten.
  * - The two clubs' own levels for the game are no more than two apart (`PLAYS_UP_TO`), as far as a
  *   squad plays up or down: three or more apart was false 11.9% of the time (88 pairs).
  *
@@ -4929,6 +4943,45 @@ export const joinNamesakeHalves = (
     return [...words(a)].some((word) => theirs.has(word));
   };
   /*
+   * B's stand-in for A sharing no word with A's name, read as A all the same where nothing else
+   * about the game says otherwise: B in A's state or next door, the two clubs not of one town (a
+   * coach there knows the other club's name), their levels a level apart at most, the game not won
+   * by ten or more (`UNWORDED_MARGIN`), and the stand-in's name no other pulled club's, which would
+   * say B played that club. Measured in the step's own description above.
+   */
+  const nearAndPlain = (a: Half, b: Half, opponent: ScoutTeam): boolean => {
+    const namer = teamById.get(a.club);
+    const named = teamById.get(b.club);
+    if (!namer?.state || !named?.state) return false;
+    if (named.state !== namer.state && !borderingStates(namer.state).has(named.state)) return false;
+    const town = townKey(namer.city);
+    if (town !== undefined && town === townKey(named.city)) return false;
+    if (a.level !== undefined && b.level !== undefined && Math.abs(a.level - b.level) > 1) {
+      return false;
+    }
+    if (Math.abs(a.own - a.theirs) >= UNWORDED_MARGIN) return false;
+    return !clubsListedAs(a.pool, nameKeyOf(opponent)).some((id) => id !== a.club && id !== b.club);
+  };
+  /*
+   * The pulled clubs by every name they are listed under: their own, and each of their GameChanger
+   * teams' as GameChanger has it, which a merged or renamed club keeps beside a name of its own.
+   * Built the first time a pair asks, since most passes ask nothing of it.
+   */
+  let listedAs: Map<string, string[]> | undefined;
+  const clubsListedAs = (pool: string, key: string): string[] => {
+    if (!listedAs) {
+      listedAs = new Map();
+      state.teams.forEach((team) =>
+        team.gcTeams?.forEach((link) =>
+          [team.name, link.name].forEach((name) =>
+            push(listedAs!, `${poolKeyOf(link.ageGroupId)}\u0000${teamNameKey(name)}`, team.id)
+          )
+        )
+      );
+    }
+    return listedAs.get(`${pool}\u0000${key}`) ?? [];
+  };
+  /*
    * Whether a club's own schedules have played a stand-in as a team of its own, read off the rows
    * as their schedules filed them: a stand-in a club has played is not a name for that club. Asked
    * only of the stand-ins the pairs below name for A, and answered for all of them in one reading
@@ -5013,7 +5066,10 @@ export const joinNamesakeHalves = (
     const namer = teamById.get(a.club);
     if (
       !isSlot(opponent) &&
-      !(isStandIn(opponent) && sharesWord(opponent!.name, namer?.name ?? ""))
+      !(
+        isStandIn(opponent) &&
+        (sharesWord(opponent!.name, namer?.name ?? "") || nearAndPlain(a, b, opponent!))
+      )
     ) {
       return false;
     }
@@ -8408,8 +8464,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  26 — a copy holding its club's own row of the game as a claim left on that club unless a
  *       namesake's own row stands against the puller itself, so two namesakes stop taking turns
  *  27 — a pulled club GameChanger gave no state given the one its club's other teams are in
+ *  28 — the namesake join reading a stand-in sharing no word with the namer's name as the namer
+ *       where the two clubs are neighbours and nothing else about the game says otherwise
  */
-const TIDY_RULES_VERSION = 27;
+const TIDY_RULES_VERSION = 28;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

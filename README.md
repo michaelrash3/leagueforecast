@@ -1527,7 +1527,14 @@ not:
 - B's opponent is a slot, or a stand-in sharing a word of three letters or more with A's name,
   filler words off (`nameFitWords`). Over the backups of 25, 26 and 29 September and 11 October
   2026 a stand-in sharing no word made a false pair 5.0% of the time (374 pairs), against 0.80%
-  for one that shares a word and 0.28% for a slot.
+  for one that shares a word and 0.28% for a slot. A stand-in sharing no word is read as A all the
+  same where everything else about the game agrees: B in A's state or next door, the two clubs not
+  of one town, their levels at most one apart, the game not won by ten runs or more (often a game
+  the run rule called, a score that turns up week after week), and the stand-in's name no other
+  pulled club's, which would say B played that club. With A's row one to four weeks either side,
+  on those four backups after a tidy, that joins 77 more games against 0.25 a shift off (0.32%);
+  with B in A's state or next door alone it found 134 on 25 and 29 September and 11 October against
+  5.25 a shift off (3.9%).
 - The two clubs' own levels for the game are at most two apart (`PLAYS_UP_TO`): three or more
   apart was false 11.9% of the time (88 pairs).
 
