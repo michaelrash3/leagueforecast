@@ -289,6 +289,14 @@ export type ScoutGame = {
    */
   withdrawn?: boolean;
   /**
+   * This row is a third copy of a game that already counts: another GameChanger team's row of a
+   * game the club it names holds against another pulled club, both of whose own schedules list it,
+   * at that hour and to that result (`markCountedElsewhere`). It counts for nothing, so the club it
+   * names is credited with the game once. Set and cleared by the tidy, which reads the day again on
+   * every pass.
+   */
+  countedElsewhere?: true;
+  /**
    * The margin, as the rating reads it (`ratedMargin`), that the user has said is real, though one
    * side won by more than `IMPLAUSIBLE_MARGIN` runs: without it such a game is suspected of being
    * made up and counts for nothing (`isImplausibleScore`), and Pool Health lists it to be deleted

@@ -770,7 +770,9 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * it back gave 5. 7 replaced it with each club's starting level (`scheduleCommunities.ts`):
      * with every club started at average and no deduction, the boards are 5's to the millionth,
      * and with the marked club put back too, 4's. 6's deduction is gone from the code, so nothing
-     * here rebuilds 6's boards any more; its fingerprint stays, as 1's to 3's do.
+     * here rebuilds 6's boards any more; its fingerprint stays, as 1's to 3's do. 8 leaves a third
+     * copy of a game that already counts off every board (`ScoutGame.countedElsewhere`); the
+     * fixture holds none, so its boards are 7's.
      */
     const RULES_PINS: Record<number, string> = {
       1: "a2c59173",
@@ -780,6 +782,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       5: "48c5c405",
       6: "d2a7b071",
       7: "46996e9c",
+      8: "46996e9c",
     };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
     starts.off = true;

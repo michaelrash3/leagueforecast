@@ -1738,6 +1738,19 @@ remembered against the two GameChanger ids. Where the two schedules named an opp
 two opponents, and the fold cannot make the two copies one game: after the 76 folds, 28 minutes on
 the kept clubs still held two games against two opponents, most of them one game named two ways.
 
+Until a pair is folded, and for a pair sharing only one game, which the list does not offer, the
+tidy reads the copy itself (`markCountedElsewhere`). Club C's game against club Y that both C's and
+Y's own schedules hold is the game; club X's own row of it, typed against C, at the same hour with
+the same result from C's seat and held by no schedule of C's, is the squad's second GameChanger
+team posting it again. That row stays where it is, X's game on X's page, but counts for nothing
+(`ScoutGame.countedElsewhere`), so C is credited with the game once. Only a bare row is read, only
+where one such game fits it and X's own schedules hold no other game that hour, and every tidy
+reads it again: a score posted apart or Y's row gone, and it counts once more. On the backup of 11
+October 2026, tidied, that sets 678 rows not to count, against 1.75 with each such row moved one
+to four weeks either side, where its game is not (0.26%); on the backup of 25 September 2026,
+before most of those second teams were pulled, 33 against 2.25. The list below, of clubs credited
+twice, went from 957 groups to 279 on the first.
+
 **Clubs credited twice with one game.** **Check the pool** also lists every time a pulled club
 holds two counted games on one day that start within the hour of each other with the same result
 (`countedTwice`). A club plays one game at a time, so that is one game entered twice, nearly always

@@ -222,6 +222,11 @@ const GAME_HEADERS = [
    */
   "Joined From",
   "Joined From Age",
+  /**
+   * A third copy of a game that already counts: another GameChanger team's row of a game both of
+   * its clubs' own schedules hold, which the tidy sets not to count and reads again every time.
+   */
+  "Counted Elsewhere",
 ];
 
 /**
@@ -490,6 +495,7 @@ const csvBackupSections = (backup: TeamRankingsBackup): CsvBackupSection[] => {
       game.scoreConfirmed ?? "",
       game.joinedFrom ?? "",
       game.joinedFromLevel ?? "",
+      yesNo(game.countedElsewhere),
     ]
       .map(csvEscape)
       .join(",")
@@ -906,6 +912,7 @@ export const parseTeamRankingsCsv = (raw: string): TeamRankingsBackup | null => 
         ...(isYes(cell("Score From Team B")) ? { scoreFromB: true as const } : {}),
         ...(isYes(cell("Score From Second Listing")) ? { scoreFromTwin: true as const } : {}),
         ...(isYes(cell("Withdrawn")) ? { withdrawn: true as const } : {}),
+        ...(isYes(cell("Counted Elsewhere")) ? { countedElsewhere: true as const } : {}),
         ...(confirmed === undefined ? {} : { scoreConfirmed: confirmed }),
         ...(season ? { season } : {}),
         ...(ageLevelA === undefined ? {} : { ageLevelA }),

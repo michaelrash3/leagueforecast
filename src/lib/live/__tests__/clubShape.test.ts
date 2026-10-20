@@ -101,6 +101,12 @@ describe("a club card", () => {
     ]);
   });
 
+  it("keeps a copy of a game counted elsewhere as one, so the panel does not count it", () => {
+    const copy = game({ id: "g1", teamAScore: 3, teamBScore: 7, countedElsewhere: true });
+    const back = roundTrip({ ...CARD, games: [copy] });
+    expect(back?.games[0]).toMatchObject({ teamAScore: 3, teamBScore: 7, countedElsewhere: true });
+  });
+
   it("is refused a game that is not the club's own", () => {
     expect(() =>
       encodeClubCard({ ...CARD, games: [game({ id: "x", teamAId: "S-7", teamBId: "S-8" })] })

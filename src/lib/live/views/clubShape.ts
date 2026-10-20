@@ -84,6 +84,8 @@ type GameWire = {
   ra?: number;
   rb?: number;
   x?: 1;
+  /** A third copy of a game that already counts (`ScoutGame.countedElsewhere`). */
+  k?: 1;
   c?: number;
   d?: string;
   e?: string;
@@ -147,6 +149,7 @@ export const encodeClubCard = (card: ClubCard): CardWire => {
         ? { ra: game.reportedByB.teamAScore, rb: game.reportedByB.teamBScore }
         : {}),
       ...(game.excluded ? { x: 1 as const } : {}),
+      ...(game.countedElsewhere ? { k: 1 as const } : {}),
       ...(game.scoreConfirmed === undefined ? {} : { c: game.scoreConfirmed }),
       ...(game.date === undefined ? {} : { d: game.date }),
       ...(game.event === undefined ? {} : { e: game.event }),
@@ -208,6 +211,7 @@ const gameOf = (
     ["ra", isScore],
     ["rb", isScore],
     ["x", (value) => value === 1],
+    ["k", (value) => value === 1],
     ["c", isScore],
     ["d", isText],
     ["e", isText],
@@ -230,6 +234,7 @@ const gameOf = (
       ? {}
       : { reportedByB: { teamAScore: raw.ra as number, teamBScore: raw.rb as number } }),
     ...(raw.x === 1 ? { excluded: true } : {}),
+    ...(raw.k === 1 ? { countedElsewhere: true as const } : {}),
     ...(raw.c === undefined ? {} : { scoreConfirmed: raw.c as number }),
     ...(raw.d === undefined ? {} : { date: raw.d as string }),
     ...(raw.e === undefined ? {} : { event: raw.e as string }),

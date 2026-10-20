@@ -30,6 +30,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
   },
   releveled: { short: "Level", full: "Age level worked out from the team's name" },
   stateFilled: { short: "State", full: "State filled in from the same club's other teams" },
+  countedElsewhere: {
+    short: "Copies",
+    full: "Another GameChanger team's copy of a game that already counts, set not to count",
+  },
   pruned: { short: "Prune", full: "Games dated outside the squad year they are filed under" },
   withdrawn: {
     short: "Withdrawn",
