@@ -673,6 +673,13 @@ export function TeamDetailPanel({
                     <span className={pill("neutral")} title="Against its own name, not counted">
                       {line.result}
                     </span>
+                  ) : line.result && game.countedElsewhere ? (
+                    <span
+                      className={pill("neutral")}
+                      title="Another GameChanger team's copy of a game already counted, not counted again"
+                    >
+                      {line.result}
+                    </span>
                   ) : line.result && !inWindow.has(game.id) ? (
                     // Played, and kept, but outside the window the record above is counted over —
                     // shown rather than dropped, so a list longer than the record is explained.

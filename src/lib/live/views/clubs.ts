@@ -13,9 +13,10 @@ import {
 
 /**
  * A game as a club's panel reads it: who played, where it is filed, the scores and side B's own
- * report of them, whether it is set not to count or its runaway score was confirmed, its day, and
- * its event and each side's level. What a stored game says beyond that (its start, its source, the
- * rows folded into it, notes and the marks a tidy leaves) is the pool's, which no panel line reads
+ * report of them, whether it is set not to count or is a copy of a game counted elsewhere, whether
+ * its runaway score was confirmed, its day, and its event and each side's level. What a stored game
+ * says beyond that (its start, its source, the rows folded into it, notes and the other marks a
+ * tidy leaves) is the pool's, which no panel line reads
  * (`teamRecordInPool`, `countedInWindow`, `scoreSeenBy`, `countsTowardRating`): a game counts as
  * played ahead by its day alone (`isDatedAhead`).
  */
@@ -28,6 +29,7 @@ export const panelGame = (game: ScoutGame): ScoutGame => ({
   ...(game.teamBScore === undefined ? {} : { teamBScore: game.teamBScore }),
   ...(game.reportedByB ? { reportedByB: game.reportedByB } : {}),
   ...(game.excluded ? { excluded: true } : {}),
+  ...(game.countedElsewhere ? { countedElsewhere: true as const } : {}),
   ...(game.scoreConfirmed === undefined ? {} : { scoreConfirmed: game.scoreConfirmed }),
   ...(game.date === undefined ? {} : { date: game.date }),
   ...(game.event === undefined ? {} : { event: game.event }),

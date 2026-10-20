@@ -73,7 +73,8 @@ export const isImplausibleScore = (game: ScoutGame): boolean => {
  * went on doing that until somebody noticed it in Pool Health and deleted it. Now it never counts,
  * and Pool Health still lists it so it can be cleared out for good.
  *
- * Nor does a game a club plays against itself (`playsItself`).
+ * Nor does a game a club plays against itself (`playsItself`), nor a third copy of a game that
+ * already counts (`ScoutGame.countedElsewhere`).
  *
  * `today` defaults to the clock, which is what makes the rule hold at every call site rather than
  * at the few that remember to ask. It is an ISO day, the shape a pool game's date is stored in, so
@@ -82,6 +83,7 @@ export const isImplausibleScore = (game: ScoutGame): boolean => {
 export const countsTowardRating = (game: ScoutGame, today: string = todayIsoDay()): boolean =>
   isScoutGamePlayed(game) &&
   game.excluded !== true &&
+  game.countedElsewhere !== true &&
   !playsItself(game) &&
   !isDatedAhead(game, today) &&
   !isImplausibleScore(game);

@@ -44,8 +44,10 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * 7: each club's rating starts at its league's level, below average by as much as the league keeps
  * to itself (`scheduleCommunities.ts`), and 6's deduction is gone; a row says where it started
  * (`levelPrior`, `outsideGames`) and carries no `scheduleDeduction`.
+ * 8: a third copy of a game that already counts (`ScoutGame.countedElsewhere`) is left off every
+ * board, so the club it names is credited with the game once.
  */
-export const BOARD_RULES = 7;
+export const BOARD_RULES = 8;
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of

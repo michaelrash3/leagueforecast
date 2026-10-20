@@ -5356,6 +5356,104 @@ export const proposeTwinSquads = (
 };
 
 /**
+ * Sets a club's own row of a game not to count (`ScoutGame.countedElsewhere`) where it is a third
+ * copy: the club it names already has the game against another pulled club, and both of those
+ * clubs' own schedules hold it.
+ *
+ * One squad on GameChanger twice posts each game twice, and the second GameChanger team's row of a
+ * game its opponent and the squad's first team both list stands as a game of its own, typed against
+ * the opponent: the opponent is credited with the one game twice, once from each squad's copy.
+ * Folding the two teams into one is the owner's to do (`proposeTwinSquads`), and is offered only
+ * where they share two games or more; until then, and for a pair sharing one, the copy is read here.
+ * A row of club X against pulled club C that none of C's schedules holds, beside a game of C's
+ * against pulled club Y (not X) that both C's and Y's own schedules hold, within the hour, with the
+ * same result from C's seat, is that game: C cannot have played two at once to one score, and the
+ * game both schedules agree on is the one that counts. Asked of a bare row only, found by its own
+ * id and holding nothing else, where one such game fits it, and where X's own schedules hold no
+ * other game that hour, which one squad cannot play.
+ *
+ * On the backup of 11 October 2026, tidied, that sets 678 copies not to count, against 1.75 a shift
+ * off with each such row moved one to four weeks either side, where its game is not: 0.26%. On the
+ * backup of 25 September 2026, before most of those squads' second teams were pulled, it sets 33
+ * against 2.25: about two a pool either way. Pool Health's list of games counted twice
+ * (`countedTwice`) went from 957 groups to 279 on the first, 830 to 152 of those within the hour.
+ * The row stays where it is, X's own game on X's page, and still feeds the offer to fold X and Y.
+ * Nothing set is final: every pass reads the day again, and a copy the schedules stop bearing out —
+ * Y's row gone, a score posted apart, a second game that fits as well — counts again.
+ */
+export const markCountedElsewhere = (
+  state: GcImportState
+): { state: GcImportState; marked: number } => {
+  const pulled = new Set<string>();
+  const clubOfSchedule = new Map<string, string>();
+  state.teams.forEach((team) => {
+    if (!team.gcTeams?.length) return;
+    pulled.add(team.id);
+    team.gcTeams.forEach((link) => clubOfSchedule.set(link.teamId, team.id));
+  });
+  /** The pulled clubs whose own schedules hold a game: the row it stands on and every row in it. */
+  const holdersOf = (game: ScoutGame) => {
+    const holders = new Set<string>();
+    const add = (schedule: string | undefined) => {
+      const club = schedule === undefined ? undefined : clubOfSchedule.get(schedule);
+      if (club !== undefined) holders.add(club);
+    };
+    add(game.source?.teamId);
+    game.alsoRows?.forEach((record) => add(record.teamId));
+    game.alsoFrom?.forEach(add);
+    return holders;
+  };
+  /** Each pulled club's games both its and its opponent's own schedules hold, timed and scored. */
+  const confirmed = new Map<string, ScoutGame[]>();
+  /** Each pulled club's games its own schedules hold, timed: what it was playing at each hour. */
+  const busy = new Map<string, ScoutGame[]>();
+  const copies: ScoutGame[] = [];
+  state.games.forEach((game) => {
+    if (game.excluded || game.withdrawn || !game.date || !game.startTs || !isScored(game)) return;
+    const holders = holdersOf(game);
+    holders.forEach((club) => push(busy, club, game));
+    const { teamAId: a, teamBId: b } = game;
+    if (a !== b && pulled.has(a) && pulled.has(b) && holders.has(a) && holders.has(b)) {
+      push(confirmed, a, game);
+      push(confirmed, b, game);
+    }
+    const club = game.source ? clubOfSchedule.get(game.source.teamId) : undefined;
+    if (club === undefined || club !== a || b === a || !pulled.has(b) || holders.size !== 1) return;
+    if (game.alsoRows?.length || game.alsoFrom?.length || game.reportedByB) return;
+    if (game.scoreFromB || game.scoreFromTwin || game.joinedFrom !== undefined) return;
+    if (game.id !== gcRowId(game.source!.teamId, game.source!.gameId)) return;
+    copies.push(game);
+  });
+  const marks = new Set<string>();
+  copies.forEach((copy) => {
+    const { teamAId: x, teamBId: c } = copy;
+    const fits = (confirmed.get(c) ?? []).filter((game) => {
+      const y = game.teamAId === c ? game.teamBId : game.teamAId;
+      if (y === x || !startsWithinTheHour(game.startTs, copy.startTs)) return false;
+      const seen = scoreSeenBy(game, c);
+      return (
+        seen !== undefined && seen.own === copy.teamBScore && seen.opponent === copy.teamAScore
+      );
+    });
+    if (fits.length !== 1) return;
+    const elsewhere = (busy.get(x) ?? []).some(
+      (game) => game.id !== copy.id && startsWithinTheHour(game.startTs, copy.startTs)
+    );
+    if (!elsewhere) marks.add(copy.id);
+  });
+  let marked = 0;
+  const games = state.games.map((game) => {
+    const mark = marks.has(game.id);
+    if (mark === (game.countedElsewhere === true)) return game;
+    marked += 1;
+    if (mark) return { ...game, countedElsewhere: true as const };
+    const { countedElsewhere: _counted, ...rest } = game;
+    return rest;
+  });
+  return marked === 0 ? { state, marked: 0 } : { state: { ...state, games }, marked };
+};
+
+/**
  * Clubs that look like one club listed twice. Offered, never applied: only the user can say that
  * two rosters are the same team, and merging two clubs that merely share a name would quietly ruin
  * both their ratings.
@@ -7246,6 +7344,11 @@ export type PoolTidy = {
   /** Pulled clubs GameChanger gave no state, given the one their club's other teams are in. */
   stateFilled: number;
   /**
+   * Third copies of a game that already counts, set not to count, or counted again once the
+   * schedules stop bearing them out (`markCountedElsewhere`).
+   */
+  countedElsewhere: number;
+  /**
    * Teams deleted for playing a different game — wiffle ball, blitzball or softball — along with
    * their results.
    */
@@ -7800,6 +7903,7 @@ export const TIDY_STEPS = [
   "paired",
   "collapsed",
   "regrouped",
+  "countedElsewhere",
 ] as const;
 
 export type TidyStepName = (typeof TIDY_STEPS)[number];
@@ -8232,8 +8336,13 @@ const tidyOnce = (
   // and one the pool has to be saved for.
   starting("regrouped", after);
   finished("regrouped", same.regrouped, after);
+  // Last, once every row that could be the game's own has gone where it goes: what is left
+  // standing beside a game both clubs' schedules hold is a copy of it.
+  starting("countedElsewhere", after);
+  const copies = markCountedElsewhere(after);
+  finished("countedElsewhere", copies.marked, copies.state);
   return {
-    state: after,
+    state: copies.state,
     named: named.resolved,
     joined: halves.joined,
     namesakeJoined: namesakes.joined,
@@ -8250,6 +8359,7 @@ const tidyOnce = (
     claimed: claims.claimed,
     releveled: levels.releveled,
     stateFilled: located.filled,
+    countedElsewhere: copies.marked,
     notBaseball: kept.dropped,
     highSchool: school.dropped,
     notATeam: pages.dropped,
@@ -8298,6 +8408,7 @@ export const tidyPool = (
     claimed: 0,
     releveled: 0,
     stateFilled: 0,
+    countedElsewhere: 0,
     notBaseball: 0,
     highSchool: 0,
     notATeam: 0,
@@ -8324,6 +8435,7 @@ export const tidyPool = (
     total.claimed += step.claimed;
     total.releveled += step.releveled;
     total.stateFilled += step.stateFilled;
+    total.countedElsewhere += step.countedElsewhere;
     total.notBaseball += step.notBaseball;
     total.highSchool += step.highSchool;
     total.notATeam += step.notATeam;
@@ -8344,6 +8456,7 @@ export const tidyPool = (
       step.claimed +
       step.releveled +
       step.stateFilled +
+      step.countedElsewhere +
       step.notBaseball +
       step.highSchool +
       step.notATeam;
@@ -8466,8 +8579,9 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  27 — a pulled club GameChanger gave no state given the one its club's other teams are in
  *  28 — the namesake join reading a stand-in sharing no word with the namer's name as the namer
  *       where the two clubs are neighbours and nothing else about the game says otherwise
+ *  29 — a third GameChanger team's copy of a game both clubs' own schedules hold set not to count
  */
-const TIDY_RULES_VERSION = 28;
+const TIDY_RULES_VERSION = 29;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -8578,6 +8692,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.stateFilled > 0
       ? [
           `${plural(tidy.stateFilled, "club's state", "clubs' states")} filled in from the same club's other teams.`,
+        ]
+      : []),
+    ...(tidy.countedElsewhere > 0
+      ? [
+          `${plural(tidy.countedElsewhere, "copy", "copies")} of a game both clubs' own schedules already hold set not to count, or counted again once they stop holding it.`,
         ]
       : []),
     ...(tidy.notBaseball > 0

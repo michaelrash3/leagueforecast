@@ -44,8 +44,10 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * longer be taken back.
  * 3: a pulled club whose state the owner cleared says so (`ScoutTeam.stateCleared`); dropped by an
  * older build, the next tidy would fill in the state the owner took off.
+ * 4: a third copy of a game that already counts says so (`ScoutGame.countedElsewhere`); dropped by
+ * an older build, the club it names would be credited with the game twice until the next tidy.
  */
-export const DATA_SCHEMA = 3;
+export const DATA_SCHEMA = 4;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

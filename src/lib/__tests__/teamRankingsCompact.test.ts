@@ -122,6 +122,7 @@ describe("games round-trip", () => {
         alsoRows: [{ teamId: "gcLEGACY01", gameId: "l3b", ownScore: 5, opponentScore: 3 }],
         scoreFromTwin: true,
         withdrawn: true,
+        countedElsewhere: true,
         source: { kind: "gamechanger", teamId: "gcLEGACY01", gameId: "l3" },
       },
     ];
