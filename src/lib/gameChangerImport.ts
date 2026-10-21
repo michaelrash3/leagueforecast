@@ -78,6 +78,7 @@ import {
   scoreSeenBy,
   mayTakeRow,
   gcRowId,
+  minutesApart,
   startMinuteOf,
   squadNameKey,
   normalizeState,
@@ -5355,6 +5356,9 @@ export const proposeTwinSquads = (
   );
 };
 
+/** How far from the game both schedules hold a third team's copy of it is read as that game. */
+const COPY_REACH_MINUTES = 180;
+
 /**
  * Sets a club's own row of a game not to count (`ScoutGame.countedElsewhere`) where it is a third
  * copy: the club it names already has the game against another pulled club, and both of those
@@ -5380,6 +5384,18 @@ export const proposeTwinSquads = (
  * The row stays where it is, X's own game on X's page, and still feeds the offer to fold X and Y.
  * Nothing set is final: every pass reads the day again, and a copy the schedules stop bearing out —
  * Y's row gone, a score posted apart, a second game that fits as well — counts again.
+ *
+ * Out to three hours (`COPY_REACH_MINUTES`) where nothing fits within the hour: the squad's second
+ * team often lists the game at another clock. Past the hour the rule is weaker, and the owner chose
+ * it anyway on 21 October 2026, knowing so. On the 11 October backup, tidied, it sets 52 more copies
+ * not to count, 41 of them within two hours, against 0.75 and 0.625 a shift off with each row moved one to four weeks
+ * (61 to 120 minutes and 121 to 180). That shift finds few games near a moved row, though, and the
+ * truer check is the games themselves: two real games of one club an hour to two apart give it one
+ * result 0.69% of the time (226 of 32,913 pairs both sides' own schedules hold), two to three hours
+ * apart 0.80% (113 of 14,165), and those copies had 1,007 and 575 such games near them. So as many
+ * as seven and five of them, about one in five, may be a real game the club's own schedule left
+ * out, now not counted. Within the hour nothing changes: one game that fits there is the game,
+ * whatever fits further out, and two that fit there are left alone without looking further.
  */
 export const markCountedElsewhere = (
   state: GcImportState
@@ -5427,14 +5443,19 @@ export const markCountedElsewhere = (
   const marks = new Set<string>();
   copies.forEach((copy) => {
     const { teamAId: x, teamBId: c } = copy;
-    const fits = (confirmed.get(c) ?? []).filter((game) => {
+    const sameResult = (confirmed.get(c) ?? []).filter((game) => {
       const y = game.teamAId === c ? game.teamBId : game.teamAId;
-      if (y === x || !startsWithinTheHour(game.startTs, copy.startTs)) return false;
+      if (y === x) return false;
+      const gap = minutesApart(game.startTs, copy.startTs);
+      if (gap === undefined || gap > COPY_REACH_MINUTES) return false;
       const seen = scoreSeenBy(game, c);
       return (
         seen !== undefined && seen.own === copy.teamBScore && seen.opponent === copy.teamAScore
       );
     });
+    // Within the hour first, as ever; out to three hours only where nothing fits within it.
+    const near = sameResult.filter((game) => startsWithinTheHour(game.startTs, copy.startTs));
+    const fits = near.length > 0 ? near : sameResult;
     if (fits.length !== 1) return;
     const elsewhere = (busy.get(x) ?? []).some(
       (game) => game.id !== copy.id && startsWithinTheHour(game.startTs, copy.startTs)
@@ -8580,8 +8601,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  28 — the namesake join reading a stand-in sharing no word with the namer's name as the namer
  *       where the two clubs are neighbours and nothing else about the game says otherwise
  *  29 — a third GameChanger team's copy of a game both clubs' own schedules hold set not to count
+ *  30 — such a copy read out to three hours from the game where nothing fits within the hour, the
+ *       owner's choice of 21 October 2026
  */
-const TIDY_RULES_VERSION = 29;
+const TIDY_RULES_VERSION = 30;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
