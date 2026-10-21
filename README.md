@@ -1751,6 +1751,18 @@ to four weeks either side, where its game is not (0.26%); on the backup of 25 Se
 before most of those second teams were pulled, 33 against 2.25. The list below, of clubs credited
 twice, went from 957 groups to 279 on the first.
 
+Where no such game fits within the hour, the tidy looks out to three hours, since a squad's second
+team often lists the game at another clock, and reads the copy the same way where exactly one game
+fits there. The owner chose this on 21 October 2026 knowing it is the weaker rule. On the 11
+October backup it sets 52 more rows not to count, 41 of them within two hours, against 0.75 and
+0.625 with each row moved one to four weeks. A week's move finds few games near a row, though, and
+the games themselves say more: two real games of one club an hour to two apart, both held by both
+sides' own schedules, give it one result 0.69% of the time (226 of 32,913), two to three hours
+apart 0.80% (113 of 14,165), and those rows had 1,007 and 575 such games near them. So as many as
+seven and five of the 52, about one in five, may be a real game the club's schedule left out, now
+not counted. The list of clubs credited twice went from 279 groups to 227, all of them past the
+hour (127 to 75), and a second tidy finds nothing more.
+
 **Clubs credited twice with one game.** **Check the pool** also lists every time a pulled club
 holds two counted games on one day that start within the hour of each other with the same result
 (`countedTwice`). A club plays one game at a time, so that is one game entered twice, nearly always
