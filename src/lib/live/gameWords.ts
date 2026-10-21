@@ -56,10 +56,10 @@ const tenthsPrinted = (printed: string): number => Math.round(Number(printed) * 
  * said, was false there; and of the 45,554 clubs that gained, 8,146 had fewer effective games than
  * their board's average, so "fuller than the average club's" would have been false for them.
  *
- * The two ratings are printed as the row prints its Rating and Best guess (`formatBoardRating`),
- * so the line never reads "0.0" above a row reading "-0.0", nor rounds a rating stored a hair under
- * a half the other way from the row. The record's part is what those two printed figures differ
- * by, so the three add up on screen to the rating shown, as a reader will check.
+ * The two ratings are printed as the row prints its Rating (`formatBoardRating`), so the line never
+ * reads "0.0" above a row reading "-0.0", nor rounds a rating stored a hair under a half the other
+ * way from the row. The record's part is what those two printed figures differ by, so the three
+ * add up on screen to the rating shown, as a reader will check.
  *
  * Where the fit started the club, its league's level (`levelPrior`, `scheduleCommunities.ts`), is
  * inside the figure from its games and is not said: the owner chose that no club's panel say its

@@ -1,6 +1,6 @@
 /**
- * A rating as a board's row prints it, in the Rating and Best guess columns: to a tenth, with its
- * sign always shown. A rating is a margin either side of an average team, so "+3.1" and "-3.1" are
+ * A rating as a board's row prints it, in the Rating column: to a tenth, with its sign always
+ * shown. A rating is a margin either side of an average team, so "+3.1" and "-3.1" are
  * opposite claims and a bare "3.1" reads as neither.
  *
  * `toFixed` rounds the number as stored, so a rating within a twentieth of nought prints "+0.0" or

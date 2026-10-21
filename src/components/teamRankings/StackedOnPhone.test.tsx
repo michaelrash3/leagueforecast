@@ -69,22 +69,35 @@ describe("the rankings table on a phone", () => {
   it("is a table on a wide screen and cards on a narrow one, never both", async () => {
     atWidth(true);
     await openFullTable();
-    expect(screen.getByRole("columnheader", { name: "Best guess" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "SOS" })).toBeInTheDocument();
     expect(stackedCards()).toHaveLength(0);
 
     cleanup();
     atWidth(false);
     await openFullTable();
     // Not a table hidden by a class: no table at all, so a phone renders one set of rows.
-    expect(screen.queryByRole("columnheader", { name: "Best guess" })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "SOS" })).toBeNull();
     expect(stackedCards().length).toBeGreaterThan(0);
+  });
+
+  it("shows one rating a row, without the fit's own beside it, on either shape", async () => {
+    // The owner took the Best guess off the board: a club's panel splits the rating instead.
+    atWidth(true);
+    await openFullTable();
+    expect(screen.queryByText("Best guess")).toBeNull();
+
+    cleanup();
+    atWidth(false);
+    await openFullTable();
+    expect(stackedCards().length).toBeGreaterThan(0);
+    expect(screen.queryByText("Best guess")).toBeNull();
   });
 
   it("carries every column the table has, so nothing is invisible on a phone", async () => {
     atWidth(true);
     await openFullTable();
     const headers = within(
-      screen.getByRole("columnheader", { name: "Best guess" }).closest("table") as HTMLElement
+      screen.getByRole("columnheader", { name: "SOS" }).closest("table") as HTMLElement
     )
       .getAllByRole("columnheader")
       .map((cell) => cell.textContent ?? "")
@@ -95,7 +108,7 @@ describe("the rankings table on a phone", () => {
        */
       .filter((label) => !["Rank", "Team", "Rating", "Actions"].includes(label));
     const rows = within(
-      screen.getByRole("columnheader", { name: "Best guess" }).closest("table") as HTMLElement
+      screen.getByRole("columnheader", { name: "SOS" }).closest("table") as HTMLElement
     ).getAllByRole("row").length;
 
     cleanup();
@@ -113,7 +126,7 @@ describe("the rankings table on a phone", () => {
     atWidth(true);
     await openFullTable();
     const firstRow = within(
-      screen.getByRole("columnheader", { name: "Best guess" }).closest("table") as HTMLElement
+      screen.getByRole("columnheader", { name: "SOS" }).closest("table") as HTMLElement
     ).getAllByRole("row")[1]!;
     const rating = within(firstRow).getAllByRole("cell")[3]!.textContent!.trim();
     expect(firstRow.textContent).toContain("Rays");

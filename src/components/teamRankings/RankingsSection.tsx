@@ -458,10 +458,6 @@ export function RankingsSection({
                           <dd>{row.record}</dd>
                         </div>
                         <div className="flex justify-between gap-2">
-                          <dt className="text-slate-500 dark:text-slate-400">Best guess</dt>
-                          <dd>{formatRating(row.pointRating)}</dd>
-                        </div>
-                        <div className="flex justify-between gap-2">
                           <dt className="text-slate-500 dark:text-slate-400">Games</dt>
                           <dd>{row.games}</dd>
                         </div>
@@ -512,9 +508,6 @@ export function RankingsSection({
                     <th>Team</th>
                     <th>Record</th>
                     <th>Rating</th>
-                    {/* The fit's own estimate, so the discount in the column before it is visible
-                      rather than asserted: "+7.3 off four games, ranked at +6.5". */}
-                    <th className="whitespace-nowrap">Best guess</th>
                     <th>Games</th>
                     <th>SOS</th>
                     <th className="sr-only">Actions</th>
@@ -556,9 +549,6 @@ export function RankingsSection({
                         </td>
                         <td>{row.record}</td>
                         <td>{formatRating(row.rating)}</td>
-                        <td className="text-slate-500 dark:text-slate-400">
-                          {formatRating(row.pointRating)}
-                        </td>
                         <td>{row.games}</td>
                         <td>{row.sosRank ? `#${row.sosRank}` : "—"}</td>
                         <td className="space-x-2 text-right">
