@@ -119,7 +119,7 @@ export type PoolHealthActions = {
     clubs: readonly RemovedClub[]
   ) => Promise<readonly RemovedClub[]> | readonly RemovedClub[];
   /**
-   * Says a game won by more than `IMPLAUSIBLE_MARGIN` runs really was played that way, so it counts
+   * Says a game won by `IMPLAUSIBLE_MARGIN` runs or more really was played that way, so it counts
    * and leaves the list (`ScoutGame.scoreConfirmed`).
    */
   confirmScore: (game: HealthGame) => Promise<boolean>;
@@ -362,7 +362,7 @@ export function PoolHealthView({
   );
 
   /**
-   * Games won by more than `IMPLAUSIBLE_MARGIN` runs, the widest first: none of them counts, and
+   * Games won by `IMPLAUSIBLE_MARGIN` runs or more, the widest first: none of them counts, and
    * each is here to be deleted or vouched for (`isImplausibleScore`).
    */
   const implausible = summary.implausible;
@@ -429,7 +429,7 @@ export function PoolHealthView({
     }
   };
 
-  /** Throws out the games won by more than thirty runs, these ones or all of them. */
+  /** Throws out the games won by forty runs or more, these ones or all of them. */
   const dropImplausible = async (ids: readonly string[]) => {
     if (ids.length === 0) return;
     setDropping(ids.length === 1 ? ids[0]! : "implausible");
@@ -440,7 +440,7 @@ export function PoolHealthView({
     }
   };
 
-  /** Counts a game won by more than thirty runs after all, because the user says it was real. */
+  /** Counts a game won by forty runs or more after all, because the user says it was real. */
   const confirmScore = async (game: HealthGame) => {
     setDropping(game.id);
     try {
@@ -744,15 +744,15 @@ export function PoolHealthView({
       {implausible.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
           <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Won by more than {IMPLAUSIBLE_MARGIN} runs
+            Won by {IMPLAUSIBLE_MARGIN} runs or more
           </h3>
           <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
             <strong>{count(implausible.length)}</strong>{" "}
-            {implausible.length === 1 ? "game has" : "games have"} one side winning by more than{" "}
-            {IMPLAUSIBLE_MARGIN} runs — {count(Math.round(implausible[0]!.margin))} at the most. A
-            margin like that is almost always a typo or a game that never happened, so none of these
-            counts toward a rating or a record. Delete the ones that are not real; if one really was
-            played that way, say so and it counts.
+            {implausible.length === 1 ? "game has" : "games have"} one side winning by{" "}
+            {IMPLAUSIBLE_MARGIN} runs or more — {count(Math.round(implausible[0]!.margin))} at the
+            most. A margin like that is almost always a typo or a game that never happened, so none
+            of these counts toward a rating or a record. Delete the ones that are not real; if one
+            really was played that way, say so and it counts.
           </p>
           <ul className="mt-2 space-y-1">
             {(allImplausible ? implausible : implausible.slice(0, 12)).map(({ game }) => {
@@ -832,8 +832,8 @@ export function PoolHealthView({
             Clubs that may not be real
           </h3>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            The clubs whose own schedules filed the games above: first the ones posting wins by more
-            than {IMPLAUSIBLE_MARGIN} runs, then the ones scoring games on days that have not
+            The clubs whose own schedules filed the games above: first the ones posting wins by{" "}
+            {IMPLAUSIBLE_MARGIN} runs or more, then the ones scoring games on days that have not
             happened. Deleting the rows while the club that files them is still in the pull list
             only lasts until the next run. A club that is all impossible games is not a club:
             deleting one takes its whole schedule with it and refuses its GameChanger id from then
@@ -861,7 +861,7 @@ export function PoolHealthView({
                 {club.implausible > 0 && (
                   <>
                     <span className={pill("red")}>
-                      {plural(club.implausible, "win")} by more than {IMPLAUSIBLE_MARGIN}
+                      {plural(club.implausible, "win")} by {IMPLAUSIBLE_MARGIN} or more
                     </span>{" "}
                   </>
                 )}

@@ -1501,21 +1501,21 @@ export function TeamRankingsView({
       message: `${
         why === "ahead"
           ? "Each one carries a score on a date still to come, so it cannot be a result."
-          : `Each one has a side winning by more than ${IMPLAUSIBLE_MARGIN} runs, which no real game ends with.`
+          : `Each one has a side winning by ${IMPLAUSIBLE_MARGIN} runs or more, which no real game ends with.`
       } The rows that carried those scores are remembered by their GameChanger id, so pulling those schedules again will not bring them back.`,
       confirmLabel: "Delete them",
     });
     if (!confirmed) return false;
     if (!runCommand({ kind: "games.drop", gameIds: [...ids] }).ok) return false;
     showToast(
-      `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by more than ${IMPLAUSIBLE_MARGIN}`}.`,
+      `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by ${IMPLAUSIBLE_MARGIN} or more`}.`,
       { tone: "success" }
     );
     return true;
   };
 
   /**
-   * Counts a game won by more than `IMPLAUSIBLE_MARGIN` runs, because the user says it really was
+   * Counts a game won by `IMPLAUSIBLE_MARGIN` runs or more, because the user says it really was
    * played that way (`ScoutGame.scoreConfirmed`). Nothing to ask first: it is undone by deleting
    * the game, and it asks only that the rating believe a score the user has looked at.
    */

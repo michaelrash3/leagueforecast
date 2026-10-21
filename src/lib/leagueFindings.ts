@@ -93,9 +93,13 @@ export type LeagueAuditInput = {
   today: Date;
 };
 
-/** Runs more than this on one side, or a win by more, is not a youth score anyone expects. */
+/** Runs more than this on one side is not a youth score anyone expects. */
 export const IMPLAUSIBLE_RUNS = 40;
-export const IMPLAUSIBLE_MARGIN = 30;
+/**
+ * Nor a win by this many or more: the user's line of 21 October 2026, forty, as Team Rankings'
+ * (`teamRankings/games.ts`), which was thirty here too.
+ */
+export const IMPLAUSIBLE_MARGIN = 40;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -443,7 +447,7 @@ export const auditLeague = ({
     return (
       away > IMPLAUSIBLE_RUNS ||
       home > IMPLAUSIBLE_RUNS ||
-      Math.abs(away - home) > IMPLAUSIBLE_MARGIN
+      Math.abs(away - home) >= IMPLAUSIBLE_MARGIN
     );
   });
   if (implausible.length) {
@@ -452,7 +456,7 @@ export const auditLeague = ({
         code: "implausible-score",
         severity: "review",
         summary: `${plural(implausible.length, "final")} with an unusual score`,
-        detail: `More than ${IMPLAUSIBLE_RUNS} runs on one side, or a win by more than ${IMPLAUSIBLE_MARGIN}, is more often a typo than a game. The run differential cap limits what each counts for.`,
+        detail: `More than ${IMPLAUSIBLE_RUNS} runs on one side, or a win by ${IMPLAUSIBLE_MARGIN} or more, is more often a typo than a game. The run differential cap limits what each counts for.`,
         suggestion: "Check each score against the scorebook.",
         targets: implausible.map(gameTarget),
         affectsForecast: false,
