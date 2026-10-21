@@ -3597,10 +3597,13 @@ added, so on the 29 September 2026 backup more than half the clubs gained on 10 
 boards with lines, 57.8% on one. Nor is it a count of games: of the 45,554 clubs that
 gained, 8,146 had fewer effective games than their board's average.
 
-The two ratings are printed as the board's row prints its Rating and Best guess
-(`formatBoardRating`), "-0.0" and all, and the record's part is what those two printed
-figures differ by, so the three add up on screen and one that rounds to nothing says the
-rating is all from the club's games. Rounded as whole tenths instead, the line differed
+The two ratings are printed as the board's row prints its Rating (`formatBoardRating`),
+"-0.0" and all, and the record's part is what those two printed figures differ by, so the
+three add up on screen and one that rounds to nothing says the rating is all from the
+club's games. This line is the only place the fit's own rating is shown. The board's row
+had it too, as a Best guess column beside the Rating, and the owner took it off: a second
+rating on every row, a few tenths from the first, read as noise, and a club's panel on
+the cloud's board says what the gap is. Rounded as whole tenths instead, the line differed
 from its row on 2,158 of the 88,106 clubs with lines on that backup, every one a "0.0"
 over a row's "+0.0" or "-0.0". The page's own club reads "your", any other "its".
 

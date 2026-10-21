@@ -75,7 +75,7 @@ describe("the line above a club's games", () => {
     ).toBe("Season rating +0.0, all of it from your games.");
   });
 
-  it("prints both ratings exactly as the board's row prints its Rating and Best guess", () => {
+  it("prints both ratings exactly as the board's row prints its Rating", () => {
     // Within a twentieth of nought the row reads "+0.0" or "-0.0" by the rating's side, and so
     // does the line above the games, never a bare "0.0" above a row reading "-0.0".
     expect(rowPrints(-0.03)).toBe("-0.0");

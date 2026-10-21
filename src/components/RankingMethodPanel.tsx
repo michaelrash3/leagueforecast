@@ -114,9 +114,7 @@ export function RankingMethodPanel({ id, onClose }: { id: string; onClose: () =>
           played. A 4-0 team therefore sits behind an 11-1 team that has proved as much over nearly
           three times the schedule. Each game counts by how much its opponent has played, too: a win
           over a team seen once mostly tells us about that team, so a record built on one-game
-          opponents supports less than the same record against clubs with seasons of their own. The
-          full table shows the undiscounted estimate beside it, so you can see exactly what a record
-          is and is not carrying.
+          opponents supports less than the same record against clubs with seasons of their own.
         </li>
         <li>
           <span className="font-bold text-slate-950 dark:text-white">4. Playing up or down.</span> A

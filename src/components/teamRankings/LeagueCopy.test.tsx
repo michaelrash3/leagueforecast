@@ -140,8 +140,8 @@ const recordOf = async (name: string) => {
   const cells = within(row)
     .getAllByRole("cell")
     .map((cell) => cell.textContent?.trim());
-  // Rank, Team, Record, Rating, Best guess, Games.
-  return { record: cells[2], games: cells[5] };
+  // Rank, Team, Record, Rating, Games.
+  return { record: cells[2], games: cells[4] };
 };
 
 describe("a league game the pull also has", () => {
