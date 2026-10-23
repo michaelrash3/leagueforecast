@@ -3,6 +3,7 @@ import type { GcTeamSchedule } from "../gameChangerApi";
 import { importGcSchedule, type GcImportState } from "../gameChangerImport";
 import { answerableByOldest, answerableToday } from "../agelessQueue";
 import type { AgeUnknownTeam } from "../ageUnknown";
+import { gameSideLevels } from "../teamRankings";
 
 /*
  * A team nobody could age, filed at the oldest age its opponents are until they settle one
@@ -97,6 +98,28 @@ describe("a team below the opponents' bar", () => {
     );
     expect(games).toHaveLength(4);
     expect(games.every((game) => game.ageGroupId === nine.id)).toBe(true);
+  });
+
+  it("takes the level its rows wrote down for it along, not just the page (Codex on #438)", () => {
+    const hawks = against("Hawks 10U");
+    const first = pull(ageless([hawks]));
+    const club = first.state.teams.find((team) => team.gcTeams?.[0]?.teamId === "gcWILDCATS00")!;
+    // A row that wrote the club's tentative level down, as a fold stood up again writes it.
+    const written: GcImportState = {
+      ...first.state,
+      games: first.state.games.map((game) =>
+        game.teamAId === club.id ? { ...game, ageLevelA: 10 } : game
+      ),
+    };
+    const later = pull(
+      ageless([hawks, against("Comets 9U"), against("Rockets 9U"), against("Bandits 9U")]),
+      written
+    );
+    const ownRows = later.state.games.filter((game) => game.teamAId === club.id);
+    expect(ownRows).toHaveLength(4);
+    expect(ownRows.map((game) => gameSideLevels(game, later.state.ageGroups).a)).toEqual([
+      9, 9, 9, 9,
+    ]);
   });
 
   it("reads only ages this app ranks, inside GameChanger's own band", () => {

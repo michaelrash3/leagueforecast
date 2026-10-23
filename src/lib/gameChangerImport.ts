@@ -436,21 +436,32 @@ const indexGame = (index: ImportIndex, game: ScoutGame) => {
   indexFolded(index, game);
   indexHalf(index, game);
   push(index.gamesByMatch, matchKeyOf(game, index.poolKeyOf), game);
-  const onPage = index.teamIdsByGroup.get(game.ageGroupId) ?? new Set<string>();
-  onPage.add(game.teamAId);
-  onPage.add(game.teamBId);
-  index.teamIdsByGroup.set(game.ageGroupId, onPage);
   noteOpponent(index, game.teamAId, game.teamBId);
   noteOpponent(index, game.teamBId, game.teamAId);
   if (game.date) {
     push(index.gamesByTeamDate, `${game.teamAId}\u0000${game.date}`, game);
     push(index.gamesByTeamDate, `${game.teamBId}\u0000${game.date}`, game);
   }
+  notePlaces(index, game);
+};
+
+/** The page each side of a game is on, and the level it played at there. */
+const notePlaces = (index: ImportIndex, game: ScoutGame) => {
+  const onPage = index.teamIdsByGroup.get(game.ageGroupId) ?? new Set<string>();
+  onPage.add(game.teamAId);
+  onPage.add(game.teamBId);
+  index.teamIdsByGroup.set(game.ageGroupId, onPage);
   // A side's level is what the game recorded for it, falling back to the page it is filed under.
   const pageLevel = index.levelOf(game.ageGroupId);
   noteInPool(index, game.ageGroupId, game.teamAId, game.ageLevelA ?? pageLevel);
   noteInPool(index, game.ageGroupId, game.teamBId, game.ageLevelB ?? pageLevel);
 };
+
+/** Whether a game written over another moved page, or either side's recorded level. */
+const movedPlace = (previous: ScoutGame, next: ScoutGame): boolean =>
+  previous.ageGroupId !== next.ageGroupId ||
+  previous.ageLevelA !== next.ageLevelA ||
+  previous.ageLevelB !== next.ageLevelB;
 
 /** Appends a team to the working roster and records where it went. */
 const addTeam = (index: ImportIndex, teams: ScoutTeam[], team: ScoutTeam): void => {
@@ -2729,14 +2740,34 @@ const importOne = (
    * `setClubAge` moves them when somebody sets one; a row another club's schedule filed stays on
    * that club's page. Within the year's pool, which every index here is keyed by, so the row is
    * written in place.
+   *
+   * The club's side takes the club's level with it where the row wrote one down, as `setClubAge`
+   * writes it: a level left behind is read before the page's (`gameSideLevels`), so a club moved
+   * from the 10U it was first filed at to the 9U its opponents settled kept its earlier games rated
+   * as a 10U side's (Codex on #438).
    */
-  const onClubPage = (game: ScoutGame): ScoutGame =>
-    game.source?.teamId === profile.id &&
-    game.ageGroupId !== group.id &&
-    index.poolKeyOf(game.ageGroupId) === index.poolKeyOf(group.id)
-      ? { ...game, ageGroupId: group.id }
-      : game;
-  // Same id, same pool, same pair, same date, so nothing a game is filed under moves.
+  const clubLevel = ourLevel ?? index.levelOf(group.id);
+  const onClubPage = (game: ScoutGame): ScoutGame => {
+    if (
+      game.source?.teamId !== profile.id ||
+      game.ageGroupId === group.id ||
+      index.poolKeyOf(game.ageGroupId) !== index.poolKeyOf(group.id)
+    ) {
+      return game;
+    }
+    const { ageLevelA, ageLevelB, ...rest } = game;
+    const levelOn = (teamId: string, level: number | undefined) =>
+      teamId === own.teamId && level !== undefined ? clubLevel : level;
+    const a = levelOn(game.teamAId, ageLevelA);
+    const b = levelOn(game.teamBId, ageLevelB);
+    return {
+      ...rest,
+      ageGroupId: group.id,
+      ...(a === undefined ? {} : { ageLevelA: a }),
+      ...(b === undefined ? {} : { ageLevelB: b }),
+    };
+  };
+  // Same id, same pool, same pair, same date, so nothing a game is filed under moves but its page.
   const writeInPlace = (previous: ScoutGame, next: ScoutGame) => {
     const position = index.gamePos.get(previous.id);
     if (position !== undefined) games[position] = next;
@@ -2748,6 +2779,14 @@ const importOne = (
       const at = sameBucket.findIndex((entry) => entry.id === next.id);
       if (at >= 0) sameBucket[at] = next;
     }
+    if (next.date) {
+      [next.teamAId, next.teamBId].forEach((teamId) => {
+        const onDay = index.gamesByTeamDate.get(`${teamId}\u0000${next.date}`);
+        const at = onDay?.findIndex((entry) => entry.id === next.id) ?? -1;
+        if (onDay && at >= 0) onDay[at] = next;
+      });
+    }
+    if (movedPlace(previous, next)) notePlaces(index, next);
   };
   /*
    * The same, for a game its own schedule has moved to another day: what is keyed by the day moves
@@ -2798,6 +2837,7 @@ const importOne = (
     index.gamesById.set(next.id, next);
     indexFolded(index, next);
     indexHalf(index, next);
+    if (movedPlace(previous, next)) notePlaces(index, next);
   };
   /** Every row this pull filed or matched, so a record of one it no longer lists can go. */
   const seen = new Set<string>();
