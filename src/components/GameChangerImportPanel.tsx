@@ -2120,7 +2120,7 @@ export function GameChangerImportPanel({
                 {parsed.thrownOut > 0 && (
                   <span
                     className={pill("neutral")}
-                    title="A club you threw out is refused whatever list names it. One thrown out from Teams waiting on an age can be taken back from that card's Find a team."
+                    title="A club you threw out is refused whatever list names it. Paste its id into Find a team to bring it back."
                   >
                     {parsed.thrownOut} you threw out, skipped
                   </span>

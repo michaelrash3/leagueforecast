@@ -251,6 +251,26 @@ type TeamSearchSelectProps = {
    * waiting on an age, thrown out, too young (`whereIsGcId`).
    */
   explainGcId?: (gcTeamId: string) => string | undefined;
+  /**
+   * What can be done about a pasted id no option carries, offered beside what is said of it: a
+   * club thrown out brought back (`GcIdOffer`). Undefined offers nothing.
+   */
+  offerForGcId?: (gcTeamId: string) => GcIdOffer | undefined;
+};
+
+/** A button offered beside what Find a team says of an id: its words, and what it does. */
+export type GcIdOffer = { label: string; run: () => void };
+
+/** The first offer for an id in what was typed, as `noMatchText` says the first id it can. */
+export const offerInSearch = (
+  query: string,
+  offerForGcId?: (gcTeamId: string) => GcIdOffer | undefined
+): GcIdOffer | undefined => {
+  for (const id of gcIdsInSearch(query)) {
+    const offer = offerForGcId?.(id);
+    if (offer) return offer;
+  }
+  return undefined;
 };
 
 /**
@@ -274,6 +294,7 @@ export function TeamSearchSelect({
   placeholder,
   className,
   explainGcId,
+  offerForGcId,
 }: TeamSearchSelectProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -371,6 +392,18 @@ export function TeamSearchSelect({
           {shown.length === 0 && (
             <li className="px-3 py-1.5 text-slate-500 dark:text-slate-400">
               {noMatchText(query, explainGcId)}
+              {(() => {
+                const offer = offerInSearch(query, offerForGcId);
+                return offer ? (
+                  <button
+                    type="button"
+                    onClick={offer.run}
+                    className="ml-2 font-bold text-blue-600 underline dark:text-blue-400"
+                  >
+                    {offer.label}
+                  </button>
+                ) : null;
+              })()}
             </li>
           )}
           {shown.map((option, index) => {
