@@ -437,14 +437,15 @@ describe("a team the new rules can already settle", () => {
   });
 
   it("is asked first, once, and then waits its week like any other", () => {
-    const waiting = row("Warriors", [[9, 2]]);
-    const plain = { ...row("Bandits", []), teamId: "P" };
+    // Asked five days before the rules last moved, so the week gate alone would hold both back.
+    const fiveDaysBack = "2026-10-19T00:00:00.000Z";
+    const waiting = { ...row("Warriors", [[9, 2]]), lastTried: fiveDaysBack };
+    const plain = { ...row("Bandits", []), teamId: "P", lastTried: fiveDaysBack };
     const asks = withRulesMoved(new Map(), [waiting, plain]);
-    // Asked five days ago, so the week gate alone would hold both back.
-    const now = new Date("2026-09-23T13:00:00.000Z");
+    const now = new Date("2026-10-24T01:00:00.000Z");
     expect(ageUnknownDue([plain, waiting], 10, now, asks)).toEqual(["T"]);
     // Once asked after the rules moved, the exemption is spent.
-    const asked = { ...waiting, lastTried: "2026-09-23T12:30:00.000Z" };
+    const asked = { ...waiting, lastTried: "2026-10-24T00:30:00.000Z" };
     expect(ageUnknownDue([asked], 10, now, withRulesMoved(new Map(), [asked]))).toEqual([]);
     expect(AGELESS_RULES_CHANGED_AT < asked.lastTried).toBe(true);
   });

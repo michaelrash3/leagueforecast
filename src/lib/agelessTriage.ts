@@ -45,7 +45,7 @@ import {
 import { MIN_AGE_LEVEL } from "./teamRankings/seasons";
 import type { AgelessEvidence } from "./agelessEvidence";
 import type { AgeUnknownTeam } from "./ageUnknown";
-import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
+import { MIN_OPPONENT_AGE_EVIDENCE } from "./opponentAgeBar";
 
 /** What a rule concludes about a row. */
 export type AgelessVerdict =

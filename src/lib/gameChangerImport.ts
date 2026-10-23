@@ -105,6 +105,9 @@ import {
 } from "./deletedGames";
 import { isTooYoungClub, type TooYoungClubs } from "./tooYoungClubs";
 import { agelessEvidence, type AgelessEvidence } from "./agelessEvidence";
+import { MIN_OPPONENT_AGE_EVIDENCE } from "./opponentAgeBar";
+import { queueWouldAsk } from "./agelessQueue";
+import type { AgeUnknownTeam } from "./ageUnknown";
 import { todayIsoDay } from "./date";
 import { borderingStates, farApart, inOneRegion } from "./stateBorders";
 import { namedAgeFor, type NamedAges } from "./namedAges";
@@ -552,6 +555,11 @@ export type GcImportOutcome = {
    * written without its U — nothing else having answered. Kept so the level can be traced.
    */
   ageFromLooseName?: number;
+  /**
+   * The oldest age the team's opponents are, where nothing above answered and its opponents do not
+   * yet settle one (`oldestOpponentAge`): the level it is filed at until they do.
+   */
+  ageFromOldest?: number;
   /** Which way it could not be filed, for anything deciding what to do about it. */
   skip?: GcSkipReason;
   /** Set when the schedule could not be filed at all; the pool is returned untouched. */
@@ -673,16 +681,7 @@ const isSameSeason = (from: GcTeamLink, to: GcTeamLink): boolean =>
 const profileAgeLevel = (profile: GcTeamProfile): number | undefined =>
   profile.ageLevel ?? ageLevelFromName(profile.name);
 
-/**
- * How many distinct opponents have to name an age before their names settle a team's level.
- *
- * Counted per opponent rather than per game, because a tournament against the same club four times
- * is one club's opinion and not four. Three is where the evidence stops being a coincidence: over
- * a 48,035-team export 90.4% of names carry a readable age label, so a team with any schedule at
- * all almost always has three, and three independent names agreeing is not something a mislabelled
- * squad produces by accident.
- */
-export const MIN_OPPONENT_AGE_EVIDENCE = 3;
+export { MIN_OPPONENT_AGE_EVIDENCE };
 
 /**
  * The age level a team's opponents say it is, when they agree.
@@ -768,6 +767,44 @@ export const ageFromTwoOpponents = (games: readonly GcGame[]): number | undefine
  * belongs to the import that has the schedule in hand.
  */
 /**
+ * A club the import filed only at the oldest age it has played (`oldestOpponentAge`), every link
+ * of it so. Its level is the pool's guess, so it is no evidence of another team's: a guess read as
+ * a fact would file the next team by it, and that one the next.
+ */
+const isTentativeClub = (team: ScoutTeam | undefined): boolean => {
+  const links = team?.gcTeams ?? [];
+  return links.length > 0 && links.every((link) => link.ageFrom === "tentative");
+};
+
+/**
+ * The level of each distinct club in the pool a schedule's opponents are, by their pictures
+ * (`ageFromPooledOpponents`): one level a club, and none for a picture two clubs share, a club
+ * filed at two levels, or a club filed only by its oldest opponent.
+ */
+const pooledOpponentLevels = (games: readonly GcGame[], index: ImportIndex): number[] => {
+  const seen = new Set<string>();
+  const found: number[] = [];
+  games.forEach((game) => {
+    const key = game.opponentAvatarKey;
+    if (!key) return;
+    const known = index.teamsByAvatar.get(key) ?? [];
+    // Two clubs sharing a picture is two clubs, and neither is evidence about this one.
+    if (known.length !== 1) return;
+    const team = known[0];
+    if (!team || seen.has(team.id)) return;
+    seen.add(team.id);
+    if (isTentativeClub(team)) return;
+    const levels = index.levelsByTeam.get(team.id);
+    // A club filed at two ages is a club running two squads: it says nothing about this one.
+    if (!levels || levels.size !== 1) return;
+    const level = [...levels][0];
+    if (level === undefined) return;
+    found.push(level);
+  });
+  return found;
+};
+
+/**
  * The age the pool already files this team's opponents at.
  *
  * `ageFromOpponentNames` above reads an age out of an opponent's *name*, which is the only thing
@@ -796,26 +833,10 @@ export const ageFromPooledOpponents = (
   index: ImportIndex,
   needed: number
 ): number | undefined => {
-  const seen = new Set<string>();
+  const levels = pooledOpponentLevels(games, index);
   const counts = new Map<number, number>();
-  let readable = 0;
-  games.forEach((game) => {
-    const key = game.opponentAvatarKey;
-    if (!key) return;
-    const known = index.teamsByAvatar.get(key) ?? [];
-    // Two clubs sharing a picture is two clubs, and neither is evidence about this one.
-    if (known.length !== 1) return;
-    const team = known[0];
-    if (!team || seen.has(team.id)) return;
-    seen.add(team.id);
-    const levels = index.levelsByTeam.get(team.id);
-    // A club filed at two ages is a club running two squads: it says nothing about this one.
-    if (!levels || levels.size !== 1) return;
-    const level = [...levels][0];
-    if (level === undefined) return;
-    readable += 1;
-    counts.set(level, (counts.get(level) ?? 0) + 1);
-  });
+  levels.forEach((level) => counts.set(level, (counts.get(level) ?? 0) + 1));
+  const readable = levels.length;
   if (readable < needed) return undefined;
 
   let best: number | undefined;
@@ -832,39 +853,18 @@ export const ageFromPooledOpponents = (
 };
 
 /**
- * The age the pulled clubs a no-age team played are filed at — the clubs found by the games.
- *
- * A team refused for having no age has usually been met already. Each club that played it and was
- * pulled holds its own half of the game, filed against a stand-in carrying whatever its coach
- * typed for this team, so the evidence of who this team played is sitting in the pool. The names
- * alone cannot find it: this team's coach wrote "Stix" and theirs wrote "Hurricanes", and a pool
- * of a hundred thousand teams holds a great many of each. The game can. A row a pulled club filed
- * that day, against a stand-in whose name is a shorthand for this team, with the result mirrored
- * or at the same start time, is the other half of one of this team's games — once the name this
- * team typed is a shorthand for that club and the two are in one region, as the crossed-halves
- * join asks (`joinCrossedHalves`). Where two clubs could each have been one game, that game names
- * nobody.
- *
- * The level read off each club is its own listing's, and a club listed at two levels says
- * nothing. The answer is held to the name rule's bar (`ageFromOpponentNames`): `needed` distinct
- * clubs, a strict majority, and at least `needed` of them on the level it gives. The bar is not a
- * formality. On the stand-in fixtures export of 22 September 2026 the two clubs of a game joined
- * this way were filed at the same level 73.5% of the time and a level apart 22%, so one opponent's
- * level is a guess and three agreeing is not.
+ * The level of each distinct pulled club a schedule's games were against, found by the other half
+ * of each game (`ageFromFixtures`): one level a club, and none for a game two clubs could each have
+ * been, a club filed at two levels, or a club filed only by its oldest opponent.
  */
-export const ageFromFixtures = (
-  schedule: GcTeamSchedule,
-  index: ImportIndex,
-  needed: number
-): number | undefined => {
+const fixtureOpponentLevels = (schedule: GcTeamSchedule, index: ImportIndex): number[] => {
   const { profile } = schedule;
-  if (!profile.season) return undefined;
+  if (!profile.season) return [];
   // `today` only decides for a winter team with no dated game, and then there is nothing to read.
   const pool = `y:${squadYearOfGcTeam(profile.season, schedule.games, todayIsoDay())}`;
   const fits = nameFitter();
   const seen = new Set<string>();
-  const counts = new Map<number, number>();
-  let readable = 0;
+  const found: number[] = [];
   schedule.games.forEach((game) => {
     if (!game.date) return;
     const scored = game.teamScore !== undefined && game.opponentScore !== undefined;
@@ -902,16 +902,48 @@ export const ageFromFixtures = (
     const clubId = [...clubs][0]!;
     if (seen.has(clubId)) return;
     seen.add(clubId);
+    if (isTentativeClub(index.teamsById.get(clubId))) return;
     const levels = new Set<number>();
     index.teamsById.get(clubId)?.gcTeams?.forEach((link) => {
       const level = link.ageLevel ?? index.levelOf(link.ageGroupId);
       if (level !== undefined) levels.add(level);
     });
     if (levels.size !== 1) return;
-    const level = [...levels][0]!;
-    readable += 1;
-    counts.set(level, (counts.get(level) ?? 0) + 1);
+    found.push([...levels][0]!);
   });
+  return found;
+};
+
+/**
+ * The age the pulled clubs a no-age team played are filed at — the clubs found by the games.
+ *
+ * A team refused for having no age has usually been met already. Each club that played it and was
+ * pulled holds its own half of the game, filed against a stand-in carrying whatever its coach
+ * typed for this team, so the evidence of who this team played is sitting in the pool. The names
+ * alone cannot find it: this team's coach wrote "Stix" and theirs wrote "Hurricanes", and a pool
+ * of a hundred thousand teams holds a great many of each. The game can. A row a pulled club filed
+ * that day, against a stand-in whose name is a shorthand for this team, with the result mirrored
+ * or at the same start time, is the other half of one of this team's games — once the name this
+ * team typed is a shorthand for that club and the two are in one region, as the crossed-halves
+ * join asks (`joinCrossedHalves`). Where two clubs could each have been one game, that game names
+ * nobody.
+ *
+ * The level read off each club is its own listing's, and a club listed at two levels says
+ * nothing. The answer is held to the name rule's bar (`ageFromOpponentNames`): `needed` distinct
+ * clubs, a strict majority, and at least `needed` of them on the level it gives. The bar is not a
+ * formality. On the stand-in fixtures export of 22 September 2026 the two clubs of a game joined
+ * this way were filed at the same level 73.5% of the time and a level apart 22%, so one opponent's
+ * level is a guess and three agreeing is not.
+ */
+export const ageFromFixtures = (
+  schedule: GcTeamSchedule,
+  index: ImportIndex,
+  needed: number
+): number | undefined => {
+  const levels = fixtureOpponentLevels(schedule, index);
+  const counts = new Map<number, number>();
+  levels.forEach((level) => counts.set(level, (counts.get(level) ?? 0) + 1));
+  const readable = levels.length;
 
   let best: number | undefined;
   let bestCount = 0;
@@ -927,6 +959,58 @@ export const ageFromFixtures = (
   // A strict majority of the clubs that said anything, and enough of them on its level.
   if (bestCount * 2 <= readable) return undefined;
   return bestCount >= needed ? best : undefined;
+};
+
+/**
+ * The age a team nobody could age is filed at until its opponents settle one: the oldest any of
+ * them is, by its name (`ageLevelFromName`), by the level the pool files it at (`pooledOpponentLevels`)
+ * or by the club its games found (`fixtureOpponentLevels`). The owner's rule of 23 October 2026,
+ * to file such a team "under the oldest age of the team they play until they meet the threshold
+ * for confirming their age based on opponents". Every pull of it reads the rules afresh, so the
+ * pull that finds its opponents agreeing (`ageFromOpponentNames` and the rest) moves it to their
+ * age, and one that finds an older opponent moves it up to that.
+ *
+ * The oldest rather than the commonest because the two disagree only where a squad plays up, and
+ * a team plays up far more often than down. Measured on the backup of 11 October 2026, on the
+ * 52,546 clubs whose age GameChanger or their own name gave and that had a game: the first
+ * opponent alone is the club's own age for 86.9%, the older of the first two for 89.2% (a year
+ * too old for 8.0%, a year too young for 1.7%), and where those two disagreed the older was right
+ * for 56.3% and the younger for 35.8%. The bar the rules above hold to is far surer — two
+ * agreeing 97.2%, three 99.0% — which is why this answers only below it.
+ *
+ * Only ages this app ranks, inside GameChanger's own band (`ageFitsBand`), and only for a team the
+ * waiting list would put in front of a person (`queueWouldAsk`): a full roster, games, and an
+ * opponent writing an age, and nothing that reads as a school's side, a made-up schedule or a page
+ * that is no team. A club filed this way is no evidence of another's age (`isTentativeClub`).
+ */
+export const oldestOpponentAge = (
+  schedule: GcTeamSchedule,
+  index: ImportIndex,
+  today: string
+): number | undefined => {
+  const { profile, games } = schedule;
+  if (profileAgeLevel(profile) !== undefined) return undefined;
+  const row: AgeUnknownTeam = {
+    teamId: profile.id,
+    name: profile.name,
+    firstSeen: today,
+    lastTried: today,
+    tries: 0,
+    evidence: agelessEvidence(profile, games, today),
+  };
+  if (!queueWouldAsk(row)) return undefined;
+  const levels = [
+    ...games.flatMap((game) => {
+      const level = ageLevelFromName(game.opponentName);
+      return level === undefined ? [] : [level];
+    }),
+    ...pooledOpponentLevels(games, index),
+    ...fixtureOpponentLevels(schedule, index),
+  ].filter(
+    (level) =>
+      level >= MIN_AGE_LEVEL && level <= MAX_AGE_LEVEL && ageFitsBand(level, profile.ageLabel)
+  );
+  return levels.length === 0 ? undefined : Math.max(...levels);
 };
 
 const withOpponentAge = (
@@ -2415,10 +2499,22 @@ const importOne = (
       : undefined;
   const fromLooseName =
     loose !== undefined && ageFitsBand(loose, withFixtures.profile.ageLabel) ? loose : undefined;
-  const schedule: GcTeamSchedule =
+  const withLoose: GcTeamSchedule =
     fromLooseName === undefined
       ? withFixtures
       : { ...withFixtures, profile: { ...withFixtures.profile, ageLevel: fromLooseName } };
+  /*
+   * And only when none of that answered, the oldest age the team has played, until its opponents
+   * settle one (`oldestOpponentAge`). A team the waiting list sets aside is not filed by it.
+   */
+  const fromOldest =
+    profileAgeLevel(withLoose.profile) === undefined
+      ? oldestOpponentAge(withLoose, index, options.today ?? todayIsoDay())
+      : undefined;
+  const schedule: GcTeamSchedule =
+    fromOldest === undefined
+      ? withLoose
+      : { ...withLoose, profile: { ...withLoose.profile, ageLevel: fromOldest } };
   const inferred = fromNames.inferred ?? fromPool ?? fromFixtures;
   const { profile } = schedule;
   const base: GcImportOutcome = {
@@ -2442,6 +2538,7 @@ const importOne = (
     ...(fromLeague === undefined ? {} : { ageFromLeague: fromLeague }),
     ...(fromFixtures === undefined ? {} : { ageFromFixtures: fromFixtures }),
     ...(fromLooseName === undefined ? {} : { ageFromLooseName: fromLooseName }),
+    ...(fromOldest === undefined ? {} : { ageFromOldest: fromOldest }),
   };
 
   /*
@@ -2601,7 +2698,9 @@ const importOne = (
                 ? "fixtures"
                 : fromLooseName !== undefined
                   ? "name"
-                  : undefined;
+                  : fromOldest !== undefined
+                    ? "tentative"
+                    : undefined;
   const own = resolveOwnTeam(schedule, group.id, teams, index, ageFrom);
   const ourLevel = profileAgeLevel(profile);
   const outcome: GcImportOutcome = {
@@ -2623,6 +2722,20 @@ const importOne = (
    * the row that matched first is what says whether it is.
    */
   const claimed = new Map<string, ScoutGame>();
+  /*
+   * The club's own row on the page this pull files the club on. A club moved to another age since
+   * its row was filed — GameChanger's field changed, or its opponents settled the age it was first
+   * filed at by the oldest of them (`oldestOpponentAge`) — takes its own rows with it, as
+   * `setClubAge` moves them when somebody sets one; a row another club's schedule filed stays on
+   * that club's page. Within the year's pool, which every index here is keyed by, so the row is
+   * written in place.
+   */
+  const onClubPage = (game: ScoutGame): ScoutGame =>
+    game.source?.teamId === profile.id &&
+    game.ageGroupId !== group.id &&
+    index.poolKeyOf(game.ageGroupId) === index.poolKeyOf(group.id)
+      ? { ...game, ageGroupId: group.id }
+      : game;
   // Same id, same pool, same pair, same date, so nothing a game is filed under moves.
   const writeInPlace = (previous: ScoutGame, next: ScoutGame) => {
     const position = index.gamePos.get(previous.id);
@@ -2993,7 +3106,7 @@ const importOne = (
             };
           })()
         : updated;
-      const next = withSideBReport(reentered, candidate) ?? reentered;
+      const next = onClubPage(withSideBReport(reentered, candidate) ?? reentered);
       if (record && record.filedAgainst === undefined) {
         unmarkedFolds.push({ holderId: folded.id, game, candidate, theirLevel });
       }
@@ -3058,7 +3171,7 @@ const importOne = (
      */
     const recorded =
       existing === known
-        ? withPictureOf(existing, candidate, pictured)
+        ? onClubPage(withPictureOf(existing, candidate, pictured))
         : withSchedulesOf(existing, candidate);
     /*
      * The other club's own copy of the game: its score goes beside this one's rather than over it

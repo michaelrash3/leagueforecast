@@ -7,6 +7,7 @@ import {
   initTeamRankingsStore,
   resetTeamRankingsStore,
   saveAgeGroups,
+  saveAgeUnknown,
   saveDroppedClubs,
   saveRefreshCadence,
   saveRefreshLog,
@@ -105,5 +106,30 @@ describe("what Refresh now pulls", () => {
     const tonight = storedRota(NOW);
     expect(refreshNow(NOW, tonight)).toEqual(refreshNow(NOW));
     expect(refreshNow(NOW, { ...tonight, teamIds: ["gcZ"] }).teamIds).toEqual(["gcZ"]);
+  });
+});
+
+describe("the teams waiting on an age it asks about", () => {
+  /** A row asked two days ago, inside its week, whose only opponent naming an age says `tally`. */
+  const waiting = (teamId: string, tally: [number, number][]) => ({
+    teamId,
+    name: `Wildcats ${teamId}`,
+    firstSeen: hoursAgo(240),
+    lastTried: hoursAgo(48),
+    tries: 1,
+    evidence: {
+      games: 3,
+      scored: 3,
+      aheadOfToday: 0,
+      shutoutBlowouts: 0,
+      opponents: 3,
+      namedAnAge: tally.length,
+      tally,
+    },
+  });
+
+  it("asks at once about a row the oldest opponent's age now files, and waits on the rest", () => {
+    saveAgeUnknown([waiting("gcW", [[10, 1]]), waiting("gcX", [])]);
+    expect(storedRota(NOW).agelessIds).toEqual(["gcW"]);
   });
 });

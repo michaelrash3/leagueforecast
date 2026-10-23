@@ -124,6 +124,7 @@ const AGE_SOURCE_TEXT: Record<GcAgeSource, string> = {
   opponents: "from its opponents' names",
   pool: "from where its opponents are filed",
   fixtures: "from the clubs its games were against",
+  tentative: "from the teams it has played",
 };
 
 /**

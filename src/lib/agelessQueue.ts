@@ -31,11 +31,17 @@
  */
 
 import { looksInvented, whyNoAge, writesARankedAge, type AgelessEvidence } from "./agelessEvidence";
-import { ageBandFromLabel, isSchoolAgeLabel, isSchoolName } from "./gameChangerApi";
+import { ageBandFromLabel, ageFitsBand, isSchoolAgeLabel, isSchoolName } from "./gameChangerApi";
+import { MAX_AGE_LEVEL, MIN_AGE_LEVEL } from "./teamRankings/seasons";
 import { AGELESS_RULES } from "./agelessTriage";
 import { rosterStanding } from "./gcRoster";
-import { stillWorthAsking, type AgeUnknownList, type AgeUnknownTeam } from "./ageUnknown";
-import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
+import {
+  answerableNow,
+  stillWorthAsking,
+  type AgeUnknownList,
+  type AgeUnknownTeam,
+} from "./ageUnknown";
+import { MIN_OPPONENT_AGE_EVIDENCE } from "./opponentAgeBar";
 import { isNotBaseball, notATeamWord } from "./teamNameRules";
 import { RULE_ASIDES, type AgelessRuleAside, type AgelessSetAside } from "./agelessAsides";
 import type { DeletedClubs } from "./deletedGames";
@@ -462,6 +468,36 @@ const setAsideByRule = (entry: AgeUnknownTeam): AgelessRuleAside | undefined => 
   if (!writesARankedAge(evidence)) return "no-age-named";
   return undefined;
 };
+
+/**
+ * Whether a team nobody could age is one the queue would put in front of a person, read off the
+ * row alone: not a school's by its name, a roster not short of nine, and nothing the rules set
+ * aside (`setAsideByRule`), so it has games and an opponent that writes an age this app ranks.
+ * Those are the teams the import files at the oldest age they have played until their opponents
+ * settle one (`oldestOpponentAge`), and no others: a team a person would be shown nothing to
+ * answer from is no team to guess at either.
+ */
+export const queueWouldAsk = (entry: AgeUnknownTeam): boolean =>
+  !recognise(entry).school && !shortRoster(entry) && setAsideByRule(entry) === undefined;
+
+/**
+ * Whether what a waiting row stores already files it at the oldest age its opponents are
+ * (`oldestOpponentAge`): a team the queue would ask about, with an opponent whose name writes an
+ * age this app ranks inside GameChanger's own band. Read off the row's tally, which is of the
+ * opponents' names; the levels the pool files its opponents at only the pull can read.
+ */
+export const answerableByOldest = (entry: AgeUnknownTeam): boolean =>
+  queueWouldAsk(entry) &&
+  (entry.evidence?.tally ?? []).some(
+    ([level]) =>
+      level >= MIN_AGE_LEVEL &&
+      level <= MAX_AGE_LEVEL &&
+      ageFitsBand(level, entry.evidence?.ageLabel)
+  );
+
+/** What a waiting row's next ask files it by under today's rules (`withRulesMoved`). */
+export const answerableToday = (entry: AgeUnknownTeam): boolean =>
+  answerableNow(entry) || answerableByOldest(entry);
 
 /** What stands between this team and the queue, if anything. */
 const asideFor = (

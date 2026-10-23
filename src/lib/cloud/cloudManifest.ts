@@ -46,8 +46,10 @@ const FORMAT_WITHOUT_EPOCH = 2;
  * older build, the next tidy would fill in the state the owner took off.
  * 4: a third copy of a game that already counts says so (`ScoutGame.countedElsewhere`); dropped by
  * an older build, the club it names would be credited with the game twice until the next tidy.
+ * 5: a club filed at the oldest age its opponents are says so (`GcTeamLink.ageFrom` "tentative");
+ * dropped by an older build, the club would count as evidence of other teams' ages.
  */
-export const DATA_SCHEMA = 4;
+export const DATA_SCHEMA = 5;
 
 /**
  * Thrown for a manifest this build cannot read, which is never to be taken for no copy at all: the

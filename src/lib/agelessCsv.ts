@@ -24,7 +24,7 @@
 import { csvEscape, normalizeHeader, parseCSVLine, stripBom } from "./csv";
 import { formatGcSeason, gcTeamPageUrl, parseGcSeasonLabel } from "./gameChangerApi";
 import { looksInvented, whyNoAge, type AgelessEvidence } from "./agelessEvidence";
-import { MIN_OPPONENT_AGE_EVIDENCE } from "./gameChangerImport";
+import { MIN_OPPONENT_AGE_EVIDENCE } from "./opponentAgeBar";
 import type { AgeUnknownList, AgeUnknownTeam } from "./ageUnknown";
 
 export const AGELESS_CSV_HEADERS = [

@@ -119,7 +119,15 @@ export type ScoutTeam = {
  * opponents at, and the clubs its games identify.
  */
 export type GcAgeSource =
-  "you" | "gamechanger" | "name" | "list" | "opponents" | "pool" | "fixtures";
+  | "you"
+  | "gamechanger"
+  | "name"
+  | "list"
+  | "opponents"
+  | "pool"
+  | "fixtures"
+  /** The oldest age its opponents are, until they settle one (`oldestOpponentAge`). */
+  | "tentative";
 
 export const GC_AGE_SOURCES: readonly GcAgeSource[] = [
   "you",
@@ -129,6 +137,7 @@ export const GC_AGE_SOURCES: readonly GcAgeSource[] = [
   "opponents",
   "pool",
   "fixtures",
+  "tentative",
 ];
 
 /** One GameChanger team id and what GameChanger said about it the last time it was pulled. */

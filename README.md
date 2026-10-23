@@ -196,7 +196,8 @@ age**.
 
 **The panel says which of them answered.** Each GameChanger link records the rule that filed it
 (`GcTeamLink.ageFrom`: GameChanger's age field, the name, a league or organization on your list,
-the opponents' names, where its opponents are filed, the clubs its games identify, or you) and
+the opponents' names, where its opponents are filed, the clubs its games identify, the teams it
+has played, or you) and
 GameChanger's own age field verbatim (`ageLabel`), and the link line reads "filed at 8U, from its
 league or organization on your list; GameChanger gives no age". The user asked on 28 September 2026
 why a club whose name carries no age was filed at 8U, and nothing stored could say: the rules
@@ -2349,6 +2350,36 @@ answer jump the re-ask rota once (`withRulesMoved`, dated `AGELESS_RULES_CHANGED
 the next pull files them rather than the week after; on that list, 815 of 16,611. One
 opponent alone is 93.6% and is not enough: one team in sixteen would land a year or more
 off.
+
+**Below the bar, the oldest age it has played.** The owner, 23 October 2026: "tentatively file
+teams that do not express it under the oldest age of the team they play until they meet the
+threshhold for confirming their age based on opponents". So a team none of the rules above can
+age is filed at the oldest age any of its opponents is (`oldestOpponentAge`): by the opponent's
+name, by the level the pool files it at, or by the club its games found. Every pull of it reads
+the rules afresh, so the pull that finds its opponents agreeing files it at their age instead,
+and one that finds an older opponent moves it up; its own games go with it to the new page, as
+they do when an age is set by hand, so nothing is left listed on the old one. The link records it
+(`ageFrom` "tentative") and the panel's line says "from the teams it has played". Nothing on a
+board or a row marks it as unconfirmed, at the owner's word.
+
+The oldest rather than the commonest because the two part only where a squad plays up, which a
+team does far more often than it plays down. Measured on the backup of 11 October 2026, on the
+52,546 clubs whose age GameChanger or their own name gave and that had a game: the first opponent
+alone is the club's own age for 86.9%, the older of the first two for 89.2% (a year too old for
+8.0%, a year too young for 1.7%), and where those two disagreed the older was right for 56.3% and
+the younger for 35.8%. Short of the bar the rules above hold to, which is far surer, it is the
+better guess, and a wrong one mostly files a younger side a year up, where it rates low rather than
+pushing a real team down.
+
+Only a team this card would put in front of a person is filed so (`queueWouldAsk`): a full roster,
+games, an opponent writing an age of 8U to 18U inside GameChanger's own band, and nothing that
+reads as a school's side, a made-up schedule or a page that is no team. A club filed this way is
+no evidence of another team's age, by the level the pool files it at or by the games it played
+(`isTentativeClub`), so a guess is never read as a fact that files the next team. On the waiting
+list of that backup, 1,704 of the 1,760 teams on the queue would be filed so: 1,329 with one
+opponent writing an age, 172 with two and 203 with three or more, 364 of them with opponents that
+disagree. Each is asked again at the next pull rather than in its turn (`answerableToday`, the
+rules dated `AGELESS_RULES_CHANGED_AT`), so the queue empties of them inside the rota's budget.
 
 A team whose name says a high school squad is not on this card at all, even one that
 went onto the list before that rule existed: the name settles it, so it costs none of
