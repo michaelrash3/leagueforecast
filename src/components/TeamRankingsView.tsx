@@ -8,7 +8,8 @@ import { setClubAge } from "../lib/clubAge";
 import { createAgeGroupId } from "../lib/teamRankings/seasons";
 import { filedByNameOn, mintStandInId, takenOffSaid } from "../lib/notThisTeam";
 import { planClubAges } from "../lib/live/agePlan";
-import { whereIsGcId } from "../lib/gcIdWhereabouts";
+import { BROUGHT_BACK, whereIsGcId } from "../lib/gcIdWhereabouts";
+import type { GcIdOffer } from "./TeamSearchSelect";
 import { clubRankPage, leagueClubRanksFrom, writeLeagueClubRanks } from "../lib/leagueClubRanks";
 import { scoutAsked, scoutTaken } from "../lib/scoutRequest";
 import { TournamentPanel } from "./teamRankings/TournamentPanel";
@@ -1501,21 +1502,21 @@ export function TeamRankingsView({
       message: `${
         why === "ahead"
           ? "Each one carries a score on a date still to come, so it cannot be a result."
-          : `Each one has a side winning by more than ${IMPLAUSIBLE_MARGIN} runs, which no real game ends with.`
+          : `Each one has a side winning by ${IMPLAUSIBLE_MARGIN} runs or more, which no real game ends with.`
       } The rows that carried those scores are remembered by their GameChanger id, so pulling those schedules again will not bring them back.`,
       confirmLabel: "Delete them",
     });
     if (!confirmed) return false;
     if (!runCommand({ kind: "games.drop", gameIds: [...ids] }).ok) return false;
     showToast(
-      `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by more than ${IMPLAUSIBLE_MARGIN}`}.`,
+      `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by ${IMPLAUSIBLE_MARGIN} or more`}.`,
       { tone: "success" }
     );
     return true;
   };
 
   /**
-   * Counts a game won by more than `IMPLAUSIBLE_MARGIN` runs, because the user says it really was
+   * Counts a game won by `IMPLAUSIBLE_MARGIN` runs or more, because the user says it really was
    * played that way (`ScoutGame.scoreConfirmed`). Nothing to ask first: it is undone by deleting
    * the game, and it asks only that the rating believe a score the user has looked at.
    */
@@ -1897,16 +1898,44 @@ export function TeamRankingsView({
    * Read when asked rather than kept: it is asked only of an id nothing matched, and the lists it
    * reads are cached in memory already.
    */
+  const [broughtBack, setBroughtBack] = useState<ReadonlySet<string>>(() => new Set());
   const explainGcId = useCallback(
     (gcTeamId: string) =>
-      whereIsGcId(gcTeamId, {
-        ...(pullLive ? { liveTeams: scoutTeams } : {}),
-        ageless: loadAgeUnknown(),
-        dropped: droppedClubs,
-        tooYoung: loadTooYoungClubs(),
-        removed: removedDays(autoRemoved),
-      }),
-    [pullLive, scoutTeams, droppedClubs, autoRemoved]
+      broughtBack.has(gcTeamId) && !droppedClubs.has(gcTeamId)
+        ? BROUGHT_BACK
+        : whereIsGcId(gcTeamId, {
+            ...(pullLive ? { liveTeams: scoutTeams } : {}),
+            ageless: loadAgeUnknown(),
+            dropped: droppedClubs,
+            tooYoung: loadTooYoungClubs(),
+            removed: removedDays(autoRemoved),
+          }),
+    [pullLive, scoutTeams, droppedClubs, autoRemoved, broughtBack]
+  );
+  /** A club thrown out, brought back from Find a team, as the live page's does (with Undo). */
+  const offerForGcId = useCallback(
+    (gcTeamId: string): GcIdOffer | undefined =>
+      droppedClubs.has(gcTeamId)
+        ? {
+            label: "Bring it back",
+            run: () => {
+              if (!restoreDroppedClub(gcTeamId)) return;
+              setBroughtBack((was) => new Set([...was, gcTeamId]));
+              showToast(BROUGHT_BACK, {
+                tone: "undo",
+                actionLabel: "Undo",
+                onAction: () =>
+                  void runCommand({
+                    kind: "answers",
+                    list: "droppedClubs",
+                    add: [gcTeamId],
+                    remove: [],
+                  }),
+              });
+            },
+          }
+        : undefined,
+    [droppedClubs, restoreDroppedClub, showToast, runCommand]
   );
   const { searchOptions, pageOf, mergeCandidatesFor } = useClubSearch({
     teams: allKnown.teams,
@@ -2446,6 +2475,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               searchOptions={searchOptions}
               onSearchTeam={openSearchedTeam}
               explainGcId={explainGcId}
+              offerForGcId={offerForGcId}
               hasAgeGroups={ageGroups.length > 0}
               unrankedLevelNote={unrankedLevelNote}
               segment={

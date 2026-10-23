@@ -5,7 +5,7 @@ import type { WeekMovers } from "../../lib/thisWeek";
 import { ThisWeekCard } from "./ThisWeekCard";
 import { RankingMethodButton, RankingMethodPanel } from "../RankingMethodPanel";
 import { RankingList, formatRating } from "./RankingList";
-import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
+import { TeamSearchSelect, type GcIdOffer, type TeamSearchOption } from "../TeamSearchSelect";
 import { useWideViewport } from "../../hooks/useWideViewport";
 import type { MyTeamGlance } from "../../lib/myTeamGlance";
 import type { Movement } from "../../lib/rankMovement";
@@ -30,6 +30,8 @@ type RankingsSectionProps = {
   onSearchTeam: (teamId: string) => void;
   /** Where a pasted GameChanger id is when no club here carries it (`whereIsGcId`). */
   explainGcId?: (gcTeamId: string) => string | undefined;
+  /** What can be done about such an id: a club thrown out brought back. */
+  offerForGcId?: (gcTeamId: string) => GcIdOffer | undefined;
   hasAgeGroups: boolean;
   /** Why this page has no table at all, when the reason is the age level rather than the data. */
   unrankedLevelNote: string | null;
@@ -116,6 +118,7 @@ export function RankingsSection({
   searchOptions,
   onSearchTeam,
   explainGcId,
+  offerForGcId,
   hasAgeGroups,
   unrankedLevelNote,
   segment,
@@ -188,6 +191,7 @@ export function RankingsSection({
               onChange={onSearchTeam}
               options={searchOptions}
               {...(explainGcId ? { explainGcId } : {})}
+              {...(offerForGcId ? { offerForGcId } : {})}
               placeholder="Search every team or coach, any age or season"
             />
           </div>

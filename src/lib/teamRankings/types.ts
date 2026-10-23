@@ -298,7 +298,7 @@ export type ScoutGame = {
   countedElsewhere?: true;
   /**
    * The margin, as the rating reads it (`ratedMargin`), that the user has said is real, though one
-   * side won by more than `IMPLAUSIBLE_MARGIN` runs: without it such a game is suspected of being
+   * side won by `IMPLAUSIBLE_MARGIN` runs or more: without it such a game is suspected of being
    * made up and counts for nothing (`isImplausibleScore`), and Pool Health lists it to be deleted
    * or vouched for. Only that margin: a score corrected or re-pulled into another is a score
    * nobody has vouched for, and is suspect again.

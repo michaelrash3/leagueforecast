@@ -233,7 +233,7 @@ export const encodeScoutGames = (games: ScoutGame[]): CompactPool => {
       game.reportedByB ? [game.reportedByB.teamAScore, game.reportedByB.teamBScore] : null,
       // The club the row's GameChanger picture named, which a tidy rule moving rows on a name leaves.
       game.namedByAvatar === undefined ? null : teams.index(game.namedByAvatar),
-      // The margin the user vouched for in a game won by more than thirty runs.
+      // The margin the user vouched for in a game won by forty runs or more.
       game.scoreConfirmed ?? null,
       // The stand-in the game's own row named before the namesake join put a club in its place, and
       // the level that name gave: what the join puts the row back against if it stops fitting.

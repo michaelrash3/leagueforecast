@@ -162,6 +162,7 @@ const editFunction = (
     failsFrom,
     later,
     plans,
+    gate,
   }: {
     locked?: string | null;
     makes?: boolean;
@@ -171,6 +172,8 @@ const editFunction = (
     later?: Promise<void>;
     /** The server's plans in the order it makes them, in place of the one in `answers`. */
     plans?: AnswerOf<"ages.plan">[];
+    /** What every edit waits on before it is answered, as a slow cloud keeps it. */
+    gate?: Promise<void>;
   } = {}
 ) => {
   const asked: PoolQuery[] = [];
@@ -189,6 +192,7 @@ const editFunction = (
     edit: async (command, said) => {
       sent.push({ command, said });
       askedBySend.push(asked.length);
+      if (gate) await gate;
       const made = makes && (failsFrom === undefined || sent.length < failsFrom);
       if (made && command.kind === "answers" && command.list in kept) {
         const list = kept[command.list as keyof typeof kept];
@@ -837,46 +841,81 @@ describe("Pool health's buttons, sent as edits", () => {
     expect(kinds(call.asked)).toEqual(["health.summary"]);
   });
 
-  it("folds one of two twins into the one kept, once the fold's counts are confirmed", async () => {
-    const call = editFunction({
-      "health.summary": OPENED,
-      "health.inspect": LOOKED,
-      "merge.preview": { kind: "merge.preview", found: true, games: 6, dropped: 0 },
-    });
+  it("folds one of two twins into the one kept at once, with an Undo, asking nothing first", async () => {
+    const call = editFunction({ "health.summary": OPENED, "health.inspect": LOOKED });
     show(call);
     fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
     fireEvent.click(await screen.findByRole("button", { name: "Keep Placeholder Green" }));
     await waitFor(() => expect(call.sent).toHaveLength(1));
-    expect(call.asked[2]).toEqual({
-      kind: "merge.preview",
-      fromId: "T-1",
-      intoId: "T-2",
-      adopt: [],
-    });
-    expect(confirmed).toEqual(["Fold Placeholder Cubs into Placeholder Green?"]);
-    expect(call.sent[0]?.command).toEqual({
-      kind: "teams.merge",
-      fromId: "T-1",
-      intoId: "T-2",
-      adopt: [],
+    expect(kinds(call.asked)).not.toContain("merge.preview");
+    expect(confirmed).toEqual([]);
+    expect(call.sent[0]).toEqual({
+      command: { kind: "teams.merge", fromId: "T-1", intoId: "T-2", adopt: [] },
+      said: {
+        done: "Folded Placeholder Cubs into Placeholder Green.",
+        undo: true,
+        afterUndo: expect.any(Function),
+      },
     });
     // The pair is gone from the list: one of the two is.
     await waitFor(() => expect(screen.queryByText("One squad on GameChanger twice")).toBeNull());
   });
 
-  it("folds nothing when the server no longer holds the two", async () => {
-    const call = editFunction({
-      "health.summary": OPENED,
-      "health.inspect": LOOKED,
-      "merge.preview": { kind: "merge.preview", found: false, games: 0, dropped: 0 },
-    });
+  it("keeps a pair offered when the server folds nothing", async () => {
+    const call = editFunction(
+      { "health.summary": OPENED, "health.inspect": LOOKED },
+      { makes: false }
+    );
     show(call);
     fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
     fireEvent.click(await screen.findByRole("button", { name: "Fold in" }));
-    await waitFor(() => expect(call.told).toHaveLength(1));
-    expect(call.told[0]).toMatch(/no longer in the cloud copy/);
-    expect(call.sent).toEqual([]);
-    expect(confirmed).toEqual([]);
+    await waitFor(() => expect(call.sent).toHaveLength(1));
+    expect(await screen.findByRole("button", { name: "Fold in" })).toHaveProperty(
+      "disabled",
+      false
+    );
+    expect(screen.getByText("One club, listed twice")).toBeInTheDocument();
+  });
+
+  it("lines presses up: each waits its turn, and every other button stays live", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const call = editFunction({ "health.summary": OPENED, "health.inspect": LOOKED }, { gate });
+    show(call);
+    fireEvent.click(await screen.findByRole("button", { name: "Check the pool" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fold in" }));
+    await waitFor(() => expect(call.sent).toHaveLength(1));
+    // The one at work says so, and nothing else waits on it to be pressed.
+    expect(screen.getByRole("button", { name: "Folding…" })).toHaveProperty("disabled", true);
+    const keep = screen.getByRole("button", { name: "Keep Placeholder Green" });
+    expect(keep).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Delete club" })).toHaveProperty("disabled", false);
+
+    fireEvent.click(keep);
+    fireEvent.click(screen.getByRole("button", { name: "Delete club" }));
+    // Pressed again while in line: still one press.
+    fireEvent.click(screen.getByRole("button", { name: "Folding…" }));
+    // However long the first takes, the others wait behind it.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(screen.getAllByRole("button", { name: "Queued" })).toHaveLength(2);
+    expect(call.sent).toHaveLength(1);
+
+    release();
+    await waitFor(() => expect(call.sent).toHaveLength(3));
+    expect(call.sent.map(({ command }) => command.kind)).toEqual([
+      "teams.merge",
+      "teams.merge",
+      "club.drop",
+    ]);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Queued" })).toBeNull());
+  });
+
+  it("takes a club deleted off its list at once, before the summary is asked for again", async () => {
+    const call = editFunction({ "health.summary": OPENED }, { later: new Promise(() => {}) });
+    show(call);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete club" }));
+    await waitFor(() => expect(call.sent).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Delete club" })).toBeNull());
   });
 
   it("keeps a pair apart for good, and stops offering it", async () => {
