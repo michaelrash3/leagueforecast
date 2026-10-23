@@ -463,6 +463,63 @@ const movedPlace = (previous: ScoutGame, next: ScoutGame): boolean =>
   previous.ageLevelA !== next.ageLevelA ||
   previous.ageLevelB !== next.ageLevelB;
 
+/**
+ * The levels some teams are filed at, and the name slots they are found under, read again from the
+ * games that still name them. `notePlaces` only adds, which is right for a game that arrives; a
+ * club whose rows left a guessed age took the guess's level along as well as its new one, and read
+ * as filed at two ages it was no evidence of either (`pooledOpponentLevels`) for the rest of the
+ * run, where a run starting from the same pool reads it at one (Codex on #438). One pass over the
+ * games for all of them; a slot is dropped only where no game names the team at that level now.
+ */
+const restatePlaces = (
+  index: ImportIndex,
+  games: readonly ScoutGame[],
+  teamIds: ReadonlySet<string>
+) => {
+  if (teamIds.size === 0) return;
+  const levels = new Map<string, Set<number>>();
+  const slots = new Map<string, Set<string>>();
+  const pools = new Map<string, Set<string>>();
+  const note = (teamId: string, level: number | undefined, ageGroupId: string) => {
+    const team = index.teamsById.get(teamId);
+    if (!team) return;
+    if (level !== undefined) levels.set(teamId, (levels.get(teamId) ?? new Set()).add(level));
+    const pool = index.poolKeyOf(ageGroupId);
+    pools.set(teamId, (pools.get(teamId) ?? new Set()).add(pool));
+    const slot = nameSlotKey(pool, teamNameKey(team.name), level);
+    slots.set(teamId, (slots.get(teamId) ?? new Set()).add(slot));
+  };
+  games.forEach((game) => {
+    const onA = teamIds.has(game.teamAId);
+    const onB = teamIds.has(game.teamBId);
+    if (!onA && !onB) return;
+    const pageLevel = index.levelOf(game.ageGroupId);
+    if (onA) note(game.teamAId, game.ageLevelA ?? pageLevel, game.ageGroupId);
+    if (onB) note(game.teamBId, game.ageLevelB ?? pageLevel, game.ageGroupId);
+  });
+  teamIds.forEach((teamId) => {
+    const team = index.teamsById.get(teamId);
+    if (!team) return;
+    const was = index.levelsByTeam.get(teamId) ?? new Set<number>();
+    const now = levels.get(teamId);
+    if (now) index.levelsByTeam.set(teamId, now);
+    else index.levelsByTeam.delete(teamId);
+    const kept = slots.get(teamId) ?? new Set<string>();
+    const name = teamNameKey(team.name);
+    (pools.get(teamId) ?? new Set<string>()).forEach((pool) => {
+      [...was, undefined].forEach((level) => {
+        const slot = nameSlotKey(pool, name, level);
+        if (kept.has(slot)) return;
+        const bucket = index.teamIdsByGroupName.get(slot);
+        const at = bucket?.indexOf(teamId) ?? -1;
+        if (!bucket || at < 0) return;
+        bucket.splice(at, 1);
+        if (bucket.length === 0) index.teamIdsByGroupName.delete(slot);
+      });
+    });
+  });
+};
+
 /** Appends a team to the working roster and records where it went. */
 const addTeam = (index: ImportIndex, teams: ScoutTeam[], team: ScoutTeam): void => {
   index.teamPos.set(team.id, teams.length);
@@ -2752,6 +2809,8 @@ const importOne = (
    * as a 10U side's (Codex on #438).
    */
   const clubLevel = ourLevel ?? index.levelOf(group.id);
+  /** The sides of every row moved off a guess, whose places are read again once the pull ends. */
+  const leftGuess = new Set<string>();
   const onClubPage = (game: ScoutGame): ScoutGame => {
     if (
       !wasTentative ||
@@ -2761,6 +2820,8 @@ const importOne = (
     ) {
       return game;
     }
+    leftGuess.add(game.teamAId);
+    leftGuess.add(game.teamBId);
     const { ageLevelA, ageLevelB, ...rest } = game;
     const levelOn = (teamId: string, level: number | undefined) =>
       teamId === own.teamId && level !== undefined ? clubLevel : level;
@@ -3518,6 +3579,7 @@ const importOne = (
     }
   );
 
+  restatePlaces(index, games, leftGuess);
   return { state: { ageGroups, teams, games }, outcome };
 };
 

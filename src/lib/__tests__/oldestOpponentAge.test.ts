@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GcTeamSchedule } from "../gameChangerApi";
-import { importGcSchedule, type GcImportState } from "../gameChangerImport";
+import { createGcImporter, importGcSchedule, type GcImportState } from "../gameChangerImport";
 import { answerableByOldest, answerableToday } from "../agelessQueue";
 import type { AgeUnknownTeam } from "../ageUnknown";
 import { gameSideLevels } from "../teamRankings";
@@ -120,6 +120,33 @@ describe("a team below the opponents' bar", () => {
     expect(ownRows.map((game) => gameSideLevels(game, later.state.ageGroups).a)).toEqual([
       9, 9, 9, 9,
     ]);
+  });
+
+  it("is read at its settled age by the rest of the run, not at both (Codex on #438)", () => {
+    // Three clubs filed at 10U off one opponent each, then settled at 9U, all in one run: a fourth
+    // club whose only opponents are those three is filed by their age, as a fresh run would file it.
+    const importer = createGcImporter(empty, { today: TODAY });
+    const clubs = ["A", "B", "C"].map((letter) => ({
+      profile: { id: `gcCLUB${letter}00000`, name: `Club ${letter}`, avatarKey: `av-${letter}` },
+      first: against("Hawks 10U"),
+    }));
+    clubs.forEach((club) => importer.add(ageless([club.first], club.profile)));
+    // Each schedule pulled again lists its first game beside the three that settle its age.
+    clubs.forEach((club) =>
+      importer.add(
+        ageless(
+          [club.first, against("Comets 9U"), against("Rockets 9U"), against("Bandits 9U")],
+          club.profile
+        )
+      )
+    );
+    clubs.forEach((club) => expect(filedAs(importer.state, club.profile.id).level).toBe(9));
+    const otters = ageless(
+      clubs.map((club) => against("Rivals", { opponentAvatarKey: club.profile.avatarKey })),
+      { id: "gcOTTERS0000", name: "Otters" }
+    );
+    expect(importer.add(otters).skip).toBeUndefined();
+    expect(filedAs(importer.state, "gcOTTERS0000").level).toBe(9);
   });
 
   it("reads only ages this app ranks, inside GameChanger's own band", () => {
