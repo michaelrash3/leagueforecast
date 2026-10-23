@@ -60,13 +60,13 @@ const GAMES: ScoutGame[] = [
   },
   // Not scored: a fixture to come is no sign of anything.
   { id: "fixture", ageGroupId: "ag_10u_2027", teamAId: "C", teamBId: "A", date: "2027-05-02" },
-  // Won by more than thirty, the wider first once listed.
+  // Won by forty or more, the wider first once listed.
   {
-    id: "rout-34",
+    id: "rout-44",
     ageGroupId: "ag_10u_2027",
     teamAId: "B",
     teamBId: "C",
-    teamAScore: 35,
+    teamAScore: 45,
     teamBScore: 1,
     date: "2027-03-02",
     source: filed("gcB"),
@@ -87,9 +87,9 @@ const GAMES: ScoutGame[] = [
     ageGroupId: "ag_10u_2027",
     teamAId: "A",
     teamBId: "C",
-    teamAScore: 31,
+    teamAScore: 41,
     teamBScore: 0,
-    scoreConfirmed: 31,
+    scoreConfirmed: 41,
     date: "2027-03-03",
   },
 ];
@@ -134,10 +134,10 @@ describe("what Pool health shows as it opens", () => {
     ]);
   });
 
-  it("lists the games won by more than thirty, widest first, leaving out a margin vouched for", () => {
+  it("lists the games won by forty or more, widest first, leaving out a margin vouched for", () => {
     expect(summary.implausible.map(({ game, margin }) => [game.id, margin])).toEqual([
+      ["rout-44", 44],
       ["rout-40", 40],
-      ["rout-34", 34],
     ]);
   });
 
@@ -213,7 +213,7 @@ describe("the clubs taken off as plainly made up, in Pool health", () => {
     );
     // A's rows go from every list, and A from the suspects; B's stay.
     expect(summary.datedAhead.map((game) => game.id)).toEqual(["ahead-2"]);
-    expect(summary.implausible.map(({ game }) => game.id)).toEqual(["rout-34"]);
+    expect(summary.implausible.map(({ game }) => game.id)).toEqual(["rout-44"]);
     expect(summary.suspected.map((club) => club.teamId)).toEqual(["B"]);
     expect(summary.removed).toEqual([
       {

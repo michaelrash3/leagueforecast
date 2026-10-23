@@ -5509,6 +5509,8 @@ const COPY_REACH_MINUTES = 180;
  * as seven and five of them, about one in five, may be a real game the club's own schedule left
  * out, now not counted. Within the hour nothing changes: one game that fits there is the game,
  * whatever fits further out, and two that fit there are left alone without looking further.
+ * Past the hour the club's own schedules are asked about the game's hour too (below): 14 of the 52
+ * were a club's playing a game of its own then, and count again, leaving 38 not to count.
  */
 export const markCountedElsewhere = (
   state: GcImportState
@@ -5570,8 +5572,17 @@ export const markCountedElsewhere = (
     const near = sameResult.filter((game) => startsWithinTheHour(game.startTs, copy.startTs));
     const fits = near.length > 0 ? near : sameResult;
     if (fits.length !== 1) return;
+    const [fit] = fits;
+    /*
+     * Past the hour, X's own schedules are asked about the game's hour too, not the copy's alone:
+     * a squad playing another game when C played Y did not post that game, and its row against C
+     * is a game of its own, C's own row of it missing (found by Codex on #432).
+     */
     const elsewhere = (busy.get(x) ?? []).some(
-      (game) => game.id !== copy.id && startsWithinTheHour(game.startTs, copy.startTs)
+      (game) =>
+        game.id !== copy.id &&
+        (startsWithinTheHour(game.startTs, copy.startTs) ||
+          (near.length === 0 && startsWithinTheHour(game.startTs, fit!.startTs)))
     );
     if (!elsewhere) marks.add(copy.id);
   });
@@ -8716,8 +8727,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *  29 — a third GameChanger team's copy of a game both clubs' own schedules hold set not to count
  *  30 — such a copy read out to three hours from the game where nothing fits within the hour, the
  *       owner's choice of 21 October 2026
+ *  31 — such a copy past the hour left counting where its own club's schedule has a game of its
+ *       own at the hour of the game it fits
  */
-const TIDY_RULES_VERSION = 30;
+const TIDY_RULES_VERSION = 31;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this

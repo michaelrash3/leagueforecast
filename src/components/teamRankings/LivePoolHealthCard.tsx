@@ -186,14 +186,14 @@ export function LivePoolHealthCard({
         message: `${
           why === "ahead"
             ? "Each one carries a score on a date still to come, so it cannot be a result."
-            : `Each one has a side winning by more than ${IMPLAUSIBLE_MARGIN} runs, which no real game ends with.`
+            : `Each one has a side winning by ${IMPLAUSIBLE_MARGIN} runs or more, which no real game ends with.`
         } The rows that carried those scores are remembered by their GameChanger id, so pulling those schedules again will not bring them back.`,
         confirmLabel: "Delete them",
       });
       if (!confirmed) return false;
       return change(
         { kind: "games.drop", gameIds: [...ids] },
-        `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by more than ${IMPLAUSIBLE_MARGIN}`}.`
+        `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by ${IMPLAUSIBLE_MARGIN} or more`}.`
       );
     },
     // At once, without asking, as the device's card deletes one.

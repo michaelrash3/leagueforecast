@@ -37,26 +37,27 @@ export const LEAGUE_GAME_PREFIX = "league_";
 export const playsItself = (game: ScoutGame): boolean => game.teamAId === game.teamBId;
 
 /**
- * The most runs a side can win a game by and have it believed. Past this the score is suspected of
- * being made up (`isImplausibleScore`): the pool of 26 September held 144 such games among 149,809
- * scored, 19 of them won by more than 100 runs and one by 9,999. Only the rating cap, then 8,
+ * A win by this many runs or more is not believed: the score is suspected of being made up
+ * (`isImplausibleScore`). The pool of 26 September held 144 games won by more than thirty among
+ * 149,809 scored, 19 of them by more than 100 runs and one by 9,999. Only the rating cap, then 8,
  * held them to an 8-run win each; uncapped, one of them put a club with no other result at the top
- * of the 9U board. Thirty is the user's line, and it sits past nearly every real game: one in
- * eighty is won by more than 20. It has to stay past `RATING_CAP` too, or a win by the cap would be
- * a score nobody believes and the what-if's top rung would not count.
+ * of the 9U board. Forty is the user's line, "a 40 or more run lead", of 21 October 2026, the same
+ * line their sign A of an invented club was moved to on 11 October; it was thirty before, past
+ * which the user had vouched for 76 of the 83 games won by 31 to 39 on the backup of 11 October.
+ * It has to stay past `RATING_CAP` too, or a win by the cap would be a score nobody believes and
+ * the what-if's top rung would not count.
  */
-export const IMPLAUSIBLE_MARGIN = 30;
+export const IMPLAUSIBLE_MARGIN = 40;
 
 /**
- * A score suspected of being made up: won by more than `IMPLAUSIBLE_MARGIN` runs, read as the
- * rating reads a margin (`ratedMargin`), and not the very margin the user vouched for
- * (`scoreConfirmed`). A vouched-for 31-0 corrected or re-pulled as 9,999-0 is suspect again. It
- * counts toward nothing (`countsTowardRating`) and Pool Health lists it, to be deleted or vouched
- * for.
+ * A score suspected of being made up: won by `IMPLAUSIBLE_MARGIN` runs or more, read as the rating
+ * reads a margin (`ratedMargin`), and not the very margin the user vouched for (`scoreConfirmed`).
+ * A vouched-for 41-0 corrected or re-pulled as 9,999-0 is suspect again. It counts toward nothing
+ * (`countsTowardRating`) and Pool Health lists it, to be deleted or vouched for.
  */
 export const isImplausibleScore = (game: ScoutGame): boolean => {
   const margin = ratedMargin(game);
-  if (margin === undefined || Math.abs(margin) <= IMPLAUSIBLE_MARGIN) return false;
+  if (margin === undefined || Math.abs(margin) < IMPLAUSIBLE_MARGIN) return false;
   return game.scoreConfirmed !== margin;
 };
 

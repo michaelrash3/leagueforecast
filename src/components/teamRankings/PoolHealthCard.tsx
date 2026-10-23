@@ -55,7 +55,7 @@ type PoolHealthCardProps = {
    */
   onDropClub: (club: UnrealClub) => Promise<boolean>;
   /**
-   * Says a game won by more than `IMPLAUSIBLE_MARGIN` runs really was played that way, so it counts
+   * Says a game won by `IMPLAUSIBLE_MARGIN` runs or more really was played that way, so it counts
    * and leaves the list (`ScoutGame.scoreConfirmed`).
    */
   onConfirmScore: (gameId: string) => Promise<boolean>;

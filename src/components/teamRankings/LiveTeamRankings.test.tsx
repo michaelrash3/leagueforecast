@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NO_REMOVALS } from "../../lib/autoRemoved";
+import { BROUGHT_BACK } from "../../lib/gcIdWhereabouts";
 import { SENT_PULLS_KEY, type PullSender } from "../../lib/cloud/cloudPulls";
 import { newPullJob, type PullJob } from "../../lib/cloud/pullJobs";
 import userEvent from "@testing-library/user-event";
@@ -1944,8 +1945,76 @@ describe("Find a team on the cloud's board", () => {
     );
     const box = await screen.findByRole("combobox", { name: /find a team/i });
     await user.type(box, "gcDROPPED001");
-    expect(await screen.findByText(/That team was thrown out, so pulls refuse it/)).toBeTruthy();
+    expect(await screen.findByText(/That team was deleted, so every import skips it/)).toBeTruthy();
     expect(handedOver()).toBeNull();
+  });
+
+  it("brings a deleted team back from Find a team, with an Undo, so the next import files it", async () => {
+    await withList();
+    const server = editFunction((data) =>
+      data.warm
+        ? WARMED
+        : {
+            ...made(5),
+            inverse: { kind: "answers", list: "droppedClubs", add: ["gcDROPPED001"], remove: [] },
+          }
+    );
+    const user = userEvent.setup();
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search every team or coach, any age or season" })
+    );
+    const box = await screen.findByRole("combobox", { name: /find a team/i });
+    await user.type(box, "gcDROPPED001");
+    await user.click(await screen.findByRole("button", { name: "Bring it back" }));
+    await waitFor(() => expect(said.toasts).toContain(BROUGHT_BACK));
+    expect(edited(server.sent)).toEqual([
+      {
+        command: { kind: "answers", list: "droppedClubs", add: [], remove: ["gcDROPPED001"] },
+        copy: MANIFEST.copy,
+      },
+    ]);
+    // Said so at once, though the list the search reads still has it until the next publish.
+    const list = listboxOf(box);
+    await waitFor(() => expect(list).toHaveTextContent(BROUGHT_BACK));
+    expect(within(list).queryByRole("button", { name: "Bring it back" })).toBeNull();
+    // Undo puts it back on the deleted list, and the search says so again.
+    act(() => said.actions.get(BROUGHT_BACK)?.());
+    await waitFor(() => expect(said.toasts).toContain("Undone."));
+    await waitFor(() => expect(list).toHaveTextContent(/That team was deleted/));
+  });
+
+  it("takes the next published list's word over a team it brought back", async () => {
+    await withList();
+    const server = editFunction((data) =>
+      data.warm
+        ? WARMED
+        : {
+            ...made(5),
+            inverse: { kind: "answers", list: "droppedClubs", add: ["gcDROPPED001"], remove: [] },
+          }
+    );
+    const user = userEvent.setup();
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search every team or coach, any age or season" })
+    );
+    const box = await screen.findByRole("combobox", { name: /find a team/i });
+    await user.type(box, "gcDROPPED001");
+    await user.click(await screen.findByRole("button", { name: "Bring it back" }));
+    const list = listboxOf(box);
+    await waitFor(() => expect(list).toHaveTextContent(BROUGHT_BACK));
+    // Deleted again elsewhere: the list published next still has it, and is the word on it.
+    await act(() =>
+      publish(live, [
+        {
+          key: searchKey(2027),
+          value: encodeSearch({ ...LIST, options: LIST.options.slice(0, -1) }),
+        },
+      ])
+    );
+    await waitFor(() => expect(list).toHaveTextContent(/That team was deleted/));
+    expect(within(list).getByRole("button", { name: "Bring it back" })).toBeTruthy();
   });
 
   it("asks again on another year's pages rather than read that year's list unasked", async () => {

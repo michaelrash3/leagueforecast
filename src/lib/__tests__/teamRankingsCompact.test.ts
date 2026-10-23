@@ -131,17 +131,17 @@ describe("games round-trip", () => {
 
   // What makes a row's opponent an identity rather than a name (`namedByAvatar`), which a tidy rule
   // moving rows on a name reads: lost on a save, the next tidy moved the row it had kept.
-  it("keeps a win by more than thirty runs the user said is real", () => {
+  it("keeps a win by forty runs or more the user said is real", () => {
     const games: ScoutGame[] = [
       {
         id: "gc_gcBIG_b1",
         teamAId: "BIG",
         teamBId: "SMALL",
-        teamAScore: 31,
+        teamAScore: 41,
         teamBScore: 0,
         ageGroupId: "ag_1",
         date: "2026-09-12",
-        scoreConfirmed: 31,
+        scoreConfirmed: 41,
       },
       // Side B's win, read by the rating as the average of the two clubs' reports.
       {
@@ -149,11 +149,11 @@ describe("games round-trip", () => {
         teamAId: "SMALL",
         teamBId: "BIG",
         teamAScore: 0,
-        teamBScore: 32,
-        reportedByB: { teamAScore: 0, teamBScore: 31 },
+        teamBScore: 42,
+        reportedByB: { teamAScore: 0, teamBScore: 41 },
         ageGroupId: "ag_1",
         date: "2026-09-13",
-        scoreConfirmed: -31.5,
+        scoreConfirmed: -41.5,
       },
     ];
     expect(roundTripGames(games)).toEqual(games);

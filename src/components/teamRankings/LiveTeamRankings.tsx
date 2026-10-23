@@ -5,6 +5,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -31,7 +32,7 @@ import {
 } from "../../lib/cloud/cloudSession";
 import { loadCloudState } from "../../lib/cloud/cloudState";
 import { todayIsoDay } from "../../lib/date";
-import { whereIsGcId } from "../../lib/gcIdWhereabouts";
+import { BROUGHT_BACK, whereIsGcId } from "../../lib/gcIdWhereabouts";
 import { forgetLiveBoard, holdLiveBoard, type RankingsHandover } from "../../lib/live/liveBoard";
 import { editLock, myTeamShown, startedAgainNotice } from "../../lib/live/liveEdits";
 import { liveLabel } from "../../lib/live/liveLabel";
@@ -62,7 +63,7 @@ import { coerceAgeGroups, loadAgeGroups } from "../../lib/teamRankingsStorage";
 import type { SeasonMeta } from "../../lib/storage";
 import { button, card } from "../../styles/tokens";
 import { CloudPoolGate } from "../CloudPoolGate";
-import { warmTeamSearch } from "../TeamSearchSelect";
+import { warmTeamSearch, type GcIdOffer } from "../TeamSearchSelect";
 import { RankingsHeader } from "./RankingsHeader";
 import { NATIONAL_TOP, RankingsSection, STATE_TOP } from "./RankingsSection";
 import { SECTION_PANEL_ID, sectionTabId } from "./SectionNav";
@@ -89,6 +90,7 @@ const nowIso = () => new Date().toISOString();
 
 const NO_OPTIONS: [] = [];
 const NO_IDS: string[] = [];
+const NONE_BACK: ReadonlySet<string> = new Set();
 
 /**
  * What the page says where it has nothing it can draw, in place of going to this device's copy,
@@ -754,9 +756,61 @@ function LiveBoard({
     openTeam(teamId);
   };
   const held = search.view?.held;
+  /*
+   * Clubs thrown out and brought back from Find a team here, held against the list the search read
+   * when each came off it: the id is off the cloud's list at once, and said so, until the list is
+   * published again. The next list is the word on it either way, so a club deleted again since, on
+   * another device or by a restored backup, reads as deleted with its offer back, rather than as
+   * brought back for as long as the page is open.
+   */
+  const [broughtBack, setBroughtBack] = useState<{ of: unknown; ids: ReadonlySet<string> }>(() => ({
+    of: null,
+    ids: new Set(),
+  }));
+  const heldNow = useRef(held);
+  useLayoutEffect(() => {
+    heldNow.current = held;
+  }, [held]);
+  const backNow = broughtBack.of === held ? broughtBack.ids : NONE_BACK;
   const explainGcId = useCallback(
-    (gcTeamId: string) => (held ? whereIsGcId(gcTeamId, held) : undefined),
-    [held]
+    (gcTeamId: string) =>
+      backNow.has(gcTeamId) ? BROUGHT_BACK : held ? whereIsGcId(gcTeamId, held) : undefined,
+    [held, backNow]
+  );
+  /*
+   * A club thrown out is refused by every import that names it, which is what a deletion is for,
+   * and a team the owner then imported on purpose could not be found anywhere: Hurricanes,
+   * bKpjvY5AVqOV, 21 October 2026. Find a team says it was deleted and offers to take it back.
+   */
+  const editAnswer = edits.edit;
+  const offerForGcId = useCallback(
+    (gcTeamId: string): GcIdOffer | undefined =>
+      held?.dropped.has(gcTeamId) && !backNow.has(gcTeamId)
+        ? {
+            label: "Bring it back",
+            run: () =>
+              void editAnswer(
+                { kind: "answers", list: "droppedClubs", add: [], remove: [gcTeamId] },
+                {
+                  done: BROUGHT_BACK,
+                  undo: true,
+                  afterUndo: () =>
+                    setBroughtBack((was) => ({
+                      of: was.of,
+                      ids: new Set([...was.ids].filter((id) => id !== gcTeamId)),
+                    })),
+                }
+              ).then((made) => {
+                if (!made) return;
+                // Against the list on screen as the edit lands, which may be one published since.
+                setBroughtBack((was) => {
+                  const of = heldNow.current;
+                  return { of, ids: new Set([...(was.of === of ? was.ids : []), gcTeamId]) };
+                });
+              }),
+          }
+        : undefined,
+    [held, backNow, editAnswer]
   );
   // The caret in the box once the list asked for is in, and only then: a publish that changes the
   // list later leaves the person wherever they are on the page. Put there as the box is drawn (a
@@ -936,6 +990,7 @@ function LiveBoard({
             searchOptions={searchOptions}
             onSearchTeam={openSearchedTeam}
             explainGcId={explainGcId}
+            offerForGcId={offerForGcId}
             onSearchWanted={search.ask}
             searchLoading={searchLoading}
             searchFailed={search.failed}

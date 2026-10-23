@@ -1764,6 +1764,12 @@ seven and five of the 52, about one in five, may be a real game the club's sched
 not counted. The list of clubs credited twice went from 279 groups to 227, all of them past the
 hour (127 to 75), and a second tidy finds nothing more.
 
+Past the hour the copying club's own schedules are asked about the game's hour as well as the
+copy's (found by Codex on #432): a squad that played a game of its own when C played Y did not post
+that game, and its row against C is a game of its own, C's own row of it missing. Of the 52, 14
+were such a club's, and count again: 38 are set not to count, and the list reads 241 groups, 89 of
+them past the hour.
+
 **Clubs credited twice with one game.** **Check the pool** also lists every time a pulled club
 holds two counted games on one day that start within the hour of each other with the same result
 (`countedTwice`). A club plays one game at a time, so that is one game entered twice, nearly always
@@ -2800,7 +2806,7 @@ answered. An answer given by mistake can be taken back: a line under the list sa
 clubs it is keeping off on your word, **Show them** names them, and **Put it back** puts one on
 the list again, where it was.
 
-**A win by more than thirty runs is suspected of being made up.** Nobody wins a youth game by
+**A win by forty runs or more is suspected of being made up.** Nobody wins a youth game by
 9,999 runs, and the pool of 26 September held a game that said so, with 143 others won by more
 than 30, 19 of them by more than 100. The rating cap, then 8, held each to an 8-run win;
 uncapped, one of them put a club with no other result at the top of the 9U board. Now such a
@@ -2808,13 +2814,16 @@ game counts toward no rating or record (`isImplausibleScore`, read as the rating
 both clubs' reports together), and Pool health lists it, widest first, to be deleted —
 remembered, as a row dated ahead is — or vouched for with **It's real**, which keeps the margin
 vouched for (`ScoutGame.scoreConfirmed`) and counts the game while it still reads that margin: a
-vouched-for 31-0 corrected or re-pulled as 9,999-0 is suspect again. Thirty is the user's line;
-one game in eighty is won by more than 20. On that pool 253 clubs' records change, and the 9U
-board barely moves: the median club by one place, nine by a hundred or more, the top ten not at
-all.
+vouched-for 41-0 corrected or re-pulled as 9,999-0 is suspect again. One game in eighty is won by
+more than 20. The line was thirty when this came in: on that pool 253 clubs' records changed, and
+the 9U board barely moved, the median club by one place, nine by a hundred or more, the top ten
+not at all. On 21 October 2026 the user moved it to "a 40 or more run lead", the line sign A of
+**Clubs removed for you** below had moved to on 11 October. By then the user had vouched for 76 of
+the 83 games won by 31 to 39 on the backup of 11 October, so the move counts seven more games;
+League Standings' warning of an unusual final reads the same line.
 
 The clubs that post them head Pool health's **Clubs that may not be real**, the user's call of 28
-September 2026: a club whose schedule filed a win by more than thirty runs that nobody has
+September 2026: a club whose schedule filed a win by forty runs or more that nobody has
 vouched for is listed whether or not anything of its is dated ahead, charged to the side that
 won it where that side's schedule filed it (`filedBy`), so a club whose own schedule records a
 rout against it is not said to have won one, and those clubs come first, most such wins first,
@@ -2833,7 +2842,7 @@ about three times the pool of 11 October, is to come in through pasted lists, so
 legs is kept as light as it can be and that night's refresh sweeps what they filed. A pull
 in a browser that keeps its own pool sweeps that pool when it ends, in the tidy worker after the
 tidy (1.5 s on the pool of 26 September at 18:40 and 2.5 s on 11 October's measured in Node,
-which the page's thread would spend frozen). A pulled club is taken off when it shows one of four
+which the page's thread would spend frozen). A pulled club is taken off when it shows one of five
 signs and nothing keeps it:
 
 - **Routs nobody else lists** (A): two or more wins by 40 runs or more that nobody has vouched
@@ -2871,12 +2880,22 @@ signs and nothing keeps it:
   the rules read 300, those ten fewer and 61 more. It is marked by GameChanger team, so a club with
   one such team among others stands. Since the tidy now deletes a pulled club every one of whose
   names says it is no team, N mostly marks what the tidy leaves: one such team among others.
+- **A hundred-run game** (H): its own schedule reports a game won by 100 runs or more, by either
+  side, that nobody has vouched for: the user's rule of 21 October 2026, "if they win by 100 or
+  more, automatically delete the team that is reporting a lopsided game like that". Only a side
+  whose own schedule scored the game is charged, the loser as much as the winner, so a club named
+  by another's made-up score stays, and a game no pulled club's schedule scored charges nobody. It
+  is a mark like the others rather than a deletion, so a club taken by a score keyed wrong can be
+  put back, and **Delete for good** deletes the rest. Swept from no marks, the pool of 26
+  September 2026 as today's tidy leaves it, before the user's own sweep of the 28th, had 24 games
+  won by 100 or more (the widest 9,999), and H marks the 19 clubs whose schedules scored them, 5
+  of them showing no other sign; on 11 October the widest game is 54, so it takes none.
 
 What keeps a club: any of its GameChanger ids, or its club id, said to be real (**It's real**);
 being any page's own team; the user's word on it, a pair kept apart, an age named or a score
-vouched for in a game of it; for A, B and C but not N, real opponents' own schedules listing three
-of its scored games, or half of them, a real opponent being a pulled club that shows no sign (C
-read without its clause about real opponents, which would make the question ask itself) whatever
+vouched for in a game of it; for A, B and C but not N or H, real opponents' own schedules listing
+three of its scored games, or half of them, a real opponent being a pulled club that shows no sign
+(C read without its clause about real opponents, which would make the question ask itself) whatever
 marks it carries, since a mark outlives its sign and two clubs marked for their stray scores,
 playing each other in the spring, would otherwise keep each other off for good; and a League
 Standings team that picks it or is carried onto it by its name. The last only a pass that reads
@@ -2908,9 +2927,11 @@ id (9 of the 97 one-sided games between pulled clubs that both schedules came to
 September and 11 October did); C lifts once a real opponent's schedule lists even one game of the
 club's dated after the mark, which is how a squad whose scores ran ahead of its games answers once
 it plays, and such a club no longer shows C, so it stays lifted; N lifts once neither the club's
-name nor its GameChanger team's has the word. Saying a club is real forgets its marks there and then, with the
-answer and in its Undo, rather than at the next sweep, so a club marked after the card was opened
-is back on the boards as it is said; a restored backup that says a club is real does the same.
+name nor its GameChanger team's has the word; H once no game of the club's own schedule reports a
+score by 100 or more, the game deleted, rescored or vouched for. Saying a club is real forgets its
+marks there and then, with the answer and in its Undo, rather than at the next sweep, so a club
+marked after the card was opened is back on the boards as it is said; a restored backup that says a
+club is real does the same.
 
 Pool health lists them under **Removed for you**, newest first, each with when and why in a line
 ("named 'test'", "its GameChanger team is named '…'" where only that name has the word, "next
@@ -2952,7 +2973,8 @@ board, the best 106th, and the top 25 of four boards reorder with nobody new. Of
 user deleted by hand between one backup and the next from 25 September to 11 October, A, B and C
 had taken 21 off the backup before, every one of them among the 46 deleted between 26 September
 at 18:40 and 29 September. On no backup of the five is a club the user had said was real by 11
-October taken off, even with that word set aside (131 such clubs were pulled on 11 October).
+October taken off, even with that word set aside (131 such clubs were pulled on 11 October). H,
+measured on 26 September and 11 October, takes none of them either.
 
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is
@@ -3059,6 +3081,13 @@ pool yet, its schedule empty or none of it filed, now has the page its latest li
 filed under (`teamPages`), where it had none and so could not be found at all, not even
 by its own id. Both came of the user, on 28 September 2026, pasting an id they knew had
 been pulled and being told no team matched.
+
+A team deleted, though, stayed gone with no way back but from Teams waiting on an age: every
+import refuses a club thrown out, which is what deleting one is for, and on 21 October 2026 the
+user imported one on purpose (Hurricanes, `bKpjvY5AVqOV`) and could not find it anywhere. Find a
+team now says such a team was deleted and offers **Bring it back** beside it: the id comes off the
+deleted list (`answers`, `droppedClubs`, with an Undo on the live page as on this one), the search
+says so at once, and the next import files it.
 
 **Find a team stays up while a pull runs.** Its index is not rebuilt during a run, since every
 save hands back new teams and a rebuild reads every stored year; it used to be switched off
@@ -3984,7 +4013,7 @@ the forecast is affected; the **Data Quality** tab lists them in three groups:
   marked final (not counted at all), a Gold cut line every team is on one side of, one Team
   Rankings club linked to two league teams while its results count.
 - **Worth reviewing**: the same game on the schedule twice, a past game still without a score, a
-  date that cannot be read, a final over 40 runs a side or won by more than 30, fewer games
+  date that cannot be read, a final over 40 runs a side or won by 40 or more, fewer games
   scheduled than the games-per-team setting (which holds clinching back), teams without a final
   once the league has played about three games each, two teams of one name, a link to a club
   Team Rankings no longer has.

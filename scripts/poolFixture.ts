@@ -9,7 +9,7 @@
  * - their GameChanger links a quarter in the fall alone and two thirds in the spring alone, though
  *   a game is dated by the side that filed it, so most clubs end up with games in both halves;
  * - about one game in thirteen across ages and a quarter against a club known only by name;
- * - a third of scores reported a run differently by the other side, a few won by more than 30, a
+ * - a third of scores reported a run differently by the other side, a few won by 40 or more, a
  *   few scored on a day still to come, a few undated, a few struck out.
  *
  * It also holds every case a board turns on that a random draw would rarely reach:
@@ -318,9 +318,9 @@ export const poolFixture = ({
         const odd = random();
         if (odd < 0.003) {
           // A rout: rated only once somebody has confirmed the margin.
-          game.teamAScore = 35;
+          game.teamAScore = 45;
           game.teamBScore = 1;
-          if (random() < 0.5) game.scoreConfirmed = 34;
+          if (random() < 0.5) game.scoreConfirmed = 44;
         } else if (odd < 0.008) {
           game.excluded = true;
         } else if (odd < 0.31 && game.teamAScore !== undefined && game.teamBScore !== undefined) {

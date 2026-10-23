@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   noMatchText,
+  offerInSearch,
   coachesToList,
   gcIdsInSearch,
   matchTeamOptions,
@@ -276,6 +277,24 @@ describe("what an empty list says of a pasted id", () => {
     expect(said).toContain("with this season and last ticked");
     // Twelve letters, but a name: no digit, and no capital past the first letter.
     expect(noMatchText("Thunderbolts", explain)).toBe("No team matches that.");
+  });
+
+  it("offers only for the id its line speaks of", () => {
+    // A waiting team's id typed before a deleted one's: the line is the waiting team's, so the
+    // button beside it is not one that brings back the other.
+    const said = (id: string) =>
+      id === "gcWAIT000001"
+        ? "Waiting on an age."
+        : id === "gcGONE000001"
+          ? "That team was deleted."
+          : undefined;
+    const back = { label: "Bring it back", run: () => undefined };
+    const offer = (id: string) => (id === "gcGONE000001" ? back : undefined);
+    expect(noMatchText("gcWAIT000001 gcGONE000001", said)).toBe("Waiting on an age.");
+    expect(offerInSearch("gcWAIT000001 gcGONE000001", said, offer)).toBeUndefined();
+    expect(offerInSearch("gcGONE000001 gcWAIT000001", said, offer)).toBe(back);
+    // Nothing said of an id, nothing offered for it.
+    expect(offerInSearch("gcGONE000001", undefined, offer)).toBeUndefined();
   });
 
   it("claims only its own list in a picker that cannot look an id up", () => {
