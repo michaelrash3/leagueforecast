@@ -305,9 +305,9 @@ describe("auditing a League Standings season", () => {
     const logs = {
       ...CLEAN_LOGS,
       g1: final("41", "3"),
-      g2: final("31", "0"),
+      g2: final("40", "0"),
       g3: final("40", "10"),
-      g4: final("30", "0"),
+      g4: final("39", "0"),
     };
     expect(gameIds(only(audit({ logs }), "implausible-score")).sort()).toEqual(["g1", "g2"]);
   });

@@ -47,7 +47,7 @@ const pool = (extra: Partial<Pool> = {}): Pool => ({
   games: [
     game("old", lastYear.id, "S-RAYS", "S-JAYS", 2, 1, { date: "2026-04-11" }),
     game("played", thisYear.id, "S-RAYS", "S-JAYS", 5, 4, { date: "2026-09-12" }),
-    game("lopsided", thisYear.id, "S-OWLS", "S-JAYS", 34, 0, { date: "2026-09-19" }),
+    game("lopsided", thisYear.id, "S-OWLS", "S-JAYS", 44, 0, { date: "2026-09-19" }),
     {
       id: "open",
       ageGroupId: thisYear.id,
@@ -276,9 +276,9 @@ describe("a lopsided score vouched for", () => {
     await user.click(screen.getByRole("tab", { name: "Setup" }));
     await user.click(await screen.findByRole("button", { name: "Check the pool" }));
     const writes = watchWrites();
-    const list = (await screen.findByText(/^Won by more than \d+ runs$/)).closest("div")!;
+    const list = (await screen.findByText(/^Won by \d+ runs or more$/)).closest("div")!;
     await user.click(within(list).getByRole("button", { name: /It.s real/ }));
-    await waitFor(() => expect(stored("lopsided")?.scoreConfirmed).toBe(34));
+    await waitFor(() => expect(stored("lopsided")?.scoreConfirmed).toBe(44));
     expect(writes.some((key) => key.endsWith(shardOf(2026)))).toBe(false);
   });
 });
@@ -291,9 +291,9 @@ describe("a page whose year is in its name alone", () => {
     renderTeamRankings(pool({ ageGroups: [lastYear, named], search: "?age=10&year=2027" }));
     await user.click(screen.getByRole("tab", { name: "Setup" }));
     await user.click(await screen.findByRole("button", { name: "Check the pool" }));
-    const list = (await screen.findByText(/^Won by more than \d+ runs$/)).closest("div")!;
+    const list = (await screen.findByText(/^Won by \d+ runs or more$/)).closest("div")!;
     await user.click(within(list).getByRole("button", { name: /It.s real/ }));
-    await waitFor(() => expect(stored("lopsided")?.scoreConfirmed).toBe(34));
+    await waitFor(() => expect(stored("lopsided")?.scoreConfirmed).toBe(44));
   });
 });
 
@@ -582,7 +582,7 @@ describe("the clean-up edits", () => {
     renderTeamRankings(pool({ search: "?age=10&year=2027" }));
     await user.click(screen.getByRole("tab", { name: "Setup" }));
     await user.click(await screen.findByRole("button", { name: "Check the pool" }));
-    const list = (await screen.findByText(/^Won by more than \d+ runs$/)).closest("div")!;
+    const list = (await screen.findByText(/^Won by \d+ runs or more$/)).closest("div")!;
     const writes = watchWrites();
     await user.click(within(list).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(stored("lopsided")).toBeUndefined());

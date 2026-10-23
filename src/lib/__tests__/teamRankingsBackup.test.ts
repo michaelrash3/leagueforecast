@@ -223,12 +223,12 @@ describe("teamRankingsCsvSections", () => {
     expect(JSON.stringify(back?.games[0]?.alsoRows)).toBe(JSON.stringify(rows));
   });
 
-  it("round-trips a win by more than thirty runs the user said is real", () => {
+  it("round-trips a win by forty runs or more the user said is real", () => {
     const vouched: TeamRankingsBackup = {
       ...backup,
       games: [
-        { ...games[0]!, teamAScore: 31, teamBScore: 0, scoreConfirmed: 31 },
-        { ...games[1]!, teamAScore: 0, teamBScore: 32, scoreConfirmed: -31.5 },
+        { ...games[0]!, teamAScore: 41, teamBScore: 0, scoreConfirmed: 41 },
+        { ...games[1]!, teamAScore: 0, teamBScore: 42, scoreConfirmed: -41.5 },
       ],
     };
     expect(parseTeamRankingsCsv(teamRankingsCsvSections(vouched))).toEqual(vouched);

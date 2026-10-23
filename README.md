@@ -2769,7 +2769,7 @@ answered. An answer given by mistake can be taken back: a line under the list sa
 clubs it is keeping off on your word, **Show them** names them, and **Put it back** puts one on
 the list again, where it was.
 
-**A win by more than thirty runs is suspected of being made up.** Nobody wins a youth game by
+**A win by forty runs or more is suspected of being made up.** Nobody wins a youth game by
 9,999 runs, and the pool of 26 September held a game that said so, with 143 others won by more
 than 30, 19 of them by more than 100. The rating cap, then 8, held each to an 8-run win;
 uncapped, one of them put a club with no other result at the top of the 9U board. Now such a
@@ -2777,13 +2777,16 @@ game counts toward no rating or record (`isImplausibleScore`, read as the rating
 both clubs' reports together), and Pool health lists it, widest first, to be deleted —
 remembered, as a row dated ahead is — or vouched for with **It's real**, which keeps the margin
 vouched for (`ScoutGame.scoreConfirmed`) and counts the game while it still reads that margin: a
-vouched-for 31-0 corrected or re-pulled as 9,999-0 is suspect again. Thirty is the user's line;
-one game in eighty is won by more than 20. On that pool 253 clubs' records change, and the 9U
-board barely moves: the median club by one place, nine by a hundred or more, the top ten not at
-all.
+vouched-for 41-0 corrected or re-pulled as 9,999-0 is suspect again. One game in eighty is won by
+more than 20. The line was thirty when this came in: on that pool 253 clubs' records changed, and
+the 9U board barely moved, the median club by one place, nine by a hundred or more, the top ten
+not at all. On 21 October 2026 the user moved it to "a 40 or more run lead", the line sign A of
+**Clubs removed for you** below had moved to on 11 October. By then the user had vouched for 76 of
+the 83 games won by 31 to 39 on the backup of 11 October, so the move counts seven more games;
+League Standings' warning of an unusual final reads the same line.
 
 The clubs that post them head Pool health's **Clubs that may not be real**, the user's call of 28
-September 2026: a club whose schedule filed a win by more than thirty runs that nobody has
+September 2026: a club whose schedule filed a win by forty runs or more that nobody has
 vouched for is listed whether or not anything of its is dated ahead, charged to the side that
 won it where that side's schedule filed it (`filedBy`), so a club whose own schedule records a
 rout against it is not said to have won one, and those clubs come first, most such wins first,
@@ -3960,7 +3963,7 @@ the forecast is affected; the **Data Quality** tab lists them in three groups:
   marked final (not counted at all), a Gold cut line every team is on one side of, one Team
   Rankings club linked to two league teams while its results count.
 - **Worth reviewing**: the same game on the schedule twice, a past game still without a score, a
-  date that cannot be read, a final over 40 runs a side or won by more than 30, fewer games
+  date that cannot be read, a final over 40 runs a side or won by 40 or more, fewer games
   scheduled than the games-per-team setting (which holds clinching back), teams without a final
   once the league has played about three games each, two teams of one name, a link to a club
   Team Rankings no longer has.
@@ -6635,8 +6638,8 @@ way. After each, and after an Undo, the list is asked for again. Pool health
 it shows as it opens, asked on the device's day as Setup opens (`health.summary`), and what
 it finds once **Check the pool** is pressed (`health.inspect`). Each button is sent as the
 edit the device's card makes: rows thrown out (`games.drop`), a club deleted
-(`club.drop`), a rout counted (`game.confirm`), a fold (`teams.merge`, asked about first
-with what the server says it moves), an age (`club.age`, with an Undo), every suggested
+(`club.drop`), a rout counted (`game.confirm`), a fold (`teams.merge`, at once, with an Undo,
+as **Delete club** is), an age (`club.age`, with an Undo), every suggested
 age at once (planned on the server's pool, `ages.plan`, and sent as one batch with one
 Undo), the answers (a club real, a club at the right age, two clubs kept apart), and the
 clubs removed for you: **Put back on the boards** (its marks forgotten and the club said to
@@ -6646,7 +6649,20 @@ Both questions read League Standings, as the boards do, so a club a League Stand
 links is said to be kept rather than removed. Once
 an edit is made, what the pool shows is asked for again, so the lists are the copy's as it
 now stands; an answer kept is shown at once, and the question already on its way is let
-go, since it was asked before the answer was given. The file of every club worth pulling
+go, since it was asked before the answer was given.
+
+The buttons press into a line rather than taking turns with the person. A press used to grey out
+every other button in its list until the cloud answered, a few seconds each, and a fold asked
+first, with a call of its own for the counts it gave, so a page of pairs to fold or clubs to
+delete was worked through one wait and one question at a time: the owner's biggest complaint, 21
+October 2026. Now every other button stays live; a button pressed reads **Queued** until its turn
+and then what it is doing, the edits go one at a time in the order pressed, and pressing one
+already in line does nothing more. A club or game an edit has dealt with leaves its list at once,
+before the summary is asked for again, so its button cannot be pressed a second time for a row
+already gone. A fold here asks nothing first, since it is a fold the pool offered and has an Undo;
+a fold a club's own panel is told to make still asks, with what it moves (`merge.preview`).
+
+The file of every club worth pulling
 is the server's, asked for when **Download the list** is pressed (`health.toPull`). The
 settle is the nightly refresh's, which tidies the pool after every pull, and the pool's
 research files (its names, its stand-in fixtures) are made only where the whole pool is
