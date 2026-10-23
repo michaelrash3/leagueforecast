@@ -7,6 +7,7 @@ import { clubsByGcId, filedBy } from "./unrealClubs";
 import {
   ABSURD_MARGIN,
   AUTO_SIGNS,
+  HUNDRED_MARGIN,
   ROUT_MARGIN,
   type AutoRemoval,
   type AutoRemovals,
@@ -57,20 +58,28 @@ import {
  *   the 10 it no longer reads all that organisation's (`madeUpHit`). Marked per
  *   GameChanger id: when only one of its teams has the word and the club's own name does not,
  *   only that one, so the club stands unless every one of its ids is marked.
+ * - H: its own schedule reports a game won by `HUNDRED_MARGIN` or more that nobody has vouched
+ *   for, whichever side it was on: the owner's rule of 21 October 2026, that a team reporting a
+ *   game like that is to go, on its own. Like N it is no matter what real opponents list of it,
+ *   since no witness makes such a score a game; the owner's own word on the club still keeps it.
+ *   Measured from no marks: on the pool of 26 September 2026 as today's tidy leaves it, before the
+ *   user's own sweep of the 28th, 24 games reached 100 (the widest 9,999) and H marks the 19 clubs whose schedules scored
+ *   them, 5 of them showing no other sign; on 11 October the widest game is 54, so it takes none.
  *
  * Measured with this code against what the user did by hand, sweeping each backup from no marks.
  * On the pool of 26 September 2026 at 18:40, before the user's own sweep of 28 September, A, B and
  * C take off 21 clubs (9 by A, 16 by B, 2 by C, some by two), every one of which the user had
  * deleted by 11 October, and N 84 more. On 29 September and 11 October A, B and C take off none,
  * and N 86 and 249, eight of the 249 only through a GameChanger team's name. On none of the five
- * backups of 25 September to 11 October does the sweep take a club the user said was real by 11
- * October (131 such clubs pulled then), even with that word set aside.
+ * backups of 25 September to 11 October do A, B, C and N take a club the user said was real by 11
+ * October (131 such clubs pulled then), even with that word set aside, nor does H on the two it
+ * was measured on, 26 September and 11 October.
  *
  * What keeps a club with a sign:
  * - any of its GameChanger ids, or its club id, said to be real (`realClubs`);
  * - being any page's own team;
  * - the user's word on it: a pair kept apart, an age named, or a score vouched for in a game of it;
- * - for A, B and C, not N: real opponents' own schedules listing `PLAINLY_REAL_GAMES` of its
+ * - for A, B and C, not N or H: real opponents' own schedules listing `PLAINLY_REAL_GAMES` of its
  *   scored games, or at least half of them (one at least). A real opponent is a pulled club that
  *   shows no sign of its own (C read without its clause about real opponents, which would make
  *   the question ask itself). A mark does not make a club no witness: a mark stays after its sign
@@ -91,7 +100,8 @@ import {
  * the club's dated after the day it was marked: the shape C finds is a club whose scores are
  * mostly of games still to be played, and a season of real games is the answer to it; such a club
  * no longer shows C, so it stays lifted. N lifts once neither the club's name nor the GameChanger
- * team's has the word.
+ * team's has the word, and H once no game its own schedule scored is won by `HUNDRED_MARGIN` or
+ * more unvouched: the game deleted or rescored. No witness lifts H, as none keeps it from being made.
  */
 
 /** A result dated this many days or more ahead is no game keyed a day or two off. */
@@ -149,6 +159,65 @@ const listersOf = (game: ScoutGame, clubOfGcId: ReadonlyMap<string, string>): Se
   return listers;
 };
 
+/**
+ * The sides whose own schedules reported a game's score, as `filedBy` reads them, each with the
+ * widest margin its own schedule gave: never both sides for want of a schedule, since a game
+ * nothing traces to a pulled club's schedule (typed in by hand, or off a club since gone) is
+ * reported by nobody here, and H takes nobody off for it.
+ *
+ * Each side's own word, not the rating's average of the two (`ratedMargin`): where the schedules
+ * disagree, 190-0 on one and 20-0 on the other, the average of 105 charged the club whose schedule
+ * said 20, and 150-0 against 0-0 averaged 75 and let off the club that said 150 (Codex on #437).
+ * The game's own score is its source's word; a folded row keeps its own; a schedule only named in
+ * `alsoFrom` kept no row, so it is read as its side sees the game (`scoreSeenBy`), side B's own
+ * report where it gave one.
+ */
+const reportedMargins = (
+  game: ScoutGame,
+  clubOfGcId: ReadonlyMap<string, string>
+): Map<string, number> => {
+  const sides = new Map<string, number>();
+  const charge = (schedule: string | undefined, margin: number | undefined) => {
+    const club = schedule === undefined ? undefined : clubOfGcId.get(schedule);
+    if (club !== game.teamAId && club !== game.teamBId) return;
+    if (margin === undefined || !Number.isFinite(margin)) return;
+    sides.set(club, Math.max(sides.get(club) ?? 0, Math.abs(margin)));
+  };
+  const own = (clubId: string) => {
+    const seen = scoreSeenBy(game, clubId);
+    return seen && seen.own - seen.opponent;
+  };
+  if (
+    game.source &&
+    !game.scoreFromB &&
+    game.teamAScore !== undefined &&
+    game.teamBScore !== undefined
+  ) {
+    charge(game.source.teamId, game.teamAScore - game.teamBScore);
+  }
+  const kept = new Set((game.alsoRows ?? []).map((record) => record.teamId));
+  (game.alsoRows ?? []).forEach((record) => {
+    if (record.ownScore === undefined || record.opponentScore === undefined) return;
+    charge(record.teamId, record.ownScore - record.opponentScore);
+  });
+  (game.alsoFrom ?? [])
+    .filter((schedule) => !kept.has(schedule))
+    .forEach((schedule) => {
+      const club = clubOfGcId.get(schedule);
+      charge(schedule, club === undefined ? undefined : own(club));
+    });
+  if (game.reportedByB) {
+    sides.set(
+      game.teamBId,
+      Math.max(
+        sides.get(game.teamBId) ?? 0,
+        Math.abs(game.reportedByB.teamAScore - game.reportedByB.teamBScore)
+      )
+    );
+  }
+  return sides;
+};
+
 /** What a club's games say of it, walked once. */
 type Tally = {
   played: number;
@@ -170,6 +239,8 @@ type Tally = {
   farAhead: number;
   firstFar: string | undefined;
   vouched: boolean;
+  /** The games won by `HUNDRED_MARGIN` or more, unvouched, that its own schedule reported (H). */
+  reported: CountedWin[];
 };
 
 const emptyTally = (): Tally => ({
@@ -182,6 +253,7 @@ const emptyTally = (): Tally => ({
   farAhead: 0,
   firstFar: undefined,
   vouched: false,
+  reported: [],
 });
 
 /**
@@ -211,6 +283,8 @@ type Verdict = {
   signs: AutoSign[];
   named: Map<string, Named>;
   wins: CountedWin[];
+  /** The games won by `HUNDRED_MARGIN` or more its own schedule reported, either side (H). */
+  reported: CountedWin[];
   /** Its wins by `ROUT_MARGIN` or more, and by `ABSURD_MARGIN` or more, that the loser's lists. */
   routsListed: number;
   absurdListed: number;
@@ -253,6 +327,9 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
     const margin = ratedMargin(game) ?? 0;
     // A win nobody vouched for (`isImplausibleScore`), by A's line or more, as the rating reads it.
     const rout = Math.abs(margin) >= ROUT_MARGIN && isImplausibleScore(game);
+    // H's: by the owner's line or more on a side's own schedule, unvouched. Vouched as
+    // `isImplausibleScore` reads it, but without its line, which reads the average of the two.
+    const hundred = game.scoreConfirmed === margin ? null : reportedMargins(game, clubOfGcId);
     const winner = margin > 0 ? game.teamAId : margin < 0 ? game.teamBId : undefined;
     [
       [game.teamAId, game.teamBId],
@@ -267,6 +344,14 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
       if (seen && seen.own - seen.opponent >= ROUT_MARGIN && otherListed) {
         tally.routsListed += 1;
         if (seen.own - seen.opponent >= ABSURD_MARGIN) tally.absurdListed += 1;
+      }
+      const reported = hundred?.get(self!);
+      if (reported !== undefined && reported >= HUNDRED_MARGIN) {
+        tally.reported.push({
+          gameId: game.id,
+          margin: reported,
+          ...(game.date ? { date: game.date } : {}),
+        });
       }
       // Filed by its own schedule and not listed by the loser's. The two never part in a pool, since
       // a win the club's schedule did not file is one the loser's did, but it is what the sign says.
@@ -304,6 +389,7 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
     const signs: AutoSign[] = [];
     if (tally.unlisted.length >= 2 && tally.routsListed === 0) signs.push("wins");
     if (widest >= ABSURD_MARGIN) signs.push("rout");
+    if (tally.reported.length > 0) signs.push("hundred");
     // C's shape; whether a real opponent lists a game of it is asked below, once witnesses are known.
     if (
       tally.played >= AHEAD_FEWEST_PLAYED &&
@@ -328,6 +414,7 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
       signs,
       named,
       wins: signs.includes("wins") || signs.includes("rout") ? tally.unlisted : [],
+      reported: tally.reported,
       routsListed: tally.routsListed,
       absurdListed: tally.absurdListed,
       absurdUnlisted: widest >= ABSURD_MARGIN,
@@ -389,11 +476,12 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
 const keeping = (mark: AutoRemoval, signs: readonly AutoSign[]): AutoRemoval | undefined => {
   if (signs.length === mark.signs.length) return mark;
   if (signs.length === 0) return undefined;
-  const { wins, ahead, word, teamName, ...rest } = mark;
+  const { wins, reported, ahead, word, teamName, ...rest } = mark;
   return {
     ...rest,
     signs: [...signs],
     ...(wins && (signs.includes("wins") || signs.includes("rout")) ? { wins } : {}),
+    ...(reported && signs.includes("hundred") ? { reported } : {}),
     ...(ahead && signs.includes("ahead") ? { ahead } : {}),
     ...(word && signs.includes("named") ? { word } : {}),
     ...(teamName && signs.includes("named") ? { teamName } : {}),
@@ -441,6 +529,8 @@ export const sweepMarks = (
     const word = madeUpWord(teams.get(clubId)?.name) ?? madeUpWord(link?.name);
     const signs = mark.signs.filter((sign) => {
       if (sign === "named") return word !== undefined;
+      // H's own escape, and no witness's: the game gone, vouched for, or its schedule no more.
+      if (sign === "hundred") return verdict.signs.includes("hundred");
       if (verdict.corroborated) return false;
       // A's escape as A reads it: any win by `ROUT_MARGIN` or more a loser's schedule lists.
       if (sign === "wins") return verdict.routsListed === 0 && !(mark.wins ?? []).some(loserLists);
@@ -463,7 +553,10 @@ export const sweepMarks = (
   // Made: a club with a sign and nothing keeping it, each of its ids not marked already.
   verdicts.forEach((verdict, clubId) => {
     if (verdict.kept) return;
-    const shown = verdict.corroborated ? [] : verdict.signs;
+    // A witness keeps a club from every sign but H, which no witness makes a game.
+    const shown = verdict.corroborated
+      ? verdict.signs.filter((sign) => sign === "hundred")
+      : verdict.signs;
     if (shown.length === 0 && verdict.named.size === 0) return;
     const team = teams.get(clubId)!;
     (team.gcTeams ?? []).forEach((link) => {
@@ -480,6 +573,9 @@ export const sweepMarks = (
         signs,
         ...(verdict.wins.length > 0 && (signs.includes("wins") || signs.includes("rout"))
           ? { wins: verdict.wins }
+          : {}),
+        ...(verdict.reported.length > 0 && signs.includes("hundred")
+          ? { reported: verdict.reported }
           : {}),
         ...(verdict.ahead && signs.includes("ahead") ? { ahead: verdict.ahead } : {}),
         ...(named ? { word: named.word } : {}),
