@@ -54,7 +54,11 @@ const DIST = "dist";
  * the guards that reading is held to and the index of every name a pulled club is listed under,
  * since the tidy's code is part of that load. Team Rankings to 159.0 KB on 23 Oct 2026 for Bring it
  * back in Find a team, 158.4 KB against 158.2 KB on main: the offer beside a deleted team's id, the
- * answers edit that takes it off the deleted list, and the line the search says after.
+ * answers edit that takes it off the deleted list, and the line the search says after. Team
+ * Rankings to 159.5 KB the same day for filing a team below the opponents' bar at the oldest age it
+ * has played, 159.1 KB against 158.8 KB on main: the oldest opponent's age read as a pull files a
+ * team (`opponentAgeBar`) and the waiting list's rule for it, since the import's code is part of
+ * that load.
  */
 const BUDGET = {
   firstDownload: 252_000,
@@ -69,7 +73,7 @@ const BUDGET = {
     Forecast: 18_300,
     "Data Quality": 3_500,
     Settings: 12_600,
-    "Team Rankings": 159_000,
+    "Team Rankings": 159_500,
   },
 };
 
