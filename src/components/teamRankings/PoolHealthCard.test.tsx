@@ -412,7 +412,7 @@ describe("the impossible games, worst club first", () => {
   });
 });
 
-describe("games won by more than thirty runs", () => {
+describe("games won by forty runs or more", () => {
   const filedAs = (id: string) => ({
     source: { kind: "gamechanger" as const, teamId: "gcBIG0000001", gameId: id },
   });
@@ -431,18 +431,18 @@ describe("games won by more than thirty runs", () => {
         date: seasonDate(2027),
         ...filedAs("typo"),
       }),
-      game("rout", "ag_10u_2027", "S-BIG", "S-OTH", 31, 0, {
+      game("rout", "ag_10u_2027", "S-BIG", "S-OTH", 40, 0, {
         date: seasonDate(2027),
         ...filedAs("rout"),
       }),
-      // Thirty exactly is a result, however lopsided.
-      game("line", "ag_10u_2027", "S-OTH", "S-VIC", 30, 0, { date: seasonDate(2027) }),
+      // Thirty-nine is a result, however lopsided: the user's line is forty or more.
+      game("line", "ag_10u_2027", "S-OTH", "S-VIC", 39, 0, { date: seasonDate(2027) }),
       game("close", "ag_10u_2027", "S-VIC", "S-OTH", 5, 4, { date: seasonDate(2027) }),
     ],
   });
 
   const section = () =>
-    screen.getByRole("heading", { name: "Won by more than 30 runs" }).parentElement as HTMLElement;
+    screen.getByRole("heading", { name: "Won by 40 runs or more" }).parentElement as HTMLElement;
   const rows = () => within(section()).getAllByRole("listitem");
 
   /** A club's record off the board, which reads only what counts. */
@@ -458,16 +458,16 @@ describe("games won by more than thirty runs", () => {
     return cells[2];
   };
 
-  it("lists them widest first, leaves thirty alone, and counts none of them", async () => {
+  it("lists them widest first, leaves thirty-nine alone, and counts none of them", async () => {
     const user = userEvent.setup();
     renderTeamRankings(pool());
     await openSetup(user);
 
     expect(rows()).toHaveLength(2);
     expect(rows()[0]).toHaveTextContent("Big Scores 9999–0 Victims");
-    expect(rows()[1]).toHaveTextContent("Big Scores 31–0 Others");
+    expect(rows()[1]).toHaveTextContent("Big Scores 40–0 Others");
     expect(section()).toHaveTextContent("9,999 at the most");
-    // The Victims' 9,999-run loss is not a result: they are 1-1, the 30-0 loss and the 5-4 win.
+    // The Victims' 9,999-run loss is not a result: they are 1-1, the 39-0 loss and the 5-4 win.
     expect(await recordOf(user, "Victims")).toBe("1-1");
   });
 
@@ -482,7 +482,7 @@ describe("games won by more than thirty runs", () => {
     expect(listed.map((one) => one.querySelector("span.font-bold")?.textContent)).toEqual([
       "Big Scores",
     ]);
-    expect(listed[0]).toHaveTextContent("2 wins by more than 30");
+    expect(listed[0]).toHaveTextContent("2 wins by 40 or more");
   });
 
   it("counts one said to be real, and takes it off the list", async () => {
@@ -493,8 +493,8 @@ describe("games won by more than thirty runs", () => {
     await user.click(within(rows()[1]!).getByRole("button", { name: "It’s real" }));
     expect(rows()).toHaveLength(1);
     // The margin vouched for, so a later score read differently is suspect again.
-    expect(loadScoutGames().find((one) => one.id === "rout")?.scoreConfirmed).toBe(31);
-    // The 31-0 counts now, and the 9,999-0 still does not.
+    expect(loadScoutGames().find((one) => one.id === "rout")?.scoreConfirmed).toBe(40);
+    // The 40-0 counts now, and the 9,999-0 still does not.
     expect(await recordOf(user, "Big Scores")).toBe("1-0");
   });
 
@@ -505,7 +505,7 @@ describe("games won by more than thirty runs", () => {
 
     await user.click(within(rows()[0]!).getByRole("button", { name: "Delete" }));
     expect(requestConfirmation).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringMatching(/more than 30 runs/) })
+      expect.objectContaining({ message: expect.stringMatching(/40 runs or more/) })
     );
     expect(rows()).toHaveLength(1);
     expect(loadScoutGames().some((one) => one.id === "typo")).toBe(false);

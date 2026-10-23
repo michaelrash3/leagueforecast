@@ -772,7 +772,9 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * and with the marked club put back too, 4's. 6's deduction is gone from the code, so nothing
      * here rebuilds 6's boards any more; its fingerprint stays, as 1's to 3's do. 8 leaves a third
      * copy of a game that already counts off every board (`ScoutGame.countedElsewhere`); the
-     * fixture holds none, so its boards are 7's.
+     * fixture holds none, so its boards are 7's. 9 counts a win by 31 to 39 runs, which was
+     * suspected of being made up until the line moved to forty; the fixture's routs are 45-1, past
+     * both lines, and it holds no game between, so its boards are 8's.
      */
     const RULES_PINS: Record<number, string> = {
       1: "a2c59173",
@@ -783,6 +785,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       6: "d2a7b071",
       7: "46996e9c",
       8: "46996e9c",
+      9: "46996e9c",
     };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
     starts.off = true;

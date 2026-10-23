@@ -11,8 +11,8 @@ import { removedForYou, type RemovedClub } from "./removedForYou";
 
 /**
  * What Pool health shows as it opens, before anyone asks it to look harder (`PoolHealthCard`): what
- * each squad year holds, the results scored on a day that has not happened, the games won by more
- * than `IMPLAUSIBLE_MARGIN` runs, and the clubs those rows belong to. Worked out the same way from a
+ * each squad year holds, the results scored on a day that has not happened, the games won by
+ * `IMPLAUSIBLE_MARGIN` runs or more, and the clubs those rows belong to. Worked out the same way from a
  * device's own pool and from the server's (`health.summary`, `queries.ts`), so the card draws the
  * one as it draws the other.
  */
@@ -37,7 +37,7 @@ export type PoolHealthSummary = {
   holdings: SquadYearHolding[];
   /** Scored on a day that has not happened, in the pool's order. */
   datedAhead: HealthGame[];
-  /** Won by more than `IMPLAUSIBLE_MARGIN` runs, the widest first, then the earliest. */
+  /** Won by `IMPLAUSIBLE_MARGIN` runs or more, the widest first, then the earliest. */
   implausible: Array<{ game: HealthGame; margin: number }>;
   /** The clubs those rows belong to, worst first (`unrealClubs`). */
   suspected: UnrealClub[];

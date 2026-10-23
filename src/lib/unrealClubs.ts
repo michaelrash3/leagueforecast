@@ -34,7 +34,7 @@ export type UnrealClub = {
   /** Played games dated after today. */
   ahead: number;
   /**
-   * Games its schedule filed that it won by more than `IMPLAUSIBLE_MARGIN` runs, and that nobody
+   * Games its schedule filed that it won by `IMPLAUSIBLE_MARGIN` runs or more, and that nobody
    * has said were played that way (`isImplausibleScore`): 9,999-0, 4,612-0, 529-2.
    */
   implausible: number;
@@ -82,7 +82,7 @@ export const clubsByGcId = (teams: readonly ScoutTeam[]): Map<string, string> =>
   new Map(teams.flatMap((team) => (team.gcTeams ?? []).map((link) => [link.teamId, team.id])));
 
 /**
- * The clubs holding at least one result dated ahead or won by more than `IMPLAUSIBLE_MARGIN` runs,
+ * The clubs holding at least one result dated ahead or won by `IMPLAUSIBLE_MARGIN` runs or more,
  * worst first.
  *
  * The clubs whose schedules post scores like 9,999-0 come first, most such games first: the user

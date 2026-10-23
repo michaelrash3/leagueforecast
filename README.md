@@ -2769,7 +2769,7 @@ answered. An answer given by mistake can be taken back: a line under the list sa
 clubs it is keeping off on your word, **Show them** names them, and **Put it back** puts one on
 the list again, where it was.
 
-**A win by more than thirty runs is suspected of being made up.** Nobody wins a youth game by
+**A win by forty runs or more is suspected of being made up.** Nobody wins a youth game by
 9,999 runs, and the pool of 26 September held a game that said so, with 143 others won by more
 than 30, 19 of them by more than 100. The rating cap, then 8, held each to an 8-run win;
 uncapped, one of them put a club with no other result at the top of the 9U board. Now such a
@@ -2777,13 +2777,16 @@ game counts toward no rating or record (`isImplausibleScore`, read as the rating
 both clubs' reports together), and Pool health lists it, widest first, to be deleted —
 remembered, as a row dated ahead is — or vouched for with **It's real**, which keeps the margin
 vouched for (`ScoutGame.scoreConfirmed`) and counts the game while it still reads that margin: a
-vouched-for 31-0 corrected or re-pulled as 9,999-0 is suspect again. Thirty is the user's line;
-one game in eighty is won by more than 20. On that pool 253 clubs' records change, and the 9U
-board barely moves: the median club by one place, nine by a hundred or more, the top ten not at
-all.
+vouched-for 41-0 corrected or re-pulled as 9,999-0 is suspect again. One game in eighty is won by
+more than 20. The line was thirty when this came in: on that pool 253 clubs' records changed, and
+the 9U board barely moved, the median club by one place, nine by a hundred or more, the top ten
+not at all. On 21 October 2026 the user moved it to "a 40 or more run lead", the line sign A of
+**Clubs removed for you** below had moved to on 11 October. By then the user had vouched for 76 of
+the 83 games won by 31 to 39 on the backup of 11 October, so the move counts seven more games;
+League Standings' warning of an unusual final reads the same line.
 
 The clubs that post them head Pool health's **Clubs that may not be real**, the user's call of 28
-September 2026: a club whose schedule filed a win by more than thirty runs that nobody has
+September 2026: a club whose schedule filed a win by forty runs or more that nobody has
 vouched for is listed whether or not anything of its is dated ahead, charged to the side that
 won it where that side's schedule filed it (`filedBy`), so a club whose own schedule records a
 rout against it is not said to have won one, and those clubs come first, most such wins first,
@@ -3953,7 +3956,7 @@ the forecast is affected; the **Data Quality** tab lists them in three groups:
   marked final (not counted at all), a Gold cut line every team is on one side of, one Team
   Rankings club linked to two league teams while its results count.
 - **Worth reviewing**: the same game on the schedule twice, a past game still without a score, a
-  date that cannot be read, a final over 40 runs a side or won by more than 30, fewer games
+  date that cannot be read, a final over 40 runs a side or won by 40 or more, fewer games
   scheduled than the games-per-team setting (which holds clinching back), teams without a final
   once the league has played about three games each, two teams of one name, a link to a club
   Team Rankings no longer has.
