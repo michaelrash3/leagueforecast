@@ -432,6 +432,46 @@ describe("sign H: its own schedule reports a game won by 100 or more", () => {
     } satisfies AutoRemoval);
   });
 
+  it("reads each side's own schedule, not the average of the two (Codex on #437)", () => {
+    const winner = club("F", 12);
+    // F's schedule says 190-0, L's own says 20-0: an average of 105 that L never reported.
+    const split = game("F", "L", 190, 0, {
+      more: { reportedByB: { teamAScore: 20, teamBScore: 0 } },
+    });
+    const marks = sweep({ teams: [winner, loser], games: [split] });
+    expect(signsOf(marks)).toEqual({ gcF: ["hundred"] });
+    expect(marks.get("gcF")?.reported).toEqual([
+      { gameId: split.id, margin: 190, date: "2026-09-20" },
+    ]);
+    // F's says 150-0 and L's 0-0, an average of 75: F reported a hundred-run game all the same.
+    const halved = game("F", "L", 150, 0, {
+      more: { reportedByB: { teamAScore: 0, teamBScore: 0 } },
+    });
+    expect(signsOf(sweep({ teams: [winner, loser], games: [halved] }))).toEqual({
+      gcF: ["hundred"],
+    });
+  });
+
+  it("reads a folded row's own score for the schedule it came off", () => {
+    const winner = club("F", 12);
+    const folded = game("F", "L", 104, 2, {
+      more: {
+        alsoRows: [{ teamId: "gcL", gameId: "rL", ownScore: 2, opponentScore: 10, onSideB: true }],
+      },
+    });
+    expect(signsOf(sweep({ teams: [winner, loser], games: [folded] }))).toEqual({
+      gcF: ["hundred"],
+    });
+    const agreed = {
+      ...folded,
+      alsoRows: [{ teamId: "gcL", gameId: "rL", ownScore: 2, opponentScore: 104, onSideB: true }],
+    };
+    expect(signsOf(sweep({ teams: [winner, loser], games: [agreed] }))).toEqual({
+      gcF: ["hundred"],
+      gcL: ["hundred"],
+    });
+  });
+
   it("charges nobody for a game no pulled club's schedule reported", () => {
     const typed = { ...game("W", "L", 100, 0), source: undefined };
     expect(sweep({ teams, games: [typed] }).size).toBe(0);
