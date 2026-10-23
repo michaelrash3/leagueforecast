@@ -15,7 +15,7 @@ import { apartKey, isKeptApart, type KeptApart } from "../../lib/keptApart";
 import type { WrongAgeClub } from "../../lib/wrongAge";
 import type { UnrealClub } from "../../lib/unrealClubs";
 import type { RemovedClub } from "../../lib/removedForYou";
-import { ABSURD_MARGIN, ROUT_MARGIN } from "../../lib/autoRemoved";
+import { ABSURD_MARGIN, HUNDRED_MARGIN, ROUT_MARGIN } from "../../lib/autoRemoved";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { countedTwiceCsv, countedTwiceCsvFilename } from "../../lib/countedTwice";
@@ -949,12 +949,13 @@ export function PoolHealthView({
             Clubs the nightly refresh took off every board as plainly made up, newest first: two
             wins by {ROUT_MARGIN} runs or more, or one by {ABSURD_MARGIN}, that the losers&apos; own
             schedules do not list; three results or more, half of them dated well ahead, that no
-            opponent lists; or void, test or demo in the name. Nothing is deleted: each stays filed
-            with its games and is pulled as before, and its games count for nothing. A club a League
-            Standings team links stays on its boards, and is said to here.{" "}
-            <strong>Put back on the boards</strong> puts it there again and keeps it there as real
-            (not the same as <em>Put it back</em> under the clubs you said are real, which takes
-            that word back); <strong>Delete for good</strong> deletes it as Delete club does.
+            opponent lists; void, test or demo in the name; or a game won by {HUNDRED_MARGIN} or
+            more that its own schedule reports. Nothing is deleted: each stays filed with its games
+            and is pulled as before, and its games count for nothing. A club a League Standings team
+            links stays on its boards, and is said to here. <strong>Put back on the boards</strong>{" "}
+            puts it there again and keeps it there as real (not the same as <em>Put it back</em>{" "}
+            under the clubs you said are real, which takes that word back);{" "}
+            <strong>Delete for good</strong> deletes it as Delete club does.
           </p>
           <ul className="mt-2 space-y-1" aria-label="Removed for you">
             {(allRemoved ? removed : removed.slice(0, 12)).map((club) => (

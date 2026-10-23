@@ -2802,7 +2802,7 @@ about three times the pool of 11 October, is to come in through pasted lists, so
 legs is kept as light as it can be and that night's refresh sweeps what they filed. A pull
 in a browser that keeps its own pool sweeps that pool when it ends, in the tidy worker after the
 tidy (1.5 s on the pool of 26 September at 18:40 and 2.5 s on 11 October's measured in Node,
-which the page's thread would spend frozen). A pulled club is taken off when it shows one of four
+which the page's thread would spend frozen). A pulled club is taken off when it shows one of five
 signs and nothing keeps it:
 
 - **Routs nobody else lists** (A): two or more wins by 40 runs or more that nobody has vouched
@@ -2840,12 +2840,22 @@ signs and nothing keeps it:
   the rules read 300, those ten fewer and 61 more. It is marked by GameChanger team, so a club with
   one such team among others stands. Since the tidy now deletes a pulled club every one of whose
   names says it is no team, N mostly marks what the tidy leaves: one such team among others.
+- **A hundred-run game** (H): its own schedule reports a game won by 100 runs or more, by either
+  side, that nobody has vouched for: the user's rule of 21 October 2026, "if they win by 100 or
+  more, automatically delete the team that is reporting a lopsided game like that". Only a side
+  whose own schedule scored the game is charged, the loser as much as the winner, so a club named
+  by another's made-up score stays, and a game no pulled club's schedule scored charges nobody. It
+  is a mark like the others rather than a deletion, so a club taken by a score keyed wrong can be
+  put back, and **Delete for good** deletes the rest. Swept from no marks, the pool of 26
+  September 2026 as today's tidy leaves it, before the user's own sweep of the 28th, had 24 games
+  won by 100 or more (the widest 9,999), and H marks the 19 clubs whose schedules scored them, 5
+  of them showing no other sign; on 11 October the widest game is 54, so it takes none.
 
 What keeps a club: any of its GameChanger ids, or its club id, said to be real (**It's real**);
 being any page's own team; the user's word on it, a pair kept apart, an age named or a score
-vouched for in a game of it; for A, B and C but not N, real opponents' own schedules listing three
-of its scored games, or half of them, a real opponent being a pulled club that shows no sign (C
-read without its clause about real opponents, which would make the question ask itself) whatever
+vouched for in a game of it; for A, B and C but not N or H, real opponents' own schedules listing
+three of its scored games, or half of them, a real opponent being a pulled club that shows no sign
+(C read without its clause about real opponents, which would make the question ask itself) whatever
 marks it carries, since a mark outlives its sign and two clubs marked for their stray scores,
 playing each other in the spring, would otherwise keep each other off for good; and a League
 Standings team that picks it or is carried onto it by its name. The last only a pass that reads
@@ -2877,9 +2887,11 @@ id (9 of the 97 one-sided games between pulled clubs that both schedules came to
 September and 11 October did); C lifts once a real opponent's schedule lists even one game of the
 club's dated after the mark, which is how a squad whose scores ran ahead of its games answers once
 it plays, and such a club no longer shows C, so it stays lifted; N lifts once neither the club's
-name nor its GameChanger team's has the word. Saying a club is real forgets its marks there and then, with the
-answer and in its Undo, rather than at the next sweep, so a club marked after the card was opened
-is back on the boards as it is said; a restored backup that says a club is real does the same.
+name nor its GameChanger team's has the word; H once no game of the club's own schedule reports a
+score by 100 or more, the game deleted, rescored or vouched for. Saying a club is real forgets its
+marks there and then, with the answer and in its Undo, rather than at the next sweep, so a club
+marked after the card was opened is back on the boards as it is said; a restored backup that says a
+club is real does the same.
 
 Pool health lists them under **Removed for you**, newest first, each with when and why in a line
 ("named 'test'", "its GameChanger team is named '…'" where only that name has the word, "next
@@ -2921,7 +2933,8 @@ board, the best 106th, and the top 25 of four boards reorder with nobody new. Of
 user deleted by hand between one backup and the next from 25 September to 11 October, A, B and C
 had taken 21 off the backup before, every one of them among the 46 deleted between 26 September
 at 18:40 and 29 September. On no backup of the five is a club the user had said was real by 11
-October taken off, even with that word set aside (131 such clubs were pulled on 11 October).
+October taken off, even with that word set aside (131 such clubs were pulled on 11 October). H,
+measured on 26 September and 11 October, takes none of them either.
 
 **Naming an age** is the fourth way a team gets one, and it stands in until the club
 answers for itself. The named level is used ahead of GameChanger's own field, which is

@@ -11,6 +11,7 @@ import {
   ABSURD_MARGIN,
   autoRemovalsList,
   coerceAutoRemovals,
+  HUNDRED_MARGIN,
   NO_REMOVALS,
   ROUT_MARGIN,
   type AutoRemoval,
@@ -107,7 +108,8 @@ it("draws the lines where they were measured", () => {
     FAR_AHEAD_DAYS,
     AHEAD_FEWEST_PLAYED,
     PLAINLY_REAL_GAMES,
-  ]).toEqual([75, 40, 8, 3, 3]);
+    HUNDRED_MARGIN,
+  ]).toEqual([75, 40, 8, 3, 3, 100]);
 });
 
 const NO_WORD: SweepAnswers = { realClubs: new Set(), keptApart: new Set(), namedAges: new Map() };
@@ -379,6 +381,91 @@ describe("sign N: a name with void, test or demo in it as a word of its own", ()
   });
 });
 
+describe("sign H: its own schedule reports a game won by 100 or more", () => {
+  // The loser's own schedule files each game here and the winner is a stand-in, so neither A nor B
+  // reads it: what marks the loser is H alone.
+  const loser = club("L", 12);
+  const teams = [loser, standIn("W")];
+
+  it("marks the club whose schedule reports it, at 100 and not at 99", () => {
+    expect(signsOf(sweep({ teams, games: [game("W", "L", 100, 0, { filer: "L" })] }))).toEqual({
+      gcL: ["hundred"],
+    });
+    expect(sweep({ teams, games: [game("W", "L", 99, 0, { filer: "L" })] }).size).toBe(0);
+  });
+
+  it("marks each side whose own schedule reports it, and records the game", () => {
+    const winner = club("F", 12);
+    const hundred = game("F", "L", 104, 2, { listedBy: ["L"] });
+    const marks = sweep({ teams: [winner, loser], games: [hundred] });
+    expect(signsOf(marks)).toEqual({ gcF: ["hundred"], gcL: ["hundred"] });
+    expect(marks.get("gcL")?.reported).toEqual([
+      { gameId: hundred.id, margin: 102, date: "2026-09-20" },
+    ]);
+  });
+
+  it("does not mark a side whose own schedule never reported it", () => {
+    // Filed by the winner alone: the loser is only named by it, so it is the winner that goes.
+    const winner = club("F", 12);
+    expect(signsOf(sweep({ teams: [winner, loser], games: [game("F", "L", 100, 0)] }))).toEqual({
+      gcF: ["rout", "hundred"],
+    });
+  });
+
+  it("keeps the game it counted when another sign on the mark is lifted", () => {
+    // B's escape: the loser's own schedule lists the win. The winner still reports it, so H stays.
+    const winner = club("F", 12);
+    const hundred = game("F", "L", 100, 0);
+    const marked = sweep({ teams: [winner, loser], games: [hundred] });
+    expect(signsOf(marked)).toEqual({ gcF: ["rout", "hundred"] });
+    const listed = sweep(
+      { teams: [winner, loser], games: [{ ...hundred, alsoFrom: ["gcL"] }] },
+      {},
+      marked
+    );
+    expect(listed.get("gcF")).toEqual({
+      gcTeamId: "gcF",
+      name: "Club F",
+      on: TODAY,
+      signs: ["hundred"],
+      reported: [{ gameId: hundred.id, margin: 100, date: "2026-09-20" }],
+    } satisfies AutoRemoval);
+  });
+
+  it("charges nobody for a game no pulled club's schedule reported", () => {
+    const typed = { ...game("W", "L", 100, 0), source: undefined };
+    expect(sweep({ teams, games: [typed] }).size).toBe(0);
+  });
+
+  it("is not held back by real opponents' schedules listing its games", () => {
+    const real = club("R", 12);
+    const listed = [1, 2, 3, 4].map((at) =>
+      game("L", "R", 5, at, { date: `2026-09-0${at}`, listedBy: ["R"] })
+    );
+    const games = [...listed, game("W", "L", 100, 0, { filer: "L" })];
+    expect(signsOf(sweep({ teams: [...teams, real], games }))).toEqual({ gcL: ["hundred"] });
+  });
+
+  it("is kept by the owner's word on the club, and a vouched score is no sign", () => {
+    const games = [game("W", "L", 100, 0, { filer: "L" })];
+    expect(sweep({ teams, games }, { realClubs: new Set(["gcL"]) }).size).toBe(0);
+    expect(sweep({ teams, games, ageGroups: [{ ...page12, myTeamId: "L" }] }).size).toBe(0);
+    expect(sweep({ teams, games: [{ ...games[0]!, scoreConfirmed: 100 }] }).size).toBe(0);
+  });
+
+  it("stays when a witness appears, and is lifted once the game is gone", () => {
+    const hundred = game("W", "L", 100, 0, { filer: "L" });
+    const marked = sweep({ teams, games: [hundred] });
+    expect(marked.size).toBe(1);
+    const real = club("R", 12);
+    const listed = [1, 2, 3].map((at) => game("L", "R", 5, at, { listedBy: ["R"] }));
+    expect(sweep({ teams: [...teams, real], games: [hundred, ...listed] }, {}, marked)).toBe(
+      marked
+    );
+    expect(sweep({ teams: [...teams, real], games: listed }, {}, marked).size).toBe(0);
+  });
+});
+
 describe("what keeps a club with a sign", () => {
   // A 12U club with two unlisted routs: sign A, nothing else.
   const fake = club("F", 12);
@@ -565,9 +652,19 @@ describe("a mark as stored and said", () => {
         },
       ],
       ["gcA", { gcTeamId: "gcA", name: "Club A", on: TODAY, signs: ["named"], word: "test" }],
+      [
+        "gcH",
+        {
+          gcTeamId: "gcH",
+          name: "Club H",
+          on: TODAY,
+          signs: ["hundred"],
+          reported: [{ gameId: "g3", margin: 104, date: "2026-09-02" }],
+        },
+      ],
     ]);
     const stored = JSON.parse(JSON.stringify(autoRemovalsList(marks))) as unknown[];
-    expect(stored.map((entry) => (entry as AutoRemoval).gcTeamId)).toEqual(["gcA", "gcB"]);
+    expect(stored.map((entry) => (entry as AutoRemoval).gcTeamId)).toEqual(["gcA", "gcB", "gcH"]);
     expect(coerceAutoRemovals(stored)).toEqual(marks);
     expect(
       coerceAutoRemovals([...stored, { gcTeamId: "gcC", name: "x", on: TODAY, signs: [] }, 7])
@@ -604,6 +701,9 @@ describe("a mark as stored and said", () => {
         ahead: { first: "2026-11-01", results: 3, played: 4 },
       })
     ).toEqual(["3 of its 4 results dated well ahead, the first 2026-11-01"]);
+    expect(
+      reasonsInWords({ ...base, signs: ["hundred"], reported: [{ gameId: "g1", margin: 104 }] })
+    ).toEqual(["its schedule reports a game won by 104 runs"]);
   });
 
   it("says when the word is in the GameChanger team's name rather than the club's", () => {

@@ -21,11 +21,12 @@ import type { ScoutTeam } from "./teamRankings/types";
  * - `rout` (B): one win by `ABSURD_MARGIN` or more that the loser's own schedule does not list;
  * - `ahead` (C): three scored results or more, half of them dated well ahead, none listed by an
  *   opponent;
- * - `named` (N): its name, or its GameChanger team's, has void, test or demo as a word in it.
+ * - `named` (N): its name, or its GameChanger team's, has void, test or demo as a word in it;
+ * - `hundred` (H): its own schedule reports a game won by `HUNDRED_MARGIN` or more, by either side.
  */
-export type AutoSign = "wins" | "rout" | "ahead" | "named";
+export type AutoSign = "wins" | "rout" | "ahead" | "named" | "hundred";
 
-export const AUTO_SIGNS: readonly AutoSign[] = ["wins", "rout", "ahead", "named"];
+export const AUTO_SIGNS: readonly AutoSign[] = ["wins", "rout", "ahead", "named", "hundred"];
 
 /**
  * A win by this many runs or more, unvouched and filed by the winner's own schedule alone, is one
@@ -37,6 +38,13 @@ export const ROUT_MARGIN = 40;
 
 /** A win by this many runs or more, alone, is no game anybody played: sign B. Here for the same. */
 export const ABSURD_MARGIN = 75;
+
+/**
+ * A game won by this many runs or more takes off the club whose own schedule reports it, winner or
+ * loser, whatever else is known of it: sign H. The owner's rule of 21 October 2026, "if they win
+ * by 100 or more, automatically delete the team that is reporting a lopsided game like that".
+ */
+export const HUNDRED_MARGIN = 100;
 
 /** A win counted against a club: the game, by how many runs as the rating reads it, and its day. */
 export type CountedWin = { gameId: string; margin: number; date?: string };
@@ -52,6 +60,8 @@ export type AutoRemoval = {
   signs: AutoSign[];
   /** Its wins by `ROUT_MARGIN` or more that no loser's own schedule listed (`wins` and `rout`). */
   wins?: CountedWin[];
+  /** The games won by `HUNDRED_MARGIN` or more that its own schedule reported (`hundred`). */
+  reported?: CountedWin[];
   /**
    * Its results dated well ahead (`ahead`, `FAR_AHEAD_DAYS` or more): the first such day, how
    * many, out of how many scored, and whether the club is next season's squad (its GameChanger
@@ -98,6 +108,8 @@ const markOf = (raw: unknown): AutoRemoval | null => {
   if (signs.length === 0) return null;
   const wins = Array.isArray(raw.wins) ? raw.wins.map(winOf) : [];
   if (wins.some((win) => win === null)) return null;
+  const reported = Array.isArray(raw.reported) ? raw.reported.map(winOf) : [];
+  if (reported.some((game) => game === null)) return null;
   const ahead = raw.ahead;
   const aheadOk =
     isRecord(ahead) && isText(ahead.first) && isCount(ahead.results) && isCount(ahead.played);
@@ -107,6 +119,7 @@ const markOf = (raw: unknown): AutoRemoval | null => {
     on: raw.on,
     signs,
     ...(wins.length > 0 ? { wins: wins as CountedWin[] } : {}),
+    ...(reported.length > 0 ? { reported: reported as CountedWin[] } : {}),
     ...(aheadOk
       ? {
           ahead: {
