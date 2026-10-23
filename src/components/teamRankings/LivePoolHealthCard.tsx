@@ -279,33 +279,19 @@ export function LivePoolHealthCard({
         { kind: "game.confirm", year: game.year, gameId: game.id },
         `${nameOf(game.teamAId)} ${game.teamAScore}–${game.teamBScore} ${nameOf(game.teamBId)} counts now.`
       ),
-    merge: async (from, into) => {
-      const preview = await ask({
-        kind: "merge.preview",
-        fromId: from.id,
-        intoId: into.id,
-        adopt: [],
-      });
-      if (!preview) return false;
-      if (!preview.found) {
-        say(`${from.name} or ${into.name} is no longer in the cloud copy, so nothing was changed.`);
-        return false;
-      }
-      const confirmed = await confirm({
-        title: `Fold ${from.name} into ${into.name}?`,
-        message: `${plural(preview.games, "game")} will move to ${into.name}, and ${from.name} will be removed.${
-          preview.dropped > 0
-            ? ` ${plural(preview.dropped, "game")} between the two cannot survive the fold and will be dropped.`
-            : ""
-        }`,
-        confirmLabel: "Fold in",
-      });
-      if (!confirmed) return false;
-      return change(
+    /*
+     * At once, with Undo, as Delete club is: these are folds the pool offered, and the owner works
+     * through a page of them in a row (`PoolHealthView` lines the presses up). A question before
+     * each, with its own call to the cloud for the counts it gave, was a wait and a click per pair,
+     * and the owner found folding far too slow, 21 October 2026. A club no longer in the copy is
+     * said by the edit's own refusal. A club's own panel still asks before a fold it is told to make.
+     */
+    merge: (from, into) =>
+      change(
         { kind: "teams.merge", fromId: from.id, intoId: into.id, adopt: [] },
-        `Folded into ${into.name}.`
-      );
-    },
+        `Folded ${from.name} into ${into.name}.`,
+        true
+      ),
     setAge: (club) =>
       change(
         {

@@ -1751,6 +1751,18 @@ to four weeks either side, where its game is not (0.26%); on the backup of 25 Se
 before most of those second teams were pulled, 33 against 2.25. The list below, of clubs credited
 twice, went from 957 groups to 279 on the first.
 
+Where no such game fits within the hour, the tidy looks out to three hours, since a squad's second
+team often lists the game at another clock, and reads the copy the same way where exactly one game
+fits there. The owner chose this on 21 October 2026 knowing it is the weaker rule. On the 11
+October backup it sets 52 more rows not to count, 41 of them within two hours, against 0.75 and
+0.625 with each row moved one to four weeks. A week's move finds few games near a row, though, and
+the games themselves say more: two real games of one club an hour to two apart, both held by both
+sides' own schedules, give it one result 0.69% of the time (226 of 32,913), two to three hours
+apart 0.80% (113 of 14,165), and those rows had 1,007 and 575 such games near them. So as many as
+seven and five of the 52, about one in five, may be a real game the club's schedule left out, now
+not counted. The list of clubs credited twice went from 279 groups to 227, all of them past the
+hour (127 to 75), and a second tidy finds nothing more.
+
 **Clubs credited twice with one game.** **Check the pool** also lists every time a pulled club
 holds two counted games on one day that start within the hour of each other with the same result
 (`countedTwice`). A club plays one game at a time, so that is one game entered twice, nearly always
@@ -6619,8 +6631,8 @@ way. After each, and after an Undo, the list is asked for again. Pool health
 it shows as it opens, asked on the device's day as Setup opens (`health.summary`), and what
 it finds once **Check the pool** is pressed (`health.inspect`). Each button is sent as the
 edit the device's card makes: rows thrown out (`games.drop`), a club deleted
-(`club.drop`), a rout counted (`game.confirm`), a fold (`teams.merge`, asked about first
-with what the server says it moves), an age (`club.age`, with an Undo), every suggested
+(`club.drop`), a rout counted (`game.confirm`), a fold (`teams.merge`, at once, with an Undo,
+as **Delete club** is), an age (`club.age`, with an Undo), every suggested
 age at once (planned on the server's pool, `ages.plan`, and sent as one batch with one
 Undo), the answers (a club real, a club at the right age, two clubs kept apart), and the
 clubs removed for you: **Put back on the boards** (its marks forgotten and the club said to
@@ -6630,7 +6642,20 @@ Both questions read League Standings, as the boards do, so a club a League Stand
 links is said to be kept rather than removed. Once
 an edit is made, what the pool shows is asked for again, so the lists are the copy's as it
 now stands; an answer kept is shown at once, and the question already on its way is let
-go, since it was asked before the answer was given. The file of every club worth pulling
+go, since it was asked before the answer was given.
+
+The buttons press into a line rather than taking turns with the person. A press used to grey out
+every other button in its list until the cloud answered, a few seconds each, and a fold asked
+first, with a call of its own for the counts it gave, so a page of pairs to fold or clubs to
+delete was worked through one wait and one question at a time: the owner's biggest complaint, 21
+October 2026. Now every other button stays live; a button pressed reads **Queued** until its turn
+and then what it is doing, the edits go one at a time in the order pressed, and pressing one
+already in line does nothing more. A club or game an edit has dealt with leaves its list at once,
+before the summary is asked for again, so its button cannot be pressed a second time for a row
+already gone. A fold here asks nothing first, since it is a fold the pool offered and has an Undo;
+a fold a club's own panel is told to make still asks, with what it moves (`merge.preview`).
+
+The file of every club worth pulling
 is the server's, asked for when **Download the list** is pressed (`health.toPull`). The
 settle is the nightly refresh's, which tidies the pool after every pull, and the pool's
 research files (its names, its stand-in fixtures) are made only where the whole pool is

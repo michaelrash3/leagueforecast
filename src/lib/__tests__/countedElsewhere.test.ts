@@ -72,6 +72,20 @@ const bothHold = (clock = "14:00"): ScoutGame => ({
 /** The Riders' row of the same game: the Comets' 3-7, typed against the Hawks. */
 const ridersCopy = (clock = "14:00", score: [number, number] = [3, 7]) =>
   row("RIDERS", "r1", "HAWKS", clock, score);
+/** The Hawks' 7-3 over the Otters at `clock`, held with the Otters' own row of it. */
+const ottersHold = (clock: string): ScoutGame => ({
+  ...row("HAWKS", "h2", "OTTERS", clock, [7, 3]),
+  alsoRows: [
+    {
+      teamId: "gcOTTERS",
+      gameId: "o1",
+      startTs: `${DAY}T${clock}:00.000Z`,
+      ownScore: 3,
+      opponentScore: 7,
+      onSideB: true,
+    },
+  ],
+});
 
 const pool = (games: ScoutGame[], teams: ScoutTeam[] = [hawks, comets, riders]): GcImportState => ({
   ageGroups,
@@ -129,9 +143,37 @@ describe("a third GameChanger team's copy of a game both clubs' schedules hold",
     expect(copyIn(after.state)?.countedElsewhere).toBe(true);
   });
 
+  it.each([
+    ["seventy minutes", "15:10"],
+    ["three hours", "17:00"],
+  ])("and out to three hours where nothing fits within the hour: %s", (_, clock) => {
+    const after = settled(pool([bothHold("14:00"), ridersCopy(clock)]));
+    expect(after.countedElsewhere).toBe(1);
+    expect(copyIn(after.state)?.countedElsewhere).toBe(true);
+    expect(recordOf(after.state, "HAWKS")).toBe("1-0-0");
+  });
+
+  it("reads the one game within the hour before any further out", () => {
+    // Two of the Hawks' 7-3s fit the copy within three hours, but only the Comets' within the hour.
+    const after = settled(
+      pool(
+        [bothHold("14:00"), ottersHold("16:00"), ridersCopy("14:15")],
+        [hawks, comets, riders, otters]
+      )
+    );
+    expect(copyIn(after.state)?.countedElsewhere).toBe(true);
+  });
+
   describe("leaves the copy counting", () => {
     it.each([
-      ["more than an hour from the game", pool([bothHold("14:00"), ridersCopy("15:10")])],
+      ["more than three hours from the game", pool([bothHold("14:00"), ridersCopy("17:10")])],
+      [
+        "where two of the Hawks' games fit it past the hour and none within it",
+        pool(
+          [bothHold("14:00"), ottersHold("13:30"), ridersCopy("12:00")],
+          [hawks, comets, riders, otters]
+        ),
+      ],
       ["with another result", pool([bothHold(), ridersCopy("14:00", [4, 7])])],
       [
         "where only the Hawks' own schedule holds the game",
