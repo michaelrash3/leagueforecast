@@ -2712,6 +2712,10 @@ const importOne = (
                   : fromOldest !== undefined
                     ? "tentative"
                     : undefined;
+  // Read before this pull's link replaces it: whether the club was filed at a guess (`onClubPage`).
+  const wasTentative =
+    index.teamByGcId.get(profile.id)?.gcTeams?.find((link) => link.teamId === profile.id)
+      ?.ageFrom === "tentative";
   const own = resolveOwnTeam(schedule, group.id, teams, index, ageFrom);
   const ourLevel = profileAgeLevel(profile);
   const outcome: GcImportOutcome = {
@@ -2734,12 +2738,13 @@ const importOne = (
    */
   const claimed = new Map<string, ScoutGame>();
   /*
-   * The club's own row on the page this pull files the club on. A club moved to another age since
-   * its row was filed — GameChanger's field changed, or its opponents settled the age it was first
-   * filed at by the oldest of them (`oldestOpponentAge`) — takes its own rows with it, as
-   * `setClubAge` moves them when somebody sets one; a row another club's schedule filed stays on
-   * that club's page. Within the year's pool, which every index here is keyed by, so the row is
-   * written in place.
+   * The club's own row on the page this pull files the club on, where the page it was filed at
+   * before was the oldest of its opponents' (`oldestOpponentAge`), a guess this pull has replaced:
+   * its opponents settled an age, GameChanger gave one, or an older opponent turned up. It takes its
+   * own rows with it, as `setClubAge` moves them when somebody sets one; a row another club's
+   * schedule filed stays on that club's page. Within the year's pool, which every index here is
+   * keyed by, so the row is written in place. A club GameChanger moved from one age it gave to
+   * another leaves its rows where they were filed, as it always has (`namesakeHalves.test`).
    *
    * The club's side takes the club's level with it where the row wrote one down, as `setClubAge`
    * writes it: a level left behind is read before the page's (`gameSideLevels`), so a club moved
@@ -2749,6 +2754,7 @@ const importOne = (
   const clubLevel = ourLevel ?? index.levelOf(group.id);
   const onClubPage = (game: ScoutGame): ScoutGame => {
     if (
+      !wasTentative ||
       game.source?.teamId !== profile.id ||
       game.ageGroupId === group.id ||
       index.poolKeyOf(game.ageGroupId) !== index.poolKeyOf(group.id)

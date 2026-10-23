@@ -726,7 +726,12 @@ describe("the namesake join", () => {
       const moved = () =>
         schedule(ridge, 11, [played("r1", "Lakeshore Hustle", `${DAY}T14:00`, [4, 11])]);
       expect(importer.add(moved())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
-      expect(importer.state.games[0]).toMatchObject({ ageLevelA: 12, joinedFrom: "S-HUSTLE" });
+      // On the page it was filed on, too: only a club first filed at a guess takes its rows along.
+      expect(importer.state.games[0]).toMatchObject({
+        ageGroupId: "ag12",
+        ageLevelA: 12,
+        joinedFrom: "S-HUSTLE",
+      });
       expect(importer.add(moved())).toMatchObject({ gamesUpdated: 0, gamesUnchanged: 1 });
     });
 
