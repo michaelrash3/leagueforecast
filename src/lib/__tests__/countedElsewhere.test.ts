@@ -168,6 +168,14 @@ describe("a third GameChanger team's copy of a game both clubs' schedules hold",
     it.each([
       ["more than three hours from the game", pool([bothHold("14:00"), ridersCopy("17:10")])],
       [
+        // Their 14:10 against the Otters: the Riders were not the squad playing the Hawks at 14:00.
+        "past the hour, where the Riders played a game of their own at the hour of the one it fits",
+        pool(
+          [bothHold("14:00"), ridersCopy("16:30"), row("RIDERS", "r2", "OTTERS", "14:10", [5, 2])],
+          [hawks, comets, riders, otters]
+        ),
+      ],
+      [
         "where two of the Hawks' games fit it past the hour and none within it",
         pool(
           [bothHold("14:00"), ottersHold("13:30"), ridersCopy("12:00")],
