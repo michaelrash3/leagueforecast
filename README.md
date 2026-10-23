@@ -1763,6 +1763,12 @@ seven and five of the 52, about one in five, may be a real game the club's sched
 not counted. The list of clubs credited twice went from 279 groups to 227, all of them past the
 hour (127 to 75), and a second tidy finds nothing more.
 
+Past the hour the copying club's own schedules are asked about the game's hour as well as the
+copy's (found by Codex on #432): a squad that played a game of its own when C played Y did not post
+that game, and its row against C is a game of its own, C's own row of it missing. Of the 52, 14
+were such a club's, and count again: 38 are set not to count, and the list reads 241 groups, 89 of
+them past the hour.
+
 **Clubs credited twice with one game.** **Check the pool** also lists every time a pulled club
 holds two counted games on one day that start within the hour of each other with the same result
 (`countedTwice`). A club plays one game at a time, so that is one game entered twice, nearly always
