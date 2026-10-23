@@ -46,8 +46,10 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * (`levelPrior`, `outsideGames`) and carries no `scheduleDeduction`.
  * 8: a third copy of a game that already counts (`ScoutGame.countedElsewhere`) is left off every
  * board, so the club it names is credited with the game once.
+ * 9: a game won by 31 to 39 runs counts, as a result; only a win by forty or more is suspected of
+ * being made up (`IMPLAUSIBLE_MARGIN`), the user's line of 21 October 2026.
  */
-export const BOARD_RULES = 8;
+export const BOARD_RULES = 9;
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of

@@ -160,6 +160,10 @@ describe("the keys the boards, club cards and Find a team lists read", () => {
     expect(await boardsOf(inputs)).toBe(full);
   });
 
+  /*
+   * The boards are built once per input key, eight builds in all: 2.7 s alone under coverage, and
+   * past the default 5 s on a CI runner the rest of the suite shares (c09b9cc, 23 October 2026).
+   */
   it("are each needed: without any one of them the boards are not the same", async () => {
     /*
      * The games' index aside: each year's shard is read by its own name, and the index only when
@@ -180,7 +184,7 @@ describe("the keys the boards, club cards and Find a team lists read", () => {
       }
       expect(boards, key).not.toBe(full);
     }
-  });
+  }, 30_000);
 
   it("take in an older pool's games under its one key, which the year shards are split from", async () => {
     const legacy = new Map([...everything].filter(([key]) => !key.includes("scout_games_v2")));

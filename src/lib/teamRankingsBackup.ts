@@ -212,7 +212,7 @@ const GAME_HEADERS = [
    */
   "Named By Picture",
   /**
-   * The margin you said is real in a game won by more than thirty runs, which counts while the game
+   * The margin you said is real in a game won by forty runs or more, which counts while the game
    * still reads it; see `isImplausibleScore`.
    */
   "Margin Confirmed Real",

@@ -52,7 +52,9 @@ const DIST = "dist";
  * past that limit, so it stays. Team Rankings to 158.3 KB on 19 Oct 2026 for the namesake join
  * reading a stand-in that shares no word with the namer's name, 157.5 KB against 157.3 KB on main:
  * the guards that reading is held to and the index of every name a pulled club is listed under,
- * since the tidy's code is part of that load.
+ * since the tidy's code is part of that load. Team Rankings to 159.0 KB on 23 Oct 2026 for Bring it
+ * back in Find a team, 158.4 KB against 158.2 KB on main: the offer beside a deleted team's id, the
+ * answers edit that takes it off the deleted list, and the line the search says after.
  */
 const BUDGET = {
   firstDownload: 252_000,
@@ -67,7 +69,7 @@ const BUDGET = {
     Forecast: 18_300,
     "Data Quality": 3_500,
     Settings: 12_600,
-    "Team Rankings": 158_300,
+    "Team Rankings": 159_000,
   },
 };
 

@@ -112,7 +112,7 @@ describe("the club that filed them, not the club they were filed against", () =>
  * The user asked on 28 September 2026 for the clubs on the list of games won by more than thirty
  * runs to head the list of clubs that may not be real. Invented names.
  */
-describe("clubs posting wins by more than thirty runs", () => {
+describe("clubs posting wins by forty runs or more", () => {
   const wide = (id: string, a: string, b: string, runs: number, filer: string): ScoutGame => ({
     ...game(id, a, b, "2026-09-13", true, filer),
     teamAScore: runs,
@@ -125,8 +125,8 @@ describe("clubs posting wins by more than thirty runs", () => {
       ...pool.games,
       wide("w1", "S-ISLE", "S-REAL", 9999, "IsLeIsLeIsLe"),
       wide("w2", "S-ISLE", "S-ODD", 4612, "IsLeIsLeIsLe"),
-      // Thirty exactly is a result, and one said to have been played that way counts.
-      wide("w3", "S-ODD", "S-REAL", 30, "aaaaaaaaaaaa"),
+      // Thirty-nine is a result, and one said to have been played that way counts.
+      wide("w3", "S-ODD", "S-REAL", 39, "aaaaaaaaaaaa"),
       { ...wide("w4", "S-ODD", "S-REAL", 45, "aaaaaaaaaaaa"), scoreConfirmed: 45 },
     ],
   };
