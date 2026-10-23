@@ -1984,6 +1984,39 @@ describe("Find a team on the cloud's board", () => {
     await waitFor(() => expect(list).toHaveTextContent(/That team was deleted/));
   });
 
+  it("takes the next published list's word over a team it brought back", async () => {
+    await withList();
+    const server = editFunction((data) =>
+      data.warm
+        ? WARMED
+        : {
+            ...made(5),
+            inverse: { kind: "answers", list: "droppedClubs", add: ["gcDROPPED001"], remove: [] },
+          }
+    );
+    const user = userEvent.setup();
+    open(sourcesOf(live, { call: server.call }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Search every team or coach, any age or season" })
+    );
+    const box = await screen.findByRole("combobox", { name: /find a team/i });
+    await user.type(box, "gcDROPPED001");
+    await user.click(await screen.findByRole("button", { name: "Bring it back" }));
+    const list = listboxOf(box);
+    await waitFor(() => expect(list).toHaveTextContent(BROUGHT_BACK));
+    // Deleted again elsewhere: the list published next still has it, and is the word on it.
+    await act(() =>
+      publish(live, [
+        {
+          key: searchKey(2027),
+          value: encodeSearch({ ...LIST, options: LIST.options.slice(0, -1) }),
+        },
+      ])
+    );
+    await waitFor(() => expect(list).toHaveTextContent(/That team was deleted/));
+    expect(within(list).getByRole("button", { name: "Bring it back" })).toBeTruthy();
+  });
+
   it("asks again on another year's pages rather than read that year's list unasked", async () => {
     saveAgeGroups([
       ...GROUPS,
