@@ -160,25 +160,61 @@ const listersOf = (game: ScoutGame, clubOfGcId: ReadonlyMap<string, string>): Se
 };
 
 /**
- * The sides whose own schedules reported a game's score, as `filedBy` reads them, but never both
- * sides for want of a schedule: a game nothing traces to a pulled club's schedule (typed in by
- * hand, or off a club since gone) is reported by nobody here, and H takes nobody off for it.
+ * The sides whose own schedules reported a game's score, as `filedBy` reads them, each with the
+ * widest margin its own schedule gave: never both sides for want of a schedule, since a game
+ * nothing traces to a pulled club's schedule (typed in by hand, or off a club since gone) is
+ * reported by nobody here, and H takes nobody off for it.
+ *
+ * Each side's own word, not the rating's average of the two (`ratedMargin`): where the schedules
+ * disagree, 190-0 on one and 20-0 on the other, the average of 105 charged the club whose schedule
+ * said 20, and 150-0 against 0-0 averaged 75 and let off the club that said 150 (Codex on #437).
+ * The game's own score is its source's word; a folded row keeps its own; a schedule only named in
+ * `alsoFrom` kept no row, so it is read as its side sees the game (`scoreSeenBy`), side B's own
+ * report where it gave one.
  */
-const scoredBy = (game: ScoutGame, clubOfGcId: ReadonlyMap<string, string>): Set<string> => {
+const reportedMargins = (
+  game: ScoutGame,
+  clubOfGcId: ReadonlyMap<string, string>
+): Map<string, number> => {
+  const sides = new Map<string, number>();
+  const charge = (schedule: string | undefined, margin: number | undefined) => {
+    const club = schedule === undefined ? undefined : clubOfGcId.get(schedule);
+    if (club !== game.teamAId && club !== game.teamBId) return;
+    if (margin === undefined || !Number.isFinite(margin)) return;
+    sides.set(club, Math.max(sides.get(club) ?? 0, Math.abs(margin)));
+  };
+  const own = (clubId: string) => {
+    const seen = scoreSeenBy(game, clubId);
+    return seen && seen.own - seen.opponent;
+  };
+  if (
+    game.source &&
+    !game.scoreFromB &&
+    game.teamAScore !== undefined &&
+    game.teamBScore !== undefined
+  ) {
+    charge(game.source.teamId, game.teamAScore - game.teamBScore);
+  }
   const kept = new Set((game.alsoRows ?? []).map((record) => record.teamId));
-  const schedules = [
-    ...(game.source && !game.scoreFromB ? [game.source.teamId] : []),
-    ...(game.alsoRows ?? [])
-      .filter((record) => record.ownScore !== undefined)
-      .map((record) => record.teamId),
-    ...(game.alsoFrom ?? []).filter((schedule) => !kept.has(schedule)),
-  ];
-  const sides = new Set<string>();
-  schedules.forEach((schedule) => {
-    const club = clubOfGcId.get(schedule);
-    if (club === game.teamAId || club === game.teamBId) sides.add(club);
+  (game.alsoRows ?? []).forEach((record) => {
+    if (record.ownScore === undefined || record.opponentScore === undefined) return;
+    charge(record.teamId, record.ownScore - record.opponentScore);
   });
-  if (game.reportedByB) sides.add(game.teamBId);
+  (game.alsoFrom ?? [])
+    .filter((schedule) => !kept.has(schedule))
+    .forEach((schedule) => {
+      const club = clubOfGcId.get(schedule);
+      charge(schedule, club === undefined ? undefined : own(club));
+    });
+  if (game.reportedByB) {
+    sides.set(
+      game.teamBId,
+      Math.max(
+        sides.get(game.teamBId) ?? 0,
+        Math.abs(game.reportedByB.teamAScore - game.reportedByB.teamBScore)
+      )
+    );
+  }
   return sides;
 };
 
@@ -291,11 +327,9 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
     const margin = ratedMargin(game) ?? 0;
     // A win nobody vouched for (`isImplausibleScore`), by A's line or more, as the rating reads it.
     const rout = Math.abs(margin) >= ROUT_MARGIN && isImplausibleScore(game);
-    // H's: by the owner's line or more, unvouched, whichever side's own schedule reports it.
-    const hundred =
-      Math.abs(margin) >= HUNDRED_MARGIN && isImplausibleScore(game)
-        ? scoredBy(game, clubOfGcId)
-        : null;
+    // H's: by the owner's line or more on a side's own schedule, unvouched. Vouched as
+    // `isImplausibleScore` reads it, but without its line, which reads the average of the two.
+    const hundred = game.scoreConfirmed === margin ? null : reportedMargins(game, clubOfGcId);
     const winner = margin > 0 ? game.teamAId : margin < 0 ? game.teamBId : undefined;
     [
       [game.teamAId, game.teamBId],
@@ -311,10 +345,11 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
         tally.routsListed += 1;
         if (seen.own - seen.opponent >= ABSURD_MARGIN) tally.absurdListed += 1;
       }
-      if (hundred?.has(self!)) {
+      const reported = hundred?.get(self!);
+      if (reported !== undefined && reported >= HUNDRED_MARGIN) {
         tally.reported.push({
           gameId: game.id,
-          margin: Math.abs(margin),
+          margin: reported,
           ...(game.date ? { date: game.date } : {}),
         });
       }

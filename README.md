@@ -2853,12 +2853,17 @@ signs and nothing keeps it:
   side, that nobody has vouched for: the user's rule of 21 October 2026, "if they win by 100 or
   more, automatically delete the team that is reporting a lopsided game like that". Only a side
   whose own schedule scored the game is charged, the loser as much as the winner, so a club named
-  by another's made-up score stays, and a game no pulled club's schedule scored charges nobody. It
-  is a mark like the others rather than a deletion, so a club taken by a score keyed wrong can be
-  put back, and **Delete for good** deletes the rest. Swept from no marks, the pool of 26
-  September 2026 as today's tidy leaves it, before the user's own sweep of the 28th, had 24 games
-  won by 100 or more (the widest 9,999), and H marks the 19 clubs whose schedules scored them, 5
-  of them showing no other sign; on 11 October the widest game is 54, so it takes none.
+  by another's made-up score stays, and a game no pulled club's schedule scored charges nobody.
+  Each side is read at its own schedule's score, not the rating's average of the two: where the
+  schedules disagree, 190-0 against 20-0, the average of 105 would charge the club that said 20,
+  and 150-0 against 0-0 would average 75 and let off the club that said 150. It is a mark like
+  the others rather than a deletion, so a club taken by a score keyed wrong can be put back, and
+  **Delete for good** deletes the rest. Swept from no marks, the pool of 26 September 2026 as
+  today's tidy leaves it, before the user's own sweep of the 28th, had 24 games won by 100 or more
+  (the widest 9,999), and H marks the 20 clubs whose own schedules scored one of them so, 6 of
+  them showing no other sign (read at the average it was 19 and 5: one club's own schedule gave
+  100 or more where the other side's gave less); on 11 October the widest game is 54, so it takes
+  none.
 
 What keeps a club: any of its GameChanger ids, or its club id, said to be real (**It's real**);
 being any page's own team; the user's word on it, a pair kept apart, an age named or a score
