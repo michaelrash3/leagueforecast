@@ -3032,6 +3032,13 @@ filed under (`teamPages`), where it had none and so could not be found at all, n
 by its own id. Both came of the user, on 28 September 2026, pasting an id they knew had
 been pulled and being told no team matched.
 
+A team deleted, though, stayed gone with no way back but from Teams waiting on an age: every
+import refuses a club thrown out, which is what deleting one is for, and on 21 October 2026 the
+user imported one on purpose (Hurricanes, `bKpjvY5AVqOV`) and could not find it anywhere. Find a
+team now says such a team was deleted and offers **Bring it back** beside it: the id comes off the
+deleted list (`answers`, `droppedClubs`, with an Undo on the live page as on this one), the search
+says so at once, and the next import files it.
+
 **Find a team stays up while a pull runs.** Its index is not rebuilt during a run, since every
 save hands back new teams and a rebuild reads every stored year; it used to be switched off
 instead, which took the box off the top of Rankings for as long as a pull went on. It is held

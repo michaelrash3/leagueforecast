@@ -251,6 +251,28 @@ type TeamSearchSelectProps = {
    * waiting on an age, thrown out, too young (`whereIsGcId`).
    */
   explainGcId?: (gcTeamId: string) => string | undefined;
+  /**
+   * What can be done about a pasted id no option carries, offered beside what is said of it: a
+   * club thrown out brought back (`GcIdOffer`). Undefined offers nothing.
+   */
+  offerForGcId?: (gcTeamId: string) => GcIdOffer | undefined;
+};
+
+/** A button offered beside what Find a team says of an id: its words, and what it does. */
+export type GcIdOffer = { label: string; run: () => void };
+
+/**
+ * The offer for the id `noMatchText` speaks of — the first id typed that `explainGcId` says
+ * anything of — and none for any other. Chosen apart, a waiting team's id typed before a deleted
+ * one's had the line say where the waiting team was and the button beside it bring back the other.
+ */
+export const offerInSearch = (
+  query: string,
+  explainGcId?: (gcTeamId: string) => string | undefined,
+  offerForGcId?: (gcTeamId: string) => GcIdOffer | undefined
+): GcIdOffer | undefined => {
+  const described = gcIdsInSearch(query).find((id) => explainGcId?.(id) !== undefined);
+  return described === undefined ? undefined : offerForGcId?.(described);
 };
 
 /**
@@ -274,6 +296,7 @@ export function TeamSearchSelect({
   placeholder,
   className,
   explainGcId,
+  offerForGcId,
 }: TeamSearchSelectProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -371,6 +394,18 @@ export function TeamSearchSelect({
           {shown.length === 0 && (
             <li className="px-3 py-1.5 text-slate-500 dark:text-slate-400">
               {noMatchText(query, explainGcId)}
+              {(() => {
+                const offer = offerInSearch(query, explainGcId, offerForGcId);
+                return offer ? (
+                  <button
+                    type="button"
+                    onClick={offer.run}
+                    className="ml-2 font-bold text-blue-600 underline dark:text-blue-400"
+                  >
+                    {offer.label}
+                  </button>
+                ) : null;
+              })()}
             </li>
           )}
           {shown.map((option, index) => {

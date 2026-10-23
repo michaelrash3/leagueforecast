@@ -2,6 +2,9 @@ import type { AgeUnknownTeam } from "./ageUnknown";
 import type { ScoutTeam } from "./teamRankings";
 import { MIN_AGE_LEVEL } from "./teamRankings/seasons";
 
+/** Said of a club thrown out once Find a team has brought it back, until its list says so itself. */
+export const BROUGHT_BACK = "Taken off the deleted list. Import it again to bring its games in.";
+
 /** What the app remembers about GameChanger ids it did not file onto a club. */
 export type GcIdStores = {
   /**
@@ -36,7 +39,7 @@ export const whereIsGcId = (gcTeamId: string, stores: GcIdStores): string | unde
   if (filed)
     return `${filed.name} was filed during the pull that is running. Find a team adds it when the pull ends.`;
   if (stores.dropped.has(gcTeamId))
-    return "That team was thrown out, so pulls refuse it. One thrown out from Teams waiting on an age can be taken back from that card's Find a team.";
+    return "That team was deleted, so every import skips it. Bring it back, then import it again.";
   const removedOn = stores.removed?.get(gcTeamId);
   if (removedOn !== undefined)
     return `That team was removed automatically on ${removedOn} as plainly made up. Put back, under Removed for you in Pool health, brings it back.`;

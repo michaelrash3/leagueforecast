@@ -18,7 +18,7 @@ describe("where a GameChanger id is", () => {
 
   it("says a thrown-out team is refused, ahead of anything else known of it", () => {
     const both = stores({ dropped: new Set(["gcWAIT000001"]) });
-    expect(whereIsGcId("gcWAIT000001", both)).toMatch(/^That team was thrown out/);
+    expect(whereIsGcId("gcWAIT000001", both)).toMatch(/^That team was deleted/);
   });
 
   it("says a team GameChanger ages below the youngest level is skipped", () => {
@@ -52,7 +52,7 @@ describe("where a GameChanger id is", () => {
       dropped: new Set(["gcFAKE000001"]),
       removed: new Map([["gcFAKE000001", "2026-10-11"]]),
     });
-    expect(whereIsGcId("gcFAKE000001", both)).toMatch(/^That team was thrown out/);
+    expect(whereIsGcId("gcFAKE000001", both)).toMatch(/^That team was deleted/);
   });
 
   it("knows nothing of an id it has no record of", () => {

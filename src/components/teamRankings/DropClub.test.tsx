@@ -65,6 +65,8 @@ describe("deleting a club that may not be real", () => {
     const box = screen.getByRole("combobox", { name: /find a team/i });
     await user.click(box);
     await user.type(box, "gcISLE000000");
-    expect(await screen.findByText(/That team was thrown out/)).toBeInTheDocument();
+    expect(await screen.findByText(/That team was deleted/)).toBeInTheDocument();
+    // And it offers to take the deletion back, beside the line that says so.
+    expect(screen.getByRole("button", { name: /bring it back/i })).toBeInTheDocument();
   });
 });
