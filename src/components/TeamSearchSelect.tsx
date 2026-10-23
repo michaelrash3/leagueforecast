@@ -261,16 +261,18 @@ type TeamSearchSelectProps = {
 /** A button offered beside what Find a team says of an id: its words, and what it does. */
 export type GcIdOffer = { label: string; run: () => void };
 
-/** The first offer for an id in what was typed, as `noMatchText` says the first id it can. */
+/**
+ * The offer for the id `noMatchText` speaks of — the first id typed that `explainGcId` says
+ * anything of — and none for any other. Chosen apart, a waiting team's id typed before a deleted
+ * one's had the line say where the waiting team was and the button beside it bring back the other.
+ */
 export const offerInSearch = (
   query: string,
+  explainGcId?: (gcTeamId: string) => string | undefined,
   offerForGcId?: (gcTeamId: string) => GcIdOffer | undefined
 ): GcIdOffer | undefined => {
-  for (const id of gcIdsInSearch(query)) {
-    const offer = offerForGcId?.(id);
-    if (offer) return offer;
-  }
-  return undefined;
+  const described = gcIdsInSearch(query).find((id) => explainGcId?.(id) !== undefined);
+  return described === undefined ? undefined : offerForGcId?.(described);
 };
 
 /**
@@ -393,7 +395,7 @@ export function TeamSearchSelect({
             <li className="px-3 py-1.5 text-slate-500 dark:text-slate-400">
               {noMatchText(query, explainGcId)}
               {(() => {
-                const offer = offerInSearch(query, offerForGcId);
+                const offer = offerInSearch(query, explainGcId, offerForGcId);
                 return offer ? (
                   <button
                     type="button"

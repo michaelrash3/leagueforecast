@@ -5,6 +5,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -89,6 +90,7 @@ const nowIso = () => new Date().toISOString();
 
 const NO_OPTIONS: [] = [];
 const NO_IDS: string[] = [];
+const NONE_BACK: ReadonlySet<string> = new Set();
 
 /**
  * What the page says where it has nothing it can draw, in place of going to this device's copy,
@@ -755,14 +757,25 @@ function LiveBoard({
   };
   const held = search.view?.held;
   /*
-   * Clubs thrown out and brought back from Find a team here, until the list the search reads is
-   * published again without them: the id is off the cloud's list at once, and said so.
+   * Clubs thrown out and brought back from Find a team here, held against the list the search read
+   * when each came off it: the id is off the cloud's list at once, and said so, until the list is
+   * published again. The next list is the word on it either way, so a club deleted again since, on
+   * another device or by a restored backup, reads as deleted with its offer back, rather than as
+   * brought back for as long as the page is open.
    */
-  const [broughtBack, setBroughtBack] = useState<ReadonlySet<string>>(() => new Set());
+  const [broughtBack, setBroughtBack] = useState<{ of: unknown; ids: ReadonlySet<string> }>(() => ({
+    of: null,
+    ids: new Set(),
+  }));
+  const heldNow = useRef(held);
+  useLayoutEffect(() => {
+    heldNow.current = held;
+  }, [held]);
+  const backNow = broughtBack.of === held ? broughtBack.ids : NONE_BACK;
   const explainGcId = useCallback(
     (gcTeamId: string) =>
-      broughtBack.has(gcTeamId) ? BROUGHT_BACK : held ? whereIsGcId(gcTeamId, held) : undefined,
-    [held, broughtBack]
+      backNow.has(gcTeamId) ? BROUGHT_BACK : held ? whereIsGcId(gcTeamId, held) : undefined,
+    [held, backNow]
   );
   /*
    * A club thrown out is refused by every import that names it, which is what a deletion is for,
@@ -772,7 +785,7 @@ function LiveBoard({
   const editAnswer = edits.edit;
   const offerForGcId = useCallback(
     (gcTeamId: string): GcIdOffer | undefined =>
-      held?.dropped.has(gcTeamId) && !broughtBack.has(gcTeamId)
+      held?.dropped.has(gcTeamId) && !backNow.has(gcTeamId)
         ? {
             label: "Bring it back",
             run: () =>
@@ -782,14 +795,22 @@ function LiveBoard({
                   done: BROUGHT_BACK,
                   undo: true,
                   afterUndo: () =>
-                    setBroughtBack((was) => new Set([...was].filter((id) => id !== gcTeamId))),
+                    setBroughtBack((was) => ({
+                      of: was.of,
+                      ids: new Set([...was.ids].filter((id) => id !== gcTeamId)),
+                    })),
                 }
               ).then((made) => {
-                if (made) setBroughtBack((was) => new Set([...was, gcTeamId]));
+                if (!made) return;
+                // Against the list on screen as the edit lands, which may be one published since.
+                setBroughtBack((was) => {
+                  const of = heldNow.current;
+                  return { of, ids: new Set([...(was.of === of ? was.ids : []), gcTeamId]) };
+                });
               }),
           }
         : undefined,
-    [held, broughtBack, editAnswer]
+    [held, backNow, editAnswer]
   );
   // The caret in the box once the list asked for is in, and only then: a publish that changes the
   // list later leaves the person wherever they are on the page. Put there as the box is drawn (a
