@@ -1,4 +1,5 @@
 import { withRulesMoved } from "./ageUnknown";
+import { answerableToday } from "./agelessQueue";
 import { todayIsoDay } from "./date";
 import { isDeletedClub } from "./deletedGames";
 import { dueRefresh, idsPlayingAround, type DueRefresh } from "./gameChangerSchedule";
@@ -33,7 +34,8 @@ export const storedRota = (now: Date, force = false): DueRefresh => {
     cadence: loadRefreshCadence(),
     namedAges: withRulesMoved(
       withOrgAges(loadNamedAges(), orgAgesByTeam(membership), membership.savedAt),
-      ageless
+      ageless,
+      answerableToday
     ),
     refused: loadDroppedClubs(),
     force,

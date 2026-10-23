@@ -395,9 +395,10 @@ export function AgelessReviewView({
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
         {sitting.waiting.toLocaleString()} team{sitting.waiting === 1 ? "" : "s"} a person can
         settle. GameChanger gave no age group and the name does not say one, and the opponents who
-        write an age in theirs are too few to file them by, or do not agree. Nothing automatic has
-        settled these, so they are here, {AGELESS_BATCH} at a time, the least likely to be a real
-        team first. The next {AGELESS_BATCH} come up once these are done.
+        write an age in theirs are too few to file them by, or do not agree. The next pull of each
+        files it at the oldest age it has played until they do; until then they are here,{" "}
+        {AGELESS_BATCH} at a time, the least likely to be a real team first. The next{" "}
+        {AGELESS_BATCH} come up once these are done.
       </p>
       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
         {sitting.waiting.toLocaleString()} of them is not a queue anybody works {AGELESS_BATCH} at a

@@ -224,9 +224,10 @@ describe("importGcSchedule", () => {
   it("does not take an age from the list that GameChanger's own band rules out", () => {
     // GameChanger filed the team "Under 13" and an organization's name said 16U: the band is
     // GameChanger's word about the team, and a list that contradicts it is wrong about the team.
+    // Its opponent writes no age, so nothing but the list could file it.
     const under13 = schedule(
       { name: "Nettlefield Multi-Event Team", ageLevel: undefined, ageLabel: "Under 13" },
-      [game()]
+      [game({ opponentName: "NKY Sluggers" })]
     );
     expect(importGcSchedule({ ...under13, listed: { ageLevel: 16 } }, empty).outcome.skip).toBe(
       "no-age"
@@ -324,8 +325,9 @@ describe("importGcSchedule", () => {
   });
 
   it("says so, and changes nothing, when there is no page to file under", () => {
+    // No age of its own, and an opponent that writes none either.
     const noLevel = importGcSchedule(
-      schedule({ name: "Wildcats", ageLevel: undefined }, [game()]),
+      schedule({ name: "Wildcats", ageLevel: undefined }, [game({ opponentName: "NKY Sluggers" })]),
       empty
     );
     expect(noLevel.outcome.issue).toContain("age group");

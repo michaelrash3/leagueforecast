@@ -101,6 +101,7 @@ import {
   withRulesMoved,
   type AgeUnknownList,
 } from "../lib/ageUnknown";
+import { answerableToday } from "../lib/agelessQueue";
 import { isTooYoungClub, type TooYoungClubs } from "../lib/tooYoungClubs";
 import { forgetRefused, isRefusedClub, type RefusedClubs } from "../lib/refusedClubs";
 import { usePoolTidy } from "../hooks/usePoolTidy";
@@ -675,7 +676,8 @@ export function GameChangerImportPanel({
   const [membership, setMembership] = useState<OrgMembership>(() => loadOrgMembership());
   const orgAges = useMemo(() => orgAgesByTeam(membership), [membership]);
   const asks = useMemo(
-    () => withRulesMoved(withOrgAges(namedAges, orgAges, membership.savedAt), ageless),
+    () =>
+      withRulesMoved(withOrgAges(namedAges, orgAges, membership.savedAt), ageless, answerableToday),
     [namedAges, orgAges, membership.savedAt, ageless]
   );
   const waitingOrgAged = useMemo(

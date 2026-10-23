@@ -183,13 +183,16 @@ const NOBODY_NAMED: NamedAgeAsk = { has: () => false, get: () => undefined };
 
 /**
  * When the rules that age a waiting team last moved: two agreeing opponents settle a team, and a
- * name that writes its age loosely is read.
+ * name that writes its age loosely is read (23 September 2026); and a team the queue would ask
+ * about is filed at the oldest age its opponents are until they settle one (23 October 2026,
+ * `oldestOpponentAge`). Midnight after the day it was written, so a row asked that day before the
+ * new rules reached the puller is asked once more rather than never.
  *
  * A row last asked before this was asked under the old rules, so what it stores may already be an
  * answer the new ones give. Dated rather than versioned because the rota already compares dates: a
  * row asked since has been judged by these rules and does not jump again.
  */
-export const AGELESS_RULES_CHANGED_AT = "2026-09-23T12:00:00.000Z";
+export const AGELESS_RULES_CHANGED_AT = "2026-10-24T00:00:00.000Z";
 
 /**
  * Whether what a waiting row already stores is an answer under those rules: a name
@@ -216,8 +219,13 @@ export const answerableNow = (entry: AgeUnknownTeam): boolean => {
  * moves `lastTried` past that date so the exemption closes behind it. A row somebody named by hand
  * keeps its own date.
  */
-export const withRulesMoved = (named: NamedAgeAsk, list: AgeUnknownList): NamedAgeAsk => {
-  const moved = new Set(list.filter(answerableNow).map((entry) => entry.teamId));
+export const withRulesMoved = (
+  named: NamedAgeAsk,
+  list: AgeUnknownList,
+  /** What the new rules settle from the row; `answerableToday` adds the oldest opponent's age. */
+  answerable: (entry: AgeUnknownTeam) => boolean = answerableNow
+): NamedAgeAsk => {
+  const moved = new Set(list.filter(answerable).map((entry) => entry.teamId));
   return {
     has: (teamId) => named.has(teamId) || moved.has(teamId),
     get: (teamId) =>

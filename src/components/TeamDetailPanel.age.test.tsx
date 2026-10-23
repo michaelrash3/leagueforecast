@@ -264,6 +264,17 @@ describe("why a club is filed at its age", () => {
     );
   });
 
+  it("says a club filed at the oldest age it has played is from the teams it has played", async () => {
+    // Plainly where it came from, with no word that it waits on anything: the owner's ask.
+    const user = userEvent.setup();
+    renderTeamRankings(sourced({ ageFrom: "tentative" }));
+    const panel = await openHive(user);
+    expect(panel).toHaveTextContent(
+      "filed at 8U, from the teams it has played; GameChanger gives no age"
+    );
+    expect(panel).not.toHaveTextContent(/confirm|tentative|guess/i);
+  });
+
   it("names GameChanger's field when that is what answered", async () => {
     const user = userEvent.setup();
     renderTeamRankings(sourced({ ageFrom: "gamechanger", ageLabel: "8U" }));

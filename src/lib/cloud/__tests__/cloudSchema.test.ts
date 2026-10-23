@@ -188,6 +188,7 @@ const SHAPES_NOW = {
       "opponents",
       "pool",
       "fixtures",
+      "tentative",
     ]),
     game: fieldsOf<ScoutGame>()([
       "id",
@@ -327,6 +328,8 @@ const SHAPES: readonly { schema: number; fingerprint: string }[] = [
   { schema: 3, fingerprint: "db106b32c05252c2f85bde9cd7d08dde6514879efa3b13fb8271c8d6edbdbfde" },
   // A third copy of a game that already counts says so (`ScoutGame.countedElsewhere`).
   { schema: 4, fingerprint: "5d986c46f0539b0c11f77b31c939494191d6e8be52d6c63a14b6e5adce078d24" },
+  // A club filed at the oldest age its opponents are says so (`GcTeamLink.ageFrom: "tentative"`).
+  { schema: 5, fingerprint: "a5707780f579ea9056ba501628d0688fddcd3b4ad1e126614e0959eb2f5be438" },
 ];
 
 /** Order-free, so a list tidied into another order is not taken for a new shape. */
