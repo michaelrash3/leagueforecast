@@ -6628,8 +6628,8 @@ way. After each, and after an Undo, the list is asked for again. Pool health
 it shows as it opens, asked on the device's day as Setup opens (`health.summary`), and what
 it finds once **Check the pool** is pressed (`health.inspect`). Each button is sent as the
 edit the device's card makes: rows thrown out (`games.drop`), a club deleted
-(`club.drop`), a rout counted (`game.confirm`), a fold (`teams.merge`, asked about first
-with what the server says it moves), an age (`club.age`, with an Undo), every suggested
+(`club.drop`), a rout counted (`game.confirm`), a fold (`teams.merge`, at once, with an Undo,
+as **Delete club** is), an age (`club.age`, with an Undo), every suggested
 age at once (planned on the server's pool, `ages.plan`, and sent as one batch with one
 Undo), the answers (a club real, a club at the right age, two clubs kept apart), and the
 clubs removed for you: **Put back on the boards** (its marks forgotten and the club said to
@@ -6639,7 +6639,20 @@ Both questions read League Standings, as the boards do, so a club a League Stand
 links is said to be kept rather than removed. Once
 an edit is made, what the pool shows is asked for again, so the lists are the copy's as it
 now stands; an answer kept is shown at once, and the question already on its way is let
-go, since it was asked before the answer was given. The file of every club worth pulling
+go, since it was asked before the answer was given.
+
+The buttons press into a line rather than taking turns with the person. A press used to grey out
+every other button in its list until the cloud answered, a few seconds each, and a fold asked
+first, with a call of its own for the counts it gave, so a page of pairs to fold or clubs to
+delete was worked through one wait and one question at a time: the owner's biggest complaint, 21
+October 2026. Now every other button stays live; a button pressed reads **Queued** until its turn
+and then what it is doing, the edits go one at a time in the order pressed, and pressing one
+already in line does nothing more. A club or game an edit has dealt with leaves its list at once,
+before the summary is asked for again, so its button cannot be pressed a second time for a row
+already gone. A fold here asks nothing first, since it is a fold the pool offered and has an Undo;
+a fold a club's own panel is told to make still asks, with what it moves (`merge.preview`).
+
+The file of every club worth pulling
 is the server's, asked for when **Download the list** is pressed (`health.toPull`). The
 settle is the nightly refresh's, which tidies the pool after every pull, and the pool's
 research files (its names, its stand-in fixtures) are made only where the whole pool is

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { GcSeasonPairing, GcTwinSquad } from "../../lib/gameChangerImport";
 import { GC_PAIRING_EVIDENCE_LABEL } from "../../lib/gcPairingEvidence";
 import type { PoolHealth } from "../../lib/poolHealth";
@@ -123,7 +123,7 @@ export type PoolHealthActions = {
    * and leaves the list (`ScoutGame.scoreConfirmed`).
    */
   confirmScore: (game: HealthGame) => Promise<boolean>;
-  /** Folds one club into another, asking first. */
+  /** Folds one club into another: at once on the live page, with Undo; asking first here. */
   merge: (from: ClubNamed, into: ClubNamed) => Promise<boolean>;
   /**
    * Files a club at the age its evidence points to in its squad year and holds it there, as its
@@ -278,9 +278,68 @@ export function PoolHealthView({
     [wrongAge, answers.ageRight]
   );
   const [showKeptAtAge, setShowKeptAtAge] = useState(false);
-  const [merging, setMerging] = useState<string | null>(null);
-  const [dropping, setDropping] = useState<string | null>(null);
   const [settingAges, setSettingAges] = useState(false);
+
+  /*
+   * The buttons pressed and not done yet, by what each acts on: the one at work and those waiting
+   * their turn behind it, run one at a time in the order pressed. A press used to grey out every
+   * other button in its list until the cloud answered, a few seconds each, so a page of pairs to
+   * fold or clubs to delete was worked through one wait at a time: the owner's biggest complaint,
+   * 21 October 2026. Now every other button stays live and a press joins the line; pressing one
+   * already in it does nothing more.
+   */
+  const [queued, setQueued] = useState<ReadonlyMap<string, "waiting" | "working">>(() => new Map());
+  const line = useRef<Promise<void>>(Promise.resolve());
+  const inLine = useRef(new Set<string>());
+  const enqueue = (key: string, run: () => Promise<unknown>) => {
+    if (inLine.current.has(key)) return;
+    inLine.current.add(key);
+    setQueued((was) => new Map(was).set(key, "waiting"));
+    line.current = line.current.then(async () => {
+      setQueued((was) => new Map(was).set(key, "working"));
+      try {
+        await run();
+      } catch {
+        // Each edit says its own failure in a toast, and the next in line still goes.
+      } finally {
+        inLine.current.delete(key);
+        setQueued((was) => {
+          const next = new Map(was);
+          next.delete(key);
+          return next;
+        });
+      }
+    });
+  };
+  /** A button's words while its press is in line: at work, or waiting behind another. */
+  const pressed = (key: string, idle: string, working: string) => {
+    const at = queued.get(key);
+    return at === "working" ? working : at === "waiting" ? "Queued" : idle;
+  };
+  /** Whether a button is off: edits held, or its own press still in line. */
+  const off = (key: string) => held || queued.has(key);
+
+  /*
+   * The summary as it stands when a press's turn comes, not as it stood when it was pressed: a
+   * press can wait behind others for a while, and the summary is asked for again after each.
+   */
+  const latest = useRef(summary);
+  useLayoutEffect(() => {
+    latest.current = summary;
+  }, [summary]);
+  /*
+   * Rows a press has dealt with, the clubs deleted and the games deleted or vouched for, until a
+   * summary leaves them out itself. Kept against the summary they were dealt with on: a new one is
+   * the pool as it then stands. Without it a row stood on its list, its button live again, until
+   * the summary was asked for anew, and a second press sent an edit for a row already gone.
+   */
+  const [dealt, setDealt] = useState<{ of: unknown; ids: ReadonlySet<string> }>(() => ({
+    of: undefined,
+    ids: new Set(),
+  }));
+  const dealtIds = dealt.of === summary ? dealt.ids : null;
+  const dealtWith = (on: unknown, ids: readonly string[]) =>
+    setDealt((was) => ({ of: on, ids: new Set([...(was.of === on ? was.ids : []), ...ids]) }));
 
   /**
    * The rows with a score on a day that has not happened.
@@ -290,7 +349,10 @@ export function PoolHealthView({
    * invention, and a nationwide pool carries both: one club here held a 106-13 record built
    * entirely on games nobody had played, and another was called "Test team".
    */
-  const datedAhead = summary.datedAhead;
+  const datedAhead = useMemo(
+    () => summary.datedAhead.filter((game) => !dealtIds?.has(game.id)),
+    [summary.datedAhead, dealtIds]
+  );
 
   /*
    * The clubs those rows belong to, worst first, but for the ones the user has said are real, by
@@ -310,10 +372,10 @@ export function PoolHealthView({
         answers.realClubs.has(id)
       );
     return {
-      unreal: summary.suspected.filter((club) => !vouched(club)),
+      unreal: summary.suspected.filter((club) => !vouched(club) && !dealtIds?.has(club.teamId)),
       keptReal: summary.suspected.filter(vouched),
     };
-  }, [summary.suspected, answers.realClubs]);
+  }, [summary.suspected, answers.realClubs, dealtIds]);
   const [showKeptReal, setShowKeptReal] = useState(false);
 
   /**
@@ -365,7 +427,10 @@ export function PoolHealthView({
    * Games won by more than `IMPLAUSIBLE_MARGIN` runs, the widest first: none of them counts, and
    * each is here to be deleted or vouched for (`isImplausibleScore`).
    */
-  const implausible = summary.implausible;
+  const implausible = useMemo(
+    () => summary.implausible.filter(({ game }) => !dealtIds?.has(game.id)),
+    [summary.implausible, dealtIds]
+  );
   const [allImplausible, setAllImplausible] = useState(false);
 
   /**
@@ -416,39 +481,30 @@ export function PoolHealthView({
     void actions.answer("ageRight", [], club.gcTeamIds);
 
   /** Throws out every row scored on a day that has not happened. The caller asks first. */
-  const dropDatedAhead = async () => {
-    if (datedAhead.length === 0) return;
-    setDropping("games");
-    try {
-      await actions.dropGames(
-        datedAhead.map((game) => game.id),
-        "ahead"
-      );
-    } finally {
-      setDropping(null);
-    }
+  const dropDatedAhead = () => {
+    const ids = datedAhead.map((game) => game.id);
+    if (ids.length === 0) return;
+    enqueue("games", async () => {
+      const on = latest.current;
+      if (await actions.dropGames(ids, "ahead")) dealtWith(on, ids);
+    });
   };
 
   /** Throws out the games won by more than thirty runs, these ones or all of them. */
-  const dropImplausible = async (ids: readonly string[]) => {
+  const dropImplausible = (ids: readonly string[]) => {
     if (ids.length === 0) return;
-    setDropping(ids.length === 1 ? ids[0]! : "implausible");
-    try {
-      await actions.dropGames(ids, "implausible");
-    } finally {
-      setDropping(null);
-    }
+    enqueue(ids.length === 1 ? ids[0]! : "implausible", async () => {
+      const on = latest.current;
+      if (await actions.dropGames(ids, "implausible")) dealtWith(on, ids);
+    });
   };
 
   /** Counts a game won by more than thirty runs after all, because the user says it was real. */
-  const confirmScore = async (game: HealthGame) => {
-    setDropping(game.id);
-    try {
-      await actions.confirmScore(game);
-    } finally {
-      setDropping(null);
-    }
-  };
+  const confirmScore = (game: HealthGame) =>
+    enqueue(game.id, async () => {
+      const on = latest.current;
+      if (await actions.confirmScore(game)) dealtWith(on, [game.id]);
+    });
 
   /**
    * Takes a club off the list for good because the user says it is real: remembered by its
@@ -466,66 +522,47 @@ export function PoolHealthView({
     void actions.answer("realClubs", [], [club.teamId, ...club.gcTeamIds]);
 
   /** Puts a club taken off back, or deletes it for good: one at a time, as the other buttons. */
-  const decideRemoved = async (
+  const decideRemoved = (
     club: RemovedClub,
     decide: (club: RemovedClub) => Promise<boolean> | boolean
-  ) => {
-    const on = summary.removed;
-    setDropping(club.teamId);
-    try {
+  ) =>
+    enqueue(club.teamId, async () => {
+      const on = latest.current.removed;
       if ((await decide(club)) === true) settleRemoved(on, [club]);
-    } finally {
-      setDropping(null);
-    }
-  };
+    });
 
   /** Puts back every club one night took off, as one change. */
-  const putBackDay = async (day: string, clubs: readonly RemovedClub[]) => {
-    const on = summary.removed;
-    setDropping(day);
-    try {
+  const putBackDay = (day: string, clubs: readonly RemovedClub[]) =>
+    enqueue(day, async () => {
+      const on = latest.current.removed;
       if ((await actions.putBackDay(day, clubs)) === true) settleRemoved(on, clubs);
-    } finally {
-      setDropping(null);
-    }
-  };
+    });
 
   /** Deletes for good the clubs one night took off that are still listed, or every night's. */
-  const deleteRemovedDay = async (day: string | null, clubs: readonly RemovedClub[]) => {
-    const on = summary.removed;
-    setDropping(`delete:${day ?? "all"}`);
-    try {
+  const deleteRemovedDay = (day: string | null, clubs: readonly RemovedClub[]) =>
+    enqueue(`delete:${day ?? "all"}`, async () => {
+      const on = latest.current.removed;
       const deleted = await actions.deleteRemovedDay(day, clubs);
       if (deleted.length > 0) settleRemoved(on, deleted);
-    } finally {
-      setDropping(null);
-    }
-  };
+    });
 
   /** Throws out a club outright: the team, its rows, and its GameChanger ids. */
-  const dropClub = async (club: UnrealClub) => {
-    setDropping(club.teamId);
-    try {
-      await actions.dropClub(club);
-    } finally {
-      setDropping(null);
-    }
-  };
+  const dropClub = (club: UnrealClub) =>
+    enqueue(club.teamId, async () => {
+      const on = latest.current;
+      if (await actions.dropClub(club)) dealtWith(on, [club.teamId]);
+    });
 
   /**
    * Folds one club into another, and takes every offer naming the one folded away off the lists
    * only if it actually happened: the club is gone, and Check the pool again works the rest out
    * afresh.
    */
-  const foldAway = async (key: string, from: ClubNamed, into: ClubNamed) => {
-    setMerging(key);
-    try {
+  const foldAway = (key: string, from: ClubNamed, into: ClubNamed) =>
+    enqueue(key, async () => {
       if (!(await actions.merge(from, into))) return;
       setSince((was) => ({ ...was, folded: new Set([...was.folded, from.id]) }));
-    } finally {
-      setMerging(null);
-    }
-  };
+    });
 
   /** Folds one of the pairs in. */
   const fold = (pairing: GcSeasonPairing) =>
@@ -726,11 +763,11 @@ export function PoolHealthView({
           )}
           <button
             type="button"
-            onClick={() => void dropDatedAhead()}
-            disabled={dropping !== null || held}
+            onClick={dropDatedAhead}
+            disabled={off("games")}
             className={`${button.ghost} mt-3 text-sm`}
           >
-            {dropping === "games" ? "Deleting…" : `Delete ${plural(datedAhead.length, "game")}`}
+            {pressed("games", `Delete ${plural(datedAhead.length, "game")}`, "Deleting…")}
           </button>
 
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -781,16 +818,16 @@ export function PoolHealthView({
                   )}{" "}
                   <button
                     type="button"
-                    onClick={() => void dropImplausible([game.id])}
-                    disabled={dropping !== null || held}
+                    onClick={() => dropImplausible([game.id])}
+                    disabled={off(game.id)}
                     className={`${button.ghost} text-xs`}
                   >
-                    {dropping === game.id ? "Working…" : "Delete"}
+                    {pressed(game.id, "Delete", "Working…")}
                   </button>{" "}
                   <button
                     type="button"
-                    onClick={() => void confirmScore(game)}
-                    disabled={dropping !== null || held}
+                    onClick={() => confirmScore(game)}
+                    disabled={off(game.id)}
                     className={`${button.ghost} text-xs`}
                   >
                     It&rsquo;s real
@@ -815,13 +852,15 @@ export function PoolHealthView({
           )}
           <button
             type="button"
-            onClick={() => void dropImplausible(implausible.map(({ game }) => game.id))}
-            disabled={dropping !== null || held}
+            onClick={() => dropImplausible(implausible.map(({ game }) => game.id))}
+            disabled={off("implausible")}
             className={`${button.ghost} mt-3 text-sm`}
           >
-            {dropping === "implausible"
-              ? "Deleting…"
-              : `Delete all ${plural(implausible.length, "game")}`}
+            {pressed(
+              "implausible",
+              `Delete all ${plural(implausible.length, "game")}`,
+              "Deleting…"
+            )}
           </button>
         </div>
       )}
@@ -874,16 +913,16 @@ export function PoolHealthView({
                 )}
                 <button
                   type="button"
-                  onClick={() => void dropClub(club)}
-                  disabled={dropping !== null || held}
+                  onClick={() => dropClub(club)}
+                  disabled={off(club.teamId)}
                   className={`${button.ghost} text-xs`}
                 >
-                  {dropping === club.teamId ? "Deleting…" : "Delete club"}
+                  {pressed(club.teamId, "Delete club", "Deleting…")}
                 </button>{" "}
                 <button
                   type="button"
                   onClick={() => confirmClub(club)}
-                  disabled={dropping !== null}
+                  disabled={queued.has(club.teamId)}
                   className={`${button.ghost} text-xs`}
                 >
                   It&rsquo;s real
@@ -977,16 +1016,16 @@ export function PoolHealthView({
                 </span>{" "}
                 <button
                   type="button"
-                  onClick={() => void decideRemoved(club, actions.putBack)}
-                  disabled={dropping !== null || held}
+                  onClick={() => decideRemoved(club, actions.putBack)}
+                  disabled={off(club.teamId)}
                   className={`${button.ghost} text-xs`}
                 >
-                  {dropping === club.teamId ? "Working…" : "Put back on the boards"}
+                  {pressed(club.teamId, "Put back on the boards", "Working…")}
                 </button>{" "}
                 <button
                   type="button"
-                  onClick={() => void decideRemoved(club, actions.deleteRemoved)}
-                  disabled={dropping !== null || held}
+                  onClick={() => decideRemoved(club, actions.deleteRemoved)}
+                  disabled={off(club.teamId)}
                   className={`${button.ghost} text-xs`}
                 >
                   Delete for good
@@ -1015,13 +1054,15 @@ export function PoolHealthView({
               <button
                 key={day}
                 type="button"
-                onClick={() => void putBackDay(day, clubs)}
-                disabled={dropping !== null || held}
+                onClick={() => putBackDay(day, clubs)}
+                disabled={off(day)}
                 className={`${button.ghost} mr-1 text-xs`}
               >
-                {dropping === day
-                  ? "Working…"
-                  : `Put back the ${count(clubs.length)} taken off on ${day}`}
+                {pressed(
+                  day,
+                  `Put back the ${count(clubs.length)} taken off on ${day}`,
+                  "Working…"
+                )}
               </button>
             ))}
           </p>
@@ -1034,25 +1075,29 @@ export function PoolHealthView({
                 <button
                   key={day}
                   type="button"
-                  onClick={() => void deleteRemovedDay(day, clubs)}
-                  disabled={dropping !== null || held}
+                  onClick={() => deleteRemovedDay(day, clubs)}
+                  disabled={off(`delete:${day}`)}
                   className={`${button.ghost} mr-1 text-xs`}
                 >
-                  {dropping === `delete:${day}`
-                    ? "Working…"
-                    : `Delete the ${count(clubs.length)} taken off on ${day} for good`}
+                  {pressed(
+                    `delete:${day}`,
+                    `Delete the ${count(clubs.length)} taken off on ${day} for good`,
+                    "Working…"
+                  )}
                 </button>
               ))}
               {deletableDays.length > 1 && (
                 <button
                   type="button"
-                  onClick={() => void deleteRemovedDay(null, deletable)}
-                  disabled={dropping !== null || held}
+                  onClick={() => deleteRemovedDay(null, deletable)}
+                  disabled={off("delete:all")}
                   className={`${button.ghost} mr-1 text-xs`}
                 >
-                  {dropping === "delete:all"
-                    ? "Working…"
-                    : `Delete all ${count(deletable.length)} for good`}
+                  {pressed(
+                    "delete:all",
+                    `Delete all ${count(deletable.length)} for good`,
+                    "Working…"
+                  )}
                 </button>
               )}
             </p>
@@ -1091,16 +1136,16 @@ export function PoolHealthView({
                   </span>{" "}
                   <button
                     type="button"
-                    onClick={() => void fold(pairing)}
-                    disabled={merging !== null || held}
+                    onClick={() => fold(pairing)}
+                    disabled={off(key)}
                     className={`${button.ghost} text-xs`}
                   >
-                    {merging === key ? "Folding…" : "Fold in"}
+                    {pressed(key, "Fold in", "Folding…")}
                   </button>{" "}
                   <button
                     type="button"
                     onClick={() => keepApart(pairing)}
-                    disabled={merging !== null || held}
+                    disabled={off(key)}
                     className={`${button.ghost} text-xs`}
                   >
                     Not the same
@@ -1174,16 +1219,16 @@ export function PoolHealthView({
                   <div className="mt-1 flex flex-wrap gap-1">
                     <button
                       type="button"
-                      onClick={() => void foldTwin(offer, "to")}
-                      disabled={merging !== null || held}
+                      onClick={() => foldTwin(offer, "to")}
+                      disabled={off(key)}
                       className={`${button.ghost} text-xs`}
                     >
-                      {merging === key ? "Folding…" : `Keep ${offer.toTeamName}`}
+                      {pressed(key, `Keep ${offer.toTeamName}`, "Folding…")}
                     </button>
                     <button
                       type="button"
-                      onClick={() => void foldTwin(offer, "from")}
-                      disabled={merging !== null || held}
+                      onClick={() => foldTwin(offer, "from")}
+                      disabled={off(key)}
                       className={`${button.ghost} text-xs`}
                     >
                       {`Keep ${offer.fromTeamName}`}
@@ -1191,7 +1236,7 @@ export function PoolHealthView({
                     <button
                       type="button"
                       onClick={() => keepApart(offer)}
-                      disabled={merging !== null || held}
+                      disabled={off(key)}
                       className={`${button.ghost} text-xs`}
                     >
                       Not the same
