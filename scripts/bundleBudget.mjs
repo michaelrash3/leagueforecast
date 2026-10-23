@@ -58,7 +58,9 @@ const DIST = "dist";
  * Rankings to 159.5 KB the same day for filing a team below the opponents' bar at the oldest age it
  * has played, 159.1 KB against 158.8 KB on main: the oldest opponent's age read as a pull files a
  * team (`opponentAgeBar`) and the waiting list's rule for it, since the import's code is part of
- * that load.
+ * that load. Team Rankings to 160.0 KB the same day for Codex's two findings on that change, 159.5
+ * KB against 159.2 KB before them: a club's rows moved off the guess carry its level, and the
+ * import's index is read again for the clubs a pull moved (`restatePlaces`).
  */
 const BUDGET = {
   firstDownload: 252_000,
@@ -73,7 +75,7 @@ const BUDGET = {
     Forecast: 18_300,
     "Data Quality": 3_500,
     Settings: 12_600,
-    "Team Rankings": 159_500,
+    "Team Rankings": 160_000,
   },
 };
 
