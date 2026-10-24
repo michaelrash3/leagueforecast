@@ -5217,7 +5217,8 @@ and a run takes about that long to start, so without the mark one pull started
 two runs. An asking GitHub refused, or one left "asking" for two minutes by an
 asker that died, is asked again. A leg also runs under the job's execution
 lease, the one a staged import already holds, so a second run of it finds its leg
-done. The pull's id is masked before
+done; and a run that loses the lease, taken or not renewed in time, stops at once
+writing nothing (`watchLease`), for the workflow's next try. The pull's id is masked before
 the run prints anything, since its log is public; the run prints what the
 functions' logs did, the cloud's own words, counts and timings. Those lines are
 in **Actions → Pull in the cloud** rather than Google's logs, so the "Pulls in

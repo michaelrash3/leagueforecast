@@ -17,7 +17,7 @@
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
-import { importLease } from "../../src/lib/cloud/importLease";
+import { importLease, watchLease } from "../../src/lib/cloud/importLease";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs } from "../../src/lib/cloud/pullJobRunner";
 import { LEG_TRIES, runLeg } from "./legRun";
@@ -47,7 +47,7 @@ if (!job || (job.pipeline === "staged-v1" && !job.rota)) {
   await runLeg(task, lastTry, runImporter);
 } else {
   const lease = importLease(docs, jobId, randomUUID());
-  // A leg asked for twice waits out the first's lease, renewed every half minute while it runs.
+  // A leg asked for twice waits for the first's lease, renewed while it runs (`watchLease`).
   let claimed = false;
   for (let wait = 0; wait < 11 && !claimed; wait++) {
     claimed = await lease.claim(Date.now());
@@ -56,9 +56,12 @@ if (!job || (job.pipeline === "staged-v1" && !job.rota)) {
   if (!claimed) {
     console.log(JSON.stringify({ event: "leg-duplicate", leg }));
   } else {
-    const renewing = setInterval(() => {
-      void lease.renew(Date.now()).catch(() => undefined);
-    }, 30_000);
+    // A lease lost is a leg another execution may be running: this one stops at once, writing
+    // nothing, and the workflow's next try waits for the lease or finds the leg done.
+    const stopWatching = watchLease(lease, (why) => {
+      console.error(JSON.stringify({ event: "leg-lease-lost", leg, why }));
+      process.exit(1);
+    });
     try {
       await runLeg(task, lastTry, runImporter);
     } catch (error) {
@@ -66,7 +69,7 @@ if (!job || (job.pipeline === "staged-v1" && !job.rota)) {
       console.error(JSON.stringify({ event: "leg-retry", leg, error: String(error) }));
       process.exitCode = 1;
     } finally {
-      clearInterval(renewing);
+      stopWatching();
       await lease.release().catch(() => undefined);
     }
   }

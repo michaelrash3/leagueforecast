@@ -146,3 +146,53 @@ export const importBeat = ({
   if (now - heardAt >= IMPORT_STALL_MS) return "stalled";
   return "renew";
 };
+
+/**
+ * Keeps `lease` renewed every `everyMs` for a run that says nothing as it goes, a leg on GitHub
+ * (`legJob.ts`), and calls `onLost` once where the lease is gone: taken by another execution, or
+ * not renewed in time for it to stand (`importBeat`'s "lost-contact"), when another may take it
+ * over. The run must then stop at once, writing nothing (Codex, on #440): a leg's end writes its
+ * count of legs done over whatever is there, so a second execution of the leg running beside it
+ * could have its progress overwritten. Stops itself after `onLost`; the returned function stops it
+ * otherwise.
+ */
+export const watchLease = (
+  lease: { renew: (now: number) => Promise<boolean> },
+  onLost: (why: "taken" | "lost-contact") => void,
+  now: () => number = Date.now,
+  everyMs = 10_000
+): (() => void) => {
+  let renewedAt = now();
+  let renewing = false;
+  let over = false;
+  const lost = (why: "taken" | "lost-contact") => {
+    if (over) return;
+    over = true;
+    clearInterval(beat);
+    onLost(why);
+  };
+  const beat = setInterval(() => {
+    if (importBeat({ now: now(), renewedAt, heardAt: now() }) === "lost-contact") {
+      lost("lost-contact");
+      return;
+    }
+    if (renewing) return;
+    renewing = true;
+    const asked = now();
+    void lease
+      .renew(asked)
+      .then((owned) => {
+        if (!owned) lost("taken");
+        else renewedAt = asked;
+      })
+      // A renewal that fails is only a renewal: the next tries again, until the lease would lapse.
+      .catch(() => undefined)
+      .finally(() => {
+        renewing = false;
+      });
+  }, everyMs);
+  return () => {
+    over = true;
+    clearInterval(beat);
+  };
+};
