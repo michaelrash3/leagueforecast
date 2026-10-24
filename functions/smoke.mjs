@@ -839,7 +839,19 @@ if (process.env.LIVE_REBUILD !== "on") {
     await onCopyWrite(event(manifest(6, "c"), manifest(7, "d")));
   });
   const githubTasks = tasks.slice(beforeGithub);
+  // A save that moves nothing a board reads, which may land inside the settle of the check above.
+  const afterBoardSave = tasks.length;
+  const quietSaves = await logged(async () => {
+    await onCopyWrite(event(manifest(7, "d"), manifest(8, "d")));
+  });
+  const quietTasks = tasks.slice(afterBoardSave);
   let diverted = null;
+  const divertedUrls = [];
+  const fetchBefore = globalThis.fetch;
+  globalThis.fetch = async (url, ...rest) => {
+    divertedUrls.push(String(url));
+    return fetchBefore(url, ...rest);
+  };
   const divertedLines = await logged(async () => {
     diverted = await post(
       rebuild,
@@ -854,6 +866,7 @@ if (process.env.LIVE_REBUILD !== "on") {
       signed
     );
   });
+  globalThis.fetch = fetchBefore;
   delete process.env.PULLS_ON_GITHUB_TOKEN;
   queue.close();
   const githubBody = (task) =>
@@ -868,10 +881,23 @@ if (process.env.LIVE_REBUILD !== "on") {
     JSON.stringify({ githubSaves, githubTasks })
   );
   check(
-    "and a rebuild's task that still comes publishes as a check does, starting no job on Google",
+    "and so does a save that moves nothing a board reads, so the last save of a run owns a check",
+    quietSaves.some((line) => line.event === "skip" && line.why === "no-board-input") &&
+      quietSaves.some((line) => line.message === "boards-check" && line.check === "queued") &&
+      quietTasks.length === 1 &&
+      githubBody(quietTasks[0])?.check === "boards" &&
+      githubBody(quietTasks[0])?.noRebuild === true,
+    JSON.stringify({ quietSaves, quietTasks })
+  );
+  check(
+    "and a rebuild's task that still comes asks for the boards as a check does, starting no job",
     diverted?.status === 204 &&
-      divertedLines.some((line) => line.end === "boards-on-github" && line.kind === "live"),
-    JSON.stringify({ status: diverted?.status, divertedLines })
+      divertedLines.some(
+        (line) =>
+          line.end === "boards-on-github" && line.kind === "live" && typeof line.boards === "string"
+      ) &&
+      !divertedUrls.some((url) => url.includes("ranking-rebuild")),
+    JSON.stringify({ status: diverted?.status, divertedLines, divertedUrls })
   );
   globalThis.fetch = realFetch;
 }

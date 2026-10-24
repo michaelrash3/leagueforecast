@@ -5249,10 +5249,15 @@ read, an edit or a League Standings score, no longer asks for a rebuild on Googl
 (`rebuildsRun`): the rebuilds' 8 GiB job (`ranking-rebuild`) was October 2026's
 largest metered use, 113,966 GiB-s and 49,543 vCPU-s. Each save queues its check
 of the boards instead, counting on no rebuild ("Boards published after an edit"),
-and the check starts the boards' publish, which runs on GitHub. A rebuild's task
+and the check starts the boards' publish, which runs on GitHub. So does a save
+that moves nothing a board reads, a Pool health answer or a season renamed: the
+check is then the only publish, and one that lands inside the settle of a
+merge's check left it settling with nothing to ask again, so the last save of a
+run always owns a check (`asksBoards`). A rebuild's task
 already queued, or deferred to a later month by its budget, publishes the same
 way when it comes, and the deploy's own request after a deploy asks the boards'
-publish on GitHub (`scripts/requestRebuild.ts`). No decision counts on a rebuild
+publish on GitHub (`scripts/requestRebuild.ts`), and a refusal there is a warning
+rather than a failed deploy. No decision counts on a rebuild
 coming, so a pull's end publishes its own boards whatever the ledger has left.
 
 A save reaches the boards in about six or seven minutes, the three minutes' settle

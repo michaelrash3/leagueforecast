@@ -427,7 +427,7 @@ export const onCopyWrite = !LIVE_REBUILD
         });
         logger[level](message, line);
         // Where no rebuild is coming to publish it, the save's check of the boards (`boardsCheck.ts`).
-        if (asksBoards(line))
+        if (asksBoards(line, rebuildsRun(LIVE_REBUILD, process.env)))
           logger.info("boards-check", {
             savedAt: event.time,
             ...(await queueBoardsCheck(event.time, rebuildQueued(line))),
@@ -472,7 +472,7 @@ export const onLeagueWrite = !LIVE_REBUILD
             (error: unknown) =>
               logger.warn("season deleted", { noted: false, error: messageOf(error) })
           );
-        if (asksBoards(line))
+        if (asksBoards(line, rebuildsRun(LIVE_REBUILD, process.env)))
           logger.info("boards-check", {
             savedAt: event.time,
             ...(await queueBoardsCheck(event.time, rebuildQueued(line))),

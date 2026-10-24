@@ -36,8 +36,17 @@ if (manifest) {
    */
   const token = pullDispatchToken(process.env);
   if (token) {
-    await dispatchPull({ task: "boards" }, token);
-    console.log("Boards after deployment: asked of the boards' publish on GitHub.");
+    // A refusal is said and left there, not the deploy's failure: the functions are deployed by
+    // now, the republish after this step must still run, and the catch-up publishes the boards
+    // later. A token expired is the likely cause (README, "Pulls on GitHub").
+    try {
+      await dispatchPull({ task: "boards" }, token);
+      console.log("Boards after deployment: asked of the boards' publish on GitHub.");
+    } catch (error) {
+      console.log(
+        `::warning::Boards after deployment not asked: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   } else await requestOnGoogle(manifest.copy);
 } else console.log("No cloud copy to rebuild after deployment.");
 
