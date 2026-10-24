@@ -5188,6 +5188,60 @@ missed (`pullJobRunner.test.ts` runs a refresh whose copy another save moves whi
 it fetches). What the gate spares is GameChanger, asked about the same teams twice at
 once, which the gap between pulls cannot stop while neither run has saved.
 
+### Pulls on GitHub
+
+A pull sent from a device, a pasted list or **Refresh now**, runs on one of
+GitHub's servers where the functions are given a token to start one
+(`src/lib/cloud/githubDispatch.ts`, `.github/workflows/cloud-pull.yml`). Google
+bills the machine a pull runs on by the second, eight gibibytes for a leg
+(`runPull`) and sixteen for a staged import (the `team-import` job), and in
+October 2026 those machines, with the rebuilds and the edits, spent the project's
+whole free allowance and about a dollar beyond it. A GitHub runner for a public
+repository costs nothing and has the sixteen gigabytes the nightly already pulls
+the whole pool in.
+
+Nothing else moves. The device writes its job and asks `startPull` as before;
+where `startPull` would queue a Cloud Tasks task for a leg, start the importer's
+Cloud Run job, or start the boards' publish after a pull, it asks GitHub to run
+the workflow for it instead (`pullAccess.ts`). The run builds the functions as
+the deploy does and runs the same files with the deploy's Firebase key: a leg
+through `legJob.ts`, which runs it as `runPull` does (`legRun.ts`), and a staged
+list's leg runs its importer, `importJob.js`, in the same run. A leg or an import
+is tried three times, two minutes apart, as Cloud Tasks and Cloud Run tried them,
+and the boards' publish once. A leg asks for the next with the run's own token.
+Cloud Tasks queued a leg once under its name, and GitHub has no such name, so
+each leg's asking is marked beside its job (`dispatchLegOnce`): "asking" while
+GitHub is asked, "asked" once it has taken the run, after which every ask is
+answered "already". A device asks again every minute for a pull waiting to start,
+and a run takes about that long to start, so without the mark one pull started
+two runs. An asking GitHub refused, or one left "asking" for two minutes by an
+asker that died, is asked again. A leg also runs under the job's execution
+lease, the one a staged import already holds, so a second run of it finds its leg
+done; and a run that loses the lease, taken or not renewed in time, stops at once
+writing nothing (`watchLease`), for the workflow's next try. The pull's id is masked before
+the run prints anything, since its log is public; the run prints what the
+functions' logs did, the cloud's own words, counts and timings. Those lines are
+in **Actions → Pull in the cloud** rather than Google's logs, so the "Pulls in
+the cloud" status workflow, which reads Google's, sees the jobs but not them.
+
+It starts within a minute or so of the press, where a task started in seconds.
+Without the token every launch goes to Google as before, so a deploy before the
+token is set changes nothing. The setup, once:
+
+1. Make a fine-grained token at
+   <https://github.com/settings/personal-access-tokens/new>: under
+   **Repository access** choose **Only select repositories** and this
+   repository; under **Permissions**, **Repository permissions**, set
+   **Actions** to **Read and write**. Nothing else.
+2. Add it as a repository secret named `PULL_DISPATCH_TOKEN` at
+   <https://github.com/michaelrash3/leagueforecast/settings/secrets/actions/new>.
+3. Run the Firebase workflow again, or push to `main`: the deploy writes the
+   token into the functions' environment (`PULLS_ON_GITHUB_TOKEN`).
+
+A token that has expired turns every pull away with GitHub's own words on the
+device ("GitHub would not start the pull (HTTP 401 …)"); a new one in the same
+secret, and a deploy, puts them back.
+
 ### Pulls in the cloud: the one-time setup
 
 Where the rebuilds after saves are set up (`LIVE_REBUILD`, below), the two functions

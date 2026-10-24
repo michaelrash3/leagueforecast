@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   importBeat,
   importHeard,
@@ -8,6 +8,7 @@ import {
   IMPORT_LEASE_MS,
   IMPORT_STALL_MS,
   type ImportWatch,
+  watchLease,
 } from "../importLease";
 
 it("admits one execution, renews ownership, and allows takeover only after expiry or release", async () => {
@@ -98,4 +99,58 @@ it("leaves a try that failed stopped where a stop was asked, and failed only on 
   expect(importTryStatus({ last: true, stopAsked: false })).toBe("failed");
   expect(importTryStatus({ last: true, stopAsked: true })).toBe("cancelled");
   expect(importTryStatus({ last: false, stopAsked: true })).toBe("cancelled");
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/** A lease whose renewals answer `answers` in turn, then the last of them again. */
+const renewing = (answers: Array<boolean | Error>) => {
+  let asked = 0;
+  return {
+    asked: () => asked,
+    renew: async () => {
+      const answer = answers[Math.min(asked, answers.length - 1)];
+      asked += 1;
+      if (answer instanceof Error) throw answer;
+      return answer ?? true;
+    },
+  };
+};
+
+it("keeps a leg's lease renewed, and says nothing while it stands", async () => {
+  vi.useFakeTimers();
+  const lease = renewing([true]);
+  const lost: string[] = [];
+  const stop = watchLease(lease, (why) => lost.push(why));
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(lost).toEqual([]);
+  expect(lease.asked()).toBe(60);
+  stop();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(lease.asked()).toBe(60);
+});
+
+it("says the lease is lost once another execution holds it, and only once", async () => {
+  vi.useFakeTimers();
+  const lease = renewing([true, false]);
+  const lost: string[] = [];
+  watchLease(lease, (why) => lost.push(why));
+  await vi.advanceTimersByTimeAsync(5 * 60_000);
+  expect(lost).toEqual(["taken"]);
+  expect(lease.asked()).toBe(2);
+});
+
+it("says so before the lease could lapse while renewals fail", async () => {
+  vi.useFakeTimers();
+  const lease = renewing([new Error("Firestore is unreachable")]);
+  const lost: Array<{ why: string; at: number }> = [];
+  const started = Date.now();
+  watchLease(lease, (why) => lost.push({ why, at: Date.now() - started }));
+  await vi.advanceTimersByTimeAsync(5 * 60_000);
+  expect(lost).toHaveLength(1);
+  expect(lost[0]?.why).toBe("lost-contact");
+  // Inside the lease's own life, so no other execution could have taken it yet.
+  expect(lost[0]?.at).toBeLessThan(IMPORT_LEASE_MS);
 });

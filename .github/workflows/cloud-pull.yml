@@ -1,0 +1,116 @@
+# Pulls in the cloud on GitHub (README, "Pulls on GitHub"): a leg of a pull a device sent, Refresh
+# now's or a pasted list's, a staged import carried on, or the boards published once a pull has
+# ended, each run by one of GitHub's servers where the functions would otherwise start a Google
+# machine for it (`githubDispatch.ts`). Started by the functions with the token the deploy hands
+# them (`PULL_DISPATCH_TOKEN`), and by a run of this workflow for the next leg or the boards with
+# its own; not on a schedule, and not by hand but to try it.
+#
+# The pull's id is masked before anything prints it, and the run prints the cloud's own words,
+# counts and timings, as the functions' logs do: this repository is public, and so are its Actions
+# logs. It runs the functions' own build, as the deploy builds it, with the deploy's Firebase key
+# for Google's credentials.
+name: Pull in the cloud
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "leg: one leg of a pull; import: a staged list carried on; boards: publish them"
+        type: choice
+        options: [boards, leg, import]
+        default: boards
+      job:
+        description: "The pull's id, for a leg or an import"
+        type: string
+        default: ""
+      leg:
+        description: "Which leg, from 0"
+        type: string
+        default: "0"
+
+permissions:
+  contents: read
+  # To start the next leg's run, or the boards' publish after the last (`githubDispatch.ts`).
+  actions: write
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    # A staged import of the whole pool took minutes on Cloud Run, whose limit was a day; GitHub's
+    # is six hours a job.
+    timeout-minutes: 360
+    steps:
+      # Read from the event rather than an input in an `env:`, which the step's own header would
+      # print before the mask is set. Refused unless it is a pull's id (`JOB_ID`), since it is
+      # written into the environment the steps after read.
+      - name: Keep the pull's id out of the log
+        run: |
+          job=$(jq -r '.inputs.job // ""' "$GITHUB_EVENT_PATH")
+          if [ -n "$job" ]; then
+            if ! [[ "$job" =~ ^[0-9a-f]{32}$ ]]; then
+              echo "::error::That is not a pull's id."
+              exit 1
+            fi
+            echo "::add-mask::$job"
+          fi
+          echo "PULL_JOB_ID=$job" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --prefix functions
+      # As the deploy builds them: the pulls in, and the rebuilds as the project has them, which
+      # decides whether a pull that ends publishes the boards or leaves them to a rebuild.
+      - run: npm run build --prefix functions
+        env:
+          CLOUD_PULLS: "on"
+          LIVE_REBUILD: ${{ vars.LIVE_REBUILD }}
+      # Three tries, two minutes apart, for a leg or an import, as Cloud Tasks and Cloud Run gave
+      # them, each told which try it is; the boards' publish once, as Cloud Run ran it, since the
+      # catch-up and the nightly publish what a failed one did not.
+      - name: Run it
+        env:
+          KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GOOGLE_CLOUD_PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
+          PULLS_ON_GITHUB_TOKEN: ${{ github.token }}
+          TASK: ${{ inputs.task }}
+          PULL_LEG: ${{ inputs.leg }}
+          # The user's day and the members' collation, as Cloud Run's jobs had them; a leg sets the
+          # pull's own zone itself (`runLeg`).
+          TZ: America/New_York
+          LANG: en_US.UTF-8
+        run: |
+          if [ -z "$KEY" ] || [ -z "$GOOGLE_CLOUD_PROJECT" ]; then
+            echo "::error::Set the FIREBASE_SERVICE_ACCOUNT secret and the FIREBASE_PROJECT_ID variable."
+            exit 1
+          fi
+          printf '%s' "$KEY" > "$RUNNER_TEMP/pull-key.json"
+          trap 'rm -f "$RUNNER_TEMP/pull-key.json"' EXIT
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/pull-key.json"
+          cd functions
+          case "$TASK" in
+            boards)
+              NODE_OPTIONS=--max-old-space-size=6144 node lib/boardsPublish.js
+              ;;
+            leg|import)
+              if [ -z "$PULL_JOB_ID" ]; then
+                echo "::error::A leg or an import needs the pull's id."
+                exit 1
+              fi
+              for attempt in 0 1 2; do
+                if [ "$TASK" = "leg" ]; then
+                  PULL_ATTEMPT=$attempt node lib/legJob.js && exit 0
+                else
+                  # The heap the importer's image sets (`Import.Dockerfile`), on a runner of 16 GB.
+                  CLOUD_RUN_TASK_ATTEMPT=$attempt IMPORT_JOB_ID="$PULL_JOB_ID" NODE_OPTIONS=--max-old-space-size=12288 \
+                    node lib/importJob.js && exit 0
+                fi
+                if [ "$attempt" -lt 2 ]; then sleep 120; fi
+              done
+              exit 1
+              ;;
+            *)
+              echo "::error::No such task."
+              exit 1
+              ;;
+          esac
