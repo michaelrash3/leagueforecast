@@ -6,6 +6,7 @@ import {
   firestoreRestStore,
 } from "../src/lib/cloud/firestoreRest.ts";
 import { FUNCTIONS_REGION } from "../src/lib/cloud/functionsUrl.ts";
+import { dispatchPull, pullDispatchToken } from "../src/lib/cloud/githubDispatch.ts";
 import { restLeagueDocs } from "../src/lib/live/cloudLeague.ts";
 import { requestRebuildJob } from "../src/lib/live/rebuildJobLaunch.ts";
 import { restLedgerStore, updateLedger } from "../src/lib/live/rebuildLedger.ts";
@@ -28,8 +29,31 @@ if (manifest) {
         : null,
     answer: null,
   }));
+  /*
+   * Where the pulls are on GitHub the rebuilds do not run (`rebuildsRun`): the boards are asked of
+   * the boards' publish there instead, which publishes them only where they are behind, as a save's
+   * check does. The deploy hands this script the same token it writes for the functions.
+   */
+  const token = pullDispatchToken(process.env);
+  if (token) {
+    // A refusal is said and left there, not the deploy's failure: the functions are deployed by
+    // now, the republish after this step must still run, and the catch-up publishes the boards
+    // later. A token expired is the likely cause (README, "Pulls on GitHub").
+    try {
+      await dispatchPull({ task: "boards" }, token);
+      console.log("Boards after deployment: asked of the boards' publish on GitHub.");
+    } catch (error) {
+      console.log(
+        `::warning::Boards after deployment not asked: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  } else await requestOnGoogle(manifest.copy);
+} else console.log("No cloud copy to rebuild after deployment.");
+
+/** The rebuild job on Google, launched where its preflight finds the boards want it. */
+async function requestOnGoogle(copy: string): Promise<void> {
   const task = {
-    copy: manifest.copy,
+    copy,
     kind: "server" as const,
     window: Math.floor(Date.now() / 900000),
     savedAt: new Date().toISOString(),
@@ -63,4 +87,4 @@ if (manifest) {
     today: () => todayIsoDay(),
   });
   console.log(`Ranking rebuild after deployment: ${done.end}.`);
-} else console.log("No cloud copy to rebuild after deployment.");
+}

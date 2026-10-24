@@ -101,6 +101,19 @@ describe("which saves ask for a check, and when a check finding a publish asks a
     expect(asksBoards({ event: "no-write" })).toBe(false);
   });
 
+  it("asks for every save the boards could be waiting behind where the rebuilds do not run", () => {
+    // The check is then the only publish, so a save that moved nothing still owns one: it may land
+    // inside the settle of the check of a save that did, which then finds the copy still settling.
+    expect(asksBoards({ event: "skip", why: "no-board-input" }, false)).toBe(true);
+    expect(asksBoards({ event: "skip", why: "no-board-input", season: "s1" }, false)).toBe(true);
+    expect(asksBoards({ event: "skip", why: "off" }, false)).toBe(true);
+    expect(asksBoards({ event: "save", queued: false }, false)).toBe(true);
+    // Still none for a copy the boards cannot read at all.
+    for (const why of ["deleted", "unreadable", "newer-copy", "no-document"])
+      expect(asksBoards({ event: "skip", why }, false)).toBe(false);
+    expect(asksBoards({ event: "no-write" }, false)).toBe(false);
+  });
+
   it("counts on a rebuild only where the save's line says one was queued", () => {
     expect(rebuildQueued({ event: "save", queued: true })).toBe(true);
     expect(rebuildQueued({ event: "season", season: "s1", queued: true })).toBe(true);

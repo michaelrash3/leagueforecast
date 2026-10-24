@@ -73,11 +73,22 @@ export const boardsCheckAgain = async (
 
 /**
  * Whether a save's trigger line (`rebuildTrigger.ts`) is of a save the boards read: one that asked
- * for a rebuild (queued or not), or would have, had the rebuilds not been switched off. A save that
- * moved nothing a board reads, a deleted or unreadable copy, or a newer build's, asks no check.
+ * for a rebuild (queued or not), or would have, had the rebuilds not been switched off. A deleted
+ * or unreadable copy, or a newer build's, asks no check.
+ *
+ * A save that moved nothing a board reads asks none either while the rebuilds run (`rebuildsRun`,
+ * false where the pulls are on GitHub), since the rebuild of the save before it publishes whatever
+ * follows. Where they do not, the check is the only publish, and it waits for the copy and the
+ * seasons to have been still for the settle: a Pool health answer, or a season renamed, inside
+ * the settle of a merge's check left that check "settling", and with no check of its own the
+ * merge waited for the catch-up (Claude's review, on step 2). So there every save asks one, and the
+ * last save of a run always owns a check that runs after its own settle.
  */
-export const asksBoards = (line: Readonly<Record<string, unknown>>): boolean =>
-  line.event === "save" || line.event === "season" || (line.event === "skip" && line.why === "off");
+export const asksBoards = (line: Readonly<Record<string, unknown>>, rebuildsRun = true): boolean =>
+  line.event === "save" ||
+  line.event === "season" ||
+  (line.event === "skip" &&
+    (line.why === "off" || (!rebuildsRun && line.why === "no-board-input")));
 
 /**
  * Whether a save's trigger line (`rebuildTrigger.ts`) queued its rebuild: not one whose queueing

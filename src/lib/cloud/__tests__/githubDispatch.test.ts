@@ -4,6 +4,7 @@ import {
   dispatchLegOnce,
   dispatchPull,
   pullDispatchToken,
+  rebuildsRun,
 } from "../githubDispatch";
 
 /** A fetch that records what it was asked and answers `status`. */
@@ -168,5 +169,16 @@ describe("dispatchLegOnce", () => {
       })
     ).toBe("already");
     expect(asked).toEqual([]);
+  });
+});
+
+describe("rebuildsRun", () => {
+  it("runs the rebuilds only in a build that has them and where the pulls are not on GitHub", () => {
+    expect(rebuildsRun(true, {})).toBe(true);
+    expect(rebuildsRun(true, { PULLS_ON_GITHUB_TOKEN: "tok" })).toBe(false);
+    expect(rebuildsRun(false, {})).toBe(false);
+    expect(rebuildsRun(false, { PULLS_ON_GITHUB_TOKEN: "tok" })).toBe(false);
+    // An empty token is no token: the pulls, and so the rebuilds, stay on Google.
+    expect(rebuildsRun(true, { PULLS_ON_GITHUB_TOKEN: " " })).toBe(true);
   });
 });

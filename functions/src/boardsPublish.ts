@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 import { failureWords, firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
+import { rebuildsRun } from "../../src/lib/cloud/githubDispatch";
 import { budgetDay } from "../../src/lib/cloud/refreshGate";
 import { publishAfterPull } from "../../src/lib/live/afterPull";
 import { publishLease } from "../../src/lib/live/publishLease";
@@ -41,7 +42,8 @@ try {
     relaunch: launchBoardsPublish,
     today: () => budgetDay(new Date()),
     now: () => new Date(),
-    rebuilds: LIVE_REBUILD,
+    // No rebuild is coming where the pulls, and so this publish, are on GitHub (`rebuildsRun`).
+    rebuilds: rebuildsRun(LIVE_REBUILD, process.env),
     onViews: (views) =>
       log(
         "boards-views",
