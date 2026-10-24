@@ -5242,6 +5242,26 @@ A token that has expired turns every pull away with GitHub's own words on the
 device ("GitHub would not start the pull (HTTP 401 …)"); a new one in the same
 secret, and a deploy, puts them back.
 
+### Boards after saves on GitHub
+
+Where the pulls are on GitHub, so are the boards after a save. A save the boards
+read, an edit or a League Standings score, no longer asks for a rebuild on Google
+(`rebuildsRun`): the rebuilds' 8 GiB job (`ranking-rebuild`) was October 2026's
+largest metered use, 113,966 GiB-s and 49,543 vCPU-s. Each save queues its check
+of the boards instead, counting on no rebuild ("Boards published after an edit"),
+and the check starts the boards' publish, which runs on GitHub. A rebuild's task
+already queued, or deferred to a later month by its budget, publishes the same
+way when it comes, and the deploy's own request after a deploy asks the boards'
+publish on GitHub (`scripts/requestRebuild.ts`). No decision counts on a rebuild
+coming, so a pull's end publishes its own boards whatever the ledger has left.
+
+A save reaches the boards in about six or seven minutes, the three minutes' settle
+and the publish's start and two minutes' build, where a rebuild took two or
+three. Each publish builds the year's boards whole, about a minute of building on
+a runner, rather than reusing the build before. The ledger (`ops/rebuild`) still
+meters the edits and the questions that refit a year, which stay on Google. Without
+the token the rebuilds run as before.
+
 ### Pulls in the cloud: the one-time setup
 
 Where the rebuilds after saves are set up (`LIVE_REBUILD`, below), the two functions

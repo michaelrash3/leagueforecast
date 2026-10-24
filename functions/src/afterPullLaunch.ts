@@ -9,6 +9,7 @@
  * the nightly publish the boards later.
  */
 import { failureWords, firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
+import { rebuildsRun } from "../../src/lib/cloud/githubDispatch";
 import { budgetDay } from "../../src/lib/cloud/refreshGate";
 import { askInTime, launchAfterPull, rebuildWillPublish } from "../../src/lib/live/afterPull";
 import { boardsCheckTask } from "../../src/lib/live/boardsCheck";
@@ -24,12 +25,13 @@ declare const LIVE_REBUILD: boolean;
  * `deadline`: when the caller's own time is up, in milliseconds since the epoch (`askInTime`).
  * `settleMs`: how long the copy and the seasons must have been still, none at a pull's end.
  * `rebuilds`: whether a rebuild coming may be counted on, as it may wherever this build deployed
- * them, but for a check whose save's rebuild could not be queued.
+ * them and they run (`rebuildsRun`: not where the pulls are on GitHub), but for a check whose
+ * save's rebuild could not be queued.
  */
 export const publishBoardsIfDue = async (
   deadline = Number.POSITIVE_INFINITY,
   settleMs = 0,
-  rebuilds = LIVE_REBUILD
+  rebuilds = rebuildsRun(LIVE_REBUILD, process.env)
 ): Promise<Record<string, unknown>> => {
   try {
     const now = new Date();

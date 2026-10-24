@@ -45,6 +45,7 @@ import {
   type EditPort,
 } from "../../src/lib/live/editWorkerProtocol";
 import { coerceQuery } from "../../src/lib/live/queries";
+import { rebuildsRun } from "../../src/lib/cloud/githubDispatch";
 import { requestRebuildJob } from "../../src/lib/live/rebuildJobLaunch";
 import { restLeagueDocs } from "../../src/lib/live/cloudLeague";
 import { coerceLedger, restLedgerStore } from "../../src/lib/live/rebuildLedger";
@@ -417,8 +418,11 @@ export const onCopyWrite = !LIVE_REBUILD
         const { level, message, line } = await handleCopyWrite({
           change: event.data,
           eventTime: event.time,
-          // A switch that is not there, or not one, is off; a read that throws counts as on.
-          readSwitch: async () => coerceLedger((await ledger.read()).raw)?.on === true,
+          // A switch that is not there, or not one, is off; a read that throws counts as on. Off
+          // too where the pulls are on GitHub, whose boards' publish stands in (`rebuildsRun`).
+          readSwitch: async () =>
+            rebuildsRun(LIVE_REBUILD, process.env) &&
+            coerceLedger((await ledger.read()).raw)?.on === true,
           enqueue: enqueueRebuild,
         });
         logger[level](message, line);
@@ -456,7 +460,9 @@ export const onLeagueWrite = !LIVE_REBUILD
           docId: event.params.season,
           eventTime: event.time,
           // As the copy's trigger reads it: absent or not one is off, a read that throws is on.
-          readSwitch: async () => coerceLedger((await ledger.read()).raw)?.on === true,
+          readSwitch: async () =>
+            rebuildsRun(LIVE_REBUILD, process.env) &&
+            coerceLedger((await ledger.read()).raw)?.on === true,
           enqueue: enqueueRebuild,
         });
         logger[level](message, line);
@@ -510,7 +516,7 @@ export const rebuild = !LIVE_REBUILD
           const asked = await publishBoardsIfDue(
             started + 115_000,
             BOARDS_SETTLE_MS,
-            LIVE_REBUILD && check.noRebuild !== true
+            rebuildsRun(LIVE_REBUILD, process.env) && check.noRebuild !== true
           );
           const until = asked.because === "publishing" ? asked.until : undefined;
           const again =
@@ -531,6 +537,23 @@ export const rebuild = !LIVE_REBUILD
         const task = coerceRebuildTask(request.data);
         if (!task) {
           logger.warn("rebuild", { end: "not-a-task" });
+          return;
+        }
+        /*
+         * Where the pulls are on GitHub no save asks for a rebuild (`rebuildsRun`), but one asked
+         * before, or deferred to a later month by its budget, still comes: it publishes as a save's
+         * check does, through the boards' publish on GitHub, rather than starting the job on Google.
+         */
+        if (!rebuildsRun(LIVE_REBUILD, process.env)) {
+          const reaped = await endDeadPulls(10_000);
+          const asked = await publishBoardsIfDue(started + 115_000, BOARDS_SETTLE_MS, false);
+          logger.info("rebuild", {
+            end: "boards-on-github",
+            kind: task.kind,
+            savedAt: task.savedAt,
+            ...asked,
+            ...reaped,
+          });
           return;
         }
         const access = restAccess();

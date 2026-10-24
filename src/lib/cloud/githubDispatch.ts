@@ -150,3 +150,16 @@ export const dispatchLegOnce = async (
   }
   await settle("asked");
 };
+
+/**
+ * Whether the rebuilds after saves run, in a build that has them (`built`, the functions'
+ * LIVE_REBUILD): not where the pulls are on GitHub (`env`, as `pullDispatchToken` reads it). There a
+ * save the boards read is published by its own check (`boardsCheck.ts`) through the boards' publish,
+ * which runs on GitHub too, rather than by the `ranking-rebuild` job, whose 8 GiB Google bills by the
+ * second: the rebuilds' 113,966 GiB-s and 49,543 vCPU-s were October 2026's largest metered use. So
+ * no save asks for a rebuild, a rebuild's task that still comes publishes as a check does, and no
+ * decision counts on a rebuild coming (`afterPullDecision`), which would otherwise leave a pull's
+ * boards to one that never runs. The ledger (`ops/rebuild`) still meters the edits.
+ */
+export const rebuildsRun = (built: boolean, env: Record<string, string | undefined>): boolean =>
+  built && pullDispatchToken(env) === undefined;

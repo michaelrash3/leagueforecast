@@ -404,7 +404,8 @@ if (process.env.LIVE_REBUILD !== "on") {
     onCopyWrite === undefined &&
       onLeagueWrite === undefined &&
       rebuild === undefined &&
-      edit === undefined && poolQuery === undefined,
+      edit === undefined &&
+      poolQuery === undefined,
     `${typeof onCopyWrite} ${typeof onLeagueWrite} ${typeof rebuild} ${typeof edit}`
   );
 } else {
@@ -420,11 +421,13 @@ if (process.env.LIVE_REBUILD !== "on") {
       called.concurrency === 8,
     JSON.stringify(called)
   );
-  check("background pool reads have a separate callable instance",
+  check(
+    "background pool reads have a separate callable instance",
     poolQuery.__endpoint.callableTrigger !== undefined &&
-    poolQuery.__endpoint.availableMemoryMb === 8192 &&
-    poolQuery.__endpoint.serviceAccountEmail === called.serviceAccountEmail,
-    JSON.stringify(poolQuery.__endpoint));
+      poolQuery.__endpoint.availableMemoryMb === 8192 &&
+      poolQuery.__endpoint.serviceAccountEmail === called.serviceAccountEmail,
+    JSON.stringify(poolQuery.__endpoint)
+  );
   // Who may call: the list's answer comes from the stand-in, there for the one member alone. Every
   // call here is turned away before the worker starts or the copy is read.
   const reads = [];
@@ -496,9 +499,17 @@ if (process.env.LIVE_REBUILD !== "on") {
     JSON.stringify(reads)
   );
   const queryWrite = await post(poolQuery, { data: { command } }, signedInAs("member@example.com"));
-  check("the background-read endpoint refuses a write before any worker starts", queryWrite.status === 400, String(queryWrite.body));
+  check(
+    "the background-read endpoint refuses a write before any worker starts",
+    queryWrite.status === 400,
+    String(queryWrite.body)
+  );
   const queryUnsigned = await post(poolQuery, { data: { query: { kind: "year.list" } } });
-  check("background reads require sign-in too", queryUnsigned.status === 401, String(queryUnsigned.body));
+  check(
+    "background reads require sign-in too",
+    queryUnsigned.status === 401,
+    String(queryUnsigned.body)
+  );
   const query = { kind: "rename.preview", teamId: "B", name: "Club B" };
   const outsiderQuery = await post(edit, { data: { query } }, signedInAs("outsider@example.com"));
   const junkQuery = await post(
@@ -787,7 +798,6 @@ if (process.env.LIVE_REBUILD !== "on") {
   const scores = await logged(async () => {
     await onLeagueWrite(event(season(3), season(4), "league/season-2"));
   });
-  queue.close();
   const saved = saves.filter((line) => line.event === "save");
   check(
     "a save that moves a board queues its window's rebuild, waited on past the timeout",
@@ -819,6 +829,49 @@ if (process.env.LIVE_REBUILD !== "on") {
       JSON.parse(Buffer.from(tasks[2]?.httpRequest?.body ?? "", "base64").toString()).data
         ?.season === "season-2",
     JSON.stringify({ scores, task: tasks[2] })
+  );
+  // Where the pulls are on GitHub the rebuilds do not run (`rebuildsRun`): a save that moves a
+  // board queues its check of the boards, counting on no rebuild, and a rebuild's task that still
+  // comes publishes as a check does, with no job started on Google.
+  const beforeGithub = tasks.length;
+  process.env.PULLS_ON_GITHUB_TOKEN = "smoke-token";
+  const githubSaves = await logged(async () => {
+    await onCopyWrite(event(manifest(6, "c"), manifest(7, "d")));
+  });
+  const githubTasks = tasks.slice(beforeGithub);
+  let diverted = null;
+  const divertedLines = await logged(async () => {
+    diverted = await post(
+      rebuild,
+      {
+        data: {
+          copy: "copy-1",
+          kind: "live",
+          window: Math.floor(Date.now() / 900000),
+          savedAt: new Date().toISOString(),
+        },
+      },
+      signed
+    );
+  });
+  delete process.env.PULLS_ON_GITHUB_TOKEN;
+  queue.close();
+  const githubBody = (task) =>
+    JSON.parse(Buffer.from(task?.httpRequest?.body ?? "", "base64").toString()).data;
+  check(
+    "with the pulls on GitHub a save asks no rebuild, and queues its check of the boards instead",
+    githubSaves.some((line) => line.event === "skip" && line.why === "off") &&
+      !githubSaves.some((line) => line.event === "save") &&
+      githubTasks.length === 1 &&
+      githubBody(githubTasks[0])?.check === "boards" &&
+      githubBody(githubTasks[0])?.noRebuild === true,
+    JSON.stringify({ githubSaves, githubTasks })
+  );
+  check(
+    "and a rebuild's task that still comes publishes as a check does, starting no job on Google",
+    diverted?.status === 204 &&
+      divertedLines.some((line) => line.end === "boards-on-github" && line.kind === "live"),
+    JSON.stringify({ status: diverted?.status, divertedLines })
   );
   globalThis.fetch = realFetch;
 }
