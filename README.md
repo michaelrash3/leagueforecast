@@ -2195,7 +2195,10 @@ is long enough to be worth interrupting and nothing is more than seven days old:
 nothing else reads a day or a level. On the daily cadence every day is also a
 catch-up day, which matters more than it sounds: a team with no age is on no page,
 so a refresh by level walks past it for ever, and on the rota Friday is the only
-day that asks about them at all.
+day that asks about them at all. The nightly asks about the ones due beside its
+own teams on a catch-up day. Until 24 October 2026 it left them out, so only the
+Import tab's **Ask again** ever reached them, and a rule that could now age a team
+on the list (`withRulesMoved`) waited on somebody pressing it.
 
 Either way a day is counted once — opening the app twice in an evening does not
 pull twice — and a level is marked done only when its run actually finishes, so
@@ -4279,7 +4282,9 @@ re-asks that named no season, the roster check of under-strength pages and **Ask
 about teams with no age, reached those squads and filed them back onto a page of the year
 that was put away. Both now keep to the season being played, as the rota does: the roster
 check lists only that season's pages, and both pulls refuse any other season's team
-(`other-season`), which also takes it off the waiting list.
+(`other-season`), which also takes it off the waiting list. The nightly holds the waiting
+teams it asks about to the same season (`GcImportOptions.seasonYearsFor`), while the rota's
+own teams are filed as the pool already holds them.
 
 An archived table keeps the numbers it was frozen with, since its games are gone and nothing
 can fit it again. Tables frozen before the cap moved from eight to twelve, at the end of

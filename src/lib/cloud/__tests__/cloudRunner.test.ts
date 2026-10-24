@@ -16,11 +16,13 @@ import {
   loadRefreshLog,
   loadRefusedClubs,
   loadScoutGames,
+  loadAgeUnknown,
   loadScoutTeams,
   loadTidyStamp,
   readCloudPoolValue,
   resetTeamRankingsStore,
   saveAgeGroups,
+  saveAgeUnknown,
   saveDroppedClubs,
   saveKeptApart,
   saveRefreshCadence,
@@ -1197,6 +1199,94 @@ describe("a pull run on the cloud copy", () => {
     resetTeamRankingsStore();
     await loadPoolFrom(cloud.store);
     expect(loadRefreshLog()["9"]).toBe(localDayKey(new Date(day)));
+  });
+
+  it("asks again about the teams waiting on an age that are due, beside the rota's", async () => {
+    const WAITING = "gcWAIT000001";
+    const cloud = memoryCloud();
+    await seed(cloud, () => {
+      saveRefreshCadence("daily");
+      saveAgeUnknown([
+        {
+          teamId: WAITING,
+          name: "Wildcats",
+          firstSeen: "2026-09-01T00:00:00.000Z",
+          lastTried: "2026-09-20T00:00:00.000Z",
+          tries: 1,
+        },
+      ]);
+    });
+    await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    const asked: string[][] = [];
+    await runCloudPull(
+      { kind: "rota" },
+      deps(cloud, "2026-10-02T07:17:00.000Z", {
+        fetchTeams: async (ids, options) => {
+          asked.push([...ids].sort());
+          return answering()(ids, options);
+        },
+      })
+    );
+    expect(asked).toEqual([[ACES, BEARS, WAITING]]);
+  });
+
+  it("files the waiting teams it asks about in the season being played only", async () => {
+    const LAST_SUMMER = "gcWAIT000002";
+    const THIS_FALL = "gcWAIT000003";
+    const waiting = (teamId: string, name: string) => ({
+      teamId,
+      name,
+      firstSeen: "2026-09-01T00:00:00.000Z",
+      lastTried: "2026-09-20T00:00:00.000Z",
+      tries: 1,
+    });
+    const answers = new Map<string, GcTeamSchedule>([
+      ...schedules,
+      [THIS_FALL, schedule(THIS_FALL, "Foxes", [game("x1", "Aces", 2, 1)])],
+      [
+        LAST_SUMMER,
+        (() => {
+          const summer = schedule(LAST_SUMMER, "Owls", [game("o1", "Bears", 7, 4)]);
+          return {
+            ...summer,
+            profile: { ...summer.profile, season: { season: "summer", year: 2026 } },
+          };
+        })(),
+      ],
+    ]);
+    const cloud = memoryCloud();
+    await seed(cloud, () => {
+      saveRefreshCadence("daily");
+      saveAgeUnknown([waiting(LAST_SUMMER, "Owls"), waiting(THIS_FALL, "Foxes")]);
+    });
+    await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+    await runCloudPull(
+      { kind: "rota" },
+      deps(cloud, "2026-10-02T07:17:00.000Z", {
+        fetchTeams: async (ids, options) => {
+          const told = new Map<string, GcTeamResponse>();
+          ids.forEach((teamId, at) => {
+            const found = answers.get(teamId);
+            const result: GcTeamResponse = found
+              ? { ok: true, schedule: found }
+              : { ok: false, reason: "not-found", message: "No such team." };
+            told.set(teamId, result);
+            options.onProgress?.({ done: at + 1, total: ids.length, teamId, result, attempts: 1 });
+          });
+          return told;
+        },
+      })
+    );
+    resetTeamRankingsStore();
+    await loadPoolFrom(cloud.store);
+    const pulled = loadScoutTeams().flatMap(
+      (team) => team.gcTeams?.map((link) => link.teamId) ?? []
+    );
+    // The rota's own teams are filed as ever, and so is the waiting team playing this fall.
+    expect(pulled).toEqual(expect.arrayContaining([ACES, BEARS, THIS_FALL]));
+    // Last summer's squad is refused for its year, and leaves the waiting list with it.
+    expect(pulled).not.toContain(LAST_SUMMER);
+    expect(loadAgeUnknown().map((entry) => entry.teamId)).not.toContain(LAST_SUMMER);
   });
 
   it("pulls only the first teams due on a trial run, and leaves the day unlogged", async () => {
