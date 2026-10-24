@@ -20,7 +20,7 @@ import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
 import { importLease, watchLease } from "../../src/lib/cloud/importLease";
 import { JOB_ID } from "../../src/lib/cloud/pullJobs";
 import { restJobDocs } from "../../src/lib/cloud/pullJobRunner";
-import { LEG_TRIES, runLeg } from "./legRun";
+import { LEG_TRIES, legFailed, runLeg } from "./legRun";
 import { restAccess } from "./pullAccess";
 
 const jobId = process.env.PULL_JOB_ID ?? "";
@@ -39,38 +39,67 @@ const runImporter = async (id: string): Promise<void> => {
   await import(new URL("./importJob.js", import.meta.url).href);
 };
 
-const docs = firestoreRestDocuments(restAccess());
-const job = await restJobDocs(docs).read(jobId);
+const started = Date.now();
 const task = { jobId, leg };
-if (!job || (job.pipeline === "staged-v1" && !job.rota)) {
-  // Nothing to hold a lease for (`runLeg` says so), or the importer, which takes its own.
-  await runLeg(task, lastTry, runImporter);
-} else {
+const docs = firestoreRestDocuments(restAccess());
+
+/**
+ * What the run found before the leg: a job with nothing to hold a lease for (`runLeg` says why),
+ * or a staged list's, whose importer takes its own; the lease, for any other; or the lease still
+ * another run's after waiting almost two minutes for it, as the importer waits.
+ */
+type Setup =
+  | { kind: "unleased" }
+  | { kind: "leased"; lease: ReturnType<typeof importLease> }
+  | {
+      kind: "duplicate";
+    };
+
+const setUp = async (): Promise<Setup> => {
+  const job = await restJobDocs(docs).read(jobId);
+  if (!job || (job.pipeline === "staged-v1" && !job.rota)) return { kind: "unleased" };
   const lease = importLease(docs, jobId, randomUUID());
-  // A leg asked for twice waits for the first's lease, renewed while it runs (`watchLease`).
-  let claimed = false;
-  for (let wait = 0; wait < 11 && !claimed; wait++) {
-    claimed = await lease.claim(Date.now());
-    if (!claimed) await new Promise((resolve) => setTimeout(resolve, 10_000));
+  for (let wait = 0; wait < 11; wait++) {
+    if (await lease.claim(Date.now())) return { kind: "leased", lease };
+    await new Promise((resolve) => setTimeout(resolve, 10_000));
   }
-  if (!claimed) {
-    console.log(JSON.stringify({ event: "leg-duplicate", leg }));
-  } else {
-    // A lease lost is a leg another execution may be running: this one stops at once, writing
-    // nothing, and the workflow's next try waits for the lease or finds the leg done.
-    const stopWatching = watchLease(lease, (why) => {
-      console.error(JSON.stringify({ event: "leg-lease-lost", leg, why }));
-      process.exit(1);
-    });
-    try {
-      await runLeg(task, lastTry, runImporter);
-    } catch (error) {
-      // Written on the job already (`runLeg`); the workflow tries the leg again.
-      console.error(JSON.stringify({ event: "leg-retry", leg, error: String(error) }));
-      process.exitCode = 1;
-    } finally {
-      stopWatching();
-      await lease.release().catch(() => undefined);
-    }
+  return { kind: "duplicate" };
+};
+
+let setup: Setup | null = null;
+try {
+  setup = await setUp();
+} catch (error) {
+  /*
+   * The job or its lease could not be read before the leg began. Written on the job as a leg that
+   * failed in its worker is (`legFailed`), so the last try ends the pull with why rather than
+   * leaving it running for the reaper to end as silent (Codex, on #440).
+   */
+  const said = error instanceof Error ? error.message : String(error);
+  console.error(JSON.stringify({ event: "leg-setup-failed", leg, error: said }));
+  await legFailed(task, said, lastTry, started);
+  process.exitCode = 1;
+}
+if (setup?.kind === "unleased") {
+  await runLeg(task, lastTry, runImporter);
+} else if (setup?.kind === "duplicate") {
+  console.log(JSON.stringify({ event: "leg-duplicate", leg }));
+} else if (setup?.kind === "leased") {
+  const { lease } = setup;
+  // A lease lost is a leg another execution may be running: this one stops at once, writing
+  // nothing, and the workflow's next try waits for the lease or finds the leg done.
+  const stopWatching = watchLease(lease, (why) => {
+    console.error(JSON.stringify({ event: "leg-lease-lost", leg, why }));
+    process.exit(1);
+  });
+  try {
+    await runLeg(task, lastTry, runImporter);
+  } catch (error) {
+    // Written on the job already (`runLeg`); the workflow tries the leg again.
+    console.error(JSON.stringify({ event: "leg-retry", leg, error: String(error) }));
+    process.exitCode = 1;
+  } finally {
+    stopWatching();
+    await lease.release().catch(() => undefined);
   }
 }

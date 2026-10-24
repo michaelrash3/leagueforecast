@@ -100,35 +100,8 @@ export const runLeg = async (
   const took = `${Math.round((Date.now() - started) / 1000)} s`;
   if ("error" in answer) {
     logger.error(said(`${answer.error} (${took}${lastTry ? ", its last try" : ""})`));
-    // A killed worker cannot record its own failure. Record it on every try, while this
-    // leg is still current; a stopped or advanced job must never be overwritten by it.
-    const now = await jobs.read(task.jobId).catch(() => null);
-    if (now && (now.status === "queued" || now.status === "running") && now.legsDone === task.leg) {
-      await jobs
-        .updateIfUnchanged(task.jobId, now, {
-          ...(now.stopAsked ? { status: "cancelled" } : lastTry ? { status: "failed" } : {}),
-          stage: "waiting",
-          error: answer.error,
-          updatedAt: new Date().toISOString(),
-        })
-        .catch((error: unknown) => {
-          logger.error(
-            said(
-              `could not record its failure: ${error instanceof Error ? error.message : String(error)}`
-            )
-          );
-        });
-    }
+    await legFailed(task, answer.error, lastTry, started);
     if (!lastTry) throw new Error(answer.error);
-    // The job is failed now, and its earlier legs' saves may want publishing.
-    logger.info("boards-after-pull", {
-      jobId: task.jobId,
-      // Dead pulls ended first: one still taken for a writer would hold the boards back.
-      ...(await endDeadPulls(
-        Math.min(10_000, started + LEG_TIMEOUT_S * 1000 - 5_000 - Date.now())
-      )),
-      ...(await publishBoardsIfDue(started + LEG_TIMEOUT_S * 1000 - 5_000)),
-    });
     return;
   }
   logger.info(said(`${answer.outcome} in ${took}.`));
@@ -144,4 +117,49 @@ export const runLeg = async (
       ...(await publishBoardsIfDue(started + LEG_TIMEOUT_S * 1000 - 5_000)),
     });
   }
+};
+
+/**
+ * Writes a leg's failure, `error`, on its job, on every try and only while the leg is still the
+ * job's current one: as cancelled where a stop was asked, failed for good on the `lastTry`, and
+ * otherwise left for the next try with the reason beside it. On the last try the boards are
+ * published too, as its earlier legs' saves may want. A leg that failed in its worker comes here
+ * from `runLeg`, and one on GitHub whose run failed before it could reach `runLeg` from `legJob.ts`.
+ * Never throws.
+ */
+export const legFailed = async (
+  task: LegTask,
+  error: string,
+  lastTry: boolean,
+  started: number
+): Promise<void> => {
+  const jobs = restJobDocs(firestoreRestDocuments(restAccess()));
+  const said = (what: string) => `Leg ${task.leg} of pull ${task.jobId}: ${what}`;
+  // A killed worker cannot record its own failure. Record it on every try, while this
+  // leg is still current; a stopped or advanced job must never be overwritten by it.
+  const now = await jobs.read(task.jobId).catch(() => null);
+  if (now && (now.status === "queued" || now.status === "running") && now.legsDone === task.leg) {
+    await jobs
+      .updateIfUnchanged(task.jobId, now, {
+        ...(now.stopAsked ? { status: "cancelled" } : lastTry ? { status: "failed" } : {}),
+        stage: "waiting",
+        error,
+        updatedAt: new Date().toISOString(),
+      })
+      .catch((failure: unknown) => {
+        logger.error(
+          said(
+            `could not record its failure: ${failure instanceof Error ? failure.message : String(failure)}`
+          )
+        );
+      });
+  }
+  if (!lastTry) return;
+  // The job is failed now, and its earlier legs' saves may want publishing.
+  logger.info("boards-after-pull", {
+    jobId: task.jobId,
+    // Dead pulls ended first: one still taken for a writer would hold the boards back.
+    ...(await endDeadPulls(Math.min(10_000, started + LEG_TIMEOUT_S * 1000 - 5_000 - Date.now()))),
+    ...(await publishBoardsIfDue(started + LEG_TIMEOUT_S * 1000 - 5_000)),
+  });
 };
