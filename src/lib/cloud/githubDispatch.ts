@@ -90,13 +90,26 @@ export const legAskedPath = (jobId: string, leg: number): string =>
   `pullJobs/${jobId}/control/leg-${leg}`;
 
 /**
+ * How long a leg's asking may stand unfinished before another ask takes it over: past the 25 s
+ * GitHub is given to answer (`dispatchPull`), by enough that only an asker that died, or one whose
+ * answer could not be written down, leaves a mark that old.
+ */
+export const LEG_ASKING_STALE_MS = 2 * 60_000;
+
+/**
  * Asks GitHub for `task`'s leg once, as Cloud Tasks queued a leg once under its name: "already"
  * where it was asked for before. A device asks again every minute for a pull still waiting to
  * start (`startPullJob`), and a GitHub run takes about that long to start, so without the mark a
  * pull sent once started two runs, and every leg after the first that found its leg done asked for
- * the next a second time. A mark is made only where none is, or over one whose asking failed: an
- * asking GitHub refused is marked so, and the next ask tries again, where a task Cloud Tasks
- * refused had never been made.
+ * the next a second time.
+ *
+ * The mark says "asking" while GitHub is asked and "asked" once it has taken the run, and only
+ * "asked" is the leg queued for good. An asking GitHub refused is marked "refused", and the next
+ * ask tries again, as a task Cloud Tasks refused had never been made. One still "asking" after
+ * `LEG_ASKING_STALE_MS` is taken over too: its asker died before it could say, or could not write
+ * down what GitHub said (Codex, on #440), and a leg asked for in fact meanwhile only runs again
+ * under the job's lease, to find itself done (`legJob.ts`), where one never asked would stall the
+ * pull until it was ended as silent.
  */
 export const dispatchLegOnce = async (
   task: { jobId: string; leg: number },
@@ -108,23 +121,32 @@ export const dispatchLegOnce = async (
 ): Promise<void | "already"> => {
   const path = legAskedPath(task.jobId, task.leg);
   const at = await deps.docs.readAt(path);
-  if (at && at.fields.state !== "refused") return "already";
+  if (at?.fields.state === "asked") return "already";
+  if (at?.fields.state === "asking") {
+    const since = deps.now().getTime() - Date.parse(String(at.fields.at));
+    // A date that cannot be read is no proof of a live asker.
+    if (since < LEG_ASKING_STALE_MS) return "already";
+  }
   const marked = await deps.docs.replace(
     path,
-    { state: "asked", at: deps.now().toISOString() },
+    { state: "asking", at: deps.now().toISOString() },
     at?.token ?? null
   );
   // Another ask marked it first, and is asking.
   if (!marked) return "already";
+  /** Writes `state` over the mark this ask made, where it is still this ask's; never throws. */
+  const settle = async (state: "asked" | "refused"): Promise<void> => {
+    const mine = await deps.docs.readAt(path).catch(() => null);
+    if (mine?.fields.state !== "asking") return;
+    await deps.docs
+      .replace(path, { state, at: deps.now().toISOString() }, mine.token)
+      .catch(() => false);
+  };
   try {
     await deps.dispatch({ task: "leg", jobId: task.jobId, leg: task.leg });
   } catch (error) {
-    const mine = await deps.docs.readAt(path).catch(() => null);
-    if (mine?.fields.state === "asked") {
-      await deps.docs
-        .replace(path, { state: "refused", at: deps.now().toISOString() }, mine.token)
-        .catch(() => false);
-    }
+    await settle("refused");
     throw error;
   }
+  await settle("asked");
 };

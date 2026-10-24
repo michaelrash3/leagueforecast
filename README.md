@@ -5209,9 +5209,15 @@ through `legJob.ts`, which runs it as `runPull` does (`legRun.ts`), and a staged
 list's leg runs its importer, `importJob.js`, in the same run. A leg or an import
 is tried three times, two minutes apart, as Cloud Tasks and Cloud Run tried them,
 and the boards' publish once. A leg asks for the next with the run's own token.
-Cloud Tasks queued a leg once under its name, and GitHub has no such name, so a
-leg asked for twice waits out the first's execution lease, the one a staged
-import already holds, and then finds its leg done. The pull's id is masked before
+Cloud Tasks queued a leg once under its name, and GitHub has no such name, so
+each leg's asking is marked beside its job (`dispatchLegOnce`): "asking" while
+GitHub is asked, "asked" once it has taken the run, after which every ask is
+answered "already". A device asks again every minute for a pull waiting to start,
+and a run takes about that long to start, so without the mark one pull started
+two runs. An asking GitHub refused, or one left "asking" for two minutes by an
+asker that died, is asked again. A leg also runs under the job's execution
+lease, the one a staged import already holds, so a second run of it finds its leg
+done. The pull's id is masked before
 the run prints anything, since its log is public; the run prints what the
 functions' logs did, the cloud's own words, counts and timings. Those lines are
 in **Actions → Pull in the cloud** rather than Google's logs, so the "Pulls in

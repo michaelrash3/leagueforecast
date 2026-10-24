@@ -119,6 +119,36 @@ describe("dispatchLegOnce", () => {
     expect(asked).toHaveLength(2);
   });
 
+  it("takes over an asking left unfinished past its time, and not one still under way", async () => {
+    const docs = memoryDocs();
+    const asked: unknown[] = [];
+    const dispatch = async (ask: unknown) => {
+      asked.push(ask);
+    };
+    // An asker that marked the leg and died before GitHub answered, or before it could say so.
+    await docs.replace(
+      "pullJobs/job123/control/leg-1",
+      { state: "asking", at: "2026-10-24T16:59:00.000Z" },
+      null
+    );
+    const at = (iso: string) => () => new Date(iso);
+    // A minute on, it may still be asking.
+    expect(
+      await dispatchLegOnce(task, { docs, dispatch, now: at("2026-10-24T17:00:00.000Z") })
+    ).toBe("already");
+    expect(asked).toEqual([]);
+    // Past its time, the next ask asks, and the leg is then asked for good.
+    expect(
+      await dispatchLegOnce(task, { docs, dispatch, now: at("2026-10-24T17:01:30.000Z") })
+    ).toBeUndefined();
+    expect(asked).toHaveLength(1);
+    expect(docs.held.get("pullJobs/job123/control/leg-1")?.fields.state).toBe("asked");
+    expect(
+      await dispatchLegOnce(task, { docs, dispatch, now: at("2026-10-24T18:00:00.000Z") })
+    ).toBe("already");
+    expect(asked).toHaveLength(1);
+  });
+
   it("answers already where another ask marked the leg first", async () => {
     const docs = memoryDocs();
     const racing = {
