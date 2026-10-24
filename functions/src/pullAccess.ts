@@ -8,6 +8,12 @@
 import { applicationDefault, getApps, initializeApp } from "firebase-admin/app";
 import { getFunctions } from "firebase-admin/functions";
 import { FUNCTIONS_REGION } from "../../src/lib/cloud/functionsUrl";
+import { firestoreRestDocuments } from "../../src/lib/cloud/firestoreRest";
+import {
+  dispatchLegOnce,
+  dispatchPull,
+  pullDispatchToken,
+} from "../../src/lib/cloud/githubDispatch";
 import type { LegTask } from "../../src/lib/cloud/pullJobRunner";
 import type { BoardsCheckTask } from "../../src/lib/live/boardsCheck";
 import type { RebuildTask } from "../../src/lib/live/rebuildPlan";
@@ -50,8 +56,13 @@ const accessToken = (() => {
 /** Firestore's REST API as the function's own account (`firestoreRest.ts`). */
 export const restAccess = () => ({ projectId: projectId(), token: accessToken });
 
-/** Launches a durable job and returns as soon as Google accepts the execution. */
+/**
+ * Launches a durable job and returns as soon as Google accepts the execution, or GitHub the run
+ * where the pulls are on GitHub (`githubDispatch.ts`).
+ */
 export const launchImport = async (jobId: string): Promise<void> => {
+  const token = pullDispatchToken(process.env);
+  if (token) return dispatchPull({ task: "import", jobId }, token);
   const access = restAccess();
   const response = await fetch(
     `https://run.googleapis.com/v2/projects/${access.projectId}/locations/${REGION}/jobs/team-import:run`,
@@ -97,6 +108,9 @@ export const launchRebuild = async (): Promise<void> => {
  * or publishing over the earlier, which a publish never puts back.
  */
 export const launchBoardsPublish = async (): Promise<void> => {
+  // On GitHub where the pulls are, as the same file run there (`cloud-pull.yml`).
+  const token = pullDispatchToken(process.env);
+  if (token) return dispatchPull({ task: "boards" }, token);
   const access = restAccess();
   const response = await fetch(
     `https://run.googleapis.com/v2/projects/${access.projectId}/locations/${REGION}/jobs/boards-publish:run`,
@@ -122,6 +136,16 @@ export const launchBoardsPublish = async (): Promise<void> => {
  * (`startPullJob`).
  */
 export const enqueueLeg = async (task: LegTask): Promise<void | "already"> => {
+  // A run of GitHub's where the pulls are on GitHub, asked for once a leg as a task was queued
+  // once under its name (`dispatchLegOnce`).
+  const token = pullDispatchToken(process.env);
+  if (token) {
+    return dispatchLegOnce(task, {
+      docs: firestoreRestDocuments(restAccess()),
+      dispatch: (ask) => dispatchPull(ask, token),
+      now: () => new Date(),
+    });
+  }
   try {
     await getFunctions(adminApp())
       .taskQueue<LegTask>(`locations/${REGION}/functions/runPull`)

@@ -76,12 +76,10 @@ import {
   launchRebuild,
   REGION,
   restAccess,
-  zoneOf,
 } from "./pullAccess";
 import { publishBoardsIfDue, queueBoardsCheck } from "./afterPullLaunch";
 import { endDeadPulls } from "./deadPulls";
-import type { LegAnswer, LegRequest } from "./pullLeg";
-import { PULL_WORKER_TIMEOUT_MS, waitForPullWorker } from "../../src/lib/cloud/pullWorkerLifetime";
+import { LEG_TIMEOUT_S, LEG_TRIES, runLeg } from "./legRun";
 
 /**
  * GET /gcTeam?ids=<id,id,…>&raw=1 — the GameChanger proxy.
@@ -181,16 +179,6 @@ declare const CLOUD_PULLS: boolean;
  * Without the rebuilds, the pulls' own account, `pull-runner`, as their setup makes it.
  */
 const PULL_RUNNER = LIVE_REBUILD ? "live-runner@" : "pull-runner@";
-
-/** Tries a leg gets, the first included, before its job is marked failed. */
-const LEG_TRIES = 3;
-
-/**
- * The most a leg's worker may hold, of the instance's 8 GiB: the rest is for what a heap does not
- * count, the gzipped pieces and the answers' bytes, and for the function itself. The nightly
- * refresh, pulling 15,793 teams into the whole pool, held 3.5 GB at its end on 29 September 2026.
- */
-const LEG_HEAP_MB = 5_120;
 
 /** Whether a caller of `startPull` is on the cloud copy's list, asked once per instance. */
 const startPullCheck = createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projectId });
@@ -349,32 +337,6 @@ export const startPull = !CLOUD_PULLS
       }
     );
 
-/** Runs a leg in a worker of its own, holding at most `LEG_HEAP_MB`, and hands back its answer. */
-const legInWorker = (request: LegRequest, deadlineMs: number): Promise<LegAnswer> => {
-  const remainingMs = deadlineMs - Date.now();
-  if (remainingMs <= 0)
-    throw new Error("The pull could not start its worker before the request deadline.");
-  const worker = new Worker(new URL("./pullLeg.js", import.meta.url), {
-    workerData: request,
-    resourceLimits: { maxOldGenerationSizeMb: LEG_HEAP_MB },
-  });
-  return waitForPullWorker<LegAnswer>(
-    {
-      onMessage: (listener) => {
-        worker.once("message", listener);
-      },
-      onError: (listener) => {
-        worker.once("error", listener);
-      },
-      onExit: (listener) => {
-        worker.once("exit", listener);
-      },
-      stop: () => worker.terminate(),
-    },
-    remainingMs
-  );
-};
-
 /**
  * Legs that may run at once, each on an instance of its own with the memory the whole pool takes.
  * One at a time left a pull sent while another ran "waiting to start" for as long as that one's
@@ -384,12 +346,6 @@ const legInWorker = (request: LegRequest, deadlineMs: number): Promise<LegAnswer
  * legs are never at once, since each queues the next only as it ends.
  */
 const LEGS_AT_ONCE = 3;
-
-/** A leg's task's time limit, which the ask after its pull keeps five seconds inside. */
-const LEG_TIMEOUT_S = 1800;
-
-/** How a leg that ended its job ends (`LegOutcome`): finished, stopped, or failed for good. */
-const PULL_ENDED: ReadonlySet<string> = new Set(["done", "cancelled", "failed"]);
 
 /**
  * One leg of a pull, as Cloud Tasks sends it, beside at most `LEGS_AT_ONCE - 1` others. A leg has
@@ -411,91 +367,8 @@ export const runPull = !CLOUD_PULLS
         retryConfig: { maxAttempts: LEG_TRIES, minBackoffSeconds: 120 },
         rateLimits: { maxConcurrentDispatches: LEGS_AT_ONCE },
       },
-      async (request) => {
-        const task = request.data;
-        const lastTry = (request.retryCount ?? 0) + 1 >= LEG_TRIES;
-        const said = (what: string) => `Leg ${task.leg} of pull ${task.jobId}: ${what}`;
-        if (typeof task.jobId !== "string" || !JOB_ID.test(task.jobId)) {
-          logger.warn(said("not a pull's id; nothing done."));
-          return;
-        }
-        const jobs = restJobDocs(firestoreRestDocuments(restAccess()));
-        const started = Date.now();
-        let answer: LegAnswer;
-        try {
-          // Inside the try, so a read that fails on the last try still ends the job below rather
-          // than leaving it "waiting to start" with no task left to run it.
-          const job = await jobs.read(task.jobId);
-          if (!job) {
-            logger.info(said("no such pull; nothing done."));
-            return;
-          }
-          if (job.pipeline === "staged-v1" && !job.rota) {
-            if (!["done", "failed", "cancelled"].includes(job.status)) {
-              await launchImport(task.jobId);
-              logger.info("import-launched", { jobId: task.jobId });
-            }
-            return;
-          }
-          // The day the leg files and logs in is the job's: the device's for a list it sent, New
-          // York's for "Refresh now" (`REFRESH_ZONE`). Its worker keeps the zone set here.
-          process.env.TZ = zoneOf(job.timeZone);
-          answer = await legInWorker({ task, lastTry }, started + PULL_WORKER_TIMEOUT_MS);
-        } catch (error) {
-          answer = { error: error instanceof Error ? error.message : String(error) };
-        }
-        const took = `${Math.round((Date.now() - started) / 1000)} s`;
-        if ("error" in answer) {
-          logger.error(said(`${answer.error} (${took}${lastTry ? ", its last try" : ""})`));
-          // A killed worker cannot record its own failure. Record it on every try, while this
-          // leg is still current; a stopped or advanced job must never be overwritten by it.
-          const now = await jobs.read(task.jobId).catch(() => null);
-          if (
-            now &&
-            (now.status === "queued" || now.status === "running") &&
-            now.legsDone === task.leg
-          ) {
-            await jobs
-              .updateIfUnchanged(task.jobId, now, {
-                ...(now.stopAsked ? { status: "cancelled" } : lastTry ? { status: "failed" } : {}),
-                stage: "waiting",
-                error: answer.error,
-                updatedAt: new Date().toISOString(),
-              })
-              .catch((error: unknown) => {
-                logger.error(
-                  said(
-                    `could not record its failure: ${error instanceof Error ? error.message : String(error)}`
-                  )
-                );
-              });
-          }
-          if (!lastTry) throw new Error(answer.error);
-          // The job is failed now, and its earlier legs' saves may want publishing.
-          logger.info("boards-after-pull", {
-            jobId: task.jobId,
-            // Dead pulls ended first: one still taken for a writer would hold the boards back.
-            ...(await endDeadPulls(
-              Math.min(10_000, started + LEG_TIMEOUT_S * 1000 - 5_000 - Date.now())
-            )),
-            ...(await publishBoardsIfDue(started + LEG_TIMEOUT_S * 1000 - 5_000)),
-          });
-          return;
-        }
-        logger.info(said(`${answer.outcome} in ${took}.`));
-        // The leg that ended its job, however it ended: what its legs saved goes on the boards now,
-        // where no rebuild is coming to (`afterPull.ts`).
-        if (PULL_ENDED.has(answer.outcome)) {
-          logger.info("boards-after-pull", {
-            jobId: task.jobId,
-            // Dead pulls ended first: one still taken for a writer would hold the boards back.
-            ...(await endDeadPulls(
-              Math.min(10_000, started + LEG_TIMEOUT_S * 1000 - 5_000 - Date.now())
-            )),
-            ...(await publishBoardsIfDue(started + LEG_TIMEOUT_S * 1000 - 5_000)),
-          });
-        }
-      }
+      async (request) =>
+        runLeg(request.data, (request.retryCount ?? 0) + 1 >= LEG_TRIES, launchImport)
     );
 
 /*

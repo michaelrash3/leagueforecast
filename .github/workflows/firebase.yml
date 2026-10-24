@@ -118,6 +118,9 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           GROQ_MODEL: ${{ vars.GROQ_MODEL }}
+          # Where it is set, the pulls and the boards' publish after them run on GitHub
+          # (`cloud-pull.yml`, README "Pulls on GitHub") rather than on Google's machines.
+          PULLS_ON_GITHUB_TOKEN: ${{ secrets.PULL_DISPATCH_TOKEN }}
           # Read by the deploy's own build too (`functions/build.mjs`), which leaves the pulls and
           # the rebuilds out until each is on.
           CLOUD_PULLS: ${{ vars.CLOUD_PULLS }}
@@ -194,10 +197,11 @@ jobs:
             gcloud run jobs add-iam-policy-binding boards-publish --project="$PROJECT" --region=us-central1 \
               --member="serviceAccount:$runner" --role=roles/run.jobsExecutor --quiet
           fi
-          # Optional AI credentials stay server-side. Never use VITE_* for these keys.
+          # Optional AI credentials, and the token that starts the pulls on GitHub, stay
+          # server-side. Never use VITE_* for these keys.
           node --input-type=module <<'NODE'
           import { writeFileSync } from 'node:fs';
-          const lines = ['GEMINI_API_KEY', 'GROQ_API_KEY', 'GEMINI_MODEL', 'GROQ_MODEL']
+          const lines = ['GEMINI_API_KEY', 'GROQ_API_KEY', 'GEMINI_MODEL', 'GROQ_MODEL', 'PULLS_ON_GITHUB_TOKEN']
             .filter(name => process.env[name]?.trim())
             .map(name => `${name}=${JSON.stringify(process.env[name].trim())}`);
           if (lines.length) writeFileSync(`functions/.env.${process.env.PROJECT}`, lines.join('\n') + '\n', { mode: 0o600 });

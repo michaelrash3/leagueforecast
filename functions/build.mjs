@@ -20,6 +20,7 @@ await build({
   entryPoints: [
     "src/index.ts",
     "src/pullLeg.ts",
+    "src/legJob.ts",
     "src/importJob.ts",
     "src/importWorker.ts",
     "src/boardsPublish.ts",
