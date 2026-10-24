@@ -2347,6 +2347,13 @@ export type GcImportOptions = {
    * the pool already holds, and every caller before this one passed nothing.
    */
   seasonYears?: ReadonlySet<number>;
+  /**
+   * The teams `seasonYears` holds to, where it holds to only some: the nightly's rota files what
+   * the pool already holds in whatever year it is, but asks beside it about the teams waiting on
+   * an age, which have no page to say which season they are and are filed in the season being
+   * played only, as **Ask again** files them. Absent means every team the pull asks about.
+   */
+  seasonYearsFor?: ReadonlySet<string>;
 };
 
 const NOTHING_DELETED: DeletedGames = new Set<string>();
@@ -2650,6 +2657,7 @@ const importOne = (
    */
   if (
     options.seasonYears &&
+    (options.seasonYearsFor?.has(profile.id) ?? true) &&
     profile.season &&
     seasonYear !== undefined &&
     !options.seasonYears.has(seasonYear)

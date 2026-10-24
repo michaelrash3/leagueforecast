@@ -35,12 +35,14 @@ import { leagueLinkedClubsOf, type SeasonReader } from "../live/allKnown";
 import { leagueSeasonsOf, NO_LEAGUE_DOCS, type LeagueDocsList } from "../live/cloudLeague";
 import type { SweepPool } from "../obviousFakes";
 import { sweepStored } from "../sweepStored";
+import { segmentOn } from "../teamRankings/seasons";
 import { isTooYoungClub } from "../tooYoungClubs";
 import {
   applyCloudPoolValues,
   flushPoolWrites,
   initTeamRankingsStore,
   loadAgeGroups,
+  loadAgeUnknown,
   loadDeletedGames,
   loadDroppedClubs,
   loadKeptApart,
@@ -589,6 +591,15 @@ const fileScheduleSource = async (
     ...(job.kind === "list" && job.seasonYears.length > 0
       ? { seasonYears: new Set(job.seasonYears) }
       : {}),
+    // The waiting teams the rota asks about beside its own, held to the season being played as
+    // the Import tab's "Ask again" holds them, so a squad from a year put away is refused
+    // (`other-season`) and leaves the list rather than being filed back onto that year's page.
+    ...(job.kind === "rota"
+      ? {
+          seasonYears: new Set([segmentOn(todayIsoDay(now)).year]),
+          seasonYearsFor: new Set(loadAgeUnknown().map((entry) => entry.teamId)),
+        }
+      : {}),
   });
   const claimed = new Map(
     job.kind === "list" ? job.entries.map((entry) => [entry.teamId, entry]) : []
@@ -780,8 +791,20 @@ export const runCloudPull = async (
   const dropped = loadDroppedClubs();
   const pulledAt = walk ? lastPulled(loadScoutTeams()) : null;
   const since = walk ? walk.workedAt.getTime() : Infinity;
+  /*
+   * The teams waiting on an age that are due an ask go with the rota's on a catch-up day (every
+   * day, on the daily cadence). The nightly left them out, so nothing but the Import tab's "Ask
+   * again" ever asked about them again, and a rule moved for them (`withRulesMoved`) reached none
+   * of them by itself.
+   */
   const wanted = (
-    walk ? [...walk.teamIds] : due ? due.teamIds : job.kind === "list" ? listIds(job) : []
+    walk
+      ? [...walk.teamIds]
+      : due
+        ? [...due.teamIds, ...due.agelessIds]
+        : job.kind === "list"
+          ? listIds(job)
+          : []
   )
     .filter((teamId, at, all) => all.indexOf(teamId) === at)
     .filter((teamId) => !isDeletedClub(dropped, teamId))
