@@ -199,7 +199,10 @@ export function ModelView(props: {
    * A scenario link opens on the machine; asked for again, the section follows the ask.
    */
   const sections = FORECAST_SECTIONS.filter(({ key }) => key !== "brackets" || hasPostseason);
-  const [section, setSection] = useState<ForecastSection>(props.startOn ?? "outlook");
+  const [picked, setSection] = useState<ForecastSection>(props.startOn ?? "outlook");
+  // A section the season no longer has (Brackets, after a switch to a season with no postseason)
+  // falls back to the first rather than leaving nothing on screen; the pick is kept for coming back.
+  const section = sections.some(({ key }) => key === picked) ? picked : "outlook";
   const [askedFor, setAskedFor] = useState(props.startOn);
   if (props.startOn !== askedFor) {
     setAskedFor(props.startOn);
