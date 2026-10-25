@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, type FocusEvent } from "react";
 import { TeamDetailPanel, type MergeCandidate } from "../TeamDetailPanel";
 import { TEAM_PANEL_ID } from "../teamPanelId";
 import { leagueLinkOf } from "../../lib/live/views/clubShape";
@@ -33,8 +33,11 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
  * another club holds, and a fold, are asked about first, with what the server says they move
  * (`rename.preview`, `merge.preview`). A club League Standings made rides along with any edit that
  * needs it on the roster (`adopt`), as the page sends it. While edits are off (offline, or before
- * the network has answered), the panel changes nothing (`readOnly`). Opening it brings the server's
- * pool up for the edits to come (`warm`).
+ * the network has answered), the panel changes nothing (`readOnly`). The first time someone goes
+ * into one of its fields, a name, a state, an age or a club to fold into, it brings the server's
+ * pool up for the edit to come (`warm`). Opening it did, and every club a member opened to read
+ * then woke the 8 GiB edit function to load the whole pool for an edit that mostly never came,
+ * when the edit itself loads the pool anyway and its previews go to `poolQuery`.
  *
  * Under each counted game it says what the game did to the club's rating on the board on screen
  * (`board`), worked out from the card as published and that board (`gameBreakdown`, `gameWords`),
@@ -90,7 +93,19 @@ export default function LiveClubPanel({
     if (failed) onCannot(teamId);
   }, [failed, teamId, onCannot]);
   const { warm, edit, ask, say, pending, locked } = edits;
-  useEffect(() => warm(), [warm]);
+  // A field, not a button: Close, a game's link or "Not this team" is no edit to come up for.
+  const warmForField = useCallback(
+    (event: FocusEvent<HTMLElement>) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLSelectElement ||
+        target instanceof HTMLTextAreaElement
+      )
+        warm();
+    },
+    [warm]
+  );
 
   const shown = useMemo(
     () =>
@@ -179,84 +194,87 @@ export default function LiveClubPanel({
 
   const leagueLink = leagueLinkOf(shown, ageGroupId);
   return (
-    <TeamDetailPanel
-      team={team}
-      allGames={shown.games}
-      ageGroupId={ageGroupId}
-      ageGroupName={ageGroupName}
-      ageGroups={ageGroups}
-      {...(segment === undefined ? {} : { segment })}
-      teamNameById={names}
-      {...(leagueLink ? { leagueLink } : {})}
-      {...(shown.age ? { age: shown.age } : {})}
-      mergeCandidates={others}
-      onRename={(name) => void rename(name)}
-      onSetState={(typed) => {
-        const state = typed.trim() === "" ? null : (normalizeState(typed) ?? null);
-        void edit(
-          { kind: "team.state", teamId: team.id, state, adopt: team },
-          { done: state ? `Set to ${state}.` : "State cleared." }
-        );
-        return true;
-      }}
-      onUnlinkGc={(gcTeamId) =>
-        void edit(
-          { kind: "team.unlinkGc", teamId: team.id, gcTeamId },
-          { done: "Unlinked from GameChanger." }
-        )
-      }
-      onMergeInto={(intoId) => void mergeInto(intoId)}
-      notThisTeam={{
-        offered: (game) => shown.byName?.[game.id] !== undefined,
-        onRefuse: (game) => {
-          const gameId = shown.byName?.[game.id];
-          if (gameId === undefined) return;
-          const opponent = names.get(game.teamAId === team.id ? game.teamBId : game.teamAId);
-          // Every game of the card the server takes off with it, as the overlay draws them off.
-          const taken = takenWithOnCard(shown, gameId);
+    // No box of its own (`contents`), so the panel lays out as before; it only hears focus.
+    <div className="contents" onFocusCapture={warmForField}>
+      <TeamDetailPanel
+        team={team}
+        allGames={shown.games}
+        ageGroupId={ageGroupId}
+        ageGroupName={ageGroupName}
+        ageGroups={ageGroups}
+        {...(segment === undefined ? {} : { segment })}
+        teamNameById={names}
+        {...(leagueLink ? { leagueLink } : {})}
+        {...(shown.age ? { age: shown.age } : {})}
+        mergeCandidates={others}
+        onRename={(name) => void rename(name)}
+        onSetState={(typed) => {
+          const state = typed.trim() === "" ? null : (normalizeState(typed) ?? null);
           void edit(
-            {
-              kind: "game.notThisTeam",
-              year: year ?? null,
-              gameId,
-              teamId: team.id,
-              standInId: mintStandInId(team.name),
-            },
-            {
-              done: takenOffSaid(
-                team.name,
-                opponent,
-                (taken.length > 0 ? taken : [game]).map((each) => each.date)
-              ),
-              undo: true,
-            }
+            { kind: "team.state", teamId: team.id, state, adopt: team },
+            { done: state ? `Set to ${state}.` : "State cleared." }
           );
-        },
-      }}
-      {...(year === undefined
-        ? {}
-        : {
-            onSetAge: (level: number) =>
-              void edit(
-                {
-                  kind: "club.age",
-                  year,
-                  teamId: team.id,
-                  level,
-                  at: new Date().toISOString(),
-                  pageId: createAgeGroupId(),
-                },
-                { done: `${team.name} is ${level}U now.`, undo: true }
-              ),
-            onClearAge: () =>
-              void edit(
-                { kind: "club.ageClear", year, teamId: team.id, pageId: createAgeGroupId() },
-                { done: `${team.name} is the app's to age again.` }
-              ),
-          })}
-      onClose={onClose}
-      {...(locked ? { readOnly: true } : {})}
-      {...(gameNotes ? { gameNotes } : {})}
-    />
+          return true;
+        }}
+        onUnlinkGc={(gcTeamId) =>
+          void edit(
+            { kind: "team.unlinkGc", teamId: team.id, gcTeamId },
+            { done: "Unlinked from GameChanger." }
+          )
+        }
+        onMergeInto={(intoId) => void mergeInto(intoId)}
+        notThisTeam={{
+          offered: (game) => shown.byName?.[game.id] !== undefined,
+          onRefuse: (game) => {
+            const gameId = shown.byName?.[game.id];
+            if (gameId === undefined) return;
+            const opponent = names.get(game.teamAId === team.id ? game.teamBId : game.teamAId);
+            // Every game of the card the server takes off with it, as the overlay draws them off.
+            const taken = takenWithOnCard(shown, gameId);
+            void edit(
+              {
+                kind: "game.notThisTeam",
+                year: year ?? null,
+                gameId,
+                teamId: team.id,
+                standInId: mintStandInId(team.name),
+              },
+              {
+                done: takenOffSaid(
+                  team.name,
+                  opponent,
+                  (taken.length > 0 ? taken : [game]).map((each) => each.date)
+                ),
+                undo: true,
+              }
+            );
+          },
+        }}
+        {...(year === undefined
+          ? {}
+          : {
+              onSetAge: (level: number) =>
+                void edit(
+                  {
+                    kind: "club.age",
+                    year,
+                    teamId: team.id,
+                    level,
+                    at: new Date().toISOString(),
+                    pageId: createAgeGroupId(),
+                  },
+                  { done: `${team.name} is ${level}U now.`, undo: true }
+                ),
+              onClearAge: () =>
+                void edit(
+                  { kind: "club.ageClear", year, teamId: team.id, pageId: createAgeGroupId() },
+                  { done: `${team.name} is the app's to age again.` }
+                ),
+            })}
+        onClose={onClose}
+        {...(locked ? { readOnly: true } : {})}
+        {...(gameNotes ? { gameNotes } : {})}
+      />
+    </div>
   );
 }
