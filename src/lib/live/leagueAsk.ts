@@ -10,8 +10,8 @@ export type CopyAt = { copy: string; version: number };
 
 /**
  * An answer with the copy it was worked out from (`at`), the one the reply names: the server reads
- * the pool at exactly that save, so the same question asked of the same copy and version is
- * answered the same.
+ * the pool at exactly that save, so the same question asked of the same copy and version, on the
+ * same day of the server's, and of the same deploy, is answered the same.
  */
 export type LeagueAnswered<K extends LeagueQueryKind> = AnswerOf<K> & { at?: CopyAt };
 

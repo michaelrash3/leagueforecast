@@ -7503,7 +7503,7 @@ functions the device would run, over the cloud's pool):
   the scores before a final can count that game twice (it reads the pool's copy
   of a league game against the league's own final). Anything else that would ask,
   a retry for a bridge that does answer the season included, waits for coming
-  back, which asks in any case: the boards ask the server nothing, so a visit
+  back, which asks again, or reads the copy first (below): the boards ask the server nothing, so a visit
   spent on them woke the 8 GiB server for the bridge alone once the board was
   drawn, a cold load of the whole pool. On League Standings, the same question
   this visit already has an answer to is put to the server again only where the
@@ -7516,7 +7516,9 @@ functions the device would run, over the cloud's pool):
   of those asked it again; a copy that cannot be read is no proof it stood still,
   and is asked.
   An answer is held to its copy for a day at most, since a deploy can change how
-  the server works one out and no save marks that. The bridge reads none of League
+  the server works one out and no save marks that, and only on the New York day it
+  was heard, the server's: a scored game dated ahead counts from its day, so the
+  bridge can change at midnight with no save. The bridge reads none of League
   Standings' seasons, which move no version (`asksLeague`). A question
   out is never thrown away for another about the same teams: a change noted
   meanwhile is asked about once its answer is in, and being shown anew asks

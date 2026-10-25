@@ -1008,6 +1008,26 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     expect(asked).toHaveLength(1);
   });
 
+  it("asks again once the server's day has turned, however still the copy", async () => {
+    // 23:40 in New York: a game scored for tomorrow is not counted yet.
+    vi.setSystemTime(new Date("2026-10-26T03:40:00.000Z"));
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const given = { asker, copyNow: copy.copyNow };
+    const { rerender } = setup(props(given));
+    await settle();
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(1);
+    // Half an hour on it is tomorrow there, and the game counts: asked, with no save between.
+    await wait(30 * 60_000);
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(2);
+  });
+
   it("asks again a day after an answer, however still the copy", async () => {
     const copy = cloudCopy();
     const { asked, asker } = stamped(copy.state);

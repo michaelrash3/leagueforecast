@@ -119,18 +119,34 @@ const ASK_AFTER_MS = 800;
 /**
  * How long an answer's copy and version are held to stand for it (`copyNow`). The answer is the
  * server's working of the pool at that save, so it holds while the copy has not moved; but the
- * server's own rules for working it out change with a deploy, which no save marks, and the nightly
- * saves the copy every day. A day bounds a tab left open across such a deploy to one day's old
- * answer at most.
+ * server's own rules for working it out change with a deploy, which no save marks. A day bounds a
+ * tab left open across such a deploy to a day-old answer at most.
  */
 const STAMP_TRUST_MS = 24 * 60 * 60_000;
+
+/**
+ * The day the server works an answer out on: New York's, the zone the query function runs in
+ * (`functions/src/index.ts`). A scored game dated ahead counts from its day (`countsTowardRating`),
+ * so the bridge can change at New York's midnight with no save to the copy (review of #446).
+ */
+const SERVER_DAY = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 /** The copy and version an answer was worked out from, and when it was heard (`STAMP_TRUST_MS`). */
 type Stamp = CopyAt & { heard: number };
 
-/** Whether `stamp` may still stand for its answer at `now`: heard, by this clock, within a day. */
+/**
+ * Whether `stamp` may still stand for its answer at `now`: heard, by this clock, within a day, and
+ * on the server's day as it still is.
+ */
 const trusted = (stamp: Stamp, now: number): boolean =>
-  now >= stamp.heard && now - stamp.heard < STAMP_TRUST_MS;
+  now >= stamp.heard &&
+  now - stamp.heard < STAMP_TRUST_MS &&
+  SERVER_DAY.format(stamp.heard) === SERVER_DAY.format(now);
 
 /**
  * How long after a question goes unanswered it is asked again, the last wait repeated until one is
