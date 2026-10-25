@@ -1144,12 +1144,15 @@ const playOut = (
   byId: Map<string, Team>,
   remaining: Matchup[],
   settings: Settings,
-  random: () => number
+  random: () => number,
+  /** Where given, 1 at a game's place when the away side won it, 0 when the home side did. */
+  awayWon?: Uint8Array
 ): void => {
   const tally = leagueTallyOf(season, settings);
-  for (const game of remaining) {
+  for (const [at, game] of remaining.entries()) {
     const prediction = predictGame(game, season, settings, byId, tally);
     const winner = random() < prediction.awayWinPct ? game.away : game.home;
+    if (awayWon) awayWon[at] = winner === game.away ? 1 : 0;
     const away = byId.get(game.away);
     const home = byId.get(game.home);
     if (away && home) settleGame(away, home, game, winner, prediction, settings, tally);
@@ -1289,6 +1292,8 @@ const oddsArePrecise = (
 export type GoldOddsRun = {
   /** Per team, the probability (0–100) of finishing inside the cut. */
   odds: Record<string, number>;
+  /** For the team followed, how its odds turned on each game left (`GoldSwing`), where asked. */
+  swing?: GoldSwing;
   /**
    * How many seasons were actually played out. The ± beside the odds has to be computed from
    * this: the loop stops early when the odds are settled, and an interval computed from the
@@ -1298,8 +1303,26 @@ export type GoldOddsRun = {
 };
 
 /**
+ * For one team, the seasons played out counted by how each game left went: of the seasons in
+ * which a game's away side won (`awayWins`), how many put the team inside the cut (`inIfAway`),
+ * and of the rest, how many did (`inIfHome`). In the order of the games left (`gameIds`).
+ */
+export type GoldSwing = {
+  teamId: string;
+  seasons: number;
+  gameIds: string[];
+  awayWins: number[];
+  inIfAway: number[];
+  inIfHome: number[];
+};
+
+/**
  * Plays the rest of the season out `iterations` times, or until every team's odds are known to
  * `ODDS_PRECISION`, and counts who finished inside the cut.
+ *
+ * With `follow`, it also counts, for that team, how each game left went in the seasons that put it
+ * inside the cut (`GoldSwing`): the same seasons, read once more, with no draw added, so the odds
+ * are the same to the digit with it or without.
  */
 export const simulateGoldOddsRun = (
   teams: Team[],
@@ -1307,7 +1330,8 @@ export const simulateGoldOddsRun = (
   iterations: number,
   seedText: string,
   cutoff: number,
-  settings: Settings
+  settings: Settings,
+  follow?: string
 ): GoldOddsRun => {
   const counts: Record<string, number> = {};
   teams.forEach((team) => {
@@ -1318,16 +1342,32 @@ export const simulateGoldOddsRun = (
   const minIterations = Math.min(iterations, ODDS_MIN_ITERATIONS);
   let completedIterations = 0;
   const rankOptions = rankOptionsFromSettings(settings);
+  const following = follow !== undefined && teams.some((team) => team.id === follow);
+  const awayWon = following ? new Uint8Array(remaining.length) : undefined;
+  const awayWins = new Array<number>(following ? remaining.length : 0).fill(0);
+  const inIfAway = new Array<number>(following ? remaining.length : 0).fill(0);
+  const inIfHome = new Array<number>(following ? remaining.length : 0).fill(0);
 
   for (let i = 0; i < iterations; i += 1) {
     const { season, byId } = scratchSeason(teams);
-    playOut(season, byId, remaining, settings, random);
+    playOut(season, byId, remaining, settings, random, awayWon);
 
+    let followedIn = false;
     rankTeams(season, rankOptions)
       .slice(0, cutoff)
       .forEach((team) => {
         counts[team.id] = (counts[team.id] ?? 0) + 1;
+        if (team.id === follow) followedIn = true;
       });
+    if (awayWon) {
+      for (let at = 0; at < awayWon.length; at += 1) {
+        const away = awayWon[at] ?? 0;
+        awayWins[at] = (awayWins[at] ?? 0) + away;
+        if (!followedIn) continue;
+        if (away) inIfAway[at] = (inIfAway[at] ?? 0) + 1;
+        else inIfHome[at] = (inIfHome[at] ?? 0) + 1;
+      }
+    }
 
     completedIterations += 1;
     if (
@@ -1344,7 +1384,22 @@ export const simulateGoldOddsRun = (
   teams.forEach((team) => {
     odds[team.id] = ((counts[team.id] ?? 0) / denominator) * 100;
   });
-  return { odds, iterations: completedIterations };
+  return {
+    odds,
+    iterations: completedIterations,
+    ...(following && follow !== undefined
+      ? {
+          swing: {
+            teamId: follow,
+            seasons: completedIterations,
+            gameIds: remaining.map((game) => game.id),
+            awayWins,
+            inIfAway,
+            inIfHome,
+          },
+        }
+      : {}),
+  };
 };
 
 /** The odds alone, for callers that have no use for the count. */

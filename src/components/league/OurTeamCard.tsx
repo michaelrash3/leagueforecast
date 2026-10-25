@@ -131,6 +131,9 @@ export function OurTeamCard({ summary, teams, onPick, onEnterScore, clubRank }: 
           {Math.round(next.winPct * 100)}% to win.
           {next.winSeed !== next.lossSeed &&
             ` A win leaves them ${ordinal(next.winSeed)}, a loss ${ordinal(next.lossSeed)}.`}
+          {next.goldIfWin !== undefined &&
+            next.goldIfLoss !== undefined &&
+            ` Gold ${Math.round(next.goldIfWin * 100)}% with a win, ${Math.round(next.goldIfLoss * 100)}% with a loss.`}
         </p>
       ) : (
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
@@ -139,6 +142,16 @@ export function OurTeamCard({ summary, teams, onPick, onEnterScore, clubRank }: 
       )}
       {summary.magic && (
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{summary.magic}</p>
+      )}
+      {summary.rootFor && (
+        <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+          <p className="font-bold text-slate-800 dark:text-slate-100">Root for:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {summary.rootFor.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
       )}
       {summary.needs && (
         <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">

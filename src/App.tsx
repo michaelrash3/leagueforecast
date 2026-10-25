@@ -102,7 +102,8 @@ import {
 import { digestOddsMove, raceOf, type NotifyPrefs } from "./lib/seasonDigest";
 import { useSeasonDigest } from "./hooks/useSeasonDigest";
 import { useDigestNotifications } from "./hooks/useDigestNotifications";
-import { needsLines, ourTeamSummary } from "./lib/ourTeam";
+import { needsLines, ourTeamSummary, rootForLines } from "./lib/ourTeam";
+import { ownGameSwing, rootFor } from "./lib/goldSwing";
 import { leagueClubRankFor, scoutRoute, type LeagueClubRank } from "./lib/leagueClubRanks";
 import { askToScout } from "./lib/scoutRequest";
 import { OurTeamCard } from "./components/league/OurTeamCard";
@@ -764,6 +765,23 @@ export default function App() {
     seasons.all.find((season) => season.id === activeSeasonId)?.createdAt ?? ""
   }`;
 
+  /*
+   * The team this browser follows, for the Dashboard's card: this browser's own pick, one per season
+   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season, so
+   * a season switch reads the pick made for that season rather than carrying one across.
+   */
+  const [ourTeamPick, setOurTeamPick] = useState(() => ({
+    season: activeSeasonKey,
+    teamId: readOurTeam(activeSeasonId),
+  }));
+  if (ourTeamPick.season !== activeSeasonKey) {
+    // Read afresh for each season opened, never kept from a visit before: the season held then
+    // may have been deleted or restored over since, and its id given to another (`forgetSeasons`).
+    setOurTeamPick({ season: activeSeasonKey, teamId: readOurTeam(activeSeasonId) });
+  }
+  const ourTeamId =
+    ourTeamPick.season === activeSeasonKey ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
+
   const refreshSeasons = seasons.refresh;
   const adoptSeason = useCallback(
     (id: string, createdAt: string) => {
@@ -998,10 +1016,17 @@ export default function App() {
       seedText: oddsSeed,
       cutoff: goldCutoff,
       settings,
+      // The followed team's odds are also counted by how each game left goes, for its card.
+      ...(hasCutLine && ourTeamId ? { follow: ourTeamId } : {}),
     }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
+    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings, hasCutLine, ourTeamId]
   );
-  const { odds, iterations: oddsIterations, pending: oddsPending } = useSimulationOdds(oddsInput);
+  const {
+    odds,
+    iterations: oddsIterations,
+    pending: oddsPending,
+    swing: ourSwing,
+  } = useSimulationOdds(oddsInput);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
@@ -2616,22 +2641,6 @@ export default function App() {
   );
   const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
 
-  /*
-   * The team this browser follows, for the Dashboard's card: this browser's own pick, one per season
-   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season, so
-   * a season switch reads the pick made for that season rather than carrying one across.
-   */
-  const [ourTeamPick, setOurTeamPick] = useState(() => ({
-    season: activeSeasonKey,
-    teamId: readOurTeam(activeSeasonId),
-  }));
-  if (ourTeamPick.season !== activeSeasonKey) {
-    // Read afresh for each season opened, never kept from a visit before: the season held then
-    // may have been deleted or restored over since, and its id given to another (`forgetSeasons`).
-    setOurTeamPick({ season: activeSeasonKey, teamId: readOurTeam(activeSeasonId) });
-  }
-  const ourTeamId =
-    ourTeamPick.season === activeSeasonKey ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
   const pickOurTeam = useCallback(
     (teamId: string | null) => {
       writeOurTeam(activeSeasonId, teamId);
@@ -2686,11 +2695,20 @@ export default function App() {
     const needs = needed
       ? needsLines(team.id, needed, (id) => displayName(dashboardById.get(id)?.name ?? id))
       : undefined;
+    const swings = nextTwoSwingGames(team.id);
+    // The odds' own seasons, read by how each game went: worked out with the odds, at no extra draw.
+    const swing = ourSwing?.teamId === team.id ? ourSwing : undefined;
+    const nextGame = swings[0]?.game;
+    const nextGold = swing && nextGame ? ownGameSwing(swing, nextGame) : null;
+    const picks = swing ? rootFor(swing, remainingGames) : [];
+    const nameOf = (id: string) => displayName(dashboardById.get(id)?.name ?? id);
     return ourTeamSummary(team, dashboardRows.length, {
       hasCutLine,
-      swings: nextTwoSwingGames(team.id),
+      swings,
       ...(magic ? { magic } : {}),
       ...(needs ? { needs } : {}),
+      ...(nextGold ? { nextGold } : {}),
+      ...(picks.length ? { rootFor: rootForLines(picks, nameOf) } : {}),
     });
   }, [
     ourTeamId,
@@ -2701,6 +2719,7 @@ export default function App() {
     goldCutoff,
     settings,
     nextTwoSwingGames,
+    ourSwing,
   ]);
   const currentLeader = dashboardRows[0];
   // How the season ended, once it has: the Dashboard says so where the next games would be.

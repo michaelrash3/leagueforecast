@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { needsLines, ourTeamSummary } from "../ourTeam";
+import { needsLines, ourTeamSummary, rootForLines } from "../ourTeam";
 import { readOurTeam, writeOurTeam } from "../preferences";
 import type { SwingGame, TeamWithProjection } from "../types";
 
@@ -120,5 +120,16 @@ describe("needsLines", () => {
       "Comets to beat Bears",
       "Bears not to lose to Comets (5/6)",
     ]);
+  });
+});
+
+describe("rootForLines", () => {
+  it("says who over whom, when, and what each result does to the Gold chance", () => {
+    expect(
+      rootForLines(
+        [{ gameId: "g2", date: "5/2", winnerId: "C", loserId: "B", ifWin: 0.8, ifLoss: 0.204 }],
+        (id) => ({ B: "Bears", C: "Comets" })[id] ?? id
+      )
+    ).toEqual(["Comets over Bears (5/2): Gold 80% against 20%"]);
   });
 });

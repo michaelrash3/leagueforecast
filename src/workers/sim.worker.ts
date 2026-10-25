@@ -4,6 +4,7 @@ import {
   simulateGoldOdds,
   simulateGoldOddsRun,
   type BracketOddsResult,
+  type GoldSwing,
 } from "../lib/sim";
 import type { GameLog, Matchup, Settings, Team } from "../lib/types";
 
@@ -17,6 +18,8 @@ export type OddsRequest = {
   seedText: string;
   cutoff: number;
   settings: Settings;
+  /** The team followed, whose odds are also counted by how each game left goes (`GoldSwing`). */
+  follow?: string;
 };
 export type TrendRequest = {
   kind: "trend";
@@ -46,6 +49,8 @@ export type OddsResponse = {
   odds: Record<string, number>;
   /** Seasons actually played out, for the ± beside the odds. */
   iterations: number;
+  /** For the team followed, where one was asked about (`GoldSwing`). */
+  swing?: GoldSwing;
 };
 export type TrendResponse = { kind: "trend"; id: number; trend: Record<string, number[]> };
 export type BracketResponse = { kind: "bracket"; id: number; result: BracketOddsResult };
@@ -70,16 +75,23 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
   if (req.kind === "odds") {
     const start = performance.now();
-    const { odds, iterations } = simulateGoldOddsRun(
+    const { odds, iterations, swing } = simulateGoldOddsRun(
       req.teams,
       req.remaining,
       req.iterations,
       req.seedText,
       req.cutoff,
-      req.settings
+      req.settings,
+      req.follow
     );
     if (!canceled.has(req.id))
-      ctx.postMessage({ kind: "odds", id: req.id, odds, iterations } satisfies OddsResponse);
+      ctx.postMessage({
+        kind: "odds",
+        id: req.id,
+        odds,
+        iterations,
+        ...(swing ? { swing } : {}),
+      } satisfies OddsResponse);
     if (!canceled.has(req.id))
       ctx.postMessage({
         kind: "runtime-stats",

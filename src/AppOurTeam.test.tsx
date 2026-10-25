@@ -107,6 +107,8 @@ describe("our team on the Dashboard", () => {
     const card = screen.getByRole("region", { name: "Our team" });
     expect(card).toHaveTextContent("To make the cut, needs:");
     expect(within(card).getByText("Beat Comets (5/9)")).toBeInTheDocument();
+    // The odds' own seasons, read by how the game went: in with the win, out with the loss.
+    await waitFor(() => expect(card).toHaveTextContent("Gold 100% with a win, 0% with a loss."));
   });
 
   it("opens the Schedule on the team's games to enter a score", async () => {
