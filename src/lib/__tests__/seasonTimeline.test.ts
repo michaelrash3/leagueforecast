@@ -70,4 +70,3 @@ describe("buildSeasonTimeline", () => {
     expect(line(4)).not.toContain("clinched");
   });
 });
-
