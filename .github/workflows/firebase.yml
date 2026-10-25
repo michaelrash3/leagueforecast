@@ -125,6 +125,8 @@ jobs:
           # the rebuilds out until each is on.
           CLOUD_PULLS: ${{ vars.CLOUD_PULLS }}
           LIVE_REBUILD: ${{ vars.LIVE_REBUILD }}
+          # On only to run the pulls and the rebuilds on Google's machines, without the token.
+          GOOGLE_JOBS: ${{ vars.GOOGLE_JOBS }}
         run: |
           if [ -z "$PROJECT" ] || [ -z "$KEY" ]; then
             echo "::notice::Not deployed: set the FIREBASE_PROJECT_ID variable and the FIREBASE_SERVICE_ACCOUNT secret (README, 'The GameChanger proxy on Firebase')."
@@ -147,9 +149,29 @@ jobs:
           printf '%s' "$KEY" > "$RUNNER_TEMP/deploy-key.json"
           trap 'rm -f "$RUNNER_TEMP/deploy-key.json" "functions/.env.$PROJECT"' EXIT
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/deploy-key.json"
+          # The Cloud Run jobs (`team-import`, `ranking-rebuild`, `boards-publish`) and the image they
+          # run are wanted only where the pulls do not run on GitHub: with the token, every launch
+          # goes to GitHub (`githubDispatch.ts`), and building and pushing an image no job will run
+          # grew Artifact Registry by about 20 MB a deploy, past its free 0.5 GB in October 2026.
+          # Without the token the deploy refuses, unless the GOOGLE_JOBS variable says on: an
+          # emptied secret would otherwise put the pulls and the rebuilds back on Google's machines
+          # without a word, and the functions already deployed keep the token they have.
+          jobs=off
           if [ "$CLOUD_PULLS" = "on" ] || [ "$LIVE_REBUILD" = "on" ]; then
-            # Deploy durable jobs before their launchers, using the existing project and account.
             gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet
+            if [ -z "$(printf '%s' "$PULLS_ON_GITHUB_TOKEN" | tr -d '[:space:]')" ]; then
+              if [ "$GOOGLE_JOBS" != "on" ]; then
+                echo "::error::Not deployed: the PULL_DISPATCH_TOKEN secret is empty, so the pulls and the rebuilds would run on Google's machines again. Set the secret (README, 'Pulls on GitHub'), or set the GOOGLE_JOBS variable to on to run them on Google."
+                exit 1
+              fi
+              jobs=on
+            fi
+            # Abandoned or paused downloads expire after seven days, wherever the import runs.
+            # Successful imports delete them.
+            gcloud firestore fields ttls update expiresAt --collection-group=artifacts --enable-ttl --async --project="$PROJECT" --quiet
+          fi
+          if [ "$jobs" = "on" ]; then
+            # Deploy durable jobs before their launchers, using the existing project and account.
             gcloud artifacts repositories describe team-imports --location=us-central1 --project="$PROJECT" >/dev/null 2>&1 \
               || gcloud artifacts repositories create team-imports --repository-format=docker --location=us-central1 --project="$PROJECT"
             gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
@@ -158,7 +180,7 @@ jobs:
             docker build -f functions/Import.Dockerfile -t "$image" functions
             docker push "$image"
           fi
-          if [ "$CLOUD_PULLS" = "on" ]; then
+          if [ "$jobs" = "on" ] && [ "$CLOUD_PULLS" = "on" ]; then
             runner="pull-runner@$PROJECT.iam.gserviceaccount.com"
             if [ "$LIVE_REBUILD" = "on" ]; then runner="live-runner@$PROJECT.iam.gserviceaccount.com"; fi
             gcloud run jobs deploy team-import --project="$PROJECT" --region=us-central1 \
@@ -167,10 +189,8 @@ jobs:
               --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT" --quiet
             gcloud run jobs add-iam-policy-binding team-import --project="$PROJECT" --region=us-central1 \
               --member="serviceAccount:$runner" --role=roles/run.jobsExecutorWithOverrides --quiet
-            # Abandoned or paused downloads expire after seven days. Successful jobs delete them.
-            gcloud firestore fields ttls update expiresAt --collection-group=artifacts --enable-ttl --async --project="$PROJECT" --quiet
           fi
-          if [ "$LIVE_REBUILD" = "on" ]; then
+          if [ "$jobs" = "on" ] && [ "$LIVE_REBUILD" = "on" ]; then
             runner="live-runner@$PROJECT.iam.gserviceaccount.com"
             gcloud run jobs deploy ranking-rebuild --project="$PROJECT" --region=us-central1 \
               --image="$image" --service-account="$runner" --memory=8Gi --cpu=2 \
@@ -179,9 +199,8 @@ jobs:
               --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,NODE_OPTIONS=--max-old-space-size=5120,TZ=America/New_York,LANG=en_US.UTF-8" --quiet
             gcloud run jobs add-iam-policy-binding ranking-rebuild --project="$PROJECT" --region=us-central1 \
               --member="serviceAccount:$runner" --role=roles/run.jobsExecutor --quiet
-            gcloud firestore fields ttls update expiresAt --collection-group=artifacts --enable-ttl --async --project="$PROJECT" --quiet
           fi
-          if [ "$CLOUD_PULLS" = "on" ] || [ "$LIVE_REBUILD" = "on" ]; then
+          if [ "$jobs" = "on" ]; then
             # The boards published when a pull ends, or after an edit's check, with no rebuild coming
             # to (`boardsPublish.ts`): wanted by either, so deployed with either, as the account that
             # launches it. The same image, with the rebuild's size, zone and collation, since it
@@ -196,6 +215,16 @@ jobs:
               --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,NODE_OPTIONS=--max-old-space-size=6144,TZ=America/New_York,LANG=en_US.UTF-8" --quiet
             gcloud run jobs add-iam-policy-binding boards-publish --project="$PROJECT" --region=us-central1 \
               --member="serviceAccount:$runner" --role=roles/run.jobsExecutor --quiet
+          fi
+          # The images already pushed: the two newest kept, for the jobs as they stand, and the rest
+          # deleted a day on. A policy that cannot be set is said, and the deploy goes on.
+          if [ "$CLOUD_PULLS" = "on" ] || [ "$LIVE_REBUILD" = "on" ]; then
+            if gcloud artifacts repositories describe team-imports --location=us-central1 --project="$PROJECT" >/dev/null 2>&1; then
+              printf '%s' '[{"name":"keep-newest","action":{"type":"Keep"},"mostRecentVersions":{"keepCount":2}},{"name":"delete-older","action":{"type":"Delete"},"condition":{"olderThan":"1d"}}]' > "$RUNNER_TEMP/team-imports-cleanup.json"
+              gcloud artifacts repositories set-cleanup-policies team-imports --location=us-central1 --project="$PROJECT" \
+                --policy="$RUNNER_TEMP/team-imports-cleanup.json" --no-dry-run --quiet >/dev/null \
+                || echo "::warning::The cleanup policy on team-imports could not be set."
+            fi
           fi
           # Optional AI credentials, and the token that starts the pulls on GitHub, stay
           # server-side. Never use VITE_* for these keys.
