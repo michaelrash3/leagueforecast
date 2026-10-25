@@ -46,6 +46,7 @@ import {
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
 import { rankingsSearch } from "./lib/rankingsRoute";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
+import { ModeSwitchContext } from "./components/modeSwitch";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
@@ -524,6 +525,10 @@ export default function App() {
   );
   const { theme, setTheme, toggle: toggleTheme } = useDarkMode();
   const { appMode, setAppMode } = useAppMode();
+  const switchToLeague = useMemo(
+    () => ({ label: "Switch to League Standings", onSelect: () => setAppMode("league") }),
+    [setAppMode]
+  );
   /*
    * Written back as the tab changes, replaced rather than pushed: the tab row is already a visible
    * change, and Back should leave the app as it always has rather than walk the tabs. Only while
@@ -3239,6 +3244,7 @@ export default function App() {
       narrow={narrowScreen}
       primary={PHONE_VIEWS}
       actions={[
+        { label: "Switch to Team Rankings", onSelect: () => setAppMode("rankings") },
         { label: "Take the tour", onSelect: () => setShowTour(true) },
         { label: "Keyboard shortcuts", onSelect: () => setShowShortcuts(true) },
       ]}
@@ -3426,21 +3432,23 @@ export default function App() {
             className="mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 sm:pb-6 lg:px-8"
           >
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
-              <RankingsOpen
-                status={cloud}
-                seasons={seasons.all}
-                showToast={showToast}
-                confirm={requestConfirmation}
-                page={(handover) => (
-                  <TeamRankingsView
-                    seasons={seasons.all}
-                    showToast={showToast}
-                    requestConfirmation={requestConfirmation}
-                    onDataChange={noteScoutChange}
-                    {...(handover ? { handover } : {})}
-                  />
-                )}
-              />
+              <ModeSwitchContext.Provider value={switchToLeague}>
+                <RankingsOpen
+                  status={cloud}
+                  seasons={seasons.all}
+                  showToast={showToast}
+                  confirm={requestConfirmation}
+                  page={(handover) => (
+                    <TeamRankingsView
+                      seasons={seasons.all}
+                      showToast={showToast}
+                      requestConfirmation={requestConfirmation}
+                      onDataChange={noteScoutChange}
+                      {...(handover ? { handover } : {})}
+                    />
+                  )}
+                />
+              </ModeSwitchContext.Provider>
             </Suspense>
           </main>
         ) : (
