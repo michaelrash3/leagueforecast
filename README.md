@@ -7506,19 +7506,25 @@ functions the device would run, over the cloud's pool):
   back, which asks again, or reads the copy first (below): the boards ask the server nothing, so a visit
   spent on them woke the 8 GiB server for the bridge alone once the board was
   drawn, a cold load of the whole pool. On League Standings, the same question
-  this visit already has an answer to is put to the server again only where the
-  copy has moved since: the reply names the copy and version the answer was
+  already answered, this visit or by the bridge kept from an earlier one, is put
+  to the server again only where the copy has moved since: the reply names the copy and version the answer was
   worked out from, the server reading the pool at exactly that save, and one read
   of the copy's manifest (`copyAtNow`, a document where a question is the 8 GiB
   server) tells whether it still stands. Coming back from Team Rankings, the page
   shown anew, the sign-in, coming online and a retry all ask that way, so a
   session that changes nothing puts its question to the server once, where each
-  of those asked it again; a copy that cannot be read is no proof it stood still,
-  and is asked.
+  of those asked it again, and a visit after it on the same day with no save
+  between puts it to the server not at all; a copy that cannot be read is no
+  proof it stood still, and is asked. The clubs each team could be come with an
+  answer alone, never from what is kept, so while the link panel is open a
+  question nothing this visit has answered goes to the server whatever is kept.
   An answer is held to its copy for a day at most, since a deploy can change how
   the server works one out and no save marks that, and only on the New York day it
   was heard, the server's: a scored game dated ahead counts from its day, so the
-  bridge can change at midnight with no save. The bridge reads none of League
+  bridge can change at midnight with no save; and only under the rules it was
+  worked out by (`BRIDGE_RULES`, beside the boards' own `BOARD_RULES`), raised
+  with any change to how the bridge or its clubs are worked out, which a test
+  pinning the answer beside them asks for. The bridge reads none of League
   Standings' seasons, which move no version (`asksLeague`). A question
   out is never thrown away for another about the same teams: a change noted
   meanwhile is asked about once its answer is in, and being shown anew asks
@@ -7528,7 +7534,8 @@ functions the device would run, over the cloud's pool):
   when a pool the server could not answer in time made each try a cold 8 GiB load). The last bridge for a season, the bridge alone
   and never the clubs, about 2,400 characters, with the very question it answered
   as JSON (compared as written, since a reload holds no array of the visit before
-  to compare by identity), is kept on the device
+  to compare by identity) and the copy, version, moment asked and rules it came
+  from, is kept on the device
   (`lf_league_bridge_v2`, the last four seasons, the open one alone when storage is
   full; what an earlier build kept under `lf_league_bridge_v1`, every club with it,
   is let go of) and read back through the same checks as one from the network, so

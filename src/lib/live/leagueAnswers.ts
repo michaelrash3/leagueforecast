@@ -3,6 +3,21 @@ import type { ClubPickOption } from "../leagueLinkOptions";
 import type { StartAnswer } from "../leagueStart";
 import type { LeagueScoutBridge, ScoutLinkCandidate } from "../teamRankings";
 import { fits, type Shape } from "./shapes";
+import { BOARD_RULES } from "./views/boardShape";
+
+/**
+ * Which rules a bridge was worked out under, as a device keeps it with the copy it came from
+ * (`useScoutBridge`): a kept bridge stands for a question only under the rules it was worked out by.
+ * Raised whenever `leagueScoutBridge`, `scoutLinkCandidates` or `leagueCandidates` would answer a
+ * question differently; read beside the boards' own (`BOARD_RULES`), since which games count, and so
+ * the bridge's results, are theirs too.
+ *
+ * 1: the bridge kept with its copy, version and day (#446's successor).
+ */
+export const BRIDGE_RULES = 1;
+
+/** The bridge's rules and the boards' together, as a kept bridge's stamp names them. */
+export const BRIDGE_RULES_NOW = `${BRIDGE_RULES}.${BOARD_RULES}`;
 
 /*
  * What League Standings asks the server of Team Rankings, for a member whose device holds no pool
