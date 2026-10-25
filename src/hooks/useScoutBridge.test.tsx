@@ -187,9 +187,21 @@ describe("what Team Rankings has for a league season, asked of the server", () =
       await vi.advanceTimersByTimeAsync(ms);
     });
   const settle = () => wait(1_000);
-  /** A bridge an earlier visit kept for `season`. */
+  /** A bridge an earlier build kept for `season`, the bridge alone. */
   const keepBridge = (season: string, bridge: LeagueBridgeAnswer["bridge"]) =>
     localStorage.setItem("lf_league_bridge_v2", JSON.stringify({ [season]: bridge }));
+  /** The question about `season` with these teams and fixtures, as a kept bridge holds it. */
+  const askedFor = (
+    season: string,
+    teams: { id: string; name: string; scoutTeamId?: string }[] = [{ id: "lt1", name: "Rays" }],
+    fixtures: SeasonFixture[] = []
+  ) => JSON.stringify({ kind: "league.bridge", season, teams, fixtures });
+  /** A bridge an earlier visit kept for `season`, with the question it answered. */
+  const keepAnswered = (
+    season: string,
+    bridge: LeagueBridgeAnswer["bridge"],
+    asked: string = askedFor(season)
+  ) => localStorage.setItem("lf_league_bridge_v2", JSON.stringify({ [season]: { bridge, asked } }));
   const shown = (state: DocumentVisibilityState) => {
     Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
     document.dispatchEvent(new Event("visibilitychange"));
@@ -256,9 +268,10 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     const first = setup({ asker });
     await settle();
     first.unmount();
-    // The clubs each team could be are this visit's alone: the bridge is all that is kept.
+    // The clubs each team could be are this visit's alone: the bridge is all that is kept, with
+    // the question it answered.
     expect(JSON.parse(localStorage.getItem("lf_league_bridge_v2") ?? "null")).toEqual({
-      s1: ANSWER.bridge,
+      s1: { bridge: ANSWER.bridge, asked: askedFor("s1") },
     });
     expect(keptBridge("s1")).toEqual(ANSWER.bridge);
     // Offline now: nothing comes, and what was kept stands, with no clubs to offer until it does.
@@ -283,7 +296,15 @@ describe("what Team Rankings has for a league season, asked of the server", () =
       ...ANSWER.bridge,
       results: [{ ...ANSWER.bridge.results[0], neutral: false }],
     };
-    for (const kept of [leaning, { ...ANSWER.bridge, rows: "none" }, ANSWER, "not one"]) {
+    for (const kept of [
+      leaning,
+      { ...ANSWER.bridge, rows: "none" },
+      ANSWER,
+      "not one",
+      { bridge: leaning, asked: askedFor("s1") },
+      { bridge: ANSWER.bridge, asked: 5 },
+      { bridge: ANSWER.bridge, asked: null },
+    ]) {
       localStorage.setItem("lf_league_bridge_v2", JSON.stringify({ s1: kept }));
       expect(keptBridge("s1")).toBeNull();
       const { asker } = server({ answer: null });
@@ -382,8 +403,8 @@ describe("what Team Rankings has for a league season, asked of the server", () =
       true,
       true,
     ]);
-    // Room for one season's bridge and no more.
-    const room = JSON.stringify({ s6: ANSWER.bridge }).length;
+    // Room for one season's bridge and its question, and no more.
+    const room = JSON.stringify({ s6: { bridge: ANSWER.bridge, asked: askedFor("s6") } }).length;
     const setItem = Storage.prototype.setItem;
     const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
       this: Storage,
@@ -494,6 +515,102 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     expect(result.current.bridge).toEqual(ANSWER.bridge);
     await settle();
     expect(asked).toHaveLength(2);
+  });
+
+  it("asks nothing on Team Rankings while the bridge on hand answers the season, and asks on coming back", async () => {
+    keepAnswered("s1", ANSWER.bridge);
+    const { asked, asker } = server();
+    // Opened on Team Rankings, its board drawn and the sign-in through.
+    const { result, rerender } = setup(props({ asker, leagueOnScreen: false, signedIn: true }));
+    await settle();
+    // What asks on League Standings asks nothing here: the device back online, the page shown anew
+    // long after, the season's teams handed over anew as they stood.
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    act(() => shown("hidden"));
+    await wait(10 * 60_000);
+    act(() => shown("visible"));
+    rerender(props({ asker, leagueOnScreen: false, signedIn: true, teams: [...TEAMS] }));
+    await settle();
+    expect(asked).toEqual([]);
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    // League Standings shown: asked once.
+    rerender(props({ asker, leagueOnScreen: true, signedIn: true }));
+    await settle();
+    expect(asked).toHaveLength(1);
+  });
+
+  it("asks on Team Rankings about teams or final scores changed there, and then nothing more", async () => {
+    keepAnswered("s1", ANSWER.bridge);
+    const { asked, asker } = server();
+    const { result, rerender } = setup(props({ asker, leagueOnScreen: false }));
+    await settle();
+    expect(asked).toEqual([]);
+    // Another device picks the Rays' club, and League's listener brings it here.
+    const picked = [{ id: "lt1", name: "Rays", scoutTeamId: "S-R" }];
+    rerender(props({ asker, leagueOnScreen: false, teams: picked }));
+    await settle();
+    expect(asked).toEqual([{ kind: "league.bridge", season: "s1", teams: picked, fixtures: [] }]);
+    // A final comes the same way: the bridge answers the scores it was asked with.
+    const scored: SeasonFixture[] = [
+      { away: "Rays", home: "Owls", date: "5/1", awayRuns: 4, homeRuns: 2 },
+    ];
+    rerender(props({ asker, leagueOnScreen: false, teams: picked, seasonFixtures: scored }));
+    await settle();
+    expect(asked).toHaveLength(2);
+    expect(asked[1]).toMatchObject({ fixtures: scored });
+    // Answered, the bridge on hand is the season's: nothing else asks while Team Rankings is shown.
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(asked).toHaveLength(2);
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+  });
+
+  it("asks on Team Rankings where no bridge is on hand, or one an earlier build kept alone", async () => {
+    const nothing = server();
+    const first = setup(props({ asker: nothing.asker, leagueOnScreen: false }));
+    await settle();
+    expect(nothing.asked).toHaveLength(1);
+    first.unmount();
+    // A bridge kept without its question is shown, and asked about once to learn it.
+    localStorage.clear();
+    keepBridge("s1", ANSWER.bridge);
+    const earlier = server();
+    const { result, rerender } = setup(props({ asker: earlier.asker, leagueOnScreen: false }));
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    await settle();
+    expect(earlier.asked).toHaveLength(1);
+    rerender(props({ asker: earlier.asker, leagueOnScreen: false, teams: [...TEAMS] }));
+    await settle();
+    expect(earlier.asked).toHaveLength(1);
+  });
+
+  it("asks an unanswered question again on Team Rankings only where the bridge on hand is not the season's", async () => {
+    // A bridge on hand for the season as it stands: its retries wait for coming back.
+    keepAnswered("s1", ANSWER.bridge);
+    const answering = server({ answer: null });
+    const { rerender, unmount } = setup(props({ asker: answering.asker, leagueOnScreen: true }));
+    await settle();
+    expect(answering.asked).toHaveLength(1);
+    rerender(props({ asker: answering.asker, leagueOnScreen: false }));
+    await wait(3 * 60 * 60_000);
+    expect(answering.asked).toHaveLength(1);
+    rerender(props({ asker: answering.asker, leagueOnScreen: true }));
+    await settle();
+    expect(answering.asked).toHaveLength(2);
+    unmount();
+    // None on hand: the forecast has nothing to read, so the retries go on.
+    localStorage.clear();
+    const nothing = server({ answer: null });
+    setup(props({ asker: nothing.asker, leagueOnScreen: false }));
+    await wait(800);
+    await wait(5_000);
+    await wait(30_000);
+    expect(nothing.asked).toHaveLength(3);
   });
 
   it("leaves unread an answer for teams since changed, and asks again for them", async () => {

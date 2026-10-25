@@ -9,6 +9,7 @@ import {
 import { clubPickOption, pickableClubs, type ClubPickOption } from "../lib/leagueLinkOptions";
 import { leagueBridgeOf, type LeagueBridgeAnswer } from "../lib/live/leagueAnswers";
 import type { LeagueAsker } from "../lib/live/leagueAsk";
+import type { QueryOf } from "../lib/live/queries";
 import { BRIDGE_KEY } from "../lib/preferences";
 import { loadAgeGroups, loadScoutGamesForSeason, loadScoutTeams } from "../lib/teamRankingsStorage";
 import { poolFilled } from "../lib/poolFill";
@@ -51,7 +52,10 @@ export type ScoutBridgeOptions = {
   /**
    * Whether League Standings is the side on screen (absent, it is). Coming back to it from Team
    * Rankings asks again, since a member there may just have ticked this season on a page or merged
-   * a club; being shown anew asks only while it is on screen.
+   * a club. While it is not, the server is asked only where the bridge on hand does not answer the
+   * season as it stands (`askedOf`): the forecast, the digest and its notifications read the bridge
+   * on either side, but each question can be a cold load of the whole pool on the 8 GiB server, and
+   * the boards ask the server nothing, so a visit spent on them asked it for this alone.
    */
   leagueOnScreen?: boolean;
   /**
@@ -111,7 +115,7 @@ const ASK_AFTER_MS = 800;
  * server at all. The waits lengthen to half an hour: a question the server cannot answer in its
  * time costs a cold load of the whole pool at 8 GiB each try, and every two minutes for as long as
  * the page stayed open was what an unanswerable pool cost in October 2026. Coming back online,
- * signing in, and the page shown anew still ask at once.
+ * signing in, and the page shown anew still ask at once, on League Standings.
  */
 const RETRY_AFTER_MS = [5_000, 30_000, 120_000, 600_000, 1_800_000] as const;
 
@@ -126,9 +130,9 @@ const SHOWN_GAP_MS = 5 * 60_000;
  * The server's last bridge for each season, kept on this device: what the forecast reads the
  * moment the season opens, and offline, until the server answers again. A few seasons' worth,
  * newest last, since a browser's storage is shared with everything else the app keeps. Only the
- * bridge, a few thousand characters: the clubs each team could be are the link panel's, and asked
- * again each visit. Kept by season id (`BRIDGE_KEY`), and let go of with its season as the rest of
- * what a device keeps of one is (`forgetSeasons`).
+ * bridge, a few thousand characters, and the question it answered: the clubs each team could be
+ * are the link panel's, and asked again each visit. Kept by season id (`BRIDGE_KEY`), and let go
+ * of with its season as the rest of what a device keeps of one is (`forgetSeasons`).
  */
 const KEPT_KEY = BRIDGE_KEY;
 const KEPT_SEASONS = 4;
@@ -150,25 +154,49 @@ const readKept = (): Record<string, unknown> => {
   }
 };
 
+/**
+ * A kept bridge and the question it answered (`askedOf`), or null where the question is not known:
+ * one an earlier build kept, the bridge alone, which off League Standings is then asked about once.
+ */
+type Kept = { bridge: LeagueScoutBridge; asked: string | null };
+
+/** What is kept for a season read back whole, its bridge through the same checks as the network's. */
+const keptOf = (value: unknown): Kept | null => {
+  if (value && typeof value === "object" && "asked" in value) {
+    const { bridge, asked } = value as { bridge?: unknown; asked?: unknown };
+    const read = leagueBridgeOf(bridge);
+    return read && typeof asked === "string" ? { bridge: read, asked } : null;
+  }
+  const alone = leagueBridgeOf(value);
+  return alone && { bridge: alone, asked: null };
+};
+
 /** The bridge kept for `seasonId`, read back as one from the network is, or none. */
 export const keptBridge = (seasonId: string): LeagueScoutBridge | null =>
-  leagueBridgeOf(readKept()[seasonId]);
+  keptOf(readKept()[seasonId])?.bridge ?? null;
 
-const keepBridge = (seasonId: string, bridge: LeagueScoutBridge) => {
+const keepBridge = (seasonId: string, kept: { bridge: LeagueScoutBridge; asked: string }) => {
   const others = Object.entries(readKept()).filter(([id]) => id !== seasonId);
-  const write = (kept: [string, unknown][]) =>
-    localStorage.setItem(KEPT_KEY, JSON.stringify(Object.fromEntries(kept)));
+  const write = (entries: [string, unknown][]) =>
+    localStorage.setItem(KEPT_KEY, JSON.stringify(Object.fromEntries(entries)));
   try {
-    write([...others.slice(-(KEPT_SEASONS - 1)), [seasonId, bridge]]);
+    write([...others.slice(-(KEPT_SEASONS - 1)), [seasonId, kept]]);
   } catch {
     try {
       // A full store keeps this season's bridge before any other's.
-      write([[seasonId, bridge]]);
+      write([[seasonId, kept]]);
     } catch {
       /* not kept: the next visit asks again before the forecast has outside results */
     }
   }
 };
+
+/**
+ * A bridge question as it is compared with the one a bridge on hand answered: the JSON of the very
+ * question, since the kept one has to be told apart from it after a reload, where no array of this
+ * visit's can be held to it by identity.
+ */
+const askedOf = (question: QueryOf<"league.bridge">): string => JSON.stringify(question);
 
 /** The wide picker's clubs for a season, or null where the server did not answer. */
 type WideList = { season: string; options: readonly ClubPickOption[] | null };
@@ -187,9 +215,10 @@ type WideList = { season: string; options: readonly ClubPickOption[] | null };
  * A member's device holds no pool (1.6e), so for one the same answer is asked of the server
  * (`asker`, `league.bridge`): whenever the season's teams or final scores change, on coming back
  * from Team Rankings, when the sign-in comes through or the device comes back online, and when the
- * page is looked at anew, at most once every few minutes. A question unanswered is asked again,
- * and one already out is never thrown away for another about the same teams. The last bridge kept
- * for the season stands until an answer comes.
+ * page is looked at anew, at most once every few minutes; while Team Rankings is on screen, only
+ * where the bridge on hand does not answer the season as it stands. A question unanswered is asked
+ * again, and one already out is never thrown away for another about the same teams. The last
+ * bridge kept for the season stands until an answer comes.
  */
 export function useScoutBridge({
   activeSeasonId,
@@ -257,6 +286,8 @@ export function useScoutBridge({
    * one is.
    */
   const [heard, setHeard] = useState<Record<string, LeagueBridgeAnswer>>({});
+  /** The question each of this visit's answers answered (`askedOf`), by season, as `heard` is. */
+  const heardAsked = useRef<Record<string, string>>({});
   /** The season whose last question went unanswered, and is waiting to be asked again. */
   const [failedFor, setFailedFor] = useState<string | null>(null);
   const kept = useMemo(() => {
@@ -301,24 +332,39 @@ export function useScoutBridge({
     if (!asker || !activeSeasonId || held) return;
     let current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const question: QueryOf<"league.bridge"> = {
+      kind: "league.bridge",
+      season: activeSeasonId,
+      teams: teams.map(({ id, name, scoutTeamId }) => ({
+        id,
+        name,
+        ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
+      })),
+      fixtures: seasonFixtures,
+    };
+    const asked = askedOf(question);
+    /** The question the bridge on hand answered, read as the bridge shown is: heard, else kept. */
+    const onHand = () =>
+      heardAsked.current[seasonKey] ?? keptOf(readKept()[activeSeasonId])?.asked ?? null;
     const ask = (failures: number) => {
+      /*
+       * Off League Standings, a bridge on hand that answers this very question is left to stand
+       * until coming back, which asks again in any case. One for teams or final scores since
+       * changed, which another device's can be, or none at all, is asked for even here, retries
+       * included: the forecast, the digest and its notifications read it while Team Rankings is on
+       * screen, notifications while the page is hidden. Read from the ref as each question falls
+       * due, not as a dependency, so going to Team Rankings leaves one already out to be answered.
+       */
+      if (!onScreen.current && onHand() === asked) return;
       out.current = true;
       askedAt.current = Date.now();
-      void asker({
-        kind: "league.bridge",
-        season: activeSeasonId,
-        teams: teams.map(({ id, name, scoutTeamId }) => ({
-          id,
-          name,
-          ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
-        })),
-        fixtures: seasonFixtures,
-      }).then((reply) => {
+      void asker(question).then((reply) => {
         // An answer for teams or scores since changed is not this season's as it stands.
         if (!current) return;
         out.current = false;
         if (reply) {
-          keepBridge(activeSeasonId, reply.bridge);
+          keepBridge(activeSeasonId, { bridge: reply.bridge, asked });
+          heardAsked.current[seasonKey] = asked;
           setHeard((was) => ({
             ...was,
             [seasonKey]: { bridge: reply.bridge, candidates: reply.candidates },

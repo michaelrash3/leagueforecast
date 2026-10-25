@@ -218,6 +218,32 @@ describe("League Standings asking the server what Team Rankings has", () => {
     }
   });
 
+  it("asks nothing on Team Rankings for a season its kept bridge answers, until League Standings is shown", async () => {
+    server.squadYear = 2026;
+    const bridges = () => server.asked.filter((query) => query.kind === "league.bridge");
+    // A visit on League Standings, which asks and keeps the answer with its question.
+    const first = render(<App />);
+    await waitFor(() => expect(bridges()).toHaveLength(1), { timeout: 5_000 });
+    await waitFor(() =>
+      expect(window.localStorage.getItem("lf_league_bridge_v2")).toContain("asked")
+    );
+    first.unmount();
+    // The next opens on Team Rankings: past the board's first draw and the 0.8 s, nothing is asked.
+    resetOpeningHold();
+    window.history.replaceState(null, "", "/?view=rankings");
+    try {
+      render(<App />);
+      expect(await screen.findByText("The cloud's board")).toBeTruthy();
+      act(() => releaseOpening());
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1_500)));
+      expect(bridges()).toHaveLength(1);
+      fireEvent.click(screen.getByRole("tab", { name: "League Standings" }));
+      await waitFor(() => expect(bridges()).toHaveLength(2), { timeout: 3_000 });
+    } finally {
+      releaseOpening();
+    }
+  });
+
   it("holds nothing of League's while League Standings is the page shown", async () => {
     resetOpeningHold();
     server.leagueLive = true;

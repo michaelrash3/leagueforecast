@@ -844,7 +844,8 @@ export default function App() {
   /**
    * What Team Rankings has for this season: the results, the picks and the search behind them.
    * Asked of the server, it is asked again when the sign-in comes through and on coming back from
-   * Team Rankings, where the member may have changed what it reads.
+   * Team Rankings, where the member may have changed what it reads; while Team Rankings is on
+   * screen, only where the bridge on hand does not answer the season as it stands.
    */
   const {
     bridge: scoutBridge,
