@@ -280,7 +280,9 @@ export function ModelView(props: {
           <BracketPredictionPanel
             title={hasCutLine ? "Gold Bracket Predictor" : "Bracket Predictor"}
             emptyMessage="Not enough teams for a bracket."
-            championLabel="Projected Champion"
+            championLabel={
+              bracketProjection.championSource === "actual" ? "Champion" : "Projected Champion"
+            }
             projection={bracketProjection}
             onScoreChange={updateBracketLog}
             onToggleFinal={toggleBracketFinal}
@@ -292,7 +294,11 @@ export function ModelView(props: {
           <BracketPredictionPanel
             title="Silver Bracket Predictor"
             emptyMessage="Not enough Silver teams."
-            championLabel="Projected Silver Champion"
+            championLabel={
+              silverBracketProjection.championSource === "actual"
+                ? "Silver Champion"
+                : "Projected Silver Champion"
+            }
             projection={silverBracketProjection}
             onScoreChange={updateBracketLog}
             onToggleFinal={toggleBracketFinal}

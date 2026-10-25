@@ -186,3 +186,63 @@ describe("which side of a bracket game hosts", () => {
     expect(odds.championOdds.A).toBeGreaterThan(37);
   });
 });
+
+describe("a bracket already under way", () => {
+  /** A final, as the bracket keeps it: the top slot's runs as the home side's. */
+  const final = (top: string, bottom: string) => ({
+    homeRuns: top,
+    awayRuns: bottom,
+    homeHits: "",
+    awayHits: "",
+    homeK: "",
+    awayK: "",
+    innings: "6",
+    isFinal: true,
+  });
+
+  const ranked = () => {
+    const { games, logs } = season();
+    return rankTeams(
+      calculateTeams(bases, games, logs, settings),
+      rankOptionsFromSettings(settings)
+    );
+  };
+
+  it("takes a game already played as it ended, rather than drawing it again", () => {
+    const teams = ranked();
+    // Four entrants seat 1 v 4 and 2 v 3. The fourth seed has beaten the first.
+    const upset = { "bracket-r1-g1": final("2", "5") };
+
+    const odds = simulateBracketOdds(teams, [], 4000, "pin", 4, settings, upset);
+
+    expect(odds.championOdds.A).toBe(0);
+    expect(odds.finalsOdds.A).toBe(0);
+    expect(odds.finalsOdds.D).toBe(100);
+  });
+
+  it("gives the champion every chance once the final is played", () => {
+    const teams = ranked();
+    const done = {
+      "bracket-r1-g1": final("2", "5"), // D beats A
+      "bracket-r1-g2": final("6", "1"), // B beats C
+      "bracket-r2-g1": final("3", "4"), // the final: B, below, beats D
+    };
+
+    const odds = simulateBracketOdds(teams, [], 4000, "pin", 4, settings, done);
+
+    expect(odds.championOdds.B).toBe(100);
+    expect(odds.championOdds.D).toBe(0);
+  });
+
+  it("draws every game while the regular season still has one to play", () => {
+    const teams = ranked();
+    const left = [{ id: "late", date: "", away: "A", home: "D" }];
+    const upset = { "bracket-r1-g1": final("2", "5") };
+
+    const kept = simulateBracketOdds(teams, left, 400, "pin", 4, settings, upset);
+    const drawn = simulateBracketOdds(teams, left, 400, "pin", 4, settings);
+
+    expect(kept).toEqual(drawn);
+    expect(kept.championOdds.A).toBeGreaterThan(0);
+  });
+});

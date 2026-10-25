@@ -5,7 +5,7 @@ import {
   simulateGoldOddsRun,
   type BracketOddsResult,
 } from "../lib/sim";
-import type { Matchup, Settings, Team } from "../lib/types";
+import type { GameLog, Matchup, Settings, Team } from "../lib/types";
 
 export type CancelRequest = { kind: "cancel"; id: number };
 export type OddsRequest = {
@@ -36,6 +36,8 @@ export type BracketRequest = {
   seedText: string;
   cutoff: number;
   settings: Settings;
+  /** The Gold bracket's scores as kept, for the games already played (`simulateBracketOdds`). */
+  bracketLogs?: Record<string, GameLog>;
 };
 export type WorkerRequest = OddsRequest | TrendRequest | BracketRequest | CancelRequest;
 export type OddsResponse = {
@@ -97,7 +99,8 @@ ctx.onmessage = (event: MessageEvent<WorkerRequest>) => {
       req.iterations,
       req.seedText,
       req.cutoff,
-      req.settings
+      req.settings,
+      req.bracketLogs
     );
     if (!canceled.has(req.id))
       ctx.postMessage({ kind: "bracket", id: req.id, result } satisfies BracketResponse);

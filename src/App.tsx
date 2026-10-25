@@ -51,6 +51,7 @@ import {
   rankingsSectionCommandId,
 } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
+import { seasonFinalOf } from "./lib/seasonFinal";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useSeasons } from "./hooks/useSeasons";
@@ -1040,8 +1041,9 @@ export default function App() {
       cutoff: goldCutoff,
       settings,
       enabled: activeView === "model",
+      bracketLogs,
     }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings, activeView]
+    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings, activeView, bracketLogs]
   );
   const { bracketOdds } = useSimulationBracket(bracketInput);
 
@@ -2686,6 +2688,36 @@ export default function App() {
     nextTwoSwingGames,
   ]);
   const currentLeader = dashboardRows[0];
+  // How the season ended, once it has: the Dashboard says so where the next games would be.
+  const seasonFinal = useMemo(
+    () =>
+      seasonFinalOf({
+        standings: dashboardRows,
+        remaining: remainingGames.length,
+        scheduled: matchups.length,
+        hasPostseason,
+        champion: { team: bracketProjection.champion, source: bracketProjection.championSource },
+        ...(hasCutLine
+          ? {
+              silverChampion: {
+                team: silverBracketProjection.champion,
+                source: silverBracketProjection.championSource,
+              },
+            }
+          : {}),
+        ourTeamId,
+      }),
+    [
+      dashboardRows,
+      remainingGames.length,
+      matchups.length,
+      hasPostseason,
+      hasCutLine,
+      bracketProjection,
+      silverBracketProjection,
+      ourTeamId,
+    ]
+  );
 
   /*
    * What changed in the season since this device last looked (2.6): another device's scores, games
@@ -3574,6 +3606,7 @@ export default function App() {
                     />
                   ) : activeView === "dashboard" ? (
                     <DashboardView
+                      seasonFinal={seasonFinal}
                       engine={predictionEngine}
                       gameOdds={(game) =>
                         predictGame(game, liveTeams, settings, liveById).awayWinPct

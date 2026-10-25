@@ -5,7 +5,7 @@ import {
   simulateGoldOddsRun,
   type BracketOddsResult,
 } from "../lib/sim";
-import type { Matchup, Settings, Team } from "../lib/types";
+import type { GameLog, Matchup, Settings, Team } from "../lib/types";
 import type { WorkerResponse } from "../workers/sim.worker";
 import { useWorkerJob } from "./useWorkerJob";
 
@@ -35,6 +35,8 @@ type BracketInput = {
   settings: Settings;
   /** When false, the sim is skipped entirely (e.g. the bracket view isn't visible). */
   enabled: boolean;
+  /** The Gold bracket's scores as kept, so a game already played is not drawn again. */
+  bracketLogs?: Record<string, GameLog>;
 };
 
 /**
@@ -243,6 +245,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
         input.cutoff,
         input.settings,
         ratingsKey(input.teams),
+        input.bracketLogs,
       ]),
     [
       input.enabled,
@@ -252,6 +255,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
       input.seedText,
       input.cutoff,
       input.settings,
+      input.bracketLogs,
     ]
   );
 
@@ -276,6 +280,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
       seedText: input.seedText,
       cutoff: input.cutoff,
       settings: input.settings,
+      ...(input.bracketLogs ? { bracketLogs: input.bracketLogs } : {}),
     }),
     accept: (data: WorkerResponse, id) =>
       data.kind === "bracket" && data.id === id ? data.result : null,
@@ -286,7 +291,8 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
         input.iterations,
         input.seedText,
         input.cutoff,
-        input.settings
+        input.settings,
+        input.bracketLogs
       ),
     onResult,
   });

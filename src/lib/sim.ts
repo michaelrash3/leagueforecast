@@ -1392,11 +1392,26 @@ export type BracketOddsResult = {
 export const bracketHost = <T extends { seed: number }>(top: T, bottom: T): T =>
   top.seed <= bottom.seed ? top : bottom;
 
+/**
+ * The slot that won a bracket game already played, by its final score, or null for one not played
+ * or not decided. The bracket keeps a game's score under its slot (`bracket-r1-g2`), the top slot's
+ * runs as the home side's, as `buildBracketProjection` reads them.
+ */
+const playedWinner = <T>(log: GameLog | undefined, top: T, bottom: T): T | null => {
+  if (!log?.isFinal || log.homeRuns === "" || log.awayRuns === "") return null;
+  const topRuns = Number(log.homeRuns);
+  const bottomRuns = Number(log.awayRuns);
+  if (!Number.isFinite(topRuns) || !Number.isFinite(bottomRuns) || topRuns === bottomRuns)
+    return null;
+  return topRuns > bottomRuns ? top : bottom;
+};
+
 const simulateBracketRun = (
   entrants: Team[],
   byId: Map<string, Team>,
   settings: Settings,
-  random: () => number
+  random: () => number,
+  played: Record<string, GameLog> = {}
 ): { championId: string | null; finalistIds: string[] } => {
   if (entrants.length < 2) {
     const only = entrants[0]?.id ?? null;
@@ -1434,7 +1449,13 @@ const simulateBracketRun = (
     for (let game = 0; game < slots.length; game += 2) {
       const top = slots[game] ?? null;
       const bottom = slots[game + 1] ?? null;
-      if (top && bottom) {
+      const decided =
+        top && bottom
+          ? playedWinner(played[`bracket-r${round + 1}-g${game / 2 + 1}`], top, bottom)
+          : null;
+      if (decided) {
+        next.push(decided);
+      } else if (top && bottom) {
         const host = bracketHost(top, bottom);
         const visitor = host === top ? bottom : top;
         const matchup: Matchup = {
@@ -1461,7 +1482,14 @@ export const simulateBracketOdds = (
   iterations: number,
   seedText: string,
   cutoff: number,
-  settings: Settings
+  settings: Settings,
+  /**
+   * The Gold bracket's scores as kept (`bracketLogs`). A game already played is taken as it ended
+   * rather than drawn again, so a team knocked out has no title odds left and the champion has
+   * them all. Read only once the regular season has no games left: the bracket is played on the
+   * final table, so only then is each slot sure to hold the team its score was kept for.
+   */
+  bracketLogs: Record<string, GameLog> = {}
 ): BracketOddsResult => {
   const teamCount = teams.length;
   const seedCounts: Record<string, number[]> = {};
@@ -1476,6 +1504,7 @@ export const simulateBracketOdds = (
   const random = makeRandom(hashSeed(`${seedText}::bracket`));
   const rankOptions = rankOptionsFromSettings(settings);
   const bracketCutoff = Math.max(0, Math.min(cutoff, teamCount));
+  const played = remaining.length === 0 ? bracketLogs : {};
 
   for (let i = 0; i < iterations; i += 1) {
     const { season, byId } = scratchSeason(teams);
@@ -1490,7 +1519,13 @@ export const simulateBracketOdds = (
     });
 
     const entrants = finalRanking.slice(0, bracketCutoff);
-    const { championId, finalistIds } = simulateBracketRun(entrants, byId, settings, random);
+    const { championId, finalistIds } = simulateBracketRun(
+      entrants,
+      byId,
+      settings,
+      random,
+      played
+    );
     if (championId) championCounts[championId] = (championCounts[championId] ?? 0) + 1;
     finalistIds.forEach((id) => {
       finalsCounts[id] = (finalsCounts[id] ?? 0) + 1;
