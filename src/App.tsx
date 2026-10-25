@@ -45,6 +45,7 @@ import {
 } from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
 import { rankingsSearch } from "./lib/rankingsRoute";
+import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
@@ -410,7 +411,11 @@ const loadOpenSeason = (): SeasonState => ({
 });
 
 export default function App() {
-  const [activeView, setActiveView] = useState<ActiveView>("dashboard");
+  // The tab the address names, so a reload or "Reload update" comes back to it (`leagueTab.ts`).
+  const [activeView, setActiveView] = useState<ActiveView>(
+    () =>
+      (typeof window === "undefined" ? null : tabFromSearch(window.location.search)) ?? "dashboard"
+  );
   // The tab most often opened next, fetched once this one is drawn and the browser is idle (2.1).
   useEffect(() => {
     const next = LIKELY_NEXT[activeView];
@@ -519,6 +524,22 @@ export default function App() {
   );
   const { theme, setTheme, toggle: toggleTheme } = useDarkMode();
   const { appMode, setAppMode } = useAppMode();
+  /*
+   * Written back as the tab changes, replaced rather than pushed: the tab row is already a visible
+   * change, and Back should leave the app as it always has rather than walk the tabs. Only while
+   * League Standings is shown, so Team Rankings' own route is never touched from here; the tab is
+   * left in the address when the mode switches, so switching back returns to it.
+   */
+  useEffect(() => {
+    if (appMode !== "league" || typeof window === "undefined") return;
+    const search = searchWithTab(window.location.search, activeView);
+    if (search === window.location.search) return;
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${search}${window.location.hash}`
+    );
+  }, [appMode, activeView]);
   /*
    * The cloud copy of this browser's data (`lib/cloud`, README "Your data on every device"): its
    * changes are listened for once the app is on screen, and where it stands is the header button.
