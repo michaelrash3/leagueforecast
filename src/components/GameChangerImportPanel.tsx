@@ -691,7 +691,7 @@ export function GameChangerImportPanel({
     () => new Set(membership.orgs.flatMap((org) => org.teamIds)).size,
     [membership]
   );
-  /** Whether the file's organizations are kept by the end, already or now. */
+  /** Whether everything in the file it would keep is kept by the end, already or now. */
   const readOrgFile = (text: string): boolean => {
     const { orgs } = parseGcOrgList(text);
     if (!orgs.some((org) => org.teamIds?.length)) {
@@ -702,7 +702,13 @@ export function GameChangerImportPanel({
     }
     const next = mergeOrgMembership(membership, orgs, new Date().toISOString());
     if (next === membership) {
-      showToast("Nothing new in that file: every organization in it is already kept.");
+      // A file of only tournaments changes nothing too, since the merge leaves each out, but
+      // "already kept" would be untrue of them.
+      showToast(
+        orgs.every((org) => !org.teamIds?.length || org.kind === "tournament")
+          ? "Nothing to keep in that file: its organizations are tournaments, whose names give a bracket's age, not a team's."
+          : "Nothing new in that file: every organization in it is already kept."
+      );
       return true;
     }
     if (!saveOrgMembership(next)) {

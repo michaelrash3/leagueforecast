@@ -58,6 +58,52 @@ describe("keeping the Organizations file", () => {
     });
   });
 
+  it("leaves a tournament out, and drops one it had kept before a file typed it so", () => {
+    const morning = kept([
+      { orgId: "orgTPABL0012", name: "TPABL 12U", teamIds: ["teamLEOPARD1"] },
+      // Kept as a plain organization before, when the file carried no type.
+      { orgId: "orgSLAM0012", name: "Summer Slam 12U", teamIds: ["teamLEOPARD1"] },
+    ]);
+    const next = mergeOrgMembership(
+      morning,
+      [
+        { orgId: "orgTPABL0012", name: "TPABL 12U", teamIds: ["teamLEOPARD1"], kind: "league" },
+        {
+          orgId: "orgSLAM0012",
+          name: "Summer Slam 12U",
+          teamIds: ["teamLEOPARD1"],
+          kind: "tournament",
+        },
+        {
+          orgId: "orgSLAM0014",
+          name: "Summer Slam 14U",
+          teamIds: ["teamLEOPARD1"],
+          kind: "tournament",
+        },
+      ],
+      EVENING
+    );
+    expect(next.savedAt).toBe(EVENING);
+    expect(next.orgs.map((org) => org.orgId)).toEqual(["orgTPABL0012"]);
+  });
+
+  it("is unchanged by a tournament it never kept", () => {
+    const morning = kept([{ orgId: "orgTPABL0012", name: "TPABL 12U", teamIds: ["teamLEOPARD1"] }]);
+    const again = mergeOrgMembership(
+      morning,
+      [
+        {
+          orgId: "orgSLAM0012",
+          name: "Summer Slam 12U",
+          teamIds: ["teamLEOPARD1"],
+          kind: "tournament",
+        },
+      ],
+      EVENING
+    );
+    expect(again).toBe(morning);
+  });
+
   it("changes nothing, not even the date, for a file it has already read", () => {
     const morning = kept([
       { orgId: "orgENA000001", name: "ENA 8U Fall 2026", teamIds: ["teamPISTONS1"] },
@@ -125,6 +171,23 @@ describe("the age an organization's name gives its teams", () => {
     );
     expect(ages.get("teamLEOPARD1")).toBe(12);
     expect(ages.has("teamBOTH0001")).toBe(false);
+  });
+
+  it("takes the league's age, not a tournament's, for a team in both", () => {
+    // The league names the team's own age; the tournament's 14U is a bracket it played up to. Its
+    // name is a plain age, not an event, so only its type keeps it out — without that the two would
+    // disagree and the team would be left ageless.
+    const ages = orgAgesByTeam(
+      mergeOrgMembership(
+        NO_MEMBERSHIP,
+        [
+          { orgId: "orgNKB0011", name: "NKB 11u", teamIds: ["teamHYBRID01"], kind: "league" },
+          { orgId: "orgNB0014", name: "NB 14u", teamIds: ["teamHYBRID01"], kind: "tournament" },
+        ],
+        MORNING
+      )
+    );
+    expect(ages.get("teamHYBRID01")).toBe(11);
   });
 });
 

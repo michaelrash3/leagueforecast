@@ -11,7 +11,7 @@ import {
 } from "../../lib/crawlHandoffStore";
 import type { ImportStatus } from "../../lib/live/queries";
 import LiveCloudPulls, { useWatchedPulls } from "./LiveCloudPulls";
-import LiveImport from "./LiveImport";
+import LiveImport, { ORGS_NO_NAMES, ORGS_ONLY_TOURNAMENTS } from "./LiveImport";
 
 /*
  * The crawl's files handed over by the owner's userscript, taken by the cloud's Import: the
@@ -46,6 +46,23 @@ const TEAMS = [
 const ORGS = [
   '"Organization Name","Organization ID","Type","Season Name","Season Year","City","State","Team Count","Team IDs"',
   '"Placeholder League 9U","Pqy5Av4tHncy","league","Spring","2027","","","1","Ab3dE5gH7jK9"',
+].join("\r\n");
+// A delta of only tournaments, which the copy leaves out, named or not; and one with a league
+// beside them that has no name.
+const ORG_HEADER =
+  '"Organization Name","Organization ID","Type","Season Name","Season Year","City","State","Team Count","Team IDs"';
+const TOURNAMENTS = [
+  ORG_HEADER,
+  '"Placeholder Slam 14U","Tq7Bw3sKmXcz","tournament","Summer","2027","","","1","Ab3dE5gH7jK9"',
+].join("\r\n");
+const UNNAMED_TOURNAMENTS = [
+  ORG_HEADER,
+  '"","Tq7Bw3sKmXcz","tournament","Summer","2027","","","1","Ab3dE5gH7jK9"',
+].join("\r\n");
+const UNNAMED_LEAGUE = [
+  ORG_HEADER,
+  '"Placeholder Slam 14U","Tq7Bw3sKmXcz","tournament","Summer","2027","","","1","Ab3dE5gH7jK9"',
+  '"","Pqy5Av4tHncy","league","Spring","2027","","","1","Bc4eF6hJ8kL0"',
 ].join("\r\n");
 
 const edits = (edit: LiveEdits["edit"], locked: string | null = null): LiveEdits => ({
@@ -103,6 +120,37 @@ describe("the crawl's Organizations file on the cloud's Import", () => {
     await waitFor(() => expect(edit).toHaveBeenCalledTimes(1));
     await act(async () => {});
     expect(told).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["named", TOURNAMENTS],
+    ["unnamed", UNNAMED_TOURNAMENTS],
+  ])(
+    "tells the miner a file of only %s tournaments is done, and sends nothing",
+    async (_, text) => {
+      const told = vi.fn();
+      onHandoffLoaded(told);
+      const edit = vi.fn(async () => true);
+      const live = edits(edit);
+      holdHandoff({ id: "run_5", teams: null, orgs: { name: "o.csv", text } });
+      liveImport(live);
+      await waitFor(() => expect(told).toHaveBeenCalledWith("run_5", "orgs"));
+      expect(live.say).toHaveBeenCalledWith(ORGS_ONLY_TOURNAMENTS);
+      expect(edit).not.toHaveBeenCalled();
+    }
+  );
+
+  it("still asks for a name, and tells the miner nothing, for a league beside the tournaments", async () => {
+    const told = vi.fn();
+    onHandoffLoaded(told);
+    const edit = vi.fn(async () => true);
+    const live = edits(edit);
+    holdHandoff({ id: "run_6", teams: null, orgs: { name: "o.csv", text: UNNAMED_LEAGUE } });
+    liveImport(live);
+    await waitFor(() => expect(live.say).toHaveBeenCalledWith(ORGS_NO_NAMES));
+    await act(async () => {});
+    expect(told).not.toHaveBeenCalled();
+    expect(edit).not.toHaveBeenCalled();
   });
 
   it("waits while edits are locked, as the file input does", async () => {

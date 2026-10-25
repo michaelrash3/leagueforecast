@@ -46,6 +46,11 @@ const ORGS = [
   '"Organization Name","Organization ID","Type","Season Name","Season Year","City","State","Team Count","Team IDs"',
   '"Placeholder League 9U","Pqy5Av4tHncy","league","Spring","2027","Nashville","TN","2","Ab3dE5gH7jK9; Bc4eF6hJ8kL0"',
 ].join("\r\n");
+// A delta of only tournaments, which is kept out.
+const TOURNAMENTS = [
+  '"Organization Name","Organization ID","Type","Season Name","Season Year","City","State","Team Count","Team IDs"',
+  '"Placeholder Slam 14U","Tq7Bw3sKmXcz","tournament","Summer","2027","Nashville","TN","1","Ab3dE5gH7jK9"',
+].join("\r\n");
 
 beforeEach(() => {
   resetHandoffForTests();
@@ -103,5 +108,20 @@ describe("the crawl's files on this device's Import", () => {
       expect(toast).toHaveBeenCalledWith(expect.stringMatching(/Team IDs/), expect.anything())
     );
     expect(told).not.toHaveBeenCalled();
+  });
+
+  it("tell the miner an Organizations file of only tournaments is done, keeping none of it", async () => {
+    const told = vi.fn();
+    const toast = vi.fn();
+    onHandoffLoaded(told);
+    holdHandoff({
+      id: "run_4",
+      teams: null,
+      orgs: { name: "GC_Organizations_New.csv", text: TOURNAMENTS },
+    });
+    panel(toast);
+    await waitFor(() => expect(told).toHaveBeenCalledWith("run_4", "orgs"));
+    expect(toast).toHaveBeenCalledWith(expect.stringMatching(/^Nothing to keep .* tournaments/));
+    expect(loadOrgMembership().orgs).toEqual([]);
   });
 });

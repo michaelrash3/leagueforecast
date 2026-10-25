@@ -32,6 +32,9 @@ export const ORGS_NO_NAMES =
 /** Said for an Organizations file whose every organization is kept already. */
 export const ORGS_NOTHING_NEW =
   "Nothing new in that file: every organization in it is already kept.";
+/** Said for an Organizations file whose only organizations with teams are tournaments. */
+export const ORGS_ONLY_TOURNAMENTS =
+  "Nothing to keep in that file: its organizations are tournaments, whose names give a bracket's age, not a team's.";
 
 const CADENCES: readonly [RefreshCadence, string][] = [
   ["daily", "Every age group, daily"],
@@ -145,15 +148,30 @@ export default function LiveImport({
     });
   };
 
-  /** Whether the file's organizations are in the copy by the end, already or now. */
+  /** Whether the copy holds everything in the file it would keep by the end, already or now. */
   const readOrgFile = async (text: string): Promise<boolean> => {
-    // Only what the copy keeps: an organization with a name and a team under it.
+    // Only what the copy keeps: a league or club with a name and a team under it. A tournament is
+    // left out — its name is the age its brackets ran at, which the teams in it played up to, not
+    // their own (README, "Two lists"). The copy keeps `{ orgId, name, teamIds }`, no type, so this
+    // only ever leaves one out, which asks the server for nothing new.
     const read = parseGcOrgList(text).orgs;
-    const orgs: MemberOrg[] = read.flatMap(({ orgId, name, teamIds }) =>
-      name && teamIds?.length ? [{ orgId, name, teamIds }] : []
+    const orgs: MemberOrg[] = read.flatMap((entry) =>
+      entry.kind !== "tournament" && entry.name && entry.teamIds?.length
+        ? [{ orgId: entry.orgId, name: entry.name, teamIds: entry.teamIds }]
+        : []
     );
     if (orgs.length === 0) {
-      say(read.some(({ teamIds }) => teamIds?.length) ? ORGS_NO_NAMES : ORGS_NO_TEAMS);
+      // A file whose every organization with teams is a tournament is read in full, named or not:
+      // each was left out on purpose, so the copy has everything it would keep and the server is
+      // asked nothing. Saying so as done is what lets the crawl mark those rows sent, rather than
+      // offer them again on every load. A league beside them with no name is still said, since
+      // naming it is what would keep it.
+      const withTeams = read.filter(({ teamIds }) => teamIds?.length);
+      if (withTeams.length > 0 && withTeams.every(({ kind }) => kind === "tournament")) {
+        say(ORGS_ONLY_TOURNAMENTS);
+        return true;
+      }
+      say(withTeams.length > 0 ? ORGS_NO_NAMES : ORGS_NO_TEAMS);
       return false;
     }
     return edit(
