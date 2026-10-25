@@ -533,6 +533,8 @@ export function GamesView({
               seasonLabel={seasonLabel}
               onApply={applyScoreFill}
               onClose={closeScoreFill}
+              schedule={_matchups}
+              logs={logs}
             />
           </Suspense>
         )}

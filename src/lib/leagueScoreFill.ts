@@ -1,4 +1,4 @@
-import { normalizeDateInput } from "./date";
+import { normalizeDateInput, parseDateValue, seasonStartMonth } from "./date";
 import {
   ageGroupYear,
   findSimilarTeam,
@@ -119,8 +119,11 @@ export type LeagueMissingGame = {
   tournament?: string;
 };
 
-/** Games of `LeagueFillPlan.missing` to add to the schedule, and those of them to turn round. */
-export type FillAdditions = { add: string[]; swap: string[] };
+/**
+ * Games of `LeagueFillPlan.missing` to add to the schedule, and those of them to turn round; and
+ * those that are a schedule game played on another day (`movedGames`), to move rather than add.
+ */
+export type FillAdditions = { add: string[]; swap: string[]; move?: string[] };
 
 export type LeagueFillPlan = {
   rows: LeagueFillRow[];
@@ -800,15 +803,18 @@ export const missingGamesToAdd = (
   scoutGameIds: readonly string[],
   swapped: readonly string[],
   innings: number,
-  makeId: (index: number) => string
+  makeId: (index: number) => string,
+  /** Those picked that are moved instead (`movesToApply`), so they are not added as well. */
+  moved: readonly string[] = []
 ): { matchups: Matchup[]; logs: Record<string, GameLog> } => {
   const chosen = new Set(scoutGameIds);
+  const moving = new Set(moved);
   const turned = new Set(swapped);
   const scheduled = scheduledOn(schedule);
   const matchups: Matchup[] = [];
   const logs: Record<string, GameLog> = {};
   (plan.missing ?? []).forEach((game) => {
-    if (!chosen.has(game.scoutGameId)) return;
+    if (!chosen.has(game.scoutGameId) || moving.has(game.scoutGameId)) return;
     if (scheduled.has(`${pairKey(game.awayTeamId, game.homeTeamId)}@${game.date}`)) return;
     const swap = turned.has(game.scoutGameId);
     const id = makeId(matchups.length);
@@ -915,4 +921,78 @@ export const summarizeLeagueFill = (
   if (unclear > 0) parts.push(`${unclear} could not be told apart`);
   if (plan.unmatched > 0) parts.push(`${plan.unmatched} with no result yet`);
   return `${parts.join(" · ")}.`;
+};
+
+/** A game the schedule has, not played on its day, that the pool shows played on another. */
+export type MovedGame = {
+  /** The pool's game, among `LeagueFillPlan.missing`. */
+  scoutGameId: string;
+  /** The schedule's game it is. */
+  matchupId: string;
+  from: string;
+  to: string;
+};
+
+/**
+ * The games the schedule is missing that are really one of its own games played on another day: a
+ * rainout's make-up. Worked out on the device from the Fill answer it already has. A played game
+ * between two teams is paired with the schedule's one game between them that is still unscored and
+ * fell on an earlier day; where there are two such games, or two played games for one, nothing is
+ * paired, since which is which is not for a guess.
+ */
+export const movedGames = (
+  plan: LeagueFillPlan,
+  schedule: readonly Matchup[],
+  logs: Readonly<Record<string, RecordedRuns>>
+): MovedGame[] => {
+  const startMonth = seasonStartMonth(schedule.map((game) => game.date));
+  const order = (date: string) => parseDateValue(date, startMonth);
+  const candidates = (played: LeagueMissingGame) =>
+    schedule.filter(
+      (game) =>
+        pairKey(game.away, game.home) === pairKey(played.awayTeamId, played.homeTeamId) &&
+        !hasRecordedRuns(logs[game.id]) &&
+        order(game.date) < order(played.date)
+    );
+  const paired = (plan.missing ?? []).flatMap((played): MovedGame[] => {
+    const [only, ...more] = candidates(played);
+    return only && more.length === 0
+      ? [{ scoutGameId: played.scoutGameId, matchupId: only.id, from: only.date, to: played.date }]
+      : [];
+  });
+  const claims = new Map<string, number>();
+  paired.forEach((move) => claims.set(move.matchupId, (claims.get(move.matchupId) ?? 0) + 1));
+  return paired.filter((move) => claims.get(move.matchupId) === 1);
+};
+
+/**
+ * The moves picked from `movedGames`: each schedule game to its new day, with its score, final,
+ * the way round the schedule has the two teams.
+ */
+export const movesToApply = (
+  plan: LeagueFillPlan,
+  moved: readonly MovedGame[],
+  schedule: readonly Matchup[],
+  picked: readonly string[],
+  innings: number
+): { dates: Record<string, string>; logs: Record<string, GameLog> } => {
+  const chosen = new Set(picked);
+  const played = new Map((plan.missing ?? []).map((game) => [game.scoutGameId, game]));
+  const byId = new Map(schedule.map((game) => [game.id, game]));
+  const dates: Record<string, string> = {};
+  const logs: Record<string, GameLog> = {};
+  moved.forEach((move) => {
+    const game = played.get(move.scoutGameId);
+    const matchup = byId.get(move.matchupId);
+    if (!chosen.has(move.scoutGameId) || !game || !matchup) return;
+    const sameWay = matchup.away === game.awayTeamId;
+    dates[matchup.id] = move.to;
+    logs[matchup.id] = {
+      ...blankLog(String(innings)),
+      awayRuns: String(sameWay ? game.awayRuns : game.homeRuns),
+      homeRuns: String(sameWay ? game.homeRuns : game.awayRuns),
+      isFinal: true,
+    };
+  });
+  return { dates, logs };
 };

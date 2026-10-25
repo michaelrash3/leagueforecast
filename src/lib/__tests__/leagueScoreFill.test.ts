@@ -3,8 +3,11 @@ import {
   applyLeagueScoreFill,
   defaultFillSelection,
   missingGamesToAdd,
+  movedGames,
+  movesToApply,
   planLeagueScoreFill,
   summarizeLeagueFill,
+  type LeagueFillPlan,
   type LeagueScoreFillInput,
 } from "../leagueScoreFill";
 import { LEAGUE_GAME_PREFIX, type AgeGroup, type ScoutGame, type ScoutTeam } from "../teamRankings";
@@ -655,5 +658,52 @@ describe("games between the league's clubs that the schedule does not have", () 
       team.id === "CUBS" ? { ...team, scoutTeamId: "S-ACES" } : team
     );
     expect(planLeagueScoreFill(input({ teams: clash, scoutGames: games })).missing).toEqual([]);
+  });
+});
+
+describe("games the schedule has, played on another day", () => {
+  // The Aces at the Bears was rained out on 9/20 and played on 9/27, the Bears' club at home.
+  const played = {
+    scoutGameId: "s9",
+    date: "9/27",
+    awayTeamId: "BEAR",
+    homeTeamId: "ACES",
+    awayName: "Bears",
+    homeName: "Aces",
+    awayRuns: 2,
+    homeRuns: 6,
+  };
+  const plan: LeagueFillPlan = {
+    rows: [],
+    missing: [played],
+    unmatched: 0,
+    unusedResults: 0,
+    seasonLinked: true,
+  };
+  const schedule = [matchup("g1", "9/20", "ACES", "BEAR"), matchup("g2", "9/21", "BEAR", "CUBS")];
+
+  it("pairs a played game with the one unscored, earlier game between the two teams", () => {
+    expect(movedGames(plan, schedule, {})).toEqual([
+      { scoutGameId: "s9", matchupId: "g1", from: "9/20", to: "9/27" },
+    ]);
+  });
+
+  it("pairs nothing where the earlier game is scored, or where two could be it", () => {
+    expect(movedGames(plan, schedule, { g1: { awayRuns: "3", homeRuns: "1" } })).toEqual([]);
+    const twice = [...schedule, matchup("g3", "9/13", "BEAR", "ACES")];
+    expect(movedGames(plan, twice, {})).toEqual([]);
+  });
+
+  it("moves the schedule's game to its new day, its score the schedule's way round", () => {
+    const moved = movedGames(plan, schedule, {});
+    const { dates, logs } = movesToApply(plan, moved, schedule, ["s9"], 6);
+
+    expect(dates).toEqual({ g1: "9/27" });
+    // The schedule has the Aces away: their 6 goes on the away side.
+    expect(logs.g1).toMatchObject({ awayRuns: "6", homeRuns: "2", isFinal: true });
+    // And it is not added as a new game as well.
+    expect(
+      missingGamesToAdd(plan, schedule, ["s9"], [], 6, (i) => `n${i}`, ["s9"]).matchups
+    ).toEqual([]);
   });
 });

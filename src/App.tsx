@@ -2171,10 +2171,24 @@ export default function App() {
     const plan = scoreFillPlan;
     const code = scoreFillCode.current;
     if (!plan || !code) return;
-    const { applyLeagueScoreFill, missingGamesToAdd, summarizeLeagueFill } = code;
+    const {
+      applyLeagueScoreFill,
+      missingGamesToAdd,
+      movedGames,
+      movesToApply,
+      summarizeLeagueFill,
+    } = code;
     const seen = scoreFillSeen.current;
     const innings = settings.defaultGameInnings;
     const result = applyLeagueScoreFill(plan, matchupIds, logs, innings, otherVersion, seen);
+    // The schedule as the store holds it this moment, which a game from another device may have
+    // reached before this render's `matchups` did.
+    const schedule = seasonStore.get().season.matchups;
+    // Its own games played on another day than scheduled: moved to the day played, and filled.
+    const moves = additions?.move?.length
+      ? movesToApply(plan, movedGames(plan, schedule, logs), schedule, additions.move, innings)
+      : { dates: {}, logs: {} };
+    const movedCount = Object.keys(moves.dates).length;
     // Games between the league's clubs the schedule did not have (3.7), each a new game, final.
     const stamp = Date.now();
     const added = additions
@@ -2186,11 +2200,12 @@ export default function App() {
           additions.add,
           additions.swap,
           innings,
-          (index) => `game_${stamp}_${index}`
+          (index) => `game_${stamp}_${index}`,
+          Object.keys(moves.dates).length > 0 ? (additions.move ?? []) : []
         )
       : { matchups: [], logs: {} };
     setScoreFillPlan(null);
-    if (result.filled === 0 && added.matchups.length === 0) {
+    if (result.filled === 0 && added.matchups.length === 0 && movedCount === 0) {
       showToast(
         result.changed === 0
           ? "Nothing was filled in."
@@ -2216,6 +2231,15 @@ export default function App() {
     if (added.matchups.length > 0) {
       setMatchups((prev) => [...prev, ...added.matchups]);
       setLogs((prev) => ({ ...prev, ...added.logs }));
+    }
+    if (movedCount > 0) {
+      setMatchups((prev) =>
+        prev.map((game) => {
+          const day = moves.dates[game.id];
+          return day ? { ...game, date: day } : game;
+        })
+      );
+      setLogs((prev) => ({ ...prev, ...moves.logs }));
     }
     const count = added.matchups.length;
     showToast(

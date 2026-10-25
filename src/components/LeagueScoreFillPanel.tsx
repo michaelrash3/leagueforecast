@@ -1,11 +1,14 @@
 import { useMemo, useState } from "react";
 import {
   defaultFillSelection,
+  movedGames,
   type FillAdditions,
   type LeagueFillAction,
   type LeagueFillPlan,
   type LeagueFillRow,
+  type RecordedRuns,
 } from "../lib/leagueScoreFill";
+import type { Matchup } from "../lib/types";
 import { formatGameDate } from "../lib/date";
 import { displayName } from "../lib/format";
 import { button, card, pill } from "../styles/tokens";
@@ -20,6 +23,9 @@ type LeagueScoreFillPanelProps = {
    */
   onApply: (matchupIds: string[], otherVersion: string[], additions?: FillAdditions) => void;
   onClose: () => void;
+  /** The schedule and its scores, for the games played on another day than scheduled. */
+  schedule?: readonly Matchup[];
+  logs?: Readonly<Record<string, RecordedRuns>>;
 };
 
 const ACTION_TONE: Record<LeagueFillAction, "emerald" | "blue" | "amber" | "neutral" | "red"> = {
@@ -57,12 +63,21 @@ export function LeagueScoreFillPanel({
   seasonLabel,
   onApply,
   onClose,
+  schedule,
+  logs,
 }: LeagueScoreFillPanelProps) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set(defaultFillSelection(plan)));
   /** Rows to fill with the other club's version of the score, where the two schedules differ. */
   const [otherVersion, setOtherVersion] = useState<Set<string>>(() => new Set());
 
   const missing = plan.missing ?? [];
+  // A missing game that is the schedule's own, played on another day: moved, not added (on the
+  // device, from the answer already here).
+  const moved = useMemo(
+    () =>
+      new Map(movedGames(plan, schedule ?? [], logs ?? {}).map((move) => [move.scoutGameId, move])),
+    [plan, schedule, logs]
+  );
   // Games between the league's clubs to add: every one but a likely tournament meeting, to begin.
   const [adding, setAdding] = useState<Set<string>>(
     () => new Set(missing.filter((game) => !game.tournament).map((game) => game.scoutGameId))
@@ -131,6 +146,7 @@ export function LeagueScoreFillPanel({
               ? [game.homeRuns, game.awayRuns]
               : [game.awayRuns, game.homeRuns];
             const label = `${displayName(away)} at ${displayName(home)}, ${game.date}`;
+            const move = moved.get(game.scoutGameId);
             return (
               <li key={game.scoutGameId} className="flex flex-wrap items-baseline gap-x-2 text-sm">
                 <input
@@ -143,14 +159,20 @@ export function LeagueScoreFillPanel({
                 <span>
                   {displayName(away)} {awayRuns}, {displayName(home)} {homeRuns}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setTurned((prev) => flip(prev, game.scoutGameId))}
-                  aria-label={`Swap home and away for ${label}`}
-                  className="text-xs font-bold text-blue-700 underline dark:text-blue-300"
-                >
-                  Swap
-                </button>
+                {move ? (
+                  <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                    Moved {move.from} → {move.to}: the schedule&rsquo;s game, moved and filled
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setTurned((prev) => flip(prev, game.scoutGameId))}
+                    aria-label={`Swap home and away for ${label}`}
+                    className="text-xs font-bold text-blue-700 underline dark:text-blue-300"
+                  >
+                    Swap
+                  </button>
+                )}
                 {game.tournament && (
                   <span className="basis-full text-xs text-slate-500 dark:text-slate-400">
                     {game.tournament}
@@ -162,10 +184,18 @@ export function LeagueScoreFillPanel({
         </ul>
       </div>
     ) : null;
-  const additions = (): FillAdditions => ({
-    add: missing.map((game) => game.scoutGameId).filter((id) => adding.has(id)),
-    swap: missing.map((game) => game.scoutGameId).filter((id) => adding.has(id) && turned.has(id)),
-  });
+  const additions = (): FillAdditions => {
+    const move = missing
+      .map((game) => game.scoutGameId)
+      .filter((id) => adding.has(id) && moved.has(id));
+    return {
+      add: missing.map((game) => game.scoutGameId).filter((id) => adding.has(id)),
+      swap: missing
+        .map((game) => game.scoutGameId)
+        .filter((id) => adding.has(id) && turned.has(id)),
+      ...(move.length > 0 ? { move } : {}),
+    };
+  };
   const applyLabel =
     adding.size === 0
       ? `Fill ${plural(selected.size, "game")}`

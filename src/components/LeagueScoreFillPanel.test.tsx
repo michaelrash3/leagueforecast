@@ -195,3 +195,44 @@ describe("games between the league's clubs not on the schedule", () => {
     });
   });
 });
+
+describe("a game the schedule has, played on another day", () => {
+  const rainedOut: LeagueFillPlan = {
+    rows: [],
+    missing: [
+      {
+        scoutGameId: "s9",
+        date: "9/27",
+        awayTeamId: "BEAR",
+        homeTeamId: "ACES",
+        awayName: "Bears",
+        homeName: "Aces",
+        awayRuns: 2,
+        homeRuns: 6,
+      },
+    ],
+    unmatched: 0,
+    unusedResults: 0,
+    seasonLinked: true,
+  };
+
+  it("is offered as moved, and applied as a move rather than an added game", async () => {
+    const onApply = vi.fn();
+    render(
+      <LeagueScoreFillPanel
+        plan={rainedOut}
+        seasonLabel="Fall"
+        onApply={onApply}
+        onClose={() => {}}
+        schedule={[{ id: "g1", date: "9/20", away: "ACES", home: "BEAR" }]}
+        logs={{}}
+      />
+    );
+
+    expect(screen.getByText(/Moved 9\/20 → 9\/27/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Swap home and away/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /^Fill|^Add|^Apply/ }));
+
+    expect(onApply).toHaveBeenCalledWith([], [], { add: ["s9"], swap: [], move: ["s9"] });
+  });
+});
