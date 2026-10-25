@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
+import { saveTeams } from "./lib/storage";
 
 // League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
 beforeAll(() => prefetchAllViews());
@@ -74,6 +75,11 @@ describe("sharing the season after a tab change", () => {
 
   beforeEach(() => {
     window.localStorage.clear();
+    // The header's Share button shows once a season has teams to share.
+    saveTeams([
+      { id: "A", name: "Aces" },
+      { id: "B", name: "Bears" },
+    ]);
     writeText.mockClear();
     vi.stubGlobal(
       "matchMedia",
@@ -122,8 +128,7 @@ describe("sharing the season after a tab change", () => {
       expect(screen.getByRole("tab", { name: "Schedule" })).toHaveAttribute("aria-selected", "true")
     );
 
-    await user.keyboard("{Control>}k{/Control}");
-    await user.click(await screen.findByText("Share this season (copy URL)"));
+    await user.click(screen.getByRole("button", { name: "Copy share URL for this season" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     expect(sharedUrl().get("view")).toBe("games");
@@ -142,8 +147,7 @@ describe("sharing the season after a tab change", () => {
       )
     );
 
-    await user.keyboard("{Control>}k{/Control}");
-    await user.click(await screen.findByText("Share this season (copy URL)"));
+    await user.click(screen.getByRole("button", { name: "Copy share URL for this season" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     expect(sharedUrl().get("view")).toBe("standings");

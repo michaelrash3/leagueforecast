@@ -69,6 +69,7 @@ const storedNames = () =>
 
 const openMachine = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(await screen.findByRole("tab", { name: "Forecast" }));
+  await user.click(await screen.findByRole("button", { name: "Playoff machine" }));
   return screen.findByRole("region", { name: "Playoff machine" });
 };
 

@@ -84,6 +84,21 @@ describe("League Standings on a phone", () => {
     expect(screen.getByRole("button", { name: "More: Settings" })).toHaveFocus();
   });
 
+  it("switches to Team Rankings from More, and back from Team Rankings' More", async () => {
+    seed({ g1: final("4", "2") }, 1);
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole("tab", { name: "Dashboard" });
+
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(screen.getByRole("button", { name: "Switch to Team Rankings" }));
+    expect(await screen.findByRole("tablist", { name: "Team Rankings section" })).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(screen.getByRole("button", { name: "Switch to League Standings" }));
+    expect(await screen.findByRole("tablist", { name: "Main views" })).toBeVisible();
+  });
+
   it("shows Data Quality across the bar while something needs attention", async () => {
     // A Gold cut line of 2 with two teams: every team is in, so the odds say nothing.
     seed({ g1: final("4", "2") }, 2);

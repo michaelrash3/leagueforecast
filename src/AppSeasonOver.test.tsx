@@ -76,6 +76,7 @@ describe("a season with nothing left to play", () => {
     expect(within(over).getByText("Champion: Bears.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Forecast" }));
+    await user.click(await screen.findByRole("button", { name: "Brackets" }));
     expect(await screen.findByText("Champion")).toBeInTheDocument();
     expect(screen.queryByText("Projected Champion")).toBeNull();
   });
@@ -86,6 +87,7 @@ describe("a season with nothing left to play", () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("tab", { name: "Forecast" }));
+    await user.click(await screen.findByRole("button", { name: "Season" }));
     const race = await screen.findByRole("region", { name: "Season race" });
     expect(await within(race).findByRole("img")).toBeInTheDocument();
   });

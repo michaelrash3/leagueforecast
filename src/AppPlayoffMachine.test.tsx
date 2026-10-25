@@ -69,6 +69,7 @@ describe("the playoff machine", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: "Forecast" }));
+    await user.click(await screen.findByRole("button", { name: "Playoff machine" }));
     const machine = await screen.findByRole("region", { name: "Playoff machine" });
 
     await user.click(
@@ -104,6 +105,7 @@ describe("the playoff machine", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: "Forecast" }));
+    await user.click(await screen.findByRole("button", { name: "Playoff machine" }));
     const machine = await screen.findByRole("region", { name: "Playoff machine" });
     const game = within(machine).getByRole("group", { name: "Ducks at Aces" });
 
