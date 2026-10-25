@@ -48,6 +48,7 @@ import {
 import { unpulledClubs, unpulledClubsCsv } from "../../unpulledClubs";
 import { planClubAges } from "../agePlan";
 import { asJson } from "../editHandle";
+import { BRIDGE_RULES_NOW } from "../leagueAnswers";
 import type { SeasonReader } from "../allKnown";
 import {
   answerQuery,
@@ -494,6 +495,120 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
       [fill, "league.fill"],
     ] as const)
       expect(coerceQueryAnswer(callableEncode(asJson(answer)), kind)).toEqual(answer);
+  });
+
+  it("answers the bridge as the rules a device keeps it under say (`BRIDGE_RULES_NOW`)", () => {
+    claimed();
+    // Pinned with its rules: an answer this moves is one a device's kept answer no longer stands
+    // for, so the change raises `BRIDGE_RULES` (or the boards' own) with it.
+    expect({ rules: BRIDGE_RULES_NOW, answer: answerQuery(BRIDGE) }).toMatchInlineSnapshot(`
+      {
+        "answer": {
+          "bridge": {
+            "countedResults": 3,
+            "linkedCount": 2,
+            "results": [
+              {
+                "away": "a",
+                "home": "b",
+                "homeMargin": 1,
+                "neutral": true,
+              },
+              {
+                "away": "S-C",
+                "home": "a",
+                "homeMargin": 1,
+                "neutral": true,
+              },
+              {
+                "away": "S-C",
+                "home": "b",
+                "homeMargin": 1,
+                "neutral": true,
+              },
+            ],
+            "rows": [
+              {
+                "how": "guessed",
+                "leagueTeamId": "a",
+                "leagueTeamName": "Club A",
+                "scoutTeamId": "A",
+                "suggestedName": "Club A",
+              },
+              {
+                "how": "picked",
+                "leagueTeamId": "b",
+                "leagueTeamName": "Club B",
+                "scoutTeamId": "B",
+                "suggestedName": "Club B",
+              },
+            ],
+            "seasonLinked": true,
+            "squadYear": 2027,
+          },
+          "candidates": [
+            {
+              "clubs": [
+                {
+                  "ageLevel": 10,
+                  "games": 5,
+                  "gcIds": [
+                    "gc-A",
+                  ],
+                  "name": "Club A",
+                  "scoutTeamId": "A",
+                  "sharedOpponents": [
+                    "Club B",
+                  ],
+                },
+                {
+                  "ageLevel": 10,
+                  "games": 3,
+                  "gcIds": [
+                    "gc-B",
+                  ],
+                  "name": "Club B",
+                  "scoutTeamId": "B",
+                  "sharedOpponents": [],
+                },
+              ],
+              "name": "Club A",
+            },
+            {
+              "clubs": [
+                {
+                  "ageLevel": 10,
+                  "games": 5,
+                  "gcIds": [
+                    "gc-A",
+                  ],
+                  "name": "Club A",
+                  "scoutTeamId": "A",
+                  "sharedOpponents": [
+                    "Club A",
+                  ],
+                },
+                {
+                  "ageLevel": 10,
+                  "games": 3,
+                  "gcIds": [
+                    "gc-B",
+                  ],
+                  "name": "Club B",
+                  "scoutTeamId": "B",
+                  "sharedOpponents": [
+                    "Club A",
+                  ],
+                },
+              ],
+              "name": "Club B",
+            },
+          ],
+          "kind": "league.bridge",
+        },
+        "rules": "1.9",
+      }
+    `);
   });
 
   it("sends a team the best of its clubs, and the one it is picked as wherever it falls", () => {

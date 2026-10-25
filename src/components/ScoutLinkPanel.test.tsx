@@ -61,6 +61,14 @@ const optionsInPicker = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("picking which club a league team is", () => {
+  it("says it is drawn, and that it has gone, so the clubs are asked for while it is open", () => {
+    const onShown = vi.fn();
+    const { unmount } = renderPanel({ onShown });
+    expect(onShown.mock.calls).toEqual([[true]]);
+    unmount();
+    expect(onShown.mock.calls).toEqual([[true], [false]]);
+  });
+
   it("finds a club by its coach, and lists who coaches each one", async () => {
     // Invented names: the coach is often the one thing about a club in your own league you know.
     const user = userEvent.setup();

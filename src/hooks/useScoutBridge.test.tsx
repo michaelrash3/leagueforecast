@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keptBridge, useScoutBridge, type SeasonFixture } from "./useScoutBridge";
-import type { LeagueBridgeAnswer } from "../lib/live/leagueAnswers";
+import { BRIDGE_RULES_NOW, type LeagueBridgeAnswer } from "../lib/live/leagueAnswers";
 import type { CopyAt, LeagueAsker } from "../lib/live/leagueAsk";
 import type { QueryOf } from "../lib/live/queries";
 import type { AgeGroup, ScoutTeam } from "../lib/teamRankings";
@@ -1061,6 +1061,150 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     await settle();
     expect(copy.state.reads).toBe(0);
     expect(asked).toHaveLength(2);
+  });
+
+  /** A bridge an earlier visit kept for `season`, with its question and the copy it came from. */
+  const keepStamped = (
+    season: string,
+    at: Record<string, unknown> = {
+      copy: "c1",
+      version: 5,
+      heard: Date.now(),
+      rules: BRIDGE_RULES_NOW,
+    }
+  ) =>
+    localStorage.setItem(
+      "lf_league_bridge_v2",
+      JSON.stringify({ [season]: { bridge: ANSWER.bridge, asked: askedFor(season), at } })
+    );
+
+  it("finds a visit's first question answered by the kept bridge where the copy has not moved", async () => {
+    keepStamped("s1");
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const { result } = setup(props({ asker, copyNow: copy.copyNow }));
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toEqual([]);
+    expect(result.current.unanswered).toBeUndefined();
+    // Moved since: asked.
+    copy.state.at = { copy: "c1", version: 6 };
+    const later = setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    expect(asked).toHaveLength(1);
+    later.unmount();
+  });
+
+  it("keeps the copy an answer came from with it, so the next visit asks nothing", async () => {
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const first = setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    first.unmount();
+    expect(JSON.parse(localStorage.getItem("lf_league_bridge_v2") ?? "null")).toEqual({
+      s1: {
+        bridge: ANSWER.bridge,
+        asked: askedFor("s1"),
+        at: { copy: "c1", version: 5, heard: expect.any(Number), rules: BRIDGE_RULES_NOW },
+      },
+    });
+    setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(1);
+  });
+
+  it("asks about a kept bridge with no copy kept beside it, and keeps one after", async () => {
+    keepAnswered("s1", ANSWER.bridge);
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    expect(copy.state.reads).toBe(0);
+    expect(asked).toHaveLength(1);
+    expect(localStorage.getItem("lf_league_bridge_v2")).toContain(`"rules":"${BRIDGE_RULES_NOW}"`);
+  });
+
+  it("asks where the copy kept cannot be read whole, or no longer stands", async () => {
+    // 10:00 in New York, so a stamp from 23:00 the evening before is another day's.
+    vi.setSystemTime(new Date("2026-10-26T14:00:00.000Z"));
+    const now = Date.now();
+    const good = { copy: "c1", version: 5, heard: now - 60_000, rules: BRIDGE_RULES_NOW };
+    for (const at of [
+      { ...good, version: "5" },
+      { ...good, version: -1 },
+      { ...good, version: 1.5 },
+      { ...good, copy: "" },
+      { ...good, copy: undefined },
+      { ...good, heard: "now" },
+      { ...good, rules: 1 },
+      { ...good, rules: "0.0" },
+      { ...good, heard: now + 60_000 },
+      { ...good, heard: Date.parse("2026-10-26T03:00:00.000Z") },
+    ]) {
+      localStorage.clear();
+      keepStamped("s1", at);
+      const copy = cloudCopy();
+      const { asked, asker } = stamped(copy.state);
+      const { result, unmount } = setup(props({ asker, copyNow: copy.copyNow }));
+      expect(result.current.bridge).toEqual(ANSWER.bridge);
+      await settle();
+      expect({ at, asked: asked.length, reads: copy.state.reads }).toEqual({
+        at,
+        asked: 1,
+        reads: 0,
+      });
+      unmount();
+    }
+  });
+
+  it("asks for the clubs once the link panel opens, the kept answer standing all the same", async () => {
+    keepStamped("s1");
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const { result } = setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    expect(asked).toEqual([]);
+    expect(result.current.candidatesFor("Rays")).toEqual([]);
+    act(() => result.current.wantLinks(true));
+    await settle();
+    expect(asked).toHaveLength(1);
+    expect(copy.state.reads).toBe(1);
+    expect(result.current.candidatesFor("Rays")).toEqual(ANSWER.candidates[0]?.clubs);
+    // Closed and opened again with this visit's answer in: nothing more.
+    act(() => result.current.wantLinks(false));
+    act(() => result.current.wantLinks(true));
+    await settle();
+    expect(asked).toHaveLength(1);
+    expect(copy.state.reads).toBe(1);
+  });
+
+  it("asks a visit's first question of the server while the link panel is open", async () => {
+    keepStamped("s1");
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const { result } = setup(props({ asker, copyNow: copy.copyNow }));
+    act(() => result.current.wantLinks(true));
+    await settle();
+    expect(copy.state.reads).toBe(0);
+    expect(asked).toHaveLength(1);
+  });
+
+  it("ends the retries of a visit's first question once the copy is read and found unmoved", async () => {
+    keepStamped("s1");
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state, { answering: false, naming: true });
+    // Signed in only later, as a slow boot is: the copy cannot be read yet, and the server is asked.
+    copy.state.readable = false;
+    setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    expect(asked).toHaveLength(1);
+    copy.state.readable = true;
+    await wait(5_000);
+    expect(copy.state.reads).toBe(2);
+    await wait(60 * 60_000);
+    expect(asked).toHaveLength(1);
   });
 
   it("asks for the wide picker's clubs once a season, when it is first widened", async () => {

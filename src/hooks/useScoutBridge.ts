@@ -7,7 +7,11 @@ import {
   type LeagueTeamLink,
 } from "../lib/teamRankings";
 import { clubPickOption, pickableClubs, type ClubPickOption } from "../lib/leagueLinkOptions";
-import { leagueBridgeOf, type LeagueBridgeAnswer } from "../lib/live/leagueAnswers";
+import {
+  BRIDGE_RULES_NOW,
+  leagueBridgeOf,
+  type LeagueBridgeAnswer,
+} from "../lib/live/leagueAnswers";
 import type { CopyAt, LeagueAsker } from "../lib/live/leagueAsk";
 import type { QueryOf } from "../lib/live/queries";
 import { BRIDGE_KEY } from "../lib/preferences";
@@ -97,6 +101,12 @@ export type ScoutBridge = {
    * unanswered asks again.
    */
   wantWide: (wanted: boolean) => void;
+  /**
+   * Said when the link panel opens or goes. The clubs each team could be come with this visit's
+   * answer alone, never from what is kept, so while the panel is open a question whose kept answer
+   * still stands is put to the server all the same, once, for them.
+   */
+  wantLinks: (wanted: boolean) => void;
   setLink: (leagueTeamId: string, scoutTeamId: string | undefined) => void;
   /** Called when Team Rankings saves, so everything here is read again. */
   noteChange: () => void;
@@ -137,20 +147,38 @@ const SERVER_DAY = new Intl.DateTimeFormat("en-CA", {
 });
 
 /**
- * The copy and version an answer was worked out from, and when its question was sent
- * (`STAMP_TRUST_MS`): no later than the server worked it out, so an answer asked for before New
- * York's midnight and heard after it is held to the day before, and asked again (Codex, on #446).
+ * The copy and version an answer was worked out from, when its question was sent
+ * (`STAMP_TRUST_MS`), and the rules it was worked out under (`BRIDGE_RULES_NOW`). Sent is no later
+ * than the server worked it out, so an answer asked for before New York's midnight and heard after
+ * it is held to the day before, and asked again (Codex, on #446). Kept with the bridge, so a visit
+ * can find its first question answered already.
  */
-type Stamp = CopyAt & { heard: number };
+type Stamp = CopyAt & { heard: number; rules: string };
 
 /**
- * Whether `stamp` may still stand for its answer at `now`: heard, by this clock, within a day, and
- * on the server's day as it still is.
+ * Whether `stamp` may still stand for its answer at `now`: under this build's rules, heard, by this
+ * clock, within a day, and on the server's day as it still is.
  */
 const trusted = (stamp: Stamp, now: number): boolean =>
+  stamp.rules === BRIDGE_RULES_NOW &&
   now >= stamp.heard &&
   now - stamp.heard < STAMP_TRUST_MS &&
   SERVER_DAY.format(stamp.heard) === SERVER_DAY.format(now);
+
+/** A stamp read back from storage whole, or null: what is kept there is any earlier build's. */
+const stampOf = (value: unknown): Stamp | null => {
+  if (!value || typeof value !== "object") return null;
+  const { copy, version, heard, rules } = value as Record<string, unknown>;
+  return typeof copy === "string" &&
+    copy !== "" &&
+    Number.isSafeInteger(version) &&
+    (version as number) >= 0 &&
+    typeof heard === "number" &&
+    Number.isFinite(heard) &&
+    typeof rules === "string"
+    ? { copy, version: version as number, heard, rules }
+    : null;
+};
 
 /**
  * How long after a question goes unanswered it is asked again, the last wait repeated until one is
@@ -199,27 +227,32 @@ const readKept = (): Record<string, unknown> => {
 };
 
 /**
- * A kept bridge and the question it answered (`askedOf`), or null where the question is not known:
- * one an earlier build kept, the bridge alone, which off League Standings is then asked about once.
+ * A kept bridge, the question it answered (`askedOf`), or null where the question is not known: one
+ * an earlier build kept, the bridge alone, which off League Standings is then asked about once; and
+ * the copy it came from (`Stamp`), or null where none was kept or it cannot be read.
  */
-type Kept = { bridge: LeagueScoutBridge; asked: string | null };
+type Kept = { bridge: LeagueScoutBridge; asked: string | null; at: Stamp | null };
 
 /** What is kept for a season read back whole, its bridge through the same checks as the network's. */
 const keptOf = (value: unknown): Kept | null => {
   if (value && typeof value === "object" && "asked" in value) {
-    const { bridge, asked } = value as { bridge?: unknown; asked?: unknown };
+    const { bridge, asked, at } = value as { bridge?: unknown; asked?: unknown; at?: unknown };
     const read = leagueBridgeOf(bridge);
-    return read && typeof asked === "string" ? { bridge: read, asked } : null;
+    return read && typeof asked === "string" ? { bridge: read, asked, at: stampOf(at) } : null;
   }
   const alone = leagueBridgeOf(value);
-  return alone && { bridge: alone, asked: null };
+  return alone && { bridge: alone, asked: null, at: null };
 };
 
 /** The bridge kept for `seasonId`, read back as one from the network is, or none. */
 export const keptBridge = (seasonId: string): LeagueScoutBridge | null =>
   keptOf(readKept()[seasonId])?.bridge ?? null;
 
-const keepBridge = (seasonId: string, kept: { bridge: LeagueScoutBridge; asked: string }) => {
+const keepBridge = (
+  seasonId: string,
+  { bridge, asked, at }: { bridge: LeagueScoutBridge; asked: string; at: Stamp | null }
+) => {
+  const kept = { bridge, asked, ...(at ? { at } : {}) };
   const others = Object.entries(readKept()).filter(([id]) => id !== seasonId);
   const write = (entries: [string, unknown][]) =>
     localStorage.setItem(KEPT_KEY, JSON.stringify(Object.fromEntries(entries)));
@@ -337,6 +370,8 @@ export function useScoutBridge({
    * from where the reply named one, by season, as `heard` is.
    */
   const heardOn = useRef<Record<string, { asked: string; at: Stamp | null }>>({});
+  /** Whether the link panel is open (`wantLinks`), whose clubs come with this visit's answer alone. */
+  const linksWanted = useRef(false);
   /** The season whose last question went unanswered, and is waiting to be asked again. */
   const [failedFor, setFailedFor] = useState<string | null>(null);
   /*
@@ -402,7 +437,7 @@ export function useScoutBridge({
      * the kept one, whose copy is not known.
      */
     const onHand = () =>
-      heardOn.current[seasonKey] ?? (kept ? { asked: kept.asked, at: null } : null);
+      heardOn.current[seasonKey] ?? (kept ? { asked: kept.asked, at: kept.at } : null);
     /** After an answer, or a question found to need none: a change noted meanwhile is asked about. */
     const carryOn = () => {
       if (again.current) {
@@ -428,7 +463,14 @@ export function useScoutBridge({
        * copy that cannot be read is no proof it stood still, so the server is asked.
        */
       const at = hand?.asked === asked ? hand.at : null;
-      if (!copyNow || !at || !trusted(at, Date.now())) {
+      // To the server where no stamp stands for the answer on hand, and while the link panel is
+      // open with nothing heard this visit: its clubs come with an answer alone.
+      if (
+        !copyNow ||
+        !at ||
+        !trusted(at, Date.now()) ||
+        (linksWanted.current && !heardOn.current[seasonKey])
+      ) {
         send(failures);
         return;
       }
@@ -454,11 +496,9 @@ export function useScoutBridge({
         if (!current) return;
         out.current = false;
         if (reply) {
-          keepBridge(activeSeasonId, { bridge: reply.bridge, asked });
-          heardOn.current[seasonKey] = {
-            asked,
-            at: reply.at ? { ...reply.at, heard: sent } : null,
-          };
+          const at = reply.at ? { ...reply.at, heard: sent, rules: BRIDGE_RULES_NOW } : null;
+          keepBridge(activeSeasonId, { bridge: reply.bridge, asked, at });
+          heardOn.current[seasonKey] = { asked, at };
           setHeard((was) => ({
             ...was,
             [seasonKey]: { bridge: reply.bridge, candidates: reply.candidates },
@@ -525,6 +565,14 @@ export function useScoutBridge({
   const [wide, setWide] = useState<WideList | null>(null);
   const wideHere = wide?.season === activeSeasonId ? wide : null;
   const wideAsked = wideHere !== null;
+  const wantLinks = useCallback(
+    (wanted: boolean) => {
+      linksWanted.current = wanted;
+      // Opened with nothing heard this visit for the season: asked, for the clubs.
+      if (wanted && !heardOn.current[seasonKey]) noteChange();
+    },
+    [noteChange, seasonKey]
+  );
   const wantWide = useCallback((wanted: boolean) => {
     setWideWanted(wanted);
     // Wanted again after the list went unanswered: it is asked for again.
@@ -565,6 +613,7 @@ export function useScoutBridge({
     wideOptions,
     ...(wideStatus ? { wideStatus } : {}),
     wantWide,
+    wantLinks,
     setLink: onLink,
     noteChange,
   };

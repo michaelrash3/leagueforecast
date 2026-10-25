@@ -855,6 +855,7 @@ export default function App() {
     wideOptions: scoutWideOptions,
     wideStatus: scoutWideStatus,
     wantWide: wantScoutWide,
+    wantLinks: wantScoutLinks,
     noteChange: noteScoutChange,
   } = useScoutBridge({
     activeSeasonId,
@@ -3788,6 +3789,7 @@ export default function App() {
                           wideOptions={scoutWideOptions}
                           {...(scoutWideStatus ? { wideStatus: scoutWideStatus } : {})}
                           onWide={wantScoutWide}
+                          onShown={wantScoutLinks}
                           seasonLabel={settings.seasonLabel}
                           countingOn={settings.useScoutResults}
                           onPick={setScoutLink}

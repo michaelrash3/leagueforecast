@@ -34,6 +34,12 @@ type ScoutLinkPanelProps = {
    * for again.
    */
   onWide?: (wanted: boolean) => void;
+  /**
+   * Told the panel is drawn, and that it has gone: the clubs each team could be come with an answer
+   * from the server this visit alone, never from what a device keeps, so they are asked for while
+   * it is open.
+   */
+  onShown?: (shown: boolean) => void;
   seasonLabel: string;
   /** Whether the setting below this one is letting any of it count right now. */
   countingOn: boolean;
@@ -147,6 +153,7 @@ function ScoutLinkPanelInner({
   wideOptions,
   wideStatus,
   onWide,
+  onShown,
   seasonLabel,
   countingOn,
   onPick,
@@ -163,6 +170,10 @@ function ScoutLinkPanelInner({
     onWide?.(wide);
     return () => onWide?.(false);
   }, [wide, onWide]);
+  useEffect(() => {
+    onShown?.(true);
+    return () => onShown?.(false);
+  }, [onShown]);
 
   return (
     // Where a data-quality finding about a link opens (`data-setting`, 2.3).
