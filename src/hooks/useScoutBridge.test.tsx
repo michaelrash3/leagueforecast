@@ -613,6 +613,34 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     expect(nothing.asked).toHaveLength(3);
   });
 
+  it("holds a question off League Standings to the bridge shown, not to one another tab kept since", async () => {
+    keepAnswered("s1", ANSWER.bridge);
+    const { asked, asker } = server();
+    const { result, rerender, unmount } = setup(props({ asker, leagueOnScreen: false }));
+    await settle();
+    expect(asked).toEqual([]);
+    // Another tab, on League Standings, keeps its answer for the Rays' club picked, and the pick
+    // reaches this one: the bridge shown here is still the one read as the season opened.
+    const picked = [{ id: "lt1", name: "Rays", scoutTeamId: "S-R" }];
+    keepAnswered("s1", { ...ANSWER.bridge, results: [] }, askedFor("s1", picked));
+    rerender(props({ asker, leagueOnScreen: false, teams: picked }));
+    await settle();
+    expect(asked).toHaveLength(1);
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    unmount();
+    // None kept as the season opened, and the first question unanswered: another tab's answer
+    // since is not shown here, so the retries go on.
+    localStorage.clear();
+    const nothing = server({ answer: null });
+    const second = setup(props({ asker: nothing.asker, leagueOnScreen: false }));
+    await settle();
+    expect(nothing.asked).toHaveLength(1);
+    keepAnswered("s1", ANSWER.bridge);
+    await wait(5_000);
+    expect(nothing.asked).toHaveLength(2);
+    expect(second.result.current.bridge.seasonLinked).toBe(false);
+  });
+
   it("leaves unread an answer for teams since changed, and asks again for them", async () => {
     let letGo = () => {};
     const held = new Promise<void>((resolve) => (letGo = resolve));

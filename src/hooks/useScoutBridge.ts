@@ -290,10 +290,15 @@ export function useScoutBridge({
   const heardAsked = useRef<Record<string, string>>({});
   /** The season whose last question went unanswered, and is waiting to be asked again. */
   const [failedFor, setFailedFor] = useState<string | null>(null);
+  /*
+   * The kept bridge and its question, read once as the season opens: what is shown until an answer
+   * comes, and what the question is held to off League Standings, from this one read, so another
+   * tab's write meanwhile neither shows here nor passes for the bridge shown (Codex, on #445).
+   */
   const kept = useMemo(() => {
     // Read again for another season under the same id, of which storage keeps nothing yet.
     void seasonKey;
-    return asker && activeSeasonId ? keptBridge(activeSeasonId) : null;
+    return asker && activeSeasonId ? keptOf(readKept()[activeSeasonId]) : null;
   }, [asker, activeSeasonId, seasonKey]);
   const answer = asker && activeSeasonId ? heard[seasonKey] : undefined;
 
@@ -343,9 +348,8 @@ export function useScoutBridge({
       fixtures: seasonFixtures,
     };
     const asked = askedOf(question);
-    /** The question the bridge on hand answered, read as the bridge shown is: heard, else kept. */
-    const onHand = () =>
-      heardAsked.current[seasonKey] ?? keptOf(readKept()[activeSeasonId])?.asked ?? null;
+    /** The question the bridge shown answered: this visit's answer, else the kept one. */
+    const onHand = () => heardAsked.current[seasonKey] ?? kept?.asked ?? null;
     const ask = (failures: number) => {
       /*
        * Off League Standings, a bridge on hand that answers this very question is left to stand
@@ -388,9 +392,9 @@ export function useScoutBridge({
       again.current = false;
       clearTimeout(timer);
     };
-  }, [asker, activeSeasonId, seasonKey, teams, seasonFixtures, revision, held]);
+  }, [asker, activeSeasonId, seasonKey, kept, teams, seasonFixtures, revision, held]);
 
-  const bridge = asker ? (answer?.bridge ?? kept ?? NOTHING) : local;
+  const bridge = asker ? (answer?.bridge ?? kept?.bridge ?? NOTHING) : local;
   const unanswered =
     asker && activeSeasonId && !answer && !kept
       ? failedFor === seasonKey
