@@ -10,8 +10,10 @@ import {
   loadMatchups,
   loadSettingsForSeason,
   loadTeams,
+  loadSettings,
   saveLogs,
   saveMatchups,
+  saveSettings,
   saveTeams,
   setActiveSeason,
   writeSeasonData,
@@ -81,6 +83,30 @@ describe("our team on the Dashboard", () => {
     expect(card).toHaveTextContent(/1st of 3 · 1-0/);
     expect(card).toHaveTextContent(/Next: 5\/9 vs Comets — \d+% to win/);
     expect(readOurTeam("default")).toBe("A");
+  });
+
+  it("says what the team needs to make the cut, once the season is nearly done", async () => {
+    // One place. The Bears are 2-1 and done; the Aces are 1-0 with the Comets left. A win puts the
+    // Aces 2-0, ahead on fewer losses; a loss or a tie leaves them short of the Bears.
+    saveMatchups([
+      { id: "g1", date: "5/1", away: "A", home: "B" },
+      { id: "g2", date: "5/2", away: "B", home: "C" },
+      { id: "g4", date: "5/3", away: "B", home: "C" },
+      { id: "g3", date: "5/9", away: "C", home: "A" },
+    ]);
+    saveLogs({ g1: final("7", "2"), g2: final("5", "4"), g4: final("6", "1") });
+    saveSettings({ ...loadSettings(), goldCutoff: 1 });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("tab", { name: "Dashboard" }));
+    await user.selectOptions(
+      within(screen.getByRole("region", { name: "Our team" })).getByRole("combobox"),
+      "Aces"
+    );
+
+    const card = screen.getByRole("region", { name: "Our team" });
+    expect(card).toHaveTextContent("To make the cut, needs:");
+    expect(within(card).getByText("Beat Comets (5/9)")).toBeInTheDocument();
   });
 
   it("opens the Schedule on the team's games to enter a score", async () => {

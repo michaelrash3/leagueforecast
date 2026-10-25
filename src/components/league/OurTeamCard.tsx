@@ -140,6 +140,16 @@ export function OurTeamCard({ summary, teams, onPick, onEnterScore, clubRank }: 
       {summary.magic && (
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{summary.magic}</p>
       )}
+      {summary.needs && (
+        <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+          <p className="font-bold text-slate-800 dark:text-slate-100">To make the cut, needs:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {summary.needs.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <button
         type="button"
         className={`${buttonClasses.ghost} mt-3`}

@@ -1,4 +1,5 @@
 import { recordText } from "./format";
+import type { NeededResult } from "./magic";
 import type { SwingGame, TeamWithProjection } from "./types";
 
 /** What the Dashboard's "Our team" card says about the team this browser follows. */
@@ -23,7 +24,29 @@ export type OurTeamSummary = {
   };
   /** The magic number's sentence, where one has been worked out. */
   magic?: string;
+  /** The results it cannot reach the cut without, late in the season (`neededResults`). */
+  needs?: string[];
 };
+
+/**
+ * The needed results as the card says them: the team's own games as what it must do, anyone
+ * else's as what it needs to happen. "Not lose" where a tie is enough, "beat" where it is not.
+ */
+export const needsLines = (
+  teamId: string,
+  needed: readonly NeededResult[],
+  nameOf: (id: string) => string
+): string[] =>
+  needed.map((need) => {
+    const when = need.date ? ` (${need.date})` : "";
+    const against = nameOf(need.against);
+    if (need.side === teamId)
+      return need.orTie ? `Don't lose to ${against}${when}` : `Beat ${against}${when}`;
+    const side = nameOf(need.side);
+    return need.orTie
+      ? `${side} not to lose to ${against}${when}`
+      : `${side} to beat ${against}${when}`;
+  });
 
 /**
  * The line a family reads at the field, for the one team they follow.
@@ -36,7 +59,12 @@ export type OurTeamSummary = {
 export const ourTeamSummary = (
   team: TeamWithProjection | undefined,
   teamCount: number,
-  options: { hasCutLine: boolean; swings: readonly SwingGame[]; magic?: string }
+  options: {
+    hasCutLine: boolean;
+    swings: readonly SwingGame[];
+    magic?: string;
+    needs?: string[];
+  }
 ): OurTeamSummary | null => {
   if (!team) return null;
   const trend = team.goldTrend;
@@ -66,5 +94,6 @@ export const ourTeamSummary = (
         }
       : {}),
     ...(options.hasCutLine && options.magic ? { magic: options.magic } : {}),
+    ...(options.hasCutLine && options.needs?.length ? { needs: options.needs } : {}),
   };
 };

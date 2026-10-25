@@ -102,7 +102,7 @@ import {
 import { digestOddsMove, raceOf, type NotifyPrefs } from "./lib/seasonDigest";
 import { useSeasonDigest } from "./hooks/useSeasonDigest";
 import { useDigestNotifications } from "./hooks/useDigestNotifications";
-import { ourTeamSummary } from "./lib/ourTeam";
+import { needsLines, ourTeamSummary } from "./lib/ourTeam";
 import { leagueClubRankFor, scoutRoute, type LeagueClubRank } from "./lib/leagueClubRanks";
 import { askToScout } from "./lib/scoutRequest";
 import { OurTeamCard } from "./components/league/OurTeamCard";
@@ -146,7 +146,7 @@ import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standi
 import { displayName, recordText } from "./lib/format";
 import { pathSummary, recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
-import { eliminationNumberForGold, magicForGold } from "./lib/magic";
+import { eliminationNumberForGold, magicForGold, neededResults } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
@@ -262,6 +262,9 @@ const EXACT_MAGIC_REMAINING_GAME_LIMIT = 15;
 // schedule this can otherwise block the browser before the confirmation toast
 // and first render complete.
 const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
+// The needed results for the followed team (`neededResults`): one exact search per side of each
+// game left, so asked only once the season is this close to done.
+const NEEDS_REMAINING_GAME_LIMIT = 10;
 // Full-season imports can contain hundreds of open games. Projecting every
 // remaining game synchronously is useful late in the season, but it can block
 // the browser immediately after import or while saving a final. Keep the UI
@@ -2672,10 +2675,22 @@ export default function App() {
       hasCutLine && remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
         ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, settings).description
         : undefined;
+    /*
+     * What it cannot do without, exact, late enough that the search is quick: on a full table with
+     * ties worth half a win, ten games left took 245 ms at worst against 1.5 s at fifteen.
+     */
+    const needed =
+      hasCutLine && remainingGames.length <= NEEDS_REMAINING_GAME_LIMIT
+        ? neededResults(team.id, dashboardRows, remainingGames, goldCutoff, settings)
+        : null;
+    const needs = needed
+      ? needsLines(team.id, needed, (id) => displayName(dashboardById.get(id)?.name ?? id))
+      : undefined;
     return ourTeamSummary(team, dashboardRows.length, {
       hasCutLine,
       swings: nextTwoSwingGames(team.id),
       ...(magic ? { magic } : {}),
+      ...(needs ? { needs } : {}),
     });
   }, [
     ourTeamId,

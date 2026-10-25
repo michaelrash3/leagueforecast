@@ -1,4 +1,4 @@
-import { standingsPoints } from "./sim";
+import { rankOptionsFromSettings, rankTeams, standingsPoints } from "./sim";
 import type { Matchup, Settings, Team } from "./types";
 
 export type MagicResult = {
@@ -387,4 +387,74 @@ export const eliminationNumberForGold = (
       ? `Cannot be eliminated from the Gold Bracket this season.`
       : "Its own losses cannot eliminate it, but other results still can.",
   };
+};
+
+/**
+ * A result the followed team cannot reach the cut without (`neededResults`): `side` must not lose
+ * to `against`. A tie is enough where `orTie`; otherwise `side` has to win.
+ */
+export type NeededResult = {
+  gameId: string;
+  date: string;
+  side: string;
+  against: string;
+  orTie: boolean;
+};
+
+/** The league after one game has gone a given way, ranked again so a season left with no games reads its own table. */
+const after = (teams: Team[], game: Matchup, winnerId: string | null, settings: Settings): Team[] =>
+  rankTeams(
+    teams.map((team) => {
+      if (team.id !== game.away && team.id !== game.home) return team;
+      if (winnerId === null) return { ...team, t: team.t + 1 };
+      return team.id === winnerId ? { ...team, w: team.w + 1 } : { ...team, l: team.l + 1 };
+    }),
+    rankOptionsFromSettings(settings)
+  );
+
+/**
+ * The results the team cannot finish inside the cut without, in its own games or in anyone's:
+ * those where, with the game going the other way (or tied, where a tie scores), no way the rest
+ * can go puts it in, even with every level finish going its way. Null where there is nothing to
+ * need: in whatever happens, or out whatever happens.
+ *
+ * Exact, by the same search as the magic number, run once for each side of each game left; so it
+ * is asked only as late in the season as the magic number is.
+ */
+export const neededResults = (
+  teamId: string,
+  teams: Team[],
+  remaining: Matchup[],
+  cutoff: number,
+  settings: Settings
+): NeededResult[] | null => {
+  const effective = { ...settings, goldCutoff: cutoff };
+  if (!teams.some((team) => team.id === teamId)) return null;
+  if (!solveCutoff(teamId, teams, remaining, effective, 0, 0, "any", false)) return null;
+  if (solveCutoff(teamId, teams, remaining, effective, 0, 0, "all", true)) return null;
+  const needed: NeededResult[] = [];
+  remaining.forEach((game) => {
+    const rest = remaining.filter((other) => other !== game);
+    const stillIn = (winnerId: string | null) =>
+      solveCutoff(
+        teamId,
+        after(teams, game, winnerId, settings),
+        rest,
+        effective,
+        0,
+        0,
+        "any",
+        false
+      );
+    const tieEnough = settings.tiePoints > 0 && stillIn(null);
+    [
+      [game.away, game.home],
+      [game.home, game.away],
+    ].forEach(([side, against]) => {
+      // Needed where the other side winning leaves no way in.
+      if (!side || !against || stillIn(against)) return;
+      needed.push({ gameId: game.id, date: game.date, side, against, orTie: tieEnough });
+    });
+  });
+  return needed;
 };
