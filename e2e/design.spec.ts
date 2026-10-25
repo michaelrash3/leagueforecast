@@ -200,6 +200,9 @@ const VIEWS = [
   "Settings",
 ];
 
+/** The Forecast's sections in their order (`FORECAST_SECTIONS`); it opens on the first. */
+const FORECAST_SECTIONS = ["Outlook", "Brackets", "Playoff machine", "Games", "Season"];
+
 const SIZES = [
   { name: "phone", viewport: { width: 360, height: 800 }, mobile: true },
   { name: "tablet", viewport: { width: 768, height: 1024 }, mobile: true },
@@ -234,6 +237,14 @@ for (const scheme of ["light", "dark"] as const) {
         for (const view of VIEWS) {
           await openView(page, view);
           problems.push(...(await check(page, info, `${size.name}-${scheme}-${view}`)));
+          if (view !== "Forecast") continue;
+          // The Forecast shows one section at a time; each is checked, not only the first.
+          for (const section of FORECAST_SECTIONS.slice(1)) {
+            await page.getByRole("button", { name: section, exact: true }).click();
+            problems.push(
+              ...(await check(page, info, `${size.name}-${scheme}-${view}-${section}`))
+            );
+          }
         }
         expect(problems).toEqual([]);
       });

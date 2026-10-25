@@ -3655,6 +3655,10 @@ export default function App() {
                       retryForecastStory={forecastStory.retry}
                       forecastStoryWaiting={forecastStory.waiting}
                       askForecastStory={forecastStory.ask}
+                      // A scenario link waiting to be opened needs the machine on screen to open it.
+                      {...(incomingScenario?.seasonId === activeSeasonId
+                        ? { startOn: "machine" as const }
+                        : {})}
                       playoffMachine={
                         <PlayoffMachine
                           teams={teams}

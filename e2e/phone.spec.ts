@@ -36,6 +36,7 @@ const forecast = async (page: Page) => {
   if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
 
   await tab(page, "Forecast").click();
+  await page.getByRole("button", { name: "Brackets", exact: true }).click();
   await page.locator('section[aria-label="Championship and seed odds"]').waitFor();
   const brackets = page.locator('section[aria-label="Bracket prediction model"]');
   await expect(brackets.first()).toBeVisible();
