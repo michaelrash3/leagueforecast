@@ -81,6 +81,7 @@ describe("a season with games either side of 1 January", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: "Forecast" }));
+    await user.click(await screen.findByRole("button", { name: "Playoff machine" }));
     const machine = await screen.findByRole("region", { name: "Playoff machine" });
     const games = within(machine)
       .getAllByRole("group")

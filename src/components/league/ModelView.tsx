@@ -6,7 +6,7 @@
  * state that everything else reads and the handlers that write it, which is how the file got to
  * eight and a half thousand lines and why a bug in the plumbing was so easy to miss.
  */
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { backtestPredictions } from "../../lib/backtest";
 import { buildBracketProjection } from "../../lib/bracket";
 import { goldCutLineSnapshot, type ClinchingPathNote } from "../../lib/clinchingPaths";
@@ -44,6 +44,17 @@ const GoldOddsTrendChart = lazy(() =>
     default: module.GoldOddsTrendChart,
   }))
 );
+
+export type ForecastSection = "outlook" | "brackets" | "machine" | "games" | "season";
+
+/** The Forecast tab's sections, in the order its row shows them. */
+export const FORECAST_SECTIONS: { key: ForecastSection; label: string }[] = [
+  { key: "outlook", label: "Outlook" },
+  { key: "brackets", label: "Brackets" },
+  { key: "machine", label: "Playoff machine" },
+  { key: "games", label: "Games" },
+  { key: "season", label: "Season" },
+];
 
 export function ModelView(props: {
   goldCutoff: number;
@@ -120,6 +131,8 @@ export function ModelView(props: {
   askForecastStory: () => void;
   /** Pick winners of the games left and see the table (`PlayoffMachine`). */
   playoffMachine?: ReactNode;
+  /** The section to show on opening, and whenever it changes: a scenario link asks for the machine. */
+  startOn?: ForecastSection;
 }) {
   const {
     goldCutoff,
@@ -180,28 +193,65 @@ export function ModelView(props: {
   const rangeText = (range: { best: number; worst: number }) =>
     seedRangesPausedUntil === null ? `#${range.best}–#${range.worst}` : "—";
 
+  /*
+   * One section at a time. The tab drew all fourteen blocks one under another, about 10,700px on a
+   * desktop with the demo season, so what you came for was a long scroll from wherever you were.
+   * A scenario link opens on the machine; asked for again, the section follows the ask.
+   */
+  const sections = FORECAST_SECTIONS.filter(({ key }) => key !== "brackets" || hasPostseason);
+  const [picked, setSection] = useState<ForecastSection>(props.startOn ?? "outlook");
+  // A section the season no longer has (Brackets, after a switch to a season with no postseason)
+  // falls back to the first rather than leaving nothing on screen; the pick is kept for coming back.
+  const section = sections.some(({ key }) => key === picked) ? picked : "outlook";
+  const [askedFor, setAskedFor] = useState(props.startOn);
+  if (props.startOn !== askedFor) {
+    setAskedFor(props.startOn);
+    if (props.startOn) setSection(props.startOn);
+  }
+  const show = (key: ForecastSection) => section === key;
+
   return (
     <section className="space-y-6">
       <div>
         <PageHeader title="Forecast" />
-        <div className="mt-3">
-          <AiStoryPanel
-            title="Forecast Write-up"
-            text={forecastPanelText}
-            source={forecastStoryText ? forecastStoryProvider : "local"}
-            model={forecastStoryModel}
-            loading={forecastStoryLoading}
-            loadingLabel="Reading the projection…"
-            unavailableReason={forecastStoryUnavailableReason}
-            errorMessage={forecastStoryErrorMessage}
-            onRetry={retryForecastStory}
-            waiting={forecastStoryWaiting}
-            onAsk={askForecastStory}
-          />
-        </div>
+        {section === "outlook" && (
+          <div className="mt-3">
+            <AiStoryPanel
+              title="Forecast Write-up"
+              text={forecastPanelText}
+              source={forecastStoryText ? forecastStoryProvider : "local"}
+              model={forecastStoryModel}
+              loading={forecastStoryLoading}
+              loadingLabel="Reading the projection…"
+              unavailableReason={forecastStoryUnavailableReason}
+              errorMessage={forecastStoryErrorMessage}
+              onRetry={retryForecastStory}
+              waiting={forecastStoryWaiting}
+              onAsk={askForecastStory}
+            />
+          </div>
+        )}
       </div>
 
-      {hasCutLine && (
+      <nav aria-label="Forecast sections" className="flex flex-wrap gap-2">
+        {sections.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={section === key}
+            onClick={() => setSection(key)}
+            className={`rounded-lg border px-3 py-1.5 text-sm font-bold ${
+              section === key
+                ? "border-slate-950 bg-slate-950 text-white dark:border-white dark:bg-white dark:text-slate-950"
+                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {show("outlook") && hasCutLine && (
         <ClinchingPathsPanel
           paths={clinchingPaths}
           lastInName={cutLineSnapshot.lastInName}
@@ -211,7 +261,7 @@ export function ModelView(props: {
         />
       )}
 
-      {hasCutLine && modelRows.some((team) => team.goldTrend.length >= 2) && (
+      {show("outlook") && hasCutLine && modelRows.some((team) => team.goldTrend.length >= 2) && (
         <section className={`${card} p-5`} aria-label="Gold odds trend">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -232,76 +282,80 @@ export function ModelView(props: {
         </section>
       )}
 
-      <section className={`${card} p-5`} aria-label="Schedule difficulty heatmap">
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-              Schedule Difficulty Heatmap
-            </h3>
+      {show("games") && (
+        <section className={`${card} p-5`} aria-label="Schedule difficulty heatmap">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+                Schedule Difficulty Heatmap
+              </h3>
+            </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              Remaining slate
+            </span>
           </div>
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            Remaining slate
-          </span>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {modelRows.map((team) => {
-            const sos = scheduleDifficultyForTeam(team.id);
-            const toneClass =
-              sos.label === "Hard"
-                ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-200"
-                : sos.label === "Medium"
-                  ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200"
-                  : sos.label === "Complete"
-                    ? "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                    : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200";
-            return (
-              <button
-                type="button"
-                key={`sos-heat-${team.id}`}
-                onClick={() => onSelectTeam(team.id)}
-                className={`rounded-lg border p-4 text-left shadow-xs transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
-                aria-label={`${displayName(team.name)} remaining schedule difficulty: ${sos.label}`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-black">{displayName(team.name)}</span>
-                  <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-current dark:bg-black/20">
-                    {sos.label}
-                  </span>
-                </div>
-                <p className="mt-2 line-clamp-2 text-xs font-semibold">{sos.opponents}</p>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {modelRows.map((team) => {
+              const sos = scheduleDifficultyForTeam(team.id);
+              const toneClass =
+                sos.label === "Hard"
+                  ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-200"
+                  : sos.label === "Medium"
+                    ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200"
+                    : sos.label === "Complete"
+                      ? "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/30 dark:text-emerald-200";
+              return (
+                <button
+                  type="button"
+                  key={`sos-heat-${team.id}`}
+                  onClick={() => onSelectTeam(team.id)}
+                  className={`rounded-lg border p-4 text-left shadow-xs transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
+                  aria-label={`${displayName(team.name)} remaining schedule difficulty: ${sos.label}`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-black">{displayName(team.name)}</span>
+                    <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-current dark:bg-black/20">
+                      {sos.label}
+                    </span>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-xs font-semibold">{sos.opponents}</p>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
-      <EditLock>
-        {hasPostseason && (
-          <BracketPredictionPanel
-            title={hasCutLine ? "Gold Bracket Predictor" : "Bracket Predictor"}
-            emptyMessage="Not enough teams for a bracket."
-            championLabel="Projected Champion"
-            projection={bracketProjection}
-            onScoreChange={updateBracketLog}
-            onToggleFinal={toggleBracketFinal}
-            onClearScores={clearBracketScores}
-          />
-        )}
+      {show("brackets") && (
+        <EditLock>
+          {hasPostseason && (
+            <BracketPredictionPanel
+              title={hasCutLine ? "Gold Bracket Predictor" : "Bracket Predictor"}
+              emptyMessage="Not enough teams for a bracket."
+              championLabel="Projected Champion"
+              projection={bracketProjection}
+              onScoreChange={updateBracketLog}
+              onToggleFinal={toggleBracketFinal}
+              onClearScores={clearBracketScores}
+            />
+          )}
 
-        {hasCutLine && (
-          <BracketPredictionPanel
-            title="Silver Bracket Predictor"
-            emptyMessage="Not enough Silver teams."
-            championLabel="Projected Silver Champion"
-            projection={silverBracketProjection}
-            onScoreChange={updateBracketLog}
-            onToggleFinal={toggleBracketFinal}
-            onClearScores={clearBracketScores}
-          />
-        )}
-      </EditLock>
+          {hasCutLine && (
+            <BracketPredictionPanel
+              title="Silver Bracket Predictor"
+              emptyMessage="Not enough Silver teams."
+              championLabel="Projected Silver Champion"
+              projection={silverBracketProjection}
+              onScoreChange={updateBracketLog}
+              onToggleFinal={toggleBracketFinal}
+              onClearScores={clearBracketScores}
+            />
+          )}
+        </EditLock>
+      )}
 
-      {hasCutLine && (
+      {show("brackets") && hasCutLine && (
         <SeedOddsPanel
           teams={modelRows.map((team) => ({ id: team.id, name: team.name }))}
           bracketOdds={bracketOdds}
@@ -310,68 +364,155 @@ export function ModelView(props: {
         />
       )}
 
-      {props.playoffMachine}
+      {show("machine") && props.playoffMachine}
 
-      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-700 dark:bg-slate-900">
-        <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
-          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Projected Standings
-          </h3>
-        </div>
-        {modelRows.length === 0 ? (
-          <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
-            No teams yet.
+      {show("outlook") && (
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-700 dark:bg-slate-900">
+          <div className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Projected Standings
+            </h3>
           </div>
-        ) : (
-          <>
-            {/* Desktop table */}
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full text-left tabular-nums">
-                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                  <tr>
-                    <th className="px-5 py-3">Team</th>
-                    <th className="px-4 py-3 text-center">Current Seed</th>
-                    <th className="px-4 py-3 text-center">Projected Seed</th>
-                    <th className="px-4 py-3 text-center">Range</th>
-                    <th className="px-4 py-3 text-center">Projected Record</th>
-                    {hasCutLine && <th className="px-4 py-3 text-center">Gold Odds</th>}
-                    <th className="px-4 py-3 text-center">Run Diff</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {modelRows.map((team) => {
-                    const movement = (team.rank ?? 99) - team.projectedRank;
-                    const range = seedRangeForTeam(team.id);
-                    const confidence = projectionConfidenceForTeam(team);
-                    const confidenceClass =
-                      confidence.tone === "emerald"
-                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
-                        : confidence.tone === "amber"
-                          ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
-                          : "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300";
-                    return (
-                      <tr
-                        key={`forecast-${team.id}`}
-                        className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70"
-                      >
-                        <td className="px-5 py-4 font-black">
-                          <a
-                            href={buildTeamDataHref(team.id)}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              onSelectTeam(team.id);
-                            }}
-                            className={`rounded-lg text-left text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-500 ${focusRing} dark:text-blue-300 dark:decoration-blue-700 dark:hover:text-blue-200`}
-                            aria-label={`View stats for ${displayName(team.name)}`}
+          {modelRows.length === 0 ? (
+            <div className="p-8 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
+              No teams yet.
+            </div>
+          ) : (
+            <>
+              {/* Desktop table */}
+              <div className="hidden overflow-x-auto md:block">
+                <table className="w-full text-left tabular-nums">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                    <tr>
+                      <th className="px-5 py-3">Team</th>
+                      <th className="px-4 py-3 text-center">Current Seed</th>
+                      <th className="px-4 py-3 text-center">Projected Seed</th>
+                      <th className="px-4 py-3 text-center">Range</th>
+                      <th className="px-4 py-3 text-center">Projected Record</th>
+                      {hasCutLine && <th className="px-4 py-3 text-center">Gold Odds</th>}
+                      <th className="px-4 py-3 text-center">Run Diff</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {modelRows.map((team) => {
+                      const movement = (team.rank ?? 99) - team.projectedRank;
+                      const range = seedRangeForTeam(team.id);
+                      const confidence = projectionConfidenceForTeam(team);
+                      const confidenceClass =
+                        confidence.tone === "emerald"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                          : confidence.tone === "amber"
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                            : "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300";
+                      return (
+                        <tr
+                          key={`forecast-${team.id}`}
+                          className="text-slate-800 hover:bg-slate-50/70 dark:text-slate-100 dark:hover:bg-slate-800/70"
+                        >
+                          <td className="px-5 py-4 font-black">
+                            <a
+                              href={buildTeamDataHref(team.id)}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                onSelectTeam(team.id);
+                              }}
+                              className={`rounded-lg text-left text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-500 ${focusRing} dark:text-blue-300 dark:decoration-blue-700 dark:hover:text-blue-200`}
+                              aria-label={`View stats for ${displayName(team.name)}`}
+                            >
+                              {displayName(team.name)}
+                            </a>
+                          </td>
+                          <td className="px-4 py-4 text-center font-black">#{team.rank}</td>
+                          <td className="px-4 py-4 text-center font-black">
+                            #{team.projectedRank}
+                            <span
+                              className={`ml-2 rounded-full px-2 py-1 text-xs font-black ${
+                                movement > 0
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                                  : movement < 0
+                                    ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
+                                    : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                              }`}
+                            >
+                              {movement > 0
+                                ? `+${movement}`
+                                : movement < 0
+                                  ? `-${Math.abs(movement)}`
+                                  : "0"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center font-black">{rangeText(range)}</td>
+                          <td className="px-4 py-4 text-center font-black">
+                            {team.projectedRecord}
+                          </td>
+                          {hasCutLine && (
+                            <td className="px-4 py-4 text-center font-black">
+                              <div>{formatGoldPct(team)}</div>
+                              <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                                {formatGoldMargin(team)}
+                              </div>
+                              <span
+                                className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-black ${confidenceClass}`}
+                                title={confidence.detail}
+                              >
+                                {confidence.label}
+                              </span>
+                            </td>
+                          )}
+                          <td
+                            className={`px-4 py-4 text-center font-black ${
+                              team.projectedRunDiff > 0
+                                ? "text-emerald-700 dark:text-emerald-400"
+                                : team.projectedRunDiff < 0
+                                  ? "text-red-600 dark:text-red-400"
+                                  : "text-slate-500 dark:text-slate-400"
+                            }`}
                           >
-                            {displayName(team.name)}
-                          </a>
-                        </td>
-                        <td className="px-4 py-4 text-center font-black">#{team.rank}</td>
-                        <td className="px-4 py-4 text-center font-black">
-                          #{team.projectedRank}
+                            {team.projectedRunDiff > 0 ? "+" : ""}
+                            {team.projectedRunDiff}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400">
+                {seedRangesPausedUntil === null
+                  ? "Range is the best and worst seed one remaining result can move a team's projection to."
+                  : `Range, the best and worst seed one remaining result can move a team's projection to, is paused until ${seedRangesPausedUntil} or fewer games remain to keep this page responsive.`}
+              </p>
+
+              {/* Mobile cards */}
+              <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
+                {modelRows.map((team) => {
+                  const movement = (team.rank ?? 99) - team.projectedRank;
+                  const range = seedRangeForTeam(team.id);
+                  const confidence = projectionConfidenceForTeam(team);
+                  return (
+                    <li
+                      key={`forecast-mobile-${team.id}`}
+                      className="grid grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-3"
+                    >
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        #{team.rank}
+                      </span>
+                      <div className="min-w-0">
+                        <a
+                          href={buildTeamDataHref(team.id)}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            onSelectTeam(team.id);
+                          }}
+                          className={`block rounded-lg text-left text-sm font-bold wrap-break-word text-blue-700 underline decoration-blue-300 underline-offset-4 ${focusRing} dark:text-blue-300 dark:decoration-blue-700`}
+                          aria-label={`View stats for ${displayName(team.name)}`}
+                        >
+                          {displayName(team.name)}
+                        </a>
+                        <div className="mt-0.5 text-xs font-bold text-slate-500 dark:text-slate-400">
+                          Proj #{team.projectedRank}{" "}
                           <span
-                            className={`ml-2 rounded-full px-2 py-1 text-xs font-black ${
+                            className={`ml-1 rounded-full px-1.5 py-0.5 text-xs font-black ${
                               movement > 0
                                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
                                 : movement < 0
@@ -384,168 +525,87 @@ export function ModelView(props: {
                               : movement < 0
                                 ? `-${Math.abs(movement)}`
                                 : "0"}
+                          </span>{" "}
+                          · {rangeText(range)} · {team.projectedRecord}
+                        </div>
+                        <div className="mt-0.5 text-xs font-bold text-slate-500 dark:text-slate-400">
+                          Diff{" "}
+                          <span
+                            className={
+                              team.projectedRunDiff > 0
+                                ? "text-emerald-700 dark:text-emerald-400"
+                                : team.projectedRunDiff < 0
+                                  ? "text-red-600 dark:text-red-400"
+                                  : ""
+                            }
+                          >
+                            {team.projectedRunDiff > 0 ? "+" : ""}
+                            {team.projectedRunDiff}
                           </span>
-                        </td>
-                        <td className="px-4 py-4 text-center font-black">{rangeText(range)}</td>
-                        <td className="px-4 py-4 text-center font-black">{team.projectedRecord}</td>
-                        {hasCutLine && (
-                          <td className="px-4 py-4 text-center font-black">
-                            <div>{formatGoldPct(team)}</div>
-                            <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                              {formatGoldMargin(team)}
-                            </div>
-                            <span
-                              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-black ${confidenceClass}`}
-                              title={confidence.detail}
-                            >
-                              {confidence.label}
-                            </span>
-                          </td>
-                        )}
-                        <td
-                          className={`px-4 py-4 text-center font-black ${
-                            team.projectedRunDiff > 0
-                              ? "text-emerald-700 dark:text-emerald-400"
-                              : team.projectedRunDiff < 0
-                                ? "text-red-600 dark:text-red-400"
-                                : "text-slate-500 dark:text-slate-400"
-                          }`}
-                        >
-                          {team.projectedRunDiff > 0 ? "+" : ""}
-                          {team.projectedRunDiff}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="px-5 py-3 text-xs font-bold text-slate-500 dark:text-slate-400">
-              {seedRangesPausedUntil === null
-                ? "Range is the best and worst seed one remaining result can move a team's projection to."
-                : `Range, the best and worst seed one remaining result can move a team's projection to, is paused until ${seedRangesPausedUntil} or fewer games remain to keep this page responsive.`}
-            </p>
-
-            {/* Mobile cards */}
-            <ul className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
-              {modelRows.map((team) => {
-                const movement = (team.rank ?? 99) - team.projectedRank;
-                const range = seedRangeForTeam(team.id);
-                const confidence = projectionConfidenceForTeam(team);
-                return (
-                  <li
-                    key={`forecast-mobile-${team.id}`}
-                    className="grid grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-3"
-                  >
-                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                      #{team.rank}
-                    </span>
-                    <div className="min-w-0">
-                      <a
-                        href={buildTeamDataHref(team.id)}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          onSelectTeam(team.id);
-                        }}
-                        className={`block rounded-lg text-left text-sm font-bold wrap-break-word text-blue-700 underline decoration-blue-300 underline-offset-4 ${focusRing} dark:text-blue-300 dark:decoration-blue-700`}
-                        aria-label={`View stats for ${displayName(team.name)}`}
-                      >
-                        {displayName(team.name)}
-                      </a>
-                      <div className="mt-0.5 text-xs font-bold text-slate-500 dark:text-slate-400">
-                        Proj #{team.projectedRank}{" "}
-                        <span
-                          className={`ml-1 rounded-full px-1.5 py-0.5 text-xs font-black ${
-                            movement > 0
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
-                              : movement < 0
-                                ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
-                                : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-                          }`}
-                        >
-                          {movement > 0
-                            ? `+${movement}`
-                            : movement < 0
-                              ? `-${Math.abs(movement)}`
-                              : "0"}
-                        </span>{" "}
-                        · {rangeText(range)} · {team.projectedRecord}
+                        </div>
                       </div>
-                      <div className="mt-0.5 text-xs font-bold text-slate-500 dark:text-slate-400">
-                        Diff{" "}
-                        <span
-                          className={
-                            team.projectedRunDiff > 0
-                              ? "text-emerald-700 dark:text-emerald-400"
-                              : team.projectedRunDiff < 0
-                                ? "text-red-600 dark:text-red-400"
-                                : ""
-                          }
-                        >
-                          {team.projectedRunDiff > 0 ? "+" : ""}
-                          {team.projectedRunDiff}
+                      <span className="text-right text-sm font-bold text-slate-950 dark:text-slate-100">
+                        {formatGoldPct(team)}
+                        <span className="block text-xs font-bold text-slate-500 dark:text-slate-400">
+                          {formatGoldMargin(team)}
                         </span>
+                        <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
+                          {confidence.label}
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </section>
+      )}
+
+      {show("games") && (
+        <section className={`${card} p-5 dark:border-slate-700 dark:bg-slate-900`}>
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Games That Matter Most
+            </h3>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              Next up
+            </span>
+          </div>
+          {gamesThatMatterMost.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
+              No remaining games.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {gamesThatMatterMost.map((item) => (
+                <div
+                  key={`matter-${item.game.id}`}
+                  className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        #{item.rank} · {item.date}
+                      </div>
+                      <div className="mt-1 font-black text-slate-950 dark:text-slate-100">
+                        {item.label}
                       </div>
                     </div>
-                    <span className="text-right text-sm font-bold text-slate-950 dark:text-slate-100">
-                      {formatGoldPct(team)}
-                      <span className="block text-xs font-bold text-slate-500 dark:text-slate-400">
-                        {formatGoldMargin(team)}
-                      </span>
-                      <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        {confidence.label}
-                      </span>
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-black ${gameStatusClasses(item.reason)}`}
+                    >
+                      {item.reason}
                     </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        )}
-      </section>
-
-      <section className={`${card} p-5 dark:border-slate-700 dark:bg-slate-900`}>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Games That Matter Most
-          </h3>
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            Next up
-          </span>
-        </div>
-        {gamesThatMatterMost.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-6 text-center text-sm font-bold text-slate-500 dark:text-slate-400">
-            No remaining games.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {gamesThatMatterMost.map((item) => (
-              <div
-                key={`matter-${item.game.id}`}
-                className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      #{item.rank} · {item.date}
-                    </div>
-                    <div className="mt-1 font-black text-slate-950 dark:text-slate-100">
-                      {item.label}
-                    </div>
                   </div>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-black ${gameStatusClasses(item.reason)}`}
-                  >
-                    {item.reason}
-                  </span>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
-      {hasCutLine && bubbleMovementRows.length > 0 && (
+      {show("outlook") && hasCutLine && bubbleMovementRows.length > 0 && (
         <section className={`${card} p-5`}>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -600,7 +660,7 @@ export function ModelView(props: {
         </section>
       )}
 
-      {hasCutLine && projectedCutLineTeams.length > 0 && (
+      {show("games") && hasCutLine && projectedCutLineTeams.length > 0 && (
         <section className={`${card} p-5`}>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
@@ -663,112 +723,117 @@ export function ModelView(props: {
         </section>
       )}
 
-      <section className={`${card} p-5`}>
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
-            Game Projections
-          </h3>
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {gameForecasts.length} Projections
-          </span>
-        </div>
-        {gameForecasts.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-8 text-center font-bold text-slate-500 dark:text-slate-400">
-            No remaining games to project.
+      {show("games") && (
+        <section className={`${card} p-5`}>
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+              Game Projections
+            </h3>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {gameForecasts.length} Projections
+            </span>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {gameForecasts.map((item) => {
-              const margin = Math.abs(item.prediction.awayScore - item.prediction.homeScore);
-              const runLine = projectedRunLine(item.prediction, byId);
-              const upsetRisk = upsetRiskLabel(item.winnerPct, margin);
-              return (
-                <article
-                  key={`game-forecast-${item.game.id}`}
-                  className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-xs dark:border-slate-700 dark:bg-slate-800"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        {item.game.date
-                          ? `${item.sourceLabel} · ${formatGameDate(item.game.date)}`
-                          : item.sourceLabel}
+          {gameForecasts.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40 p-8 text-center font-bold text-slate-500 dark:text-slate-400">
+              No remaining games to project.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {gameForecasts.map((item) => {
+                const margin = Math.abs(item.prediction.awayScore - item.prediction.homeScore);
+                const runLine = projectedRunLine(item.prediction, byId);
+                const upsetRisk = upsetRiskLabel(item.winnerPct, margin);
+                return (
+                  <article
+                    key={`game-forecast-${item.game.id}`}
+                    className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-xs dark:border-slate-700 dark:bg-slate-800"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          {item.game.date
+                            ? `${item.sourceLabel} · ${formatGameDate(item.game.date)}`
+                            : item.sourceLabel}
+                        </div>
+                        <div className="mt-1 text-base font-black tracking-tight text-slate-950 dark:text-slate-100">
+                          {item.awayName} at {item.homeName}
+                        </div>
                       </div>
-                      <div className="mt-1 text-base font-black tracking-tight text-slate-950 dark:text-slate-100">
-                        {item.awayName} at {item.homeName}
+                      <div className="rounded-lg bg-white px-3 py-2 text-right shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Pick
+                        </div>
+                        <div className="text-sm font-bold text-slate-950 dark:text-slate-100">
+                          {item.winnerName}
+                        </div>
                       </div>
                     </div>
-                    <div className="rounded-lg bg-white px-3 py-2 text-right shadow-xs ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        Pick
-                      </div>
-                      <div className="text-sm font-bold text-slate-950 dark:text-slate-100">
-                        {item.winnerName}
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-semibold">
-                    <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        Spread
+                    <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-semibold">
+                      <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                        <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Spread
+                        </div>
+                        <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
+                          {runLine}
+                        </div>
                       </div>
-                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
-                        {runLine}
+                      <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                        <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Chance
+                        </div>
+                        <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
+                          {Math.round(item.winnerPct * 100)}%
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                        <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          Upset Risk
+                        </div>
+                        <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
+                          {upsetRisk}
+                        </div>
                       </div>
                     </div>
-                    <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        Chance
-                      </div>
-                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
-                        {Math.round(item.winnerPct * 100)}%
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                      <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                        Upset Risk
-                      </div>
-                      <div className="mt-1 text-base text-slate-950 dark:text-slate-100">
-                        {upsetRisk}
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span
-                      className={
-                        item.prediction.confidence === "High"
-                          ? pill("emerald")
-                          : item.prediction.confidence === "Medium"
-                            ? pill("blue")
-                            : pill("neutral")
-                      }
-                    >
-                      {item.prediction.confidence} Confidence
-                    </span>
-                    {margin <= 2 && <span className={pill("amber")}>Toss-Up</span>}
-                    <span
-                      className={
-                        item.impact?.impactLabel === "High"
-                          ? pill("red")
-                          : item.impact?.impactLabel === "Medium"
-                            ? pill("blue")
-                            : pill("neutral")
-                      }
-                    >
-                      Seed Impact: {item.impact?.impactLabel ?? "—"}
-                    </span>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-      <SeasonTimelinePanel entries={timelineEntries} />
-
-      <ModelHealthPanel backtestResult={backtestResult} cardClassName={card} />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span
+                        className={
+                          item.prediction.confidence === "High"
+                            ? pill("emerald")
+                            : item.prediction.confidence === "Medium"
+                              ? pill("blue")
+                              : pill("neutral")
+                        }
+                      >
+                        {item.prediction.confidence} Confidence
+                      </span>
+                      {margin <= 2 && <span className={pill("amber")}>Toss-Up</span>}
+                      <span
+                        className={
+                          item.impact?.impactLabel === "High"
+                            ? pill("red")
+                            : item.impact?.impactLabel === "Medium"
+                              ? pill("blue")
+                              : pill("neutral")
+                        }
+                      >
+                        Seed Impact: {item.impact?.impactLabel ?? "—"}
+                      </span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+      {show("season") && (
+        <>
+          <SeasonTimelinePanel entries={timelineEntries} />
+          <ModelHealthPanel backtestResult={backtestResult} cardClassName={card} />
+        </>
+      )}
     </section>
   );
 }

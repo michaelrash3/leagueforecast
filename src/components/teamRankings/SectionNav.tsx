@@ -1,6 +1,8 @@
 import type { RankingsSection } from "../../lib/rankingsRoute";
 import { useNarrowViewport } from "../../hooks/useWideViewport";
 import type { ReactNode } from "react";
+import { useContext } from "react";
+import { ModeSwitchContext } from "../modeSwitch";
 import { TabNav } from "../TabNav";
 import { NAV_ICONS } from "../navIcons";
 
@@ -45,6 +47,7 @@ export function SectionNav({
   onSelect: (section: RankingsSection) => void;
 }) {
   const narrow = useNarrowViewport();
+  const modeSwitch = useContext(ModeSwitchContext);
   /*
    * The tabs and their keyboard (arrow keys between them, Home and End to either end, the focus on
    * one at a time) are `TabNav`'s, shared with League Standings, so the two halves move alike.
@@ -63,6 +66,7 @@ export function SectionNav({
       onSelect={onSelect}
       narrow={narrow}
       primary={PHONE_SECTIONS}
+      actions={modeSwitch ? [modeSwitch] : []}
       className="mt-3 -mx-1 border-t border-slate-100 px-1 pt-3 dark:border-slate-800"
     />
   );

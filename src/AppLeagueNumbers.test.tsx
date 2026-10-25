@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { FORECAST_SECTIONS } from "./components/league/ModelView";
 import { loadSettings, saveLogs, saveMatchups, saveSettings, saveTeams } from "./lib/storage";
 import type { GameLog } from "./lib/types";
 
@@ -136,9 +137,18 @@ describe("League Standings' numbers on every tab (2.1 pin)", () => {
     const user = userEvent.setup();
     render(<App />);
     const pinned: Record<string, string> = {};
-    for (const tab of ["Dashboard", "Power Ratings", "Standings", "League Stats", "Forecast"]) {
+    for (const tab of ["Dashboard", "Power Ratings", "Standings", "League Stats"]) {
       await user.click(await screen.findByRole("tab", { name: tab }));
       pinned[tab] = await settled();
+    }
+    /*
+     * The Forecast shows one section at a time. Its numbers were checked against the pin taken with
+     * every section drawn at once, and matched to the digit, before it was split this way.
+     */
+    await user.click(await screen.findByRole("tab", { name: "Forecast" }));
+    for (const { label } of FORECAST_SECTIONS) {
+      await user.click(await screen.findByRole("button", { name: label }));
+      pinned[`Forecast · ${label}`] = await settled();
     }
     expect(pinned).toMatchSnapshot();
   }, 120_000);

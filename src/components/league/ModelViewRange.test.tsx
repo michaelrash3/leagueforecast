@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { useSeedRanges } from "../../hooks/useSeedRanges";
 import { backtestPredictions } from "../../lib/backtest";
@@ -84,7 +85,7 @@ const modelRows: TeamWithProjection[] = projected.map((team) => ({
 }));
 
 /** The Forecast tab, its ranges from the walk switched on or off as App switches it. */
-function Forecast({ walk }: { walk: boolean }) {
+function Forecast({ walk, postseason = false }: { walk: boolean; postseason?: boolean }) {
   const { seedRangeForTeam } = useSeedRanges({
     exact: walk,
     liveTeams,
@@ -134,7 +135,7 @@ function Forecast({ walk }: { walk: boolean }) {
       cutLineSnapshot={goldCutLineSnapshot(modelRows, 2, settings)}
       timelineEntries={[]}
       hasCutLine
-      hasPostseason={false}
+      hasPostseason={postseason}
       forecastStoryText=""
       forecastStoryModel=""
       forecastStoryLoading={false}
@@ -189,5 +190,20 @@ describe("the Projected Standings' Range", () => {
     expect(rangeCells()).toEqual(modelRows.map(() => "—"));
     // Nor on a phone's rows or in the Bubble Watch, which show the same range.
     expect(document.body.textContent).not.toMatch(SEED_SPAN);
+  });
+});
+
+describe("the Forecast's sections", () => {
+  it("falls back to Outlook when the open section goes, as Brackets does without a postseason", async () => {
+    const { rerender } = render(<Forecast walk postseason />);
+    await userEvent.click(screen.getByRole("button", { name: "Brackets" }));
+    expect(screen.queryByRole("table")).toBeNull();
+
+    // The season switched to has no postseason: the Brackets section is gone with it.
+    rerender(<Forecast walk />);
+
+    expect(screen.queryByRole("button", { name: "Brackets" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Outlook" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("table")).toBeInTheDocument();
   });
 });

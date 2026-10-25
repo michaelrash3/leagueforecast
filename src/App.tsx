@@ -13,7 +13,6 @@ import {
   type ReactNode,
 } from "react";
 import { registerSW } from "virtual:pwa-register";
-import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { CloudButton, useCloudPanel } from "./components/CloudButton";
 import { liveBoardWanted, RankingsOpen } from "./components/RankingsOpen";
@@ -45,11 +44,9 @@ import {
   needsAPerson,
 } from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
-import {
-  RANKINGS_COMMAND_SECTIONS,
-  rankingsSearch,
-  rankingsSectionCommandId,
-} from "./lib/rankingsRoute";
+import { rankingsSearch } from "./lib/rankingsRoute";
+import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
+import { ModeSwitchContext } from "./components/modeSwitch";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
@@ -113,7 +110,6 @@ import { useOpeningReleased, usePoolFilled } from "./hooks/useOpeningHold";
 import { poolFilled } from "./lib/poolFill";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useConfirmation } from "./hooks/useConfirmation";
-import { useLeagueCommands } from "./hooks/useLeagueCommands";
 import { useUndoSnapshot, type UndoableSeason } from "./hooks/useUndoSnapshot";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useLeagueSummary } from "./hooks/useLeagueSummary";
@@ -352,9 +348,6 @@ const CompareDrawer = compareDrawerView.View;
  * first-run tour. Each is behind a keystroke or a button, and each is guarded by its own open flag
  * below so the fetch happens on the press rather than on the page load.
  */
-const CommandPalette = lazy(() =>
-  import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette }))
-);
 const CloudPanel = lazy(() =>
   import("./components/CloudPanel").then((module) => ({ default: module.CloudPanel }))
 );
@@ -419,7 +412,11 @@ const loadOpenSeason = (): SeasonState => ({
 });
 
 export default function App() {
-  const [activeView, setActiveView] = useState<ActiveView>("dashboard");
+  // The tab the address names, so a reload or "Reload update" comes back to it (`leagueTab.ts`).
+  const [activeView, setActiveView] = useState<ActiveView>(
+    () =>
+      (typeof window === "undefined" ? null : tabFromSearch(window.location.search)) ?? "dashboard"
+  );
   // The tab most often opened next, fetched once this one is drawn and the browser is idle (2.1).
   useEffect(() => {
     const next = LIKELY_NEXT[activeView];
@@ -457,13 +454,6 @@ export default function App() {
   const [newHome, setNewHome] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => linkedTeamIdFromUrl());
   const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
-  const [showCommandPalette, setShowCommandPalette] = useState(false);
-  /*
-   * The palette used to exist only on the league half, which left the half with a nationwide pool
-   * and the most places to be without one. Team Rankings owns its own navigation state, so rather
-   * than lift all of it up here it publishes the commands it can run and this holds them.
-   */
-  const [rankingsCommands, setRankingsCommands] = useState<Command[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [isOffline, setIsOffline] = useState(
@@ -535,6 +525,26 @@ export default function App() {
   );
   const { theme, setTheme, toggle: toggleTheme } = useDarkMode();
   const { appMode, setAppMode } = useAppMode();
+  const switchToLeague = useMemo(
+    () => ({ label: "Switch to League Standings", onSelect: () => setAppMode("league") }),
+    [setAppMode]
+  );
+  /*
+   * Written back as the tab changes, replaced rather than pushed: the tab row is already a visible
+   * change, and Back should leave the app as it always has rather than walk the tabs. Only while
+   * League Standings is shown, so Team Rankings' own route is never touched from here; the tab is
+   * left in the address when the mode switches, so switching back returns to it.
+   */
+  useEffect(() => {
+    if (appMode !== "league" || typeof window === "undefined") return;
+    const search = searchWithTab(window.location.search, activeView);
+    if (search === window.location.search) return;
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${search}${window.location.hash}`
+    );
+  }, [appMode, activeView]);
   /*
    * The cloud copy of this browser's data (`lib/cloud`, README "Your data on every device"): its
    * changes are listened for once the app is on screen, and where it stands is the header button.
@@ -3173,45 +3183,11 @@ export default function App() {
     }
   }, [teams, matchups, logs, settings, activeView, selectedTeamId, showToast]);
 
-  // ---------- Command palette + shortcuts ----------
-
-  const describeCommandTeam = useCallback(
-    (team: TeamWithProjection) => ({ name: displayName(team.name), record: recordText(team) }),
-    []
-  );
-
-  const commandActions = useMemo(
-    () => ({
-      openTeam: openTeamData,
-      openView: (view: ActiveShareView) => setActiveView(view),
-      shareSeason: () => void shareSeason(),
-      exportCSV: () => exportCSV(),
-      exportBackup: () => exportBackup(),
-      loadDemoSeason: () => void loadDemoSeason(),
-      toggleTheme,
-      showShortcuts: () => setShowShortcuts(true),
-      showTour: () => setShowTour(true),
-    }),
-    [openTeamData, shareSeason, exportCSV, exportBackup, loadDemoSeason, toggleTheme]
-  );
-
-  const commands = useLeagueCommands({
-    teams: dashboardRows,
-    views: VIEW_ORDER.map((view) => ({ view, label: VIEW_LABELS[view] })),
-    theme,
-    describeTeam: describeCommandTeam,
-    actions: commandActions,
-  });
+  // ---------- Shortcuts ----------
 
   const shortcuts: Shortcut[] = useMemo(
     () => [
-      // The palette, the shortcut sheet and the theme are the app's, not one half's.
-      {
-        combo: "mod+k",
-        description: "Open command palette",
-        group: "General",
-        handler: () => setShowCommandPalette(true),
-      },
+      // The shortcut sheet and the theme are the app's, not one half's.
       {
         combo: "shift+/",
         description: "Show shortcuts",
@@ -3224,66 +3200,8 @@ export default function App() {
         group: "Action",
         handler: toggleTheme,
       },
-      /*
-       * Team Rankings had the palette and the shortcut sheet — those are the app's, not one
-       * half's — but no way to move between its six sections from the keyboard, on the half with a
-       * nationwide pool and the most places to be. These are built from the commands the view
-       * publishes rather than from a second navigation path: the view owns its own route, and a
-       * section it adds arrives here with a key already attached.
-       */
-      ...(appMode !== "rankings"
-        ? []
-        : RANKINGS_COMMAND_SECTIONS.flatMap(({ section, label, key }) => {
-            const command = rankingsCommands.find(
-              (entry) => entry.id === rankingsSectionCommandId(section)
-            );
-            return command
-              ? [
-                  {
-                    combo: `g ${key}`,
-                    description: `Go to ${label}`,
-                    group: "Navigate",
-                    handler: command.run,
-                  },
-                ]
-              : [];
-          })),
-      ...(appMode !== "league"
-        ? []
-        : [
-            {
-              combo: "g s",
-              description: "Go to Standings",
-              group: "Navigate",
-              handler: () => setActiveView("standings"),
-            },
-            {
-              combo: "g t",
-              description: "Go to League Stats",
-              group: "Navigate",
-              handler: () => setActiveView("teamStats"),
-            },
-            {
-              combo: "g g",
-              description: "Go to Schedule",
-              group: "Navigate",
-              handler: () => setActiveView("games"),
-            },
-            {
-              combo: "g m",
-              description: "Go to Forecast",
-              group: "Navigate",
-              handler: () => setActiveView("model"),
-            },
-            {
-              combo: "g e",
-              description: "Go to Settings",
-              group: "Navigate",
-              handler: () => setActiveView("settings"),
-            },
-          ]),
     ],
-    [appMode, toggleTheme, rankingsCommands]
+    [toggleTheme]
   );
   useShortcuts(shortcuts);
 
@@ -3326,6 +3244,7 @@ export default function App() {
       narrow={narrowScreen}
       primary={PHONE_VIEWS}
       actions={[
+        { label: "Switch to Team Rankings", onSelect: () => setAppMode("rankings") },
         { label: "Take the tour", onSelect: () => setShowTour(true) },
         { label: "Keyboard shortcuts", onSelect: () => setShowShortcuts(true) },
       ]}
@@ -3462,7 +3381,12 @@ export default function App() {
               </div>
             </div>
 
-            {appMode === "league" && (
+            {/*
+             * The season at a glance belongs on the Dashboard. Above every other view it repeated
+             * what that view already says (Standings opens on the leader and the cut line), and on
+             * a phone it took most of the first screen before the view began.
+             */}
+            {appMode === "league" && activeView === "dashboard" && (
               <div
                 className={`grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 ${
                   teams.length === 0 ? "hidden" : ""
@@ -3508,22 +3432,23 @@ export default function App() {
             className="mx-auto max-w-7xl px-4 pb-32 pt-6 sm:px-6 sm:pb-6 lg:px-8"
           >
             <Suspense fallback={<LoadingPanel area="Team Rankings" />}>
-              <RankingsOpen
-                status={cloud}
-                seasons={seasons.all}
-                showToast={showToast}
-                confirm={requestConfirmation}
-                page={(handover) => (
-                  <TeamRankingsView
-                    seasons={seasons.all}
-                    showToast={showToast}
-                    requestConfirmation={requestConfirmation}
-                    onDataChange={noteScoutChange}
-                    onCommands={setRankingsCommands}
-                    {...(handover ? { handover } : {})}
-                  />
-                )}
-              />
+              <ModeSwitchContext.Provider value={switchToLeague}>
+                <RankingsOpen
+                  status={cloud}
+                  seasons={seasons.all}
+                  showToast={showToast}
+                  confirm={requestConfirmation}
+                  page={(handover) => (
+                    <TeamRankingsView
+                      seasons={seasons.all}
+                      showToast={showToast}
+                      requestConfirmation={requestConfirmation}
+                      onDataChange={noteScoutChange}
+                      {...(handover ? { handover } : {})}
+                    />
+                  )}
+                />
+              </ModeSwitchContext.Provider>
             </Suspense>
           </main>
         ) : (
@@ -3730,6 +3655,10 @@ export default function App() {
                       retryForecastStory={forecastStory.retry}
                       forecastStoryWaiting={forecastStory.waiting}
                       askForecastStory={forecastStory.ask}
+                      // A scenario link waiting to be opened needs the machine on screen to open it.
+                      {...(incomingScenario?.seasonId === activeSeasonId
+                        ? { startOn: "machine" as const }
+                        : {})}
                       playoffMachine={
                         <PlayoffMachine
                           teams={teams}
@@ -3957,13 +3886,6 @@ export default function App() {
             an overlay simply appears a frame later than it used to.
           */
           <Suspense fallback={null}>
-            {showCommandPalette && (
-              <CommandPalette
-                open={showCommandPalette}
-                commands={appMode === "rankings" ? rankingsCommands : commands}
-                onClose={() => setShowCommandPalette(false)}
-              />
-            )}
             {showShortcuts && (
               <ShortcutsHelp
                 open={showShortcuts}

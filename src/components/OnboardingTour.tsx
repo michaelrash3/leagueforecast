@@ -15,7 +15,7 @@ const STEPS = [
   },
   {
     title: "Get around fast",
-    body: "Press ⌘K (Ctrl+K) for the command palette to jump to any view or team. Use g then s / t / g / m / e to navigate, d to toggle dark mode, and Share to send the whole season as a link.",
+    body: "Use the tabs to move between views, press ? for the keyboard shortcuts, d to toggle dark mode, and Share to send the whole season as a link.",
   },
 ];
 

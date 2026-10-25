@@ -133,12 +133,7 @@ import {
   summarizeTeamRankingsBackup,
   teamRankingsJsonParts,
 } from "../lib/teamRankingsBackup";
-import {
-  RANKINGS_COMMAND_SECTIONS,
-  rankingsSectionCommandId,
-  type RankingsSection,
-} from "../lib/rankingsRoute";
-import type { Command } from "./CommandPalette";
+import type { RankingsSection } from "../lib/rankingsRoute";
 import { archiveSquadYear, type ArchiveEntry } from "../lib/teamRankingsArchive";
 import { deleteSquadYear } from "../lib/deleteSquadYear";
 import {
@@ -213,13 +208,6 @@ type TeamRankingsViewProps = {
   requestConfirmation: (options: ConfirmOptions) => Promise<boolean>;
   /** Called after anything here is saved, so the league side knows to re-read it. */
   onDataChange?: () => void;
-  /**
-   * The commands this half can run, handed up for the app's palette.
-   *
-   * The palette and its shortcut live in App, but the navigation they drive lives here, so rather
-   * than lift a route's worth of state up this hands the actions down as closures.
-   */
-  onCommands?: (commands: Command[]) => void;
   /** Where the live board left off, when this page takes over from it (`LiveTeamRankings`). */
   handover?: RankingsHandover;
 };
@@ -292,7 +280,6 @@ export function TeamRankingsView({
   showToast,
   requestConfirmation,
   onDataChange,
-  onCommands,
   handover,
 }: TeamRankingsViewProps) {
   const [ageGroups, setAgeGroups] = useState<AgeGroup[]>(() => loadAgeGroups());
@@ -335,44 +322,6 @@ export function TeamRankingsView({
     setDefaultAge,
   } = useRankingsPages(ageGroups, today);
 
-  /*
-   * What the palette can do on this half: reach any area, and jump to any season year the pool
-   * actually has. Both are the things the section tabs and the year picker do, so a command is
-   * only ever another way in, never a second implementation of the navigation.
-   *
-   * The two navigators are rebuilt every render, so depending on them would rebuild this list
-   * every render, publish it every render and set state every render — a loop, and the same shape
-   * of mistake as the stale command list on the league side, only louder. The list therefore
-   * depends on the data it is made of, `yearChoices` being a memo that is new exactly when the
-   * years are, and reaches the navigators through a ref that an effect keeps current. A command is
-   * only ever run after that effect, by someone clicking it.
-   */
-  const navigateRef = useRef({ openSection, openYear });
-  useEffect(() => {
-    navigateRef.current = { openSection, openYear };
-  });
-
-  const commands = useMemo<Command[]>(
-    () => [
-      ...RANKINGS_COMMAND_SECTIONS.map(({ section: target, label }) => ({
-        id: rankingsSectionCommandId(target),
-        label: `Go to ${label}`,
-        group: "Team Rankings",
-        run: () => navigateRef.current.openSection(target),
-      })),
-      ...yearChoices.map((year) => ({
-        id: `rankings-year-${year ?? "undated"}`,
-        label: year === undefined ? "Show the squads with no year" : `Show the ${year} season`,
-        group: "Season",
-        run: () => navigateRef.current.openYear(year),
-      })),
-    ],
-    [yearChoices]
-  );
-
-  useEffect(() => {
-    onCommands?.(commands);
-  }, [onCommands, commands]);
   const [scoutTeams, setScoutTeams] = useState<ScoutTeam[]>(() => loadScoutTeams());
   /**
    * Bumped whenever this view, or another tab, writes the games. Storage is not reactive, and the
