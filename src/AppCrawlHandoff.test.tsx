@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { HANDOFF_CHANNEL } from "./lib/crawlHandoff";
@@ -71,5 +71,9 @@ describe("the crawl's files arriving at the app", () => {
       })
     );
     expect(window.history.length).toBe(before + 1);
+    // Back returns to League Standings, the address and the page both.
+    act(() => window.history.back());
+    await waitFor(() => expect(parseRankingsRoute(window.location.search).mode).toBe("league"));
+    expect(await screen.findByRole("tab", { name: /schedule/i })).toBeTruthy();
   });
 });

@@ -535,7 +535,8 @@ export default function App() {
   /*
    * The crawl's files, handed over by the owner's userscript, open Team Rankings' Import, where the
    * Import drawn takes them (`useCrawlHandoff`). Pushed, so Back returns to the page the reader was
-   * on; the popstate is how an open Team Rankings page hears its section changed.
+   * on (`useAppMode` follows the entry's mode); the popstate is how an open Team Rankings page hears
+   * its section changed.
    */
   const openCrawlImport = useCallback(() => {
     const search = crawlImportSearch(window.location.search);

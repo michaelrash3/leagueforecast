@@ -25,6 +25,21 @@ export function useAppMode() {
       "league"
   );
 
+  /*
+   * Back and Forward follow the mode a history entry names. Every entry the app pushes carries its
+   * mode, and the crawl's hand-off pushes Team Rankings over League Standings, so without this Back
+   * left the address on League Standings and the page on Team Rankings. An entry naming no mode
+   * leaves it be.
+   */
+  useEffect(() => {
+    const followHistory = () => {
+      const named = parseRankingsRoute(window.location.search).mode;
+      if (named) setAppMode(named);
+    };
+    window.addEventListener("popstate", followHistory);
+    return () => window.removeEventListener("popstate", followHistory);
+  }, []);
+
   useEffect(() => {
     writeAppMode(appMode);
     if (typeof window === "undefined") return;
