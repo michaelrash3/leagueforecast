@@ -649,7 +649,14 @@ export const coerceQueryAnswer = <K extends QueryKind>(
       break;
     }
     case "league.start": {
-      const read = startAnswerOf({ pages: raw.pages, clubs: raw.clubs, draft: raw.draft });
+      const read = startAnswerOf({
+        pages: raw.pages,
+        clubs: raw.clubs,
+        draft: raw.draft,
+        ...(raw.page === undefined ? {} : { page: raw.page }),
+        ...(raw.picked === undefined ? {} : { picked: raw.picked }),
+        ...(raw.org === undefined ? {} : { org: raw.org }),
+      });
       if (read) answer = { kind: "league.start", ...read };
       break;
     }

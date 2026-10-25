@@ -14,6 +14,7 @@ import type { GcImportState } from "../gameChangerImport";
 import { todayIsoDay } from "../date";
 import { rosterWatchOf } from "../gcRoster";
 import { dueSummary, type DueSummary } from "../gameChangerSchedule";
+import { parseGcOrgId } from "../gameChangerApi";
 import { orgAgesByTeam } from "../orgMembership";
 import type { FewOutsideList } from "../fewOutside";
 import { fewOutsideOfPool } from "../fewOutsideLeaders";
@@ -236,6 +237,7 @@ export type PoolQuery =
    */
   | {
       kind: "league.start";
+      org?: string;
       page?: string;
       clubs?: string[];
       from?: string;
@@ -703,6 +705,7 @@ export const answerQuery = (query: PoolQuery, seasons?: SeasonReader): QueryAnsw
           ageGroups: loadAgeGroups,
           teams: loadScoutTeams,
           gamesForYear: loadScoutGamesForYear,
+          orgs: loadOrgMembership,
         }),
       };
     case "league.clubs":
@@ -1036,6 +1039,8 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
       break;
     case "league.start": {
       const clubs = raw.clubs === undefined ? undefined : strings(raw.clubs);
+      const org =
+        raw.org === undefined ? undefined : isString(raw.org) ? parseGcOrgId(raw.org) : null;
       const page = raw.page === undefined ? undefined : isString(raw.page) ? raw.page : null;
       const from = raw.from === undefined ? undefined : isDay(raw.from) ? raw.from : null;
       const to = raw.to === undefined ? undefined : isDay(raw.to) ? raw.to : null;
@@ -1043,6 +1048,7 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
         isDay(raw.today) &&
         clubs !== null &&
         (clubs === undefined || clubs.length <= START_CLUBS_MAX) &&
+        org !== null &&
         page !== null &&
         from !== null &&
         to !== null
@@ -1050,6 +1056,7 @@ export const coerceQuery = (raw: unknown): PoolQuery | null => {
         query = {
           kind: "league.start",
           today: raw.today,
+          ...(org === undefined ? {} : { org }),
           ...(page === undefined ? {} : { page }),
           ...(clubs === undefined ? {} : { clubs }),
           ...(from === undefined ? {} : { from }),

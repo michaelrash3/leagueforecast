@@ -254,3 +254,139 @@ describe("a start's answer, a step at a time", () => {
     });
   });
 });
+
+describe("a start from a GameChanger organization", () => {
+  const ORG = "NRsPUpJj6Eed";
+  const orgs =
+    (teamIds: string[], orgId = ORG) =>
+    () => ({
+      orgs: [{ orgId, name: "Placeholder League", teamIds }],
+      savedAt: "",
+    });
+  const on = (id: string, ageGroupId: string, extra: Partial<ScoutTeam> = {}) =>
+    club(id, {
+      gcTeams: [{ teamId: `gc-${id}`, name: `Placeholder ${id}`, ageGroupId }],
+      ...extra,
+    });
+  const games = (year: number) =>
+    year === 2027
+      ? [
+          game("g1", "2026-09-13", "S-A", "S-B", [5, 3]),
+          game("g2", "2026-09-20", "S-A", "S-X", [2, 1]),
+          game("g3", "2026-09-27", "S-C", "S-B"),
+        ]
+      : [];
+
+  it("picks the organization's clubs on its page and drafts their games in one answer", () => {
+    const teams = [
+      club("S-B"),
+      club("S-A"),
+      club("S-C"),
+      // On the page, but not the organization's: offered, not picked.
+      club("S-X"),
+      // The organization's, on another page.
+      on("S-D", "ag_10u_2027"),
+    ];
+    const answer = answerStart(
+      { today: "2026-10-11", org: ORG },
+      {
+        ageGroups: () => GROUPS,
+        gamesForYear: games,
+        teams: () => teams,
+        orgs: orgs(["gc-S-A", "gc-S-B", "gc-S-C", "gc-S-D", "gc-unpulled"]),
+      }
+    );
+    expect(answer.page).toBe("ag_9u_2027");
+    expect(answer.picked).toEqual(["S-B", "S-A", "S-C"]);
+    expect(answer.clubs?.map((one) => one.id)).toEqual(["S-A", "S-B", "S-C", "S-X"]);
+    // The games among the picked clubs only, in the half today is in.
+    expect(answer.draft?.games.map((one) => one.gameId)).toEqual(["g1", "g3"]);
+    expect(answer.org).toEqual({ found: true, name: "Placeholder League", teams: 5, pulled: 4 });
+    // The days given are the ones looked in.
+    const october = answerStart(
+      { today: "2026-10-11", org: ORG, from: "2026-10-01", to: "2026-10-31" },
+      {
+        ageGroups: () => GROUPS,
+        gamesForYear: games,
+        teams: () => teams,
+        orgs: orgs(["gc-S-A", "gc-S-B"]),
+      }
+    );
+    expect(october.draft).toEqual({ games: [], outside: 1 });
+  });
+
+  it("settles on the page most of its teams are on, the newest year first on a tie", () => {
+    const teams = [
+      on("S-A", "ag_9u_2026"),
+      on("S-B", "ag_9u_2026"),
+      on("S-C", "ag_10u_2027"),
+      on("S-D", "ag_9u_2027"),
+    ];
+    const read = { ageGroups: () => GROUPS, gamesForYear: games, teams: () => teams };
+    const most = answerStart(
+      { today: "2026-10-11", org: ORG },
+      { ...read, orgs: orgs(["gc-S-A", "gc-S-B", "gc-S-C"]) }
+    );
+    expect(most.page).toBe("ag_9u_2026");
+    expect(most.picked).toEqual(["S-A", "S-B"]);
+    const tie = answerStart(
+      { today: "2026-10-11", org: ORG },
+      { ...read, orgs: orgs(["gc-S-A", "gc-S-C", "gc-S-D"]) }
+    );
+    expect(tie.page).toBe("ag_9u_2027");
+    expect(tie.picked).toEqual(["S-D"]);
+  });
+
+  it("offers and picks a club of the organization the page's picker would not", () => {
+    // Filed two levels up in the page's year: no club for a 9U league by hand, but the
+    // organization says it is in this one.
+    const up = club("S-E", {
+      gcTeams: [
+        { teamId: "gc-S-E", name: "Placeholder S-E", ageGroupId: "ag_9u_2027", ageLevel: 11 },
+      ],
+    });
+    const answer = answerStart(
+      { today: "2026-10-11", org: ORG },
+      {
+        ageGroups: () => GROUPS,
+        gamesForYear: games,
+        teams: () => [club("S-A"), up],
+        orgs: orgs(["gc-S-A", "gc-S-E"]),
+      }
+    );
+    expect(startClubs(startPages(GROUPS)[0]!, GROUPS, [up])).toEqual([]);
+    expect(answer.clubs?.map((one) => one.id)).toEqual(["S-A", "S-E"]);
+    expect(answer.picked).toEqual(["S-A", "S-E"]);
+  });
+
+  it("says so, and nothing else, for one not in the file or with no team pulled", () => {
+    const pages = startPages(GROUPS);
+    const read = {
+      ageGroups: () => GROUPS,
+      gamesForYear: games,
+      teams: () => [club("S-A"), club("S-P", { placeholder: true })],
+    };
+    expect(
+      answerStart({ today: "2026-10-11", org: "AAAAAAAAAAAA" }, { ...read, orgs: orgs(["gc-S-A"]) })
+    ).toEqual({
+      pages,
+      clubs: null,
+      draft: null,
+      org: { found: false },
+    });
+    // A device that keeps no Organizations file has none in it.
+    expect(answerStart({ today: "2026-10-11", org: ORG }, read).org).toEqual({ found: false });
+    // A placeholder club is no club of the organization's.
+    expect(
+      answerStart(
+        { today: "2026-10-11", org: ORG },
+        { ...read, orgs: orgs(["gc-S-P", "gc-elsewhere"]) }
+      )
+    ).toEqual({
+      pages,
+      clubs: null,
+      draft: null,
+      org: { found: true, name: "Placeholder League", teams: 2, pulled: 0 },
+    });
+  });
+});

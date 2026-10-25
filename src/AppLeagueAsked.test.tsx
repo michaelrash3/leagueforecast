@@ -72,7 +72,23 @@ vi.mock("./lib/live/leagueAsk", () => ({
         candidates: [],
       };
     if (query.kind === ("league.start" as string)) {
-      const start = query as unknown as { page?: string; clubs?: string[] };
+      const start = query as unknown as { page?: string; clubs?: string[]; org?: string };
+      if (start.org)
+        return {
+          kind: "league.start",
+          pages: [{ id: "ag_9u_2027", name: "9U 2027", ageLevel: 9, year: 2027 }],
+          page: "ag_9u_2027",
+          clubs: [
+            { id: "S-HIVE", label: "Placeholder Hive" },
+            { id: "S-OWLS", label: "Placeholder Owls" },
+          ],
+          picked: ["S-HIVE", "S-OWLS"],
+          draft: {
+            games: [{ gameId: "p1", date: "2026-09-13", away: "S-HIVE", home: "S-OWLS" }],
+            outside: 0,
+          },
+          org: { found: true, name: "Placeholder League", teams: 2, pulled: 2 },
+        };
       return {
         kind: "league.start",
         pages: [{ id: "ag_9u_2027", name: "9U 2027", ageLevel: 9, year: 2027 }],
@@ -352,6 +368,27 @@ describe("League Standings asking the server what Team Rankings has", () => {
     expect(server.asked.filter((query) => query.kind === ("league.start" as string))).toHaveLength(
       3
     );
+  });
+
+  it("starts a season from a GameChanger organization on the cloud's Team Rankings", async () => {
+    saveTeams([]);
+    saveMatchups([]);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pick clubs" }));
+    await screen.findByRole("button", { name: "Add Placeholder Hive" });
+    fireEvent.change(screen.getByRole("textbox", { name: /GameChanger organization ID or link/ }), {
+      target: { value: "NRsPUpJj6Eed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start from the organization" }));
+    expect(
+      await screen.findByText("Placeholder League: 2 clubs on 9U 2027, all picked.")
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Start the season: 2 teams, 1 game" }));
+    await waitFor(() => expect(server.placed).toHaveLength(1));
+    const starts = server.asked.filter((query) => query.kind === ("league.start" as string));
+    // The pages, the first page's clubs, and the organization: three, as picking by hand.
+    expect(starts).toHaveLength(3);
+    expect(starts[2]).toMatchObject({ kind: "league.start", org: "NRsPUpJj6Eed" });
   });
 
   it("asks for the scores to fill, and opens them", async () => {

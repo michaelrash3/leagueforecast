@@ -751,6 +751,19 @@ member's phone, which holds no pool, sees exactly what a visitor's browser works
 takes back the teams and games; the season stays on its page, where an empty one changes
 nothing.
 
+**Or from its GameChanger organization.** Paste the league's organization ID or its
+`gc.com/organizations/…` link into the same panel, asked for on 25 October 2026, and one
+question (`league.start` with `org`) does the picking: the organization's teams are the ones the
+kept Organizations file lists under it (`MemberOrg.teamIds`, read in Team Rankings → Import), a
+club is one a GameChanger team of theirs is linked to (`gcTeams`), and the page is the one most of
+those links are filed on, the newest year first on a tie. The answer is that page's clubs with the
+organization's picked, a club of theirs filed a level off included, and the draft of their games
+over the days shown, so the review opens at once and a club can still be added or taken out by
+hand. The panel says how many of the organization's teams are not pulled yet, and an organization
+the file does not have is said to be missing rather than guessed at. It asks no more than picking
+by hand does: the panel's pages and first page's clubs as it opens, then this one question in
+place of a page's clubs and then their games, all read off the pool the server already holds.
+
 The league and GameChanger rarely agree on how long a club's name is — "Trash
 Pandas" against "Trash Pandas Baseball Club" — and a league game left unmatched
 looks exactly like one that has not been played, which is what makes silence

@@ -208,6 +208,18 @@ const START_ANSWER: Shape = {
         },
       },
     },
+    page: { optional: "id" },
+    picked: { optional: { list: "id" } },
+    org: {
+      optional: {
+        record: {
+          found: "boolean",
+          name: { optional: "string" },
+          teams: { optional: "count" },
+          pulled: { optional: "count" },
+        },
+      },
+    },
   },
 };
 

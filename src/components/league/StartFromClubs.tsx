@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { parseGcOrgId } from "../../lib/gameChangerApi";
 import type { ClubPickOption } from "../../lib/leagueLinkOptions";
 import {
   answerStart,
@@ -9,6 +10,7 @@ import {
   type StartAnswer,
   type StartChoice,
   type StartDraft,
+  type StartOrg,
   type StartPage,
   type StartQuery,
 } from "../../lib/leagueStart";
@@ -18,6 +20,7 @@ import { poolFilled } from "../../lib/poolFill";
 import { segmentOn } from "../../lib/teamRankings/seasons";
 import {
   loadAgeGroups,
+  loadOrgMembership,
   loadScoutGamesForYear,
   loadScoutTeams,
 } from "../../lib/teamRankingsStorage";
@@ -35,6 +38,7 @@ export const deviceStartAsker: StartAsker = (query) =>
       ageGroups: loadAgeGroups,
       teams: loadScoutTeams,
       gamesForYear: loadScoutGamesForYear,
+      orgs: loadOrgMembership,
     })
   );
 
@@ -43,12 +47,15 @@ export const cloudStartAsker: StartAsker = async (query) => {
   const answer = await askLeague({
     kind: "league.start",
     today: query.today,
+    ...(query.org === undefined ? {} : { org: query.org }),
     ...(query.page === undefined ? {} : { page: query.page }),
     ...(query.clubs === undefined ? {} : { clubs: [...query.clubs] }),
     ...(query.from === undefined ? {} : { from: query.from }),
     ...(query.to === undefined ? {} : { to: query.to }),
   });
-  return answer ? { pages: answer.pages, clubs: answer.clubs, draft: answer.draft } : null;
+  if (!answer) return null;
+  const { kind: _kind, ...start } = answer;
+  return start;
 };
 
 /** What the panel says when Team Rankings did not answer a step. */
@@ -64,6 +71,37 @@ const matches = (club: ClubPickOption, words: string[]) => {
 
 const scoreText = (away: number | undefined, home: number | undefined) =>
   away === undefined || home === undefined ? "To play" : `${away}–${home}`;
+
+/** The steps a start asks one at a time, each with its own wait and its own "Try again". */
+type StartStep = "pages" | "clubs" | "games" | "org";
+
+const plural = (count: number, one: string, many: string) =>
+  `${count.toLocaleString("en-US")} ${count === 1 ? one : many}`;
+
+/**
+ * What the panel says about an organization it was asked to start from: what was found and put in,
+ * or why nothing was. `org` is undefined only where an answer left it out.
+ */
+export const orgStartNote = (
+  org: StartOrg | undefined,
+  picked: number,
+  pageName: string | undefined
+): string => {
+  if (!org) return "Team Rankings said nothing about that organization. Try again.";
+  if (!org.found)
+    return "That organization is not in the Organizations file Team Rankings keeps. Load the crawl's Organizations CSV in Team Rankings → Import, then try again.";
+  const teams = org.teams ?? 0;
+  const pulled = org.pulled ?? 0;
+  const name = org.name || "The organization";
+  const unpulled = teams - pulled;
+  const notYet =
+    unpulled > 0
+      ? ` ${plural(unpulled, "of its teams is", "of its teams are")} not pulled into Team Rankings yet.`
+      : "";
+  if (!pageName || picked === 0)
+    return `${name} lists ${plural(teams, "team", "teams")}, and none is a club Team Rankings has pulled yet.`;
+  return `${name}: ${plural(picked, "club", "clubs")} on ${pageName}, all picked.${notYet}`;
+};
 
 /**
  * Starting a League Standings season from its clubs on Team Rankings (3.7): a page, the league's
@@ -97,12 +135,17 @@ export function StartFromClubs({
   const [days, setDays] = useState(() => defaultStartWindow(today));
   const [draft, setDraft] = useState<StartDraft | null>(null);
   const [choices, setChoices] = useState<StartChoice[]>([]);
-  const [busy, setBusy] = useState<"pages" | "clubs" | "games" | null>("pages");
-  const [failed, setFailed] = useState<"pages" | "clubs" | "games" | null>(null);
+  const [busy, setBusy] = useState<StartStep | null>("pages");
+  const [failed, setFailed] = useState<StartStep | null>(null);
+  const [orgText, setOrgText] = useState("");
+  // What the last organization asked about came back with; null before one is asked about.
+  const [orgSaid, setOrgSaid] = useState<{ org: StartOrg | undefined; picked: number } | null>(
+    null
+  );
   // The latest question asked: an answer to an earlier one, come late, is not drawn.
   const asked = useRef(0);
 
-  const run = (step: "pages" | "clubs" | "games", query: StartQuery) => {
+  const run = (step: StartStep, query: StartQuery) => {
     asked.current += 1;
     const mine = asked.current;
     setBusy(step);
@@ -129,6 +172,7 @@ export function StartFromClubs({
   };
 
   const openPage = (id: string) => {
+    setOrgSaid(null);
     setPageId(id);
     setClubs(null);
     setPicked([]);
@@ -155,6 +199,28 @@ export function StartFromClubs({
         if (answer) setFailed("games");
         return;
       }
+      setDraft(answer.draft);
+      setChoices(startChoices(answer.draft));
+    });
+  };
+
+  // One question in place of a page's clubs and then their games: the organization's clubs found,
+  // on the page most of them are on, picked, with the draft of their games over the days shown.
+  const orgId = parseGcOrgId(orgText);
+  const startFromOrg = () => {
+    if (!orgId) return;
+    void run("org", { today, org: orgId, from: days.from, to: days.to }).then((answer) => {
+      if (!answer) return;
+      if (answer.pages.length > 0) setPages(answer.pages);
+      if (answer.page === undefined || !answer.clubs || !answer.draft) {
+        setOrgSaid({ org: answer.org, picked: 0 });
+        return;
+      }
+      setOrgSaid({ org: answer.org, picked: (answer.picked ?? []).length });
+      setPageId(answer.page);
+      setClubs(answer.clubs);
+      setPicked(answer.picked ?? []);
+      setFilter("");
       setDraft(answer.draft);
       setChoices(startChoices(answer.draft));
     });
@@ -187,7 +253,13 @@ export function StartFromClubs({
   };
 
   const retry =
-    failed === "pages" ? readPages : failed === "clubs" ? () => openPage(pageId) : findGames;
+    failed === "pages"
+      ? readPages
+      : failed === "clubs"
+        ? () => openPage(pageId)
+        : failed === "org"
+          ? startFromOrg
+          : findGames;
 
   return (
     <section aria-labelledby="start-from-clubs" className={`${surface.primary} p-6`}>
@@ -227,7 +299,9 @@ export function StartFromClubs({
               ? "Reading Team Rankings' pages…"
               : busy === "clubs"
                 ? "Reading the page's clubs…"
-                : "Finding their games…"
+                : busy === "org"
+                  ? "Finding the organization's clubs and their games…"
+                  : "Finding their games…"
           }
         />
       )}
@@ -241,6 +315,46 @@ export function StartFromClubs({
 
       {pages && pages.length > 0 && (
         <div className="mt-5 grid gap-5">
+          <form
+            className="grid gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              startFromOrg();
+            }}
+          >
+            <label className="grid gap-1">
+              <span className={textRole.overline}>GameChanger organization ID or link</span>
+              <span className={textRole.meta}>
+                The league&apos;s organization picks its clubs, and the page most of them are on,
+                from the Organizations file Team Rankings keeps.
+              </span>
+              <input
+                type="text"
+                value={orgText}
+                onChange={(event) => setOrgText(event.target.value)}
+                placeholder="NRsPUpJj6Eed or web.gc.com/organizations/…"
+                autoComplete="off"
+                spellCheck={false}
+                className={`rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 ${fieldFocusRing}`}
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="submit" disabled={!orgId || busy !== null} className={button.dark}>
+                Start from the organization
+              </button>
+              {orgText.trim() !== "" && !orgId && (
+                <span className={textRole.meta}>
+                  That is not an organization ID or a gc.com organizations link.
+                </span>
+              )}
+            </div>
+            {orgSaid && (
+              <p role="status" className={textRole.body}>
+                {orgStartNote(orgSaid.org, orgSaid.picked, page?.name)}
+              </p>
+            )}
+          </form>
+
           <label className="grid gap-1">
             <span className={textRole.overline}>Team Rankings page</span>
             <select
