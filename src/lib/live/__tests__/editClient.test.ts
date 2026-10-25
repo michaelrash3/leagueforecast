@@ -427,17 +427,25 @@ describe("a question", () => {
     dropped: 2,
   } as const;
 
-  it("keeps year controls on the edit service and background questions on their own service", async () => {
+  it("keeps a year's previews on the edit service and every other question on their own", async () => {
     const server = answering(200, {
       result: { ok: true, copy: "c0ffee01", version: 9, answer: ANSWER },
     });
     await callQuery({ query: QUESTION }, { ...signedIn, fetchImpl: server.fetchImpl });
     expect(server.sent[0]?.url).toBe(POOL_QUERY_URL);
+    // The years' list is a read Setup asks on opening: with the others, so opening wakes one.
     const years = answering(200, {
       result: { ok: true, copy: "c0ffee01", version: 9, answer: { kind: "year.list", years: [] } },
     });
     await callQuery({ query: { kind: "year.list" } }, { ...signedIn, fetchImpl: years.fetchImpl });
-    expect(years.sent[0]?.url).toBe(EDIT_URL);
+    expect(years.sent[0]?.url).toBe(POOL_QUERY_URL);
+    // A preview stays beside the archive or delete it previews.
+    const preview = answering(200, { result: { ok: true, copy: "c0ffee01", version: 9 } });
+    await callQuery(
+      { query: { kind: "year.archivePreview", year: 2026 } },
+      { ...signedIn, fetchImpl: preview.fetchImpl }
+    );
+    expect(preview.sent[0]?.url).toBe(EDIT_URL);
   });
 
   it("falls back for safe reads while the new read function has not deployed", async () => {

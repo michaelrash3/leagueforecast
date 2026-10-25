@@ -403,6 +403,15 @@ export const callWarm = (deps: CallDeps): Promise<Called<WarmResult>> =>
   call({ warm: true }, coerceWarmed, { finalStatuses: GAVE_UP, ...deps }, "failed");
 
 /**
+ * Whether a question goes to the edit function rather than `poolQuery`: a year's archive or delete
+ * preview, asked beside the write it previews and on the same warm pool. The years' list is not
+ * among them. Setup asks it on opening, beside the background questions it asks `poolQuery`, and
+ * on `edit` it woke a second 8 GiB service to load the whole pool for a read; `poolQuery` reads the
+ * copy afresh for every question, so the list asked again after an archive still sees it.
+ */
+const askedOfEdit = (kind: QueryKind): boolean => kind.startsWith("year.") && kind !== "year.list";
+
+/**
  * Asks the server a question about the copy (`queries.ts`), about `copy` when given. It changes
  * nothing, so an answer that never came is only a question to ask again (`failed`).
  */
@@ -414,8 +423,8 @@ export const callQuery = <K extends QueryKind>(
     { query: ask.query, ...(ask.copy === undefined ? {} : { copy: ask.copy }) },
     (result) => coerceQueryReply(result, ask.query.kind),
     {
-      url: ask.query.kind.startsWith("year.") ? EDIT_URL : POOL_QUERY_URL,
-      fallbackUrl: ask.query.kind.startsWith("year.") || deps.url ? undefined : EDIT_URL,
+      url: askedOfEdit(ask.query.kind) ? EDIT_URL : POOL_QUERY_URL,
+      fallbackUrl: askedOfEdit(ask.query.kind) || deps.url ? undefined : EDIT_URL,
       finalStatuses: GAVE_UP,
       ...deps,
     },

@@ -7916,7 +7916,9 @@ hour."; `startedAgainNotice`, kept among the page's pending edits and gone once 
 
 **Responsive Setup controls.** Background questions, including Pool health and the teams
 waiting on an age, use `poolQuery`, a separate callable service with its own warm worker.
-Year lists and archive/delete previews use `edit`, beside the corresponding writes. Both
+Archive/delete previews use `edit`, beside the corresponding writes. The years' list
+went there too until 25 October 2026, so opening Setup woke both 8 GiB services; it is a
+read like the rest, and `poolQuery` reads the copy afresh, so it now goes there. Both
 services use the same member checks and existing ledger; `poolQuery` refuses every write.
 The read client falls back to `edit` on a 404 while the new function is still deploying.
 Reset and restore keep their place in the write queue after the owner's authorization is
