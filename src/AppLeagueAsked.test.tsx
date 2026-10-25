@@ -48,6 +48,8 @@ const server = vi.hoisted(() => ({
 
 vi.mock("./lib/live/leagueAsk", () => ({
   LEAGUE_UNANSWERED: "Team Rankings could not be asked.",
+  // The copy unreadable here, so every question is put to the stand-in server.
+  copyAtNow: async () => null,
   placeLeagueSeason: async (command: unknown) => {
     server.placed.push(command);
     return true;

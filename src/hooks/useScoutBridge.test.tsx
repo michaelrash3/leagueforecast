@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keptBridge, useScoutBridge, type SeasonFixture } from "./useScoutBridge";
 import type { LeagueBridgeAnswer } from "../lib/live/leagueAnswers";
-import type { LeagueAsker } from "../lib/live/leagueAsk";
+import type { CopyAt, LeagueAsker } from "../lib/live/leagueAsk";
 import type { QueryOf } from "../lib/live/queries";
 import type { AgeGroup, ScoutTeam } from "../lib/teamRankings";
 import {
@@ -794,6 +794,272 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     // Signed in all along, nothing more is asked for it.
     rerender(props({ asker, signedIn: true }));
     await settle();
+    expect(asked).toHaveLength(2);
+  });
+
+  /** The cloud copy as `copyAtNow` reads it, which can move or be unreadable, counting its reads. */
+  const cloudCopy = () => {
+    const state = { at: { copy: "c1", version: 5 } as CopyAt, readable: true, reads: 0 };
+    const copyNow = async () => {
+      state.reads += 1;
+      return state.readable ? { ...state.at } : null;
+    };
+    return { state, copyNow };
+  };
+  /** A server whose answers name the copy they were worked out from, while `answering` says so. */
+  const stamped = (copy: { at: CopyAt }, control = { answering: true, naming: true }) => {
+    const asked: Asked[] = [];
+    const asker = (async (query: Asked) => {
+      asked.push(query);
+      if (query.kind === "league.clubs") return { kind: "league.clubs", clubs: CLUBS };
+      if (!control.answering) return null;
+      return {
+        kind: "league.bridge",
+        ...ANSWER,
+        ...(control.naming ? { at: { ...copy.at } } : {}),
+      };
+    }) as LeagueAsker;
+    return { asked, asker, control };
+  };
+  /** Off to Team Rankings and back, as the tabs do. */
+  const roundTrip = (
+    rerender: (next: Parameters<typeof useScoutBridge>[0]) => void,
+    over: Partial<Parameters<typeof useScoutBridge>[0]>
+  ) => {
+    rerender(props({ ...over, leagueOnScreen: false }));
+    rerender(props({ ...over, leagueOnScreen: true }));
+  };
+
+  it("asks again on coming back from Team Rankings only where the copy has moved since its answer", async () => {
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const given = { asker, copyNow: copy.copyNow };
+    const { result, rerender } = setup(props(given));
+    await settle();
+    // The visit's first question goes to the server without a read.
+    expect(asked).toHaveLength(1);
+    expect(copy.state.reads).toBe(0);
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(1);
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    // A save since, the member's own on the cloud's board or anyone's: asked.
+    copy.state.at = { copy: "c1", version: 6 };
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(2);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("asks where the copy was made anew under the same version", async () => {
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const given = { asker, copyNow: copy.copyNow };
+    const { rerender } = setup(props(given));
+    await settle();
+    copy.state.at = { copy: "c2", version: 5 };
+    roundTrip(rerender, given);
+    await settle();
+    expect(asked).toHaveLength(2);
+  });
+
+  it("asks where the copy cannot be read, or the answer named no copy", async () => {
+    const copy = cloudCopy();
+    const { asked, asker, control } = stamped(copy.state);
+    const given = { asker, copyNow: copy.copyNow };
+    const { rerender } = setup(props(given));
+    await settle();
+    // Unreadable on coming back: asked, and answered by a reply that names no copy.
+    copy.state.readable = false;
+    control.naming = false;
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(2);
+    // That answer stands for no copy: the next return asks without a read.
+    copy.state.readable = true;
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(3);
+  });
+
+  it("asks where reading the copy fails outright", async () => {
+    const { asked, asker } = stamped({ at: { copy: "c1", version: 5 } });
+    const given = {
+      asker,
+      copyNow: () => Promise.reject(new Error("timed out reading the cloud's copy")),
+    };
+    const { rerender } = setup(props(given));
+    await settle();
+    roundTrip(rerender, given);
+    await settle();
+    expect(asked).toHaveLength(2);
+  });
+
+  it("asks about a team renamed without reading the copy", async () => {
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const { rerender } = setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    rerender(props({ asker, copyNow: copy.copyNow, teams: [{ id: "lt1", name: "Rays II" }] }));
+    await settle();
+    expect(copy.state.reads).toBe(0);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("reads the copy rather than ask for the same question handed over anew, or a season come back to", async () => {
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const given = { asker, copyNow: copy.copyNow };
+    const { rerender } = setup(props(given));
+    await settle();
+    rerender(props({ ...given, teams: [...TEAMS] }));
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(1);
+    // Another season, asked about as its own; and back to the first, whose answer still stands.
+    rerender(props({ ...given, activeSeasonId: "s2" }));
+    await settle();
+    expect(asked).toHaveLength(2);
+    rerender(props(given));
+    await settle();
+    expect(copy.state.reads).toBe(2);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("reads the copy for the page shown anew at most once every few minutes", async () => {
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    act(() => shown("hidden"));
+    await wait(5 * 60_000);
+    act(() => shown("visible"));
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    act(() => shown("hidden"));
+    await wait(60_000);
+    act(() => shown("visible"));
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(1);
+  });
+
+  it("holds a change noted while the copy is read until it is, then reads once more", async () => {
+    let reads = 0;
+    let release = () => {};
+    const copyNow = () => {
+      reads += 1;
+      return new Promise<CopyAt | null>((resolve) => {
+        release = () => resolve({ copy: "c1", version: 5 });
+      });
+    };
+    const { asked, asker } = stamped({ at: { copy: "c1", version: 5 } });
+    const given = { asker, copyNow };
+    const { result, rerender } = setup(props(given));
+    await settle();
+    roundTrip(rerender, given);
+    await settle();
+    expect(reads).toBe(1);
+    act(() => result.current.noteChange());
+    await settle();
+    expect(reads).toBe(1);
+    await act(async () => release());
+    await settle();
+    expect(reads).toBe(2);
+    await act(async () => release());
+    await settle();
+    expect(asked).toHaveLength(1);
+  });
+
+  it("ends the retries once the copy is read and found where the answer was", async () => {
+    const copy = cloudCopy();
+    const { asked, asker, control } = stamped(copy.state);
+    const given = { asker, copyNow: copy.copyNow };
+    const { rerender } = setup(props(given));
+    await settle();
+    // Back from Team Rankings with the copy unreadable: asked, and the server does not answer.
+    copy.state.readable = false;
+    control.answering = false;
+    roundTrip(rerender, given);
+    await settle();
+    expect(asked).toHaveLength(2);
+    // Readable by the first retry, and unmoved: the answer on hand stands, and nothing more asks.
+    copy.state.readable = true;
+    await wait(5_000);
+    expect(copy.state.reads).toBe(2);
+    await wait(60 * 60_000);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("reads nothing off League Standings for a question its bridge answers", async () => {
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const { rerender } = setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    rerender(props({ asker, copyNow: copy.copyNow, leagueOnScreen: false, teams: [...TEAMS] }));
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await settle();
+    expect(copy.state.reads).toBe(0);
+    expect(asked).toHaveLength(1);
+  });
+
+  it("asks again once the server's day has turned, however still the copy", async () => {
+    // 23:40 in New York: a game scored for tomorrow is not counted yet.
+    vi.setSystemTime(new Date("2026-10-26T03:40:00.000Z"));
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    const given = { asker, copyNow: copy.copyNow };
+    const { rerender } = setup(props(given));
+    await settle();
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(1);
+    // Half an hour on it is tomorrow there, and the game counts: asked, with no save between.
+    await wait(30 * 60_000);
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(1);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("holds an answer asked for before the server's midnight and heard after it to the day before", async () => {
+    // Sent at 23:59 in New York, and worked out by a server waking up for a minute.
+    vi.setSystemTime(new Date("2026-10-26T03:59:00.000Z"));
+    const copy = cloudCopy();
+    const asked: Asked[] = [];
+    const asker = (async (query: Asked) => {
+      asked.push(query);
+      await new Promise((resolve) => setTimeout(resolve, 60_000));
+      return { kind: "league.bridge", ...ANSWER, at: { ...copy.state.at } };
+    }) as LeagueAsker;
+    const given = { asker, copyNow: copy.copyNow };
+    const { result, rerender } = setup(props(given));
+    await settle();
+    await wait(60_000);
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    // Heard after midnight, it may leave out a game that counts from today: asked again.
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(0);
+    expect(asked).toHaveLength(2);
+  });
+
+  it("asks again a day after an answer, however still the copy", async () => {
+    const copy = cloudCopy();
+    const { asked, asker } = stamped(copy.state);
+    setup(props({ asker, copyNow: copy.copyNow }));
+    await settle();
+    act(() => shown("hidden"));
+    await wait(24 * 60 * 60_000);
+    act(() => shown("visible"));
+    await settle();
+    expect(copy.state.reads).toBe(0);
     expect(asked).toHaveLength(2);
   });
 

@@ -8,7 +8,7 @@ import {
 } from "../lib/teamRankings";
 import { clubPickOption, pickableClubs, type ClubPickOption } from "../lib/leagueLinkOptions";
 import { leagueBridgeOf, type LeagueBridgeAnswer } from "../lib/live/leagueAnswers";
-import type { LeagueAsker } from "../lib/live/leagueAsk";
+import type { CopyAt, LeagueAsker } from "../lib/live/leagueAsk";
 import type { QueryOf } from "../lib/live/queries";
 import { BRIDGE_KEY } from "../lib/preferences";
 import { loadAgeGroups, loadScoutGamesForSeason, loadScoutTeams } from "../lib/teamRankingsStorage";
@@ -59,6 +59,13 @@ export type ScoutBridgeOptions = {
    */
   leagueOnScreen?: boolean;
   /**
+   * The cloud copy's id and version as they are now (`copyAtNow`), or null where that cannot be
+   * read. Given, a question this visit has an answer to is asked again only where the copy has
+   * moved since that answer (`STAMP_TRUST_MS`): a read of one document rather than the 8 GiB
+   * server. Absent, every question goes to the server, as before.
+   */
+  copyNow?: () => Promise<CopyAt | null>;
+  /**
    * Whether the question waits: while Team Rankings opens on the cloud's board, nothing is asked
    * until the board is drawn (`openingHold.ts`), and then only as Team Rankings on screen asks
    * (`leagueOnScreen`).
@@ -108,6 +115,42 @@ const NO_OPTIONS: readonly ClubPickOption[] = [];
 
 /** How long a season's teams and fixtures stand still before the server is asked about them. */
 const ASK_AFTER_MS = 800;
+
+/**
+ * How long an answer's copy and version are held to stand for it (`copyNow`). The answer is the
+ * server's working of the pool at that save, so it holds while the copy has not moved; but the
+ * server's own rules for working it out change with a deploy, which no save marks. A day bounds a
+ * tab left open across such a deploy to a day-old answer at most.
+ */
+const STAMP_TRUST_MS = 24 * 60 * 60_000;
+
+/**
+ * The day the server works an answer out on: New York's, the zone the query function runs in
+ * (`functions/src/index.ts`). A scored game dated ahead counts from its day (`countsTowardRating`),
+ * so the bridge can change at New York's midnight with no save to the copy (review of #446).
+ */
+const SERVER_DAY = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * The copy and version an answer was worked out from, and when its question was sent
+ * (`STAMP_TRUST_MS`): no later than the server worked it out, so an answer asked for before New
+ * York's midnight and heard after it is held to the day before, and asked again (Codex, on #446).
+ */
+type Stamp = CopyAt & { heard: number };
+
+/**
+ * Whether `stamp` may still stand for its answer at `now`: heard, by this clock, within a day, and
+ * on the server's day as it still is.
+ */
+const trusted = (stamp: Stamp, now: number): boolean =>
+  now >= stamp.heard &&
+  now - stamp.heard < STAMP_TRUST_MS &&
+  SERVER_DAY.format(stamp.heard) === SERVER_DAY.format(now);
 
 /**
  * How long after a question goes unanswered it is asked again, the last wait repeated until one is
@@ -217,9 +260,10 @@ type WideList = { season: string; options: readonly ClubPickOption[] | null };
  * (`asker`, `league.bridge`): whenever the season's teams or final scores change, on coming back
  * from Team Rankings, when the sign-in comes through or the device comes back online, and when the
  * page is looked at anew, at most once every few minutes; while Team Rankings is on screen, only
- * where the bridge on hand does not answer the season as it stands. A question unanswered is asked
- * again, and one already out is never thrown away for another about the same teams. The last
- * bridge kept for the season stands until an answer comes.
+ * where the bridge on hand does not answer the season as it stands; and the same question this
+ * visit has an answer to, only where the copy has moved since (`copyNow`). A question unanswered is
+ * asked again, and one already out is never thrown away for another about the same teams. The
+ * last bridge kept for the season stands until an answer comes.
  */
 export function useScoutBridge({
   activeSeasonId,
@@ -231,6 +275,7 @@ export function useScoutBridge({
   asker,
   signedIn,
   leagueOnScreen = true,
+  copyNow,
   held = false,
 }: ScoutBridgeOptions): ScoutBridge {
   const [revision, setRevision] = useState(0);
@@ -287,8 +332,11 @@ export function useScoutBridge({
    * one is.
    */
   const [heard, setHeard] = useState<Record<string, LeagueBridgeAnswer>>({});
-  /** The question each of this visit's answers answered (`askedOf`), by season, as `heard` is. */
-  const heardAsked = useRef<Record<string, string>>({});
+  /**
+   * The question each of this visit's answers answered (`askedOf`), and the copy it was worked out
+   * from where the reply named one, by season, as `heard` is.
+   */
+  const heardOn = useRef<Record<string, { asked: string; at: Stamp | null }>>({});
   /** The season whose last question went unanswered, and is waiting to be asked again. */
   const [failedFor, setFailedFor] = useState<string | null>(null);
   /*
@@ -349,9 +397,21 @@ export function useScoutBridge({
       fixtures: seasonFixtures,
     };
     const asked = askedOf(question);
-    /** The question the bridge shown answered: this visit's answer, else the kept one. */
-    const onHand = () => heardAsked.current[seasonKey] ?? kept?.asked ?? null;
+    /**
+     * The question the bridge shown answered, and the copy it came from: this visit's answer, else
+     * the kept one, whose copy is not known.
+     */
+    const onHand = () =>
+      heardOn.current[seasonKey] ?? (kept ? { asked: kept.asked, at: null } : null);
+    /** After an answer, or a question found to need none: a change noted meanwhile is asked about. */
+    const carryOn = () => {
+      if (again.current) {
+        again.current = false;
+        setRevision((value) => value + 1);
+      }
+    };
     const ask = (failures: number) => {
+      const hand = onHand();
       /*
        * Off League Standings, a bridge on hand that answers this very question is left to stand
        * until coming back, which asks again in any case. One for teams or final scores since
@@ -360,16 +420,45 @@ export function useScoutBridge({
        * screen, notifications while the page is hidden. Read from the ref as each question falls
        * due, not as a dependency, so going to Team Rankings leaves one already out to be answered.
        */
-      if (!onScreen.current && onHand() === asked) return;
+      if (!onScreen.current && hand?.asked === asked) return;
+      /*
+       * The same question this visit already has an answer to, from a copy known: asked again only
+       * where the copy has moved since, which one read of its manifest tells. Coming back from Team
+       * Rankings, the page shown anew, the sign-in, coming online and a retry all ask this way; a
+       * copy that cannot be read is no proof it stood still, so the server is asked.
+       */
+      const at = hand?.asked === asked ? hand.at : null;
+      if (!copyNow || !at || !trusted(at, Date.now())) {
+        send(failures);
+        return;
+      }
       out.current = true;
       askedAt.current = Date.now();
+      // A read that fails says nothing of the copy, as one that answers nothing does.
+      void copyNow()
+        .catch(() => null)
+        .then((now) => {
+          if (!current) return;
+          if (now?.copy === at.copy && now.version === at.version) {
+            out.current = false;
+            carryOn();
+          } else send(failures);
+        });
+    };
+    const send = (failures: number) => {
+      const sent = Date.now();
+      out.current = true;
+      askedAt.current = sent;
       void asker(question).then((reply) => {
         // An answer for teams or scores since changed is not this season's as it stands.
         if (!current) return;
         out.current = false;
         if (reply) {
           keepBridge(activeSeasonId, { bridge: reply.bridge, asked });
-          heardAsked.current[seasonKey] = asked;
+          heardOn.current[seasonKey] = {
+            asked,
+            at: reply.at ? { ...reply.at, heard: sent } : null,
+          };
           setHeard((was) => ({
             ...was,
             [seasonKey]: { bridge: reply.bridge, candidates: reply.candidates },
@@ -379,10 +468,7 @@ export function useScoutBridge({
           const wait = RETRY_AFTER_MS[Math.min(failures, RETRY_AFTER_MS.length - 1)];
           timer = setTimeout(() => ask(failures + 1), wait);
         }
-        if (again.current) {
-          again.current = false;
-          setRevision((value) => value + 1);
-        }
+        carryOn();
       });
     };
     timer = setTimeout(() => ask(0), ASK_AFTER_MS);
@@ -393,7 +479,7 @@ export function useScoutBridge({
       again.current = false;
       clearTimeout(timer);
     };
-  }, [asker, activeSeasonId, seasonKey, kept, teams, seasonFixtures, revision, held]);
+  }, [asker, activeSeasonId, seasonKey, kept, teams, seasonFixtures, revision, held, copyNow]);
 
   const bridge = asker ? (answer?.bridge ?? kept?.bridge ?? NOTHING) : local;
   const unanswered =
