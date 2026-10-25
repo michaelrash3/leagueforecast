@@ -95,7 +95,12 @@ export const buildRankSnapshot = (
   const nextLive = calculateTeams(teams, matchups, nextLogs, settings);
   const nextRanked = rankTeams(nextLive, rankOptionsFromSettings(settings));
   const nextRemaining = matchups.filter((game) => !isFinal(nextLogs[game.id]));
-  const nextRemainingCounts = getRemainingCounts(nextLive, nextRemaining);
+  // Games the season owes but has not scheduled count too, as they do in the table.
+  const nextRemainingCounts = getRemainingCounts(
+    nextLive,
+    nextRemaining,
+    Math.max(0, Math.round(settings.regularSeasonGamesPerTeam || 0))
+  );
   const nextProjected =
     nextRemaining.length <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT
       ? projectStandings(nextLive, nextRemaining, settings)

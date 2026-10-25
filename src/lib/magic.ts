@@ -29,6 +29,14 @@ const buildPointsMap = (teams: Team[], settings: Settings): PointsMap => {
   return out;
 };
 
+const buildLossesMap = (teams: Team[]): PointsMap => {
+  const out: PointsMap = {};
+  teams.forEach((t) => {
+    out[t.id] = t.l;
+  });
+  return out;
+};
+
 const sortedTeamIds = (teams: Team[]) => teams.map((t) => t.id).sort();
 
 /**
@@ -45,13 +53,26 @@ const sortedTeamIds = (teams: Team[]) => teams.map((t) => t.id).sort();
  * ahead (`tiesAhead`), and "eliminated" counts none of them; where only the other side holds, the
  * answer is that the tiebreakers decide (`MagicResult.tiebreak`).
  */
-const rankOfTeam = (teamId: string, points: PointsMap, teams: Team[], tiesAhead: boolean) => {
+const rankOfTeam = (
+  teamId: string,
+  points: PointsMap,
+  losses: PointsMap,
+  teams: Team[],
+  tiesAhead: boolean
+) => {
   const my = points[teamId] ?? 0;
+  const myLosses = losses[teamId] ?? 0;
   let above = 0;
   for (const t of teams) {
     if (t.id === teamId) continue;
     const p = points[t.id] ?? 0;
-    if (p > my || (p === my && tiesAhead)) above += 1;
+    if (p > my) above += 1;
+    else if (p === my) {
+      // The table's own next step after points (`rankTeams`): fewer losses goes ahead, before
+      // any tiebreaker. Only a tie on both is the tiebreakers' to settle.
+      const l = losses[t.id] ?? 0;
+      if (l < myLosses || (l === myLosses && tiesAhead)) above += 1;
+    }
   }
   return above + 1;
 };
@@ -78,6 +99,7 @@ const solveCutoff = (
   tiesAhead: boolean
 ) => {
   const base = buildPointsMap(teams, settings);
+  const baseLosses = buildLossesMap(teams);
   const myRemaining = remainingGamesFor(teamId, remaining).length;
   /*
    * The wins and the losses come out of the same games, so it is their total that has to fit.
@@ -95,7 +117,13 @@ const solveCutoff = (
   const finalRank =
     remaining.length === 0 ? teams.find((team) => team.id === teamId)?.rank : undefined;
 
-  const dfs = (idx: number, ownWins: number, forcedLosses: number, points: PointsMap): boolean => {
+  const dfs = (
+    idx: number,
+    ownWins: number,
+    forcedLosses: number,
+    points: PointsMap,
+    losses: PointsMap
+  ): boolean => {
     if (idx === remaining.length) {
       /*
        * This branch is outside the scenario being asserted, so it is not evidence either way.
@@ -115,10 +143,10 @@ const solveCutoff = (
       if (ownWins < requiredOwnWins || forcedLosses < extraForcedLosses) return mode === "all";
       // A season with nothing left is the table's to answer, tiebreakers and all.
       if (finalRank !== undefined) return finalRank <= settings.goldCutoff;
-      return rankOfTeam(teamId, points, teams, tiesAhead) <= settings.goldCutoff;
+      return rankOfTeam(teamId, points, losses, teams, tiesAhead) <= settings.goldCutoff;
     }
 
-    const pointsKey = ids.map((id) => points[id] ?? 0).join(",");
+    const pointsKey = ids.map((id) => `${points[id] ?? 0}/${losses[id] ?? 0}`).join(",");
     const key = `${mode}|${idx}|${ownWins}|${forcedLosses}|${pointsKey}`;
     const cached = memo.get(key);
     if (cached !== undefined) return cached;
@@ -129,14 +157,16 @@ const solveCutoff = (
       return false;
     }
 
-    const outcomes: Array<{ next: PointsMap; own: number; loss: number }> = [
+    const outcomes: Array<{ next: PointsMap; lost: PointsMap; own: number; loss: number }> = [
       {
         next: { ...points, [g.away]: (points[g.away] ?? 0) + settings.winPoints },
+        lost: { ...losses, [g.home]: (losses[g.home] ?? 0) + 1 },
         own: ownWins + (g.away === teamId ? 1 : 0),
         loss: forcedLosses + (g.home === teamId ? 1 : 0),
       },
       {
         next: { ...points, [g.home]: (points[g.home] ?? 0) + settings.winPoints },
+        lost: { ...losses, [g.away]: (losses[g.away] ?? 0) + 1 },
         own: ownWins + (g.home === teamId ? 1 : 0),
         loss: forcedLosses + (g.away === teamId ? 1 : 0),
       },
@@ -149,6 +179,7 @@ const solveCutoff = (
           [g.away]: (points[g.away] ?? 0) + settings.tiePoints,
           [g.home]: (points[g.home] ?? 0) + settings.tiePoints,
         },
+        lost: losses,
         own: ownWins,
         loss: forcedLosses,
       });
@@ -156,14 +187,14 @@ const solveCutoff = (
 
     const result =
       mode === "any"
-        ? outcomes.some((o) => dfs(idx + 1, o.own, o.loss, o.next))
-        : outcomes.every((o) => dfs(idx + 1, o.own, o.loss, o.next));
+        ? outcomes.some((o) => dfs(idx + 1, o.own, o.loss, o.next, o.lost))
+        : outcomes.every((o) => dfs(idx + 1, o.own, o.loss, o.next, o.lost));
 
     memo.set(key, result);
     return result;
   };
 
-  return dfs(0, 0, 0, base);
+  return dfs(0, 0, 0, base, baseLosses);
 };
 
 /** The fewest wins, and losses on top, that put the team in whatever else happens. */

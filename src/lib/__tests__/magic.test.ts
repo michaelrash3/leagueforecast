@@ -243,12 +243,13 @@ describe("eliminationNumberForGold", () => {
     const result = eliminationNumberForGold("A", live, tinyMatchups, 1, settings);
 
     /*
-     * Two losses and A is out on points. One loss already puts it behind on fewer losses — 1-1
-     * against the 1-0 club that beat it — but the solver reads points and leaves a tie on them to
-     * the tiebreakers rather than guess, so it says two, which is true if not the least.
+     * One loss puts A behind on fewer losses — 1-1 against the 1-0 club that beat it — whichever
+     * game it loses, and the table puts fewer losses first, before any tiebreaker. The solver used
+     * to read points alone and leave the level points to the tiebreakers, so it said two, which was
+     * true but not the least.
      */
     expect(result.type).toBe("elimination");
-    expect(result.opponentLossesNeeded).toBe(2);
+    expect(result.opponentLossesNeeded).toBe(1);
     expect(result.tiebreak).toBeUndefined();
   });
 
