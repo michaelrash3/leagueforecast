@@ -5225,8 +5225,16 @@ in **Actions → Pull in the cloud** rather than Google's logs, so the "Pulls in
 the cloud" status workflow, which reads Google's, sees the jobs but not them.
 
 It starts within a minute or so of the press, where a task started in seconds.
-Without the token every launch goes to Google as before, so a deploy before the
-token is set changes nothing. The setup, once:
+Without the token every launch goes to Google as before, but the deploy refuses
+to run unless the `GOOGLE_JOBS` variable is set to `on`. An emptied secret would
+otherwise put the pulls and the rebuilds back on Google's machines without a
+word, and a refused deploy leaves the functions with the token they already
+have. With the token, the deploy builds and pushes no image and deploys none of
+the Cloud Run jobs (`team-import`, `ranking-rebuild`, `boards-publish`), since
+nothing launches them: the image grew Artifact Registry by about 20 MB a deploy,
+to about 1.7 GB in October 2026, against its free 0.5 GB. The images already
+pushed keep their two newest, and the rest are deleted a day on (a cleanup policy
+the deploy sets on `team-imports`). The setup, once:
 
 1. Make a fine-grained token at
    <https://github.com/settings/personal-access-tokens/new>: under
