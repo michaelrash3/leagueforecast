@@ -503,4 +503,31 @@ describe("neededResults", () => {
       )
     ).toBeNull();
   });
+
+  it("names no result as needed when only the recomputed rating could separate the team", () => {
+    // One place, and no tiebreakers configured, so a level finish on points and losses falls
+    // straight to the rating. A beat C 1-0; B v C is the last game. If B wins the same 1-0, A and B
+    // are a dead heat — identical records against the same club — that the standings settle by the
+    // rating they recompute across the league and, level there, by id (A first). Booking the one
+    // game here does not recompute that rating, and it happens to read B above A. The result must
+    // still not be called needed on a rating worked out afresh: A is told it needs nothing, not
+    // that C must beat B. Strikeouts match so the clubs are alike there too.
+    const flat = { ...settings, tiebreakerOrder: [], runDiffTiebreaker: false };
+    const withK = (a: number, h: number, k: number): GameLog => ({
+      ...finalLog(a, h),
+      awayK: String(k),
+      homeK: String(k),
+    });
+    const games: Matchup[] = [
+      { id: "g1", date: "5/1", away: "A", home: "C" },
+      { id: "g2", date: "5/2", away: "B", home: "C" },
+    ];
+    const played = { g1: withK(1, 0, 6) };
+    const table = rankTeams(
+      calculateTeams(three, games, played, flat),
+      rankOptionsFromSettings(flat)
+    );
+    const left = games.filter((game) => !(game.id in played));
+    expect(neededResults("A", table, left, 1, flat)).toEqual([]);
+  });
 });

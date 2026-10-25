@@ -434,18 +434,33 @@ const lastGameChances = (
   settings: Settings
 ): { possible: boolean; sure: boolean } => {
   const options = rankOptionsFromSettings(settings);
+  /*
+   * `withScore` books the one game as the simulator does, which is exact for points, losses and
+   * the tiebreakers up to run differential and head-to-head, but not for the rating the standings
+   * fall back on last: `calculateTeams` recomputes strength of schedule and the contact bonus
+   * across the whole league once a real result is in, and booking the one game here does not. So a
+   * place that comes down to that rating, or to the id after it, is not to be trusted. The team's
+   * `tpi` is set to the far end of the range to read the place both ways: with it ahead on any
+   * such tie, for whether the team *can* get in, and behind, for whether it is in *whatever
+   * happens*. Where the place is settled before the rating — which is almost always — the two
+   * agree and this is the plain ranking. Resolving the fallback in the team's favour for "can"
+   * keeps a result from being called needed on a rating that would be recomputed; resolving it
+   * against the team for "sure" keeps one from being called safe on the same.
+   */
+  const placeWith = (booked: Team[], tpi: number): number =>
+    rankTeams(
+      booked.map((team) => (team.id === teamId ? { ...team, tpi } : team)),
+      options
+    ).findIndex((team) => team.id === teamId) + 1;
   let possible = false;
   let sure = true;
   for (let high = 0; high <= RUN_SCORE_CAP; high += 1) {
     const lows = winnerId === null ? [high] : Array.from({ length: high }, (_, low) => low);
     for (const low of lows) {
       const [awayRuns, homeRuns] = winnerId === game.home ? [low, high] : [high, low];
-      const place =
-        rankTeams(withScore(teams, game, awayRuns, homeRuns, settings), options).findIndex(
-          (team) => team.id === teamId
-        ) + 1;
-      if (place <= cutoff) possible = true;
-      else sure = false;
+      const booked = withScore(teams, game, awayRuns, homeRuns, settings);
+      if (placeWith(booked, Number.POSITIVE_INFINITY) <= cutoff) possible = true;
+      if (placeWith(booked, Number.NEGATIVE_INFINITY) > cutoff) sure = false;
       if (possible && !sure) return { possible, sure };
     }
   }
