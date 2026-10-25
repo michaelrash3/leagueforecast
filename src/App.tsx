@@ -108,6 +108,8 @@ import type { MachineLeft } from "./components/league/PlayoffMachine";
 import type { LiveSeasonData } from "./lib/backup";
 import { ToastView } from "./components/Toast";
 import { useAppMode } from "./hooks/useAppMode";
+import { useCrawlHandoff } from "./hooks/useCrawlHandoff";
+import { crawlImportSearch } from "./lib/crawlHandoff";
 import { useOpeningReleased, usePoolFilled } from "./hooks/useOpeningHold";
 import { poolFilled } from "./lib/poolFill";
 import { useDarkMode } from "./hooks/useDarkMode";
@@ -530,6 +532,23 @@ export default function App() {
   );
   const { theme, setTheme, toggle: toggleTheme } = useDarkMode();
   const { appMode, setAppMode } = useAppMode();
+  /*
+   * The crawl's files, handed over by the owner's userscript, open Team Rankings' Import, where the
+   * Import drawn takes them (`useCrawlHandoff`). Pushed, so Back returns to the page the reader was
+   * on (`useAppMode` follows the entry's mode); the popstate is how an open Team Rankings page hears
+   * its section changed.
+   */
+  const openCrawlImport = useCallback(() => {
+    const search = crawlImportSearch(window.location.search);
+    window.history.pushState(
+      null,
+      "",
+      `${window.location.pathname}${search}${window.location.hash}`
+    );
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    setAppMode("rankings");
+  }, [setAppMode]);
+  useCrawlHandoff(openCrawlImport);
   const switchToLeague = useMemo(
     () => ({ label: "Switch to League Standings", onSelect: () => setAppMode("league") }),
     [setAppMode]

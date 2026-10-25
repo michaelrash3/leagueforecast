@@ -1989,7 +1989,9 @@ reader untouched, and mean no list already saved can be misread. Its columns are
 ones the export writes — `Entity Type`, `Entity Name`, `Organization ID`, the three URL
 columns (any of which yields the id), `City`, `State`, `Season Name`, `Season Year`,
 `Sport`, `Team Count` — and the season pair is read leniently across both cells,
-because a real export puts `2027` in the _name_ column with the year column empty.
+because a real export puts `2027` in the _name_ column with the year column empty. The
+miner's own export since 19.x names two of them differently, `Organization Name` and
+`Type`, and the reader takes either spelling.
 
 **The Organizations file is read from the pull panel**, beside the team list, and kept:
 a file read later adds to it, replacing only the organizations it names again, so an
@@ -2006,6 +2008,23 @@ organization's name says so. A waiting team a file can now age is asked about ag
 once, as one somebody named an age for by hand would be. A partial export of 22 September
 2026 kept 1,798 organizations over 11,515 teams and would age 141 waiting ones, 139 of
 them inside the band GameChanger gives them and the other two refused by it.
+
+**Or handed over by the crawl, with no download and no upload.** The owner's miner is a
+userscript in their own browser, and since 19.15 a run that finishes all three of its
+stages (teams, organizations, then each organization's teams) leaves its NEW exports in
+the userscript's own storage, where a second copy of the same userscript, running on
+this site, posts them to the page (`crawlHandoff.ts`). The page listens only to its own
+window at its own origin, on the hand-off's channel; holds the files until an Import is
+drawn (`crawlHandoffStore.ts`); and opens Team Rankings → Import, where whichever Import
+is on screen applies them through the very path its file inputs use (`useHeldHandoff`):
+the team list into the list box or the cloud's pull card, the organizations kept on this
+device or sent as the one `orgs.merge` the file input would send. Nothing is pulled: the
+pull is still a press. An id is applied once for the life of the page, so a hand-off sent
+twice never merges twice, and the miner is told a file went in only once it has, which is
+when it marks those rows sent; a file that fails to go in stays the miner's, to come
+again the next time the page opens. So the hand-off costs what loading the same two files
+by hand costs, and no more: on a cloud device that is one merge a finished run, and the
+miner sends an Organizations file only when its NEW export has something in it.
 
 `Entity Type` says what a thing is, not how its teams should be rated. A travel
 organization is a club; a tournament is an event whose brackets often name an age; and

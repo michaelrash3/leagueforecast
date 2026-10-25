@@ -32,6 +32,8 @@ import {
   type GcTeamListEntry,
 } from "../../lib/gameChangerApi";
 import { skipsApart } from "../../lib/cloud/pullJobs";
+import { useHeldHandoff } from "../../hooks/useCrawlHandoff";
+import { handoffLoaded } from "../../lib/crawlHandoffStore";
 import { button, card } from "../../styles/tokens";
 import { FIREBASE_WEB_CONFIG } from "../../lib/cloud/cloudConfig";
 import { downloadCsv } from "../../lib/download";
@@ -569,6 +571,24 @@ export default function LiveCloudPulls({
   // A queued import does not need a fresh rankings board. The server checks access and copy
   // compatibility; an intermittent connection must not hide the CSV controls.
   const blocked = sender ? null : PULLS_SIGNED_OUT;
+  /*
+   * A file chosen by hand and one the crawl handed over (`useHeldHandoff`) go in the same way, into
+   * this card and no further: the pull is still this card's button. `loaded` is told once it is in.
+   */
+  const chooseTeamFile = (file: File, loaded?: () => void) => {
+    const reader = new FileReader();
+    reader.onerror = () => setSaid("Could not read that file.");
+    reader.onload = () => {
+      setSaid(null);
+      setText("");
+      setLoaded({ name: file.name, text: String(reader.result ?? "") });
+      loaded?.();
+    };
+    reader.readAsText(file);
+  };
+  useHeldHandoff("teams", blocked === null && !sending, ({ id, file }) =>
+    chooseTeamFile(file, () => handoffLoaded(id, "teams"))
+  );
   const asIds = (ids: readonly string[]) => ids.map((teamId) => ({ teamId }));
 
   return (
@@ -633,15 +653,7 @@ export default function LiveCloudPulls({
             onChange={(event) => {
               const file = event.target.files?.[0];
               event.currentTarget.value = "";
-              if (!file) return;
-              const reader = new FileReader();
-              reader.onerror = () => setSaid("Could not read that file.");
-              reader.onload = () => {
-                setSaid(null);
-                setText("");
-                setLoaded({ name: file.name, text: String(reader.result ?? "") });
-              };
-              reader.readAsText(file);
+              if (file) chooseTeamFile(file);
             }}
           />
           {warning ? (
