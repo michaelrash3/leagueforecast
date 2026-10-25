@@ -56,6 +56,14 @@ export const coerceOrgMembership = (raw: unknown): OrgMembership => {
  * and at least one team are kept, since those are the only ones that can say anything. `savedAt`
  * moves only when something changed, so reading the same file twice does not send every waiting
  * team round again.
+ *
+ * A tournament is left out, and a tournament kept under an id a file now types that way is dropped:
+ * a league names the age of every team in it, but a tournament names the age its brackets ran at,
+ * which the teams in them played *up* to, so a tournament's name is no evidence of a team's own age
+ * (README, "Two lists"). The older crawl could not tell the two apart and typed every organization
+ * "travel", so this rung leaned on names agreeing; the miner's file states the type, and a type
+ * that says tournament is taken at its word. The type is used here, not kept: the stored
+ * organization is the same `{ orgId, name, teamIds }` either way, so no device reloads for it.
  */
 export const mergeOrgMembership = (
   kept: OrgMembership,
@@ -65,6 +73,10 @@ export const mergeOrgMembership = (
   const byId = new Map(kept.orgs.map((org) => [org.orgId, org]));
   let changed = false;
   incoming.forEach((entry) => {
+    if (entry.kind === "tournament") {
+      if (byId.delete(entry.orgId)) changed = true;
+      return;
+    }
     if (!entry.name || !entry.teamIds?.length) return;
     const next: MemberOrg = { orgId: entry.orgId, name: entry.name, teamIds: entry.teamIds };
     const before = byId.get(entry.orgId);
@@ -84,9 +96,9 @@ export const mergeOrgMembership = (
 
 /**
  * The age each team's organizations give it: the one level every organization naming an age
- * agrees on. A team under organizations that name two different ages is left out, because a
- * league and a tournament are one word apart in a crawl that types every organization "travel",
- * and a disagreement is the sign of exactly that.
+ * agrees on. Tournaments are already gone (`mergeOrgMembership` leaves them out), so these are the
+ * leagues and clubs a team belongs to, each naming the age it plays; two that name different ages
+ * is a team whose squads a file has muddled, and it is left out rather than guessed.
  */
 export const orgAgesByTeam = (membership: OrgMembership): Map<string, number> => {
   const levels = new Map<string, Set<number>>();

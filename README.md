@@ -2010,7 +2010,19 @@ them inside the band GameChanger gives them and the other two refused by it.
 `Entity Type` says what a thing is, not how its teams should be rated. A travel
 organization is a club; a tournament is an event whose brackets often name an age; and
 a **league is neither automatically** — "NKB 11u" is a travel league and
-"Mt. Carmel Little League" is rec ball, and only the name says which.
+"Mt. Carmel Little League" is rec ball, and only the name says which. A league or a club
+names the age its teams play, but a tournament names the age its brackets ran at, which
+the teams in them entered _up_ to — "NB Summer Slam 14U" holds 11U and 12U teams. So a
+tournament is left out of the kept list entirely, and one a file now types that way is
+dropped from it (`mergeOrgMembership`); the type decides this at import and is not stored,
+so the kept organization is the same `{ orgId, name, teamIds }` as before and no device
+reloads for it. The older crawl could not tell a league from a tournament and typed
+everything "travel", which is why the age a name gives is still only the last word, under
+the league rung and under the company a team keeps; the miner's file states the type, and
+one row's muddled squads — a league and a tournament both naming a team, each a different
+age — no longer leaves that team ageless, because the tournament is gone before the ages
+are read. Older files and the browser's cloud copy keep whatever tournaments they already
+held until a typed file names them again on this device; nothing new is ever added.
 
 GameChanger's public API allows only its own site as an origin, so the browser
 cannot call it. `server/gc-team.ts` is a Firebase handler that reads a team's
