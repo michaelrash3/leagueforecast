@@ -1743,16 +1743,25 @@ describe("a club's panel on the cloud's board", () => {
     expect(screen.getByRole("region", { name: "Placeholder S-1" })).toBeTruthy();
   });
 
-  it("brings the server's pool up as a club opens, and not again soon after a call", async () => {
+  it("brings the server's pool up when an edit begins, not as a club opens, and not again soon", async () => {
     await withCard();
     const server = editFunction(() => WARMED);
     open(sourcesOf(live, { call: server.call }));
     await tapClub("Placeholder S-1");
     const panel = await screen.findByRole("region", { name: "Placeholder S-1" });
+    // Opened to read, and a button pressed: nothing asked of the server.
+    await pause(50);
+    expect(server.sent).toEqual([]);
+    fireEvent.focus(within(panel).getByRole("button", { name: "Close" }));
+    await pause(20);
+    expect(server.sent).toEqual([]);
+    // Going into the name, to change it, brings the pool up for the edit to come.
+    fireEvent.focus(within(panel).getByLabelText("Team name"));
     await waitFor(() => expect(server.sent).toEqual([{ warm: true }]));
     fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
     await tapClub("Placeholder S-1");
-    await screen.findByRole("region", { name: "Placeholder S-1" });
+    const again = await screen.findByRole("region", { name: "Placeholder S-1" });
+    fireEvent.focus(within(again).getByLabelText("Team name"));
     await pause(50);
     expect(server.sent).toEqual([{ warm: true }]);
   });

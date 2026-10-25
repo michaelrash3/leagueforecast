@@ -6701,8 +6701,11 @@ its own no longer drawn, with every other game the card has by a name against th
 club (`takenWithOnCard`), as the server takes them, their record moving with them, until
 the Undo puts them back on the club, and a club folded away opens the one it went
 into. An edit that changed nothing the views read (a Pool health answer) asks for
-no rebuild and is not waited on. Opening a panel brings the server's pool up
-(`warm`), at most once in ten minutes of calls. While the device is offline, or
+no rebuild and is not waited on. Going into one of a panel's fields, its name, state,
+age or a club to fold into, brings the server's pool up (`warm`), at most once in
+ten minutes of calls. Opening the panel did, until 25 October 2026: every club a
+member opened to read woke the 8 GiB edit function to load the whole pool for an
+edit that mostly never came. While the device is offline, or
 before the network has answered for the board (what is drawn being only what this
 device kept), the panel changes nothing and nothing is sent.
 
