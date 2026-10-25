@@ -94,7 +94,8 @@ test("on a phone every bracket score box sits on screen and the title odds read 
  * Standings started at 435.5px and Team Rankings at 151px, against 381.5px and 97px with the toggle
  * in the title row, the logo's size, where it costs nothing. The cloud button shares that row, and
  * beside it the title at its full size took a second line, starting Standings at 409.5px; a size
- * smaller on a phone it keeps to one, and Standings starts at 379.5px.
+ * smaller on a phone it keeps to one, and Standings starts at 379.5px. The season-at-a-glance
+ * cards then moved to the Dashboard alone, and Standings starts at 140.4px.
  */
 test.describe("the header on a phone", () => {
   test.use({ viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true });
@@ -135,7 +136,7 @@ test.describe("the header on a phone", () => {
     // On the title's line: its middle within the title's box.
     expect(league.toggleMiddle).toBeGreaterThan(0);
     expect(league.toggleMiddle).toBeLessThan(league.titleHeight);
-    expect(league.mainBelowTitle).toBeLessThanOrEqual(400);
+    expect(league.mainBelowTitle).toBeLessThanOrEqual(160);
 
     await tab(page, "Team Rankings").click();
     // Measured once the page has drawn, not whenever the click happens to land.

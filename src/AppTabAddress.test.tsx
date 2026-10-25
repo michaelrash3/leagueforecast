@@ -13,7 +13,7 @@ import { saveMatchups, saveTeams } from "./lib/storage";
 beforeAll(() => prefetchAllViews());
 
 const tabParam = () => new URLSearchParams(window.location.search).get("tab");
-const tab = (name: string) => screen.getByRole("tab", { name, exact: true });
+const tab = (name: string) => screen.getByRole("tab", { name });
 
 describe("the League tab in the address", () => {
   beforeEach(() => {
@@ -37,7 +37,7 @@ describe("the League tab in the address", () => {
     render(<App />);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("tab", { name: "Schedule", exact: true }));
+    await user.click(await screen.findByRole("tab", { name: "Schedule" }));
     await waitFor(() => expect(tabParam()).toBe("games"));
 
     await user.click(tab("Dashboard"));
@@ -49,5 +49,16 @@ describe("the League tab in the address", () => {
     render(<App />);
 
     await waitFor(() => expect(tab("Dashboard")).toHaveAttribute("aria-selected", "true"));
+  });
+
+  it("shows the season at a glance on the Dashboard only", async () => {
+    window.history.replaceState(null, "", "/");
+    render(<App />);
+    const user = userEvent.setup();
+    const strip = () => screen.queryByLabelText("League pulse summary");
+
+    await waitFor(() => expect(strip()).not.toBeNull());
+    await user.click(screen.getByRole("tab", { name: "Standings" }));
+    await waitFor(() => expect(strip()).toBeNull());
   });
 });

@@ -3375,7 +3375,12 @@ export default function App() {
               </div>
             </div>
 
-            {appMode === "league" && (
+            {/*
+             * The season at a glance belongs on the Dashboard. Above every other view it repeated
+             * what that view already says (Standings opens on the leader and the cut line), and on
+             * a phone it took most of the first screen before the view began.
+             */}
+            {appMode === "league" && activeView === "dashboard" && (
               <div
                 className={`grid grid-cols-2 gap-3 pb-4 sm:grid-cols-3 ${
                   teams.length === 0 ? "hidden" : ""
