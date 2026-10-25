@@ -13,7 +13,6 @@ import {
   type ReactNode,
 } from "react";
 import { registerSW } from "virtual:pwa-register";
-import type { Command } from "./components/CommandPalette";
 import type { H2HCell } from "./components/charts/HeadToHeadMatrix";
 import { CloudButton, useCloudPanel } from "./components/CloudButton";
 import { liveBoardWanted, RankingsOpen } from "./components/RankingsOpen";
@@ -45,11 +44,7 @@ import {
   needsAPerson,
 } from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
-import {
-  RANKINGS_COMMAND_SECTIONS,
-  rankingsSearch,
-  rankingsSectionCommandId,
-} from "./lib/rankingsRoute";
+import { rankingsSearch } from "./lib/rankingsRoute";
 import { recordDiagnostic } from "./lib/diagnostics";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
@@ -113,7 +108,6 @@ import { useOpeningReleased, usePoolFilled } from "./hooks/useOpeningHold";
 import { poolFilled } from "./lib/poolFill";
 import { useDarkMode } from "./hooks/useDarkMode";
 import { useConfirmation } from "./hooks/useConfirmation";
-import { useLeagueCommands } from "./hooks/useLeagueCommands";
 import { useUndoSnapshot, type UndoableSeason } from "./hooks/useUndoSnapshot";
 import { useShortcuts, type Shortcut } from "./hooks/useShortcuts";
 import { useLeagueSummary } from "./hooks/useLeagueSummary";
@@ -352,9 +346,6 @@ const CompareDrawer = compareDrawerView.View;
  * first-run tour. Each is behind a keystroke or a button, and each is guarded by its own open flag
  * below so the fetch happens on the press rather than on the page load.
  */
-const CommandPalette = lazy(() =>
-  import("./components/CommandPalette").then((module) => ({ default: module.CommandPalette }))
-);
 const CloudPanel = lazy(() =>
   import("./components/CloudPanel").then((module) => ({ default: module.CloudPanel }))
 );
@@ -457,13 +448,6 @@ export default function App() {
   const [newHome, setNewHome] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => linkedTeamIdFromUrl());
   const [compareTeamId, setCompareTeamId] = useState<string | null>(null);
-  const [showCommandPalette, setShowCommandPalette] = useState(false);
-  /*
-   * The palette used to exist only on the league half, which left the half with a nationwide pool
-   * and the most places to be without one. Team Rankings owns its own navigation state, so rather
-   * than lift all of it up here it publishes the commands it can run and this holds them.
-   */
-  const [rankingsCommands, setRankingsCommands] = useState<Command[]>([]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [isOffline, setIsOffline] = useState(
@@ -3173,45 +3157,11 @@ export default function App() {
     }
   }, [teams, matchups, logs, settings, activeView, selectedTeamId, showToast]);
 
-  // ---------- Command palette + shortcuts ----------
-
-  const describeCommandTeam = useCallback(
-    (team: TeamWithProjection) => ({ name: displayName(team.name), record: recordText(team) }),
-    []
-  );
-
-  const commandActions = useMemo(
-    () => ({
-      openTeam: openTeamData,
-      openView: (view: ActiveShareView) => setActiveView(view),
-      shareSeason: () => void shareSeason(),
-      exportCSV: () => exportCSV(),
-      exportBackup: () => exportBackup(),
-      loadDemoSeason: () => void loadDemoSeason(),
-      toggleTheme,
-      showShortcuts: () => setShowShortcuts(true),
-      showTour: () => setShowTour(true),
-    }),
-    [openTeamData, shareSeason, exportCSV, exportBackup, loadDemoSeason, toggleTheme]
-  );
-
-  const commands = useLeagueCommands({
-    teams: dashboardRows,
-    views: VIEW_ORDER.map((view) => ({ view, label: VIEW_LABELS[view] })),
-    theme,
-    describeTeam: describeCommandTeam,
-    actions: commandActions,
-  });
+  // ---------- Shortcuts ----------
 
   const shortcuts: Shortcut[] = useMemo(
     () => [
-      // The palette, the shortcut sheet and the theme are the app's, not one half's.
-      {
-        combo: "mod+k",
-        description: "Open command palette",
-        group: "General",
-        handler: () => setShowCommandPalette(true),
-      },
+      // The shortcut sheet and the theme are the app's, not one half's.
       {
         combo: "shift+/",
         description: "Show shortcuts",
@@ -3224,66 +3174,8 @@ export default function App() {
         group: "Action",
         handler: toggleTheme,
       },
-      /*
-       * Team Rankings had the palette and the shortcut sheet — those are the app's, not one
-       * half's — but no way to move between its six sections from the keyboard, on the half with a
-       * nationwide pool and the most places to be. These are built from the commands the view
-       * publishes rather than from a second navigation path: the view owns its own route, and a
-       * section it adds arrives here with a key already attached.
-       */
-      ...(appMode !== "rankings"
-        ? []
-        : RANKINGS_COMMAND_SECTIONS.flatMap(({ section, label, key }) => {
-            const command = rankingsCommands.find(
-              (entry) => entry.id === rankingsSectionCommandId(section)
-            );
-            return command
-              ? [
-                  {
-                    combo: `g ${key}`,
-                    description: `Go to ${label}`,
-                    group: "Navigate",
-                    handler: command.run,
-                  },
-                ]
-              : [];
-          })),
-      ...(appMode !== "league"
-        ? []
-        : [
-            {
-              combo: "g s",
-              description: "Go to Standings",
-              group: "Navigate",
-              handler: () => setActiveView("standings"),
-            },
-            {
-              combo: "g t",
-              description: "Go to League Stats",
-              group: "Navigate",
-              handler: () => setActiveView("teamStats"),
-            },
-            {
-              combo: "g g",
-              description: "Go to Schedule",
-              group: "Navigate",
-              handler: () => setActiveView("games"),
-            },
-            {
-              combo: "g m",
-              description: "Go to Forecast",
-              group: "Navigate",
-              handler: () => setActiveView("model"),
-            },
-            {
-              combo: "g e",
-              description: "Go to Settings",
-              group: "Navigate",
-              handler: () => setActiveView("settings"),
-            },
-          ]),
     ],
-    [appMode, toggleTheme, rankingsCommands]
+    [toggleTheme]
   );
   useShortcuts(shortcuts);
 
@@ -3519,7 +3411,6 @@ export default function App() {
                     showToast={showToast}
                     requestConfirmation={requestConfirmation}
                     onDataChange={noteScoutChange}
-                    onCommands={setRankingsCommands}
                     {...(handover ? { handover } : {})}
                   />
                 )}
@@ -3957,13 +3848,6 @@ export default function App() {
             an overlay simply appears a frame later than it used to.
           */
           <Suspense fallback={null}>
-            {showCommandPalette && (
-              <CommandPalette
-                open={showCommandPalette}
-                commands={appMode === "rankings" ? rankingsCommands : commands}
-                onClose={() => setShowCommandPalette(false)}
-              />
-            )}
             {showShortcuts && (
               <ShortcutsHelp
                 open={showShortcuts}

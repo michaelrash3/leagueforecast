@@ -72,7 +72,7 @@ starts in its June. A season inside one calendar year is ordered exactly as befo
 | **Team drawer**           | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
 | **Our team**              | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
 | **Settings**              | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
-| **Power UX**              | Command palette, shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                  |
+| **Power UX**              | Shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                                   |
 | **Installable PWA**       | Installable via `vite-plugin-pwa` (basic precache).                                                                                                     |
 | **A11y**                  | Dialog semantics, focus management, keyboard nav, labeled inputs.                                                                                       |
 | **Perf**                  | Worker simulation, debounced updates, memoized lookups/scenarios.                                                                                       |
@@ -128,7 +128,7 @@ src/
     league/             # League Standings views: standings, games, forecast, settings
     teamRankings/       # Team Rankings sections and cards
     bracket/  charts/
-    CommandPalette.tsx  ShortcutsHelp.tsx  OnboardingTour.tsx  Toast.tsx
+    ShortcutsHelp.tsx  OnboardingTour.tsx  Toast.tsx
     GameChangerImportPanel.tsx  ScheduleImportPanel.tsx  TeamDetailPanel.tsx
   styles/
     tokens.ts  raceTone.ts
@@ -7439,7 +7439,7 @@ switch is gone, and `lf_live_league_v1` is no longer read.
   usable: a team's stats, the filters, the exports, the season switcher, and
   making a new season to carry on in (`EditLock`). The lock is on the season
   itself as well (`seasonStore.ts`): an edit that comes from outside the page's
-  controls, a shared link, the command palette, a toast's Undo, is refused, with
+  controls, a shared link or a toast's Undo, is refused, with
   the same reason, and before it does anything else: an Undo puts back none of
   its step rather than the pool alone, and keeps it; a shared link is asked about
   only once the season may be written, and kept until then.
@@ -8343,11 +8343,12 @@ shared handlers with recorded provider responses and require no deployed credent
 
 ## Keyboard shortcuts
 
-- `⌘K` / `Ctrl-K` — Command palette
 - `?` — Shortcuts help
-- `g s` / `g g` / `g m` / `g t` — View jumps
 - `d` — Dark mode
-- `Esc` — Close modal/drawer/palette
+- `Esc` — Close modal/drawer
+
+The ⌘K command palette and the two-key `g` jumps were taken out in October 2026: the tabs do the
+same job, and on the cloud board, where Team Rankings is read, neither ever worked.
 
 ## Accessibility
 

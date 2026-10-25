@@ -450,17 +450,6 @@ describe("League Standings kept live, on the page", () => {
     expect(listSeasons().map((season) => season.id)).toContain(fall.id);
   });
 
-  it("refuses the demo season from the command palette before it asks anything", async () => {
-    live.state = { kind: "offline" };
-    render(<App />);
-    await screen.findByRole("tab", { name: /schedule/i });
-    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
-    fireEvent.click(await screen.findByText("Load demo season"));
-    await waitFor(() => expect(screen.getAllByText(/offline/i).length).toBeGreaterThan(1));
-    expect(screen.queryByText("Load demo season?")).toBeNull();
-    expect(loadTeams().map((team) => team.name)).toEqual(["Aces", "Bears"]);
-  });
-
   it("offers the tour and the blank schedule on an empty season while read-only, and no edits", async () => {
     saveTeams([]);
     saveMatchups([]);
