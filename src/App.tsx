@@ -37,7 +37,7 @@ import {
 } from "./lib/live/leagueWanted";
 import type { LocalSeasons } from "./lib/live/leagueSeasons";
 import { subscribeLeagueMet } from "./lib/preferences";
-import { askLeague, LEAGUE_UNANSWERED, placeLeagueSeason } from "./lib/live/leagueAsk";
+import { askLeague, copyAtNow, LEAGUE_UNANSWERED, placeLeagueSeason } from "./lib/live/leagueAsk";
 import { useLiveLeague } from "./hooks/useLiveLeague";
 import {
   editingOffBecause,
@@ -866,6 +866,7 @@ export default function App() {
     ...(rankingsLive
       ? {
           asker: askLeague,
+          copyNow: copyAtNow,
           signedIn: memberSignedIn(cloud),
           leagueOnScreen: appMode === "league",
           held: leagueHeldBack,

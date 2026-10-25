@@ -1291,6 +1291,14 @@ describe("what Pool health asks of the server's pool", () => {
     expect(asksLeague({ kind: "health.inspect", today: TODAY })).toBe(true);
   });
 
+  it("works League Standings' questions out from the pool alone, which the copy's version covers", () => {
+    // Its seasons are kept apart from the copy and move no version, so a bridge that read them
+    // would no longer stand while the version does (`useScoutBridge`'s `copyNow`).
+    expect(asksLeague({ kind: "league.bridge", season: "s1", teams: [], fixtures: [] })).toBe(
+      false
+    );
+  });
+
   it("reads back as the callable sends it, a page with no year and a score in halves among it", () => {
     // A page whose year is in no name, and a game typed by hand at a half-run score, ahead of today.
     const OLD: AgeGroup = { id: "ag_old", name: "Placeholder Old", ageLevel: 9, seasonIds: [] };
