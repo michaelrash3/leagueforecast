@@ -9,6 +9,7 @@ import type { QueryOf } from "./lib/live/queries";
 import {
   createSeason,
   loadLogs,
+  loadMatchups,
   saveLogs,
   saveMatchups,
   saveTeams,
@@ -369,6 +370,45 @@ describe("League Standings asking the server what Team Rankings has", () => {
       matchups: [{ id: "g1", date: "5/1", away: "A", home: "B" }],
       today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     });
+  });
+
+  it("moves a rained-out game to the day it was played, keeping what was typed against it", async () => {
+    server.plan = {
+      rows: [],
+      missing: [
+        {
+          scoutGameId: "s9",
+          date: "5/8",
+          awayTeamId: "A",
+          homeTeamId: "B",
+          awayName: "Aces",
+          homeName: "Bears",
+          awayRuns: 6,
+          homeRuns: 2,
+        },
+      ],
+      unmatched: 0,
+      unusedResults: 0,
+      seasonLinked: true,
+    };
+    // Hits written down for the rained-out game, and no runs: it is still the one moved.
+    saveLogs({ g1: { ...blankLog("6"), awayHits: "8", homeK: "5" } });
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fill scores from Team Rankings" }));
+    expect(await screen.findByText(/Moved 5\/1 → 5\/8/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 game" }));
+    expect(await screen.findByText("Moved 1 game to the day it was played.")).toBeTruthy();
+    await waitFor(() =>
+      expect(loadLogs().g1).toMatchObject({
+        awayHits: "8",
+        homeK: "5",
+        awayRuns: "6",
+        homeRuns: "2",
+        isFinal: true,
+      })
+    );
+    expect(loadMatchups()).toEqual([{ id: "g1", date: "5/8", away: "A", home: "B" }]);
   });
 
   it("says so when the server could not be asked, and opens nothing", async () => {

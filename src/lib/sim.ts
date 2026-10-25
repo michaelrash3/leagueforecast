@@ -1061,30 +1061,54 @@ const settleGame = (
   if (winnerId === game.away && awayRuns <= homeRuns) awayRuns = homeRuns + 1;
   if (winnerId === game.home && homeRuns <= awayRuns) homeRuns = awayRuns + 1;
 
+  if (tally) {
+    // Exactly what is booked onto the two sides, so the carried totals stay the counted ones.
+    tally.runs += awayRuns + homeRuns;
+    tally.games += 2;
+  }
+  bookScore(
+    away,
+    home,
+    awayRuns,
+    homeRuns,
+    tally ? tally.runDiffCap : resolveMaxRunDifferential(settings)
+  );
+};
+
+/**
+ * One score booked onto two teams the caller owns: the games, the runs, the run differential as
+ * capped, head-to-head, the record (a level score is a tie) and the rating the tiebreakers fall back
+ * on. Every simulated game is booked here (`settleGame`), and the standings solver books the last
+ * game of a season here too, so a table it ranks is the one a forecast would.
+ */
+const bookScore = (
+  away: Team,
+  home: Team,
+  awayRuns: number,
+  homeRuns: number,
+  runDiffCap: number
+): void => {
   away.games += 1;
   home.games += 1;
   away.rs += awayRuns;
   away.ra += homeRuns;
   home.rs += homeRuns;
   home.ra += awayRuns;
-  const runDiffCap = tally ? tally.runDiffCap : resolveMaxRunDifferential(settings);
-  if (tally) {
-    // Exactly what was just booked onto the two sides, so the carried totals stay the counted ones.
-    tally.runs += awayRuns + homeRuns;
-    tally.games += 2;
-  }
   away.runDiff += cappedRunDiff(awayRuns, homeRuns, runDiffCap);
   home.runDiff += cappedRunDiff(homeRuns, awayRuns, runDiffCap);
 
   addHeadToHeadResult(away, home.id, awayRuns - homeRuns);
   addHeadToHeadResult(home, away.id, homeRuns - awayRuns);
 
-  if (winnerId === game.away) {
+  if (awayRuns > homeRuns) {
     away.w += 1;
     home.l += 1;
-  } else {
+  } else if (homeRuns > awayRuns) {
     home.w += 1;
     away.l += 1;
+  } else {
+    away.t += 1;
+    home.t += 1;
   }
 
   [away, home].forEach((team) => {
@@ -1101,6 +1125,29 @@ const settleGame = (
     team.baseTpi = team.games ? diffPerGame + team.pct * 2 + (team.contactBonus ?? 0) : 0;
     team.tpi = team.baseTpi + team.sos * 0.2;
   });
+};
+
+/**
+ * The teams with the one game left booked at a given score, as new objects where they change; the
+ * inputs are untouched. What the standings solver ranks to see where a team finishes on the last
+ * day of a season (`neededResults`).
+ */
+export const withScore = (
+  teams: Team[],
+  game: Matchup,
+  awayRuns: number,
+  homeRuns: number,
+  settings: Settings
+): Team[] => {
+  const next = teams.map((team) =>
+    team.id === game.away || team.id === game.home
+      ? { ...team, headToHead: cloneHeadToHead(team.headToHead) }
+      : team
+  );
+  const away = next.find((team) => team.id === game.away);
+  const home = next.find((team) => team.id === game.home);
+  if (away && home) bookScore(away, home, awayRuns, homeRuns, resolveMaxRunDifferential(settings));
+  return next;
 };
 
 /**

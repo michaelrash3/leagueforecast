@@ -936,22 +936,37 @@ export type MovedGame = {
 /**
  * The games the schedule is missing that are really one of its own games played on another day: a
  * rainout's make-up. Worked out on the device from the Fill answer it already has. A played game
- * between two teams is paired with the schedule's one game between them that is still unscored and
- * fell on an earlier day; where there are two such games, or two played games for one, nothing is
- * paired, since which is which is not for a guess.
+ * between two teams is paired with the schedule's one game between them that is still unscored,
+ * fell on an earlier day, is not being filled (`filling`, the rows ticked to fill) and has no
+ * result of its own day in the plan; where there are two such games, or two played games for one,
+ * nothing is paired, since which is which is not for a guess.
  */
 export const movedGames = (
   plan: LeagueFillPlan,
   schedule: readonly Matchup[],
-  logs: Readonly<Record<string, RecordedRuns>>
+  logs: Readonly<Record<string, RecordedRuns>>,
+  filling: Iterable<string>
 ): MovedGame[] => {
   const startMonth = seasonStartMonth(schedule.map((game) => game.date));
   const order = (date: string) => parseDateValue(date, startMonth);
+  /*
+   * A game the plan found a result for on its own day was played that day, so a later meeting is
+   * another game rather than its make-up: moving it would put the later score over the one the
+   * pool has for it, or over the one being filled in now, since the logs read here are from before
+   * that fill is written. Two results that could each be the game (`ambiguous`) are as good a sign
+   * it was played. A name that only looks alike (`suggested`) or a slot is the reader's call, so it
+   * stands in the way only once it is ticked.
+   */
+  const playedOnItsDay = new Set(filling);
+  plan.rows.forEach((row) => {
+    if (row.action !== "suggested" && row.action !== "slot") playedOnItsDay.add(row.matchupId);
+  });
   const candidates = (played: LeagueMissingGame) =>
     schedule.filter(
       (game) =>
         pairKey(game.away, game.home) === pairKey(played.awayTeamId, played.homeTeamId) &&
         !hasRecordedRuns(logs[game.id]) &&
+        !playedOnItsDay.has(game.id) &&
         order(game.date) < order(played.date)
     );
   const paired = (plan.missing ?? []).flatMap((played): MovedGame[] => {
@@ -968,13 +983,19 @@ export const movedGames = (
 /**
  * The moves picked from `movedGames`: each schedule game to its new day, with its score, final,
  * the way round the schedule has the two teams.
+ *
+ * Runs and the final flag are all it writes onto the game's log, as `applyLeagueScoreFill` does.
+ * Only runs keep a game from moving, so one can move with hits, strikeouts or an innings count of
+ * its own already recorded against it, and the log returned here replaces the stored one whole.
  */
 export const movesToApply = (
   plan: LeagueFillPlan,
   moved: readonly MovedGame[],
   schedule: readonly Matchup[],
   picked: readonly string[],
-  innings: number
+  innings: number,
+  /** The league's logs as they are, which each moved game's score is written onto. */
+  current: Readonly<Record<string, GameLog>>
 ): { dates: Record<string, string>; logs: Record<string, GameLog> } => {
   const chosen = new Set(picked);
   const played = new Map((plan.missing ?? []).map((game) => [game.scoutGameId, game]));
@@ -988,7 +1009,7 @@ export const movesToApply = (
     const sameWay = matchup.away === game.awayTeamId;
     dates[matchup.id] = move.to;
     logs[matchup.id] = {
-      ...blankLog(String(innings)),
+      ...(current[matchup.id] ?? blankLog(String(innings))),
       awayRuns: String(sameWay ? game.awayRuns : game.homeRuns),
       homeRuns: String(sameWay ? game.homeRuns : game.awayRuns),
       isFinal: true,

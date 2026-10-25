@@ -73,10 +73,16 @@ export function LeagueScoreFillPanel({
   const missing = plan.missing ?? [];
   // A missing game that is the schedule's own, played on another day: moved, not added (on the
   // device, from the answer already here).
+  // A game ticked to fill is no make-up, so ticking a looser match takes its move away.
   const moved = useMemo(
     () =>
-      new Map(movedGames(plan, schedule ?? [], logs ?? {}).map((move) => [move.scoutGameId, move])),
-    [plan, schedule, logs]
+      new Map(
+        movedGames(plan, schedule ?? [], logs ?? {}, selected).map((move) => [
+          move.scoutGameId,
+          move,
+        ])
+      ),
+    [plan, schedule, logs, selected]
   );
   // Games between the league's clubs to add: every one but a likely tournament meeting, to begin.
   const [adding, setAdding] = useState<Set<string>>(
