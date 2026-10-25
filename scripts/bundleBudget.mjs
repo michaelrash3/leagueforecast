@@ -60,10 +60,17 @@ const DIST = "dist";
  * team (`opponentAgeBar`) and the waiting list's rule for it, since the import's code is part of
  * that load. Team Rankings to 160.0 KB the same day for Codex's two findings on that change, 159.5
  * KB against 159.2 KB before them: a club's rows moved off the guess carry its level, and the
- * import's index is read again for the clubs a pull moved (`restatePlaces`).
+ * import's index is read again for the clubs a pull moved (`restatePlaces`). The first download to
+ * 255.0 KB on 25 Oct 2026 for the League season tools, 254.2 KB against 252.0 KB on main (the entry
+ * chunk 92.7 KB against 90.9): the Our team card's needed results (`neededResults`, `needsLines`)
+ * and its next game's Gold chance with a win and a loss and who to root for (`goldSwing`, and the
+ * counts the Gold odds run keeps for the team followed), the Season over line (`seasonFinalOf`), and
+ * the title odds taking bracket games already played. Each is worked out where the Dashboard and the
+ * odds already are, so none is a chunk of its own; the race chart's table walk, which only the
+ * Forecast draws, is fetched with the chart.
  */
 const BUDGET = {
-  firstDownload: 252_000,
+  firstDownload: 255_000,
   entryChunk: 97_500,
   css: 15_200,
   views: {
