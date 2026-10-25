@@ -16,6 +16,7 @@ import { segmentOn, segmentWindow } from "./teamRankings/seasons";
 import { dayOf, tournamentReason } from "./tournamentDays";
 import type { GameLog, Matchup, TeamBase } from "./types";
 import { blankLog } from "./util";
+import { NO_MEMBERSHIP, type OrgMembership } from "./orgMembership";
 
 /**
  * Starting a League Standings season from its clubs on Team Rankings (3.7), beside typing the
@@ -57,11 +58,17 @@ export const startClubs = (
 ): ClubPickOption[] =>
   teams
     .filter((team) => clubIsPickable(team, [page.ageLevel], [page.year], ageGroups))
-    .map((team) => {
-      const ageLevel = gcAgeLevels(team, page.year, ageGroups)[0];
-      return clubPickOption(ageLevel === undefined ? team : { ...team, ageLevel });
-    })
-    .sort((a, b) => a.label.localeCompare(b.label) || a.id.localeCompare(b.id));
+    .map((team) => startClub(team, page, ageGroups))
+    .sort(byLabel);
+
+/** A club as a start offers it on `page`: at the level it is filed at in the page's year. */
+const startClub = (team: ScoutTeam, page: StartPage, ageGroups: AgeGroup[]): ClubPickOption => {
+  const ageLevel = gcAgeLevels(team, page.year, ageGroups)[0];
+  return clubPickOption(ageLevel === undefined ? team : { ...team, ageLevel });
+};
+
+const byLabel = (a: ClubPickOption, b: ClubPickOption) =>
+  a.label.localeCompare(b.label) || a.id.localeCompare(b.id);
 
 /** The stretch of days a start looks in first: the half of the baseball year `today` is in. */
 export const defaultStartWindow = (today: string): { from: string; to: string } => {
@@ -224,6 +231,12 @@ export const START_CLUBS_MAX = 64;
  * both are given).
  */
 export type StartQuery = {
+  /**
+   * A GameChanger organization (a league) to start from, by its id: its teams, as the kept
+   * Organizations file lists them, found among the pool's clubs, on the page most of them are on,
+   * with the draft of their games, in one answer. The page and clubs asked with it are not read.
+   */
+  org?: string;
   page?: string;
   clubs?: readonly string[];
   from?: string;
@@ -236,7 +249,19 @@ export type StartAnswer = {
   /** The page's clubs, asked for before any are picked; otherwise not sent again. */
   clubs: ClubPickOption[] | null;
   draft: StartDraft | null;
+  /** The page an organization's start settled on; `clubs` above are that page's. */
+  page?: string;
+  /** The clubs of the organization on that page, picked to begin with. */
+  picked?: string[];
+  /** What an organization's start found (`StartOrg`). */
+  org?: StartOrg;
 };
+
+/**
+ * An organization asked about: whether the kept Organizations file has it, what it is called, how
+ * many teams it lists, and how many of those are clubs the pool has pulled.
+ */
+export type StartOrg = { found: boolean; name?: string; teams?: number; pulled?: number };
 
 /**
  * A start's answer off a pool, read through `read` as the server's cache or this device's storage
@@ -249,10 +274,13 @@ export const answerStart = (
     ageGroups: () => AgeGroup[];
     teams: () => readonly ScoutTeam[];
     gamesForYear: (year: number) => readonly ScoutGame[];
+    /** The kept Organizations file, for a start from an organization. */
+    orgs?: () => OrgMembership;
   }
 ): StartAnswer => {
   const ageGroups = read.ageGroups();
   const pages = startPages(ageGroups);
+  if (ask.org !== undefined) return answerOrgStart(ask.org, ask, pages, ageGroups, read);
   const page = pages.find((one) => one.id === ask.page);
   if (!page) return { pages, clubs: null, draft: null };
   if (!ask.clubs) return { pages, clubs: startClubs(page, ageGroups, read.teams()), draft: null };
@@ -269,5 +297,72 @@ export const answerStart = (
       from: window.from,
       to: window.to,
     }),
+  };
+};
+
+/**
+ * A start from a GameChanger organization (`StartQuery.org`). Its teams are the ones the kept
+ * Organizations file lists under it (`MemberOrg.teamIds`); a club is one of them where a GameChanger
+ * team linked to it (`gcTeams`) is. The page is the one most of those links are filed on, the
+ * newest year first where two tie, as the pages are ordered. The answer is the page's clubs, as its
+ * clubs step gives them, with the organization's picked and the draft of their games over the
+ * default days, so the review opens at once and a club can still be added or taken out by hand.
+ */
+const answerOrgStart = (
+  orgId: string,
+  ask: StartQuery,
+  pages: StartPage[],
+  ageGroups: AgeGroup[],
+  read: Parameters<typeof answerStart>[1]
+): StartAnswer => {
+  const none = { pages, clubs: null, draft: null };
+  const org = (read.orgs?.() ?? NO_MEMBERSHIP).orgs.find((one) => one.orgId === orgId);
+  if (!org) return { ...none, org: { found: false } };
+  const listed = new Set(org.teamIds);
+  const teams = read.teams();
+  const onPage = new Map<string, number>();
+  const pulled = new Set<string>();
+  teams.forEach((team) => {
+    if (team.placeholder) return;
+    (team.gcTeams ?? []).forEach((link) => {
+      if (!listed.has(link.teamId)) return;
+      pulled.add(link.teamId);
+      onPage.set(link.ageGroupId, (onPage.get(link.ageGroupId) ?? 0) + 1);
+    });
+  });
+  const found = { found: true, name: org.name, teams: listed.size, pulled: pulled.size };
+  const most = Math.max(0, ...onPage.values());
+  const page = pages.find((one) => most > 0 && onPage.get(one.id) === most);
+  if (!page) return { ...none, org: found };
+  const mine = teams
+    .filter(
+      (team) =>
+        !team.placeholder &&
+        (team.gcTeams ?? []).some((link) => link.ageGroupId === page.id && listed.has(link.teamId))
+    )
+    .slice(0, START_CLUBS_MAX);
+  const options = startClubs(page, ageGroups, teams);
+  const offered = new Set(options.map((club) => club.id));
+  // A club of the organization the page's picker would not offer (filed a level off in its year)
+  // is offered too, since the organization says it is in the league.
+  const extra = mine
+    .filter((team) => !offered.has(team.id))
+    .map((team) => startClub(team, page, ageGroups));
+  const window =
+    ask.from !== undefined && ask.to !== undefined
+      ? { from: ask.from, to: ask.to }
+      : defaultStartWindow(ask.today);
+  return {
+    pages,
+    page: page.id,
+    clubs: [...options, ...extra].sort(byLabel),
+    picked: mine.map((team) => team.id),
+    draft: draftStart({
+      clubIds: mine.map((team) => team.id),
+      games: read.gamesForYear(page.year),
+      from: window.from,
+      to: window.to,
+    }),
+    org: found,
   };
 };

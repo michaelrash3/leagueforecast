@@ -36,6 +36,7 @@ import {
   saveKeptApart,
   saveNotThisTeam,
   saveNamedAges,
+  loadOrgMembership,
   saveOrgMembership,
   saveRealClubs,
   saveRefreshCadence,
@@ -694,10 +695,15 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
 
   it("start a season from its clubs a step at a time, as the device does, read both ways exactly", () => {
     claimed();
+    saveOrgMembership({
+      orgs: [{ orgId: "NRsPUpJj6Eed", name: "Placeholder League", teamIds: ["gc-A", "gc-B"] }],
+      savedAt: "2027-04-01T00:00:00.000Z",
+    });
     const read = {
       ageGroups: loadAgeGroups,
       teams: loadScoutTeams,
       gamesForYear: loadScoutGamesForYear,
+      orgs: loadOrgMembership,
     };
     const today = "2027-05-01";
     const steps = [
@@ -711,6 +717,8 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
         from: "2027-04-01",
         to: "2027-04-30",
       },
+      { kind: "league.start" as const, today, org: "NRsPUpJj6Eed" },
+      { kind: "league.start" as const, today, org: "AAAAAAAAAAAA" },
     ];
     for (const step of steps) {
       const { kind: _kind, ...asked } = step;
@@ -724,6 +732,18 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
     expect(answerQuery(steps[2]!)).toMatchObject({
       draft: { games: [{ gameId: "g6", away: "A", home: "B", awayRuns: 6, homeRuns: 2 }] },
     });
+    // One question for an organization's start: its clubs on their page, picked, and their games.
+    expect(answerQuery(steps[3]!)).toMatchObject({
+      page: "ag_10u_2027",
+      picked: ["A", "B"],
+      draft: { games: [{ gameId: "g6" }] },
+      org: { found: true, name: "Placeholder League", teams: 2, pulled: 2 },
+    });
+    expect(answerQuery(steps[4]!)).toMatchObject({ org: { found: false } });
+    // An organization's link is read as its id; anything else is refused.
+    expect(
+      coerceQuery({ ...steps[0]!, org: " https://web.gc.com/organizations/NRsPUpJj6Eed/home " })
+    ).toEqual(steps[3]);
     const most = {
       ...steps[2]!,
       clubs: Array.from({ length: START_CLUBS_MAX }, (_, at) => `c${at}`),
@@ -737,6 +757,10 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
       { ...steps[2]!, to: "2027-02-30" },
       { ...steps[0]!, today: "May 1" },
       { ...steps[0]!, extra: 1 },
+      { ...steps[0]!, org: "" },
+      { ...steps[0]!, org: "not an organization" },
+      { ...steps[0]!, org: "https://web.gc.com/teams/NRsPUpJj6Eed" },
+      { ...steps[0]!, org: 12 },
     ])
       expect(coerceQuery(raw), JSON.stringify(raw).slice(0, 120)).toBeNull();
     const draft = answerQuery(steps[2]!) as AnswerOf<"league.start">;
@@ -745,6 +769,10 @@ describe("what League Standings asks of Team Rankings, for a device that holds n
       { ...draft, draft: { games: [{ gameId: "g", date: "d", away: "A", home: "" }], outside: 0 } },
       { ...draft, draft: { games: [], outside: -1 } },
       { ...draft, clubs: [{ label: "Club A" }] },
+      { ...draft, page: "" },
+      { ...draft, picked: ["A", ""] },
+      { ...draft, org: { name: "Placeholder League" } },
+      { ...draft, org: { found: true, teams: -1 } },
     ])
       expect(coerceQueryAnswer(raw, "league.start")).toBeNull();
   });

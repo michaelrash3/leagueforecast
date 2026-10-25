@@ -136,6 +136,88 @@ describe("starting a season from its clubs on Team Rankings", () => {
     expect(screen.queryByText(START_UNREAD)).toBeNull();
   });
 
+  it("starts from an organization in one question: its clubs picked on its page, the review open", async () => {
+    const user = userEvent.setup();
+    const { ask: byPage, asked } = asker();
+    const ask: StartAsker = (query) => {
+      if (query.org === undefined) return byPage(query);
+      asked.push(query);
+      return Promise.resolve({
+        pages: PAGES,
+        page: "ag_10u_2027",
+        clubs: CLUBS,
+        picked: ["S-A", "S-B"],
+        draft: DRAFT,
+        org: { found: true, name: "Placeholder League", teams: 3, pulled: 2 },
+      });
+    };
+    const onCreate = vi.fn();
+    open(ask, onCreate);
+    await screen.findByRole("button", { name: "Add Placeholder S-A" });
+    const box = screen.getByRole("textbox", { name: /GameChanger organization ID or link/ });
+    const start = screen.getByRole("button", { name: "Start from the organization" });
+    expect(start).toBeDisabled();
+    await user.type(box, "not an id!");
+    expect(start).toBeDisabled();
+    expect(screen.getByText(/not an organization ID/)).toBeTruthy();
+    await user.clear(box);
+    await user.type(box, "https://web.gc.com/organizations/NRsPUpJj6Eed/home");
+    await user.click(start);
+    // The pages, the first page's clubs, then the organization: no more than picking by hand.
+    expect(asked).toHaveLength(3);
+    expect(asked[2]).toEqual({
+      today: "2026-10-11",
+      org: "NRsPUpJj6Eed",
+      from: "2026-08-01",
+      to: "2026-12-31",
+    });
+    expect(
+      await screen.findByText(
+        "Placeholder League: 2 clubs on 10U 2027, all picked. 1 of its teams is not pulled into Team Rankings yet."
+      )
+    ).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Team Rankings page" })).toHaveValue("ag_10u_2027");
+    expect(
+      within(screen.getByRole("list", { name: "Clubs picked" })).getAllByRole("button")
+    ).toHaveLength(2);
+    // A club of the page that is not the organization's can still be added.
+    expect(screen.getByRole("button", { name: "Add Placeholder S-C" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Start the season: 2 teams, 1 game" }));
+    const [season, page] = onCreate.mock.calls[0]!;
+    expect(page).toEqual(PAGES[1]);
+    expect(season.teams.map((team: { scoutTeamId: string }) => team.scoutTeamId)).toEqual([
+      "S-A",
+      "S-B",
+    ]);
+  });
+
+  it("says why nothing was picked for an organization", async () => {
+    const user = userEvent.setup();
+    const { ask: byPage } = asker();
+    let org: StartAnswer["org"] = { found: false };
+    open((query) =>
+      query.org === undefined
+        ? byPage(query)
+        : Promise.resolve({ pages: PAGES, clubs: null, draft: null, org })
+    );
+    await screen.findByRole("button", { name: "Add Placeholder S-A" });
+    await user.type(
+      screen.getByRole("textbox", { name: /GameChanger organization ID or link/ }),
+      "NRsPUpJj6Eed"
+    );
+    await user.click(screen.getByRole("button", { name: "Start from the organization" }));
+    expect(await screen.findByText(/is not in the Organizations file/)).toBeTruthy();
+    // The page's clubs stay as they were, ready to pick by hand.
+    expect(screen.getByRole("button", { name: "Add Placeholder S-A" })).toBeTruthy();
+    org = { found: true, name: "Placeholder League", teams: 4, pulled: 0 };
+    await user.click(screen.getByRole("button", { name: "Start from the organization" }));
+    expect(
+      await screen.findByText(
+        "Placeholder League lists 4 teams, and none is a club Team Rankings has pulled yet."
+      )
+    ).toBeTruthy();
+  });
+
   it("says where to begin when Team Rankings has no page yet", async () => {
     open(() => Promise.resolve({ pages: [], clubs: null, draft: null }));
     expect(await screen.findByText("Team Rankings has no pages yet.")).toBeTruthy();
