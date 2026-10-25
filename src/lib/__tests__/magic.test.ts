@@ -287,3 +287,42 @@ describe("eliminationNumberForGold", () => {
     expect(["magic", "elimination"]).toContain(result.type);
   });
 });
+
+describe("eliminationNumberForGold, for a team with nothing left to lose", () => {
+  /*
+   * A has played its last game; B can still win two. One place goes through. No number of A's own
+   * losses settles it, since A has none left to lose, and the answer used to be "Cannot be
+   * eliminated" for that reason alone, though B winning both puts A out.
+   */
+  const three: TeamBase[] = [
+    { id: "A", name: "Aces" },
+    { id: "B", name: "Bears" },
+    { id: "C", name: "Comets" },
+  ];
+  const games: Matchup[] = [
+    { id: "g1", date: "5/1", away: "A", home: "C" },
+    { id: "g2", date: "5/2", away: "A", home: "C" },
+    { id: "g3", date: "5/3", away: "B", home: "C" },
+    { id: "g4", date: "5/4", away: "B", home: "C" },
+    { id: "g5", date: "5/5", away: "B", home: "C" },
+  ];
+  const played = { g1: finalLog(5, 1), g2: finalLog(5, 1), g3: finalLog(5, 1) };
+  const ranked = () =>
+    rankTeams(calculateTeams(three, games, played, settings), rankOptionsFromSettings(settings));
+  const left = games.filter((game) => !(game.id in played));
+
+  it("does not call a team safe that other results can still put out", () => {
+    const answer = eliminationNumberForGold("A", ranked(), left, 1, settings);
+
+    expect(answer.description).not.toMatch(/Cannot be eliminated/);
+    expect(answer.description).toBe(
+      "Its own losses cannot eliminate it, but other results still can."
+    );
+  });
+
+  it("still calls a team safe that no result can put out", () => {
+    const answer = eliminationNumberForGold("A", ranked(), left, 2, settings);
+
+    expect(answer.description).toBe("Cannot be eliminated from the Gold Bracket this season.");
+  });
+});

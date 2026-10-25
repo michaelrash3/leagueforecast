@@ -322,10 +322,29 @@ export const eliminationNumberForGold = (
     };
   }
 
+  /*
+   * No number of its own losses settles it. That is not the same as being safe: the search above
+   * asks only whether the team's own losses can shut it out, and a team that loses every game left
+   * can still be passed by others' wins. Safe is in at the cut in every branch where it loses out,
+   * with every tie counted against it; anything short of that is out of its own hands.
+   */
+  const myRemaining = remainingGamesFor(teamId, remaining).length;
+  const safe = solveCutoff(
+    teamId,
+    teams,
+    remaining,
+    effectiveSettings,
+    0,
+    myRemaining,
+    "all",
+    true
+  );
   return {
     type: "magic",
     ownWinsNeeded: 0,
     opponentLossesNeeded: 0,
-    description: `Cannot be eliminated from the Gold Bracket this season.`,
+    description: safe
+      ? `Cannot be eliminated from the Gold Bracket this season.`
+      : "Its own losses cannot eliminate it, but other results still can.",
   };
 };
