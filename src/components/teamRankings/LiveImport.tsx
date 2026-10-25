@@ -4,6 +4,8 @@ import { loadCloudState } from "../../lib/cloud/cloudState";
 import { cachedImportStatus, keepImportStatus } from "../../lib/live/importStatusCache";
 import { todayIsoDay } from "../../lib/date";
 import type { LiveEdits } from "../../hooks/useLiveEdits";
+import { useHeldHandoff } from "../../hooks/useCrawlHandoff";
+import { handoffLoaded } from "../../lib/crawlHandoffStore";
 import { parseGcOrgList } from "../../lib/gameChangerApi";
 import {
   describeCadence,
@@ -26,7 +28,7 @@ export const ORGS_NO_TEAMS =
   "That file names no teams under its organizations: it needs the Team IDs column.";
 /** Said for an Organizations file whose organizations with teams have no names to read an age from. */
 export const ORGS_NO_NAMES =
-  "That file's organizations have no names, which a team's age is read from: it needs the Entity Name column.";
+  "That file's organizations have no names, which a team's age is read from: it needs the Organization Name (or Entity Name) column.";
 /** Said for an Organizations file whose every organization is kept already. */
 export const ORGS_NOTHING_NEW =
   "Nothing new in that file: every organization in it is already kept.";
@@ -143,7 +145,8 @@ export default function LiveImport({
     });
   };
 
-  const readOrgFile = (text: string) => {
+  /** Whether the file's organizations are in the copy by the end, already or now. */
+  const readOrgFile = async (text: string): Promise<boolean> => {
     // Only what the copy keeps: an organization with a name and a team under it.
     const read = parseGcOrgList(text).orgs;
     const orgs: MemberOrg[] = read.flatMap(({ orgId, name, teamIds }) =>
@@ -151,9 +154,9 @@ export default function LiveImport({
     );
     if (orgs.length === 0) {
       say(read.some(({ teamIds }) => teamIds?.length) ? ORGS_NO_NAMES : ORGS_NO_TEAMS);
-      return;
+      return false;
     }
-    void edit(
+    return edit(
       { kind: "orgs.merge", orgs, at: now() },
       {
         done: `Kept the ${orgs.length.toLocaleString()} organization${
@@ -163,8 +166,24 @@ export default function LiveImport({
       }
     ).then((made) => {
       if (made) askAgain();
+      return made;
     });
   };
+  /*
+   * A file chosen by hand and one the crawl handed over (`useHeldHandoff`) go in the same way: one
+   * merge each, as choosing the file would send. `loaded` is told once the copy has them.
+   */
+  const chooseOrgFile = (file: File, loaded?: () => void) =>
+    void file.text().then(
+      (text) =>
+        readOrgFile(text).then((kept) => {
+          if (kept) loaded?.();
+        }),
+      () => say("Could not read that file.")
+    );
+  useHeldHandoff("orgs", status !== null && locked === null, ({ id, file }) =>
+    chooseOrgFile(file, () => handoffLoaded(id, "orgs"))
+  );
 
   // Pulling a list never waits on the copy's refresh: the cloud runs it beside the nightly.
   const pullCard = (
@@ -333,7 +352,7 @@ export default function LiveImport({
               const file = event.target.files?.[0] ?? null;
               event.currentTarget.value = "";
               if (!file) return;
-              void file.text().then(readOrgFile, () => say("Could not read that file."));
+              chooseOrgFile(file);
             }}
           />
         </label>

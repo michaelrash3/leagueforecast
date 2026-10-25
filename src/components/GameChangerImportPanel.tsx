@@ -22,6 +22,9 @@ import {
   type OrgMembership,
 } from "../lib/orgMembership";
 import { isDeletedClub, type DeletedClubs } from "../lib/deletedGames";
+import { handoffLoaded } from "../lib/crawlHandoffStore";
+import { isPoolFilled, subscribePoolFilled } from "../lib/poolFill";
+import { useHeldHandoff } from "../hooks/useCrawlHandoff";
 import {
   heldSnapshot,
   holdingNow,
@@ -688,28 +691,60 @@ export function GameChangerImportPanel({
     () => new Set(membership.orgs.flatMap((org) => org.teamIds)).size,
     [membership]
   );
-  const readOrgFile = (text: string) => {
+  /** Whether the file's organizations are kept by the end, already or now. */
+  const readOrgFile = (text: string): boolean => {
     const { orgs } = parseGcOrgList(text);
     if (!orgs.some((org) => org.teamIds?.length)) {
       showToast("That file names no teams under its organizations: it needs the Team IDs column.", {
         tone: "error",
       });
-      return;
+      return false;
     }
     const next = mergeOrgMembership(membership, orgs, new Date().toISOString());
     if (next === membership) {
       showToast("Nothing new in that file: every organization in it is already kept.");
-      return;
+      return true;
     }
     if (!saveOrgMembership(next)) {
       showToast("Could not keep the organizations: the browser refused the write.", {
         tone: "error",
       });
-      return;
+      return false;
     }
     setMembership(next);
     showToast(`Kept ${next.orgs.length.toLocaleString()} organizations with teams under them.`);
+    return true;
   };
+  /*
+   * A file chosen by hand and one the crawl handed over (`useHeldHandoff`) go in the same way;
+   * `loaded` is told once one has, which for the crawl's is when the miner marks its rows sent.
+   */
+  const chooseTeamFile = (file: File, loaded?: () => void) => {
+    const reader = new FileReader();
+    reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
+    reader.onload = () => {
+      setLoaded({ name: file.name, size: file.size, text: String(reader.result ?? "") });
+      loaded?.();
+    };
+    reader.readAsText(file);
+  };
+  const chooseOrgFile = (file: File, loaded?: () => void) => {
+    const reader = new FileReader();
+    reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
+    reader.onload = () => {
+      if (readOrgFile(String(reader.result ?? ""))) loaded?.();
+    };
+    reader.readAsText(file);
+  };
+  // The crawl's files, taken only while a list can be chosen, and its organizations only once the
+  // pool they are kept with is read in, as the file inputs would be.
+  const poolReadIn = useSyncExternalStore(subscribePoolFilled, isPoolFilled, () => false);
+  useHeldHandoff("teams", phase.kind === "picking", ({ id, file }) =>
+    chooseTeamFile(file, () => handoffLoaded(id, "teams"))
+  );
+  useHeldHandoff("orgs", phase.kind === "picking" && poolReadIn, ({ id, file }) =>
+    chooseOrgFile(file, () => handoffLoaded(id, "orgs"))
+  );
   const [cadence, setCadence] = useState<RefreshCadence>(() => loadRefreshCadence());
   const chooseCadence = useCallback((next: RefreshCadence) => {
     setCadence(next);
@@ -2034,16 +2069,7 @@ export function GameChangerImportPanel({
                   const file = event.target.files?.[0] ?? null;
                   // Cleared straight away so picking the same file twice still fires a change.
                   event.currentTarget.value = "";
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
-                  reader.onload = () =>
-                    setLoaded({
-                      name: file.name,
-                      size: file.size,
-                      text: String(reader.result ?? ""),
-                    });
-                  reader.readAsText(file);
+                  if (file) chooseTeamFile(file);
                 }}
               />
             </label>
@@ -2190,11 +2216,7 @@ export function GameChangerImportPanel({
                 onChange={(event) => {
                   const file = event.target.files?.[0] ?? null;
                   event.currentTarget.value = "";
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onerror = () => showToast("Could not read that file.", { tone: "error" });
-                  reader.onload = () => readOrgFile(String(reader.result ?? ""));
-                  reader.readAsText(file);
+                  if (file) chooseOrgFile(file);
                 }}
               />
             </label>
