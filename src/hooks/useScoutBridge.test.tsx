@@ -606,11 +606,21 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     // None on hand: the forecast has nothing to read, so the retries go on.
     localStorage.clear();
     const nothing = server({ answer: null });
-    setup(props({ asker: nothing.asker, leagueOnScreen: false }));
+    const none = setup(props({ asker: nothing.asker, leagueOnScreen: false }));
     await wait(800);
     await wait(5_000);
     await wait(30_000);
     expect(nothing.asked).toHaveLength(3);
+    none.unmount();
+    // One on hand for the teams before a club was picked: not the season's, so they go on too.
+    keepAnswered("s1", ANSWER.bridge);
+    const stale = server({ answer: null });
+    const picked = [{ id: "lt1", name: "Rays", scoutTeamId: "S-R" }];
+    setup(props({ asker: stale.asker, leagueOnScreen: false, teams: picked }));
+    await wait(800);
+    await wait(5_000);
+    await wait(30_000);
+    expect(stale.asked).toHaveLength(3);
   });
 
   it("holds a question off League Standings to the bridge shown, not to one another tab kept since", async () => {

@@ -242,7 +242,8 @@ describe("League Standings asking the server what Team Rankings has", () => {
     } finally {
       releaseOpening();
     }
-  });
+    // Two visits and their waits: more than the 5 s a test is given by default.
+  }, 20_000);
 
   it("holds nothing of League's while League Standings is the page shown", async () => {
     resetOpeningHold();

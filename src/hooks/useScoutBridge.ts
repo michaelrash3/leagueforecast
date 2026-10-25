@@ -59,8 +59,9 @@ export type ScoutBridgeOptions = {
    */
   leagueOnScreen?: boolean;
   /**
-   * Whether the question waits: while Team Rankings opens on the cloud's board, the server is
-   * asked once the board is drawn (`openingHold.ts`), and then as it would have been.
+   * Whether the question waits: while Team Rankings opens on the cloud's board, nothing is asked
+   * until the board is drawn (`openingHold.ts`), and then only as Team Rankings on screen asks
+   * (`leagueOnScreen`).
    */
   held?: boolean;
 };
