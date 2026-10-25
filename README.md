@@ -7494,14 +7494,27 @@ functions the device would run, over the cloud's pool):
   season on a page or merged a club; when the member's sign-in comes through,
   since a question asked at boot before it did goes unanswered; when the device
   comes back online; and when the page is shown anew on League Standings, since
-  the nightly may have pulled since, at most once every five minutes. A question
+  the nightly may have pulled since, at most once every five minutes. While Team
+  Rankings is on screen it is asked only where the bridge on hand does not answer
+  the season as it stands: none kept yet, one an earlier build kept without its
+  question, or teams and final scores changed since, which League's listener
+  brings from another device. The forecast, the digest and its notifications read
+  the bridge there too, notifications while the page is hidden, and a bridge for
+  the scores before a final can count that game twice (it reads the pool's copy
+  of a league game against the league's own final). Anything else that would ask,
+  a retry for a bridge that does answer the season included, waits for coming
+  back, which asks in any case: the boards ask the server nothing, so a visit
+  spent on them woke the 8 GiB server for the bridge alone once the board was
+  drawn, a cold load of the whole pool. A question
   out is never thrown away for another about the same teams: a change noted
   meanwhile is asked about once its answer is in, and being shown anew asks
   nothing while one is out. An answer for teams or scores since changed is
   dropped. A question unanswered is asked again after 5 s, 30 s, 2 minutes and
   10 minutes, then every half hour until one is answered (every 2 minutes until 16 Oct 2026,
   when a pool the server could not answer in time made each try a cold 8 GiB load). The last bridge for a season, the bridge alone
-  and never the clubs, about 2,400 characters, is kept on the device
+  and never the clubs, about 2,400 characters, with the very question it answered
+  as JSON (compared as written, since a reload holds no array of the visit before
+  to compare by identity), is kept on the device
   (`lf_league_bridge_v2`, the last four seasons, the open one alone when storage is
   full; what an earlier build kept under `lf_league_bridge_v1`, every club with it,
   is let go of) and read back through the same checks as one from the network, so
