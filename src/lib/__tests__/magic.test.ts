@@ -240,16 +240,25 @@ describe("eliminationNumberForGold", () => {
     ];
 
     const live = calculateTeams(tinyTeams, tinyMatchups, {});
-    const result = eliminationNumberForGold("A", live, tinyMatchups, 1, settings);
 
     /*
      * One loss puts A behind on fewer losses — 1-1 against the 1-0 club that beat it — whichever
-     * game it loses, and the table puts fewer losses first, before any tiebreaker. The solver used
-     * to read points alone and leave the level points to the tiebreakers, so it said two, which was
-     * true but not the least.
+     * game it loses, and the table puts fewer losses first, before any tiebreaker. Where a tie
+     * scores nothing the search reads each team's losses off its points and says one, the least.
+     * Where a tie scores, points cannot tell a win from two ties, losses go unread, and level
+     * points are left to the tiebreakers: two, which is true but not the least.
      */
+    const noTies = eliminationNumberForGold("A", live, tinyMatchups, 1, {
+      ...settings,
+      tiePoints: 0,
+    });
+    expect(noTies.type).toBe("elimination");
+    expect(noTies.opponentLossesNeeded).toBe(1);
+    expect(noTies.tiebreak).toBeUndefined();
+
+    const result = eliminationNumberForGold("A", live, tinyMatchups, 1, settings);
     expect(result.type).toBe("elimination");
-    expect(result.opponentLossesNeeded).toBe(1);
+    expect(result.opponentLossesNeeded).toBe(2);
     expect(result.tiebreak).toBeUndefined();
   });
 
