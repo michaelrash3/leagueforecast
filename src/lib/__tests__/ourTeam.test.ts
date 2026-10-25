@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ourTeamSummary } from "../ourTeam";
+import { needsLines, ourTeamSummary, rootForLines } from "../ourTeam";
 import { readOurTeam, writeOurTeam } from "../preferences";
 import type { SwingGame, TeamWithProjection } from "../types";
 
@@ -95,5 +95,41 @@ describe("the team this browser follows, stored", () => {
     expect(readOurTeam("spring")).toBeNull();
     backing.set("lf_our_team_v1", JSON.stringify({ spring: 4 }));
     expect(readOurTeam("spring")).toBeNull();
+  });
+});
+
+describe("needsLines", () => {
+  const names: Record<string, string> = { A: "Aces", B: "Bears", C: "Comets" };
+  const nameOf = (id: string) => names[id] ?? id;
+
+  it("says the team's own games as what it must do, and others' as what it needs", () => {
+    expect(
+      needsLines(
+        "A",
+        [
+          { gameId: "g1", date: "5/3", side: "A", against: "B", orTie: true },
+          { gameId: "g2", date: "5/4", side: "A", against: "C", orTie: false },
+          { gameId: "g3", date: "", side: "C", against: "B", orTie: false },
+          { gameId: "g4", date: "5/6", side: "B", against: "C", orTie: true },
+        ],
+        nameOf
+      )
+    ).toEqual([
+      "Don't lose to Bears (5/3)",
+      "Beat Comets (5/4)",
+      "Comets to beat Bears",
+      "Bears not to lose to Comets (5/6)",
+    ]);
+  });
+});
+
+describe("rootForLines", () => {
+  it("says who over whom, when, and what each result does to the Gold chance", () => {
+    expect(
+      rootForLines(
+        [{ gameId: "g2", date: "5/2", winnerId: "C", loserId: "B", ifWin: 0.8, ifLoss: 0.204 }],
+        (id) => ({ B: "Bears", C: "Comets" })[id] ?? id
+      )
+    ).toEqual(["Comets over Bears (5/2): Gold 80% against 20%"]);
   });
 });

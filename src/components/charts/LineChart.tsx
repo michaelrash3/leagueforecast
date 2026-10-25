@@ -33,6 +33,7 @@ export function LineChart({
   showLegend = true,
   highlightLast = true,
   cutLine,
+  invert = false,
 }: {
   series: LineSeries[];
   yMin?: number;
@@ -43,6 +44,8 @@ export function LineChart({
   showLegend?: boolean;
   highlightLast?: boolean;
   cutLine?: { value: number; label?: string };
+  /** Smaller values at the top, for places in a table, where first is best. */
+  invert?: boolean;
 }) {
   const titleId = useId();
   const padding = { top: 16, right: 16, bottom: 28, left: 36 };
@@ -55,7 +58,7 @@ export function LineChart({
   const yFor = (v: number) => {
     const clamped = Math.max(yMin, Math.min(yMax, v));
     const ratio = (clamped - yMin) / Math.max(yMax - yMin, 1);
-    return padding.top + (1 - ratio) * innerH;
+    return padding.top + (invert ? ratio : 1 - ratio) * innerH;
   };
 
   const [hover, setHover] = useState<{ x: number; index: number } | null>(null);

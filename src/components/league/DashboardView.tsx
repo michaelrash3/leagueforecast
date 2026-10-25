@@ -5,6 +5,7 @@
 import { Suspense, useId, useState, type ComponentProps, type ReactNode } from "react";
 import { formatGameDate } from "../../lib/date";
 import { displayName } from "../../lib/format";
+import type { SeasonFinal } from "../../lib/seasonFinal";
 import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
@@ -192,6 +193,7 @@ export function DashboardView({
   ourTeam,
   digest,
   gameOdds,
+  seasonFinal,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   backtestResult: ReturnType<typeof backtestPredictions>;
@@ -206,6 +208,11 @@ export function DashboardView({
   digest?: ComponentProps<typeof DigestPanel>;
   /** The per-game model's chance that the away side wins a game, for a card's explanation. */
   gameOdds?: (game: Matchup) => number;
+  /**
+   * How the season ended, once it has (`seasonFinalOf`): shown where the next games would be,
+   * since a finished season has none to predict.
+   */
+  seasonFinal?: SeasonFinal | null;
 }) {
   const why: WhyContext = {
     nameOf: (id) => displayName(teamNameFor(teamsById, id)),
@@ -263,12 +270,30 @@ export function DashboardView({
               why={why}
             />
           ))}
-          {engine.predictions.length === 0 && (
-            <EmptyPanel
-              title="No predictions yet"
-              body="Add completed scores and upcoming games to generate forecasts."
-            />
-          )}
+          {engine.predictions.length === 0 &&
+            (seasonFinal ? (
+              <section
+                aria-label="Season over"
+                className="rounded-lg border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900"
+              >
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                  Season over
+                </p>
+                <ul className="mt-2 space-y-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                  <li>Regular season: {seasonFinal.leader} finished first.</li>
+                  {seasonFinal.champion && <li>Champion: {seasonFinal.champion}.</li>}
+                  {seasonFinal.silverChampion && (
+                    <li>Silver champion: {seasonFinal.silverChampion}.</li>
+                  )}
+                  {seasonFinal.ourTeam && <li>{seasonFinal.ourTeam}</li>}
+                </ul>
+              </section>
+            ) : (
+              <EmptyPanel
+                title="No predictions yet"
+                body="Add completed scores and upcoming games to generate forecasts."
+              />
+            ))}
         </div>
         <DataQualityPanel
           engine={engine}

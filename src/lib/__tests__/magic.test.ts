@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eliminationNumberForGold, magicForGold } from "../magic";
+import { eliminationNumberForGold, magicForGold, neededResults } from "../magic";
 import { calculateTeams, rankOptionsFromSettings, rankTeams } from "../sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
 
@@ -240,13 +240,23 @@ describe("eliminationNumberForGold", () => {
     ];
 
     const live = calculateTeams(tinyTeams, tinyMatchups, {});
-    const result = eliminationNumberForGold("A", live, tinyMatchups, 1, settings);
 
     /*
-     * Two losses and A is out on points. One loss already puts it behind on fewer losses — 1-1
-     * against the 1-0 club that beat it — but the solver reads points and leaves a tie on them to
-     * the tiebreakers rather than guess, so it says two, which is true if not the least.
+     * One loss puts A behind on fewer losses — 1-1 against the 1-0 club that beat it — whichever
+     * game it loses, and the table puts fewer losses first, before any tiebreaker. Where a tie
+     * scores nothing the search reads each team's losses off its points and says one, the least.
+     * Where a tie scores, points cannot tell a win from two ties, losses go unread, and level
+     * points are left to the tiebreakers: two, which is true but not the least.
      */
+    const noTies = eliminationNumberForGold("A", live, tinyMatchups, 1, {
+      ...settings,
+      tiePoints: 0,
+    });
+    expect(noTies.type).toBe("elimination");
+    expect(noTies.opponentLossesNeeded).toBe(1);
+    expect(noTies.tiebreak).toBeUndefined();
+
+    const result = eliminationNumberForGold("A", live, tinyMatchups, 1, settings);
     expect(result.type).toBe("elimination");
     expect(result.opponentLossesNeeded).toBe(2);
     expect(result.tiebreak).toBeUndefined();
@@ -285,5 +295,106 @@ describe("eliminationNumberForGold", () => {
     const live = calculateTeams(biggerTeams, biggerMatchups, {});
     const result = eliminationNumberForGold("A", live, biggerMatchups, 3, settings);
     expect(["magic", "elimination"]).toContain(result.type);
+  });
+});
+
+describe("eliminationNumberForGold, for a team with nothing left to lose", () => {
+  /*
+   * A has played its last game; B can still win two. One place goes through. No number of A's own
+   * losses settles it, since A has none left to lose, and the answer used to be "Cannot be
+   * eliminated" for that reason alone, though B winning both puts A out.
+   */
+  const three: TeamBase[] = [
+    { id: "A", name: "Aces" },
+    { id: "B", name: "Bears" },
+    { id: "C", name: "Comets" },
+  ];
+  const games: Matchup[] = [
+    { id: "g1", date: "5/1", away: "A", home: "C" },
+    { id: "g2", date: "5/2", away: "A", home: "C" },
+    { id: "g3", date: "5/3", away: "B", home: "C" },
+    { id: "g4", date: "5/4", away: "B", home: "C" },
+    { id: "g5", date: "5/5", away: "B", home: "C" },
+  ];
+  const played = { g1: finalLog(5, 1), g2: finalLog(5, 1), g3: finalLog(5, 1) };
+  const ranked = () =>
+    rankTeams(calculateTeams(three, games, played, settings), rankOptionsFromSettings(settings));
+  const left = games.filter((game) => !(game.id in played));
+
+  it("does not call a team safe that other results can still put out", () => {
+    const answer = eliminationNumberForGold("A", ranked(), left, 1, settings);
+
+    expect(answer.description).not.toMatch(/Cannot be eliminated/);
+    expect(answer.description).toBe(
+      "Its own losses cannot eliminate it, but other results still can."
+    );
+  });
+
+  it("still calls a team safe that no result can put out", () => {
+    const answer = eliminationNumberForGold("A", ranked(), left, 2, settings);
+
+    expect(answer.description).toBe("Cannot be eliminated from the Gold Bracket this season.");
+  });
+});
+
+describe("neededResults", () => {
+  const three: TeamBase[] = [
+    { id: "A", name: "Aces" },
+    { id: "B", name: "Bears" },
+    { id: "C", name: "Comets" },
+  ];
+  const standing = (games: Matchup[], played: Record<string, GameLog>) =>
+    rankTeams(calculateTeams(three, games, played, settings), rankOptionsFromSettings(settings));
+
+  it("names the one result in the team's own hands", () => {
+    // A and B are both 1-0, C 0-2. One place. Whoever wins A v B is first: the other cannot catch
+    // up on points and losses. B v C does not matter to A once A has won.
+    const games: Matchup[] = [
+      { id: "p1", date: "5/1", away: "A", home: "C" },
+      { id: "p2", date: "5/2", away: "B", home: "C" },
+      { id: "g3", date: "5/3", away: "A", home: "B" },
+      { id: "g4", date: "5/4", away: "B", home: "C" },
+    ];
+    const played = { p1: finalLog(5, 1), p2: finalLog(5, 1) };
+    const left = games.filter((game) => !(game.id in played));
+
+    expect(neededResults("A", standing(games, played), left, 1, settings)).toEqual([
+      // A tie scores half a win by default, and leaves A ahead on fewer losses: not losing is enough.
+      { gameId: "g3", date: "5/3", side: "A", against: "B", orTie: true },
+    ]);
+  });
+
+  it("names the help a team needs from a game it is not in", () => {
+    // B is 2-0 and A 1-0, C 0-3. One place. A can reach 2-0 at most, so it needs its own win over
+    // C and the Comets to beat the Bears.
+    const games: Matchup[] = [
+      { id: "p1", date: "5/1", away: "B", home: "C" },
+      { id: "p2", date: "5/2", away: "B", home: "C" },
+      { id: "p3", date: "5/3", away: "A", home: "C" },
+      { id: "g4", date: "5/4", away: "A", home: "C" },
+      { id: "g5", date: "5/5", away: "B", home: "C" },
+    ];
+    const played = { p1: finalLog(5, 1), p2: finalLog(5, 1), p3: finalLog(5, 1) };
+    const left = games.filter((game) => !(game.id in played));
+
+    expect(neededResults("A", standing(games, played), left, 1, settings)).toEqual([
+      // Here a tie in either game leaves the Bears out of reach: both have to be won.
+      { gameId: "g4", date: "5/4", side: "A", against: "C", orTie: false },
+      { gameId: "g5", date: "5/5", side: "C", against: "B", orTie: false },
+    ]);
+  });
+
+  it("needs nothing of a team in whatever happens, or out whatever happens", () => {
+    const games: Matchup[] = [
+      { id: "p1", date: "5/1", away: "A", home: "C" },
+      { id: "p2", date: "5/2", away: "A", home: "B" },
+      { id: "g3", date: "5/3", away: "B", home: "C" },
+    ];
+    const played = { p1: finalLog(5, 1), p2: finalLog(5, 1) };
+    const left = games.filter((game) => !(game.id in played));
+    const table = standing(games, played);
+
+    expect(neededResults("A", table, left, 1, settings)).toBeNull();
+    expect(neededResults("C", table, left, 1, settings)).toBeNull();
   });
 });

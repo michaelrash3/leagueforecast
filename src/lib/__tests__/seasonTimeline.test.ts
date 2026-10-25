@@ -52,4 +52,21 @@ describe("buildSeasonTimeline", () => {
 
     expect(entries.map((entry) => entry.id)).toEqual(["g1"]);
   });
+
+  it("counts the games a season owes but has not scheduled, as the table does", () => {
+    const logs = { g1: finalLog(5, 2), g2: finalLog(1, 3) };
+    const line = (gamesPerTeam: number) =>
+      buildSeasonTimeline(
+        teams,
+        matchups,
+        logs,
+        { ...DEFAULT_SETTINGS, goldCutoff: 1, regularSeasonGamesPerTeam: gamesPerTeam },
+        2
+      )[0]?.cutLineImpact;
+
+    // Both scheduled games played, Aces 2-0: with nothing owed, the top spot is theirs.
+    expect(line(0)).toContain("Aces clinched Gold");
+    // Four games each, two still owed: the Bears and the Comets can each still reach three wins.
+    expect(line(4)).not.toContain("clinched");
+  });
 });

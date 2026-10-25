@@ -99,7 +99,9 @@ export function useClinchScenarios({
       );
       const counts = getRemainingCounts(
         teams,
-        remainingGames.filter((item) => item.id !== game.id)
+        remainingGames.filter((item) => item.id !== game.id),
+        // Games the season owes but has not scheduled count too, as they do in the table.
+        Math.max(0, Math.round(settings.regularSeasonGamesPerTeam || 0))
       );
       return { teams, counts };
     },

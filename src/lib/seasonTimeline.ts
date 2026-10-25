@@ -31,7 +31,12 @@ const snapshot = (
   const live = calculateTeams(teams, matchups, logs);
   const ranked = rankTeams(live, rankOptionsFromSettings(settings));
   const remaining = matchups.filter((game) => !isFinal(logs[game.id]));
-  const remainingCounts = getRemainingCounts(ranked, remaining);
+  // Games the season owes but has not scheduled count too, as they do in the table.
+  const remainingCounts = getRemainingCounts(
+    ranked,
+    remaining,
+    Math.max(0, Math.round(settings.regularSeasonGamesPerTeam || 0))
+  );
   return ranked.map((team) => ({
     id: team.id,
     name: team.name,

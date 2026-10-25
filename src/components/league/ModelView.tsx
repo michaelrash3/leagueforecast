@@ -34,11 +34,16 @@ import { LoadingPanel } from "../LoadingPanel";
 import { PageHeader } from "../PageHeader";
 import { ModelHealthPanel } from "../ModelHealthPanel";
 import { SeasonTimelinePanel } from "../SeasonTimelinePanel";
+import type { SeasonRaceInput } from "../charts/SeasonRaceChart";
 import { SeedOddsPanel } from "../SeedOddsPanel";
 import { card, focusRing, pill } from "../../styles/tokens";
 import { EditLock } from "./EditLock";
 
 /** Charts belong to this view alone, and most visits never reach it. */
+// Drawn with the same chart as the trend, and loaded the same way: only once there is a race to draw.
+const SeasonRaceChart = lazy(() =>
+  import("../charts/SeasonRaceChart").then((module) => ({ default: module.SeasonRaceChart }))
+);
 const GoldOddsTrendChart = lazy(() =>
   import("../charts/GoldOddsTrendChart").then((module) => ({
     default: module.GoldOddsTrendChart,
@@ -131,6 +136,10 @@ export function ModelView(props: {
   askForecastStory: () => void;
   /** Pick winners of the games left and see the table (`PlayoffMachine`). */
   playoffMachine?: ReactNode;
+  /** The season as stored, for the race chart, which works out each game day's table itself. */
+  raceInput?: SeasonRaceInput;
+  /** The team this browser follows, drawn first in the race. */
+  followId?: string | null;
   /** The section to show on opening, and whenever it changes: a scenario link asks for the machine. */
   startOn?: ForecastSection;
 }) {
@@ -333,7 +342,9 @@ export function ModelView(props: {
             <BracketPredictionPanel
               title={hasCutLine ? "Gold Bracket Predictor" : "Bracket Predictor"}
               emptyMessage="Not enough teams for a bracket."
-              championLabel="Projected Champion"
+              championLabel={
+                bracketProjection.championSource === "actual" ? "Champion" : "Projected Champion"
+              }
               projection={bracketProjection}
               onScoreChange={updateBracketLog}
               onToggleFinal={toggleBracketFinal}
@@ -345,7 +356,11 @@ export function ModelView(props: {
             <BracketPredictionPanel
               title="Silver Bracket Predictor"
               emptyMessage="Not enough Silver teams."
-              championLabel="Projected Silver Champion"
+              championLabel={
+                silverBracketProjection.championSource === "actual"
+                  ? "Silver Champion"
+                  : "Projected Silver Champion"
+              }
               projection={silverBracketProjection}
               onScoreChange={updateBracketLog}
               onToggleFinal={toggleBracketFinal}
@@ -830,6 +845,27 @@ export function ModelView(props: {
       )}
       {show("season") && (
         <>
+          {props.raceInput && props.raceInput.matchups.length > 0 && (
+            <section className={`${card} p-5`} aria-label="Season race">
+              <h3 className="text-lg font-black tracking-tight text-slate-950 dark:text-slate-100">
+                The Race, Game Day by Game Day
+              </h3>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                Each team&rsquo;s place in the table after every day games were played.
+              </p>
+              <div className="mt-3">
+                <Suspense fallback={<LoadingPanel area="the chart" />}>
+                  <SeasonRaceChart
+                    input={props.raceInput}
+                    names={new Map(modelRows.map((team) => [team.id, team.name]))}
+                    followId={props.followId ?? null}
+                    teamCount={modelRows.length}
+                    {...(hasCutLine ? { cutoff: goldCutoff } : {})}
+                  />
+                </Suspense>
+              </div>
+            </section>
+          )}
           <SeasonTimelinePanel entries={timelineEntries} />
           <ModelHealthPanel backtestResult={backtestResult} cardClassName={card} />
         </>

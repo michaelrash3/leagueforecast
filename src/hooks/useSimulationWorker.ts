@@ -4,8 +4,9 @@ import {
   simulateGoldOdds,
   simulateGoldOddsRun,
   type BracketOddsResult,
+  type GoldSwing,
 } from "../lib/sim";
-import type { Matchup, Settings, Team } from "../lib/types";
+import type { GameLog, Matchup, Settings, Team } from "../lib/types";
 import type { WorkerResponse } from "../workers/sim.worker";
 import { useWorkerJob } from "./useWorkerJob";
 
@@ -16,6 +17,8 @@ type OddsInput = {
   seedText: string;
   cutoff: number;
   settings: Settings;
+  /** The team followed, whose odds are also counted by how each game left goes (`GoldSwing`). */
+  follow?: string;
 };
 
 type TrendInput = {
@@ -35,6 +38,8 @@ type BracketInput = {
   settings: Settings;
   /** When false, the sim is skipped entirely (e.g. the bracket view isn't visible). */
   enabled: boolean;
+  /** The Gold bracket's scores as kept, so a game already played is not drawn again. */
+  bracketLogs?: Record<string, GameLog>;
 };
 
 /**
@@ -69,7 +74,7 @@ const ratingsKey = (teams: readonly Team[]) =>
   teams.map((team) => [team.id, team.adjustedRating ?? null, team.ratedGames ?? 0]);
 
 /** The odds, and the number of seasons they were counted over. */
-type OddsResult = { odds: Record<string, number>; iterations: number };
+type OddsResult = { odds: Record<string, number>; iterations: number; swing?: GoldSwing };
 
 export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   const [result, setResult] = useState<OddsResult>({ odds: EMPTY_ODDS, iterations: 0 });
@@ -87,6 +92,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
         input.cutoff,
         input.settings,
         ratingsKey(input.teams),
+        input.follow ?? null,
       ]),
     [
       input.teams,
@@ -95,6 +101,7 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
       input.seedText,
       input.cutoff,
       input.settings,
+      input.follow,
     ]
   );
 
@@ -120,10 +127,15 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
       seedText: input.seedText,
       cutoff: input.cutoff,
       settings: input.settings,
+      ...(input.follow ? { follow: input.follow } : {}),
     }),
     accept: (data: WorkerResponse, id) =>
       data.kind === "odds" && data.id === id
-        ? { odds: data.odds, iterations: data.iterations }
+        ? {
+            odds: data.odds,
+            iterations: data.iterations,
+            ...(data.swing ? { swing: data.swing } : {}),
+          }
         : null,
     inline: () => {
       const run = simulateGoldOddsRun(
@@ -132,9 +144,14 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
         input.iterations,
         input.seedText,
         input.cutoff,
-        input.settings
+        input.settings,
+        input.follow
       );
-      return { odds: run.odds, iterations: run.iterations };
+      return {
+        odds: run.odds,
+        iterations: run.iterations,
+        ...(run.swing ? { swing: run.swing } : {}),
+      };
     },
     onResult,
   });
@@ -148,6 +165,8 @@ export function useSimulationOdds(input: OddsInput, debounceMs = 200) {
   return {
     odds: idle ? EMPTY_ODDS : result.odds,
     iterations: idle ? 0 : result.iterations,
+    // The swing of the team the odds were asked about, and only while it is still the one followed.
+    swing: !idle && result.swing?.teamId === input.follow ? result.swing : undefined,
     pending: !idle && resultKey !== key,
     inputKey: key,
     resultKey: idle ? key : resultKey,
@@ -243,6 +262,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
         input.cutoff,
         input.settings,
         ratingsKey(input.teams),
+        input.bracketLogs,
       ]),
     [
       input.enabled,
@@ -252,6 +272,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
       input.seedText,
       input.cutoff,
       input.settings,
+      input.bracketLogs,
     ]
   );
 
@@ -276,6 +297,7 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
       seedText: input.seedText,
       cutoff: input.cutoff,
       settings: input.settings,
+      ...(input.bracketLogs ? { bracketLogs: input.bracketLogs } : {}),
     }),
     accept: (data: WorkerResponse, id) =>
       data.kind === "bracket" && data.id === id ? data.result : null,
@@ -286,7 +308,8 @@ export function useSimulationBracket(input: BracketInput, debounceMs = 300) {
         input.iterations,
         input.seedText,
         input.cutoff,
-        input.settings
+        input.settings,
+        input.bracketLogs
       ),
     onResult,
   });

@@ -48,6 +48,7 @@ import { rankingsSearch } from "./lib/rankingsRoute";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { ModeSwitchContext } from "./components/modeSwitch";
 import { recordDiagnostic } from "./lib/diagnostics";
+import { seasonFinalOf } from "./lib/seasonFinal";
 import { useClinchScenarios } from "./hooks/useClinchScenarios";
 import { useSeedRanges } from "./hooks/useSeedRanges";
 import { useSeasons } from "./hooks/useSeasons";
@@ -98,7 +99,8 @@ import {
 import { digestOddsMove, raceOf, type NotifyPrefs } from "./lib/seasonDigest";
 import { useSeasonDigest } from "./hooks/useSeasonDigest";
 import { useDigestNotifications } from "./hooks/useDigestNotifications";
-import { ourTeamSummary } from "./lib/ourTeam";
+import { needsLines, ourTeamSummary, rootForLines } from "./lib/ourTeam";
+import { ownGameSwing, rootFor } from "./lib/goldSwing";
 import { leagueClubRankFor, scoutRoute, type LeagueClubRank } from "./lib/leagueClubRanks";
 import { askToScout } from "./lib/scoutRequest";
 import { OurTeamCard } from "./components/league/OurTeamCard";
@@ -141,7 +143,7 @@ import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standi
 import { displayName, recordText } from "./lib/format";
 import { pathSummary, recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
-import { eliminationNumberForGold, magicForGold } from "./lib/magic";
+import { eliminationNumberForGold, magicForGold, neededResults } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildPredictionEngine } from "./lib/predictionEngine";
 import { buildBracketProjection } from "./lib/bracket";
@@ -257,6 +259,9 @@ const EXACT_MAGIC_REMAINING_GAME_LIMIT = 15;
 // schedule this can otherwise block the browser before the confirmation toast
 // and first render complete.
 const EXACT_SCENARIO_REMAINING_GAME_LIMIT = 60;
+// The needed results for the followed team (`neededResults`): one exact search per side of each
+// game left, so asked only once the season is this close to done.
+const NEEDS_REMAINING_GAME_LIMIT = 10;
 // Full-season imports can contain hundreds of open games. Projecting every
 // remaining game synchronously is useful late in the season, but it can block
 // the browser immediately after import or while saving a final. Keep the UI
@@ -770,6 +775,23 @@ export default function App() {
     seasons.all.find((season) => season.id === activeSeasonId)?.createdAt ?? ""
   }`;
 
+  /*
+   * The team this browser follows, for the Dashboard's card: this browser's own pick, one per season
+   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season, so
+   * a season switch reads the pick made for that season rather than carrying one across.
+   */
+  const [ourTeamPick, setOurTeamPick] = useState(() => ({
+    season: activeSeasonKey,
+    teamId: readOurTeam(activeSeasonId),
+  }));
+  if (ourTeamPick.season !== activeSeasonKey) {
+    // Read afresh for each season opened, never kept from a visit before: the season held then
+    // may have been deleted or restored over since, and its id given to another (`forgetSeasons`).
+    setOurTeamPick({ season: activeSeasonKey, teamId: readOurTeam(activeSeasonId) });
+  }
+  const ourTeamId =
+    ourTeamPick.season === activeSeasonKey ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
+
   const refreshSeasons = seasons.refresh;
   const adoptSeason = useCallback(
     (id: string, createdAt: string) => {
@@ -1004,10 +1026,17 @@ export default function App() {
       seedText: oddsSeed,
       cutoff: goldCutoff,
       settings,
+      // The followed team's odds are also counted by how each game left goes, for its card.
+      ...(hasCutLine && ourTeamId ? { follow: ourTeamId } : {}),
     }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings]
+    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings, hasCutLine, ourTeamId]
   );
-  const { odds, iterations: oddsIterations, pending: oddsPending } = useSimulationOdds(oddsInput);
+  const {
+    odds,
+    iterations: oddsIterations,
+    pending: oddsPending,
+    swing: ourSwing,
+  } = useSimulationOdds(oddsInput);
 
   const trendInput = useMemo(() => {
     const teamIds = teams.map((t) => t.id);
@@ -1050,8 +1079,9 @@ export default function App() {
       cutoff: goldCutoff,
       settings,
       enabled: activeView === "model",
+      bracketLogs,
     }),
-    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings, activeView]
+    [liveTeams, remainingGames, oddsSeed, goldCutoff, settings, activeView, bracketLogs]
   );
   const { bracketOdds } = useSimulationBracket(bracketInput);
 
@@ -2151,10 +2181,24 @@ export default function App() {
     const plan = scoreFillPlan;
     const code = scoreFillCode.current;
     if (!plan || !code) return;
-    const { applyLeagueScoreFill, missingGamesToAdd, summarizeLeagueFill } = code;
+    const {
+      applyLeagueScoreFill,
+      missingGamesToAdd,
+      movedGames,
+      movesToApply,
+      summarizeLeagueFill,
+    } = code;
     const seen = scoreFillSeen.current;
     const innings = settings.defaultGameInnings;
     const result = applyLeagueScoreFill(plan, matchupIds, logs, innings, otherVersion, seen);
+    // The schedule as the store holds it this moment, which a game from another device may have
+    // reached before this render's `matchups` did.
+    const schedule = seasonStore.get().season.matchups;
+    // Its own games played on another day than scheduled: moved to the day played, and filled.
+    const moves = additions?.move?.length
+      ? movesToApply(plan, movedGames(plan, schedule, logs), schedule, additions.move, innings)
+      : { dates: {}, logs: {} };
+    const movedCount = Object.keys(moves.dates).length;
     // Games between the league's clubs the schedule did not have (3.7), each a new game, final.
     const stamp = Date.now();
     const added = additions
@@ -2166,11 +2210,12 @@ export default function App() {
           additions.add,
           additions.swap,
           innings,
-          (index) => `game_${stamp}_${index}`
+          (index) => `game_${stamp}_${index}`,
+          Object.keys(moves.dates).length > 0 ? (additions.move ?? []) : []
         )
       : { matchups: [], logs: {} };
     setScoreFillPlan(null);
-    if (result.filled === 0 && added.matchups.length === 0) {
+    if (result.filled === 0 && added.matchups.length === 0 && movedCount === 0) {
       showToast(
         result.changed === 0
           ? "Nothing was filled in."
@@ -2196,6 +2241,15 @@ export default function App() {
     if (added.matchups.length > 0) {
       setMatchups((prev) => [...prev, ...added.matchups]);
       setLogs((prev) => ({ ...prev, ...added.logs }));
+    }
+    if (movedCount > 0) {
+      setMatchups((prev) =>
+        prev.map((game) => {
+          const day = moves.dates[game.id];
+          return day ? { ...game, date: day } : game;
+        })
+      );
+      setLogs((prev) => ({ ...prev, ...moves.logs }));
     }
     const count = added.matchups.length;
     showToast(
@@ -2621,22 +2675,6 @@ export default function App() {
   );
   const compareTeam = compareTeamId ? (dashboardById.get(compareTeamId) ?? null) : null;
 
-  /*
-   * The team this browser follows, for the Dashboard's card: this browser's own pick, one per season
-   * (`readOurTeam`), and never a setting, which would travel in a shared link. Held by season, so
-   * a season switch reads the pick made for that season rather than carrying one across.
-   */
-  const [ourTeamPick, setOurTeamPick] = useState(() => ({
-    season: activeSeasonKey,
-    teamId: readOurTeam(activeSeasonId),
-  }));
-  if (ourTeamPick.season !== activeSeasonKey) {
-    // Read afresh for each season opened, never kept from a visit before: the season held then
-    // may have been deleted or restored over since, and its id given to another (`forgetSeasons`).
-    setOurTeamPick({ season: activeSeasonKey, teamId: readOurTeam(activeSeasonId) });
-  }
-  const ourTeamId =
-    ourTeamPick.season === activeSeasonKey ? ourTeamPick.teamId : readOurTeam(activeSeasonId);
   const pickOurTeam = useCallback(
     (teamId: string | null) => {
       writeOurTeam(activeSeasonId, teamId);
@@ -2680,10 +2718,31 @@ export default function App() {
       hasCutLine && remainingGames.length <= EXACT_MAGIC_REMAINING_GAME_LIMIT
         ? magicForGold(team.id, dashboardRows, remainingGames, goldCutoff, settings).description
         : undefined;
+    /*
+     * What it cannot do without, exact, late enough that the search is quick: on a full table with
+     * ties worth half a win, ten games left took 245 ms at worst against 1.5 s at fifteen.
+     */
+    const needed =
+      hasCutLine && remainingGames.length <= NEEDS_REMAINING_GAME_LIMIT
+        ? neededResults(team.id, dashboardRows, remainingGames, goldCutoff, settings)
+        : null;
+    const needs = needed
+      ? needsLines(team.id, needed, (id) => displayName(dashboardById.get(id)?.name ?? id))
+      : undefined;
+    const swings = nextTwoSwingGames(team.id);
+    // The odds' own seasons, read by how each game went: worked out with the odds, at no extra draw.
+    const swing = ourSwing?.teamId === team.id ? ourSwing : undefined;
+    const nextGame = swings[0]?.game;
+    const nextGold = swing && nextGame ? ownGameSwing(swing, nextGame) : null;
+    const picks = swing ? rootFor(swing, remainingGames) : [];
+    const nameOf = (id: string) => displayName(dashboardById.get(id)?.name ?? id);
     return ourTeamSummary(team, dashboardRows.length, {
       hasCutLine,
-      swings: nextTwoSwingGames(team.id),
+      swings,
       ...(magic ? { magic } : {}),
+      ...(needs ? { needs } : {}),
+      ...(nextGold ? { nextGold } : {}),
+      ...(picks.length ? { rootFor: rootForLines(picks, nameOf) } : {}),
     });
   }, [
     ourTeamId,
@@ -2694,8 +2753,39 @@ export default function App() {
     goldCutoff,
     settings,
     nextTwoSwingGames,
+    ourSwing,
   ]);
   const currentLeader = dashboardRows[0];
+  // How the season ended, once it has: the Dashboard says so where the next games would be.
+  const seasonFinal = useMemo(
+    () =>
+      seasonFinalOf({
+        standings: dashboardRows,
+        remaining: remainingGames.length,
+        scheduled: matchups.length,
+        hasPostseason,
+        champion: { team: bracketProjection.champion, source: bracketProjection.championSource },
+        ...(hasCutLine
+          ? {
+              silverChampion: {
+                team: silverBracketProjection.champion,
+                source: silverBracketProjection.championSource,
+              },
+            }
+          : {}),
+        ourTeamId,
+      }),
+    [
+      dashboardRows,
+      remainingGames.length,
+      matchups.length,
+      hasPostseason,
+      hasCutLine,
+      bracketProjection,
+      silverBracketProjection,
+      ourTeamId,
+    ]
+  );
 
   /*
    * What changed in the season since this device last looked (2.6): another device's scores, games
@@ -3499,6 +3589,7 @@ export default function App() {
                     />
                   ) : activeView === "dashboard" ? (
                     <DashboardView
+                      seasonFinal={seasonFinal}
                       engine={predictionEngine}
                       gameOdds={(game) =>
                         predictGame(game, liveTeams, settings, liveById).awayWinPct
@@ -3655,6 +3746,8 @@ export default function App() {
                       retryForecastStory={forecastStory.retry}
                       forecastStoryWaiting={forecastStory.waiting}
                       askForecastStory={forecastStory.ask}
+                      raceInput={{ teams, matchups, logs, settings }}
+                      followId={ourTeamId}
                       // A scenario link waiting to be opened needs the machine on screen to open it.
                       {...(incomingScenario?.seasonId === activeSeasonId
                         ? { startOn: "machine" as const }

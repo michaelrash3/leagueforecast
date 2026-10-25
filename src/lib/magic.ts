@@ -1,4 +1,4 @@
-import { standingsPoints } from "./sim";
+import { rankOptionsFromSettings, rankTeams, standingsPoints } from "./sim";
 import type { Matchup, Settings, Team } from "./types";
 
 export type MagicResult = {
@@ -45,13 +45,28 @@ const sortedTeamIds = (teams: Team[]) => teams.map((t) => t.id).sort();
  * ahead (`tiesAhead`), and "eliminated" counts none of them; where only the other side holds, the
  * answer is that the tiebreakers decide (`MagicResult.tiebreak`).
  */
-const rankOfTeam = (teamId: string, points: PointsMap, teams: Team[], tiesAhead: boolean) => {
+const rankOfTeam = (
+  teamId: string,
+  points: PointsMap,
+  losses: PointsMap | null,
+  teams: Team[],
+  tiesAhead: boolean
+) => {
   const my = points[teamId] ?? 0;
+  const myLosses = losses?.[teamId] ?? 0;
   let above = 0;
   for (const t of teams) {
     if (t.id === teamId) continue;
     const p = points[t.id] ?? 0;
-    if (p > my || (p === my && tiesAhead)) above += 1;
+    if (p > my) above += 1;
+    else if (p === my) {
+      // The table's next step after points (`rankTeams`): fewer losses goes ahead, before any
+      // tiebreaker. Only a tie on both, or losses not known, is the tiebreakers' to settle.
+      const l = losses?.[t.id] ?? 0;
+      if (losses && l !== myLosses) {
+        if (l < myLosses) above += 1;
+      } else if (tiesAhead) above += 1;
+    }
   }
   return above + 1;
 };
@@ -91,6 +106,29 @@ const solveCutoff = (
   if (requiredOwnWins + extraForcedLosses > myRemaining) return false;
 
   const ids = sortedTeamIds(teams);
+  /*
+   * Each team's losses at the end of a branch, where they can be known from its points alone: with
+   * ties worth nothing, the points a team gains are its wins, every game left is played by the end,
+   * and so its losses are its losses so far plus its games left less those wins. Carrying losses
+   * through the search instead multiplied the states it remembers, and made the exact answer ten
+   * times slower on a full table; read off the points, they cost nothing. Where a tie scores,
+   * points cannot tell a win from two ties, so losses go unread and a level finish on points is
+   * left to the tiebreakers, as before.
+   */
+  const gamesLeft: PointsMap = {};
+  remaining.forEach((game) => {
+    gamesLeft[game.away] = (gamesLeft[game.away] ?? 0) + 1;
+    gamesLeft[game.home] = (gamesLeft[game.home] ?? 0) + 1;
+  });
+  const lossesAtEnd = (points: PointsMap): PointsMap | null => {
+    if (settings.tiePoints > 0 || settings.winPoints <= 0) return null;
+    const out: PointsMap = {};
+    teams.forEach((team) => {
+      const wins = ((points[team.id] ?? 0) - (base[team.id] ?? 0)) / settings.winPoints;
+      out[team.id] = team.l + (gamesLeft[team.id] ?? 0) - wins;
+    });
+    return out;
+  };
   const memo = new Map<string, boolean>();
   const finalRank =
     remaining.length === 0 ? teams.find((team) => team.id === teamId)?.rank : undefined;
@@ -115,7 +153,9 @@ const solveCutoff = (
       if (ownWins < requiredOwnWins || forcedLosses < extraForcedLosses) return mode === "all";
       // A season with nothing left is the table's to answer, tiebreakers and all.
       if (finalRank !== undefined) return finalRank <= settings.goldCutoff;
-      return rankOfTeam(teamId, points, teams, tiesAhead) <= settings.goldCutoff;
+      return (
+        rankOfTeam(teamId, points, lossesAtEnd(points), teams, tiesAhead) <= settings.goldCutoff
+      );
     }
 
     const pointsKey = ids.map((id) => points[id] ?? 0).join(",");
@@ -322,10 +362,99 @@ export const eliminationNumberForGold = (
     };
   }
 
+  /*
+   * No number of its own losses settles it. That is not the same as being safe: the search above
+   * asks only whether the team's own losses can shut it out, and a team that loses every game left
+   * can still be passed by others' wins. Safe is in at the cut in every branch where it loses out,
+   * with every tie counted against it; anything short of that is out of its own hands.
+   */
+  const myRemaining = remainingGamesFor(teamId, remaining).length;
+  const safe = solveCutoff(
+    teamId,
+    teams,
+    remaining,
+    effectiveSettings,
+    0,
+    myRemaining,
+    "all",
+    true
+  );
   return {
     type: "magic",
     ownWinsNeeded: 0,
     opponentLossesNeeded: 0,
-    description: `Cannot be eliminated from the Gold Bracket this season.`,
+    description: safe
+      ? `Cannot be eliminated from the Gold Bracket this season.`
+      : "Its own losses cannot eliminate it, but other results still can.",
   };
+};
+
+/**
+ * A result the followed team cannot reach the cut without (`neededResults`): `side` must not lose
+ * to `against`. A tie is enough where `orTie`; otherwise `side` has to win.
+ */
+export type NeededResult = {
+  gameId: string;
+  date: string;
+  side: string;
+  against: string;
+  orTie: boolean;
+};
+
+/** The league after one game has gone a given way, ranked again so a season left with no games reads its own table. */
+const after = (teams: Team[], game: Matchup, winnerId: string | null, settings: Settings): Team[] =>
+  rankTeams(
+    teams.map((team) => {
+      if (team.id !== game.away && team.id !== game.home) return team;
+      if (winnerId === null) return { ...team, t: team.t + 1 };
+      return team.id === winnerId ? { ...team, w: team.w + 1 } : { ...team, l: team.l + 1 };
+    }),
+    rankOptionsFromSettings(settings)
+  );
+
+/**
+ * The results the team cannot finish inside the cut without, in its own games or in anyone's:
+ * those where, with the game going the other way (or tied, where a tie scores), no way the rest
+ * can go puts it in, even with every level finish going its way. Null where there is nothing to
+ * need: in whatever happens, or out whatever happens.
+ *
+ * Exact, by the same search as the magic number, run once for each side of each game left; so it
+ * is asked only as late in the season as the magic number is.
+ */
+export const neededResults = (
+  teamId: string,
+  teams: Team[],
+  remaining: Matchup[],
+  cutoff: number,
+  settings: Settings
+): NeededResult[] | null => {
+  const effective = { ...settings, goldCutoff: cutoff };
+  if (!teams.some((team) => team.id === teamId)) return null;
+  if (!solveCutoff(teamId, teams, remaining, effective, 0, 0, "any", false)) return null;
+  if (solveCutoff(teamId, teams, remaining, effective, 0, 0, "all", true)) return null;
+  const needed: NeededResult[] = [];
+  remaining.forEach((game) => {
+    const rest = remaining.filter((other) => other !== game);
+    const stillIn = (winnerId: string | null) =>
+      solveCutoff(
+        teamId,
+        after(teams, game, winnerId, settings),
+        rest,
+        effective,
+        0,
+        0,
+        "any",
+        false
+      );
+    const tieEnough = settings.tiePoints > 0 && stillIn(null);
+    [
+      [game.away, game.home],
+      [game.home, game.away],
+    ].forEach(([side, against]) => {
+      // Needed where the other side winning leaves no way in.
+      if (!side || !against || stillIn(against)) return;
+      needed.push({ gameId: game.id, date: game.date, side, against, orTie: tieEnough });
+    });
+  });
+  return needed;
 };
