@@ -79,4 +79,14 @@ describe("a season with nothing left to play", () => {
     expect(await screen.findByText("Champion")).toBeInTheDocument();
     expect(screen.queryByText("Projected Champion")).toBeNull();
   });
+
+  it("draws the race game day by game day on the Forecast", async () => {
+    saveLogs({ g1: final("6", "2"), g2: final("1", "5") });
+    render(<App />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("tab", { name: "Forecast" }));
+    const race = await screen.findByRole("region", { name: "Season race" });
+    expect(await within(race).findByRole("img")).toBeInTheDocument();
+  });
 });

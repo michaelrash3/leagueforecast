@@ -3797,6 +3797,8 @@ export default function App() {
                       retryForecastStory={forecastStory.retry}
                       forecastStoryWaiting={forecastStory.waiting}
                       askForecastStory={forecastStory.ask}
+                      raceInput={{ teams, matchups, logs, settings }}
+                      followId={ourTeamId}
                       playoffMachine={
                         <PlayoffMachine
                           teams={teams}
