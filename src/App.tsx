@@ -2214,9 +2214,12 @@ export default function App() {
     // reached before this render's `matchups` did.
     const schedule = seasonStore.get().season.matchups;
     // Its own games played on another day than scheduled: moved to the day played, and filled.
-    const moves = additions?.move?.length
-      ? movesToApply(plan, movedGames(plan, schedule, logs), schedule, additions.move, innings)
-      : { dates: {}, logs: {} };
+    // Paired against the scores as the store holds them this moment, which a keystroke not yet
+    // rendered may have reached, and never with a game being filled now.
+    const moved = additions?.move?.length
+      ? movedGames(plan, schedule, seasonStore.get().season.logs, matchupIds)
+      : [];
+    const moves = movesToApply(plan, moved, schedule, additions?.move ?? [], innings, {});
     const movedCount = Object.keys(moves.dates).length;
     // Games between the league's clubs the schedule did not have (3.7), each a new game, final.
     const stamp = Date.now();
@@ -2250,7 +2253,9 @@ export default function App() {
     captureUndo(
       added.matchups.length > 0
         ? "Filled scores and added games from Team Rankings"
-        : "Filled scores from Team Rankings"
+        : result.filled === 0
+          ? "Moved games to the day played, from Team Rankings"
+          : "Filled scores from Team Rankings"
     );
     // Filled onto the scores as they are by then, not as this handler saw them.
     if (result.filled > 0)
@@ -2268,12 +2273,19 @@ export default function App() {
           return day ? { ...game, date: day } : game;
         })
       );
-      setLogs((prev) => ({ ...prev, ...moves.logs }));
+      // Written onto each game's log as it is by then, so nothing typed against it is lost.
+      setLogs((prev) => ({
+        ...prev,
+        ...movesToApply(plan, moved, schedule, additions?.move ?? [], innings, prev).logs,
+      }));
     }
     const count = added.matchups.length;
     showToast(
       [
         result.filled > 0 ? summarizeLeagueFill(plan, result.filled, result.changed) : "",
+        movedCount > 0
+          ? `Moved ${movedCount} game${movedCount === 1 ? "" : "s"} to the day ${movedCount === 1 ? "it was" : "they were"} played.`
+          : "",
         count > 0 ? `Added ${count} game${count === 1 ? "" : "s"} between the league's clubs.` : "",
       ]
         .filter(Boolean)

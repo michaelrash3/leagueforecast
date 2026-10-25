@@ -235,4 +235,44 @@ describe("a game the schedule has, played on another day", () => {
 
     expect(onApply).toHaveBeenCalledWith([], [], { add: ["s9"], swap: [], move: ["s9"] });
   });
+
+  it("is no longer a move once a looser match for the same game is ticked to fill", async () => {
+    const onApply = vi.fn();
+    const looser: LeagueFillPlan = {
+      ...rainedOut,
+      rows: [
+        {
+          matchupId: "g1",
+          date: "9/20",
+          awayTeamId: "ACES",
+          awayName: "Aces",
+          homeTeamId: "BEAR",
+          homeName: "Bears",
+          awayRuns: 7,
+          homeRuns: 3,
+          action: "suggested",
+          detail: "Bears Baseball Club on GameChanger.",
+          scoutGameId: "s1",
+        },
+      ],
+    };
+    render(
+      <LeagueScoreFillPanel
+        plan={looser}
+        seasonLabel="Fall"
+        onApply={onApply}
+        onClose={() => {}}
+        schedule={[{ id: "g1", date: "9/20", away: "ACES", home: "BEAR" }]}
+        logs={{}}
+      />
+    );
+
+    expect(screen.getByText(/Moved 9\/20 → 9\/27/)).toBeInTheDocument();
+    // Filled where it stands, the 9/20 game cannot also be moved to 9/27 and overwritten there.
+    await userEvent.click(screen.getByRole("checkbox", { name: "Fill Aces at Bears" }));
+    expect(screen.queryByText(/Moved 9\/20 → 9\/27/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /^Fill|^Add|^Apply/ }));
+
+    expect(onApply).toHaveBeenCalledWith(["g1"], [], { add: ["s9"], swap: [] });
+  });
 });

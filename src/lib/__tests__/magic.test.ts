@@ -397,4 +397,137 @@ describe("neededResults", () => {
     expect(neededResults("A", table, left, 1, settings)).toBeNull();
     expect(neededResults("C", table, left, 1, settings)).toBeNull();
   });
+
+  it("leaves a level finish after the last game to the tiebreakers, not to the statistics as they stand", () => {
+    // One place. A has beaten C 2-1; B v C is the only game left. If B wins, A and B are both 1-0
+    // and never met, so run differential decides, and B's comes from the game not yet played: 10-0
+    // puts B first. The table as it stands has B at 0 runs to A's +1, and reading that as final
+    // told B it needed C to beat it as well as to beat C.
+    const games: Matchup[] = [
+      { id: "p1", date: "5/1", away: "A", home: "C" },
+      { id: "g2", date: "5/2", away: "B", home: "C" },
+    ];
+    const played = { p1: finalLog(2, 1) };
+    const left = games.filter((game) => !(game.id in played));
+
+    expect(neededResults("B", standing(games, played), left, 1, settings)).toEqual([
+      // A tie leaves B half a point behind A.
+      { gameId: "g2", date: "5/2", side: "B", against: "C", orTie: false },
+    ]);
+  });
+
+  it("still puts fewer losses ahead after the last game, where a tie scores", () => {
+    // One place. A and B drew, and each beat C; B v C is the only game left. If C wins, A and B
+    // are level on points at 1.5 but B has the loss, so A is first. A tie or a win puts B first.
+    const games: Matchup[] = [
+      { id: "p1", date: "5/1", away: "A", home: "B" },
+      { id: "p2", date: "5/2", away: "A", home: "C" },
+      { id: "p3", date: "5/3", away: "B", home: "C" },
+      { id: "g4", date: "5/4", away: "B", home: "C" },
+    ];
+    const played = { p1: finalLog(3, 3), p2: finalLog(5, 1), p3: finalLog(5, 1) };
+    const left = games.filter((game) => !(game.id in played));
+
+    expect(neededResults("B", standing(games, played), left, 1, settings)).toEqual([
+      { gameId: "g4", date: "5/4", side: "B", against: "C", orTie: true },
+    ]);
+  });
+
+  it("keeps a need on the last day that a head-to-head record the game cannot change makes real", () => {
+    // One place. C is 2-1, A 1-1, B 1-2, and A at B is all that is left. An A win by any score puts
+    // A level with C at 2-1, and A beat C, so C is second; a B win or a tie keeps C first. Leaving
+    // every level finish to go C's way told C it needed nothing.
+    const games: Matchup[] = [
+      { id: "p1", date: "5/1", away: "C", home: "B" },
+      { id: "p2", date: "5/2", away: "A", home: "C" },
+      { id: "p3", date: "5/3", away: "C", home: "B" },
+      { id: "p4", date: "5/4", away: "B", home: "A" },
+      { id: "g5", date: "5/5", away: "A", home: "B" },
+    ];
+    const played = {
+      p1: finalLog(5, 1),
+      p2: finalLog(6, 2),
+      p3: finalLog(4, 3),
+      p4: finalLog(2, 0),
+    };
+    const left = games.filter((game) => !(game.id in played));
+
+    expect(neededResults("C", standing(games, played), left, 1, settings)).toEqual([
+      { gameId: "g5", date: "5/5", side: "B", against: "A", orTie: true },
+    ]);
+  });
+
+  it("needs nothing on the last day of a team out however it ends, rather than both sides", () => {
+    // One place, ties worth half. A drew with B and beat C; C beat B; B at C is left. A B win puts
+    // B level with A on points but a loss behind, so A is first whatever happens; so is it where A
+    // has beaten everyone. Neither table may tell B it needs both itself and C to win.
+    const drew: Matchup[] = [
+      { id: "p1", date: "5/1", away: "A", home: "B" },
+      { id: "p2", date: "5/2", away: "A", home: "C" },
+      { id: "p3", date: "5/3", away: "C", home: "B" },
+      { id: "g4", date: "5/4", away: "B", home: "C" },
+    ];
+    const drawn = { p1: finalLog(3, 3), p2: finalLog(5, 1), p3: finalLog(5, 1) };
+    expect(
+      neededResults(
+        "B",
+        standing(drew, drawn),
+        drew.filter((game) => !(game.id in drawn)),
+        1,
+        settings
+      )
+    ).toBeNull();
+
+    const swept: Matchup[] = [
+      { id: "p1", date: "5/1", away: "A", home: "B" },
+      { id: "p2", date: "5/2", away: "B", home: "A" },
+      { id: "p3", date: "5/3", away: "A", home: "C" },
+      { id: "p4", date: "5/4", away: "B", home: "C" },
+      { id: "p5", date: "5/5", away: "C", home: "B" },
+      { id: "g6", date: "5/6", away: "B", home: "C" },
+    ];
+    const sweep = {
+      p1: finalLog(4, 1),
+      p2: finalLog(1, 4),
+      p3: finalLog(4, 1),
+      p4: finalLog(4, 1),
+      p5: finalLog(1, 4),
+    };
+    expect(
+      neededResults(
+        "B",
+        standing(swept, sweep),
+        swept.filter((game) => !(game.id in sweep)),
+        1,
+        settings
+      )
+    ).toBeNull();
+  });
+
+  it("names no result as needed when only the recomputed rating could separate the team", () => {
+    // One place, and no tiebreakers configured, so a level finish on points and losses falls
+    // straight to the rating. A beat C 1-0; B v C is the last game. If B wins the same 1-0, A and B
+    // are a dead heat — identical records against the same club — that the standings settle by the
+    // rating they recompute across the league and, level there, by id (A first). Booking the one
+    // game here does not recompute that rating, and it happens to read B above A. The result must
+    // still not be called needed on a rating worked out afresh: A is told it needs nothing, not
+    // that C must beat B. Strikeouts match so the clubs are alike there too.
+    const flat = { ...settings, tiebreakerOrder: [], runDiffTiebreaker: false };
+    const withK = (a: number, h: number, k: number): GameLog => ({
+      ...finalLog(a, h),
+      awayK: String(k),
+      homeK: String(k),
+    });
+    const games: Matchup[] = [
+      { id: "g1", date: "5/1", away: "A", home: "C" },
+      { id: "g2", date: "5/2", away: "B", home: "C" },
+    ];
+    const played = { g1: withK(1, 0, 6) };
+    const table = rankTeams(
+      calculateTeams(three, games, played, flat),
+      rankOptionsFromSettings(flat)
+    );
+    const left = games.filter((game) => !(game.id in played));
+    expect(neededResults("A", table, left, 1, flat)).toEqual([]);
+  });
 });

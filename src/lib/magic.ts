@@ -1,5 +1,5 @@
-import { rankOptionsFromSettings, rankTeams, standingsPoints } from "./sim";
-import type { Matchup, Settings, Team } from "./types";
+import { rankOptionsFromSettings, rankTeams, standingsPoints, withScore } from "./sim";
+import { RUN_SCORE_CAP, type Matchup, type Settings, type Team } from "./types";
 
 export type MagicResult = {
   type: "magic" | "elimination" | "clinched" | "impossible";
@@ -401,16 +401,103 @@ export type NeededResult = {
   orTie: boolean;
 };
 
-/** The league after one game has gone a given way, ranked again so a season left with no games reads its own table. */
-const after = (teams: Team[], game: Matchup, winnerId: string | null, settings: Settings): Team[] =>
-  rankTeams(
-    teams.map((team) => {
-      if (team.id !== game.away && team.id !== game.home) return team;
-      if (winnerId === null) return { ...team, t: team.t + 1 };
-      return team.id === winnerId ? { ...team, w: team.w + 1 } : { ...team, l: team.l + 1 };
-    }),
-    rankOptionsFromSettings(settings)
+/**
+ * The league after one game has gone a given way: only the records move. Asked only with games
+ * still to come after it, where the search reads points and losses and never the table's ranks.
+ */
+const after = (teams: Team[], game: Matchup, winnerId: string | null): Team[] =>
+  teams.map((team) => {
+    if (team.id !== game.away && team.id !== game.home) return team;
+    if (winnerId === null) return { ...team, t: team.t + 1 };
+    return team.id === winnerId ? { ...team, w: team.w + 1 } : { ...team, l: team.l + 1 };
+  });
+
+/**
+ * Whether the team can finish inside the cut once the season's last game goes a given way, and
+ * whether it is sure to: the game booked at every score that result allows, up to the most runs a
+ * side is ever credited (`RUN_SCORE_CAP`), and the table ranked as the standings rank it.
+ *
+ * With the last game decided the table is complete but for that game's score, and the score is
+ * what the tiebreakers after head-to-head read: run differential as capped, runs allowed, runs
+ * scored. Ranking the table with them as they stood before the game told a team it needed a result
+ * it could reach the cut without; leaving every level finish to go its way dropped needs a
+ * head-to-head record the game cannot change makes real. Trying the scores answers both, and costs
+ * little: about 14 ms for one team on a fourteen-team table (measured in Node, ties worth half),
+ * against the 245 ms the search takes at worst with ten games left.
+ */
+const lastGameChances = (
+  teamId: string,
+  teams: Team[],
+  game: Matchup,
+  winnerId: string | null,
+  cutoff: number,
+  settings: Settings
+): { possible: boolean; sure: boolean } => {
+  const options = rankOptionsFromSettings(settings);
+  /*
+   * `withScore` books the one game as the simulator does, which is exact for points, losses and
+   * the tiebreakers up to run differential and head-to-head, but not for the rating the standings
+   * fall back on last: `calculateTeams` recomputes strength of schedule and the contact bonus
+   * across the whole league once a real result is in, and booking the one game here does not. So a
+   * place that comes down to that rating, or to the id after it, is not to be trusted. The team's
+   * `tpi` is set to the far end of the range to read the place both ways: with it ahead on any
+   * such tie, for whether the team *can* get in, and behind, for whether it is in *whatever
+   * happens*. Where the place is settled before the rating — which is almost always — the two
+   * agree and this is the plain ranking. Resolving the fallback in the team's favour for "can"
+   * keeps a result from being called needed on a rating that would be recomputed; resolving it
+   * against the team for "sure" keeps one from being called safe on the same.
+   */
+  const placeWith = (booked: Team[], tpi: number): number =>
+    rankTeams(
+      booked.map((team) => (team.id === teamId ? { ...team, tpi } : team)),
+      options
+    ).findIndex((team) => team.id === teamId) + 1;
+  let possible = false;
+  let sure = true;
+  for (let high = 0; high <= RUN_SCORE_CAP; high += 1) {
+    const lows = winnerId === null ? [high] : Array.from({ length: high }, (_, low) => low);
+    for (const low of lows) {
+      const [awayRuns, homeRuns] = winnerId === game.home ? [low, high] : [high, low];
+      const booked = withScore(teams, game, awayRuns, homeRuns, settings);
+      if (placeWith(booked, Number.POSITIVE_INFINITY) <= cutoff) possible = true;
+      if (placeWith(booked, Number.NEGATIVE_INFINITY) > cutoff) sure = false;
+      if (possible && !sure) return { possible, sure };
+    }
+  }
+  return { possible, sure };
+};
+
+/**
+ * `neededResults` with one game left, read off every way it can end (`lastGameChances`). Whether
+ * the team can get in at all, and whether it is in whatever happens, come from the same answers as
+ * each result's, so a side is never needed to win alongside the side it plays.
+ */
+const lastGameNeeds = (
+  teamId: string,
+  teams: Team[],
+  game: Matchup,
+  cutoff: number,
+  settings: Settings
+): NeededResult[] | null => {
+  const ways = [game.away, game.home, ...(settings.tiePoints > 0 ? [null] : [])].map(
+    (winnerId) => ({
+      winnerId,
+      ...lastGameChances(teamId, teams, game, winnerId, cutoff, settings),
+    })
   );
+  if (!ways.some((way) => way.possible) || ways.every((way) => way.sure)) return null;
+  const possible = (winnerId: string | null) =>
+    ways.some((way) => way.winnerId === winnerId && way.possible);
+  const orTie = settings.tiePoints > 0 && possible(null);
+  return [
+    [game.away, game.home],
+    [game.home, game.away],
+  ].flatMap(([side, against]) =>
+    !side || !against || possible(against)
+      ? []
+      : [{ gameId: game.id, date: game.date, side, against, orTie }]
+  );
+};
 
 /**
  * The results the team cannot finish inside the cut without, in its own games or in anyone's:
@@ -419,7 +506,8 @@ const after = (teams: Team[], game: Matchup, winnerId: string | null, settings: 
  * need: in whatever happens, or out whatever happens.
  *
  * Exact, by the same search as the magic number, run once for each side of each game left; so it
- * is asked only as late in the season as the magic number is.
+ * is asked only as late in the season as the magic number is. With one game left there is no
+ * level finish to leave to chance: every score it can end with is ranked (`lastGameNeeds`).
  */
 export const neededResults = (
   teamId: string,
@@ -430,22 +518,21 @@ export const neededResults = (
 ): NeededResult[] | null => {
   const effective = { ...settings, goldCutoff: cutoff };
   if (!teams.some((team) => team.id === teamId)) return null;
+  const [last, ...more] = remaining;
+  if (
+    last &&
+    more.length === 0 &&
+    teams.some((team) => team.id === last.away) &&
+    teams.some((team) => team.id === last.home)
+  )
+    return lastGameNeeds(teamId, teams, last, cutoff, settings);
   if (!solveCutoff(teamId, teams, remaining, effective, 0, 0, "any", false)) return null;
   if (solveCutoff(teamId, teams, remaining, effective, 0, 0, "all", true)) return null;
   const needed: NeededResult[] = [];
   remaining.forEach((game) => {
     const rest = remaining.filter((other) => other !== game);
     const stillIn = (winnerId: string | null) =>
-      solveCutoff(
-        teamId,
-        after(teams, game, winnerId, settings),
-        rest,
-        effective,
-        0,
-        0,
-        "any",
-        false
-      );
+      solveCutoff(teamId, after(teams, game, winnerId), rest, effective, 0, 0, "any", false);
     const tieEnough = settings.tiePoints > 0 && stillIn(null);
     [
       [game.away, game.home],

@@ -683,20 +683,92 @@ describe("games the schedule has, played on another day", () => {
   const schedule = [matchup("g1", "9/20", "ACES", "BEAR"), matchup("g2", "9/21", "BEAR", "CUBS")];
 
   it("pairs a played game with the one unscored, earlier game between the two teams", () => {
-    expect(movedGames(plan, schedule, {})).toEqual([
+    expect(movedGames(plan, schedule, {}, [])).toEqual([
       { scoutGameId: "s9", matchupId: "g1", from: "9/20", to: "9/27" },
     ]);
   });
 
   it("pairs nothing where the earlier game is scored, or where two could be it", () => {
-    expect(movedGames(plan, schedule, { g1: { awayRuns: "3", homeRuns: "1" } })).toEqual([]);
+    expect(movedGames(plan, schedule, { g1: { awayRuns: "3", homeRuns: "1" } }, [])).toEqual([]);
     const twice = [...schedule, matchup("g3", "9/13", "BEAR", "ACES")];
-    expect(movedGames(plan, twice, {})).toEqual([]);
+    expect(movedGames(plan, twice, {}, [])).toEqual([]);
+  });
+
+  it("pairs nothing with a game the pool has its own result for on its day", () => {
+    // The 9/20 game was played on its day after all: the pool's 7-3 fills it, so the 2-6 on 9/27
+    // is another meeting, and moving the 9/20 game there would put the 2-6 over the 7-3.
+    const linked = leagueTeams.map((team) => ({ ...team, scoutTeamId: `S-${team.id}` }));
+    const both = planLeagueScoreFill(
+      input({
+        teams: linked,
+        matchups: schedule,
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-09-20"),
+          scoutGame("s2", "S-ACES", "S-BEAR", 2, 6, "2026-09-27"),
+        ],
+        today: "2026-10-25",
+      })
+    );
+    expect(defaultFillSelection(both)).toEqual(["g1"]);
+    expect(both.missing?.map((game) => game.scoutGameId)).toEqual(["s2"]);
+    expect(movedGames(both, schedule, {}, [])).toEqual([]);
+  });
+
+  it("pairs nothing with a game two results on its own day could each be", () => {
+    // Two Aces-Bears results on 9/20 and one game there: which is which is not for a guess, but the
+    // game was plainly played that day, so the 2-6 on 9/27 is another meeting, not its make-up.
+    const linked = leagueTeams.map((team) => ({ ...team, scoutTeamId: `S-${team.id}` }));
+    const twoThatDay = planLeagueScoreFill(
+      input({
+        teams: linked,
+        matchups: schedule,
+        scoutGames: [
+          scoutGame("s1", "S-ACES", "S-BEAR", 7, 3, "2026-09-20"),
+          scoutGame("s1b", "S-ACES", "S-BEAR", 4, 4, "2026-09-20"),
+          scoutGame("s2", "S-ACES", "S-BEAR", 2, 6, "2026-09-27"),
+        ],
+        today: "2026-10-25",
+      })
+    );
+    expect(twoThatDay.rows.map((row) => [row.matchupId, row.action])).toEqual([
+      ["g1", "ambiguous"],
+    ]);
+    expect(twoThatDay.missing?.map((game) => game.scoutGameId)).toEqual(["s2"]);
+    expect(movedGames(twoThatDay, schedule, {}, [])).toEqual([]);
+  });
+
+  it("lets a looser match on the game's day stand in the way only once it is ticked", () => {
+    // A club named like the Bears' beat the Aces on 9/20: offered, never applied unasked. Unticked,
+    // the 9/27 meeting is still the rained-out game's make-up; ticked, the game is filled where it
+    // stands and the 9/27 meeting cannot be moved over it.
+    const looser = (action: "suggested" | "slot"): LeagueFillPlan => ({
+      ...plan,
+      rows: [
+        {
+          matchupId: "g1",
+          date: "9/20",
+          awayTeamId: "ACES",
+          awayName: "Aces",
+          homeTeamId: "BEAR",
+          homeName: "Bears",
+          awayRuns: 7,
+          homeRuns: 3,
+          action,
+          scoutGameId: "s1",
+        },
+      ],
+    });
+    for (const action of ["suggested", "slot"] as const) {
+      expect(movedGames(looser(action), schedule, {}, []).map((move) => move.matchupId)).toEqual([
+        "g1",
+      ]);
+      expect(movedGames(looser(action), schedule, {}, ["g1"])).toEqual([]);
+    }
   });
 
   it("moves the schedule's game to its new day, its score the schedule's way round", () => {
-    const moved = movedGames(plan, schedule, {});
-    const { dates, logs } = movesToApply(plan, moved, schedule, ["s9"], 6);
+    const moved = movedGames(plan, schedule, {}, []);
+    const { dates, logs } = movesToApply(plan, moved, schedule, ["s9"], 6, {});
 
     expect(dates).toEqual({ g1: "9/27" });
     // The schedule has the Aces away: their 6 goes on the away side.
@@ -705,5 +777,34 @@ describe("games the schedule has, played on another day", () => {
     expect(
       missingGamesToAdd(plan, schedule, ["s9"], [], 6, (i) => `n${i}`, ["s9"]).matchups
     ).toEqual([]);
+  });
+
+  it("fills a moved game onto what was typed against it, leaving everything but runs as it was", () => {
+    // Hits, strikeouts, errors and walks typed by hand for the rained-out game, at seven innings,
+    // but no runs: only runs keep a game from moving, so it is still paired.
+    const typed: GameLog = {
+      ...blankLog("7"),
+      awayHits: "8",
+      homeHits: "5",
+      awayK: "4",
+      homeK: "9",
+      awayErrors: "1",
+      homeErrors: "3",
+      awayWalksAllowed: "2",
+      homeWalksAllowed: "6",
+    };
+    const current: Record<string, GameLog> = { g1: typed };
+    const moved = movedGames(plan, schedule, current, []);
+    expect(moved.map((move) => move.matchupId)).toEqual(["g1"]);
+
+    const { logs } = movesToApply(plan, moved, schedule, ["s9"], 6, current);
+    expect(logs.g1).toEqual({ ...typed, awayRuns: "6", homeRuns: "2", isFinal: true });
+    // A game that never had a log still gets a blank one at the season's innings.
+    expect(movesToApply(plan, moved, schedule, ["s9"], 6, {}).logs.g1).toEqual({
+      ...blankLog("6"),
+      awayRuns: "6",
+      homeRuns: "2",
+      isFinal: true,
+    });
   });
 });
