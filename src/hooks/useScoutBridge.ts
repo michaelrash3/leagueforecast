@@ -136,7 +136,11 @@ const SERVER_DAY = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
-/** The copy and version an answer was worked out from, and when it was heard (`STAMP_TRUST_MS`). */
+/**
+ * The copy and version an answer was worked out from, and when its question was sent
+ * (`STAMP_TRUST_MS`): no later than the server worked it out, so an answer asked for before New
+ * York's midnight and heard after it is held to the day before, and asked again (Codex, on #446).
+ */
 type Stamp = CopyAt & { heard: number };
 
 /**
@@ -442,8 +446,9 @@ export function useScoutBridge({
         });
     };
     const send = (failures: number) => {
+      const sent = Date.now();
       out.current = true;
-      askedAt.current = Date.now();
+      askedAt.current = sent;
       void asker(question).then((reply) => {
         // An answer for teams or scores since changed is not this season's as it stands.
         if (!current) return;
@@ -452,7 +457,7 @@ export function useScoutBridge({
           keepBridge(activeSeasonId, { bridge: reply.bridge, asked });
           heardOn.current[seasonKey] = {
             asked,
-            at: reply.at ? { ...reply.at, heard: Date.now() } : null,
+            at: reply.at ? { ...reply.at, heard: sent } : null,
           };
           setHeard((was) => ({
             ...was,

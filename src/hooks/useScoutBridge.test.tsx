@@ -1028,6 +1028,28 @@ describe("what Team Rankings has for a league season, asked of the server", () =
     expect(asked).toHaveLength(2);
   });
 
+  it("holds an answer asked for before the server's midnight and heard after it to the day before", async () => {
+    // Sent at 23:59 in New York, and worked out by a server waking up for a minute.
+    vi.setSystemTime(new Date("2026-10-26T03:59:00.000Z"));
+    const copy = cloudCopy();
+    const asked: Asked[] = [];
+    const asker = (async (query: Asked) => {
+      asked.push(query);
+      await new Promise((resolve) => setTimeout(resolve, 60_000));
+      return { kind: "league.bridge", ...ANSWER, at: { ...copy.state.at } };
+    }) as LeagueAsker;
+    const given = { asker, copyNow: copy.copyNow };
+    const { result, rerender } = setup(props(given));
+    await settle();
+    await wait(60_000);
+    expect(result.current.bridge).toEqual(ANSWER.bridge);
+    // Heard after midnight, it may leave out a game that counts from today: asked again.
+    roundTrip(rerender, given);
+    await settle();
+    expect(copy.state.reads).toBe(0);
+    expect(asked).toHaveLength(2);
+  });
+
   it("asks again a day after an answer, however still the copy", async () => {
     const copy = cloudCopy();
     const { asked, asker } = stamped(copy.state);
