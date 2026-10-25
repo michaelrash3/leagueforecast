@@ -171,8 +171,15 @@ globalThis.fetch = async (input, init) => {
   });
 };
 const part = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+/*
+ * Stamped once, so an account's token is the same string for the whole run, as a device's is
+ * between refreshes. The member checks keep an answer by token: one stamped per call changed
+ * whenever a second turned between two calls, so the check that the list is read once while an
+ * answer holds saw it read twice: on #444's CI, and every time with a one-second pause put in.
+ */
+const signedUntil = Math.floor(Date.now() / 1000) + 3600;
 const signedInAs = (email) => ({
-  authorization: `Bearer ${part({ alg: "RS256" })}.${part({ email, exp: Math.floor(Date.now() / 1000) + 3600 })}.signature`,
+  authorization: `Bearer ${part({ alg: "RS256" })}.${part({ email, exp: signedUntil })}.signature`,
 });
 
 const ids = Array.from({ length: 10 }, (_, index) => `SmokeTeam${String(index).padStart(3, "0")}`);
