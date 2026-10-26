@@ -169,7 +169,9 @@ const tierForData = (
     teamGameCounts.set(game.home, (teamGameCounts.get(game.home) ?? 0) + 1);
   });
   const teamsWithNoGames = [...teamGameCounts.values()].filter((games) => games === 0).length;
-  const minGames = Math.min(...[...teamGameCounts.values(), 0]);
+  // The fewest games any team has played. A 0 among the counts made it 0 for every league, so no
+  // league rose past "Limited" however many games its teams had played.
+  const minGames = teamGameCounts.size === 0 ? 0 : Math.min(...teamGameCounts.values());
   const warnings: string[] = [];
   const recommendedActions: string[] = [];
   if (teams.length < 2) {

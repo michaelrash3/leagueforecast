@@ -1,4 +1,9 @@
-import { hashSeed, predictGame } from "./sim";
+import {
+  bracketNextPowerOfTwo as nextPowerOfTwo,
+  bracketSeedOrder as seedOrder,
+  hashSeed,
+  predictGame,
+} from "./sim";
 import type { GameLog, Matchup, Prediction, Settings, Team } from "./types";
 import { clamp, isFinal, parseNumber } from "./util";
 
@@ -32,18 +37,6 @@ export type BracketProjection = {
   rounds: BracketGameProjection[][];
   champion: BracketEntrant | null;
   championSource: BracketGameProjection["winnerSource"] | "none";
-};
-
-const nextPowerOfTwo = (value: number) => {
-  let size = 1;
-  while (size < value) size *= 2;
-  return size;
-};
-
-const seedOrder = (size: number): number[] => {
-  if (size <= 1) return [1];
-  const previous = seedOrder(size / 2);
-  return previous.flatMap((seed) => [seed, size + 1 - seed]);
 };
 
 const roundName = (roundIndex: number, totalRounds: number) => {

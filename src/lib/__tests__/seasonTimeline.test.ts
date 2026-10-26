@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSeasonTimeline } from "../seasonTimeline";
+import { calculateTeams, rankOptionsFromSettings, rankTeams } from "../sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../types";
 
 const teams: TeamBase[] = [
@@ -68,5 +69,26 @@ describe("buildSeasonTimeline", () => {
     expect(line(0)).toContain("Aces clinched Gold");
     // Four games each, two still owed: the Bears and the Comets can each still reach three wins.
     expect(line(4)).not.toContain("clinched");
+  });
+});
+
+describe("the timeline's places", () => {
+  it("rank under the league's own run-differential cap, as the table does", () => {
+    // Two clubs that never met, each one win over the third: by 20 runs and by 6. Capped at 5 they
+    // are level on run differential and the Bears, who allowed none, go first; at 35 runs, the
+    // cap the timeline used with no settings, the Aces did.
+    const games: Matchup[] = [
+      { id: "g1", date: "2026-05-01", away: "A", home: "C" },
+      { id: "g2", date: "2026-05-02", away: "B", home: "C" },
+    ];
+    const logs = { g1: finalLog(22, 2), g2: finalLog(6, 0) };
+    const settings = { ...DEFAULT_SETTINGS, maxRunDifferential: 5, autoRunDiffCap: false };
+    const table = rankTeams(
+      calculateTeams(teams, games, logs, settings),
+      rankOptionsFromSettings(settings)
+    );
+    expect(table.map((team) => team.id)).toEqual(["B", "A", "C"]);
+    const entries = buildSeasonTimeline(teams, games, logs, settings, 5);
+    expect(entries.find((entry) => entry.id === "g2")?.movement).toEqual(["Bears climbed #2 → #1"]);
   });
 });

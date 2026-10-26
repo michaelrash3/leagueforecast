@@ -20,7 +20,7 @@ export const DIAGNOSTIC_LIMIT = 20;
 /** Long enough for a real stack, short enough that twenty of them still fit in storage. */
 const DETAIL_LIMIT = 2000;
 
-export type DiagnosticKind = "crash" | "pool-write";
+export type DiagnosticKind = "crash" | "pool-write" | "uncaught";
 
 export type DiagnosticEntry = {
   at: string;
@@ -40,7 +40,7 @@ const isEntry = (value: unknown): value is DiagnosticEntry => {
   const entry = value as Record<string, unknown>;
   return (
     typeof entry.at === "string" &&
-    (entry.kind === "crash" || entry.kind === "pool-write") &&
+    (entry.kind === "crash" || entry.kind === "pool-write" || entry.kind === "uncaught") &&
     typeof entry.where === "string" &&
     typeof entry.message === "string" &&
     (entry.detail === undefined || typeof entry.detail === "string")
@@ -82,6 +82,44 @@ export const recordDiagnostic = (entry: Omit<DiagnosticEntry, "at">): void => {
   } catch {
     // A full or unavailable store means no record, which is where this started. Never a throw.
   }
+};
+
+/**
+ * Writes down the errors nothing caught: a throw in an event handler or a timer ("Page script"),
+ * and a promise rejected with nobody waiting on it ("Unfinished task"). A boundary records only
+ * what breaks a render, and these went to the console alone. Recorded here and nowhere else, as a
+ * crash is. Returns the way to stop listening.
+ */
+export const watchUncaught = (target: Window): (() => void) => {
+  const record = (where: string, reason: unknown) => {
+    try {
+      const error = reason instanceof Error ? reason : undefined;
+      const message = clip(
+        error ? `${error.name}: ${error.message}` : String(reason),
+        DETAIL_LIMIT
+      );
+      // Once, however often it repeats: a throw on every frame would push out everything kept.
+      const latest = readDiagnostics()[0];
+      if (latest?.kind === "uncaught" && latest.where === where && latest.message === message)
+        return;
+      recordDiagnostic({
+        kind: "uncaught",
+        where,
+        message,
+        ...(error?.stack ? { detail: error.stack } : {}),
+      });
+    } catch {
+      // A reason that will not even be turned into text is left unrecorded, never thrown again.
+    }
+  };
+  const onError = (event: ErrorEvent) => record("Page script", event.error ?? event.message);
+  const onRejection = (event: PromiseRejectionEvent) => record("Unfinished task", event.reason);
+  target.addEventListener("error", onError);
+  target.addEventListener("unhandledrejection", onRejection);
+  return () => {
+    target.removeEventListener("error", onError);
+    target.removeEventListener("unhandledrejection", onRejection);
+  };
 };
 
 export const clearDiagnostics = (): void => {

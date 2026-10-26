@@ -52,6 +52,26 @@ updates:
     commit-message:
       prefix: deps
 
+  # The Cloud Functions bundle has its own lockfile, which nothing kept current: firebase-admin,
+  # firebase-functions and esbuild. Monthly and in one pull request, the owner's choice of
+  # 26 October 2026, since the functions change rarely and each update is a deploy. Majors are
+  # left out here, where on the app they come as their own pull request: a firebase major is a
+  # migration of the deployed functions, taken on purpose rather than offered every month.
+  - package-ecosystem: npm
+    directory: /functions
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      functions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: deps
+
   # The workflow's own actions age too, and a pinned action that stops being maintained is the
   # kind of thing nobody notices until a run breaks.
   - package-ecosystem: github-actions

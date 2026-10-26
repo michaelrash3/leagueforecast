@@ -163,13 +163,30 @@ export const parseScheduleDate = (raw: string, context: DateContext = {}): strin
   return iso(year, month, day);
 };
 
-/** `W 6-5`, `L 3-10`, `6–5`, `6 - 5`. The first number is always the subject team's. */
+/**
+ * `W 6-5`, `L 3-10`, `6–5`, `6 - 5`. With no result letter the first number is the subject team's.
+ * With one, the letter decides who won, whichever number a site writes first: GameChanger and most
+ * league sites write the winner's score first, so `L 5-3` is a 3-5 loss, where reading the numbers
+ * alone filed it as a 5-3 win. A tie letter on two different numbers says two things, and is no
+ * score.
+ */
 export const parseScorePair = (
   raw: string
 ): { teamScore: number; opponentScore: number } | undefined => {
-  const match = /^(?:[wlt]\s*)?(\d{1,3})\s*[-–—:]\s*(\d{1,3})$/i.exec(raw.trim());
+  const match = /^(?:([wlt])\s*)?(\d{1,3})\s*[-–—:]\s*(\d{1,3})$/i.exec(raw.trim());
   if (!match) return undefined;
-  return { teamScore: Number(match[1]), opponentScore: Number(match[2]) };
+  const first = Number(match[2]);
+  const second = Number(match[3]);
+  const result = match[1]?.toLowerCase();
+  if (result === "t")
+    return first === second ? { teamScore: first, opponentScore: second } : undefined;
+  if (result === "w" || result === "l") {
+    const [high, low] = first >= second ? [first, second] : [second, first];
+    return result === "w"
+      ? { teamScore: high, opponentScore: low }
+      : { teamScore: low, opponentScore: high };
+  }
+  return { teamScore: first, opponentScore: second };
 };
 
 const HOME_WORDS = new Set(["vs", "vs.", "v", "v.", "home", "h", "true", "yes"]);
@@ -413,7 +430,8 @@ const rowFromLine = (line: string, context: DateContext): ParsedGameRow | null =
 
   // Then the result off the end: it is the only part with a fixed shape.
   let scores: { teamScore: number; opponentScore: number } | undefined;
-  const trailing = /\s(?:[wlt]\s*)?(\d{1,3}\s*[-–—]\s*\d{1,3})\s*$/i.exec(rest);
+  // The result letter is read with the numbers: it decides who won (`parseScorePair`).
+  const trailing = /\s((?:[wlt]\s*)?\d{1,3}\s*[-–—]\s*\d{1,3})\s*$/i.exec(rest);
   if (trailing) {
     scores = parseScorePair(trailing[1] ?? "");
     if (scores) rest = rest.slice(0, trailing.index).trim();
@@ -504,8 +522,12 @@ export const parseScheduleText = (
   text: string,
   today: string = todayIsoDay()
 ): ParsedScheduleText => {
-  const lines = text.split(/\r?\n/).map((line) => line.trim());
   const delimiter = text.includes("\t") ? "\t" : ",";
+  // Between tabs a line keeps its tabs: a blank first cell is a leading tab, and trimming it off
+  // shifted every cell of the row one column left. Spaces still come off its ends.
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => (delimiter === "\t" ? line.replace(/^ +| +$/g, "") : line.trim()));
 
   const context: DateContext = {};
   const games: ParsedGameRow[] = [];
@@ -513,7 +535,9 @@ export const parseScheduleText = (
   const subjects = new Set<string>();
   let map: ColumnMap | null = null;
 
-  lines.forEach((line) => {
+  lines.forEach((cellsLine) => {
+    // The line as words, for everything but its cells.
+    const line = cellsLine.trim();
     if (!line) return;
 
     const monthYear = MONTH_YEAR.exec(line);
@@ -528,7 +552,7 @@ export const parseScheduleText = (
       return;
     }
 
-    const cells = splitCells(line, delimiter);
+    const cells = splitCells(cellsLine, delimiter);
     if (cells.length >= 2) {
       if (!map) {
         const header = readHeader(cells);

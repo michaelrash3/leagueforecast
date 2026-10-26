@@ -360,3 +360,37 @@ describe("buildPredictionEngine placing a spring league among last autumn's tour
     expect(falcons?.trend).toBe("Up");
   });
 });
+
+describe("the data-quality tier", () => {
+  // Four teams, each pair met twice, every result in: six games a team, twelve in all, and one to
+  // come. Enough for "Strong" (three games a team and as many games as three a team).
+  const four: TeamBase[] = [
+    { id: "A", name: "Aces" },
+    { id: "B", name: "Bats" },
+    { id: "C", name: "Cubs" },
+    { id: "D", name: "Dons" },
+  ];
+  const ids = four.map((team) => team.id);
+  const pairs = ids.flatMap((a, i) => ids.slice(i + 1).map((b) => [a, b] as const));
+  const played: Matchup[] = [...pairs, ...pairs].map(([away, home], at) => ({
+    id: `p${at}`,
+    date: `2026-04-${String(at + 1).padStart(2, "0")}`,
+    away,
+    home,
+  }));
+  const next: Matchup = { id: "next", date: "2026-05-01", away: "A", home: "D" };
+  const scores: Record<string, GameLog> = Object.fromEntries(
+    played.map((game, at) => [
+      game.id,
+      { ...logs["1"]!, awayRuns: String(4 + (at % 4)), homeRuns: String(3 + (at % 3)) },
+    ])
+  );
+
+  it("reads the fewest games any team has played", () => {
+    const live = calculateTeams(four, [...played, next], scores, DEFAULT_SETTINGS);
+    const result = buildPredictionEngine(live, [...played, next], scores, DEFAULT_SETTINGS);
+    // "Limited" and a confidence of 26 before the fewest games was read as 0 for every league.
+    expect(result.dataQuality.tier).toBe("Strong");
+    expect(result.predictions[0]?.confidence.score).toBe(53);
+  });
+});

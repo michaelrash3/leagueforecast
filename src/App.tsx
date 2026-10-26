@@ -146,7 +146,7 @@ import type { StartPage } from "./lib/leagueStart";
 import { createAgeGroupId } from "./lib/teamRankings/seasons";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
 import { displayName, recordText } from "./lib/format";
-import { pathSummary, recapToMarkdown, recapToStoryBrief } from "./lib/insights";
+import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { eliminationNumberForGold, magicForGold, neededResults } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
@@ -174,7 +174,9 @@ import {
   type FindingRepair,
   type FindingSeverity,
   type FindingTarget,
+  seasonDaysFromToday,
 } from "./lib/leagueFindings";
+import { inPlayingOrder } from "./lib/stillToCome";
 import { useToday } from "./hooks/useToday";
 import { useNarrowViewport } from "./hooks/useWideViewport";
 import { TabNav, type TabNavItem } from "./components/TabNav";
@@ -1211,6 +1213,17 @@ export default function App() {
 
   // ---------- Scenario helpers ----------
 
+  const today = useToday();
+  // The season's dates on one timeline, so a game whose date has passed is known for one.
+  const daysFromToday = useMemo(
+    () =>
+      seasonDaysFromToday(
+        matchups.map((game) => game.date),
+        today
+      ),
+    [matchups, today]
+  );
+
   const { seedForScenario, seedRangeForTeam } = useSeedRanges({
     exact: exactScenarioAnalysisEnabled,
     liveTeams,
@@ -1222,9 +1235,11 @@ export default function App() {
 
   const nextTwoSwingGames = useCallback(
     (teamId: string): SwingGame[] => {
-      return remainingGames
-        .filter((game) => game.away === teamId || game.home === teamId)
-        .sort((a, b) => parseDateValue(a.date, seasonStart) - parseDateValue(b.date, seasonStart))
+      // A rained-out game still on its old date comes after the games that will be played first.
+      return inPlayingOrder(
+        remainingGames.filter((game) => game.away === teamId || game.home === teamId),
+        daysFromToday
+      )
         .slice(0, 2)
         .map((game) => {
           const teamIsAway = game.away === teamId;
@@ -1258,7 +1273,7 @@ export default function App() {
     },
     [
       remainingGames,
-      seasonStart,
+      daysFromToday,
       teamBaseById,
       liveTeams,
       settings,
@@ -2336,7 +2351,6 @@ export default function App() {
 
   // ---------- Data quality (2.3) ----------
 
-  const today = useToday();
   /*
    * Every finding on the season. Read from the scores as they stand, since a game scored and not
    * marked final is one of the things it looks for, and deferred like them; cheap (one pass over
@@ -2963,20 +2977,6 @@ export default function App() {
               opponentLossesNeeded: 0,
               description: `Exact elimination number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
             },
-      path: pathSummary(
-        { ...selectedTeam, rank: selectedTeam.rank ?? 99 },
-        goldCutoff,
-        swings.map((swing) => ({
-          opponentName: swing.opponentName,
-          teamIsAway: swing.teamIsAway,
-          winSeed: swing.winSeed,
-          lossSeed: swing.lossSeed,
-        })),
-        {
-          totalTeams: dashboardRows.length,
-          leaderName: currentLeader ? displayName(currentLeader.name) : "",
-        }
-      ),
     };
   }, [
     selectedTeam,
@@ -2992,7 +2992,6 @@ export default function App() {
     remainingGames,
     goldCutoff,
     settings,
-    currentLeader,
   ]);
 
   const finalCount = completedGames.length;
