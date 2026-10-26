@@ -96,7 +96,10 @@ const DIST = "dist";
  * (161,742 bytes against 161,167): "Add our next opponents" kept to the next weekend
  * (`nextWeekend.ts`), the schedule reader's start times, age ranges and turning year, which Team
  * Rankings' schedule import shares, and a stand-in a league team is carried onto listed as its
- * club. The first download went the other way, 253.7 KB against 254.1 KB on main: the two-tab
+ * club. Settings to 13.7 KB the same day for the same PR, 13.5 KB against 13.3 KB on main (13,506
+ * bytes against 13,279): the line offering what the last restore replaced, and the notification
+ * choices with no cut-line words in a league without a cut. The first download went the other way,
+ * 253.7 KB against 254.1 KB on main: the two-tab
  * protocol (`tabTurnChannel.ts`), its banner and the AI health check are fetched when needed, and
  * four imports that reached first-download code from a view's chunk were cut, each of which had
  * made the build split shared code out of the first download into files of their own (the
@@ -116,7 +119,7 @@ const BUDGET = {
     "League Stats": 3_700,
     Forecast: 18_800,
     "Data Quality": 3_500,
-    Settings: 13_500,
+    Settings: 13_700,
     "Seasons at a glance": 4_400,
     "Team Rankings": 162_000,
   },
