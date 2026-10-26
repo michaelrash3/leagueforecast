@@ -573,6 +573,36 @@ describe("splitCsvSections", () => {
     expect(sections.get("schedule")).toBe("a,b\n1,2");
     expect(sections.get("team rankings teams")).toBe("Team ID\nS-ICEC");
   });
+
+  it("reads a marker a spreadsheet saved as a row padded with empty cells, quoted or not", () => {
+    // Excel and Sheets save a one-cell row as wide as the widest row in the file.
+    const sections = splitCsvSections(
+      [
+        "a,b,c",
+        "1,2,3",
+        "# Section: Team Rankings Teams,,",
+        "Team ID,Team Name,",
+        "S-ICEC,Ice Cats,",
+        '"# Section: Team Rankings Games",,',
+        "Game ID,,",
+      ].join("\n"),
+      CSV_SECTIONS.schedule
+    );
+    expect([...sections.keys()]).toEqual([
+      "schedule",
+      "team rankings teams",
+      "team rankings games",
+    ]);
+    expect(sections.get("team rankings teams")).toBe("Team ID,Team Name,\nS-ICEC,Ice Cats,");
+    expect(sections.get("team rankings games")).toBe("Game ID,,");
+  });
+
+  it("leaves a row with anything beside the marker as a row", () => {
+    const text = "a,b\n# Section: Teams,S-ICEC\nc,d";
+    const sections = splitCsvSections(text, CSV_SECTIONS.schedule);
+    expect([...sections.keys()]).toEqual(["schedule"]);
+    expect(sections.get("schedule")).toBe(text);
+  });
 });
 
 describe("placeholder slots in a backup", () => {

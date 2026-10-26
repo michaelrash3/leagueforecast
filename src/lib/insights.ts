@@ -1,67 +1,6 @@
 import { formatGameDate } from "./date";
 import { displayName, recordText } from "./format";
-import type { GoldStatus, Matchup, Team } from "./types";
-
-export type InsightTeam = Team & {
-  rank: number;
-  projectedRank: number;
-  goldPct: number;
-  goldStatus: GoldStatus;
-};
-
-export type SwingFact = {
-  opponentName: string;
-  teamIsAway: boolean;
-  winSeed: number;
-  lossSeed: number;
-};
-
-/**
- * Deterministic one-paragraph narrative for a team's path. No LLM,
- * built only from known model values so the wording is testable.
- */
-export const pathSummary = (
-  team: InsightTeam,
-  cutoff: number,
-  swings: SwingFact[],
-  context: { totalTeams: number; leaderName: string }
-): string => {
-  const name = displayName(team.name);
-  const seed = team.rank;
-  const projected = team.projectedRank;
-  const goldPct = Math.round(team.goldPct);
-
-  if (team.goldStatus === "Clinched") {
-    return `${name} have clinched a Gold Bracket spot at #${seed}; now it's all about locking up the best possible seed.`;
-  }
-  if (team.goldStatus === "Eliminated") {
-    return `${name} are mathematically eliminated from the Gold race, but they still get to play spoiler and reshape everyone else's path.`;
-  }
-
-  const insideNow = seed <= cutoff;
-  const insideProjected = projected <= cutoff;
-  const swingLine = swings
-    .slice(0, 2)
-    .map(
-      (s) =>
-        `${s.teamIsAway ? "at" : "vs"} ${s.opponentName} (win → #${s.winSeed}, loss → #${s.lossSeed})`
-    )
-    .join(" and ");
-
-  if (insideNow && insideProjected) {
-    return `${name} are holding firm at #${seed} with a projection of #${projected} and ${goldPct}% Gold odds — safely above the line for now. Next two pressure points: ${swingLine}.`;
-  }
-  if (insideNow && !insideProjected) {
-    return `${name} currently own #${seed}, but the model sees a slide to #${projected} as the stretch run unfolds (${goldPct}% Gold). ${swingLine ? "They need to defend that cushion immediately: " + swingLine + "." : "Every remaining loss digs the hole deeper."}`;
-  }
-  if (!insideNow && insideProjected) {
-    return `${name} are sitting at #${seed} today but are projected to rise to #${projected} (${goldPct}% Gold). They climb back into the picture if these next two break their way: ${swingLine}.`;
-  }
-  if (goldPct >= 15) {
-    return `${name} are #${seed} now and project to #${projected} — still outside the line, but ${goldPct}% means they're alive and dangerous.${context.leaderName ? ` ${context.leaderName} currently set the pace up top.` : ""}${swingLine ? ` Swing games to circle: ${swingLine}.` : ""}`;
-  }
-  return `${name} are in survival mode (now #${seed}, projected #${projected}, ${goldPct}% Gold): they need wins plus help from around the league.${swingLine ? ` Must-watch swings: ${swingLine}.` : ""}`;
-};
+import type { GoldStatus, Matchup } from "./types";
 
 export type RecapInput = {
   before: { id: string; rank: number; goldPct: number; goldStatus: GoldStatus }[];

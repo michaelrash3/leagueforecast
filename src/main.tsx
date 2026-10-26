@@ -9,6 +9,7 @@ import { startPoolFill } from "./lib/poolFill";
 import { afterOpening } from "./lib/live/openingHold";
 import { startApp } from "./lib/bootOrder";
 import { listenForTakes } from "./lib/cloud/cloudTabs";
+import { watchUncaught } from "./lib/diagnostics";
 import { startTabTurn } from "./lib/tabTurn";
 import "./index.css";
 
@@ -37,6 +38,9 @@ const askToKeepStorage = (): void => {
     /* not offered here */
   }
 };
+
+// First, so an error nothing catches from here on is written to this device's log (`diagnostics.ts`).
+watchUncaught(window);
 
 // Which tab of this browser may write League Standings: a tab opened after another is read-only
 // until it takes the turn (`tabTurn.ts`). Asked before anything is drawn or saved.

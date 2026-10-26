@@ -3,7 +3,9 @@
 Browser-first youth-baseball app: League Standings (one league's season, standings and a Monte
 Carlo forecast) and Team Rankings (a nationwide pool pulled from GameChanger, rated with a
 ridge-regularised least-squares fit). React 19, Vite, TypeScript strict, Tailwind 4, Vitest.
-Everything lives in the browser (localStorage and IndexedDB); two Vercel functions in `api/`.
+Data lives in the browser (localStorage and IndexedDB) and, signed in, in one Firestore cloud
+copy; Vercel serves the static site and the server side is Firebase functions (`functions/`,
+`server/`).
 `README.md` is the design document; read the section for whatever you touch.
 
 ## Commands

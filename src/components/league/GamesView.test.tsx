@@ -304,6 +304,20 @@ describe("what a game card can do to the schedule", () => {
 
     expect(spies.toggleFinal).toHaveBeenCalledWith("g-open");
   });
+
+  it("names the press in the header button, not the state the game is in", async () => {
+    const user = userEvent.setup();
+    renderGamesView({ teams, scoreboardGames: [open, done], logs: finished });
+
+    // It read "Scheduled" on a game still to play, and pressing it made the game final.
+    expect(screen.getByRole("button", { name: "Mark game as final" })).toHaveTextContent(
+      /^Mark final$/
+    );
+    await user.click(screen.getByRole("button", { name: /edit final/i }));
+    expect(screen.getByRole("button", { name: "Mark game as scheduled" })).toHaveTextContent(
+      /^Reopen$/
+    );
+  });
 });
 
 describe("filling scores from Team Rankings", () => {

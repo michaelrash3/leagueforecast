@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * One browser, one smoke spec, against the built app.
+ * One browser, the specs in `e2e/`, against the built app.
  *
  * `vite preview` serves `dist/`, so build first: `npm run build && npm run test:e2e`. CI builds two
  * steps earlier. On Claude Code on the web a Chromium is preinstalled and downloading another is

@@ -28,7 +28,8 @@ const snapshot = (
   logs: Record<string, GameLog>,
   settings: Settings
 ): RankedStatus[] => {
-  const live = calculateTeams(teams, matchups, logs);
+  // Under the league's own run-differential cap, as the table ranks; with none it was 35 runs.
+  const live = calculateTeams(teams, matchups, logs, settings);
   const ranked = rankTeams(live, rankOptionsFromSettings(settings));
   const remaining = matchups.filter((game) => !isFinal(logs[game.id]));
   // Games the season owes but has not scheduled count too, as they do in the table.

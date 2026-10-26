@@ -3,8 +3,7 @@
  *
  * `server/league-summary.ts` and `server/gc-team.ts` carried byte-identical copies of the handler types,
  * the client key and the throttle — about sixty lines, diverging the moment one of them was fixed
- * and the other was not. It lives here rather than in `api/` because Vercel turns files under that
- * directory into endpoints, and a helper is not an endpoint.
+ * and the other was not. Both import it from here, and the functions' bundle takes it with them.
  *
  * `declare const process` deliberately stays in each function. It is an ambient declaration rather
  * than a value, so it cannot be exported and re-imported, and it is one line.

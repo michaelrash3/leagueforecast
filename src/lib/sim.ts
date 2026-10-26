@@ -1489,15 +1489,15 @@ export const simulateGoldOdds = (
 ): Record<string, number> =>
   simulateGoldOddsRun(teams, remaining, iterations, seedText, cutoff, settings).odds;
 
-// Standard single-elimination bracket helpers (kept local to avoid a cycle with bracket.ts,
-// which already imports predictGame/hashSeed from this module).
-const bracketNextPowerOfTwo = (value: number) => {
+// Standard single-elimination bracket helpers, here rather than in bracket.ts because bracket.ts
+// already imports predictGame/hashSeed from this module, and takes these with them.
+export const bracketNextPowerOfTwo = (value: number) => {
   let size = 1;
   while (size < value) size *= 2;
   return size;
 };
 
-const bracketSeedOrder = (size: number): number[] => {
+export const bracketSeedOrder = (size: number): number[] => {
   if (size <= 1) return [1];
   const previous = bracketSeedOrder(size / 2);
   return previous.flatMap((seed) => [seed, size + 1 - seed]);

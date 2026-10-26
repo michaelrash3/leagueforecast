@@ -25,6 +25,7 @@ const when = (at: string) => {
 const label: Record<DiagnosticEntry["kind"], string> = {
   crash: "Screen could not be drawn",
   "pool-write": "A save did not land",
+  uncaught: "An error nothing caught",
 };
 
 export function DiagnosticsCard() {
