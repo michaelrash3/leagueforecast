@@ -489,7 +489,7 @@ export const auditLeague = ({
         severity: "info",
         summary: `The schedule gives teams ${fewest} to ${most} games`,
         detail:
-          "Standings go by winning percentage, so an uneven schedule still ranks fairly, but a team with fewer games has fewer chances to move.",
+          "Standings go by points, so a team with more games has more chances to earn them, and one with fewer sits lower until it plays the games it is owed.",
         suggestion: "Check for games missing from the schedule.",
         targets: short.map((team) => teamTarget(team.id)),
         affectsForecast: false,

@@ -319,6 +319,8 @@ describe("auditing a League Standings season", () => {
     const finding = only(audit({ matchups: shorter }), "uneven-schedule");
     expect(teamIds(finding)).toEqual(["B"]);
     expect(finding.severity).toBe("info");
+    // The table ranks by points, not winning percentage (`rankTeams`), so says so.
+    expect(finding.detail).toMatch(/^Standings go by points/);
   });
 
   describe("games per team against the schedule", () => {
