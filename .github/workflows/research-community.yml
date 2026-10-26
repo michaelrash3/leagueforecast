@@ -6,9 +6,11 @@
 #
 # It runs only on a push to rash/griffey whose head commit's message holds the marker [run-sweep],
 # and never on any other branch or push. It prints numbers, days and scores only: this repository is
-# public, and so are its Actions logs. The lines that name clubs are sealed to the Firebase key the
-# run reads the copy with and kept as the run's artifact, opened with the same key:
-#   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run community:sweep -- --open=community-sweep.sealed.json
+# public, and so are its Actions logs. The lines that name clubs are sealed to the public key in
+# scripts/researchSeal.pub.pem, whose private half is held by the one reading the results and never
+# committed, and printed into the log between markers (sealed, so safe there) as well as kept as the
+# run's artifact; opened with:
+#   npm run community:sweep -- --open=community-sweep.sealed.json --with-key=<private.pem>
 name: Research community level
 
 on:
@@ -38,7 +40,7 @@ jobs:
       # (`scripts/tsRegister.mjs`), as the nightly runs.
       - name: Sweep the cloud copy, read only
         timeout-minutes: 55
-        run: npm run community:sweep -- --cloud --seal="$RUNNER_TEMP/community-sweep.sealed.json"
+        run: npm run community:sweep -- --cloud --seal="$RUNNER_TEMP/community-sweep.sealed.json" --seal-to-key=scripts/researchSeal.pub.pem
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           # The members' day, which the board of the day is read on, as the nightly reads it.
@@ -57,9 +59,10 @@ jobs:
           path: ${{ runner.temp }}/community-sweep.sealed.json
           if-no-files-found: ignore
           retention-days: 14
-      # Sealed, so safe in a public log: only the key the copy was read with opens it.
-      - name: The sealed names, where the artifact could not be kept
-        if: always() && steps.keep.outcome == 'failure'
+      # Sealed, so safe in a public log: only the private key's holder opens it. Printed every time,
+      # so the names can be read from the log alone.
+      - name: The sealed names
+        if: always()
         run: |
           if [ -f "$RUNNER_TEMP/community-sweep.sealed.json" ]; then
             echo "----- sealed: save between the markers as community-sweep.sealed.json -----"

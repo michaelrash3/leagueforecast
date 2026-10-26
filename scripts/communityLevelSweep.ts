@@ -14,8 +14,9 @@
  * default), --club=Longhorns --city=Edgewood --state=KY --club-page="9U 2027" (the club printed
  * under each variant), --clubs=N (the synthetic pool's clubs a page), --no-league (League Standings
  * not read from the cloud), --skip-levels or --skip-removals (one section only), --public (numbers
- * only), --seal=FILE (the named lines, sealed to the key's own public key), and
- * --open=FILE (unseal one, with FIREBASE_SERVICE_ACCOUNT set to the same key).
+ * only), --seal=FILE (the named lines, sealed to the key's own public key, or with
+ * --seal-to-key=PEM to that public key), and --open=FILE (unseal one, with
+ * FIREBASE_SERVICE_ACCOUNT set to the same key, or --with-key=PEM the private key).
  *
  * The cloud copy is read as the nightly reads it (`cloudPool.ts`, `loadPoolFrom`), its League
  * Standings seasons as the publish reads them (`readCloudLeague`), on stores opened to read
@@ -286,11 +287,23 @@ const privateKeyOf = (keyJson: string): string => {
 };
 
 /**
- * `text` sealed to the key's own public key, derived from its private one: AES-256-GCM under a
- * fresh key, that key under RSA-OAEP. Only the holder of the private key opens it.
+ * The public key the named lines are sealed to: the PEM file `--seal-to-key` names, else the one
+ * derived from the Firebase key the run reads the copy with. The repository is public and so is a
+ * run's log, so the sealed text may be printed there; only the private key's holder opens it, and
+ * a key made for the reader, whose private half never leaves the reader's machine, lets the sealed
+ * text be read from the log itself, with no artifact to download and no Firebase key to hand.
  */
-const seal = (text: string, keyJson: string): string => {
-  const publicKey = createPublicKey(privateKeyOf(keyJson));
+const sealingKey = (keyJson: string | undefined): ReturnType<typeof createPublicKey> | null => {
+  const pem = flag("seal-to-key");
+  if (pem) return createPublicKey(readFileSync(pem, "utf8"));
+  return keyJson ? createPublicKey(privateKeyOf(keyJson)) : null;
+};
+
+/**
+ * `text` sealed to `publicKey`: AES-256-GCM under a fresh key, that key under RSA-OAEP. Only the
+ * holder of the private key opens it.
+ */
+const seal = (text: string, publicKey: ReturnType<typeof createPublicKey>): string => {
   const aes = randomBytes(32);
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", aes, iv);
@@ -304,10 +317,10 @@ const seal = (text: string, keyJson: string): string => {
   });
 };
 
-const open = (sealed: string, keyJson: string): string => {
+const open = (sealed: string, privateKey: string): string => {
   const parsed = JSON.parse(sealed) as Record<string, string>;
   if (parsed.format !== SEALED_FORMAT) throw new Error("That is not a sealed sweep report.");
-  const aes = privateDecrypt({ key: privateKeyOf(keyJson), ...OAEP }, fromBase64(parsed.key ?? ""));
+  const aes = privateDecrypt({ key: privateKey, ...OAEP }, fromBase64(parsed.key ?? ""));
   const decipher = createDecipheriv("aes-256-gcm", aes, fromBase64(parsed.iv ?? ""));
   decipher.setAuthTag(fromBase64(parsed.tag ?? ""));
   const text = joined(decipher.update(fromBase64(parsed.data ?? "")), decipher.final());
@@ -343,10 +356,14 @@ const since = () => `${((Date.now() - started) / 1000).toFixed(1)} s`;
 const main = async (): Promise<void> => {
   const opening = flag("open");
   if (opening) {
+    // With --with-key, the PEM private key the sealing key was made from; else the Firebase key.
+    const pem = flag("with-key");
     const key = process.env.FIREBASE_SERVICE_ACCOUNT;
-    if (!key)
+    if (!pem && !key)
       throw new Error("Set FIREBASE_SERVICE_ACCOUNT to the key the run read the copy with.");
-    console.log(open(readFileSync(opening, "utf8"), key));
+    console.log(
+      open(readFileSync(opening, "utf8"), pem ? readFileSync(pem, "utf8") : privateKeyOf(key!))
+    );
     return;
   }
   const path = args.find((arg) => !arg.startsWith("--"));
@@ -450,13 +467,14 @@ const main = async (): Promise<void> => {
 
   const sealTo = flag("seal");
   if (sealTo) {
-    const key = process.env.FIREBASE_SERVICE_ACCOUNT;
-    if (!key) say("\nNo key to seal the named lines with, so nothing was sealed.");
+    const publicKey = sealingKey(process.env.FIREBASE_SERVICE_ACCOUNT);
+    if (!publicKey) say("\nNo key to seal the named lines with, so nothing was sealed.");
     else {
-      writeFileSync(sealTo, seal(sealedLines.join("\n"), key));
+      writeFileSync(sealTo, seal(sealedLines.join("\n"), publicKey));
       say(
-        `\nThe ${sealedLines.length} named line(s) are sealed in ${sealTo}. Open them with the same key:` +
-          `\n  FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run community:sweep -- --open=${sealTo}`
+        `\nThe ${sealedLines.length} named line(s) are sealed in ${sealTo}. Open them with the private key:` +
+          `\n  npm run community:sweep -- --open=${sealTo} --with-key=<private.pem>` +
+          `\n  (or, sealed to the Firebase key, FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" in its place)`
       );
     }
   }
