@@ -49,6 +49,7 @@ import { saveBackupFile } from "./lib/backupFile";
 import { onReplacedKept, readReplaced } from "./lib/replacedBackup";
 import type { ReplacedBackupAccess } from "./components/league/ReplacedBackupLine";
 import { beforeTabYields, TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
+import { mergeHeldScores } from "./lib/heldScores";
 import { rankingsSearch } from "./lib/rankingsRoute";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { ModeSwitchContext } from "./components/modeSwitch";
@@ -737,7 +738,8 @@ export default function App() {
         // Only a score still held: written again, the scores as this tab read them could undo
         // one the other tab saved since, and would have it read the season again for nothing.
         if (logs === savedLogs.current) return false;
-        const saved = saveLogs(logs);
+        // And only the games this tab changed, over what storage holds now (`mergeHeldScores`).
+        const saved = saveLogs(mergeHeldScores(loadLogs(), savedLogs.current, logs));
         recordSaveResult(saved, "scores", "Could not save scores (storage full).");
         if (saved) savedLogs.current = logs;
         return saved;

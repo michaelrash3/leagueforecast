@@ -131,7 +131,7 @@ describe("which tab may write League Standings", () => {
     expect(first.turn.readOnly()).toBe(false);
     // Written before it gives way, then the tab before it reads the season again, without taking
     // the turn on the way back in.
-    expect(done).toEqual(["flush b", "reload a"]);
+    expect(done).toEqual(["flush b", "flush a", "reload a"]);
     first.turn.stop();
     const back = tab(net, 3000, "a2");
     net.settle();
@@ -159,7 +159,7 @@ describe("which tab may write League Standings", () => {
     const later = tab(net, 2000, "b", false, true);
     net.settle();
     expect(later.turn.readOnly()).toBe(true);
-    expect(done).toEqual(["flush b", "reload a"]);
+    expect(done).toEqual(["flush b", "flush a", "reload a"]);
     // On its way back in the writer asks again; the later tab, read-only, does not answer.
     writer.turn.stop();
     const back = tab(net, 3000, "a2");
@@ -198,7 +198,8 @@ describe("which tab may write League Standings", () => {
     expect(done).toEqual([]);
     other.post({ kind: "wrote", id: "z", openedAt: 500, to: "a" });
     net.settle();
-    expect(done).toEqual(["reload a"]);
+    // What it holds written first, over what the other wrote, then it reads the season again.
+    expect(done).toEqual(["flush a", "reload a"]);
     expect([writer.turn.readOnly(), reader.turn.readOnly()]).toEqual([false, true]);
   });
 

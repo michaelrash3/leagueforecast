@@ -41,8 +41,12 @@ describe("a tab giving its turn to another", () => {
     saveTeams([
       { id: "A", name: "Aces" },
       { id: "B", name: "Bears" },
+      { id: "C", name: "Cubs" },
     ]);
-    saveMatchups([{ id: "g1", date: "5/1", away: "A", home: "B" }]);
+    saveMatchups([
+      { id: "g1", date: "5/1", away: "A", home: "B" },
+      { id: "g2", date: "5/8", away: "B", home: "C" },
+    ]);
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -73,6 +77,23 @@ describe("a tab giving its turn to another", () => {
       wrote = flushBeforeYield();
     });
     expect(wrote).toBe(false);
+  });
+
+  it("writes a score it holds beside one another tab wrote meanwhile, not over it", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("tab", { name: /schedule/i }));
+    const away = await screen.findByLabelText("Aces Runs");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    act(() => {
+      fireEvent.change(away, { target: { value: "7" } });
+    });
+    // The other tab's score for the second game, written while this one held its own.
+    saveLogs({ g2: { ...EMPTY_LOG, awayRuns: "4", homeRuns: "2", isFinal: true } });
+    act(() => {
+      flushBeforeYield();
+    });
+    expect(loadLogs().g1?.awayRuns).toBe("7");
+    expect(loadLogs().g2?.awayRuns).toBe("4");
   });
 
   it("writes nothing, and says so, with no score held", async () => {

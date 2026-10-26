@@ -4420,10 +4420,12 @@ subscription and sending to it, which the app does not have.
   tab's hello by that moment, in which the tab may take a score before it learns it is read-only:
   from the writer's answer, or from the hello of a tab opened before it that came late. However it
   gives way, a tab writes a score it still holds first, and only a score still held (by identity
-  against the scores last written): written again, the scores as it read them could undo one the
-  other tab saved since. Only when it wrote does it tell the tab it gave way to, which reloads to
-  read it and asks again on its way back in rather than taking the turn (with several opened
-  together, the turn taken would be the one given way to first). Storage asks the small registry
+  against the scores last written), and only the games it changed, over what storage holds then
+  (`mergeHeldScores`): written whole, the scores as it read them could undo one the other tab
+  saved since. Only when it wrote does it tell the tab it gave way to, which writes what it holds
+  the same way, then reloads to read it and asks again on its way back in rather than taking the
+  turn (with several opened together, the turn taken would be the one given way to first). Two
+  tabs holding a score for the same game keep the one written last. Storage asks the small registry
   in `tabTurn.ts`. Held by
   `tabTurn.test.ts`, the storage test and `e2e/tabs.spec.ts`, which opens two real tabs.
 - What the last full restore replaced is kept on this device until the next restore

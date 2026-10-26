@@ -139,7 +139,14 @@ export const createTabTurn = ({
       // Read again, without taking the turn: on the way back in it asks as a new tab, so a turn
       // given way to more than once while several tabs opened together still ends with one writer.
       // A tab read-only by now writes nothing, so what it holds being older harms nothing.
-      if (said.to === id && !readOnly) leave(false);
+      if (said.to !== id || readOnly) return;
+      // What this tab holds too, written first, game by game over what the other wrote: the
+      // reload would otherwise end its half second's wait with its score unsaved.
+      try {
+        beforeYield();
+      } finally {
+        leave(false);
+      }
     } else if (said.to === id && !took && !readOnly) {
       // The writer's answer to this tab's hello. The page started before this code arrived, so a
       // score may have been taken meanwhile: written, and the writer told.
