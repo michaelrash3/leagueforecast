@@ -892,7 +892,24 @@ nobody has decided who is playing yet. They are kept as **slots**, not teams.
 
 The game is real, so it is kept and it counts for the club that played it — a
 slot stands in the fit as one unknown opponent, and beating one reads much like
-beating an ordinary team. What a slot never does is gather. Every placeholder is
+beating an ordinary team.
+
+**Except a slot listed as TBD**, the owner's rule of 26 October 2026: "That TBD
+game should be paired with another team that played at that date and time. If it
+doesn't. It shouldn't count." Where the other club's schedule names the club at
+that start, the slot's row was already folded into that game (below) and counts
+once, between the two. A scored row still against a TBD slot after the tidy counts
+for nothing (`markTbdGames`, marked `ScoutGame.countedElsewhere`). If another
+team's schedule has the club at about that hour, that game counts in its place.
+If nobody's does, there is no telling who was played. Either way the row stays on
+the club's page, and its pill says which game counts instead, or that nothing
+pairs it. The Edgewood Longhorns, 9U in Kentucky, were 9-0 on the board against
+a league that had them 8-0; the ninth was a 20-5 over "TBD- 08/29/26, 3:00 PM".
+Only TBD (and "To be determined") counts as TBD here: "TBA" and "TBC" can be a
+club's initials, and "Winner of Game 3" is left as above. A game still to come
+against a TBD slot is the club's next game as before.
+
+What a slot never does is gather. Every placeholder is
 its own slot, because a single shared "TBD" would sit in the rating graph as an
 opponent that dozens of unrelated clubs had all played, and the model would read
 that as evidence about how they compare to each other. Slots are not ranked,

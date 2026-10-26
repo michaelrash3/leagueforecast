@@ -566,6 +566,20 @@ export const namesNobody = (name: string): boolean => {
   return /^(?:to be (?:determined|announced)|winner of\b|loser of\b)/.test(value);
 };
 
+/**
+ * A name listed as "TBD": the opponent nobody knew when the game went on the schedule, with
+ * whatever a source appends to it, as GameChanger does the date and start ("TBD- 08/29/26, 3:00
+ * PM").
+ *
+ * A game against a slot of this name counts only as the game another team's schedule holds at that
+ * date and time, and otherwise not at all (`markTbdGames`). Narrower than `isPlaceholderName`
+ * because the owner, setting that rule on 26 October 2026, held it to "Placeholder games listed as
+ * TBD": "TBA" and "TBC" can be a club's initials ("TBC" is Tampa Bay Cobras), and a bracket slot
+ * such as "Winner of Game 3" is not one.
+ */
+export const namesTbd = (name: string): boolean =>
+  /^(?:tbd|to be determined)\b/.test(cleanTeamName(name).trim().toLowerCase().replace(/\./g, ""));
+
 /** The rows `editDistanceWithin` works in, kept between calls: it is called for most of a roster. */
 let distanceRows: [Int32Array, Int32Array] = [new Int32Array(64), new Int32Array(64)];
 

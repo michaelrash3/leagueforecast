@@ -45,6 +45,7 @@ import {
   isOffClubId,
   isPlaceholderName,
   namesNobody,
+  namesTbd,
   MIN_AGE_LEVEL,
   buildScoutTeam,
   cleanTeamName,
@@ -5702,9 +5703,59 @@ export const markCountedElsewhere = (
     );
     if (!elsewhere) marks.add(copy.id);
   });
+  // A row against a TBD slot is `markTbdGames`'s to set and clear, and never a copy here.
+  const tbd = tbdSlotIds(state.teams);
   let marked = 0;
   const games = state.games.map((game) => {
+    if (tbd.has(game.teamAId) || tbd.has(game.teamBId)) return game;
     const mark = marks.has(game.id);
+    if (mark === (game.countedElsewhere === true)) return game;
+    marked += 1;
+    if (mark) return { ...game, countedElsewhere: true as const };
+    const { countedElsewhere: _counted, ...rest } = game;
+    return rest;
+  });
+  return marked === 0 ? { state, marked: 0 } : { state: { ...state, games }, marked };
+};
+
+/** The slots listed as TBD (`namesTbd`): a placeholder nobody pulled. */
+const tbdSlotIds = (teams: readonly ScoutTeam[]): Set<string> =>
+  new Set(
+    teams
+      .filter((team) => team.placeholder && !team.gcTeams?.length && namesTbd(team.name))
+      .map((team) => team.id)
+  );
+
+/**
+ * Sets a scored game against a TBD slot not to count (`ScoutGame.countedElsewhere`), the owner's
+ * rule of 26 October 2026: "That TBD game should be paired with another team that played at that
+ * date and time. If it doesn't. It shouldn't count. I mean this only on Placeholder games listed as
+ * TBD."
+ *
+ * A club's schedule lists "TBD- 08/29/26, 3:00 PM" where the opponent was not known when the game
+ * went on it, and the import files it against a slot of its own (`ScoutTeam.placeholder`). Where
+ * another team's schedule names the club at that start, the slot's row is folded into that game
+ * before this (`resolveSlotGames`, `claimFiledRows`), and the game counts once, between the two. A
+ * row still against a slot is one no schedule pairs at its start. Either another team's schedule
+ * holds the club at about that hour, and that game counts in its place, the slot's row a second copy
+ * of it; or nobody's does, and there is no telling who was played. Counted, it was a win or a loss
+ * over an ordinary team, one more than the club played in the first case, and in the second a
+ * result over nobody that moved the club's rating and its league's link to the rest of the table.
+ * The Edgewood Longhorns, 9U in Kentucky, were 9-0 on the board of 26 October 2026, where their
+ * league had them 8-0: the ninth was a 20-5 over "TBD- 08/29/26, 3:00 PM".
+ *
+ * Only a scored row is set, so a game still to come against a slot is the club's next game, and
+ * only a slot listed as TBD (`namesTbd`), as the owner held it. The row stays on the club's page,
+ * shown as not counted. Nothing set is final: a slot named as the club it was (a rename, which
+ * merges the two) is no slot, and `markCountedElsewhere` reads the row again from then on.
+ */
+export const markTbdGames = (state: GcImportState): { state: GcImportState; marked: number } => {
+  const tbd = tbdSlotIds(state.teams);
+  if (tbd.size === 0) return { state, marked: 0 };
+  let marked = 0;
+  const games = state.games.map((game) => {
+    if (!tbd.has(game.teamAId) && !tbd.has(game.teamBId)) return game;
+    const mark = isScored(game);
     if (mark === (game.countedElsewhere === true)) return game;
     marked += 1;
     if (mark) return { ...game, countedElsewhere: true as const };
@@ -7610,6 +7661,11 @@ export type PoolTidy = {
    */
   countedElsewhere: number;
   /**
+   * Scored games against a slot listed as TBD, set not to count, or counted again once the slot is
+   * named (`markTbdGames`).
+   */
+  tbdSlots: number;
+  /**
    * Teams deleted for playing a different game — wiffle ball, blitzball or softball — along with
    * their results.
    */
@@ -8165,6 +8221,7 @@ export const TIDY_STEPS = [
   "collapsed",
   "regrouped",
   "countedElsewhere",
+  "tbdSlots",
 ] as const;
 
 export type TidyStepName = (typeof TIDY_STEPS)[number];
@@ -8602,8 +8659,12 @@ const tidyOnce = (
   starting("countedElsewhere", after);
   const copies = markCountedElsewhere(after);
   finished("countedElsewhere", copies.marked, copies.state);
+  // And beside them, a game against a TBD slot no schedule paired at its start (`markTbdGames`).
+  starting("tbdSlots", copies.state);
+  const slots = markTbdGames(copies.state);
+  finished("tbdSlots", slots.marked, slots.state);
   return {
-    state: copies.state,
+    state: slots.state,
     named: named.resolved,
     joined: halves.joined,
     namesakeJoined: namesakes.joined,
@@ -8621,6 +8682,7 @@ const tidyOnce = (
     releveled: levels.releveled,
     stateFilled: located.filled,
     countedElsewhere: copies.marked,
+    tbdSlots: slots.marked,
     notBaseball: kept.dropped,
     highSchool: school.dropped,
     notATeam: pages.dropped,
@@ -8670,6 +8732,7 @@ export const tidyPool = (
     releveled: 0,
     stateFilled: 0,
     countedElsewhere: 0,
+    tbdSlots: 0,
     notBaseball: 0,
     highSchool: 0,
     notATeam: 0,
@@ -8697,6 +8760,7 @@ export const tidyPool = (
     total.releveled += step.releveled;
     total.stateFilled += step.stateFilled;
     total.countedElsewhere += step.countedElsewhere;
+    total.tbdSlots += step.tbdSlots;
     total.notBaseball += step.notBaseball;
     total.highSchool += step.highSchool;
     total.notATeam += step.notATeam;
@@ -8718,6 +8782,7 @@ export const tidyPool = (
       step.releveled +
       step.stateFilled +
       step.countedElsewhere +
+      step.tbdSlots +
       step.notBaseball +
       step.highSchool +
       step.notATeam;
@@ -8845,8 +8910,10 @@ const idleStandIns = (state: GcImportState): Set<string> => {
  *       owner's choice of 21 October 2026
  *  31 — such a copy past the hour left counting where its own club's schedule has a game of its
  *       own at the hour of the game it fits
+ *  32 — a scored game against a slot listed as TBD set not to count, the owner's rule of 26
+ *       October 2026
  */
-const TIDY_RULES_VERSION = 31;
+const TIDY_RULES_VERSION = 32;
 
 /**
  * A cheap fingerprint of a pool: enough to tell "this is the pool the tidy last saw" from "this
@@ -8962,6 +9029,11 @@ export const describeTidy = (tidy: PoolTidy): string[] => {
     ...(tidy.countedElsewhere > 0
       ? [
           `${plural(tidy.countedElsewhere, "copy", "copies")} of a game both clubs' own schedules already hold set not to count, or counted again once they stop holding it.`,
+        ]
+      : []),
+    ...(tidy.tbdSlots > 0
+      ? [
+          `${plural(tidy.tbdSlots, "game", "games")} against a TBD slot set not to count: a game another team's schedule holds at that date and time counts in its place, and one nobody's does counts for nothing.`,
         ]
       : []),
     ...(tidy.notBaseball > 0

@@ -439,7 +439,14 @@ describe("the tidy with the namesake join, against the pin from before it", () =
       ],
     ],
   ])("leaves %s as it was", (_, build, lines) => {
-    expect(tidied(build())).toEqual({ counts: {}, lines });
+    // Beside the join, each scored row against a TBD slot is set not to count (`markTbdGames`),
+    // which moves no row: the lines are the pin's, and that count is theirs.
+    const {
+      counts: { tbdSlots = 0, ...counts },
+      lines: tidiedLines,
+    } = tidied(build());
+    expect({ counts, lines: tidiedLines }).toEqual({ counts: {}, lines });
+    expect(tbdSlots).toBe(lines.filter((line) => / \d+-\d+ TBD \(slot\)$/.test(line)).length);
   });
 });
 
