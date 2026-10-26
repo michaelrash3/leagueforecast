@@ -361,6 +361,8 @@ export function TeamSearchSelect({
         }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
+            // Said used, so a sheet the box is in closes the list alone (`ClubSheet`).
+            if (open) event.preventDefault();
             setOpen(false);
             return;
           }

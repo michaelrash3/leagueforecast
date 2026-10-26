@@ -6902,7 +6902,16 @@ a test, 33 of 33, two of them only after their tests were tightened.
 **A club's panel.** A club tapped on the board opens its panel from its card
 (`LiveClubPanel`): its bucket read through the same checks as a board, and drawn by
 Team Rankings' own panel. The panel and the pool's codec it checks a card by load
-only when a club is opened. A club whose card cannot be read (no card, a bucket
+only when a club is opened. It opens in a sheet over the board (`ClubSheet`), on this
+device's copy too, where it was drawn at the foot of the page and scrolled to, and the
+place on the board was lost: Close, Esc, the shade beside it or Back closes it and
+puts focus back on what opened it. Back closes it because opening it adds a history
+entry, the page's own address marked `clubSheet`, in the click rather than an effect,
+which React's strict mode runs twice; closed by its own controls the entry is taken
+back with `history.back()`, whose popstate is let pass (`clubSheetHistory.ts`). Tab
+stays in the sheet, the page behind does not scroll, and an Esc a name box used to
+close its list is left to the box. This device's copy fetches the panel as a club is
+first opened too, which took 4.5 KB off opening Team Rankings. A club whose card cannot be read (no card, a bucket
 damaged or gone, or offline with none kept) says so in the panel's place, with Try
 again and Close (1.6e), kept with the meta it was read by, as a list not read is, so
 the panel is drawn again, reading the card, once the cloud publishes; a refusal

@@ -1490,6 +1490,11 @@ describe("a club's panel on the cloud's board", () => {
     // Its card names no game it has by a name alone, so none is offered to take off it.
     expect(within(panel).queryByRole("button", { name: /^Not this team/ })).toBeNull();
     expect(handedOver()).toBeNull();
+    // In a sheet over the board, which Back closes.
+    expect(screen.getByRole("dialog", { name: "Placeholder S-1" })).toContainElement(panel);
+    expect(window.history.state).toMatchObject({ clubSheet: true });
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   const pause = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));

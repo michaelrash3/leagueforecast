@@ -93,7 +93,7 @@ describe("opening a team", () => {
     // The panel names itself after the team it is showing, which is what catches the id-namespace
     // bug: the panel opened a different team than the row clicked, because the table and the
     // roster numbered teams differently.
-    const panel = screen.getByRole("region", { name: "Comets" });
+    const panel = await screen.findByRole("region", { name: "Comets" });
     expect(within(panel).getByRole("heading", { name: "Comets" })).toBeInTheDocument();
   });
 
@@ -105,7 +105,7 @@ describe("opening a team", () => {
     await user.click(within(screen.getByRole("table")).getByRole("button", { name: "Rockets" }));
 
     // Two games, both won. A panel that reported 0-0 for a team with results was a real bug.
-    expect(screen.getByRole("region", { name: "Rockets" })).toHaveTextContent("2-0");
+    expect(await screen.findByRole("region", { name: "Rockets" })).toHaveTextContent("2-0");
   });
 
   it("closes without leaving the previous team behind", async () => {
@@ -115,12 +115,12 @@ describe("opening a team", () => {
     const table = screen.getByRole("table");
 
     await user.click(within(table).getByRole("button", { name: "Rockets" }));
-    const panel = screen.getByRole("region", { name: "Rockets" });
+    const panel = await screen.findByRole("region", { name: "Rockets" });
     await user.click(within(panel).getByRole("button", { name: /close/i }));
     expect(screen.queryByRole("region", { name: "Rockets" })).toBeNull();
 
     await user.click(within(table).getByRole("button", { name: "Comets" }));
-    expect(screen.getByRole("region", { name: "Comets" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Comets" })).toBeInTheDocument();
   });
 });
 

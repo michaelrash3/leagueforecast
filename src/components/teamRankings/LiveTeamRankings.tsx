@@ -64,6 +64,8 @@ import type { SeasonMeta } from "../../lib/storage";
 import { button, card } from "../../styles/tokens";
 import { CloudPoolGate } from "../CloudPoolGate";
 import { warmTeamSearch, type GcIdOffer } from "../TeamSearchSelect";
+import { leftClubSheet, markClubSheet } from "../../lib/clubSheetHistory";
+import { ClubSheet } from "./ClubSheet";
 import { RankingsHeader } from "./RankingsHeader";
 import { NATIONAL_TOP, RankingsSection, STATE_TOP } from "./RankingsSection";
 import { SECTION_PANEL_ID, sectionTabId } from "./SectionNav";
@@ -714,15 +716,13 @@ function LiveBoard({
    * and reads it again by itself once the cloud publishes.
    */
   const openTeam = (teamId: string) => {
+    markClubSheet();
     if (!live.source) {
       cannotReadClub(teamId);
       return;
     }
     setCannotOpenAt(null);
     setOpenClub(teamId);
-    window.requestAnimationFrame(() =>
-      document.getElementById(TEAM_PANEL_ID)?.scrollIntoView?.({ block: "start" })
-    );
   };
   /*
    * A club named in Setup, in the squad year its row is of: its card is that year's. On the page
@@ -736,11 +736,16 @@ function LiveBoard({
     else if (year !== undefined && year !== selectedYear) openYear(year);
     openTeam(teamId);
   };
-  const closeClub = useCallback(() => setOpenClub(null), []);
-  const shutUnread = () => {
+  // The sheet shut by Back, the history having moved already, or by its own controls, which take
+  // back the entry it added (`clubSheetHistory.ts`).
+  const shutClub = useCallback(() => {
     setCannotOpenAt(null);
     setOpenClub(null);
-  };
+  }, []);
+  const closeClub = useCallback(() => {
+    shutClub();
+    leftClubSheet();
+  }, [shutClub]);
   // A list a section could not read, marked where it was asked, which is where it is said.
   const cannotListHere = () => setCannotList({ where: listWhere, source: live.source });
 
@@ -1040,58 +1045,66 @@ function LiveBoard({
           readingBoard
         )}
       </div>
-      {cannotOpen !== null && handedOver ? (
-        <section id={TEAM_PANEL_ID} className={`${card} p-5`} role="status" aria-live="polite">
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            This club opens on this device&apos;s copy as soon as it is in&hellip;
-          </p>
-        </section>
-      ) : cannotOpen !== null ? (
-        <section id={TEAM_PANEL_ID} className={`${card} p-5`} role="status" aria-live="polite">
-          <p className="text-sm text-slate-500 dark:text-slate-400">{LIVE_UNREAD.club}</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={() => openTeam(cannotOpen)} className={button.ghost}>
-              Try again
-            </button>
-            <button type="button" onClick={shutUnread} className={button.ghost}>
-              Close
-            </button>
-          </div>
-        </section>
-      ) : (
-        openClub &&
-        live.source && (
-          <Suspense
-            fallback={
-              <section
-                id={TEAM_PANEL_ID}
-                className={`${card} p-5`}
-                role="status"
-                aria-live="polite"
+      {clubOpen !== null && (
+        <ClubSheet
+          label={rows.find((row) => row.teamId === clubOpen)?.teamName ?? "Club"}
+          onShut={shutClub}
+          onClose={closeClub}
+        >
+          {cannotOpen !== null && handedOver ? (
+            <section id={TEAM_PANEL_ID} className={`${card} p-5`} role="status" aria-live="polite">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                This club opens on this device&apos;s copy as soon as it is in&hellip;
+              </p>
+            </section>
+          ) : cannotOpen !== null ? (
+            <section id={TEAM_PANEL_ID} className={`${card} p-5`} role="status" aria-live="polite">
+              <p className="text-sm text-slate-500 dark:text-slate-400">{LIVE_UNREAD.club}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => openTeam(cannotOpen)} className={button.ghost}>
+                  Try again
+                </button>
+                <button type="button" onClick={closeClub} className={button.ghost}>
+                  Close
+                </button>
+              </div>
+            </section>
+          ) : (
+            openClub &&
+            live.source && (
+              <Suspense
+                fallback={
+                  <section
+                    id={TEAM_PANEL_ID}
+                    className={`${card} p-5`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Opening the club…</p>
+                  </section>
+                }
               >
-                <p className="text-sm text-slate-500 dark:text-slate-400">Opening the club…</p>
-              </section>
-            }
-          >
-            <LiveClubPanel
-              key={openClub}
-              edits={edits}
-              confirm={confirm}
-              candidates={foldInto}
-              onFolded={followFold}
-              source={live.source}
-              year={selectedYear}
-              teamId={openClub}
-              ageGroupId={selectedAgeGroupId}
-              ageGroupName={group?.name ?? ""}
-              ageGroups={ageGroups}
-              segment={segment}
-              onClose={closeClub}
-              onCannot={cannotReadClub}
-              {...(panelBoard ? { board: panelBoard } : {})}
-            />
-          </Suspense>
-        )
+                <LiveClubPanel
+                  key={openClub}
+                  edits={edits}
+                  confirm={confirm}
+                  candidates={foldInto}
+                  onFolded={followFold}
+                  source={live.source}
+                  year={selectedYear}
+                  teamId={openClub}
+                  ageGroupId={selectedAgeGroupId}
+                  ageGroupName={group?.name ?? ""}
+                  ageGroups={ageGroups}
+                  segment={segment}
+                  onClose={closeClub}
+                  onCannot={cannotReadClub}
+                  {...(panelBoard ? { board: panelBoard } : {})}
+                />
+              </Suspense>
+            )
+          )}
+        </ClubSheet>
       )}
     </div>
   );

@@ -26,7 +26,7 @@ const openStags = async () => {
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: /show all/i }));
   await user.click(within(screen.getByRole("table")).getByRole("button", { name: "Stags" }));
-  return screen.getByRole("region", { name: "Stags" });
+  return await screen.findByRole("region", { name: "Stags" });
 };
 
 beforeAll(() => {
