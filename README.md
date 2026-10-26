@@ -4095,6 +4095,40 @@ refuses while the season may not be written or once it has changed since the rev
 panel is fetched only when opened, so none of it is in the first download, and neither is the empty
 season's start screen, drawn inside the views' boundary, whose Try again fetches it afresh.
 
+## Seasons at a glance
+
+The Seasons card in Settings has **Seasons at a glance**: every season this device holds, how each
+ended or how far it has got, and the team followed in it. One league's seasons are set side by side,
+grouped by their names with the year taken out (`seasonNameStem`, `seasonNames.ts`: "Fall 2026" and
+"Fall 2027" are both "Fall", "NKB 9U 2026-27" is "NKB 9U", "Spring '26" is "Spring"; a name with no
+year is a league of its own), each group newest first by the squad year its name gives and then by
+when it was made here. A finished season gives the regular season's winner, the champion, the Silver
+champion and the followed team's finish in the Dashboard's own words (`seasonFinalOf`), and whether
+that team made the Gold bracket; one still being played says how many of its games are final, who
+leads, and where the followed team stands.
+
+Each season is worked out from its stored copy (`seasonGlance.ts`), with no engine, worker or odds:
+the standings' own table (`calculateTeams`, `rankTeams`) and, once no regular-season game is left,
+the brackets App builds, seeded by that table with the cutoff App uses (`effectiveGoldCutoff`, in
+`sim.ts` for both). With nothing left to play the Dashboard's seeding by projected place is that
+table, so a champion named here is the Dashboard's. A champion is named only from a bracket the field
+decided, every game in it played or a bye: a game with no score is the model's pick, and the glance's
+model lacks the ratings Team Rankings gives the Dashboard's, so a final played between two teams the
+model put there could be read for other teams. Such a season says its bracket's final has no score
+yet rather than name a different champion.
+
+Nothing is read until it is opened: the card fetches the glance's code the first time, and only then
+reads the seasons from this browser's storage. Each season's glance is remembered for the visit
+against its creation time, its last save (`updatedAt`) and the team followed, so opening it again
+works out only the seasons saved since. It is read again when the list of seasons or the open season
+changes, not as a season is edited, and there is no refresh; the open season is read as last saved,
+so a score marked final in the half second before its scores are saved is not yet in it. A season League kept live holds a copy
+of on this device (`lf_league_base_<docId>_v1`, of this season and not a deleted one whose id it
+reuses) that is not the open season is marked "May be behind: this device's copy as of 12 days ago"
+(`agoLabel` on its `updatedAt`): only the open season is followed live, so another device may have
+moved the others on. Nothing is fetched to catch one up; the glance makes no request, read or write
+of the cloud.
+
 ## Data Quality
 
 What in a season's games, teams and settings is wrong or worth a second look, each as a

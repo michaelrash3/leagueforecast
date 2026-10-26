@@ -182,6 +182,7 @@ import {
   applyResult,
   attachAdjustedRatings,
   calculateTeams,
+  effectiveGoldCutoff,
   getMathGoldStatus,
   getRemainingCounts,
   isSeedingLocked,
@@ -211,7 +212,6 @@ import {
   saveTeams,
 } from "./lib/storage";
 import {
-  DEFAULT_GOLD_CUTOFF,
   DEFAULT_SETTINGS,
   SIM_ITERATIONS,
   TREND_ITERATIONS,
@@ -662,23 +662,11 @@ export default function App() {
   const hasPostseason = postseasonFormat !== "none";
 
   /**
-   * Effective cutoff driving the simulation and seeding.
-   *
-   * The model is written around "how many teams qualify", so rather than
-   * special-casing it everywhere, each format is expressed as a number: a cut
-   * league uses its setting, an all-in league qualifies everyone, and a league
-   * with no postseason qualifies nobody. Displays that only make sense with a
-   * real cut line are gated on `hasCutLine` instead.
+   * Effective cutoff driving the simulation and seeding (`effectiveGoldCutoff`): each format as
+   * the number of teams that qualify. Displays that only make sense with a real cut line are gated
+   * on `hasCutLine` instead.
    */
-  const goldCutoff = hasCutLine
-    ? clamp(
-        Math.round(settings.goldCutoff || DEFAULT_GOLD_CUTOFF),
-        1,
-        Math.max(1, teams.length || DEFAULT_GOLD_CUTOFF)
-      )
-    : postseasonFormat === "all"
-      ? Math.max(1, teams.length)
-      : 0;
+  const goldCutoff = effectiveGoldCutoff(settings, teams.length);
 
   // ---------- Persisted state ----------
 

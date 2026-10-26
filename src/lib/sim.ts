@@ -2,6 +2,7 @@ import { parseDateValue, seasonStartMonth } from "./date";
 import { wilsonScoreInterval } from "./probability";
 import { clamp, isFinal, parseNumber } from "./util";
 import {
+  DEFAULT_GOLD_CUTOFF,
   DEFAULT_TIEBREAKER_ORDER,
   MODEL_AGGRESSION,
   RUN_SCORE_CAP,
@@ -67,6 +68,29 @@ export const standingsPoints = (
   team: Pick<Team, "w" | "t">,
   settings: Pick<Settings, "winPoints" | "tiePoints">
 ) => team.w * settings.winPoints + team.t * settings.tiePoints;
+
+/**
+ * How many teams a season's postseason takes, which drives the simulation and the seeding.
+ *
+ * The model is written around "how many teams qualify", so rather than special-casing it
+ * everywhere, each format is expressed as a number: a cut league uses its setting, an all-in
+ * league qualifies everyone, and a league with no postseason qualifies nobody. Displays that only
+ * make sense with a real cut line are gated on the format being "cut" instead. Kept here rather
+ * than in App so a season that is not open (`seasonGlance.ts`) is seeded by the same rule.
+ */
+export const effectiveGoldCutoff = (
+  settings: Pick<Settings, "postseasonFormat" | "goldCutoff">,
+  teamCount: number
+): number =>
+  settings.postseasonFormat === "cut"
+    ? clamp(
+        Math.round(settings.goldCutoff || DEFAULT_GOLD_CUTOFF),
+        1,
+        Math.max(1, teamCount || DEFAULT_GOLD_CUTOFF)
+      )
+    : settings.postseasonFormat === "all"
+      ? Math.max(1, teamCount)
+      : 0;
 
 export const getRemainingCounts = (
   teams: Team[],

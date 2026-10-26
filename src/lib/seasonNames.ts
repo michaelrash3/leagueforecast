@@ -53,3 +53,53 @@ export const squadYearFromName = (name: string): number | undefined => {
   if (season === "winter") return undefined;
   return year;
 };
+
+/** A two-digit year written beside a season word ("Spring 26") or after an apostrophe ("'26"). */
+const SHORT_YEAR = /\b(fall|autumn|winter|spring|summer)\s+['‘’]?\d{2}\b|(^|\s)['‘’]\d{2}\b/gi;
+
+/** What may be left standing at either end, or twice over, once a year is taken out. */
+const SEPARATOR = /[-–—/|·:,]/;
+
+/**
+ * A season's name with its year taken out: what one league's seasons have in common from year to
+ * year, so League Standings can set them side by side (`seasonGlance.ts`). "Fall 2026" and "Fall
+ * 2027" are both "Fall", "NKB 9U 2026-27" is "NKB 9U", and "Spring '26" is "Spring". A name with
+ * no year is its own stem, and one that is only a year has none ("").
+ *
+ * Only a year is taken out. A span goes whole when its second year is a later one ("2026-27"), and
+ * otherwise the four-digit year alone ("2026 - 12 teams"); a short year only beside a season word or
+ * after an apostrophe, so "Division 12" keeps its 12; and an age like "9U" is never a year. A
+ * season word stays, since a league's fall and spring seasons are different leagues to compare,
+ * and so does anything else a name says, case included: the stem is shown as the group's name.
+ */
+export const seasonNameStem = (name: string): string => {
+  const cut = name
+    .replace(YEAR, (whole: string, first: string, second: string | undefined) => {
+      const year = Number(first);
+      const later =
+        second === undefined
+          ? undefined
+          : second.length === 2
+            ? Math.floor(year / 100) * 100 + Number(second)
+            : Number(second);
+      return later !== undefined && later > year ? " " : ` ${whole.slice(first.length)}`;
+    })
+    .replace(
+      SHORT_YEAR,
+      (_short: string, season: string | undefined, before: string | undefined) =>
+        season ?? before ?? ""
+    )
+    // Brackets the year sat in alone, as in "Fall (2026)".
+    .replace(/[([{]\s*[)\]}]/g, " ");
+  const words = cut.split(/\s+/).filter(Boolean);
+  // A separator left at either end, or beside another, stood between the year and something else.
+  const kept = words.filter((word, index) => {
+    if (!SEPARATOR.test(word) || word.length > 1) return true;
+    const next = words[index + 1];
+    return index > 0 && next !== undefined && !(next.length === 1 && SEPARATOR.test(next));
+  });
+  return kept
+    .join(" ")
+    .replace(/\s+([,:])/g, "$1")
+    .replace(/^[-–—/|·:,\s]+|[-–—/|·:,\s]+$/g, "");
+};
