@@ -5,6 +5,7 @@ import {
   diagnosticsReport,
   readDiagnostics,
   recordDiagnostic,
+  watchUncaught,
   type DiagnosticEntry,
 } from "../diagnostics";
 
@@ -132,5 +133,51 @@ describe("the report somebody pastes into a message", () => {
     ];
 
     expect(diagnosticsReport(entries, at, "b", screen)).toContain("   at RankingsView\n   at App");
+  });
+});
+
+describe("an error nothing caught", () => {
+  /*
+   * Only a render error reached the log, through a boundary. A throw in an event handler, a timer
+   * or a promise nobody awaited went to the console alone, which on a phone is nowhere.
+   */
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  const rejection = (reason: unknown) => Object.assign(new Event("unhandledrejection"), { reason });
+
+  it("is written down, a throw and a rejection alike, with its stack", () => {
+    const stop = watchUncaught(window);
+    const thrown = new TypeError("cannot read rank");
+    window.dispatchEvent(new ErrorEvent("error", { error: thrown, message: thrown.message }));
+    window.dispatchEvent(rejection(new Error("pull refused")));
+    window.dispatchEvent(rejection("a bare reason"));
+    stop();
+
+    const kept = readDiagnostics();
+    expect(kept.map(({ kind, where, message }) => ({ kind, where, message }))).toEqual([
+      { kind: "uncaught", where: "Unfinished task", message: "a bare reason" },
+      { kind: "uncaught", where: "Unfinished task", message: "Error: pull refused" },
+      { kind: "uncaught", where: "Page script", message: "TypeError: cannot read rank" },
+    ]);
+    expect(kept[2]?.detail).toContain("cannot read rank");
+  });
+
+  it("is written once when it repeats, so a loop does not push out everything else kept", () => {
+    recordDiagnostic({ kind: "crash", where: "Team Rankings", message: "boom" });
+    const stop = watchUncaught(window);
+    for (let i = 0; i < DIAGNOSTIC_LIMIT + 5; i += 1) {
+      window.dispatchEvent(new ErrorEvent("error", { message: "Script error." }));
+    }
+    stop();
+
+    expect(readDiagnostics().map((entry) => entry.message)).toEqual(["Script error.", "boom"]);
+  });
+
+  it("is no longer heard once the watch is stopped", () => {
+    watchUncaught(window)();
+    window.dispatchEvent(rejection(new Error("late")));
+    expect(readDiagnostics()).toEqual([]);
   });
 });

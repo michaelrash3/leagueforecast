@@ -9,6 +9,7 @@ import { startPoolFill } from "./lib/poolFill";
 import { afterOpening } from "./lib/live/openingHold";
 import { startApp } from "./lib/bootOrder";
 import { listenForTakes } from "./lib/cloud/cloudTabs";
+import { watchUncaught } from "./lib/diagnostics";
 import "./index.css";
 
 const mount = () => {
@@ -36,6 +37,9 @@ const askToKeepStorage = (): void => {
     /* not offered here */
   }
 };
+
+// First, so an error nothing catches from here on is written to this device's log (`diagnostics.ts`).
+watchUncaught(window);
 
 /*
  * Before anything reads storage, this tab starts listening for another tab taking a copy in from
