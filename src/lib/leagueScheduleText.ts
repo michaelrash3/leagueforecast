@@ -293,8 +293,10 @@ const readLine = (
   const first = clampScheduleName(rest.slice(0, marker.index));
   let second = clampScheduleName(rest.slice((marker.index ?? 0) + marker[0].length));
   // Both sides ending alike, "Falcons 9-10 @ Wolves 9-10", is an age span written on each name,
-  // not a final score on the second: it goes back on the name it came off.
-  if (runs && ENDS_LIKE_A_SCORE.test(first)) {
+  // not a final score on the second: it goes back on the name it came off. Not where the second
+  // still ends in its own span, "Falcons 9-10 @ Wolves 9-10 6-5", whose last pair is the score
+  // (found by Codex on #456).
+  if (runs && ENDS_LIKE_A_SCORE.test(first) && !ENDS_LIKE_A_SCORE.test(second)) {
     second = clampScheduleName(second + scoreWritten);
     runs = undefined;
   }

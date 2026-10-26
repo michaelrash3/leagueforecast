@@ -303,12 +303,20 @@ describe("parseLeagueSchedule", () => {
       },
     ],
     [
-      "an age span written on both names, which is no final score",
-      ["4/12 Falcons 9-10 @ Wolves 9-10", "4/13 Comets 9-10 vs Rockets 9-10"],
+      "an age span written on both names, which is no final score, and one after both, which is",
+      [
+        "4/12 Falcons 9-10 @ Wolves 9-10",
+        "4/13 Comets 9-10 vs Rockets 9-10",
+        // Both names carry their span and the score follows (Codex on #456), in a line and in cells.
+        "4/14 Falcons 9-10 @ Wolves 9-10 6-5 Final",
+        "4/15,Hawks 9-10 @ Owls 9-10,7-3",
+      ],
       {
         rows: [
           { date: "4/12", away: "Falcons 9-10", home: "Wolves 9-10" },
           { date: "4/13", away: "Rockets 9-10", home: "Comets 9-10" },
+          { date: "4/14", away: "Falcons 9-10", home: "Wolves 9-10", awayRuns: 6, homeRuns: 5 },
+          { date: "4/15", away: "Hawks 9-10", home: "Owls 9-10", awayRuns: 7, homeRuns: 3 },
         ],
         skipped: [],
       },
