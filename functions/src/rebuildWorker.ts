@@ -38,7 +38,7 @@ parentPort?.on("message", (request: RebuildRequest) => {
         copyStore: firestoreRestStore({ ...access, writable: false }),
         liveStore: firestoreRestLive({ ...access, writable: !dry }),
         // League Standings, read only: a rebuild writes no season.
-        leagueDocs: restLeagueDocs(firestoreRestDocuments({ ...access, writable: false })),
+        leagueDocs: restLeagueDocs(firestoreRestDocuments(access)),
         pool,
         // The zone is New York's: the function set it before it started this worker.
         today: () => todayIsoDay(),
