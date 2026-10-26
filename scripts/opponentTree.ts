@@ -17,13 +17,10 @@
 /** The most clubs a reach is counted to. */
 export const REACH_CAP = 1000;
 
-/**
- * A counter of each club's reach over `games`: the distinct clubs within `hops` games of it, itself
- * left out, to `REACH_CAP`. Remembered per club and distance, so a board asks for each once.
- */
-export const opponentTree = (
-  games: Iterable<{ teamAId: string; teamBId: string }>
-): ((id: string, hops: number) => number) => {
+type Game = { teamAId: string; teamBId: string };
+
+/** Each club's opponents, a club once for every game. */
+const linksOf = (games: Iterable<Game>): Map<string, string[]> => {
   const next = new Map<string, string[]>();
   const link = (from: string, to: string) => {
     const known = next.get(from);
@@ -35,6 +32,15 @@ export const opponentTree = (
     link(game.teamAId, game.teamBId);
     link(game.teamBId, game.teamAId);
   }
+  return next;
+};
+
+/**
+ * A counter of each club's reach over `games`: the distinct clubs within `hops` games of it, itself
+ * left out, to `REACH_CAP`. Remembered per club and distance, so a board asks for each once.
+ */
+export const opponentTree = (games: Iterable<Game>): ((id: string, hops: number) => number) => {
+  const next = linksOf(games);
   const memo = new Map<string, number>();
   return (id, hops) => {
     const key = `${hops}\u0000${id}`;
@@ -59,6 +65,40 @@ export const opponentTree = (
     const reach = Math.min(REACH_CAP, seen.size - 1);
     memo.set(key, reach);
     return reach;
+  };
+};
+
+/**
+ * The shortest chains of games out from one club, to `hops` games: for any club, the clubs from
+ * `from` to it in order, both ends included, one game apart each, or nothing when it is further.
+ * The owner asked how the club asked about's web compares with that of a club the fit put in its
+ * league which did play outside it; the chain says how many games apart the two are, and through
+ * whom.
+ */
+export const chainsFrom = (
+  games: Iterable<Game>,
+  from: string,
+  hops: number
+): ((to: string) => string[] | undefined) => {
+  const next = linksOf(games);
+  const before = new Map<string, string | undefined>([[from, undefined]]);
+  let frontier = [from];
+  for (let step = 0; step < hops && frontier.length > 0; step += 1) {
+    const ahead: string[] = [];
+    for (const at of frontier) {
+      for (const other of next.get(at) ?? []) {
+        if (before.has(other)) continue;
+        before.set(other, at);
+        ahead.push(other);
+      }
+    }
+    frontier = ahead;
+  }
+  return (to) => {
+    if (!before.has(to)) return undefined;
+    const chain: string[] = [];
+    for (let at: string | undefined = to; at !== undefined; at = before.get(at)) chain.push(at);
+    return chain.reverse();
   };
 };
 

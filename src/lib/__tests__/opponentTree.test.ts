@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { opponentTree, REACH_CAP, reachPercentiles } from "../../../scripts/opponentTree";
+import {
+  chainsFrom,
+  opponentTree,
+  REACH_CAP,
+  reachPercentiles,
+} from "../../../scripts/opponentTree";
 
 /* How far a club's web of games reaches (`scripts/opponentTree.ts`), the owner's question. */
 
@@ -23,6 +28,17 @@ describe("the opponent tree", () => {
     expect([1, 2, 3, 4].map((hops) => reach("L1", hops))).toEqual([2, 3, 4, 6]);
     expect([1, 2, 3].map((hops) => reach("X", hops))).toEqual([3, 4, 6]);
     expect(reach("nobody", 3)).toBe(0);
+  });
+
+  it("finds the shortest chain of games between two clubs, within a distance", () => {
+    const chainTo = chainsFrom(games, "L1", 4);
+    expect(chainTo("L1")).toEqual(["L1"]);
+    expect(chainTo("L4")).toEqual(["L1", "L3", "L4"]);
+    expect(chainTo("Z")).toEqual(["L1", "L3", "L4", "X", "Z"]);
+    expect(chainTo("nobody")).toBeUndefined();
+    // Four games out reaches Z; three does not.
+    expect(chainsFrom(games, "L1", 3)("Z")).toBeUndefined();
+    expect(chainsFrom(games, "L1", 3)("X")).toEqual(["L1", "L3", "L4", "X"]);
   });
 
   it("stops counting at the cap", () => {

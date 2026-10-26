@@ -24,7 +24,7 @@ import {
 } from "../src/lib/scoutBacktest.ts";
 import { byRating } from "../src/lib/powerRating.ts";
 import { clubLeagueReport, type ClubLeagueReport } from "./clubLeagueReport.ts";
-import { opponentTree, reachPercentiles } from "./opponentTree.ts";
+import { chainsFrom, opponentTree, reachPercentiles } from "./opponentTree.ts";
 import { dayInstant } from "../src/lib/ratingRecency.ts";
 import { resultsAwareRestart, type ResultsAwareLevel } from "../src/lib/resultsAwareLevel.ts";
 import {
@@ -294,7 +294,18 @@ export type ReachSummary = {
   club?: number[];
   /** Its league's clubs, as its own schedule names them. */
   league?: { name: string; reach: number[] }[];
+  /**
+   * The league the fit found for it, club by club: the reach within one to `COMMUNITY_HOPS` games,
+   * and the shortest chain of games to that club from the club asked about, by name, when one is
+   * within `CHAIN_HOPS`.
+   */
+  community?: { name: string; place: string; reach: number[]; chain?: string[] }[];
 };
+
+/** How far out the fit's league's clubs are counted: past three, where the Longhorns' web stops. */
+export const COMMUNITY_HOPS = 5;
+/** The longest chain of games looked for between the club asked about and a club of its league. */
+export const CHAIN_HOPS = 8;
 type Percentiles = { p10: number; p25: number; p50: number };
 
 export type CutSummary = {
@@ -996,6 +1007,25 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
         communityOutside: controlBoard.fit.communities.outside,
       })
     : undefined;
+  const askedLeague = firstFound ? leagueDetailOf(firstFound.teamId) : undefined;
+  const community = (() => {
+    if (!firstFound || !askedLeague) return undefined;
+    const chainTo = chainsFrom(
+      board.map(({ game }) => game),
+      firstFound.teamId,
+      CHAIN_HOPS
+    );
+    const nameById = new Map(teams.map((team) => [team.id, team.name]));
+    return askedLeague.members.map((member) => {
+      const chain = chainTo(member.id)?.map((id) => nameById.get(id) ?? id);
+      return {
+        name: member.name,
+        place: member.place,
+        reach: Array.from({ length: COMMUNITY_HOPS }, (_, at) => boardReach(member.id, at + 1)),
+        ...(chain ? { chain } : {}),
+      };
+    });
+  })();
   const reachSummary: ReachSummary = {
     nationalTop: { two: spread(nationalIds, 2), three: spread(nationalIds, 3) },
     stateOnes: { two: spread(oneIds, 2), three: spread(oneIds, 3) },
@@ -1003,6 +1033,7 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
     ...(clubLeague
       ? { league: clubLeague.league.map((club) => ({ name: club.name, reach: reachOf(club.id) })) }
       : {}),
+    ...(community ? { community } : {}),
   };
 
   const overall = results[0]?.segments.find((segment) => segment.key === "all");
@@ -1020,11 +1051,7 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
     reach: reachSummary,
     ...(clubLeague ? { clubLeague } : {}),
     provenBar: clearlyBetterBar(Math.max(1, orders.length - 1)),
-    ...(() => {
-      const first = results[0]?.club[0];
-      const detail = first ? leagueDetailOf(first.teamId) : undefined;
-      return detail ? { league: detail } : {};
-    })(),
+    ...(askedLeague ? { league: askedLeague } : {}),
   };
 };
 
@@ -1280,6 +1307,18 @@ const describeProven = (sweep: CommunitySweep, say: (line?: string) => void, nam
   if (sweep.reach.league) {
     named.push("", "Its league's clubs, how far their webs reach (within one, two, three games):");
     sweep.reach.league.forEach((club) => named.push(`  ${club.name}: ${club.reach.join(", ")}`));
+  }
+  if (sweep.reach.community) {
+    named.push(
+      "",
+      `The league the fit found for it, club by club: how far each web reaches (within one to ${COMMUNITY_HOPS} games), and the shortest chain of games to it from the club asked about:`
+    );
+    sweep.reach.community.forEach((club) => {
+      const chain = club.chain
+        ? `${club.chain.length - 1} game(s) away: ${club.chain.join(" → ")}`
+        : `more than ${CHAIN_HOPS} games away`;
+      named.push(`  ${club.name} (${club.place || "?"}): ${club.reach.join(", ")}; ${chain}`);
+    });
   }
   named.push(
     "",

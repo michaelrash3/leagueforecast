@@ -5,6 +5,7 @@ import {
   plantClosedLeague,
 } from "../../../scripts/closedLeagueFixture";
 import {
+  COMMUNITY_HOPS,
   describeCommunitySweep,
   LEVEL_VARIANTS,
   PROVEN_ORDERS,
@@ -132,6 +133,40 @@ describe("the league-level comparison", () => {
     const placed = (key: string) =>
       sweep.proven.find((order) => order.key === key)!.club[0]!.stateRank!;
     expect(placed("r2-25")).toBeGreaterThan(placed("shown"));
+  });
+
+  it("reads the league the fit found, club by club: its web and its chain from the club", () => {
+    const community = sweep.reach.community!;
+    expect(community).toHaveLength(sweep.league!.size);
+    expect(community.every((club) => club.reach.length === COMMUNITY_HOPS)).toBe(true);
+    const longhorns = community.find((club) => club.name === LONGHORNS.name)!;
+    expect(longhorns.reach.slice(0, 3)).toEqual(sweep.reach.club);
+    expect(longhorns.chain).toEqual([LONGHORNS.name]);
+    // Every other club of it is some games away, the chain starting at the Longhorns and ending
+    // at the club, one game apart each.
+    const played = new Set(
+      input.games.flatMap((game) => [
+        `${game.teamAId}|${game.teamBId}`,
+        `${game.teamBId}|${game.teamAId}`,
+      ])
+    );
+    const idOf = new Map(input.teams.map((team) => [team.name, team.id]));
+    community
+      .filter((club) => club !== longhorns)
+      .forEach((club) => {
+        const chain = club.chain!;
+        expect(chain[0]).toBe(LONGHORNS.name);
+        expect(chain[chain.length - 1]).toBe(club.name);
+        expect(chain.length).toBeGreaterThan(1);
+        chain.slice(1).forEach((name, at) => {
+          expect(played.has(`${idOf.get(chain[at]!)}|${idOf.get(name)}`)).toBe(true);
+        });
+      });
+    const { lines, named } = describeCommunitySweep(sweep);
+    expect(lines.join("\n")).not.toContain("shortest chain");
+    expect(named).toContain(
+      `  ${LONGHORNS.name} (${LONGHORNS.city}, ${LONGHORNS.state}): ${longhorns.reach.join(", ")}; 0 game(s) away: ${LONGHORNS.name}`
+    );
   });
 
   it("reports the club's league as its schedule names it, club by club", () => {
