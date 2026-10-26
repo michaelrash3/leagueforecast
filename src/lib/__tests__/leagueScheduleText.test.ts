@@ -405,6 +405,15 @@ describe("parseLeagueSchedule", () => {
       rows: [{ date: "4/10", away: "Falcons", home: "Wolves", awayRuns: 6, homeRuns: 5 }],
       skipped: [],
     });
+    // A day no calendar has is still skipped, with no bare day or heading's day to stand in for it.
+    expect(read(["4/31/2027,9:00 AM,Falcons @ Wolves,6,5"])).toEqual({
+      rows: [],
+      skipped: ["4/31/2027,9:00 AM,Falcons @ Wolves,6,5"],
+    });
+    expect(read(["April 10", "4/31/2027,9:00 AM,Falcons @ Wolves,6,5"])).toEqual({
+      rows: [],
+      skipped: ["4/31/2027,9:00 AM,Falcons @ Wolves,6,5"],
+    });
   });
 
   it("reads a header printed again partway down as a header", () => {

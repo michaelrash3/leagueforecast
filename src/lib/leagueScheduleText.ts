@@ -412,7 +412,9 @@ const readCells = (
   }
   const [game] = games;
   if (!laidOut || game === undefined) return undefined;
-  day ??= bareDay;
+  // Asked of undefined alone: a written day no calendar has (null) skips the row, where `??=` took a
+  // bare day, or the heading's, in its place (found by Codex on #456).
+  if (day === undefined) day = bareDay;
   if (games.length > 1 || day === null) return "skip";
   // A score from its own cell, or two cells of runs, is read as if written after the game, in the
   // order the sides were.
