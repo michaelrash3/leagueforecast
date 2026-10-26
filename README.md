@@ -4406,7 +4406,10 @@ subscription and sending to it, which the app does not have.
   and a season switched in one moved where the other saved. The tabs now ask each other on a
   `BroadcastChannel` as each opens: the tab opened later is read-only, says "Open in another tab"
   over League Standings with **Use here**, and storage refuses every League write it makes, a
-  switch of season included (the cloud copy's own arriving is still laid in). Use here reloads the
+  switch of season included (the cloud copy's own arriving is still laid in). Making, copying and
+  deleting a season are refused before they start, with the same words: a delete goes to the
+  cloud's copy first, which storage refusing afterwards could not undo. A tab answers a hello to
+  the tab that said it alone, so an answer heard by a third tab never makes that one give way. Use here reloads the
   tab, so it reads what the other saved, and takes the turn on its way back in; every other tab is
   then read-only. A tab whose writer was closed is not told: the next tab to open writes, or Use
   here takes the turn. Without a `BroadcastChannel` every tab writes, as before. The talk on the

@@ -76,6 +76,29 @@ describe("which tab may write League Standings", () => {
     expect([first.turn.readOnly(), second.turn.readOnly()]).toEqual([false, true]);
   });
 
+  it("stays the earliest's when three start talking in another order than they opened", () => {
+    // The channel's code is fetched after each page starts, so a tab that opened first can be the
+    // last to say hello. B answers C, then gives way to A; B's answer to C must not reach A.
+    const net = hub();
+    const b = tab(net, 2000, "b");
+    const c = tab(net, 3000, "c");
+    const a = tab(net, 1000, "a");
+    net.settle();
+    expect(a.turn.readOnly()).toBe(false);
+    expect(b.turn.readOnly()).toBe(true);
+    expect(c.turn.readOnly()).toBe(true);
+  });
+
+  it("is still the taken turn's when a tab opened before it says hello late", () => {
+    const net = hub();
+    const taker = tab(net, 5000, "t", true);
+    net.settle();
+    const slow = tab(net, 1000, "s");
+    net.settle();
+    expect(taker.turn.readOnly()).toBe(false);
+    expect(slow.turn.readOnly()).toBe(true);
+  });
+
   it("passes to a read-only tab that says Use here, which reads the season again", () => {
     const net = hub();
     const first = tab(net, 1000, "a");

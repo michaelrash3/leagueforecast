@@ -13,13 +13,20 @@ export type TabChannel = {
   close: () => void;
 };
 
-type Said = { kind: "hello" | "here" | "take"; id: string; openedAt: number };
+/**
+ * What a tab says on the channel: hello as it opens, take as it takes the turn, and here to the one
+ * tab whose hello it answers (`to`). The channel reaches every tab, and an answer heard by a tab it
+ * was not for could make that tab give way to one it is before: with three talking in another
+ * order than they opened, all three ended read-only.
+ */
+type Said = { kind: "hello" | "here" | "take"; id: string; openedAt: number; to?: string };
 
 const saidOf = (raw: unknown): Said | null => {
   if (typeof raw !== "object" || raw === null) return null;
-  const { kind, id, openedAt } = raw as Record<string, unknown>;
+  const { kind, id, openedAt, to } = raw as Record<string, unknown>;
   if (kind !== "hello" && kind !== "here" && kind !== "take") return null;
   if (typeof id !== "string" || typeof openedAt !== "number") return null;
+  if (kind === "here") return typeof to === "string" ? { kind, id, openedAt, to } : null;
   return { kind, id, openedAt };
 };
 
@@ -63,9 +70,9 @@ export const createTabTurn = ({
       if (readOnly) return;
       // Answered by the tab before it; a tab opened in the same moment that is before this one is
       // not answered, and this one gives way, since its own hello went out before the other heard.
-      if (took || before(said)) channel.post({ kind: "here", ...me });
+      if (took || before(said)) channel.post({ kind: "here", ...me, to: said.id });
       else become(true);
-    } else if (!took) {
+    } else if (said.to === id && !took) {
       become(true);
     }
   });
