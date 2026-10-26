@@ -695,7 +695,8 @@ export function GamesView({
                         }`}
                         aria-label={final ? "Mark game as scheduled" : "Mark game as final"}
                       >
-                        {final ? "Final" : "Scheduled"}
+                        {/* The press, not the state: it read "Scheduled" and made the game final. */}
+                        {final ? "Reopen" : "Mark final"}
                       </button>
                       <button
                         type="button"
@@ -855,7 +856,7 @@ export function GamesView({
                             : "Mark tournament game as final"
                         }
                       >
-                        {final ? "Final" : "Scheduled"}
+                        {final ? "Reopen" : "Mark final"}
                       </button>
                     </div>
                     <div className="space-y-4 p-4">
