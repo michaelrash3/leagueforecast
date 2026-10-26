@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetCloudGuard } from "../cloud/cloudGuard";
 import { readLeagueClubRanks, writeLeagueClubRanks } from "../leagueClubRanks";
 import {
@@ -39,6 +39,8 @@ import {
   saveTeams,
   setActiveSeason,
 } from "../storage";
+
+afterEach(() => vi.restoreAllMocks());
 
 const backing = new Map<string, string>();
 
@@ -426,19 +428,35 @@ describe("what this device keeps of a season under its id", () => {
     expect(keptOnDevice(second.id)).toEqual(NONE);
     expect(keptOnDevice(first.id)).toEqual(ALL);
     const next = createSeason("Fall");
-    expect(next.id).toBe(second.id);
     expect(keptOnDevice(next.id)).toEqual(NONE);
   });
 
   it("is none of a season made here, whatever a season gone before left under its id", () => {
+    // The random letters pinned, so the id a new season is made under is known before it is.
+    vi.spyOn(Math, "random").mockReturnValue(0);
     // Left by a season deleted before its keeping went with it.
-    keepOnDevice("season-2");
-    keepOnDevice("season-3");
+    keepOnDevice("season-aaaaaaaa");
+    keepOnDevice("season-aaaaaaaa-8");
 
-    expect(createSeason("Spring").id).toBe("season-2");
-    expect(keptOnDevice("season-2")).toEqual(NONE);
-    expect(duplicateSeason("season-2", "Spring copy")?.id).toBe("season-3");
-    expect(keptOnDevice("season-3")).toEqual(NONE);
+    expect(createSeason("Spring").id).toBe("season-aaaaaaaa");
+    expect(keptOnDevice("season-aaaaaaaa")).toEqual(NONE);
+    // The same letters again are taken, so after a few draws it is told apart by a count.
+    expect(duplicateSeason("season-aaaaaaaa", "Spring copy")?.id).toBe("season-aaaaaaaa-8");
+    expect(keptOnDevice("season-aaaaaaaa-8")).toEqual(NONE);
+  });
+
+  /*
+   * Ids were counted from the seasons this browser holds, so a laptop and a phone tab left open
+   * since before it each made "season-2", and with League kept live the two seasons met in the
+   * cloud as one. An id is now eight random letters and digits, which two devices do not share.
+   */
+  it("is made under random letters, a new one each time", () => {
+    const made = Array.from({ length: 40 }, (_, at) => createSeason(`Season ${at}`).id);
+    for (const id of made) expect(id).toMatch(/^season-[a-z0-9]{8}$/);
+    expect(new Set(made).size).toBe(made.length);
+    const copy = duplicateSeason(made[0]!, "Copy");
+    expect(copy?.id).toMatch(/^season-[a-z0-9]{8}$/);
+    expect(made).not.toContain(copy?.id);
   });
 
   it("is none of a season arriving from elsewhere, and stays with one held here", () => {
