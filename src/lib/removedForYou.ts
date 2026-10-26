@@ -36,8 +36,8 @@ export const reasonsInWords = (mark: AutoRemoval): string[] =>
       case "hundred": {
         const widest = Math.max(0, ...(mark.reported ?? []).map((game) => Math.abs(game.margin)));
         return widest >= LOPSIDED_MARGIN
-          ? `its schedule reports a game won by ${Math.round(widest)} runs`
-          : `its schedule reports a game won by ${LOPSIDED_MARGIN} or more runs`;
+          ? `its schedule reports a game it won or lost by ${Math.round(widest)} runs`
+          : `its schedule reports a game it won or lost by ${LOPSIDED_MARGIN} or more runs`;
       }
     }
   });

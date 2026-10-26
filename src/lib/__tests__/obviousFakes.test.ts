@@ -402,14 +402,15 @@ describe("sign N: a name with void, test or demo in it as a word of its own", ()
   });
 });
 
-describe("sign H: its own schedule reports a game won by 50 or more", () => {
+describe("sign H: its own schedule reports a game it won or lost by 50 or more", () => {
   // The loser's own schedule files each game here and the winner is a stand-in, so neither A nor B
   // reads it: what marks the loser is H alone.
   const loser = club("L", 12);
   const teams = [loser, standIn("W")];
 
-  it("marks the club whose schedule reports it, at 50 and not at 49", () => {
-    // The owner's line of 26 October 2026; it was 100, and a 99-0 stood.
+  it("marks the club whose schedule reports it, a loss as much as a win, at 50 and not at 49", () => {
+    // The owner's line of 26 October 2026; it was 100, and a 99-0 stood. "Won or lost by 50 or
+    // more", in their words of that day: L lost each of these, and its own schedule says so.
     for (const runs of [50, 99]) {
       expect(signsOf(sweep({ teams, games: [game("W", "L", runs, 0, { filer: "L" })] }))).toEqual({
         gcL: ["hundred"],
@@ -784,7 +785,7 @@ describe("a mark as stored and said", () => {
     ).toEqual(["3 of its 4 results dated well ahead, the first 2026-11-01"]);
     expect(
       reasonsInWords({ ...base, signs: ["hundred"], reported: [{ gameId: "g1", margin: 104 }] })
-    ).toEqual(["its schedule reports a game won by 104 runs"]);
+    ).toEqual(["its schedule reports a game it won or lost by 104 runs"]);
   });
 
   it("says when the word is in the GameChanger team's name rather than the club's", () => {

@@ -2894,8 +2894,7 @@ one won by 40 or more counts for nothing until **It's real**. **Delete** and **I
 each as before. The clubs that post them head **Clubs that may not be real** from the same line.
 
 The clubs that post them head Pool health's **Clubs that may not be real**, the user's call of 28
-September 2026: a club whose schedule filed a win by thirty runs or more (forty until 26 October
-2026) that nobody has vouched for is listed whether or not anything of its is dated ahead, charged to the side that
+September 2026: a club whose schedule filed a win by thirty runs or more (forty until 26 October 2026) that nobody has vouched for is listed whether or not anything of its is dated ahead, charged to the side that
 won it where that side's schedule filed it (`filedBy`), so a club whose own schedule records a
 rout against it is not said to have won one, and those clubs come first, most such wins first,
 with a red pill saying how many; the clubs with results dated ahead follow in their old order.
@@ -2951,8 +2950,8 @@ signs and nothing keeps it:
   the rules read 300, those ten fewer and 61 more. It is marked by GameChanger team, so a club with
   one such team among others stands. Since the tidy now deletes a pulled club every one of whose
   names says it is no team, N mostly marks what the tidy leaves: one such team among others.
-- **A lopsided game** (H): its own schedule reports a game won by 50 runs or more
-  (`LOPSIDED_MARGIN`), by either side, that nobody has vouched for. The user's rule of 21 October
+- **A lopsided game** (H): its own schedule reports a game it won or lost by 50 runs or more
+  (`LOPSIDED_MARGIN`) that nobody has vouched for. The user's rule of 21 October
   2026 set it at 100, "if they win by 100 or more, automatically delete the team that is reporting
   a lopsided game like that"; on 26 October they moved it to 50, with the wins from 30 put to them
   in Pool health instead (above). On the cloud copy of that day (the 2027 squad year, 386,146
@@ -2961,6 +2960,8 @@ signs and nothing keeps it:
   opponents list, so A and B now mostly say why a club went rather than decide whether it does. Only a side
   whose own schedule scored the game is charged, the loser as much as the winner, so a club named
   by another's made-up score stays, and a game no pulled club's schedule scored charges nobody.
+  The owner put it that way themselves on 26 October, "won or lost by 50 or more", and chose to
+  keep the other side named in such a game on its boards when its own schedule does not list it.
   Each side is read at its own schedule's score, not the rating's average of the two: where the
   schedules disagree, 190-0 against 20-0, the average of 105 would charge the club that said 20,
   and 150-0 against 0-0 would average 75 and let off the club that said 150. It is a mark like
