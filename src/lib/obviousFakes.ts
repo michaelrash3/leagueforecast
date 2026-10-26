@@ -133,6 +133,18 @@ export type SweepAnswers = {
   namedAges: ReadonlyMap<string, unknown>;
 };
 
+/**
+ * What a sweep can be asked beyond the nightly's rules: research, so a line can be measured before
+ * it ships (`scripts/communityLevelSweep.ts`).
+ */
+export type SweepOptions = {
+  /**
+   * H's line, in runs: a club whose own schedule reports a game won by this many or more, either
+   * side, unvouched. `HUNDRED_MARGIN` when left out, which is the nightly's sweep to the last mark.
+   */
+  hundredLine?: number;
+};
+
 const DAY_MS = 86_400_000;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const daysAfter = (date: string, today: string) =>
@@ -144,9 +156,12 @@ const isPlayed = (game: ScoutGame) =>
 /**
  * The clubs whose own GameChanger schedules list a game: the one it was pulled off, every
  * schedule's row folded into it, every schedule on record as listing it, and side B where its own
- * report is kept.
+ * report is kept. Exported for the research that asks why a club was or was not marked.
  */
-const listersOf = (game: ScoutGame, clubOfGcId: ReadonlyMap<string, string>): Set<string> => {
+export const listersOf = (
+  game: ScoutGame,
+  clubOfGcId: ReadonlyMap<string, string>
+): Set<string> => {
   const listers = new Set<string>();
   const add = (gcId: string | undefined) => {
     const clubId = gcId === undefined ? undefined : clubOfGcId.get(gcId);
@@ -170,9 +185,9 @@ const listersOf = (game: ScoutGame, clubOfGcId: ReadonlyMap<string, string>): Se
  * said 20, and 150-0 against 0-0 averaged 75 and let off the club that said 150 (Codex on #437).
  * The game's own score is its source's word; a folded row keeps its own; a schedule only named in
  * `alsoFrom` kept no row, so it is read as its side sees the game (`scoreSeenBy`), side B's own
- * report where it gave one.
+ * report where it gave one. Exported, as `listersOf` is, for the research into H's line.
  */
-const reportedMargins = (
+export const reportedMargins = (
   game: ScoutGame,
   clubOfGcId: ReadonlyMap<string, string>
 ): Map<string, number> => {
@@ -278,12 +293,13 @@ const nextSeasonSquad = (links: readonly GcTeamLink[], today: string): boolean =
 /** Why N marks a GameChanger id: the word, and the team's name where the club's own has none. */
 type Named = { word: string; teamName?: string };
 
-type Verdict = {
+/** What the sweep reads of one pulled club, before any mark is made or lifted (`sweepVerdicts`). */
+export type SweepVerdict = {
   /** The signs it shows, A, B and C, and which of its GameChanger ids N marks. */
   signs: AutoSign[];
   named: Map<string, Named>;
   wins: CountedWin[];
-  /** The games won by `HUNDRED_MARGIN` or more its own schedule reported, either side (H). */
+  /** The games won by H's line or more its own schedule reported, either side (H). */
   reported: CountedWin[];
   /** Its wins by `ROUT_MARGIN` or more, and by `ABSURD_MARGIN` or more, that the loser's lists. */
   routsListed: number;
@@ -301,9 +317,14 @@ type Verdict = {
 
 /**
  * What every pulled club shows, and what keeps it: the signs before any guard, the guards, and the
- * day of the latest of its games a real opponent's own schedule lists.
+ * day of the latest of its games a real opponent's own schedule lists. H read at `hundredLine`.
  */
-const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<string, Verdict> => {
+const judge = (
+  pool: SweepPool,
+  answers: SweepAnswers,
+  today: string,
+  hundredLine: number
+): Map<string, SweepVerdict> => {
   const clubOfGcId = clubsByGcId(pool.teams);
   const pulled = new Map(
     pool.teams.filter((team) => (team.gcTeams ?? []).length > 0).map((team) => [team.id, team])
@@ -346,7 +367,7 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
         if (seen.own - seen.opponent >= ABSURD_MARGIN) tally.absurdListed += 1;
       }
       const reported = hundred?.get(self!);
-      if (reported !== undefined && reported >= HUNDRED_MARGIN) {
+      if (reported !== undefined && reported >= hundredLine) {
         tally.reported.push({
           gameId: game.id,
           margin: reported,
@@ -381,7 +402,7 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
   const real = answers.realClubs;
   const mine = new Set(pool.ageGroups.flatMap((group) => (group.myTeamId ? [group.myTeamId] : [])));
   const apart = new Set([...answers.keptApart].flatMap((key) => key.split("\u0000")));
-  const verdicts = new Map<string, Verdict>();
+  const verdicts = new Map<string, SweepVerdict>();
   pulled.forEach((team, id) => {
     const tally = tallies.get(id)!;
     const links = team.gcTeams ?? [];
@@ -489,19 +510,33 @@ const keeping = (mark: AutoRemoval, signs: readonly AutoSign[]): AutoRemoval | u
 };
 
 /**
+ * What the sweep reads of every pulled club of `pool`, by club id, before any mark is made or
+ * lifted: its signs, what it reported, whether the owner's word keeps it, and whether real
+ * opponents' schedules corroborate it. For the research that asks why a club was or was not marked
+ * (`scripts/communityLevelSweep.ts`); the nightly reads only `sweepMarks`.
+ */
+export const sweepVerdicts = (
+  pool: SweepPool,
+  answers: SweepAnswers,
+  today: string,
+  options: SweepOptions = {}
+): Map<string, SweepVerdict> => judge(pool, answers, today, options.hundredLine ?? HUNDRED_MARGIN);
+
+/**
  * The marks after tonight's sweep of `pool`: those a guard or a sign's own escape now lifts taken
  * off, and a mark made for each GameChanger id of a club newly showing a sign that nothing keeps.
  * `marks` itself when nothing changes, so a caller can tell by identity whether to save.
  *
- * `today` is the user's day, as an ISO day.
+ * `today` is the user's day, as an ISO day. `options` is for research alone (`SweepOptions`).
  */
 export const sweepMarks = (
   pool: SweepPool,
   answers: SweepAnswers,
   marks: AutoRemovals,
-  today: string
+  today: string,
+  options: SweepOptions = {}
 ): AutoRemovals => {
-  const verdicts = judge(pool, answers, today);
+  const verdicts = judge(pool, answers, today, options.hundredLine ?? HUNDRED_MARGIN);
   const clubOfGcId = clubsByGcId(pool.teams);
   const games = new Map(pool.games.map((game) => [game.id, game]));
   const teams = new Map(pool.teams.map((team) => [team.id, team]));

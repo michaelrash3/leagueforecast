@@ -1,0 +1,69 @@
+# A research run, read only: the community-level sweep on the cloud copy
+# (`scripts/communityLevelSweep.ts`). It reads the copy once, as the nightly reads it, on stores
+# opened to read, and writes nothing to it; it measures a league start that reads how the league's
+# outside games went against the counted one, says why the clubs behind games won by a hundred or
+# more are or are not taken off, and dry-runs sign H at 40, 50, 75 and 100.
+#
+# It runs only on a push to rash/griffey whose head commit's message holds the marker [run-sweep],
+# and never on any other branch or push. It prints numbers, days and scores only: this repository is
+# public, and so are its Actions logs. The lines that name clubs are sealed to the Firebase key the
+# run reads the copy with and kept as the run's artifact, opened with the same key:
+#   FIREBASE_SERVICE_ACCOUNT="$(cat key.json)" npm run community:sweep -- --open=community-sweep.sealed.json
+name: Research community level
+
+on:
+  push:
+    branches: [rash/griffey]
+
+permissions:
+  contents: read
+
+# Its own group, apart from CI's and the nightly's: one sweep at a time, never cancelling one under
+# way, since each run is a read of the copy the owner agreed to pay for.
+concurrency:
+  group: research-community
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    if: github.ref == 'refs/heads/rash/griffey' && contains(github.event.head_commit.message, '[run-sweep]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install: everything it runs is the app's own files, run by Node as they are
+      # (`scripts/tsRegister.mjs`), as the nightly runs.
+      - name: Sweep the cloud copy, read only
+        timeout-minutes: 55
+        run: npm run community:sweep -- --cloud --seal="$RUNNER_TEMP/community-sweep.sealed.json"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # The members' day, which the board of the day is read on, as the nightly reads it.
+          TZ: America/New_York
+          LANG: en_US.UTF-8
+          # The whole pool is held at once, as the nightly holds it (about 4.3 GB on 29 September
+          # 2026), and the sweep's fits come on top of it, one board's worth at a time.
+          NODE_OPTIONS: --max-old-space-size=12288
+      - name: Keep the sealed names
+        id: keep
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: community-sweep-sealed
+          path: ${{ runner.temp }}/community-sweep.sealed.json
+          if-no-files-found: ignore
+          retention-days: 14
+      # Sealed, so safe in a public log: only the key the copy was read with opens it.
+      - name: The sealed names, where the artifact could not be kept
+        if: always() && steps.keep.outcome == 'failure'
+        run: |
+          if [ -f "$RUNNER_TEMP/community-sweep.sealed.json" ]; then
+            echo "----- sealed: save between the markers as community-sweep.sealed.json -----"
+            cat "$RUNNER_TEMP/community-sweep.sealed.json"
+            echo
+            echo "----- end sealed -----"
+          fi

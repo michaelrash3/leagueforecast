@@ -2980,12 +2980,14 @@ export const scheduleComponents = (
  */
 const startOf = (
   communities: ScheduleCommunities,
-  teamId: string
+  teamId: string,
+  /** The levels the fit started from, where they are not the counted ones (`ScoutYearFit`). */
+  levels?: ReadonlyMap<string, number>
 ): Pick<ScoutRankingRow, "levelPrior" | "outsideGames"> => {
   const outsideGames = outsideGamesOf(communities, teamId);
   return outsideGames === undefined
     ? {}
-    : { levelPrior: startingLevel(outsideGames), outsideGames };
+    : { levelPrior: levels?.get(teamId) ?? startingLevel(outsideGames), outsideGames };
 };
 
 /** Sort by rating, number the ranks, and number strength of schedule among teams that played. */
@@ -3305,6 +3307,12 @@ export type ScoutYearFit = {
    * read off the same games as the fit, before it.
    */
   communities: ScheduleCommunities;
+  /**
+   * Where each node's rating started, kept only where that is not its league's counted level
+   * (`startingLevel`): a fit asked to start again (`ScoutYearFitOptions.restart`). Absent on every
+   * board.
+   */
+  startLevels?: ReadonlyMap<string, number>;
   homeLevels: Map<string, number | undefined>;
   records: Map<string, WinLoss>;
   /** How many of each team's games crossed a level. */
@@ -3344,12 +3352,32 @@ export const yearFitGames = (rated: readonly RatedScoutGame[]): RatingGame[] => 
   }));
 };
 
+/** What a year's fit can be asked beyond what the boards ask of it: research, never a board. */
+export type ScoutYearFitOptions = {
+  /**
+   * Fit twice: once at the counted levels, as the boards do, then again from the starts this hands
+   * back, worked out from that first fit, its communities and the rows it read. The results-aware
+   * league level is one (`resultsAwareRestart`, `resultsAwareLevel.ts`), kept in a module of its
+   * own so the research code stays out of the first download. Left out, the fit is the boards' to
+   * the last digit.
+   */
+  restart?: (first: ScoutYearFirstFit) => ReadonlyMap<string, number>;
+};
+
+/** What a second start is worked out from (`ScoutYearFitOptions.restart`). */
+export type ScoutYearFirstFit = {
+  communities: ScheduleCommunities;
+  rows: readonly RatingGame[];
+  adjusted: OpponentAdjustedRatings;
+};
+
 export const fitScoutYear = (
   year: number | undefined,
   teams: ScoutTeam[],
   games: ScoutGame[],
   rated: readonly RatedScoutGame[],
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  options: ScoutYearFitOptions = {}
 ): ScoutYearFit => {
   const ratedGames = rated.map(({ game }) => game);
 
@@ -3380,10 +3408,16 @@ export const fitScoutYear = (
   const pieces = scheduleComponents(nodeIds, pairs);
   const communities = scheduleCommunities(nodeIds, pairs, pieces);
 
-  const adjusted = buildOpponentAdjustedRatings(nodeIds, yearFitGames(rated), {
+  const rows = yearFitGames(rated);
+  const counted = buildOpponentAdjustedRatings(nodeIds, rows, {
     cap: RATING_CAP,
     priorCentre: startingLevels(communities),
   });
+  // Research only: the starts worked out from the first fit, and the fit made again from them.
+  const startLevels = options.restart?.({ communities, rows, adjusted: counted });
+  const adjusted = startLevels
+    ? buildOpponentAdjustedRatings(nodeIds, rows, { cap: RATING_CAP, priorCentre: startLevels })
+    : counted;
 
   /*
    * Over the whole year, not the half. A club's age level is a fact about the club for the season,
@@ -3420,6 +3454,7 @@ export const fitScoutYear = (
     adjusted,
     effective,
     communities,
+    ...(startLevels ? { startLevels } : {}),
     homeLevels,
     records,
     crossAgeCounts,
@@ -3505,7 +3540,7 @@ export const rowsOfYearFit = (
         rank: 0,
         rating: confident(adjusted.ratings.get(team.id) ?? 0, effective.get(team.id) ?? 0),
         pointRating: adjusted.ratings.get(team.id) ?? 0,
-        ...startOf(fit.communities, team.id),
+        ...startOf(fit.communities, team.id, fit.startLevels),
         record: `${wins}-${losses}${ties ? `-${ties}` : ""}`,
         wins,
         losses,

@@ -23,6 +23,26 @@ declare module "node:child_process" {
 declare module "node:crypto" {
   type Sign = { update: (data: string) => Sign; sign: (key: string, encoding: "base64") => string };
   export function createSign(algorithm: string): Sign;
+  /** What `communityLevelSweep.ts` seals its named report with: a service account key's own pair. */
+  type KeyObject = { readonly type: "public" | "private" };
+  type RsaKey = { key: KeyObject | string; padding: number; oaepHash: string };
+  type Cipher = {
+    update: (data: Uint8Array) => Uint8Array;
+    final: () => Uint8Array;
+    getAuthTag: () => Uint8Array;
+  };
+  type Decipher = {
+    update: (data: Uint8Array) => Uint8Array;
+    final: () => Uint8Array;
+    setAuthTag: (tag: Uint8Array) => void;
+  };
+  export function createPublicKey(key: string): KeyObject;
+  export function publicEncrypt(key: RsaKey, data: Uint8Array): Uint8Array;
+  export function privateDecrypt(key: RsaKey, data: Uint8Array): Uint8Array;
+  export function randomBytes(size: number): Uint8Array;
+  export function createCipheriv(algorithm: string, key: Uint8Array, iv: Uint8Array): Cipher;
+  export function createDecipheriv(algorithm: string, key: Uint8Array, iv: Uint8Array): Decipher;
+  export const constants: { RSA_PKCS1_OAEP_PADDING: number };
 }
 
 declare module "node:zlib" {
