@@ -146,7 +146,7 @@ import type { StartPage } from "./lib/leagueStart";
 import { createAgeGroupId } from "./lib/teamRankings/seasons";
 import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standingsViews";
 import { displayName, recordText } from "./lib/format";
-import { pathSummary, recapToMarkdown, recapToStoryBrief } from "./lib/insights";
+import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
 import { eliminationNumberForGold, magicForGold, neededResults } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
@@ -2963,20 +2963,6 @@ export default function App() {
               opponentLossesNeeded: 0,
               description: `Exact elimination number is paused until ${EXACT_MAGIC_REMAINING_GAME_LIMIT} or fewer games remain to keep team modals responsive.`,
             },
-      path: pathSummary(
-        { ...selectedTeam, rank: selectedTeam.rank ?? 99 },
-        goldCutoff,
-        swings.map((swing) => ({
-          opponentName: swing.opponentName,
-          teamIsAway: swing.teamIsAway,
-          winSeed: swing.winSeed,
-          lossSeed: swing.lossSeed,
-        })),
-        {
-          totalTeams: dashboardRows.length,
-          leaderName: currentLeader ? displayName(currentLeader.name) : "",
-        }
-      ),
     };
   }, [
     selectedTeam,
@@ -2992,7 +2978,6 @@ export default function App() {
     remainingGames,
     goldCutoff,
     settings,
-    currentLeader,
   ]);
 
   const finalCount = completedGames.length;
