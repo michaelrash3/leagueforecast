@@ -3281,13 +3281,15 @@ export const rankScoutPoolWithScale = (
   games: ScoutGame[],
   rated: readonly RatedScoutGame[],
   myTeamId: string | undefined,
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  /** The webs of `rated`'s games, when a caller fitting the same schedule again has them. */
+  web?: OpponentWeb
 ): { rows: ScoutRankingRow[]; residualScale: number } => {
   const index = indexGroups(ageGroups);
   if (!isRankedAgeLevel(index.level(ageGroupId))) return { rows: [], residualScale: 0 };
   const fit = fitScoutYear(index.year(ageGroupId), teams, games, rated, ageGroups);
   return {
-    rows: rowsOfYearFit(fit, ageGroupId, myTeamId, ageGroups),
+    rows: rowsOfYearFit(fit, ageGroupId, myTeamId, ageGroups, web),
     residualScale: fit.adjusted.residualScale,
   };
 };
@@ -3476,12 +3478,16 @@ export const scoutFitRanks = (ageGroupId: string, ageGroups: AgeGroup[]): boolea
 
 const NO_TEAMS: ReadonlySet<string> = new Set();
 
-/** One page's table, cut from its year's fit: the clubs at home on the page, ranked. */
+/**
+ * One page's table, cut from its year's fit: the clubs at home on the page, ranked. `web` is the
+ * webs of the fit's games (`opponentWeb`), worked out from the fit when left out.
+ */
 export const rowsOfYearFit = (
   fit: ScoutYearFit,
   ageGroupId: string,
   myTeamId: string | undefined,
-  ageGroups: AgeGroup[]
+  ageGroups: AgeGroup[],
+  web?: OpponentWeb
 ): ScoutRankingRow[] => {
   const level = indexGroups(ageGroups).level(ageGroupId);
   if (!isRankedAgeLevel(level)) return [];
@@ -3532,7 +3538,7 @@ export const rowsOfYearFit = (
       };
     });
 
-  return rankRows(rows, webOfYearFit(fit));
+  return rankRows(rows, web ?? webOfYearFit(fit));
 };
 
 /**

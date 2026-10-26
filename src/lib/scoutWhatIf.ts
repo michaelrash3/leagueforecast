@@ -35,6 +35,7 @@
  */
 
 import {
+  opponentWeb,
   RATING_CAP,
   rankScoutPoolWithScale,
   scoutRatingGames,
@@ -290,6 +291,12 @@ export const whatIfCurve = (
   const at = rated.findIndex(({ game }) => game.id === fixture.id);
   if (at < 0) return null;
 
+  /*
+   * The board lists a club whose web of games falls short after the rest (`opponentWeb.ts`), and
+   * the webs are the schedule's, which is the same at every margin: the same hypothetical opponent
+   * on the same day. So they are worked out once, for the three fits and every rung between.
+   */
+  const web = opponentWeb(rated.map(({ game }) => [game.teamAId, game.teamBId] as const));
   const board = (margin: number) =>
     rankScoutPoolWithScale(
       ageGroupId,
@@ -297,7 +304,8 @@ export const whatIfCurve = (
       games,
       atMargin(rated, at, fixture, forTeamId, margin, today),
       myTeamId,
-      ageGroups
+      ageGroups,
+      web
     );
 
   const lostBoard = board(-RATING_CAP);
@@ -324,6 +332,7 @@ export const whatIfCurve = (
   const lowPoint = new Map(lost.map((row) => [row.teamId, row.pointRating]));
   const highPoint = new Map(won.map((row) => [row.teamId, row.pointRating]));
 
+  const myReach = web.reachesLine(forTeamId);
   const points: WhatIfPoint[] = [];
   for (let margin = -RATING_CAP; margin <= RATING_CAP; margin += 1) {
     if (margin === 0) continue;
@@ -336,11 +345,15 @@ export const whatIfCurve = (
       return low + (high - low) * share - scale * (perScale.get(teamId) ?? 0);
     };
     const mine = between(forTeamId);
-    // Counting who is above is what a rank is. Strictly above, so a club level with this one on
-    // the drawn line does not displace it — the same test the sweep above was verified against.
+    // Counting who is above is what a rank is: every club whose web reaches the line where this
+    // one's does not, and of the rest on its side of the line, those rated strictly above, so a
+    // club level with this one on the drawn line does not displace it — the same test the sweep
+    // above was verified against.
     let above = 0;
     won.forEach((row) => {
-      if (row.teamId !== forTeamId && between(row.teamId) > mine) above += 1;
+      if (row.teamId === forTeamId) return;
+      const reaches = web.reachesLine(row.teamId);
+      if (reaches !== myReach ? reaches : between(row.teamId) > mine) above += 1;
     });
     points.push({ margin, rank: above + 1, rating: mine });
   }
