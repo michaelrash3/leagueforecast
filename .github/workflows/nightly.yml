@@ -110,5 +110,7 @@ jobs:
           OUTCOME: ${{ steps.refresh.outcome }}
           REBUILDS: ${{ steps.refresh.outputs.rebuilds }}
           CLOSED_LEVEL: ${{ steps.refresh.outputs.closedLevel }}
+          HELD: ${{ steps.refresh.outputs.held }}
+          INGEST: ${{ steps.refresh.outputs.ingest }}
           BILLING: ${{ steps.upkeep.outputs.billing }}
           DISPATCH: ${{ steps.upkeep.outputs.dispatch }}

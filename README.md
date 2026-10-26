@@ -5964,7 +5964,30 @@ Three more, the owner's of 26 October 2026:
   first nightly to find it good for longer, or with no end, closes it. With no
   such secret set the pulls start on Google's machines, and nothing is read.
 
-The last two are read by their own step before the alarm (`scripts/upkeep.ts`),
+And two on what a night saves, the owner's rule of the same day ("hold a save that would
+remove more than 5% of a year's games or 2% of its clubs, and open an alarm issue saying what it
+would have done"):
+
+- **The nightly held a save that would have taken too much** (`blastRadius.ts`): before it
+  saves, a live nightly weighs, year by year, the games and clubs of the copy as it read it that
+  the pool as filed no longer holds anywhere; one moved to another year is not taken away. Past
+  5% of a year's games or 2% of its clubs, and at least 50 games or 20 clubs, so a year of a few
+  dozen games is never held for a pair of folded rows, it saves nothing, ends red, and the issue
+  gives each year's numbers. The copy stays as it was, its views unpublished, for a person to
+  look at what GameChanger answered. The next night that saves, or has nothing to save, closes
+  it. A pull a person starts saves what it files: the cap is the unattended night's.
+- **The nightly's answers stopped reading as schedules** (`ingestCanary.ts`): of the games
+  GameChanger listed that night, fewer than half could be filed, out of 500 or more. A cancelled
+  game, or one with no date, is a few in a hundred; a change in how GameChanger writes a game
+  reads as nearly all of them. The pull check above catches the score fields moving on one known
+  schedule; this one, across every answer of the night, reads only what the run already has. The
+  next night that reads as usual closes it.
+
+Both are a live run's alone, handed over as words with numbers only (`held=none`, or `held` and
+`2027:60/1000:3/100` a year; `ingest=fine` or `drift` and read/listed), which the alarm reads back
+as numbers and writes again in its own words.
+
+The two before them are read by their own step before the alarm (`scripts/upkeep.ts`),
 whatever became of the refresh, which hands each as a word (`billing=on` or `off`,
 `dispatch=fine`, `refused` or `expires` and a day); it never fails the run, and it
 prints neither the key nor the token.

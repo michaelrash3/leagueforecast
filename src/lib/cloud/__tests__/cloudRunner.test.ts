@@ -1456,6 +1456,59 @@ describe("a pull run on the cloud copy", () => {
     expect(new Set(kept.map((part) => part.group)).size).toBe(1);
   });
 
+  describe("a nightly's cap on what one save takes away (blastRadius.ts)", () => {
+    // Aces with a long season, then a night whose answer lists two games of it: the rest go, as
+    // rows the schedule no longer lists. A changed answer read as every schedule emptied looks so.
+    const long = Array.from({ length: 120 }, (_, at) =>
+      game(`a${at}`, `Opponent ${at}`, 5 + (at % 4), 3)
+    );
+    const night = async (cap: boolean) => {
+      const cloud = memoryCloud();
+      await seed(cloud);
+      schedules.set(ACES, schedule(ACES, "Aces", long));
+      try {
+        const first = await runCloudPull(list, deps(cloud, "2026-09-29T13:00:00.000Z"));
+        expect(first.end).toBe("finished");
+        const games = loadScoutGames().length;
+        schedules.set(ACES, schedule(ACES, "Aces", long.slice(0, 2)));
+        const writes = cloud.costs.writes;
+        const version = cloud.manifest()?.version;
+        const result = await runCloudPull(
+          list,
+          deps(cloud, "2026-09-30T07:17:00.000Z", cap ? { cap: true } : {})
+        );
+        return { result, games, writes, version, cloud };
+      } finally {
+        schedules.set(ACES, schedule(ACES, "Aces", [game("a1", "Bears", 5, 3)]));
+      }
+    };
+
+    it("holds a save that would take most of a year's games, and writes nothing", async () => {
+      const { result, games, writes, version, cloud } = await night(true);
+      expect(result.end).toBe("held");
+      expect(result.changed).toEqual([]);
+      expect(result.manifest).toBeUndefined();
+      expect(result.held).toHaveLength(1);
+      expect(result.held?.[0]).toMatchObject({ year: 2027 });
+      expect(result.held?.[0]?.gamesRemoved).toBeGreaterThanOrEqual(100);
+      expect(result.held?.[0]?.games).toBe(games);
+      expect(cloud.costs.writes).toBe(writes);
+      expect(cloud.manifest()?.version).toBe(version);
+    });
+
+    it("saves the same night where nobody asked for the cap, as a pull a person starts does", async () => {
+      const { result, version } = await night(false);
+      expect(result.end).toBe("finished");
+      expect(result.version).toBe((version ?? 0) + 1);
+    });
+
+    it("says how much of what GameChanger listed it could read", async () => {
+      const { result } = await night(true);
+      // Aces list two games that night and Bears one, and every one of them reads.
+      expect(result.ingest).toMatchObject({ listed: 3, read: 3, drifted: false });
+    });
+  });
+
   it("files the same answers onto a copy another device saved meanwhile, keeping its change", async () => {
     const cloud = memoryCloud();
     await seed(cloud);
