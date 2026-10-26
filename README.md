@@ -69,7 +69,7 @@ starts in its June. A season inside one calendar year is ordered exactly as befo
 | **Data Quality**          | Findings on the season's games, teams and settings, grouped by severity, with links to each, previewed repairs and undo.                                |
 | **Since you last looked** | What another device changed since this one last looked, on the Dashboard until seen; opt-in notifications while the app is open.                        |
 | **Season Predictor**      | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
-| **Team drawer**           | Team stats, path summary, magic/elimination numbers, swing games, compare view.                                                                         |
+| **Team drawer**           | Team stats, seed range, magic/elimination numbers, swing games, compare view.                                                                           |
 | **Our team**              | The team this browser follows leads the Dashboard: place, record, Gold % and its last move, next game and seeds, magic number, a jump to enter a score. |
 | **Settings**              | Season label, cutoff, points, tiebreaker, recap grouping, aggression.                                                                                   |
 | **Power UX**              | Shortcuts, dark mode, share URL, CSV import/export, undo, onboarding.                                                                                   |

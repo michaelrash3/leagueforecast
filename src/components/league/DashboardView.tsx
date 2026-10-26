@@ -32,6 +32,8 @@ type WhyContext = {
   gameOdds?: (game: Matchup) => number;
   findings: readonly Finding[];
   record: { winnerAccuracy: number | null; sampleSize: number };
+  /** Whether the league has a cut line, and so a Gold % to explain. */
+  hasCutLine: boolean;
 };
 
 function teamNameFor(map: Map<string, Team>, id: string) {
@@ -167,6 +169,7 @@ function PredictionCard({
                   nameOf={whyContext.nameOf}
                   findings={whyContext.findings}
                   record={whyContext.record}
+                  hasCutLine={whyContext.hasCutLine}
                   {...(gameModelChance !== undefined ? { gameModelChance } : {})}
                 />
               </Suspense>
@@ -194,6 +197,7 @@ export function DashboardView({
   digest,
   gameOdds,
   seasonFinal,
+  hasCutLine = true,
 }: {
   engine: ReturnType<typeof buildPredictionEngine>;
   backtestResult: ReturnType<typeof backtestPredictions>;
@@ -213,12 +217,15 @@ export function DashboardView({
    * since a finished season has none to predict.
    */
   seasonFinal?: SeasonFinal | null;
+  /** Whether the league has a cut line: without one, a card's explanation has no Gold % to tell apart. */
+  hasCutLine?: boolean;
 }) {
   const why: WhyContext = {
     nameOf: (id) => displayName(teamNameFor(teamsById, id)),
     ...(gameOdds ? { gameOdds } : {}),
     findings,
     record: backtestResult,
+    hasCutLine,
   };
   const avgConfidence = engine.predictions.length
     ? Math.round(

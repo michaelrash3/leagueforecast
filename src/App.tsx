@@ -1016,6 +1016,15 @@ export default function App() {
   const projectionAnalysisEnabled = remainingGames.length <= PROJECT_STANDINGS_REMAINING_GAME_LIMIT;
   const exactScenarioAnalysisEnabled =
     activeView === "model" && remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
+  /*
+   * The seed walk for one team's panel, whatever tab it was opened from: its Range and its swing
+   * games' seeds are that walk's. Run only on Forecast, a panel opened from the Dashboard or
+   * Standings showed the projection at both ends, as if nothing left could move the team. The
+   * whole-league table of every game's swing stays Forecast's alone.
+   */
+  const seedWalkEnabled =
+    (activeView === "model" || selectedTeamId !== null) &&
+    remainingGames.length <= EXACT_SCENARIO_REMAINING_GAME_LIMIT;
 
   const projected = useMemo(
     () =>
@@ -1192,13 +1201,15 @@ export default function App() {
     () =>
       buildBracketProjection({
         teams: modelRows,
-        cutoff: Math.max(0, modelRows.length - goldCutoff),
+        // Everyone below the Gold bracket, where there is a postseason at all. With none, the Gold
+        // bracket is empty and this one took every team, so the Schedule offered bracket games.
+        cutoff: hasPostseason ? Math.max(0, modelRows.length - goldCutoff) : 0,
         startIndex: goldCutoff,
         idPrefix: "silver-bracket",
         logs: bracketLogs,
         settings,
       }),
-    [modelRows, goldCutoff, bracketLogs, settings]
+    [modelRows, goldCutoff, hasPostseason, bracketLogs, settings]
   );
 
   const bracketSeedingLocked = useMemo(
@@ -1216,7 +1227,7 @@ export default function App() {
   // ---------- Scenario helpers ----------
 
   const { seedForScenario, seedRangeForTeam } = useSeedRanges({
-    exact: exactScenarioAnalysisEnabled,
+    exact: seedWalkEnabled,
     liveTeams,
     remainingGames,
     settings,
@@ -1239,10 +1250,8 @@ export default function App() {
             projectedById.get(teamId)?.rank ??
             ranked.find((item) => item.id === teamId)?.rank ??
             99;
-          const winSeed = exactScenarioAnalysisEnabled
-            ? seedForScenario(teamId, game, teamId)
-            : baselineSeed;
-          const lossSeed = exactScenarioAnalysisEnabled
+          const winSeed = seedWalkEnabled ? seedForScenario(teamId, game, teamId) : baselineSeed;
+          const lossSeed = seedWalkEnabled
             ? seedForScenario(teamId, game, opponentId)
             : baselineSeed;
           const teamWinPct = teamIsAway ? prediction.awayWinPct : 1 - prediction.awayWinPct;
@@ -1269,7 +1278,7 @@ export default function App() {
       liveById,
       projectedById,
       ranked,
-      exactScenarioAnalysisEnabled,
+      seedWalkEnabled,
       seedForScenario,
     ]
   );
@@ -3706,6 +3715,7 @@ export default function App() {
                   ) : activeView === "dashboard" ? (
                     <DashboardView
                       seasonFinal={seasonFinal}
+                      hasCutLine={hasCutLine}
                       engine={predictionEngine}
                       gameOdds={(game) =>
                         predictGame(game, liveTeams, settings, liveById).awayWinPct
