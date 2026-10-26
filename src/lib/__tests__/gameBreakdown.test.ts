@@ -9,7 +9,7 @@ import {
   type BoardView,
 } from "../live/views/boardShape";
 import { cardGamesOf } from "../live/views/clubs";
-import { buildOpponentAdjustedRatings } from "../powerRating";
+import { buildOpponentAdjustedRatings, byRating } from "../powerRating";
 import { weightsForGames } from "../ratingRecency";
 import { startingLevels } from "../scheduleCommunities";
 import {
@@ -639,7 +639,9 @@ describe("what each game did, pinned", () => {
       value === null ? null : Math.round(value * 1e6) / 1e6 || 0;
     const pinned = SPANS.map((segment) => {
       const { board } = fixtureBoard(segment);
-      const deep = board.rows.filter((row) => row.games >= 3);
+      // By rating, not by the board's order, which lists a club whose web of games falls short
+      // after the rest (board rules 10): the same three clubs as before that, to the millionth.
+      const deep = board.rows.filter((row) => row.games >= 3).sort(byRating);
       const picks = [deep[0], deep[Math.floor(deep.length / 2)], deep[deep.length - 1]];
       return {
         span: segment ?? "year",

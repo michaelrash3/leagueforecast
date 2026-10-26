@@ -246,6 +246,76 @@ describe("the what-if curve", () => {
   });
 });
 
+/*
+ * A board lists a club whose web of games falls short after the rest (`opponentWeb.ts`, board
+ * rules 10), so a place is not the count of clubs rated above. A ring of forty plays the wider pool;
+ * the Longhorns have played one club only, twice, and play it again: rated above the whole ring,
+ * listed after it, at every margin. Found by Codex on #461.
+ */
+describe("the what-if curve on a board that lists a short web last", () => {
+  const ring = Array.from({ length: 40 }, (_, at) => `W${at}`);
+  const teams: ScoutTeam[] = [
+    ...ring.map((id) => ({ id, name: `Wide ${id}` })),
+    { id: "LH", name: "Longhorns" },
+    { id: "MN", name: "Minors" },
+  ];
+  let serial = 0;
+  const played = (a: string, b: string, aScore: number, bScore: number): ScoutGame => ({
+    id: `w${(serial += 1)}`,
+    ageGroupId: AG,
+    teamAId: a,
+    teamBId: b,
+    teamAScore: aScore,
+    teamBScore: bScore,
+    date: "2026-09-12",
+  });
+  const games: ScoutGame[] = [
+    ...ring.flatMap((id, at) => [
+      played(id, ring[(at + 1) % 40]!, 4 + (at % 3), 3),
+      played(id, ring[(at + 2) % 40]!, 3, 4 + (at % 2)),
+    ]),
+    played("LH", "MN", 16, 1),
+    played("LH", "MN", 17, 2),
+  ];
+  const upcoming = (a: string, b: string): ScoutGame => ({
+    id: "next",
+    ageGroupId: AG,
+    teamAId: a,
+    teamBId: b,
+    date: FIXTURE_DAY,
+  });
+  const placeAfter = (game: ScoutGame, forTeamId: string, margin: number) => {
+    const forA = game.teamAId === forTeamId;
+    const result: ScoutGame = {
+      ...game,
+      date: TODAY,
+      teamAScore: 5 + Math.max(0, forA ? margin : -margin),
+      teamBScore: 5 + Math.max(0, forA ? -margin : margin),
+    };
+    return buildTeamRankings(AG, teams, [...games, result], undefined, GROUPS).find(
+      (row) => row.teamId === forTeamId
+    )!.rank;
+  };
+
+  it("places the short web where the board would at every margin, after the whole ring", () => {
+    const game = upcoming("LH", "MN");
+    const curve = whatIfCurve(game, "LH", AG, teams, games, undefined, GROUPS, undefined, TODAY)!;
+    for (const point of curve.points) {
+      expect(point.rank).toBe(placeAfter(game, "LH", point.margin));
+      expect(point.rank).toBeGreaterThan(ring.length);
+    }
+  });
+
+  it("does not count a short web rated above a club as above it", () => {
+    const game = upcoming("W0", "W20");
+    const curve = whatIfCurve(game, "W0", AG, teams, games, undefined, GROUPS, undefined, TODAY)!;
+    expect(curve.points.find((point) => point.margin === RATING_CAP)!.rank).toBe(1);
+    for (const point of curve.points) {
+      expect(point.rank).toBe(placeAfter(game, "W0", point.margin));
+    }
+  });
+});
+
 describe("the fixtures a what-if will not answer for", () => {
   it("refuses the other half of the year, judged on the fixture's own date", () => {
     // The copy the fit is shown is dated today, which is in the autumn — so only the fixture's own

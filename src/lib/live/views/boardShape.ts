@@ -48,8 +48,11 @@ import type { ScoutRankingRow, SeasonSegment } from "../../teamRankings";
  * board, so the club it names is credited with the game once.
  * 9: a game won by 31 to 39 runs counts, as a result; only a win by forty or more is suspected of
  * being made up (`IMPLAUSIBLE_MARGIN`), the user's line of 21 October 2026.
+ * 10: a club whose web of games five games out reaches fewer than a tenth of the typical club's is
+ * listed after every club whose web reaches that many (`teamRankings/opponentWeb.ts`), the owner's
+ * rule of 26 October 2026; no number moves, only the order and the places.
  */
-export const BOARD_RULES = 9;
+export const BOARD_RULES = 10;
 
 /**
  * The shape of the boards this build publishes, raised when a board gains something a device of

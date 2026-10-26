@@ -194,14 +194,16 @@ const PINNED_HALVES = [
 /**
  * The list on the seeded pool, as it is read on the fixture's day: each leader's name, page, half,
  * state, places, record, group and opponents known only by name (games against it / in all).
- * The Quarry club leads the nation's 10U spring board on five wins over its own group, and the
+ * The Quarry club leads its state's 10U spring board on five wins over its own group, and the
  * Granite club its state's on four over rec teams its league minted; the Larch club is in the
- * largest piece of the page with no year, its community 2 games short of 3.
+ * largest piece of the page with no year, its community 2 games short of 3. The Quarry club led the
+ * nation's board too until a club whose web of games falls short was listed after the rest (board
+ * rules 10, `opponentWeb.ts`): its web is its group's, and it is listed 142nd.
  */
 const PINNED_LEADERS = [
-  ["Quarry Club 1 10U", "10U 2027", "spring", "WV", 1, 1, "5-0", 0, ["Quarry Rival A 10U 2/2"]],
-  ["Granite Rec 10U", "10U 2027", "spring", "NH", 1, 6, "4-0", 1, []],
-  ["Larch Club 20", "Showcase", null, "KY", 1, 10, "0-2-1", 2, ["Larch Rival 24 1/1"]],
+  ["Larch Club 20", "Showcase", null, "KY", 1, 10, "0-2-1", 0, ["Larch Rival 24 1/1"]],
+  ["Quarry Club 1 10U", "10U 2027", "spring", "WV", 1, 142, "5-0", 1, ["Quarry Rival A 10U 2/2"]],
+  ["Granite Rec 10U", "10U 2027", "spring", "NH", 1, 143, "4-0", 2, []],
   ["Gum Club 98 11U", "11U 2027", "spring", "KY", 2, 7, "2-0", 3, []],
   [
     "Fir Club 154 10U",
@@ -209,50 +211,22 @@ const PINNED_LEADERS = [
     "spring",
     "IN",
     2,
-    13,
+    11,
     "4-0-1",
     4,
     ["Fir Rival 188 10U 1/3", "Fir Rival 40 10U 1/1"],
   ],
-  ["Shale Club 1 10U", "10U 2027", "spring", "WV", 2, 35, "2-0", 5, []],
-  ["Gum Club 129 11U", "11U 2027", "spring", "TN", 3, 14, "4-0", 6, []],
-  ["Quarry Club 2 10U", "10U 2027", "spring", "WV", 3, 113, "2-2", 0, []],
-  [
-    "Ivy Club 173 13U",
-    "13U 2027",
-    "spring",
-    "OH",
-    4,
-    12,
-    "2-1",
-    7,
-    ["Ivy Rival 214 13U 1/1", "Ivy Rival 238 13U 1/1"],
-  ],
-  [
-    "Ivy Club 50 13U",
-    "13U 2027",
-    "spring",
-    "IN",
-    4,
-    24,
-    "3-1",
-    8,
-    [
-      "Ivy Rival 108 13U 1/1",
-      "Ivy Rival 213 13U 1/1",
-      "Ivy Rival 269 13U 1/1",
-      "Ivy Rival 74 13U 1/1",
-    ],
-  ],
-  ["Quarry Club 3 10U", "10U 2027", "spring", "WV", 4, 125, "1-2", 0, ["Quarry Rival B 10U 1/1"]],
-  ["Shale Club 2 10U", "10U 2027", "spring", "WV", 5, 144, "0-2", 5, []],
+  ["Shale Club 1 10U", "10U 2027", "spring", "WV", 2, 144, "2-0", 5, []],
+  ["Quarry Club 2 10U", "10U 2027", "spring", "WV", 3, 148, "2-2", 1, []],
+  ["Quarry Club 3 10U", "10U 2027", "spring", "WV", 4, 149, "1-2", 1, ["Quarry Rival B 10U 1/1"]],
+  ["Shale Club 2 10U", "10U 2027", "spring", "WV", 5, 154, "0-2", 5, []],
   [
     "Gum Club 109 11U",
     "11U 2027",
     "spring",
     "IN",
     7,
-    15,
+    14,
     "4-0",
     3,
     ["Gum Rival 298 11U 1/1", "Gum Rival 97 11U 1/1"],
@@ -263,55 +237,99 @@ const PINNED_LEADERS = [
     "spring",
     "TN",
     8,
-    30,
+    28,
     "2-1-1",
-    9,
+    6,
     ["Ivy Rival 294 13U 1/2", "Ivy Rival 67 13U 1/1"],
   ],
-  ["Gum Club 235 11U", "11U 2027", "spring", "OH", 8, 33, "3-2", 10, []],
-  ["Elm Club 13 9U", "9U 2027", "spring", "OH", 8, 36, "2-0", 11, ["Elm Rival 3 9U 1/1"]],
-  ["Hazel Squad 235 12U", "12U 2027", "spring", "OH", 9, 61, "1-1", 9, ["Hazel Rival 106 12U 1/1"]],
-  ["Elm Club 216 9U", "9U 2027", "spring", "TN", 10, 38, "1-0", 12, []],
-  ["Ivy Club 47 13U", "13U 2027", "spring", "IN", 10, 43, "1-0", 13, ["Ivy Rival 29 13U 1/1"]],
+  ["Gum Club 235 11U", "11U 2027", "spring", "OH", 8, 32, "3-2", 7, []],
+  ["Hazel Squad 235 12U", "12U 2027", "spring", "OH", 9, 61, "1-1", 6, ["Hazel Rival 106 12U 1/1"]],
+  ["Elm Club 216 9U", "9U 2027", "spring", "TN", 10, 37, "1-0", 8, []],
 ];
 
 /** Each group: what it holds, then its sides known only by name and its clubs entered by hand. */
 const PINNED_GROUPS = [
   [
-    { sides: 6, pulled: 3, byHand: 0, nameOnly: 2, slots: 1, outside: 0 },
+    {
+      sides: 2,
+      pulled: 1,
+      byHand: 0,
+      nameOnly: 1,
+      slots: 0,
+      outside: 2,
+    },
+    ["Larch Rival 24 1"],
+    [],
+  ],
+  [
+    {
+      sides: 6,
+      pulled: 3,
+      byHand: 0,
+      nameOnly: 2,
+      slots: 1,
+      outside: 0,
+    },
     ["Quarry Rival A 10U 2", "Quarry Rival B 10U 1"],
     [],
   ],
   [
-    { sides: 5, pulled: 1, byHand: 4, nameOnly: 0, slots: 0, outside: 0 },
+    {
+      sides: 5,
+      pulled: 1,
+      byHand: 4,
+      nameOnly: 0,
+      slots: 0,
+      outside: 0,
+    },
     [],
     ["Granite Rec Badgers 1", "Granite Rec Minks 1", "Granite Rec Otters 1", "Granite Rec Voles 1"],
   ],
-  [{ sides: 2, pulled: 1, byHand: 0, nameOnly: 1, slots: 0, outside: 2 }, ["Larch Rival 24 1"], []],
   [
-    { sides: 6, pulled: 4, byHand: 0, nameOnly: 2, slots: 0, outside: 1 },
+    {
+      sides: 6,
+      pulled: 4,
+      byHand: 0,
+      nameOnly: 2,
+      slots: 0,
+      outside: 1,
+    },
     ["Gum Rival 298 11U 1", "Gum Rival 97 11U 1"],
     [],
   ],
   [
-    { sides: 6, pulled: 3, byHand: 0, nameOnly: 3, slots: 0, outside: 2 },
+    {
+      sides: 6,
+      pulled: 3,
+      byHand: 0,
+      nameOnly: 3,
+      slots: 0,
+      outside: 2,
+    },
     ["Fir Rival 131 10U 1", "Fir Rival 190 10U 1", "Fir Rival 40 10U 1"],
     [],
   ],
-  [{ sides: 2, pulled: 2, byHand: 0, nameOnly: 0, slots: 0, outside: 0 }, [], []],
-  [{ sides: 5, pulled: 4, byHand: 0, nameOnly: 0, slots: 1, outside: 0 }, [], []],
   [
-    { sides: 4, pulled: 2, byHand: 0, nameOnly: 2, slots: 0, outside: 0 },
-    ["Ivy Rival 214 13U 1", "Ivy Rival 238 13U 1"],
+    {
+      sides: 2,
+      pulled: 2,
+      byHand: 0,
+      nameOnly: 0,
+      slots: 0,
+      outside: 0,
+    },
+    [],
     [],
   ],
   [
-    { sides: 5, pulled: 1, byHand: 0, nameOnly: 4, slots: 0, outside: 0 },
-    ["Ivy Rival 108 13U 1", "Ivy Rival 213 13U 1", "Ivy Rival 269 13U 1", "Ivy Rival 74 13U 1"],
-    [],
-  ],
-  [
-    { sides: 12, pulled: 6, byHand: 1, nameOnly: 5, slots: 0, outside: 2 },
+    {
+      sides: 12,
+      pulled: 6,
+      byHand: 1,
+      nameOnly: 5,
+      slots: 0,
+      outside: 2,
+    },
     [
       "Ivy Rival 294 13U 2",
       "Hazel Rival 106 12U 1",
@@ -322,19 +340,27 @@ const PINNED_GROUPS = [
     ["Hazel Squad 235 12U 2"],
   ],
   [
-    { sides: 8, pulled: 7, byHand: 0, nameOnly: 1, slots: 0, outside: 2 },
+    {
+      sides: 8,
+      pulled: 7,
+      byHand: 0,
+      nameOnly: 1,
+      slots: 0,
+      outside: 2,
+    },
     ["Hazel Rival 2 12U 1"],
     [],
   ],
-  [{ sides: 3, pulled: 2, byHand: 0, nameOnly: 1, slots: 0, outside: 0 }, ["Elm Rival 3 9U 1"], []],
   [
-    { sides: 7, pulled: 5, byHand: 0, nameOnly: 2, slots: 0, outside: 2 },
+    {
+      sides: 7,
+      pulled: 5,
+      byHand: 0,
+      nameOnly: 2,
+      slots: 0,
+      outside: 2,
+    },
     ["Elm Rival 27 9U 1", "Elm Rival 50 9U 1"],
-    [],
-  ],
-  [
-    { sides: 2, pulled: 1, byHand: 0, nameOnly: 1, slots: 0, outside: 0 },
-    ["Ivy Rival 29 13U 1"],
     [],
   ],
 ];
@@ -343,16 +369,11 @@ const PINNED_GROUPS = [
 const PINNED_SPRING_ONLY = [
   "Gum Club 98 11U 11U 2027",
   "Fir Club 154 10U 10U 2027",
-  "Gum Club 129 11U 11U 2027",
-  "Ivy Club 173 13U 13U 2027",
-  "Ivy Club 50 13U 13U 2027",
   "Gum Club 109 11U 11U 2027",
   "Ivy Club 42 13U 13U 2027",
   "Gum Club 235 11U 11U 2027",
-  "Elm Club 13 9U 9U 2027",
   "Hazel Squad 235 12U 12U 2027",
   "Elm Club 216 9U 9U 2027",
-  "Ivy Club 47 13U 13U 2027",
 ];
 
 const BUILDS_EVERY_BOARD = { timeout: 30_000 };
