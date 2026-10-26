@@ -68,8 +68,9 @@ export const adoptTabTurn = (turn: TabTurn | null): void => {
 const yielders = new Set<() => void>();
 
 /**
- * Calls `flush` as this tab gives its turn to a tab that asked for it with Use here
- * (`tabTurnChannel.ts`), before it answers: what it still owes storage is written while it may.
+ * Calls `flush` as this tab gives its turn to a tab that asked for it with Use here, or to one
+ * opened before it whose hello came late (`tabTurnChannel.ts`), before it answers: what it still
+ * owes storage is written while it may.
  * Returns the way to stop.
  */
 export const beforeTabYields = (flush: () => void): (() => void) => {

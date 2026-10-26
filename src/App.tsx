@@ -724,9 +724,9 @@ export default function App() {
     return () => window.clearTimeout(saveTimer);
   }, [logs, recordSaveResult]);
 
-  // Written at once when another tab asks for the turn with Use here (`tabTurn.ts`): the half
-  // second above would end with this tab read-only, the score refused, and the other tab reloaded
-  // without it.
+  // Written at once when this tab gives the turn away, to a tab asking with Use here or to one
+  // opened before it whose hello came late (`tabTurn.ts`): the half second above would end with
+  // this tab read-only, the score refused, and the other tab reloaded without it.
   useEffect(
     () =>
       beforeTabYields(() =>

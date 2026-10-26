@@ -37,7 +37,7 @@ const hub = () => {
   return { channel, settle };
 };
 
-/** What the tabs did, in order: a writer writing what it owed, a tab reloading. */
+/** What the tabs did, in order: a writer writing what it owed, a tab noting the turn, reloading. */
 const done: string[] = [];
 /** Waits set by a tab asking for the turn, run when a test says the time has passed. */
 const waits: Array<() => void> = [];
@@ -49,6 +49,7 @@ const tab = (net: ReturnType<typeof hub>, openedAt: number, id: string, claim = 
     openedAt,
     id,
     claimed: () => claim,
+    claim: () => done.push(`claim ${id}`),
     reload: () => {
       reloads.push(id);
       done.push(`reload ${id}`);
@@ -75,6 +76,8 @@ describe("which tab may write League Standings", () => {
     net.settle();
     expect(first.turn.readOnly()).toBe(false);
     expect(later.turn.readOnly()).toBe(true);
+    // Nothing written on the way and nothing read again: a tab only just opened owes nothing.
+    expect(done).toEqual([]);
   });
 
   it("is still one of two opened in the same moment, the earlier, or by id on a tie", () => {
@@ -103,6 +106,61 @@ describe("which tab may write League Standings", () => {
     expect(a.turn.readOnly()).toBe(false);
     expect(b.turn.readOnly()).toBe(true);
     expect(c.turn.readOnly()).toBe(true);
+  });
+
+  it("has a writer that gives way to a late hello write what it owes, and that tab read it", () => {
+    // The tab opened first fetched the channel's code last, and the other had begun writing: a
+    // score it held for its half second was refused once it was read-only.
+    const net = hub();
+    const later = tab(net, 2000, "b");
+    net.settle();
+    expect(later.turn.readOnly()).toBe(false);
+    const first = tab(net, 1000, "a");
+    net.settle();
+    expect(later.turn.readOnly()).toBe(true);
+    expect(first.turn.readOnly()).toBe(false);
+    // Written before it gives way, then the tab before it reads the season again, without taking
+    // the turn on the way back in.
+    expect(done).toEqual(["flush b", "reload a"]);
+    first.turn.stop();
+    const back = tab(net, 3000, "a2");
+    net.settle();
+    expect(back.turn.readOnly()).toBe(false);
+    expect(later.turn.readOnly()).toBe(true);
+  });
+
+  it("still ends with one writer when several opened together give way in turn", () => {
+    const net = hub();
+    const b = tab(net, 2000, "b");
+    const c = tab(net, 3000, "c");
+    const a = tab(net, 1000, "a");
+    net.settle();
+    // Only the writer that gave way last is answered by a reload, and that reload asks again
+    // rather than taking the turn: taken, it would have been the tab given way to first.
+    expect(done.filter((step) => step.startsWith("reload"))).toEqual(["reload a"]);
+    a.turn.stop();
+    const back = tab(net, 4000, "a2");
+    net.settle();
+    expect([back, b, c].map((one) => one.turn.readOnly())).toEqual([false, true, true]);
+    expect(a.reloads).toEqual(["a"]);
+  });
+
+  it("reads again only for an answer meant for it, and only while it writes", () => {
+    const net = hub();
+    const writer = tab(net, 1000, "a");
+    const reader = tab(net, 2000, "b");
+    net.settle();
+    const other = net.channel();
+    other.post({ kind: "wrote", id: "z", openedAt: 500, to: "someone else" });
+    other.post({ kind: "wrote", id: "z", openedAt: 500, to: "b" });
+    net.settle();
+    // The writer heard an answer for another tab, the read-only tab one for itself: neither has
+    // anything to read again for.
+    expect(done).toEqual([]);
+    other.post({ kind: "wrote", id: "z", openedAt: 500, to: "a" });
+    net.settle();
+    expect(done).toEqual(["reload a"]);
+    expect([writer.turn.readOnly(), reader.turn.readOnly()]).toEqual([false, true]);
   });
 
   it("is still the taken turn's when a tab opened before it says hello late", () => {
@@ -150,7 +208,7 @@ describe("which tab may write League Standings", () => {
     asking.turn.useHere();
     expect(asking.reloads).toEqual([]);
     net.settle();
-    expect(done).toEqual(["flush a", "reload b"]);
+    expect(done).toEqual(["flush a", "claim b", "reload b"]);
     expect(writer.turn.readOnly()).toBe(true);
   });
 
