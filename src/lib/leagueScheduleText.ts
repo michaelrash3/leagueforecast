@@ -122,6 +122,17 @@ const NOT_PLAYED =
   /(?:^|[^\p{L}])(?:cancell?ed|rain(?:ed)?[\s-]?out|ppd|postponed|suspended)(?![\p{L}])/iu;
 /** A status cell that changes nothing about the game: it was played, or is final. */
 const ONLY_STATUS = /^(?:final|f\/\d+|complete|completed|forfeit(?:ed)?)$/i;
+/**
+ * A cell that says when, where or how a game went and never who played it: a start time, a
+ * weekday, a field or a status. Both row readers pass these over (`readCells`, `readBareRow`), one
+ * list rather than two: the reader of a table with no header passed over only times and weekdays,
+ * and read "Field 1" before the teams as a team (found by Codex on #456).
+ */
+const isAsideCell = (value: string): boolean =>
+  ONLY_TIME.test(value) ||
+  ONLY_WEEKDAY.test(value) ||
+  ONLY_FIELD.test(value) ||
+  ONLY_STATUS.test(value);
 /** A final score at the end of a line, in the order the two sides were written. */
 const TRAILING_SCORE = /\s(\d{1,2})\s*[-–—]\s*(\d{1,2})$/;
 /** The same shape at the end of a name, as an age span is written: "Falcons 9-10". */
@@ -381,12 +392,7 @@ const readCells = (
   for (const cell of cells) {
     const value = cell.trim();
     if (!value) continue;
-    if (
-      ONLY_TIME.test(value) ||
-      ONLY_WEEKDAY.test(value) ||
-      ONLY_FIELD.test(value) ||
-      ONLY_STATUS.test(value)
-    ) {
+    if (isAsideCell(value)) {
       laidOut = true;
     } else if (HAS_MARKER.test(value)) {
       games.push(value);
@@ -439,7 +445,7 @@ const readBareRow = (cells: string[], context: Context, squadYear: number): Game
   const numbers: number[] = [];
   cells.forEach((cell) => {
     const value = cell.trim();
-    if (!value || ONLY_TIME.test(value) || ONLY_WEEKDAY.test(value)) return;
+    if (!value || isAsideCell(value)) return;
     const asDay = day === undefined ? readOnlyDay(value, context, squadYear) : undefined;
     if (asDay !== undefined) {
       day = asDay;

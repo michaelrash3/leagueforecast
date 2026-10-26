@@ -175,6 +175,24 @@ describe("parseLeagueSchedule", () => {
       { rows: [{ date: "9/13", away: "Comets", home: "Rockets", guessed: true }], skipped: [] },
     ],
     [
+      "a CSV with no header, its field and status cells passed over before the teams (Codex on #456)",
+      ["4/10/2027,9:00 AM,Field 1,Falcons,Wolves,6,5", "Final,4/11/2027,Hawks,Owls,7,3"],
+      {
+        rows: [
+          {
+            date: "4/10",
+            away: "Falcons",
+            home: "Wolves",
+            awayRuns: 6,
+            homeRuns: 5,
+            guessed: true,
+          },
+          { date: "4/11", away: "Hawks", home: "Owls", awayRuns: 7, homeRuns: 3, guessed: true },
+        ],
+        skipped: [],
+      },
+    ],
+    [
       "a header naming two teams but not which hosted, read by position",
       ["Date,Time,Team 1,Team 2", "9/12/2026,9:00 AM,Falcons,Wolves"],
       { rows: [{ date: "9/12", away: "Falcons", home: "Wolves", guessed: true }], skipped: [] },
