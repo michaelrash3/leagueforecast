@@ -421,6 +421,21 @@ describe("parseLeagueSchedule", () => {
     });
   });
 
+  it("reads a bare day only before the teams of a row with no header (Codex on #456)", () => {
+    // Its own day, before the teams, under a month's heading.
+    expect(read(["April 2027", "12,Falcons,Wolves,6,5"])).toEqual({
+      rows: [
+        { date: "4/12", away: "Falcons", home: "Wolves", awayRuns: 6, homeRuns: 5, guessed: true },
+      ],
+      skipped: [],
+    });
+    // Runs after the teams are no day: a row with no day of its own is not taken, as ever.
+    expect(read(["April 2027", "12", "9:00 AM,Falcons,Wolves,6,5"])).toEqual({
+      rows: [],
+      skipped: ["9:00 AM,Falcons,Wolves,6,5"],
+    });
+  });
+
   it("reads a bare day before the game, under a month's heading, as its day (Codex on #456)", () => {
     expect(read(["April 2027", "12,9:00 AM,Falcons @ Wolves,6,5"])).toEqual({
       rows: [{ date: "4/12", away: "Falcons", home: "Wolves", awayRuns: 6, homeRuns: 5 }],

@@ -446,7 +446,12 @@ const readBareRow = (cells: string[], context: Context, squadYear: number): Game
   cells.forEach((cell) => {
     const value = cell.trim();
     if (!value || isAsideCell(value)) return;
-    const asDay = day === undefined ? readOnlyDay(value, context, squadYear) : undefined;
+    // A bare day of the month only before the teams, as `readCells` reads one only before the game:
+    // after them, under a month's heading, the runs "6,5" read as the 6th (found by Codex on #456).
+    const asDay =
+      day === undefined
+        ? readOnlyDay(value, names.length === 0 ? context : writtenOnly(context), squadYear)
+        : undefined;
     if (asDay !== undefined) {
       day = asDay;
       return;
