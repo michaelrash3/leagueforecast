@@ -18,6 +18,7 @@ import {
   MAX_REFUSALS,
 } from "../gameChangerClient";
 import { setGcAuthorization } from "../gcAuthorization";
+import { fetchGcOrgTeams } from "../gcOrgClient";
 
 const TEAM_ID = "gsUthn4XoIxS";
 
@@ -917,5 +918,46 @@ describe("the sign-in a pull carries", () => {
     expect(turnedAway.calls).toHaveLength(3);
     expect(onMembersOnly).toHaveBeenCalledTimes(1);
     expect(onSuppressed).toHaveBeenCalledTimes(BATCH_SIZE * 3);
+  });
+});
+
+describe("fetchGcOrgTeams", () => {
+  /*
+   * An organization's team list, the first request of a League Standings season started from a
+   * GameChanger organization: GameChanger's body handed on unread, and every failure as data, read
+   * as a team's is.
+   */
+  const ORG_ID = "SgtwZI3tbazX";
+
+  it("asks the proxy for the organization once and hands its body on", async () => {
+    const fetchImpl = fakeFetch(() => jsonResponse(200, { ok: true, orgId: ORG_ID, raw: "[]" }));
+    const result = await fetchGcOrgTeams(ORG_ID, { fetchImpl, endpoint: "https://proxy" });
+    expect(result).toEqual({ ok: true, raw: "[]" });
+    expect(fetchImpl.calls.map((call) => call.url)).toEqual([`https://proxy?org=${ORG_ID}`]);
+  });
+
+  it("reads the proxy's refusal, a body it cannot read and a dropped connection as failures", async () => {
+    const refused = await fetchGcOrgTeams(ORG_ID, {
+      fetchImpl: fakeFetch(() =>
+        jsonResponse(401, { ok: false, reason: "members-only", message: "Sign in first." })
+      ),
+      endpoint: "https://proxy",
+    });
+    expect(refused).toMatchObject({ ok: false, reason: "members-only", message: "Sign in first." });
+    const empty = await fetchGcOrgTeams(ORG_ID, {
+      fetchImpl: fakeFetch(() => jsonResponse(200, { ok: true })),
+      endpoint: "https://proxy",
+    });
+    expect(empty).toMatchObject({ ok: false, reason: "unrecognized" });
+    const shell = await fetchGcOrgTeams(ORG_ID, {
+      fetchImpl: fakeFetch(() => htmlResponse(200)),
+      endpoint: "https://proxy",
+    });
+    expect(shell).toMatchObject({ ok: false, reason: "unconfigured" });
+    const dropped = await fetchGcOrgTeams(ORG_ID, {
+      fetchImpl: fakeFetch(() => Promise.reject(new TypeError("Failed to fetch"))),
+      endpoint: "https://proxy",
+    });
+    expect(dropped).toEqual({ ok: false, reason: "network", message: "Failed to fetch" });
   });
 });

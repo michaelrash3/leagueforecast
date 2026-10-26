@@ -26,7 +26,7 @@ import {
 } from "../../lib/teamRankingsStorage";
 import { button, fieldFocusRing, focusRing, surface, textRole } from "../../styles/tokens";
 import { StatePanel } from "../StatePanel";
-import { EditLock } from "./EditLock";
+import { StartDraftReview } from "./StartDraftReview";
 
 /** Asks one step of a start (`answerStart`): of this device's pool, or of the cloud's. */
 export type StartAsker = (query: StartQuery) => Promise<StartAnswer | null>;
@@ -69,9 +69,6 @@ const matches = (club: ClubPickOption, words: string[]) => {
   return words.every((word) => text.includes(word));
 };
 
-const scoreText = (away: number | undefined, home: number | undefined) =>
-  away === undefined || home === undefined ? "To play" : `${away}–${home}`;
-
 /** The steps a start asks one at a time, each with its own wait and its own "Try again". */
 type StartStep = "pages" | "clubs" | "games" | "org";
 
@@ -89,7 +86,7 @@ export const orgStartNote = (
 ): string => {
   if (!org) return "Team Rankings said nothing about that organization. Try again.";
   if (!org.found)
-    return "That organization is not in the Organizations file Team Rankings keeps. Load the crawl's Organizations CSV in Team Rankings → Import, then try again.";
+    return "That organization is not in the Organizations file Team Rankings keeps. Load the crawl's Organizations CSV in Team Rankings → Import, then try again, or start from the organization's own GameChanger schedule with From an organization.";
   const teams = org.teams ?? 0;
   const pulled = org.pulled ?? 0;
   const name = org.name || "The organization";
@@ -231,7 +228,6 @@ export function StartFromClubs({
   const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
   const listed = (clubs ?? []).filter((club) => !picked.includes(club.id) && matches(club, words));
   const page = pages?.find((one) => one.id === pageId);
-  const kept = choices.filter((choice) => choice.keep).length;
 
   const pick = (id: string) => {
     setPicked((now) => (now.length >= START_CLUBS_MAX ? now : [...now, id]));
@@ -467,103 +463,22 @@ export function StartFromClubs({
           )}
 
           {draft && (
-            <div className="grid gap-3">
-              <p className={textRole.body}>
-                {draft.games.length === 0
+            <StartDraftReview
+              draft={draft}
+              choices={choices}
+              onChoose={choose}
+              nameOf={nameOf}
+              teams={picked.length}
+              lead={
+                (draft.games.length === 0
                   ? "Team Rankings has no games among these clubs in those days. The season starts with its teams and no games, and games can be added on the Schedule."
-                  : `${draft.games.length} game${draft.games.length === 1 ? "" : "s"} among these clubs. Untick a game that is not the league's, and swap a game whose home side is the other one: GameChanger's schedules do not say which side was at home.`}
-                {draft.outside > 0 &&
-                  ` ${draft.outside} more ${draft.outside === 1 ? "is" : "are"} outside those days.`}
-              </p>
-              {draft.games.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <caption className="sr-only">Games among the league&apos;s clubs</caption>
-                    <thead>
-                      <tr className={textRole.overline}>
-                        <th scope="col" className="px-2 py-1">
-                          Keep
-                        </th>
-                        <th scope="col" className="px-2 py-1">
-                          Day
-                        </th>
-                        <th scope="col" className="px-2 py-1">
-                          Away at home
-                        </th>
-                        <th scope="col" className="px-2 py-1">
-                          Score
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {draft.games.map((game) => {
-                        const choice = choices.find((one) => one.gameId === game.gameId);
-                        const swap = choice?.swap ?? false;
-                        const [away, home] = swap ? [game.home, game.away] : [game.away, game.home];
-                        const [awayRuns, homeRuns] = swap
-                          ? [game.homeRuns, game.awayRuns]
-                          : [game.awayRuns, game.homeRuns];
-                        const label = `${nameOf(away)} at ${nameOf(home)}, ${game.date}`;
-                        return (
-                          <tr
-                            key={game.gameId}
-                            className="border-t border-slate-200 align-top dark:border-slate-800"
-                          >
-                            <td className="px-2 py-2">
-                              <input
-                                type="checkbox"
-                                checked={choice?.keep ?? false}
-                                onChange={(event) =>
-                                  choose(game.gameId, { keep: event.target.checked })
-                                }
-                                aria-label={`Keep ${label}`}
-                              />
-                            </td>
-                            <td className={`px-2 py-2 ${textRole.numeric}`}>{game.date}</td>
-                            <td className="px-2 py-2">
-                              <span className="font-bold text-slate-950 dark:text-slate-100">
-                                {nameOf(away)} at {nameOf(home)}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => choose(game.gameId, { swap: !swap })}
-                                aria-label={`Swap home and away for ${label}`}
-                                className={`ml-2 rounded text-xs font-bold text-blue-700 underline dark:text-blue-300 ${focusRing}`}
-                              >
-                                Swap
-                              </button>
-                              {game.tournament && (
-                                <span className={`block ${textRole.meta}`}>{game.tournament}</span>
-                              )}
-                              {game.otherRuns && (
-                                <span className={`block ${textRole.meta}`}>
-                                  {nameOf(game.home)}&apos;s schedule has it{" "}
-                                  {swap
-                                    ? `${game.otherRuns.homeRuns}–${game.otherRuns.awayRuns}`
-                                    : `${game.otherRuns.awayRuns}–${game.otherRuns.homeRuns}`}
-                                  ; the score shown is {nameOf(game.away)}&apos;s. Change it on the
-                                  Schedule if theirs is right.
-                                </span>
-                              )}
-                            </td>
-                            <td className={`px-2 py-2 ${textRole.numeric}`}>
-                              {scoreText(awayRuns, homeRuns)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <div>
-                <EditLock>
-                  <button type="button" onClick={create} className={button.primary}>
-                    Start the season: {picked.length} teams, {kept} game{kept === 1 ? "" : "s"}
-                  </button>
-                </EditLock>
-              </div>
-            </div>
+                  : `${draft.games.length} game${draft.games.length === 1 ? "" : "s"} among these clubs. Untick a game that is not the league's, and swap a game whose home side is the other one: GameChanger's schedules do not say which side was at home.`) +
+                (draft.outside > 0
+                  ? ` ${draft.outside} more ${draft.outside === 1 ? "is" : "are"} outside those days.`
+                  : "")
+              }
+              onStart={create}
+            />
           )}
         </div>
       )}

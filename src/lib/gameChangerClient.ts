@@ -164,7 +164,7 @@ export const PULL_MAX_CONCURRENCY = 24;
  * (`handlerFetch`) passes its own `fetchImpl` and sends none. `fetch` is looked up when it is
  * called rather than kept, as a test stubbing it expects.
  */
-const signedInFetch: typeof fetch = async (input, init) => {
+export const signedInFetch: typeof fetch = async (input, init) => {
   const token = await gcAuthorization();
   if (!token) return fetch(input, init);
   const headers = new Headers(init?.headers);
@@ -210,7 +210,7 @@ function configuredProxy(): string | undefined {
   }
 }
 
-const unconfiguredMessage = (endpoint: string): string =>
+export const unconfiguredMessage = (endpoint: string): string =>
   `${endpoint} did not answer with JSON. Check the Firebase function is deployed and VITE_GC_PROXY_URL names it.`;
 
 /**
@@ -221,7 +221,7 @@ const unconfiguredMessage = (endpoint: string): string =>
  * one such 500 left all ten teams of its batch unreached on a pull of 4 October 2026, with every
  * other batch of the pull answering.
  */
-const bodylessFailure = (endpoint: string, status: number): GcTeamResponse => ({
+export const bodylessFailure = (endpoint: string, status: number): GcFetchFailure => ({
   ok: false,
   reason: status >= 500 ? "network" : "upstream-error",
   message:
@@ -231,7 +231,7 @@ const bodylessFailure = (endpoint: string, status: number): GcTeamResponse => ({
   status,
 });
 
-const isAbortError = (error: unknown): boolean =>
+export const isAbortError = (error: unknown): boolean =>
   (error instanceof DOMException && error.name === "AbortError") ||
   (error instanceof Error && error.name === "AbortError");
 
@@ -293,7 +293,7 @@ const readRawTeam = (
   );
 };
 
-const readTeamResult = (
+export const readTeamResult = (
   payload: unknown,
   endpoint: string,
   status?: number,
@@ -380,6 +380,9 @@ export const fetchGcTeam = async (
     };
   }
 };
+
+/** A failure, as the proxy states one for a team or for an organization. */
+export type GcFetchFailure = Extract<GcTeamResponse, { ok: false }>;
 
 /** A sleep that ends early on abort, so "Stop" does not wait out a backoff. */
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>

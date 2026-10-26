@@ -765,6 +765,47 @@ the file does not have is said to be missing rather than guessed at. It asks no 
 by hand does: the panel's pages and first page's clubs as it opens, then this one question in
 place of a page's clubs and then their games, all read off the pool the server already holds.
 
+**Or from the organization's own GameChanger schedule.** The owner asked on 26 October 2026 for a
+league's season to come from its organization's page on GameChanger
+(`web.gc.com/organizations/…/schedule`) rather than from the Organizations file and the clubs
+Team Rankings has pulled, which a league's organization is often not in. **From an organization**,
+on the empty season's page beside **Pick clubs**, asks GameChanger through the app's GameChanger
+proxy (`gcOrgSchedule.ts`, `StartFromGcOrg`):
+
+- **Its teams, one request.** GameChanger has no public route from an organization to its games
+  that this app has seen answer, but it has one to its teams, `/public/organizations/{id}/teams`,
+  which the GC miner reads first. The proxy hands that body back unread (`?org=`), and the browser
+  reads it as the miner does (`readGcOrgTeams`): a team page's id (`public_id` before an internal
+  one), its name, its season and its age group, whatever wrapping the list comes in. A shape it
+  cannot read is said so with its top-level keys, so the owner can say what came back.
+- **The league's division.** A league's organization lists every season and age it has run, so
+  its teams are grouped by both (`groupOrgTeams`), the newest season first and the youngest age
+  in it, and the first group is picked with all its teams ticked. Any can be unticked.
+- **Their schedules, one request for every ten teams.** Pulled through the proxy as Team Rankings
+  pulls a team's (`fetchGcTeams`). The button says how many requests a pull makes. A team already
+  pulled is not asked for again when the picking changes, and a team GameChanger will not give is
+  named with why and left out. A group of more teams than a league has (`START_CLUBS_MAX`, 64), as
+  where the list gives no season or age and every team the organization has had is one group,
+  starts with none ticked, and a pull of more is refused.
+- **The games between them.** Both teams' schedules list a league game, against the other by name
+  only (a public schedule carries no opponent id). So an opponent is one of the pulled teams by
+  its avatar (the one stable mark of an opponent a schedule carries), else by a name no other
+  pulled team has (`teamNameKey`); each pair's games on a day are paired across the two schedules
+  in start order, so a doubleheader stays two; GameChanger says who was home, so a game is stood up
+  away first; the away side's score speaks and the home side's goes beside it where they disagree;
+  a canceled game is left out. A game against anybody else marks a league game that day likely a
+  tournament's, unticked, as a Team Rankings start marks one (`orgGames`, then `draftStart`).
+- **The season.** The same review and the same making as a Team Rankings start: a team per one
+  kept, linked to its Team Rankings club where this device's own pool pulled one under its
+  GameChanger id (a device whose Team Rankings is the cloud's holds no pool, so its teams are
+  linked by hand afterwards), and the season is put on the page its age and season name
+  (`orgStartPage`: fall 2026 is squad year 2027), as a Team Rankings start puts its own, or left
+  for Setup's card where either cannot be read.
+
+Nothing is kept in the cloud or on the device until the season is made. The cost is the
+proxy's: one request for the teams and one for every ten teams' schedules, each pressed for, and
+on a member's device the one `season.assign` any start makes.
+
 The league and GameChanger rarely agree on how long a club's name is — "Trash
 Pandas" against "Trash Pandas Baseball Club" — and a league game left unmatched
 looks exactly like one that has not been played, which is what makes silence
