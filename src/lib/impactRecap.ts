@@ -20,7 +20,7 @@
 
 import { displayName } from "./format";
 import { blankLog, isFinal, parseNumber } from "./util";
-import { normalizeDateInput, sundayEndingWeekKey } from "./date";
+import { normalizeDateInput, seasonStartMonth, sundayEndingWeekKey } from "./date";
 import { weeklyRecap } from "./insights";
 import {
   calculateTeams,
@@ -215,7 +215,9 @@ export const impactOfFinal = (
   if (!game) return null;
 
   const dateLabel = normalizeDateInput(game.date);
-  const weekLabel = sundayEndingWeekKey(game.date);
+  // On the season's own calendar, so a week from December into January is one.
+  const startMonth = seasonStartMonth(matchups.map((matchup) => matchup.date));
+  const weekLabel = sundayEndingWeekKey(game.date, startMonth);
   const nextRemainingCount = matchups.reduce(
     (count, matchup) => count + (isFinal(nextLogs[matchup.id]) ? 0 : 1),
     0
@@ -235,7 +237,7 @@ export const impactOfFinal = (
   const sameRecapWindow = (m: Matchup) => {
     if (settings.recapGrouping === "game") return m.id === gameId;
     if (settings.recapGrouping === "week") {
-      return sundayEndingWeekKey(m.date) === weekLabel;
+      return sundayEndingWeekKey(m.date, startMonth) === weekLabel;
     }
     return normalizeDateInput(m.date) === dateLabel;
   };
