@@ -24,14 +24,17 @@
 
 import {
   GC_GAMES_ACCEPT,
+  GC_ORG_TEAMS_ACCEPT,
   GC_PROFILE_ACCEPT,
   GC_PUBLIC_API_BASE,
   gcGamesApiUrl,
+  gcOrgTeamsApiUrl,
   gcProfileApiUrl,
   gcGameListFrom,
   gcGameIdsFrom,
   normalizeGcGames,
   normalizeGcTeamProfile,
+  parseGcOrgId,
   parseGcTeamId,
   type GcFetchDiagnostics,
   type GcFetchErrorReason,
@@ -265,7 +268,7 @@ const failureFor = (result: UpstreamResult, what: string): GcTeamFailure | null 
     return {
       ok: false,
       reason: "not-found",
-      message: `GameChanger has no public ${what} for this team id.`,
+      message: `GameChanger has no public ${what} for this ${what === "organization" ? "id" : "team id"}.`,
       status: 404,
       diagnostics: diagnosticsFor(result),
     };
@@ -561,6 +564,43 @@ export async function gcTeamHandler(req: ApiRequest, res: ApiResponse): Promise<
       message: `Too many GameChanger pulls from this browser: ${RATE_LIMIT_MAX_REQUESTS} a minute is this app's own limit. Wait a minute and retry.`,
       status: 429,
     });
+    return;
+  }
+
+  /*
+   * An organization's team list (`?org=<id>`), GameChanger's body as it came, for the browser to
+   * read (`readGcOrgTeams`): the first step of a League Standings season started from a GameChanger
+   * organization, whose teams' schedules then come through `ids` as any pull's do. Passed through
+   * unread, as a pull's bodies are, so the function spends no CPU on it.
+   */
+  const rawOrg = url.searchParams.get("org");
+  if (rawOrg !== null) {
+    const orgId = parseGcOrgId(rawOrg);
+    if (!orgId) {
+      sendError(res, 400, {
+        ok: false,
+        reason: "invalid-id",
+        message: `"${rawOrg.slice(0, 40)}" is not a GameChanger organization id (the 12 characters after web.gc.com/organizations/).`,
+        status: 400,
+      });
+      return;
+    }
+    const listed = await fetchUpstream(
+      gcOrgTeamsApiUrl(orgId, config.base),
+      GC_ORG_TEAMS_ACCEPT,
+      config,
+      false
+    );
+    const failure = failureFor(listed, "organization");
+    if (failure) {
+      if (listed.retryAfter) res.setHeader("retry-after", listed.retryAfter);
+      sendError(res, failure.status ?? 502, failure);
+      return;
+    }
+    res.setHeader("cache-control", "no-store");
+    res
+      .status(200)
+      .json({ ok: true, orgId, raw: listed.text, fetchedAt: new Date().toISOString() });
     return;
   }
 

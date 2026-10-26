@@ -80,7 +80,15 @@ const DIST = "dist";
  * cells and dates with the schedule reader Team Rankings' schedule import uses (`scheduleText.ts`),
  * so the build moved that reader out of the Games section's chunk into one the two share. The
  * section's chunk went from 9.3 KB to 6.8 KB and the reader's own is 2.9 KB: the same code,
- * compressing 0.4 KB worse in two files than in one.
+ * compressing 0.4 KB worse in two files than in one. Team Rankings to 161.5 KB the same day for
+ * starting a League season from a GameChanger organization, 161.0 KB against 160.4 KB on main
+ * (160,953 bytes against 160,438), again with no Team Rankings code changed: the organization's
+ * panel pulls its teams' schedules with the client Team Rankings' pulls use
+ * (`gameChangerClient.ts`), so the build moved that client out of Team Rankings' chunk into one the
+ * two share. The view's chunk went from 44.1 KB to 41.8 KB and the client's own is 2.8 KB, 0.5 KB
+ * worse in two files than in one. The organization's own request is a module of its own
+ * (`gcOrgClient.ts`), fetched with the panel, so Team Rankings does not carry it; in the client,
+ * it had made this 161.1 KB.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -96,7 +104,7 @@ const BUDGET = {
     "Data Quality": 3_500,
     Settings: 13_500,
     "Seasons at a glance": 4_400,
-    "Team Rankings": 161_000,
+    "Team Rankings": 161_500,
   },
 };
 

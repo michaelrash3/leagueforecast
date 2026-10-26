@@ -391,6 +391,16 @@ export const gcGamesApiUrl = (teamId: string, base: string = GC_PUBLIC_API_BASE)
   `${gcProfileApiUrl(teamId, base)}/games`;
 
 /**
+ * An organization's public team list: the route the GC miner reads an organization's teams from
+ * first, which answers without a sign-in for a public organization and 404 or 410 for one that is
+ * not. Asked with the miner's `Accept`, the one it has been seen to answer.
+ */
+export const gcOrgTeamsApiUrl = (orgId: string, base: string = GC_PUBLIC_API_BASE): string =>
+  `${base.replace(/\/+$/, "")}/public/organizations/${encodeURIComponent(orgId)}/teams`;
+
+export const GC_ORG_TEAMS_ACCEPT = "application/json, text/plain, */*";
+
+/**
  * A team page URL in any of its forms: `https://web.gc.com/teams/<id>`, the same with the slug and
  * `/schedule` after it, or without a scheme. The id must end at a path, query, or word boundary so
  * the slug that follows it is never swallowed into it.

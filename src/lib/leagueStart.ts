@@ -176,21 +176,25 @@ const leagueDate = (day: string): string =>
  * The season the review makes: a team for each club, named as Team Rankings names it and linked to
  * it (`scoutTeamId`), and a game for each one kept, turned round where the review swapped it, with
  * its score entered and final where it was played. A team named like another gets the other's
- * id with a number, as a typed list does (`createTeamId`).
+ * id with a number, as a typed list does (`createTeamId`). A start whose clubs are not Team
+ * Rankings' own (a GameChanger organization's teams, `gcOrgSchedule.ts`) names the club each is
+ * through `linkOf`, and a team with none is linked to nothing.
  */
 export const seasonFromStart = (
   clubs: readonly { id: string; name: string }[],
   draft: StartDraft,
   choices: readonly StartChoice[],
-  defaultInnings: number
+  defaultInnings: number,
+  linkOf: (clubId: string) => string | undefined = (clubId) => clubId
 ): BuiltSeason => {
   const taken = new Set<string>();
   const teamOf = new Map<string, TeamBase>();
   const teams: TeamBase[] = clubs.map((club) => {
+    const scoutTeamId = linkOf(club.id);
     const team = {
       id: createTeamId(displayName(club.name), taken),
       name: club.name,
-      scoutTeamId: club.id,
+      ...(scoutTeamId === undefined ? {} : { scoutTeamId }),
     };
     teamOf.set(club.id, team);
     return team;

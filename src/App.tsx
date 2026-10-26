@@ -379,6 +379,11 @@ const StartFromClubs = lazy(() =>
     default: module.StartFromClubs,
   }))
 );
+const StartFromGcOrg = lazy(() =>
+  import("./components/league/StartFromGcOrg").then((module) => ({
+    default: module.StartFromGcOrg,
+  }))
+);
 const ShortcutsHelp = lazy(() =>
   import("./components/ShortcutsHelp").then((module) => ({ default: module.ShortcutsHelp }))
 );
@@ -2620,8 +2625,16 @@ export default function App() {
    * season is put on the page it was started from, as Setup's League seasons card puts one
    * (`season.assign`): in the cloud for a member, on this device's pool otherwise. Undo takes back
    * the teams and games; the season stays on its page, where an empty season changes nothing.
+   *
+   * A season started from a GameChanger organization's own schedule (`StartFromGcOrg`) is made the
+   * same way, and placed on the page its teams' age and season name, where both could be read; where
+   * not, it is made without being placed, and Setup's card places it.
    */
-  const startSeasonFromClubs = async (made: BuiltSeason, page: StartPage) => {
+  const startSeasonFromClubs = async (
+    made: BuiltSeason,
+    page: StartPage | undefined,
+    from: "Team Rankings" | "GameChanger" = "Team Rankings"
+  ) => {
     const lockedBecause = seasonStore.locked();
     if (lockedBecause) {
       showToast(lockedBecause, { tone: "error" });
@@ -2629,14 +2642,18 @@ export default function App() {
     }
     if (teams.length > 0 || matchups.length > 0) {
       const confirmed = await requestConfirmation({
-        title: "Start this season from Team Rankings?",
+        title: `Start this season from ${from}?`,
         message: `${made.teams.length} teams · ${made.matchups.length} games.\n\nThis replaces current season data and saves an undo snapshot.`,
         confirmLabel: "Start season",
       });
       if (!confirmed) return;
     }
     const seasonId = activeSeasonId;
-    captureUndo("Start season from Team Rankings clubs");
+    captureUndo(
+      from === "Team Rankings"
+        ? "Start season from Team Rankings clubs"
+        : "Start season from a GameChanger organization"
+    );
     setTeams(made.teams);
     setMatchups(made.matchups);
     setLogs(made.logs);
@@ -2645,6 +2662,14 @@ export default function App() {
     closeTeamData();
     setScoreboardTeamFilter("ALL");
     setActiveView("standings");
+    const games = `${made.matchups.length} game${made.matchups.length === 1 ? "" : "s"}`;
+    if (!page) {
+      showToast(
+        `Started the season: ${made.teams.length} teams and ${games}. Its age or season could not be read, so put it on its Team Rankings page in Setup.`,
+        { tone: "undo", actionLabel: "Undo", onAction: restoreUndo }
+      );
+      return;
+    }
     const command = {
       kind: "season.assign" as const,
       seasonId,
@@ -2656,7 +2681,6 @@ export default function App() {
       : await Promise.all([import("./lib/live/runPoolCommand"), poolFilled()])
           .then(([module]) => module.runPoolCommand(command).ok)
           .catch(() => false);
-    const games = `${made.matchups.length} game${made.matchups.length === 1 ? "" : "s"}`;
     showToast(
       placed
         ? `Started the season: ${made.teams.length} teams and ${games}, on ${page.name} in Team Rankings.`
@@ -3655,6 +3679,19 @@ export default function App() {
                             onCreate={(made, page) => {
                               close();
                               void startSeasonFromClubs(made, page);
+                            }}
+                            onClose={close}
+                          />
+                        </Suspense>
+                      )}
+                      startFromGcOrg={(close) => (
+                        <Suspense fallback={<LoadingPanel area="GameChanger organization" />}>
+                          <StartFromGcOrg
+                            live={rankingsLive}
+                            innings={settings.defaultGameInnings}
+                            onCreate={(made, page) => {
+                              close();
+                              void startSeasonFromClubs(made, page, "GameChanger");
                             }}
                             onClose={close}
                           />

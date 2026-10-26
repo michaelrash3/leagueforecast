@@ -570,3 +570,63 @@ describe("GET /api/gc-team?ids=…&raw=1", () => {
     });
   });
 });
+
+describe("GET /api/gc-team?org=", () => {
+  /*
+   * An organization's team list, for a League Standings season started from a GameChanger
+   * organization (26 October 2026): GameChanger's body handed back unread, as a pull's bodies are,
+   * from the public route the GC miner reads an organization's teams from.
+   */
+  const ORG_ID = "SgtwZI3tbazX";
+  const listing = [{ id: "AbCdEfGhIjKl", name: "Wolves", age_group: "9U" }];
+
+  it("hands back the organization's team list as GameChanger sent it", async () => {
+    const captured = stubUpstream({ profile: { body: listing }, games: { status: 500 } });
+    const recorded = await run(
+      `/api/gc-team?org=${encodeURIComponent(`https://web.gc.com/organizations/${ORG_ID}/schedule`)}`
+    );
+
+    expect(recorded.statusCode).toBe(200);
+    expect(recorded.headers["cache-control"]).toBe("no-store");
+    expect(recorded.body).toMatchObject({ ok: true, orgId: ORG_ID, raw: JSON.stringify(listing) });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.url).toBe(
+      `https://api.team-manager.gc.com/public/organizations/${ORG_ID}/teams`
+    );
+    expect(captured[0]?.headers).toMatchObject({
+      accept: "application/json, text/plain, */*",
+      "gc-app-name": "web",
+      origin: "https://web.gc.com",
+    });
+  });
+
+  it("says an organization GameChanger does not list publicly is not found", async () => {
+    stubUpstream({ profile: { status: 404, body: "" }, games: { status: 500 } });
+    const recorded = await run(`/api/gc-team?org=${ORG_ID}`);
+    expect(recorded.statusCode).toBe(404);
+    expect(recorded.body).toMatchObject({
+      ok: false,
+      reason: "not-found",
+      message: "GameChanger has no public organization for this id.",
+    });
+  });
+
+  it("names a throttle and passes its wait on", async () => {
+    stubUpstream({
+      profile: { status: 429, body: "", headers: { "retry-after": "30" } },
+      games: { status: 500 },
+    });
+    const recorded = await run(`/api/gc-team?org=${ORG_ID}`);
+    expect(recorded.statusCode).toBe(429);
+    expect(recorded.headers["retry-after"]).toBe("30");
+    expect(recorded.body).toMatchObject({ ok: false, reason: "throttled" });
+  });
+
+  it("refuses what is not an organization id before fetching anything", async () => {
+    const captured = stubUpstream({ profile: { body: listing }, games: { body: [] } });
+    const recorded = await run(`/api/gc-team?org=${encodeURIComponent("not an id!")}`);
+    expect(recorded.statusCode).toBe(400);
+    expect(recorded.body).toMatchObject({ ok: false, reason: "invalid-id" });
+    expect(captured).toHaveLength(0);
+  });
+});

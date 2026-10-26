@@ -18,6 +18,7 @@ export function EmptyState({
   loadDemoSeason,
   openTour,
   startFromClubs,
+  startFromGcOrg,
   schedulePaste,
 }: {
   importCSV: (file: File) => void;
@@ -34,6 +35,11 @@ export function EmptyState({
    */
   startFromClubs?: (close: () => void) => ReactNode;
   /**
+   * Starting the season from a GameChanger organization's own schedule, through the app's
+   * GameChanger proxy (`StartFromGcOrg`), drawn under the flow once asked for, with what closes it.
+   */
+  startFromGcOrg?: (close: () => void) => ReactNode;
+  /**
    * The team-list box read as a league site's schedule instead (`LeagueSchedulePaste`), drawn
    * under it once asked for, with what closes it. A button on the box rather than a step of the
    * flow, since this screen is part of the first download and the reader is fetched on the press.
@@ -41,6 +47,7 @@ export function EmptyState({
   schedulePaste?: (text: string, close: () => void) => ReactNode;
 }) {
   const [starting, setStarting] = useState(false);
+  const [startingOrg, setStartingOrg] = useState(false);
   const [reading, setReading] = useState<string | null>(null);
   // Where closing the paste panel puts focus back: the button that opened it, still on screen.
   const readId = useId();
@@ -75,14 +82,27 @@ export function EmptyState({
         { label: "Blank CSV", onClick: downloadRoundRobinCSV },
       ],
     },
-    startFromClubs
+    startFromClubs || startFromGcOrg
       ? {
           eyebrow: "Link",
-          title: "Start from Team Rankings clubs",
-          body: "Pick the league's clubs on a Team Rankings page. Their games against each other come in with GameChanger's scores, and each team is linked to its club.",
+          title: "Start from GameChanger",
+          body: "Pick the league's clubs on a Team Rankings page, or name the league's organization on GameChanger. Their games against each other come in with GameChanger's scores.",
           meta: "For leagues whose clubs are on GameChanger",
           tone: "emerald",
-          actions: [{ label: "Pick clubs", edits: true, onClick: () => setStarting(true) }],
+          actions: [
+            ...(startFromClubs
+              ? [{ label: "Pick clubs", edits: true, onClick: () => setStarting(true) }]
+              : []),
+            ...(startFromGcOrg
+              ? [
+                  {
+                    label: "From an organization",
+                    edits: true,
+                    onClick: () => setStartingOrg(true),
+                  },
+                ]
+              : []),
+          ],
         }
       : {
           eyebrow: "Review",
@@ -119,6 +139,7 @@ export function EmptyState({
       />
 
       {starting && startFromClubs?.(() => setStarting(false))}
+      {startingOrg && startFromGcOrg?.(() => setStartingOrg(false))}
 
       <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-xs dark:border-slate-700 dark:bg-slate-900">
         <div>
