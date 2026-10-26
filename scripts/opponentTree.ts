@@ -35,20 +35,26 @@ const linksOf = (games: Iterable<Game>): Map<string, string[]> => {
   return next;
 };
 
+/** A club's reach within some games, as `opponentTree` counts it. */
+export type Reach = (id: string, hops: number) => number;
+
 /**
  * A counter of each club's reach over `games`: the distinct clubs within `hops` games of it, itself
- * left out, to `REACH_CAP`. Remembered per club and distance, so a board asks for each once.
+ * left out, to `REACH_CAP`. One walk out from a club counts every distance up to the one asked for,
+ * and is remembered, so a board asks for each club once however many distances its orders read.
  */
-export const opponentTree = (games: Iterable<Game>): ((id: string, hops: number) => number) => {
+export const opponentTree = (games: Iterable<Game>): Reach => {
   const next = linksOf(games);
-  const memo = new Map<string, number>();
+  // Each club's reach within one, two, … games, as far out as it has been asked for.
+  const memo = new Map<string, number[]>();
   return (id, hops) => {
-    const key = `${hops}\u0000${id}`;
-    const known = memo.get(key);
-    if (known !== undefined) return known;
+    if (hops <= 0) return 0;
+    const known = memo.get(id);
+    if (known && known.length >= hops) return known[hops - 1]!;
+    const levels: number[] = [];
     const seen = new Set<string>([id]);
     let frontier = [id];
-    for (let step = 0; step < hops && frontier.length > 0; step += 1) {
+    while (levels.length < hops) {
       const ahead: string[] = [];
       for (const at of frontier) {
         for (const other of next.get(at) ?? []) {
@@ -59,12 +65,36 @@ export const opponentTree = (games: Iterable<Game>): ((id: string, hops: number)
         }
         if (seen.size > REACH_CAP) break;
       }
-      frontier = ahead;
-      if (seen.size > REACH_CAP) break;
+      // Past the cap every further distance is the cap; a web with nowhere left to go stays put.
+      frontier = seen.size > REACH_CAP ? [] : ahead;
+      levels.push(Math.min(REACH_CAP, seen.size - 1));
     }
-    const reach = Math.min(REACH_CAP, seen.size - 1);
-    memo.set(key, reach);
-    return reach;
+    memo.set(id, levels);
+    return levels[hops - 1]!;
+  };
+};
+
+/**
+ * The typical club's reach over the same games: the median, within `hops` games, over every club
+ * the games name, remembered per distance. The owner's third reading of the proven ranking, 26
+ * October 2026: "I think the opponent web style rule would work better as it would allow the rule
+ * to expand with the amount of games played." A line drawn as a share of the typical web does: on
+ * the first of September the typical club has played a handful of games and its web is small, and
+ * by the season's end it has played many more and its web reaches hundreds.
+ */
+export const typicalReach = (games: Iterable<Game>, reach: Reach): ((hops: number) => number) => {
+  const ids = new Set<string>();
+  for (const game of games) {
+    ids.add(game.teamAId);
+    ids.add(game.teamBId);
+  }
+  const memo = new Map<number, number>();
+  return (hops) => {
+    const known = memo.get(hops);
+    if (known !== undefined) return known;
+    const median = reachPercentiles([...ids].map((id) => reach(id, hops)))?.p50 ?? 0;
+    memo.set(hops, median);
+    return median;
   };
 };
 

@@ -24,7 +24,13 @@ import {
 } from "../src/lib/scoutBacktest.ts";
 import { byRating } from "../src/lib/powerRating.ts";
 import { clubLeagueReport, type ClubLeagueReport } from "./clubLeagueReport.ts";
-import { chainsFrom, opponentTree, reachPercentiles } from "./opponentTree.ts";
+import {
+  chainsFrom,
+  opponentTree,
+  type Reach,
+  reachPercentiles,
+  typicalReach,
+} from "./opponentTree.ts";
 import { dayInstant } from "../src/lib/ratingRecency.ts";
 import { resultsAwareRestart, type ResultsAwareLevel } from "../src/lib/resultsAwareLevel.ts";
 import {
@@ -94,13 +100,32 @@ export type ProvenOrder = {
   /**
    * The owner's second reading of it, the same day: a club whose web of games reaches fewer than
    * `min` distinct clubs within `hops` games (`opponentTree.ts`) is listed after every club that
-   * reaches that many, whatever its league.
+   * reaches that many, whatever its league. Or, the third, fewer than `share` of the typical club's
+   * web within `hops` games on the same games (`typicalReach`), a line that grows with the games
+   * played.
    */
-  reach?: { hops: number; min: number };
+  reach?: { hops: number; min: number } | { hops: number; share: number };
 };
 
-/** A club's reach within some games, as `opponentTree` counts it. */
-type Reach = (id: string, hops: number) => number;
+/** How far the webs of a day's games reach: each club's, and the typical club's. */
+type Web = { reach: Reach; typical: (hops: number) => number };
+
+/** The webs of some games. */
+const webOf = (games: readonly ScoutGame[]): Web => {
+  const reach = opponentTree(games);
+  return { reach, typical: typicalReach(games, reach) };
+};
+
+/** The reach below which an order's web line holds a club back on a day's games, if it has one. */
+export const reachLineOf = (
+  order: ProvenOrder,
+  typical: (hops: number) => number
+): number | undefined =>
+  order.reach === undefined
+    ? undefined
+    : "share" in order.reach
+      ? order.reach.share * typical(order.reach.hops)
+      : order.reach.min;
 
 /**
  * The board's own order, then the amounts the owner's "proven" ranking (26 October 2026) could
@@ -157,7 +182,45 @@ export const PROVEN_ORDERS: readonly ProvenOrder[] = [
     prior: 2,
     reach: { hops: 3, min: 250 },
   },
+  {
+    key: "r4-100",
+    why: "the same, 100 clubs within four games",
+    k: 0,
+    prior: 2,
+    reach: { hops: 4, min: 100 },
+  },
+  {
+    key: "r5-100",
+    why: "the same, 100 clubs within five games",
+    k: 0,
+    prior: 2,
+    reach: { hops: 5, min: 100 },
+  },
+  {
+    key: "r5-250",
+    why: "the same, 250 clubs within five games",
+    k: 0,
+    prior: 2,
+    reach: { hops: 5, min: 250 },
+  },
+  {
+    key: "s5-10",
+    why: "listed after every club whose web within five games is a tenth of the typical club's, where it is less",
+    k: 0,
+    prior: 2,
+    reach: { hops: 5, share: 0.1 },
+  },
+  {
+    key: "s5-25",
+    why: "the same, a quarter of the typical club's",
+    k: 0,
+    prior: 2,
+    reach: { hops: 5, share: 0.25 },
+  },
 ];
+
+/** The furthest out a web is read: the longest of the orders' distances, five games. */
+export const WEB_HOPS = 5;
 
 /** The cut days of the measurement the counted level was shipped on, and its first scored day. */
 export const DEFAULT_CUTS = ["2026-09-01", "2026-09-08", "2026-09-15"];
@@ -274,6 +337,8 @@ export type ProvenClub = { teamId: string; name: string; rank: number; stateRank
 export type ProvenResult = {
   key: string;
   why: string;
+  /** The order's web line, when it draws one (`ProvenOrder.reach`). */
+  reach?: ProvenOrder["reach"];
   segments: ProvenSegment[];
   /** The national top 25 of every ranked page, against the board's own order. */
   topPlaces: { kept: number; of: number; wellKept: number; wellOf: number };
@@ -285,12 +350,18 @@ export type ProvenResult = {
   stateTop: { name: string; record: string; rating: number; outside: number; reach: number[] }[];
 };
 
-/** How far the webs of games reach (`opponentTree.ts`): clubs within two and three games. */
+/** How far the webs of games reach (`opponentTree.ts`): clubs within two, three and five games. */
 export type ReachSummary = {
   /** Over every page's national top 25 and every state's #1, in the board's own order. */
-  nationalTop: { two?: Percentiles; three?: Percentiles };
-  stateOnes: { two?: Percentiles; three?: Percentiles };
-  /** The club asked about, within one, two and three games. */
+  nationalTop: { two?: Percentiles; three?: Percentiles; five?: Percentiles };
+  stateOnes: { two?: Percentiles; three?: Percentiles; five?: Percentiles };
+  /**
+   * The typical club's web within one to `WEB_HOPS` games (`typicalReach`) on each cut day's games
+   * and then the board's, which a line drawn as a share of it is drawn from. Read only when an order
+   * draws one.
+   */
+  typical: { day: string; reach: number[] }[];
+  /** The club asked about, within one to `WEB_HOPS` games. */
   club?: number[];
   /** Its league's clubs, as its own schedule names them. */
   league?: { name: string; reach: number[] }[];
@@ -431,10 +502,15 @@ const provenCut = (fit: ScoutYearFit, order: ProvenOrder, id: string): number =>
     ? 0
     : order.k * ratingSpread(outsideOn(fit, id), fit.adjusted.residualScale, order.prior);
 
-/** Whether an order's line holds a club back: its league has fewer outside games than the line. */
-const heldBack = (fit: ScoutYearFit, order: ProvenOrder, id: string, reach: Reach): boolean =>
-  (order.line !== undefined && outsideOn(fit, id) < order.line) ||
-  (order.reach !== undefined && reach(id, order.reach.hops) < order.reach.min);
+/**
+ * Whether an order's line holds a club back: its league has fewer outside games than the line, or
+ * its web reaches fewer clubs than the web line (`reachLineOf`).
+ */
+const heldBack = (fit: ScoutYearFit, order: ProvenOrder, id: string, web: Web): boolean => {
+  if (order.line !== undefined && outsideOn(fit, id) < order.line) return true;
+  const line = reachLineOf(order, web.typical);
+  return line !== undefined && order.reach !== undefined && web.reach(id, order.reach.hops) < line;
+};
 
 /** Whether an order lists a game's loser higher: 1 if so, 0 if not, a half for a tie. */
 const misorderOf = (
@@ -442,13 +518,13 @@ const misorderOf = (
   order: ProvenOrder,
   game: ScoutGame,
   ageGap: number,
-  reach: Reach
+  web: Web
 ) => {
   const value = (id: string) =>
     fit.confident(fit.adjusted.ratings.get(id) ?? 0, fit.effective.get(id) ?? 0) -
     provenCut(fit, order, id);
-  const backA = heldBack(fit, order, game.teamAId, reach);
-  const backB = heldBack(fit, order, game.teamBId, reach);
+  const backA = heldBack(fit, order, game.teamAId, web);
+  const backB = heldBack(fit, order, game.teamBId, web);
   const lead =
     backA !== backB
       ? backA
@@ -554,6 +630,11 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
       )
   );
 
+  // The typical web on each day an order with a share line reads, and the distances it is read to.
+  const typicals: { day: string; reach: number[] }[] = [];
+  const webDistances = Array.from({ length: WEB_HOPS }, (_, at) => at + 1);
+  const sharesRead = orders.some((order) => order.reach !== undefined && "share" in order.reach);
+
   for (const cut of cuts) {
     const trained = scoutRatingGames(pageId, teams, games, ageGroups, undefined, cut);
     const fits = variants.map((variant, at) => {
@@ -614,11 +695,14 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
     });
     // The orders are read on the control's fit alone: they change no rating, only the order. A
     // reach is the cut's own, over the games it was fitted on.
-    const cutReach = opponentTree(trained.map(({ game }) => game));
+    const cutWeb = webOf(trained.map(({ game }) => game));
+    if (sharesRead) {
+      typicals.push({ day: cut, reach: webDistances.map((hops) => cutWeb.typical(hops)) });
+    }
     orders.forEach((order, at) => {
       for (const { game, ageGap, day, segments, sides: pair } of scored) {
         if ((ratedMargin(game) ?? 0) === 0) continue;
-        const misorder = misorderOf(control, order, game, ageGap, cutReach);
+        const misorder = misorderOf(control, order, game, ageGap, cutWeb);
         for (const key of segments) {
           const pile = orderPiles[at]!.get(key)!;
           pile.misorders.push(misorder);
@@ -851,8 +935,12 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
   });
 
   // How far each club's web of games reaches on the board of the day (`opponentTree.ts`).
-  const boardReach = opponentTree(board.map(({ game }) => game));
-  const reachOf = (id: string) => [1, 2, 3].map((hops) => boardReach(id, hops));
+  const boardWeb = webOf(board.map(({ game }) => game));
+  const boardReach = boardWeb.reach;
+  const reachOf = (id: string) => webDistances.map((hops) => boardReach(id, hops));
+  if (sharesRead) {
+    typicals.push({ day: today, reach: webDistances.map((hops) => boardWeb.typical(hops)) });
+  }
   // Each page of the control's board in each proven order, its rows as they are, only re-sorted.
   const reordered = orders.map(
     (order) =>
@@ -863,7 +951,7 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
             .map((row) => ({
               ...row,
               rating: row.rating - provenCut(controlBoard.fit, order, row.teamId),
-              back: heldBack(controlBoard.fit, order, row.teamId, boardReach),
+              back: heldBack(controlBoard.fit, order, row.teamId, boardWeb),
             }))
             .sort((a, b) => Number(a.back) - Number(b.back) || byRating(a, b));
           return [page.id, listed];
@@ -979,6 +1067,7 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
     return {
       key: order.key,
       why: order.why,
+      ...(order.reach ? { reach: order.reach } : {}),
       segments,
       topPlaces: { kept, of, wellKept, wellOf },
       weakTop,
@@ -1027,8 +1116,13 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
     });
   })();
   const reachSummary: ReachSummary = {
-    nationalTop: { two: spread(nationalIds, 2), three: spread(nationalIds, 3) },
-    stateOnes: { two: spread(oneIds, 2), three: spread(oneIds, 3) },
+    nationalTop: {
+      two: spread(nationalIds, 2),
+      three: spread(nationalIds, 3),
+      five: spread(nationalIds, 5),
+    },
+    stateOnes: { two: spread(oneIds, 2), three: spread(oneIds, 3), five: spread(oneIds, 5) },
+    typical: typicals,
     ...(firstFound ? { club: reachOf(firstFound.teamId) } : {}),
     ...(clubLeague
       ? { league: clubLeague.league.map((club) => ({ name: club.name, reach: reachOf(club.id) })) }
@@ -1294,18 +1388,37 @@ const describeProven = (sweep: CommunitySweep, say: (line?: string) => void, nam
   const pcts = (p?: { p10: number; p25: number; p50: number }) =>
     p ? `p10 ${p.p10}, p25 ${p.p25}, median ${p.p50}` : "—";
   say();
-  say("How far the webs of games reach (distinct clubs within two and three games, to 1,000):");
   say(
-    `  national top 25s: within two ${pcts(sweep.reach.nationalTop.two)}; within three ${pcts(sweep.reach.nationalTop.three)}`
+    "How far the webs of games reach (distinct clubs within two, three and five games, to 1,000):"
   );
   say(
-    `  state #1s:        within two ${pcts(sweep.reach.stateOnes.two)}; within three ${pcts(sweep.reach.stateOnes.three)}`
+    `  national top 25s: within two ${pcts(sweep.reach.nationalTop.two)}; within three ${pcts(sweep.reach.nationalTop.three)}; within five ${pcts(sweep.reach.nationalTop.five)}`
+  );
+  say(
+    `  state #1s:        within two ${pcts(sweep.reach.stateOnes.two)}; within three ${pcts(sweep.reach.stateOnes.three)}; within five ${pcts(sweep.reach.stateOnes.five)}`
   );
   if (sweep.reach.club) {
-    say(`  the club asked about: within one, two, three ${sweep.reach.club.join(", ")}`);
+    say(`  the club asked about: within one to ${WEB_HOPS} ${sweep.reach.club.join(", ")}`);
+  }
+  if (sweep.reach.typical.length > 0) {
+    say(
+      `The typical club's web (the median over every club the day's games name), within one to ${WEB_HOPS} games, and the share lines it draws:`
+    );
+    const shares = sweep.proven.flatMap(({ key, reach }) =>
+      reach && "share" in reach ? [{ key, hops: reach.hops, share: reach.share }] : []
+    );
+    sweep.reach.typical.forEach(({ day, reach }) => {
+      const lines = shares
+        .map(({ key, hops, share }) => `${key} ${Math.round(share * (reach[hops - 1] ?? 0))}`)
+        .join(", ");
+      say(`  ${day}: ${reach.join(", ")}${lines ? `; ${lines}` : ""}`);
+    });
   }
   if (sweep.reach.league) {
-    named.push("", "Its league's clubs, how far their webs reach (within one, two, three games):");
+    named.push(
+      "",
+      `Its league's clubs, how far their webs reach (within one to ${WEB_HOPS} games):`
+    );
     sweep.reach.league.forEach((club) => named.push(`  ${club.name}: ${club.reach.join(", ")}`));
   }
   if (sweep.reach.community) {
@@ -1322,7 +1435,7 @@ const describeProven = (sweep: CommunitySweep, say: (line?: string) => void, nam
   }
   named.push(
     "",
-    "Its state's top 12 on its page under each order (record, rating, league's outside games, reach within one/two/three):"
+    `Its state's top 12 on its page under each order (record, rating, league's outside games, reach within one to ${WEB_HOPS} games):`
   );
   sweep.proven.forEach((order) => {
     named.push(`  ${order.key}:`);

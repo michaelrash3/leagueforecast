@@ -9,7 +9,10 @@ import {
   describeCommunitySweep,
   LEVEL_VARIANTS,
   PROVEN_ORDERS,
+  type ProvenOrder,
+  reachLineOf,
   runCommunitySweep,
+  WEB_HOPS,
 } from "../../../scripts/communitySweep";
 import { describeRemovalDiagnosis, runRemovalDiagnosis } from "../../../scripts/removalDiagnosis";
 import { compareWithGameChanger, describeClubLeague } from "../../../scripts/clubLeagueReport";
@@ -135,12 +138,74 @@ describe("the league-level comparison", () => {
     expect(placed("r2-25")).toBeGreaterThan(placed("shown"));
   });
 
+  it("draws a share line from the typical web of each day's games, and lists by it", () => {
+    // One typical web per cut day and one for the board's day, each read one to five games out.
+    expect(sweep.reach.typical.map(({ day }) => day)).toEqual([
+      "2026-09-01",
+      "2026-09-08",
+      "2026-09-15",
+      input.today,
+    ]);
+    expect(sweep.reach.typical.every(({ reach }) => reach.length === WEB_HOPS)).toBe(true);
+    const today = sweep.reach.typical[3]!.reach;
+    // A web counted further out reaches no fewer clubs.
+    expect([...today].sort((a, b) => a - b)).toEqual(today);
+    const share = PROVEN_ORDERS.find((order) => order.key === "s5-25")!;
+    expect(reachLineOf(share, (hops) => today[hops - 1]!)).toBe(0.25 * today[4]!);
+    expect(
+      reachLineOf(
+        PROVEN_ORDERS.find((order) => order.key === "r5-100")!,
+        () => 1
+      )
+    ).toBe(100);
+    expect(reachLineOf(PROVEN_ORDERS[0]!, () => 1)).toBeUndefined();
+    // Under each share order, no club short of its line is listed above one that reaches it.
+    sweep.proven
+      .filter((order) => order.key.startsWith("s"))
+      .forEach((order) => {
+        const line = reachLineOf(
+          PROVEN_ORDERS.find((known) => known.key === order.key)!,
+          (hops) => today[hops - 1]!
+        )!;
+        const back = order.stateTop.map((row) => row.reach[4]! < line);
+        expect(back).toEqual([...back].sort((a, b) => Number(a) - Number(b)));
+      });
+    const { lines } = describeCommunitySweep(sweep);
+    expect(lines).toContain(
+      `  ${input.today}: ${today.join(", ")}; s5-10 ${Math.round(0.1 * today[4]!)}, s5-25 ${Math.round(0.25 * today[4]!)}`
+    );
+  });
+
+  it("holds a club back by a share line, which moves with the typical web", () => {
+    // The made-up pool is two hundred clubs, all within five games of each other, so a line five
+    // games out holds nobody back on it; three games out, half the typical web holds the planted
+    // league back, whose web stops at 29 where the typical club's reaches 192.
+    const half: ProvenOrder = {
+      key: "s3-50",
+      why: "half the typical web within three games",
+      k: 0,
+      prior: 2,
+      reach: { hops: 3, share: 0.5 },
+    };
+    const shared = runCommunitySweep({ ...input, provenOrders: [PROVEN_ORDERS[0]!, half] });
+    const [shown, byShare] = shared.proven;
+    const today = shared.reach.typical[shared.reach.typical.length - 1]!.reach;
+    const line = reachLineOf(half, (hops) => today[hops - 1]!)!;
+    expect(shared.reach.club![2]!).toBeLessThan(line);
+    expect(byShare!.club[0]!.stateRank!).toBeGreaterThan(shown!.club[0]!.stateRank!);
+    expect(byShare!.stateTop.some((row) => row.name === LONGHORNS.name)).toBe(false);
+    const back = byShare!.stateTop.map((row) => row.reach[2]! < line);
+    expect(back).toEqual([...back].sort((a, b) => Number(a) - Number(b)));
+    // The line is the share of each day's own typical web: smaller on the first cut day.
+    expect(shared.reach.typical[0]!.reach[2]!).toBeLessThan(today[2]!);
+  });
+
   it("reads the league the fit found, club by club: its web and its chain from the club", () => {
     const community = sweep.reach.community!;
     expect(community).toHaveLength(sweep.league!.size);
     expect(community.every((club) => club.reach.length === COMMUNITY_HOPS)).toBe(true);
     const longhorns = community.find((club) => club.name === LONGHORNS.name)!;
-    expect(longhorns.reach.slice(0, 3)).toEqual(sweep.reach.club);
+    expect(longhorns.reach).toEqual(sweep.reach.club);
     expect(longhorns.chain).toEqual([LONGHORNS.name]);
     // Every other club of it is some games away, the chain starting at the Longhorns and ending
     // at the club, one game apart each.
@@ -235,7 +300,7 @@ describe("the league-level comparison", () => {
     expect(text).toMatch(/p1 +misordered \d+\.\d\d%, gain [+−]/);
     expect(text).toContain("The club asked about, where each order lists it:");
     expect(text).not.toMatch(/Longhorns|Edgewood|LH-|CL-/);
-    expect(named.filter((line) => /Longhorns, (shown|p|e|r)/.test(line))).toHaveLength(
+    expect(named.filter((line) => /Longhorns, (shown|p|e|r|s)/.test(line))).toHaveLength(
       PROVEN_ORDERS.length
     );
   });

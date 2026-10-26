@@ -4,6 +4,7 @@ import {
   opponentTree,
   REACH_CAP,
   reachPercentiles,
+  typicalReach,
 } from "../../../scripts/opponentTree";
 
 /* How far a club's web of games reaches (`scripts/opponentTree.ts`), the owner's question. */
@@ -28,6 +29,25 @@ describe("the opponent tree", () => {
     expect([1, 2, 3, 4].map((hops) => reach("L1", hops))).toEqual([2, 3, 4, 6]);
     expect([1, 2, 3].map((hops) => reach("X", hops))).toEqual([3, 4, 6]);
     expect(reach("nobody", 3)).toBe(0);
+  });
+
+  it("counts every distance in one walk, the same however it is asked", () => {
+    const walked = opponentTree(games);
+    // Five out first, then the nearer distances from what that walk remembered.
+    expect(walked("L1", 5)).toBe(6);
+    expect([1, 2, 3, 4].map((hops) => walked("L1", hops))).toEqual([2, 3, 4, 6]);
+    expect(walked("L1", 0)).toBe(0);
+    // A web with nowhere left to go stays put however far out it is asked.
+    expect(walked("Y", 9)).toBe(6);
+  });
+
+  it("reads the typical club's web, the median over every club the games name", () => {
+    const typical = typicalReach(games, opponentTree(games));
+    // Within one: Y and Z 1, L1, L2 and L4 2, L3 and X 3; the fourth of seven is 2.
+    expect(typical(1)).toBe(2);
+    // Within two: L1, L2, Y and Z 3, L3 and X 4, L4 6.
+    expect(typical(2)).toBe(3);
+    expect(typicalReach([], opponentTree([]))(3)).toBe(0);
   });
 
   it("finds the shortest chain of games between two clubs, within a distance", () => {
