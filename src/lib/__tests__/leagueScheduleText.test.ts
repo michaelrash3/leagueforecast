@@ -429,10 +429,20 @@ describe("parseLeagueSchedule", () => {
       ],
       skipped: [],
     });
-    // Runs after the teams are no day: a row with no day of its own is not taken, as ever.
-    expect(read(["April 2027", "12", "9:00 AM,Falcons,Wolves,6,5"])).toEqual({
+    // Runs after the teams are no day: a row with no day of its own is not taken, as ever. Nor is
+    // a score written as one pair, which reads like June 5th (Codex on #456).
+    expect(
+      read(["April 2027", "12", "9:00 AM,Falcons,Wolves,6,5", "9:00 AM,Hawks,Owls,6-5"])
+    ).toEqual({
       rows: [],
-      skipped: ["9:00 AM,Falcons,Wolves,6,5"],
+      skipped: ["9:00 AM,Falcons,Wolves,6,5", "9:00 AM,Hawks,Owls,6-5"],
+    });
+    // With a day of its own, the pair after the teams is the score.
+    expect(read(["4/12/2027,Hawks,Owls,6-5"])).toEqual({
+      rows: [
+        { date: "4/12", away: "Hawks", home: "Owls", awayRuns: 6, homeRuns: 5, guessed: true },
+      ],
+      skipped: [],
     });
   });
 

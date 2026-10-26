@@ -446,17 +446,19 @@ const readBareRow = (cells: string[], context: Context, squadYear: number): Game
   cells.forEach((cell) => {
     const value = cell.trim();
     if (!value || isAsideCell(value)) return;
-    // A bare day of the month only before the teams, as `readCells` reads one only before the game:
-    // after them, under a month's heading, the runs "6,5" read as the 6th (found by Codex on #456).
+    // After the teams, what reads as runs is runs, never the day, as `readCells` reads it after the
+    // game: under a month's heading "6,5" read as the 6th, and "6-5" as June 5th anywhere (found by
+    // Codex on #456). Before them it is as likely the day, which a schedule's first column is.
+    const pair = SCORE_CELL.exec(value);
+    const runsShaped = pair !== null || /^\d{1,2}$/.test(value);
     const asDay =
-      day === undefined
-        ? readOnlyDay(value, names.length === 0 ? context : writtenOnly(context), squadYear)
+      day === undefined && !(names.length > 0 && runsShaped)
+        ? readOnlyDay(value, context, squadYear)
         : undefined;
     if (asDay !== undefined) {
       day = asDay;
       return;
     }
-    const pair = SCORE_CELL.exec(value);
     if (pair) runs ??= [Number(pair[1]), Number(pair[2])];
     else if (/^\d{1,2}$/.test(value)) numbers.push(Number(value));
     else names.push(value);
