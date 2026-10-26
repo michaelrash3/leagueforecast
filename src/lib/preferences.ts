@@ -27,7 +27,9 @@ export type AppMode = "league" | "rankings";
  */
 export type SummaryMode = "ask" | "auto";
 
-const THEME_KEY = "nkb_theme_v1";
+const THEME_KEY = "lf_theme_v1";
+/** Where the theme was kept before, under the app's first league's name; read until next chosen. */
+const OLD_THEME_KEY = "nkb_theme_v1";
 const APP_MODE_KEY = "lf_app_mode_v1";
 const SUMMARY_MODE_KEY = "lf_summary_mode_v1";
 
@@ -65,10 +67,18 @@ export const isAppMode = (value: unknown): value is AppMode =>
   value === "league" || value === "rankings";
 
 export const readTheme = (): Theme | null => {
-  const raw = safeGet(THEME_KEY);
+  const raw = safeGet(THEME_KEY) ?? safeGet(OLD_THEME_KEY);
   return isTheme(raw) ? raw : null;
 };
-export const writeTheme = (theme: Theme): boolean => safeSet(THEME_KEY, theme);
+export const writeTheme = (theme: Theme): boolean => {
+  if (!safeSet(THEME_KEY, theme)) return false;
+  try {
+    localStorage.removeItem(OLD_THEME_KEY);
+  } catch {
+    // Left behind, it is read only when the new name holds nothing, which it now does.
+  }
+  return true;
+};
 
 export const readAppMode = (): AppMode | null => {
   const raw = safeGet(APP_MODE_KEY);

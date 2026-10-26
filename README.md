@@ -1,6 +1,6 @@
 # League Forecast
 
-A browser-first web app for league predictions, power ratings, matchup analysis, and forecast accuracy. All league data stays in the browser; the only server-side piece is one optional serverless function that writes the AI league story.
+A browser-first web app for league predictions, power ratings, matchup analysis, and forecast accuracy. The app works out everything in the browser and keeps its data there; signed in to the owner's list, a browser also keeps one cloud copy in Firestore, so every device opens on the same data ("Your data on every device", below). Firebase functions write the AI league story, pull GameChanger schedules and run the cloud copy's jobs.
 
 ## Stack
 
@@ -9,7 +9,8 @@ A browser-first web app for league predictions, power ratings, matchup analysis,
 - Web Worker-based Monte Carlo simulation
 - Firebase HTTP functions for the AI league story (`server/league-summary.ts`, Gemini then Groq)
   and GameChanger pulls (`server/gc-team.ts`); Vercel serves the static website
-- Vitest, with coverage reported (not enforced) on every pull request
+- Vitest, with coverage reported on every pull request and held to the thresholds in
+  `vite.config.ts`
 - ESLint + Prettier
 
 ## Commands
