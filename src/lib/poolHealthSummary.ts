@@ -1,7 +1,7 @@
 import { isDatedAhead } from "./deletedGames";
 import type { GcImportState } from "./gameChangerImport";
 import { squadYearHoldings, type SquadYearHolding } from "./poolHealth";
-import { isImplausibleScore, ratedMargin } from "./teamRankings";
+import { isAskedScore, ratedMargin } from "./teamRankings";
 import { ageGroupYear } from "./teamRankings/seasons";
 import type { ScoutGame } from "./teamRankings/types";
 import { clubsByGcId, filedBy, unrealClubs, withoutClubs, type UnrealClub } from "./unrealClubs";
@@ -12,7 +12,7 @@ import { removedForYou, type RemovedClub } from "./removedForYou";
 /**
  * What Pool health shows as it opens, before anyone asks it to look harder (`PoolHealthCard`): what
  * each squad year holds, the results scored on a day that has not happened, the games won by
- * `IMPLAUSIBLE_MARGIN` runs or more, and the clubs those rows belong to. Worked out the same way from a
+ * `ASK_MARGIN` runs or more, and the clubs those rows belong to. Worked out the same way from a
  * device's own pool and from the server's (`health.summary`, `queries.ts`), so the card draws the
  * one as it draws the other.
  */
@@ -37,7 +37,10 @@ export type PoolHealthSummary = {
   holdings: SquadYearHolding[];
   /** Scored on a day that has not happened, in the pool's order. */
   datedAhead: HealthGame[];
-  /** Won by `IMPLAUSIBLE_MARGIN` runs or more, the widest first, then the earliest. */
+  /**
+   * Won by `ASK_MARGIN` runs or more and not vouched for (`isAskedScore`), the widest first, then
+   * the earliest. The field keeps its name, which a server's answer carries.
+   */
   implausible: Array<{ game: HealthGame; margin: number }>;
   /** The clubs those rows belong to, worst first (`unrealClubs`). */
   suspected: UnrealClub[];
@@ -90,7 +93,7 @@ export const poolHealthSummary = (
   });
   const datedAhead = pool.games.filter((game) => isDatedAhead(game, today)).map(rowOf);
   const implausible = pool.games
-    .filter(isImplausibleScore)
+    .filter(isAskedScore)
     .map((game) => ({ game, margin: Math.abs(ratedMargin(game) ?? 0) }))
     .sort((a, b) => b.margin - a.margin || (a.game.date ?? "").localeCompare(b.game.date ?? ""))
     .map(({ game, margin }) => ({ game: rowOf(game), margin }));

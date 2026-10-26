@@ -22,7 +22,8 @@ import type { ScoutTeam } from "./teamRankings/types";
  * - `ahead` (C): three scored results or more, half of them dated well ahead, none listed by an
  *   opponent;
  * - `named` (N): its name, or its GameChanger team's, has void, test or demo as a word in it;
- * - `hundred` (H): its own schedule reports a game won by `HUNDRED_MARGIN` or more, by either side.
+ * - `hundred` (H): its own schedule reports a game won by `LOPSIDED_MARGIN` or more, by either side
+ *   (the name is the line it was set at first, 100; it is 50 now).
  */
 export type AutoSign = "wins" | "rout" | "ahead" | "named" | "hundred";
 
@@ -41,10 +42,15 @@ export const ABSURD_MARGIN = 75;
 
 /**
  * A game won by this many runs or more takes off the club whose own schedule reports it, winner or
- * loser, whatever else is known of it: sign H. The owner's rule of 21 October 2026, "if they win
- * by 100 or more, automatically delete the team that is reporting a lopsided game like that".
+ * loser, whatever else is known of it: sign H. The owner's rule of 21 October 2026 was 100, "if they
+ * win by 100 or more, automatically delete the team that is reporting a lopsided game like that".
+ * On 26 October 2026 they first said 40 ("every game by 40 or more stems from a fake team"), then
+ * settled on 50, with the games won by `ASK_MARGIN` or more below it put to them instead. Measured
+ * on the cloud copy of that day (the 2027 squad year, 386,146 games), swept on top of the marks
+ * already standing: 50 takes off 14 more clubs, where 40 would have taken 35, 75 one and 100 none.
+ * The sign keeps its stored name, `hundred`, which marks already saved carry.
  */
-export const HUNDRED_MARGIN = 100;
+export const LOPSIDED_MARGIN = 50;
 
 /** A win counted against a club: the game, by how many runs as the rating reads it, and its day. */
 export type CountedWin = { gameId: string; margin: number; date?: string };
@@ -60,7 +66,7 @@ export type AutoRemoval = {
   signs: AutoSign[];
   /** Its wins by `ROUT_MARGIN` or more that no loser's own schedule listed (`wins` and `rout`). */
   wins?: CountedWin[];
-  /** The games won by `HUNDRED_MARGIN` or more that its own schedule reported (`hundred`). */
+  /** The games won by `LOPSIDED_MARGIN` or more that its own schedule reported (`hundred`). */
   reported?: CountedWin[];
   /**
    * Its results dated well ahead (`ahead`, `FAR_AHEAD_DAYS` or more): the first such day, how

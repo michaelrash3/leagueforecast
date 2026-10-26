@@ -1,5 +1,5 @@
 import type { AgeGroup, ScoutTeam } from "./teamRankings/types";
-import { HUNDRED_MARGIN, ROUT_MARGIN, type AutoRemoval, type AutoRemovals } from "./autoRemoved";
+import { LOPSIDED_MARGIN, ROUT_MARGIN, type AutoRemoval, type AutoRemovals } from "./autoRemoved";
 import { removedClubIds } from "./removedClubs";
 
 /**
@@ -35,9 +35,9 @@ export const reasonsInWords = (mark: AutoRemoval): string[] =>
           : `its GameChanger team is named '${mark.teamName}'`;
       case "hundred": {
         const widest = Math.max(0, ...(mark.reported ?? []).map((game) => Math.abs(game.margin)));
-        return widest >= HUNDRED_MARGIN
+        return widest >= LOPSIDED_MARGIN
           ? `its schedule reports a game won by ${Math.round(widest)} runs`
-          : `its schedule reports a game won by ${HUNDRED_MARGIN} or more runs`;
+          : `its schedule reports a game won by ${LOPSIDED_MARGIN} or more runs`;
       }
     }
   });

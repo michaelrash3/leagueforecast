@@ -10,12 +10,17 @@ import {
 } from "../../lib/poolHealthSummary";
 import { TO_PULL_DRAWN, type PoolLists } from "../../lib/poolLists";
 import type { FewOutsideList } from "../../lib/fewOutside";
-import { IMPLAUSIBLE_MARGIN, segmentOn, type SeasonSegment } from "../../lib/teamRankings";
+import {
+  ASK_MARGIN,
+  IMPLAUSIBLE_MARGIN,
+  segmentOn,
+  type SeasonSegment,
+} from "../../lib/teamRankings";
 import { apartKey, isKeptApart, type KeptApart } from "../../lib/keptApart";
 import type { WrongAgeClub } from "../../lib/wrongAge";
 import type { UnrealClub } from "../../lib/unrealClubs";
 import type { RemovedClub } from "../../lib/removedForYou";
-import { ABSURD_MARGIN, HUNDRED_MARGIN, ROUT_MARGIN } from "../../lib/autoRemoved";
+import { ABSURD_MARGIN, LOPSIDED_MARGIN, ROUT_MARGIN } from "../../lib/autoRemoved";
 import { gcTeamPageUrl } from "../../lib/gameChangerApi";
 import { downloadCsv, fileDay } from "../../lib/download";
 import { countedTwiceCsv, countedTwiceCsvFilename } from "../../lib/countedTwice";
@@ -119,8 +124,8 @@ export type PoolHealthActions = {
     clubs: readonly RemovedClub[]
   ) => Promise<readonly RemovedClub[]> | readonly RemovedClub[];
   /**
-   * Says a game won by `IMPLAUSIBLE_MARGIN` runs or more really was played that way, so it counts
-   * and leaves the list (`ScoutGame.scoreConfirmed`).
+   * Says a game won by `ASK_MARGIN` runs or more really was played that way, so it leaves the list,
+   * and one won by `IMPLAUSIBLE_MARGIN` or more counts (`ScoutGame.scoreConfirmed`).
    */
   confirmScore: (game: HealthGame) => Promise<boolean>;
   /** Folds one club into another: at once on the live page, with Undo; asking first here. */
@@ -424,8 +429,8 @@ export function PoolHealthView({
   );
 
   /**
-   * Games won by `IMPLAUSIBLE_MARGIN` runs or more, the widest first: none of them counts, and
-   * each is here to be deleted or vouched for (`isImplausibleScore`).
+   * Games won by `ASK_MARGIN` runs or more, the widest first, each here to be deleted or vouched
+   * for (`isAskedScore`): from `IMPLAUSIBLE_MARGIN` none of them counts until it is.
    */
   const implausible = useMemo(
     () => summary.implausible.filter(({ game }) => !dealtIds?.has(game.id)),
@@ -490,7 +495,7 @@ export function PoolHealthView({
     });
   };
 
-  /** Throws out the games won by forty runs or more, these ones or all of them. */
+  /** Throws out the games won by `ASK_MARGIN` runs or more, these ones or all of them. */
   const dropImplausible = (ids: readonly string[]) => {
     if (ids.length === 0) return;
     enqueue(ids.length === 1 ? ids[0]! : "implausible", async () => {
@@ -499,7 +504,10 @@ export function PoolHealthView({
     });
   };
 
-  /** Counts a game won by forty runs or more after all, because the user says it was real. */
+  /**
+   * Takes the user's word that a game won by `ASK_MARGIN` runs or more was played that way: it
+   * leaves the list, and one won by `IMPLAUSIBLE_MARGIN` or more counts after all.
+   */
   const confirmScore = (game: HealthGame) =>
     enqueue(game.id, async () => {
       const on = latest.current;
@@ -781,15 +789,16 @@ export function PoolHealthView({
       {implausible.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
           <h3 className="text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Won by {IMPLAUSIBLE_MARGIN} runs or more
+            Won by {ASK_MARGIN} runs or more
           </h3>
           <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
             <strong>{count(implausible.length)}</strong>{" "}
-            {implausible.length === 1 ? "game has" : "games have"} one side winning by{" "}
-            {IMPLAUSIBLE_MARGIN} runs or more — {count(Math.round(implausible[0]!.margin))} at the
-            most. A margin like that is almost always a typo or a game that never happened, so none
-            of these counts toward a rating or a record. Delete the ones that are not real; if one
-            really was played that way, say so and it counts.
+            {implausible.length === 1 ? "game has" : "games have"} one side winning by {ASK_MARGIN}{" "}
+            runs or more — {count(Math.round(implausible[0]!.margin))} at the most. Delete the ones
+            that are not real; if one really was played that way, say so. One won by{" "}
+            {IMPLAUSIBLE_MARGIN} or more counts toward no rating or record until you do; one won by
+            less still counts while it waits. A club whose own schedule reports a game won by{" "}
+            {LOPSIDED_MARGIN} or more is taken off without asking (Removed for you).
           </p>
           <ul className="mt-2 space-y-1">
             {(allImplausible ? implausible : implausible.slice(0, 12)).map(({ game }) => {
@@ -872,12 +881,12 @@ export function PoolHealthView({
           </h3>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             The clubs whose own schedules filed the games above: first the ones posting wins by{" "}
-            {IMPLAUSIBLE_MARGIN} runs or more, then the ones scoring games on days that have not
-            happened. Deleting the rows while the club that files them is still in the pull list
-            only lasts until the next run. A club that is all impossible games is not a club:
-            deleting one takes its whole schedule with it and refuses its GameChanger id from then
-            on. A club you know is real can be taken off this list instead, for good; its impossible
-            games still count for nothing.
+            {ASK_MARGIN} runs or more, then the ones scoring games on days that have not happened.
+            Deleting the rows while the club that files them is still in the pull list only lasts
+            until the next run. A club that is all impossible games is not a club: deleting one
+            takes its whole schedule with it and refuses its GameChanger id from then on. A club you
+            know is real can be taken off this list instead, for good; its impossible games still
+            count for nothing.
           </p>
           <ul className="mt-2 space-y-1">
             {(allClubs ? unreal : unreal.slice(0, 12)).map((club) => (
@@ -900,7 +909,7 @@ export function PoolHealthView({
                 {club.implausible > 0 && (
                   <>
                     <span className={pill("red")}>
-                      {plural(club.implausible, "win")} by {IMPLAUSIBLE_MARGIN} or more
+                      {plural(club.implausible, "win")} by {ASK_MARGIN} or more
                     </span>{" "}
                   </>
                 )}
@@ -988,7 +997,7 @@ export function PoolHealthView({
             Clubs the nightly refresh took off every board as plainly made up, newest first: two
             wins by {ROUT_MARGIN} runs or more, or one by {ABSURD_MARGIN}, that the losers&apos; own
             schedules do not list; three results or more, half of them dated well ahead, that no
-            opponent lists; void, test or demo in the name; or a game won by {HUNDRED_MARGIN} or
+            opponent lists; void, test or demo in the name; or a game won by {LOPSIDED_MARGIN} or
             more that its own schedule reports. Nothing is deleted: each stays filed with its games
             and is pulled as before, and its games count for nothing. A club a League Standings team
             links stays on its boards, and is said to here. <strong>Put back on the boards</strong>{" "}

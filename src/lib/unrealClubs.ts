@@ -3,7 +3,7 @@ import type { GcImportState } from "./gameChangerImport";
 import {
   filedRowOf,
   filedTeamIds,
-  isImplausibleScore,
+  isAskedScore,
   ownPageFor,
   ratedMargin,
   unjoinedRow,
@@ -34,8 +34,9 @@ export type UnrealClub = {
   /** Played games dated after today. */
   ahead: number;
   /**
-   * Games its schedule filed that it won by `IMPLAUSIBLE_MARGIN` runs or more, and that nobody
-   * has said were played that way (`isImplausibleScore`): 9,999-0, 4,612-0, 529-2.
+   * Games its schedule filed that it won by `ASK_MARGIN` runs or more, and that nobody has said
+   * were played that way (`isAskedScore`): 9,999-0, 4,612-0, 529-2, and 35-0, which still counts
+   * while it is asked about. The field keeps its name, which a server's answer carries.
    */
   implausible: number;
   /** Played games in total, so the share can be seen. */
@@ -82,8 +83,8 @@ export const clubsByGcId = (teams: readonly ScoutTeam[]): Map<string, string> =>
   new Map(teams.flatMap((team) => (team.gcTeams ?? []).map((link) => [link.teamId, team.id])));
 
 /**
- * The clubs holding at least one result dated ahead or won by `IMPLAUSIBLE_MARGIN` runs or more,
- * worst first.
+ * The clubs holding at least one result dated ahead or won by `ASK_MARGIN` runs or more, worst
+ * first.
  *
  * The clubs whose schedules post scores like 9,999-0 come first, most such games first: the user
  * asked on 28 September 2026 for the clubs on the list of games won by more than thirty runs to
@@ -112,7 +113,7 @@ export const unrealClubs = (state: GcImportState, today: string): UnrealClub[] =
     const early = isDatedAhead(game, today);
     // Only the side that won it: a club whose own schedule records a rout against it posted a
     // loss, which is no sign it was invented, and saying it won by thirty would be untrue.
-    const margin = isImplausibleScore(game) ? (ratedMargin(game) ?? 0) : 0;
+    const margin = isAskedScore(game) ? (ratedMargin(game) ?? 0) : 0;
     const winner = margin > 0 ? game.teamAId : margin < 0 ? game.teamBId : undefined;
     if (!early && winner === undefined) return;
     filedBy(game, clubOfGcId).forEach((teamId) => {
