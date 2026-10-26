@@ -6,7 +6,12 @@ import { Suspense, useId, useState, type ComponentProps, type ReactNode } from "
 import { formatGameDate } from "../../lib/date";
 import { displayName } from "../../lib/format";
 import type { SeasonFinal } from "../../lib/seasonFinal";
-import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
+import {
+  confidenceTier,
+  SMALL_SAMPLE_RISK,
+  type buildPredictionEngine,
+  type LeaguePrediction,
+} from "../../lib/predictionEngine";
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
 import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFindings";
@@ -177,9 +182,11 @@ function PredictionCard({
           </div>
         )}
       </div>
-      {prediction.riskFactors.length > 0 && (
+      {/* The game's own risk alone: every close card said the same close-game line, and every
+          card led with the league's data warnings, which the Data Quality tab says once. */}
+      {prediction.riskFactors.includes(SMALL_SAMPLE_RISK) && (
         <p className="mt-3 text-sm font-bold text-amber-700 dark:text-amber-300">
-          Risk: {prediction.riskFactors[0]}
+          Risk: {SMALL_SAMPLE_RISK}
         </p>
       )}
     </article>
@@ -240,7 +247,12 @@ export function DashboardView({
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ["Games forecasted", String(engine.predictions.length)],
-          ["Avg confidence", avgConfidence ? `${avgConfidence}%` : "—"],
+          // A score of 100 and its tier, as the "Why" panel gives each game: as a percent beside
+          // "Prediction accuracy" it read as a chance.
+          [
+            "Confidence",
+            avgConfidence ? `${confidenceTier(avgConfidence)} (${avgConfidence} of 100)` : "—",
+          ],
           ["Top-rated team", engine.powerRatings[0]?.teamName ?? "—"],
           [
             "Prediction accuracy",

@@ -668,6 +668,8 @@ export default function App() {
   /** Only a "cut" league has a line to be inside or outside of. */
   const hasCutLine = postseasonFormat === "cut";
   const hasPostseason = postseasonFormat !== "none";
+  // How the table ranks, for the Standings tab's points and its tie notes.
+  const rankOptions = useMemo(() => rankOptionsFromSettings(settings), [settings]);
 
   /**
    * Effective cutoff driving the simulation and seeding (`effectiveGoldCutoff`): each format as
@@ -3755,6 +3757,7 @@ export default function App() {
                     <PowerRatingsView engine={predictionEngine} />
                   ) : activeView === "standings" ? (
                     <StandingsView
+                      rankOptions={rankOptions}
                       nationalRank={(teamId) => leagueClubRankFor(activeSeasonId, teamId)}
                       onScout={scoutClub}
                       goldCutoff={goldCutoff}

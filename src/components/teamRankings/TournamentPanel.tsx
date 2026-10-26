@@ -10,6 +10,7 @@ import {
 import { TeamSearchSelect, type TeamSearchOption } from "../TeamSearchSelect";
 import { formatRating } from "./RankingList";
 import { card } from "../../styles/tokens";
+import { nextWeekendOpponents } from "../../lib/nextWeekend";
 
 type TournamentPanelProps = {
   ageGroupId: string;
@@ -75,7 +76,8 @@ export function TournamentPanel({
 
   const add = (teamIds: string[]) =>
     setFieldIds((before) => [...before, ...teamIds.filter((id) => id && !before.includes(id))]);
-  const ourWeekend = [reportForId, ...upcomingRows.map((row) => row.opponentId)].filter((id) =>
+  // The next playing weekend's clubs, not every game left on the schedule (`nextWeekendOpponents`).
+  const ourWeekend = [reportForId, ...nextWeekendOpponents(upcomingRows)].filter((id) =>
     rowById.has(id)
   );
 

@@ -255,7 +255,12 @@ const byDayIn =
     return dayOf(a.date) - dayOf(b.date) || 0;
   };
 
-const confidenceTier = (score: number): ConfidenceTier =>
+/** The one risk that is a game's own: a side with few games behind its rating. */
+export const SMALL_SAMPLE_RISK = "Small sample size can make ratings unstable.";
+/** Said of every close game, which its win chance already says. */
+export const CLOSE_GAME_RISK = "Similar team ratings create a close-game risk.";
+
+export const confidenceTier = (score: number): ConfidenceTier =>
   score >= 82 ? "High" : score >= 66 ? "Strong" : score >= 46 ? "Moderate" : "Low";
 
 /**
@@ -584,8 +589,8 @@ export const buildPredictionEngine = (
         "Head-to-head results are included but capped so one game does not dominate."
       );
     const riskFactors = [...dataQuality.warnings];
-    if (knownGames < 3) riskFactors.push("Small sample size can make ratings unstable.");
-    if (Math.abs(margin) < 3) riskFactors.push("Similar team ratings create a close-game risk.");
+    if (knownGames < 3) riskFactors.push(SMALL_SAMPLE_RISK);
+    if (Math.abs(margin) < 3) riskFactors.push(CLOSE_GAME_RISK);
     // The rating gap told as its parts (`MarginParts`): each side's own results as the fit shrinks
     // them, and the rest of its rating, the allowance for the opponents it faced.
     const resultsOf = (id: string) => {
