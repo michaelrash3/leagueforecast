@@ -43,6 +43,11 @@ describe("parseScorePair", () => {
     expect(parseScorePair("W 6-5")).toEqual({ teamScore: 6, opponentScore: 5 });
     expect(parseScorePair("L 3-10")).toEqual({ teamScore: 3, opponentScore: 10 });
     expect(parseScorePair("T 4-4")).toEqual({ teamScore: 4, opponentScore: 4 });
+    // The result letter decides who won, whichever score is written first.
+    expect(parseScorePair("L 5-3")).toEqual({ teamScore: 3, opponentScore: 5 });
+    expect(parseScorePair("W 3-5")).toEqual({ teamScore: 5, opponentScore: 3 });
+    expect(parseScorePair("l 10-3")).toEqual({ teamScore: 3, opponentScore: 10 });
+    expect(parseScorePair("T 4-5")).toBeUndefined();
     expect(parseScorePair("6 – 5")).toEqual({ teamScore: 6, opponentScore: 5 });
   });
 
@@ -180,6 +185,18 @@ describe("parseScheduleText", () => {
     expect(games[0]?.teamB).toBe("Rockets, Red");
   });
 
+  it("keeps a blank first cell of a tab-separated row in its column", () => {
+    // A spreadsheet row with no date starts with a tab, which trimming the line took off, and
+    // every cell moved a column left: the opponent read as the date, the score as the opponent.
+    const { games } = parseScheduleText(
+      "Date\tOpponent\tUs\tThem\n2026-08-22\tVelocirabbits\t6\t5\n\tNV Stars\t2\t7\n\t\t\t"
+    );
+    expect(games).toEqual([
+      { teamB: "Velocirabbits", date: "2026-08-22", scoreA: 6, scoreB: 5 },
+      { teamB: "NV Stars", scoreA: 2, scoreB: 7 },
+    ]);
+  });
+
   it("reads tab-separated text, which is what a spreadsheet paste gives you", () => {
     const { games } = parseScheduleText(
       "Date\tOpponent\tUs\tThem\n2026-08-22\tVelocirabbits\t6\t5"
@@ -207,6 +224,18 @@ describe("parseScheduleText", () => {
       { teamB: "Velocirabbits 9U", date: "2026-08-22", scoreA: 6, scoreB: 5 },
       { teamB: "NV Stars 9u Scout", date: "2026-08-23", scoreA: 3, scoreB: 10 },
       { teamB: "Bourbon Bandits", date: "2026-09-05" },
+    ]);
+  });
+
+  it("reads a line's result letter, whichever score the site writes first", () => {
+    const { games } = parseScheduleText(
+      ["August 2026", "SAT 22   vs. Velocirabbits 9U   L 5-3", "SUN 23   @ NV Stars   W 2-7"].join(
+        "\n"
+      )
+    );
+    expect(games).toEqual([
+      { teamB: "Velocirabbits 9U", date: "2026-08-22", scoreA: 3, scoreB: 5 },
+      { teamB: "NV Stars", date: "2026-08-23", scoreA: 7, scoreB: 2 },
     ]);
   });
 
