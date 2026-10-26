@@ -783,8 +783,9 @@ proxy (`gcOrgSchedule.ts`, `StartFromGcOrg`):
   in it, and the first group is picked with all its teams ticked. Any can be unticked.
 - **Their schedules, one request for every ten teams.** Pulled through the proxy as Team Rankings
   pulls a team's (`fetchGcTeams`). The button says how many requests a pull makes. A team already
-  pulled is not asked for again when the picking changes, and a team GameChanger will not give is
-  named with why and left out. A group of more teams than a league has (`START_CLUBS_MAX`, 64), as
+  pulled is not asked for again when the picking changes, though a division is drafted from its own
+  teams' schedules alone, since another season's teams often share its names; and a team
+  GameChanger will not give is named with why and left out. A group of more teams than a league has (`START_CLUBS_MAX`, 64), as
   where the list gives no season or age and every team the organization has had is one group,
   starts with none ticked, and a pull of more is refused.
 - **The games between them.** Both teams' schedules list a league game, against the other by name

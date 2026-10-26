@@ -198,6 +198,44 @@ describe("a season from a GameChanger organization", () => {
     expect(asked.pulls).toHaveLength(1);
   });
 
+  it("drafts a division from its own teams' schedules, not every division pulled", async () => {
+    // Codex on #460: the same names in another season's division made this one's opponents unknown.
+    const user = userEvent.setup();
+    const both = [
+      { id: "FALLACES0001", name: "Placeholder Aces", age_group: "9U", season: "Fall 2026" },
+      { id: "FALLBEARS001", name: "Placeholder Bears", age_group: "9U", season: "Fall 2026" },
+      { id: "SPRGACES0001", name: "Placeholder Aces", age_group: "9U", season: "Spring 2026" },
+      { id: "SPRGBEARS001", name: "Placeholder Bears", age_group: "9U", season: "Spring 2026" },
+    ];
+    const games: Record<string, GcGame[]> = {
+      FALLACES0001: [game("Placeholder Bears", "2026-09-12", "home", [5, 3])],
+      FALLBEARS001: [game("Placeholder Aces", "2026-09-12", "away", [3, 5])],
+      SPRGACES0001: [game("Placeholder Bears", "2026-04-12", "home", [1, 2])],
+      SPRGBEARS001: [game("Placeholder Aces", "2026-04-12", "away", [2, 1])],
+    };
+    const { given, asked } = deps({ ok: true, raw: JSON.stringify(both) }, (id) => ({
+      ok: true,
+      schedule: {
+        profile: { id, name: both.find((one) => one.id === id)?.name ?? id, ageLevel: 9 },
+        games: games[id] ?? [],
+        fetchedAt: "2026-10-26T12:00:00Z",
+      },
+    }));
+    open(given);
+    await findTeams(user, ORG_ID);
+    const pull = () => user.click(screen.getByRole("button", { name: "Pull their schedules" }));
+    await pull();
+    expect(await screen.findByText(/^1 game between these teams/)).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: /Spring 2026/ }));
+    await pull();
+    expect(await screen.findByText(/^1 game between these teams/)).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: /Fall 2026/ }));
+    await pull();
+
+    expect(await screen.findByText(/^1 game between these teams/)).toBeInTheDocument();
+    expect(asked.pulls).toHaveLength(2);
+  });
+
   it("leaves out a team GameChanger would not give, and says why", async () => {
     const user = userEvent.setup();
     const { given } = deps(undefined, (id) =>

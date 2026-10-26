@@ -202,9 +202,13 @@ export function StartFromGcOrg({
     asked.current += 1;
     const mine = asked.current;
     const picking = selection.current;
+    // The division's own pulled teams, ticked or not, are what its opponents are told apart by and
+    // its tournament days read from; another division's, kept for going back to it, would make a
+    // name the two share nobody's (Codex on #460).
+    const division = new Set(group?.teams.map((team) => team.id));
     const draftOf = (all: ReadonlyMap<string, PulledOrgTeam>) => {
       const made = orgDraft(
-        [...all.values()],
+        [...all.values()].filter((team) => division.has(team.teamId)),
         picked.filter((id) => all.has(id))
       );
       setDraft(made);
