@@ -1,6 +1,11 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { READING_THE_COPY, STILL_READING_THE_COPY, useFullBackup } from "./useFullBackup";
+import {
+  LEAGUE_LIVE_RESTORE,
+  READING_THE_COPY,
+  STILL_READING_THE_COPY,
+  useFullBackup,
+} from "./useFullBackup";
 import * as backupLib from "../lib/backup";
 import * as cloudSession from "../lib/cloud/cloudSession";
 import * as copyBackupLib from "../lib/live/copyBackup";
@@ -63,7 +68,8 @@ describe("useFullBackup", () => {
   const setup = (
     confirmed: boolean,
     apply: { ok: boolean; failed: string[] },
-    rankingsLive = true
+    rankingsLive = true,
+    leagueLive = false
   ) => {
     const requestConfirmation = vi.fn().mockResolvedValue(confirmed);
     const showToast = vi.fn();
@@ -77,6 +83,7 @@ describe("useFullBackup", () => {
         liveSeason: live,
         seasonCount: 3,
         rankingsLive,
+        leagueLive,
         requestConfirmation,
         showToast,
         onRestored,
@@ -115,6 +122,18 @@ describe("useFullBackup", () => {
     const asked = requestConfirmation.mock.calls[0]?.[0];
     expect(asked.message).toContain("all 3 seasons");
     expect(asked.message).toContain("2 seasons, 40 games");
+  });
+
+  it("says, with League kept live, that the cloud's seasons are its own", async () => {
+    vi.spyOn(backupLib, "readFullBackup").mockReturnValue(fullBackup("replaced"));
+    const live = setup(true, { ok: true, failed: [] }, true, true);
+    await live.result.current.restoreFullBackup(fullBackup("incoming", 2));
+    expect(live.requestConfirmation.mock.calls[0]?.[0].message).toContain(LEAGUE_LIVE_RESTORE);
+    expect(LEAGUE_LIVE_RESTORE).toMatch(/deletes nothing from the cloud/);
+
+    const off = setup(true, { ok: true, failed: [] });
+    await off.result.current.restoreFullBackup(fullBackup("incoming", 2));
+    expect(off.requestConfirmation.mock.calls[0]?.[0].message).not.toContain(LEAGUE_LIVE_RESTORE);
   });
 
   it("does nothing at all when the restore is declined", async () => {

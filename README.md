@@ -7652,6 +7652,19 @@ switch is gone, and `lf_live_league_v1` is no longer read.
   one; a season here that held nothing takes the cloud's in whole and from then on
   carries its creation time (`adoptSeasonCreatedAt`), so the next visit knows it
   for the same season.
+- **A restore while live** (`applyFullBackup`) writes this browser's storage and
+  nothing in the cloud. Storage counts each time its seasons are replaced whole
+  (`leagueReplacements`), and the season the live store was watching is then
+  stale: what it held of that season, sent or not, is what the restore replaced,
+  so it is neither written back to storage nor sent. Before, switching to the
+  restore's own open season wrote the old one back over its restored copy, and a
+  season the restore put under the open id that the cloud knew as another was
+  sent over the cloud's. The open season is met afresh, from storage and its
+  kept base: what the restore changed is sent as this device's change since the
+  version last heard, a season made at another moment is kept apart, and every
+  other season goes the same way once it is next open here. A season the cloud
+  holds that the file leaves out stays there and comes back, since a restore
+  deletes nothing in the cloud; the restore's question says so.
 - **Undo** puts back only what no other device has changed since the step
   (`guardedUndo`): undoing a deleted game here does not take back a score
   entered there since.

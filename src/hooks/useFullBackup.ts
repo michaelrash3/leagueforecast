@@ -26,6 +26,11 @@ export type FullBackupOptions = {
    * of the copy's would miss what was done here meanwhile.
    */
   rankingsLive: boolean;
+  /**
+   * League Standings is kept live in the cloud (`useLiveLeague`), which a restore here writes
+   * nothing to: what it says before asking.
+   */
+  leagueLive?: boolean;
   requestConfirmation: (options: ConfirmState) => Promise<boolean>;
   showToast: (
     message: string,
@@ -53,6 +58,16 @@ export type FullBackupControls = {
   /** Asks, then replaces everything in this browser with what the file holds. */
   restoreFullBackup: (backup: FullBackup) => Promise<void>;
 };
+
+/**
+ * What a restore does to League Standings kept live (`leagueSync.ts`), said before it is asked
+ * for. A restore writes this browser's storage, nothing in the cloud: each season goes there the
+ * way any change made here does, once it is open, as what changed since the cloud's version this
+ * browser last heard; and the cloud's seasons are its own, so one the file leaves out is still
+ * there, and comes back.
+ */
+export const LEAGUE_LIVE_RESTORE =
+  "\n\nLeague Standings is kept in the cloud: each season the file holds goes there from this browser when it is next open here, and a season the cloud holds that the file leaves out comes back, since a restore deletes nothing from the cloud.";
 
 /** Said while the backup reads Team Rankings off the cloud's copy, which can take a while. */
 export const READING_THE_COPY =
@@ -94,6 +109,7 @@ export function useFullBackup({
   liveSeason,
   seasonCount,
   rankingsLive,
+  leagueLive = false,
   requestConfirmation,
   showToast,
   onRestored,
@@ -181,7 +197,7 @@ This replaces everything currently in this browser: all ${seasonCount} season${
               : "the Team Rankings pool, and your theme and mode"
         }. It cannot be undone — the toast afterwards offers a download of the ${
           inCloud ? "seasons and settings" : "data"
-        } being replaced.`,
+        } being replaced.${leagueLive ? LEAGUE_LIVE_RESTORE : ""}`,
         confirmLabel: "Restore everything",
       });
       if (!confirmed) return;

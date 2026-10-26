@@ -498,6 +498,16 @@ export const readSeasonSnapshot = (id: string): SeasonSnapshot | null => {
  * empty season list rather than leaving the app with no season to open. `renamed` names this
  * device's seasons that a cloud merge gave new ids (`leagueMerge.ts`), each now under its new id.
  */
+/** How many times the seasons have been replaced whole here this visit (`leagueReplacements`). */
+let replacements = 0;
+
+/**
+ * How many times `replaceLeagueSnapshot` has written the seasons whole this visit: a restore or the
+ * cloud copy's League taken in. League kept live reads it to know that the season it watches was
+ * replaced under it (`leagueSync.ts`), and that what it holds of that season is now no one's.
+ */
+export const leagueReplacements = (): number => replacements;
+
 export const replaceLeagueSnapshot = (
   snapshot: LeagueSnapshot,
   {
@@ -507,6 +517,8 @@ export const replaceLeagueSnapshot = (
 ): boolean => {
   ensureInitialized();
   if (!snapshot.seasons.length) return false;
+  // Counted before anything is written: a replacement that stops partway has still replaced some.
+  replacements += 1;
   // The cloud copy's own seasons arriving are no change made here, and owe it nothing.
   if (fromCloud) arriving += 1;
   try {

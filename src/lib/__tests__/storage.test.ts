@@ -16,6 +16,7 @@ import { seenOf } from "../seasonDigest";
 import {
   loadSettingsForSeason,
   readSeasonSnapshot,
+  leagueReplacements,
   replaceLeagueSnapshot,
   type SeasonSnapshot,
   addSeasons,
@@ -523,6 +524,22 @@ describe("what this device keeps of a season under its id", () => {
 
     expect(keptOnDevice(first.id)).toEqual(ALL);
     expect(keptOnDevice("season-7")).toEqual(NONE);
+  });
+
+  it("counts each time the seasons are replaced whole, which League kept live reads", () => {
+    // A restore, or the cloud copy's League taken in: what League kept live held of the season it
+    // watched is then what was replaced (`leagueSync.ts`).
+    const first = listSeasons()[0]!;
+    const before = leagueReplacements();
+    replaceLeagueSnapshot({ activeSeasonId: first.id, seasons: [readSeasonSnapshot(first.id)!] });
+    replaceLeagueSnapshot(
+      { activeSeasonId: first.id, seasons: [readSeasonSnapshot(first.id)!] },
+      { fromCloud: true }
+    );
+    expect(leagueReplacements()).toBe(before + 2);
+    // Nothing to replace with is no replacement.
+    expect(replaceLeagueSnapshot({ activeSeasonId: first.id, seasons: [] })).toBe(false);
+    expect(leagueReplacements()).toBe(before + 2);
   });
 
   it("keeps a season carried again its own, whatever else was made at the same moment", () => {

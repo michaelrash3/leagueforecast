@@ -2004,6 +2004,7 @@ export default function App() {
       ? { cloudSquadYear: scoutBridge.squadYear }
       : {}),
     rankingsLive,
+    leagueLive: leagueKeptLive,
     teams,
     matchups,
     logs,

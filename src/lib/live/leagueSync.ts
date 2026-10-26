@@ -117,6 +117,14 @@ export type LeagueSyncOptions = {
   idleMs?: number;
   /** How long after a failed write, or a listener that ended, to try again, doubling to a minute. */
   retryMs?: number;
+  /**
+   * How many times this device's League has been replaced whole in storage, by a restore or the
+   * cloud copy (`leagueReplacements`). A season watched since before the last one is stale: what
+   * it holds of the season, sent or not, is what the replacement replaced, and it is neither
+   * written to storage nor sent. The open season is then met afresh, from storage and its kept
+   * base, so a restore is what is written, as changes made here since the version last heard.
+   */
+  replaced?: () => number;
 };
 
 export type LeagueSync = {
@@ -165,6 +173,8 @@ type Watch = {
   listenFailures: number;
   ended: boolean;
   unwatch: () => void;
+  /** `replaced()` when the season was begun: another number now, and the watch is stale. */
+  replaced: number;
 };
 
 type Outcome =
@@ -226,6 +236,7 @@ export const startLeagueSync = ({
   now = () => new Date(),
   idleMs = 700,
   retryMs = 2_000,
+  replaced = () => 0,
 }: LeagueSyncOptions): LeagueSync => {
   let current: Watch | null = null;
   let stopped = false;
@@ -271,8 +282,12 @@ export const startLeagueSync = ({
     return changes.length === 0 ? watch.base : withChanges(watch.base, changes);
   };
 
+  /** Whether storage's League was replaced whole since `watch` began (`replaced`). */
+  const stale = (watch: Watch): boolean => replaced() !== watch.replaced;
+
   /** Writes the season to storage, then keeps what this device knows of its document. */
   const keep = (watch: Watch) => {
+    if (stale(watch)) return;
     const open = seasons.get();
     persist(
       watch.id,
@@ -315,8 +330,9 @@ export const startLeagueSync = ({
 
   const heard = (watch: Watch, remote: LeagueRemote, fromServer: boolean) => {
     // A season stopped for a reason stays stopped for the visit: nothing here says the reason
-    // has gone, and writing on would be the harm the stop was for.
-    if (watch.ended || stopped || watch.blocked) return;
+    // has gone, and writing on would be the harm the stop was for. A stale one is met afresh
+    // when the page opens the season storage now holds (`changed`).
+    if (watch.ended || stopped || watch.blocked || stale(watch)) return;
     if (!fromServer) {
       tell(watch, { kind: "offline" });
       return;
@@ -387,7 +403,7 @@ export const startLeagueSync = ({
 
   /** Sends what changed here, laid over the document as it then stands. */
   const flush = async (watch: Watch): Promise<void> => {
-    if (!watch.met || watch.blocked) return;
+    if (!watch.met || watch.blocked || stale(watch)) return;
     const local = watch.local;
     if (!storableSeason(local)) {
       block(watch, "unstorable");
@@ -402,6 +418,8 @@ export const startLeagueSync = ({
     watch.flushing = true;
     try {
       const outcome = await store.update<Outcome>(watch.docId, (remote) => {
+        // Replaced meanwhile: what this would send is what the replacement replaced.
+        if (stale(watch)) return { write: null, result: { kind: "none" } };
         const savedAt = now().toISOString();
         if (!remote.exists) {
           // Made here first. A season this device has met before is not made again: that would
@@ -517,6 +535,7 @@ export const startLeagueSync = ({
       listenFailures: 0,
       ended: false,
       unwatch: () => {},
+      replaced: replaced(),
     };
     watch.local = localOf(watch, open);
     current = watch;
@@ -529,13 +548,20 @@ export const startLeagueSync = ({
     listen(watch);
   };
 
-  /** Stops watching a season, writing it to storage and sending what it still owes. */
+  /**
+   * Stops watching a season, writing it to storage and sending what it still owes. A stale one
+   * owes nothing: storage holds what replaced it, which writing it back would quietly undo.
+   */
   const end = (watch: Watch) => {
     watch.unwatch();
     if (watch.timer) clearTimeout(watch.timer);
     if (watch.relisten) clearTimeout(watch.relisten);
     watch.timer = null;
     watch.relisten = null;
+    if (stale(watch)) {
+      watch.ended = true;
+      return;
+    }
     persist(watch.id, partsOf(watch.local));
     void flush(watch).finally(() => {
       watch.ended = true;
@@ -545,7 +571,7 @@ export const startLeagueSync = ({
   const changed = () => {
     if (stopped) return;
     const open = seasons.get();
-    if (!current || open.id !== current.id) {
+    if (!current || open.id !== current.id || stale(current)) {
       if (current) end(current);
       begin(open);
       return;

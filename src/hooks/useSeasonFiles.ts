@@ -60,6 +60,8 @@ export type SeasonFilesOptions = {
    * off they are this device's own pool's, which it edits and keeps in step.
    */
   rankingsLive: boolean;
+  /** League Standings is kept live in the cloud, which a full restore says before it asks. */
+  leagueLive?: boolean;
   teams: TeamBase[];
   matchups: Matchup[];
   logs: Record<string, GameLog>;
@@ -128,6 +130,7 @@ export function useSeasonFiles({
   activeSeasonId,
   cloudSquadYear,
   rankingsLive,
+  leagueLive = false,
   teams,
   matchups,
   logs,
@@ -417,6 +420,7 @@ This will replace the current season data and save an undo snapshot.`,
     liveSeason,
     seasonCount,
     rankingsLive,
+    leagueLive,
     requestConfirmation,
     showToast,
     onRestored: afterFullRestore,
