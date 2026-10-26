@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { GcTeamSchedule } from "../gameChangerApi";
 import { createGcImporter, importGcSchedule, type GcImportState } from "../gameChangerImport";
 import { answerableByOldest, answerableToday } from "../agelessQueue";
@@ -181,6 +181,28 @@ describe("a team below the opponents' bar", () => {
       wildcats.state
     );
     expect(filedAs(state, "gcOTTERS0000")).toEqual({ level: 9, ageFrom: "tentative" });
+  });
+
+  it("is filed on its own page when another's is made in the same millisecond", () => {
+    // CI on #461, 26 October 2026: the Wildcats' 12U page and the Otters' 9U page were made in
+    // one millisecond under one random number, so under one id, and the Otters read as 12U. Pages
+    // are made under their age and year's id now (`pageIdFor`).
+    vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const wildcats = pull(ageless([against("Hawks 12U")], { avatarKey: "av-wildcats" }));
+      const { state } = pull(
+        ageless([against("Cats", { opponentAvatarKey: "av-wildcats" }), against("Comets 9U")], {
+          id: "gcOTTERS0000",
+          name: "Otters",
+        }),
+        wildcats.state
+      );
+      expect(state.ageGroups.map((group) => group.id)).toEqual(["ag_12u_2027", "ag_9u_2027"]);
+      expect(filedAs(state, "gcOTTERS0000")).toEqual({ level: 9, ageFrom: "tentative" });
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("is no evidence of another team's age through the games it played either", () => {

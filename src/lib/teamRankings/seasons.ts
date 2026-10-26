@@ -306,9 +306,47 @@ export const previousSeason = (year: number): { year: number; segment: SeasonSeg
   segment: "spring",
 });
 
-/** Ids are minted here so every caller that creates an age group produces the same shape. */
-export const createAgeGroupId = (): string =>
-  `ag_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+/** Age groups minted by `createAgeGroupId` in this running app, so no two in a millisecond match. */
+let minted = 0;
+
+/**
+ * An age group id that says nothing of its page: the fallback where a page's level and year are
+ * not known where the id is minted (`pageIdFor` is the id a page is made under). The millisecond
+ * and a random number alone were the same for two pages made in one millisecond about once in a
+ * thousand, and a pull makes a page for each age it files: on 26 October 2026 CI on #461 filed a
+ * 9U club on the 12U page that way. A count of the ids this app has minted keeps them apart.
+ */
+export const createAgeGroupId = (): string => {
+  minted += 1;
+  return `ag_${Date.now()}_${minted}_${Math.floor(Math.random() * 1000)}`;
+};
+
+/**
+ * The id a page for one age in one squad year is made under, `ag_9u_2027`: what the page is,
+ * rather than when it was made. The owner, 26 October 2026, of the ids the site uses: they should
+ * be the same as GameChanger's, which names teams and no pages, so a page is named by its age and
+ * year, as the fixtures always named theirs. Two pulls, or two devices, that make the same page
+ * make it under the same id; pages made before keep the ids they were made under.
+ */
+export const pageIdFor = (level: number, year: number): string => `ag_${level}u_${year}`;
+
+/**
+ * The id to make a page for `level` in `year` under among `ageGroups`: `pageIdFor`'s, unless a
+ * page that is not for that age and year already has it, when it is `fallback`. Only a restore of
+ * pages someone renamed could do that, and a page made under another's id would refile both.
+ */
+export const newPageId = (
+  level: number,
+  year: number,
+  ageGroups: readonly AgeGroup[],
+  fallback: string
+): string => {
+  const id = pageIdFor(level, year);
+  const holder = ageGroups.find((group) => group.id === id);
+  return holder && (ageGroupLevel(holder) !== level || ageGroupYear(holder) !== year)
+    ? fallback
+    : id;
+};
 
 /**
  * Puts one League Standings season at an age, making the age group if it is not there yet.
@@ -319,7 +357,8 @@ export const createAgeGroupId = (): string =>
  *
  * A season comes off whatever group held it before, because one league season is played at one
  * age: leaving it on both would count its games twice, once on each table. `null` takes it off
- * Team Rankings altogether. `pageId` is the id a group that has to be made gets.
+ * Team Rankings altogether. A group that has to be made is made under its age and year's id
+ * (`newPageId`), or `pageId` where another page has that.
  */
 export const seasonAtAge = (
   seasonId: string,
@@ -345,7 +384,7 @@ export const seasonAtAge = (
   }
 
   const group: AgeGroup = {
-    id: pageId,
+    id: newPageId(season.ageLevel, season.year, without, pageId),
     name: formatAgeGroupName(season.ageLevel, season.year),
     ageLevel: season.ageLevel,
     year: season.year,

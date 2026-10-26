@@ -478,6 +478,18 @@ a link to a page that no longer exists leaves the view where it is and the URL i
 corrected rather than obeyed. `?view=` carries the mode too, so a link opens in
 Team Rankings instead of wherever that browser happened to be last.
 
+**A page's id is its age and year**, `ag_9u_2027` (`pageIdFor`), wherever a page
+is made: a GameChanger pull filing a club at an age with no page yet, a club's
+age set or given back, a league season put on a page. Two pulls or two devices
+that make the same page make it under the same id. Pages made before keep the
+ids they were made under, which said when they were made: the millisecond and a
+random number below a thousand, which two pages made in one millisecond shared
+about once in a thousand (CI on #461 filed a 9U club on a 12U page that way). Such
+an id is now only the fallback where a page of another age already holds the
+age-and-year id, and it carries a count that keeps two apart. The owner's
+choice of 26 October 2026, until clubs are keyed by their GameChanger ids, which
+name teams, one per season, and no pages.
+
 **A default age.** With no page in the link, Team Rankings opens on the age chosen
 under the age tabs ("Open on 9U by default"), on this device. It is kept as the
 group grows up rather than as one page: the user's rule was "If I have 9u as my

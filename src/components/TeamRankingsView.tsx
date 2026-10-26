@@ -627,10 +627,12 @@ export function TeamRankingsView({
       return;
     }
     pickPage(group.id);
+    // Made by this, where no page had its id before: a page is made under its age and year's id
+    // (`newPageId`), which is not the one the command carried.
     showToast(
-      group.id === pageId
-        ? `${group.name} created, with your league season on it.`
-        : `League season added to ${group.name}.`,
+      ageGroups.some((page) => page.id === group.id)
+        ? `League season added to ${group.name}.`
+        : `${group.name} created, with your league season on it.`,
       { tone: "success" }
     );
   };

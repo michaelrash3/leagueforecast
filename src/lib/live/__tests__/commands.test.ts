@@ -679,19 +679,37 @@ describe("the clean-up commands", () => {
     expect(apart.parts.marks.size).toBe(2);
   });
 
-  it("puts a league season on the page of its age, making the page under the id it is given", () => {
+  it("puts a league season on the page of its age, making the page under its age and year's id", () => {
     const pool = memory(POOL());
     const made = { kind: "season.assign", seasonId: "s1", pageId: "ag_new" } as const;
     pool.run({ ...made, season: { ageLevel: 11, year: 2027 } });
-    expect(pool.parts.groups.map((group) => group.id)).toContain("ag_new");
-    expect(pool.parts.groups.find((group) => group.id === "ag_new")?.seasonIds).toEqual(["s1"]);
+    expect(pool.parts.groups.map((group) => group.id)).toContain("ag_11u_2027");
+    expect(pool.parts.groups.find((group) => group.id === "ag_11u_2027")?.seasonIds).toEqual([
+      "s1",
+    ]);
     // Moved to a page that is there, it leaves the one it was on.
     pool.run({ ...made, pageId: "ag_unused", season: { ageLevel: 10, year: 2027 } });
-    expect(pool.parts.groups.find((group) => group.id === "ag_new")?.seasonIds).toEqual([]);
+    expect(pool.parts.groups.find((group) => group.id === "ag_11u_2027")?.seasonIds).toEqual([]);
     expect(pool.parts.groups[1]?.seasonIds).toEqual(["s1"]);
     pool.run({ ...made, season: null });
     expect(pool.parts.groups[1]?.seasonIds).toEqual([]);
-    // A page to make under an id a page has already is refused.
+    // Where a page of another age has that id, under the id the command carries; and where a page
+    // has that one too, refused.
+    pool.parts.groups.push({ id: "ag_12u_2027", name: "Renamed", ageLevel: 9, seasonIds: [] });
+    pool.run({ ...made, season: { ageLevel: 12, year: 2027 } });
+    expect(pool.parts.groups.find((group) => group.id === "ag_new")?.name).toBe("12U 2027");
+    expect(
+      applyCommand(pool.read, {
+        ...made,
+        seasonId: "s2",
+        pageId: "ag_old",
+        season: { ageLevel: 12, year: 2027 },
+      })
+    ).toMatchObject({ ok: true });
+    pool.parts.groups.splice(
+      pool.parts.groups.findIndex((group) => group.id === "ag_new"),
+      1
+    );
     expect(
       applyCommand(pool.read, { ...made, pageId: "ag_old", season: { ageLevel: 12, year: 2027 } })
     ).toEqual({ ok: false, why: "refused" });
@@ -709,14 +727,17 @@ describe("the clean-up commands", () => {
       at: "2026-09-30T12:00:00.000Z",
       pageId: "ag_11",
     });
-    expect(pool.parts.groups.find((group) => group.id === "ag_11")?.name).toBe("11U 2027");
+    // A new page, under its age and year's id rather than the one the command carries.
+    expect(pool.parts.groups.find((group) => group.id === "ag_11u_2027")?.name).toBe("11U 2027");
     expect(pool.parts.teams[0]?.gcTeams?.[0]).toMatchObject({
-      ageGroupId: "ag_11",
+      ageGroupId: "ag_11u_2027",
       ageLevel: 11,
       ageFrom: "you",
     });
     // Its own schedule's row moves with it; the other clubs' rows stay where they were filed.
-    expect(pool.parts.games.get(2027)?.find((one) => one.id === "mine")?.ageGroupId).toBe("ag_11");
+    expect(pool.parts.games.get(2027)?.find((one) => one.id === "mine")?.ageGroupId).toBe(
+      "ag_11u_2027"
+    );
     expect(pool.parts.games.get(2027)?.find((one) => one.id === "g1")?.ageGroupId).toBe(
       "ag_10u_2027"
     );
@@ -761,12 +782,12 @@ describe("the clean-up commands", () => {
       ageGroupId: "ag_10u_2027",
       ageLevel: 10,
     });
-    // The second level back needed a page, made under the second id the command names.
+    // The second level back needed a page, made under its age and year's id.
     expect(links.find((link) => link.teamId === "gcB3")).toMatchObject({
-      ageGroupId: "ag_back-1",
+      ageGroupId: "ag_11u_2027",
       ageLevel: 11,
     });
-    expect(pool.parts.groups.find((group) => group.id === "ag_back-1")?.name).toBe("11U 2027");
+    expect(pool.parts.groups.find((group) => group.id === "ag_11u_2027")?.name).toBe("11U 2027");
     pool.run(cleared.inverse);
     expect(stored(pool.parts)).toEqual(held);
   });
@@ -813,12 +834,17 @@ describe("the clean-up commands", () => {
   });
 
   it("refuses an age it does not rank, a club with no link that year, and a taken page id", () => {
-    const pool = memory(POOL());
+    const parts = POOL();
+    // A page renamed to another age under the id an 11U 2027 page is made under.
+    parts.groups.push({ id: "ag_11u_2027", name: "Renamed", ageLevel: 9, seasonIds: [] });
+    const pool = memory(parts);
     const age = (teamId: string, level: number, pageId = "ag_new") =>
       applyCommand(pool.read, { kind: "club.age", year: 2027, teamId, level, at: "t", pageId });
     expect(age("A", 3)).toEqual({ ok: false, why: "refused" });
     expect(age("C", 11)).toEqual({ ok: false, why: "refused" });
+    // Its age and year's id taken by that page, and the command's by another.
     expect(age("A", 11, "ag_old")).toEqual({ ok: false, why: "refused" });
+    expect(age("A", 11).ok).toBe(true);
     expect(age("S-NONE", 11)).toEqual({ ok: false, why: "missing" });
     // A page that is there already needs no id, so a taken one does not matter.
     expect(age("A", 10, "ag_old").ok).toBe(true);
@@ -901,11 +927,13 @@ describe("the clean-up commands", () => {
 
   it("refuses to take back an age onto a page it would make under an id a page has", () => {
     const parts = POOL();
-    // gcB3 was filed at 11U on the 10U page, so going back needs an 11U page.
+    // gcB3 was filed at 11U on the 10U page, so going back needs an 11U page, whose age and
+    // year's id a page renamed to another age holds.
     parts.teams[1] = {
       ...parts.teams[1]!,
       gcTeams: [{ teamId: "gcB3", name: "Club B 11U", ageGroupId: "ag_10u_2027", ageLevel: 11 }],
     };
+    parts.groups.push({ id: "ag_11u_2027", name: "Renamed", ageLevel: 9, seasonIds: [] });
     const pool = memory(parts);
     pool.run({ kind: "club.age", year: 2027, teamId: "B", level: 12, at: "t", pageId: "ag_12" });
     expect(
