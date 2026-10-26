@@ -22,6 +22,7 @@ import {
   pairedImprovement,
   type PairedReading,
 } from "../src/lib/scoutBacktest.ts";
+import { byRating } from "../src/lib/powerRating.ts";
 import { dayInstant } from "../src/lib/ratingRecency.ts";
 import { resultsAwareRestart, type ResultsAwareLevel } from "../src/lib/resultsAwareLevel.ts";
 import {
@@ -31,6 +32,7 @@ import {
   predictMatchup,
   RATING_CAP,
   ratedMargin,
+  ratingSpread,
   rowsOfYearFit,
   scoutFitRanks,
   scoutRatingGames,
@@ -70,6 +72,34 @@ export const LEVEL_VARIANTS: readonly LevelVariant[] = [
   },
 ];
 
+/**
+ * A "proven" order of a board: each club's shown rating less `k` standard errors of its league's
+ * level, which its league's games outside itself are all that pin (`ratingSpread` on the league's
+ * outside games, with `prior` games' worth of the counted level). Ranking only: no rating any page
+ * shows or any matchup reads changes, only the order clubs are listed and numbered in.
+ */
+export type ProvenOrder = { key: string; why: string; k: number; prior: number };
+
+/**
+ * The board's own order, then the amounts the owner's "proven" ranking (26 October 2026) could
+ * take off a weakly connected league's clubs. With a league's level known to about the pool's
+ * residual over the root of its outside games and `prior` more, one standard error takes about
+ * twice as much off an island's clubs as off those of a league with six outside games, and about
+ * three times what it takes off a league with thirty.
+ */
+export const PROVEN_ORDERS: readonly ProvenOrder[] = [
+  { key: "shown", why: "the board's order today, by the rating it shows", k: 0, prior: 2 },
+  {
+    key: "p0.5",
+    why: "half a standard error of the league's level, two outside games' worth of prior",
+    k: 0.5,
+    prior: 2,
+  },
+  { key: "p1", why: "one standard error, the same prior", k: 1, prior: 2 },
+  { key: "p2", why: "two standard errors, the same prior", k: 2, prior: 2 },
+  { key: "p1-L5", why: "one standard error, five outside games' worth of prior", k: 1, prior: 5 },
+];
+
 /** The cut days of the measurement the counted level was shipped on, and its first scored day. */
 export const DEFAULT_CUTS = ["2026-09-01", "2026-09-08", "2026-09-15"];
 export const DEFAULT_SCORE_FROM = "2026-09-23";
@@ -99,6 +129,8 @@ export type CommunitySweepInput = {
   /** The last day scored, or every day to `today` when left out. */
   scoreTo?: string;
   variants?: readonly LevelVariant[];
+  /** The orders measured on the control's fits, the board's own first. */
+  provenOrders?: readonly ProvenOrder[];
   club?: ClubQuery;
   /** The clock fits are timed by, in milliseconds. */
   now?: () => number;
@@ -162,6 +194,36 @@ export type VariantResult = {
   club: ClubReading[];
 };
 
+/**
+ * An order against the board's own on one segment of the later decided games: how often the club
+ * it lists higher lost (a tie in the order counts half), and how much less often than under the
+ * board's order, game by game (`pairedImprovement`), positive is better.
+ */
+export type ProvenSegment = {
+  key: SegmentKey;
+  games: number;
+  days: number;
+  misordered: number;
+  shownMisordered: number;
+  gain: PairedReading | null;
+  measurable: boolean;
+};
+
+/** Where the club asked about is listed on the board of the day under one order. */
+export type ProvenClub = { teamId: string; name: string; rank: number; stateRank?: number };
+
+export type ProvenResult = {
+  key: string;
+  why: string;
+  segments: ProvenSegment[];
+  /** The national top 25 of every ranked page, against the board's own order. */
+  topPlaces: { kept: number; of: number; wellKept: number; wellOf: number };
+  /** Top-25 places held by a club whose league has ten or fewer outside games. */
+  weakTop: number;
+  stateOnes: { changed: number; of: number; wellChanged: number; wellOf: number; islands: number };
+  club: ProvenClub[];
+};
+
 export type CutSummary = {
   cut: string;
   trained: number;
@@ -209,6 +271,10 @@ export type CommunitySweep = {
   bar: number;
   clubAsked: boolean;
   league?: LeagueDetail;
+  /** The proven orders, the board's own first, read on the control's fits. */
+  proven: ProvenResult[];
+  /** The bar a proven order's gain must clear against the board's own, in standard errors. */
+  provenBar: number;
 };
 
 const pad = (text: string, width: number) => text.padEnd(width);
@@ -264,6 +330,28 @@ const predicted = (fit: ScoutYearFit, game: ScoutGame, ageGap: number) => {
   const level = fit.homeLevels.get(game.teamAId) ?? fit.homeLevels.get(game.teamBId);
   // The age gap in the margin, as the fit reads a game across levels, and in the chance alike.
   return { margin: a - b + gapRuns, win: predictMatchup(a + gapRuns, b, level).winProbA };
+};
+
+/** A club's league's outside games on a fit, 0 for a club no rated game names. */
+const outsideOn = (fit: ScoutYearFit, id: string): number => {
+  const community = fit.communities.of.get(id);
+  return community === undefined ? 0 : (fit.communities.outside[community] ?? 0);
+};
+
+/** What an order takes off a club's shown rating on a fit: `k` spreads of its league's level. */
+const provenCut = (fit: ScoutYearFit, order: ProvenOrder, id: string): number =>
+  order.k === 0
+    ? 0
+    : order.k * ratingSpread(outsideOn(fit, id), fit.adjusted.residualScale, order.prior);
+
+/** Whether an order lists a game's loser higher: 1 if so, 0 if not, a half for a tie. */
+const misorderOf = (fit: ScoutYearFit, order: ProvenOrder, game: ScoutGame, ageGap: number) => {
+  const value = (id: string) =>
+    fit.confident(fit.adjusted.ratings.get(id) ?? 0, fit.effective.get(id) ?? 0) -
+    provenCut(fit, order, id);
+  const lead = value(game.teamAId) - value(game.teamBId) + ageGap * fit.adjusted.ageGapRuns;
+  const margin = ratedMargin(game) ?? 0;
+  return lead === 0 ? 0.5 : lead > 0 === margin > 0 ? 0 : 1;
 };
 
 /** Mean of a typed array, or 0 for none. */
@@ -352,6 +440,14 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
   );
   const cutSeconds = variants.map(() => [] as number[]);
   const cutSummaries: CutSummary[] = [];
+  // Per proven order, per segment: each decided game's misorder, its sides, its days.
+  const orders = input.provenOrders ?? PROVEN_ORDERS;
+  const orderPiles = orders.map(
+    () =>
+      new Map<SegmentKey, { misorders: number[]; sides: number[]; days: Set<number> }>(
+        SEGMENTS.map(({ key }) => [key, { misorders: [], sides: [], days: new Set<number>() }])
+      )
+  );
 
   for (const cut of cuts) {
     const trained = scoutRatingGames(pageId, teams, games, ageGroups, undefined, cut);
@@ -408,6 +504,19 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
             pile.brier.push((guess.win - (margin > 0 ? 1 : 0)) ** 2);
             pile.decidedSides.push(pair[0], pair[1]);
           }
+        }
+      }
+    });
+    // The orders are read on the control's fit alone: they change no rating, only the order.
+    orders.forEach((order, at) => {
+      for (const { game, ageGap, day, segments, sides: pair } of scored) {
+        if ((ratedMargin(game) ?? 0) === 0) continue;
+        const misorder = misorderOf(control, order, game, ageGap);
+        for (const key of segments) {
+          const pile = orderPiles[at]!.get(key)!;
+          pile.misorders.push(misorder);
+          pile.sides.push(pair[0], pair[1]);
+          pile.days.add(day);
         }
       }
     });
@@ -634,6 +743,120 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
     };
   });
 
+  // Each page of the control's board in each proven order, its rows as they are, only re-sorted.
+  const reordered = orders.map(
+    (order) =>
+      new Map(
+        yearPages.map((page) => {
+          const rows = controlBoard.rows.get(page.id) ?? [];
+          const listed = rows
+            .map((row) => ({
+              ...row,
+              rating: row.rating - provenCut(controlBoard.fit, order, row.teamId),
+            }))
+            .sort(byRating);
+          return [page.id, listed];
+        })
+      )
+  );
+  const shownRows = reordered[0]!;
+  const proven: ProvenResult[] = orders.map((order, at) => {
+    const segments = SEGMENTS.map(({ key }): ProvenSegment => {
+      const mine = orderPiles[at]!.get(key)!;
+      const theirs = orderPiles[0]!.get(key)!;
+      const ours = Float32Array.from(mine.misorders);
+      const reference = Float32Array.from(theirs.misorders);
+      return {
+        key,
+        games: ours.length,
+        days: mine.days.size,
+        misordered: meanOf(ours),
+        shownMisordered: meanOf(reference),
+        gain:
+          at === 0 || ours.length < 2
+            ? null
+            : pairedImprovement(
+                { errors: ours },
+                { errors: reference, sides: Uint32Array.from(mine.sides) },
+                false
+              ),
+        measurable: ours.length >= MIN_PAIRED_GAMES && mine.days.size >= MIN_SCORED_DAYS,
+      };
+    });
+    const pages = reordered[at]!;
+    let kept = 0;
+    let of = 0;
+    let wellKept = 0;
+    let wellOf = 0;
+    let weakTop = 0;
+    let changed = 0;
+    let ones = 0;
+    let wellChanged = 0;
+    let wellOnes = 0;
+    let islands = 0;
+    yearPages.forEach((page) => {
+      const theirs = shownRows.get(page.id) ?? [];
+      const ours = pages.get(page.id) ?? [];
+      const ourTop = ours.slice(0, 25);
+      const ourTopIds = new Set(ourTop.map((row) => row.teamId));
+      ourTop.forEach((row) => {
+        if (controlOutside(row.teamId) <= WEAKLY_CONNECTED) weakTop += 1;
+      });
+      theirs.slice(0, 25).forEach((row) => {
+        of += 1;
+        if (ourTopIds.has(row.teamId)) kept += 1;
+        if (!isWell(row.teamId)) return;
+        wellOf += 1;
+        if (ourTopIds.has(row.teamId)) wellKept += 1;
+      });
+      const ourOnes = stateOnesOf(ours, stateOf);
+      stateOnesOf(theirs, stateOf).forEach((teamId, state) => {
+        ones += 1;
+        const moved = ourOnes.get(state) !== teamId;
+        if (moved) changed += 1;
+        if (isWell(teamId)) {
+          wellOnes += 1;
+          if (moved) wellChanged += 1;
+        }
+      });
+      ourOnes.forEach((teamId) => {
+        if (controlOutside(teamId) <= 0) islands += 1;
+      });
+    });
+    const club = wanted.flatMap((team): ProvenClub[] => {
+      for (const page of yearPages) {
+        if (query?.page !== undefined && pageNameOf(page) !== query.page) continue;
+        const rows = pages.get(page.id) ?? [];
+        const index = rows.findIndex((row) => row.teamId === team.id);
+        if (index < 0) continue;
+        const state = team.state;
+        const stateRank = state
+          ? rows
+              .filter((row) => stateOf(row.teamId) === state)
+              .findIndex((row) => row.teamId === team.id) + 1
+          : 0;
+        return [
+          {
+            teamId: team.id,
+            name: team.name,
+            rank: index + 1,
+            ...(stateRank > 0 ? { stateRank } : {}),
+          },
+        ];
+      }
+      return [];
+    });
+    return {
+      key: order.key,
+      why: order.why,
+      segments,
+      topPlaces: { kept, of, wellKept, wellOf },
+      weakTop,
+      stateOnes: { changed, of: ones, wellChanged, wellOf: wellOnes, islands },
+      club,
+    };
+  });
+
   const overall = results[0]?.segments.find((segment) => segment.key === "all");
   return {
     year,
@@ -645,6 +868,8 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
     measurable: overall?.measurable ?? false,
     bar: clearlyBetterBar(Math.max(1, variants.length - 1)),
     clubAsked: query !== undefined,
+    proven,
+    provenBar: clearlyBetterBar(Math.max(1, orders.length - 1)),
     ...(() => {
       const first = results[0]?.club[0];
       const detail = first ? leagueDetailOf(first.teamId) : undefined;
@@ -807,5 +1032,86 @@ export const describeCommunitySweep = (
       )
     );
   }
+  describeProven(sweep, say, named);
   return { lines, named };
+};
+
+/** The proven orders' part of the report, public lines through `say`, named ones into `named`. */
+const describeProven = (sweep: CommunitySweep, say: (line?: string) => void, named: string[]) => {
+  const [shown, ...others] = sweep.proven;
+  if (!shown) return;
+  say();
+  say('A "proven" order, ranking only: no rating or prediction changes, only the order.');
+  sweep.proven.forEach((order) => say(`  ${pad(order.key, 8)} ${order.why}`));
+  const overall = shown.segments.find((segment) => segment.key === "all");
+  say();
+  if (!overall?.measurable) {
+    say(
+      `Not measurable: ${overall?.games ?? 0} decided game(s) on ${overall?.days ?? 0} day(s)` +
+        ` over the cuts, short of ${MIN_PAIRED_GAMES} games on ${MIN_SCORED_DAYS} days.`
+    );
+  } else {
+    say(
+      "How often the club listed higher lost a later decided game (a tie in the order counts" +
+        " half): the board's own order's share, then each order's gain on the same games," +
+        " positive = fewer, ± a standard error that reads a club's games together. Named better" +
+        ` only past ${sweep.provenBar.toFixed(2)} standard errors (${others.length} orders against` +
+        " the board's)."
+    );
+    SEGMENTS.forEach(({ key, label }) => {
+      const reference = shown.segments.find((segment) => segment.key === key)!;
+      say();
+      say(`  ${label}: ${reference.games} decided games on ${reference.days} days`);
+      if (!reference.measurable) {
+        say("    not measurable: too few games or days to rank anything here.");
+        return;
+      }
+      say(`    ${pad(shown.key, 9)} misordered ${(reference.misordered * 100).toFixed(2)}%`);
+      others.forEach((order) => {
+        const reading = order.segments.find((segment) => segment.key === key)!;
+        const better = isClearlyBetter(reading.gain, others.length);
+        const worse =
+          reading.gain !== null && -reading.gain.by > sweep.provenBar * reading.gain.standardError;
+        say(
+          `    ${pad(order.key, 9)} misordered ${(reading.misordered * 100).toFixed(2)}%,` +
+            ` gain ${gainWords(reading.gain, 4)}` +
+            (better ? "  clearly better" : worse ? "  clearly worse" : "")
+        );
+      });
+    });
+  }
+  say();
+  say("On the board of the day, against the board's own order:");
+  say(
+    `  ${pad("order", 9)}${padLeft("top-25 kept", 14)}${padLeft("well-conn.", 13)}` +
+      `${padLeft("weak in top 25", 16)}${padLeft("state #1s moved", 17)}` +
+      `${padLeft("well-conn. #1s", 16)}${padLeft("island #1s", 12)}`
+  );
+  sweep.proven.forEach((order) => {
+    const { topPlaces: top, stateOnes: ones } = order;
+    say(
+      `  ${pad(order.key, 9)}${padLeft(`${top.kept}/${top.of}`, 14)}` +
+        `${padLeft(`${top.wellKept}/${top.wellOf}`, 13)}${padLeft(String(order.weakTop), 16)}` +
+        `${padLeft(`${ones.changed}/${ones.of}`, 17)}` +
+        `${padLeft(`${ones.wellChanged}/${ones.wellOf}`, 16)}${padLeft(String(ones.islands), 12)}`
+    );
+  });
+  say(
+    `  "Weak" is a league with ${WEAKLY_CONNECTED} or fewer outside games. The owner allowed` +
+      ` ${OWNER_STATE_ONES} well-connected state #1s to move when the resolution was chosen.`
+  );
+  if (!sweep.clubAsked) return;
+  const found = shown.club;
+  if (found.length === 0) return;
+  say();
+  say("The club asked about, where each order lists it:");
+  found.forEach((_, index) => {
+    sweep.proven.forEach((order) => {
+      const club = order.club[index];
+      if (!club) return;
+      const words = `${club.stateRank ? `#${club.stateRank} in its state, ` : ""}#${club.rank} on its page`;
+      say(`  match ${index + 1}, ${pad(order.key, 8)} ${words}`);
+      named.push(`  ${club.name}, ${pad(order.key, 8)} ${words}`);
+    });
+  });
 };

@@ -12,7 +12,9 @@
  * Options: --year=2027 (the squad year compared), --cuts=2026-09-01,2026-09-08,2026-09-15,
  * --score-from=2026-09-23, --score-to=DAY, --today=DAY (the board's day; the members' day by
  * default), --club=Longhorns --city=Edgewood --state=KY --club-page="9U 2027" (the club printed
- * under each variant), --clubs=N (the synthetic pool's clubs a page), --no-league (League Standings
+ * under each variant), --level-variants=k20,k5 (the level variants fitted beside the control, every
+ * one when left out; the control alone with --level-variants=control, which is all the proven orders
+ * read), --clubs=N (the synthetic pool's clubs a page), --no-league (League Standings
  * not read from the cloud), --skip-levels or --skip-removals (one section only), --public (numbers
  * only), --seal=FILE (the named lines, sealed to the key's own public key, or with
  * --seal-to-key=PEM to that public key), and --open=FILE (unseal one, with
@@ -83,6 +85,7 @@ import {
   DEFAULT_CUTS,
   DEFAULT_SCORE_FROM,
   describeCommunitySweep,
+  LEVEL_VARIANTS,
   runCommunitySweep,
 } from "./communitySweep.ts";
 import { describeRemovalDiagnosis, runRemovalDiagnosis } from "./removalDiagnosis.ts";
@@ -406,6 +409,11 @@ const main = async (): Promise<void> => {
         const poolIds = rankingPoolGroupIds(page.id, source.ageGroups);
         const pool = asWorkerSees(known.teams, gamesOnPages(known.games, poolIds));
         say(`\n${"=".repeat(78)}\nWhere a league's rating starts\n${"=".repeat(78)}`);
+        // The control always, first: every other variant and each proven order is read against it.
+        const variantKeys = flag("level-variants")?.split(",");
+        const chosen = LEVEL_VARIANTS.filter(
+          (variant, at) => at === 0 || (variantKeys ?? []).includes(variant.key)
+        );
         const sweep = runCommunitySweep({
           ageGroups: source.ageGroups,
           teams: pool.teams,
@@ -421,6 +429,7 @@ const main = async (): Promise<void> => {
             state: flag("state") || LONGHORNS.state,
             page: flag("club-page") || "9U 2027",
           },
+          ...(variantKeys ? { variants: chosen } : {}),
           now: () => performance.now(),
         });
         const report = describeCommunitySweep(sweep);

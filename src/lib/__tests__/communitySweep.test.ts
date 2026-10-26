@@ -7,6 +7,7 @@ import {
 import {
   describeCommunitySweep,
   LEVEL_VARIANTS,
+  PROVEN_ORDERS,
   runCommunitySweep,
 } from "../../../scripts/communitySweep";
 import { describeRemovalDiagnosis, runRemovalDiagnosis } from "../../../scripts/removalDiagnosis";
@@ -73,8 +74,48 @@ describe("the league-level comparison", () => {
     const text = lines.join("\n");
     expect(text).not.toMatch(/Longhorns|Edgewood|LH-|CL-/);
     expect(text).toContain("The club asked about (1 match(es)");
-    expect(named).toHaveLength(LEVEL_VARIANTS.length);
+    expect(named.filter((line) => line.includes("Longhorns (Edgewood, KY;"))).toHaveLength(
+      LEVEL_VARIANTS.length
+    );
     expect(named[0]).toContain("Longhorns (Edgewood, KY; 10U 2027)");
+  });
+
+  it("reads the proven orders on the same decided games, and moves only the order", () => {
+    expect(sweep.proven.map((order) => order.key)).toEqual(PROVEN_ORDERS.map((order) => order.key));
+    const decided = sweep.proven.map(
+      (order) => order.segments.find((segment) => segment.key === "all")!.games
+    );
+    expect(new Set(decided).size).toBe(1);
+    const all = sweep.variants[0]!.segments.find((segment) => segment.key === "all")!;
+    expect(decided[0]).toBe(all.decided);
+    const [shown, ...others] = sweep.proven;
+    // The board's own order is the reference, and is the board itself.
+    expect(shown!.segments.every((segment) => segment.gain === null)).toBe(true);
+    expect(shown!.topPlaces).toMatchObject({ kept: 25, of: 25 });
+    expect(shown!.stateOnes.changed).toBe(0);
+    expect(shown!.club[0]).toMatchObject({
+      rank: sweep.variants[0]!.club[0]!.rank,
+      stateRank: sweep.variants[0]!.club[0]!.stateRank,
+    });
+    expect(others.every((order) => order.segments[0]!.gain !== null)).toBe(true);
+    // Taking more off a closed league lists its unbeaten club no higher.
+    const placed = (key: string) =>
+      sweep.proven.find((order) => order.key === key)!.club[0]!.stateRank!;
+    expect(placed("p0.5")).toBeGreaterThanOrEqual(placed("shown"));
+    expect(placed("p1")).toBeGreaterThanOrEqual(placed("p0.5"));
+    expect(placed("p2")).toBeGreaterThan(placed("shown"));
+  });
+
+  it("says the proven orders in numbers only, and names the club in the others", () => {
+    const { lines, named } = describeCommunitySweep(sweep);
+    const text = lines.join("\n");
+    expect(text).toContain('A "proven" order, ranking only');
+    expect(text).toMatch(/p1 +misordered \d+\.\d\d%, gain [+−]/);
+    expect(text).toContain("The club asked about, where each order lists it:");
+    expect(text).not.toMatch(/Longhorns|Edgewood|LH-|CL-/);
+    expect(named.filter((line) => /Longhorns, (shown|p)/.test(line))).toHaveLength(
+      PROVEN_ORDERS.length
+    );
   });
 
   it("says not measurable, and ranks nothing, when the later games are too few", () => {
