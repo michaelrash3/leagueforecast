@@ -248,6 +248,36 @@ describe("when there is nothing to show", () => {
   });
 });
 
+describe("pasting the league's schedule", () => {
+  /** Stands in for App's panel: what it was opened with, and its Close. */
+  const panel = (text: string, close: () => void) => (
+    <button type="button" onClick={close}>
+      The paste panel{text}
+    </button>
+  );
+
+  it("is offered to a season with no games, and opens and closes", async () => {
+    const user = userEvent.setup();
+    renderGamesView({ teams, scoreboardGames: [], matchups: [], schedulePaste: panel });
+
+    await user.click(screen.getByRole("button", { name: "Paste the league's schedule" }));
+    // Opened empty, to paste into; the offer gives way to the panel while it is open.
+    await user.click(screen.getByRole("button", { name: "The paste panel" }));
+    expect(screen.queryByRole("button", { name: "The paste panel" })).toBeNull();
+    // Closed, focus is back on the offer it was on, not at the top of the page.
+    expect(screen.getByRole("button", { name: "Paste the league's schedule" })).toHaveFocus();
+  });
+
+  it("is not offered when a filter hides every game of a season that has some", () => {
+    // "No games yet." shows here too, and reading a schedule into a season with games is no part
+    // of what this offers.
+    renderGamesView({ teams, scoreboardGames: [], matchups: [open], schedulePaste: panel });
+
+    expect(screen.getByText("No games yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Paste the league's schedule" })).toBeNull();
+  });
+});
+
 describe("what a game card can do to the schedule", () => {
   it("hands the swap and the delete back with the game they were pressed on", async () => {
     const user = userEvent.setup();

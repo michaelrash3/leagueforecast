@@ -99,6 +99,7 @@ export const renderGamesView = (over: GamesViewOverrides = {}): GamesHarness => 
       closeScoreFill={over.closeScoreFill ?? vi.fn()}
       applyScoreFill={over.applyScoreFill ?? vi.fn()}
       seasonLabel={over.seasonLabel ?? "Test Season"}
+      {...(over.schedulePaste ? { schedulePaste: over.schedulePaste } : {})}
     />
   );
 

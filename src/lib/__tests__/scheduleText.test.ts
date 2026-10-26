@@ -345,3 +345,132 @@ describe("state columns", () => {
     });
   });
 });
+
+/*
+ * Pinned before the league paste (`leagueScheduleText.ts`) began reading with this module's own
+ * pieces — the cell splitter, the header reader, the month words — which were exported for it
+ * unchanged. Every output below is what these pastes gave before that, quirks included: the
+ * weekday in front of a full date that leaves it undated, "W 4-2" in a column with a partner left
+ * unread, and a positional row that reads a score as a name. Fixing any of them is a change of its
+ * own, made on purpose, not something sharing the pieces may do on the way past.
+ */
+describe("parseScheduleText, pinned before its pieces were shared", () => {
+  const today = "2026-08-30";
+
+  it("reads a headed game list, with home and away kept, to the field", () => {
+    expect(
+      parseScheduleText(
+        [
+          "Date,Home Team,Home Team Score,Away Team,Away Team Score,Home State",
+          "2026-04-12,Falcons,6,Wolves,5,oh",
+          '4/19/2026,"Comets, Blue",,Rockets,',
+          "4/26,Falcons,0,Comets,0",
+        ].join("\n"),
+        today
+      )
+    ).toEqual({
+      games: [
+        {
+          teamA: "Falcons",
+          teamB: "Wolves",
+          date: "2026-04-12",
+          stateA: "OH",
+          scoreA: 6,
+          scoreB: 5,
+        },
+        { teamA: "Comets, Blue", teamB: "Rockets", date: "2026-04-19" },
+        { teamA: "Falcons", teamB: "Comets" },
+      ],
+      skipped: [],
+    });
+  });
+
+  it("reads a tab-separated table with a Visitor column", () => {
+    expect(
+      parseScheduleText(
+        [
+          "Date\tTime\tVisitor\tHome\tField",
+          "4/12/2027\t9:00 AM\tFalcons\tWolves\tField 1",
+          "Sat 4/19/2027\t11:00 AM\tComets\tRockets\t",
+        ].join("\n"),
+        today
+      )
+    ).toEqual({
+      games: [
+        { teamA: "Wolves", teamB: "Falcons", date: "2027-04-12" },
+        { teamA: "Rockets", teamB: "Comets" },
+      ],
+      skipped: [],
+    });
+  });
+
+  it("reads schedule lines under month headings, and skips what it cannot", () => {
+    expect(
+      parseScheduleText(
+        [
+          "August 2026",
+          "SAT 22 vs. Velocirabbits 9U W 6-5 Final",
+          "SUN 23 @ NV Stars L 3-10",
+          "Apr 31 vs. Ghosts",
+          "TBD",
+          "September 2026",
+          "5 at Bourbon Bandits 0-0",
+          "August 22, 2026 vs. Rockets W 6-5",
+        ].join("\n"),
+        today
+      )
+    ).toEqual({
+      games: [
+        { teamB: "Velocirabbits 9U", date: "2026-08-22", scoreA: 6, scoreB: 5 },
+        { teamB: "NV Stars", date: "2026-08-23", scoreA: 3, scoreB: 10 },
+        { teamB: "Bourbon Bandits", date: "2026-09-05" },
+        { teamB: "Rockets", date: "2026-08-22", scoreA: 6, scoreB: 5 },
+      ],
+      skipped: ["Apr 31 vs. Ghosts", "TBD"],
+    });
+  });
+
+  it("reads a schedule with a Team column onto each row", () => {
+    expect(
+      parseScheduleText(
+        [
+          "Team,Date,Opponent,Us,Them,State",
+          "Falcons,2026-08-22,Wolves,6,5,KY",
+          "Comets,2026-08-23,vs. Rockets,,,",
+          "Falcons,8/30/2026,@ Rockets,W 4-2,,",
+        ].join("\n"),
+        today
+      )
+    ).toEqual({
+      games: [
+        {
+          teamA: "Falcons",
+          teamB: "Wolves",
+          date: "2026-08-22",
+          stateB: "KY",
+          scoreA: 6,
+          scoreB: 5,
+        },
+        { teamA: "Comets", teamB: "Rockets", date: "2026-08-23" },
+        { teamA: "Falcons", teamB: "Rockets", date: "2026-08-30" },
+      ],
+      skipped: [],
+    });
+  });
+
+  it("reads a headerless table by position, from its first row", () => {
+    expect(
+      parseScheduleText(
+        ["8/22/2026, Velocirabbits, 6, 5", "Rockets, 3, 4", "9/1/2026, NV Stars"].join("\n"),
+        today
+      )
+    ).toEqual({
+      games: [
+        { teamB: "Velocirabbits", date: "2026-08-22", scoreA: 6, scoreB: 5 },
+        { teamB: "3" },
+        { teamB: "NV Stars", date: "2026-09-01" },
+      ],
+      skipped: [],
+    });
+  });
+});

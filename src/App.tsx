@@ -61,6 +61,8 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
   compareDrawerView,
   dashboardView,
+  emptyStateView,
+  schedulePasteView,
   forecastView,
   LIKELY_NEXT,
   playoffMachineView,
@@ -77,6 +79,7 @@ import {
   teamDrawerView,
 } from "./components/league/leagueViews";
 import type { FillAdditions, LeagueFillPlan, RecordedRuns } from "./lib/leagueScoreFill";
+import type { PastedSeason } from "./lib/leaguePaste";
 import {
   loadAgeGroups,
   loadScoutGamesForSeason,
@@ -180,6 +183,7 @@ import {
   applyResult,
   attachAdjustedRatings,
   calculateTeams,
+  effectiveGoldCutoff,
   getMathGoldStatus,
   getRemainingCounts,
   isSeedingLocked,
@@ -209,7 +213,6 @@ import {
   saveTeams,
 } from "./lib/storage";
 import {
-  DEFAULT_GOLD_CUTOFF,
   DEFAULT_SETTINGS,
   SIM_ITERATIONS,
   TREND_ITERATIONS,
@@ -234,7 +237,6 @@ import { buildTeamTrendSummary } from "./lib/teamTrend";
 import { blankLog, clamp, isFinal, swappedLog } from "./lib/util";
 import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
-import { EmptyState } from "./components/league/EmptyState";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 import {
   formatGoldPct as formatGoldPctValue,
@@ -347,6 +349,7 @@ const SeasonManager = seasonManagerView.View;
 const ScoutLinkPanel = scoutLinkView.View;
 const TeamDrawer = teamDrawerView.View;
 const CompareDrawer = compareDrawerView.View;
+const EmptyState = emptyStateView.View;
 
 // ---------- Main app ----------
 
@@ -366,6 +369,11 @@ const loadScoreFill = () => import("./lib/leagueScoreFill");
 type ScoreFillCode = Awaited<ReturnType<typeof loadScoreFill>>;
 /** Said when Fill scores' code cannot be fetched, as on a device gone offline before it was. */
 const SCORE_FILL_UNLOADED = "Fill scores could not be opened. Try again once connected.";
+/**
+ * Reading a league site's pasted schedule into a season with no games, and its review: fetched
+ * only once asked for, since the first download has no room for them (`bundleBudget.mjs`).
+ */
+const LeagueSchedulePaste = schedulePasteView.View;
 const StartFromClubs = lazy(() =>
   import("./components/league/StartFromClubs").then((module) => ({
     default: module.StartFromClubs,
@@ -655,23 +663,11 @@ export default function App() {
   const hasPostseason = postseasonFormat !== "none";
 
   /**
-   * Effective cutoff driving the simulation and seeding.
-   *
-   * The model is written around "how many teams qualify", so rather than
-   * special-casing it everywhere, each format is expressed as a number: a cut
-   * league uses its setting, an all-in league qualifies everyone, and a league
-   * with no postseason qualifies nobody. Displays that only make sense with a
-   * real cut line are gated on `hasCutLine` instead.
+   * Effective cutoff driving the simulation and seeding (`effectiveGoldCutoff`): each format as
+   * the number of teams that qualify. Displays that only make sense with a real cut line are gated
+   * on `hasCutLine` instead.
    */
-  const goldCutoff = hasCutLine
-    ? clamp(
-        Math.round(settings.goldCutoff || DEFAULT_GOLD_CUTOFF),
-        1,
-        Math.max(1, teams.length || DEFAULT_GOLD_CUTOFF)
-      )
-    : postseasonFormat === "all"
-      ? Math.max(1, teams.length)
-      : 0;
+  const goldCutoff = effectiveGoldCutoff(settings, teams.length);
 
   // ---------- Persisted state ----------
 
@@ -2669,6 +2665,46 @@ export default function App() {
     );
   };
 
+  /*
+   * A league site's schedule, pasted into a season with no games yet and looked over in its panel.
+   * Refused while the season may not be written, and when it has changed since the panel last drew
+   * it (a game or a team arrived, or another season opened, whose teams are another list), since
+   * what was looked over was the season as it was; the panel says so. Nothing is replaced, so
+   * nothing is asked: the teams, games and scores go in as one change to the season, which is one
+   * save and one step to undo.
+   */
+  const pasteSchedule = (made: PastedSeason): boolean => {
+    const now = seasonStore.get().season;
+    if (seasonStore.locked() || now.teams !== made.base || now.matchups.length) return false;
+    captureUndo("Paste the league's schedule");
+    seasonStore.setSeason({
+      ...now,
+      teams: made.teams,
+      matchups: made.matchups,
+      logs: { ...now.logs, ...made.logs },
+    });
+    // As the other ways to start a season do: a team filter kept from another season would hide
+    // games just added, under a toast saying they were.
+    setLastImpact(null);
+    closeTeamData();
+    setScoreboardTeamFilter("ALL");
+    setActiveView("games");
+    showToast(made.said, { tone: "undo", actionLabel: "Undo", onAction: restoreUndo });
+    return true;
+  };
+  const schedulePaste = (text: string, close: () => void) => (
+    <Suspense fallback={null}>
+      <LeagueSchedulePaste
+        text={text}
+        teams={teams}
+        settings={settings}
+        squadYear={scoutBridge.squadYear}
+        onApply={pasteSchedule}
+        onClose={close}
+      />
+    </Suspense>
+  );
+
   const downloadRoundRobinCSV = () => {
     const built = builtFromList();
     if (!built) return;
@@ -3590,7 +3626,13 @@ export default function App() {
               <ErrorBoundary
                 key={activeView}
                 area={VIEW_LABELS[activeView]}
-                onReset={() => resetView(activeView)}
+                onReset={() => {
+                  resetView(activeView);
+                  // The empty season's start screen and the schedule paste are drawn here too, and a
+                  // load either failed is forgotten the same way, or Try again would only repeat it.
+                  emptyStateView.reset();
+                  schedulePasteView.reset();
+                }}
               >
                 <Suspense fallback={<LoadingPanel area={VIEW_LABELS[activeView]} />}>
                   {teams.length === 0 ? (
@@ -3603,6 +3645,7 @@ export default function App() {
                       teams={teams}
                       loadDemoSeason={loadDemoSeason}
                       openTour={() => setShowTour(true)}
+                      schedulePaste={schedulePaste}
                       startFromClubs={(close) => (
                         <Suspense fallback={<LoadingPanel area="Team Rankings clubs" />}>
                           <StartFromClubs
@@ -3903,6 +3946,7 @@ export default function App() {
                       closeScoreFill={() => setScoreFillPlan(null)}
                       applyScoreFill={applyScoreFill}
                       seasonLabel={settings.seasonLabel}
+                      schedulePaste={schedulePaste}
                     />
                   )}
                 </Suspense>

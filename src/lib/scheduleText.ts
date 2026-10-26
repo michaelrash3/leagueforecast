@@ -18,7 +18,7 @@ const MAX_NAME_LENGTH = 80;
 const clampText = (value: unknown, max: number): string =>
   typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
 
-const clampScheduleName = (value: unknown): string => clampText(value, MAX_NAME_LENGTH);
+export const clampScheduleName = (value: unknown): string => clampText(value, MAX_NAME_LENGTH);
 
 /** A score is only kept when it is a whole, non-negative, plausible number of runs. */
 const clampScheduleScore = (value: unknown): number | undefined => {
@@ -86,9 +86,9 @@ const MONTHS: Record<string, number> = {
 const WEEKDAY = /^(?:mon|tue|tues|wed|weds|thu|thur|thurs|fri|sat|sun)[a-z]*\.?$/i;
 
 /** `August 2026`, `Aug 2026` — a section header that dates the bare day numbers under it. */
-const MONTH_YEAR = /^([a-z]{3,9})\.?\s+(\d{4})$/i;
+export const MONTH_YEAR = /^([a-z]{3,9})\.?\s+(\d{4})$/i;
 
-const monthOf = (word: string): number | undefined =>
+export const monthOf = (word: string): number | undefined =>
   MONTHS[word.slice(0, 4).toLowerCase()] ?? MONTHS[word.slice(0, 3).toLowerCase()];
 
 const iso = (year: number, month: number, day: number): string | undefined => {
@@ -194,7 +194,7 @@ const splitOpponent = (raw: string): { opponent: string; isHome?: boolean } => {
 };
 
 /** A minimal CSV cell reader: enough for quoted names with commas, which is why quotes exist. */
-const splitCells = (line: string, delimiter: string): string[] => {
+export const splitCells = (line: string, delimiter: string): string[] => {
   const cells: string[] = [];
   let current = "";
   let quoted = false;
@@ -282,7 +282,7 @@ const matchColumns = <T extends Record<string, readonly string[]>>(
   return { map, matched };
 };
 
-const readHeader = (cells: string[]): ColumnMap | null => {
+export const readHeader = (cells: string[]): ColumnMap | null => {
   // Matchup wins when both sides are named: "Home Team"/"Away Team" is unambiguous, while a lone
   // "Home" column in a schedule means home-or-away.
   const matchup = matchColumns(cells, MATCHUP_HEADERS);
@@ -307,7 +307,7 @@ const positionalMap = (cells: string[]): ColumnMap => {
   return { kind: "schedule", date: 0, opponent: 1 };
 };
 
-const cellAt = (cells: string[], index: number | undefined): string =>
+export const cellAt = (cells: string[], index: number | undefined): string =>
   index === undefined ? "" : (cells[index] ?? "");
 
 /** Both sides named outright: nothing is relative, so there is nothing to resolve. */
@@ -390,7 +390,7 @@ const rowFromCells = (
 };
 
 /** Trailing status words these sites print after a result: `W 6-5 Final`, `L 3-10 F/6`. */
-const STATUS_SUFFIX = /\s+(?:final|f\/\d+|complete|completed|forfeit(?:ed)?|postponed)\s*$/i;
+export const STATUS_SUFFIX = /\s+(?:final|f\/\d+|complete|completed|forfeit(?:ed)?|postponed)\s*$/i;
 
 /**
  * True when a row read as a table clearly swallowed prose it should not have: its opponent still

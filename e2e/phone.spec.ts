@@ -89,6 +89,46 @@ test("on a phone every bracket score box sits on screen and the title odds read 
 });
 
 /*
+ * A league site's schedule read into an empty season, looked over on a phone. Its review was a
+ * six-column table inside the New Season Builder's card, and at 390px each game's Swap, the only
+ * way to put right a row whose home side was guessed, sat at x 328 to 386 against a scroller that
+ * ended at 328: off screen, behind a sideways swipe nothing pointed to. On a phone each game is now
+ * a small block, its sides one under the other and its score and Swap beside them.
+ */
+test("on a phone every game's tick box and Swap in a pasted schedule's review sit on screen", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page
+    .getByLabel("Team list")
+    .fill(
+      [
+        "9/12 Falcons @ Wolves 5-6",
+        "9/19 Comets vs Rockets",
+        "9/26 South Lexington Red Wolves 10U @ North Oldham Thunderbolts Baseball",
+      ].join("\n")
+    );
+  await page.getByRole("button", { name: "Read as a schedule" }).click();
+  const review = page.getByRole("region", { name: "Paste the league's schedule" });
+  await expect(review.getByRole("button", { name: /^Swap home and away/ })).toHaveCount(3);
+
+  const controls = await review.evaluate((section) => {
+    const scroller = section.querySelector(".overflow-x-auto")!.getBoundingClientRect();
+    return [...section.querySelectorAll("tbody input, tbody button")].map((control) => {
+      const box = control.getBoundingClientRect();
+      return {
+        inside: box.left >= scroller.left - 0.5 && box.right <= scroller.right + 0.5,
+        onScreen: box.left >= 0 && box.right <= window.innerWidth + 0.5,
+      };
+    });
+  });
+  // Three games, a tick box and a Swap each.
+  expect(controls).toHaveLength(6);
+  expect(controls.filter((control) => !control.inside || !control.onScreen)).toHaveLength(0);
+});
+
+/*
  * The header on a phone. The theme toggle sat at the end of the controls, and fell to a row of its
  * own under the season picker whenever the season's name was long — the demo's is — and on Team
  * Rankings always, pushing the page 54px down the first screen: measured from the title, the demo's
@@ -226,4 +266,56 @@ test.describe("the League tab bar", () => {
     await expect(page.getByRole("tablist", { name: "Main views" }).getByRole("tab")).toHaveCount(8);
     await expect(page.getByRole("button", { name: /^More/ })).toHaveCount(0);
   });
+});
+
+/*
+ * Seasons at a glance on a phone. Each group is headed by its seasons' name with the year taken
+ * out, in capitals, and a league named in one long word had a heading that would not break: at
+ * 390px "NorthernKentuckyBaseballAssociationCoachPitch 2026" gave a heading 447px wide in a 316px
+ * card, reaching x 484. The heading now breaks inside the card, as each season's own name in its
+ * row already did. What is measured is the glance: with a name this long the header's season
+ * picker, as wide as its longest name, still reaches x 470, which is the header's and not this.
+ */
+test("on a phone the seasons at a glance stay within the screen, however long a league's name", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await openView(page, "Settings");
+  await page.getByRole("button", { name: "Load Demo" }).click();
+  const confirm = page.getByRole("button", { name: "Load demo" });
+  if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
+  // The demo opens on its Standings; the Seasons card is back in Settings.
+  await openView(page, "Settings");
+
+  const long = "NorthernKentuckyBaseballAssociationCoachPitch";
+  await page.getByLabel("New season name").fill(`${long} 2026`);
+  await page.getByRole("button", { name: "New Season" }).click();
+  await page.getByRole("button", { name: "Seasons at a glance" }).click();
+  const glance = page.getByRole("region", { name: "Seasons at a glance" });
+  const heading = glance.getByRole("heading", { name: long });
+  await expect(heading).toBeVisible();
+  await expect(glance.getByRole("listitem", { name: `${long} 2026` })).toBeVisible();
+
+  // The heading's words inside its own box, and nothing in the glance past either edge.
+  expect(await heading.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(
+    0
+  );
+  /*
+   * An element's words can run past its box, so each reaches as far as the wider of the two. The
+   * screen's width is given rather than read: on a phone a page wider than the screen widens
+   * `innerWidth` with it, and the header's picker makes this one wider.
+   */
+  const outside = await glance.evaluate(
+    (region, width) =>
+      [region, ...region.querySelectorAll("*")]
+        .map((node) => {
+          const box = node.getBoundingClientRect();
+          return { left: box.left, right: box.left + Math.max(box.width, node.scrollWidth) };
+        })
+        .filter(({ left, right }) => left < -0.5 || right > width + 0.5)
+        .map(({ right }) => Math.round(right)),
+    390
+  );
+  expect(outside).toEqual([]);
 });

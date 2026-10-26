@@ -1,9 +1,24 @@
 /**
  * Switching between saved seasons, and making, copying or deleting one.
  */
-import { useState } from "react";
+import { Suspense, useId, useState } from "react";
 import type { SeasonMeta } from "../../lib/storage";
 import { card } from "../../styles/tokens";
+import { ErrorBoundary } from "../ErrorBoundary";
+import { LoadingPanel } from "../LoadingPanel";
+import { viewChunk } from "./leagueViews";
+
+/**
+ * Every season at a glance, fetched the first time it is opened rather than with the Settings tab:
+ * most visits to Settings never open it, and it reads every season stored here when it is drawn.
+ * Its own boundary forgets a failed download, so Try again fetches afresh. While it downloads it
+ * says so, as the other panels a button opens do: on one bar the button would otherwise say the
+ * panel is open over nothing, and a second tap would close it.
+ */
+const glanceView = viewChunk(
+  () => import("./SeasonsAtAGlance").then((module) => module.SeasonsAtAGlance),
+  "SeasonsAtAGlance"
+);
 
 export function SeasonManager({
   seasons,
@@ -21,6 +36,8 @@ export function SeasonManager({
   onDelete: (id: string) => void;
 }) {
   const [newName, setNewName] = useState("");
+  const [glanceOpen, setGlanceOpen] = useState(false);
+  const glanceId = useId();
   const chip =
     "rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-black text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800";
   const createNew = () => {
@@ -109,6 +126,27 @@ export function SeasonManager({
           );
         })}
       </ul>
+
+      <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-700">
+        <button
+          type="button"
+          className={chip}
+          aria-expanded={glanceOpen}
+          aria-controls={glanceId}
+          onClick={() => setGlanceOpen((open) => !open)}
+        >
+          Seasons at a glance
+        </button>
+        <div id={glanceId} className={glanceOpen ? "mt-3" : ""}>
+          {glanceOpen && (
+            <ErrorBoundary area="Seasons at a glance" onReset={glanceView.reset}>
+              <Suspense fallback={<LoadingPanel area="the seasons at a glance" />}>
+                <glanceView.View seasons={seasons} activeSeasonId={activeSeasonId} />
+              </Suspense>
+            </ErrorBoundary>
+          )}
+        </div>
+      </div>
     </section>
   );
 }

@@ -8,6 +8,7 @@
  */
 import React, {
   lazy,
+  type ReactNode,
   startTransition,
   Suspense,
   useCallback,
@@ -308,6 +309,7 @@ export function GamesView({
   closeScoreFill,
   applyScoreFill,
   seasonLabel,
+  schedulePaste,
 }: {
   teams: TeamBase[];
   matchups: Matchup[];
@@ -358,6 +360,13 @@ export function GamesView({
   closeScoreFill: () => void;
   applyScoreFill: (matchupIds: string[], otherVersion: string[], additions?: FillAdditions) => void;
   seasonLabel: string;
+  /**
+   * The league site's schedule pasted in and looked over (`LeagueSchedulePaste`), with what closes
+   * it: offered only while the season has no games at all, since nothing it reads is matched
+   * against games already there. "No games yet." also shows when a filter hides every game, which
+   * is no reason to offer it.
+   */
+  schedulePaste?: (text: string, close: () => void) => ReactNode;
 }) {
   const dateId = useId();
   const awayId = useId();
@@ -371,6 +380,14 @@ export function GamesView({
    * a two-day tournament kept Saturday all of Sunday.
    */
   const [todayKey, setTodayKey] = useState("");
+  /*
+   * The paste panel: never opened, open, or closed again. The offer gives way to the panel while it
+   * is open, so once the panel closes the offer is drawn afresh and takes focus, where the keyboard
+   * was, rather than leaving it at the top of the page; once games have gone in there is no offer
+   * to go back to, and focus stays where the save left it.
+   */
+  const [pasting, setPasting] = useState<"never" | "open" | "closed">("never");
+  const pasteOffered = _matchups.length === 0 && schedulePaste !== undefined;
 
   const handleToggleFinal = useCallback(
     (gameId: string) => {
@@ -601,8 +618,24 @@ export function GamesView({
       {visibleGames.length === 0 && tournamentGames.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           {seasonGamesFinalized ? "No games match this filter." : "No games yet."}
+          {pasteOffered && pasting !== "open" && (
+            <EditLock>
+              <p className="mt-3 font-semibold">
+                <button
+                  type="button"
+                  autoFocus={pasting === "closed"}
+                  onClick={() => setPasting("open")}
+                  className="text-blue-600 hover:underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline dark:text-blue-400"
+                >
+                  Paste the league&apos;s schedule
+                </button>{" "}
+                from its website, a spreadsheet or a CSV, and look it over before it is added.
+              </p>
+            </EditLock>
+          )}
         </div>
       ) : null}
+      {pasteOffered && pasting === "open" && schedulePaste("", () => setPasting("closed"))}
 
       <EditLock>
         {visibleGames.length > 0 && (

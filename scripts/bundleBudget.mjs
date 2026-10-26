@@ -67,7 +67,20 @@ const DIST = "dist";
  * counts the Gold odds run keeps for the team followed), the Season over line (`seasonFinalOf`), and
  * the title odds taking bracket games already played. Each is worked out where the Dashboard and the
  * odds already are, so none is a chunk of its own; the race chart's table walk, which only the
- * Forecast draws, is fetched with the chart.
+ * Forecast draws, is fetched with the chart. Settings to 13.5 KB on 26 Oct 2026 for Seasons at a
+ * glance, 13.3 KB against 12.6 KB before: the Seasons card's toggle, and the boundary and loader
+ * its own download is drawn through, 0.24 KB; and 0.43 KB for the list of files Vite hands its
+ * loader with that download (`__vite__mapDeps`), which names every file of the first download
+ * because the glance reads the brackets, the Season over line and League kept live's stored copies
+ * from the entry chunk. Started from the entry chunk instead, a list would be in the first
+ * download, which has the least room. The glance itself is a view of its own below, fetched only
+ * once opened, with a limit set as the small views' were, 1.5 KB above what it measured. Team
+ * Rankings to 161.0 KB the same day for the League schedule paste, 160.4 KB against 160.0 KB on
+ * main (160,373 bytes against 159,956), with no Team Rankings code changed: the paste reads its
+ * cells and dates with the schedule reader Team Rankings' schedule import uses (`scheduleText.ts`),
+ * so the build moved that reader out of the Games section's chunk into one the two share. The
+ * section's chunk went from 9.3 KB to 6.8 KB and the reader's own is 2.9 KB: the same code,
+ * compressing 0.4 KB worse in two files than in one.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -81,8 +94,9 @@ const BUDGET = {
     "League Stats": 3_700,
     Forecast: 18_300,
     "Data Quality": 3_500,
-    Settings: 12_600,
-    "Team Rankings": 160_000,
+    Settings: 13_500,
+    "Seasons at a glance": 4_400,
+    "Team Rankings": 161_000,
   },
 };
 
@@ -100,6 +114,7 @@ const VIEWS = {
     "src/components/ScoutLinkPanel.tsx",
     "src/components/league/SettingsView.tsx",
   ],
+  "Seasons at a glance": ["src/components/league/SeasonsAtAGlance.tsx"],
   "Team Rankings": ["src/components/TeamRankingsView.tsx"],
 };
 

@@ -103,6 +103,26 @@ export const teamDrawerView = viewChunk(
   () => import("./TeamDrawer").then((module) => module.TeamDrawer),
   "TeamDrawer"
 );
+/**
+ * The start screen of a season with no teams yet. Seen once per new season and never by someone
+ * returning to one, so it is fetched when shown rather than kept in the first download, which had
+ * no room left for the schedule paste (`bundleBudget.mjs`). It is drawn inside the views' boundary,
+ * whose Try again resets it along with the tab's own chunks (`App.tsx`).
+ */
+export const emptyStateView = viewChunk(
+  () => import("./EmptyState").then((module) => module.EmptyState),
+  "EmptyState"
+);
+/**
+ * A league site's schedule pasted in and looked over, opened from the empty season's start screen
+ * or the Schedule tab's "No games yet". Drawn inside the views' boundary too, whose Try again resets
+ * it with the rest (`App.tsx`): loaded through React's own `lazy`, a download that failed once kept
+ * failing until the page was reloaded (found by Codex on #456).
+ */
+export const schedulePasteView = viewChunk(
+  () => import("./LeagueSchedulePaste").then((module) => module.default),
+  "LeagueSchedulePaste"
+);
 /** Two teams side by side, opened only from a team's panel (2.7): fetched then, not with the page. */
 export const compareDrawerView = viewChunk(
   () => import("../CompareDrawer").then((module) => module.CompareDrawer),
