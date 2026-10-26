@@ -1,6 +1,7 @@
 import { STORAGE_VERSION, type GameLog, type Matchup, type Settings, type TeamBase } from "./types";
 import { coerceLogs, coerceMatchups, coerceSettings, coerceTeams, isRecord } from "./validate";
 import { mayWrite } from "./cloud/cloudGuard";
+import { tabReadOnly } from "./tabTurn";
 import { forgetSeasons } from "./preferences";
 import type { SeasonReader } from "./live/allKnown";
 
@@ -90,9 +91,16 @@ const safeGet = (key: string): string | null => {
  * A tab that read its seasons before another tab took a newer copy in may not write them
  * (`cloudGuard.ts`): its values are older than what is stored, and would go back over it.
  */
+/**
+ * Whether this tab may not write League at all: another tab has the turn (`tabTurn.ts`). The cloud
+ * copy's own arriving is laid in all the same, since the tab writing does the same.
+ */
+const turnRefuses = (): boolean => arriving === 0 && tabReadOnly();
+
 const safeSet = (key: string, value: string): boolean => {
   try {
     const changed = localStorage.getItem(key) !== value;
+    if (changed && turnRefuses()) return false;
     if (changed && isShared(key) && !mayWrite("league")) return false;
     localStorage.setItem(key, value);
     if (changed) noteLeagueWrite(key);
@@ -104,6 +112,7 @@ const safeSet = (key: string, value: string): boolean => {
 const safeRemove = (key: string) => {
   try {
     const held = localStorage.getItem(key) !== null;
+    if (held && turnRefuses()) return;
     if (held && isShared(key) && !mayWrite("league")) return;
     localStorage.removeItem(key);
     if (held) noteLeagueWrite(key);

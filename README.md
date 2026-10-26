@@ -4399,6 +4399,17 @@ subscription and sending to it, which the app does not have.
   switch back to an id nor a restore that puts another season under the open one shows what
   was kept of the season before.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
+- **One tab writes League Standings** (`tabTurn.ts`, the owner's choice of 26 October 2026).
+  Every tab saves whole seasons from what it read when it opened, into the season storage names
+  active, so two tabs of one browser, or a tab and the installed app, undid each other's scores,
+  and a season switched in one moved where the other saved. The tabs now ask each other on a
+  `BroadcastChannel` as each opens: the tab opened later is read-only, says "Open in another tab"
+  over League Standings with **Use here**, and storage refuses every League write it makes, a
+  switch of season included (the cloud copy's own arriving is still laid in). Use here reloads the
+  tab, so it reads what the other saved, and takes the turn on its way back in; every other tab is
+  then read-only. A tab whose writer was closed is not told: the next tab to open writes, or Use
+  here takes the turn. Without a `BroadcastChannel` every tab writes, as before. Held by
+  `tabTurn.test.ts`, the storage test and `e2e/tabs.spec.ts`, which opens two real tabs.
 - What the last full restore replaced is kept on this device until the next restore
   (`league_forecast_replaced_backup_v1`, in the pool's IndexedDB store beside the saved board, and
   never read as the pool or sent to the cloud), and Settings' Data card offers it as "Download

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { adoptTabTurn, createTabTurn } from "../tabTurn";
 import { resetCloudGuard } from "../cloud/cloudGuard";
 import { readLeagueClubRanks, writeLeagueClubRanks } from "../leagueClubRanks";
 import {
@@ -709,5 +710,34 @@ describe("the one-time migration into a season namespace", () => {
     expect(loadTeams()).toEqual([{ id: "t1", name: "Trash Pandas" }]);
     expect(backing.get("league_teams_v1")).toBeUndefined();
     expect(backing.get("league_season_default_teams_v1")).toBeDefined();
+  });
+});
+
+describe("a tab another tab has the turn from", () => {
+  /*
+   * Read-only (`tabTurn.ts`): its saves would put back what it read when it opened over what the
+   * other tab saved since, and its switch of season would move where the other saves. Storage
+   * refuses every League write it makes; the cloud copy's own arriving is still laid in.
+   */
+  afterEach(() => adoptTabTurn(null));
+
+  it("writes no season, no score and no switch of season", () => {
+    const first = listSeasons()[0]!;
+    const second = createSeason("Spring");
+    saveTeams([{ id: "A", name: "Aces" }]);
+    const turn = createTabTurn({ channel: null, openedAt: 0, id: "t", claimed: () => false });
+    // Read-only as another tab answers it.
+    const forced = { ...turn, readOnly: () => true };
+    adoptTabTurn(forced);
+
+    expect(saveTeams([{ id: "B", name: "Bears" }])).toBe(false);
+    expect(loadTeams()).toEqual([{ id: "A", name: "Aces" }]);
+    expect(setActiveSeason(second.id)).toBe(false);
+    expect(getActiveSeasonId()).toBe(first.id);
+    expect(createSeason("Summer").id).toBeTruthy();
+    expect(listSeasons().map((season) => season.name)).not.toContain("Summer");
+
+    adoptTabTurn(null);
+    expect(saveTeams([{ id: "B", name: "Bears" }])).toBe(true);
   });
 });

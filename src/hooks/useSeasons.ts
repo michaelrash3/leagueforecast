@@ -9,6 +9,7 @@ import {
   setActiveSeason,
   type SeasonMeta,
 } from "../lib/storage";
+import { TAB_READ_ONLY, tabReadOnly } from "../lib/tabTurn";
 import type { ConfirmState } from "./useConfirmation";
 import type { ToastTone } from "./useToast";
 
@@ -82,7 +83,11 @@ export function useSeasons({
   const switchTo = useCallback(
     (id: string) => {
       if (id === getActiveSeasonId()) return;
-      if (!setActiveSeason(id)) return;
+      if (!setActiveSeason(id)) {
+        // Refused while another tab has the turn, which would then save into the season switched to.
+        if (tabReadOnly()) showToast(TAB_READ_ONLY, { tone: "error" });
+        return;
+      }
       reload();
       const name = listSeasons().find((season) => season.id === id)?.name ?? "season";
       showToast(`Switched to ${name}.`, { tone: "info" });

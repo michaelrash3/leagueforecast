@@ -44,6 +44,8 @@ import {
   needsAPerson,
 } from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
+import { TabTurnBanner, useTabReadOnly } from "./components/league/TabTurnBanner";
+import { TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
 import { rankingsSearch } from "./lib/rankingsRoute";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { ModeSwitchContext } from "./components/modeSwitch";
@@ -837,7 +839,9 @@ export default function App() {
     persist: writeSeasonData,
     adopt: adoptSeason,
   });
-  const leagueEditable = editable(liveLeague.state);
+  // Read-only while another tab of this browser has the turn (`tabTurn.ts`), however League is kept.
+  const tabReadOnly = useTabReadOnly(tabTurn());
+  const leagueEditable = editable(liveLeague.state) && !tabReadOnly;
   const { guardUndo, removeSeason } = liveLeague;
   const leagueReachable = reachable(liveLeague.state);
   // Kept live this moment, rather than switched on: a visitor, or a member's device offline or
@@ -848,7 +852,7 @@ export default function App() {
    * command palette, a shared link and a toast's Undo all reach the season from outside them, and
    * each is refused while the season may not be written, with the reason.
    */
-  const editingOff = editingOffBecause(liveLeague.state);
+  const editingOff = tabReadOnly ? TAB_READ_ONLY : editingOffBecause(liveLeague.state);
   // Locked as the page is drawn read-only, not a frame after, so no edit lands in between.
   useLayoutEffect(() => {
     seasonStore.lock(editingOff);
@@ -3641,6 +3645,7 @@ export default function App() {
             role="tabpanel"
             aria-labelledby={`tab-${activeView}`}
           >
+            <TabTurnBanner readOnly={tabReadOnly} onUseHere={() => tabTurn()?.useHere()} />
             <LiveLeagueBanner state={liveLeague.state} />
             {/* Kept live, a season that may not be written is read-only: every control that edits
               it is off (`EditLock`), and what only reads it stays usable. */}
