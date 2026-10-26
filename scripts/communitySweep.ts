@@ -171,6 +171,31 @@ export type CutSummary = {
   sides: { island: number; weak: number; middling: number; well: number };
 };
 
+/**
+ * The league the fit found for the club asked about, as the control's board reads it: the clubs
+ * the schedule's communities put together (`scheduleCommunities.ts`), how many games each played
+ * inside and outside it, and every rated game with exactly one side in it, which is what the
+ * league's starting level counts. Asked for because a league the fit finds is not the league a
+ * person knows: the owner counted two outside games where the fit counted six.
+ */
+export type LeagueDetail = {
+  size: number;
+  inside: number;
+  outside: number;
+  members: { id: string; name: string; place: string; inside: number; outside: number }[];
+  outsideGames: {
+    date: string;
+    member: string;
+    opponent: string;
+    opponentLeague: { size: number; outside: number };
+    score: string;
+    filedBy: string;
+    gameId: string;
+    /** Another outside game of this league on the same day between the same two clubs. */
+    twin: boolean;
+  }[];
+};
+
 export type CommunitySweep = {
   year: number | undefined;
   pageNames: string[];
@@ -183,6 +208,7 @@ export type CommunitySweep = {
   /** The bar a variant's gain must clear against the control, in standard errors. */
   bar: number;
   clubAsked: boolean;
+  league?: LeagueDetail;
 };
 
 const pad = (text: string, width: number) => text.padEnd(width);
@@ -405,6 +431,85 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
     return community === undefined ? 0 : (communities.outside[community] ?? 0);
   };
   const isWell = (id: string) => controlOutside(id) >= WELL_CONNECTED;
+  const leagueDetailOf = (targetId: string): LeagueDetail | undefined => {
+    const { communities } = controlBoard.fit;
+    const league = communities.of.get(targetId);
+    if (league === undefined) return undefined;
+    const byId = new Map(teams.map((team) => [team.id, team]));
+    const nameOf = (id: string) => byId.get(id)?.name ?? id;
+    const clubOfGc = new Map(
+      teams.flatMap((team) => (team.gcTeams ?? []).map((link) => [link.teamId, team.id] as const))
+    );
+    const sizes = new Map<number, number>();
+    communities.of.forEach((c) => sizes.set(c, (sizes.get(c) ?? 0) + 1));
+    const counts = new Map<string, { inside: number; outside: number }>();
+    const tally = (id: string) => {
+      const known = counts.get(id);
+      if (known) return known;
+      const fresh = { inside: 0, outside: 0 };
+      counts.set(id, fresh);
+      return fresh;
+    };
+    communities.of.forEach((c, id) => {
+      if (c === league) tally(id);
+    });
+    let inside = 0;
+    const outsideGames: LeagueDetail["outsideGames"] = [];
+    board.forEach(({ game }) => {
+      const a = communities.of.get(game.teamAId);
+      const b = communities.of.get(game.teamBId);
+      if (a === league && b === league) {
+        inside += 1;
+        tally(game.teamAId).inside += 1;
+        tally(game.teamBId).inside += 1;
+        return;
+      }
+      if (a !== league && b !== league) return;
+      const member = a === league ? game.teamAId : game.teamBId;
+      const other = a === league ? game.teamBId : game.teamAId;
+      const otherLeague = a === league ? b : a;
+      tally(member).outside += 1;
+      const filer = game.source?.teamId;
+      outsideGames.push({
+        date: game.date ?? "?",
+        member: nameOf(member),
+        opponent: nameOf(other),
+        opponentLeague: {
+          size: otherLeague === undefined ? 1 : (sizes.get(otherLeague) ?? 1),
+          outside: otherLeague === undefined ? 0 : (communities.outside[otherLeague] ?? 0),
+        },
+        score: `${nameOf(game.teamAId)} ${game.teamAScore ?? "?"}-${game.teamBScore ?? "?"} ${nameOf(game.teamBId)}`,
+        filedBy: filer === undefined ? "?" : nameOf(clubOfGc.get(filer) ?? filer),
+        gameId: game.id,
+        twin: false,
+      });
+    });
+    const keyOf = (g: (typeof outsideGames)[number]) =>
+      `${g.date}|${[g.member, g.opponent].sort().join("|")}`;
+    const seen = new Map<string, number>();
+    outsideGames.forEach((g) => seen.set(keyOf(g), (seen.get(keyOf(g)) ?? 0) + 1));
+    outsideGames.forEach((g) => {
+      g.twin = (seen.get(keyOf(g)) ?? 0) > 1;
+    });
+    outsideGames.sort((x, y) => x.date.localeCompare(y.date));
+    return {
+      size: counts.size,
+      inside,
+      outside: communities.outside[league] ?? 0,
+      members: [...counts.entries()]
+        .map(([id, count]) => {
+          const team = byId.get(id);
+          return {
+            id,
+            name: nameOf(id),
+            place: [team?.city, team?.state].filter(Boolean).join(", "),
+            ...count,
+          };
+        })
+        .sort((x, y) => y.inside - x.inside || x.name.localeCompare(y.name)),
+      outsideGames,
+    };
+  };
 
   // The named club, looked up on the roster the boards fit by its name, town and state.
   const query = input.club;
@@ -540,6 +645,11 @@ export const runCommunitySweep = (input: CommunitySweepInput): CommunitySweep =>
     measurable: overall?.measurable ?? false,
     bar: clearlyBetterBar(Math.max(1, variants.length - 1)),
     clubAsked: query !== undefined,
+    ...(() => {
+      const first = results[0]?.club[0];
+      const detail = first ? leagueDetailOf(first.teamId) : undefined;
+      return detail ? { league: detail } : {};
+    })(),
   };
 };
 
@@ -674,6 +784,28 @@ export const describeCommunitySweep = (
         });
       });
     }
+  }
+  const league = sweep.league;
+  if (league) {
+    say();
+    say(
+      `Its league as the fit found it: ${league.size} clubs, ${league.inside} games inside it,` +
+        ` ${league.outside} rated games with one side outside it` +
+        ` (${league.outsideGames.filter((g) => g.twin).length} of them on a day and pairing another shares).`
+    );
+    named.push("", "Its league as the fit found it, club by club (games inside, games outside):");
+    league.members.forEach((member) =>
+      named.push(
+        `  ${member.name} (${member.place || "?"}): ${member.inside} inside, ${member.outside} outside`
+      )
+    );
+    named.push("Each game with one side outside it:");
+    league.outsideGames.forEach((g) =>
+      named.push(
+        `  ${g.date}  ${g.score}  [member ${g.member}; opponent's league ${g.opponentLeague.size} clubs,` +
+          ` ${g.opponentLeague.outside} outside games; filed by ${g.filedBy}]${g.twin ? "  ← same day and pairing as another" : ""}`
+      )
+    );
   }
   return { lines, named };
 };
