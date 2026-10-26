@@ -18,6 +18,7 @@ export function EmptyState({
   loadDemoSeason,
   openTour,
   startFromClubs,
+  schedulePaste,
 }: {
   importCSV: (file: File) => void;
   createSeasonFromTeamList: () => void;
@@ -32,8 +33,15 @@ export function EmptyState({
    * for, with what closes it. Absent where Team Rankings cannot be read.
    */
   startFromClubs?: (close: () => void) => ReactNode;
+  /**
+   * The team-list box read as a league site's schedule instead (`LeagueSchedulePaste`), drawn
+   * under it once asked for, with what closes it. A button on the box rather than a step of the
+   * flow, since this screen is part of the first download and the reader is fetched on the press.
+   */
+  schedulePaste?: (text: string, close: () => void) => ReactNode;
 }) {
   const [starting, setStarting] = useState(false);
+  const [reading, setReading] = useState<string | null>(null);
   const kickoffFlow: DesignFlowStep[] = [
     {
       eyebrow: "Load",
@@ -140,6 +148,14 @@ export function EmptyState({
               >
                 Create Schedule
               </button>
+              {schedulePaste && (
+                <button
+                  onClick={() => setReading(seasonBuilderText)}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                >
+                  Read as a schedule
+                </button>
+              )}
             </EditLock>
             <button
               onClick={downloadRoundRobinCSV}
@@ -156,6 +172,7 @@ export function EmptyState({
               Use Current Teams
             </button>
           </div>
+          {reading !== null && schedulePaste?.(reading, () => setReading(null))}
         </div>
       </div>
     </div>

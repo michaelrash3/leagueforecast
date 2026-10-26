@@ -65,7 +65,7 @@ starts in its June. A season inside one calendar year is ordered exactly as befo
 | Area                      | Highlights                                                                                                                                              |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Standings**             | Records, cut-line status, SOS, trends, AI league analysis or deterministic story.                                                                       |
-| **Games**                 | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull.                                                                  |
+| **Games**                 | Score entry, predictions, final toggle, filters, auto re-projection, fill from a pull, a league site's schedule pasted in.                              |
 | **Data Quality**          | Findings on the season's games, teams and settings, grouped by severity, with links to each, previewed repairs and undo.                                |
 | **Since you last looked** | What another device changed since this one last looked, on the Dashboard until seen; opt-in notifications while the app is open.                        |
 | **Season Predictor**      | Forecast board, bubble watch, cut-line games, game forecasts, trend charts.                                                                             |
@@ -108,6 +108,7 @@ src/
     insights.ts            # deterministic recap + league-story generation
     geminiModels.ts  leagueSummary.ts  leagueSummaryClient.ts
     scheduleText.ts        # reads pasted text / CSV into games, entirely on the device
+    leagueScheduleText.ts  # the same for a league's own schedule, home and away kept
     teamRankings.ts        # age groups, ratings, name matching, rename/merge
     teamRankingsStorage.ts # the pool's IndexedDB store, with a synchronous cache in front
     teamRankingsCompact.ts # the tuple-and-dictionary storage format
@@ -4050,6 +4051,34 @@ club itself is not put in the URL: Team Rankings carries every parameter it does
 page to page, so a club named there would reopen its report on every later visit and reload.
 It is held in memory instead (`scoutRequest.ts`) and let go once a page, the cloud's board or
 this device's own, has it on screen.
+
+## A league's schedule, pasted
+
+A season with no games yet can take its league's schedule as the league's website, a
+spreadsheet or a CSV prints it: the Schedule tab offers **Paste the league's schedule** under "No
+games yet.", and the empty season's team-list box has **Read as a schedule**, which reads what is
+in the box. It is offered only while the season has no games at all, not when a filter hides every
+game, since nothing read is matched against games already there. The reading
+(`leagueScheduleText.ts`) is done on the device and keeps which side hosted, which Team Rankings'
+paste reader (`scheduleText.ts`) throws away; it borrows that reader's cell splitter, header reader
+and month words, whose own output is pinned. It reads a table whose header names Home and Away (or
+Visitor) columns; lines like `4/10 Falcons @ Wolves`, where the team after "@" or "at" is at home,
+and `Wolves vs Falcons`, where the first team is; and a table with no header, read away then home
+and marked as a guess. A line that is only a date dates the games under it, start times and fields
+are passed over, and a score at the end of a line is read in the order the teams were written. A
+line with two markers, a TBD side or a day no calendar has ("Apr 31", never rolled on to May 1) is
+listed as left out rather than guessed at. A date with no year is placed in the year the paste wrote
+(on the date, in a heading, or in a title such as "Spring 2027 Schedule"), else in the squad year the
+season is filed under in Team Rankings, else the one its name says ("Fall 2026" is squad year 2027,
+`seasonNames.ts`), else the one being played today, with August to December in the year before.
+
+Every game is looked over before anything is added, with a Swap on each row. A name that is one of
+the season's teams (`teamNameKey`) is that team; one close to a team is offered as it and used only
+once ticked; any other becomes a team of its own. In a season with no teams every name becomes one,
+and in one with teams the games naming a new one start unticked. A score read becomes a final game,
+as Fill scores adds its games. App adds them as one change to the season, which is one save and one
+step to undo, and refuses while the season may not be written or once it has changed since the
+review was drawn. The panel is fetched only when opened, so none of it is in the first download.
 
 ## Data Quality
 

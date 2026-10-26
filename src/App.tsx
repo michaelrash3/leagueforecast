@@ -77,6 +77,7 @@ import {
   teamDrawerView,
 } from "./components/league/leagueViews";
 import type { FillAdditions, LeagueFillPlan, RecordedRuns } from "./lib/leagueScoreFill";
+import type { PastedSeason } from "./lib/leaguePaste";
 import {
   loadAgeGroups,
   loadScoutGamesForSeason,
@@ -234,7 +235,6 @@ import { buildTeamTrendSummary } from "./lib/teamTrend";
 import { blankLog, clamp, isFinal, swappedLog } from "./lib/util";
 import { linkedTeamIdFromUrl, projectedRunLine, TEAM_QUERY_PARAM } from "./lib/teamLink";
 import { HeaderStatCard } from "./components/HeaderStatCard";
-import { EmptyState } from "./components/league/EmptyState";
 import { button as buttonClasses, focusRing, tab } from "./styles/tokens";
 import {
   formatGoldPct as formatGoldPctValue,
@@ -366,6 +366,19 @@ const loadScoreFill = () => import("./lib/leagueScoreFill");
 type ScoreFillCode = Awaited<ReturnType<typeof loadScoreFill>>;
 /** Said when Fill scores' code cannot be fetched, as on a device gone offline before it was. */
 const SCORE_FILL_UNLOADED = "Fill scores could not be opened. Try again once connected.";
+/**
+ * Reading a league site's pasted schedule into a season with no games, and its review: fetched
+ * only once asked for, since the first download has no room for them (`bundleBudget.mjs`).
+ */
+const LeagueSchedulePaste = lazy(() => import("./components/league/LeagueSchedulePaste"));
+/**
+ * The start screen of a season with no teams yet. Seen once per new season and never by someone
+ * returning to one, so it is fetched when shown, inside the views' own Suspense, rather than kept
+ * in the first download, which had no room left for the schedule paste (`bundleBudget.mjs`).
+ */
+const EmptyState = lazy(() =>
+  import("./components/league/EmptyState").then((module) => ({ default: module.EmptyState }))
+);
 const StartFromClubs = lazy(() =>
   import("./components/league/StartFromClubs").then((module) => ({
     default: module.StartFromClubs,
@@ -2669,6 +2682,41 @@ export default function App() {
     );
   };
 
+  /*
+   * A league site's schedule, pasted into a season with no games yet and looked over in its panel.
+   * Refused while the season may not be written, and when it has changed since the panel last drew
+   * it (a game or a team arrived, or another season opened, whose teams are another list), since
+   * what was looked over was the season as it was; the panel says so. Nothing is replaced, so
+   * nothing is asked: the teams, games and scores go in as one change to the season, which is one
+   * save and one step to undo.
+   */
+  const pasteSchedule = (made: PastedSeason): boolean => {
+    const now = seasonStore.get().season;
+    if (seasonStore.locked() || now.teams !== made.base || now.matchups.length) return false;
+    captureUndo("Paste the league's schedule");
+    seasonStore.setSeason({
+      ...now,
+      teams: made.teams,
+      matchups: made.matchups,
+      logs: { ...now.logs, ...made.logs },
+    });
+    setActiveView("games");
+    showToast(made.said, { tone: "undo", actionLabel: "Undo", onAction: restoreUndo });
+    return true;
+  };
+  const schedulePaste = (text: string, close: () => void) => (
+    <Suspense fallback={null}>
+      <LeagueSchedulePaste
+        text={text}
+        teams={teams}
+        settings={settings}
+        squadYear={scoutBridge.squadYear}
+        onApply={pasteSchedule}
+        onClose={close}
+      />
+    </Suspense>
+  );
+
   const downloadRoundRobinCSV = () => {
     const built = builtFromList();
     if (!built) return;
@@ -3603,6 +3651,7 @@ export default function App() {
                       teams={teams}
                       loadDemoSeason={loadDemoSeason}
                       openTour={() => setShowTour(true)}
+                      schedulePaste={schedulePaste}
                       startFromClubs={(close) => (
                         <Suspense fallback={<LoadingPanel area="Team Rankings clubs" />}>
                           <StartFromClubs
@@ -3903,6 +3952,7 @@ export default function App() {
                       closeScoreFill={() => setScoreFillPlan(null)}
                       applyScoreFill={applyScoreFill}
                       seasonLabel={settings.seasonLabel}
+                      schedulePaste={schedulePaste}
                     />
                   )}
                 </Suspense>
