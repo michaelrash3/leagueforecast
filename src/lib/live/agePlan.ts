@@ -9,8 +9,9 @@ export type AgeAsked = { teamId: string; level: number; year: number };
  * batch). Walked first as the commands will make them, each on what the last left, to learn which
  * clubs can move and how many games go with them: a club that cannot (no GameChanger link in the
  * year, or a level this app does not rank) is left out and counted, since a batch is refused whole
- * and the rest should still go. Page ids are `${base}-0`, `${base}-1`, ... by the club's place in
- * `asked`, so two clubs moving to one new page make it once, under the first one's id.
+ * and the rest should still go. A new page is made under its age and year's id (`newPageId`), so
+ * two clubs moving to one new page make it once; `${base}-0`, `${base}-1`, ... by the club's place
+ * in `asked` are the ids it falls back on where a page of another age has that.
  */
 export const planClubAges = (
   state: ClubAgeState,

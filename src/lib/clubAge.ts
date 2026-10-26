@@ -9,6 +9,7 @@ import {
   ageGroupLevel,
   ageGroupYear,
   createAgeGroupId,
+  newPageId,
   formatAgeGroupName,
   MAX_AGE_LEVEL,
   MIN_AGE_LEVEL,
@@ -53,8 +54,9 @@ export type ClubAgeChange = ClubAgeState & {
  * app had filed at different levels: each id's link and the rows its own schedule filed. Another
  * club's row is left as it is then, since nothing on it says which of the club's ids it was about.
  *
- * `pageId` is the id a page for the level gets when there is none yet: a command names it, so the
- * change is the same wherever it is made.
+ * A page for the level, when there is none yet, is made under its age and year's id
+ * (`newPageId`), or `pageId` where another page has that: a command names it, so the change is
+ * the same wherever it is made.
  */
 export const setClubAge = (
   state: ClubAgeState,
@@ -87,7 +89,7 @@ export const setClubAge = (
     (group) => ageGroupLevel(group) === level && ageGroupYear(group) === year
   );
   const page: AgeGroup = existing ?? {
-    id: pageId,
+    id: newPageId(level, year, state.ageGroups, pageId),
     name: formatAgeGroupName(level, year),
     ageLevel: level,
     year,

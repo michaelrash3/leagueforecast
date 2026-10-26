@@ -42,6 +42,7 @@ import {
   ageGroupLevel,
   ageGroupYear,
   createAgeGroupId,
+  newPageId,
   isOffClubId,
   isPlaceholderName,
   namesNobody,
@@ -1138,7 +1139,7 @@ const resolveAgeGroup = (
   if (existing) return { ageGroups: state.ageGroups, group: existing, created: false };
 
   const group: AgeGroup = {
-    id: createAgeGroupId(),
+    id: newPageId(ageLevel, year, state.ageGroups, createAgeGroupId()),
     name: formatAgeGroupName(ageLevel, year),
     ageLevel,
     year,

@@ -68,7 +68,9 @@ export const seasonAssignedSaid = (
     ? groupsAfter(shown, command)?.find((page) => page.seasonIds.includes(command.seasonId))
     : undefined;
   if (!group) return "League season taken off Team Rankings.";
-  return group.id === command.pageId
-    ? `${group.name} created, with your league season on it.`
-    : `League season added to ${group.name}.`;
+  // Made by this, where no page had its id before: a page is made under its age and year's id
+  // (`newPageId`), which is not the one the command carried.
+  return shown.some((page) => page.id === group.id)
+    ? `League season added to ${group.name}.`
+    : `${group.name} created, with your league season on it.`;
 };

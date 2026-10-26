@@ -42,9 +42,10 @@ describe("approving several ages at once", () => {
     const result = applyCommand(read, { kind: "batch", commands: plan.commands });
     if (!result.ok) throw new Error(result.why);
     const written = result.writes.find((write) => write.part === "groups");
+    // Made once, under its age and year's id (`pageIdFor`), not the plan's own ids.
     expect(written?.part === "groups" && written.groups.map((group) => group.id)).toEqual([
       "ag_10u_2027",
-      "ag_x-0",
+      "ag_11u_2027",
     ]);
   });
 });
