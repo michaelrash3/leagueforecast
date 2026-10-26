@@ -263,7 +263,7 @@ const steady = (boards: PageBoard[]) =>
  * another collation, skips this pin and keeps the steady one; a new engine's value is added here
  * once its boards are seen to match its own worker's.
  */
-const DIGIT_PINS: Record<string, string> = { "12.4": "ca44be86", "13.6": "c742ec7b" };
+const DIGIT_PINS: Record<string, string> = { "12.4": "254d394a", "13.6": "20eddb03" };
 const engine = (globalThis as { process?: { versions?: { v8?: string } } }).process?.versions?.v8;
 const english = new Intl.Collator().resolvedOptions().locale.startsWith("en");
 const digitPin = english ? DIGIT_PINS[(engine ?? "").split(".").slice(0, 2).join(".")] : undefined;
@@ -774,7 +774,9 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
      * copy of a game that already counts off every board (`ScoutGame.countedElsewhere`); the
      * fixture holds none, so its boards are 7's. 9 counts a win by 31 to 39 runs, which was
      * suspected of being made up until the line moved to forty; the fixture's routs are 45-1, past
-     * both lines, and it holds no game between, so its boards are 8's.
+     * both lines, and it holds no game between, so its boards are 8's. 10 lists a club whose web of
+     * games falls short of a tenth of the typical club's after the rest (`opponentWeb.ts`): it moves
+     * the fixture's order, which the digit pins hold, and no number, so its steady boards are 9's.
      */
     const RULES_PINS: Record<number, string> = {
       1: "a2c59173",
@@ -786,6 +788,7 @@ describe("the boards a server builds", BUILDS_EVERY_BOARD, () => {
       7: "46996e9c",
       8: "46996e9c",
       9: "46996e9c",
+      10: "46996e9c",
     };
     expect(fingerprint(steady(builtBoards(stored())))).toBe(RULES_PINS[BOARD_RULES]);
     starts.off = true;

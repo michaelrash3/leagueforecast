@@ -496,6 +496,24 @@ place in _that_ list: a state top ten is ten teams rated against the whole count
 and then listed together, so the second-best team in the state is #2. The full
 table is behind a toggle, for finding one particular team in a pool of thousands.
 
+**A club whose games stay in one small league is listed after the rest**, the
+owner's rule of 26 October 2026, of the Longhorns: #4 in Kentucky at 9U on an 8-0
+record against their own league of eight, whose one game against anybody else
+was a loss. A club's web of games is every club it played, every club those
+played, and so on, five games out (`teamRankings/opponentWeb.ts`). A board lists a
+club whose web reaches fewer than a tenth of the typical club's after every club
+whose web reaches that many, each part in rating order. The typical web is the
+median over the clubs the board's games name, read off an evenly spaced sample of
+4,096 of them, so the line grows with the season: on the cloud copy it was one to
+three clubs on the first, eighth and fifteenth of September and 58 by 26 October,
+when the typical web reached 580 and the Longhorns' 39. Ratings, odds and every
+matchup are untouched; only the order and the numbers beside it move. Measured on
+that copy: the Longhorns go to #88 in Kentucky; 64 of 556 state #1s change, 3 of
+the 375 whose league plays widely; 245 of 250 national top-25 places stand. No
+listing rule predicts who wins better than the rating alone (on 173,614 later
+games the club listed higher lost 34.02% of the time, against 33.30% by rating),
+which is why it orders the lists and never the odds. Board rules 10.
+
 **A default state.** Beside the state top 10's picker, "Make OH my default"
 keeps the state on screen as the one the card opens on, on this device, as the
 default age is kept; on that state the card says "Opens on OH" with a Clear. It

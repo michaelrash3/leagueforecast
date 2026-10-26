@@ -34,6 +34,7 @@ export * from "./teamRankings/types";
 export * from "./teamRankings/names";
 export * from "./teamRankings/seasons";
 export * from "./teamRankings/games";
+export * from "./teamRankings/opponentWeb";
 
 import {
   gcRowId,
@@ -47,6 +48,7 @@ import {
   type ScoutRankingRow,
   type ScoutTeam,
 } from "./teamRankings/types";
+import { opponentWeb, type OpponentWeb } from "./teamRankings/opponentWeb";
 import {
   countsTowardRating,
   LEAGUE_GAME_PREFIX,
@@ -2988,9 +2990,16 @@ const startOf = (
     : { levelPrior: startingLevel(outsideGames), outsideGames };
 };
 
-/** Sort by rating, number the ranks, and number strength of schedule among teams that played. */
-const rankRows = (rows: ScoutRankingRow[]): ScoutRankingRow[] => {
-  rows.sort(byRating);
+/**
+ * Sort by rating, every club whose web of games reaches the line first (`opponentWeb.ts`, the
+ * owner's rule of 26 October 2026), number the ranks, and number strength of schedule among teams
+ * that played.
+ */
+const rankRows = (rows: ScoutRankingRow[], web: OpponentWeb): ScoutRankingRow[] => {
+  const short = new Set(
+    rows.filter((row) => !web.reachesLine(row.teamId)).map((row) => row.teamId)
+  );
+  rows.sort((a, b) => Number(short.has(a.teamId)) - Number(short.has(b.teamId)) || byRating(a, b));
   rows.forEach((row, index) => {
     row.rank = index + 1;
   });
@@ -3132,7 +3141,7 @@ export const buildTeamRankings = (
       };
     });
 
-  return rankRows(rows);
+  return rankRows(rows, opponentWeb(pairs));
 };
 
 /**
@@ -3523,7 +3532,20 @@ export const rowsOfYearFit = (
       };
     });
 
-  return rankRows(rows);
+  return rankRows(rows, webOfYearFit(fit));
+};
+
+/**
+ * Each year fit's webs of games (`opponentWeb`), over the very games it read, worked out once
+ * however many pages are cut from it.
+ */
+const yearFitWebs = new WeakMap<ScoutYearFit, OpponentWeb>();
+const webOfYearFit = (fit: ScoutYearFit): OpponentWeb => {
+  const known = yearFitWebs.get(fit);
+  if (known) return known;
+  const web = opponentWeb(fit.rated.map(({ game }) => [game.teamAId, game.teamBId] as const));
+  yearFitWebs.set(fit, web);
+  return web;
 };
 
 const buildPooledTeamRankings = (
