@@ -386,6 +386,25 @@ describe("parseLeagueSchedule", () => {
       rows: [{ date: "9/12", away: "Falcons", home: "Wolves", guessed: true }],
       skipped: ["Game,Start,Side A,Side B"],
     });
+    // Nor under a day's heading, whose day is the games', not a header's (Codex on #456).
+    expect(
+      read(["April 10", "Game,Start,Side A,Side B", "4/10/2027,9:00 AM,Falcons,Wolves"])
+    ).toEqual({
+      rows: [{ date: "4/10", away: "Falcons", home: "Wolves", guessed: true }],
+      skipped: ["Game,Start,Side A,Side B"],
+    });
+  });
+
+  it("reads a bare day before the game, under a month's heading, as its day (Codex on #456)", () => {
+    expect(read(["April 2027", "12,9:00 AM,Falcons @ Wolves,6,5"])).toEqual({
+      rows: [{ date: "4/12", away: "Falcons", home: "Wolves", awayRuns: 6, homeRuns: 5 }],
+      skipped: [],
+    });
+    // A day written out in full is the day, and a number before the game is no score either.
+    expect(read(["April 2027", "17,4/10/2027,Falcons @ Wolves,6,5"])).toEqual({
+      rows: [{ date: "4/10", away: "Falcons", home: "Wolves", awayRuns: 6, homeRuns: 5 }],
+      skipped: [],
+    });
   });
 
   it("reads a header printed again partway down as a header", () => {

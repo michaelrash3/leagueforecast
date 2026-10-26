@@ -367,6 +367,11 @@ const readCells = (
   squadYear: number
 ): Game | "skip" | undefined => {
   let day: string | null | undefined;
+  // A bare day of the month before the game, under a month's heading: "12" in "12,9:00 AM,Falcons
+  // @ Wolves,6,5". Kept apart from a day written out, which wins over it, since a number there can
+  // as well be the game's own; and out of the runs either way, which a third number threw away
+  // (found by Codex on #456).
+  let bareDay: string | null | undefined;
   let laidOut = false;
   const games: string[] = [];
   const scores: string[] = [];
@@ -388,7 +393,15 @@ const readCells = (
       scores.push(value);
       laidOut = true;
     } else if (/^\d{1,2}$/.test(value)) {
-      numbers.push(value);
+      const asBareDay =
+        games.length === 0 && bareDay === undefined
+          ? readOnlyDay(value, context, squadYear)
+          : undefined;
+      if (asBareDay === undefined) numbers.push(value);
+      else {
+        bareDay = asBareDay;
+        laidOut = true;
+      }
     } else {
       const asDay = day === undefined ? readDayOnly(value, context, squadYear) : undefined;
       if (asDay !== undefined) {
@@ -399,6 +412,7 @@ const readCells = (
   }
   const [game] = games;
   if (!laidOut || game === undefined) return undefined;
+  day ??= bareDay;
   if (games.length > 1 || day === null) return "skip";
   // A score from its own cell, or two cells of runs, is read as if written after the game, in the
   // order the sides were.
@@ -414,12 +428,7 @@ const readCells = (
  * then home and marked as a guess, and a score as one "6-5" cell or two cells of runs. A row with no
  * day is not taken, since a header this reader does not know reads exactly like one.
  */
-const readBareRow = (
-  cells: string[],
-  context: Context,
-  carried: string | null,
-  squadYear: number
-): Game | "skip" => {
+const readBareRow = (cells: string[], context: Context, squadYear: number): Game | "skip" => {
   let day: string | null | undefined;
   let runs: [number, number] | undefined;
   const names: string[] = [];
@@ -437,8 +446,10 @@ const readBareRow = (
     else if (/^\d{1,2}$/.test(value)) numbers.push(Number(value));
     else names.push(value);
   });
-  const when = day === undefined ? carried : day;
-  if (when === null || when === "") return "skip";
+  // Its own day, never a heading's above it: under "April 10", a header this reader does not know
+  // ("Game,Start,Side A,Side B") was a game between "Game" and "Start" (found by Codex on #456).
+  const when = day;
+  if (when === undefined || when === null) return "skip";
   const [first, second] = numbers;
   if (!runs && numbers.length === 2 && first !== undefined && second !== undefined) {
     runs = [first, second];
@@ -570,7 +581,7 @@ export const parseLeagueSchedule = (
         return;
       }
       const asLine = readLine(line, context, carried, year);
-      take(asLine === undefined ? readBareRow(cells, context, carried, year) : asLine);
+      take(asLine === undefined ? readBareRow(cells, context, year) : asLine);
       return;
     }
 
