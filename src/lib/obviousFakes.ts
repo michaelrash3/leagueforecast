@@ -58,9 +58,10 @@ import {
  *   the 10 it no longer reads all that organisation's (`madeUpHit`). Marked per
  *   GameChanger id: when only one of its teams has the word and the club's own name does not,
  *   only that one, so the club stands unless every one of its ids is marked.
- * - H: its own schedule reports a game won by `LOPSIDED_MARGIN` or more that nobody has vouched
- *   for, whichever side it was on: the owner's rule of 21 October 2026, that a team reporting a
- *   game like that is to go, on its own. Like N it is no matter what real opponents list of it,
+ * - H: its own schedule reports a game it won or lost by `LOPSIDED_MARGIN` or more that nobody has
+ *   vouched for: the owner's rule of 21 October 2026, that a team reporting a game like that is to
+ *   go, on its own, and their word of 26 October, "won or lost by 50 or more", with only the team
+ *   whose own schedule lists it taken off, never the other side named in it. Like N it is no matter what real opponents list of it,
  *   since no witness makes such a score a game; the owner's own word on the club still keeps it.
  *   Measured from no marks at the first line, 100: on the pool of 26 September 2026 as today's tidy
  *   leaves it, before the user's own sweep of the 28th, 24 games reached 100 (the widest 9,999)

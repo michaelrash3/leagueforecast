@@ -797,8 +797,8 @@ export function PoolHealthView({
             runs or more — {count(Math.round(implausible[0]!.margin))} at the most. Delete the ones
             that are not real; if one really was played that way, say so. One won by{" "}
             {IMPLAUSIBLE_MARGIN} or more counts toward no rating or record until you do; one won by
-            less still counts while it waits. A club whose own schedule reports a game won by{" "}
-            {LOPSIDED_MARGIN} or more is taken off without asking (Removed for you).
+            less still counts while it waits. A club whose own schedule reports a game it won or
+            lost by {LOPSIDED_MARGIN} or more is taken off without asking (Removed for you).
           </p>
           <ul className="mt-2 space-y-1">
             {(allImplausible ? implausible : implausible.slice(0, 12)).map(({ game }) => {
@@ -997,13 +997,13 @@ export function PoolHealthView({
             Clubs the nightly refresh took off every board as plainly made up, newest first: two
             wins by {ROUT_MARGIN} runs or more, or one by {ABSURD_MARGIN}, that the losers&apos; own
             schedules do not list; three results or more, half of them dated well ahead, that no
-            opponent lists; void, test or demo in the name; or a game won by {LOPSIDED_MARGIN} or
-            more that its own schedule reports. Nothing is deleted: each stays filed with its games
-            and is pulled as before, and its games count for nothing. A club a League Standings team
-            links stays on its boards, and is said to here. <strong>Put back on the boards</strong>{" "}
-            puts it there again and keeps it there as real (not the same as <em>Put it back</em>{" "}
-            under the clubs you said are real, which takes that word back);{" "}
-            <strong>Delete for good</strong> deletes it as Delete club does.
+            opponent lists; void, test or demo in the name; or a game it won or lost by{" "}
+            {LOPSIDED_MARGIN} or more that its own schedule reports. Nothing is deleted: each stays
+            filed with its games and is pulled as before, and its games count for nothing. A club a
+            League Standings team links stays on its boards, and is said to here.{" "}
+            <strong>Put back on the boards</strong> puts it there again and keeps it there as real
+            (not the same as <em>Put it back</em> under the clubs you said are real, which takes
+            that word back); <strong>Delete for good</strong> deletes it as Delete club does.
           </p>
           <ul className="mt-2 space-y-1" aria-label="Removed for you">
             {(allRemoved ? removed : removed.slice(0, 12)).map((club) => (

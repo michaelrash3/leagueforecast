@@ -22,8 +22,8 @@ import type { ScoutTeam } from "./teamRankings/types";
  * - `ahead` (C): three scored results or more, half of them dated well ahead, none listed by an
  *   opponent;
  * - `named` (N): its name, or its GameChanger team's, has void, test or demo as a word in it;
- * - `hundred` (H): its own schedule reports a game won by `LOPSIDED_MARGIN` or more, by either side
- *   (the name is the line it was set at first, 100; it is 50 now).
+ * - `hundred` (H): its own schedule reports a game it won or lost by `LOPSIDED_MARGIN` or more (the
+ *   name is the line it was set at first, 100; it is 50 now).
  */
 export type AutoSign = "wins" | "rout" | "ahead" | "named" | "hundred";
 
