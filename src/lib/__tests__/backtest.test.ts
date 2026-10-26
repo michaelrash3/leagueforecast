@@ -133,4 +133,27 @@ describe("the backtest with the season's Team Rankings results", () => {
       backtestPredictions(teams, season, scores, DEFAULT_SETTINGS, 0.1, { outside: before })
     );
   });
+
+  it("orders a season over New Year by its own days, whatever the results after it say", () => {
+    // October, then New Year's Day, in the 2027 squad year; results in April and July come after
+    // every game, and once moved the season's year to start in January, so the backtest called
+    // October's game knowing January's score.
+    const winter: Matchup[] = [
+      { id: "w1", date: "10/1", away: "A", home: "B" },
+      { id: "w2", date: "1/1", away: "B", home: "A" },
+    ];
+    const winterScores = { w1: home("1", "9"), w2: home("9", "1") };
+    const after = [
+      { away: "A", home: "X", homeMargin: 3, date: "2027-04-10", neutral: true },
+      { away: "B", home: "Y", homeMargin: -3, date: "2027-07-10", neutral: true },
+    ];
+    expect(
+      backtestPredictions(teams, winter, winterScores, DEFAULT_SETTINGS, 0.1, {
+        outside: after,
+        squadYear: 2027,
+      })
+    ).toEqual(
+      backtestPredictions(teams, winter, winterScores, DEFAULT_SETTINGS, 0.1, { squadYear: 2027 })
+    );
+  });
 });

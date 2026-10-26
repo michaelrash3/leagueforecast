@@ -541,6 +541,23 @@ describe("a pasted schedule's times, age ranges and new years", () => {
     ]);
   });
 
+  it("reads a game of today, or one marked final, as played whatever its numbers", () => {
+    // Today's game may be over already: its two numbers are its result.
+    expect(parseScheduleText("10/26/2026 vs Bears 6-7", "2026-10-26").games).toEqual([
+      { teamB: "Bears", date: "2026-10-26", scoreA: 6, scoreB: 7 },
+    ]);
+    // "Final" says it was played, today or on a day still to come by the device's clock.
+    for (const today of ["2026-10-26", "2026-10-01"]) {
+      expect(parseScheduleText("10/26/2026 vs Bears 6-7 Final", today).games).toEqual([
+        { teamB: "Bears", date: "2026-10-26", scoreA: 6, scoreB: 7 },
+      ]);
+    }
+    // A postponed game was not played: the range is still the name's.
+    expect(parseScheduleText("10/27/2026 vs Majors 11-12 Postponed", "2026-10-26").games).toEqual([
+      { teamB: "Majors 11-12", date: "2026-10-27" },
+    ]);
+  });
+
   it("moves on a year when the dates turn from December to January", () => {
     expect(
       parseScheduleText("December 2026\n12/12 vs Aces\n1/9 vs Bears", "2026-10-26").games
