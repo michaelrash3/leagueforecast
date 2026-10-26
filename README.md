@@ -5915,6 +5915,34 @@ the first run that is fine closes it with a comment.
   the first weeks of a squad year, before any fit has rated its clubs. It measured
   nothing that could say a change ready is no longer ready.
 
+Three more, the owner's of 26 October 2026:
+
+- **The GameChanger pull check failed** (`verify-gc.yml`): the check after a merge
+  or on the week's Monday failed, or passed but found no score on games already
+  played, the sign of GameChanger's score fields having moved (`resultWord`,
+  `result=drift`). The next such check that passes clean closes it. A run started
+  by hand may ask other teams or another proxy, and a run a newer push cancelled
+  says nothing of GameChanger, so neither raises or settles it.
+- **The project's billing is off**: the nightly, dry or live, read the project's
+  billing from Cloud Billing (`projects.getBillingInfo`, free to ask, and nothing
+  of the copy) with the deploy key, and found it off, which is what the cost cap
+  does once the month's budget is spent (`billingCap.ts`). The first nightly to
+  find it on closes it. A reading refused or not made leaves it as it is, and the
+  log says why: the deploy key needs `resourcemanager.projects.get` on the project
+  (Viewer, or any Firebase admin role) to read it.
+- **The pull dispatch token is running out**: the nightly asked GitHub's
+  `rate_limit`, which spends none of the token's allowance, with the
+  `PULL_DISPATCH_TOKEN` secret, and GitHub's `github-authentication-token-expiration`
+  header put its end within two weeks, or GitHub refused the token outright. It
+  names the day; make another with the same access and replace the secret. The
+  first nightly to find it good for longer, or with no end, closes it. With no
+  such secret set the pulls start on Google's machines, and nothing is read.
+
+The last two are read by their own step before the alarm (`scripts/upkeep.ts`),
+whatever became of the refresh, which hands each as a word (`billing=on` or `off`,
+`dispatch=fine`, `refused` or `expires` and a day); it never fails the run, and it
+prints neither the key nor the token.
+
 An issue is public, as the repository is, so it says when (UTC, to the minute),
 what failed in a word or two, and the run's link, and nothing from the log. The
 words are fixed in `runAlarms.ts`, which works out what to raise or settle from
@@ -5922,9 +5950,9 @@ the run step's outcome and the words the nightly hands over: the rebuilds'
 (`rebuilds=paused`, `failing`, `none` or `off`), and on a Monday the starting
 level's (`closedLevel=held`, `unjudged`, or `better` and five numbers, which it reads
 back as numbers and writes again in its own words). It is tested; the workflows
-only run `npm run alarm -- nightly` or `-- republish` as their last step,
-whatever came before. It runs `gh` with the run's own token, which the workflow
-lets write issues and nothing more (`permissions: issues: write`). An alarm
+only run `npm run alarm -- nightly`, `-- republish` or `-- verify-gc` as their
+last step, whatever came before. It runs `gh` with the run's own token, which the
+workflow lets write issues and nothing more (`permissions: issues: write`). An alarm
 finds its issue again by its title among the open issues a workflow opened; one
 anybody else opened under the same title is theirs, and is neither commented on
 nor closed. An alarm that could not be raised (issues turned off on the
