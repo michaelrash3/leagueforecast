@@ -1,4 +1,4 @@
-import { createElement, lazy, type ComponentType } from "react";
+import { createElement, lazy, useState, type ComponentType } from "react";
 import type { ActiveShareView as ActiveView } from "../../lib/types";
 
 /**
@@ -38,7 +38,17 @@ export const viewChunk = <P extends object>(
     ));
   const lazyOne = () => lazy(() => start().then((component) => ({ default: component })));
   let Lazy = lazyOne();
-  const View = (props: P) => (loaded ? createElement(loaded, props) : createElement(Lazy, props));
+  /*
+   * Whichever of the two a view is first drawn through, it keeps for as long as it is on screen.
+   * The loader and the loaded view are two kinds of element to React, so one drawn through the
+   * loader and then, once loaded, directly is taken away and drawn afresh, losing whatever was
+   * picked inside it. That happened whenever the load landed while React was waiting on it in a
+   * background render: React then picks up at the loader and does not ask the view again.
+   */
+  const View = (props: P) => {
+    const [Drawn] = useState<ComponentType<P>>(() => loaded ?? Lazy);
+    return createElement(Drawn, props);
+  };
   View.displayName = name;
   return {
     View,
