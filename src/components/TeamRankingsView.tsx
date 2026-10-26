@@ -25,7 +25,7 @@ import {
   findDuplicateGame,
   gcLinkSquadYear,
   isScoutGamePlayed,
-  IMPLAUSIBLE_MARGIN,
+  ASK_MARGIN,
   mergeScoutTeams,
   rankingPoolGroupIds,
   segmentLabel,
@@ -1451,21 +1451,21 @@ export function TeamRankingsView({
       message: `${
         why === "ahead"
           ? "Each one carries a score on a date still to come, so it cannot be a result."
-          : `Each one has a side winning by ${IMPLAUSIBLE_MARGIN} runs or more, which no real game ends with.`
+          : `Each one has a side winning by ${ASK_MARGIN} runs or more, which you have not said was played that way.`
       } The rows that carried those scores are remembered by their GameChanger id, so pulling those schedules again will not bring them back.`,
       confirmLabel: "Delete them",
     });
     if (!confirmed) return false;
     if (!runCommand({ kind: "games.drop", gameIds: [...ids] }).ok) return false;
     showToast(
-      `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by ${IMPLAUSIBLE_MARGIN} or more`}.`,
+      `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by ${ASK_MARGIN} or more`}.`,
       { tone: "success" }
     );
     return true;
   };
 
   /**
-   * Counts a game won by `IMPLAUSIBLE_MARGIN` runs or more, because the user says it really was
+   * Takes the user's word that a game won by `ASK_MARGIN` runs or more really was
    * played that way (`ScoutGame.scoreConfirmed`). Nothing to ask first: it is undone by deleting
    * the game, and it asks only that the rating believe a score the user has looked at.
    */

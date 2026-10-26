@@ -412,7 +412,7 @@ describe("the impossible games, worst club first", () => {
   });
 });
 
-describe("games won by forty runs or more", () => {
+describe("games won by thirty runs or more", () => {
   const filedAs = (id: string) => ({
     source: { kind: "gamechanger" as const, teamId: "gcBIG0000001", gameId: id },
   });
@@ -435,14 +435,16 @@ describe("games won by forty runs or more", () => {
         date: seasonDate(2027),
         ...filedAs("rout"),
       }),
-      // Thirty-nine is a result, however lopsided: the user's line is forty or more.
+      // Thirty-nine is asked about, the owner's word of 26 October 2026 ("ask me about 30 and
+      // above"), and still counts; twenty-nine is a result, however lopsided.
       game("line", "ag_10u_2027", "S-OTH", "S-VIC", 39, 0, { date: seasonDate(2027) }),
+      game("under", "ag_10u_2027", "S-OTH", "S-VIC", 29, 0, { date: seasonDate(2027) }),
       game("close", "ag_10u_2027", "S-VIC", "S-OTH", 5, 4, { date: seasonDate(2027) }),
     ],
   });
 
   const section = () =>
-    screen.getByRole("heading", { name: "Won by 40 runs or more" }).parentElement as HTMLElement;
+    screen.getByRole("heading", { name: "Won by 30 runs or more" }).parentElement as HTMLElement;
   const rows = () => within(section()).getAllByRole("listitem");
 
   /** A club's record off the board, which reads only what counts. */
@@ -458,17 +460,18 @@ describe("games won by forty runs or more", () => {
     return cells[2];
   };
 
-  it("lists them widest first, leaves thirty-nine alone, and counts none of them", async () => {
+  it("lists them widest first, leaves twenty-nine alone, and counts none from forty", async () => {
     const user = userEvent.setup();
     renderTeamRankings(pool());
     await openSetup(user);
 
-    expect(rows()).toHaveLength(2);
+    expect(rows()).toHaveLength(3);
     expect(rows()[0]).toHaveTextContent("Big Scores 9999–0 Victims");
     expect(rows()[1]).toHaveTextContent("Big Scores 40–0 Others");
+    expect(rows()[2]).toHaveTextContent("Others 39–0 Victims");
     expect(section()).toHaveTextContent("9,999 at the most");
-    // The Victims' 9,999-run loss is not a result: they are 1-1, the 39-0 loss and the 5-4 win.
-    expect(await recordOf(user, "Victims")).toBe("1-1");
+    // The Victims' 9,999-run loss is not a result, and the 39-0 and 29-0 losses are: 1-2.
+    expect(await recordOf(user, "Victims")).toBe("1-2");
   });
 
   it("puts the club that posted them at the top of the clubs that may not be real", async () => {
@@ -481,8 +484,10 @@ describe("games won by forty runs or more", () => {
     const listed = [...clubs.querySelectorAll("li")];
     expect(listed.map((one) => one.querySelector("span.font-bold")?.textContent)).toEqual([
       "Big Scores",
+      "Others",
     ]);
-    expect(listed[0]).toHaveTextContent("2 wins by 40 or more");
+    expect(listed[0]).toHaveTextContent("2 wins by 30 or more");
+    expect(listed[1]).toHaveTextContent("1 win by 30 or more");
   });
 
   it("counts one said to be real, and takes it off the list", async () => {
@@ -491,7 +496,7 @@ describe("games won by forty runs or more", () => {
     await openSetup(user);
 
     await user.click(within(rows()[1]!).getByRole("button", { name: "It’s real" }));
-    expect(rows()).toHaveLength(1);
+    expect(rows()).toHaveLength(2);
     // The margin vouched for, so a later score read differently is suspect again.
     expect(loadScoutGames().find((one) => one.id === "rout")?.scoreConfirmed).toBe(40);
     // The 40-0 counts now, and the 9,999-0 still does not.
@@ -505,9 +510,9 @@ describe("games won by forty runs or more", () => {
 
     await user.click(within(rows()[0]!).getByRole("button", { name: "Delete" }));
     expect(requestConfirmation).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringMatching(/40 runs or more/) })
+      expect.objectContaining({ message: expect.stringMatching(/30 runs or more/) })
     );
-    expect(rows()).toHaveLength(1);
+    expect(rows()).toHaveLength(2);
     expect(loadScoutGames().some((one) => one.id === "typo")).toBe(false);
     expect([...loadDeletedGames()].some((id) => id.endsWith("typo"))).toBe(true);
   });

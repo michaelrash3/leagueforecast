@@ -11,7 +11,7 @@ import {
   ABSURD_MARGIN,
   autoRemovalsList,
   coerceAutoRemovals,
-  HUNDRED_MARGIN,
+  LOPSIDED_MARGIN,
   NO_REMOVALS,
   ROUT_MARGIN,
   type AutoRemoval,
@@ -108,8 +108,8 @@ it("draws the lines where they were measured", () => {
     FAR_AHEAD_DAYS,
     AHEAD_FEWEST_PLAYED,
     PLAINLY_REAL_GAMES,
-    HUNDRED_MARGIN,
-  ]).toEqual([75, 40, 8, 3, 3, 100]);
+    LOPSIDED_MARGIN,
+  ]).toEqual([75, 40, 8, 3, 3, 50]);
 });
 
 const NO_WORD: SweepAnswers = { realClubs: new Set(), keptApart: new Set(), namedAges: new Map() };
@@ -127,11 +127,31 @@ const sweep = (
     today
   );
 
+/**
+ * The sweep with H's line past any score. At 40, the owner's line of 26 October 2026, H marks every
+ * club A or B would, whatever real opponents list, so A and B, their guards and their escapes are
+ * read with H set aside (`SweepOptions`); H is read at its own line, in its own block.
+ */
+const sweepApartFromH = (
+  pool: Partial<SweepPool>,
+  answers: Partial<SweepAnswers> = {},
+  marks: AutoRemovals = NO_REMOVALS,
+  today = TODAY
+) =>
+  sweepMarks(
+    { ageGroups: PAGES, teams: [], games: [], ...pool },
+    { ...NO_WORD, ...answers },
+    marks,
+    today,
+    { lopsidedLine: Number.POSITIVE_INFINITY }
+  );
+
 /** The signs each marked GameChanger id carries. */
 const signsOf = (marks: AutoRemovals) =>
   Object.fromEntries([...marks].map(([id, mark]) => [id, mark.signs]));
 
 describe("sign A: two or more wins by 40 or more that no loser's own schedule lists", () => {
+  const sweep = sweepApartFromH;
   it("marks a club with two, and not one with one", () => {
     const fake = club("F", 12);
     expect(
@@ -201,6 +221,7 @@ describe("sign A: two or more wins by 40 or more that no loser's own schedule li
 });
 
 describe("sign B: one win by seventy-five or more that the loser's own schedule does not list", () => {
+  const sweep = sweepApartFromH;
   it("marks at seventy-five and not at seventy-four", () => {
     const fake = club("F", 9);
     expect(signsOf(sweep({ teams: [fake, standIn("X")], games: [game("F", "X", 75, 0)] }))).toEqual(
@@ -381,17 +402,35 @@ describe("sign N: a name with void, test or demo in it as a word of its own", ()
   });
 });
 
-describe("sign H: its own schedule reports a game won by 100 or more", () => {
+describe("sign H: its own schedule reports a game won by 50 or more", () => {
   // The loser's own schedule files each game here and the winner is a stand-in, so neither A nor B
   // reads it: what marks the loser is H alone.
   const loser = club("L", 12);
   const teams = [loser, standIn("W")];
 
-  it("marks the club whose schedule reports it, at 100 and not at 99", () => {
-    expect(signsOf(sweep({ teams, games: [game("W", "L", 100, 0, { filer: "L" })] }))).toEqual({
-      gcL: ["hundred"],
+  it("marks the club whose schedule reports it, at 50 and not at 49", () => {
+    // The owner's line of 26 October 2026; it was 100, and a 99-0 stood.
+    for (const runs of [50, 99]) {
+      expect(signsOf(sweep({ teams, games: [game("W", "L", runs, 0, { filer: "L" })] }))).toEqual({
+        gcL: ["hundred"],
+      });
+    }
+    expect(sweep({ teams, games: [game("W", "L", 49, 0, { filer: "L" })] }).size).toBe(0);
+  });
+
+  it("takes a club A's guards would keep: real opponents' schedules listing its games", () => {
+    // Three wins by 50 or more, each listed by its loser, a real club: no sign A or B, and three
+    // games a witness lists. H reads its own schedule's score and takes it all the same.
+    const winner = club("F", 12);
+    const real = club("R", 12);
+    const games = [1, 2, 3].map((at) =>
+      game("F", "R", 50 + at, 0, { date: `2026-09-0${at}`, listedBy: ["R"] })
+    );
+    expect(signsOf(sweepApartFromH({ teams: [winner, real], games }))).toEqual({});
+    expect(signsOf(sweep({ teams: [winner, real], games }))).toEqual({
+      gcF: ["hundred"],
+      gcR: ["hundred"],
     });
-    expect(sweep({ teams, games: [game("W", "L", 99, 0, { filer: "L" })] }).size).toBe(0);
   });
 
   it("marks each side whose own schedule reports it, and records the game", () => {
@@ -507,6 +546,7 @@ describe("sign H: its own schedule reports a game won by 100 or more", () => {
 });
 
 describe("what keeps a club with a sign", () => {
+  const sweep = sweepApartFromH;
   // A 12U club with two unlisted routs: sign A, nothing else.
   const fake = club("F", 12);
   const routs = [game("F", "X", 40, 0), game("F", "X", 41, 0)];
@@ -576,6 +616,7 @@ describe("what keeps a club with a sign", () => {
 });
 
 describe("a mark, once made", () => {
+  const sweep = sweepApartFromH;
   const fake = club("F", 12);
   const pool = {
     teams: [fake, standIn("X")],
@@ -796,13 +837,13 @@ describe("what the review of the sweep found", () => {
     const first = game("F", "L", 40, 0);
     const second = game("F", "X", 40, 0);
     const rest = [1, 2, 3, 4].map((at) => game("F", "X", 3, at));
-    const marked = sweep({ teams, games: [first, second, ...rest] });
+    const marked = sweepApartFromH({ teams, games: [first, second, ...rest] });
     expect(signsOf(marked)).toEqual({ gcF: ["wins"] });
     // Re-pulled, the loser's schedule lists the game, held as its own row with F's folded in.
     const relisted = game("L", "F", 0, 40, { filer: "L", listedBy: ["F"] });
     const pool = { teams, games: [relisted, second, ...rest] };
-    expect(sweep(pool).size).toBe(0);
-    expect(sweep(pool, {}, marked).size).toBe(0);
+    expect(sweepApartFromH(pool).size).toBe(0);
+    expect(sweepApartFromH(pool, {}, marked).size).toBe(0);
   });
 
   it("lifts B once the loser lists the win counted, though it now stands under another id", () => {
@@ -811,17 +852,17 @@ describe("what the review of the sweep found", () => {
     const teams = [fake, loser, standIn("X")];
     const rout = game("F", "L", 80, 0, { page: "p9" });
     const rest = [1, 2, 3].map((at) => game("F", "X", 3, at, { page: "p9" }));
-    const marked = sweep({ teams, games: [rout, ...rest] });
+    const marked = sweepApartFromH({ teams, games: [rout, ...rest] });
     expect(signsOf(marked)).toEqual({ gcF: ["rout"] });
     const relisted = game("L", "F", 0, 80, { filer: "L", listedBy: ["F"], page: "p9" });
     const pool = { teams, games: [relisted, ...rest] };
-    expect(sweep(pool).size).toBe(0);
-    expect(sweep(pool, {}, marked).size).toBe(0);
+    expect(sweepApartFromH(pool).size).toBe(0);
+    expect(sweepApartFromH(pool, {}, marked).size).toBe(0);
     // While another win by the line stays unlisted, B stands, the mark as it was made rather than
     // lifted and made again on a later day.
     const another = game("F", "X", 90, 0, { page: "p9" });
     const still = { teams, games: [relisted, another, ...rest] };
-    expect(sweep(still, {}, marked, ahead(1))).toBe(marked);
+    expect(sweepApartFromH(still, {}, marked, ahead(1))).toBe(marked);
   });
 
   it("names the first score far ahead, not one a day or two ahead", () => {

@@ -62,6 +62,26 @@ export const isImplausibleScore = (game: ScoutGame): boolean => {
 };
 
 /**
+ * A win by this many runs or more is put to the owner in Pool health, to delete, or to say it was
+ * played that way: their word of 26 October 2026, "ask me about 30 and above". Below
+ * `IMPLAUSIBLE_MARGIN` such a game still counts while it waits, as it did, since the owner vouched
+ * for 76 of the 83 games won by 31 to 39 on the backup of 11 October; from that line it counts for
+ * nothing until vouched for. From `LOPSIDED_MARGIN` (`autoRemoved.ts`) a club whose own schedule
+ * reports one is taken off without asking (sign H).
+ */
+export const ASK_MARGIN = 30;
+
+/**
+ * A score put to the owner (`ASK_MARGIN`): won by that many runs or more as the rating reads a
+ * margin, and not the very margin they vouched for, as `isImplausibleScore` reads it.
+ */
+export const isAskedScore = (game: ScoutGame): boolean => {
+  const margin = ratedMargin(game);
+  if (margin === undefined || Math.abs(margin) < ASK_MARGIN) return false;
+  return game.scoreConfirmed !== margin;
+};
+
+/**
  * Whether a game feeds the ratings and records: it has to have been played, not be one of the
  * cross-age tournament games kept only for the record, not be dated in a day that has not
  * happened yet, and not carry a score suspected of being made up (`isImplausibleScore`). Every ranking calculation goes through this, so there is one answer to the

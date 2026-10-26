@@ -2887,9 +2887,15 @@ not at all. On 21 October 2026 the user moved it to "a 40 or more run lead", the
 the 83 games won by 31 to 39 on the backup of 11 October, so the move counts seven more games;
 League Standings' warning of an unusual final reads the same line.
 
+**Asked from thirty runs.** On 26 October 2026 the user asked to be asked about every win by 30
+runs or more (`ASK_MARGIN`, `isAskedScore`), so Pool health's list starts there now, with the
+line a score counts at left where it was: a game won by 30 to 39 still counts while it waits, and
+one won by 40 or more counts for nothing until **It's real**. **Delete** and **It's real** work on
+each as before. The clubs that post them head **Clubs that may not be real** from the same line.
+
 The clubs that post them head Pool health's **Clubs that may not be real**, the user's call of 28
-September 2026: a club whose schedule filed a win by forty runs or more that nobody has
-vouched for is listed whether or not anything of its is dated ahead, charged to the side that
+September 2026: a club whose schedule filed a win by thirty runs or more (forty until 26 October
+2026) that nobody has vouched for is listed whether or not anything of its is dated ahead, charged to the side that
 won it where that side's schedule filed it (`filedBy`), so a club whose own schedule records a
 rout against it is not said to have won one, and those clubs come first, most such wins first,
 with a red pill saying how many; the clubs with results dated ahead follow in their old order.
@@ -2945,20 +2951,25 @@ signs and nothing keeps it:
   the rules read 300, those ten fewer and 61 more. It is marked by GameChanger team, so a club with
   one such team among others stands. Since the tidy now deletes a pulled club every one of whose
   names says it is no team, N mostly marks what the tidy leaves: one such team among others.
-- **A hundred-run game** (H): its own schedule reports a game won by 100 runs or more, by either
-  side, that nobody has vouched for: the user's rule of 21 October 2026, "if they win by 100 or
-  more, automatically delete the team that is reporting a lopsided game like that". Only a side
+- **A lopsided game** (H): its own schedule reports a game won by 50 runs or more
+  (`LOPSIDED_MARGIN`), by either side, that nobody has vouched for. The user's rule of 21 October
+  2026 set it at 100, "if they win by 100 or more, automatically delete the team that is reporting
+  a lopsided game like that"; on 26 October they moved it to 50, with the wins from 30 put to them
+  in Pool health instead (above). On the cloud copy of that day (the 2027 squad year, 386,146
+  games), 50 takes off 14 more clubs than the marks already standing, where 40 would have taken
+  35, 75 one and 100 none. At 50, H marks every club B would and most A would, whatever real
+  opponents list, so A and B now mostly say why a club went rather than decide whether it does. Only a side
   whose own schedule scored the game is charged, the loser as much as the winner, so a club named
   by another's made-up score stays, and a game no pulled club's schedule scored charges nobody.
   Each side is read at its own schedule's score, not the rating's average of the two: where the
   schedules disagree, 190-0 against 20-0, the average of 105 would charge the club that said 20,
   and 150-0 against 0-0 would average 75 and let off the club that said 150. It is a mark like
   the others rather than a deletion, so a club taken by a score keyed wrong can be put back, and
-  **Delete for good** deletes the rest. Swept from no marks, the pool of 26 September 2026 as
-  today's tidy leaves it, before the user's own sweep of the 28th, had 24 games won by 100 or more
+  **Delete for good** deletes the rest. Swept from no marks at the first line, 100, the pool of 26
+  September 2026 as today's tidy leaves it, before the user's own sweep of the 28th, had 24 games won by 100 or more
   (the widest 9,999), and H marks the 20 clubs whose own schedules scored one of them so, 6 of
   them showing no other sign (read at the average it was 19 and 5: one club's own schedule gave
-  100 or more where the other side's gave less); on 11 October the widest game is 54, so it takes
+  100 or more where the other side's gave less); on 11 October the widest game is 54, so it took
   none.
 
 What keeps a club: any of its GameChanger ids, or its club id, said to be real (**It's real**);
@@ -2998,7 +3009,7 @@ September and 11 October did); C lifts once a real opponent's schedule lists eve
 club's dated after the mark, which is how a squad whose scores ran ahead of its games answers once
 it plays, and such a club no longer shows C, so it stays lifted; N lifts once neither the club's
 name nor its GameChanger team's has the word; H once no game of the club's own schedule reports a
-score by 100 or more, the game deleted, rescored or vouched for. Saying a club is real forgets its
+score by 50 or more, the game deleted, rescored or vouched for. Saying a club is real forgets its
 marks there and then, with the answer and in its Undo, rather than at the next sweep, so a club
 marked after the card was opened is back on the boards as it is said; a restored backup that says a
 club is real does the same.

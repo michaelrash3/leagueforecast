@@ -111,6 +111,9 @@ describe("a run's end", () => {
     await waitFor(() => expect(onSwept).toHaveBeenCalledTimes(1));
     const change = onSwept.mock.calls[0]?.[0];
     expect(change?.forget).toEqual([]);
-    expect(change?.put.map((mark) => [mark.gcTeamId, mark.signs])).toEqual([[ROUT, ["rout"]]]);
+    // Its own schedule's 80-0 is B's rout, and from 26 October 2026 H's too (50 or more).
+    expect(change?.put.map((mark) => [mark.gcTeamId, mark.signs])).toEqual([
+      [ROUT, ["rout", "hundred"]],
+    ]);
   });
 });

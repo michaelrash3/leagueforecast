@@ -4,7 +4,7 @@ import type { LiveEdits } from "../../hooks/useLiveEdits";
 import { MAX_COMMAND_STEPS, type PoolCommand } from "../../lib/live/commands";
 import type { HealthInspectAnswer, HealthSummaryAnswer } from "../../lib/live/queries";
 import { clubOf } from "../../lib/poolHealthSummary";
-import { IMPLAUSIBLE_MARGIN, type SeasonSegment } from "../../lib/teamRankings";
+import { ASK_MARGIN, type SeasonSegment } from "../../lib/teamRankings";
 import { createAgeGroupId } from "../../lib/teamRankings/seasons";
 import { downloadCsv } from "../../lib/download";
 import { button, card } from "../../styles/tokens";
@@ -186,14 +186,14 @@ export function LivePoolHealthCard({
         message: `${
           why === "ahead"
             ? "Each one carries a score on a date still to come, so it cannot be a result."
-            : `Each one has a side winning by ${IMPLAUSIBLE_MARGIN} runs or more, which no real game ends with.`
+            : `Each one has a side winning by ${ASK_MARGIN} runs or more, which you have not said was played that way.`
         } The rows that carried those scores are remembered by their GameChanger id, so pulling those schedules again will not bring them back.`,
         confirmLabel: "Delete them",
       });
       if (!confirmed) return false;
       return change(
         { kind: "games.drop", gameIds: [...ids] },
-        `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by ${IMPLAUSIBLE_MARGIN} or more`}.`
+        `Deleted ${games} ${why === "ahead" ? "dated ahead" : `won by ${ASK_MARGIN} or more`}.`
       );
     },
     // At once, without asking, as the device's card deletes one.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GcImportState } from "../gameChangerImport";
 import { aheadWorstFirst, clubOf, poolHealthSummary } from "../poolHealthSummary";
-import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
+import { countsTowardRating, type AgeGroup, type ScoutGame, type ScoutTeam } from "../teamRankings";
 import { unrealClubs, type UnrealClub } from "../unrealClubs";
 import { NO_REMOVALS, type AutoRemoval } from "../autoRemoved";
 
@@ -139,6 +139,26 @@ describe("what Pool health shows as it opens", () => {
       ["rout-44", 44],
       ["rout-40", 40],
     ]);
+  });
+
+  it("asks about a game won by thirty or more too, which still counts while it is asked", () => {
+    // The owner's word of 26 October 2026, "ask me about 30 and above"; a 29-run win is a result.
+    const asked = (runs: number) => ({
+      ...POOL.games[0]!,
+      id: `won-${runs}`,
+      date: "2026-09-12",
+      teamAScore: runs,
+      teamBScore: 0,
+    });
+    const withThirties = { ...POOL, games: [...POOL.games, asked(30), asked(29)] };
+    const listed = poolHealthSummary(withThirties, TODAY, STORED, NO_REMOVALS, new Set());
+    expect(listed.implausible.map(({ game }) => game.id)).toEqual(["rout-44", "rout-40", "won-30"]);
+    expect(
+      countsTowardRating(
+        withThirties.games.find((game) => game.id === "won-30")!,
+        TODAY
+      )
+    ).toBe(true);
   });
 
   it("names the suspected clubs as the page's own list does, and every club a row names", () => {

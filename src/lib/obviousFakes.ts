@@ -7,7 +7,7 @@ import { clubsByGcId, filedBy } from "./unrealClubs";
 import {
   ABSURD_MARGIN,
   AUTO_SIGNS,
-  HUNDRED_MARGIN,
+  LOPSIDED_MARGIN,
   ROUT_MARGIN,
   type AutoRemoval,
   type AutoRemovals,
@@ -58,13 +58,15 @@ import {
  *   the 10 it no longer reads all that organisation's (`madeUpHit`). Marked per
  *   GameChanger id: when only one of its teams has the word and the club's own name does not,
  *   only that one, so the club stands unless every one of its ids is marked.
- * - H: its own schedule reports a game won by `HUNDRED_MARGIN` or more that nobody has vouched
+ * - H: its own schedule reports a game won by `LOPSIDED_MARGIN` or more that nobody has vouched
  *   for, whichever side it was on: the owner's rule of 21 October 2026, that a team reporting a
  *   game like that is to go, on its own. Like N it is no matter what real opponents list of it,
  *   since no witness makes such a score a game; the owner's own word on the club still keeps it.
- *   Measured from no marks: on the pool of 26 September 2026 as today's tidy leaves it, before the
- *   user's own sweep of the 28th, 24 games reached 100 (the widest 9,999) and H marks the 19 clubs whose schedules scored
- *   them, 5 of them showing no other sign; on 11 October the widest game is 54, so it takes none.
+ *   Measured from no marks at the first line, 100: on the pool of 26 September 2026 as today's tidy
+ *   leaves it, before the user's own sweep of the 28th, 24 games reached 100 (the widest 9,999)
+ *   and H marks the 19 clubs whose schedules scored them, 5 of them showing no other sign; on 11
+ *   October the widest game is 54, so it took none. At 50, the owner's line of 26 October 2026, it
+ *   takes 14 more clubs off the cloud copy of that day beyond the marks standing (`LOPSIDED_MARGIN`).
  *
  * Measured with this code against what the user did by hand, sweeping each backup from no marks.
  * On the pool of 26 September 2026 at 18:40, before the user's own sweep of 28 September, A, B and
@@ -100,7 +102,7 @@ import {
  * the club's dated after the day it was marked: the shape C finds is a club whose scores are
  * mostly of games still to be played, and a season of real games is the answer to it; such a club
  * no longer shows C, so it stays lifted. N lifts once neither the club's name nor the GameChanger
- * team's has the word, and H once no game its own schedule scored is won by `HUNDRED_MARGIN` or
+ * team's has the word, and H once no game its own schedule scored is won by `LOPSIDED_MARGIN` or
  * more unvouched: the game deleted or rescored. No witness lifts H, as none keeps it from being made.
  */
 
@@ -125,6 +127,16 @@ export type SweepPool = {
 };
 
 /** The user's answers the sweep honours, as stored. */
+/**
+ * What a test can ask of a sweep beyond the nightly's rules.
+ *
+ * `lopsidedLine` is H's line, `LOPSIDED_MARGIN` when left out, as the nightly sweeps. At 50, the
+ * owner's line of 26 October 2026, H marks every club B would (a win by 75 or more its own schedule
+ * filed) and most A would, whatever real opponents list, so A and B, their guards and their escapes
+ * are read with H set past any score.
+ */
+export type SweepOptions = { lopsidedLine?: number };
+
 export type SweepAnswers = {
   realClubs: ReadonlySet<string>;
   /** Pairs of GameChanger ids kept apart (`apartKey`). */
@@ -239,7 +251,7 @@ type Tally = {
   farAhead: number;
   firstFar: string | undefined;
   vouched: boolean;
-  /** The games won by `HUNDRED_MARGIN` or more, unvouched, that its own schedule reported (H). */
+  /** The games won by `LOPSIDED_MARGIN` or more, unvouched, that its own schedule reported (H). */
   reported: CountedWin[];
 };
 
@@ -283,7 +295,7 @@ type Verdict = {
   signs: AutoSign[];
   named: Map<string, Named>;
   wins: CountedWin[];
-  /** The games won by `HUNDRED_MARGIN` or more its own schedule reported, either side (H). */
+  /** The games won by `LOPSIDED_MARGIN` or more its own schedule reported, either side (H). */
   reported: CountedWin[];
   /** Its wins by `ROUT_MARGIN` or more, and by `ABSURD_MARGIN` or more, that the loser's lists. */
   routsListed: number;
@@ -303,7 +315,12 @@ type Verdict = {
  * What every pulled club shows, and what keeps it: the signs before any guard, the guards, and the
  * day of the latest of its games a real opponent's own schedule lists.
  */
-const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<string, Verdict> => {
+const judge = (
+  pool: SweepPool,
+  answers: SweepAnswers,
+  today: string,
+  lopsidedLine: number
+): Map<string, Verdict> => {
   const clubOfGcId = clubsByGcId(pool.teams);
   const pulled = new Map(
     pool.teams.filter((team) => (team.gcTeams ?? []).length > 0).map((team) => [team.id, team])
@@ -346,7 +363,7 @@ const judge = (pool: SweepPool, answers: SweepAnswers, today: string): Map<strin
         if (seen.own - seen.opponent >= ABSURD_MARGIN) tally.absurdListed += 1;
       }
       const reported = hundred?.get(self!);
-      if (reported !== undefined && reported >= HUNDRED_MARGIN) {
+      if (reported !== undefined && reported >= lopsidedLine) {
         tally.reported.push({
           gameId: game.id,
           margin: reported,
@@ -493,15 +510,16 @@ const keeping = (mark: AutoRemoval, signs: readonly AutoSign[]): AutoRemoval | u
  * off, and a mark made for each GameChanger id of a club newly showing a sign that nothing keeps.
  * `marks` itself when nothing changes, so a caller can tell by identity whether to save.
  *
- * `today` is the user's day, as an ISO day.
+ * `today` is the user's day, as an ISO day. `options` is for the tests alone (`SweepOptions`).
  */
 export const sweepMarks = (
   pool: SweepPool,
   answers: SweepAnswers,
   marks: AutoRemovals,
-  today: string
+  today: string,
+  options: SweepOptions = {}
 ): AutoRemovals => {
-  const verdicts = judge(pool, answers, today);
+  const verdicts = judge(pool, answers, today, options.lopsidedLine ?? LOPSIDED_MARGIN);
   const clubOfGcId = clubsByGcId(pool.teams);
   const games = new Map(pool.games.map((game) => [game.id, game]));
   const teams = new Map(pool.teams.map((team) => [team.id, team]));
