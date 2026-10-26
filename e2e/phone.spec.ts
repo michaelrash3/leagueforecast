@@ -267,3 +267,55 @@ test.describe("the League tab bar", () => {
     await expect(page.getByRole("button", { name: /^More/ })).toHaveCount(0);
   });
 });
+
+/*
+ * Seasons at a glance on a phone. Each group is headed by its seasons' name with the year taken
+ * out, in capitals, and a league named in one long word had a heading that would not break: at
+ * 390px "NorthernKentuckyBaseballAssociationCoachPitch 2026" gave a heading 447px wide in a 316px
+ * card, reaching x 484. The heading now breaks inside the card, as each season's own name in its
+ * row already did. What is measured is the glance: with a name this long the header's season
+ * picker, as wide as its longest name, still reaches x 470, which is the header's and not this.
+ */
+test("on a phone the seasons at a glance stay within the screen, however long a league's name", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await openView(page, "Settings");
+  await page.getByRole("button", { name: "Load Demo" }).click();
+  const confirm = page.getByRole("button", { name: "Load demo" });
+  if (await confirm.isVisible({ timeout: 1500 }).catch(() => false)) await confirm.click();
+  // The demo opens on its Standings; the Seasons card is back in Settings.
+  await openView(page, "Settings");
+
+  const long = "NorthernKentuckyBaseballAssociationCoachPitch";
+  await page.getByLabel("New season name").fill(`${long} 2026`);
+  await page.getByRole("button", { name: "New Season" }).click();
+  await page.getByRole("button", { name: "Seasons at a glance" }).click();
+  const glance = page.getByRole("region", { name: "Seasons at a glance" });
+  const heading = glance.getByRole("heading", { name: long });
+  await expect(heading).toBeVisible();
+  await expect(glance.getByRole("listitem", { name: `${long} 2026` })).toBeVisible();
+
+  // The heading's words inside its own box, and nothing in the glance past either edge.
+  expect(await heading.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(
+    0
+  );
+  /*
+   * An element's words can run past its box, so each reaches as far as the wider of the two. The
+   * screen's width is given rather than read: on a phone a page wider than the screen widens
+   * `innerWidth` with it, and the header's picker makes this one wider.
+   */
+  const outside = await glance.evaluate(
+    (region, width) =>
+      [region, ...region.querySelectorAll("*")]
+        .map((node) => {
+          const box = node.getBoundingClientRect();
+          return { left: box.left, right: box.left + Math.max(box.width, node.scrollWidth) };
+        })
+        .filter(({ left, right }) => left < -0.5 || right > width + 0.5)
+        .map(({ right }) => Math.round(right)),
+    390
+  );
+  expect(outside).toEqual([]);
+});

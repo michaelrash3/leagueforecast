@@ -6,7 +6,7 @@
 import { buildBracketProjection, type BracketProjection } from "./bracket";
 import { displayName, recordText } from "./format";
 import { seasonFinalOf, type SeasonFinal } from "./seasonFinal";
-import { seasonNameStem, squadYearFromName } from "./seasonNames";
+import { seasonNameStem, squadYearFromName, withFullYears } from "./seasonNames";
 import { calculateTeams, effectiveGoldCutoff, rankOptionsFromSettings, rankTeams } from "./sim";
 import type { SeasonMeta, SeasonSnapshot } from "./storage";
 import { isFinal } from "./util";
@@ -21,6 +21,12 @@ export type SeasonGlance = {
   final: SeasonFinal | null;
   /** Every regular-season game is final, and the bracket's final is not yet decided on the field. */
   bracketOpen: boolean;
+  /**
+   * The Gold bracket's final has a final score of its own. In a bracket still open, what holds the
+   * champion back is then a game before it with no winner, or a tied final, and the glance says so
+   * rather than call a final with a score unplayed.
+   */
+  bracketFinalScored: boolean;
   /**
    * The team this device follows in the season: its place in the table, its record, and whether it
    * is inside the Gold line (null in a league with no cut line, where nobody is outside one).
@@ -94,6 +100,7 @@ export const seasonGlance = (
     ...(silver ? { silverChampion: crownOf(silver) } : {}),
     ourTeamId,
   });
+  const finalGame = gold?.rounds[gold.rounds.length - 1]?.[0];
   const leader = ranked[0];
   const place = ourTeamId ? ranked.findIndex((team) => team.id === ourTeamId) : -1;
   const mine = place >= 0 ? ranked[place] : undefined;
@@ -104,6 +111,7 @@ export const seasonGlance = (
     leader: leader && played > 0 ? displayName(leader.name) : null,
     final,
     bracketOpen: over && hasPostseason && final === null,
+    bracketFinalScored: finalGame !== undefined && isFinal(finalGame.log),
     ours: mine
       ? {
           name: displayName(mine.name),
@@ -133,12 +141,19 @@ export const glanceLines = (glance: SeasonGlance): string[] => {
     ];
   }
   if (glance.scheduled === 0) {
-    return [glance.teams > 0 ? `No games yet: ${glance.teams} teams.` : "No teams or games yet."];
+    return [
+      glance.teams > 0
+        ? `No games yet: ${glance.teams} team${glance.teams === 1 ? "" : "s"}.`
+        : "No teams or games yet.",
+    ];
   }
   if (glance.bracketOpen) {
     return [
       `Regular season: ${glance.leader ?? "nobody"} finished first.`,
-      "The bracket's final has no score yet.",
+      // Never "no score" of a final that has one: what holds it back is another game, or a tie.
+      glance.bracketFinalScored
+        ? "A game in the bracket has no winner yet, so no champion is named."
+        : "The bracket's final has no score yet.",
       ...(ours ? [`${ours.name} finished ${ours.place} of ${ours.of}.`] : []),
       ...goldLine,
     ];
@@ -181,12 +196,28 @@ export const glanceCache = () => {
 
 export type GlanceGroup<T> = { stem: string; seasons: T[] };
 
+/**
+ * The squad year a season is ordered by: the one its name gives, a short year included, since the
+ * stem groups "Spring '26" with "Spring 2025"; or else the squad year it was made in here, August
+ * to July as `segmentOn` reckons it, so a "Fall" made this autumn is not put below "Fall 2019".
+ * Every season gets a year, never none, so every pair is compared by the same rule and the order
+ * holds together however the sort walks it.
+ */
+const sortYear = ({ name, createdAt }: Pick<SeasonMeta, "name" | "createdAt">): number => {
+  const named = squadYearFromName(withFullYears(name));
+  if (named !== undefined) return named;
+  const year = Number(createdAt.slice(0, 4));
+  const month = Number(createdAt.slice(5, 7));
+  if (!Number.isInteger(year) || !Number.isInteger(month)) return -Infinity;
+  return month >= 8 ? year + 1 : year;
+};
+
 const newestFirst = (
   a: Pick<SeasonMeta, "name" | "createdAt">,
   b: Pick<SeasonMeta, "name" | "createdAt">
 ): number => {
-  const yearA = squadYearFromName(a.name) ?? -Infinity;
-  const yearB = squadYearFromName(b.name) ?? -Infinity;
+  const yearA = sortYear(a);
+  const yearB = sortYear(b);
   if (yearA !== yearB) return yearB - yearA;
   return b.createdAt.localeCompare(a.createdAt);
 };
@@ -194,8 +225,9 @@ const newestFirst = (
 /**
  * Seasons set side by side, one league's to a group: grouped by their names with the year taken
  * out (`seasonNameStem`), ignoring case, and each group newest first, by the squad year its name
- * gives and then by when it was made here. The groups follow their newest seasons in the same
- * order, and a group is named as its newest season's name has it.
+ * gives (or, where it gives none, the one it was made in) and then by when it was made here. The
+ * groups follow their newest seasons in the same order, and a group is named as its newest
+ * season's name has it.
  */
 export const glanceGroups = <T extends { meta: Pick<SeasonMeta, "name" | "createdAt"> }>(
   rows: readonly T[]

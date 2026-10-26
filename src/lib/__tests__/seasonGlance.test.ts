@@ -79,7 +79,8 @@ describe("seasonGlance", () => {
 
   it("names no champion from a bracket with a game the model would have to pick", () => {
     // The final has a score, but the Bears-Comets semifinal does not: who played the final is the
-    // model's guess, so the final's score cannot say who won it.
+    // model's guess, so the final's score cannot say who won it. The glance says which game is
+    // missing rather than call a final with a score unplayed.
     const { "bracket-r1-g2": _unplayed, ...rest } = fourTeamBracket;
     const glance = seasonGlance(
       season({ settings: { postseasonFormat: "all" }, bracketLogs: rest }),
@@ -87,9 +88,25 @@ describe("seasonGlance", () => {
     );
     expect(glance.final).toBeNull();
     expect(glance.bracketOpen).toBe(true);
+    expect(glance.bracketFinalScored).toBe(true);
+    expect(glanceLines(glance)).toEqual([
+      "Regular season: Aces finished first.",
+      "A game in the bracket has no winner yet, so no champion is named.",
+    ]);
+  });
+
+  it("says the bracket's final has no score when that is the game missing one", () => {
+    const { "bracket-r2-g1": _unplayed, ...semifinals } = fourTeamBracket;
+    const glance = seasonGlance(
+      season({ settings: { postseasonFormat: "all" }, bracketLogs: semifinals }),
+      "B"
+    );
+    expect(glance.bracketOpen).toBe(true);
+    expect(glance.bracketFinalScored).toBe(false);
     expect(glanceLines(glance)).toEqual([
       "Regular season: Aces finished first.",
       "The bracket's final has no score yet.",
+      "Bears finished 2 of 4.",
     ]);
   });
 
@@ -162,6 +179,9 @@ describe("seasonGlance", () => {
     expect(glanceLines(seasonGlance(season({ matchups: [], logs: {} }), "A"))).toEqual([
       "No games yet: 4 teams.",
     ]);
+    // A new season right after its first team is added.
+    const one = { ...season({ matchups: [], logs: {} }), teams: teams.slice(0, 1) };
+    expect(glanceLines(seasonGlance(one, null))).toEqual(["No games yet: 1 team."]);
   });
 
   it("leaves out a followed team the season no longer has", () => {
@@ -230,6 +250,25 @@ describe("glanceGroups", () => {
       // A name with no year is its own league, ordered by when it was made here.
       ["Season 2", ["Season 2"]],
       ["Season 1", ["Season 1"]],
+    ]);
+  });
+
+  it("puts a short year, or no year, in its place among a group's long years", () => {
+    // "Spring '26" and "Spring 26" are squad year 2026, as "Spring 2026" would be, and "Fall 26"
+    // is 2027. A season whose name gives no year goes by the squad year it was made in: a "Spring"
+    // made in March 2027 is the newest spring, and a "Fall" made in March 2019 the oldest fall.
+    const groups = glanceGroups([
+      row("Spring 2025", "2026-09-01T00:00:00.000Z"),
+      row("Spring '26", "2026-02-01T00:00:00.000Z"),
+      row("Spring", "2027-03-01T00:00:00.000Z"),
+      row("Spring 26", "2026-02-02T00:00:00.000Z"),
+      row("Fall", "2019-03-01T00:00:00.000Z"),
+      row("Fall 2019", "2019-03-02T00:00:00.000Z"),
+      row("Fall 26", "2018-01-01T00:00:00.000Z"),
+    ]);
+    expect(groups.map((group) => [group.stem, group.seasons.map((one) => one.meta.name)])).toEqual([
+      ["Spring", ["Spring", "Spring 26", "Spring '26", "Spring 2025"]],
+      ["Fall", ["Fall 26", "Fall 2019", "Fall"]],
     ]);
   });
 });

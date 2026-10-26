@@ -5,12 +5,15 @@ import { Suspense, useId, useState } from "react";
 import type { SeasonMeta } from "../../lib/storage";
 import { card } from "../../styles/tokens";
 import { ErrorBoundary } from "../ErrorBoundary";
+import { LoadingPanel } from "../LoadingPanel";
 import { viewChunk } from "./leagueViews";
 
 /**
  * Every season at a glance, fetched the first time it is opened rather than with the Settings tab:
  * most visits to Settings never open it, and it reads every season stored here when it is drawn.
- * Its own boundary forgets a failed download, so Try again fetches afresh.
+ * Its own boundary forgets a failed download, so Try again fetches afresh. While it downloads it
+ * says so, as the other panels a button opens do: on one bar the button would otherwise say the
+ * panel is open over nothing, and a second tap would close it.
  */
 const glanceView = viewChunk(
   () => import("./SeasonsAtAGlance").then((module) => module.SeasonsAtAGlance),
@@ -137,7 +140,7 @@ export function SeasonManager({
         <div id={glanceId} className={glanceOpen ? "mt-3" : ""}>
           {glanceOpen && (
             <ErrorBoundary area="Seasons at a glance" onReset={glanceView.reset}>
-              <Suspense fallback={null}>
+              <Suspense fallback={<LoadingPanel area="the seasons at a glance" />}>
                 <glanceView.View seasons={seasons} activeSeasonId={activeSeasonId} />
               </Suspense>
             </ErrorBoundary>

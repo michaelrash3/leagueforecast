@@ -73,7 +73,8 @@ export function SeasonsAtAGlance({
       </p>
       {groups.map((group) => (
         <div key={group.seasons[0]?.meta.id ?? group.stem}>
-          <h3 className="text-sm font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">
+          {/* A one-word name can be wider than a phone: it breaks rather than push the page sideways. */}
+          <h3 className="break-words text-sm font-black uppercase tracking-wide text-slate-600 dark:text-slate-300">
             {group.stem || "Named by year"}
           </h3>
           <ul className="mt-2 space-y-2">

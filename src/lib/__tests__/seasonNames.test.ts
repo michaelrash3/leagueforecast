@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { seasonNameStem, squadYearFromName } from "../seasonNames";
+import { seasonNameStem, squadYearFromName, withFullYears } from "../seasonNames";
 
 describe("squadYearFromName", () => {
   it.each([
@@ -84,11 +84,32 @@ describe("seasonNameStem", () => {
     // is not, so the year alone goes.
     ["2026-28 Spring", "Spring"],
     ["Spring 2026 - 12 teams", "Spring - 12 teams"],
+    // Two digits spaced out after a dash, with more after them, are a count even where they could
+    // be a later year; written tight, or ending the name, they are the span's second year.
+    ["Spring 2026 - 27 teams", "Spring - 27 teams"],
+    ["Spring 2026 - 30 teams", "Spring - 30 teams"],
+    ["Wolves 2026 - 27", "Wolves"],
+    ["NKB 2026 - 2027 Spring", "NKB Spring"],
+    ["Wolves (2026 - 27)", "Wolves"],
     // A name that is only a year has no stem.
     ["2026", ""],
     ["2026-27", ""],
     ["", ""],
   ])("reads %j as %j", (name, stem) => {
     expect(seasonNameStem(name)).toBe(stem);
+  });
+});
+
+describe("withFullYears", () => {
+  it.each([
+    ["Spring '26", "Spring 2026"],
+    ["Spring 26", "Spring 2026"],
+    ["Fall ’26", "Fall 2026"],
+    ["NKB '26 Fall", "NKB 2026 Fall"],
+    // Only the short years the stem takes out: a division number, an age or a long year stays.
+    ["Division 12 Spring", "Division 12 Spring"],
+    ["9U Spring 2026", "9U Spring 2026"],
+  ])("writes %j as %j", (name, full) => {
+    expect(withFullYears(name)).toBe(full);
   });
 });
