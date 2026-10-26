@@ -98,7 +98,7 @@ exports[`the matchup odds > are pinned, so explaining them moves none of them 1`
       "reasons": [
         "Projected margin is tight, so winner certainty remains limited.",
       ],
-      "score": 23,
+      "score": 41,
       "tier": "Low",
     },
     "expectedScore": {
@@ -125,7 +125,7 @@ exports[`the matchup odds > are pinned, so explaining them moves none of them 1`
       "reasons": [
         "Projected margin is tight, so winner certainty remains limited.",
       ],
-      "score": 22,
+      "score": 40,
       "tier": "Low",
     },
     "expectedScore": {
@@ -153,7 +153,7 @@ exports[`the matchup odds > are pinned, so explaining them moves none of them 1`
       "reasons": [
         "Projected margin is tight, so winner certainty remains limited.",
       ],
-      "score": 24,
+      "score": 42,
       "tier": "Low",
     },
     "expectedScore": {
@@ -181,7 +181,7 @@ exports[`the matchup odds > are pinned, so explaining them moves none of them 1`
       "reasons": [
         "Projected margin is tight, so winner certainty remains limited.",
       ],
-      "score": 25,
+      "score": 43,
       "tier": "Low",
     },
     "expectedScore": {
