@@ -4399,6 +4399,11 @@ subscription and sending to it, which the app does not have.
   switch back to an id nor a restore that puts another season under the open one shows what
   was kept of the season before.
 - League stories are generated locally from standings facts. With `GEMINI_API_KEY` set, Gemini rewrites the same facts into prose, and with `GROQ_API_KEY` Groq does when Gemini cannot; see [AI league story](#ai-league-story). No key is required for the app to work.
+- What the last full restore replaced is kept on this device until the next restore
+  (`league_forecast_replaced_backup_v1`, in the pool's IndexedDB store beside the saved board, and
+  never read as the pool or sent to the cloud), and Settings' Data card offers it as "Download
+  replaced data" for as long as it is kept. The restore's toast offers the same download, and was
+  once the only copy: for twelve seconds, until any other toast took its place.
 - One-time migration from older `league_*` keys
 - CSV import/export with BOM/formula guard handling
 

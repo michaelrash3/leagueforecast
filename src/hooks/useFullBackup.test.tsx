@@ -4,6 +4,7 @@ import { READING_THE_COPY, STILL_READING_THE_COPY, useFullBackup } from "./useFu
 import * as backupLib from "../lib/backup";
 import * as cloudSession from "../lib/cloud/cloudSession";
 import * as copyBackupLib from "../lib/live/copyBackup";
+import * as replacedLib from "../lib/replacedBackup";
 import { notMade } from "../lib/live/copyBackup";
 import { memoryIo } from "../lib/poolMemoryIo";
 import * as storage from "../lib/storage";
@@ -104,6 +105,31 @@ describe("useFullBackup", () => {
     const action = showToast.mock.calls[0]?.[1];
     action.onAction();
     expect(clicked).toHaveLength(1);
+  });
+
+  /*
+   * The toast's download lasted twelve seconds, and any other toast took its place: what was
+   * replaced is kept on this device too, until the next restore, and Settings offers it.
+   */
+  it("keeps what it replaced on this device before it writes anything, and says so", async () => {
+    const order: string[] = [];
+    const replaced = fullBackup("replaced");
+    vi.spyOn(backupLib, "readFullBackup").mockReturnValue(replaced);
+    const keep = vi.spyOn(replacedLib, "keepReplaced").mockImplementation(async () => {
+      order.push("kept");
+      return true;
+    });
+    const { result, showToast } = setup(true, { ok: true, failed: [] });
+    vi.mocked(backupLib.applyFullBackup).mockImplementation(() => {
+      order.push("write");
+      return { ok: true, failed: [] } as ReturnType<typeof backupLib.applyFullBackup>;
+    });
+
+    await result.current.restoreFullBackup(fullBackup("incoming", 2));
+
+    expect(order).toEqual(["kept", "write"]);
+    expect(keep.mock.calls[0]?.[0]).toBe(replaced);
+    expect(showToast.mock.calls[0]?.[0]).toContain("kept on this device until the next restore");
   });
 
   it("says how many seasons it will replace before doing it", async () => {

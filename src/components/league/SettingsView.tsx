@@ -22,6 +22,7 @@ import { PageHeader } from "../PageHeader";
 import type { NotifyPrefs } from "../../lib/seasonDigest";
 import { NotificationSettings } from "./NotificationSettings";
 import { EditLock } from "./EditLock";
+import { ReplacedBackupLine } from "./ReplacedBackupLine";
 
 /** The order the tiebreaker pickers offer, and the "none" they also allow. */
 const TIEBREAKER_FACTORS: TiebreakerFactor[] = [
@@ -584,6 +585,7 @@ export function SettingsView({
               </button>
             </EditLock>
           </div>
+          <ReplacedBackupLine />
         </div>
 
         {onOpenCloud && (
