@@ -6,6 +6,21 @@ const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 export const toMMDD = (date: Date) => `${date.getMonth() + 1}/${date.getDate()}`;
 
+const MONTH_ABBREVIATIONS = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "may",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "oct",
+  "nov",
+  "dec",
+];
+
 const MONTH_TOKEN_RE =
   /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/i;
 
@@ -28,19 +43,35 @@ export const normalizeDateInput = (value: string) => {
     return `${month}/${day}`;
   }
 
-  // ISO from older builds or browser date inputs.
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    const date = new Date(`${trimmed}T12:00:00`);
-    return Number.isFinite(date.getTime()) ? toMMDD(date) : "";
+  // ISO from older builds or browser date inputs. Read by hand, as the date parser rolls a day
+  // the month lacks into the next month; here the year is known, so the day is kept to that
+  // year's month and 2027-02-29 is the 28th.
+  const isoDay = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (isoDay) {
+    const year = Number(isoDay[1]);
+    const month = Number(isoDay[2]);
+    const day = Number(isoDay[3]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return "";
+    const monthDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return `${month}/${Math.min(day, monthDays)}`;
   }
 
   // Old CSV format: "May 1", "May 01", etc. Require a 3+ char alpha month token
   // so bare numbers like "5" don't silently parse to Jan 1.
-  if (MONTH_TOKEN_RE.test(trimmed)) {
+  const monthToken = MONTH_TOKEN_RE.exec(trimmed);
+  if (monthToken) {
     const withSeasonYear = Date.parse(`${trimmed} ${DEFAULT_SEASON_YEAR}`);
-    if (Number.isFinite(withSeasonYear)) return toMMDD(new Date(withSeasonYear));
-    const parsed = Date.parse(trimmed);
-    if (Number.isFinite(parsed)) return toMMDD(new Date(parsed));
+    const parsed = Number.isFinite(withSeasonYear) ? withSeasonYear : Date.parse(trimmed);
+    if (Number.isFinite(parsed)) {
+      const date = new Date(parsed);
+      /*
+       * The parser rolls a day the named month lacks into the next month, "Apr 31" to May 1;
+       * that day is the named month's last instead, as "4/31" is above.
+       */
+      const named = MONTH_ABBREVIATIONS.indexOf((monthToken[1] ?? "").slice(0, 3).toLowerCase());
+      if (named >= 0 && date.getMonth() !== named) return `${named + 1}/${DAYS_IN_MONTH[named]}`;
+      return toMMDD(date);
+    }
   }
 
   return "";

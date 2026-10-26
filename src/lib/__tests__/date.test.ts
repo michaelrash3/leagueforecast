@@ -64,6 +64,24 @@ describe("a day the month does not have", () => {
     expect(normalizeDateInput("13/1")).toBe("12/1");
     expect(normalizeDateInput("0/5")).toBe("1/5");
   });
+
+  it("keeps a named month's game in that month too, where the date parser rolled it over", () => {
+    // "Apr 31" came back as 5/1 and "Feb 30" as 3/2, so an old CSV's typo moved a game a month.
+    expect(normalizeDateInput("Apr 31")).toBe("4/30");
+    expect(normalizeDateInput("Sat, Apr 31")).toBe("4/30");
+    expect(normalizeDateInput("Feb 30")).toBe("2/29");
+    expect(normalizeDateInput("Feb 29")).toBe("2/29");
+    expect(normalizeDateInput("Sept 31")).toBe("9/30");
+    expect(normalizeDateInput("Apr 30")).toBe("4/30");
+  });
+
+  it("keeps an ISO date's game in its month, on that year's calendar", () => {
+    expect(normalizeDateInput("2027-04-31")).toBe("4/30");
+    expect(normalizeDateInput("2027-02-29")).toBe("2/28");
+    expect(normalizeDateInput("2028-02-29")).toBe("2/29");
+    expect(normalizeDateInput("2027-13-01")).toBe("");
+    expect(normalizeDateInput("2027-04-00")).toBe("");
+  });
 });
 
 describe("shiftIsoDay", () => {
