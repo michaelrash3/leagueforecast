@@ -262,6 +262,27 @@ describe("parseLeagueSchedule", () => {
       },
     ],
     [
+      "a day written with its year after a comma, kept whole rather than split as a cell (Codex on #456)",
+      [
+        "April 10, 2027 Falcons @ Wolves",
+        "Sat, Apr 17, 2027 Comets @ Rockets",
+        "February 29, 2028 Bears @ Lions",
+        "Sun, May 2, 2027,9:00 AM,Cubs @ Reds,Field 3",
+        "Date,Away,Home",
+        "April 24, 2027,Hawks,Owls",
+      ],
+      {
+        rows: [
+          { date: "4/10", away: "Falcons", home: "Wolves" },
+          { date: "4/17", away: "Comets", home: "Rockets" },
+          { date: "2/29", away: "Bears", home: "Lions" },
+          { date: "5/2", away: "Cubs", home: "Reds" },
+          { date: "4/24", away: "Hawks", home: "Owls" },
+        ],
+        skipped: [],
+      },
+    ],
+    [
       "a game that will not be played as written, left out rather than added as a fixture",
       [
         "9/12 Falcons @ Wolves Cancelled",

@@ -222,6 +222,19 @@ const readDayOnly = (
 type Game = { day: string; away: string; home: string; runs?: [number, number]; guessed?: true };
 
 /**
+ * A line's cells, with a day it starts on kept whole where the day is written with a comma in it:
+ * "April 10, 2027 Falcons @ Wolves" and "Sat, Apr 17, 2027,9:00 AM,Comets @ Rockets" start on one
+ * day each. Split at every comma, the first was a day without its year and a game for a team called
+ * "2027 Falcons", and a table row put "2027" in its Away column (found by Codex on #456).
+ */
+const cellsOf = (line: string, delimiter: string): string[] => {
+  const leading = delimiter === "," ? LEADING_DAY.exec(line) : null;
+  if (!leading?.[0].includes(",")) return splitCells(line, delimiter);
+  const rest = line.slice(leading[0].length).replace(/^\s*,/, "");
+  return [leading[0], ...(rest.trim() === "" ? [] : splitCells(rest, delimiter))];
+};
+
+/**
  * Two sides that make a league game: both named, neither a placeholder ("TBD", "Winner of Game
  * 3"), and not one team twice. Told apart as the paste names them (`pasteNameKey`), so "Heat
  * (Ealey)" against "Heat (Smith)" is a game.
@@ -531,7 +544,7 @@ export const parseLeagueSchedule = (
       else rows.push(asRow(game, today));
     };
 
-    const cells = splitCells(line, delimiter);
+    const cells = cellsOf(line, delimiter);
     if (cells.length >= 2) {
       // A header may come again partway down, where a site prints one per week; it is never a game.
       const heading = readHeader(cells);
