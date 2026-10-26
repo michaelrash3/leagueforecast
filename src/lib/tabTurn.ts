@@ -15,28 +15,16 @@
  * not told; the next tab to open writes, or "Use here" takes it. Where there is no channel (an old
  * browser, a test), every tab writes, as before.
  *
- * No imports, since the storage layer asks it before every write (`storage.ts`).
+ * This is the part every write asks (`storage.ts`): which turn this tab is on, if any, and the words
+ * a refused edit gives. No imports, for that reason. The tabs' talk on the channel
+ * (`tabTurnChannel.ts`) is fetched after the page has started, since nothing on the first screen
+ * needs it: until it is running, this tab writes, which is what it would do anyway until another
+ * tab answered its hello.
  */
 
 /** Why an edit is refused in a tab another tab has the turn from, for the season's lock. */
 export const TAB_READ_ONLY =
   "League Standings is open in another tab, so this one is read-only. Press Use here to edit in this tab.";
-
-export type TabChannel = {
-  post: (message: unknown) => void;
-  listen: (heard: (message: unknown) => void) => void;
-  close: () => void;
-};
-
-type Said = { kind: "hello" | "here" | "take"; id: string; openedAt: number };
-
-const saidOf = (raw: unknown): Said | null => {
-  if (typeof raw !== "object" || raw === null) return null;
-  const { kind, id, openedAt } = raw as Record<string, unknown>;
-  if (kind !== "hello" && kind !== "here" && kind !== "take") return null;
-  if (typeof id !== "string" || typeof openedAt !== "number") return null;
-  return { kind, id, openedAt };
-};
 
 export type TabTurn = {
   /** Whether this tab is read-only: another tab has the turn. */
@@ -49,119 +37,10 @@ export type TabTurn = {
   stop: () => void;
 };
 
-export const createTabTurn = ({
-  channel,
-  openedAt,
-  id,
-  claimed,
-  claim = () => undefined,
-  reload = () => undefined,
-}: {
-  channel: TabChannel | null;
-  openedAt: number;
-  id: string;
-  /** Whether this tab opened by "Use here", which is then forgotten. */
-  claimed: () => boolean;
-  /** Notes, for the reload, that this tab is taking the turn. */
-  claim?: () => void;
-  reload?: () => void;
-}): TabTurn => {
-  let readOnly = false;
-  const listeners = new Set<(readOnly: boolean) => void>();
-  const become = (next: boolean) => {
-    if (next === readOnly) return;
-    readOnly = next;
-    listeners.forEach((heard) => heard(next));
-  };
-  const me = { id, openedAt };
-  // Took the turn on opening, so answers every tab that opens after, whenever that opened.
-  let took = claimed();
-  const before = (other: Said) =>
-    me.openedAt < other.openedAt || (me.openedAt === other.openedAt && me.id < other.id);
-
-  channel?.listen((raw) => {
-    const said = saidOf(raw);
-    if (!said || said.id === id) return;
-    if (said.kind === "take") {
-      took = false;
-      become(true);
-    } else if (said.kind === "hello") {
-      if (readOnly) return;
-      // Answered by the tab before it; a tab opened in the same moment that is before this one is
-      // not answered, and this one gives way, since its own hello went out before the other heard.
-      if (took || before(said)) channel.post({ kind: "here", ...me });
-      else become(true);
-    } else if (!took) {
-      become(true);
-    }
-  });
-  channel?.post({ kind: took ? "take" : "hello", ...me });
-
-  return {
-    readOnly: () => readOnly,
-    onChange: (heard) => {
-      listeners.add(heard);
-      return () => listeners.delete(heard);
-    },
-    useHere: () => {
-      claim();
-      reload();
-    },
-    stop: () => channel?.close(),
-  };
-};
-
-const CHANNEL = "league_forecast_tabs_v1";
-/** Kept in `sessionStorage` across the reload "Use here" makes, which is this tab's alone. */
-const CLAIM_KEY = "league_forecast_tab_claim";
-
-const browserChannel = (): TabChannel | null => {
-  try {
-    if (typeof BroadcastChannel === "undefined") return null;
-    const channel = new BroadcastChannel(CHANNEL);
-    return {
-      post: (message) => channel.postMessage(message),
-      listen: (heard) => {
-        channel.onmessage = (event: MessageEvent) => heard(event.data);
-      },
-      close: () => channel.close(),
-    };
-  } catch {
-    return null;
-  }
-};
-
 let current: TabTurn | null = null;
-
-/** This tab's turn, asked for once as the app starts (`main.tsx`). */
-export const startTabTurn = (): TabTurn => {
-  if (current) return current;
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  current = createTabTurn({
-    channel: browserChannel(),
-    openedAt: Date.now(),
-    id: Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""),
-    claimed: () => {
-      try {
-        const held = sessionStorage.getItem(CLAIM_KEY) === "1";
-        sessionStorage.removeItem(CLAIM_KEY);
-        return held;
-      } catch {
-        return false;
-      }
-    },
-    claim: () => {
-      try {
-        sessionStorage.setItem(CLAIM_KEY, "1");
-      } catch {
-        /* without the note the reloaded tab asks as a new one, and is read-only again */
-      }
-    },
-    reload: () => window.location.reload(),
-  });
-  return current;
-};
+let stopHearing: (() => void) | null = null;
+const heard = new Set<() => void>();
+const tell = () => heard.forEach((listener) => listener());
 
 /** Whether this tab is read-only; never, before the turn is started (a test, a script). */
 export const tabReadOnly = (): boolean => current?.readOnly() ?? false;
@@ -169,7 +48,19 @@ export const tabReadOnly = (): boolean => current?.readOnly() ?? false;
 /** This tab's turn, or null before it is started. */
 export const tabTurn = (): TabTurn | null => current;
 
-/** Sets this tab's turn: a test's own, or null to forget it. */
+/**
+ * Calls `listener` whenever whether this tab is read-only may have changed: the turn starting, or
+ * the turn's own answer changing. Returns the way to stop.
+ */
+export const onTabReadOnly = (listener: () => void): (() => void) => {
+  heard.add(listener);
+  return () => heard.delete(listener);
+};
+
+/** Sets this tab's turn: the one started (`tabTurnChannel.ts`), a test's own, or null to forget it. */
 export const adoptTabTurn = (turn: TabTurn | null): void => {
+  stopHearing?.();
   current = turn;
+  stopHearing = turn ? turn.onChange(tell) : null;
+  tell();
 };

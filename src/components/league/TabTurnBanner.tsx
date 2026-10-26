@@ -1,22 +1,11 @@
-import { useSyncExternalStore } from "react";
-import type { TabTurn } from "../../lib/tabTurn";
 import { button } from "../../styles/tokens";
 import { StatePanel } from "../StatePanel";
-
-const never = () => () => undefined;
-
-/** Whether this tab is read-only for another tab's turn (`tabTurn.ts`), as it changes. */
-export const useTabReadOnly = (turn: TabTurn | null): boolean =>
-  useSyncExternalStore(
-    turn ? turn.onChange : never,
-    () => turn?.readOnly() ?? false,
-    () => false
-  );
 
 /**
  * The line over League Standings in a tab another tab has the turn from: this tab is read-only, so
  * the two do not undo each other's changes, and "Use here" takes the turn, reloading with what the
- * other saved. Nothing at all in the tab that has it.
+ * other saved. Nothing at all in the tab that has it. Fetched only for a tab that is read-only
+ * (`App.tsx`).
  */
 export function TabTurnBanner({
   readOnly,

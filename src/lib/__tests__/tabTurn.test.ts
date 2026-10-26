@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createTabTurn, type TabChannel } from "../tabTurn";
+import { createTabTurn, type TabChannel } from "../tabTurnChannel";
 
 /*
  * Which tab of this browser may write League Standings (`tabTurn.ts`). Two tabs each wrote whole

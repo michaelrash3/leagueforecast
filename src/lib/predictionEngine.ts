@@ -4,6 +4,12 @@ import { normalizeDateInput, parseDateValue, seasonStartMonth } from "./date";
 import { dateInSquadYear } from "./teamRankings/seasons";
 import { forecastRange, type ForecastRange } from "./forecastRange";
 import {
+  CLOSE_GAME_RISK,
+  SMALL_SAMPLE_RISK,
+  confidenceTier,
+  type ConfidenceTier,
+} from "./confidenceTier";
+import {
   DEFAULT_SHRINKAGE,
   buildOpponentAdjustedRatings,
   byRating,
@@ -11,7 +17,6 @@ import {
 } from "./powerRating";
 
 export type DataQualityTier = "Insufficient" | "Limited" | "Developing" | "Strong" | "Excellent";
-export type ConfidenceTier = "Low" | "Moderate" | "Strong" | "High";
 
 export type PowerRating = {
   teamId: string;
@@ -256,14 +261,6 @@ const byDayIn =
     };
     return dayOf(a.date) - dayOf(b.date) || 0;
   };
-
-/** The one risk that is a game's own: a side with few games behind its rating. */
-export const SMALL_SAMPLE_RISK = "Small sample size can make ratings unstable.";
-/** Said of every close game, which its win chance already says. */
-export const CLOSE_GAME_RISK = "Similar team ratings create a close-game risk.";
-
-export const confidenceTier = (score: number): ConfidenceTier =>
-  score >= 82 ? "High" : score >= 66 ? "Strong" : score >= 46 ? "Moderate" : "Low";
 
 /**
  * A result from outside the league schedule — a tournament game logged in Team Rankings.

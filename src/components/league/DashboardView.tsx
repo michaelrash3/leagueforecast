@@ -6,12 +6,8 @@ import { Suspense, useId, useState, type ComponentProps, type ReactNode } from "
 import { formatGameDate } from "../../lib/date";
 import { displayName } from "../../lib/format";
 import type { SeasonFinal } from "../../lib/seasonFinal";
-import {
-  confidenceTier,
-  SMALL_SAMPLE_RISK,
-  type buildPredictionEngine,
-  type LeaguePrediction,
-} from "../../lib/predictionEngine";
+import { confidenceTier, SMALL_SAMPLE_RISK } from "../../lib/confidenceTier";
+import type { buildPredictionEngine, LeaguePrediction } from "../../lib/predictionEngine";
 import type { backtestPredictions } from "../../lib/backtest";
 import type { ActiveShareView, Matchup, Team } from "../../lib/types";
 import { SEVERITY_LABEL, severityCounts, type Finding } from "../../lib/leagueFindings";

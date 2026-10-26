@@ -107,7 +107,7 @@ src/
     backtest.ts            # league-side calibration + Brier score
     scoutBacktest.ts       # pool-side hold-out, and the recency comparison
     insights.ts            # deterministic recap + league-story generation
-    geminiModels.ts  leagueSummary.ts  leagueSummaryClient.ts
+    geminiModels.ts  leagueSummary.ts  leagueSummaryClient.ts  leagueSummaryHealth.ts
     scheduleText.ts        # reads pasted text / CSV into games, entirely on the device
     leagueScheduleText.ts  # the same for a league's own schedule, home and away kept
     teamRankings.ts        # age groups, ratings, name matching, rename/merge
@@ -4409,7 +4409,9 @@ subscription and sending to it, which the app does not have.
   switch of season included (the cloud copy's own arriving is still laid in). Use here reloads the
   tab, so it reads what the other saved, and takes the turn on its way back in; every other tab is
   then read-only. A tab whose writer was closed is not told: the next tab to open writes, or Use
-  here takes the turn. Without a `BroadcastChannel` every tab writes, as before. Held by
+  here takes the turn. Without a `BroadcastChannel` every tab writes, as before. The talk on the
+  channel (`tabTurnChannel.ts`) and the banner are fetched after the page starts, which only
+  delays a tab's hello by that moment; storage asks the small registry in `tabTurn.ts`. Held by
   `tabTurn.test.ts`, the storage test and `e2e/tabs.spec.ts`, which opens two real tabs.
 - What the last full restore replaced is kept on this device until the next restore
   (`league_forecast_replaced_backup_v1`, in the pool's IndexedDB store beside the saved board, and

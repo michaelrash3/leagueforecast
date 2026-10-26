@@ -88,7 +88,21 @@ const DIST = "dist";
  * two share. The view's chunk went from 44.1 KB to 41.8 KB and the client's own is 2.8 KB, 0.5 KB
  * worse in two files than in one. The organization's own request is a module of its own
  * (`gcOrgClient.ts`), fetched with the panel, so Team Rankings does not carry it; in the client,
- * it had made this 161.1 KB.
+ * it had made this 161.1 KB. Forecast to 18.8 KB on 26 Oct 2026 for the small fixes of PR 7, 18.6 KB
+ * against 18.1 KB on main (18,587 bytes against 18,148): Model Health's mark for the chance given
+ * and its Brier note beside a coin flip's, the "Why" panel and the AI panel's words for a league
+ * with no cut line or a caller off the cloud copy's list, and the seed range worked out from any
+ * tab. Team Rankings to 162.0 KB the same day for the same PR, 161.7 KB against 161.2 KB on main
+ * (161,742 bytes against 161,167): "Add our next opponents" kept to the next weekend
+ * (`nextWeekend.ts`), the schedule reader's start times, age ranges and turning year, which Team
+ * Rankings' schedule import shares, and a stand-in a league team is carried onto listed as its
+ * club. The first download went the other way, 253.7 KB against 254.1 KB on main: the two-tab
+ * protocol (`tabTurnChannel.ts`), its banner and the AI health check are fetched when needed, and
+ * four imports that reached first-download code from a view's chunk were cut, each of which had
+ * made the build split shared code out of the first download into files of their own (the
+ * confidence words, `confidenceTier.ts`; the restore's kept data, handed to Settings by App; the
+ * AI panel's check, by a context; and the summaries' members-only words, beside the summaries'
+ * types). Before those it was 257.6 KB.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -100,11 +114,11 @@ const BUDGET = {
     Schedule: 8_200,
     Standings: 8_000,
     "League Stats": 3_700,
-    Forecast: 18_300,
+    Forecast: 18_800,
     "Data Quality": 3_500,
     Settings: 13_500,
     "Seasons at a glance": 4_400,
-    "Team Rankings": 161_500,
+    "Team Rankings": 162_000,
   },
 };
 

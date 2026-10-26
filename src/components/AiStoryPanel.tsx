@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 
 import type { AiProvider, LeagueSummaryErrorReason } from "../lib/leagueSummary";
-import { describeLeagueSummaryHealth, fetchLeagueSummaryHealth } from "../lib/leagueSummaryClient";
+import { AiHealthCheck } from "./aiHealthCheck";
 
 /**
  * Short, non-alarming labels. The AI write-up is an enhancement, not a
@@ -70,6 +70,7 @@ export function AiStoryPanel({
 }: AiStoryPanelProps) {
   const [diagnosis, setDiagnosis] = useState("");
   const [checking, setChecking] = useState(false);
+  const checkHealth = useContext(AiHealthCheck);
 
   // Asks the endpoint what is actually wrong. This runs as a fetch, so a stale
   // service worker cannot answer it with the cached app shell the way it would
@@ -78,7 +79,7 @@ export function AiStoryPanel({
     setChecking(true);
     setDiagnosis("");
     try {
-      setDiagnosis(describeLeagueSummaryHealth(await fetchLeagueSummaryHealth()));
+      setDiagnosis(await checkHealth());
     } finally {
       setChecking(false);
     }

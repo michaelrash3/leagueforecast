@@ -3,12 +3,11 @@ import { setGcAuthorization } from "../gcAuthorization";
 import type { RecapItem } from "../insights";
 import { LEAGUE_SUMMARY_ENDPOINT } from "../leagueSummary";
 import {
-  describeLeagueSummaryHealth,
-  fetchLeagueSummaryHealth,
   buildForecastSummaryRequest,
   buildLeagueSummaryRequest,
   requestLeagueSummary,
 } from "../leagueSummaryClient";
+import { describeLeagueSummaryHealth, fetchLeagueSummaryHealth } from "../leagueSummaryHealth";
 
 const recapItems: RecapItem[] = [
   { kind: "clinched", text: "Stallions clinched a Gold Bracket spot.", impactScore: 95 },

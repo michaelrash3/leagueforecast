@@ -5,13 +5,13 @@ import {
   createMemberCheck,
   MEMBER_CHECK_TTL_MS,
   membersOnly,
-  SUMMARY_MEMBERS_ONLY_MESSAGES,
   WRITE_CHECK_TTL_MS,
   tokenAddress,
   tokenExpiry,
   type MemberCheck,
   type MembersOnlyDoor,
 } from "../memberCheck";
+import { SUMMARY_MEMBERS_ONLY_MESSAGES } from "../leagueSummary";
 
 /*
  * The GameChanger proxy's door: who is on the cloud copy's list, asked of Firestore with the

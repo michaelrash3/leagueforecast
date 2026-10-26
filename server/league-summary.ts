@@ -25,6 +25,7 @@ import {
   sanitizeLeagueSummaryRequest,
   LEAGUE_SUMMARY_LIMITS,
   systemInstructionForKind,
+  SUMMARY_MEMBERS_ONLY_MESSAGES,
   type LeagueSummaryError,
   type LeagueSummaryRequest,
   type LeagueSummaryResponse,
@@ -52,11 +53,7 @@ import {
   type ApiResponse,
 } from "../src/lib/apiShared.js";
 import { FIREBASE_WEB_CONFIG } from "../src/lib/cloud/cloudConfig.js";
-import {
-  createMemberCheck,
-  membersOnly,
-  SUMMARY_MEMBERS_ONLY_MESSAGES,
-} from "../src/lib/memberCheck.js";
+import { createMemberCheck, membersOnly } from "../src/lib/memberCheck.js";
 
 /**
  * The one Node global this function needs. Declared here rather than via

@@ -16,7 +16,9 @@ const kept = (at: string): ReplacedBackup => ({
 
 describe("what the last restore replaced, in Settings", () => {
   it("says nothing where nothing is kept", async () => {
-    const { container } = render(<ReplacedBackupLine read={async () => null} save={vi.fn()} />);
+    const { container } = render(
+      <ReplacedBackupLine read={async () => null} save={vi.fn()} listen={() => () => undefined} />
+    );
     await act(async () => {});
     expect(container).toBeEmptyDOMElement();
   });
@@ -25,7 +27,9 @@ describe("what the last restore replaced, in Settings", () => {
     const user = userEvent.setup();
     const save = vi.fn();
     const held = kept(new Date().toISOString());
-    render(<ReplacedBackupLine read={async () => held} save={save} />);
+    render(
+      <ReplacedBackupLine read={async () => held} save={save} listen={() => () => undefined} />
+    );
 
     const button = await screen.findByRole("button", { name: "Download replaced data" });
     expect(screen.getByText(/kept on this device until the next restore/)).toBeInTheDocument();

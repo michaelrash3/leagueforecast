@@ -162,6 +162,19 @@ export type LeagueSummaryErrorReason =
   /** Not signed in with an account on the cloud copy's list, which alone may ask. */
   | "members-only";
 
+/**
+ * What a caller turned away from the AI write-ups is told, by why: by the function's door
+ * (`server/league-summary.ts`, through `memberCheck.ts`'s `membersOnly`) and by the browser when it
+ * has no sign-in to send (`leagueSummaryClient.ts`). Here rather than beside the door, so the
+ * browser's first download does not take the door's module for two sentences.
+ */
+export const SUMMARY_MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", string> = {
+  "signed-out":
+    "AI write-ups are for the accounts on the cloud copy's list. Sign in with one from the cloud button; until then the app writes its own.",
+  "not-member":
+    "This Google account is not on the cloud copy's list, so it cannot ask for AI write-ups. Ask the list's owner to add it.",
+};
+
 export type LeagueSummaryError = {
   error: string;
   reason: LeagueSummaryErrorReason;

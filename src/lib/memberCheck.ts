@@ -200,14 +200,6 @@ export const MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", string> 
     "This Google account is not on the cloud copy's list, so it cannot pull from GameChanger. Ask the list's owner to add it.",
 };
 
-/** What a caller turned away from the AI write-ups is told, by why. */
-export const SUMMARY_MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", string> = {
-  "signed-out":
-    "AI write-ups are for the accounts on the cloud copy's list. Sign in with one from the cloud button; until then the app writes its own.",
-  "not-member":
-    "This Google account is not on the cloud copy's list, so it cannot ask for AI write-ups. Ask the list's owner to add it.",
-};
-
 /** How a door speaks and what it leaves open; the GameChanger proxy's, unless told otherwise. */
 export type MembersOnlyDoor = {
   messages?: Record<"signed-out" | "not-member", string>;

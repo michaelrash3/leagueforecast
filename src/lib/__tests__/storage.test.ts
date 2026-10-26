@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { adoptTabTurn, createTabTurn } from "../tabTurn";
+import { adoptTabTurn } from "../tabTurn";
+import { createTabTurn } from "../tabTurnChannel";
 import { resetCloudGuard } from "../cloud/cloudGuard";
 import { readLeagueClubRanks, writeLeagueClubRanks } from "../leagueClubRanks";
 import {

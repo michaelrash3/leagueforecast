@@ -1,11 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { backtestPredictions } from "../../lib/backtest";
-import {
-  buildPredictionEngine,
-  CLOSE_GAME_RISK,
-  SMALL_SAMPLE_RISK,
-} from "../../lib/predictionEngine";
+import { CLOSE_GAME_RISK, SMALL_SAMPLE_RISK } from "../../lib/confidenceTier";
+import { buildPredictionEngine } from "../../lib/predictionEngine";
 import { calculateTeams } from "../../lib/sim";
 import { DEFAULT_SETTINGS, type GameLog, type Matchup, type TeamBase } from "../../lib/types";
 import { DashboardView } from "./DashboardView";

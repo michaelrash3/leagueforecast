@@ -1,22 +1,25 @@
 import { useEffect, useState } from "react";
-import { saveBackupFile } from "../../lib/backupFile";
 import { agoLabel } from "../../lib/date";
-import { onReplacedKept, readReplaced, type ReplacedBackup } from "../../lib/replacedBackup";
+import type { ReplacedBackup } from "../../lib/replacedBackup";
 import type { FullBackup } from "../../lib/backup";
+
+/**
+ * How the line reads what is kept, saves it and hears of a new one: `readReplaced`, `saveBackupFile`
+ * and `onReplacedKept`, handed down from App, which has them in the first download already.
+ * Imported here, they took the backup's own code into Settings' chunk too, and the build split it
+ * out of the first download, 1.7 KB heavier (`bundleBudget.mjs`).
+ */
+export type ReplacedBackupAccess = {
+  read: () => Promise<ReplacedBackup | null>;
+  save: (backup: FullBackup) => void;
+  listen: (heard: () => void) => () => void;
+};
 
 /**
  * What the last full restore replaced, offered as a download for as long as this device keeps it,
  * which is until the next restore (`replacedBackup.ts`). Nothing at all where nothing is kept.
  */
-export function ReplacedBackupLine({
-  read = readReplaced,
-  save = saveBackupFile,
-  listen = onReplacedKept,
-}: {
-  read?: () => Promise<ReplacedBackup | null>;
-  save?: (backup: FullBackup) => void;
-  listen?: (heard: () => void) => () => void;
-}) {
+export function ReplacedBackupLine({ read, save, listen }: ReplacedBackupAccess) {
   const [kept, setKept] = useState<ReplacedBackup | null>(null);
   useEffect(() => {
     let live = true;

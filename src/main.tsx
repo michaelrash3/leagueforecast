@@ -10,7 +10,7 @@ import { afterOpening } from "./lib/live/openingHold";
 import { startApp } from "./lib/bootOrder";
 import { listenForTakes } from "./lib/cloud/cloudTabs";
 import { watchUncaught } from "./lib/diagnostics";
-import { startTabTurn } from "./lib/tabTurn";
+import { adoptTabTurn, tabTurn } from "./lib/tabTurn";
 import "./index.css";
 
 const mount = () => {
@@ -43,8 +43,11 @@ const askToKeepStorage = (): void => {
 watchUncaught(window);
 
 // Which tab of this browser may write League Standings: a tab opened after another is read-only
-// until it takes the turn (`tabTurn.ts`). Asked before anything is drawn or saved.
-startTabTurn();
+// until it takes the turn (`tabTurn.ts`). Fetched rather than in the first download; a tab writes
+// until another answers it either way.
+void import("./lib/tabTurnChannel").then(({ startTabTurn }) => {
+  if (!tabTurn()) adoptTabTurn(startTabTurn());
+});
 
 /*
  * Before anything reads storage, this tab starts listening for another tab taking a copy in from

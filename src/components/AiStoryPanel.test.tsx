@@ -1,5 +1,7 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import { AiHealthCheck } from "./aiHealthCheck";
 import { AiStoryPanel, aiStoryUnavailableLabel } from "./AiStoryPanel";
 
 /** The AI write-up card says which provider wrote what it shows: Gemini, or Groq after it. */
@@ -43,5 +45,30 @@ describe("the label when a limit stopped the write-up", () => {
 describe("the label when no sign-in may ask", () => {
   it("says the write-ups are off until the cloud copy is signed in to", () => {
     expect(aiStoryUnavailableLabel("members-only")).toBe("AI off — sign in to the cloud copy");
+  });
+});
+
+describe("asking why the AI is off", () => {
+  it("runs the check App hands down, and says what it found", async () => {
+    // App hands the check down (`aiHealthCheck.ts`) so this panel's chunk does not import the
+    // write-ups' client, and with it the browser's sign-in.
+    const check = vi.fn(async () => "Gemini answered; the key works.");
+    const user = userEvent.setup();
+    render(
+      <AiHealthCheck.Provider value={check}>
+        <AiStoryPanel
+          title="League Story"
+          text="The Stallions clinched."
+          source="local"
+          model=""
+          loading={false}
+          unavailableReason="upstream-error"
+          onRetry={() => {}}
+        />
+      </AiHealthCheck.Provider>
+    );
+    await user.click(screen.getByRole("button", { name: "Why?" }));
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Gemini answered; the key works.")).toBeInTheDocument();
   });
 });

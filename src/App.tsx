@@ -44,7 +44,10 @@ import {
   needsAPerson,
 } from "./components/league/LiveLeagueBanner";
 import { EditLock, SeasonEditable } from "./components/league/EditLock";
-import { TabTurnBanner, useTabReadOnly } from "./components/league/TabTurnBanner";
+import { useTabReadOnly } from "./hooks/useTabReadOnly";
+import { saveBackupFile } from "./lib/backupFile";
+import { onReplacedKept, readReplaced } from "./lib/replacedBackup";
+import type { ReplacedBackupAccess } from "./components/league/ReplacedBackupLine";
 import { TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
 import { rankingsSearch } from "./lib/rankingsRoute";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
@@ -150,6 +153,7 @@ import { headToHeadCell as cellFor, sosRanks, teamsOnBubble } from "./lib/standi
 import { displayName, recordText } from "./lib/format";
 import { recapToMarkdown, recapToStoryBrief } from "./lib/insights";
 import { buildForecastSummaryRequest, buildLeagueSummaryRequest } from "./lib/leagueSummaryClient";
+import { AiHealthCheck } from "./components/aiHealthCheck";
 import { eliminationNumberForGold, magicForGold, neededResults } from "./lib/magic";
 import { backtestPredictions } from "./lib/backtest";
 import { buildPredictionEngine } from "./lib/predictionEngine";
@@ -386,6 +390,28 @@ const StartFromClubs = lazy(() =>
 const StartFromGcOrg = lazy(() =>
   import("./components/league/StartFromGcOrg").then((module) => ({
     default: module.StartFromGcOrg,
+  }))
+);
+/** What the AI panel's Check runs (`aiHealthCheck.ts`), fetched once it is pressed. */
+const checkAiHealth = async () => {
+  try {
+    const health = await import("./lib/leagueSummaryHealth");
+    return health.describeLeagueSummaryHealth(await health.fetchLeagueSummaryHealth());
+  } catch {
+    return "The check could not be fetched. Try again once connected.";
+  }
+};
+
+/** What Settings offers of the last restore's replaced data (`ReplacedBackupLine`). */
+const REPLACED_BACKUP: ReplacedBackupAccess = {
+  read: () => readReplaced(),
+  save: saveBackupFile,
+  listen: onReplacedKept,
+};
+/** Shown only in a tab another tab has the turn from (`tabTurn.ts`), which most never are. */
+const TabTurnBanner = lazy(() =>
+  import("./components/league/TabTurnBanner").then((module) => ({
+    default: module.TabTurnBanner,
   }))
 );
 const ShortcutsHelp = lazy(() =>
@@ -844,7 +870,7 @@ export default function App() {
     adopt: adoptSeason,
   });
   // Read-only while another tab of this browser has the turn (`tabTurn.ts`), however League is kept.
-  const tabReadOnly = useTabReadOnly(tabTurn());
+  const tabReadOnly = useTabReadOnly();
   const leagueEditable = editable(liveLeague.state) && !tabReadOnly;
   const { guardUndo, removeSeason } = liveLeague;
   const leagueReachable = reachable(liveLeague.state);
@@ -3459,7 +3485,7 @@ export default function App() {
   );
 
   return (
-    <>
+    <AiHealthCheck.Provider value={checkAiHealth}>
       {/*
        * Before this, a keyboard reached the content by tabbing the mode tablist and then seven
        * view tabs, on every single page. The link is the first thing in the tab order and shows
@@ -3664,7 +3690,11 @@ export default function App() {
             role="tabpanel"
             aria-labelledby={`tab-${activeView}`}
           >
-            <TabTurnBanner readOnly={tabReadOnly} onUseHere={() => tabTurn()?.useHere()} />
+            {tabReadOnly && (
+              <Suspense fallback={null}>
+                <TabTurnBanner readOnly onUseHere={() => tabTurn()?.useHere()} />
+              </Suspense>
+            )}
             <LiveLeagueBanner state={liveLeague.state} />
             {/* Kept live, a season that may not be written is read-only: every control that edits
               it is off (`EditLock`), and what only reads it stays usable. */}
@@ -3956,6 +3986,7 @@ export default function App() {
                       </EditLock>
                       <SettingsView
                         onOpenCloud={cloud.kind === "off" ? undefined : cloudPanel.show}
+                        replacedBackup={REPLACED_BACKUP}
                         settings={settings}
                         setSettings={setSettings}
                         teamsCount={teams.length}
@@ -4170,7 +4201,7 @@ export default function App() {
 
         <ToastView toast={toast} onDismiss={dismissToast} />
       </div>
-    </>
+    </AiHealthCheck.Provider>
   );
 }
 
