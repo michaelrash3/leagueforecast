@@ -57,6 +57,22 @@ describe("a season with nothing left to play", () => {
     expect(screen.queryByText("No predictions yet")).toBeNull();
   });
 
+  /*
+   * "No postseason" put every team in a Silver bracket of its own, the Gold one being empty, so the
+   * Schedule offered "Tournament Schedule" games for score entry in a league that has none.
+   */
+  it("offers no bracket games on the Schedule where there is no postseason", async () => {
+    const user = userEvent.setup();
+    saveLogs({ g1: final("6", "2"), g2: final("1", "5") });
+    saveSettings({ ...loadSettings(), postseasonFormat: "none" });
+    render(<App />);
+
+    await user.click(await screen.findByRole("tab", { name: "Schedule" }));
+    expect(await screen.findAllByText(/Aces/)).not.toHaveLength(0);
+    expect(screen.queryByText("Tournament Schedule")).toBeNull();
+    expect(screen.queryByRole("button", { name: /tournament game as final/ })).toBeNull();
+  });
+
   it("waits for the bracket's final where there is a postseason", async () => {
     saveLogs({ g1: final("6", "2"), g2: final("1", "5") });
     saveSettings({ ...loadSettings(), postseasonFormat: "all" });

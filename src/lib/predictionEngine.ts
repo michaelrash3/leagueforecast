@@ -5,6 +5,12 @@ import { dateInSquadYear } from "./teamRankings/seasons";
 import { forecastRange, type ForecastRange } from "./forecastRange";
 import { MATCHUP_ODDS_SPREAD, MATCHUP_ODDS_SPREAD_MACHINE_PITCH } from "./oddsSpread";
 import {
+  CLOSE_GAME_RISK,
+  SMALL_SAMPLE_RISK,
+  confidenceTier,
+  type ConfidenceTier,
+} from "./confidenceTier";
+import {
   DEFAULT_SHRINKAGE,
   buildOpponentAdjustedRatings,
   byRating,
@@ -12,7 +18,6 @@ import {
 } from "./powerRating";
 
 export type DataQualityTier = "Insufficient" | "Limited" | "Developing" | "Strong" | "Excellent";
-export type ConfidenceTier = "Low" | "Moderate" | "Strong" | "High";
 
 export type PowerRating = {
   teamId: string;
@@ -257,9 +262,6 @@ const byDayIn =
     };
     return dayOf(a.date) - dayOf(b.date) || 0;
   };
-
-const confidenceTier = (score: number): ConfidenceTier =>
-  score >= 82 ? "High" : score >= 66 ? "Strong" : score >= 46 ? "Moderate" : "Low";
 
 /**
  * A result from outside the league schedule — a tournament game logged in Team Rankings.
@@ -572,8 +574,8 @@ export const buildPredictionEngine = (
         "Head-to-head results are included but capped so one game does not dominate."
       );
     const riskFactors = [...dataQuality.warnings];
-    if (knownGames < 3) riskFactors.push("Small sample size can make ratings unstable.");
-    if (Math.abs(margin) < 3) riskFactors.push("Similar team ratings create a close-game risk.");
+    if (knownGames < 3) riskFactors.push(SMALL_SAMPLE_RISK);
+    if (Math.abs(margin) < 3) riskFactors.push(CLOSE_GAME_RISK);
     // The rating gap told as its parts (`MarginParts`): each side's own results as the fit shrinks
     // them, and the rest of its rating, the allowance for the opponents it faced.
     const resultsOf = (id: string) => {

@@ -1,7 +1,6 @@
 import { useCallback, useRef } from "react";
 import {
   applyFullBackup,
-  backupFilename,
   readFullBackup,
   summarizeFullBackup,
   type FullBackup,
@@ -11,7 +10,9 @@ import { noteBackupTaken } from "../lib/lastBackup";
 import { copyBackup, notMade } from "../lib/live/copyBackup";
 import { teamRankingsBackupIsEmpty, type TeamRankingsBackup } from "../lib/teamRankingsBackup";
 import { copyReader, restoresInCloud, restoreTeamRankingsInCloud } from "../lib/cloud/cloudSession";
+import { saveBackupFile } from "../lib/backupFile";
 import { afterPoolFill, poolFilled } from "../lib/poolFill";
+import { keepReplaced } from "../lib/replacedBackup";
 import type { ConfirmState } from "./useConfirmation";
 
 export type FullBackupOptions = {
@@ -84,16 +85,7 @@ export const STILL_READING_THE_COPY =
  */
 const NO_POOL: TeamRankingsBackup = { ageGroups: [], teams: [], games: [] };
 
-/** Saving a file is the one part of this that is a browser act rather than a decision. */
-const saveAsFile = (backup: FullBackup) => {
-  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = backupFilename(backup.exportedAt);
-  anchor.click();
-  URL.revokeObjectURL(url);
-};
+const saveAsFile = saveBackupFile;
 
 /**
  * The whole-browser backup: every season, the Team Rankings pool, and the interface preferences.
@@ -202,6 +194,12 @@ This replaces everything currently in this browser: all ${seasonCount} season${
       });
       if (!confirmed) return;
 
+      // Kept on this device too until the next restore, before anything is written: the toast's
+      // download is gone with the toast (`replacedBackup.ts`).
+      const kept = await keepReplaced(replaced, new Date().toISOString());
+      const keptNote = kept
+        ? " What it replaced is kept on this device until the next restore, under Settings."
+        : "";
       const result = applyFullBackup(backup, { teamRankings: !inCloud });
       // On screen before the cloud is waited on, which can take a while: the seasons written are
       // the ones React holds by then, so nothing typed meanwhile lands in the wrong season.
@@ -224,10 +222,13 @@ This replaces everything currently in this browser: all ${seasonCount} season${
         ? " The Team Rankings it replaced is kept under Earlier versions in the Cloud panel."
         : "";
       if (failed.length > 0) {
-        showToast(`Restore incomplete — could not write ${failed.join(", ")}.${poolKept}`, {
-          tone: "error",
-          ...offerReplaced,
-        });
+        showToast(
+          `Restore incomplete — could not write ${failed.join(", ")}.${poolKept}${keptNote}`,
+          {
+            tone: "error",
+            ...offerReplaced,
+          }
+        );
         return;
       }
       showToast(
@@ -235,7 +236,7 @@ This replaces everything currently in this browser: all ${seasonCount} season${
           inCloud && !cloudPool
             ? ". The file holds no Team Rankings, so the cloud's is as it was."
             : " and Team Rankings."
-        }${poolKept}`,
+        }${poolKept}${keptNote}`,
         { tone: "success", ...offerReplaced }
       );
     },

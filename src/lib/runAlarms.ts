@@ -14,7 +14,8 @@
  * this names, and the workflows only call it.
  */
 
-export type AlarmKind = "nightly" | "republish" | "rebuilds" | "closedLevel";
+export type AlarmKind =
+  "nightly" | "republish" | "rebuilds" | "closedLevel" | "verifyGc" | "billing" | "dispatchToken";
 
 /** The title each alarm's issue is found again by, among the issues the workflows opened. */
 export const ALARM_TITLES: Record<AlarmKind, string> = {
@@ -22,6 +23,9 @@ export const ALARM_TITLES: Record<AlarmKind, string> = {
   republish: "Publishing the views after a deploy failed",
   rebuilds: "The rebuilds after saves are failing",
   closedLevel: "A new starting level is ready for leagues with few outside games",
+  verifyGc: "The GameChanger pull check failed",
+  billing: "The project's billing is off",
+  dispatchToken: "The pull dispatch token is running out",
 };
 
 /**
@@ -92,12 +96,18 @@ export const nightlyVerdicts = ({
   mode,
   rebuilds = "",
   closedLevel = "",
+  billing = "",
+  dispatch = "",
 }: {
   outcome: string;
   event: string;
   mode: string;
   rebuilds?: string;
   closedLevel?: string;
+  /** The project's billing as the nightly read it (`billingWord`). */
+  billing?: string;
+  /** The pull dispatch token as the nightly read it (`dispatchWord`). */
+  dispatch?: string;
 }): Verdict[] => {
   const live = mode === "live";
   const how = event === "schedule" ? "scheduled" : live ? "by hand, live" : "by hand, dry run";
@@ -111,7 +121,117 @@ export const nightlyVerdicts = ({
   else if (rebuilds === "off") verdicts.push({ kind: "rebuilds", failing: false, said: "off" });
   const level = live ? closedLevelVerdict(closedLevel) : null;
   if (level) verdicts.push(level);
+  // Read whatever the run, dry or live: neither is the refresh's own work.
+  if (billing === "off") verdicts.push({ kind: "billing", failing: true, said: "off" });
+  else if (billing === "on") verdicts.push({ kind: "billing", failing: false });
+  const token = dispatchVerdict(dispatch);
+  if (token) verdicts.push(token);
   return verdicts;
+};
+
+/**
+ * What the nightly read of the project's billing (`scripts/upkeep.ts`), from Cloud Billing's
+ * answer for the project (`projects.getBillingInfo`, free to ask): `on`, `off`, or empty for an
+ * answer that is not one, which leaves the alarm as it is. Cloud Billing leaves `billingEnabled`
+ * out where billing is off, so a billing info without it is off.
+ */
+export const billingWord = (answer: unknown): "on" | "off" | "" => {
+  if (!isRecord(answer) || typeof answer.name !== "string") return "";
+  return answer.billingEnabled === true ? "on" : "off";
+};
+
+/** Days a token may have left before its alarm is raised: two weeks, time to make another. */
+export const DISPATCH_WARN_DAYS = 14;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * GitHub's `github-authentication-token-expiration` header as an instant: "2026-11-02 05:00:00 UTC"
+ * or with an offset, "2026-11-01 21:00:00 -0800". NaN for anything else.
+ */
+const expiryOf = (header: string): number => {
+  const read = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (UTC|[+-]\d{2}):?(\d{2})?$/.exec(
+    header.trim()
+  );
+  if (!read) return Number.NaN;
+  const [, day, time, zone, minutes] = read;
+  const offset = zone === "UTC" ? "Z" : `${zone}:${minutes ?? "00"}`;
+  return Date.parse(`${day}T${time}${offset}`);
+};
+
+/**
+ * What the nightly read of the token the pulls on GitHub are started with (`PULL_DISPATCH_TOKEN`),
+ * from GitHub's answer to a request made with it: `fine` with more than two weeks left or no end,
+ * `expires <day> <days left>` within them, `refused` where GitHub would not take it (ended or
+ * revoked), and empty for any other answer, which leaves the alarm as it is.
+ */
+export const dispatchWord = (
+  answer: { status: number; expires: string | null },
+  now: number
+): string => {
+  if (answer.status === 401) return "refused";
+  if (answer.status < 200 || answer.status >= 300) return "";
+  if (answer.expires === null) return "fine";
+  const end = expiryOf(answer.expires);
+  if (Number.isNaN(end)) return "";
+  const left = Math.floor((end - now) / DAY_MS);
+  if (left > DISPATCH_WARN_DAYS) return "fine";
+  return `expires ${new Date(end).toISOString().slice(0, 10)} ${Math.max(0, left)}`;
+};
+
+const EXPIRES = /^expires (\d{4}-\d{2}-\d{2}) (\d+)$/;
+
+/** The nightly's reading of the dispatch token as a verdict, or null for none. */
+const dispatchVerdict = (word: string): Verdict | null => {
+  if (word === "fine") return { kind: "dispatchToken", failing: false };
+  if (word === "refused") {
+    return {
+      kind: "dispatchToken",
+      failing: true,
+      said: "was refused by GitHub: it has ended or been revoked",
+    };
+  }
+  const read = EXPIRES.exec(word);
+  if (!read) return null;
+  const days = Number(read[2]);
+  return {
+    kind: "dispatchToken",
+    failing: true,
+    said: `ends on ${read[1]}, in ${days} ${days === 1 ? "day" : "days"}`,
+  };
+};
+
+/**
+ * The alarm the GameChanger pull check raises or settles (`verify-gc.yml`): a check that failed
+ * raises it, and so does one that passed but found no score on a game already played (`result`
+ * `drift`), the sign of GameChanger's score fields having moved; a clean one settles it. Only the
+ * runs after a merge and on the week's clock count: a run by hand may ask other teams or another
+ * proxy, and a run a newer push cancelled says nothing of GameChanger.
+ */
+export const verifyGcVerdicts = ({
+  outcome,
+  event,
+  result,
+}: {
+  outcome: string;
+  event: string;
+  result: string;
+}): Verdict[] => {
+  if (event !== "schedule" && event !== "push") return [];
+  const how = event === "schedule" ? "weekly" : "after a merge";
+  if (outcome === "failure") return [{ kind: "verifyGc", failing: true, said: "failed", how }];
+  if (outcome !== "success") return [];
+  if (result === "drift") {
+    return [
+      {
+        kind: "verifyGc",
+        failing: true,
+        said: "found no score on games already played, so GameChanger's score fields may have moved",
+        how,
+      },
+    ];
+  }
+  return result === "pass" ? [{ kind: "verifyGc", failing: false, how }] : [];
 };
 
 /** The alarm a republish after a deploy raises or settles, from how its step ended. */
@@ -148,6 +268,25 @@ const WORDS: Record<
         : "The nightly found no failures in a row and no pause in the rebuilds' ledger",
     closes:
       "Each nightly that finds them so again comments here, and the first to find no failures in a row and no pause, or them switched off,",
+  },
+  verifyGc: {
+    failed: (said, how) => `the GameChanger pull check ${said}${how}`,
+    fine: (how) => `The GameChanger pull check passed${how}`,
+    closes:
+      "Its run's summary says what failed and where to look. Each check that fails again comments here, and the next that passes",
+  },
+  billing: {
+    failed: () =>
+      "the nightly found the project's billing off, which is what the cost cap does once the month's budget is spent (billingCap.ts): the functions, the pulls in the cloud and the AI write-ups stop until billing is linked again in the Google Cloud console",
+    fine: () => "The nightly found the project's billing on",
+    closes: "Each nightly that finds it off again comments here, and the first to find it on",
+  },
+  dispatchToken: {
+    failed: (said) =>
+      `the token the pulls on GitHub are started with (the PULL_DISPATCH_TOKEN secret) ${said}. Make another with the same access and replace the secret`,
+    fine: () =>
+      "The nightly found the pull dispatch token good for more than two weeks, or with no end",
+    closes: "Each nightly that finds it so again comments here, and the first to find it good",
   },
   closedLevel: {
     failed: (said) => `the weekly re-measure found ${said}`,

@@ -221,6 +221,18 @@ export const checkSchedule = (
 };
 
 /** Whether a run of checks counts as a pass, and one line saying why. */
+/**
+ * The word the check hands its alarm (`verifyGcVerdicts`): `fail` for any failure, `drift` for a
+ * pass whose schedules carried no score on games already played, the sign of GameChanger's score
+ * fields having moved, and `pass` for anything else.
+ */
+export const resultWord = (checks: PullCheck[]): "pass" | "drift" | "fail" => {
+  if (checks.some((check) => check.status === "fail")) return "fail";
+  return checks.some((check) => check.step === "Scores" && check.status === "warn")
+    ? "drift"
+    : "pass";
+};
+
 export const verdict = (checks: PullCheck[]): { ok: boolean; line: string } => {
   const failed = checks.filter((check) => check.status === "fail");
   const warned = checks.filter((check) => check.status === "warn");

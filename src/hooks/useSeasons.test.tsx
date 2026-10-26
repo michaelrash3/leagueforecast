@@ -1,7 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSeasons } from "./useSeasons";
 import { createSeason, getActiveSeasonId, listSeasons, setActiveSeason } from "../lib/storage";
+import { adoptTabTurn, TAB_READ_ONLY } from "../lib/tabTurn";
+import { createTabTurn } from "../lib/tabTurnChannel";
 
 /**
  * The season index lives in localStorage and is not React state, so every operation here writes it
@@ -157,5 +159,42 @@ describe("the season list read again", () => {
     act(() => result.current.refresh());
     expect(result.current.all).toHaveLength(before + 1);
     expect(loadActiveSeason).not.toHaveBeenCalled();
+  });
+});
+
+describe("in a tab another tab has the turn from", () => {
+  const readOnly = () => {
+    const turn = createTabTurn({ channel: null, openedAt: 0, id: "t", claimed: () => false });
+    adoptTabTurn({ ...turn, readOnly: () => true });
+  };
+  afterEach(() => adoptTabTurn(null));
+
+  it("deletes nothing, in the cloud least of all, and says why", async () => {
+    // The cloud's copy of a season is deleted before this browser's (`beforeDelete`), and storage
+    // refusing the second came too late for the first: gone for every other device, kept here.
+    const other = createSeason("Fall 2026");
+    readOnly();
+    const beforeDelete = vi.fn(async () => true);
+    const { result, showToast, requestConfirmation } = setup({ beforeDelete });
+
+    await act(() => result.current.remove(other.id));
+
+    expect(requestConfirmation).not.toHaveBeenCalled();
+    expect(beforeDelete).not.toHaveBeenCalled();
+    expect(listSeasons().map((season) => season.id)).toContain(other.id);
+    expect(toastText(showToast)).toBe(TAB_READ_ONLY);
+  });
+
+  it("makes no season and copies none, rather than saying it did", () => {
+    const first = listSeasons()[0]!;
+    readOnly();
+    const { result, showToast } = setup();
+
+    act(() => result.current.create("Summer"));
+    act(() => result.current.duplicate(first.id, "Copy"));
+
+    expect(listSeasons().map((season) => season.name)).not.toContain("Summer");
+    expect(listSeasons().map((season) => season.name)).not.toContain("Copy");
+    expect(toastText(showToast)).toBe(`${TAB_READ_ONLY} | ${TAB_READ_ONLY}`);
   });
 });

@@ -14,6 +14,9 @@
  * Every failure path returns a non-200 with a machine-readable `reason`; the
  * client then keeps showing the deterministic story, so the app works unchanged
  * when the key is absent or Gemini is unreachable.
+ *
+ * For the accounts on the cloud copy's list alone, as the GameChanger proxy is
+ * (`memberCheck.ts`): the default export is the handler behind that list.
  */
 
 import {
@@ -22,6 +25,7 @@ import {
   sanitizeLeagueSummaryRequest,
   LEAGUE_SUMMARY_LIMITS,
   systemInstructionForKind,
+  SUMMARY_MEMBERS_ONLY_MESSAGES,
   type LeagueSummaryError,
   type LeagueSummaryRequest,
   type LeagueSummaryResponse,
@@ -48,6 +52,8 @@ import {
   type ApiRequest,
   type ApiResponse,
 } from "../src/lib/apiShared.js";
+import { FIREBASE_WEB_CONFIG } from "../src/lib/cloud/cloudConfig.js";
+import { createMemberCheck, membersOnly } from "../src/lib/memberCheck.js";
 
 /**
  * The one Node global this function needs. Declared here rather than via
@@ -484,8 +490,8 @@ const generateSummary = async (
  * runtime. `?probe=1` additionally asks Gemini which models the key can use.
  *
  * It reports no secret material: booleans, a key length (to catch a truncated
- * paste), the deployed commit, and the Vercel environment. The same for the
- * Groq key under `groq`, whose probe asks Groq which models the key can use.
+ * paste), and the deployed revision. The same for the Groq key under `groq`,
+ * whose probe asks Groq which models the key can use.
  */
 const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
   const rawKey = process.env.GEMINI_API_KEY;
@@ -501,8 +507,8 @@ const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
     keyLength: apiKey?.length ?? 0,
     keyHadSurroundingWhitespace: Boolean(rawKey && rawKey !== rawKey.trim()),
     pinnedModel: process.env.GEMINI_MODEL?.trim() || null,
-    vercelEnv: process.env.VERCEL_ENV ?? null,
-    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
+    // The Cloud Run revision serving it, which Cloud Functions sets; it read Vercel's names once.
+    revision: process.env.K_REVISION ?? null,
     probe: wantsProbe ? "requested" : "add ?probe=1 to test the key against Gemini",
   };
   const rawGroqKey = process.env.GROQ_API_KEY;
@@ -598,7 +604,7 @@ const sendHealth = async (req: ApiRequest, res: ApiResponse): Promise<void> => {
   res.status(200).json(health);
 };
 
-export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+export async function leagueSummaryHandler(req: ApiRequest, res: ApiResponse): Promise<void> {
   if (req.method === "GET") {
     await sendHealth(req, res);
     return;
@@ -664,3 +670,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   };
   res.status(200).json(body);
 }
+
+/**
+ * The function as it is served (`functions/src/index.ts`): behind the cloud copy's list, its probe
+ * shut with the rest, since a probe asks both providers for their models.
+ */
+export default membersOnly(
+  leagueSummaryHandler,
+  createMemberCheck({ projectId: FIREBASE_WEB_CONFIG.projectId }),
+  { messages: SUMMARY_MEMBERS_ONLY_MESSAGES, probeOpen: false }
+);

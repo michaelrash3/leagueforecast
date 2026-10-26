@@ -209,7 +209,7 @@ export const rankOptionsFromSettings = (
   tiePoints: settings.tiePoints,
 });
 
-const resolvedTiebreakerOrder = (options: RankOptions) => {
+export const resolvedTiebreakerOrder = (options: RankOptions) => {
   if (options.tiebreakerOrder) return options.tiebreakerOrder;
   return options.runDiffTiebreaker ? DEFAULT_TIEBREAKER_ORDER : [];
 };
@@ -222,7 +222,12 @@ const headToHeadPct = (team: Team, opponentId: string) => {
   return (record.wins + record.ties * 0.5) / games;
 };
 
-const compareByTiebreaker = (a: Team, b: Team, factor: TiebreakerFactor, tiedGroupSize: number) => {
+export const compareByTiebreaker = (
+  a: Team,
+  b: Team,
+  factor: TiebreakerFactor,
+  tiedGroupSize: number
+) => {
   switch (factor) {
     case "headToHead": {
       if (tiedGroupSize !== 2) return 0;

@@ -4,6 +4,7 @@ import {
   checkSchedule,
   checkStrangerRefused,
   checkTeamResponse,
+  resultWord,
   verdict,
 } from "../gcPullCheck";
 import type { GcGame, GcTeamSchedule } from "../gameChangerApi";
@@ -196,6 +197,25 @@ describe("the verdict", () => {
     ]);
     expect(result.ok).toBe(false);
     expect(result.line).toContain("Pull");
+  });
+});
+
+describe("the word the check hands its alarm", () => {
+  /*
+   * A pass that found no score on games already played is the one warning worth an issue: the
+   * sign of GameChanger's score fields having moved (`runAlarms.ts`, `verifyGcVerdicts`). Any
+   * other warning is a pass, and a failure a failure.
+   */
+  it("is fail for a failure, drift for a scores warning, and pass otherwise", () => {
+    const pass = { step: "Pull", status: "pass" as const, detail: "fine" };
+    const scores = { step: "Scores", status: "warn" as const, detail: "none scored" };
+    expect(resultWord([pass, { step: "Pull", status: "fail", detail: "blocked" }, scores])).toBe(
+      "fail"
+    );
+    expect(resultWord([pass, scores])).toBe("drift");
+    expect(resultWord([pass, { step: "Age level", status: "warn", detail: "missing" }])).toBe(
+      "pass"
+    );
   });
 });
 

@@ -28,6 +28,11 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: read
+  # The alarm's issue, opened, commented on and closed with the run's own token.
+  issues: write
+
 # A push while one is running makes the older run pointless — it is checking a deployment that has
 # been replaced. Scheduled runs keep their own group so a merge never cancels the weekly check.
 concurrency:
@@ -103,3 +108,16 @@ jobs:
               echo "set the \`VERIFY_GC_PROXY\` repository variable if using another Firebase project."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # However the check ended, after a merge or on the week's clock: a failure, or a pass that
+      # found no score on games already played (drift), opens the alarm's issue or comments on the
+      # one open, and a clean pass closes it (`runAlarms.ts`, README "When a run fails"). Allowed
+      # to fail on its own without changing the run's colour, as the nightly's is.
+      - name: Raise or settle the alarm
+        if: always()
+        continue-on-error: true
+        run: npm run alarm -- verify-gc
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.verify.outcome }}
+          RESULT: ${{ steps.verify.outputs.result }}

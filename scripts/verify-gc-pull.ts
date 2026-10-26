@@ -24,10 +24,12 @@
  * anything essential failed, so CI or a shell script can rely on it.
  */
 
+import { appendFileSync } from "node:fs";
 import { GC_TEAM_ENDPOINT, type GcTeamResponse } from "../src/lib/gameChangerApi.ts";
 import {
   checkStrangerRefused,
   checkTeamResponse,
+  resultWord,
   verdict,
   type PullCheck,
 } from "../src/lib/gcPullCheck.ts";
@@ -38,7 +40,11 @@ import { handlerFetch } from "./handlerFetch.ts";
  * reason `server/gc-team.ts` does it: installing that package changes global timer typings for the
  * browser project too.
  */
-declare const process: { argv: string[]; exit: (code: number) => never };
+declare const process: {
+  argv: string[];
+  env: Record<string, string | undefined>;
+  exit: (code: number) => never;
+};
 
 /** A team id known to exist publicly, so the script is runnable with no arguments at all. */
 const SAMPLE_ID = "FtEExZwB4b8E";
@@ -198,6 +204,9 @@ const main = async (): Promise<number> => {
 
   const result = verdict(all);
   console.log(`\n${result.line}`);
+  // The word the alarm after it reads (`resultWord`, `runAlarms.ts`): a drift is a pass to the run.
+  const file = process.env.GITHUB_OUTPUT;
+  if (file) appendFileSync(file, `result=${resultWord(all)}\n`);
   return result.ok ? 0 : 1;
 };
 

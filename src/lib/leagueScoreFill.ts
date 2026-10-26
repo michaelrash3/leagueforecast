@@ -327,10 +327,15 @@ export const planLeagueScoreFill = ({
     if (dated) dated.push(game);
     else poolByDate.set(date, [game]);
   });
-  // Stable order, so a doubleheader is zipped the same way every time this runs.
-  const byId = (a: ScoutGame, b: ScoutGame) => a.id.localeCompare(b.id);
-  poolByKey.forEach((bucket) => bucket.sort(byId));
-  poolByDate.forEach((bucket) => bucket.sort(byId));
+  /*
+   * In the order they were played, where the pull knows when each started, so a doubleheader's
+   * results go to the schedule's two games first to first: GameChanger's ids say nothing of which
+   * came first. Then by id, so it is zipped the same way every time this runs.
+   */
+  const byStart = (a: ScoutGame, b: ScoutGame) =>
+    (a.startTs ?? "").localeCompare(b.startTs ?? "") || a.id.localeCompare(b.id);
+  poolByKey.forEach((bucket) => bucket.sort(byStart));
+  poolByDate.forEach((bucket) => bucket.sort(byStart));
 
   /** League games grouped the same way, so both sides of a doubleheader can be counted. */
   const leagueByKey = new Map<string, Matchup[]>();
@@ -753,6 +758,22 @@ export const planLeagueScoreFill = ({
   clashing.forEach((clubId) => teamOfClub.delete(clubId));
   const scheduled = scheduledOn(matchups);
   const tournamentOf = tournamentReason(scoutGames, new Set(teamOfClub.keys()));
+  /*
+   * The schedule's last day, on the season's own calendar: a meeting of two of the league's clubs
+   * after it passes the tournament checks when a playoff round is played one game a day, and
+   * ticked, it went into the standings that seeded the bracket.
+   */
+  const startMonth = seasonStartMonth(matchups.map((matchup) => matchup.date));
+  const lastScheduled = Math.max(
+    ...matchups
+      .map((matchup) => parseDateValue(matchup.date, startMonth))
+      .filter((value) => Number.isFinite(value)),
+    Number.NEGATIVE_INFINITY
+  );
+  const afterTheSchedule = (date: string) => {
+    const value = parseDateValue(date, startMonth);
+    return Number.isFinite(value) && value > lastScheduled;
+  };
   const missing: LeagueMissingGame[] = usable
     .flatMap((game) => {
       const away = teamOfClub.get(game.teamAId);
@@ -760,7 +781,11 @@ export const planLeagueScoreFill = ({
       const date = normalizeDateInput(game.date ?? "");
       if (!away || !home) return [];
       if (scheduled.has(`${pairKey(away, home)}@${date}`)) return [];
-      const tournament = tournamentOf(game);
+      const tournament =
+        tournamentOf(game) ??
+        (afterTheSchedule(date)
+          ? "Played after the last game on the schedule, so it was likely a playoff game."
+          : undefined);
       return [
         {
           scoutGameId: game.id,

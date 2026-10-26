@@ -15,6 +15,7 @@ import {
   standingsPoints,
   calibrateAwayWinPct,
 } from "../sim";
+import { tieBreaks } from "../tieBreaks";
 import {
   DEFAULT_SETTINGS,
   type GameLog,
@@ -1044,5 +1045,54 @@ describe("the contact term across a simulated game", () => {
 
       expect(now.baseTpi).toBeCloseTo(rebuilt, 10);
     });
+  });
+});
+
+describe("tieBreaks", () => {
+  /*
+   * The table never said which tiebreaker put one of two teams level on points above the other:
+   * now each such pair is named, with the rule that separated it, in the order the table has them.
+   */
+  const level = (id: string, runDiff: number, tpi = 0): Team => {
+    const team = emptyTeam({ id, name: id });
+    team.w = 3;
+    team.l = 2;
+    team.games = 5;
+    team.runDiff = runDiff;
+    team.tpi = tpi;
+    return team;
+  };
+  const options = { tiebreakerOrder: ["headToHead", "runDifferential"] as const };
+
+  it("names the rule that put each team level on points below the one above it", () => {
+    const ahead = level("A", 9);
+    const behind = level("B", 2);
+    const below = emptyTeam({ id: "C", name: "C" });
+    below.w = 1;
+    below.l = 4;
+    const ranked = rankTeams([below, behind, ahead], {
+      ...options,
+      tiebreakerOrder: [...options.tiebreakerOrder],
+    });
+    expect(ranked.map((team) => team.id)).toEqual(["A", "B", "C"]);
+    expect(tieBreaks(ranked, { tiebreakerOrder: [...options.tiebreakerOrder] })).toEqual([
+      { teamId: "B", aboveId: "A", by: "runDifferential" },
+    ]);
+  });
+
+  it("names head-to-head where it decided, and the model's rating where no rule did", () => {
+    const a = level("A", 4, 1);
+    const b = level("B", 4, 2);
+    a.headToHead = { B: { wins: 1, losses: 0, ties: 0 } };
+    b.headToHead = { A: { wins: 0, losses: 1, ties: 0 } };
+    const order = { tiebreakerOrder: [...options.tiebreakerOrder] };
+    const ranked = rankTeams([b, a], order);
+    expect(tieBreaks(ranked, order)).toEqual([{ teamId: "B", aboveId: "A", by: "headToHead" }]);
+
+    const c = level("C", 4, 2);
+    const d = level("D", 4, 1);
+    const byRating = rankTeams([d, c], order);
+    expect(byRating.map((team) => team.id)).toEqual(["C", "D"]);
+    expect(tieBreaks(byRating, order)).toEqual([{ teamId: "D", aboveId: "C", by: "rating" }]);
   });
 });

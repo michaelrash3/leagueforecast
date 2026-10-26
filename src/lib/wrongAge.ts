@@ -6,6 +6,7 @@ import {
 } from "./gameChangerApi";
 import type { GcImportState } from "./gameChangerImport";
 import { ageGroupLevel, ageGroupYear, gcLinkSquadYearIn, type ScoutTeam } from "./teamRankings";
+import { weekEndingSunday } from "./nextWeekend";
 
 /**
  * Pulled clubs that look filed at the wrong age: the Cincinnati Hornets problem, across the pool.
@@ -59,13 +60,7 @@ const nameAge = (name: string, year: number): number | undefined =>
   ageLevelFromLooseName(name);
 
 /** The Sunday ending a date's week, so Friday to Sunday of one weekend is one week. */
-const weekOf = (date: string | undefined): string | undefined => {
-  if (!date) return undefined;
-  const at = Date.parse(`${date}T12:00:00Z`);
-  if (!Number.isFinite(at)) return undefined;
-  const day = new Date(at).getUTCDay();
-  return new Date(at + ((7 - day) % 7) * 86_400_000).toISOString().slice(0, 10);
-};
+const weekOf = weekEndingSunday;
 
 const SEASON_ORDER: Record<string, number> = { fall: 0, winter: 1, spring: 2, summer: 3 };
 
