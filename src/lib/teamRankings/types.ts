@@ -303,6 +303,11 @@ export type ScoutGame = {
    * at that hour and to that result (`markCountedElsewhere`). It counts for nothing, so the club it
    * names is credited with the game once. Set and cleared by the tidy, which reads the day again on
    * every pass.
+   *
+   * Or it is a scored game against a slot listed as TBD (`markTbdGames`), which counts only as the
+   * game another team's schedule holds at that date and time, and otherwise not at all: the owner's
+   * rule of 26 October 2026. The one mark serves both, rather than a second the stored pool, the
+   * backup and the server's views would each have to learn to carry.
    */
   countedElsewhere?: true;
   /**

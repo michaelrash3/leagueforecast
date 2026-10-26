@@ -269,6 +269,8 @@ describe("what the tidy says while it runs", () => {
       "regrouped",
       // Last, once every row that could be a game's own has gone where it goes.
       "countedElsewhere",
+      // Beside it, the rows against a TBD slot that it leaves alone.
+      "tbdSlots",
     ]);
   });
 
