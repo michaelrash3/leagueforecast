@@ -8566,6 +8566,19 @@ shared handlers with recorded provider responses and require no deployed credent
   once every team's odds are known to two points by the same Wilson interval
   shown beside them, with a ceiling of 4,000 seasons, and the ± on screen is
   computed from the seasons actually played.
+- Each simulated game draws its winner at the model's chance and its margin from
+  a normal curve around the predicted margin, held to the winner's side of level,
+  8.0 runs wide for kid pitch and 6.7 for machine and coach pitch (the odds
+  curve's spread read as a normal curve); a league that has had ties draws them
+  at its own share, read as though ten games without one came first
+  (`drawMargin`). Before, every game was booked at the predicted score, so an
+  upset was always won by a run and run differential split two teams level on
+  points the same way in every season. On made-up leagues forecast part way and
+  scored against how each really finished, the Gold odds' log loss came out lower
+  in six of nine settings, level in two, and higher in one, a small league far
+  apart in strength whose games varied much less than the pool's do; drawing each
+  team's strength once a season as well counted the ratings' uncertainty twice
+  and made the odds too shy, so it is not done.
 - Hooks debounce updates and cancel in-flight runs. A run is keyed on the counts,
   the seed (every final score), the settings and each team's opponent-adjusted
   rating as a value, so linking a club or a pull in Team Rankings re-simulates the

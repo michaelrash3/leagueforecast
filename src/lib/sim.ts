@@ -1,5 +1,6 @@
 import { parseDateValue, seasonStartMonth } from "./date";
-import { wilsonScoreInterval } from "./probability";
+import { MATCHUP_ODDS_SPREAD, MATCHUP_ODDS_SPREAD_MACHINE_PITCH } from "./oddsSpread";
+import { normalCdf, normalQuantile, wilsonScoreInterval } from "./probability";
 import { clamp, isFinal, parseNumber } from "./util";
 import {
   DEFAULT_GOLD_CUTOFF,
@@ -1058,17 +1059,12 @@ export const predictGame = (
 };
 
 /**
- * Books one simulated result onto its two sides, in place.
+ * Books one projected result onto its two sides, in place: the model's predicted score, nudged so
+ * the given winner actually wins. The records, runs, run differential, head-to-head and the rating
+ * fields the tiebreakers read all move with it.
  *
- * The score is the model's predicted one, nudged so the drawn winner actually wins; the records,
- * runs, run differential, head-to-head and the rating fields the tiebreakers read all move with it.
- * Mutating is the point: this is the inner step of the Monte Carlo loop, and it used to run through
- * `applyResult` below, which copies every team and every head-to-head record and re-runs the
- * prediction it had just been handed — per game, per iteration. For twelve teams and sixty games
- * that was some hundred and fifty thousand copies of the league per forecast.
- *
- * Callers hand it teams they own: `applyResult` its own fresh copies, the simulators their
- * per-iteration scratch season.
+ * What `applyResult` books, for the projections that pick a winner rather than draw a season. The
+ * simulators draw the margin too, and book it with `settleDrawn`.
  */
 const settleGame = (
   away: Team,
@@ -1076,8 +1072,7 @@ const settleGame = (
   game: Matchup,
   winnerId: string,
   prediction: Prediction,
-  settings: Settings,
-  tally?: LeagueTally
+  settings: Settings
 ): void => {
   let awayRuns = prediction.awayScore;
   let homeRuns = prediction.homeScore;
@@ -1085,24 +1080,13 @@ const settleGame = (
   if (winnerId === game.away && awayRuns <= homeRuns) awayRuns = homeRuns + 1;
   if (winnerId === game.home && homeRuns <= awayRuns) homeRuns = awayRuns + 1;
 
-  if (tally) {
-    // Exactly what is booked onto the two sides, so the carried totals stay the counted ones.
-    tally.runs += awayRuns + homeRuns;
-    tally.games += 2;
-  }
-  bookScore(
-    away,
-    home,
-    awayRuns,
-    homeRuns,
-    tally ? tally.runDiffCap : resolveMaxRunDifferential(settings)
-  );
+  bookScore(away, home, awayRuns, homeRuns, resolveMaxRunDifferential(settings));
 };
 
 /**
  * One score booked onto two teams the caller owns: the games, the runs, the run differential as
  * capped, head-to-head, the record (a level score is a tie) and the rating the tiebreakers fall back
- * on. Every simulated game is booked here (`settleGame`), and the standings solver books the last
+ * on. Every simulated game is booked here (`settleDrawn`), and the standings solver books the last
  * game of a season here too, so a table it ranks is the one a forecast would.
  */
 const bookScore = (
@@ -1205,28 +1189,150 @@ const scratchSeason = (teams: Team[]): { season: Team[]; byId: Map<string, Team>
 };
 
 /**
+ * A share of games tied, read as though this many games without a tie came before the league's
+ * own. A judgement, not a measurement: most leagues play every game to a result, and one tie in a
+ * league's first six games should not make one in six of the rest a tie.
+ */
+const TIE_PRIOR_GAMES = 10;
+
+/**
+ * The normal curve that gives the same odds as the logistic one with spread `s` has a standard
+ * deviation of about 1.702 s (the usual match of the two curves, within 0.01 of a probability
+ * everywhere).
+ */
+const LOGISTIC_TO_NORMAL = 1.702;
+
+/** What a simulated season draws beyond who wins each game (`seasonDraws`). */
+export type SeasonDraws = {
+  random: () => number;
+  /** How often a game is drawn level (`TIE_PRIOR_GAMES`). */
+  tieShare: number;
+  /** How far one game's margin falls from the predicted one: a normal curve's width, in runs. */
+  spread: number;
+};
+
+/**
+ * What a simulated game draws beyond who wins it: by how much, and whether it is tied.
+ *
+ * Each game used to be booked at the model's predicted score, the drawn winner nudged to win by
+ * one where the score had it losing. So no simulated game was tied, every upset was won by a run,
+ * every favourite by its predicted margin, and the run differential the tiebreakers read moved
+ * only with who won: two teams level on points were split the same way in every season drawn.
+ *
+ * Now the winner is drawn at the model's chance, as before, and the margin from a normal curve
+ * around the predicted margin, held to the winner's side of level (`drawMargin`). Its width is the
+ * odds curve's spread (`MATCHUP_ODDS_SPREAD`), the margin that moves a matchup from even to about
+ * 73%, read as a normal curve (`LOGISTIC_TO_NORMAL`): 8.0 runs for kid pitch and 6.7 for machine
+ * and coach pitch. A league that has had ties draws them at its own share so far
+ * (`TIE_PRIOR_GAMES`); one that has had none draws none.
+ *
+ * Measured on made-up leagues, played out from known strengths with a game's noise on top and
+ * forecast part way through by the simulation that shipped and by this one, then scored against how
+ * each season really finished (1,500 leagues a setting, nine settings; the commit has every
+ * number): the Gold odds' log loss was lower in six settings, by 0.001 to 0.0035, level in two, and
+ * higher in one, by 0.003, a league of six far apart in strength whose games varied by 6 runs, well
+ * under the curve's 8. The curve's width is the one the pool's own games measured, so a league whose
+ * games are much closer than the pool's is the case it serves least. Drawing each team's strength
+ * once a season as well, which the plan first had, made the odds worse at every point: the model's
+ * chance for a game already allows for how little its ratings are known, and a team's season drawn
+ * on top counted that twice, so a team given 14% made the cut 5% of the time.
+ *
+ * Exported, with `drawMargin`, for their tests.
+ */
+export const seasonDraws = (
+  teams: Team[],
+  settings: Settings,
+  random: () => number
+): SeasonDraws => {
+  const ties = teams.reduce((sum, team) => sum + team.t, 0);
+  const games = teams.reduce((sum, team) => sum + team.games, 0);
+  const spread =
+    settings.pitchMode === "machine" || settings.pitchMode === "coach"
+      ? MATCHUP_ODDS_SPREAD_MACHINE_PITCH
+      : MATCHUP_ODDS_SPREAD;
+  return {
+    random,
+    // Each game is counted on both sides, so the ties and games are both twice over.
+    tieShare: ties / (games + 2 * TIE_PRIOR_GAMES),
+    spread: spread * LOGISTIC_TO_NORMAL,
+  };
+};
+
+/**
+ * One game's margin, in whole runs: positive for an away win, negative for a home one, and 0 for a
+ * tie, which only a game that may end level is drawn. The away side wins exactly as often as
+ * `awayWinPct` says; the margin is then the normal curve around `predicted`, the predicted margin,
+ * on that side of level: the second draw placed within the part of the curve that side's margins
+ * fill. Two draws a game, three where the league has had ties, whatever the game comes to.
+ */
+export const drawMargin = (
+  draws: SeasonDraws,
+  awayWinPct: number,
+  predicted: number,
+  mayTie: boolean
+): number => {
+  if (mayTie && draws.tieShare > 0 && draws.random() < draws.tieShare) return 0;
+  const awayWins = draws.random() < awayWinPct;
+  const level = normalCdf(-predicted / draws.spread);
+  const placed = draws.random();
+  const at = awayWins ? level + placed * (1 - level) : placed * level;
+  const runs = predicted + draws.spread * normalQuantile(clamp(at, 1e-12, 1 - 1e-12));
+  return awayWins ? Math.max(1, Math.round(runs)) : Math.min(-1, Math.round(runs));
+};
+
+/**
+ * Books a drawn margin onto the two sides, in place: the predicted total kept, split so that the
+ * margin is the drawn one, the loser never below nothing. The league's carried totals move by
+ * exactly what is booked, so they stay the counted ones.
+ */
+const settleDrawn = (
+  away: Team,
+  home: Team,
+  margin: number,
+  prediction: Prediction,
+  tally: LeagueTally
+): void => {
+  const total = prediction.awayScore + prediction.homeScore;
+  const loser = Math.max(0, Math.round((total - Math.abs(margin)) / 2));
+  const awayRuns = margin === 0 ? Math.round(total / 2) : margin > 0 ? loser + margin : loser;
+  const homeRuns = margin === 0 ? awayRuns : margin < 0 ? loser - margin : loser;
+  tally.runs += awayRuns + homeRuns;
+  tally.games += 2;
+  bookScore(away, home, awayRuns, homeRuns, tally.runDiffCap);
+};
+
+/** How a game went, as `playOut` writes it down for the team followed (`GoldSwing`). */
+const HOME_WON = 0;
+const AWAY_WON = 1;
+const TIED = 2;
+
+/**
  * Plays the remaining games once, in order, writing each result onto the scratch season so the
- * next prediction sees the standings as they then are. Draws exactly one random number per game,
- * before looking the sides up, so the stream of draws — and therefore every answer — is the same
- * as when this loop copied the league per game.
+ * next prediction sees the standings as they then are. Each game makes the same number of draws
+ * whatever it comes to, so a season's draws, and every answer, follow from the seed alone.
  */
 const playOut = (
   season: Team[],
   byId: Map<string, Team>,
   remaining: Matchup[],
   settings: Settings,
-  random: () => number,
-  /** Where given, 1 at a game's place when the away side won it, 0 when the home side did. */
-  awayWon?: Uint8Array
+  draws: SeasonDraws,
+  /** Where given, how each game went, at its place (`HOME_WON`, `AWAY_WON` or `TIED`). */
+  results?: Uint8Array
 ): void => {
   const tally = leagueTallyOf(season, settings);
   for (const [at, game] of remaining.entries()) {
     const prediction = predictGame(game, season, settings, byId, tally);
-    const winner = random() < prediction.awayWinPct ? game.away : game.home;
-    if (awayWon) awayWon[at] = winner === game.away ? 1 : 0;
+    const margin = drawMargin(
+      draws,
+      prediction.awayWinPct,
+      prediction.awayScore - prediction.homeScore,
+      true
+    );
+    if (results) results[at] = margin > 0 ? AWAY_WON : margin < 0 ? HOME_WON : TIED;
     const away = byId.get(game.away);
     const home = byId.get(game.home);
-    if (away && home) settleGame(away, home, game, winner, prediction, settings, tally);
+    if (away && home) settleDrawn(away, home, margin, prediction, tally);
   }
 };
 
@@ -1376,13 +1482,15 @@ export type GoldOddsRun = {
 /**
  * For one team, the seasons played out counted by how each game left went: of the seasons in
  * which a game's away side won (`awayWins`), how many put the team inside the cut (`inIfAway`),
- * and of the rest, how many did (`inIfHome`). In the order of the games left (`gameIds`).
+ * and of those in which its home side won (`homeWins`), how many did (`inIfHome`). A season with
+ * the game tied is in neither. In the order of the games left (`gameIds`).
  */
 export type GoldSwing = {
   teamId: string;
   seasons: number;
   gameIds: string[];
   awayWins: number[];
+  homeWins: number[];
   inIfAway: number[];
   inIfHome: number[];
 };
@@ -1414,14 +1522,16 @@ export const simulateGoldOddsRun = (
   let completedIterations = 0;
   const rankOptions = rankOptionsFromSettings(settings);
   const following = follow !== undefined && teams.some((team) => team.id === follow);
-  const awayWon = following ? new Uint8Array(remaining.length) : undefined;
+  const results = following ? new Uint8Array(remaining.length) : undefined;
   const awayWins = new Array<number>(following ? remaining.length : 0).fill(0);
+  const homeWins = new Array<number>(following ? remaining.length : 0).fill(0);
   const inIfAway = new Array<number>(following ? remaining.length : 0).fill(0);
   const inIfHome = new Array<number>(following ? remaining.length : 0).fill(0);
+  const draws = seasonDraws(teams, settings, random);
 
   for (let i = 0; i < iterations; i += 1) {
     const { season, byId } = scratchSeason(teams);
-    playOut(season, byId, remaining, settings, random, awayWon);
+    playOut(season, byId, remaining, settings, draws, results);
 
     let followedIn = false;
     rankTeams(season, rankOptions)
@@ -1430,13 +1540,16 @@ export const simulateGoldOddsRun = (
         counts[team.id] = (counts[team.id] ?? 0) + 1;
         if (team.id === follow) followedIn = true;
       });
-    if (awayWon) {
-      for (let at = 0; at < awayWon.length; at += 1) {
-        const away = awayWon[at] ?? 0;
-        awayWins[at] = (awayWins[at] ?? 0) + away;
-        if (!followedIn) continue;
-        if (away) inIfAway[at] = (inIfAway[at] ?? 0) + 1;
-        else inIfHome[at] = (inIfHome[at] ?? 0) + 1;
+    if (results) {
+      for (let at = 0; at < results.length; at += 1) {
+        const result = results[at];
+        if (result === AWAY_WON) {
+          awayWins[at] = (awayWins[at] ?? 0) + 1;
+          if (followedIn) inIfAway[at] = (inIfAway[at] ?? 0) + 1;
+        } else if (result === HOME_WON) {
+          homeWins[at] = (homeWins[at] ?? 0) + 1;
+          if (followedIn) inIfHome[at] = (inIfHome[at] ?? 0) + 1;
+        }
       }
     }
 
@@ -1465,6 +1578,7 @@ export const simulateGoldOddsRun = (
             seasons: completedIterations,
             gameIds: remaining.map((game) => game.id),
             awayWins,
+            homeWins,
             inIfAway,
             inIfHome,
           },
@@ -1631,10 +1745,11 @@ export const simulateBracketOdds = (
   const rankOptions = rankOptionsFromSettings(settings);
   const bracketCutoff = Math.max(0, Math.min(cutoff, teamCount));
   const played = remaining.length === 0 ? bracketLogs : {};
+  const draws = seasonDraws(teams, settings, random);
 
   for (let i = 0; i < iterations; i += 1) {
     const { season, byId } = scratchSeason(teams);
-    playOut(season, byId, remaining, settings, random);
+    playOut(season, byId, remaining, settings, draws);
 
     const finalRanking = rankTeams(season, rankOptions);
     finalRanking.forEach((team, index) => {
