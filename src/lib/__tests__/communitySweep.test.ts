@@ -11,6 +11,7 @@ import {
   runCommunitySweep,
 } from "../../../scripts/communitySweep";
 import { describeRemovalDiagnosis, runRemovalDiagnosis } from "../../../scripts/removalDiagnosis";
+import { compareWithGameChanger, describeClubLeague } from "../../../scripts/clubLeagueReport";
 import { coerceAutoRemovals } from "../autoRemoved";
 import type { AgeGroup, ScoutGame, ScoutTeam } from "../teamRankings";
 
@@ -106,6 +107,82 @@ describe("the league-level comparison", () => {
     expect(placed("p2")).toBeGreaterThan(placed("shown"));
   });
 
+  it("lists a club whose league is short of the line after every proven club", () => {
+    const placed = (key: string) =>
+      sweep.proven.find((order) => order.key === key)!.club[0]!.stateRank!;
+    // The planted league has one outside game: short of every line, so below every proven club.
+    expect(placed("e10")).toBeGreaterThan(placed("shown"));
+    expect(placed("e10")).toBeGreaterThan(10);
+    // No club short of the line is listed above one that is not.
+    sweep.proven
+      .filter((order) => order.key.startsWith("e"))
+      .forEach((order) => {
+        const line = Number(order.key.slice(1));
+        const back = order.stateTop.map((row) => row.outside < line);
+        expect(back).toEqual([...back].sort((a, b) => Number(a) - Number(b)));
+        expect(order.stateTop.some((row) => row.name === "Longhorns")).toBe(false);
+      });
+  });
+
+  it("reports the club's league as its schedule names it, club by club", () => {
+    const league = sweep.clubLeague!;
+    expect(league.name).toBe("Longhorns");
+    expect(league.league).toHaveLength(8);
+    expect(league.league[0]).toMatchObject({ name: "Longhorns", overall: { won: 14, lost: 0 } });
+    expect(league.games).toHaveLength(14);
+    const owls = league.league.find((club) => club.name === "Owls")!;
+    expect(owls.outside).toEqual({ won: 0, lost: 1, tied: 0 });
+    expect(owls.outsideGames[0]).toMatchObject({ result: "L", score: "1-16" });
+    expect(league.community).toEqual({ size: 8, outside: 1 });
+  });
+
+  it("names what GameChanger lists that the pool lacks, in the league or outside it", () => {
+    const league = sweep.clubLeague!;
+    const owls = league.league.find((club) => club.name === "Owls")!;
+    const pulled = new Map(
+      owls.gcTeamIds.map((gcTeamId) => [
+        gcTeamId,
+        {
+          ok: true as const,
+          schedule: {
+            profile: { id: gcTeamId, name: "Owls", record: { win: 6, loss: 10, tie: 0 } },
+            games: [
+              {
+                id: "x1",
+                opponentName: "Rams",
+                date: "2026-10-20",
+                teamScore: 4,
+                opponentScore: 2,
+                status: "completed" as const,
+              },
+              {
+                id: "x2",
+                opponentName: "Somewhere Else 9U",
+                date: "2026-10-21",
+                teamScore: 0,
+                opponentScore: 9,
+                status: "completed" as const,
+              },
+            ],
+            fetchedAt: "2026-10-26T12:00:00Z",
+          },
+        },
+      ])
+    );
+    const compared = compareWithGameChanger(league, input.teams, input.games, pulled);
+    const mine = compared.find((one) => one.club === "Owls")!;
+    expect(mine).toMatchObject({ gcRecord: "6-10", gcGames: 2 });
+    expect(mine.missing).toEqual([
+      { date: "2026-10-20", opponent: "Rams", score: "4-2", inLeague: true },
+      { date: "2026-10-21", opponent: "Somewhere Else 9U", score: "0-9", inLeague: false },
+    ]);
+    // A club asked of GameChanger that did not answer says so, rather than reading as complete.
+    expect(compared.filter((one) => one.club !== "Owls").every((one) => one.failed)).toBe(true);
+    const { lines, named } = describeClubLeague(league, compared);
+    expect(lines.join("\n")).not.toMatch(/Longhorns|Owls|Rams|Edgewood/);
+    expect(named.join("\n")).toContain("OUTSIDE   2026-10-21  0-9  against Somewhere Else 9U");
+  });
+
   it("says the proven orders in numbers only, and names the club in the others", () => {
     const { lines, named } = describeCommunitySweep(sweep);
     const text = lines.join("\n");
@@ -113,7 +190,7 @@ describe("the league-level comparison", () => {
     expect(text).toMatch(/p1 +misordered \d+\.\d\d%, gain [+−]/);
     expect(text).toContain("The club asked about, where each order lists it:");
     expect(text).not.toMatch(/Longhorns|Edgewood|LH-|CL-/);
-    expect(named.filter((line) => /Longhorns, (shown|p)/.test(line))).toHaveLength(
+    expect(named.filter((line) => /Longhorns, (shown|p|e)/.test(line))).toHaveLength(
       PROVEN_ORDERS.length
     );
   });

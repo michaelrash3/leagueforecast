@@ -1,8 +1,10 @@
 # A research run, read only: the community-level sweep on the cloud copy
 # (`scripts/communityLevelSweep.ts`). It reads the copy once, as the nightly reads it, on stores
 # opened to read, and writes nothing to it. This run reads the "proven" orders of the boards on the
-# control's fits (the level variants and the removal sections were read on 26 October 2026, so it
-# skips them), the club asked about under each, and its league club by club and game by game.
+# control's fits, the owner's line ("listed after every proven club") among them, the club asked
+# about under each with its state's top 12, and its league as its own schedule names it, club by
+# club, with what GameChanger lists now for each of them that the pool lacks: asked of GameChanger
+# from this runner through the proxy's own handler, as the nightly asks, never the cloud's proxy.
 #
 # It runs only on a push to rash/griffey whose head commit's message holds the marker [run-sweep],
 # and never on any other branch or push. It prints numbers, days and scores only: this repository is

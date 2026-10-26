@@ -15,7 +15,8 @@
  * under each variant), --level-variants=k20,k5 (the level variants fitted beside the control, every
  * one when left out; the control alone with --level-variants=control, which is all the proven orders
  * read), --clubs=N (the synthetic pool's clubs a page), --no-league (League Standings
- * not read from the cloud), --skip-levels or --skip-removals (one section only), --public (numbers
+ * not read from the cloud), --no-gc (the club's league is not asked of GameChanger), --skip-levels
+ * or --skip-removals (one section only), --public (numbers
  * only), --seal=FILE (the named lines, sealed to the key's own public key, or with
  * --seal-to-key=PEM to that public key), and --open=FILE (unseal one, with
  * FIREBASE_SERVICE_ACCOUNT set to the same key, or --with-key=PEM the private key).
@@ -89,6 +90,9 @@ import {
   runCommunitySweep,
 } from "./communitySweep.ts";
 import { describeRemovalDiagnosis, runRemovalDiagnosis } from "./removalDiagnosis.ts";
+import { compareWithGameChanger, describeClubLeague } from "./clubLeagueReport.ts";
+import { fetchGcTeams } from "../src/lib/gameChangerClient.ts";
+import { handlerFetch } from "./handlerFetch.ts";
 import { readSweepFile, sweepTidy } from "./sweepTidy.ts";
 import { sweepFixture } from "./sweepFixture.ts";
 
@@ -436,6 +440,24 @@ const main = async (): Promise<void> => {
         report.lines.forEach((line) => say(line));
         sayNamed(report.named, "The club asked about, by name:");
         say(`  (the level comparison done at ${since()})`);
+        // The club's league as its own schedule names it, and what GameChanger lists now for each
+        // of its clubs that the pool lacks: asked of GameChanger from this machine, through the
+        // proxy's own handler (`handlerFetch.ts`), as the nightly asks, never the cloud's proxy.
+        const league = sweep.clubLeague;
+        if (league) {
+          const ids = league.league.flatMap((club) => club.gcTeamIds);
+          const pulledNow =
+            has("synthetic") || has("no-gc") || ids.length === 0
+              ? undefined
+              : await fetchGcTeams(ids, { fetchImpl: handlerFetch(), concurrency: 2 });
+          const told = describeClubLeague(
+            league,
+            pulledNow && compareWithGameChanger(league, pool.teams, pool.games, pulledNow)
+          );
+          told.lines.forEach((line) => say(line));
+          sayNamed(told.named, "Its league, club by club, and what GameChanger lists now:");
+          say(`  (the league report done at ${since()})`);
+        }
       }
     } catch (error) {
       say(`The level comparison stopped: ${failureWords(error)}`);
