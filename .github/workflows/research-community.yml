@@ -42,7 +42,7 @@ jobs:
       # (`scripts/tsRegister.mjs`), as the nightly runs.
       - name: Sweep the cloud copy, read only
         timeout-minutes: 55
-        run: npm run community:sweep -- --cloud --skip-removals --level-variants=control --seal="$RUNNER_TEMP/community-sweep.sealed.json" --seal-to-key=scripts/researchSeal.pub.pem
+        run: npm run community:sweep -- --cloud --skip-removals --level-variants=control --no-gc --seal="$RUNNER_TEMP/community-sweep.sealed.json" --seal-to-key=scripts/researchSeal.pub.pem
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           # The members' day, which the board of the day is read on, as the nightly reads it.

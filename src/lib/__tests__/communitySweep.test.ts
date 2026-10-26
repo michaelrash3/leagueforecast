@@ -124,6 +124,16 @@ describe("the league-level comparison", () => {
       });
   });
 
+  it("says how far the club's web of games reaches, against the clubs at the top", () => {
+    // The planted league: its seven opponents, then one more club through the Owls' one game out.
+    expect(sweep.reach.club?.slice(0, 2)).toEqual([7, 8]);
+    expect(sweep.reach.nationalTop.two!.p50).toBeGreaterThan(sweep.reach.club![1]!);
+    expect(sweep.reach.league).toHaveLength(8);
+    const placed = (key: string) =>
+      sweep.proven.find((order) => order.key === key)!.club[0]!.stateRank!;
+    expect(placed("r2-25")).toBeGreaterThan(placed("shown"));
+  });
+
   it("reports the club's league as its schedule names it, club by club", () => {
     const league = sweep.clubLeague!;
     expect(league.name).toBe("Longhorns");
@@ -190,7 +200,7 @@ describe("the league-level comparison", () => {
     expect(text).toMatch(/p1 +misordered \d+\.\d\d%, gain [+−]/);
     expect(text).toContain("The club asked about, where each order lists it:");
     expect(text).not.toMatch(/Longhorns|Edgewood|LH-|CL-/);
-    expect(named.filter((line) => /Longhorns, (shown|p|e)/.test(line))).toHaveLength(
+    expect(named.filter((line) => /Longhorns, (shown|p|e|r)/.test(line))).toHaveLength(
       PROVEN_ORDERS.length
     );
   });
