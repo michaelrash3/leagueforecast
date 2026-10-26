@@ -248,6 +248,20 @@ describe("parseLeagueSchedule", () => {
       },
     ],
     [
+      "a headed table's day no calendar has, skipped as on a line, scored or not (Codex on #456)",
+      [
+        "Date,Away,Home",
+        "4/31/2027,Falcons,Wolves",
+        "4/10/2027,Bears,Lions",
+        "Date,Time,Home Team,Home Score,Away Team,Away Score",
+        "2/30/2027,9:00 AM,Comets,7,Rockets,2",
+      ],
+      {
+        rows: [{ date: "4/10", away: "Bears", home: "Lions" }],
+        skipped: ["4/31/2027,Falcons,Wolves", "2/30/2027,9:00 AM,Comets,7,Rockets,2"],
+      },
+    ],
+    [
       "a game that will not be played as written, left out rather than added as a fixture",
       [
         "9/12 Falcons @ Wolves Cancelled",

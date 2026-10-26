@@ -323,8 +323,9 @@ const readHeadedRow = (
   }
   // A date cell that says nothing a calendar reads ("TBD") leaves the game undated, and an empty
   // one takes the day of the heading above it; one shaped like a day that no calendar has is
-  // skipped, as on a line.
-  const read = found ?? (written === "" ? carried : "");
+  // skipped, as on a line. Asked of undefined alone: `??` took that day's null for an empty cell,
+  // and "4/31/2027" came in as an undated game, scored or not (found by Codex on #456).
+  const read = found === undefined ? (written === "" ? carried : "") : found;
   if (read === null) return "skip";
   const homeRuns = cellAt(cells, header.scoreA).trim();
   const awayRuns = cellAt(cells, header.scoreB).trim();
