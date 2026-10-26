@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import handler, { clearModelCaches } from "../../../server/league-summary";
+import leagueSummary, {
+  clearModelCaches,
+  leagueSummaryHandler as handler,
+} from "../../../server/league-summary";
 import { buildLeagueSummaryRequest } from "../leagueSummaryClient";
 
 /**
@@ -283,5 +286,38 @@ describe("the health check", () => {
         },
       },
     });
+  });
+});
+
+describe("who may ask", () => {
+  /*
+   * Open to anybody who found the URL, and each call spends the owner's Gemini and Groq quota: the
+   * function as served answers the accounts on the cloud copy's list alone (`membersOnly`), the
+   * owner's choice of 26 October 2026. One with no sign-in is turned away before anything is
+   * asked, of the list or of either provider.
+   */
+  it("turns away a write-up, a health check and a probe sent with no sign-in", async () => {
+    const calls = stubUpstream({ ...lists });
+    for (const [method, url] of [
+      ["POST", "/leagueSummary"],
+      ["GET", "/leagueSummary"],
+      ["GET", "/leagueSummary?probe=1"],
+    ] as const) {
+      const { res, recorded } = makeRes();
+      await leagueSummary(makeReq(method, url, method === "POST" ? story : undefined), res);
+      expect(recorded).toMatchObject({
+        statusCode: 401,
+        body: { ok: false, reason: "members-only" },
+      });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("says nothing of a Vercel deploy, which there is none of", async () => {
+    stubUpstream({});
+    vi.stubEnv("VERCEL_ENV", "production");
+    const { res, recorded } = makeRes();
+    await handler(makeReq("GET", "/leagueSummary"), res);
+    expect(recorded.body).not.toHaveProperty("vercelEnv");
   });
 });

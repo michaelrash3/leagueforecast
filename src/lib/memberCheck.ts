@@ -200,6 +200,21 @@ export const MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", string> 
     "This Google account is not on the cloud copy's list, so it cannot pull from GameChanger. Ask the list's owner to add it.",
 };
 
+/** What a caller turned away from the AI write-ups is told, by why. */
+export const SUMMARY_MEMBERS_ONLY_MESSAGES: Record<"signed-out" | "not-member", string> = {
+  "signed-out":
+    "AI write-ups are for the accounts on the cloud copy's list. Sign in with one from the cloud button; until then the app writes its own.",
+  "not-member":
+    "This Google account is not on the cloud copy's list, so it cannot ask for AI write-ups. Ask the list's owner to add it.",
+};
+
+/** How a door speaks and what it leaves open; the GameChanger proxy's, unless told otherwise. */
+export type MembersOnlyDoor = {
+  messages?: Record<"signed-out" | "not-member", string>;
+  /** Whether `?probe=1` goes through unchecked. */
+  probeOpen?: boolean;
+};
+
 const authorizationOf = (req: ApiRequest): string | undefined => {
   const value = req.headers.authorization;
   return Array.isArray(value) ? value[0] : value;
@@ -208,17 +223,19 @@ const authorizationOf = (req: ApiRequest): string | undefined => {
 /**
  * `handler` behind the list: a member's request goes through, and anyone else's is answered here
  * with the proxy's own failure shape, `reason: "members-only"`, so the app can say what to do.
- * The probe (`?probe=1`) stays open: it says only that the function is up and how it is set,
- * touches nothing upstream, and is what a deploy's check asks first.
+ * The proxy's probe (`?probe=1`) stays open: it says only that the function is up and how it is
+ * set, touches nothing upstream, and is what a deploy's check asks first. The AI write-ups' probe
+ * asks both providers for their models, so that door shuts it (`probeOpen: false`).
  */
 export const membersOnly =
   (
     handler: (req: ApiRequest, res: ApiResponse) => Promise<void>,
-    check: MemberCheck
+    check: MemberCheck,
+    { messages = MEMBERS_ONLY_MESSAGES, probeOpen = true }: MembersOnlyDoor = {}
   ): ((req: ApiRequest, res: ApiResponse) => Promise<void>) =>
   async (req, res) => {
     const url = new URL(typeof req.url === "string" ? req.url : "/", "http://localhost");
-    if (url.searchParams.get("probe") === "1") return handler(req, res);
+    if (probeOpen && url.searchParams.get("probe") === "1") return handler(req, res);
 
     const verdict = await check(authorizationOf(req));
     if (onTheList(verdict)) return handler(req, res);
@@ -238,7 +255,7 @@ export const membersOnly =
     res.status(status).json({
       ok: false,
       reason: "members-only",
-      message: MEMBERS_ONLY_MESSAGES[verdict],
+      message: messages[verdict],
       status,
     });
   };

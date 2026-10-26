@@ -8297,6 +8297,17 @@ bundle and would publish the key to every visitor. The browser posts recap facts
 to the Firebase `leagueSummary` function and the function calls Gemini with the key, and Groq with
 its key when Gemini cannot write the story.
 
+**Only the accounts on the cloud copy's list may ask** (26 October 2026, the owner's choice).
+The function was open to anybody who found its URL, and each call spends the owner's Gemini
+and Groq quota. It now stands behind the same door as the GameChanger proxy (`membersOnly`,
+`memberCheck.ts`): the browser sends its sign-in with every ask, the function asks Firestore
+for the caller's own entry on the list, and anyone else is answered `members-only` before a
+provider is asked. The health check and its probe are behind it too, since the probe asks both
+providers for their models. A browser not signed in sends nothing and writes its own story, and
+its header says `AI off — sign in to the cloud copy`. With the door in front, the per-IP
+throttle below no longer has to tell strangers apart: a forged `X-Forwarded-For` gets a member
+past only their own limit.
+
 ### Model selection
 
 The app is not pinned to a Gemini version. On each cold start it calls
@@ -8341,7 +8352,7 @@ answer is `rate-limited`, with both providers' messages.
 
 Every failure path returns a non-200 with a machine-readable `reason`
 (`unconfigured`, `throttled`, `rate-limited`, `upstream-error`, `no-model`,
-`invalid-request`), and the UI keeps showing the deterministic story rather than
+`invalid-request`, `members-only`), and the UI keeps showing the deterministic story rather than
 an error.
 
 `throttled` and `rate-limited` are deliberately separate. `throttled` is this
@@ -8352,15 +8363,16 @@ was asked of Gemini and walking the model list would not have helped.
 The League Story header says which state it is in, so a misconfiguration is
 diagnosable at a glance instead of looking like "the AI just isn't running":
 
-| Header shows                     | Meaning                                                                             |
-| -------------------------------- | ----------------------------------------------------------------------------------- |
-| `AI` badge                       | Gemini or Groq wrote this. The tooltip names which, and the model.                  |
-| `AI off — no API key`            | The function ran but neither `GEMINI_API_KEY` nor `GROQ_API_KEY` is readable by it. |
-| `AI off — endpoint not deployed` | The Firebase `leagueSummary` function is unavailable.                               |
-| `Paused — too many retries`      | This app's own per-browser limit. No model was attempted.                           |
-| `AI limit reached`               | Gemini's quota refused every model tried, and Groq's too when its key is set.       |
-| `No AI model available`          | The key listed no usable model.                                                     |
-| `AI unavailable`                 | Something else upstream. The tooltip carries the message.                           |
+| Header shows                         | Meaning                                                                             |
+| ------------------------------------ | ----------------------------------------------------------------------------------- |
+| `AI` badge                           | Gemini or Groq wrote this. The tooltip names which, and the model.                  |
+| `AI off — no API key`                | The function ran but neither `GEMINI_API_KEY` nor `GROQ_API_KEY` is readable by it. |
+| `AI off — endpoint not deployed`     | The Firebase `leagueSummary` function is unavailable.                               |
+| `AI off — sign in to the cloud copy` | Not signed in with an account on the cloud copy's list, which alone may ask.        |
+| `Paused — too many retries`          | This app's own per-browser limit. No model was attempted.                           |
+| `AI limit reached`                   | Gemini's quota refused every model tried, and Groq's too when its key is set.       |
+| `No AI model available`              | The key listed no usable model.                                                     |
+| `AI unavailable`                     | Something else upstream. The tooltip carries the message.                           |
 
 A **Retry** button re-requests it, and **Rewrite** asks for a fresh take on an
 analysis that already succeeded. The endpoint is throttled per IP (best effort,
@@ -8374,8 +8386,9 @@ model the key can reach, or that the key is not reaching the function, or that
 nothing is serving the endpoint at all. It runs as a `fetch`, so a stale service
 worker cannot answer it with the cached app shell.
 
-The same check is available directly at `GET /leagueSummary` on Firebase — no console
-needed:
+The same check is available directly at `GET /leagueSummary` on Firebase, for a request
+that carries a member's sign-in (opened in a browser's address bar it answers
+`members-only`; the panel's **Why?** sends the sign-in):
 
 ```
 https://us-central1-league-forecast-youth.cloudfunctions.net/leagueSummary
@@ -8388,8 +8401,8 @@ https://us-central1-league-forecast-youth.cloudfunctions.net/leagueSummary?probe
 | `keyConfigured: false`              | The function is deployed but `GEMINI_API_KEY` is not reaching it.                                |
 | `keyHadSurroundingWhitespace: true` | The stored value has leading/trailing whitespace (a paste artifact).                             |
 | `keyLength`                         | Length only, never the value — catches a truncated paste.                                        |
-| `commit`                            | The deployed commit. If it predates your change, the deploy has not happened yet.                |
-| `vercelEnv`                         | Legacy diagnostic field; empty on Firebase.                                                      |
+| `revision`                          | The Cloud Run revision serving it. A new deploy makes a new one.                                 |
+| **401** / **403** `members-only`    | No sign-in, or an account not on the cloud copy's list.                                          |
 | `?probe=1` → `ok: true`             | The key can list models; `candidates` shows the attempt order, newest first.                     |
 | `?probe=1` → `ok: false`            | Gemini rejected the key. The response quotes Google's own error and names the fix.               |
 | `?probe=1` → `listError`            | Google's verbatim status and message for the model listing.                                      |

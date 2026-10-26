@@ -105,7 +105,12 @@ export const gcTeam = onRequest(
   (req, res) => serveGcProxy(req, res, gcTeamForMembers)
 );
 
-/** Both standings stories and ranking explanations use this Firebase endpoint. */
+/**
+ * Both standings stories and ranking explanations use this Firebase endpoint. For the accounts on
+ * the cloud copy's list alone, as `gcTeam` is, and for the same reason: each call spends the
+ * owner's Gemini and Groq quota, and anybody who found the URL could. The invoker stays public
+ * because the check is the app's own, with the caller's sign-in, which the browser now sends.
+ */
 export const leagueSummary = onRequest(
   {
     region: REGION,
@@ -118,7 +123,7 @@ export const leagueSummary = onRequest(
   (req, res) =>
     serveGcProxy(req, res, leagueSummaryHandler, {
       methods: "GET, POST",
-      headers: "accept, content-type",
+      headers: "accept, authorization, content-type",
     })
 );
 

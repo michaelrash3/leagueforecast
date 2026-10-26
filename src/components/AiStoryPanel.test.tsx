@@ -39,3 +39,9 @@ describe("the label when a limit stopped the write-up", () => {
     expect(aiStoryUnavailableLabel("rate-limited")).toBe("AI limit reached");
   });
 });
+
+describe("the label when no sign-in may ask", () => {
+  it("says the write-ups are off until the cloud copy is signed in to", () => {
+    expect(aiStoryUnavailableLabel("members-only")).toBe("AI off — sign in to the cloud copy");
+  });
+});

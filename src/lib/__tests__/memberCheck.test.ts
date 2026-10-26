@@ -5,10 +5,12 @@ import {
   createMemberCheck,
   MEMBER_CHECK_TTL_MS,
   membersOnly,
+  SUMMARY_MEMBERS_ONLY_MESSAGES,
   WRITE_CHECK_TTL_MS,
   tokenAddress,
   tokenExpiry,
   type MemberCheck,
+  type MembersOnlyDoor,
 } from "../memberCheck";
 
 /*
@@ -203,7 +205,12 @@ describe("the check against the list", () => {
 
 describe("the proxy behind the list", () => {
   type Sent = { status: number; headers: Record<string, string>; body: unknown };
-  const call = async (check: MemberCheck, url: string, authorization?: string) => {
+  const call = async (
+    check: MemberCheck,
+    url: string,
+    authorization?: string,
+    door: MembersOnlyDoor = {}
+  ) => {
     const handler = vi.fn(async (_req: ApiRequest, res: ApiResponse) => {
       res.status(200).json({ ok: true });
     });
@@ -221,10 +228,11 @@ describe("the proxy behind the list", () => {
       },
       end() {},
     };
-    await membersOnly(handler, check)(
-      { method: "GET", url, headers: authorization ? { authorization } : {} },
-      res
-    );
+    await membersOnly(
+      handler,
+      check,
+      door
+    )({ method: "GET", url, headers: authorization ? { authorization } : {} }, res);
     return { handler, sent };
   };
   const answers =
@@ -270,5 +278,31 @@ describe("the proxy behind the list", () => {
     const { handler } = await call(refusing, "/api/gc-team?probe=1");
     expect(handler).toHaveBeenCalledTimes(1);
     expect(refusing).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The AI write-ups' function (`leagueSummary`) was open to anybody who found its URL, and each
+   * call spends the owner's Gemini and Groq quota; the owner chose on 26 October 2026 that it
+   * answer the accounts on the list alone. Its probe asks both providers for their models, so it
+   * is shut with the rest, and a caller is told in the write-ups' own words.
+   */
+  it("shuts the probe too where the door is told to, and speaks in the door's own words", async () => {
+    const summaries = { messages: SUMMARY_MEMBERS_ONLY_MESSAGES, probeOpen: false };
+    const refusing = vi.fn(answers("signed-out"));
+    const probe = await call(refusing, "/leagueSummary?probe=1", undefined, summaries);
+    expect(probe.handler).not.toHaveBeenCalled();
+    expect(refusing).toHaveBeenCalledTimes(1);
+    expect(probe.sent).toMatchObject({
+      status: 401,
+      body: { ok: false, reason: "members-only", status: 401 },
+    });
+    expect((probe.sent.body as { message: string }).message).toMatch(/AI write-ups/);
+
+    const stranger = await call(answers("not-member"), "/leagueSummary", "Bearer t", summaries);
+    expect(stranger.sent.status).toBe(403);
+    expect((stranger.sent.body as { message: string }).message).toMatch(/AI write-ups/);
+
+    const member = await call(answers("member"), "/leagueSummary?probe=1", "Bearer t", summaries);
+    expect(member.handler).toHaveBeenCalledTimes(1);
   });
 });

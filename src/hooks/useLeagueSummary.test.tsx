@@ -1,7 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLeagueSummary } from "./useLeagueSummary";
+import { setGcAuthorization } from "../lib/gcAuthorization";
 import type { LeagueSummaryRequest } from "../lib/leagueSummary";
+
+// Signed in, as an account on the cloud copy's list, unless a test says otherwise.
+beforeEach(() => setGcAuthorization(async () => "member-token"));
+afterEach(() => setGcAuthorization(async () => null));
 
 const request = (team = "Legends"): LeagueSummaryRequest => ({
   kind: "league-story",
@@ -89,5 +94,23 @@ describe("paying for a write-up", () => {
     const { fetchImpl } = countingFetch();
     const { result } = renderHook(() => useLeagueSummary(null, { fetchImpl, mode: "ask" }));
     expect(result.current.waiting).toBe(false);
+  });
+});
+
+describe("a browser not signed in", () => {
+  /*
+   * The function answers the accounts on the cloud copy's list alone. With no sign-in nothing is
+   * sent, and the panel says the write-ups are off and why, keeping the app's own words, rather
+   * than calling it an error to try again.
+   */
+  it("sends nothing when asked, and is off for the reason, not broken", async () => {
+    setGcAuthorization(async () => null);
+    const { calls, fetchImpl } = countingFetch();
+    const { result } = renderHook(() => useLeagueSummary(request(), { fetchImpl, mode: "ask" }));
+
+    act(() => result.current.ask());
+    await waitFor(() => expect(result.current.status).toBe("unavailable"));
+    expect(result.current.reason).toBe("members-only");
+    expect(calls).toHaveLength(0);
   });
 });

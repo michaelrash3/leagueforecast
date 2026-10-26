@@ -75,7 +75,21 @@ const check = (label, ok, detail) => {
   } else console.log(`ok   ${label}`);
 };
 
-// The migrated summary function answers from Firebase without making provider calls.
+const part = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+/*
+ * Stamped once, so an account's token is the same string for the whole run, as a device's is
+ * between refreshes. The member checks keep an answer by token: one stamped per call changed
+ * whenever a second turned between two calls, so the check that the list is read once while an
+ * answer holds saw it read twice: on #444's CI, and every time with a one-second pause put in.
+ */
+const signedUntil = Math.floor(Date.now() / 1000) + 3600;
+const signedInAs = (email) => ({
+  authorization: `Bearer ${part({ alg: "RS256" })}.${part({ email, exp: signedUntil })}.signature`,
+});
+
+// The migrated summary function answers from Firebase without making provider calls, and only the
+// accounts on the cloud copy's list: Firestore answers the check's read of a caller's own entry,
+// there for the one member and refused for anyone else.
 {
   const saved = {
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
@@ -83,24 +97,53 @@ const check = (label, ok, detail) => {
   };
   delete process.env.GEMINI_API_KEY;
   delete process.env.GROQ_API_KEY;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (!url.startsWith("https://firestore.googleapis.com/")) return realFetch(input, init);
+    return new Response("{}", {
+      status: url.endsWith("/documents/members/member%40example.com") ? 200 : 403,
+    });
+  };
+  const member = signedInAs("member@example.com");
   try {
     const preflight = await call("/leagueSummary", {}, leagueSummary, "OPTIONS");
     check(
-      "summary preflight allows JSON POST",
+      "summary preflight allows a signed-in JSON POST",
       preflight.status === 204 &&
         preflight.headers["access-control-allow-methods"] === "GET, POST" &&
-        preflight.headers["access-control-allow-headers"].includes("content-type"),
+        preflight.headers["access-control-allow-headers"].includes("content-type") &&
+        preflight.headers["access-control-allow-headers"].includes("authorization"),
       "unexpected CORS response"
     );
-    const health = await call("/leagueSummary", {}, leagueSummary);
+    const unsigned = await call("/leagueSummary?probe=1", {}, leagueSummary);
+    check(
+      "summary health, probe and all, is turned away with no sign-in",
+      unsigned.status === 401 && JSON.parse(text(unsigned)).reason === "members-only",
+      String(unsigned.status)
+    );
+    const outsider = await call(
+      "/leagueSummary",
+      signedInAs("outsider@example.com"),
+      leagueSummary,
+      "POST",
+      {}
+    );
+    check(
+      "a summary asked by an account not on the list is turned away",
+      outsider.status === 403 && JSON.parse(text(outsider)).reason === "members-only",
+      String(outsider.status)
+    );
+    const health = await call("/leagueSummary", member, leagueSummary);
     check("summary health is served by Firebase", health.status === 200, String(health.status));
-    const missing = await call("/leagueSummary", {}, leagueSummary, "POST", {});
+    const missing = await call("/leagueSummary", member, leagueSummary, "POST", {});
     check(
       "summary without keys preserves the local-story fallback",
       missing.status === 503 && JSON.parse(text(missing)).reason === "unconfigured",
       String(missing.status)
     );
   } finally {
+    globalThis.fetch = realFetch;
     for (const [name, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
@@ -170,17 +213,6 @@ globalThis.fetch = async (input, init) => {
     status: url.endsWith("/documents/members/member%40example.com") ? 200 : 403,
   });
 };
-const part = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
-/*
- * Stamped once, so an account's token is the same string for the whole run, as a device's is
- * between refreshes. The member checks keep an answer by token: one stamped per call changed
- * whenever a second turned between two calls, so the check that the list is read once while an
- * answer holds saw it read twice: on #444's CI, and every time with a one-second pause put in.
- */
-const signedUntil = Math.floor(Date.now() / 1000) + 3600;
-const signedInAs = (email) => ({
-  authorization: `Bearer ${part({ alg: "RS256" })}.${part({ email, exp: signedUntil })}.signature`,
-});
 
 const ids = Array.from({ length: 10 }, (_, index) => `SmokeTeam${String(index).padStart(3, "0")}`);
 const unsignedPull = await call(`/?ids=${ids.join(",")}&raw=1`);

@@ -5,9 +5,15 @@
  * reported as data rather than thrown: the caller keeps rendering the
  * deterministic story, so a missing key or an offline deploy is invisible to
  * the reader.
+ *
+ * The function answers the accounts on the cloud copy's list alone, so every ask carries the
+ * browser's sign-in (`gcAuthorization`, the same the GameChanger pulls carry), and a browser
+ * with none asks nothing: the answer is known without the call.
  */
 
 import { displayName, recordText } from "./format";
+import { gcAuthorization } from "./gcAuthorization";
+import { SUMMARY_MEMBERS_ONLY_MESSAGES } from "./memberCheck";
 import type { RecapItem } from "./insights";
 import {
   type AiProvider,
@@ -238,16 +244,26 @@ export const requestLeagueSummary = async (
     endpoint = LEAGUE_SUMMARY_ENDPOINT,
   }: { signal?: AbortSignal; fetchImpl?: typeof fetch; endpoint?: string } = {}
 ): Promise<LeagueSummaryOutcome> => {
+  const signIn = await gcAuthorization();
+  if (!signIn) {
+    return {
+      ok: false,
+      reason: "members-only",
+      message: SUMMARY_MEMBERS_ONLY_MESSAGES["signed-out"],
+    };
+  }
   try {
     const response = await fetchImpl(endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${signIn}` },
       body: JSON.stringify(request),
       signal,
     });
 
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as LeagueSummaryError | null;
+      // The door that turns away a caller not on the list says why in `message`.
+      const payload = (await response.json().catch(() => null)) as
+        (Partial<LeagueSummaryError> & { message?: string }) | null;
       // A 404 means the function is not deployed or not routed (for example
       // a Firebase deploy missing the summary function). That is a different problem from a
       // deployed function that cannot see the key, so it gets its own reason —
@@ -259,6 +275,7 @@ export const requestLeagueSummary = async (
         reason,
         message:
           payload?.error ??
+          payload?.message ??
           (response.status === 404
             ? `No summary function is deployed at ${endpoint}.`
             : `Summary request failed (${response.status}).`),
@@ -304,8 +321,8 @@ export type LeagueSummaryHealth = {
   keyLength?: number;
   keyHadSurroundingWhitespace?: boolean;
   pinnedModel?: string | null;
-  vercelEnv?: string | null;
-  commit?: string | null;
+  /** The Cloud Run revision serving the function. */
+  revision?: string | null;
   probe?: unknown;
   /** The Groq key's side of it; absent from a function deployed before Groq was added. */
   groq?: {
@@ -319,7 +336,7 @@ export type LeagueSummaryHealth = {
 
 export type LeagueSummaryHealthOutcome =
   | { ok: true; health: LeagueSummaryHealth }
-  | { ok: false; reason: "endpoint-missing" | "unreachable"; message: string };
+  | { ok: false; reason: "endpoint-missing" | "unreachable" | "members-only"; message: string };
 
 /**
  * Runs the health check from inside the app.
@@ -340,14 +357,38 @@ export const fetchLeagueSummaryHealth = async ({
   endpoint?: string;
   signal?: AbortSignal;
 } = {}): Promise<LeagueSummaryHealthOutcome> => {
+  const signIn = await gcAuthorization();
+  if (!signIn) {
+    return {
+      ok: false,
+      reason: "members-only",
+      message: SUMMARY_MEMBERS_ONLY_MESSAGES["signed-out"],
+    };
+  }
   try {
     const response = await fetchImpl(probe ? `${endpoint}?probe=1` : endpoint, {
       method: "GET",
-      headers: { accept: "application/json" },
+      headers: { accept: "application/json", authorization: `Bearer ${signIn}` },
       signal,
     });
 
     const health = (await response.json().catch(() => null)) as LeagueSummaryHealth | null;
+
+    // Turned away at the door: an account not on the list, or a sign-in the list would not take.
+    const refused = health as { reason?: unknown; message?: unknown } | null;
+    if (
+      (response.status === 401 || response.status === 403) &&
+      refused?.reason === "members-only"
+    ) {
+      return {
+        ok: false,
+        reason: "members-only",
+        message:
+          typeof refused.message === "string"
+            ? refused.message
+            : SUMMARY_MEMBERS_ONLY_MESSAGES["not-member"],
+      };
+    }
 
     // A 404, or a 200 that is not JSON (the app shell), both mean nothing is
     // serving the endpoint.
@@ -454,19 +495,14 @@ const describeGroqHealth = (groq: LeagueSummaryHealth["groq"], alone: boolean): 
 
 const describeGeminiHealth = (outcome: LeagueSummaryHealthOutcome): string => {
   if (!outcome.ok) {
+    if (outcome.reason === "members-only") return outcome.message;
     return outcome.reason === "endpoint-missing"
       ? "The Firebase leagueSummary function is unavailable. Check the Firebase functions deployment."
       : `Could not reach the Firebase leagueSummary function: ${outcome.message}`;
   }
 
   const { health } = outcome;
-  const where = [
-    health.vercelEnv ? `env ${health.vercelEnv}` : "",
-    health.commit ? `build ${health.commit}` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
-  const suffix = where ? ` (${where})` : "";
+  const suffix = health.revision ? ` (revision ${health.revision})` : "";
 
   if (!health.keyConfigured) {
     // Groq's key alone is a working setup, not a missing variable: say which writes the stories

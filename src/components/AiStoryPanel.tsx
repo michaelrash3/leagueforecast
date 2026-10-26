@@ -21,6 +21,8 @@ export const aiStoryUnavailableLabel = (reason: LeagueSummaryErrorReason): strin
       return "AI limit reached";
     case "no-model":
       return "No AI model available";
+    case "members-only":
+      return "AI off — sign in to the cloud copy";
     default:
       return "AI unavailable";
   }

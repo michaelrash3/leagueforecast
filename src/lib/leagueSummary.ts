@@ -158,7 +158,9 @@ export type LeagueSummaryErrorReason =
   /** Gemini's own quota, reported after a model actually rejected the request. */
   | "rate-limited"
   | "upstream-error"
-  | "no-model";
+  | "no-model"
+  /** Not signed in with an account on the cloud copy's list, which alone may ask. */
+  | "members-only";
 
 export type LeagueSummaryError = {
   error: string;
