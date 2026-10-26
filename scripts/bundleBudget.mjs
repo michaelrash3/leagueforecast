@@ -74,7 +74,13 @@ const DIST = "dist";
  * because the glance reads the brackets, the Season over line and League kept live's stored copies
  * from the entry chunk. Started from the entry chunk instead, a list would be in the first
  * download, which has the least room. The glance itself is a view of its own below, fetched only
- * once opened, with a limit set as the small views' were, 1.5 KB above what it measured.
+ * once opened, with a limit set as the small views' were, 1.5 KB above what it measured. Team
+ * Rankings to 161.0 KB the same day for the League schedule paste, 160.4 KB against 160.0 KB on
+ * main (160,373 bytes against 159,956), with no Team Rankings code changed: the paste reads its
+ * cells and dates with the schedule reader Team Rankings' schedule import uses (`scheduleText.ts`),
+ * so the build moved that reader out of the Games section's chunk into one the two share. The
+ * section's chunk went from 9.3 KB to 6.8 KB and the reader's own is 2.9 KB: the same code,
+ * compressing 0.4 KB worse in two files than in one.
  */
 const BUDGET = {
   firstDownload: 255_000,
@@ -90,7 +96,7 @@ const BUDGET = {
     "Data Quality": 3_500,
     Settings: 13_500,
     "Seasons at a glance": 4_400,
-    "Team Rankings": 160_000,
+    "Team Rankings": 161_000,
   },
 };
 
