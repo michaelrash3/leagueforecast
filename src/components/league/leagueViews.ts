@@ -113,6 +113,16 @@ export const emptyStateView = viewChunk(
   () => import("./EmptyState").then((module) => module.EmptyState),
   "EmptyState"
 );
+/**
+ * A league site's schedule pasted in and looked over, opened from the empty season's start screen
+ * or the Schedule tab's "No games yet". Drawn inside the views' boundary too, whose Try again resets
+ * it with the rest (`App.tsx`): loaded through React's own `lazy`, a download that failed once kept
+ * failing until the page was reloaded (found by Codex on #456).
+ */
+export const schedulePasteView = viewChunk(
+  () => import("./LeagueSchedulePaste").then((module) => module.default),
+  "LeagueSchedulePaste"
+);
 /** Two teams side by side, opened only from a team's panel (2.7): fetched then, not with the page. */
 export const compareDrawerView = viewChunk(
   () => import("../CompareDrawer").then((module) => module.CompareDrawer),

@@ -62,6 +62,7 @@ import {
   compareDrawerView,
   dashboardView,
   emptyStateView,
+  schedulePasteView,
   forecastView,
   LIKELY_NEXT,
   playoffMachineView,
@@ -372,7 +373,7 @@ const SCORE_FILL_UNLOADED = "Fill scores could not be opened. Try again once con
  * Reading a league site's pasted schedule into a season with no games, and its review: fetched
  * only once asked for, since the first download has no room for them (`bundleBudget.mjs`).
  */
-const LeagueSchedulePaste = lazy(() => import("./components/league/LeagueSchedulePaste"));
+const LeagueSchedulePaste = schedulePasteView.View;
 const StartFromClubs = lazy(() =>
   import("./components/league/StartFromClubs").then((module) => ({
     default: module.StartFromClubs,
@@ -3627,9 +3628,10 @@ export default function App() {
                 area={VIEW_LABELS[activeView]}
                 onReset={() => {
                   resetView(activeView);
-                  // The empty season's start screen is drawn here too, and a load it failed is
-                  // forgotten the same way, or Try again would only repeat the failure.
+                  // The empty season's start screen and the schedule paste are drawn here too, and a
+                  // load either failed is forgotten the same way, or Try again would only repeat it.
                   emptyStateView.reset();
+                  schedulePasteView.reset();
                 }}
               >
                 <Suspense fallback={<LoadingPanel area={VIEW_LABELS[activeView]} />}>
