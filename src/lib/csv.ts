@@ -56,6 +56,18 @@ export const csvEscape = (value: string | number) => {
 const SECTION_MARKER_RE = /^#\s*section\s*:\s*(.+)$/i;
 
 /**
+ * The section a line opens, or undefined when it is no marker. A spreadsheet saves the marker's
+ * one-cell row as wide as the file's widest row, `# Section: Teams,,,`, and quotes it when it
+ * likes, so the line is read as cells: the first is the marker and every other must be empty.
+ */
+const sectionMarkerOf = (line: string): string | undefined => {
+  if (!line.includes("#")) return undefined;
+  const [first = "", ...rest] = parseCSVLine(line);
+  if (rest.some((cell) => cell !== "")) return undefined;
+  return SECTION_MARKER_RE.exec(first)?.[1];
+};
+
+/**
  * Section names a backup CSV can carry. The schedule keeps the leading, historically unmarked
  * slot, so a CSV exported before sections existed still reads as one.
  */
@@ -86,13 +98,13 @@ export const splitCsvSections = (raw: string, leadingSection: string): Map<strin
   stripBom(raw)
     .split(/\r?\n/)
     .forEach((line) => {
-      const marker = SECTION_MARKER_RE.exec(line.trim());
-      if (!marker) {
+      const marker = sectionMarkerOf(line);
+      if (marker === undefined) {
         lines.push(line);
         return;
       }
       flush();
-      name = normalizeHeader(marker[1] ?? "");
+      name = normalizeHeader(marker);
     });
   flush();
 
