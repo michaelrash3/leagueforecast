@@ -10,7 +10,7 @@ import { afterOpening } from "./lib/live/openingHold";
 import { startApp } from "./lib/bootOrder";
 import { listenForTakes } from "./lib/cloud/cloudTabs";
 import { watchUncaught } from "./lib/diagnostics";
-import { adoptTabTurn, tabTurn } from "./lib/tabTurn";
+import { adoptTabTurn, flushBeforeYield, tabTurn } from "./lib/tabTurn";
 import "./index.css";
 
 const mount = () => {
@@ -46,7 +46,7 @@ watchUncaught(window);
 // until it takes the turn (`tabTurn.ts`). Fetched rather than in the first download; a tab writes
 // until another answers it either way.
 void import("./lib/tabTurnChannel").then(({ startTabTurn }) => {
-  if (!tabTurn()) adoptTabTurn(startTabTurn());
+  if (!tabTurn()) adoptTabTurn(startTabTurn(flushBeforeYield));
 });
 
 /*

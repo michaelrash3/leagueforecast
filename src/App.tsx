@@ -48,7 +48,7 @@ import { useTabReadOnly } from "./hooks/useTabReadOnly";
 import { saveBackupFile } from "./lib/backupFile";
 import { onReplacedKept, readReplaced } from "./lib/replacedBackup";
 import type { ReplacedBackupAccess } from "./components/league/ReplacedBackupLine";
-import { TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
+import { beforeTabYields, TAB_READ_ONLY, tabTurn } from "./lib/tabTurn";
 import { rankingsSearch } from "./lib/rankingsRoute";
 import { searchWithTab, tabFromSearch } from "./lib/leagueTab";
 import { ModeSwitchContext } from "./components/modeSwitch";
@@ -723,6 +723,17 @@ export default function App() {
 
     return () => window.clearTimeout(saveTimer);
   }, [logs, recordSaveResult]);
+
+  // Written at once when another tab asks for the turn with Use here (`tabTurn.ts`): the half
+  // second above would end with this tab read-only, the score refused, and the other tab reloaded
+  // without it.
+  useEffect(
+    () =>
+      beforeTabYields(() =>
+        recordSaveResult(saveLogs(logs), "scores", "Could not save scores (storage full).")
+      ),
+    [logs, recordSaveResult]
+  );
 
   useEffect(() => {
     recordSaveResult(

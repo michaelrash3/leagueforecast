@@ -64,3 +64,28 @@ export const adoptTabTurn = (turn: TabTurn | null): void => {
   stopHearing = turn ? turn.onChange(tell) : null;
   tell();
 };
+
+const yielders = new Set<() => void>();
+
+/**
+ * Calls `flush` as this tab gives its turn to a tab that asked for it with Use here
+ * (`tabTurnChannel.ts`), before it answers: what it still owes storage is written while it may.
+ * Returns the way to stop.
+ */
+export const beforeTabYields = (flush: () => void): (() => void) => {
+  yielders.add(flush);
+  return () => {
+    yielders.delete(flush);
+  };
+};
+
+/** Every flush given (`beforeTabYields`), each on its own: one that throws keeps no other back. */
+export const flushBeforeYield = (): void => {
+  yielders.forEach((flush) => {
+    try {
+      flush();
+    } catch {
+      /* the turn goes regardless, and the next flush still writes */
+    }
+  });
+};

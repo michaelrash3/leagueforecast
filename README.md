@@ -4409,9 +4409,12 @@ subscription and sending to it, which the app does not have.
   switch of season included (the cloud copy's own arriving is still laid in). Making, copying and
   deleting a season are refused before they start, with the same words: a delete goes to the
   cloud's copy first, which storage refusing afterwards could not undo. A tab answers a hello to
-  the tab that said it alone, so an answer heard by a third tab never makes that one give way. Use here reloads the
-  tab, so it reads what the other saved, and takes the turn on its way back in; every other tab is
-  then read-only. A tab whose writer was closed is not told: the next tab to open writes, or Use
+  the tab that said it alone, so an answer heard by a third tab never makes that one give way.
+  Use here first asks the writing tab for the turn: it writes what it still owes storage (a score
+  App holds half a second before saving), goes read-only and says so to the tab that asked, which
+  then reloads, so it reads what the other saved, and takes the turn on its way back in; every
+  other tab is then read-only. With no answer within a second, a writer closed meanwhile, it goes
+  ahead all the same. A tab whose writer was closed is not told: the next tab to open writes, or Use
   here takes the turn. Without a `BroadcastChannel` every tab writes, as before. The talk on the
   channel (`tabTurnChannel.ts`) and the banner are fetched after the page starts, which only
   delays a tab's hello by that moment; storage asks the small registry in `tabTurn.ts`. Held by
