@@ -34,6 +34,10 @@ const STEP_LABEL: Record<TidyStepName, { short: string; full: string }> = {
     short: "Copies",
     full: "Another GameChanger team's copy of a game that already counts, set not to count",
   },
+  tbdSlots: {
+    short: "TBD",
+    full: "Games against a TBD slot, set not to count: another team's game at that date and time counts in its place",
+  },
   pruned: { short: "Prune", full: "Games dated outside the squad year they are filed under" },
   withdrawn: {
     short: "Withdrawn",

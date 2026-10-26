@@ -5,10 +5,12 @@ import {
   gamesForTeam,
   gcSeasonLabel,
   isScoutGamePlayed,
+  namesTbd,
   normalizeState,
   playsItself,
   rankingPoolGroupIds,
   scoreSeenBy,
+  startsWithinTheHour,
   teamNameKey,
   teamRecordInPool,
   type AgeGroup,
@@ -279,6 +281,27 @@ export function TeamDetailPanel({
   const notCounted = here.filter(
     (game) => isScoutGamePlayed(game) && !countsTowardRating(game) && !playsItself(game)
   );
+  /**
+   * Why a game the tidy set not to count as a copy is not counted. A game against a TBD slot
+   * (`markTbdGames`) names the game at that hour that counts in its place, which is the owner's
+   * "paired with another team that played at that date and time", or says that nothing pairs it.
+   */
+  const copyTitle = (game: ScoutGame): string => {
+    const opponentOf = (row: ScoutGame) =>
+      nameOf(row.teamAId === team.id ? row.teamBId : row.teamAId);
+    if (!namesTbd(opponentOf(game)))
+      return "Another GameChanger team's copy of a game already counted, not counted again";
+    const pair = here.find(
+      (row) =>
+        row.id !== game.id &&
+        countsTowardRating(row) &&
+        startsWithinTheHour(row.startTs, game.startTs) &&
+        !namesTbd(opponentOf(row))
+    );
+    return pair
+      ? `TBD on the schedule: the game against ${opponentOf(pair)} at that time counts in its place`
+      : "TBD on the schedule, and no other team's game at that date and time pairs it: not counted";
+  };
 
   /*
    * How many games one press of Not this team takes off, by the club on the game's other side:
@@ -675,10 +698,7 @@ export function TeamDetailPanel({
                       {line.result}
                     </span>
                   ) : line.result && game.countedElsewhere ? (
-                    <span
-                      className={pill("neutral")}
-                      title="Another GameChanger team's copy of a game already counted, not counted again"
-                    >
+                    <span className={pill("neutral")} title={copyTitle(game)}>
                       {line.result}
                     </span>
                   ) : line.result && !inWindow.has(game.id) ? (
