@@ -238,8 +238,8 @@ const scoreOf = (game: GcGame): { own: number; theirs: number } | undefined =>
  * likely a tournament's (`tournamentReason`); a start leaves it out of the league.
  *
  * Both teams' schedules list a league game. On each day, each pair's games are paired across the
- * two schedules in the order they start, so a doubleheader stays two games and one schedule's
- * extra game is kept on its own. GameChanger says which side was at home, and the game is stood up
+ * two schedules by their start (`pairCopies`), so a doubleheader stays two games and a game one
+ * schedule leaves out is kept on its own. GameChanger says which side was at home, and the game is stood up
  * away first, as League Standings writes it: the away side's own schedule speaks for the score, and
  * the home side's goes beside it where the two disagree, as the pool keeps a second schedule's word
  * (`reportedByB`). A canceled game, or one with no day, is left out.
@@ -296,14 +296,57 @@ export const orgGames = (pulled: readonly PulledOrgTeam[]): ScoutGame[] => {
     days.forEach((listed, date) => {
       const side = (id: string) =>
         listed.filter((one) => one.from === id).sort((a, b) => a.order.localeCompare(b.order));
-      const mine = side(first);
-      const theirs = side(second);
-      for (let at = 0; at < Math.max(mine.length, theirs.length); at += 1) {
-        games.push(standUp([mine[at], theirs[at]], date));
-      }
+      pairCopies(side(first), side(second)).forEach((copies) => games.push(standUp(copies, date)));
     });
   });
   return [...games, ...outside];
+};
+
+/** Two schedules' starts this far apart or less can be one game; a doubleheader's are hours apart. */
+const SAME_GAME_MS = 60 * 60_000;
+
+/**
+ * One pair's games on one day, as each schedule lists them, matched into games: by their start, the
+ * nearest first, within the hour, since one scorekeeper's 6:00 is another's 6:05 and a
+ * doubleheader's two games are hours apart. A copy with no start (an all-day entry) can be told by
+ * nothing else, so it takes the other side's first copy left over; any copy still unmatched is a
+ * game of its own. Not by place in the list: with a doubleheader one schedule lists in full and the
+ * other only half of, that paired the first game's copy with the second's (Codex on #460).
+ */
+const pairCopies = (
+  mine: readonly Listed[],
+  theirs: readonly Listed[]
+): Array<[Listed | undefined, Listed | undefined]> => {
+  const startOf = (copy: Listed) => Date.parse(copy.game.startTs ?? "");
+  const near: Array<{ at: number; to: number; apart: number }> = [];
+  mine.forEach((one, at) =>
+    theirs.forEach((other, to) => {
+      const apart = Math.abs(startOf(one) - startOf(other));
+      if (apart <= SAME_GAME_MS) near.push({ at, to, apart });
+    })
+  );
+  near.sort((a, b) => a.apart - b.apart || a.at - b.at || a.to - b.to);
+  const pairs: Array<[Listed | undefined, Listed | undefined]> = [];
+  const usedMine = new Set<number>();
+  const usedTheirs = new Set<number>();
+  near.forEach(({ at, to }) => {
+    if (usedMine.has(at) || usedTheirs.has(to)) return;
+    usedMine.add(at);
+    usedTheirs.add(to);
+    pairs.push([mine[at], theirs[to]]);
+  });
+  const untimed = (copy: Listed) => !Number.isFinite(startOf(copy));
+  const leftOver = theirs.filter((_, to) => !usedTheirs.has(to));
+  mine.forEach((one, at) => {
+    if (usedMine.has(at)) return;
+    const match = leftOver.findIndex((other) => untimed(one) || untimed(other));
+    pairs.push([one, match < 0 ? undefined : leftOver.splice(match, 1)[0]]);
+  });
+  leftOver.forEach((other) => pairs.push([undefined, other]));
+  const first = ([one, other]: [Listed | undefined, Listed | undefined]) =>
+    [one?.order, other?.order].filter((order): order is string => order !== undefined).sort()[0] ??
+    "";
+  return pairs.sort((a, b) => first(a).localeCompare(first(b)));
 };
 
 /** One league game from the one or two schedules that list it, stood up away first. */

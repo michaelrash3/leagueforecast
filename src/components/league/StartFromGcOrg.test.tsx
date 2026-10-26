@@ -171,6 +171,33 @@ describe("a season from a GameChanger organization", () => {
     expect(asked.pulls).toHaveLength(1);
   });
 
+  it("draws no review for teams changed while their schedules were being pulled", async () => {
+    // Codex on #460: a pull that ends after the picking changed drew the old picking's games.
+    const user = userEvent.setup();
+    const { given, asked } = deps();
+    let finish = () => undefined as void;
+    const pullTeams = given.pullTeams;
+    given.pullTeams = (ids) =>
+      new Promise((resolve) => {
+        finish = () => void pullTeams(ids).then(resolve);
+      });
+    open(given);
+    await findTeams(user, ORG_ID);
+    await user.click(await screen.findByRole("button", { name: "Pull their schedules" }));
+    const teams = screen.getByRole("group", { name: /The league's teams/ });
+    await user.click(within(teams).getByRole("checkbox", { name: /Placeholder Cubs/ }));
+    finish();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Pull their schedules" })).toBeEnabled()
+    );
+    expect(screen.queryByRole("table")).toBeNull();
+    // What came back is kept: the new picking's review needs nothing more of GameChanger.
+    await user.click(screen.getByRole("button", { name: "Pull their schedules" }));
+    expect(await screen.findByText(/^1 game between these teams/)).toBeInTheDocument();
+    expect(asked.pulls).toHaveLength(1);
+  });
+
   it("leaves out a team GameChanger would not give, and says why", async () => {
     const user = userEvent.setup();
     const { given } = deps(undefined, (id) =>

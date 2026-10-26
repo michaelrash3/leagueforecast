@@ -791,7 +791,9 @@ proxy (`gcOrgSchedule.ts`, `StartFromGcOrg`):
   only (a public schedule carries no opponent id). So an opponent is one of the pulled teams by
   its avatar (the one stable mark of an opponent a schedule carries), else by a name no other
   pulled team has (`teamNameKey`); each pair's games on a day are paired across the two schedules
-  in start order, so a doubleheader stays two; GameChanger says who was home, so a game is stood up
+  by their start, the nearest within the hour (an all-day copy, with none, takes the other side's
+  first left over), so a doubleheader stays two even where one schedule lists only one of its
+  games, and a copy matched to none is a game of its own; GameChanger says who was home, so a game is stood up
   away first; the away side's score speaks and the home side's goes beside it where they disagree;
   a canceled game is left out. A game against anybody else marks a league game that day likely a
   tournament's, unticked, as a Team Rankings start marks one (`orgGames`, then `draftStart`).

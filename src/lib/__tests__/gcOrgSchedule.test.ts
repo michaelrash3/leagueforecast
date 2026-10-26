@@ -193,6 +193,46 @@ describe("the games between an organization's teams", () => {
     ]);
   });
 
+  it("pairs a doubleheader's copies by their start, where one schedule lists only one game", () => {
+    // A lists both games, home in each; B lists only the second (Codex on #460).
+    const games = orgGames([
+      pulled("A", "Aces", [
+        played("Bears", "2026-09-12", "home", [5, 3], { startTs: "2026-09-12T15:00:00Z" }),
+        played("Bears", "2026-09-12", "home", [2, 4], { startTs: "2026-09-12T18:00:00Z" }),
+      ]),
+      pulled("B", "Bears", [
+        played("Aces", "2026-09-12", "away", [4, 2], { startTs: "2026-09-12T18:05:00Z" }),
+      ]),
+    ]);
+    expect(
+      games.map((game) => [game.startTs, game.teamAScore, game.teamBScore, game.reportedByB])
+    ).toEqual([
+      ["2026-09-12T15:00:00Z", 3, 5, undefined],
+      ["2026-09-12T18:05:00Z", 4, 2, { teamAScore: 4, teamBScore: 2 }],
+    ]);
+  });
+
+  it("pairs a copy with no start with the other schedule's, and keeps games hours apart two", () => {
+    const allDay = played("Bears", "2026-09-12", "home", [5, 3]);
+    delete allDay.startTs;
+    const games = orgGames([
+      pulled("A", "Aces", [allDay]),
+      pulled("B", "Bears", [
+        played("Aces", "2026-09-12", "away", [3, 5], { startTs: "2026-09-12T18:00:00Z" }),
+      ]),
+    ]);
+    expect(games).toHaveLength(1);
+    const apart = orgGames([
+      pulled("A", "Aces", [
+        played("Bears", "2026-09-12", "home", [5, 3], { startTs: "2026-09-12T15:00:00Z" }),
+      ]),
+      pulled("B", "Bears", [
+        played("Aces", "2026-09-12", "away", [4, 2], { startTs: "2026-09-12T18:00:00Z" }),
+      ]),
+    ]);
+    expect(apart).toHaveLength(2);
+  });
+
   it("knows an opponent by its avatar where its name is written another way", () => {
     const games = orgGames([
       pulled("A", "Aces", [

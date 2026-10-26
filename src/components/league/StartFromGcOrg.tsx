@@ -128,6 +128,9 @@ export function StartFromGcOrg({
   const [choices, setChoices] = useState<StartChoice[]>([]);
   // The latest question asked: an answer to an earlier one, come late, is not drawn.
   const asked = useRef(0);
+  // The picking's changes: a pull that ends after one keeps what it brought, but draws no review of
+  // a picking that is no longer the one shown (Codex on #460).
+  const selection = useRef(0);
 
   const orgId = parseGcOrgId(orgText);
   const group = groups?.find((one) => one.key === groupKey);
@@ -180,6 +183,7 @@ export function StartFromGcOrg({
   };
 
   const chooseGroup = (key: string) => {
+    selection.current += 1;
     setGroupKey(key);
     const chosen = groups?.find((one) => one.key === key);
     setPicked(chosen ? firstPicks(chosen) : []);
@@ -187,6 +191,7 @@ export function StartFromGcOrg({
   };
 
   const toggle = (id: string, on: boolean) => {
+    selection.current += 1;
     setPicked((now) => (on ? [...now, id] : now.filter((one) => one !== id)));
     setDraft(null);
   };
@@ -196,6 +201,7 @@ export function StartFromGcOrg({
     const wanted = picked.filter((id) => !pulled.has(id));
     asked.current += 1;
     const mine = asked.current;
+    const picking = selection.current;
     const draftOf = (all: ReadonlyMap<string, PulledOrgTeam>) => {
       const made = orgDraft(
         [...all.values()],
@@ -229,7 +235,7 @@ export function StartFromGcOrg({
         });
         setPulled(all);
         setUnpulled(missed);
-        draftOf(all);
+        if (picking === selection.current) draftOf(all);
       });
   };
 
@@ -359,6 +365,7 @@ export function StartFromGcOrg({
               <button
                 type="button"
                 onClick={() => {
+                  selection.current += 1;
                   setPicked([]);
                   setDraft(null);
                 }}
