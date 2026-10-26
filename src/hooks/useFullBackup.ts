@@ -240,7 +240,7 @@ This replaces everything currently in this browser: all ${seasonCount} season${
         { tone: "success", ...offerReplaced }
       );
     },
-    [liveSeason, seasonCount, requestConfirmation, showToast, onRestored]
+    [liveSeason, leagueLive, seasonCount, requestConfirmation, showToast, onRestored]
   );
 
   return { exportBackup, restoreFullBackup };
