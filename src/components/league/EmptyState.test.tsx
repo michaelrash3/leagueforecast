@@ -43,5 +43,7 @@ describe("reading the team-list box as a schedule", () => {
     await user.click(screen.getByRole("button", { name: "Read as a schedule" }));
     await user.click(screen.getByRole("button", { name: "Read: 9/12 Falcons @ Wolves" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /^Read:/ })).toBeNull());
+    // Closed, focus is back on the button that opened it.
+    expect(screen.getByRole("button", { name: "Read as a schedule" })).toHaveFocus();
   });
 });

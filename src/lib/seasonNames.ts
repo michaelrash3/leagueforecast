@@ -9,9 +9,13 @@ const YEAR = /\b((?:19|20)\d{2})(?:\s*[-–/]\s*((?:19|20)?\d{2}))?\b/g;
 
 const SEASON_WORD = /\b(fall|autumn|winter|spring|summer)\b/gi;
 
-/** The season word written right beside a year, before or after it: "Fall 2026", "2026-fall". */
-const besideBefore = /\b(fall|autumn|winter|spring|summer)[\s-]*$/i;
-const besideAfter = /^[\s-]*(fall|autumn|winter|spring|summer)\b/i;
+/**
+ * The season word written right beside a year, before or after it: "Fall 2026", "2026-fall". Only
+ * spaces or one hyphen may stand between them, so a dash that parts two halves of a name is not
+ * read across: in "2026 Fall - 2027 Spring" the Fall is the 2026's, not the 2027's.
+ */
+const besideBefore = /\b(fall|autumn|winter|spring|summer)(?:\s+|-)$/i;
+const besideAfter = /^(?:\s+|-)(fall|autumn|winter|spring|summer)\b/i;
 
 /**
  * The squad year a season's name places it in, or nothing when the name gives no year or one that

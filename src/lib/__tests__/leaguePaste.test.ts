@@ -11,11 +11,50 @@ const teams: TeamBase[] = [
 
 describe("matchPastedNames", () => {
   it("takes a name that is one of the season's teams for that team", () => {
-    const matches = matchPastedNames(["Wolves", "falcons", "Wolves 9U"], teams);
+    const matches = matchPastedNames(
+      ["Wolves", "falcons", "Wolves 9U", "Heat 9U (Ealey)"],
+      [...teams, { id: "HEAT", name: "Heat (Ealey)" }]
+    );
     expect(matches.get("Wolves")).toEqual({ kind: "team", teamId: "WOLV" });
     expect(matches.get("falcons")).toEqual({ kind: "team", teamId: "FALC" });
-    // The age label is not part of a name's key, as everywhere names are matched.
+    // An age label more is the same team, said so, since the name is not written as the team's.
+    expect(matches.get("Wolves 9U")).toEqual({ kind: "team", teamId: "WOLV", loose: true });
+    expect(matches.get("Heat 9U (Ealey)")).toEqual({ kind: "team", teamId: "HEAT", loose: true });
+  });
+
+  it("keeps two teams told apart by a coach's name or an age apart", () => {
+    const heats: TeamBase[] = [
+      { id: "HEAT", name: "Heat (Ealey)" },
+      { id: "HEA1", name: "Heat (Smith)" },
+      { id: "WOLV", name: "Wolves 10U" },
+    ];
+    const matches = matchPastedNames(["Heat (Smith)", "Heat (Ealey)", "Heat", "Wolves 9U"], heats);
+    expect(matches.get("Heat (Smith)")).toEqual({ kind: "team", teamId: "HEA1" });
+    expect(matches.get("Heat (Ealey)")).toEqual({ kind: "team", teamId: "HEAT" });
+    // A bare "Heat" fits both, so it is neither.
+    expect(matches.get("Heat")).toEqual({ kind: "new" });
+    // Another age than the season's one Wolves is not taken for it.
+    expect(matches.get("Wolves 9U")).toEqual({ kind: "new" });
+    // A season with one Heat does not take another coach's Heat for it, and does take a bare one.
+    const one = [{ id: "HEAT", name: "Heat (Ealey)" }];
+    expect(matchPastedNames(["Heat (Smith)"], one).get("Heat (Smith)")).toEqual({ kind: "new" });
+    expect(matchPastedNames(["Heat"], one).get("Heat")).toEqual({
+      kind: "team",
+      teamId: "HEAT",
+      loose: true,
+    });
+  });
+
+  it("takes a name written as the app shows a team", () => {
+    const shown: TeamBase[] = [
+      { id: "WOLV", name: "NKB Wolves 9U" },
+      { id: "FALC", name: "NKB Falcons 9U" },
+    ];
+    const matches = matchPastedNames(["Wolves 9U", "Falcons", "NKB Wolves"], shown);
+    // Shown as "Wolves 9U", so written so it needs no note.
     expect(matches.get("Wolves 9U")).toEqual({ kind: "team", teamId: "WOLV" });
+    expect(matches.get("Falcons")).toEqual({ kind: "team", teamId: "FALC", loose: true });
+    expect(matches.get("NKB Wolves")).toEqual({ kind: "team", teamId: "WOLV", loose: true });
   });
 
   it("only suggests a team a name is close to", () => {
@@ -80,6 +119,28 @@ describe("seasonFromPaste", () => {
     // Not played: a blank score sheet with the season's innings, not final.
     expect(made.logs.game_200_1).toEqual(blankLog("7"));
     expect(made.finals).toBe(0);
+  });
+
+  it("adds two names told apart by a coach's name as two teams", () => {
+    const made = seasonFromPaste(
+      [
+        { date: "9/12", away: "Heat (Ealey)", home: "Heat (Smith)" },
+        { date: "9/13", away: "Heat (Smith)", home: "Wolves" },
+        { date: "9/14", away: "heat ealey", home: "Wolves" },
+      ],
+      [],
+      () => undefined,
+      6,
+      (index) => `game_400_${index}`
+    );
+    expect(made.teams.map((team) => team.name)).toEqual(["Heat (Ealey)", "Heat (Smith)", "Wolves"]);
+    const [ealey, smith, wolves] = made.teams.map((team) => team.id);
+    expect(new Set([ealey, smith, wolves]).size).toBe(3);
+    expect(made.matchups.map((game) => [game.away, game.home])).toEqual([
+      [ealey, smith],
+      [smith, wolves],
+      [ealey, wolves],
+    ]);
   });
 
   it("mints ids that do not collide with the season's own", () => {

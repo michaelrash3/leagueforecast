@@ -4,44 +4,84 @@
  * writes storage, and nothing is asked of a server.
  */
 import { displayName } from "./format";
+import { pasteNameKey } from "./leagueScheduleText";
 import { createTeamId } from "./sim";
-import { findSimilarTeam, teamNameKey } from "./teamRankings";
+import { findSimilarTeam, squadNameKey, teamNameKey } from "./teamRankings";
 import type { GameLog, Matchup, TeamBase } from "./types";
 import { blankLog } from "./util";
 
 /**
  * What a pasted name is in this season:
  *
- * - `team`: one of its teams, by the same name key everything else in the app matches names by
- *   (`teamNameKey`), so "Wolves 9U" is the season's "Wolves".
+ * - `team`: one of its teams. Written as its name is (`pasteNameKey`: case, spacing and punctuation
+ *   aside), or as the app shows it (`displayName`, which leaves off "NKB" and the like); or, marked
+ *   `loose`, as one of them with an age label or a bracketed aside more or less, so "Wolves 9U" is
+ *   the season's "Wolves" and "Heat (Ealey)" its "Heat". A loose name is taken only when it fits
+ *   one team alone, and never across two asides or two ages that differ: "Heat (Smith)" is not the
+ *   season's "Heat (Ealey)", nor "Wolves 9U" its "Wolves 10U", which a league can have as two teams.
  * - `similar`: close to one (`findSimilarTeam`), "Wolvs" against "Wolves". Only ever a suggestion,
  *   used once a person ticks it, since two real teams can be a letter apart.
  * - `new`: not a team here.
  */
 export type NameMatch =
-  { kind: "team"; teamId: string } | { kind: "similar"; teamId: string } | { kind: "new" };
+  | { kind: "team"; teamId: string; loose?: true }
+  | { kind: "similar"; teamId: string }
+  | { kind: "new" };
+
+/** A name as written, and as the app would show it, which may be the same. */
+const formsOf = (name: string): string[] => [...new Set([name, displayName(name)])];
+
+/**
+ * Whether one name is the other with only an age label or a bracketed aside added, or both: each
+ * read whole (`pasteNameKey`) against the other with its age (`squadNameKey`), or its age and its
+ * asides (`teamNameKey`), taken off.
+ */
+const differsByAside = (a: string, b: string): boolean => {
+  const whole = [pasteNameKey(a), pasteNameKey(b)] as const;
+  const ageless = [pasteNameKey(squadNameKey(a)), pasteNameKey(squadNameKey(b))] as const;
+  const bare = [pasteNameKey(teamNameKey(a)), pasteNameKey(teamNameKey(b))] as const;
+  return (
+    ageless[0] === whole[1] ||
+    whole[0] === ageless[1] ||
+    bare[0] === whole[1] ||
+    whole[0] === bare[1]
+  );
+};
 
 export const matchPastedNames = (
   names: Iterable<string>,
   teams: TeamBase[]
 ): Map<string, NameMatch> => {
-  const byKey = new Map<string, string>();
+  const byName = new Map<string, string>();
   teams.forEach((team) => {
-    const key = teamNameKey(team.name);
-    if (!byKey.has(key)) byKey.set(key, team.id);
+    const key = pasteNameKey(team.name);
+    if (!byName.has(key)) byName.set(key, team.id);
   });
+  /** The one team `fits` a name to, or undefined when it fits none or more than one. */
+  const onlyTeam = (name: string, fits: (pasted: string, team: string) => boolean) => {
+    const found = teams.filter((team) =>
+      formsOf(name).some((pasted) => formsOf(team.name).some((form) => fits(pasted, form)))
+    );
+    return found.length === 1 ? found[0]?.id : undefined;
+  };
   const matches = new Map<string, NameMatch>();
   for (const name of names) {
     if (matches.has(name)) continue;
-    const exact = byKey.get(teamNameKey(name));
-    const similar = exact === undefined ? findSimilarTeam(name, teams) : null;
+    const exact =
+      byName.get(pasteNameKey(name)) ??
+      onlyTeam(name, (pasted, form) => pasteNameKey(pasted) === pasteNameKey(form));
+    const loose = exact === undefined ? onlyTeam(name, differsByAside) : undefined;
+    const similar =
+      exact === undefined && loose === undefined ? findSimilarTeam(name, teams) : null;
     matches.set(
       name,
       exact !== undefined
         ? { kind: "team", teamId: exact }
-        : similar
-          ? { kind: "similar", teamId: similar.id }
-          : { kind: "new" }
+        : loose !== undefined
+          ? { kind: "team", teamId: loose, loose: true }
+          : similar
+            ? { kind: "similar", teamId: similar.id }
+            : { kind: "new" }
     );
   }
   return matches;
@@ -72,9 +112,11 @@ export type SeasonFromPaste = {
  * `teamFor` says which of the season's teams a name is, or undefined for one that is not a team
  * here, which becomes a new team, named as pasted, with an id minted as every other way in mints
  * one (`createTeamId`). Names that are one name written two ways ("Wolves", "WOLVES") become one
- * team. A game given a score is written final, as Fill scores writes the games it adds, since the
- * paste's score was looked over before it got here; one without is a blank score sheet with the
- * season's innings. `gameId` names each game, by its place in `games`.
+ * team, and names told apart by an aside or an age ("Heat (Ealey)", "Heat (Smith)") stay two, as
+ * the paste was read (`pasteNameKey`). A game given a score is written final, as Fill scores
+ * writes the games it adds, since the paste's score was looked over before it got here; one
+ * without is a blank score sheet with the season's innings. `gameId` names each game, by its place
+ * in `games`.
  */
 export const seasonFromPaste = (
   games: PastedGame[],
@@ -89,7 +131,7 @@ export const seasonFromPaste = (
   const idOf = (name: string): string => {
     const known = teamFor(name);
     if (known !== undefined) return known;
-    const key = teamNameKey(name);
+    const key = pasteNameKey(name);
     const held = minted.get(key);
     if (held !== undefined) return held;
     const id = createTeamId(displayName(name), ids);

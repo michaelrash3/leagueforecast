@@ -89,6 +89,46 @@ test("on a phone every bracket score box sits on screen and the title odds read 
 });
 
 /*
+ * A league site's schedule read into an empty season, looked over on a phone. Its review was a
+ * six-column table inside the New Season Builder's card, and at 390px each game's Swap, the only
+ * way to put right a row whose home side was guessed, sat at x 328 to 386 against a scroller that
+ * ended at 328: off screen, behind a sideways swipe nothing pointed to. On a phone each game is now
+ * a small block, its sides one under the other and its score and Swap beside them.
+ */
+test("on a phone every game's tick box and Swap in a pasted schedule's review sit on screen", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page
+    .getByLabel("Team list")
+    .fill(
+      [
+        "9/12 Falcons @ Wolves 5-6",
+        "9/19 Comets vs Rockets",
+        "9/26 South Lexington Red Wolves 10U @ North Oldham Thunderbolts Baseball",
+      ].join("\n")
+    );
+  await page.getByRole("button", { name: "Read as a schedule" }).click();
+  const review = page.getByRole("region", { name: "Paste the league's schedule" });
+  await expect(review.getByRole("button", { name: /^Swap home and away/ })).toHaveCount(3);
+
+  const controls = await review.evaluate((section) => {
+    const scroller = section.querySelector(".overflow-x-auto")!.getBoundingClientRect();
+    return [...section.querySelectorAll("tbody input, tbody button")].map((control) => {
+      const box = control.getBoundingClientRect();
+      return {
+        inside: box.left >= scroller.left - 0.5 && box.right <= scroller.right + 0.5,
+        onScreen: box.left >= 0 && box.right <= window.innerWidth + 0.5,
+      };
+    });
+  });
+  // Three games, a tick box and a Swap each.
+  expect(controls).toHaveLength(6);
+  expect(controls.filter((control) => !control.inside || !control.onScreen)).toHaveLength(0);
+});
+
+/*
  * The header on a phone. The theme toggle sat at the end of the controls, and fell to a row of its
  * own under the season picker whenever the season's name was long — the demo's is — and on Team
  * Rankings always, pushing the page 54px down the first screen: measured from the title, the demo's

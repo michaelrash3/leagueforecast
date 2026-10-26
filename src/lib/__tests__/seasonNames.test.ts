@@ -23,6 +23,9 @@ describe("squadYearFromName", () => {
     ["12U 2027 Spring League", 2027],
     // The season word beside the last year decides, or else the only one the name has.
     ["Fall 2026 / Spring 2027", 2027],
+    // A dash between two halves is not "beside": the Fall is 2026's, and 2027 is a spring.
+    ["2026 Fall - 2027 Spring", 2027],
+    ["2026 Fall / 2027 Spring", 2027],
     ["Fall Ball 2026", 2027],
     ["Spring and Summer 2027", 2027],
     // Not a span: the second number is not the next year, so the first is read alone.

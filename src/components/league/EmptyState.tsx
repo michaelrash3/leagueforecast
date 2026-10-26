@@ -2,7 +2,7 @@
  * What the league half shows before there is a season: the ways to get one started, laid out
  * as a flow rather than a wall of buttons.
  */
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { DesignFlowPanel, type DesignFlowStep } from "../DesignFlowPanel";
 import type { TeamBase } from "../../lib/types";
 import { displayName } from "../../lib/format";
@@ -42,6 +42,8 @@ export function EmptyState({
 }) {
   const [starting, setStarting] = useState(false);
   const [reading, setReading] = useState<string | null>(null);
+  // Where closing the paste panel puts focus back: the button that opened it, still on screen.
+  const readId = useId();
   const kickoffFlow: DesignFlowStep[] = [
     {
       eyebrow: "Load",
@@ -150,6 +152,7 @@ export function EmptyState({
               </button>
               {schedulePaste && (
                 <button
+                  id={readId}
                   onClick={() => setReading(seasonBuilderText)}
                   className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 shadow-xs hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
                 >
@@ -172,7 +175,11 @@ export function EmptyState({
               Use Current Teams
             </button>
           </div>
-          {reading !== null && schedulePaste?.(reading, () => setReading(null))}
+          {reading !== null &&
+            schedulePaste?.(reading, () => {
+              setReading(null);
+              document.getElementById(readId)?.focus();
+            })}
         </div>
       </div>
     </div>

@@ -264,7 +264,8 @@ describe("pasting the league's schedule", () => {
     // Opened empty, to paste into; the offer gives way to the panel while it is open.
     await user.click(screen.getByRole("button", { name: "The paste panel" }));
     expect(screen.queryByRole("button", { name: "The paste panel" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Paste the league's schedule" })).toBeTruthy();
+    // Closed, focus is back on the offer it was on, not at the top of the page.
+    expect(screen.getByRole("button", { name: "Paste the league's schedule" })).toHaveFocus();
   });
 
   it("is not offered when a filter hides every game of a season that has some", () => {

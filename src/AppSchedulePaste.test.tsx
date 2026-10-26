@@ -105,6 +105,30 @@ describe("pasting a league's schedule into the page", () => {
     await waitFor(() => expect(loadMatchups()).toEqual([]));
   });
 
+  it("shows every game added, whatever team the schedule was filtered to", async () => {
+    const user = userEvent.setup();
+    saveTeams([
+      { id: "ACES", name: "Aces" },
+      { id: "BEAR", name: "Bears" },
+      { id: "CATS", name: "Cats" },
+    ]);
+    saveMatchups([]);
+    render(<App />);
+    await user.click(await screen.findByRole("tab", { name: /schedule/i }));
+    // A team picked in the filter, as one kept from another season would be.
+    await user.selectOptions(await screen.findByLabelText("Scoreboard Filter"), "BEAR");
+    await user.click(screen.getByRole("button", { name: "Paste the league's schedule" }));
+    await user.type(
+      await screen.findByLabelText("League schedule to read"),
+      "9/12 Aces @ Bears{enter}9/19 Aces @ Cats"
+    );
+    await user.click(screen.getByRole("button", { name: "Read the schedule" }));
+    await user.click(screen.getByRole("button", { name: "Add 2 games" }));
+
+    expect(await screen.findByText("Added 2 games from the pasted schedule.")).toBeTruthy();
+    expect(screen.getByLabelText("Scoreboard Filter")).toHaveValue("ALL");
+  });
+
   it("makes an empty season's teams and games from the team-list box", async () => {
     const user = userEvent.setup();
     render(<App />);

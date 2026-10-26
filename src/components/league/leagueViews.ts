@@ -103,6 +103,16 @@ export const teamDrawerView = viewChunk(
   () => import("./TeamDrawer").then((module) => module.TeamDrawer),
   "TeamDrawer"
 );
+/**
+ * The start screen of a season with no teams yet. Seen once per new season and never by someone
+ * returning to one, so it is fetched when shown rather than kept in the first download, which had
+ * no room left for the schedule paste (`bundleBudget.mjs`). It is drawn inside the views' boundary,
+ * whose Try again resets it along with the tab's own chunks (`App.tsx`).
+ */
+export const emptyStateView = viewChunk(
+  () => import("./EmptyState").then((module) => module.EmptyState),
+  "EmptyState"
+);
 /** Two teams side by side, opened only from a team's panel (2.7): fetched then, not with the page. */
 export const compareDrawerView = viewChunk(
   () => import("../CompareDrawer").then((module) => module.CompareDrawer),

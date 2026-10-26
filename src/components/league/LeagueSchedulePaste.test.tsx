@@ -109,6 +109,59 @@ describe("pasting the league's schedule", () => {
     expect(made?.said).toBe("Added 1 game from the pasted schedule, with 1 new team.");
   });
 
+  it("puts each game on the team it names, and says which where the name differs", async () => {
+    const user = userEvent.setup();
+    const teams = [
+      { id: "HEAT", name: "Heat (Ealey)" },
+      { id: "HEA1", name: "Heat (Smith)" },
+      { id: "WOLV", name: "Wolves" },
+    ];
+    const { apply } = open(teams, "9/13 Heat (Smith) @ Wolves\n9/14 Heat 9U (Ealey) @ Wolves");
+
+    const smith = rowOf(/Add Heat \(Smith\) at Wolves/);
+    expect(smith.box).toBeChecked();
+    expect(within(smith.row).queryByText(/^as /)).toBeNull();
+    // An age more than the team's name is that team, said so.
+    const ealey = rowOf(/Add Heat 9U \(Ealey\) at Wolves/);
+    expect(ealey.box).toBeChecked();
+    expect(within(ealey.row).getByText("as Heat (Ealey)")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Add 2 games" }));
+    const made = apply.mock.calls[0]?.[0];
+    expect(made?.teams).toBe(teams);
+    expect(made?.matchups.map(({ away, home }) => [away, home])).toEqual([
+      ["HEA1", "WOLV"],
+      ["HEAT", "WOLV"],
+    ]);
+  });
+
+  it("adds two teams told apart by a coach's name, in a season with none, as two", async () => {
+    const user = userEvent.setup();
+    const { apply } = open([], "9/12 Heat (Ealey) @ Heat (Smith)");
+    expect(rowOf(/Add Heat \(Ealey\) at Heat \(Smith\)/).box).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Add 1 game" }));
+    const made = apply.mock.calls[0]?.[0];
+    expect(made?.teams.map((team) => team.name)).toEqual(["Heat (Ealey)", "Heat (Smith)"]);
+    expect(made?.said).toBe("Added 1 game from the pasted schedule, with 2 new teams.");
+  });
+
+  it("moves focus into the panel, to the games once read, and back to the text", async () => {
+    const user = userEvent.setup();
+    open([]);
+    const box = screen.getByLabelText("League schedule to read");
+    expect(box).toHaveFocus();
+    await user.type(box, "Falcons @ Wolves");
+    await user.click(screen.getByRole("button", { name: "Read the schedule" }));
+    expect(screen.getByText(/^1 game read\./)).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Back to the text" }));
+    expect(screen.getByLabelText("League schedule to read")).toHaveFocus();
+  });
+
+  it("opens on the games when handed text that reads as some", () => {
+    open([], "Falcons @ Wolves");
+    expect(screen.getByText(/^1 game read\./)).toHaveFocus();
+  });
+
   it("makes every name a team in a season that has none, and says what it could not read", () => {
     open([], "Saturday, April 10\nFalcons @ Wolves\nApr 31 Comets @ Rockets\nGuessed\tTBD");
     expect(rowOf(/Add Falcons at Wolves/).box).toBeChecked();

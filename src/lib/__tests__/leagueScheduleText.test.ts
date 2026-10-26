@@ -179,6 +179,131 @@ describe("parseLeagueSchedule", () => {
       ["Date,Time,Team 1,Team 2", "9/12/2026,9:00 AM,Falcons,Wolves"],
       { rows: [{ date: "9/12", away: "Falcons", home: "Wolves", guessed: true }], skipped: [] },
     ],
+    [
+      "two teams told apart only by a coach's name or an age, as two teams",
+      ["9/12 Heat (Ealey) @ Heat (Smith)", "9/13 Wolves 9U vs Wolves 10U", "9/14 Wolves @ WOLVES"],
+      {
+        rows: [
+          { date: "9/12", away: "Heat (Ealey)", home: "Heat (Smith)" },
+          { date: "9/13", away: "Wolves 10U", home: "Wolves 9U" },
+        ],
+        skipped: ["9/14 Wolves @ WOLVES"],
+      },
+    ],
+    [
+      "a start time written without its minutes under a day's heading, which is no day",
+      [
+        "September 2026",
+        "Saturday, September 19",
+        "9 AM Comets @ Rockets",
+        "10 a.m. Bears @ Lions",
+      ],
+      {
+        rows: [
+          { date: "9/19", away: "Comets", home: "Rockets" },
+          { date: "9/19", away: "Bears", home: "Lions" },
+        ],
+        skipped: [],
+      },
+    ],
+    [
+      "a day's heading with its start time, which dates the games under it",
+      [
+        "Saturday, April 5",
+        "Falcons @ Wolves",
+        "Sat 4/12 9:00 AM",
+        "Comets @ Rockets",
+        "Sun, Apr 13 · 11:00 AM · Field 2",
+        "Bears @ Lions",
+      ],
+      {
+        rows: [
+          { date: "4/5", away: "Falcons", home: "Wolves" },
+          { date: "4/12", away: "Comets", home: "Rockets" },
+          { date: "4/13", away: "Bears", home: "Lions" },
+        ],
+        skipped: [],
+      },
+    ],
+    [
+      "a headed table whose Day column comes before its Date, or whose date holds the time",
+      [
+        "Day,Date,Time,Away,Home",
+        "Sat,9/12/2026,9:00 AM,Falcons,Wolves",
+        "Date,Time,Away,Home",
+        "9/13/2026 9:00 AM,,Comets,Rockets",
+        "Sat 4/10/2027 9:00 AM,,Bears,Lions",
+        "Date,Away,Home,Result",
+        "TBD,Hawks,Owls,6-5",
+      ],
+      {
+        rows: [
+          { date: "9/12", away: "Falcons", home: "Wolves" },
+          { date: "9/13", away: "Comets", home: "Rockets" },
+          { date: "4/10", away: "Bears", home: "Lions" },
+          // A result cell is not a date: "6-5" is no June 5th.
+          { date: "", away: "Hawks", home: "Owls" },
+        ],
+        skipped: [],
+      },
+    ],
+    [
+      "a game that will not be played as written, left out rather than added as a fixture",
+      [
+        "9/12 Falcons @ Wolves Cancelled",
+        "9/13 RAINED OUT: Comets @ Rockets",
+        "9/14 Bears @ Lions PPD",
+        "9/15 Hawks @ Owls - Postponed - Field 2",
+        "9/16,Cubs @ Reds,Suspended",
+      ],
+      {
+        rows: [],
+        skipped: [
+          "9/12 Falcons @ Wolves Cancelled",
+          "9/13 RAINED OUT: Comets @ Rockets",
+          "9/14 Bears @ Lions PPD",
+          "9/15 Hawks @ Owls - Postponed - Field 2",
+          "9/16,Cubs @ Reds,Suspended",
+        ],
+      },
+    ],
+    [
+      "an age span written on both names, which is no final score",
+      ["4/12 Falcons 9-10 @ Wolves 9-10", "4/13 Comets 9-10 vs Rockets 9-10"],
+      {
+        rows: [
+          { date: "4/12", away: "Falcons 9-10", home: "Wolves 9-10" },
+          { date: "4/13", away: "Rockets 9-10", home: "Comets 9-10" },
+        ],
+        skipped: [],
+      },
+    ],
+    [
+      "rows laid out in cells, a game in one and its day, time, field and place in others",
+      [
+        "4/10/2027,9:00 AM,Falcons @ Wolves",
+        "Saturday, April 10, 11:00 AM, Comets @ Rockets",
+        "Bears @ Lions,4/11/2027,9:00 AM,Riverside Park,5-6",
+        "4-12,Hawks vs Owls,Fld 2",
+        "Date,Time,Game,Field",
+        "4/17/2027,9:00 AM,Cubs @ Reds,Field 1",
+      ],
+      {
+        rows: [
+          { date: "4/10", away: "Falcons", home: "Wolves" },
+          { date: "4/10", away: "Comets", home: "Rockets" },
+          { date: "4/11", away: "Bears", home: "Lions", awayRuns: 5, homeRuns: 6 },
+          { date: "4/12", away: "Owls", home: "Hawks" },
+          { date: "4/17", away: "Cubs", home: "Reds" },
+        ],
+        skipped: ["Date,Time,Game,Field"],
+      },
+    ],
+    [
+      "a line with a comma in a team's name, read whole when no cell is only a day or a time",
+      ["9/12 Comets, Blue @ Wolves"],
+      { rows: [{ date: "9/12", away: "Comets, Blue", home: "Wolves" }], skipped: [] },
+    ],
   ])("reads %s", (_, lines, expected) => {
     expect(read(lines)).toEqual(expected);
   });

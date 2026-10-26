@@ -380,7 +380,13 @@ export function GamesView({
    * a two-day tournament kept Saturday all of Sunday.
    */
   const [todayKey, setTodayKey] = useState("");
-  const [pasting, setPasting] = useState(false);
+  /*
+   * The paste panel: never opened, open, or closed again. The offer gives way to the panel while it
+   * is open, so once the panel closes the offer is drawn afresh and takes focus, where the keyboard
+   * was, rather than leaving it at the top of the page; once games have gone in there is no offer
+   * to go back to, and focus stays where the save left it.
+   */
+  const [pasting, setPasting] = useState<"never" | "open" | "closed">("never");
   const pasteOffered = _matchups.length === 0 && schedulePaste !== undefined;
 
   const handleToggleFinal = useCallback(
@@ -612,12 +618,13 @@ export function GamesView({
       {visibleGames.length === 0 && tournamentGames.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
           {seasonGamesFinalized ? "No games match this filter." : "No games yet."}
-          {pasteOffered && !pasting && (
+          {pasteOffered && pasting !== "open" && (
             <EditLock>
               <p className="mt-3 font-semibold">
                 <button
                   type="button"
-                  onClick={() => setPasting(true)}
+                  autoFocus={pasting === "closed"}
+                  onClick={() => setPasting("open")}
                   className="text-blue-600 hover:underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline dark:text-blue-400"
                 >
                   Paste the league&apos;s schedule
@@ -628,7 +635,7 @@ export function GamesView({
           )}
         </div>
       ) : null}
-      {pasteOffered && pasting && schedulePaste("", () => setPasting(false))}
+      {pasteOffered && pasting === "open" && schedulePaste("", () => setPasting("closed"))}
 
       <EditLock>
         {visibleGames.length > 0 && (

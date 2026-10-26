@@ -61,6 +61,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import {
   compareDrawerView,
   dashboardView,
+  emptyStateView,
   forecastView,
   LIKELY_NEXT,
   playoffMachineView,
@@ -347,6 +348,7 @@ const SeasonManager = seasonManagerView.View;
 const ScoutLinkPanel = scoutLinkView.View;
 const TeamDrawer = teamDrawerView.View;
 const CompareDrawer = compareDrawerView.View;
+const EmptyState = emptyStateView.View;
 
 // ---------- Main app ----------
 
@@ -371,14 +373,6 @@ const SCORE_FILL_UNLOADED = "Fill scores could not be opened. Try again once con
  * only once asked for, since the first download has no room for them (`bundleBudget.mjs`).
  */
 const LeagueSchedulePaste = lazy(() => import("./components/league/LeagueSchedulePaste"));
-/**
- * The start screen of a season with no teams yet. Seen once per new season and never by someone
- * returning to one, so it is fetched when shown, inside the views' own Suspense, rather than kept
- * in the first download, which had no room left for the schedule paste (`bundleBudget.mjs`).
- */
-const EmptyState = lazy(() =>
-  import("./components/league/EmptyState").then((module) => ({ default: module.EmptyState }))
-);
 const StartFromClubs = lazy(() =>
   import("./components/league/StartFromClubs").then((module) => ({
     default: module.StartFromClubs,
@@ -2700,6 +2694,11 @@ export default function App() {
       matchups: made.matchups,
       logs: { ...now.logs, ...made.logs },
     });
+    // As the other ways to start a season do: a team filter kept from another season would hide
+    // games just added, under a toast saying they were.
+    setLastImpact(null);
+    closeTeamData();
+    setScoreboardTeamFilter("ALL");
     setActiveView("games");
     showToast(made.said, { tone: "undo", actionLabel: "Undo", onAction: restoreUndo });
     return true;
@@ -3638,7 +3637,12 @@ export default function App() {
               <ErrorBoundary
                 key={activeView}
                 area={VIEW_LABELS[activeView]}
-                onReset={() => resetView(activeView)}
+                onReset={() => {
+                  resetView(activeView);
+                  // The empty season's start screen is drawn here too, and a load it failed is
+                  // forgotten the same way, or Try again would only repeat the failure.
+                  emptyStateView.reset();
+                }}
               >
                 <Suspense fallback={<LoadingPanel area={VIEW_LABELS[activeView]} />}>
                   {teams.length === 0 ? (

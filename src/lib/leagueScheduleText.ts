@@ -24,7 +24,7 @@ import {
   STATUS_SUFFIX,
 } from "./scheduleText";
 import { squadYearFromName } from "./seasonNames";
-import { isPlaceholderName, segmentOn, teamNameKey } from "./teamRankings";
+import { isPlaceholderName, segmentOn } from "./teamRankings";
 
 /** One game read off the paste, from the league's side: both teams named, away and home. */
 export type LeaguePasteRow = {
@@ -44,6 +44,19 @@ export type LeagueSchedule = {
   /** Lines that held something but could not be read, as pasted, so the panel can show them. */
   skipped: string[];
 };
+
+/**
+ * The key a pasted name is told apart by: case, spacing and punctuation aside, with every word
+ * kept, a bracketed coach's name and an age label included. `teamNameKey` drops both, which suits
+ * matching a GameChanger opponent to its club, but one league can have "Heat (Ealey)" and "Heat
+ * (Smith)", or "Wolves 9U" and "Wolves 10U", as two of its teams, and a paste names them so.
+ */
+export const pasteNameKey = (name: string): string =>
+  name
+    .toLowerCase()
+    .replace(/[\u2018\u2019`]/g, "'")
+    .replace(/[^\p{L}\p{N}']+/gu, " ")
+    .trim();
 
 /**
  * The squad year a paste's dates are placed in when it writes no year of its own: the one the
@@ -69,31 +82,58 @@ const DAY_SHAPE = `(?:\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,
 const WEEKDAY_FIRST = `(?:${WEEKDAY_WORD},?\\s+)?`;
 const LEADING_DAY = new RegExp(`^${WEEKDAY_FIRST}(${DAY_SHAPE})(?=$|[\\s,])`, "i");
 const ONLY_DAY = new RegExp(`^${WEEKDAY_FIRST}(${DAY_SHAPE})$`, "i");
-/** A bare day of the month, "12" or "Sat 12th", which is a day only under a month's heading. */
-const LEADING_BARE_DAY = new RegExp(`^${WEEKDAY_FIRST}(\\d{1,2})(?:st|nd|rd|th)?(?=$|[\\s,])`, "i");
+/** What follows the hour of a start time written without its minutes: "9 AM", "1 p.m.". */
+const MERIDIEM = "(?:am|pm|a\\.m\\.|p\\.m\\.)(?=$|[\\s,])";
+/**
+ * A bare day of the month, "12" or "Sat 12th", which is a day only under a month's heading. Not an
+ * hour: "9 AM Comets @ Rockets" under a day's heading starts at nine, on the heading's day.
+ */
+const LEADING_BARE_DAY = new RegExp(
+  `^${WEEKDAY_FIRST}(\\d{1,2})(?:st|nd|rd|th)?(?=$|[\\s,])(?!\\s*${MERIDIEM})`,
+  "i"
+);
 const ONLY_BARE_DAY = new RegExp(`^${WEEKDAY_FIRST}(\\d{1,2})(?:st|nd|rd|th)?$`, "i");
 const ONLY_MONTH = new RegExp(`^${MONTH_WORD}$`, "i");
 const ONLY_WEEKDAY = new RegExp(`^${WEEKDAY_WORD},?$`, "i");
 /** A line naming a season, "Spring 2027 Schedule" or "2026-27", rather than prose with a year in. */
 const NAMES_A_SEASON = /\b(?:fall|autumn|spring|summer)\b|\b(?:19|20)\d{2}\s*[-–/]\s*\d{2}\b/i;
 
-/** A start time, which says nothing about who played: `9:00 AM`, `9am`, `18:30`. */
+/**
+ * A start time, which says nothing about who played: `9:00 AM`, `9am`, `18:30`, beside spaces or
+ * the commas of a line read whole.
+ */
 const TIME =
-  /(?:^|\s)\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)(?=\s|$)|(?:^|\s)\d{1,2}:\d{2}(?=\s|$)/gi;
+  /(?:^|[\s,])\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)(?=[\s,]|$)|(?:^|[\s,])\d{1,2}:\d{2}(?=[\s,]|$)/gi;
 const ONLY_TIME = /^\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)$|^\d{1,2}:\d{2}$/i;
 /**
  * Where it is played, at the end of a line: `Field 3`, `- Fld 2`, `@ Diamond B`. A bracketed end,
  * "(Blue)", is left alone, since it is as often part of a team's name as a place.
  */
 const FIELD = /(?:\s*[-–,|]\s*|\s+)(?:(?:@|at)\s+)?(?:field|fld|diamond)\s*#?\s*[a-z0-9]{1,3}$/i;
+const ONLY_FIELD = /^(?:field|fld|diamond)\s*#?\s*[a-z0-9]{1,3}$/i;
+/** What sites print between a day, a time and a game: spaces, commas, dashes, bars and dots. */
+const SEPARATORS = /[\s,·•|–—-]+/g;
+/**
+ * A game that will not be played as written, which is no fixture to add: cancelled, rained out,
+ * postponed (its make-up game is listed on its own day) or suspended. Anywhere on the line, as a
+ * word, since sites print it before the game as often as after; no team is called any of these.
+ */
+const NOT_PLAYED =
+  /(?:^|[^\p{L}])(?:cancell?ed|rain(?:ed)?[\s-]?out|ppd|postponed|suspended)(?![\p{L}])/iu;
+/** A status cell that changes nothing about the game: it was played, or is final. */
+const ONLY_STATUS = /^(?:final|f\/\d+|complete|completed|forfeit(?:ed)?)$/i;
 /** A final score at the end of a line, in the order the two sides were written. */
 const TRAILING_SCORE = /\s(\d{1,2})\s*[-–—]\s*(\d{1,2})$/;
+/** The same shape at the end of a name, as an age span is written: "Falcons 9-10". */
+const ENDS_LIKE_A_SCORE = /\s\d{1,2}\s*[-–—]\s*\d{1,2}$/;
 const SCORE_CELL = /^(\d{1,2})\s*[-–—]\s*(\d{1,2})$/;
 /**
  * What stands between the two sides of a line: "@" or "at" puts the host second, "vs" or "v" puts
  * it first, the order league sites print each in.
  */
 const MARKER = /\s*@\s*|\s+(?:at|vs\.?|v\.?|versus)\s+/gi;
+/** The same, to ask whether a cell holds one without the global flag's place kept between asks. */
+const HAS_MARKER = new RegExp(MARKER.source, "i");
 
 type Context = { year?: number; month?: number };
 
@@ -138,6 +178,13 @@ const readLeadingDay = (text: string, context: Context, squadYear: number): DayR
   return { day: dayOf(bare[1] ?? "", context, squadYear), rest: text.slice(bare[0].length) };
 };
 
+/**
+ * A context that reads only days written out in full, never a bare day of the month: for a cell
+ * that might as well be a game's number or a score.
+ */
+const writtenOnly = (context: Context): Context =>
+  context.year === undefined ? {} : { year: context.year };
+
 /** The whole of `text` read as a day, or undefined when it is anything more or less than one. */
 const readOnlyDay = (
   text: string,
@@ -152,18 +199,39 @@ const readOnlyDay = (
   return bare ? dayOf(bare[1] ?? "", context, squadYear) : undefined;
 };
 
+/**
+ * A line or a cell that names a day and nothing else of a game: only a day, or a day with only a
+ * start time, a field or the separators between them, as a site heads each day's games ("Sat 4/12
+ * 9:00 AM", "Sat, Apr 12 · 9:00 AM") and a spreadsheet writes a date and time in one cell
+ * ("9/12/2026 9:00 AM"). Undefined for anything more.
+ */
+const readDayOnly = (
+  text: string,
+  context: Context,
+  squadYear: number
+): string | null | undefined => {
+  const value = text.replace(/\t/g, " ").trim();
+  const only = readOnlyDay(value, context, squadYear);
+  if (only !== undefined) return only;
+  const leading = readLeadingDay(value, context, squadYear);
+  if (!leading) return undefined;
+  const left = leading.rest.replace(TIME, " ").replace(FIELD, "").replace(SEPARATORS, "");
+  return left === "" ? leading.day : undefined;
+};
+
 type Game = { day: string; away: string; home: string; runs?: [number, number]; guessed?: true };
 
 /**
  * Two sides that make a league game: both named, neither a placeholder ("TBD", "Winner of Game
- * 3"), and not one team twice.
+ * 3"), and not one team twice. Told apart as the paste names them (`pasteNameKey`), so "Heat
+ * (Ealey)" against "Heat (Smith)" is a game.
  */
 const sidesOk = (away: string, home: string): boolean =>
   away !== "" &&
   home !== "" &&
   !isPlaceholderName(away) &&
   !isPlaceholderName(home) &&
-  teamNameKey(away) !== teamNameKey(home);
+  pasteNameKey(away) !== pasteNameKey(home);
 
 /**
  * One line of prose: `Sat 4/12 9:00 AM Falcons @ Wolves Field 3`, `Comets vs Rockets 6-5 Final`.
@@ -181,12 +249,14 @@ const readLine = (
     .replace(/\s{2,}/g, " ")
     .trim();
   let runs: [number, number] | undefined;
+  let scoreWritten = "";
   // What trails the sides, in whatever order a site prints it: where, a status word, the score.
   for (let pass = 0; pass < 3; pass += 1) {
     rest = rest.replace(FIELD, "").replace(STATUS_SUFFIX, "").trim();
     const score = runs ? null : TRAILING_SCORE.exec(rest);
     if (score) {
       runs = [Number(score[1]), Number(score[2])];
+      scoreWritten = score[0];
       rest = rest.slice(0, score.index).trim();
     }
   }
@@ -200,7 +270,7 @@ const readLine = (
   rest = rest
     .replace(TIME, " ")
     .replace(/\s{2,}/g, " ")
-    .replace(/^[\s,–-]+|[\s,–-]+$/g, "");
+    .replace(/^[\s,·•|–—-]+|[\s,·•|–—-]+$/g, "");
 
   const markers = [...rest.matchAll(MARKER)];
   if (markers.length === 0) return undefined;
@@ -208,7 +278,13 @@ const readLine = (
   if (markers.length > 1 || !marker) return "skip";
   if (day === null) return "skip";
   const first = clampScheduleName(rest.slice(0, marker.index));
-  const second = clampScheduleName(rest.slice((marker.index ?? 0) + marker[0].length));
+  let second = clampScheduleName(rest.slice((marker.index ?? 0) + marker[0].length));
+  // Both sides ending alike, "Falcons 9-10 @ Wolves 9-10", is an age span written on each name,
+  // not a final score on the second: it goes back on the name it came off.
+  if (runs && ENDS_LIKE_A_SCORE.test(first)) {
+    second = clampScheduleName(second + scoreWritten);
+    runs = undefined;
+  }
   const hostSecond = /@|at/i.test(marker[0]);
   const [away, home] = hostSecond ? [first, second] : [second, first];
   if (!sidesOk(away, home)) return "skip";
@@ -234,19 +310,89 @@ const readHeadedRow = (
   const away = clampScheduleName(cellAt(cells, header.teamB));
   if (!sidesOk(away, home)) return "skip";
   const written = cellAt(cells, header.date).trim();
-  // A date cell that says nothing a calendar reads ("TBD") leaves the game undated; one shaped
-  // like a day that no calendar has is skipped, as on a line.
-  const read = written === "" ? carried : readOnlyDay(written, context, squadYear);
+  // The date cell, or one with the start time in it too; failing that, another cell written wholly
+  // as a day, since a header reading "Day, Date" names the weekday's column first. Not a cell
+  // shaped like a score, "6-5", which a result column holds and a calendar would take for June 5.
+  const taken = new Set([header.date, header.teamA, header.teamB, header.scoreA, header.scoreB]);
+  let found = written === "" ? undefined : readDayOnly(written, context, squadYear);
+  for (let at = 0; found === undefined && at < cells.length; at += 1) {
+    const cell = (cells[at] ?? "").trim();
+    if (!taken.has(at) && !SCORE_CELL.test(cell)) {
+      found = readDayOnly(cell, writtenOnly(context), squadYear);
+    }
+  }
+  // A date cell that says nothing a calendar reads ("TBD") leaves the game undated, and an empty
+  // one takes the day of the heading above it; one shaped like a day that no calendar has is
+  // skipped, as on a line.
+  const read = found ?? (written === "" ? carried : "");
   if (read === null) return "skip";
   const homeRuns = cellAt(cells, header.scoreA).trim();
   const awayRuns = cellAt(cells, header.scoreB).trim();
   const scored = /^\d{1,2}$/.test(homeRuns) && /^\d{1,2}$/.test(awayRuns);
   return {
-    day: read ?? "",
+    day: read,
     away,
     home,
     ...(scored ? { runs: [Number(awayRuns), Number(homeRuns)] } : {}),
   };
+};
+
+/**
+ * A row whose cells each say what they are, one a game written "A @ B" and another wholly a day, a
+ * start time, a weekday, a field, a score or a status, as a spreadsheet or a calendar export lays a
+ * schedule out: "4/10/2027,9:00 AM,Falcons @ Wolves,Field 1", "Falcons @ Wolves,4/10/2027,9:00
+ * AM,Riverside Park". The game is read from its own cell, with the day and the score from theirs,
+ * and any other cell (a place, a game's number) is left out, where read as one line it would have
+ * run into a team's name. Undefined for a row not laid out so, which is read as one line: "9/12
+ * Comets, Blue @ Wolves" has no cell that is only a day or a time, and its comma is in a name.
+ */
+const readCells = (
+  cells: string[],
+  context: Context,
+  carried: string | null,
+  squadYear: number
+): Game | "skip" | undefined => {
+  let day: string | null | undefined;
+  let laidOut = false;
+  const games: string[] = [];
+  const scores: string[] = [];
+  const numbers: string[] = [];
+  for (const cell of cells) {
+    const value = cell.trim();
+    if (!value) continue;
+    if (
+      ONLY_TIME.test(value) ||
+      ONLY_WEEKDAY.test(value) ||
+      ONLY_FIELD.test(value) ||
+      ONLY_STATUS.test(value)
+    ) {
+      laidOut = true;
+    } else if (HAS_MARKER.test(value)) {
+      games.push(value);
+    } else if (SCORE_CELL.test(value) && games.length > 0) {
+      // After the game, "6-5" is its score; before it, "4-12" is as likely its day, read below.
+      scores.push(value);
+      laidOut = true;
+    } else if (/^\d{1,2}$/.test(value)) {
+      numbers.push(value);
+    } else {
+      const asDay = day === undefined ? readDayOnly(value, context, squadYear) : undefined;
+      if (asDay !== undefined) {
+        day = asDay;
+        laidOut = true;
+      }
+    }
+  }
+  const [game] = games;
+  if (!laidOut || game === undefined) return undefined;
+  if (games.length > 1 || day === null) return "skip";
+  // A score from its own cell, or two cells of runs, is read as if written after the game, in the
+  // order the sides were.
+  const [score] = scores;
+  const [first, second] = numbers;
+  const runs =
+    score ?? (numbers.length === 2 && first && second ? `${first}-${second}` : undefined);
+  return readLine(runs ? `${game} ${runs}` : game, context, day ?? carried, squadYear) ?? "skip";
 };
 
 /**
@@ -313,13 +459,17 @@ const asRow = (game: Game, today: string): LeaguePasteRow => {
  * Reads whatever was pasted, a line at a time:
  *
  * - A heading dates what follows it: `April 2027`, a bare `2027`, a bare `April`, or a line that is
- *   only a day, `Saturday, April 12`, which every game under it is played on until the next.
+ *   only a day, `Saturday, April 12`, or a day and a start time, `Sat 4/12 9:00 AM`, which every
+ *   game under it is played on until the next.
  * - A table whose header names a Home and an Away (or Visitor) column is read by those columns,
  *   with a Date column and the two sides' scores where it has them.
  * - A line naming two sides around one marker is a game: "A @ B" and "A at B" have A away, "A vs
  *   B" has A home. Its day comes off the front, a start time and a field from wherever they are,
  *   and a final score off the end, in the order the sides were written.
+ * - A row laid out in cells, a game written "A @ B" in one and its day, time or field in others,
+ *   is read cell by cell, and a cell that is none of these (a place) is left out.
  * - A table with no header is read by position, away then home, and marked as a guess.
+ * - A game cancelled, rained out, postponed or suspended is left out, as no fixture to add.
  * - A line naming a season, `Spring 2027 Schedule`, places the undated days after it in that
  *   season's year.
  *
@@ -364,10 +514,14 @@ export const parseLeagueSchedule = (
       context.month = monthOf(line.replace(".", ""));
       return;
     }
-    const onlyDay = readOnlyDay(line.replace(/\t/g, " "), context, year);
+    const onlyDay = readDayOnly(line, context, year);
     if (onlyDay !== undefined) {
       carried = onlyDay;
       if (onlyDay === null) skipped.push(line);
+      return;
+    }
+    if (NOT_PLAYED.test(line)) {
+      skipped.push(line);
       return;
     }
 
@@ -394,6 +548,11 @@ export const parseLeagueSchedule = (
       // rows are read by position like a table with none.
       if (header?.kind === "schedule" && header.opponent !== undefined) {
         skipped.push(line);
+        return;
+      }
+      const laidOut = readCells(cells, context, carried, year);
+      if (laidOut !== undefined) {
+        take(laidOut);
         return;
       }
       const asLine = readLine(line, context, carried, year);

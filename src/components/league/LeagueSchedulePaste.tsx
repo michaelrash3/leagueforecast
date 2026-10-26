@@ -8,11 +8,12 @@
  * most visits never paste a schedule. Nothing here is asked of a server; what is added is handed to
  * App, which saves it as one change to the season, the same as Add Game.
  */
-import { useContext, useId, useMemo, useState } from "react";
+import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { todayIsoDay } from "../../lib/date";
 import { displayName } from "../../lib/format";
 import {
   parseLeagueSchedule,
+  pasteNameKey,
   pasteSquadYear,
   type LeaguePasteRow,
   type LeagueSchedule,
@@ -23,7 +24,6 @@ import {
   type PastedGame,
   type PastedSeason,
 } from "../../lib/leaguePaste";
-import { teamNameKey } from "../../lib/teamRankings";
 import type { Settings, TeamBase } from "../../lib/types";
 import { button, card, pill } from "../../styles/tokens";
 import { EditLock, SeasonEditable } from "./EditLock";
@@ -81,6 +81,21 @@ export default function LeagueSchedulePaste({
   // Names whose suggested team a person has said to use.
   const [accepted, setAccepted] = useState<ReadonlySet<string>>(() => new Set());
   const [refused, setRefused] = useState(false);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+  const reviewRef = useRef<HTMLParagraphElement>(null);
+  /*
+   * Where focus goes once the panel has drawn what a press changed: into the panel when it opens,
+   * the review once a paste is read and the text once it is gone back to. Each press swaps the
+   * whole body, and without this a keyboard is left on a button no longer there, which drops focus
+   * to the top of the page and tells a screen reader nothing of what opened.
+   */
+  const focusNext = useRef<"text" | "review" | null>(text.trim() ? "review" : "text");
+  useEffect(() => {
+    const target = focusNext.current;
+    if (target === null) return;
+    focusNext.current = null;
+    (target === "review" ? (reviewRef.current ?? textRef.current) : textRef.current)?.focus();
+  });
 
   const readText = (value: string) => {
     setRead(parseLeagueSchedule(value, year, today));
@@ -114,7 +129,7 @@ export default function LeagueSchedulePaste({
     const home = teamFor(row.home);
     return away !== undefined || home !== undefined
       ? away === home
-      : teamNameKey(row.away) === teamNameKey(row.home);
+      : pasteNameKey(row.away) === pasteNameKey(row.home);
   };
   /*
    * A game starts ticked when both its sides are the season's teams, or when the season has none
@@ -156,19 +171,26 @@ export default function LeagueSchedulePaste({
     else setRefused(true);
   };
 
-  const nameCell = (name: string) => {
+  const nameCell = (name: string, lead?: ReactNode) => {
     const match = matches.get(name);
+    // A name taken for a team it is not written as says which, so a coach's name or an age left
+    // off is seen before the game goes in.
     const note =
       match?.kind === "similar"
         ? accepted.has(name)
           ? `as ${teamName(match.teamId)}`
           : `close to ${teamName(match.teamId)}`
-        : teams.length > 0 && match?.kind === "new"
-          ? "new team"
-          : null;
+        : match?.kind === "team" && match.loose
+          ? `as ${teamName(match.teamId)}`
+          : teams.length > 0 && match?.kind === "new"
+            ? "new team"
+            : null;
     return (
-      <span className="flex flex-col">
-        <span className="font-bold text-slate-950 dark:text-slate-100">{name}</span>
+      <span className="flex min-w-0 flex-col">
+        <span className="break-words font-bold text-slate-950 dark:text-slate-100">
+          {lead}
+          {name}
+        </span>
         {note && (
           <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">{note}</span>
         )}
@@ -177,7 +199,7 @@ export default function LeagueSchedulePaste({
   };
 
   return (
-    <section className={`${card} mt-4 p-5 text-left`} aria-labelledby={`${boxId}-title`}>
+    <section className={`${card} mt-4 p-4 text-left sm:p-5`} aria-labelledby={`${boxId}-title`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2
           id={`${boxId}-title`}
@@ -211,6 +233,7 @@ export default function LeagueSchedulePaste({
             League schedule to read
           </label>
           <textarea
+            ref={textRef}
             id={`${boxId}-text`}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -220,7 +243,14 @@ export default function LeagueSchedulePaste({
             className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
           />
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={() => readText(draft)} className={button.primary}>
+            <button
+              type="button"
+              onClick={() => {
+                focusNext.current = "review";
+                readText(draft);
+              }}
+              className={button.primary}
+            >
               Read the schedule
             </button>
           </div>
@@ -231,14 +261,19 @@ export default function LeagueSchedulePaste({
               <code>Visitor</code>) columns, with a <code>Date</code> and the two scores where it
               has them; or lines like <code>4/10 Falcons @ Wolves</code>, where the team after @ or
               &quot;at&quot; is at home, and <code>Wolves vs Falcons</code>, where the first team
-              is. A line that is only a date dates the games under it. Times and fields are passed
-              over, and a score at the end of a line is read in the order the teams were written.
+              is. A line that is only a date, or a date and a time, dates the games under it. Times
+              and fields are passed over, and a score at the end of a line is read in the order the
+              teams were written.
             </p>
           </details>
         </>
       ) : (
         <>
-          <p className="mt-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+          <p
+            ref={reviewRef}
+            tabIndex={-1}
+            className="mt-1 text-xs font-semibold text-slate-600 focus:outline-hidden dark:text-slate-300"
+          >
             {plural(rows.length, "game")} read. Dates with no year are placed between August{" "}
             {year - 1} and July {year}.
           </p>
@@ -281,9 +316,13 @@ export default function LeagueSchedulePaste({
             </p>
           )}
 
+          {/* On a phone each game is a small block, its date, its two sides one under the other and
+            its score and Swap beside them, so every control is on screen: six columns side by side
+            put the Swap past the edge of a 390px screen, behind a sideways swipe nothing pointed to.
+            From the sm width up it is a table again. */}
           <div className="mt-3 overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
+            <table className="block min-w-full text-sm sm:table">
+              <thead className="hidden sm:table-header-group">
                 <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
                   <th className="py-2 pr-2">Add</th>
                   <th className="pr-3">Date</th>
@@ -295,14 +334,17 @@ export default function LeagueSchedulePaste({
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="block sm:table-row-group">
                 {rows.map((row, index) => {
                   const game = asGame(row, swapped.has(index));
                   const twice = oneTeamTwice(row);
                   const label = `${game.away} at ${game.home}`;
                   return (
-                    <tr key={index} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="py-2 pr-2">
+                    <tr
+                      key={index}
+                      className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 border-t border-slate-100 py-2 sm:table-row sm:py-0 dark:border-slate-800"
+                    >
+                      <td className="row-span-3 row-start-1 pt-0.5 sm:py-2 sm:pr-2">
                         <input
                           type="checkbox"
                           checked={ticked(row, index)}
@@ -313,23 +355,31 @@ export default function LeagueSchedulePaste({
                           }
                         />
                       </td>
-                      <td className="pr-3 tabular-nums text-slate-700 dark:text-slate-200">
+                      <td className="col-start-2 row-start-1 text-xs tabular-nums text-slate-700 sm:pr-3 sm:text-sm dark:text-slate-200">
                         {game.date || "No date"}
                       </td>
-                      <td className="pr-3">{nameCell(game.away)}</td>
-                      <td className="pr-3">
-                        {nameCell(game.home)}
+                      <td className="col-start-2 row-start-2 min-w-0 sm:pr-3">
+                        {nameCell(game.away)}
+                      </td>
+                      <td className="col-start-2 row-start-3 min-w-0 sm:pr-3">
+                        {nameCell(
+                          game.home,
+                          // On a phone, with no column headings, the home side reads "at Wolves".
+                          <span className="font-normal text-slate-500 sm:hidden dark:text-slate-400">
+                            at{" "}
+                          </span>
+                        )}
                         {twice && (
                           <span className="text-xs font-semibold text-red-700 dark:text-red-400">
                             the same team twice
                           </span>
                         )}
                       </td>
-                      <td className="pr-3 tabular-nums text-slate-700 dark:text-slate-200">
+                      <td className="col-start-3 row-start-1 text-right tabular-nums text-slate-700 sm:pr-3 sm:text-left dark:text-slate-200">
                         {game.awayRuns !== undefined ? `${game.awayRuns}–${game.homeRuns}` : "—"}
                       </td>
-                      <td className="whitespace-nowrap">
-                        {row.guessed && <span className={`${pill("amber")} mr-2`}>Guessed</span>}
+                      <td className="col-start-3 row-span-2 row-start-2 flex flex-col items-end justify-center gap-1 sm:table-cell sm:whitespace-nowrap">
+                        {row.guessed && <span className={`${pill("amber")} sm:mr-2`}>Guessed</span>}
                         <button
                           type="button"
                           onClick={() =>
@@ -386,7 +436,14 @@ export default function LeagueSchedulePaste({
                 Add {plural(kept.length, "game")}
               </button>
             </EditLock>
-            <button type="button" onClick={() => setRead(null)} className={button.ghost}>
+            <button
+              type="button"
+              onClick={() => {
+                focusNext.current = "text";
+                setRead(null);
+              }}
+              className={button.ghost}
+            >
               Back to the text
             </button>
           </div>
