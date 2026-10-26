@@ -716,22 +716,32 @@ export default function App() {
     recordSaveResult(saveMatchups(matchups), "schedule", "Could not save schedule (storage full).");
   }, [matchups, recordSaveResult]);
 
+  // The scores as last written, by identity: what a flush as the turn goes has still to write.
+  const savedLogs = useRef(logs);
   useEffect(() => {
     const saveTimer = window.setTimeout(() => {
       recordSaveResult(saveLogs(logs), "scores", "Could not save scores (storage full).");
+      savedLogs.current = logs;
     }, 500);
 
     return () => window.clearTimeout(saveTimer);
   }, [logs, recordSaveResult]);
 
-  // Written at once when this tab gives the turn away, to a tab asking with Use here or to one
-  // opened before it whose hello came late (`tabTurn.ts`): the half second above would end with
-  // this tab read-only, the score refused, and the other tab reloaded without it.
+  // Written at once when this tab gives the turn away (`tabTurn.ts`): to a tab asking with Use
+  // here, or, in the moment before this tab's channel code arrived, to a tab already writing or
+  // one opened before it. The half second above would end with this tab read-only, the score
+  // refused, and the other tab reading the season again without it.
   useEffect(
     () =>
-      beforeTabYields(() =>
-        recordSaveResult(saveLogs(logs), "scores", "Could not save scores (storage full).")
-      ),
+      beforeTabYields(() => {
+        // Only a score still held: written again, the scores as this tab read them could undo
+        // one the other tab saved since, and would have it read the season again for nothing.
+        if (logs === savedLogs.current) return false;
+        const saved = saveLogs(logs);
+        recordSaveResult(saved, "scores", "Could not save scores (storage full).");
+        if (saved) savedLogs.current = logs;
+        return saved;
+      }),
     [logs, recordSaveResult]
   );
 

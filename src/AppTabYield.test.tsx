@@ -2,8 +2,19 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { prefetchAllViews } from "./components/league/leagueViews";
-import { loadLogs, saveMatchups, saveTeams } from "./lib/storage";
+import { loadLogs, saveLogs, saveMatchups, saveTeams } from "./lib/storage";
 import { flushBeforeYield } from "./lib/tabTurn";
+
+const EMPTY_LOG = {
+  awayRuns: "",
+  homeRuns: "",
+  awayHits: "",
+  homeHits: "",
+  awayK: "",
+  homeK: "",
+  innings: "6",
+  isFinal: false,
+};
 
 // League's views load on demand (2.1); loaded first here, so a tab is drawn as soon as it opens.
 beforeAll(() => prefetchAllViews());
@@ -50,8 +61,30 @@ describe("a tab giving its turn to another", () => {
     });
     expect(loadLogs().g1?.awayRuns ?? "").toBe("");
 
-    act(() => flushBeforeYield());
+    let wrote = false;
+    act(() => {
+      wrote = flushBeforeYield();
+    });
 
+    expect(wrote).toBe(true);
     expect(loadLogs().g1?.awayRuns).toBe("7");
+    // Written once: asked again, it has nothing more to write.
+    act(() => {
+      wrote = flushBeforeYield();
+    });
+    expect(wrote).toBe(false);
+  });
+
+  it("writes nothing, and says so, with no score held", async () => {
+    render(<App />);
+    await screen.findByRole("tab", { name: /schedule/i });
+    // The scores as this tab read them, written again, could undo one another tab saved since.
+    saveLogs({ g1: { ...EMPTY_LOG, awayRuns: "4", homeRuns: "2", isFinal: true } });
+    let wrote = true;
+    act(() => {
+      wrote = flushBeforeYield();
+    });
+    expect(wrote).toBe(false);
+    expect(loadLogs().g1?.awayRuns).toBe("4");
   });
 });

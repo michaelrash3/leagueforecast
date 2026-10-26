@@ -42,7 +42,14 @@ const done: string[] = [];
 /** Waits set by a tab asking for the turn, run when a test says the time has passed. */
 const waits: Array<() => void> = [];
 
-const tab = (net: ReturnType<typeof hub>, openedAt: number, id: string, claim = false) => {
+/** A tab; `owes` says its flush has a score to write, as App's does while it holds one. */
+const tab = (
+  net: ReturnType<typeof hub>,
+  openedAt: number,
+  id: string,
+  claim = false,
+  owes = false
+) => {
   const reloads: string[] = [];
   const turn = createTabTurn({
     channel: net.channel(),
@@ -54,7 +61,10 @@ const tab = (net: ReturnType<typeof hub>, openedAt: number, id: string, claim = 
       reloads.push(id);
       done.push(`reload ${id}`);
     },
-    beforeYield: () => done.push(`flush ${id}`),
+    beforeYield: () => {
+      done.push(`flush ${id}`);
+      return owes;
+    },
     wait: (_ms, then) => waits.push(then),
   });
   return { turn, reloads };
@@ -76,8 +86,8 @@ describe("which tab may write League Standings", () => {
     net.settle();
     expect(first.turn.readOnly()).toBe(false);
     expect(later.turn.readOnly()).toBe(true);
-    // Nothing written on the way and nothing read again: a tab only just opened owes nothing.
-    expect(done).toEqual([]);
+    // The later tab owed nothing as it gave way, so the first reads nothing again.
+    expect(done).toEqual(["flush b"]);
   });
 
   it("is still one of two opened in the same moment, the earlier, or by id on a tie", () => {
@@ -112,7 +122,7 @@ describe("which tab may write League Standings", () => {
     // The tab opened first fetched the channel's code last, and the other had begun writing: a
     // score it held for its half second was refused once it was read-only.
     const net = hub();
-    const later = tab(net, 2000, "b");
+    const later = tab(net, 2000, "b", false, true);
     net.settle();
     expect(later.turn.readOnly()).toBe(false);
     const first = tab(net, 1000, "a");
@@ -129,10 +139,38 @@ describe("which tab may write League Standings", () => {
     expect(later.turn.readOnly()).toBe(true);
   });
 
+  it("reads nothing again where the writer giving way to a late hello owed nothing", () => {
+    // Two tabs opened together, neither with a score taken: nothing to read again for.
+    const net = hub();
+    const later = tab(net, 2000, "b");
+    net.settle();
+    const first = tab(net, 1000, "a");
+    net.settle();
+    expect([first.turn.readOnly(), later.turn.readOnly()]).toEqual([false, true]);
+    expect(done).toEqual(["flush b"]);
+  });
+
+  it("has a later tab write a score it took before the writer answered, and the writer read it", () => {
+    // The page starts before the channel's code arrives, so a tab opened later can take a score
+    // before the writer's answer makes it read-only, which refused the save it was holding.
+    const net = hub();
+    const writer = tab(net, 1000, "a");
+    net.settle();
+    const later = tab(net, 2000, "b", false, true);
+    net.settle();
+    expect(later.turn.readOnly()).toBe(true);
+    expect(done).toEqual(["flush b", "reload a"]);
+    // On its way back in the writer asks again; the later tab, read-only, does not answer.
+    writer.turn.stop();
+    const back = tab(net, 3000, "a2");
+    net.settle();
+    expect([back.turn.readOnly(), later.turn.readOnly()]).toEqual([false, true]);
+  });
+
   it("still ends with one writer when several opened together give way in turn", () => {
     const net = hub();
-    const b = tab(net, 2000, "b");
-    const c = tab(net, 3000, "c");
+    const b = tab(net, 2000, "b", false, true);
+    const c = tab(net, 3000, "c", false, true);
     const a = tab(net, 1000, "a");
     net.settle();
     // Only the writer that gave way last is answered by a reload, and that reload asks again
@@ -150,6 +188,7 @@ describe("which tab may write League Standings", () => {
     const writer = tab(net, 1000, "a");
     const reader = tab(net, 2000, "b");
     net.settle();
+    done.length = 0;
     const other = net.channel();
     other.post({ kind: "wrote", id: "z", openedAt: 500, to: "someone else" });
     other.post({ kind: "wrote", id: "z", openedAt: 500, to: "b" });
@@ -204,6 +243,7 @@ describe("which tab may write League Standings", () => {
     const writer = tab(net, 1000, "a");
     const asking = tab(net, 2000, "b");
     net.settle();
+    done.length = 0;
 
     asking.turn.useHere();
     expect(asking.reloads).toEqual([]);
@@ -260,18 +300,28 @@ describe("which tab may write League Standings", () => {
 describe("what a tab writes before it gives the turn", () => {
   it("runs every flush given, each on its own, until it is stopped", () => {
     const wrote: string[] = [];
-    const stopScores = beforeTabYields(() => wrote.push("scores"));
+    let owes = true;
+    const stopScores = beforeTabYields(() => {
+      wrote.push("scores");
+      return owes;
+    });
     const stopBroken = beforeTabYields(() => {
       throw new Error("storage full");
     });
-    const stopTeams = beforeTabYields(() => wrote.push("teams"));
-    flushBeforeYield();
+    const stopTeams = beforeTabYields(() => {
+      wrote.push("teams");
+      return false;
+    });
+    // Whether any of them wrote, which is what has the other tab read the season again.
+    expect(flushBeforeYield()).toBe(true);
     expect(wrote).toEqual(["scores", "teams"]);
+    owes = false;
+    expect(flushBeforeYield()).toBe(false);
 
     stopScores();
     stopBroken();
     stopTeams();
-    flushBeforeYield();
-    expect(wrote).toEqual(["scores", "teams"]);
+    expect(flushBeforeYield()).toBe(false);
+    expect(wrote).toEqual(["scores", "teams", "scores", "teams"]);
   });
 });

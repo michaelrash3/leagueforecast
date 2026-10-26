@@ -4417,11 +4417,14 @@ subscription and sending to it, which the app does not have.
   ahead all the same. A tab whose writer was closed is not told: the next tab to open writes, or Use
   here takes the turn. Without a `BroadcastChannel` every tab writes, as before. The talk on the
   channel (`tabTurnChannel.ts`) and the banner are fetched after the page starts, which delays a
-  tab's hello by that moment, so a tab opened first can say hello after one opened later has begun
-  writing. That writer gives way as it would to Use here, writing what it owes first, and tells
-  the tab before it, which reloads to read it and asks again on its way back in rather than taking
-  the turn (with several opened together, the turn taken would be the one given way to first).
-  Storage asks the small registry in `tabTurn.ts`. Held by
+  tab's hello by that moment, in which the tab may take a score before it learns it is read-only:
+  from the writer's answer, or from the hello of a tab opened before it that came late. However it
+  gives way, a tab writes a score it still holds first, and only a score still held (by identity
+  against the scores last written): written again, the scores as it read them could undo one the
+  other tab saved since. Only when it wrote does it tell the tab it gave way to, which reloads to
+  read it and asks again on its way back in rather than taking the turn (with several opened
+  together, the turn taken would be the one given way to first). Storage asks the small registry
+  in `tabTurn.ts`. Held by
   `tabTurn.test.ts`, the storage test and `e2e/tabs.spec.ts`, which opens two real tabs.
 - What the last full restore replaced is kept on this device until the next restore
   (`league_forecast_replaced_backup_v1`, in the pool's IndexedDB store beside the saved board, and

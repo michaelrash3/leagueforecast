@@ -54,7 +54,7 @@ export const createTabTurn = ({
   claimed,
   claim = () => undefined,
   reload = () => undefined,
-  beforeYield = () => undefined,
+  beforeYield = () => false,
   wait = (ms, then) => {
     setTimeout(then, ms);
   },
@@ -68,12 +68,11 @@ export const createTabTurn = ({
   claim?: () => void;
   reload?: () => void;
   /**
-   * Writes what this tab still owes storage, while it may: called as the writer gives the turn
-   * away, to a tab that asked for it or to one before it whose hello came late, before it answers
-   * (`beforeTabYields`). App holds a typed score half a second before saving it, and a writer
-   * read-only at once had that save refused.
+   * Writes what this tab still owes storage, while it may, and says whether it wrote anything:
+   * called as the tab gives the turn away, before it answers (`beforeTabYields`). App holds a
+   * typed score half a second before saving it, and a tab read-only at once had that save refused.
    */
-  beforeYield?: () => void;
+  beforeYield?: () => boolean;
   wait?: (ms: number, then: () => void) => void;
 }): TabTurn => {
   let readOnly = false;
@@ -98,15 +97,20 @@ export const createTabTurn = ({
   let took = claimed();
   const before = (other: Said) =>
     me.openedAt < other.openedAt || (me.openedAt === other.openedAt && me.id < other.id);
-  // The writer giving the turn away: what it owes is written first, whatever that throws, then it
-  // is read-only, then it answers the one tab it gave way to.
-  const giveTo = (to: string, kind: "given" | "wrote") => {
+  /*
+   * The tab giving the turn away: what it owes is written first, whatever that throws, then it is
+   * read-only, then it answers the one tab it gave way to. Use here waits on its answer, `given`,
+   * whatever was written. Any other tab given way to is told only when something was (`wrote`),
+   * since the season it holds is then older than storage's.
+   */
+  const yieldTo = (to: string, answer: "given" | "wrote") => {
+    let wrote = false;
     try {
-      beforeYield();
+      wrote = beforeYield();
     } finally {
       took = false;
       become(true);
-      channel?.post({ kind, ...me, to });
+      if (answer === "given" || wrote) channel?.post({ kind: answer, ...me, to });
     }
   };
 
@@ -122,14 +126,13 @@ export const createTabTurn = ({
       // not answered, and this one gives way, since its own hello went out before the other heard.
       if (took || before(said)) channel.post({ kind: "here", ...me, to: said.id });
       // A tab opened before this one whose hello is only now heard: its channel's code came after
-      // this one's, and this tab may have taken a score meanwhile. Written, then answered, so that
-      // tab reads it again (`wrote`), since the season it holds is older than what this one wrote.
-      else giveTo(said.id, "wrote");
+      // this one's, and this tab may have taken a score meanwhile.
+      else yieldTo(said.id, "wrote");
     } else if (said.kind === "want") {
       // Asked for by Use here: the writer writes what it owes, then gives the turn, and says so to
       // the one tab that asked, which reloads only then, so it reads what was just written.
       if (readOnly) return;
-      giveTo(said.id, "given");
+      yieldTo(said.id, "given");
     } else if (said.kind === "given") {
       if (said.to === id) go();
     } else if (said.kind === "wrote") {
@@ -137,8 +140,10 @@ export const createTabTurn = ({
       // given way to more than once while several tabs opened together still ends with one writer.
       // A tab read-only by now writes nothing, so what it holds being older harms nothing.
       if (said.to === id && !readOnly) leave(false);
-    } else if (said.to === id && !took) {
-      become(true);
+    } else if (said.to === id && !took && !readOnly) {
+      // The writer's answer to this tab's hello. The page started before this code arrived, so a
+      // score may have been taken meanwhile: written, and the writer told.
+      yieldTo(said.id, "wrote");
     }
   });
   channel?.post({ kind: took ? "take" : "hello", ...me });
@@ -185,7 +190,7 @@ const browserChannel = (): TabChannel | null => {
  * This tab's turn, made once as the app starts (`main.tsx`), which hands it what the tab writes
  * before it gives the turn away (`flushBeforeYield`).
  */
-export const startTabTurn = (beforeYield?: () => void): TabTurn => {
+export const startTabTurn = (beforeYield?: () => boolean): TabTurn => {
   const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
   const started = createTabTurn({

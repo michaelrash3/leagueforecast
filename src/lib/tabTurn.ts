@@ -65,28 +65,32 @@ export const adoptTabTurn = (turn: TabTurn | null): void => {
   tell();
 };
 
-const yielders = new Set<() => void>();
+const yielders = new Set<() => boolean>();
 
 /**
- * Calls `flush` as this tab gives its turn to a tab that asked for it with Use here, or to one
- * opened before it whose hello came late (`tabTurnChannel.ts`), before it answers: what it still
- * owes storage is written while it may.
- * Returns the way to stop.
+ * Calls `flush` as this tab gives its turn away (`tabTurnChannel.ts`), before it answers: what it
+ * still owes storage is written while it may. It says whether it wrote anything, since the tab
+ * given way to reads the season again only then. Returns the way to stop.
  */
-export const beforeTabYields = (flush: () => void): (() => void) => {
+export const beforeTabYields = (flush: () => boolean): (() => void) => {
   yielders.add(flush);
   return () => {
     yielders.delete(flush);
   };
 };
 
-/** Every flush given (`beforeTabYields`), each on its own: one that throws keeps no other back. */
-export const flushBeforeYield = (): void => {
+/**
+ * Every flush given (`beforeTabYields`), each on its own: one that throws keeps no other back.
+ * Whether any of them wrote.
+ */
+export const flushBeforeYield = (): boolean => {
+  let wrote = false;
   yielders.forEach((flush) => {
     try {
-      flush();
+      if (flush()) wrote = true;
     } catch {
       /* the turn goes regardless, and the next flush still writes */
     }
   });
+  return wrote;
 };
