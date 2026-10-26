@@ -45,6 +45,27 @@ describe("matchPastedNames", () => {
     });
   });
 
+  it("keeps two ages apart where the app shows one of them without its age (Codex on #456)", () => {
+    // The app shows "Wolves 8U" as "Wolves" (`displayName`), which made a pasted "Wolves 9U" read as
+    // it with an age added, and so ticked its games onto the 8U team; and the other way round.
+    expect(
+      matchPastedNames(["Wolves 9U"], [{ id: "WOL8", name: "Wolves 8U" }]).get("Wolves 9U")
+    ).toEqual({ kind: "new" });
+    expect(
+      matchPastedNames(["Wolves 8U"], [{ id: "WOL9", name: "Wolves 9U" }]).get("Wolves 8U")
+    ).toEqual({ kind: "new" });
+    // Each still finds its own team where the season has both.
+    const both: TeamBase[] = [
+      { id: "WOL8", name: "Wolves 8U" },
+      { id: "WOL9", name: "Wolves 9U" },
+    ];
+    const matches = matchPastedNames(["Wolves 8U", "Wolves 9U", "Wolves"], both);
+    expect(matches.get("Wolves 8U")).toEqual({ kind: "team", teamId: "WOL8" });
+    expect(matches.get("Wolves 9U")).toEqual({ kind: "team", teamId: "WOL9" });
+    // And a name with no age is the one team shown as it, as before.
+    expect(matches.get("Wolves")).toEqual({ kind: "team", teamId: "WOL8" });
+  });
+
   it("takes a name written as the app shows a team", () => {
     const shown: TeamBase[] = [
       { id: "WOLV", name: "NKB Wolves 9U" },

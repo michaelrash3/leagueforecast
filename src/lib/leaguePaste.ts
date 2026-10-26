@@ -4,6 +4,7 @@
  * writes storage, and nothing is asked of a server.
  */
 import { displayName } from "./format";
+import { ageLevelFromName } from "./gameChangerApi";
 import { pasteNameKey } from "./leagueScheduleText";
 import { createTeamId } from "./sim";
 import { findSimilarTeam, squadNameKey, teamNameKey } from "./teamRankings";
@@ -30,6 +31,17 @@ export type NameMatch =
 
 /** A name as written, and as the app would show it, which may be the same. */
 const formsOf = (name: string): string[] => [...new Set([name, displayName(name)])];
+
+/**
+ * Two names written at two ages ("Wolves 8U", "Wolves 9U"), which a league can have as two teams.
+ * Read off the names as written, before `displayName`: it leaves "8U" off, and the shown "Wolves"
+ * took a pasted "Wolves 9U" for the 8U team, as one name with an age added (found by Codex on #456).
+ */
+const agesDiffer = (a: string, b: string): boolean => {
+  const first = ageLevelFromName(a);
+  const second = ageLevelFromName(b);
+  return first !== undefined && second !== undefined && first !== second;
+};
 
 /**
  * Whether one name is the other with only an age label or a bracketed aside added, or both: each
@@ -59,8 +71,10 @@ export const matchPastedNames = (
   });
   /** The one team `fits` a name to, or undefined when it fits none or more than one. */
   const onlyTeam = (name: string, fits: (pasted: string, team: string) => boolean) => {
-    const found = teams.filter((team) =>
-      formsOf(name).some((pasted) => formsOf(team.name).some((form) => fits(pasted, form)))
+    const found = teams.filter(
+      (team) =>
+        !agesDiffer(name, team.name) &&
+        formsOf(name).some((pasted) => formsOf(team.name).some((form) => fits(pasted, form)))
     );
     return found.length === 1 ? found[0]?.id : undefined;
   };
