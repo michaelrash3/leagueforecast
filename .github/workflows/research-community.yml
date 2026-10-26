@@ -1,8 +1,8 @@
 # A research run, read only: the community-level sweep on the cloud copy
 # (`scripts/communityLevelSweep.ts`). It reads the copy once, as the nightly reads it, on stores
-# opened to read, and writes nothing to it; it measures a league start that reads how the league's
-# outside games went against the counted one, says why the clubs behind games won by a hundred or
-# more are or are not taken off, and dry-runs sign H at 40, 50, 75 and 100.
+# opened to read, and writes nothing to it. This run reads the "proven" orders of the boards on the
+# control's fits (the level variants and the removal sections were read on 26 October 2026, so it
+# skips them), the club asked about under each, and its league club by club and game by game.
 #
 # It runs only on a push to rash/griffey whose head commit's message holds the marker [run-sweep],
 # and never on any other branch or push. It prints numbers, days and scores only: this repository is
@@ -40,7 +40,7 @@ jobs:
       # (`scripts/tsRegister.mjs`), as the nightly runs.
       - name: Sweep the cloud copy, read only
         timeout-minutes: 55
-        run: npm run community:sweep -- --cloud --seal="$RUNNER_TEMP/community-sweep.sealed.json" --seal-to-key=scripts/researchSeal.pub.pem
+        run: npm run community:sweep -- --cloud --skip-removals --level-variants=control --seal="$RUNNER_TEMP/community-sweep.sealed.json" --seal-to-key=scripts/researchSeal.pub.pem
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           # The members' day, which the board of the day is read on, as the nightly reads it.
