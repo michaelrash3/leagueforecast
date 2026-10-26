@@ -1130,9 +1130,18 @@ export default function App() {
    * about a quarter of a second on a phone, which every final on the Schedule used to wait behind.
    */
   const backtestShown = activeView === "dashboard" || activeView === "model";
+  // With the Team Rankings results the forecast reads, each game called from those played before
+  // its day: what is scored is the model shipped, not the league's games alone.
+  const backtestOutside = useMemo(
+    () => ({ outside: externalResults, squadYear: scoutBridge.squadYear }),
+    [externalResults, scoutBridge.squadYear]
+  );
   const backtestResult = useMemo(
-    () => (backtestShown ? rememberedBacktest(teams, matchups, finalLogs, settings) : NO_BACKTEST),
-    [backtestShown, teams, matchups, finalLogs, settings]
+    () =>
+      backtestShown
+        ? rememberedBacktest(teams, matchups, finalLogs, settings, 0.1, backtestOutside)
+        : NO_BACKTEST,
+    [backtestShown, teams, matchups, finalLogs, settings, backtestOutside]
   );
 
   // ---------- Dashboard / scenario computations ----------

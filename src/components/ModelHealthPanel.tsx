@@ -65,7 +65,11 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
                       : `${Math.round(backtestResult.highConfidenceAccuracy * 100)}%`
                   }
                 />
-                <Metric label="Brier" value={backtestResult.brierScore.toFixed(3)} />
+                <Metric
+                  label="Brier"
+                  value={backtestResult.brierScore.toFixed(3)}
+                  note="A coin flip scores 0.250; lower is better."
+                />
                 <Metric
                   label="Confident misses"
                   value={`${Math.round(backtestResult.confidentMissRate * 100)}%`}
@@ -77,18 +81,26 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
                   <div key={`${bucket.min}-${bucket.max}`}>
                     <div className="mb-1 flex justify-between gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
                       <span>
-                        {Math.round(bucket.min * 100)}-{Math.round(bucket.max * 100)}% away ·{" "}
-                        {bucket.samples} game{bucket.samples === 1 ? "" : "s"}
+                        Away side given {Math.round(bucket.min * 100)}–
+                        {Math.round(bucket.max * 100)}% · {bucket.samples} game
+                        {bucket.samples === 1 ? "" : "s"}
                       </span>
                       <span>
-                        Pred {Math.round(bucket.predicted * 100)}% / Actual{" "}
-                        {Math.round(bucket.actual * 100)}%
+                        {`Won ${Math.round(bucket.actual * 100)}% · given ${Math.round(bucket.predicted * 100)}%`}
                       </span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                    {/* The bar is how often the away side won; the mark, the chance the model gave
+                        it. A calibrated model's bar ends at its mark. */}
+                    <div className="relative h-2 rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
                         className="h-full rounded-full bg-slate-400 dark:bg-slate-500"
                         style={{ width: `${Math.round(bucket.actual * 100)}%` }}
+                      />
+                      <div
+                        aria-hidden="true"
+                        data-testid={`predicted-${bucket.min}`}
+                        className="absolute -top-1 h-4 w-0.5 bg-slate-900 dark:bg-slate-100"
+                        style={{ left: `${Math.round(bucket.predicted * 100)}%` }}
                       />
                     </div>
                   </div>
@@ -102,13 +114,14 @@ export function ModelHealthPanel({ backtestResult, cardClassName }: ModelHealthP
   );
 }
 
-function Metric({ label, value }: { label: ReactNode; value: string }) {
+function Metric({ label, value, note }: { label: ReactNode; value: string; note?: string }) {
   return (
     <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </div>
       <div className="mt-1 text-lg font-black text-slate-900 dark:text-slate-100">{value}</div>
+      {note && <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{note}</div>}
     </div>
   );
 }
