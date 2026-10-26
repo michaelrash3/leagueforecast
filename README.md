@@ -2007,6 +2007,18 @@ page of 2027 held 45,107 games: 326 of them were that day's, against 11,348
 within a week either side, and 2,465 dated earlier had no score yet. The list
 still draws them a hundred at a time (`gamesWindow.ts`, `GamesSection`).
 
+**One club's games.** A box above the list finds a club on the page by name and lists every
+game it has there, whatever the day, newest first; **Every club** goes back to the day's list.
+A club's season was otherwise a scroll through a whole page's games, every one of them listed.
+Kept per page, as everything else the list shows is.
+
+**What if?** Beside any game whose two clubs both have a row on the board on screen, on the
+Games tab and in a club's panel, on the live board and this device's copy alike. It opens a
+line under the game: the two clubs met today, on the ratings the board shows, worked out on the
+device (`previewMatchup`) and said as Compare with says it (`forecastWords`), with the same
+warning where nothing joins the two. On a played game it is what the board makes of the two
+now, not what anyone expected then. Nothing is fetched for it (`WhatIf`).
+
 ### Importing
 
 Paste games or pick a `.csv`. It is read on the device: no API key, no network

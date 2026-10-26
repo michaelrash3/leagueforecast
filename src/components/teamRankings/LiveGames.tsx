@@ -20,6 +20,7 @@ import {
   typedScores,
   type AgeGroup,
   type ScoutGame,
+  type ScoutRankingRow,
   type ScoutTeam,
 } from "../../lib/teamRankings";
 import { NAMED_GAMES_MAX, namedOfDraft, type NamedGame } from "../../lib/teamRankings/namedGames";
@@ -101,6 +102,7 @@ export default function LiveGames({
   suggestedTeams,
   myTeamName,
   onGoToImport,
+  ratingRowOf,
 }: {
   source: LiveViewSource;
   year: number | undefined;
@@ -117,6 +119,8 @@ export default function LiveGames({
   myTeamName: string;
   /** Takes the reader to the Import section, where GameChanger is pulled. */
   onGoToImport: () => void;
+  /** A club's row on the board on screen, for a game's What if (`GamesSection`). */
+  ratingRowOf?: (teamId: string) => ScoutRankingRow | undefined;
 }) {
   const { view, failed } = useLiveView(source, gamesKey(year, pageId), coerceGames, decodedGames);
   useEffect(() => {
@@ -350,6 +354,7 @@ export default function LiveGames({
       onSaveScore={(gameId) => void saveScore(gameId)}
       onToggleExcluded={(game) => void toggleExcluded(game)}
       onRemoveGame={(game) => void removeGame(game)}
+      {...(ratingRowOf ? { ratingRowOf } : {})}
     />
   );
 }

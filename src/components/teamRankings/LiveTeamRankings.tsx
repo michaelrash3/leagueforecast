@@ -389,6 +389,11 @@ function LiveBoard({
   );
   const board = live.board;
   const rows = useMemo(() => (board ? withMine(board.view.rows, myTeamId) : []), [board, myTeamId]);
+  /** A club's row on the board on screen, by id: what a matchup's What if is worked out from. */
+  const rowOf = useMemo(() => {
+    const byId = new Map(rows.map((row) => [row.teamId, row]));
+    return (teamId: string) => byId.get(teamId);
+  }, [rows]);
   const clubs = useMemo(() => clubsOfBoard(rows), [rows]);
   /** Which state the top ten is for (`useStateTop`), shared with the page on this device. */
   const { stateTop, shownState, pickState, keptState, keepState } = useStateTop(clubs, myTeamId);
@@ -917,6 +922,7 @@ function LiveBoard({
                 suggestedTeams={boardTeams}
                 myTeamName={rows.find((row) => row.isMine)?.teamName ?? ""}
                 onGoToImport={() => openSection("import")}
+                ratingRowOf={rowOf}
               />
             </Suspense>
           ) : (

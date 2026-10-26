@@ -815,6 +815,11 @@ export function TeamRankingsView({
       .map((row) => byId.get(row.teamId))
       .filter((team): team is ScoutTeam => team !== undefined);
   }, [rankings, allKnown.teams]);
+  /** A club's row on the board on screen, by id: what a matchup's What if is worked out from. */
+  const rankingRowOf = useMemo(() => {
+    const byId = new Map(rankings.map((row) => [row.teamId, row]));
+    return (teamId: string) => byId.get(teamId);
+  }, [rankings]);
 
   const availableStates = useMemo(() => statesInUse(rankedTeams), [rankedTeams]);
 
@@ -2534,6 +2539,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
               onSaveScore={saveGameScore}
               onToggleExcluded={toggleGameExcluded}
               onRemoveGame={(game) => void removeGame(game)}
+              ratingRowOf={rankingRowOf}
             />
           )}
 
@@ -2750,6 +2756,7 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 mergeCandidates={mergeCandidatesFor(openTeam.id)}
                 onSetState={(state) => setTeamState(openTeam.id, state)}
                 onClose={closeClub}
+                ratingRowOf={rankingRowOf}
               />
             </Suspense>
           </ErrorBoundary>

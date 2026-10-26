@@ -121,6 +121,13 @@ describe("a club opened from the board", () => {
     const sheet = await screen.findByRole("dialog", { name: "Rays" });
     expect(await within(sheet).findByRole("region", { name: "Rays" })).toBeTruthy();
     expect(window.history.state).toMatchObject({ clubSheet: true });
+    // Each game's What if, from the board behind the sheet.
+    const whatIf = within(sheet).getAllByRole("button", {
+      name: /^What if Rays and .+ met today$/,
+    });
+    expect(whatIf.length).toBeGreaterThan(0);
+    if (whatIf[0]) await user.click(whatIf[0]);
+    expect(sheet).toHaveTextContent(/Win chance: \w+ \d+%/);
     act(() => window.history.back());
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("table")).toBeTruthy();

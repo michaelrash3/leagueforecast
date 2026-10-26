@@ -1490,6 +1490,12 @@ describe("a club's panel on the cloud's board", () => {
     // Its card names no game it has by a name alone, so none is offered to take off it.
     expect(within(panel).queryByRole("button", { name: /^Not this team/ })).toBeNull();
     expect(handedOver()).toBeNull();
+    // Each game's What if, from the board behind the panel.
+    const whatIf = within(panel).getAllByRole("button", {
+      name: "What if Placeholder S-1 and Placeholder S-2 met today",
+    })[0];
+    if (whatIf) fireEvent.click(whatIf);
+    expect(panel).toHaveTextContent(/Win chance: Placeholder S-\d \d+%/);
     // In a sheet over the board, which Back closes.
     expect(screen.getByRole("dialog", { name: "Placeholder S-1" })).toContainElement(panel);
     expect(window.history.state).toMatchObject({ clubSheet: true });
@@ -2127,6 +2133,18 @@ describe("the Games tab on the cloud's board", () => {
       ["S-9", "Placeholder S-9"],
     ]),
   };
+
+  it("offers each game's What if from the board on screen", async () => {
+    await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
+    onGames();
+    open(sourcesOf(live));
+    await screen.findByText(/^Today's games/);
+    const button = screen.getByRole("button", {
+      name: "What if Placeholder S-1 and Placeholder S-2 met today",
+    });
+    fireEvent.click(button);
+    expect(button.closest("li")).toHaveTextContent(/Win chance: Placeholder S-\d \d+%/);
+  });
 
   it("lists the page's games from its list, today's first, each with its own buttons", async () => {
     await publish(live, [...BOARDS, { key: gamesKey(2027, PAGE), value: LIST }]);
