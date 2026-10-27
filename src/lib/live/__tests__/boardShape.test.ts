@@ -128,9 +128,23 @@ describe("a published board", () => {
       ["history", { teamId: "t1", points: [{ asOf: "2027-04-08", rank: 0 }] }],
       ["history", { teamId: "t1", points: [{ asOf: "2027-04-08" }] }],
       ["history", { teamId: "t1", points: [{ asOf: "April", rank: 2 }] }],
+      ["history", { teamId: "t1", points: [{ asOf: "2027-04-08", rank: 2, of: 0 }] }],
+      ["history", { teamId: "t1", points: [{ asOf: "2027-04-08", rank: 2, of: 2.5 }] }],
+      ["history", { teamId: "t1", points: [{ asOf: "2027-04-08", rank: 2, of: "40" }] }],
     ] as const) {
       expect(coerceBoardView({ rows: [ROW], [field]: value }), field).toBeNull();
     }
+  });
+
+  it("reads how many each week's board held beside the place, where it was published", () => {
+    const history = {
+      teamId: "t1",
+      points: [
+        { asOf: "2027-04-01", rank: null, of: 30 },
+        { asOf: "2027-04-08", rank: 3, of: 41 },
+      ],
+    };
+    expect(coerceBoardView({ rows: [ROW], history })?.history).toEqual(history);
   });
 });
 

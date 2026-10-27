@@ -24,7 +24,7 @@ import {
 } from "../../teamRankingsCompact";
 import { countedByHalf } from "../../teamRankings/halves";
 import type { AutoRemovals } from "../../autoRemoved";
-import { daysBefore, rankLineStep, ranksAsOf } from "../../rankMovement";
+import { daysBefore, pastBoardAsOf, rankLineStep, type PastBoard } from "../../rankMovement";
 import {
   deriveAllKnown,
   gamesOnPages,
@@ -347,7 +347,7 @@ function* boardBuildSteps({
   let fits = new Map<string, ScoutYearFit>();
   // Past boards' places, kept for the pool as the worker keeps them (`pastBoards`): one fit for
   // each half and day, shared by the pool's pages of the same fit year.
-  let pastRanks = new Map<string, Record<string, number>>();
+  let pastRanks = new Map<string, PastBoard>();
 
   const boardOf = (pageId: string, half: BoardHalf, segment: SeasonSegment | undefined) => {
     const page = byId.get(pageId);
@@ -377,26 +377,29 @@ function* boardBuildSteps({
     if (!past) return board;
 
     /*
-     * Every club of the year's place on the board as it stood on `asOf`, as the worker answers
-     * the page's movement request: none for a page too young to rank, and otherwise its pool
-     * fitted as of that day (`ranksAsOf`), kept for the pool's other pages of the same fit year.
+     * Every club of the year's place on the board as it stood on `asOf`, and how many each page's
+     * board held, as the worker answers the page's movement request: none for a page too young to
+     * rank, and otherwise its pool fitted as of that day (`pastBoardAsOf`), kept for the pool's
+     * other pages of the same fit year.
      */
-    const ranksOn = (asOf: string): Record<string, number> => {
-      if (!scoutFitRanks(pageId, ageGroups)) return {};
+    const boardOn = (asOf: string): PastBoard => {
+      if (!scoutFitRanks(pageId, ageGroups)) return { ranks: {}, sizes: {} };
       const key = JSON.stringify([
         poolKey,
         segment ?? null,
         scoutFitYear(pageId, ageGroups) ?? null,
         asOf,
       ]);
-      let ranks = pastRanks.get(key);
-      if (!ranks) {
-        ranks = ranksAsOf(pageId, pool.teams, pool.games, ageGroups, segment, asOf);
-        pastRanks.set(key, ranks);
+      let board = pastRanks.get(key);
+      if (!board) {
+        board = pastBoardAsOf(pageId, pool.teams, pool.games, ageGroups, segment, asOf);
+        pastRanks.set(key, board);
       }
-      return ranks;
+      return board;
     };
-    const lastWeek = { asOf: daysBefore(today), ranks: ranksOn(daysBefore(today)) };
+    const weekAgo = boardOn(daysBefore(today));
+    const lastWeek = { asOf: daysBefore(today), ranks: weekAgo.ranks };
+    const lastWeekOf = weekAgo.sizes[pageId];
     // A page that names no club of its own, the empty id a restore can leave included, has no line.
     const teamId = page?.myTeamId;
     if (!teamId) return { ...board, past: lastWeek };
@@ -408,19 +411,25 @@ function* boardBuildSteps({
     let points: HistoryPoint[] = [];
     for (let weeksBack = 2; ; weeksBack += 1) {
       const asOf = daysBefore(today, 7 * weeksBack);
-      const ranks = ranksOn(asOf);
+      const { ranks, sizes } = boardOn(asOf);
+      const of = sizes[pageId];
       const step = rankLineStep({
         points,
         lastWeekRank: lastWeek.ranks[teamId] ?? null,
         weeksBack,
         asOf,
         rank: ranks[teamId] ?? null,
+        ...(of === undefined ? {} : { of }),
         empty: Object.keys(ranks).length === 0,
       });
       points = step.points;
       if (step.done) break;
     }
-    points.push({ asOf: lastWeek.asOf, rank: lastWeek.ranks[teamId] ?? null });
+    points.push({
+      asOf: lastWeek.asOf,
+      rank: lastWeek.ranks[teamId] ?? null,
+      ...(lastWeekOf === undefined ? {} : { of: lastWeekOf }),
+    });
     return { ...board, past: lastWeek, history: { teamId, points } };
   };
 

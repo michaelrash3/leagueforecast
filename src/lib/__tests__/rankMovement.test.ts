@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   daysBefore,
   movementOf,
+  pastBoardAsOf,
   rankLineStep,
   RANK_HISTORY_WEEKS,
   ranksAsOf,
@@ -129,8 +130,37 @@ describe("a step of the rank line", () => {
     expect(step({ points: [{ asOf: "2027-04-01", rank: null }] }).done).toBe(false);
   });
 
+  it("keeps how many the week's board held, where it was known", () => {
+    expect(step({ of: 40 }).points[0]).toEqual({ asOf: "2027-03-25", rank: 6, of: 40 });
+    expect(step().points[0]).toEqual({ asOf: "2027-03-25", rank: 6 });
+  });
+
   it("stops at the line's length", () => {
     expect(step({ weeksBack: RANK_HISTORY_WEEKS - 1 }).done).toBe(false);
     expect(step({ weeksBack: RANK_HISTORY_WEEKS }).done).toBe(true);
+  });
+});
+
+/*
+ * The count a standing line reads a place against: how many clubs the page's board held that day,
+ * off the same fit as the places, so a week's share is the board as it stood, not today's.
+ */
+describe("the size of a past week's board", () => {
+  it("counts the clubs placed on each page that day, beside their places", () => {
+    const early = pastBoardAsOf("ag10", teams, games, groups, undefined, "2026-09-07");
+    // Only A, B and C had played by the 7th; all four have since.
+    expect(early.sizes).toEqual({ ag10: 3 });
+    expect(Object.keys(early.ranks).sort()).toEqual(["A", "B", "C"]);
+    expect(early.ranks).toEqual(ranksAsOf("ag10", teams, games, groups, undefined, "2026-09-07"));
+    expect(pastBoardAsOf("ag10", teams, games, groups, undefined, "2026-09-30").sizes).toEqual({
+      ag10: 4,
+    });
+  });
+
+  it("counts nothing for a day before anyone played", () => {
+    expect(pastBoardAsOf("ag10", teams, games, groups, undefined, "2026-08-01")).toEqual({
+      ranks: {},
+      sizes: {},
+    });
   });
 });
