@@ -90,6 +90,7 @@ server/
   gc-team.ts            # Firebase handler: GameChanger pull
 scripts/
   poolFixture.ts        # a seeded pool of a real pool's shape, for the live views' tests and timings
+  modelSweep.ts         # research: the shipped model's forecasts scored, settings moved, stand-ins
   recencySweep.ts       # research: which recency scheme predicts best on a real pool
   sweepTidy.ts          # the pool it fits: a backup through the device's tidy, vouched clubs spared
   verify-gc-pull.ts     # the one check that talks to GameChanger for real
@@ -3914,6 +3915,37 @@ are drawn only while a row on the list carries a line, so a pending Not this tea
 takes every such row off takes them too, though the lines, worked out from the card as
 published, are still in hand. Team Rankings on this device's own copy draws none, having
 no published board to explain.
+
+#### The model, measured
+
+`scripts/modelSweep.ts` (`npm run model:sweep`) asks how well the boards forecast, the way the
+counted level and the recency weights were measured: the squad year is fitted as its boards would
+have been on 1, 8 and 15 September, and every later game between two clubs that fit rated, from
+23 September to the board's day, is scored on the ratings the board showed
+(`src/lib/modelSweep.ts`). It reads the shipped model's log loss and Brier score on the decided
+games, the squared error of its margin on all of them, and its calibration: the favourite's
+chance in bands of five points beside how often the favourite won. Beside the shipped model it
+fits each setting moved on its own, either way, and reads each against it game by game, with a
+standard error that reads a club's games together (`pairedImprovement`):
+
+- the ridge's pull toward a club's starting level at half, three quarters, half again and twice
+  `DEFAULT_SHRINKAGE`;
+- a game's margin capped at 8, 10, 14 and 16 runs in the fit, against `RATING_CAP`'s 12;
+- the floor under a matchup's chance at 2%, 5% and 12%, against `MATCHUP_PROBABILITY_FLOOR`'s 8%.
+  The floor is swept rather than the margin a chance is read to (`MATCHUP_MARGIN_CAP`, 14 runs):
+  the floor binds first, at about 9.6 runs at 10U and 11.6 at 18U, so no cap past it moves a
+  chance. A floor leaves the fit alone, so its margin error is the shipped one's to the digit.
+
+The same run counts the squad year's stand-ins (`src/lib/standInReport.ts`): the games with a
+club known only by name or a bracket slot on a side, played and all, and of the clubs known only
+by name, how many share a name with a club pulled the same year, which is a matching gap a
+region or a picture might settle, and how many have nothing of that name.
+
+It reads a backup, the seeded pool (`--fixture`), or the cloud copy once (`--cloud`), read only, as
+the nightly reads it, on GitHub's runner (`.github/workflows/research-model.yml`, on a push to its
+branch marked `[run-sweep]`). A public log gets numbers only; the stand-ins' names are sealed to
+`scripts/researchSeal.pub.pem` and opened with its private half, which is never committed. What it
+finds becomes a constant only by a later commit that pins the boards first.
 
 ## Postseason format
 
