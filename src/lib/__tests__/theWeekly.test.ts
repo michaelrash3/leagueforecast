@@ -124,6 +124,46 @@ describe("The Weekly", () => {
     ]);
   });
 
+  it("picks the game ahead nearest even before the higher pair, however close the two", () => {
+    // A #1-#2 game at about 50.06% and a #49-#50 one at about 50.006%: the second is nearer even.
+    const rows = [
+      row("P1", 1, 5),
+      row("P2", 2, 4.99),
+      ...Array.from({ length: 46 }, (_, at) => row(`F${at}`, 3 + at, 2)),
+      row("Q49", 49, 1),
+      row("Q50", 50, 0.999),
+    ];
+    const games = [game("P1", "P2", "2026-10-27"), game("Q49", "Q50", "2026-10-28")];
+    expect(theWeekly(PAGE, rows, games, TODAY).ahead).toEqual(
+      expect.objectContaining({ teamAId: "Q49", teamBId: "Q50" })
+    );
+    // At the same odds, the higher pair; at the same pair as well, the sooner.
+    const level = [row("P1", 1, 5), row("P2", 2, 5), row("Q49", 49, 1), row("Q50", 50, 1)];
+    expect(theWeekly(PAGE, level, games, TODAY).ahead).toEqual(
+      expect.objectContaining({ teamAId: "P1", teamBId: "P2" })
+    );
+    const twice = [game("P1", "P2", "2026-10-29"), game("P2", "P1", "2026-10-27")];
+    expect(theWeekly(PAGE, level, twice, TODAY).ahead?.date).toBe("2026-10-27");
+  });
+
+  it("reads a club's own schedule's word for its run, where the two schedules disagree", () => {
+    // C's own schedule says it won each of these; E's says E did.
+    const disputed = days(1, 5).map((date) =>
+      game("E", "C", date, 4, 1, { reportedByB: { teamAScore: 1, teamBScore: 4 } })
+    );
+    expect(theWeekly(PAGE, ROWS, disputed, TODAY).streaks).toEqual([
+      { teamId: "C", wins: 5 },
+      { teamId: "E", wins: 5 },
+    ]);
+  });
+
+  it("names no upset of a game its two clubs' schedules do not agree who won", () => {
+    const disputed = game("F", "A", "2026-10-21", 5, 3, {
+      reportedByB: { teamAScore: 2, teamBScore: 6 },
+    });
+    expect(theWeekly(PAGE, ROWS, [disputed], TODAY).upsets).toEqual([]);
+  });
+
   it("ends a run at a tie, as at a loss", () => {
     const run = days(1, 5).map((date) => game("C", "E", date, 4, 1));
     expect(theWeekly(PAGE, ROWS, run, TODAY).streaks).toEqual([{ teamId: "C", wins: 5 }]);
@@ -186,6 +226,24 @@ describe("a club's week", () => {
       bestWin: { teamId: "A", place: 1 },
     });
     expect(teamWeek("A", GAMES, ROWS, TODAY)).toEqual({ wins: 0, losses: 3, ties: 1 });
+  });
+
+  it("reads its own schedule's word where the two schedules disagree", () => {
+    const disputed = game("F", "A", "2026-10-21", 5, 3, {
+      reportedByB: { teamAScore: 2, teamBScore: 6 },
+    });
+    expect(teamWeek("A", [disputed], ROWS, TODAY)).toEqual({
+      wins: 1,
+      losses: 0,
+      ties: 0,
+      bestWin: { teamId: "F", place: 6 },
+    });
+    expect(teamWeek("F", [disputed], ROWS, TODAY)).toEqual({
+      wins: 1,
+      losses: 0,
+      ties: 0,
+      bestWin: { teamId: "A", place: 1 },
+    });
   });
 
   it("is nothing for a week it played no game that counts", () => {
