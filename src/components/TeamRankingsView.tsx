@@ -116,6 +116,7 @@ import { persistPool } from "../lib/poolPersist";
 import type { DeletedClubs } from "../lib/deletedGames";
 import type { NamedAges } from "../lib/namedAges";
 import { type AutoRemovals } from "../lib/autoRemoved";
+import { lopsidedDrops } from "../lib/lopsidedDrops";
 import { removedDays } from "../lib/removedClubs";
 import type { RemovedClub } from "../lib/removedForYou";
 import { clubAgeOf } from "../lib/teamRankings/clubAge";
@@ -2572,10 +2573,15 @@ This cannot be undone. Cancel and download the backups first if there is any cha
                 // Thrown out exactly as a club deleted by hand is: see `inventedFromOutcomes`.
                 runCommand({ kind: "answers", list: "droppedClubs", add: [...ids], remove: [] });
               }}
-              onSwept={(change) => {
+              onSwept={(change, spared) => {
                 // The clubs plainly made up, swept as the nightly sweeps the cloud copy after its
                 // pull, for a pool kept on this device (`obviousFakes.ts`), in the tidy worker.
                 runCommand({ kind: "autoRemoved", ...change }, { quiet: true });
+                // ...and those marked for a game their own schedule reports won or lost by 40 or
+                // more deleted outright, as the nightly deletes them (`lopsidedDrops`).
+                for (const teamId of lopsidedDrops(loadAutoRemoved(), loadScoutTeams(), spared)) {
+                  runCommand({ kind: "club.drop", teamId }, { quiet: true });
+                }
               }}
               savedProgress={pullProgress}
               onPersist={(next, holding) => {

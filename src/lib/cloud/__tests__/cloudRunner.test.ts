@@ -588,7 +588,7 @@ describe("a pull run on the cloud copy", () => {
       return loadAutoRemoved();
     };
 
-    it("marks a club a refresh filed with two routs no loser's schedule lists, in the same commit", async () => {
+    it("marks a club a refresh filed with two routs its own schedule reports, deleting none unread", async () => {
       const cloud = memoryCloud();
       const before = await seed(cloud);
       const result = await runCloudPull(
@@ -600,7 +600,77 @@ describe("a pull run on the cloud copy", () => {
       expect(result.changed).toEqual(
         expect.arrayContaining([MARKS, "league_forecast_scout_teams_v1"])
       );
-      expect((await marksInCopy(cloud)).get(ROUTER)?.signs).toEqual(["wins"]);
+      // Wins by 40 and 41 its own schedule reports: sign A, and sign H from the owner's line of 27
+      // October 2026. The copy's League part is one no build reads, so nothing is deleted.
+      expect((await marksInCopy(cloud)).get(ROUTER)?.signs).toEqual(["wins", "hundred"]);
+    });
+
+    const routerGone = () => ({
+      marked: loadAutoRemoved().has(ROUTER),
+      club: loadScoutTeams().some((team) => team.gcTeams?.some((link) => link.teamId === ROUTER)),
+      games: loadScoutGames().filter((entry) => entry.id.includes(ROUTER)).length,
+      refused: loadDroppedClubs().has(ROUTER),
+    });
+
+    it("deletes a club its own schedule reports winning by 40 or more, once League is read", async () => {
+      // The owner's rule of 27 October 2026: the club, every game it is in and its mark go, and
+      // its GameChanger id is refused by later pulls, as Delete club deletes one.
+      const cloud = memoryCloud();
+      await seed(cloud, undefined, { seasons: [] });
+      const result = await runCloudPull(
+        leg([ROUTER]),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: routerAnswers })
+      );
+      expect(result).toMatchObject({ end: "finished", filed: 1 });
+      await marksInCopy(cloud);
+      expect(routerGone()).toEqual({ marked: false, club: false, games: 0, refused: true });
+    });
+
+    it("keeps one a League Standings team picks, marked, and deletes it once none does", async () => {
+      const page = {
+        id: "ag_9u_2027",
+        name: "9U 2027",
+        seasonIds: ["fall"],
+        ageLevel: 9,
+        year: 2027,
+      };
+      const router = {
+        id: "S-ROUTER",
+        name: "Router",
+        state: "OH",
+        gcTeams: [{ teamId: ROUTER, name: "Router 9U", ageGroupId: page.id, ageLevel: 9 }],
+      };
+      const season = (teams: TeamBase[]): SeasonSnapshot => ({
+        id: "fall",
+        name: "Fall 2026",
+        createdAt: "2026-08-01T12:00:00.000Z",
+        teams,
+        matchups: [],
+        logs: {},
+        bracketLogs: {},
+        settings: DEFAULT_SETTINGS,
+      });
+      const cloud = memoryCloud();
+      // The copy's own League part, a season on the club's page picking it.
+      await seed(
+        cloud,
+        () => {
+          saveAgeGroups([page]);
+          saveScoutTeams([router]);
+        },
+        { seasons: [season([{ id: "lt-r", name: "Router", scoutTeamId: router.id }])] }
+      );
+      await runCloudPull(
+        leg([ROUTER]),
+        deps(cloud, "2026-09-29T13:00:00.000Z", { fetchTeams: routerAnswers })
+      );
+      await marksInCopy(cloud);
+      expect(routerGone()).toMatchObject({ marked: true, club: true, refused: false });
+      // A night with nothing to pull, the seasons' documents picking nobody: it goes.
+      const nobody = { leagueDocs: listing(docsOf([season([{ id: "lt-o", name: "Owls" }])])) };
+      await runCloudPull(leg([]), deps(cloud, "2026-09-30T13:00:00.000Z", nobody));
+      await marksInCopy(cloud);
+      expect(routerGone()).toEqual({ marked: false, club: false, games: 0, refused: true });
     });
 
     /*
@@ -628,7 +698,7 @@ describe("a pull run on the cloud copy", () => {
       // The next refresh sweeps what the list filed, though it has nothing left to pull.
       const night = await runCloudPull(leg([]), deps(cloud, "2026-09-30T07:17:00.000Z"));
       expect(night).toMatchObject({ end: "finished", asked: 0, changed: [MARKS] });
-      expect((await marksInCopy(cloud)).get(ROUTER)?.signs).toEqual(["wins"]);
+      expect((await marksInCopy(cloud)).get(ROUTER)?.signs).toEqual(["wins", "hundred"]);
     });
 
     it("commits only the marks on a refresh with nothing left to pull", async () => {

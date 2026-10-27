@@ -204,9 +204,11 @@ type GameChangerImportPanelProps = {
   /**
    * What the sweep for clubs plainly made up (`obviousFakes.ts`) changed in the marks, run in the
    * tidy worker on the pool a finished run left, tidied, as the nightly sweeps the cloud copy after
-   * its pull. Up, for the same reason as the clubs thrown out: the marks are the view's state.
+   * its pull. Up, for the same reason as the clubs thrown out: the marks are the view's state. With
+   * the clubs the tidy spares (the real list and every club a League Standings team links), which
+   * the view deletes none of when it deletes the clubs a lopsided score marked (`lopsidedDrops`).
    */
-  onSwept?: (change: MarksChange) => void;
+  onSwept?: (change: MarksChange, spared: ReadonlySet<string>) => void;
   /** Which levels have already had their turn today, and how to record that they have. */
   refreshLog: RefreshLog;
   onRefreshLog: (log: RefreshLog) => void;
@@ -1348,7 +1350,12 @@ export function GameChangerImportPanel({
       if (lists.tooYoung) setTooYoung(lists.tooYoung);
       // Thrown out like a club somebody deleted by hand, which is the page's to do.
       if (lists.invented.length > 0) onInvented(lists.invented);
-      if (outcome?.marks) onSwept?.(outcome.marks);
+      if (outcome?.marks) {
+        onSwept?.(
+          outcome.marks,
+          new Set([...loadRealClubs(), ...leagueLinkedClubsOf(outcome.state, readStoredSeason)])
+        );
+      }
 
       track(() => {
         // `outcome.tidy` and not `tidy`: the latter carries the whole tidied pool, and writing that

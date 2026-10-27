@@ -109,7 +109,7 @@ it("draws the lines where they were measured", () => {
     AHEAD_FEWEST_PLAYED,
     PLAINLY_REAL_GAMES,
     LOPSIDED_MARGIN,
-  ]).toEqual([75, 40, 8, 3, 3, 50]);
+  ]).toEqual([75, 40, 8, 3, 3, 40]);
 });
 
 const NO_WORD: SweepAnswers = { realClubs: new Set(), keptApart: new Set(), namedAges: new Map() };
@@ -402,21 +402,22 @@ describe("sign N: a name with void, test or demo in it as a word of its own", ()
   });
 });
 
-describe("sign H: its own schedule reports a game it won or lost by 50 or more", () => {
+describe("sign H: its own schedule reports a game it won or lost by 40 or more", () => {
   // The loser's own schedule files each game here and the winner is a stand-in, so neither A nor B
   // reads it: what marks the loser is H alone.
   const loser = club("L", 12);
   const teams = [loser, standIn("W")];
 
-  it("marks the club whose schedule reports it, a loss as much as a win, at 50 and not at 49", () => {
-    // The owner's line of 26 October 2026; it was 100, and a 99-0 stood. "Won or lost by 50 or
-    // more", in their words of that day: L lost each of these, and its own schedule says so.
-    for (const runs of [50, 99]) {
+  it("marks the club whose schedule reports it, a loss as much as a win, at 40 and not at 39", () => {
+    // The owner's line of 27 October 2026; it was 100, and a 99-0 stood, then 50. "40+ run win or
+    // loss should equate to auto deletion", in their words of that day: L lost each of these, and
+    // its own schedule says so.
+    for (const runs of [40, 99]) {
       expect(signsOf(sweep({ teams, games: [game("W", "L", runs, 0, { filer: "L" })] }))).toEqual({
         gcL: ["hundred"],
       });
     }
-    expect(sweep({ teams, games: [game("W", "L", 49, 0, { filer: "L" })] }).size).toBe(0);
+    expect(sweep({ teams, games: [game("W", "L", 39, 0, { filer: "L" })] }).size).toBe(0);
   });
 
   it("takes a club A's guards would keep: real opponents' schedules listing its games", () => {

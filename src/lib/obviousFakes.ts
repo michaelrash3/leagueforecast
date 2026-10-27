@@ -67,7 +67,9 @@ import {
  *   leaves it, before the user's own sweep of the 28th, 24 games reached 100 (the widest 9,999)
  *   and H marks the 19 clubs whose schedules scored them, 5 of them showing no other sign; on 11
  *   October the widest game is 54, so it took none. At 50, the owner's line of 26 October 2026, it
- *   takes 14 more clubs off the cloud copy of that day beyond the marks standing (`LOPSIDED_MARGIN`).
+ *   takes 14 more clubs off the cloud copy of that day beyond the marks standing; at 40, their line
+ *   of 27 October, 35 (`LOPSIDED_MARGIN`), and where the sweep runs a club so marked is then
+ *   deleted outright, "the entire team, because they are clearly fake" (`lopsidedDrops`).
  *
  * Measured with this code against what the user did by hand, sweeping each backup from no marks.
  * On the pool of 26 September 2026 at 18:40, before the user's own sweep of 28 September, A, B and
@@ -131,8 +133,8 @@ export type SweepPool = {
 /**
  * What a test can ask of a sweep beyond the nightly's rules.
  *
- * `lopsidedLine` is H's line, `LOPSIDED_MARGIN` when left out, as the nightly sweeps. At 50, the
- * owner's line of 26 October 2026, H marks every club B would (a win by 75 or more its own schedule
+ * `lopsidedLine` is H's line, `LOPSIDED_MARGIN` when left out, as the nightly sweeps. At 40, the
+ * owner's line of 27 October 2026 (50 from 26 October), H marks every club B would (a win by 75 or more its own schedule
  * filed) and most A would, whatever real opponents list, so A and B, their guards and their escapes
  * are read with H set past any score.
  */
